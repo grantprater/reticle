@@ -53,11 +53,17 @@ constant transform exists (true for `223d636bf8d2` and `bdfdcf009dba`).
 
 ## Open defects
 
-- **Killfeed attribution recall is ~3 entries short per session.** Precision is
-  good (32/32 by eye; scoreboard deltas +0/+1, -3/-3, +1/+2 across the three
-  full-frame sessions), but `bdfdcf009dba` misses three kills and three deaths.
-  Two untried candidates are named in `killfeed.py`. **Treat the counts as +/-3
-  per session** and the per-frame flags as high-precision but incomplete.
+- **Killfeed attribution under-reports by roughly 20%.** Scored against
+  `checks.KNOWN_KD` over six sessions and four maps it is 26 events off across
+  164, and the error is almost entirely one-directional: it misses entries, it
+  essentially never invents one. Precision is good (32/32 by eye). Two untried
+  recall candidates are named in `killfeed.py`. **Treat the counts as complete
+  to about −20%** and the per-frame flags as high-precision but incomplete.
+- **Scoreline OCR drops a transient extra digit.** On `9acf02f98283` the score
+  reads `1 → 11 → 1` and `9 → 19 → 9` within half a second, i.e. a spurious
+  leading `1`, and `verify` flags 8 violations there. Single-sample, reverts
+  immediately, and unrelated to the killfeed. Clock read rate on that session is
+  also low (39.7%). Worth a look when next in `ocr.py`.
 - **`README.md` is stale.** It says HP, ammo and the killfeed are unbuilt; they
   are built, and it still describes stage 02 as scoreline-only. Fix it when next
   touching that area.

@@ -19,21 +19,35 @@ side and not the victim's, and the icon is a reliable divider between the names.
 Attributing an entry to the local player
 ---------------------------------------
 Valorant renders the local player's name in the killfeed as the literal string
-"Me", whoever they are. Attribution is therefore a template match: the rendered
-"Me" bitmap is matched against each of the two name regions, split at the weapon
-icon, and the side that matches says which role the player had -- a match left
-of the icon is a kill, right of it a death.
+"Me", whoever they are. Attribution therefore works on the name text, split at
+the weapon icon: the killer's name ends at the icon and the victim's begins
+after it, so whichever side reads "Me" says which role the player had.
 
-Counting glyphs instead does not work, and the reason is worth recording because
-it looks like it should. Segment the white text, keep the components on the text
-baseline, and "Me" is two of them -- specific, since a Riot ID game name is 3-16
-characters. But the portraits at either end of an entry contribute bright
-baseline-aligned components of their own, and trimming those (by plate colour,
-or by the gap to the name) trims real letters too, because the plates have
-slanted ends that leave a name's leading letters barely on plate. A five-letter
-name then counts as two. That went unnoticed against one session whose lobby had
-long names and broke immediately on a session with names like "Clove" and
-"Evan". Matching the bitmap has no such dependence on how long anyone's name is.
+Reading it takes three steps, and each one is there because the two simpler
+versions of this failed on real footage:
+
+1. Keep only glyph-sized components sharing the text baseline. This is what
+   excludes the portraits at either end of an entry and, on the victim side, the
+   headshot icon -- which sits between the weapon icon and the name and is about
+   as wide as "Me".
+2. Split the remaining text into runs separated by NAME_GAP blank columns, and
+   take the run abutting the weapon icon. That run is the name.
+3. Gate on the run's width, then match the mined "Me" bitmap inside it.
+
+Rejected: counting glyphs. "Me" is two baseline components, and a Riot ID game
+name is 3-16 characters, so two looks decisive. But trimming the portraits'
+stray components (by plate colour, or by distance to the name) trims real
+letters too, because the plates have slanted ends that leave a name's leading
+letters barely on plate. A five-letter name then counts as two. This survived
+one session whose lobby had long names and fabricated 31 kills against a true 17
+on the next, whose players were called "Clove" and "Evan".
+
+Rejected: matching the bitmap anywhere in the name region. The patch then finds
+the "Mo" of "Monzuko" and the "Mr" of "MrTaco" at 0.62-0.78 against 0.82-0.87
+for a real "Me" -- close enough that no threshold separates them. Confining the
+match to one name run and gating on ME_W fixes it structurally rather than by
+threshold: those names are a single run four times too wide to be "Me", so they
+are rejected before any matching happens.
 
 An earlier attempt keyed on the pale lime border Valorant draws around the
 player's own portrait. The border is real and it does mark the right entries,
@@ -71,21 +85,25 @@ colours is what makes it specific -- an empty feed scores 0.0% on each.
 
 Attribution is scored against the scoreboard K/D in `checks.KNOWN_KD` -- the only
 external ground truth in the project. Tracked entries versus scoreboard, at
-2 Hz:
+2 Hz, over six sessions and four maps:
 
     b3b9defb6fd7    14 / 19   vs  14 / 18     +0 / +1
     bdfdcf009dba    14 / 11   vs  17 / 14     -3 / -3
-    223d636bf8d2    26 / 17   vs  25 / 15     +1 / +2
+    223d636bf8d2    20 / 15   vs  25 / 15     -5 / +0
+    9acf02f98283    10 / 11   vs  13 / 16     -3 / -5
+    b7d24102a6f6     8 /  9   vs  10 / 12     -2 / -3
+    75a55a296d3b     5 /  4   vs   5 /  5     +0 / -1
 
-ME_MATCH_MIN was swept on the first two; the third is held out and lands within
-two. Per-band precision was checked separately by eye: 32 of 32 hand-inspected
-detections were correct, kills and deaths alike.
+26 events off across 164, and ME_MATCH_MIN was swept on the first five while
+75a55a296d3b is fully held out. Per-band precision was checked separately by
+eye: 32 of 32 hand-inspected detections were correct, kills and deaths alike.
 
-The residual is recall, not precision -- bdfdcf009dba misses three of each. Two
-candidates, neither chased down: entries whose band the plate row-profile never
-resolves, and the tracker merging two entries of the same kind that overlap in
-time. Anything built on these counts should treat them as +-3 per session, and
-the per-frame flags as high-precision but incomplete.
+The error is almost entirely one-directional -- the counts under-report and
+essentially never invent an event, which is the failure mode to prefer for
+anything downstream. The residual is recall: entries whose band the plate row
+profile never resolves, and the tracker merging two entries of the same kind
+that overlap in time. Neither has been chased. Treat the counts as complete to
+about -20% and the per-frame flags as high-precision but incomplete.
 
 Deaths per round is deliberately NOT used as a check anywhere: Sage
 resurrection and Clove self-revive both let a player die more than once in a
@@ -143,10 +161,19 @@ ME_GLYPHS = 2
 # A name region this heavily covered by a toggled overlay is unreadable, and the
 # entry is reported unattributed rather than assumed not to be the player's.
 OCCLUDED_NAME_FRAC = 0.20
-# Match score at which a name region is accepted as reading "Me". Swept against
-# the scoreboard K/D of two sessions: 0.60-0.70 is a flat plateau, so this is a
-# stable operating point rather than a knife edge.
-ME_MATCH_MIN = 0.60
+# Match score at which a name run is accepted as reading "Me". Swept against the
+# scoreboard K/D of five sessions: 0.60-0.70 is a flat plateau at the same total
+# error, so 0.65 sits in the middle of a stable region rather than on an edge.
+ME_MATCH_MIN = 0.65
+# Blank columns that separate one run of text from the next. Letters within a
+# name sit 1-3 px apart; the gap from a name to the portrait beyond it measured
+# 8-41 px across a session, so this splits name from portrait reliably.
+NAME_GAP = 6
+# Width of the "Me" ink run, measured at 18-19 px over a session. The gate this
+# gives is what makes the match specific: matching the patch anywhere in a name
+# region also finds the "Mo" of "Monzuko" and the "Mr" of "MrTaco" at 0.62-0.78,
+# but those names are one ~84 px run, so the width rejects them outright.
+ME_W = (14, 26)
 
 # A pixel white in this share of sampled frames is an overlay, not an entry.
 PERSIST_FRAC = 0.85
@@ -279,7 +306,7 @@ def _entry_bands(plate: np.ndarray) -> list[tuple[int, int]]:
     return bands[:MAX_SLOTS]
 
 
-_ME_CACHE: dict[str, np.ndarray] = {}
+_ME_CACHE: dict[str, tuple] = {}
 
 
 def me_template(profile_name: str) -> np.ndarray | None:
@@ -294,51 +321,119 @@ def me_template(profile_name: str) -> np.ndarray | None:
             _ME_CACHE[profile_name] = None
         else:
             with np.load(path) as z:
-                _ME_CACHE[profile_name] = (z["me"] > 0).astype(np.uint8) * 255
+                tpl = (z["me"] > 0).astype(np.uint8) * 255
+            cols = np.where(tpl.any(axis=0))[0]
+            # The ink span inside the patch: the patch is padded, and isolation
+            # has to be measured from the letters, not from the patch edge.
+            _ME_CACHE[profile_name] = (tpl, int(cols.min()), int(cols.max()))
     return _ME_CACHE[profile_name]
 
 
-def _match_me(region: np.ndarray, tpl: np.ndarray) -> float:
-    """Best normalised correlation of the "Me" bitmap anywhere in `region`."""
-    if tpl is None or region.shape[0] < tpl.shape[0] or region.shape[1] < tpl.shape[1]:
-        return 0.0
-    return float(cv2.matchTemplate(region, tpl, cv2.TM_CCOEFF_NORMED).max())
+def _ink_runs(region: np.ndarray) -> list[tuple[int, int]]:
+    """Column spans of text, split where NAME_GAP blank columns intervene."""
+    xs = np.where((region > 0).any(axis=0))[0]
+    if xs.size == 0:
+        return []
+    runs, start, prev = [], int(xs[0]), int(xs[0])
+    for x in xs[1:]:
+        x = int(x)
+        if x - prev > NAME_GAP:
+            runs.append((start, prev))
+            start = x
+        prev = x
+    runs.append((start, prev))
+    return runs
 
 
-def _split_sides(
+def name_run(region: np.ndarray, side: int) -> tuple[int, int] | None:
+    """The text run holding this side's name: the one abutting the weapon icon.
+
+    `side` is -1 for the killer's name, which ends at the icon, so the last run
+    wins; +1 for the victim's, which begins after it, so the first does.
+    """
+    runs = _ink_runs(region)
+    if not runs:
+        return None
+    return runs[-1] if side < 0 else runs[0]
+
+
+def _match_me(region: np.ndarray, tpl_info, side: int) -> tuple[int, float]:
+    """Width of this side's name run, and how well "Me" matches inside it.
+
+    Matching is confined to the name run rather than swept across the whole
+    region, so a long name cannot contribute a lucky substring: its run is far
+    too wide to be "Me" and is rejected on width before any matching happens.
+    """
+    if tpl_info is None:
+        return 0, 0.0
+    tpl, t0, t1 = tpl_info
+    run = name_run(region, side)
+    if run is None:
+        return 0, 0.0
+    width = run[1] - run[0] + 1
+    if not (ME_W[0] <= width <= ME_W[1]):
+        return width, 0.0
+    # Widen the run by the patch's own padding so the match can line up.
+    lo = max(0, run[0] - t0)
+    hi = min(region.shape[1], run[1] + 1 + (tpl.shape[1] - 1 - t1))
+    sub = region[:, lo:hi]
+    if sub.shape[0] < tpl.shape[0] or sub.shape[1] < tpl.shape[1]:
+        return width, 0.0
+    return width, float(cv2.matchTemplate(sub, tpl, cv2.TM_CCOEFF_NORMED).max())
+
+
+def _band_text(
     white: np.ndarray, usable: np.ndarray | None = None
-) -> tuple[int, int] | None | str:
-    """Column bounds of the weapon icon, which divides killer name from victim.
+):
+    """Isolate the band's name text and locate the weapon icon dividing it.
 
-    Returns (wx0, wx1), or None when no icon is found, or "occluded" when a
-    toggled overlay covers enough of one name that a match there would fail for
-    the wrong reason. That distinction matters: an occluded victim name silently
-    looks like "not the player", turning a missed death into a confident wrong
-    answer.
+    Returns (text_mask, wx0, wx1), or None when the band cannot be parsed, or
+    "occluded" when a toggled overlay covers enough of one name that a match
+    there would fail for the wrong reason. That distinction matters: an occluded
+    victim name silently looks like "not the player", turning a missed death
+    into a confident wrong answer.
+
+    The text mask keeps only glyph-sized components sharing the text baseline.
+    Two other bright things in a band would otherwise be taken for a name: the
+    headshot icon, which sits between the weapon icon and the victim's name and
+    is about as wide as "Me", and the portraits at either end.
     """
     wb = white.astype(np.uint8)
-    n, _lab, st, _cen = cv2.connectedComponentsWithStats(wb, 8)
-    comps = [
-        (int(st[i, 0]), int(st[i, 1]), int(st[i, 2]), int(st[i, 3]), int(st[i, 4]))
-        for i in range(1, n)
-        if st[i, 4] >= MIN_COMP_AREA
-    ]
-    if not comps:
+    n, lab, st, _cen = cv2.connectedComponentsWithStats(wb, 8)
+    idx = [i for i in range(1, n) if st[i, 4] >= MIN_COMP_AREA]
+    if not idx:
         return None
-    icons = [c for c in comps if c[2] >= ICON_MIN_W and c[3] >= ICON_MIN_H]
+    icons = [i for i in idx if st[i, 2] >= ICON_MIN_W and st[i, 3] >= ICON_MIN_H]
     if not icons:
-        icons = [c for c in comps if c[4] >= ICON_MIN_AREA]
+        icons = [i for i in idx if st[i, 4] >= ICON_MIN_AREA]
     if not icons:
         return None
-    wep = max(icons, key=lambda c: c[4])
-    wx0, wx1 = wep[0], wep[0] + wep[2]
+    wep = max(icons, key=lambda i: st[i, 4])
+    wx0, wx1 = int(st[wep, 0]), int(st[wep, 0] + st[wep, 2])
     if usable is not None:
         for lo, hi in ((0, wx0), (wx1, usable.shape[1])):
             if hi - lo <= 0:
                 continue
             if (~usable[:, lo:hi]).mean() > OCCLUDED_NAME_FRAC:
                 return "occluded"
-    return wx0, wx1
+
+    cand = [
+        i for i in idx
+        if GLYPH_W[0] <= st[i, 2] <= GLYPH_W[1] and GLYPH_H[0] <= st[i, 3] <= GLYPH_H[1]
+    ]
+    if not cand:
+        return None
+    # Glyphs of one name share a bottom edge; the headshot icon's pieces do not.
+    base = int(np.bincount(np.array([st[i, 1] + st[i, 3] for i in cand])).argmax())
+    keep = np.zeros(n, dtype=bool)
+    for i in cand:
+        if abs(int(st[i, 1] + st[i, 3]) - base) <= BASELINE_TOL:
+            keep[i] = True
+    if not keep.any():
+        return None
+    # Copy the glyph pixels themselves -- filling their bounding boxes instead
+    # would leave the template nothing of the letter shapes to correlate with.
+    return keep[lab].astype(np.uint8) * 255, wx0, wx1
 
 
 def read_killfeed(
@@ -383,19 +478,18 @@ def read_killfeed(
         if green[a:z].mean() < PLATE_MIN_FRAC or red[a:z].mean() < PLATE_MIN_FRAC:
             continue
         slots.append(k)
-        sides = _split_sides(white[a:z] > 0, mask[a:z])
-        if sides is None:
+        parsed = _band_text(white[a:z] > 0, mask[a:z])
+        if parsed is None:
             continue
-        if sides == "occluded":
+        if parsed == "occluded":
             unattributed += 1
             continue
-        wx0, wx1 = sides
-        band = white[a:z]
+        band, wx0, wx1 = parsed
         # Match "Me" against each name region. The killer's name ends at the
         # weapon icon and the victim's begins after it, so the side carrying the
         # match says which role the player had.
-        k_score = _match_me(band[:, :wx0], tpl)
-        d_score = _match_me(band[:, wx1:], tpl)
+        _kw, k_score = _match_me(band[:, :wx0], tpl, -1)
+        _dw, d_score = _match_me(band[:, wx1:], tpl, +1)
         if max(k_score, d_score) < ME_MATCH_MIN:
             continue
         # Only one side can be the player. If both score, take the stronger --

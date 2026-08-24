@@ -44,10 +44,16 @@ KF_MIN_OBS = 2              # a single-frame detection is noise, not an entry
 # attribution is actually right rather than merely self-consistent. Recorded by
 # Grant on 2026-08-24 for the four captures of 2026-08-23, in play order.
 KNOWN_KD = {
+    # 2026-08-23, in play order.
     "0f08b3dc3777": (19, 12),   # 16-51-47, cropped capture
     "b3b9defb6fd7": (14, 18),   # 18-24-15
     "bdfdcf009dba": (17, 14),   # 19-25-23
     "223d636bf8d2": (25, 15),   # 20-09-01
+    # 2026-08-24, new maps. Recorded with the shooting-error readout switched
+    # off, so their killfeed ROI is clear of overlays.
+    "9acf02f98283": (13, 16),   # 11-55-34
+    "b7d24102a6f6": (10, 12),   # 12-37-04
+    "75a55a296d3b": (5, 5),     # 13-34-38, a short match
 }
 
 
