@@ -85,6 +85,24 @@ def track_entries(times, masks) -> list[dict]:
             for ai, a in enumerate(active):
                 if ai in used or slot > a["slot"]:
                     continue          # an entry never moves down the stack
+                # Nearest slot wins. This is a known-imperfect rule with two
+                # opposite failure modes, both observed:
+                #
+                #   merge  -- an entry expires and the one below rises into the
+                #             slot it vacated, so the detection joins the dead
+                #             entry's track. Two kills at 223d636bf8d2 32:05
+                #             became one track held for 17 observations.
+                #   split  -- preferring the most recently seen track instead
+                #             fixes that case, but shatters a genuine double
+                #             (b3b9defb6fd7 27:12/27:14) into four tracks, and
+                #             scores worse overall: 12 events off against 11.
+                #
+                # Neither rule can tell the two apart, because slot plus time is
+                # not enough information. The fix is to track the whole stack:
+                # when an entry expires, *every* remaining entry shifts up by
+                # exactly one, and `kf_entry_mask` records the full occupancy
+                # per frame so that shift can be estimated and applied before
+                # matching. Not built yet -- the column exists for it.
                 d = a["slot"] - slot
                 if best is None or d < best:
                     best, bi = d, ai
