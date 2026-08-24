@@ -191,6 +191,13 @@ class Store:
             "kf_entries": pa.array(col("kf_entries"), type=pa.int16()),
             "kf_player_kill": pa.array(col("kf_player_kill"), type=pa.bool_()),
             "kf_player_death": pa.array(col("kf_player_death"), type=pa.bool_()),
+            # Which stack positions the player's own entries occupy, as a
+            # 6-bit mask. Needed to follow one entry across frames and so tell
+            # a second kill from the same kill still on screen -- a bare flag
+            # cannot. Absolute positions, not detection order.
+            "kf_kill_mask": pa.array(col("kf_kill_mask"), type=pa.int16()),
+            "kf_death_mask": pa.array(col("kf_death_mask"), type=pa.int16()),
+            "kf_unattributed": pa.array(col("kf_unattributed"), type=pa.int16()),
             "n_glyphs": pa.array(col("n_glyphs"), type=pa.int16()),
             "session_id": pa.array([fingerprint.session_id] * n, type=pa.string()),
             "content_key": pa.array([fingerprint.content_key] * n, type=pa.string()),

@@ -41,7 +41,8 @@ Stage numbers are the design doc's §3 stages, not release versions.
 ### Stage 02 detail
 
 Built and populating in the store: round clock, both team scores, HP, shield,
-ammo (mag + reserve), killfeed **entry count**.
+ammo (mag + reserve), killfeed **entry count**, and killfeed **player
+attribution** (kill/death, with the stack positions needed to count entries).
 
 Not built: **credits**, **minimap position tracking**, **main-view detection**.
 
@@ -52,19 +53,18 @@ constant transform exists (true for `223d636bf8d2` and `bdfdcf009dba`).
 
 ## Open defects
 
-- **Killfeed player attribution is not trustworthy.** `kf_player_kill` /
-  `kf_player_death` exist and are populated, but the lime-border signal is
-  unimodal across a session, so no threshold separates a highlighted entry from
-  a warm-coloured background. Deaths over-count ~2x against the independent
-  estimate from health going unreadable. The long docstring at the top of
-  `killfeed.py` states this and lists three untried fixes. **Do not build on
-  those two fields.** Entry *counting* is solid and hand-verified.
+- **Killfeed attribution recall is ~3 entries short per session.** Precision is
+  good (32/32 by eye; scoreboard deltas +0/+1, -3/-3, +1/+2 across the three
+  full-frame sessions), but `bdfdcf009dba` misses three kills and three deaths.
+  Two untried candidates are named in `killfeed.py`. **Treat the counts as +/-3
+  per session** and the per-frame flags as high-precision but incomplete.
 - **`README.md` is stale.** It says HP, ammo and the killfeed are unbuilt; they
-  are built. Fix it when next touching that area.
-- **Session `223d636bf8d2` HUD was read at 60 Hz** (158,019 rows) while the
-  other two used the 2 Hz default (~4,000 rows). Its 15 `verify` faults are at
-  full frame rate and not comparable to the others' counts. Re-read at 2 Hz
-  before comparing sessions.
+  are built, and it still describes stage 02 as scoreline-only. Fix it when next
+  touching that area.
+- **Health is not a death signal.** `hp` going unreadable was used as an
+  independent death estimate and it is not one — it also goes unreadable in buy
+  phase, while scoped, and while spectating. On `b3b9defb6fd7` it produced 20
+  "deaths" of which most were a *teammate* dying. Don't reach for it again.
 
 ## Before ingesting any new capture
 
@@ -76,9 +76,14 @@ constant transform exists (true for `223d636bf8d2` and `bdfdcf009dba`).
 2. **Set Valorant's performance stats to text-only**, not graph or both. The
    graph column covers the lower half of the killfeed ROI and cuts usable entry
    slots from six to three — losing exactly the multikills worth measuring.
-3. **Run `probe` and look at the frames.** ROI fractions are guesses until you
+3. **Turn the shooting-error readout off**, or move it out of the top-right. It
+   lands at killfeed-ROI x 337-461, y 136-198, covering 59% of the victim name
+   box in stack slot 3 and 26% in slot 4 — precisely where a death is read.
+   Entries under it are counted as `kf_unattributed` rather than guessed, so it
+   costs lost deaths, not wrong ones.
+4. **Run `probe` and look at the frames.** ROI fractions are guesses until you
    have. Everything downstream is wrong until they are right.
-4. **Record the minimap settings.** Only fixed + always_same + uncentered gives
+5. **Record the minimap settings.** Only fixed + always_same + uncentered gives
    a constant minimap→world transform. Pass
    `ingest --minimap-mode "fixed/always_same/uncentered"`; it lands in the
    manifest.

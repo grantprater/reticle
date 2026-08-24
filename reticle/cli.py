@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 
 from .decode import sample_frames
-from .checks import check_hud
+from .checks import check_hud, player_events
 from .fingerprint import fingerprint
 from .killfeed import KillfeedRead, killfeed_roi, overlay_mask, read_killfeed
 from .ocr import (GLYPH_H, GLYPH_W, Templates, cluster_glyphs, crop_gray,
@@ -471,7 +471,7 @@ def cmd_hud(args) -> int:
                           args.min_confidence, args.min_margin)
         b = read_bottom_hud(smp.frame, profile, templates, w, h,
                             args.min_confidence, args.min_margin)
-        kf = (read_killfeed(smp.frame, kf_roi, w, h, kf_mask)
+        kf = (read_killfeed(smp.frame, kf_roi, w, h, kf_mask, profile.name)
               if kf_roi is not None else KillfeedRead(0, (), False, False))
         rows.append({
             "frame_idx": smp.frame_idx,
@@ -486,6 +486,9 @@ def cmd_hud(args) -> int:
             "kf_entries": kf.entries,
             "kf_player_kill": kf.player_kill,
             "kf_player_death": kf.player_death,
+            "kf_kill_mask": kf.kill_mask,
+            "kf_death_mask": kf.death_mask,
+            "kf_unattributed": kf.unattributed,
             "confidence": r.confidence,
             "bottom_confidence": b.confidence,
             "n_glyphs": r.n_glyphs,
@@ -519,8 +522,18 @@ def cmd_hud(args) -> int:
           f"scores {got_score}/{n} ({got_score / n * 100:.1f}%)")
     print(f"           hp    {got_hp}/{n} ({got_hp / n * 100:.1f}%)   "
           f"ammo   {got_ammo}/{n} ({got_ammo / n * 100:.1f}%)")
+    ev = player_events(
+        [r["t_ms"] for r in rows],
+        [r["kf_kill_mask"] for r in rows],
+        [r["kf_death_mask"] for r in rows],
+    )
     print(f"killfeed   {kf_frames} frames show an entry   "
           f"player in-frame: {kf_kill} kill, {kf_death} death")
+    print(f"           tracked entries: {ev['kills']} kills, {ev['deaths']} deaths")
+    unattr = sum(1 for r in rows if r["kf_unattributed"])
+    if unattr:
+        print(f"           ! {unattr} frames hold an entry whose name an overlay covers "
+              f"-- attribution impossible there")
     print(f"\nnext: reticle verify {sid}")
     return 0
 
@@ -648,6 +661,19 @@ def cmd_verify(args) -> int:
     print(f'{"score_sum":<10} {len(sj)} illegal steps' + ("" if sj else "  (advances one round at a time)"))
     for x in sj[:5]:
         print(f"           {_fmt_hms(x['t_ms'])}  {x['from']} -> {x['to']} in {x['gap_ms'] / 1000:.1f}s")
+
+    kf = r.get("killfeed")
+    if kf:
+        print()
+        print(f"killfeed   {kf['kills']} kills, {kf['deaths']} deaths  (tracked entries)")
+        known = kf.get("known")
+        if known:
+            k_err, d_err = kf["kills"] - known[0], kf["deaths"] - known[1]
+            print(f"           scoreboard says {known[0]} / {known[1]}"
+                  f"   delta {k_err:+d} / {d_err:+d}")
+        else:
+            print("           no scoreboard K/D recorded for this session "
+                  "-- add it to checks.KNOWN_KD to score attribution")
 
     if r["final"]:
         f = r["final"]
