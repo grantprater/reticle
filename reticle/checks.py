@@ -30,6 +30,69 @@ STEP_TOL_MS = 1_500
 # Two reads further apart than this do not constrain each other.
 MAX_GAP_MS = 3_000
 
+# ---- killfeed entry tracking --------------------------------------------------
+# One killfeed entry stays on screen for several seconds, so a per-frame flag
+# counts the same kill many times over. Counting *entries* means following each
+# one across frames, which works because an entry never moves down the stack: it
+# holds its position until an entry above it expires, then rises.
+KF_TRACK_GAP_MS = 2_500     # unseen for longer than this and the entry is gone
+KF_MIN_OBS = 2              # a single-frame detection is noise, not an entry
+
+# Scoreboard K/D read off the end-of-match screen, keyed by session. This is the
+# only external ground truth in the project -- everything else here is a
+# label-free invariant -- so it is the one number that can say whether killfeed
+# attribution is actually right rather than merely self-consistent. Recorded by
+# Grant on 2026-08-24 for the four captures of 2026-08-23, in play order.
+KNOWN_KD = {
+    "0f08b3dc3777": (19, 12),   # 16-51-47, cropped capture
+    "b3b9defb6fd7": (14, 18),   # 18-24-15
+    "bdfdcf009dba": (17, 14),   # 19-25-23
+    "223d636bf8d2": (25, 15),   # 20-09-01
+}
+
+
+def _slots(mask) -> list[int]:
+    if mask is None:
+        return []
+    m = int(mask)
+    return [s for s in range(6) if m & (1 << s)]
+
+
+def _count(times, masks) -> int:
+    """Follow each entry across frames and count how many distinct ones there were."""
+    active: list[list] = []      # [last_t, last_slot, n_obs]
+    done: list[list] = []
+    for t, mask in zip(times, masks):
+        keep = []
+        for a in active:
+            (keep if t - a[0] <= KF_TRACK_GAP_MS else done).append(a)
+        active = keep
+        used: set[int] = set()
+        for slot in _slots(mask):
+            best = bi = None
+            for ai, a in enumerate(active):
+                if ai in used or slot > a[1]:
+                    continue          # an entry never moves down the stack
+                d = a[1] - slot
+                if best is None or d < best:
+                    best, bi = d, ai
+            if bi is None:
+                active.append([t, slot, 1])
+                used.add(len(active) - 1)
+            else:
+                active[bi] = [t, slot, active[bi][2] + 1]
+                used.add(bi)
+    done.extend(active)
+    return sum(1 for a in done if a[2] >= KF_MIN_OBS)
+
+
+def player_events(times, kill_masks, death_masks) -> dict:
+    """Distinct killfeed entries the local player was in, kills and deaths."""
+    return {
+        "kills": _count(list(times), list(kill_masks)),
+        "deaths": _count(list(times), list(death_masks)),
+    }
+
 
 def check_hud(table) -> dict:
     """Run every invariant over one session's HUD reads.
@@ -176,6 +239,18 @@ def check_hud(table) -> dict:
     else:
         out["final"] = None
         out["reached_match_point"] = False
+
+    # ---- killfeed: entries the player was in, against the scoreboard --------
+    names = set(table.column_names)
+    if {"kf_kill_mask", "kf_death_mask"} <= names:
+        ev = player_events(
+            t,
+            table.column("kf_kill_mask").to_pylist(),
+            table.column("kf_death_mask").to_pylist(),
+        )
+        sid = table.column("session_id")[0].as_py() if "session_id" in names else None
+        ev["known"] = KNOWN_KD.get(sid)
+        out["killfeed"] = ev
 
     out["violations"] = drift + len(left_drops) + len(right_drops) + len(sum_jumps)
     return out
