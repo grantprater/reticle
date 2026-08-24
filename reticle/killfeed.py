@@ -88,7 +88,7 @@ colours is what makes it specific -- an empty feed scores 0.0% on each.
 
 Attribution is scored against the scoreboard K/D in `checks.KNOWN_KD` -- the only
 external ground truth in the project. Tracked entries versus scoreboard, at
-2 Hz, over six sessions and four maps:
+2 Hz, over eight sessions:
 
     b3b9defb6fd7    14 / 18   vs  14 / 18     exact
     bdfdcf009dba    17 / 13   vs  17 / 14     +0 / -1
@@ -96,22 +96,32 @@ external ground truth in the project. Tracked entries versus scoreboard, at
     9acf02f98283    11 / 12   vs  13 / 16     -2 / -4
     b7d24102a6f6    10 / 12   vs  10 / 12     exact
     75a55a296d3b     5 /  5   vs   5 /  5     exact
+    59c70f1ef720    15 / 14   vs  15 / 16     +0 / -2
+    bfad2778a372    19 / 13   vs  19 / 15     +0 / -2
 
-11 events off across 164. ME_MATCH_MIN was swept on the first five;
-75a55a296d3b is fully held out and lands exact. Per-band precision was checked
-separately by eye: 32 of 32 hand-inspected detections were correct.
+15 events off across 229. ME_MATCH_MIN was swept on the first five; the last
+three were never used to tune anything. Per-band precision was checked by eye:
+32 of 32 hand-inspected detections were correct.
 
-The error is one-directional -- the counts under-report and do not invent events,
-which is the failure mode to prefer for anything downstream. What remains is
-concentrated: four kills on 223d636bf8d2, where deaths are exact, and six events
-on 9acf02f98283. Those two are worth chasing before this is called done;
-everything else is within one event.
+The error is one-directional -- these counts under-report and do not invent
+events. It is also now lopsided by side: **kills are exact on six of eight
+sessions**, while deaths are short on five. Two candidate causes, neither
+settled:
 
-Thin tracks -- entries seen in 4 or fewer sampled frames, out of a possible ~12 --
-are the leading indicator here. They fell from 37 of 140 to 19 of 153 when band
-padding went in, and the sessions with none left (b7d24102a6f6) are the ones that
-now score exact. A session whose thin count is rising has a detection problem
-before it has a counting problem.
+* Entry formats this parser does not model. It requires a weapon icon dividing
+  two names, which a normal kill always has. A death with no killer -- spike
+  detonation, fall damage -- and the resurrection entries (Sage, Clove) are laid
+  out differently, and a death is far likelier than a kill to take one of those
+  forms. That asymmetry matches the one in the numbers.
+* Entries never resolved into a band at all. Scanning an 11-minute stretch of
+  bfad2778a372 with two known-missing deaths turned up no near misses on the
+  victim side: the width gate correctly rejected short names ("Raze", 30-32 px)
+  at 0.00 and every real "Me" scored 18 px. So the missing deaths are not
+  marginal matches, they are absent.
+
+Thin tracks -- entries seen in 4 or fewer of a possible ~12 frames -- are the
+leading indicator, and an observation count *above* ~12 means the opposite: two
+entries merged into one track. 30 of 214 are thin.
 
 Deaths per round is deliberately NOT used as a check anywhere: Sage
 resurrection and Clove self-revive both let a player die more than once in a
