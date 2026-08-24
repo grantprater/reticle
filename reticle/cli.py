@@ -9,6 +9,7 @@
     reticle hud     [SESSION]                 stage 02: read the scoreline
     reticle glyphs  VIDEO                     mine digit templates from footage
     reticle verify  [SESSION]                 check HUD reads against domain invariants
+    reticle overlay [SESSION]                 render detections onto the video
     reticle sql     "SELECT ..."              DuckDB over the store
 """
 
@@ -25,7 +26,9 @@ import numpy as np
 from .decode import sample_frames
 from .checks import check_hud, player_events
 from .fingerprint import fingerprint
-from .killfeed import KillfeedRead, killfeed_roi, overlay_mask, read_killfeed
+from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
+                       overlay_mask, read_killfeed)
+from .overlay import OverlayContext, draw
 from .ocr import (GLYPH_H, GLYPH_W, Templates, cluster_glyphs, crop_gray,
                   read_bottom_hud, read_scoreline, scoreline_roi, segment_glyphs)
 from .primitives import PrimitiveExtractor
@@ -690,6 +693,146 @@ def cmd_verify(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- overlay
+
+def _parse_ts(text: str | None) -> float | None:
+    """Accept 90, 1:30 or 1:02:03 and return milliseconds."""
+    if text is None:
+        return None
+    parts = text.split(":")
+    try:
+        vals = [float(p) for p in parts]
+    except ValueError:
+        raise SystemExit(f"cannot read {text!r} as a timestamp (try 90, 1:30 or 1:02:03)")
+    secs = 0.0
+    for v in vals:
+        secs = secs * 60 + v
+    return secs * 1000.0
+
+
+def cmd_overlay(args) -> int:
+    """Render the extractors' decisions onto the capture, as a video.
+
+    A debug aid, not part of the pipeline: it writes no L1 and reads no stored
+    HUD. Every annotation comes from calling the real extractor on that frame,
+    so the video cannot disagree with what `hud` would have recorded.
+    """
+    import cv2
+
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    sid = manifest["session_id"]
+    src = manifest["source"]
+    profile = get_profile(manifest["source_profile"])
+    media = Path(src["path"])
+    if not media.is_file():
+        raise SystemExit(
+            f"source media has moved: {media}\n"
+            "the manifest records where it was at ingest time"
+        )
+
+    w, h = int(src["width"]), int(src["height"])
+    fps = float(src["fps"] or 60.0)
+    duration = float(src["duration_ms"] or 0.0)
+    t_from = _parse_ts(args.start) or 0.0
+    t_to = _parse_ts(args.end)
+    if t_to is None:
+        t_to = min(duration, t_from + args.seconds * 1000.0) if args.seconds else duration
+    if t_to <= t_from:
+        raise SystemExit(f"empty range: {_fmt_hms(t_from)} to {_fmt_hms(t_to)}")
+
+    templates = Templates.load(profile.name)
+    kf_roi = killfeed_roi(profile)
+
+    print(f"session    {sid}  ({src['filename']})")
+    print(f"range      {_fmt_hms(t_from)} .. {_fmt_hms(t_to)}  at {args.hz:g} Hz")
+
+    # Calibrate the same overlay mask `hud` would use, over the whole capture
+    # rather than the chosen range -- a mask measured from a few seconds would
+    # call transient killfeed entries persistent.
+    kf_mask = None
+    if kf_roi is not None and not args.no_mask:
+        cap = cv2.VideoCapture(str(media))
+        cal = []
+        try:
+            step = max(1, int(duration / 40)) if duration else 1
+            for ms in range(0, int(duration), step):
+                cap.set(cv2.CAP_PROP_POS_MSEC, ms)
+                ok, fr = cap.read()
+                if ok:
+                    cal.append(fr)
+        finally:
+            cap.release()
+        if cal:
+            kf_mask = overlay_mask(cal, kf_roi, w, h)
+            print(f"mask       {(~kf_mask).mean() * 100:.1f}% of the killfeed ROI "
+                  f"from {len(cal)} frames")
+
+    spans = None
+    table = store.read_spans(sid, _date_of(manifest))
+    if table is not None:
+        spans = list(zip(table.column("t_start_ms").to_pylist(),
+                         table.column("t_end_ms").to_pylist(),
+                         table.column("state").to_pylist()))
+
+    ctx = OverlayContext(profile=profile, templates=templates, width=w, height=h,
+                         kf_mask=kf_mask, min_confidence=args.min_confidence,
+                         min_margin=args.min_margin, spans=spans)
+
+    out = Path(args.out) if args.out else Path.cwd() / f"overlay_{sid}_{int(t_from)}ms.mp4"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    scale = args.scale
+    size = (int(w * scale), int(h * scale))
+    writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"mp4v"),
+                             args.fps or args.hz, size)
+    if not writer.isOpened():
+        raise SystemExit(f"could not open {out} for writing")
+
+    cap = cv2.VideoCapture(str(media))
+    step_ms = 1000.0 / args.hz
+    written = skipped = 0
+    t0 = time.perf_counter()
+    try:
+        t = t_from
+        while t < t_to:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t / 1000.0 * fps)))
+            ok, frame = cap.read()
+            if not ok:
+                break
+            if args.entries_only and kf_roi is not None:
+                # Skip frames with an empty feed: for debugging attribution, the
+                # frames without an entry are the ones with nothing to look at.
+                if not analyse_killfeed(frame, kf_roi, w, h, kf_mask, profile.name):
+                    t += step_ms
+                    skipped += 1
+                    continue
+            canvas = draw(frame, t, int(round(t / 1000.0 * fps)), ctx)
+            if scale != 1.0:
+                canvas = cv2.resize(canvas, size, interpolation=cv2.INTER_AREA)
+            writer.write(canvas)
+            written += 1
+            if written % 25 == 0:
+                sys.stdout.write(f"\r  {written} frames  {_fmt_hms(t)}")
+                sys.stdout.flush()
+            t += step_ms
+    finally:
+        writer.release()
+        cap.release()
+    sys.stdout.write("\r" + " " * 60 + "\r")
+
+    dt = time.perf_counter() - t0
+    if not written:
+        raise SystemExit("wrote no frames -- is the range inside the capture?")
+    print(f"wrote      {written} frames  ({dt:.1f}s)"
+          + (f", skipped {skipped} with an empty feed" if skipped else ""))
+    print(f"           {out}")
+    print(f"           {out.stat().st_size / 1e6:.1f} MB  {size[0]}x{size[1]} "
+          f"@ {args.fps or args.hz:g} fps")
+    print("\ngreen = player kill, red = player death, grey = not the player,")
+    print("amber = an overlay covers the name (attribution refused), magenta = unparsed.")
+    return 0
+
+
 # --------------------------------------------------------------------------- sql
 
 
@@ -812,6 +955,26 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("verify", help="check HUD reads against domain invariants")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_verify)
+
+    s = sub.add_parser("overlay", help="render detections onto the video (debug aid)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--from", dest="start", default=None,
+                   help="start timestamp: 90, 1:30 or 1:02:03 (default: the beginning)")
+    s.add_argument("--to", dest="end", default=None, help="end timestamp")
+    s.add_argument("--seconds", type=float, default=60.0,
+                   help="length from --from when --to is not given (default 60)")
+    s.add_argument("--hz", type=float, default=5.0, help="sample rate (default 5)")
+    s.add_argument("--fps", type=float, default=None,
+                   help="playback rate of the output (default: same as --hz, so real time)")
+    s.add_argument("--scale", type=float, default=1.0, help="output scale (default 1.0)")
+    s.add_argument("--no-mask", action="store_true",
+                   help="skip overlay-mask calibration (faster, less faithful)")
+    s.add_argument("--entries-only", action="store_true",
+                   help="only render frames whose killfeed holds an entry")
+    s.add_argument("--min-confidence", type=float, default=0.82)
+    s.add_argument("--min-margin", type=float, default=0.05)
+    s.add_argument("--out", default=None)
+    s.set_defaults(func=cmd_overlay)
 
     s = sub.add_parser("sql", help="run DuckDB over the store")
     s.add_argument("query", nargs="?"); s.add_argument("--limit", type=int, default=50)

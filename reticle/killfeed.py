@@ -436,22 +436,29 @@ def _band_text(
     return keep[lab].astype(np.uint8) * 255, wx0, wx1
 
 
-def read_killfeed(
-    frame: np.ndarray,
-    roi: Roi,
-    width: int,
-    height: int,
-    mask: np.ndarray | None = None,
-    profile_name: str = "valorant-16x9",
-) -> KillfeedRead:
-    """Count killfeed entries and attribute any the local player is in."""
-    tpl = me_template(profile_name)
-    x0, y0, x1, y1 = roi.pixels(width, height)
-    crop = frame[y0:y1, x0:x1]
-    h, w = crop.shape[:2]
-    if mask is None:
-        mask = np.ones((h, w), dtype=bool)
+@dataclass(frozen=True)
+class EntryView:
+    """Everything the extractor decided about one killfeed entry.
 
+    Exists so the overlay renderer can show what the code actually saw rather
+    than a second implementation of it -- a debug view that can disagree with
+    the extractor is worse than none.
+    """
+
+    slot: int                      # absolute stack position
+    y0: int                        # band bounds, ROI pixels
+    y1: int
+    wx0: int = 0                   # weapon icon column bounds, ROI pixels
+    wx1: int = 0
+    killer_run: tuple[int, int] | None = None   # name run column span
+    victim_run: tuple[int, int] | None = None
+    kill_score: float = 0.0
+    death_score: float = 0.0
+    # "kill" | "death" | "other" | "occluded" | "unparsed" | "tie"
+    verdict: str = "unparsed"
+
+
+def _plate_masks(crop: np.ndarray, mask: np.ndarray):
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
     hh = hsv[:, :, 0].astype(np.int16)
     ss = hsv[:, :, 1].astype(np.int16)
@@ -464,51 +471,86 @@ def read_killfeed(
         ((hh < RED_H_LO) | (hh > RED_H_HI)) & (ss > RED_S_MIN) & (vv > PLATE_V_MIN)
     ) & mask
     white = ((vv > TEXT_V_MIN) & (ss < TEXT_S_MAX) & mask).astype(np.uint8) * 255
+    return green, red, white
 
-    slots: list[int] = []
-    kill_slots: list[int] = []
-    death_slots: list[int] = []
-    kill_ys: list[int] = []
-    death_ys: list[int] = []
-    unattributed = 0
-    for k, (a, z) in enumerate(_entry_bands(green | red)):
+
+def analyse_killfeed(
+    frame: np.ndarray,
+    roi: Roi,
+    width: int,
+    height: int,
+    mask: np.ndarray | None = None,
+    profile_name: str = "valorant-16x9",
+) -> list[EntryView]:
+    """Per-entry detail for one frame. `read_killfeed` is a summary of this."""
+    tpl = me_template(profile_name)
+    x0, y0, x1, y1 = roi.pixels(width, height)
+    crop = frame[y0:y1, x0:x1]
+    h, w = crop.shape[:2]
+    if mask is None:
+        mask = np.ones((h, w), dtype=bool)
+    green, red, white = _plate_masks(crop, mask)
+
+    views: list[EntryView] = []
+    for (a, z) in _entry_bands(green | red):
+        slot = absolute_slot(a)
         if mask[a:z].sum() < 500:        # too much of this band is occluded
             continue
         # Both plate colours must be present: that is what rejects warm scenery.
         if green[a:z].mean() < PLATE_MIN_FRAC or red[a:z].mean() < PLATE_MIN_FRAC:
             continue
-        slots.append(k)
         parsed = _band_text(white[a:z] > 0, mask[a:z])
         if parsed is None:
+            views.append(EntryView(slot, int(a), int(z), verdict="unparsed"))
             continue
         if parsed == "occluded":
-            unattributed += 1
+            views.append(EntryView(slot, int(a), int(z), verdict="occluded"))
             continue
         band, wx0, wx1 = parsed
         # Match "Me" against each name region. The killer's name ends at the
         # weapon icon and the victim's begins after it, so the side carrying the
         # match says which role the player had.
-        _kw, k_score = _match_me(band[:, :wx0], tpl, -1)
-        _dw, d_score = _match_me(band[:, wx1:], tpl, +1)
+        left, right = band[:, :wx0], band[:, wx1:]
+        _kw, k_score = _match_me(left, tpl, -1)
+        _dw, d_score = _match_me(right, tpl, +1)
+        krun = name_run(left, -1)
+        vrun = name_run(right, +1)
+        if vrun is not None:
+            vrun = (vrun[0] + wx1, vrun[1] + wx1)   # back to band coordinates
         if max(k_score, d_score) < ME_MATCH_MIN:
-            continue
-        # Only one side can be the player. If both score, take the stronger --
-        # and if they tie, attribute neither rather than guessing.
-        if k_score > d_score:
-            kill_slots.append(k)
-            kill_ys.append(int(a))
+            verdict = "other"
+        elif k_score > d_score:
+            verdict = "kill"
         elif d_score > k_score:
-            death_slots.append(k)
-            death_ys.append(int(a))
+            verdict = "death"
+        else:
+            # Only one side can be the player, so a tie is a parse failure.
+            verdict = "tie"
+        views.append(EntryView(slot, int(a), int(z), int(wx0), int(wx1),
+                               krun, vrun, k_score, d_score, verdict))
+    return views
 
+
+def read_killfeed(
+    frame: np.ndarray,
+    roi: Roi,
+    width: int,
+    height: int,
+    mask: np.ndarray | None = None,
+    profile_name: str = "valorant-16x9",
+) -> KillfeedRead:
+    """Count killfeed entries and attribute any the local player is in."""
+    views = analyse_killfeed(frame, roi, width, height, mask, profile_name)
+    kills = [v for v in views if v.verdict == "kill"]
+    deaths = [v for v in views if v.verdict == "death"]
     return KillfeedRead(
-        entries=len(slots),
-        slots=tuple(slots),
-        player_kill=bool(kill_slots),
-        player_death=bool(death_slots),
-        kill_slots=tuple(kill_slots),
-        death_slots=tuple(death_slots),
-        kill_ys=tuple(kill_ys),
-        death_ys=tuple(death_ys),
-        unattributed=unattributed,
+        entries=len(views),
+        slots=tuple(v.slot for v in views),
+        player_kill=bool(kills),
+        player_death=bool(deaths),
+        kill_slots=tuple(v.slot for v in kills),
+        death_slots=tuple(v.slot for v in deaths),
+        kill_ys=tuple(v.y0 for v in kills),
+        death_ys=tuple(v.y0 for v in deaths),
+        unattributed=sum(1 for v in views if v.verdict in ("occluded", "tie")),
     )

@@ -51,6 +51,28 @@ metric and for movement state generally; §2 calls the homography trivial, and
 `MinimapMode.has_static_homography` already records per session whether a single
 constant transform exists (true for `223d636bf8d2` and `bdfdcf009dba`).
 
+## Debugging what the extractors see
+
+`reticle overlay` renders the detections onto the capture as a video. It reads
+no stored HUD and writes no L1 — every annotation comes from calling the real
+extractor on that frame, so it cannot disagree with what `hud` would record.
+Keep it that way: a debug view with its own copy of the logic is worse than none.
+
+```
+reticle overlay <session> --from 7:35 --seconds 25            # a window
+reticle overlay <session> --from 2:40 --to 4:40 --entries-only  # only frames with a killfeed entry
+```
+
+Per killfeed entry it draws the band, the weapon-icon divider, the two name runs
+with their pixel widths, and both match scores against the threshold. Colour is
+the language: green kill, red death, grey not-the-player, **amber** an overlay
+covers the name so attribution was refused, **magenta** unparsed. Amber and
+magenta are the ones to chase; so is grey on an entry that visibly reads `Me`.
+The calibrated overlay mask is drawn too, so you can see what it ate.
+
+Text is rasterised before `--scale` is applied, so use `--scale 1.0` when
+reading values and a smaller scale only for skimming.
+
 ## Open defects
 
 - **Killfeed attribution under-reports by roughly 20%.** Scored against

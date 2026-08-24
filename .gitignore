@@ -5,3 +5,4 @@ probe_*/
 frames_*/
 __pycache__/
 *.pyc
+overlay_*.mp4
