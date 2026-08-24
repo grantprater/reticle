@@ -51,6 +51,32 @@ metric and for movement state generally; §2 calls the homography trivial, and
 `MinimapMode.has_static_homography` already records per session whether a single
 constant transform exists (true for `223d636bf8d2` and `bdfdcf009dba`).
 
+## Open design question: engagements without a kill
+
+The killfeed only fires when someone dies, so keying stage 03 on it alone would
+measure a biased subset. Counted from the store, shots fired outnumber killfeed
+events **2.6 to 1** (400 shot bursts against 153 attributed entries across the
+six sessions, and that is a floor — 2 Hz sampling collapses any burst shorter
+than half a second into one sample). Damage taken outnumbers them 3.7 to 1.
+
+The bias has a direction: a duel where the player fired and nobody died is
+disproportionately a duel they *lost* or flubbed. Measuring only duels that
+ended in a kill would flatter every one of the doc's three metrics — that is a
+validity problem, not just missing coverage.
+
+The signals are already in L1 and need no new extractor:
+
+- **`ammo_mag` falling between samples is a shot fired** (already noted in
+  `store.py`). Bursts of it bound an engagement.
+- **`hp` + `shield` falling is damage taken**, which catches engagements the
+  player never shot in.
+- The killfeed stays what §2 calls the bootstrap: it is the *labelled* subset,
+  the anchor that says a duel definitely happened and who won it.
+
+So the answer is almost certainly no, do not ignore them — but nothing depends
+on this until stage 03 defines what an engagement is, and the sample rate
+probably has to rise for shot-level timing to mean anything.
+
 ## Debugging what the extractors see
 
 `reticle overlay` renders the detections onto the capture as a video. It reads
