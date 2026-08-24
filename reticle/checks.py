@@ -64,32 +64,45 @@ def _slots(mask) -> list[int]:
     return [s for s in range(6) if m & (1 << s)]
 
 
-def _count(times, masks) -> int:
-    """Follow each entry across frames and count how many distinct ones there were."""
-    active: list[list] = []      # [last_t, last_slot, n_obs]
-    done: list[list] = []
+def track_entries(times, masks) -> list[dict]:
+    """Follow each entry across frames; one dict per distinct entry.
+
+    Returns every track, including the short ones below KF_MIN_OBS, with
+    `counted` saying whether it met the bar. Callers that only want the number
+    use `player_events`; a review needs the timestamps as well, and both must
+    come from the same walk or they can disagree.
+    """
+    active: list[dict] = []
+    done: list[dict] = []
     for t, mask in zip(times, masks):
         keep = []
         for a in active:
-            (keep if t - a[0] <= KF_TRACK_GAP_MS else done).append(a)
+            (keep if t - a["t_last"] <= KF_TRACK_GAP_MS else done).append(a)
         active = keep
         used: set[int] = set()
         for slot in _slots(mask):
             best = bi = None
             for ai, a in enumerate(active):
-                if ai in used or slot > a[1]:
+                if ai in used or slot > a["slot"]:
                     continue          # an entry never moves down the stack
-                d = a[1] - slot
+                d = a["slot"] - slot
                 if best is None or d < best:
                     best, bi = d, ai
             if bi is None:
-                active.append([t, slot, 1])
+                active.append({"t_first": t, "t_last": t, "slot": slot, "n_obs": 1})
                 used.add(len(active) - 1)
             else:
-                active[bi] = [t, slot, active[bi][2] + 1]
+                active[bi].update(t_last=t, slot=slot, n_obs=active[bi]["n_obs"] + 1)
                 used.add(bi)
     done.extend(active)
-    return sum(1 for a in done if a[2] >= KF_MIN_OBS)
+    done.sort(key=lambda a: a["t_first"])
+    for a in done:
+        a["counted"] = a["n_obs"] >= KF_MIN_OBS
+    return done
+
+
+def _count(times, masks) -> int:
+    return sum(1 for a in track_entries(times, masks) if a["counted"])
 
 
 def player_events(times, kill_masks, death_masks) -> dict:

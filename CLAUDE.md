@@ -75,12 +75,16 @@ reading values and a smaller scale only for skimming.
 
 ## Open defects
 
-- **Killfeed attribution under-reports by roughly 20%.** Scored against
-  `checks.KNOWN_KD` over six sessions and four maps it is 26 events off across
-  164, and the error is almost entirely one-directional: it misses entries, it
-  essentially never invents one. Precision is good (32/32 by eye). Two untried
-  recall candidates are named in `killfeed.py`. **Treat the counts as complete
-  to about −20%** and the per-frame flags as high-precision but incomplete.
+- **Killfeed attribution is short 11 events across 164** (six sessions, four
+  maps), scored against `checks.KNOWN_KD`. Three sessions are exact. The error is
+  one-directional: it misses entries, it does not invent them. What is left is
+  concentrated in two places — four kills on `223d636bf8d2` (whose deaths are
+  exact, so suspect the killer side specifically) and six events on
+  `9acf02f98283`. Precision is good: 32/32 by eye.
+- **Thin tracks are the leading indicator.** An entry seen in <=4 of a possible
+  ~12 sampled frames is either barely caught or about to be split in two. 19 of
+  153 currently; the sessions with none score exact. If a new capture reads badly,
+  count these first.
 - **Scoreline OCR drops a transient extra digit.** On `9acf02f98283` the score
   reads `1 → 11 → 1` and `9 → 19 → 9` within half a second, i.e. a spurious
   leading `1`, and `verify` flags 8 violations there. Single-sample, reverts
