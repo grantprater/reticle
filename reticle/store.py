@@ -195,6 +195,7 @@ class Store:
             # 6-bit mask. Needed to follow one entry across frames and so tell
             # a second kill from the same kill still on screen -- a bare flag
             # cannot. Absolute positions, not detection order.
+            "kf_entry_mask": pa.array(col("kf_entry_mask"), type=pa.int16()),
             "kf_kill_mask": pa.array(col("kf_kill_mask"), type=pa.int16()),
             "kf_death_mask": pa.array(col("kf_death_mask"), type=pa.int16()),
             "kf_unattributed": pa.array(col("kf_unattributed"), type=pa.int16()),

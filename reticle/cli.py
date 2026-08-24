@@ -489,6 +489,7 @@ def cmd_hud(args) -> int:
             "kf_entries": kf.entries,
             "kf_player_kill": kf.player_kill,
             "kf_player_death": kf.player_death,
+            "kf_entry_mask": kf.entry_mask,
             "kf_kill_mask": kf.kill_mask,
             "kf_death_mask": kf.death_mask,
             "kf_unattributed": kf.unattributed,

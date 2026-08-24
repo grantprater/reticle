@@ -82,9 +82,23 @@ reading values and a smaller scale only for skimming.
   exact, so suspect the killer side specifically) and six events on
   `9acf02f98283`. Precision is good: 32/32 by eye.
 - **Thin tracks are the leading indicator.** An entry seen in <=4 of a possible
-  ~12 sampled frames is either barely caught or about to be split in two. 19 of
-  153 currently; the sessions with none score exact. If a new capture reads badly,
-  count these first.
+  ~12 sampled frames is either barely caught or about to be split in two. If a
+  new capture reads badly, count these first. An observation count *above* ~12 is
+  equally suspicious and means the opposite: two entries merged into one track.
+- **The entry tracker cannot tell a merge from a split.** Matching by nearest
+  slot merges consecutive entries that reuse a vacated slot (`223d636bf8d2` at
+  32:05, two kills held as one track for 17 observations); matching by most
+  recently seen fixes that but shatters a genuine double (`b3b9defb6fd7` at
+  27:12) and scores worse overall. Slot plus time is not enough information. The
+  real fix is to estimate the stack shift from `kf_entry_mask`, which records
+  full per-frame occupancy for exactly that purpose — see `checks._count`.
+- **An overlay can delete a killfeed entry outright.** The occlusion mask blanks
+  pixels, so a row behind the shooting-error box may not reach `PLATE_ROW_FRAC`
+  and the band never forms — the entry is not reported occluded, it is simply
+  absent. The row profile is now measured over *visible* pixels only, which
+  recovers the partly-covered bands (`223d636bf8d2` went from 14 to 30 frames
+  correctly reported as unattributed), but a row almost entirely behind the box
+  is unrecoverable. That is a capture fix, not a code one.
 - **Scoreline OCR drops a transient extra digit.** On `9acf02f98283` the score
   reads `1 → 11 → 1` and `9 → 19 → 9` within half a second, i.e. a spurious
   leading `1`, and `verify` flags 8 violations there. Single-sample, reverts

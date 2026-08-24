@@ -205,6 +205,7 @@ class KillfeedRead:
     death_slots: tuple[int, ...] = ()
     kill_ys: tuple[int, ...] = ()
     death_ys: tuple[int, ...] = ()
+    entry_ys: tuple[int, ...] = ()
     # Entries whose killer or victim name was covered by a toggled overlay. They
     # are neither kills nor deaths *nor* confirmed non-player entries -- a
     # non-zero count here is a capture problem, not a code one.
@@ -213,6 +214,16 @@ class KillfeedRead:
     @property
     def player_involved(self) -> bool:
         return self.player_kill or self.player_death
+
+    @property
+    def entry_mask(self) -> int:
+        """Absolute-slot bitmask of every entry, player or not.
+
+        Recorded because the player's own entries are not enough to follow one
+        across frames: when an entry expires the whole stack shifts up by one,
+        and only the full occupancy shows that happening. See `checks._count`.
+        """
+        return mask_of_ys(self.entry_ys)
 
     @property
     def kill_mask(self) -> int:
@@ -281,7 +292,7 @@ def overlay_mask(
     return ~grown
 
 
-def _entry_bands(plate: np.ndarray) -> list[tuple[int, int]]:
+def _entry_bands(plate: np.ndarray, usable: np.ndarray | None = None) -> list[tuple[int, int]]:
     """Row spans holding one entry each, read off the plate row profile.
 
     Three things happen here, and the third is the one that matters most:
@@ -301,7 +312,17 @@ def _entry_bands(plate: np.ndarray) -> list[tuple[int, int]]:
     one. Padding is bounded by the neighbouring runs, so it can never annex a
     neighbour's text.
     """
-    prof = plate.mean(axis=1)
+    # Measure plate density over the pixels that are actually visible. A toggled
+    # overlay blanks part of a row, and dividing by the full ROI width instead
+    # would drag that row under PLATE_ROW_FRAC and dissolve the band -- so an
+    # entry sitting behind the shooting-error box was not reported occluded, it
+    # simply never existed. Two of six on-screen entries were being lost that way.
+    if usable is None:
+        prof = plate.mean(axis=1)
+    else:
+        seen = usable.sum(axis=1)
+        prof = np.divide(plate.sum(axis=1), seen, out=np.zeros(plate.shape[0]),
+                         where=seen > 0)
     on = prof > PLATE_ROW_FRAC
     limit = len(on)
 
@@ -531,7 +552,7 @@ def analyse_killfeed(
     green, red, white = _plate_masks(crop, mask)
 
     views: list[EntryView] = []
-    for (a, z) in _entry_bands(green | red):
+    for (a, z) in _entry_bands(green | red, mask):
         slot = absolute_slot(a)
         if mask[a:z].sum() < 500:        # too much of this band is occluded
             continue
@@ -585,6 +606,7 @@ def read_killfeed(
     return KillfeedRead(
         entries=len(views),
         slots=tuple(v.slot for v in views),
+        entry_ys=tuple(v.y0 for v in views),
         player_kill=bool(kills),
         player_death=bool(deaths),
         kill_slots=tuple(v.slot for v in kills),

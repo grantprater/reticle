@@ -15,4 +15,4 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the
 # template set, or field parsing changes -- that invalidates stored HUD reads
 # and forces a re-decode, since this stage needs pixels.
-HUD_VERSION = "hud-0.5.0"
+HUD_VERSION = "hud-0.6.0"
