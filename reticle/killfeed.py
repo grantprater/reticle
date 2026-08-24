@@ -59,8 +59,11 @@ Entry bands are found, not assumed
 Entries are ENTRY_H tall at a PITCH stride, but the stack slides vertically as
 older entries expire, so a fixed comb of bands clips entries and -- worse -- lets
 one entry satisfy two adjacent bands and be counted twice. Bands are therefore
-read off the row profile of plate-coloured pixels, and a run tall enough to hold
-several entries is divided by PITCH.
+read off the row profile of plate-coloured pixels, a run tall enough to hold
+several entries is divided by PITCH, and a run shorter than ENTRY_H is padded
+back out to it. See `_entry_bands`: the padding is what keeps an entry visible
+while the stack is mid-slide, and it was worth 15 of the 26 events this stage
+was missing.
 
 Toggled HUD overlays
 --------------------
@@ -87,23 +90,28 @@ Attribution is scored against the scoreboard K/D in `checks.KNOWN_KD` -- the onl
 external ground truth in the project. Tracked entries versus scoreboard, at
 2 Hz, over six sessions and four maps:
 
-    b3b9defb6fd7    14 / 19   vs  14 / 18     +0 / +1
-    bdfdcf009dba    14 / 11   vs  17 / 14     -3 / -3
-    223d636bf8d2    20 / 15   vs  25 / 15     -5 / +0
-    9acf02f98283    10 / 11   vs  13 / 16     -3 / -5
-    b7d24102a6f6     8 /  9   vs  10 / 12     -2 / -3
-    75a55a296d3b     5 /  4   vs   5 /  5     +0 / -1
+    b3b9defb6fd7    14 / 18   vs  14 / 18     exact
+    bdfdcf009dba    17 / 13   vs  17 / 14     +0 / -1
+    223d636bf8d2    21 / 15   vs  25 / 15     -4 / +0
+    9acf02f98283    11 / 12   vs  13 / 16     -2 / -4
+    b7d24102a6f6    10 / 12   vs  10 / 12     exact
+    75a55a296d3b     5 /  5   vs   5 /  5     exact
 
-26 events off across 164, and ME_MATCH_MIN was swept on the first five while
-75a55a296d3b is fully held out. Per-band precision was checked separately by
-eye: 32 of 32 hand-inspected detections were correct, kills and deaths alike.
+11 events off across 164. ME_MATCH_MIN was swept on the first five;
+75a55a296d3b is fully held out and lands exact. Per-band precision was checked
+separately by eye: 32 of 32 hand-inspected detections were correct.
 
-The error is almost entirely one-directional -- the counts under-report and
-essentially never invent an event, which is the failure mode to prefer for
-anything downstream. The residual is recall: entries whose band the plate row
-profile never resolves, and the tracker merging two entries of the same kind
-that overlap in time. Neither has been chased. Treat the counts as complete to
-about -20% and the per-frame flags as high-precision but incomplete.
+The error is one-directional -- the counts under-report and do not invent events,
+which is the failure mode to prefer for anything downstream. What remains is
+concentrated: four kills on 223d636bf8d2, where deaths are exact, and six events
+on 9acf02f98283. Those two are worth chasing before this is called done;
+everything else is within one event.
+
+Thin tracks -- entries seen in 4 or fewer sampled frames, out of a possible ~12 --
+are the leading indicator here. They fell from 37 of 140 to 19 of 153 when band
+padding went in, and the sessions with none left (b7d24102a6f6) are the ones that
+now score exact. A session whose thin count is rising has a detection problem
+before it has a counting problem.
 
 Deaths per round is deliberately NOT used as a check anywhere: Sage
 resurrection and Clove self-revive both let a player die more than once in a
@@ -276,33 +284,64 @@ def overlay_mask(
 def _entry_bands(plate: np.ndarray) -> list[tuple[int, int]]:
     """Row spans holding one entry each, read off the plate row profile.
 
-    A run tall enough for several stacked entries is split by PITCH rather than
-    returned whole, so neighbours whose plates touch stay separate entries.
+    Three things happen here, and the third is the one that matters most:
+
+    * contiguous runs of plate-coloured rows are the candidate entries;
+    * a run tall enough for several stacked entries is split by PITCH, so
+      neighbours whose plates touch stay separate entries;
+    * a run *shorter* than ENTRY_H is padded back out to it.
+
+    The padding is not cosmetic. While the stack slides -- which it does every
+    time an entry above expires -- a band's plate only partly clears
+    PLATE_ROW_FRAC, so the run comes back 21 rows instead of 34 and the names
+    inside it are cut off mid-glyph. The text is still perfectly legible to a
+    human, but a template has no whole letters to correlate against, so the
+    match craters (0.81 -> 0.34 across one such slide) and the entry vanishes
+    for two or three frames. That reads downstream as two entries rather than
+    one. Padding is bounded by the neighbouring runs, so it can never annex a
+    neighbour's text.
     """
     prof = plate.mean(axis=1)
     on = prof > PLATE_ROW_FRAC
-    bands: list[tuple[int, int]] = []
-    i, n = 0, len(on)
-    while i < n:
+    limit = len(on)
+
+    runs: list[tuple[int, int]] = []
+    i = 0
+    while i < limit:
         if not on[i]:
             i += 1
             continue
         j = i
-        while j < n and on[j]:
+        while j < limit and on[j]:
             j += 1
-        h = j - i
+        runs.append((i, j))
+        i = j
+
+    split: list[tuple[int, int]] = []
+    for (a, z) in runs:
+        h = z - a
         k = max(1, int(round(h / PITCH)))
         if k == 1:
             if MIN_BAND_H <= h <= MAX_BAND_H:
-                bands.append((i, j))
+                split.append((a, z))
         else:
             step = h / k
             for m in range(k):
-                a = i + int(round(m * step))
-                z = i + int(round((m + 1) * step))
-                if MIN_BAND_H <= z - a <= MAX_BAND_H:
-                    bands.append((a, z))
-        i = j
+                a2 = a + int(round(m * step))
+                z2 = a + int(round((m + 1) * step))
+                if MIN_BAND_H <= z2 - a2 <= MAX_BAND_H:
+                    split.append((a2, z2))
+
+    bands: list[tuple[int, int]] = []
+    for idx, (a, z) in enumerate(split):
+        short = ENTRY_H - (z - a)
+        if short > 0:
+            up = short // 2
+            floor = split[idx - 1][1] if idx else 0
+            ceil = split[idx + 1][0] if idx + 1 < len(split) else limit
+            a = max(0, floor, a - up)
+            z = min(limit, ceil, z + (short - up))
+        bands.append((a, z))
     return bands[:MAX_SLOTS]
 
 
