@@ -19,7 +19,7 @@ it is barely there. Every absolute test failed accordingly:
     + shape tests only on big blobs 75%         11%
     + vertical closing              77%         14%
 
-A morphological **top-hat on Lab's a\* channel** is what works. Top-hat keeps
+A morphological **top-hat on Lab's a-star channel** is what works. Top-hat keeps
 structures thinner than its kernel and removes anything larger, whatever the
 background level -- which is exactly the difference between a 1-4 px rim and a
 brick wall, and exactly what a threshold cannot express.
@@ -55,6 +55,27 @@ That test is also compromised and worth redoing: it measured the profile on the
 *closed* mask, and the vertical kernel that fixes grouping smooths away the very
 detail a profile test needs. The honest version computes the profile from the
 raw top-hat mask inside the merged bounding box.
+
+What the label set does NOT cover
+---------------------------------
+"77% recall" means recall *on the cases that were sampled*, and one important
+case is missing entirely: an enemy visible only as a **head above a box, or over
+an elevated edge**. Grant reports no such frame came up while labelling. It is a
+standard strong position, so its absence is a gap in the evidence rather than in
+the game.
+
+It is also the hardest case for everything here. A head alone is small, wider
+than tall, and has no silhouette to match -- so the aspect and hollowness tests
+would all reject it if they applied. They do not, because those tests are
+size-conditional and a head falls under the threshold, which means the design
+happens to treat it correctly. But "happens to" is not "is shown to", and
+nothing has tested it.
+
+Targeting such frames for labelling is awkward: they cannot be found by sampling
+without already having a detector. The practical route is to run the detector at
+scale, pull frames where it fires on short wide blobs, and check those by eye --
+using the detector to find its own test set, which is sound as long as the
+result is treated as a floor on recall rather than a measurement of it.
 
 Where to go next
 ----------------
