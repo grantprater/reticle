@@ -58,6 +58,24 @@ the top of the screen** once planted, which persists for the whole 45 s, and an
 **audio cue**, which this pipeline has never touched but which is a far cheaper
 signal than pixels for an event with a fixed duration.
 
+**A round ends exactly three ways** (Grant): team wipe, spike defused, spike
+detonated -- plus time expiring with no plant, which the defenders take. And the
+plant changes the rule rather than adding to it: **once the spike is down the
+defenders must defuse or they lose, however many attackers they kill.** Wiping
+the attacking team post-plant does not win the round.
+
+That is not a footnote, it changes what several facts here *mean*. "Player
+survived" reads as a proxy for winning the fight, but post-plant an attacker can
+survive, win every duel, and still lose to the defuse; a defender can wipe the
+enemy team and lose to the timer. Any model that treats survival or man
+advantage as uniformly good is wrong on exactly the rounds where the stakes are
+highest. Phase has to be a covariate, not a column.
+
+The outcome type is derivable once the plant is: a plant plus the 45 s running
+out is a detonation, a plant plus the round ending early is a defuse, and no
+plant at all is a wipe or the timer. Attack and defence are structurally
+different too, and the side swaps at halftime -- also not yet known.
+
 The other thing missing for phase analysis is **alive counts**, and those are
 closer than they look. Every killfeed entry is a death, and the victim's plate
 colour already says which team -- `_plate_masks` computes it and
