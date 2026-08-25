@@ -582,14 +582,29 @@ scrubbing an overlay video, and it is the right tool whenever the question is
 6. **Label the map.** Grant is labelling maps for future captures. Geometry
    should be shared between sessions on the same map rather than re-derived per
    session, and nothing currently knows which map a capture is.
-7. **Keep the enemy highlight on, and keep its colour constant.** Valorant
-   outlines enemy models in a chosen colour; every capture so far uses red.
-   That outline is what makes on-screen enemy detection tractable at all -- a
-   saturated-red mask over the main view returns a few hundred pixels in a
-   2-megapixel frame, so it is enormously specific, and the blobs come out
-   human-shaped (16x44, aspect 2.75, on a standing enemy at 9acf02f98283 4:23).
-   Changing the colour between captures would split the set; turning it off
-   would put enemy detection back into model-recognition territory.
+7. **Keep the enemy highlight on, and record its colour** as an `outline:<c>`
+   tag at ingest. Valorant outlines enemy models in a colour the player picks --
+   red on every capture so far, but yellow and at least one other exist -- so it
+   is a per-session property like the minimap mode, and nothing should hardcode
+   it. Turning it off entirely would put enemy detection back into
+   model-recognition territory.
+
+   **Allies are not outlined at all.** That is worth stating plainly because it
+   is a large simplification: any outline is an enemy, so detection needs no
+   team disambiguation and cannot mistake a teammate for a target.
+
+   The outline is what makes this tractable. A saturated-red mask over the main
+   view returns a few hundred pixels in a 2-megapixel frame -- enormously
+   specific -- and the blobs come out human-shaped: 16x44 at aspect 2.75 on a
+   standing enemy at 9acf02f98283 4:23.
+
+   Four things carry it, and only the first is a target: a **visible enemy**, a
+   **revealed** one outlined through geometry by Sova or Fade (not shootable, so
+   it must stay out of aim statistics, but it is a direct measurement of what the
+   player knew), a **deployable**, and a **corpse** -- bodies stay outlined, and
+   a corpse is the dangerous one because it sits exactly where a real enemy just
+   was, so counting it as target acquisition would look reasonable and inflate
+   every aim number.
 8. **Check whether the minimap has an opacity setting.** Unresolved. The widget
    being semi-transparent over the void is the single largest difficulty in
    minimap extraction; if it can be made opaque most of that goes away for
