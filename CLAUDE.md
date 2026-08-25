@@ -259,6 +259,40 @@ objects**, **jump peeks are invisible** (vertical motion is not on the minimap,
 so a jump peek reads as a fast peek), and dA/ds aggregates every occluding edge
 in play rather than naming the one you mishandled.
 
+## Sampling densely where it matters, without poisoning the sample
+
+Open, 2026-08-25. Peek work needs 15-20 Hz and the whole capture does not
+deserve it, so some form of proportional sampling is wanted. Two passes is the
+shape the design doc already implies -- §3's cost rule ("if the expensive layer
+ever sees more than ~1% of frames, stage 01 is wrong") is about the VLM band,
+but the principle is the same: a cheap pass decides where the expensive pass
+looks.
+
+**The trap is gating on outcome.** Sampling densely where shots were fired, or
+where a killfeed entry landed, seems obvious and is wrong for the same reason
+already recorded under "engagements without a kill": a peek that exposed five
+angles and met nobody is not a non-event, it is the control group. Gate on
+contact and the model only ever sees peeks that drew a duel, which flatters
+every number and cannot be corrected after the fact.
+
+**Gate on opportunity instead.** dA/ds is a property of the *map*, not of the
+round -- so it can be precomputed once per map as a scalar field over the
+floorplan, and "is the player near a cell where exposure changes fast" is then a
+lookup rather than an inference. That gates on geometry the player was moving
+through, entirely independent of whether anything happened, which is exactly the
+independence the statistical layer needs.
+
+That also settles the hard-code-versus-infer question for this case: the field
+is *derived* from the floorplan rather than hand-authored, but it is *static*,
+so it costs nothing at query time. Nothing about round phase needs hard-coding
+-- "start of round is high value" is a proxy for "everyone is alive and moving
+into position", and the geometry gate captures the part that matters without
+assuming it.
+
+Practical note: seeking is expensive in H.264 and contiguous decoding is cheap,
+so the second pass should decode *ranges*, not scattered frames. Windows, not
+samples.
+
 ## Scoreboard divergence is a finding, not an error
 
 The killfeed and the scoreboard answer different questions, and where they
