@@ -5,12 +5,26 @@ enemy detector.
 
 Controls
 --------
-    left click   mark an enemy head
-    right click  undo the last mark on this frame
+    left click        mark an enemy PLAYER's head
+    shift+left click  mark an enemy DEPLOYABLE (KJ turret, Cypher cage, drone)
+    right click       undo the last mark on this frame
     SPACE or D   save this frame and advance
     N            mark the frame as having NO visible enemy, and advance
     A            go back a frame
     Q / ESC      save and quit
+
+Deployables are labelled, not skipped. Valorant outlines enemy *objects* in the
+same colour as enemy players -- a Killjoy turret, a Cypher cage, a Sova drone --
+so a detector will find them whether or not we asked it to. Leaving them
+unlabelled would score a correct detection as a false positive and push the
+tuning toward suppressing something the detector is right about.
+
+They are a different class rather than the same one because they are a different
+thing: a turret is a threat and a source of information, but it is not a duel
+opponent, and an aim metric that counts crosshair placement on a turret as
+target acquisition would be measuring nonsense. They are also easy to tell
+apart once labelled -- a turret does not move, and a human silhouette is tall
+and narrow where a deployable is not.
 
 Built on tkinter rather than cv2.imshow: the project pins
 opencv-python-headless, which is correct for a pipeline that never wants a
@@ -144,14 +158,17 @@ def main() -> int:
         canvas.config(width=w, height=h)
         canvas.delete("all")
         canvas.create_image(0, 0, anchor="nw", image=state["img"])
-        for (px, py) in state["pts"]:
-            canvas.create_oval(px - 11, py - 11, px + 11, py + 11, outline="#ff2020", width=2)
-            canvas.create_line(px - 16, py, px + 16, py, fill="#ff2020", width=1)
-            canvas.create_line(px, py - 16, px, py + 16, fill="#ff2020", width=1)
+        for (px, py, kind) in state["pts"]:
+            col = "#ff2020" if kind == "player" else "#20c0ff"
+            canvas.create_oval(px - 11, py - 11, px + 11, py + 11, outline=col, width=2)
+            canvas.create_line(px - 16, py, px + 16, py, fill=col, width=1)
+            canvas.create_line(px, py - 16, px, py + 16, fill=col, width=1)
         s = int(t_ms) // 1000
         status.config(text=f"  {state['i']+1}/{len(times)}   {s//60}:{s%60:02d}   [{pool}]   "
-                           f"marks={len(state['pts'])}   "
-                           f"click=head  right-click=undo  SPACE=next  N=none  A=back  Q=quit")
+                           f"players={sum(1 for m in state['pts'] if m[2] == 'player')} "
+                           f"deployables={sum(1 for m in state['pts'] if m[2] != 'player')}   "
+                           f"click=player  shift+click=deployable  right-click=undo   "
+                           f"SPACE=next  N=none  A=back  Q=quit")
 
     def record():
         t_ms, pool = times[state["i"]]
@@ -160,8 +177,9 @@ def main() -> int:
             "t_ms": round(t_ms),
             "pool": pool,
             # stored in ORIGINAL frame pixels, so the display scale is free to change
-            "heads": [[round(px / args.scale), round(py / args.scale)]
-                      for px, py in state["pts"]],
+            # kind: "player" or "deployable"; see the module docstring
+            "marks": [{"x": round(px / args.scale), "y": round(py / args.scale),
+                       "kind": kind} for px, py, kind in state["pts"]],
         }) + chr(10))
         fh.flush()
         state["written"] += 1
@@ -182,7 +200,9 @@ def main() -> int:
         print(f"wrote {state['written']} labelled frames to {out_path}")
         root.destroy()
 
-    canvas.bind("<Button-1>", lambda e: (state["pts"].append((e.x, e.y)), show()))
+    canvas.bind("<Button-1>", lambda e: (state["pts"].append((e.x, e.y, "player")), show()))
+    canvas.bind("<Shift-Button-1>",
+                lambda e: (state["pts"].append((e.x, e.y, "deployable")), show()))
     canvas.bind("<Button-3>", lambda e: (state["pts"] and state["pts"].pop(), show()))
     root.bind("<space>", lambda e: advance(+1))
     root.bind("d", lambda e: advance(+1))
