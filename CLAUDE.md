@@ -121,13 +121,15 @@ reading values and a smaller scale only for skimming.
 
 ## Open defects
 
-- **Killfeed attribution is short 18 events across 238** (nine sessions),
-  scored against `checks.KNOWN_KD`. Three sessions are exact, kills are exact on
-  seven of nine, and the error never invents an event. Deaths are the whole
-  problem now, and it is not one bug: two causes are confirmed in `killfeed.py`
-  (an entry whose weapon slot holds a small non-weapon mark; a band clipped by
-  the top edge of the killfeed ROI), each worth a couple of events. Precision is
-  good — `c40d950031bb` has only two real kills and reports exactly two.
+- **Killfeed attribution is short 22 events across 285** (ten sessions), scored
+  against `checks.KNOWN_KD`. Three sessions are exact, kills are exact on seven
+  of ten, deaths on four, and the error never invents an event. **Three
+  independent causes are confirmed** in `killfeed.py`, each worth a couple of
+  events: an entry whose weapon slot holds a small non-weapon mark; a band
+  clipped by the top edge of the killfeed ROI; and a washed-out entry where the
+  plate itself clears the white-text threshold and fuses with the glyphs. A fix
+  was attempted and reverted for each — the reasons are recorded, so start there
+  rather than re-deriving them.
 - **Thin tracks are the leading indicator.** An entry seen in <=4 of a possible
   ~12 sampled frames is either barely caught or about to be split in two. If a
   new capture reads badly, count these first. An observation count *above* ~12 is

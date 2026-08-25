@@ -59,6 +59,13 @@ KNOWN_KD = {
     # A low-event match: with only two real kills, a single false positive shows
     # up as a 50% error, so this is the sharpest precision test in the set.
     "c40d950031bb": (2, 7),     # 18-27-17
+    # Grant played Phoenix here. A death inside Run It Back is *not* counted on
+    # the scoreboard (nor is Kayo's), while a Sage or Clove revive death is --
+    # so the two behave oppositely, and only the Phoenix/Kayo case can leave a
+    # killfeed entry with no scoreboard death behind it. Deaths still came out
+    # exact at 20/20 here, so either he did not die inside the ult or it
+    # cancelled against a miss.
+    "ff636d173b07": (27, 20),   # 18-47-51
 }
 
 

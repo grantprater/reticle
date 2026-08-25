@@ -122,9 +122,22 @@ with only two kills in it:
   and it *loses* the 15:12 bands altogether, because the taller crop changes
   what the plate row-profile resolves. The ROI itself may need to move, which
   costs an EXTRACTOR_VERSION bump and a re-ingest of every session.
+* **A washed-out entry.** ff636d173b07 at 11:44, "Me (rifle) MommysMethpipe",
+  a plain kill scoring 0.00. The killfeed is drawn over the scene, and against a
+  bright background the *plate* clears TEXT_V_MIN and fuses with the glyphs:
+  band median value 215, white mask filling 20.4% of the band with a largest
+  component of 1285 px, against 6-10% and ~20 glyph-sized components on a
+  healthy band. Thresholding each band by Otsu on its own value channel was
+  tried and does not fix it -- with a dark portrait at one end and a bright
+  plate at the other, Otsu splits dark from bright rather than plate from text.
+  Something local, or a colour distance from the plate rather than a brightness
+  cut, is probably what this needs.
 
-Both were reverted rather than left half-working. What they establish is that
-the missing deaths are not one bug: they are several, each worth a few events.
+Every attempted fix above was reverted rather than left half-working. What they
+establish is the shape of the problem: the gap is not one bug but several, each
+worth a couple of events, and the three found so far are independent of each
+other. Precision is not in question -- c40d950031bb holds only two real kills
+and reports exactly two.
 
 * Entry formats this parser does not model. It requires a weapon icon dividing
   two names, which a normal kill always has. A death with no killer -- spike
