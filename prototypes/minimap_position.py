@@ -34,6 +34,22 @@ Known limits
   ability has revealed them, plus red X marks for last-known positions. So the
   minimap carries *what the team knows*, which is the right basis for judging a
   decision even though it is not ground truth.
+* Two things on the widget are unread and both are worth more than the player
+  dot. Enemy icons carry a **vision arrow**, so the minimap gives enemy *facing*
+  as well as position -- which is what "were they holding this angle" needs, and
+  it is not available anywhere else. And allies project **vision cones** marking
+  the ground the team can actually see.
+
+  The cones are the prize. They are a direct, geometric readout of team vision:
+  which angles are covered and which are not, drawn by the game itself. Peeking
+  into an angle nobody is watching is a different decision from peeking with a
+  teammate covering it, and this distinguishes them without any inference from
+  the floorplan. Where dA/ds says how much a peek exposes, the cones say how much
+  of that exposure the team already had eyes on.
+
+  Neither needs hand labels: an enemy icon must disappear when that enemy dies,
+  and per-team alive counts come from the killfeed, so the detector has an
+  external anchor. Hand-labelling should be spent only where no anchor exists.
 * Scale is roughly 0.2 m per pixel, from map extent rather than calibration.
 * Map identity is unknown. Geometry should be shared between sessions on the
   same map rather than re-derived, which needs a label at ingest.
