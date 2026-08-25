@@ -107,7 +107,12 @@ then the visibility computation.
 
 **Peek exposure as the design doc defines it is out of reach**, and that is a
 design-doc correction rather than a missing feature. It needs enemy positions,
-and enemies are not on the minimap at all — only red X last-known marks. If the
+and the minimap shows an enemy only while somebody on your team can see them --
+a teammate holding an angle, or a recon reveal -- plus red X marks for last-known
+positions. That is *what your team knows*, not ground truth, and for decision
+analysis it is the right basis: you cannot be faulted for an enemy nobody had
+seen, but you can be for peeking into one a teammate was looking at. It does
+mean full exposure-to-any-enemy is out of reach from a self-capture. If the
 product must run on a player's own OBS capture (Grant is sceptical that building
 commercially on the replay system is viable), no amount of extractor work
 recovers it. See "How peeking actually works" below for what replaces it.

@@ -30,8 +30,8 @@ position with no visible model is *direct evidence of an angle the player did
 not account for* -- which is what the dA/ds geometry work tries to infer
 indirectly. Paired with an HP drop it gives "shot from an unseen angle", about as
 coachable an event as this project can produce, and it is observable in a way
-enemy position is not: the enemy is not on screen and not on the minimap, yet
-their position is inferable from the flash.
+enemy position is not: with nobody on the team seeing them, they are on neither
+the screen nor the minimap, yet their position is inferable from the flash.
 
 Corpses stay outlined, so they are a fourth class. Same reasoning as the others
 -- the detector will find one whether or not we ask, so an unlabelled body is a
