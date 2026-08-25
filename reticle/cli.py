@@ -511,6 +511,8 @@ def cmd_hud(args) -> int:
             "kf_kill_mask": kf.kill_mask,
             "kf_death_mask": kf.death_mask,
             "kf_unattributed": kf.unattributed,
+            "kf_ally_mask": kf.ally_mask,
+            "kf_enemy_mask": kf.enemy_mask,
             "kf_entry_wx": kf.entry_dividers,
             "kf_kill_wx": kf.kill_dividers,
             "kf_death_wx": kf.death_dividers,
