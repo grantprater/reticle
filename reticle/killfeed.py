@@ -104,9 +104,27 @@ three were never used to tune anything. Per-band precision was checked by eye:
 32 of 32 hand-inspected detections were correct.
 
 The error is one-directional -- these counts under-report and do not invent
-events. It is also now lopsided by side: **kills are exact on six of eight
-sessions**, while deaths are short on five. Two candidate causes, neither
-settled:
+events. It is also lopsided by side: kills are exact on seven of nine sessions,
+deaths short on six. Two causes are now confirmed rather than suspected, both
+found by hunting the three missing deaths in c40d950031bb, a 16-minute match
+with only two kills in it:
+
+* **An entry with no weapon icon.** At 13:14, "HungryHamster5 (X) Me" -- the
+  weapon slot holds a small crossed-circle mark, not a gun. ICON_MIN_AREA=150
+  rejects it, so the killer/victim split never happens and the entry goes
+  unattributed. Lowering the floor to 95 does find the icon, but the victim run
+  then measures 26 px instead of 18 and "Me" still only scores 0.26, so
+  something else is inside that run. Not fixed.
+* **Clipping at the ROI's top edge.** At 15:12, "pan (rifle) Me" scores 0.41
+  against a 0.65 bar, on a band reported at y0-37: the newest entry is still
+  sliding into place and its glyph tops are cut off by the ROI boundary.
+  Reading 24 rows above the ROI was tried and rejected -- it recovers nothing,
+  and it *loses* the 15:12 bands altogether, because the taller crop changes
+  what the plate row-profile resolves. The ROI itself may need to move, which
+  costs an EXTRACTOR_VERSION bump and a re-ingest of every session.
+
+Both were reverted rather than left half-working. What they establish is that
+the missing deaths are not one bug: they are several, each worth a few events.
 
 * Entry formats this parser does not model. It requires a weapon icon dividing
   two names, which a normal kill always has. A death with no killer -- spike

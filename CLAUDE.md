@@ -121,16 +121,13 @@ reading values and a smaller scale only for skimming.
 
 ## Open defects
 
-- **Killfeed attribution is short 15 events across 229** (eight sessions),
-  scored against `checks.KNOWN_KD`. Three sessions are exact and the error never
-  invents an event. It is lopsided by side: **kills are exact on six of eight
-  sessions**, deaths short on five. Leading hypothesis for the asymmetry is entry
-  formats this parser does not model — it requires a weapon icon dividing two
-  names, while a death with no killer (spike, fall damage) and the Sage/Clove
-  resurrection entries are laid out differently, and a death is likelier than a
-  kill to take one of those forms. Scanning a stretch with two known-missing
-  deaths found no near misses, so those entries are absent rather than marginal.
-  See `killfeed.py` for the full table.
+- **Killfeed attribution is short 18 events across 238** (nine sessions),
+  scored against `checks.KNOWN_KD`. Three sessions are exact, kills are exact on
+  seven of nine, and the error never invents an event. Deaths are the whole
+  problem now, and it is not one bug: two causes are confirmed in `killfeed.py`
+  (an entry whose weapon slot holds a small non-weapon mark; a band clipped by
+  the top edge of the killfeed ROI), each worth a couple of events. Precision is
+  good — `c40d950031bb` has only two real kills and reports exactly two.
 - **Thin tracks are the leading indicator.** An entry seen in <=4 of a possible
   ~12 sampled frames is either barely caught or about to be split in two. If a
   new capture reads badly, count these first. An observation count *above* ~12 is

@@ -56,6 +56,9 @@ KNOWN_KD = {
     "75a55a296d3b": (5, 5),     # 13-34-38, a short match
     "59c70f1ef720": (15, 16),   # 13-58-11
     "bfad2778a372": (19, 15),   # 14-45-35
+    # A low-event match: with only two real kills, a single false positive shows
+    # up as a 50% error, so this is the sharpest precision test in the set.
+    "c40d950031bb": (2, 7),     # 18-27-17
 }
 
 
