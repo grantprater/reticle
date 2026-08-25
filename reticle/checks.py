@@ -101,6 +101,7 @@ KNOWN_KD = {
     # 2026-08-25.
     "e37fdeca944f": (16, 19),   # 13-17-45  Sunset, a map not seen before
     "043bafca271a": (11, 15),   # 13-59-44  Haven
+    "3694746e4e54": (14, 17),   # 14-42-25  Ascent
 }
 
 
