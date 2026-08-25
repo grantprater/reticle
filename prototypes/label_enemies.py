@@ -5,13 +5,33 @@ enemy detector.
 
 Controls
 --------
-    left click        mark an enemy PLAYER's head
+    left click        mark a VISIBLE enemy player's head
+    ctrl+left click   mark a REVEALED enemy -- outlined through map geometry by
+                      Sova recon, Fade, Skye and the like
     shift+left click  mark an enemy DEPLOYABLE (KJ turret, Cypher cage, drone)
     right click       undo the last mark on this frame
     SPACE or D   save this frame and advance
     N            mark the frame as having NO visible enemy, and advance
     A            go back a frame
     Q / ESC      save and quit
+
+Revealed enemies are their own class, and they may be the most valuable of the
+three. Grant's framing is that only two things change a round's shape: economy,
+and what each side has learned. A recon-revealed enemy is a direct measurement
+of the second -- it is what the player *knew* at the moment of a decision, and
+nothing else in this pipeline can see that. A wide swing into a spot just darted
+is a different decision from a blind one, and only this distinguishes them.
+
+They must stay out of aim statistics, though: an enemy outlined through a wall
+is not shootable, so counting crosshair placement on one as target acquisition
+would be measuring an impossible shot. Detect, separate, use for decision
+quality rather than mechanics.
+
+There should be a visual handle on the difference. A visible enemy is a full
+agent model inside its outline; a revealed one is a flat silhouette drawn over
+the geometry in front of it. That is an interior-texture test -- the same shape
+as every other structural test here -- but it is unproven, which is exactly why
+the two get labelled apart rather than assumed separable.
 
 Deployables are labelled, not skipped. Valorant outlines enemy *objects* in the
 same colour as enemy players -- a Killjoy turret, a Cypher cage, a Sova drone --
@@ -159,15 +179,16 @@ def main() -> int:
         canvas.delete("all")
         canvas.create_image(0, 0, anchor="nw", image=state["img"])
         for (px, py, kind) in state["pts"]:
-            col = "#ff2020" if kind == "player" else "#20c0ff"
+            col = {"player": "#ff2020", "revealed": "#ffd020"}.get(kind, "#20c0ff")
             canvas.create_oval(px - 11, py - 11, px + 11, py + 11, outline=col, width=2)
             canvas.create_line(px - 16, py, px + 16, py, fill=col, width=1)
             canvas.create_line(px, py - 16, px, py + 16, fill=col, width=1)
         s = int(t_ms) // 1000
         status.config(text=f"  {state['i']+1}/{len(times)}   {s//60}:{s%60:02d}   [{pool}]   "
-                           f"players={sum(1 for m in state['pts'] if m[2] == 'player')} "
-                           f"deployables={sum(1 for m in state['pts'] if m[2] != 'player')}   "
-                           f"click=player  shift+click=deployable  right-click=undo   "
+                           f"vis={sum(1 for m in state['pts'] if m[2] == 'player')} "
+                           f"rev={sum(1 for m in state['pts'] if m[2] == 'revealed')} "
+                           f"dep={sum(1 for m in state['pts'] if m[2] == 'deployable')}   "
+                           f"click=visible  ctrl=revealed  shift=deployable  rclick=undo   "
                            f"SPACE=next  N=none  A=back  Q=quit")
 
     def record():
@@ -203,6 +224,8 @@ def main() -> int:
     canvas.bind("<Button-1>", lambda e: (state["pts"].append((e.x, e.y, "player")), show()))
     canvas.bind("<Shift-Button-1>",
                 lambda e: (state["pts"].append((e.x, e.y, "deployable")), show()))
+    canvas.bind("<Control-Button-1>",
+                lambda e: (state["pts"].append((e.x, e.y, "revealed")), show()))
     canvas.bind("<Button-3>", lambda e: (state["pts"] and state["pts"].pop(), show()))
     root.bind("<space>", lambda e: advance(+1))
     root.bind("d", lambda e: advance(+1))
