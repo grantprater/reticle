@@ -643,6 +643,18 @@ scrubbing an overlay video, and it is the right tool whenever the question is
   own entry, not across the ROI. Slot texture against neighbouring slots, not a
   threshold. A plate column that spans the band's height, not one that is merely
   the right colour. Reach for that shape first; it has never once been wrong.
+
+  **But relative does not mean instead of absolute.** Structure answers "is this
+  a thin rim against its surroundings"; level answers "is this the colour we are
+  looking for". They are different questions and neither substitutes for the
+  other -- the plate test above needs coverage *and* colour, and it is right to.
+  Reading this convention as "replace absolute with relative" produced an enemy
+  detector that fired confidently on a grey line beside a cyan panel, because a
+  top-hat is a local peak finder and every image has local peaks. Adding a
+  permissive absolute floor back underneath it nearly doubled precision. The
+  floor's job is only to reject things that are not the colour at all; it must
+  never be the test that decides what counts as red *enough*, which is the
+  mistake that started the whole sequence.
 - **Never guess a value.** A field the extractor cannot read stays `null`.
   Everything is range-checked before return — a clock of 7:41 is a misread, not
   a fact. This is what makes `checks.py` meaningful.
