@@ -11,6 +11,30 @@ https://claude.ai/code/artifact/3854df28-3e45-4783-8aee-7e7f062ac461
 
 Section references in docstrings (`SS3`, `SS7`) mean §3, §7 of that doc.
 
+## Picking up
+
+Last worked 2026-08-25. Twelve sessions ingested, ten with scoreboard K/D in
+`checks.KNOWN_KD`. Killfeed attribution is 24 events off across 285, every
+remaining delta a miss rather than a wrong answer. Nothing is half-applied and
+the tree is clean.
+
+The four candidates for what comes next, with the case for each:
+
+1. **Reconcile the scoreboard against the killfeed** (§3 stage 05). The board
+   outranks killfeed inference and is already readable, so for any session where
+   it is open the totals could simply be taken from it, with the killfeed
+   supplying timing within the round. This makes the remaining attribution gap
+   stop mattering for totals without fixing it.
+2. **Stack-aware entry tracking.** `kf_entry_mask` was recorded for exactly this
+   and is unused. It is the one killfeed defect with a known, designed fix.
+3. **Minimap position tracking** — the last big stage-02 extractor, and the
+   gating dependency for the doc's peek-exposure metric.
+4. **Keep grinding killfeed recall.** Diminishing: four causes found, two fixed,
+   the rest cost a re-ingest or need a new primitive.
+
+If a new capture reads badly, count thin tracks first (see below) — it is the
+fastest signal for whether the problem is detection or counting.
+
 ## Running
 
 Always via the venv interpreter — there is no console script:
@@ -33,7 +57,7 @@ Stage numbers are the design doc's §3 stages, not release versions.
 | 02 Deterministic extractors | HUD, killfeed, minimap, main-view | **partial** — see below |
 | 03 Event proposal | fuse stage-02 into typed candidates | not started |
 | 04 VLM adjudication | ambiguous band only | not started |
-| 05 Reconcile | source priority + label-free invariants | invariants only (`checks.py`, `verify`) |
+| 05 Reconcile | source priority + label-free invariants | invariants only (`checks.py`, `verify`). The scoreboard is now readable and outranks killfeed inference, but nothing reconciles the two yet. |
 | 06 Metrics | pure versioned functions | not started |
 | 07 Narrate/query | not started |
 | 08 Correction loop | not started |
@@ -44,12 +68,27 @@ Built and populating in the store: round clock, both team scores, HP, shield,
 ammo (mag + reserve), killfeed **entry count**, and killfeed **player
 attribution** (kill/death, with the stack positions needed to count entries).
 
-Not built: **credits**, **minimap position tracking**, **main-view detection**.
+Built but not stored: the **Tab scoreboard** (`scoreboard.py`) — all ten rows'
+K/D/A and which row is the local player's. `reticle board` reads it live off the
+video; nothing writes it to L1 yet, which is the obvious next step if it starts
+getting used for more than checking.
+
+Not built: **credits**, **minimap position tracking**, **main-view detection**,
+**combat report**.
 
 Minimap position tracking is the gating dependency for the doc's peek-exposure
 metric and for movement state generally; §2 calls the homography trivial, and
-`MinimapMode.has_static_homography` already records per session whether a single
-constant transform exists (true for `223d636bf8d2` and `bdfdcf009dba`).
+`MinimapMode.has_static_homography` records per session whether a single
+constant transform exists — true for every capture from 2026-08-23 evening on.
+
+The **combat report** (the post-death panel, right of centre) is the richest
+unread surface in the game: per enemy it shows outgoing damage, incoming damage,
+the hit breakdown, and kill / killed-you flags. That is engagement-level data
+the killfeed cannot give. Two things to settle before building it: the panel's
+height and vertical position vary with the number of enemy rows, so it needs
+detection rather than a fixed ROI; and the banner name changes between deaths
+(`Chef`, then `Harbinger` on one session), which may mean it follows the
+spectated player rather than the local one.
 
 ## Checking against the game's own numbers
 
