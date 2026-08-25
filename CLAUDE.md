@@ -398,10 +398,12 @@ scrubbing an overlay video, and it is the right tool whenever the question is
 
 ## Open defects
 
-- **One known read error across 289 events** at `hud-0.8.1` — the ability kill
-  below. The raw gap against `checks.KNOWN_KD` is 6 events, from 24 at
-  `hud-0.6.0`, and all five of the others are verified Run It Back events; see "Scoreboard divergence is a finding" above before
-  quoting the 6. `killfeed.py` has the per-session table.
+- **One known read error, plus two unexplained**, across 372 events at
+  `hud-0.8.1`. The raw gap against `checks.KNOWN_KD` is 8 events, from 24 at
+  `hud-0.6.0`: five are verified Run It Back, one is the ability kill below, and
+  two are `e37fdeca944f`'s missing deaths, which nobody has looked at yet. See
+  "Scoreboard divergence is a finding" above before quoting the 8.
+  `killfeed.py` has the per-session table.
 - **The one real miss left is an ability kill.** `c40d950031bb` 13:14,
   `HungryHamster5 ⊗ Me`, killed by Raze. There is no weapon icon, and the
   ability mark fragments under the white-text cut into pieces too small to be a
