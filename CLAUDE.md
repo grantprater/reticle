@@ -553,6 +553,15 @@ scrubbing an overlay video, and it is the right tool whenever the question is
 - **`README.md` is stale.** It says HP, ammo and the killfeed are unbuilt; they
   are built, and it still describes stage 02 as scoreline-only. Fix it when next
   touching that area.
+- **A dead player spectates, so the main view is not theirs.** Found while
+  checking ally rendering: `9acf02f98283` 24:50 shows the combat report, "SWITCH
+  PLAYER", and a teammate's first-person model. Nothing currently detects this
+  -- `spans` knows off/idle/active and not spectating -- and every main-view
+  metric is wrong on those frames, because the camera, the crosshair and the
+  hands all belong to somebody else. Aim, crosshair placement and enemy
+  detection all have to exclude them. The combat report panel is a usable
+  marker, and so is the killfeed: the player is dead from their death entry
+  until the round ends.
 - **Health is not a death signal.** `hp` going unreadable was used as an
   independent death estimate and it is not one — it also goes unreadable in buy
   phase, while scoped, and while spectating. On `b3b9defb6fd7` it produced 20
@@ -589,9 +598,13 @@ scrubbing an overlay video, and it is the right tool whenever the question is
    it. Turning it off entirely would put enemy detection back into
    model-recognition territory.
 
-   **Allies are not outlined at all.** That is worth stating plainly because it
-   is a large simplification: any outline is an enemy, so detection needs no
-   team disambiguation and cannot mistake a teammate for a target.
+   **Allies are rendered through walls in buy phase**, as a solid teal
+   silhouette -- clearly visible at `9acf02f98283` 9:09. Sampling forty live
+   frames found no ally silhouettes, and every green blob there had a mundane
+   cause: foliage, and the spectated player's own teal gloves. So the rule is
+   not "any outline is an enemy" but **"any outline in the session's enemy
+   colour is an enemy"**, which is why that colour is tagged. It also means the
+   enemy outline should never be set to green, or the two stop being separable.
 
    The outline is what makes this tractable. A saturated-red mask over the main
    view returns a few hundred pixels in a 2-megapixel frame -- enormously
