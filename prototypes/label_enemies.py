@@ -7,11 +7,15 @@ Controls
 --------
     left click   mark an enemy head
     right click  undo the last mark on this frame
-    SPACE or D    save this frame and advance
+    SPACE or D   save this frame and advance
     N            mark the frame as having NO visible enemy, and advance
     A            go back a frame
-    Z            toggle 2x zoom around the cursor, for small or distant models
     Q / ESC      save and quit
+
+Built on tkinter rather than cv2.imshow: the project pins
+opencv-python-headless, which is correct for a pipeline that never wants a
+window, and swapping it for the GUI build to run one labelling tool would be the
+tail wagging the dog. tkinter ships with Python and reads PNG bytes directly.
 
 Labels append to `<store>/labels/enemies/<session>.jsonl`, one row per frame,
 and the tool resumes where it left off. Every frame shown is recorded --
@@ -88,6 +92,9 @@ def sample_times(sid: str, n: int) -> list[tuple[float, str]]:
 
 
 def main() -> int:
+    import base64
+    import tkinter as tk
+
     ap = argparse.ArgumentParser()
     ap.add_argument("session")
     ap.add_argument("--n", type=int, default=300)
@@ -112,84 +119,81 @@ def main() -> int:
     print(f"{len(done)} already labelled, {len(times)} to go")
 
     cap = cv2.VideoCapture(str(src["path"]))
-    state = {"pts": [], "zoom": False, "cursor": (0, 0)}
-
-    def on_mouse(event, x, y, flags, _):
-        state["cursor"] = (x, y)
-        if event == cv2.EVENT_LBUTTONDOWN:
-            state["pts"].append((x, y))
-        elif event == cv2.EVENT_RBUTTONDOWN and state["pts"]:
-            state["pts"].pop()
-
-    cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
-    cv2.setMouseCallback(WIN, on_mouse)
-
-    i, written = 0, 0
     fh = out_path.open("a", encoding="utf-8")
-    while 0 <= i < len(times):
-        t_ms, pool = times[i]
+    state = {"i": 0, "pts": [], "img": None, "written": 0}
+
+    root = tk.Tk()
+    root.title("reticle - click enemy heads")
+    canvas = tk.Canvas(root, highlightthickness=0)
+    canvas.pack(fill="both", expand=True)
+    status = tk.Label(root, anchor="w", font=("Consolas", 11))
+    status.pack(fill="x")
+
+    def show():
+        t_ms, pool = times[state["i"]]
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t_ms / 1000.0 * fps)))
         ok, frame = cap.read()
         if not ok:
-            i += 1
-            continue
+            advance(+1, record=False)
+            return
+        view = cv2.resize(frame, None, fx=args.scale, fy=args.scale,
+                          interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".png", view)
+        state["img"] = tk.PhotoImage(data=base64.b64encode(buf.tobytes()))
+        h, w = view.shape[:2]
+        canvas.config(width=w, height=h)
+        canvas.delete("all")
+        canvas.create_image(0, 0, anchor="nw", image=state["img"])
+        for (px, py) in state["pts"]:
+            canvas.create_oval(px - 11, py - 11, px + 11, py + 11, outline="#ff2020", width=2)
+            canvas.create_line(px - 16, py, px + 16, py, fill="#ff2020", width=1)
+            canvas.create_line(px, py - 16, px, py + 16, fill="#ff2020", width=1)
+        s = int(t_ms) // 1000
+        status.config(text=f"  {state['i']+1}/{len(times)}   {s//60}:{s%60:02d}   [{pool}]   "
+                           f"marks={len(state['pts'])}   "
+                           f"click=head  right-click=undo  SPACE=next  N=none  A=back  Q=quit")
+
+    def record():
+        t_ms, pool = times[state["i"]]
+        fh.write(json.dumps({
+            "session_id": args.session,
+            "t_ms": round(t_ms),
+            "pool": pool,
+            # stored in ORIGINAL frame pixels, so the display scale is free to change
+            "heads": [[round(px / args.scale), round(py / args.scale)]
+                      for px, py in state["pts"]],
+        }) + chr(10))
+        fh.flush()
+        state["written"] += 1
+
+    def advance(step, record_first=True):
+        if record_first:
+            record()
         state["pts"] = []
-        while True:
-            view = cv2.resize(frame, None, fx=args.scale, fy=args.scale,
-                              interpolation=cv2.INTER_AREA)
-            for (px, py) in state["pts"]:
-                cv2.drawMarker(view, (px, py), (0, 0, 255), cv2.MARKER_CROSS, 18, 2)
-                cv2.circle(view, (px, py), 11, (0, 0, 255), 1, cv2.LINE_AA)
-            s = int(t_ms) // 1000
-            cv2.putText(view, f"{i+1}/{len(times)}  {s//60}:{s%60:02d}  [{pool}]  "
-                              f"marks={len(state['pts'])}",
-                        (10, 26), cv2.FONT_HERSHEY_SIMPLEX, .7, (0, 255, 255), 2, cv2.LINE_AA)
-            if state["zoom"]:
-                cx, cy = state["cursor"]
-                h, w = view.shape[:2]
-                x0, y0 = max(0, cx - 110), max(0, cy - 80)
-                patch = view[y0:y0 + 160, x0:x0 + 220]
-                if patch.size:
-                    big = cv2.resize(patch, None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST)
-                    bh, bw = big.shape[:2]
-                    view[h - bh:h, w - bw:w] = big
-                    cv2.rectangle(view, (w - bw, h - bh), (w - 1, h - 1), (0, 255, 255), 1)
-            cv2.imshow(WIN, view)
-            k = cv2.waitKey(20) & 0xFF
-            if k in (ord(' '), 83, ord('d')):
-                rec, adv = True, +1
-                break
-            if k in (ord('n'), ord('N')):
-                state["pts"] = []
-                rec, adv = True, +1
-                break
-            if k in (81, ord('a')):
-                rec, adv = False, -1
-                break
-            if k in (ord('z'), ord('Z')):
-                state["zoom"] = not state["zoom"]
-            if k in (ord('q'), 27):
-                rec, adv = False, 0
-                break
-        if rec:
-            fh.write(json.dumps({
-                "session_id": args.session,
-                "t_ms": round(t_ms),
-                "pool": pool,
-                "scale": args.scale,
-                # stored in ORIGINAL frame pixels, so the display scale is free to change
-                "heads": [[round(px / args.scale), round(py / args.scale)]
-                          for px, py in state["pts"]],
-            }) + "\n")
-            fh.flush()
-            written += 1
-        if adv == 0:
-            break
-        i += adv
-    fh.close()
-    cap.release()
-    cv2.destroyAllWindows()
-    print(f"wrote {written} labelled frames to {out_path}")
+        state["i"] += step
+        if not (0 <= state["i"] < len(times)):
+            finish()
+            return
+        show()
+
+    def finish():
+        fh.close()
+        cap.release()
+        print(f"wrote {state['written']} labelled frames to {out_path}")
+        root.destroy()
+
+    canvas.bind("<Button-1>", lambda e: (state["pts"].append((e.x, e.y)), show()))
+    canvas.bind("<Button-3>", lambda e: (state["pts"] and state["pts"].pop(), show()))
+    root.bind("<space>", lambda e: advance(+1))
+    root.bind("d", lambda e: advance(+1))
+    root.bind("n", lambda e: (state["pts"].clear(), advance(+1)))
+    root.bind("a", lambda e: advance(-1, record_first=False))
+    root.bind("q", lambda e: finish())
+    root.bind("<Escape>", lambda e: finish())
+    root.protocol("WM_DELETE_WINDOW", finish)
+
+    show()
+    root.mainloop()
     return 0
 
 
