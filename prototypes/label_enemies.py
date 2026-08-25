@@ -9,6 +9,7 @@ Controls
     ctrl+left click   mark a REVEALED enemy -- outlined through map geometry by
                       Sova recon, Fade, Skye and the like
     middle click      mark a CORPSE -- a dead body, which stays outlined
+    alt+left click    mark a MUZZLE FLASH or tracer from an unseen enemy
     shift+left click  mark an enemy DEPLOYABLE (KJ turret, Cypher cage, drone)
     right click       undo the last mark on this frame
     SPACE or D   save this frame and advance
@@ -17,6 +18,20 @@ Controls
                  of scoring. Use it whenever a call is a coin flip.
     A            go back a frame
     Q / ESC      save and quit
+
+Muzzle flashes are recorded but are **not** part of this detector's scoring set.
+A flash or tracer from an enemy you cannot see is not an outline, so the outline
+detector structurally cannot find it, and counting it as a miss would penalise
+the detector for something invisible to it. It is here because the frames are
+being reviewed anyway and a second labelling pass costs more than a keybinding.
+
+It is worth its own extractor later, and possibly a valuable one. A flash from a
+position with no visible model is *direct evidence of an angle the player did
+not account for* -- which is what the dA/ds geometry work tries to infer
+indirectly. Paired with an HP drop it gives "shot from an unseen angle", about as
+coachable an event as this project can produce, and it is observable in a way
+enemy position is not: the enemy is not on screen and not on the minimap, yet
+their position is inferable from the flash.
 
 Corpses stay outlined, so they are a fourth class. Same reasoning as the others
 -- the detector will find one whether or not we ask, so an unlabelled body is a
@@ -218,7 +233,7 @@ def main() -> int:
         canvas.create_image(0, 0, anchor="nw", image=state["img"])
         for (px, py, kind) in state["pts"]:
             col = {"player": "#ff2020", "revealed": "#ffd020",
-                   "corpse": "#a060ff"}.get(kind, "#20c0ff")
+                   "corpse": "#a060ff", "flash": "#ffffff"}.get(kind, "#20c0ff")
             canvas.create_oval(px - 11, py - 11, px + 11, py + 11, outline=col, width=2)
             canvas.create_line(px - 16, py, px + 16, py, fill=col, width=1)
             canvas.create_line(px, py - 16, px, py + 16, fill=col, width=1)
@@ -227,9 +242,10 @@ def main() -> int:
                            f"vis={sum(1 for m in state['pts'] if m[2] == 'player')} "
                            f"rev={sum(1 for m in state['pts'] if m[2] == 'revealed')} "
                            f"dep={sum(1 for m in state['pts'] if m[2] == 'deployable')} "
-                           f"corpse={sum(1 for m in state['pts'] if m[2] == 'corpse')}   "
+                           f"corpse={sum(1 for m in state['pts'] if m[2] == 'corpse')} "
+                           f"flash={sum(1 for m in state['pts'] if m[2] == 'flash')}   "
                            f"click=visible  ctrl=revealed  shift=deployable   "
-                           f"mclick=corpse  rclick=undo  U=unsure   "
+                           f"mclick=corpse  alt=flash  rclick=undo  U=unsure   "
                            f"SPACE=next  N=none  A=back  Q=quit")
 
     def record():
@@ -271,6 +287,7 @@ def main() -> int:
     canvas.bind("<Control-Button-1>",
                 lambda e: (state["pts"].append((e.x, e.y, "revealed")), show()))
     canvas.bind("<Button-2>", lambda e: (state["pts"].append((e.x, e.y, "corpse")), show()))
+    canvas.bind("<Alt-Button-1>", lambda e: (state["pts"].append((e.x, e.y, "flash")), show()))
     canvas.bind("<Button-3>", lambda e: (state["pts"] and state["pts"].pop(), show()))
     root.bind("<space>", lambda e: advance(+1))
     root.bind("d", lambda e: advance(+1))
