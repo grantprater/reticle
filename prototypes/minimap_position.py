@@ -47,9 +47,17 @@ Known limits
   the floorplan. Where dA/ds says how much a peek exposes, the cones say how much
   of that exposure the team already had eyes on.
 
-  Enemy icons come in **three states, and the difference is time**: a solid icon
+  Icons come in **states, and the difference between them is time**: a solid icon
   means somebody can see them *now*; a **question mark** means recently revealed,
-  shown for a little while after vision is lost; a red X marks where one died.
+  shown for a while after vision is lost; an **X marks a death**, red for an
+  enemy and blue for an ally.
+
+  The X marks **decay**, so they are not a running tally and cannot serve as the
+  alive-count cross-check they first look like -- measured against the killfeed
+  at four moments on 9acf02f98283: 4 blue against 4 ally deaths, but 0 red
+  against 1 enemy death, 1 red against 5, and 3 red against 5. What they do give
+  is *where* a death happened, which the killfeed cannot say at all, plus an
+  independent death-event stream whose timing can be checked against it.
   So the minimap does not just say what the team knows, it says how *stale* that
   knowledge is -- and staleness is the whole point for judging a peek. Taking an
   angle where an enemy is visible right now, where one was seen five seconds ago,
