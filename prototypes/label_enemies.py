@@ -10,7 +10,8 @@ Controls
                       Sova recon, Fade, Skye and the like
     middle click      mark a CORPSE -- a dead body, which stays outlined
     alt+left click    mark a MUZZLE FLASH or tracer from an unseen enemy
-    shift+left click  mark an enemy DEPLOYABLE (KJ turret, Cypher cage, drone)
+    shift+left click  mark any other outlined enemy THING -- a KJ turret, a
+                      Cypher cage, a drone, a Sova ult beam. Not a player.
     right click       undo the last mark on this frame
     SPACE or D   save this frame and advance
     N            mark the frame as having NO outlined enemy, and advance
@@ -32,6 +33,17 @@ indirectly. Paired with an HP drop it gives "shot from an unseen angle", about a
 coachable an event as this project can produce, and it is observable in a way
 enemy position is not: with nobody on the team seeing them, they are on neither
 the screen nor the minimap, yet their position is inferable from the flash.
+
+"Deployable" is the catch-all for **anything outlined that is not a player**,
+not just placed objects. A Sova ultimate beam belongs here as much as a turret
+does. The only split the detector needs is player against not-player: everything
+in this bucket will be found whether or not we ask, so it has to be labelled,
+and none of it is ever a target.
+
+The sub-kinds separate themselves later without labels. A turret does not move,
+a beam is enormous and transient, and neither has a human aspect ratio -- so
+spending a keybinding on a distinction that shape recovers for free would be the
+wrong trade.
 
 Corpses stay outlined, so they are a fourth class. Same reasoning as the others
 -- the detector will find one whether or not we ask, so an unlabelled body is a
