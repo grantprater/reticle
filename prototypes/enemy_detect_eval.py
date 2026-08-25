@@ -45,6 +45,25 @@ not for real detections, so every operating point along it was bad.
 
 What did not work
 -----------------
+**Persistence could not find the player's own weapon.** It was roughly half the
+false positives -- red-rimmed like everything else and in frame constantly -- so
+the killfeed's overlay-mask trick looked obvious. It failed: the derived mask
+covered 0.7% of the frame and changed nothing, because the first-person model
+bobs, sways and changes when the weapon does, so no pixel responds often enough.
+**Persistence finds things that do not move, not things that are always there**,
+and those are different properties. A measured region works instead -- the
+labels put 21% of false positives and 0 of 47 enemies in the lower right -- but
+it is cruder and costs any genuinely low-right enemy.
+
+**Skipping Tab-scoreboard frames is not worth doing.** One frame in 150 has it
+open, contributing 3 false positives of 225. A single vivid example in the
+sample looked like a category and was not.
+
+**The label set is centre-biased and must not be fitted to.** 97.9% of labels
+fall in the middle third of the screen, because half the frames were sampled
+just before a kill, when the player is by definition looking at the enemy. A
+centre prior would score well here and be wrong: exposure analysis needs
+peripheral enemies most of all.
 A **width profile** -- blob width per row, matched against a template mined from
 the labels -- separates only about 1.8 to 1 (50% of enemies against 28% of false
 positives). The signature is visibly real: enemies average a narrow head, a
@@ -102,6 +121,7 @@ AREA = int(sys.argv[4]) if len(sys.argv) > 4 else 60
 AR   = tuple(float(x) for x in (sys.argv[5] if len(sys.argv) > 5 else "0.7,7.0").split(","))
 FILL = tuple(float(x) for x in (sys.argv[6] if len(sys.argv) > 6 else "0.0,0.7").split(","))
 HMIN = int(sys.argv[7]) if len(sys.argv) > 7 else 12
+WEAP = (0.42, 0.58)
 CK   = int(sys.argv[8]) if len(sys.argv) > 8 else 9
 
 man = json.loads((STORE/"manifests"/f"{SID}.json").read_text()); src=man["source"]; fps=float(src["fps"])
@@ -112,16 +132,46 @@ rows=[r for r in rows.values() if not r.get("uncertain")]
 
 def hud_mask(h,w):
     m=np.ones((h,w),bool); m[:120,:]=False; m[h-190:,:]=False
-    m[:360,:360]=False; m[60:360,w-520:]=False; return m
+    m[:360,:360]=False; m[60:360,w-520:]=False
+    # The player's own weapon. It is red-rimmed like everything else and in
+    # frame constantly, and it was roughly half the false positives. Persistence
+    # cannot find it -- the model bobs, sways and changes with the weapon held,
+    # so no pixel responds often enough -- so this is a region, measured rather
+    # than guessed: it holds 21% of false positives and 0 of 47 labels.
+    ww, hh = int(w*WEAP[0]), int(h*WEAP[1])
+    m[hh:, ww:] = False
+    return m
 
 KER = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (K,K))
+
+def _resp(fr):
+    a = cv2.cvtColor(fr, cv2.COLOR_BGR2LAB)[:,:,1]
+    return cv2.morphologyEx(a, cv2.MORPH_TOPHAT, KER)
+
+def own_weapon_mask(cap, fps, times, h, w):
+    """Pixels that respond in most frames are the player's own weapon.
+
+    The first-person model is red-rimmed like everything else and sits in the
+    same region every frame; an enemy never does. Same reasoning as the
+    killfeed's overlay mask, and derived from the footage rather than hardcoded,
+    so it follows whatever weapon is held and needs no region guessed at."""
+    acc = np.zeros((h,w), np.float32); n = 0
+    for tm in times:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(tm/1000.0*fps)))
+        ok, fr = cap.read()
+        if not ok: continue
+        acc += (_resp(fr) > THR).astype(np.float32); n += 1
+    if not n: return np.ones((h,w), bool)
+    persistent = (acc/n) > 0.30
+    grown = cv2.dilate(persistent.astype(np.uint8), np.ones((15,15), np.uint8)) > 0
+    return ~grown
 def detect(fr):
     h,w = fr.shape[:2]
     lab = cv2.cvtColor(fr, cv2.COLOR_BGR2LAB)
     a = lab[:,:,1]                                  # red-green opponent axis
     top = cv2.morphologyEx(a, cv2.MORPH_TOPHAT, KER)
     detect.top = top
-    m = ((top > THR) & hud_mask(h,w)).astype(np.uint8)
+    m = ((top > THR) & hud_mask(h,w) & OWN).astype(np.uint8)
     # Join the rim into ONE region before measuring it. The rim is broken by the
     # body, by limbs and by occlusion, so connected components shatters a single
     # enemy into fragments that each fail the size tests -- the feature found
@@ -155,6 +205,12 @@ def detect(fr):
     return out
 
 cap=cv2.VideoCapture(str(src["path"])); PAD=14
+_ok, _fr0 = cap.read()
+H0, W0 = _fr0.shape[:2]
+import random as _rnd
+_rnd.seed(1)
+OWN = own_weapon_mask(cap, fps, [r["t_ms"] for r in _rnd.sample(rows, min(60, len(rows)))], H0, W0)
+print(f"own-weapon mask covers {(~OWN).mean()*100:.1f}% of the frame")
 st_={p:dict(tp=0,fn=0,fp=0,nt=0) for p in ("uniform","event")}
 for r in rows:
     cap.set(cv2.CAP_PROP_POS_FRAMES,int(round(r["t_ms"]/1000.0*fps))); ok,fr=cap.read()
