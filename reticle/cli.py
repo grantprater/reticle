@@ -11,6 +11,7 @@
     reticle verify  [SESSION]                 check HUD reads against domain invariants
     reticle overlay [SESSION]                 render detections onto the video
     reticle kd      [SESSION]                 running K/D per round, to check against the scoreboard
+    reticle board   [SESSION]                 read the Tab scoreboard and score our K/D against it
     reticle sql     "SELECT ..."              DuckDB over the store
 """
 
@@ -26,6 +27,7 @@ import numpy as np
 
 from .decode import sample_frames
 from .checks import KNOWN_KD, check_hud, player_events, track_entries
+from .scoreboard import read_scoreboard
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
@@ -695,6 +697,96 @@ def cmd_verify(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- board
+
+def cmd_board(args) -> int:
+    """Read every Tab scoreboard in the capture and score our count against it.
+
+    This is the only check in the project that compares against the game's own
+    running total rather than a domain invariant, and it is per-opening rather
+    than per-match: the first opening where the two diverge contains the error.
+
+    Needs pixels, so it re-decodes. Sampled coarsely on purpose -- the board
+    stays up for seconds, so 2 Hz catches every opening without reading each one
+    a dozen times.
+    """
+    import cv2
+
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    sid = manifest["session_id"]
+    src = manifest["source"]
+    profile = get_profile(manifest["source_profile"])
+    media = Path(src["path"])
+    if not media.is_file():
+        raise SystemExit(f"source media has moved: {media}")
+
+    templates = Templates.load(profile.name)
+    hud = store.read_hud(sid, _date_of(manifest))
+    tracked = None
+    if hud is not None:
+        ht = hud.column("t_ms").to_pylist()
+        kills = [e["t_first"] for e in track_entries(ht, hud.column("kf_kill_mask").to_pylist())
+                 if e["counted"]]
+        deaths = [e["t_first"] for e in track_entries(ht, hud.column("kf_death_mask").to_pylist())
+                  if e["counted"]]
+        tracked = (kills, deaths)
+
+    print(f"session    {sid}  ({src['filename']})")
+    print(f"sampling   {args.hz:g} Hz for scoreboard openings")
+
+    reads: list[tuple[float, object]] = []
+    for smp in sample_frames(str(media), args.hz, src["fps"], args.max_frames):
+        sb = read_scoreboard(smp.frame, templates,
+                             args.min_confidence, args.min_margin)
+        if sb.open_ and sb.player is not None and sb.player.complete:
+            reads.append((smp.t_ms, sb))
+
+    if not reads:
+        raise SystemExit("no scoreboard found -- was it opened, and is the profile right?")
+
+    # One row per opening: openings are runs of frames, so break on a gap.
+    openings: list[list[tuple[float, object]]] = []
+    for t, sb in reads:
+        if openings and t - openings[-1][-1][0] <= args.gap * 1000:
+            openings[-1].append((t, sb))
+        else:
+            openings.append([(t, sb)])
+
+    print(f"openings   {len(openings)} ({len(reads)} frames read)\n")
+    print("   at        board K/D/A    ours K/D    delta     rows")
+    worst = None
+    for grp in openings:
+        # the frame of this opening with the most rows fully read
+        t, sb = max(grp, key=lambda p: sum(1 for r in p[1].rows if r.complete))
+        pl = sb.player
+        got = sum(1 for r in sb.rows if r.complete)
+        cell = f"{pl.kills}/{pl.deaths}/{pl.assists}"
+        if tracked is None:
+            print(f"  {_fmt_hms(t):>8s}  {cell:>12s}    {'-':>8s}    {'-':>6s}   {got}/10")
+            continue
+        ok = sum(1 for x in tracked[0] if x <= t)
+        od = sum(1 for x in tracked[1] if x <= t)
+        dk, dd = ok - pl.kills, od - pl.deaths
+        flag = "" if (dk == 0 and dd == 0) else "  <-"
+        if worst is None and (dk or dd):
+            worst = t
+        print(f"  {_fmt_hms(t):>8s}  {cell:>12s}    {ok:2d} / {od:2d}   "
+              f"{dk:+d} / {dd:+d}   {got}/10{flag}")
+
+    last = max(openings[-1], key=lambda p: sum(1 for r in p[1].rows if r.complete))[1]
+    print("\nfull board at the last opening:")
+    for r in last.rows:
+        who = "  <- you" if r.is_player else ""
+        print(f"   {r.team:5s}  {str(r.kills):>3s} / {str(r.deaths):>3s} / "
+              f"{str(r.assists):>3s}{who}")
+    if tracked is not None and worst is not None:
+        print(f"\nfirst divergence at {_fmt_hms(worst)} -- the error is in or before that round")
+    elif tracked is not None:
+        print("\nno divergence at any opening")
+    return 0
+
+
 # --------------------------------------------------------------------------- kd
 
 def cmd_kd(args) -> int:
@@ -1027,6 +1119,16 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("verify", help="check HUD reads against domain invariants")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_verify)
+
+    s = sub.add_parser("board", help="read the Tab scoreboard and score our K/D against it")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--hz", type=float, default=2.0, help="sample rate (default 2)")
+    s.add_argument("--gap", type=float, default=3.0,
+                   help="seconds of absence that ends one opening (default 3)")
+    s.add_argument("--max-frames", type=int, default=None)
+    s.add_argument("--min-confidence", type=float, default=0.80)
+    s.add_argument("--min-margin", type=float, default=0.04)
+    s.set_defaults(func=cmd_board)
 
     s = sub.add_parser("kd", help="running K/D per round, to check against the scoreboard")
     s.add_argument("session", nargs="?")

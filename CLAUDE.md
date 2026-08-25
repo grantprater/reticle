@@ -51,6 +51,26 @@ metric and for movement state generally; §2 calls the homography trivial, and
 `MinimapMode.has_static_homography` already records per session whether a single
 constant transform exists (true for `223d636bf8d2` and `bdfdcf009dba`).
 
+## Checking against the game's own numbers
+
+Two commands exist for this, and they are the only checks that compare against
+something outside the pipeline rather than a domain invariant.
+
+```
+reticle kd    <session>          running K/D per round, from the killfeed
+reticle board <session>          read every Tab scoreboard and score us against it
+```
+
+`board` is the stronger of the two: it reads all ten rows of the scoreboard and
+identifies the local player's row by the yellow outline the game draws round it
+(no name reading — see `scoreboard.py`). Per opening it prints the board's K/D
+beside ours, so the first divergent row names a window of a minute or two rather
+than a whole match. On `96aa1ae9b96f` it agreed exactly across 21 consecutive
+openings before the first miss.
+
+Ask Grant to open the scoreboard once a round when recording; it costs him
+nothing and it is worth more than any invariant.
+
 ## Open design question: engagements without a kill
 
 The killfeed only fires when someone dies, so keying stage 03 on it alone would
