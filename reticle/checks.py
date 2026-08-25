@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .killfeed import wx_at
+
 # Valorant only ever restarts the round clock at a handful of values. A jump
 # that lands on one of these is a phase change; a jump that lands anywhere else
 # had a digit misread.
@@ -37,6 +39,12 @@ MAX_GAP_MS = 3_000
 # holds its position until an entry above it expires, then rises.
 KF_TRACK_GAP_MS = 2_500     # unseen for longer than this and the entry is gone
 KF_MIN_OBS = 2              # a single-frame detection is noise, not an entry
+# How far an entry's divider column may move before it is a *different* entry.
+# An entry's divider does not move at all while it is on screen -- the feed is
+# right-aligned, so the victim's name width fixes the column -- and measured
+# across sessions it wanders by at most 3 px. Two different entries sharing a
+# slot are tens of pixels apart. 6 px sits well clear of both.
+KF_SIG_TOL = 6
 
 # Scoreboard K/D read off the end-of-match screen, keyed by session. This is the
 # only external ground truth in the project -- everything else here is a
@@ -55,6 +63,16 @@ KNOWN_KD = {
     "b7d24102a6f6": (10, 12),   # 12-37-04
     "75a55a296d3b": (5, 5),     # 13-34-38, a short match
     "59c70f1ef720": (15, 16),   # 13-58-11
+    # 19/15 confirmed by Grant off the end screen. The killfeed reads 20 kills
+    # and all 20 are read correctly; the extra one is a kill on an *enemy
+    # Phoenix inside Run It Back*, which the scoreboard does not credit. Same
+    # rule as ff636d173b07's uncounted deaths, seen from the other side.
+    #
+    #   `board` agrees at all ~50 openings, ending 18/14 at 39:27, and the
+    #   killfeed also holds exactly 18 by then. Two more follow before the match
+    #   ends -- both "Me (Vandal) BiGDonut101", eight seconds apart, with the
+    #   victim taking a kill in between because Run It Back returned him. The
+    #   first carries the Phoenix ult mark.
     "bfad2778a372": (19, 15),   # 14-45-35
     # A low-event match: with only two real kills, a single false positive shows
     # up as a 50% error, so this is the sharpest precision test in the set.
@@ -62,9 +80,13 @@ KNOWN_KD = {
     # Grant played Phoenix here. A death inside Run It Back is *not* counted on
     # the scoreboard (nor is Kayo's), while a Sage or Clove revive death is --
     # so the two behave oppositely, and only the Phoenix/Kayo case can leave a
-    # killfeed entry with no scoreboard death behind it. Deaths still came out
-    # exact at 20/20 here, so either he did not die inside the ult or it
-    # cancelled against a miss.
+    # killfeed entry with no scoreboard death behind it.
+    #
+    # At hud-0.8.1 this is fully accounted for. The killfeed holds 24 deaths,
+    # all read correctly, and exactly four carry the Phoenix ult mark -- 13:21,
+    # 20:00, 29:13 and 38:20. 24 - 4 = 20, the recorded figure. Checked by
+    # rendering every tracked death entry into one contact sheet and counting
+    # the marks; see the note in CLAUDE.md.
     "ff636d173b07": (27, 20),   # 18-47-51
 }
 
@@ -76,53 +98,73 @@ def _slots(mask) -> list[int]:
     return [s for s in range(6) if m & (1 << s)]
 
 
-def track_entries(times, masks) -> list[dict]:
+def track_entries(times, masks, dividers=None) -> list[dict]:
     """Follow each entry across frames; one dict per distinct entry.
 
     Returns every track, including the short ones below KF_MIN_OBS, with
     `counted` saying whether it met the bar. Callers that only want the number
     use `player_events`; a review needs the timestamps as well, and both must
     come from the same walk or they can disagree.
+
+    `dividers` is the parallel column of packed divider positions written by
+    `killfeed.divider_of_ys`. Given it, a detection is only allowed to extend a
+    track whose divider sits within KF_SIG_TOL of it, which is what separates
+    two entries occupying the same slot in turn from one entry that stayed put.
+    Pass None and the walk falls back to slot and time alone, which is what
+    every stored session before hud-0.8.0 has.
     """
     active: list[dict] = []
     done: list[dict] = []
-    for t, mask in zip(times, masks):
+    if dividers is None:
+        dividers = [None] * len(list(times))
+    for t, mask, packed in zip(times, masks, dividers):
         keep = []
         for a in active:
             (keep if t - a["t_last"] <= KF_TRACK_GAP_MS else done).append(a)
         active = keep
         used: set[int] = set()
         for slot in _slots(mask):
+            sig = wx_at(packed, slot)
             best = bi = None
             for ai, a in enumerate(active):
                 if ai in used or slot > a["slot"]:
                     continue          # an entry never moves down the stack
-                # Nearest slot wins. This is a known-imperfect rule with two
-                # opposite failure modes, both observed:
+                # The divider settles it when both sides recorded one. An
+                # entry's divider column is fixed for its whole life on screen,
+                # so a detection whose divider has moved is a *different entry*
+                # however plausible its slot -- which is the one thing slot and
+                # time could never say. This is what splits the two kills at
+                # 223d636bf8d2 32:06, dividers 30 px apart, that were held as a
+                # single track for 18 observations.
+                #
+                # It only ever rules a match *out*. Two entries with the same
+                # killer, victim and weapon render at the same column, so equal
+                # dividers are no evidence of anything; see `divider_of_ys`.
+                if sig is not None and a["sig"] is not None                         and abs(a["sig"] - sig) > KF_SIG_TOL:
+                    continue
+                # Otherwise the nearest slot wins, which is imperfect in two
+                # opposite ways and was the whole rule before the divider:
                 #
                 #   merge  -- an entry expires and the one below rises into the
                 #             slot it vacated, so the detection joins the dead
-                #             entry's track. Two kills at 223d636bf8d2 32:05
-                #             became one track held for 17 observations.
+                #             entry's track.
                 #   split  -- preferring the most recently seen track instead
-                #             fixes that case, but shatters a genuine double
-                #             (b3b9defb6fd7 27:12/27:14) into four tracks, and
-                #             scores worse overall: 12 events off against 11.
+                #             fixes that, but shatters a genuine double
+                #             (b3b9defb6fd7 27:12/27:14) and scores worse.
                 #
-                # Neither rule can tell the two apart, because slot plus time is
-                # not enough information. The fix is to track the whole stack:
-                # when an entry expires, *every* remaining entry shifts up by
-                # exactly one, and `kf_entry_mask` records the full occupancy
-                # per frame so that shift can be estimated and applied before
-                # matching. Not built yet -- the column exists for it.
+                # Both survive here only for entries whose divider went
+                # unrecorded -- an unparsed band, or a session stored before
+                # hud-0.8.0.
                 d = a["slot"] - slot
                 if best is None or d < best:
                     best, bi = d, ai
             if bi is None:
-                active.append({"t_first": t, "t_last": t, "slot": slot, "n_obs": 1})
+                active.append({"t_first": t, "t_last": t, "slot": slot,
+                               "n_obs": 1, "sig": sig})
                 used.add(len(active) - 1)
             else:
-                active[bi].update(t_last=t, slot=slot, n_obs=active[bi]["n_obs"] + 1)
+                active[bi].update(t_last=t, slot=slot, sig=sig or active[bi]["sig"],
+                                  n_obs=active[bi]["n_obs"] + 1)
                 used.add(bi)
     done.extend(active)
     done.sort(key=lambda a: a["t_first"])
@@ -131,15 +173,19 @@ def track_entries(times, masks) -> list[dict]:
     return done
 
 
-def _count(times, masks) -> int:
-    return sum(1 for a in track_entries(times, masks) if a["counted"])
+def _count(times, masks, dividers=None) -> int:
+    return sum(1 for a in track_entries(times, masks, dividers) if a["counted"])
 
 
-def player_events(times, kill_masks, death_masks) -> dict:
+def player_events(times, kill_masks, death_masks,
+                  kill_dividers=None, death_dividers=None) -> dict:
     """Distinct killfeed entries the local player was in, kills and deaths."""
+    t = list(times)
     return {
-        "kills": _count(list(times), list(kill_masks)),
-        "deaths": _count(list(times), list(death_masks)),
+        "kills": _count(t, list(kill_masks),
+                        None if kill_dividers is None else list(kill_dividers)),
+        "deaths": _count(t, list(death_masks),
+                         None if death_dividers is None else list(death_dividers)),
     }
 
 
@@ -292,10 +338,15 @@ def check_hud(table) -> dict:
     # ---- killfeed: entries the player was in, against the scoreboard --------
     names = set(table.column_names)
     if {"kf_kill_mask", "kf_death_mask"} <= names:
+        # Divider columns land from hud-0.8.0 on; older stored sessions have
+        # no such column and fall back to slot-and-time matching.
+        div = lambda c: table.column(c).to_pylist() if c in names else None
         ev = player_events(
             t,
             table.column("kf_kill_mask").to_pylist(),
             table.column("kf_death_mask").to_pylist(),
+            div("kf_kill_wx"),
+            div("kf_death_wx"),
         )
         sid = table.column("session_id")[0].as_py() if "session_id" in names else None
         ev["known"] = KNOWN_KD.get(sid)

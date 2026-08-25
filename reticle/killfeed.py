@@ -65,6 +65,12 @@ back out to it. See `_entry_bands`: the padding is what keeps an entry visible
 while the stack is mid-slide, and it was worth 15 of the 26 events this stage
 was missing.
 
+What that profile measures is itself load-bearing, and getting it wrong loses an
+entry *silently* -- not misread, absent. It is a density taken inside each row's
+own entry and requiring both plate colours, for reasons `_row_profile` sets out.
+Neither property is an optimisation: between them they were four of the events
+this stage was missing on one session alone.
+
 Toggled HUD overlays
 --------------------
 Valorant has a set of optional on-screen readouts (shooting error, performance
@@ -87,7 +93,9 @@ positives that a brightness-only detector produced. Requiring *both* plate
 colours is what makes it specific -- an empty feed scores 0.0% on each.
 
 Attribution is scored against the scoreboard K/D in `checks.KNOWN_KD`. Tracked
-entries versus scoreboard, at 2 Hz, over ten sessions:
+entries versus scoreboard, at 2 Hz, over ten sessions. **These numbers are from
+hud-0.6.0 and predate the row-profile and divider fixes below; nothing has been
+re-run against them yet.** They are kept as the baseline to beat:
 
     b3b9defb6fd7    14 / 18   vs  14 / 18     exact
     bdfdcf009dba    17 / 13   vs  17 / 14     +0 / -1
@@ -111,6 +119,64 @@ Every remaining delta is a miss. Nothing in these ten sessions is now counted
 as the wrong *kind* of event, and c40d950031bb still holds exactly two real
 kills and reports two.
 
+hud-0.8.0 then gave `checks.track_entries` each entry's divider column (see
+`divider_of_ys`), which is what finally separates two entries that occupy one
+slot in turn. Every track longer than an entry can exist -- seven of them across
+the set, at 17 to 20 observations against a ceiling near 12 -- is gone, and none
+was a real entry wrongly cut: 223d636bf8d2 went exact, and ff636d173b07's kills
+went from -3 to exact at 27. Scored:
+
+    b3b9defb6fd7    14 / 18   vs  14 / 18     exact
+    bdfdcf009dba    17 / 14   vs  17 / 14     exact
+    223d636bf8d2    25 / 15   vs  25 / 15     exact
+    9acf02f98283    13 / 16   vs  13 / 16     exact
+    b7d24102a6f6    10 / 12   vs  10 / 12     exact
+    75a55a296d3b     5 /  5   vs   5 /  5     exact
+    59c70f1ef720    15 / 16   vs  15 / 16     exact
+    bfad2778a372    20 / 15   vs  19 / 15     +1 / +0
+    c40d950031bb     2 /  6   vs   2 /  7     +0 / -1
+    ff636d173b07    27 / 24   vs  27 / 20     +0 / +4   (hud-0.8.1)
+
+Seven exact, nine of ten exact on kills, and no long tracks left anywhere.
+Exactly one of the six remaining events is a read error -- c40d950031bb 13:14.
+The other five are entries read correctly that the scoreboard does not count,
+and all five are Run It Back.
+
+The two that are not exact are both about what the *scoreboard* counts, not
+about reading pixels:
+
+* ff636d173b07 is the Phoenix game, and its +4 deaths are now *verified* rather
+  than assumed. All 24 tracked deaths are read correctly and exactly four carry
+  the Phoenix ult mark -- 13:21, 20:00, 29:13, 38:20 -- so 24 - 4 = 20, the
+  recorded figure. Grant's own Run It Back deaths reach the killfeed and never
+  the scoreboard.
+
+* bfad2778a372 is the same rule from the other side: one kill more than the
+  board, all 20 read correctly, and the extra is a kill on an *enemy* Phoenix
+  inside Run It Back. `board` agrees at all ~50 openings and the killfeed holds
+  exactly 18 by the last one at 39:27; the two that follow are both "Me (Vandal)
+  BiGDonut101" eight seconds apart, the victim taking a kill in between because
+  the ult returned him, and the first carries the mark. Grant confirmed 19/15.
+
+  So five of the six remaining events have one cause, and it is *visible in the
+  killfeed itself*. That is what makes reading the mark worth doing: one
+  detector -- a circular badge in the mark slot, right of the weapon icon --
+  reconciles both sessions exactly, and it is a coachable category in its own
+  right rather than only a counting fix.
+
+What was known about hud-0.7.0 is five hand-found misses on 9acf02f98283
+-- 4:27, 20:32, 24:35, 31:22 and 32:22 -- of which four were entries the old
+profile caught in a *single* sampled frame, one short of KF_MIN_OBS, and the
+fifth it never caught at all. Every one now holds for five to ten frames. Two
+are kills and three are deaths, and the scoreboard delta at that session's last
+Tab opening was -2 kills and -3 deaths, so on this session the arithmetic closes
+exactly. That is suggestive, not proof: a re-score could still lose events
+elsewhere that these gained.
+
+Against 300 frames the same session stored as an empty feed, the new profile
+finds 11 bands and 5 player verdicts; all five were checked by eye and all five
+are real events the old profile dropped. Also a spot check, not a re-score.
+
 Known defects, in the order worth attacking
 -------------------------------------------
 1. **A mark can hide the name behind it.** Valorant draws extra icons between
@@ -129,13 +195,34 @@ Known defects, in the order worth attacking
    c40d950031bb 13:14, "HungryHamster5 (X) Me", was read as a *kill*. There is
    no weapon icon on that entry at all, so the largest-blob rule took the
    victim's portrait at the ROI edge for the divider and put "Me" on the killer
-   side. The divider must now have ink on both sides of it, which a portrait
-   never has -- so the entry goes unparsed instead of wrong. Neither this nor
-   defect 1 needed a list of icons: an icon is one solid shape where a name is
-   several glyphs, and a divider has names on both sides. Both are properties of
-   what a name *is*, not of which icons exist.
+   side. The divider must now have a *name* on both sides of it -- glyph-sized
+   components, which a portrait does not have -- so the entry goes unparsed
+   instead of wrong. Neither this nor defect 1 needed a list of icons: an icon
+   is one solid shape where a name is several glyphs, and a divider has names on
+   both sides. Both are properties of what a name *is*, not of which icons exist.
 
-3. **Clipping at the ROI's top edge.** c40d950031bb 15:12, "pan (rifle) Me"
+   The same rule tested on *ink* rather than glyphs until 9acf02f98283 4:26,
+   where bright sky inside the band made a 115 px blob left of the entry, won
+   the divider on size, and put the killer's "Me" on the victim's side. Scenery
+   makes blobs; it does not make glyphs.
+
+3. **Fixed: a narrow entry fell out of the row profile.** Entries differ in
+   width by more than two to one, and plate density measured across the whole
+   ROI fell under PLATE_ROW_FRAC on the narrow ones -- "Me (Bandit) exile" at
+   9acf02f98283 4:27 -- exactly in the rows where the glyphs are tallest. The
+   run shattered into pieces shorter than MIN_BAND_H and the entry was never
+   reported at all. Measuring density inside the row's own entry makes it
+   width-invariant.
+
+4. **Fixed: warm scenery merged into the entry above it.** Bright tan and pink
+   surfaces clear the enemy plate's colour test, and those rows joined the
+   topmost entry's run from above until it exceeded MAX_BAND_H, at which point
+   the run was discarded whole. Requiring both plate colours per row -- the test
+   the band already applied, moved a step earlier -- keeps them out. Because new
+   entries arrive at the top of the stack, this always cost the newest event:
+   the death at 9acf02f98283 20:32.
+
+5. **Clipping at the ROI's top edge.** c40d950031bb 15:12, "pan (rifle) Me"
    scoring 0.41 against a 0.65 bar on a band at y0-37: the newest entry is still
    sliding into place and its glyph tops are cut off by the ROI boundary.
    Reading 24 rows above the ROI was tried and rejected -- it recovers nothing
@@ -143,7 +230,7 @@ Known defects, in the order worth attacking
    plate row-profile resolves. Moving the ROI costs an EXTRACTOR_VERSION bump
    and a re-ingest.
 
-4. **A washed-out entry.** ff636d173b07 11:44, "Me (rifle) MommysMethpipe",
+6. **A washed-out entry.** ff636d173b07 11:44, "Me (rifle) MommysMethpipe",
    scoring 0.00: against a bright background the plate itself clears TEXT_V_MIN
    and fuses with the glyphs -- band median value 215, white mask filling 20.4%
    of the band against 6-10% on a healthy one. Per-band Otsu was tried and does
@@ -192,6 +279,12 @@ RED_H_LO, RED_H_HI = 12, 168
 RED_S_MIN = 60
 PLATE_V_MIN = 140
 PLATE_MIN_FRAC = 0.05
+# Both plate colours must also show up in each *row* of an entry, at this share
+# of the row. Same specificity test, one step earlier -- see `_row_profile`.
+ROW_COLOUR_FRAC = 0.01
+# Plate columns outside this percentile of a row are ignored when measuring how
+# wide that row's entry is, so one stray pixel cannot stretch the span.
+EXTENT_TRIM = 0.05
 
 # White HUD text.
 TEXT_V_MIN = 200
@@ -238,6 +331,13 @@ MIN_NAME_PARTS = 2
 # A pixel white in this share of sampled frames is an overlay, not an entry.
 PERSIST_FRAC = 0.85
 
+# Per-entry divider column, packed one field per stack slot. Nine bits holds
+# 0-511 and the ROI is 489 px wide, so six slots fit in 54 bits of an int64.
+# Zero means no entry in that slot: a real divider needs a name on both sides,
+# so its left edge is never column 0.
+WX_BITS = 9
+WX_MAX = (1 << WX_BITS) - 1
+
 
 @dataclass(frozen=True)
 class KillfeedRead:
@@ -258,6 +358,12 @@ class KillfeedRead:
     kill_ys: tuple[int, ...] = ()
     death_ys: tuple[int, ...] = ()
     entry_ys: tuple[int, ...] = ()
+    # Each entry's weapon-icon divider column, parallel to the `_ys` above.
+    # This is what tells one entry from the next when both sit in the same
+    # slot -- see `divider_of_ys`.
+    kill_wxs: tuple[int, ...] = ()
+    death_wxs: tuple[int, ...] = ()
+    entry_wxs: tuple[int, ...] = ()
     # Entries whose killer or victim name was covered by a toggled overlay. They
     # are neither kills nor deaths *nor* confirmed non-player entries -- a
     # non-zero count here is a capture problem, not a code one.
@@ -286,6 +392,19 @@ class KillfeedRead:
     def death_mask(self) -> int:
         return mask_of_ys(self.death_ys)
 
+    @property
+    def entry_dividers(self) -> int:
+        """Slot-keyed divider columns for every entry, player or not."""
+        return divider_of_ys(self.entry_ys, self.entry_wxs)
+
+    @property
+    def kill_dividers(self) -> int:
+        return divider_of_ys(self.kill_ys, self.kill_wxs)
+
+    @property
+    def death_dividers(self) -> int:
+        return divider_of_ys(self.death_ys, self.death_wxs)
+
     @staticmethod
     def slots_of(mask) -> tuple[int, ...]:
         """Unpack a stored bitmask back to absolute slot indices."""
@@ -310,6 +429,41 @@ def mask_of_ys(ys) -> int:
     for y in ys:
         m |= 1 << absolute_slot(y)
     return m
+
+
+def divider_of_ys(ys, wxs) -> int:
+    """Pack each entry's divider column into one integer, keyed by stack slot.
+
+    Packed rather than listed so it reads like the masks beside it and needs no
+    agreement about ordering: slot `s` always lives at bits [WX_BITS*s, +WX_BITS),
+    and a slot with no entry is zero. `wx_at` unpacks one.
+
+    Why store this at all: an entry's divider sits at a *fixed* column for its
+    whole life on screen, because the feed is right-aligned and the victim's
+    name width sets where the icon lands. Measured across a session it does not
+    move by more than 3 px, while two different entries in the same slot are
+    tens of pixels apart -- 217 against 187 for the two kills at 223d636bf8d2
+    32:06 that the tracker currently welds into one. It is the cheapest thing
+    on an entry that says *which* entry it is, and unlike the stack position it
+    survives the entry rising as the ones above it expire.
+
+    It identifies an entry; it does not name one. Two entries with the same
+    killer, victim and weapon render at the same column -- a Sage or Clove
+    revive can produce exactly that. So a difference proves two detections are
+    different entries, while sameness proves nothing. `checks.track_entries`
+    only ever uses the first direction.
+    """
+    v = 0
+    for y, wx in zip(ys, wxs):
+        v |= (min(int(wx), WX_MAX) & WX_MAX) << (WX_BITS * absolute_slot(y))
+    return v
+
+
+def wx_at(packed, slot: int) -> int | None:
+    """The divider column recorded for `slot`, or None if nothing was there."""
+    if packed is None:
+        return None
+    return ((int(packed) >> (WX_BITS * slot)) & WX_MAX) or None
 
 
 def killfeed_roi(profile: Profile) -> Roi | None:
@@ -344,7 +498,59 @@ def overlay_mask(
     return ~grown
 
 
-def _entry_bands(plate: np.ndarray, usable: np.ndarray | None = None) -> list[tuple[int, int]]:
+def _row_profile(
+    green: np.ndarray, red: np.ndarray, usable: np.ndarray | None = None
+) -> np.ndarray:
+    """How solidly each row is filled by an entry's two plates.
+
+    Density is measured inside the row's *own* entry rather than across the ROI,
+    because entries differ in width by more than two to one -- "Me (Bandit)
+    exile" against "MrTaco (Classic) Monzuko" -- and the glyphs punch holes in
+    the plate. A fraction taken over the full ROI width therefore drops under
+    PLATE_ROW_FRAC on the narrow entries exactly where the letters are tallest,
+    the run shatters into pieces shorter than MIN_BAND_H, and the entry is lost
+    outright rather than read badly. That is how the kill at 9acf02f98283 4:27
+    went missing: short names either side of a narrow pistol icon.
+
+    A row must also show *both* plate colours. That is the test the band already
+    applies, moved a step earlier, and it is what keeps bright warm scenery out
+    of the profile: read as the enemy plate's red, those rows joined the topmost
+    entry's run from above and carried it past MAX_BAND_H, which discards the
+    run whole. The newest entry is the one at the top, so what it costs is
+    always the most recent event -- the death at 9acf02f98283 20:32.
+
+    Density is measured over pixels that are actually *visible*. A toggled
+    overlay blanks part of a row, and counting the blanked columns against it
+    would drag the row under PLATE_ROW_FRAC and dissolve the band -- so an entry
+    sitting behind the shooting-error box was not reported occluded, it simply
+    never existed. Two of six on-screen entries were being lost that way.
+    """
+    plate = (green | red).astype(np.int32)
+    rows = np.arange(plate.shape[0])
+    total = plate.sum(axis=1)
+    cum = plate.cumsum(axis=1)
+    # The trimmed column span of this row's plate pixels: where its entry is.
+    lo_n = np.maximum(1, np.ceil(EXTENT_TRIM * total)).astype(np.int32)
+    hi_n = np.maximum(1, np.ceil((1.0 - EXTENT_TRIM) * total)).astype(np.int32)
+    lo = (cum >= lo_n[:, None]).argmax(axis=1)
+    hi = (cum >= hi_n[:, None]).argmax(axis=1)
+    inside = cum[rows, hi] - cum[rows, lo] + plate[rows, lo]
+    if usable is None:
+        seen = (hi - lo + 1).astype(np.float64)
+    else:
+        vis = usable.astype(np.int32).cumsum(axis=1)
+        seen = (vis[rows, hi] - vis[rows, lo] + usable[rows, lo]).astype(np.float64)
+    prof = np.divide(inside, seen, out=np.zeros(plate.shape[0]), where=seen > 0)
+    both = (
+        (green.mean(axis=1) > ROW_COLOUR_FRAC)
+        & (red.mean(axis=1) > ROW_COLOUR_FRAC)
+    )
+    return np.where(both, prof, 0.0)
+
+
+def _entry_bands(
+    green: np.ndarray, red: np.ndarray, usable: np.ndarray | None = None
+) -> list[tuple[int, int]]:
     """Row spans holding one entry each, read off the plate row profile.
 
     Three things happen here, and the third is the one that matters most:
@@ -364,18 +570,7 @@ def _entry_bands(plate: np.ndarray, usable: np.ndarray | None = None) -> list[tu
     one. Padding is bounded by the neighbouring runs, so it can never annex a
     neighbour's text.
     """
-    # Measure plate density over the pixels that are actually visible. A toggled
-    # overlay blanks part of a row, and dividing by the full ROI width instead
-    # would drag that row under PLATE_ROW_FRAC and dissolve the band -- so an
-    # entry sitting behind the shooting-error box was not reported occluded, it
-    # simply never existed. Two of six on-screen entries were being lost that way.
-    if usable is None:
-        prof = plate.mean(axis=1)
-    else:
-        seen = usable.sum(axis=1)
-        prof = np.divide(plate.sum(axis=1), seen, out=np.zeros(plate.shape[0]),
-                         where=seen > 0)
-    on = prof > PLATE_ROW_FRAC
+    on = _row_profile(green, red, usable) > PLATE_ROW_FRAC
     limit = len(on)
 
     runs: list[tuple[int, int]] = []
@@ -542,16 +737,29 @@ def _band_text(
         icons = [i for i in idx if st[i, 4] >= ICON_MIN_AREA]
     if not icons:
         return None
-    # The divider separates two names, so it must have ink on both sides of it.
-    # Without that test the largest blob wins outright, and on an entry with no
-    # weapon icon at all -- an ability kill -- that blob is the victim's
-    # portrait at the ROI edge. The split then lands beyond the victim's name
-    # and reads a death as a kill, which is worse than not answering.
-    ink_cols = np.where(wb.any(axis=0))[0]
+    cand = [
+        i for i in idx
+        if GLYPH_W[0] <= st[i, 2] <= GLYPH_W[1] and GLYPH_H[0] <= st[i, 3] <= GLYPH_H[1]
+    ]
+    if not cand:
+        return None
+    # The divider separates two names, so it must have a *name* on both sides of
+    # it -- glyph-sized components, not merely ink. Without any such test the
+    # largest blob wins outright, and on an entry with no weapon icon at all --
+    # an ability kill -- that blob is the victim's portrait at the ROI edge. The
+    # split then lands beyond the victim's name and reads a death as a kill,
+    # which is worse than not answering.
+    #
+    # Ink alone is not enough, because the band is a full-width strip of the ROI
+    # and the scenery either side of the entry lands in it. Bright sky at
+    # 9acf02f98283 4:26 formed a 115 px blob left of the entry, was taken for the
+    # weapon icon on size, and put the killer's "Me" on the victim's side -- a
+    # kill reported as a death. Scenery makes blobs; it does not make glyphs.
+    glyph_cols = np.array([st[i, 0] + st[i, 2] // 2 for i in cand])
     wep = None
     for i in sorted(icons, key=lambda i: -st[i, 4]):
         a0, a1 = int(st[i, 0]), int(st[i, 0] + st[i, 2])
-        if ink_cols.size and (ink_cols < a0).any() and (ink_cols > a1).any():
+        if (glyph_cols < a0).any() and (glyph_cols > a1).any():
             wep = i
             break
     if wep is None:
@@ -564,12 +772,6 @@ def _band_text(
             if (~usable[:, lo:hi]).mean() > OCCLUDED_NAME_FRAC:
                 return "occluded"
 
-    cand = [
-        i for i in idx
-        if GLYPH_W[0] <= st[i, 2] <= GLYPH_W[1] and GLYPH_H[0] <= st[i, 3] <= GLYPH_H[1]
-    ]
-    if not cand:
-        return None
     # Glyphs of one name share a bottom edge; the headshot icon's pieces do not.
     base = int(np.bincount(np.array([st[i, 1] + st[i, 3] for i in cand])).argmax())
     keep = np.zeros(n, dtype=bool)
@@ -639,7 +841,7 @@ def analyse_killfeed(
     green, red, white = _plate_masks(crop, mask)
 
     views: list[EntryView] = []
-    for (a, z) in _entry_bands(green | red, mask):
+    for (a, z) in _entry_bands(green, red, mask):
         slot = absolute_slot(a)
         if mask[a:z].sum() < 500:        # too much of this band is occluded
             continue
@@ -678,6 +880,24 @@ def analyse_killfeed(
     return views
 
 
+def _trusted_wx(view: "EntryView") -> int:
+    """This entry's divider column, or 0 meaning "do not use it".
+
+    A divider is only believable when there is a name on *both* sides of it,
+    which is the same test that chose it. While an entry is sliding into the
+    stack its band is half-formed for a frame or two, and the split can land
+    far left with no killer name beyond it at all -- ff636d173b07 10:18 read
+    151 and 150 for two frames before settling at 253 for the next eight. The
+    tracker takes a moved divider as proof of a different entry, so those two
+    frames split one death into two tracks and it was counted twice.
+
+    Recording 0 rather than a doubtful number keeps that frame on slot-and-time
+    matching, which is what the rest of the module does with a value it cannot
+    read: never guess one.
+    """
+    return view.wx0 if (view.killer_run and view.victim_run) else 0
+
+
 def read_killfeed(
     frame: np.ndarray,
     roi: Roi,
@@ -700,5 +920,8 @@ def read_killfeed(
         death_slots=tuple(v.slot for v in deaths),
         kill_ys=tuple(v.y0 for v in kills),
         death_ys=tuple(v.y0 for v in deaths),
+        entry_wxs=tuple(_trusted_wx(v) for v in views),
+        kill_wxs=tuple(_trusted_wx(v) for v in kills),
+        death_wxs=tuple(_trusted_wx(v) for v in deaths),
         unattributed=sum(1 for v in views if v.verdict in ("occluded", "tie")),
     )

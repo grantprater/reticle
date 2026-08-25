@@ -14,9 +14,66 @@ Section references in docstrings (`SS3`, `SS7`) mean §3, §7 of that doc.
 ## Picking up
 
 Last worked 2026-08-25. Twelve sessions ingested, ten with scoreboard K/D in
-`checks.KNOWN_KD`. Killfeed attribution is 24 events off across 285, every
-remaining delta a miss rather than a wrong answer. Nothing is half-applied and
-the tree is clean.
+`checks.KNOWN_KD`. The store is at **`hud-0.8.1`**, re-read across all ten
+scored sessions. The gap against the scoreboard is 6 events, down from 24, seven
+sessions are exact, and **only one of the six is a read error** — see "Scoreboard
+divergence is a finding" below for why those are counted separately. Thin tracks
+are 6 of 289; long tracks are 0 of 289, from 7. Nothing is half-applied and the
+tree is clean.
+
+`hud-0.7.0` — **three band-detection fixes**, all found from five misses Grant
+spotted by eye on `9acf02f98283` (4:27, 20:32, 24:35, 31:22, 32:22). Four of the
+five were caught in exactly *one* sampled frame, one short of `KF_MIN_OBS`; the
+fifth formed no band at all.
+
+* plate density was measured across the whole ROI, so **narrow entries** ("Me
+  (Bandit) exile") fell under `PLATE_ROW_FRAC` where the glyphs are tallest and
+  the run shattered below `MIN_BAND_H`. Now measured inside the row's own entry;
+* **warm scenery** reads as the enemy plate's red and merged into the entry
+  above until the run passed `MAX_BAND_H` and was discarded whole. Rows now have
+  to show both plate colours — the band's own test, one step earlier. Because
+  new entries arrive at the top of the stack, this always cost the newest event;
+* the divider test asked for **ink** either side, not glyphs, so bright sky in
+  the band won it on size and flipped a kill to a death. Now glyphs.
+
+`hud-0.8.1` — **a divider is only recorded when it can be trusted.** While an
+entry slides into the stack its band is half-formed for a frame or two and the
+split can land far left with no killer name beyond it; at `ff636d173b07` 10:18
+that read 151 and 150 before settling at 253, and the tracker took the move as a
+different entry and counted one death twice. The divider is now recorded only
+when there is a name on both sides of it — the same test that chose it — and an
+unrecorded one (stored as 0) falls back to slot and time. This was the divider
+mechanism's own first defect, found while trying to verify the Phoenix deaths.
+
+`hud-0.8.0` — **the tracker now sees each entry's divider column**. An entry's
+weapon-icon divider sits at a fixed column for its whole life (the feed is
+right-aligned, so the victim's name width sets it) and moves by at most 3 px,
+while two different entries in one slot are tens of pixels apart. Storing it
+(`kf_entry_wx` / `kf_kill_wx` / `kf_death_wx`, packed nine bits per slot) and
+refusing to extend a track whose divider moved more than `KF_SIG_TOL` removed
+every long track in the set. `223d636bf8d2` went exact; `ff636d173b07`'s kills
+went from −3 to exact. **This supersedes the `kf_entry_mask` stack-shift plan** —
+the divider does the same job more directly, and `kf_entry_mask` is still unused.
+
+**Settled: every remaining divergence is Run It Back.** All six events between
+the killfeed and `checks.KNOWN_KD` are now accounted for — one read error and
+five entries that are read correctly and simply not counted:
+
+* `ff636d173b07` +4 deaths. All 24 tracked deaths read correctly, and exactly
+  four carry the **Phoenix ult mark** — 13:21, 20:00, 29:13, 38:20. 24 − 4 = 20,
+  the recorded figure. Grant's own deaths inside his ult.
+* `bfad2778a372` +1 kill, the same rule from the other side: a kill on an
+  *enemy* Phoenix inside Run It Back. 19/15 confirmed off the end screen.
+
+Both causes are **visible in the killfeed itself**, which is what makes reading
+the mark worth doing: one detector reconciles both sessions exactly.
+
+**Grant's call (2026-08-25): keep these events, do not drop them to match the
+board.** A duel lost inside Run It Back is still a duel that was lost, and §4's
+metrics are about duels. So the mark becomes a *category* on the entry — an
+event that happened and that the scoreboard does not count — rather than a
+filter. Stage 05 subtracts them when reconciling totals; stage 06 decides per
+metric whether to include them. Same treatment as wallbangs.
 
 The four candidates for what comes next, with the case for each:
 
@@ -25,8 +82,15 @@ The four candidates for what comes next, with the case for each:
    it is open the totals could simply be taken from it, with the killfeed
    supplying timing within the round. This makes the remaining attribution gap
    stop mattering for totals without fixing it.
-2. **Stack-aware entry tracking.** `kf_entry_mask` was recorded for exactly this
-   and is unused. It is the one killfeed defect with a known, designed fix.
+2. **Record whether an entry carries a revive mark.** This is now the best-
+   evidenced next step: it is the only divergence in the set with a *visible
+   cause in the killfeed itself*, and reading it would reconcile `bfad2778a372`
+   exactly. The marks all sit in one place — right of the weapon icon, where a
+   headshot crosshair goes — and are all circular badges, so *detecting* one
+   needs no icon list; telling the four apart does, but four is a bounded set
+   that changes only when Riot ships a new revive ult. Worth capturing as a
+   field on the entry either way: a kill undone is its own coachable category,
+   the same argument as wallbangs.
 3. **Minimap position tracking** — the last big stage-02 extractor, and the
    gating dependency for the doc's peek-exposure metric.
 4. **Keep grinding killfeed recall.** Diminishing: four causes found, two fixed,
@@ -119,6 +183,39 @@ its own coachable category: prediction, recon and map knowledge rather than aim.
 The icon is detectable, so capture it as a field on the entry when the icon list
 lands, rather than only stepping over it.
 
+## Scoreboard divergence is a finding, not an error
+
+The killfeed and the scoreboard answer different questions, and where they
+disagree the killfeed is often the one worth keeping. A death inside Phoenix's
+Run It Back never reaches the scoreboard, and a Kayo ult down may not either —
+but both are duels that were lost, and §4's metrics are about duels, not about
+the end-of-match tally. Grant's position (2026-08-25): **perfectly matching the
+scoreboard is not the goal.**
+
+So `checks.KNOWN_KD` measures two different things at once and they must not be
+conflated:
+
+- a **read error** — the extractor got the pixels wrong. A missed entry, or an
+  entry attributed to the wrong side. This is the number that should go to zero.
+- a **definitional divergence** — the extractor read the entry correctly and the
+  game simply does not count it. This should be *labelled*, not eliminated.
+
+At `hud-0.8.1` the 6-event gap is one read error (`c40d950031bb` 13:14, the
+ability kill) and five Run It Back events, all verified. Quote the read-error
+count as the quality number.
+
+Verifying them is what found the `hud-0.8.1` defect along the way: the one
+divergence `board` could see on `ff636d173b07` was a real double-count, not a
+Phoenix death. That session has only 5 openings in 45 minutes, all before 12:03,
+so `board` could say nothing about the rest — the sharpest argument yet for
+asking Grant to open Tab once a round. 79 openings pinned a miss to a single
+round on `223d636bf8d2`.
+
+This raises the value of recording a revive mark rather than lowering it: the
+point is not to drop those events to match the board, it is to tag them so
+stage 06 can include or exclude them per metric. A kill undone by a Sage revive
+is also its own coachable category, the same argument as wallbangs above.
+
 ## Open design question: engagements without a kill
 
 The killfeed only fires when someone dies, so keying stage 03 on it alone would
@@ -167,33 +264,69 @@ The calibrated overlay mask is drawn too, so you can see what it ate.
 Text is rasterised before `--scale` is applied, so use `--scale 1.0` when
 reading values and a smaller scale only for skimming.
 
+**To audit a whole session's entries at once, build a contact sheet**: crop the
+band for every tracked event into one tall image, one row per entry, labelled
+with its timestamp. Twenty-four rows fit in a single glance, which is how the
+four Phoenix marks on `ff636d173b07` were found and counted. Far cheaper than
+scrubbing an overlay video, and it is the right tool whenever the question is
+"which of these entries carries X" rather than "what happened at time T".
+
 ## Open defects
 
-- **Killfeed attribution is 24 events off across 285** (ten sessions) against
-  `checks.KNOWN_KD`, and every remaining delta is a *miss* — nothing is counted
-  as the wrong kind of event. Setting aside `ff636d173b07` (a Phoenix game, see
-  below), the error is 16 across nine sessions with three exact.
+- **One known read error across 289 events** at `hud-0.8.1` — the ability kill
+  below. The raw gap against `checks.KNOWN_KD` is 6 events, from 24 at
+  `hud-0.6.0`, and all five of the others are verified Run It Back events; see "Scoreboard divergence is a finding" above before
+  quoting the 6. `killfeed.py` has the per-session table.
+- **The one real miss left is an ability kill.** `c40d950031bb` 13:14,
+  `HungryHamster5 ⊗ Me`, killed by Raze. There is no weapon icon, and the
+  ability mark fragments under the white-text cut into pieces too small to be a
+  divider candidate, so the band goes *unparsed* and the death is lost. Reading
+  it needs a divider that does not depend on the icon — the boundary between the
+  two plate colours is the candidate, and it needs no list of icons. A prototype
+  landed the split correctly on 6 of 8 test bands; the estimator needs to be
+  edge detection on the plate chevron rather than a brute-force search.
+- **A single-frame detection is discarded** (`KF_MIN_OBS = 2`), which is right —
+  but it means any detection fault that thins a track to one frame costs a whole
+  event rather than degrading it. Four of the five misses Grant found by hand on
+  `9acf02f98283` were exactly that; the fifth formed no band at all. When hunting
+  a miss, read `kf_entries` either side of it before looking at attribution: a
+  lone frame is the tell.
+- **Absolute brightness is the known soft spot.** `TEXT_V_MIN` (200) and
+  `PLATE_V_MIN` (140) are absolute levels, tuned across captures that all share
+  one set of video settings, and nothing has tested whether they survive a
+  different one. No fix since `hud-0.6.0` has added another — the warm-scenery
+  fault had a working fix that just raised `PLATE_V_MIN` to 160 and it was
+  dropped for a structural test instead. The ability icon above fragments
+  precisely because of `TEXT_V_MIN`.
 - **No list of killfeed icons is needed, and none was used.** Valorant draws
   marks between the weapon and the victim name (headshot, wallbang) and in the
   weapon slot itself (abilities). Rather than enumerate them — which would never
   finish, since each patch can add more — `killfeed.py` keys on what a *name*
   is: several glyphs rather than one solid shape, with names on both sides of
   the divider. That handles unseen icons for free.
-- **Two sessions are not clean comparisons.** `ff636d173b07` is a Phoenix game:
-  a death inside Run It Back appears in the killfeed but never on the
-  scoreboard (unlike Sage/Clove revive deaths, which do count), so its +4 deaths
-  may be correct reads. Treat scoreboard truth as agent-dependent.
+- **Two sessions are not clean comparisons, and both for the same reason: the
+  killfeed and the scoreboard genuinely disagree.** `ff636d173b07` is a Phoenix
+  game, `bfad2778a372` has an enemy Phoenix, and both are now fully explained by
+  the same rule — see "Settled" above. Do not tune the extractor against either.
+
+  The rule, from Grant: **Sage and Clove revive after a real death and that
+  death counts; Phoenix and Kayo grant the second life before the fact — Run It
+  Back ends in a self-kill or a real kill and then returns him, Kayo can be
+  downed and either finished or picked back up — and those never counted.** It
+  applies to the kill side as well as the death side.
 - **Thin tracks are the leading indicator.** An entry seen in <=4 of a possible
   ~12 sampled frames is either barely caught or about to be split in two. If a
-  new capture reads badly, count these first. An observation count *above* ~12 is
-  equally suspicious and means the opposite: two entries merged into one track.
-- **The entry tracker cannot tell a merge from a split.** Matching by nearest
-  slot merges consecutive entries that reuse a vacated slot (`223d636bf8d2` at
-  32:05, two kills held as one track for 17 observations); matching by most
-  recently seen fixes that but shatters a genuine double (`b3b9defb6fd7` at
-  27:12) and scores worse overall. Slot plus time is not enough information. The
-  real fix is to estimate the stack shift from `kf_entry_mask`, which records
-  full per-frame occupancy for exactly that purpose — see `checks._count`.
+  new capture reads badly, count these first — 7 of 290 across the set now. A
+  count *above* ~12 used to mean the opposite, two entries merged into one; the
+  divider ended that and there are now none anywhere, so one appearing again is
+  a signal that something upstream broke.
+- **Fixed at `hud-0.8.0`: the entry tracker could not tell a merge from a
+  split.** Matching by nearest slot merged consecutive entries reusing a vacated
+  slot; matching by most-recently-seen shattered genuine doubles and scored
+  worse. Slot plus time never contained the answer. Each entry's divider column
+  does — see `killfeed.divider_of_ys`. It rules a match *out* only: two entries
+  with the same killer, victim and weapon render at the same column, so equal
+  dividers prove nothing.
 - **An overlay can delete a killfeed entry outright.** The occlusion mask blanks
   pixels, so a row behind the shooting-error box may not reach `PLATE_ROW_FRAC`
   and the band never forms — the entry is not reported occluded, it is simply
