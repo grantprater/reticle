@@ -131,25 +131,19 @@ reading values and a smaller scale only for skimming.
 ## Open defects
 
 - **Killfeed attribution is 24 events off across 285** (ten sessions) against
-  `checks.KNOWN_KD`. Four sessions are exact. Four independent causes are
-  confirmed and listed in `killfeed.py` in the order worth attacking — each has
-  an attempted fix and the reason it did or did not work, so start there.
-- **No full list of killfeed icons exists, and that is the top blocker.**
-  Valorant draws marks between the weapon and the victim name (headshot
-  crosshair, wallbang arrow) and sometimes *in* the weapon slot (a crossed
-  circle for a non-weapon kill). Two of the four confirmed causes are icons we
-  did not know about. Getting a complete list would likely close most of the
-  remaining gap; Grant offered to source one.
-- **One misattribution exists.** `c40d950031bb` 13:14 reads a death as a kill,
-  because a crossed-circle mark in the weapon slot puts `Me` on the wrong side
-  of the split. This is the only case in ten sessions where the wrong *type* is
-  asserted rather than an event missed — worth fixing before anything downstream
-  consumes kill/death separately.
+  `checks.KNOWN_KD`, and every remaining delta is a *miss* — nothing is counted
+  as the wrong kind of event. Setting aside `ff636d173b07` (a Phoenix game, see
+  below), the error is 16 across nine sessions with three exact.
+- **No list of killfeed icons is needed, and none was used.** Valorant draws
+  marks between the weapon and the victim name (headshot, wallbang) and in the
+  weapon slot itself (abilities). Rather than enumerate them — which would never
+  finish, since each patch can add more — `killfeed.py` keys on what a *name*
+  is: several glyphs rather than one solid shape, with names on both sides of
+  the divider. That handles unseen icons for free.
 - **Two sessions are not clean comparisons.** `ff636d173b07` is a Phoenix game:
   a death inside Run It Back appears in the killfeed but never on the
   scoreboard (unlike Sage/Clove revive deaths, which do count), so its +4 deaths
-  may be correct reads rather than errors. Treat scoreboard truth as
-  agent-dependent.
+  may be correct reads. Treat scoreboard truth as agent-dependent.
 - **Thin tracks are the leading indicator.** An entry seen in <=4 of a possible
   ~12 sampled frames is either barely caught or about to be split in two. If a
   new capture reads badly, count these first. An observation count *above* ~12 is
