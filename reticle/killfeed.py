@@ -330,6 +330,14 @@ MIN_NAME_PARTS = 2
 
 # A pixel white in this share of sampled frames is an overlay, not an entry.
 PERSIST_FRAC = 0.85
+# Reading the victim's team off the plate under their name. The margin is what
+# keeps a half-occluded band from being guessed at: the two colours have to be
+# decisively apart, not merely unequal.
+# Columns of one plate colour needed before it counts as a plate rather than
+# noise or the edge of a mark. The victim's plate is the last such run.
+MIN_PLATE_RUN = 18
+# Share of the band's height a column must be plate-coloured to count as plate.
+PLATE_COL_FRAC = 0.45
 
 # Per-entry divider column, packed one field per stack slot. Nine bits holds
 # 0-511 and the ROI is 489 px wide, so six slots fit in 54 bits of an int64.
@@ -364,6 +372,8 @@ class KillfeedRead:
     kill_wxs: tuple[int, ...] = ()
     death_wxs: tuple[int, ...] = ()
     entry_wxs: tuple[int, ...] = ()
+    # Which team each entry's victim was on, parallel to `entry_ys`.
+    entry_ally: tuple[object, ...] = ()
     # Entries whose killer or victim name was covered by a toggled overlay. They
     # are neither kills nor deaths *nor* confirmed non-player entries -- a
     # non-zero count here is a capture problem, not a code one.
@@ -391,6 +401,18 @@ class KillfeedRead:
     @property
     def death_mask(self) -> int:
         return mask_of_ys(self.death_ys)
+
+    @property
+    def ally_mask(self) -> int:
+        """Slots whose entry killed an *ally*. With `enemy_mask` this is what
+        turns the feed into both teams' alive counts. A slot in `entry_mask` but
+        in neither is an entry whose plate could not be read -- rare, and left
+        unresolved rather than assigned to a side."""
+        return mask_of_ys([y for y, al in zip(self.entry_ys, self.entry_ally) if al is True])
+
+    @property
+    def enemy_mask(self) -> int:
+        return mask_of_ys([y for y, al in zip(self.entry_ys, self.entry_ally) if al is False])
 
     @property
     def entry_dividers(self) -> int:
@@ -803,8 +825,62 @@ class EntryView:
     victim_run: tuple[int, int] | None = None
     kill_score: float = 0.0
     death_score: float = 0.0
+    # Which team the victim was on: True ally, False enemy, None undecidable.
+    # Every entry is a death, so this is what gives both teams' alive counts.
+    victim_ally: bool | None = None
     # "kill" | "death" | "other" | "occluded" | "unparsed" | "tie"
     verdict: str = "unparsed"
+
+
+def victim_is_ally(green, red, a: int, z: int, wx1: int) -> bool | None:
+    """Which team the victim was on, from the colour of the plate they sit on.
+
+    Every killfeed entry is a death, so this is what turns the feed into alive
+    counts for *both* teams -- the state a win-probability model is built on.
+    Until now the module only ever asked whether an entry involved the local
+    player, and the other eight players' deaths were detected and discarded.
+
+    Plate colour is the right thing to key on: band detection is built on it,
+    requiring *both* colours is what makes an entry specific, and unlike every
+    brightness test here it has survived the HUD's transparency everywhere it
+    has been used.
+
+    Read as the *last wide run of one colour*, not from any text run. Two
+    earlier attempts failed on the same geometry from opposite ends. Sampling
+    the first ink run past the divider reads a headshot or wallbang mark, and
+    those are drawn on the *killer's* plate -- so a marked entry came out
+    backwards. Sampling the last run instead reads fragments of the victim's
+    portrait, which sits past the plate, so it refused far more often and was
+    wrong more often too. The plate is a wide contiguous band and the portrait
+    is drawn *over* it, which makes the plate the thing to find and the text
+    beside the point.
+
+    Returns None when no run is wide enough to be a plate, which is the honest
+    answer for a band that is half occluded.
+    """
+    W = green.shape[1]
+    if wx1 >= W - MIN_PLATE_RUN:
+        return None
+    g = green[a:z, wx1:].sum(axis=0)
+    r = red[a:z, wx1:].sum(axis=0)
+    # A plate column is *covered*, not merely coloured. Past the entry's right
+    # edge the ROI is open scenery, and warm scenery reads as the enemy plate's
+    # red -- the same thing that used to merge background into the band above.
+    # A real plate spans most of the band's height; background never does.
+    live = (g + r) >= PLATE_COL_FRAC * (z - a)
+    colour = np.where(g > r, 1, -1) * live          # 1 green, -1 red, 0 nothing
+    runs, i = [], 0
+    while i < len(colour):
+        if colour[i] == 0:
+            i += 1
+            continue
+        j = i
+        while j < len(colour) and colour[j] == colour[i]:
+            j += 1
+        if j - i >= MIN_PLATE_RUN:
+            runs.append((colour[i], j - i))
+        i = j
+    return bool(runs[-1][0] > 0) if runs else None
 
 
 def _plate_masks(crop: np.ndarray, mask: np.ndarray):
@@ -876,7 +952,10 @@ def analyse_killfeed(
             # Only one side can be the player, so a tie is a parse failure.
             verdict = "tie"
         views.append(EntryView(slot, int(a), int(z), int(wx0), int(wx1),
-                               krun, vrun, k_score, d_score, verdict))
+                               killer_run=krun, victim_run=vrun,
+                               kill_score=k_score, death_score=d_score,
+                               verdict=verdict,
+                               victim_ally=victim_is_ally(green, red, a, z, wx1)))
     return views
 
 
@@ -921,6 +1000,7 @@ def read_killfeed(
         kill_ys=tuple(v.y0 for v in kills),
         death_ys=tuple(v.y0 for v in deaths),
         entry_wxs=tuple(_trusted_wx(v) for v in views),
+        entry_ally=tuple(v.victim_ally for v in views),
         kill_wxs=tuple(_trusted_wx(v) for v in kills),
         death_wxs=tuple(_trusted_wx(v) for v in deaths),
         unattributed=sum(1 for v in views if v.verdict in ("occluded", "tie")),

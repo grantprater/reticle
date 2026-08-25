@@ -207,6 +207,12 @@ class Store:
             # screen, so this is what tells one entry from the next when both
             # occupy the same slot in turn -- the merge the masks above cannot
             # see. int64: six slots of nine bits. See killfeed.divider_of_ys.
+            # Which team each entry's victim was on, as two slot masks. Every
+            # killfeed entry is a death, so these give both teams' alive counts
+            # -- the state a win-probability model is built on. A slot present
+            # in kf_entry_mask but in neither could not be read.
+            "kf_ally_mask": pa.array(col("kf_ally_mask"), type=pa.int16()),
+            "kf_enemy_mask": pa.array(col("kf_enemy_mask"), type=pa.int16()),
             "kf_entry_wx": pa.array(col("kf_entry_wx"), type=pa.int64()),
             "kf_kill_wx": pa.array(col("kf_kill_wx"), type=pa.int64()),
             "kf_death_wx": pa.array(col("kf_death_wx"), type=pa.int64()),

@@ -589,6 +589,19 @@ scrubbing an overlay video, and it is the right tool whenever the question is
 
 ## Conventions that are load-bearing
 
+- **Never test an absolute level against this HUD.** It is composited over
+  live scenery, so any absolute threshold eventually measures the world instead
+  of the widget. This is not a series of unrelated bugs, it is one property of
+  the game, and it has now produced: the killfeed row profile merging warm walls
+  into a band; the minimap's void defeating background differencing, a
+  persistence mask and every colour statistic; the roster bar's white health
+  pips vanishing against a white wall; washed-out killfeed entries; and the
+  victim's plate reading as enemy everywhere because scenery past the entry's
+  right edge is warm. Every fix has had the same shape — **measure inside the
+  structure, require coverage, compare relatively.** Density within the row's
+  own entry, not across the ROI. Slot texture against neighbouring slots, not a
+  threshold. A plate column that spans the band's height, not one that is merely
+  the right colour. Reach for that shape first; it has never once been wrong.
 - **Never guess a value.** A field the extractor cannot read stays `null`.
   Everything is range-checked before return — a clock of 7:41 is a misread, not
   a fact. This is what makes `checks.py` meaningful.
