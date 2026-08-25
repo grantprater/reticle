@@ -582,7 +582,15 @@ scrubbing an overlay video, and it is the right tool whenever the question is
 6. **Label the map.** Grant is labelling maps for future captures. Geometry
    should be shared between sessions on the same map rather than re-derived per
    session, and nothing currently knows which map a capture is.
-7. **Check whether the minimap has an opacity setting.** Unresolved. The widget
+7. **Keep the enemy highlight on, and keep its colour constant.** Valorant
+   outlines enemy models in a chosen colour; every capture so far uses red.
+   That outline is what makes on-screen enemy detection tractable at all -- a
+   saturated-red mask over the main view returns a few hundred pixels in a
+   2-megapixel frame, so it is enormously specific, and the blobs come out
+   human-shaped (16x44, aspect 2.75, on a standing enemy at 9acf02f98283 4:23).
+   Changing the colour between captures would split the set; turning it off
+   would put enemy detection back into model-recognition territory.
+8. **Check whether the minimap has an opacity setting.** Unresolved. The widget
    being semi-transparent over the void is the single largest difficulty in
    minimap extraction; if it can be made opaque most of that goes away for
    future recordings. Same class of fix as the shooting-error readout above.
