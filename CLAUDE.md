@@ -75,6 +75,28 @@ event that happened and that the scoreboard does not count — rather than a
 filter. Stage 05 subtracts them when reconciling totals; stage 06 decides per
 metric whether to include them. Same treatment as wallbangs.
 
+**In flight: minimap position tracking** (`prototypes/minimap_position.py`,
+not wired into the pipeline). Measured on `9acf02f98283`: 86% of frames yield a
+position, 92% coverage after filtering, 1.5% of steps physically implausible.
+Ally rings detect too. The static map falls out as a per-pixel median and is
+also the occlusion grid the geometry work needs. Read the rejected-approaches
+list at the foot of that file before trying anything clever — five variants
+failed there and the failures share one cause: **the widget is semi-transparent
+over the void, so anything content-based drowns in the world moving behind it.**
+Masking to the opaque floor slab is what fixed it.
+
+Next steps, in order: promote it to `reticle/minimap.py` with L1 columns; settle
+the sample rate (everything downstream is a *speed* measurement, so 2 Hz cannot
+work — 15-20 Hz for the minimap, likely a separate pass from the 2 Hz HUD read);
+then the visibility computation.
+
+**Peek exposure as the design doc defines it is out of reach**, and that is a
+design-doc correction rather than a missing feature. It needs enemy positions,
+and enemies are not on the minimap at all — only red X last-known marks. If the
+product must run on a player's own OBS capture (Grant is sceptical that building
+commercially on the replay system is viable), no amount of extractor work
+recovers it. See "How peeking actually works" below for what replaces it.
+
 The four candidates for what comes next, with the case for each:
 
 1. **Reconcile the scoreboard against the killfeed** (§3 stage 05). The board
@@ -182,6 +204,60 @@ and an exclusion rate is itself diagnostic. A kill or death through a surface is
 its own coachable category: prediction, recon and map knowledge rather than aim.
 The icon is detectable, so capture it as a field on the entry when the icon list
 lands, rather than only stepping over it.
+
+## How peeking actually works, and what to measure instead
+
+Grant's domain knowledge, 2026-08-25. None of this is recoverable from the code
+and the metric below makes no sense without it.
+
+**Peek style is dictated by angle advantage, which is geometry.** If you are
+*further* from the corner than the enemy, you see them first, so the correct play
+is slow — slice the pie, take the angle in increments. If you are tight against
+the corner you have angle *dis*advantage, you will be seen first, and the correct
+play is a wide swing: cross the exposed band fast and get full information at
+once. Jump peeks and the rest are situational variants.
+
+The computable form of that is a derivative. Let A(p) be the set of positions
+with line of sight to p — the visibility footprint, a raster visibility
+computation on the floorplan the median map already gives us. Then
+
+    dA/ds  =  how much new territory can see you, per unit of your own movement
+
+is exactly angle advantage. Far from the corner it is small: each step exposes a
+sliver, so slicing works. Tight to the corner it is large: no increment is small
+enough to be safe, so committing is right. **It needs no enemy positions and no
+conditioning** — it is a property of where you are standing.
+
+That gives two failure modes, and the second is the one worth telling a player:
+
+  * dA/ds small, moving fast   — threw away an advantage the position gave you
+  * dA/ds large, moving slow   — slow-rolling into an angle you were always
+                                 going to lose
+
+**Counting exposed angles is the other half, and it is conditional.** Grant:
+wide-swinging when you reasonably expect one enemy is not a bad play, so a raw
+count is not a verdict. Worse, peeking is driven by *priors* — where enemies
+commonly are, which shifts with rank and a lot with map geometry. The
+naive-but-honest treatment is statistical: record features per peek, learn the
+empirical rate, report tendencies rather than judgements ("you wide-swing into
+4+ angles with 3 enemies alive 18% of the time and win 22% of those").
+
+Most conditioning variables are already in L1 or one step away: **enemies alive**
+decrements from the killfeed, **teammates** from the killfeed plus the minimap's
+ally rings, **time in round** from the clock, **region** from the callout label
+above the minimap. The outcome — did a duel follow, was it won — is the killfeed
+again. This is where the "engagements without a kill" question below stops being
+academic: duels that produced no killfeed entry are disproportionately the ones
+that went badly, so omitting them flatters every number.
+
+Order of attack: build dA/ds first because it is unconditional, and leave the
+angle count as a statistical layer on top.
+
+Standing limits, none cheap to fix: **no elevation** (the floorplan is a
+silhouette, so a bridge and the floor under it are one region), **no cover
+objects**, **jump peeks are invisible** (vertical motion is not on the minimap,
+so a jump peek reads as a fast peek), and dA/ds aggregates every occluding edge
+in play rather than naming the one you mishandled.
 
 ## Scoreboard divergence is a finding, not an error
 
@@ -368,6 +444,13 @@ scrubbing an overlay video, and it is the right tool whenever the question is
    a constant minimap→world transform. Pass
    `ingest --minimap-mode "fixed/always_same/uncentered"`; it lands in the
    manifest.
+6. **Label the map.** Grant is labelling maps for future captures. Geometry
+   should be shared between sessions on the same map rather than re-derived per
+   session, and nothing currently knows which map a capture is.
+7. **Check whether the minimap has an opacity setting.** Unresolved. The widget
+   being semi-transparent over the void is the single largest difficulty in
+   minimap extraction; if it can be made opaque most of that goes away for
+   future recordings. Same class of fix as the shooting-error readout above.
 
 ## Conventions that are load-bearing
 
