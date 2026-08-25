@@ -34,6 +34,26 @@ coachable an event as this project can produce, and it is observable in a way
 enemy position is not: with nobody on the team seeing them, they are on neither
 the screen nor the minimap, yet their position is inferable from the flash.
 
+**Detection and target-validity are different questions, and only the first is
+being labelled here.** A dismissed Reyna is visible, outlined, and invulnerable.
+A Yoru clone is outlined and looks exactly like a player. Omen mid-teleport,
+Jett dashing, Chamber on his TP -- Valorant has dozens of agent states where an
+outlined player-shaped thing is not a normal target, and enumerating them as
+label classes does not scale past a few agents.
+
+So all of them are labelled `player`: the detector should fire, and it is right
+to. Whether the thing was *killable* is decided downstream, from evidence the
+labels do not carry -- shots that produced no damage, an engagement that ended
+without a kill, the agent involved. Those corrupt time-to-kill and accuracy if
+ignored, but they are not a detection problem and cannot be fixed by clicking
+more carefully.
+
+The classes below exist only where the thing is obviously not a player at all
+(a turret, a beam, a corpse) or is a player who cannot be shot *because of
+geometry* rather than agent state (revealed through a wall). That line is worth
+holding: it is the difference between four stable classes and an
+agent-by-agent taxonomy that goes stale every patch.
+
 "Deployable" is the catch-all for **anything outlined that is not a player**,
 not just placed objects. A Sova ultimate beam belongs here as much as a turret
 does. The only split the detector needs is player against not-player: everything
