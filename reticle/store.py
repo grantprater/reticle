@@ -41,6 +41,9 @@ class Store:
     def primitives_path(self, session_id: str, date: str) -> Path:
         return self.root / "l1" / "primitives" / f"date={date}" / f"session={session_id}" / "primitives.parquet"
 
+    def rounds_path(self, session_id: str, date: str) -> Path:
+        return self.root / "l2" / "rounds" / f"date={date}" / f"session={session_id}" / "rounds.parquet"
+
     def spans_path(self, session_id: str, date: str) -> Path:
         return self.root / "l2" / "spans" / f"date={date}" / f"session={session_id}" / "spans.parquet"
 
@@ -263,6 +266,38 @@ class Store:
         path.parent.mkdir(parents=True, exist_ok=True)
         pq.write_table(table, path, compression="zstd")
         return path
+
+    def write_rounds(self, rounds: list[dict], session_id: str, date: str) -> Path:
+        n = len(rounds)
+        col = lambda k, ty: pa.array([r.get(k) for r in rounds], type=ty)
+        table = pa.table({
+            "round_no": col("round_no", pa.int16()),
+            "t_start_ms": col("t_start_ms", pa.float64()),
+            "t_end_ms": col("t_end_ms", pa.float64()),
+            # Nullable on purpose: an unresolved side leaves `won` null rather
+            # than guessed, so a coin flip cannot corrupt a win rate downstream.
+            "won": col("won", pa.bool_()),
+            "won_left": col("won_left", pa.bool_()),
+            "player_side": col("player_side", pa.string()),
+            "score_us": col("score_us", pa.int16()),
+            "score_them": col("score_them", pa.int16()),
+            "player_kills": col("player_kills", pa.int16()),
+            "player_deaths": col("player_deaths", pa.int16()),
+            "multikill": col("multikill", pa.int16()),
+            "first_event": col("first_event", pa.string()),
+            "spike_planted": col("spike_planted", pa.bool_()),
+            "session_id": pa.array([session_id] * n, type=pa.string()),
+            "schema_version": pa.array([SCHEMA_VERSION] * n, type=pa.int32()),
+        }).replace_schema_metadata({"session_id": session_id,
+                                    "schema_version": str(SCHEMA_VERSION)})
+        path = self.rounds_path(session_id, date)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(table, path, compression="zstd")
+        return path
+
+    def read_rounds(self, session_id: str, date: str):
+        path = self.rounds_path(session_id, date)
+        return pq.read_table(path) if path.is_file() else None
 
     def read_spans(self, session_id: str, date: str):
         path = self.spans_path(session_id, date)

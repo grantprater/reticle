@@ -27,6 +27,7 @@ import numpy as np
 
 from .decode import sample_frames
 from .checks import KNOWN_KD, check_hud, player_events, track_entries
+from .rounds import build_rounds, summarise
 from .scoreboard import read_scoreboard
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
@@ -212,10 +213,15 @@ def cmd_ingest(args) -> int:
     if not rows:
         raise SystemExit("decoded zero frames -- is the file readable?")
 
+    tags = [t.strip() for t in (args.tags or "").split(",") if t.strip()]
+    # Re-ingesting must not silently drop tags recorded the first time round.
+    if existing:
+        tags = sorted(set(tags) | set(existing.get("tags", [])))
     store.write_manifest(fp, profile.name, {
         "sample_hz": args.hz,
         "n_samples": len(rows),
         "minimap_mode": minimap.as_dict(),
+        "tags": tags,
     })
     path = store.write_primitives(rows, fp, profile.name, date)
 
@@ -1019,6 +1025,72 @@ def cmd_overlay(args) -> int:
 
 
 
+def cmd_rounds(args) -> int:
+    """Stage 05: derive the round table from stored L1, and score win rates.
+
+    Never opens the video -- everything comes from the HUD reads, so adding a
+    fact and rebuilding the whole history costs milliseconds.
+    """
+    store = Store(args.store)
+    sessions = ([_resolve_session(store, args.session)] if args.session
+                else sorted(store.sessions(), key=lambda m: m["source"]["filename"]))
+    every: list[dict] = []
+    print(f"{'session':14s} {'map':8s} {'rounds':>6s} {'side':>6s} {'W-L':>7s}  {'K/D':>8s}")
+    for man in sessions:
+        sid, date = man["session_id"], _date_of(man)
+        path = store.hud_path(sid, date)
+        if not path.is_file():
+            continue          # never had `hud` run, or has no killfeed ROI
+        import pyarrow.parquet as pq
+        hud = pq.read_table(path)
+        rs = build_rounds(hud)
+        if not rs:
+            continue
+        mp = next((t.split(":", 1)[1] for t in man.get("tags", []) if t.startswith("map:")), "?")
+        for r in rs:
+            r["map"] = mp
+            r["session_id"] = sid
+        every += rs
+        store.write_rounds(rs, sid, date)
+        won = [r["won"] for r in rs if r["won"] is not None]
+        print(f"{sid:14s} {mp:8s} {len(rs):6d} {rs[0]['player_side']:>6s} "
+              f"{sum(won):3d}-{len(won) - sum(won):<3d}  "
+              f"{sum(r['player_kills'] for r in rs):3d}/{sum(r['player_deaths'] for r in rs):<4d}")
+
+    if not every:
+        raise SystemExit("no rounds -- has `hud` been run?")
+    s_ = summarise(every)
+    print()
+    print(f"{len(every)} rounds, {s_['n_rounds']} with a known outcome, "
+          f"baseline win rate {s_['baseline'] * 100:.1f}%")
+    print()
+    print("Win rate given each round fact. Lift is against that baseline; the")
+    print("interval is Wilson 95%. These are hypotheses to check against more")
+    print("data, not findings -- with this many facts some will look real by chance.")
+    print()
+    print(f"  {'fact':24s} {'n':>4s} {'win%':>6s} {'lift':>7s}   95% CI")
+    for f in s_["facts"]:
+        flag = " " if f["lo"] <= s_["baseline"] <= f["hi"] else "*"
+        print(f"{flag} {f['fact']:24s} {f['n']:4d} {f['rate'] * 100:5.1f}% "
+              f"{f['lift'] * 100:+6.1f}   [{f['lo'] * 100:3.0f}-{f['hi'] * 100:3.0f}]")
+    print()
+    print("* marks an interval that excludes the baseline.")
+    if args.by_map:
+        print()
+        print("By map (cells go thin fast -- read n before the rate):")
+        for mp in sorted({r["map"] for r in every}):
+            sub = [r for r in every if r["map"] == mp]
+            sm = summarise(sub)
+            if not sm["n_rounds"]:
+                continue
+            print()
+            print(f"  {mp}  ({sm['n_rounds']} rounds, baseline {sm['baseline'] * 100:.0f}%)")
+            for f in sm["facts"][:4]:
+                print(f"    {f['fact']:24s} {f['n']:3d} {f['rate'] * 100:5.1f}% "
+                      f"{f['lift'] * 100:+6.1f}")
+    return 0
+
+
 def cmd_sql(args) -> int:
     import duckdb
 
@@ -1088,6 +1160,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--minimap-mode", default=None,
                    help="override the profile's minimap settings, e.g. "
                         "fixed/per_side/uncentered or 'rotating centered'")
+    # Free-form and deliberately unvalidated. Anything about the *sitting* that
+    # the pixels cannot show has to be written down at ingest or it is gone --
+    # the map, whether this followed a break, whether the last match went badly.
+    # A tag costs nothing now and cannot be reconstructed later.
+    s.add_argument("--tags", default=None,
+                   help="comma-separated notes about this session, e.g. "
+                        "\"ascent, long-break, reported-last-match\". Free text; "
+                        "they land in the manifest and nothing parses them.")
     s.set_defaults(func=cmd_ingest)
 
     s = sub.add_parser("segment", help="recompute spans from stored L1 (no video)")
@@ -1171,6 +1251,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--min-margin", type=float, default=0.05)
     s.add_argument("--out", default=None)
     s.set_defaults(func=cmd_overlay)
+
+    s = sub.add_parser("rounds", help="stage 05: derive rounds and score win rates")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--by-map", action="store_true", help="also split every fact by map")
+    s.set_defaults(func=cmd_rounds)
 
     s = sub.add_parser("sql", help="run DuckDB over the store")
     s.add_argument("query", nargs="?"); s.add_argument("--limit", type=int, default=50)
