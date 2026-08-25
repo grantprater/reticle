@@ -30,7 +30,10 @@ Known limits
 ------------
 * No elevation. The floorplan is a 2D silhouette, so a bridge and the floor
   beneath it are one region. This is the standing limit on any geometry work.
-* Enemies are not on the minimap at all, only red X last-known marks.
+* Enemies appear on the minimap only while a teammate can see them or a recon
+  ability has revealed them, plus red X marks for last-known positions. So the
+  minimap carries *what the team knows*, which is the right basis for judging a
+  decision even though it is not ground truth.
 * Scale is roughly 0.2 m per pixel, from map extent rather than calibration.
 * Map identity is unknown. Geometry should be shared between sessions on the
   same map rather than re-derived, which needs a label at ingest.
