@@ -10,6 +10,7 @@
     reticle glyphs  VIDEO                     mine digit templates from footage
     reticle verify  [SESSION]                 check HUD reads against domain invariants
     reticle overlay [SESSION]                 render detections onto the video
+    reticle kd      [SESSION]                 running K/D per round, to check against the scoreboard
     reticle sql     "SELECT ..."              DuckDB over the store
 """
 
@@ -24,7 +25,7 @@ from pathlib import Path
 import numpy as np
 
 from .decode import sample_frames
-from .checks import check_hud, player_events
+from .checks import KNOWN_KD, check_hud, player_events, track_entries
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
@@ -694,6 +695,76 @@ def cmd_verify(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- kd
+
+def cmd_kd(args) -> int:
+    """Running kill/death totals per round, for checking against the scoreboard.
+
+    Open the scoreboard in-game at a round boundary, read your K/D off it, and
+    compare with the row for that round. A mismatch localises the error to a
+    single round instead of a whole match, which is the entire point of doing it
+    this way rather than comparing one number at the end.
+
+    Rounds are inferred from the scoreline advancing, so a round the scoreline
+    could not be read across is merged into its neighbour -- the `reads` column
+    says how much of the round the scoreline was actually legible for.
+    """
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    sid = manifest["session_id"]
+    table = store.read_hud(sid, _date_of(manifest))
+    if table is None:
+        raise SystemExit(f"no HUD reads for {sid} -- run: reticle hud {sid}")
+
+    t = table.column("t_ms").to_pylist()
+    sl = table.column("score_left").to_pylist()
+    sr = table.column("score_right").to_pylist()
+    kills = [a for a in track_entries(t, table.column("kf_kill_mask").to_pylist())
+             if a["counted"]]
+    deaths = [a for a in track_entries(t, table.column("kf_death_mask").to_pylist())
+              if a["counted"]]
+
+    # round boundaries: the moment the two scores sum to one more than before
+    bounds, prev, start = [], None, t[0] if t else 0.0
+    for ts, a, b in zip(t, sl, sr):
+        if a is None or b is None:
+            continue
+        total = a + b
+        if prev is not None and total == prev + 1:
+            bounds.append((start, ts, total, a, b))
+            start = ts
+        if prev is None or total != prev:
+            prev = total
+    if t:
+        bounds.append((start, t[-1], (prev or 0) + 1, None, None))
+
+    known = KNOWN_KD.get(sid)
+    print(f"session    {sid}  ({manifest['source']['filename']})")
+    print(f"rounds     {len(bounds)} inferred from the scoreline")
+    if known:
+        print(f"scoreboard {known[0]} / {known[1]} at the end of the match")
+    print()
+    print("  rd  ends at   score      K   D    cumulative   reads")
+    ck = cd = 0
+    for i, (r0, r1, _tot, a, b) in enumerate(bounds, start=1):
+        k = sum(1 for e in kills if r0 <= e["t_first"] < r1)
+        d = sum(1 for e in deaths if r0 <= e["t_first"] < r1)
+        ck += k; cd += d
+        n = sum(1 for ts in t if r0 <= ts < r1)
+        got = sum(1 for ts, x in zip(t, sl) if r0 <= ts < r1 and x is not None)
+        score = f"{a}-{b}" if a is not None else "  -  "
+        print(f"  {i:2d}  {_fmt_hms(r1):>8s}  {score:>5s}   {k:2d}  {d:2d}"
+              f"     {ck:2d} / {cd:2d}     {got * 100 // max(n, 1):3d}%")
+    print()
+    print(f"final      {ck} / {cd} tracked")
+    if known:
+        print(f"           {known[0]} / {known[1]} on the scoreboard"
+              f"   delta {ck - known[0]:+d} / {cd - known[1]:+d}")
+    print("\nopen the scoreboard each round and compare the cumulative column;")
+    print("the first row where it diverges is the round holding the error.")
+    return 0
+
+
 # --------------------------------------------------------------------------- overlay
 
 def _parse_ts(text: str | None) -> float | None:
@@ -956,6 +1027,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("verify", help="check HUD reads against domain invariants")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_verify)
+
+    s = sub.add_parser("kd", help="running K/D per round, to check against the scoreboard")
+    s.add_argument("session", nargs="?")
+    s.set_defaults(func=cmd_kd)
 
     s = sub.add_parser("overlay", help="render detections onto the video (debug aid)")
     s.add_argument("session", nargs="?")
