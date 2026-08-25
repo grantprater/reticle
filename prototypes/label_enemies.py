@@ -50,6 +50,13 @@ corpse; mid-fall is a coin flip and takes U. The killfeed timestamps can sharpen
 this afterwards -- a body within a second or two of a tracked kill is certainly
 a corpse -- so a few ambiguous calls here are recoverable.
 
+**Mark the visible part, not the head.** A partly-occluded enemy -- a gun poking
+out of a smoke, a shoulder past a corner -- often has no head on screen at all.
+The label answers "should the detector fire here", not "where is the head", so
+click whatever is actually outlined. Head-specific aim analysis needs a separate,
+smaller labelling pass later, on frames where the whole model is visible; mixing
+the two here would give a detector set full of phantom heads.
+
 Only mark what is **outlined**. The detector keys on the enemy outline, so an
 un-outlined object is something it structurally cannot see, and labelling one
 manufactures a false negative against an impossible detection. An ability in
@@ -117,6 +124,15 @@ So the default mix is half from the seconds around killfeed events and half
 uniform over active play. The uniform half is what the detector should actually
 be *scored* on; the killfeed half is there to make labelling worth the time.
 Each row records which pool it came from so the two can be kept apart.
+
+**The damage vignette is the confounder to watch.** Taking damage reddens the
+screen edges, which is a large red region that is not an enemy -- exactly the
+failure mode this codebase keeps hitting with absolute colour tests. Three
+defences: it lives at the border, so a margin excludes it; it is a broad diffuse
+gradient rather than a thin contour, so shape and compactness reject it; and HP
+is already in L1, so the frames where it can occur are known in advance and need
+no new extraction. Label those frames normally -- the detector has to cope, and
+labels showing it coping or not are the point.
 
 This is the project's first hand-labelled data. Everything else has been
 validated against something the game itself reported -- the scoreboard, the
