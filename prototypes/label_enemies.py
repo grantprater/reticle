@@ -137,6 +137,23 @@ uniform over active play. The uniform half is what the detector should actually
 be *scored* on; the killfeed half is there to make labelling worth the time.
 Each row records which pool it came from so the two can be kept apart.
 
+**The damage direction arrow is red too**, and it is worth far more than the
+nuisance it looks like. The game draws an arrow toward whoever just shot you --
+so it is an explicit bearing to an enemy, computed by the game, for an enemy who
+may be on neither the screen nor the minimap. Paired with the HP drop that
+triggered it, the player's minimap position and view angle, it yields an
+inferred enemy position for *every hit taken*. That is the reliable version of
+the muzzle-flash signal, which only fires when a tracer happens to be in frame.
+
+Whether it appears on every damage event is unconfirmed and easy to check: HP
+drops are already in L1, so the arrow's presence can be correlated against them
+without labelling anything. Its geometry helps too -- it sits at a roughly fixed
+radius around the crosshair and rotates to point, so it can be found and removed
+by shape rather than by masking a region, which matters because the annulus
+around the crosshair is exactly where enemies tend to be.
+
+Shift+click it when it appears, so the detector is scored fairly.
+
 **The damage vignette is the confounder to watch.** Taking damage reddens the
 screen edges, which is a large red region that is not an enemy -- exactly the
 failure mode this codebase keeps hitting with absolute colour tests. Three
