@@ -11,9 +11,24 @@ Controls
     shift+left click  mark an enemy DEPLOYABLE (KJ turret, Cypher cage, drone)
     right click       undo the last mark on this frame
     SPACE or D   save this frame and advance
-    N            mark the frame as having NO visible enemy, and advance
+    N            mark the frame as having NO outlined enemy, and advance
+    U            mark the frame UNCERTAIN and advance -- recorded, but kept out
+                 of scoring. Use it whenever a call is a coin flip.
     A            go back a frame
     Q / ESC      save and quit
+
+Only mark what is **outlined**. The detector keys on the enemy outline, so an
+un-outlined object is something it structurally cannot see, and labelling one
+manufactures a false negative against an impossible detection. An ability in
+flight with no outline -- a Reyna blind, say -- is correctly left unmarked even
+though a human can see it perfectly well.
+
+Ambiguous frames get U, not a guess. A coin-flip label is worse than no label:
+it does not average out, it moves precision or recall in whichever direction the
+guess went, and nothing downstream can tell it from a confident one. Marking a
+frame uncertain keeps it in the record -- so it is still distinguishable from
+"not looked at" -- while excluding it from the scoring set. Expect to use this
+on distant models, heavy smoke, and anything where team colour is unclear.
 
 Revealed enemies are their own class, and they may be the most valuable of the
 three. Grant's framing is that only two things change a round's shape: economy,
@@ -188,7 +203,8 @@ def main() -> int:
                            f"vis={sum(1 for m in state['pts'] if m[2] == 'player')} "
                            f"rev={sum(1 for m in state['pts'] if m[2] == 'revealed')} "
                            f"dep={sum(1 for m in state['pts'] if m[2] == 'deployable')}   "
-                           f"click=visible  ctrl=revealed  shift=deployable  rclick=undo   "
+                           f"click=visible  ctrl=revealed  shift=deployable   "
+                           f"rclick=undo  U=unsure   "
                            f"SPACE=next  N=none  A=back  Q=quit")
 
     def record():
@@ -199,6 +215,8 @@ def main() -> int:
             "pool": pool,
             # stored in ORIGINAL frame pixels, so the display scale is free to change
             # kind: "player" or "deployable"; see the module docstring
+            # uncertain frames stay in the record but out of any scoring set
+            "uncertain": bool(state.get("uncertain")),
             "marks": [{"x": round(px / args.scale), "y": round(py / args.scale),
                        "kind": kind} for px, py, kind in state["pts"]],
         }) + chr(10))
@@ -209,6 +227,7 @@ def main() -> int:
         if record_first:
             record()
         state["pts"] = []
+        state["uncertain"] = False
         state["i"] += step
         if not (0 <= state["i"] < len(times)):
             finish()
@@ -230,6 +249,7 @@ def main() -> int:
     root.bind("<space>", lambda e: advance(+1))
     root.bind("d", lambda e: advance(+1))
     root.bind("n", lambda e: (state["pts"].clear(), advance(+1)))
+    root.bind("u", lambda e: (state.__setitem__("uncertain", True), advance(+1)))
     root.bind("a", lambda e: advance(-1, record_first=False))
     root.bind("q", lambda e: finish())
     root.bind("<Escape>", lambda e: finish())
