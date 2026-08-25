@@ -71,6 +71,15 @@ openings before the first miss.
 Ask Grant to open the scoreboard once a round when recording; it costs him
 nothing and it is worth more than any invariant.
 
+## Wallbangs are a finding, not just a parsing problem
+
+The wallbang arrow is currently something to see past when reading a name, but
+§4 already excludes wallbang duels from the aim metrics ("no visual contact") —
+and an exclusion rate is itself diagnostic. A kill or death through a surface is
+its own coachable category: prediction, recon and map knowledge rather than aim.
+The icon is detectable, so capture it as a field on the entry when the icon list
+lands, rather than only stepping over it.
+
 ## Open design question: engagements without a kill
 
 The killfeed only fires when someone dies, so keying stage 03 on it alone would
@@ -121,15 +130,26 @@ reading values and a smaller scale only for skimming.
 
 ## Open defects
 
-- **Killfeed attribution is short 22 events across 285** (ten sessions), scored
-  against `checks.KNOWN_KD`. Three sessions are exact, kills are exact on seven
-  of ten, deaths on four, and the error never invents an event. **Three
-  independent causes are confirmed** in `killfeed.py`, each worth a couple of
-  events: an entry whose weapon slot holds a small non-weapon mark; a band
-  clipped by the top edge of the killfeed ROI; and a washed-out entry where the
-  plate itself clears the white-text threshold and fuses with the glyphs. A fix
-  was attempted and reverted for each — the reasons are recorded, so start there
-  rather than re-deriving them.
+- **Killfeed attribution is 24 events off across 285** (ten sessions) against
+  `checks.KNOWN_KD`. Four sessions are exact. Four independent causes are
+  confirmed and listed in `killfeed.py` in the order worth attacking — each has
+  an attempted fix and the reason it did or did not work, so start there.
+- **No full list of killfeed icons exists, and that is the top blocker.**
+  Valorant draws marks between the weapon and the victim name (headshot
+  crosshair, wallbang arrow) and sometimes *in* the weapon slot (a crossed
+  circle for a non-weapon kill). Two of the four confirmed causes are icons we
+  did not know about. Getting a complete list would likely close most of the
+  remaining gap; Grant offered to source one.
+- **One misattribution exists.** `c40d950031bb` 13:14 reads a death as a kill,
+  because a crossed-circle mark in the weapon slot puts `Me` on the wrong side
+  of the split. This is the only case in ten sessions where the wrong *type* is
+  asserted rather than an event missed — worth fixing before anything downstream
+  consumes kill/death separately.
+- **Two sessions are not clean comparisons.** `ff636d173b07` is a Phoenix game:
+  a death inside Run It Back appears in the killfeed but never on the
+  scoreboard (unlike Sage/Clove revive deaths, which do count), so its +4 deaths
+  may be correct reads rather than errors. Treat scoreboard truth as
+  agent-dependent.
 - **Thin tracks are the leading indicator.** An entry seen in <=4 of a possible
   ~12 sampled frames is either barely caught or about to be split in two. If a
   new capture reads badly, count these first. An observation count *above* ~12 is

@@ -86,73 +86,66 @@ feeds and 1-3 concurrent entries, and it survives the tan-background false
 positives that a brightness-only detector produced. Requiring *both* plate
 colours is what makes it specific -- an empty feed scores 0.0% on each.
 
-Attribution is scored against the scoreboard K/D in `checks.KNOWN_KD` -- the only
-external ground truth in the project. Tracked entries versus scoreboard, at
-2 Hz, over eight sessions:
+Attribution is scored against the scoreboard K/D in `checks.KNOWN_KD`. Tracked
+entries versus scoreboard, at 2 Hz, over ten sessions:
 
     b3b9defb6fd7    14 / 18   vs  14 / 18     exact
     bdfdcf009dba    17 / 13   vs  17 / 14     +0 / -1
     223d636bf8d2    21 / 15   vs  25 / 15     -4 / +0
-    9acf02f98283    11 / 12   vs  13 / 16     -2 / -4
+    9acf02f98283    11 / 13   vs  13 / 16     -2 / -3
     b7d24102a6f6    10 / 12   vs  10 / 12     exact
     75a55a296d3b     5 /  5   vs   5 /  5     exact
-    59c70f1ef720    15 / 14   vs  15 / 16     +0 / -2
+    59c70f1ef720    15 / 16   vs  15 / 16     exact
     bfad2778a372    19 / 13   vs  19 / 15     +0 / -2
+    c40d950031bb     3 /  4   vs   2 /  7     +1 / -3
+    ff636d173b07    23 / 24   vs  27 / 20     -4 / +4
 
-15 events off across 229. ME_MATCH_MIN was swept on the first five; the last
-three were never used to tune anything. Per-band precision was checked by eye:
-32 of 32 hand-inspected detections were correct.
+24 events off across 285. Note two of those rows are not clean comparisons.
+ff636d173b07 is a Phoenix game, and a death inside Run It Back shows in the
+killfeed but is never counted on the scoreboard, so some of its +4 deaths are
+probably entries we now read correctly rather than errors. c40d950031bb's +1
+kill is a genuine misattribution, described below.
 
-The error is one-directional -- these counts under-report and do not invent
-events. It is also lopsided by side: kills are exact on seven of nine sessions,
-deaths short on six. Two causes are now confirmed rather than suspected, both
-found by hunting the three missing deaths in c40d950031bb, a 16-minute match
-with only two kills in it:
+Known defects, in the order worth attacking
+-------------------------------------------
+1. **A mark can hide the name behind it.** Valorant draws extra icons between
+   the weapon and the victim's name -- a headshot crosshair, a wallbang arrow.
+   The headshot icon fragments off the text baseline and is filtered upstream,
+   but the wallbang arrow is one solid baseline-aligned run and impersonates the
+   name. `_match_me` therefore tries several runs per side rather than only the
+   one abutting the icon. Every such mark sits on the *victim* side, which is
+   why kills were near-exact while deaths ran short, and fixing it made
+   59c70f1ef720 exact and recovered a death on 9acf02f98283.
 
-* **An entry with no weapon icon.** At 13:14, "HungryHamster5 (X) Me" -- the
-  weapon slot holds a small crossed-circle mark, not a gun. ICON_MIN_AREA=150
-  rejects it, so the killer/victim split never happens and the entry goes
-  unattributed. Lowering the floor to 95 does find the icon, but the victim run
-  then measures 26 px instead of 18 and "Me" still only scores 0.26, so
-  something else is inside that run. Not fixed.
-* **Clipping at the ROI's top edge.** At 15:12, "pan (rifle) Me" scores 0.41
-  against a 0.65 bar, on a band reported at y0-37: the newest entry is still
-  sliding into place and its glyph tops are cut off by the ROI boundary.
-  Reading 24 rows above the ROI was tried and rejected -- it recovers nothing,
-  and it *loses* the 15:12 bands altogether, because the taller crop changes
-  what the plate row-profile resolves. The ROI itself may need to move, which
-  costs an EXTRACTOR_VERSION bump and a re-ingest of every session.
-* **A washed-out entry.** ff636d173b07 at 11:44, "Me (rifle) MommysMethpipe",
-  a plain kill scoring 0.00. The killfeed is drawn over the scene, and against a
-  bright background the *plate* clears TEXT_V_MIN and fuses with the glyphs:
-  band median value 215, white mask filling 20.4% of the band with a largest
-  component of 1285 px, against 6-10% and ~20 glyph-sized components on a
-  healthy band. Thresholding each band by Otsu on its own value channel was
-  tried and does not fix it -- with a dark portrait at one end and a bright
-  plate at the other, Otsu splits dark from bright rather than plate from text.
-  Something local, or a colour distance from the plate rather than a brightness
-  cut, is probably what this needs.
+   **There is no full list of these icons.** Two are known; how many exist is an
+   open question and the single most useful thing to find out.
 
-Every attempted fix above was reverted rather than left half-working. What they
-establish is the shape of the problem: the gap is not one bug but several, each
-worth a couple of events, and the three found so far are independent of each
-other. Precision is not in question -- c40d950031bb holds only two real kills
-and reports exactly two.
+2. **A non-weapon mark in the weapon slot splits the entry wrongly.** At
+   c40d950031bb 13:14, "HungryHamster5 (X) Me" -- a death -- is now read as a
+   *kill*, because the crossed circle is taken for the weapon icon and "Me"
+   lands on the killer side of it. This is the only case in ten sessions where
+   the wrong *type* is asserted rather than an event merely missed, and it
+   arrived with the fix above. It wants the icon list too.
 
-* Entry formats this parser does not model. It requires a weapon icon dividing
-  two names, which a normal kill always has. A death with no killer -- spike
-  detonation, fall damage -- and the resurrection entries (Sage, Clove) are laid
-  out differently, and a death is far likelier than a kill to take one of those
-  forms. That asymmetry matches the one in the numbers.
-* Entries never resolved into a band at all. Scanning an 11-minute stretch of
-  bfad2778a372 with two known-missing deaths turned up no near misses on the
-  victim side: the width gate correctly rejected short names ("Raze", 30-32 px)
-  at 0.00 and every real "Me" scored 18 px. So the missing deaths are not
-  marginal matches, they are absent.
+3. **Clipping at the ROI's top edge.** c40d950031bb 15:12, "pan (rifle) Me"
+   scoring 0.41 against a 0.65 bar on a band at y0-37: the newest entry is still
+   sliding into place and its glyph tops are cut off by the ROI boundary.
+   Reading 24 rows above the ROI was tried and rejected -- it recovers nothing
+   and loses those bands outright, because the taller crop changes what the
+   plate row-profile resolves. Moving the ROI costs an EXTRACTOR_VERSION bump
+   and a re-ingest.
 
-Thin tracks -- entries seen in 4 or fewer of a possible ~12 frames -- are the
-leading indicator, and an observation count *above* ~12 means the opposite: two
-entries merged into one track. 30 of 214 are thin.
+4. **A washed-out entry.** ff636d173b07 11:44, "Me (rifle) MommysMethpipe",
+   scoring 0.00: against a bright background the plate itself clears TEXT_V_MIN
+   and fuses with the glyphs -- band median value 215, white mask filling 20.4%
+   of the band against 6-10% on a healthy one. Per-band Otsu was tried and does
+   not fix it; with a dark portrait at one end and a bright plate at the other
+   it splits dark from bright rather than plate from text. A colour distance
+   from the plate, rather than a brightness cut, is the likelier primitive.
+
+Precision is otherwise not in question: c40d950031bb holds two real kills and
+the tracker never invents an event out of nothing -- defect 2 mislabels an
+entry that genuinely exists.
 
 Deaths per round is deliberately NOT used as a check anywhere: Sage
 resurrection and Clove self-revive both let a player die more than once in a
@@ -223,6 +216,9 @@ NAME_GAP = 6
 # region also finds the "Mo" of "Monzuko" and the "Mr" of "MrTaco" at 0.62-0.78,
 # but those names are one ~84 px run, so the width rejects them outright.
 ME_W = (14, 26)
+# How many text runs to try on one side before giving up. Two is enough for the
+# marks seen so far (headshot, wallbang); a third covers one more appearing.
+MAX_NAME_RUNS = 3
 
 # A pixel white in this share of sampled frames is an overlay, not an entry.
 PERSIST_FRAC = 0.85
@@ -459,28 +455,46 @@ def name_run(region: np.ndarray, side: int) -> tuple[int, int] | None:
 
 
 def _match_me(region: np.ndarray, tpl_info, side: int) -> tuple[int, float]:
-    """Width of this side's name run, and how well "Me" matches inside it.
+    """Best "Me" match among the text runs on this side, with that run's width.
 
-    Matching is confined to the name run rather than swept across the whole
-    region, so a long name cannot contribute a lucky substring: its run is far
-    too wide to be "Me" and is rejected on width before any matching happens.
+    Not just the run nearest the weapon icon. Valorant draws extra marks between
+    the weapon and the victim's name -- a headshot crosshair, and a wallbang
+    arrow for a kill through a surface. The headshot icon breaks into fragments
+    that scatter off the text baseline and is filtered out upstream, but the
+    wallbang arrow is one solid baseline-aligned shape, so it survives as a run
+    and impersonates the name: "Sakiko (rifle)(arrow) Me" gave a first run 14 px
+    wide against the 18 px of "Me", and the death went unattributed.
+
+    Every mark of this kind sits on the *victim* side, which is exactly why
+    kills have been near-exact while deaths ran short.
+
+    Each candidate run is still gated on ME_W and still has to match the
+    template, so widening the search does not weaken the test -- it only stops
+    an icon from hiding the name behind it.
     """
     if tpl_info is None:
         return 0, 0.0
     tpl, t0, t1 = tpl_info
-    run = name_run(region, side)
-    if run is None:
+    runs = _ink_runs(region)
+    if not runs:
         return 0, 0.0
-    width = run[1] - run[0] + 1
-    if not (ME_W[0] <= width <= ME_W[1]):
-        return width, 0.0
-    # Widen the run by the patch's own padding so the match can line up.
-    lo = max(0, run[0] - t0)
-    hi = min(region.shape[1], run[1] + 1 + (tpl.shape[1] - 1 - t1))
-    sub = region[:, lo:hi]
-    if sub.shape[0] < tpl.shape[0] or sub.shape[1] < tpl.shape[1]:
-        return width, 0.0
-    return width, float(cv2.matchTemplate(sub, tpl, cv2.TM_CCOEFF_NORMED).max())
+    # Nearest the weapon icon first, then outward past any marks.
+    ordered = list(reversed(runs)) if side < 0 else runs
+    first_w = ordered[0][1] - ordered[0][0] + 1
+    best_w, best_s = first_w, 0.0
+    for run in ordered[:MAX_NAME_RUNS]:
+        width = run[1] - run[0] + 1
+        if not (ME_W[0] <= width <= ME_W[1]):
+            continue
+        lo = max(0, run[0] - t0)
+        hi = min(region.shape[1], run[1] + 1 + (tpl.shape[1] - 1 - t1))
+        sub = region[:, lo:hi]
+        if sub.shape[0] < tpl.shape[0] or sub.shape[1] < tpl.shape[1]:
+            continue
+        score = float(cv2.matchTemplate(sub, tpl, cv2.TM_CCOEFF_NORMED).max())
+        if score > best_s:
+            best_s, best_w = score, width
+    return best_w, best_s
 
 
 def _band_text(
