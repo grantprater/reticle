@@ -84,6 +84,20 @@ entry would give both sides' alive counts through the round. That single field
 unlocks man advantage, clutch detection, and the "how many enemies are alive"
 conditioner the peek work needs. It is probably the highest-value field left.
 
+Round boundaries are ~98% complete (281 found against 287 expected across
+fourteen sessions) but their *timing* is loose. The scoreline only climbs once
+a round has ended and it reads at 33-60%, so a boundary can be detected seconds
+late and leak the next round's opening kills backwards into this one. Deaths per
+side peak at 4 and 5 as they should, with 13% of side-rounds above 5 -- part
+revives, part that slop. Snapping boundaries to the round clock's reset to 100 s
+would sharpen them, and is the obvious next improvement here.
+
+**Do not use deaths-per-round as an invariant.** A revive lets a player die
+twice in a round, so more than five deaths on a side is legitimate -- Sage and
+Clove both produce it. This is stated in CLAUDE.md's conventions and was
+promptly rediscovered the hard way, by writing exactly that check and reporting
+its failure as a defect.
+
 Not derivable, and deliberately absent rather than guessed: who planted,
 assists, and economy of any kind -- which, per the note above, is the one
 confounder that actually varies between rounds.
