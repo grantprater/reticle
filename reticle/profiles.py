@@ -198,7 +198,17 @@ VALORANT_16_9 = Profile(
         # chrome signal that separates "dead, still in the round" from "not in
         # a match at all". Portraits right-align toward the scoreline as
         # teammates die, so edge density here scales with how many are alive.
+        # Portraits are drawn ONLY for players who are alive -- a teammate's
+        # vanishes the moment they die -- so counting them *is* the alive count,
+        # as a persistent per-frame state rather than an event to be integrated.
+        # That makes it a continuous cross-check on killfeed completeness: where
+        # the roster count and the running killfeed total disagree, an entry was
+        # missed. Far denser than the ~50 scoreboard openings a match provides.
         Roi("hud_roster", 0.226, 0.020, 0.391, 0.093),
+        # The enemy roster mirrors it on the far side of the scoreline
+        # (px ~1167..1467), portraits spreading outward rather than inward.
+        # Measured off 9acf02f98283; not yet used by any extractor.
+        Roi("hud_roster_enemy", 0.608, 0.020, 0.764, 0.093),
         # Killfeed stack, top right. Entries are right-aligned to px ~1899 and
         # the longest run left to px ~1440; they stack downward from y~90 in
         # ~41px rows. NOTE: Valorant's "shooting error" HUD widget sits inside

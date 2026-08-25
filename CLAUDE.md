@@ -308,6 +308,38 @@ Practical note: seeking is expensive in H.264 and contiguous decoding is cheap,
 so the second pass should decode *ranges*, not scattered frames. Windows, not
 samples.
 
+## The top HUD says more than it looks like
+
+Measured 2026-08-25 off `9acf02f98283`, and it collapses three open problems.
+
+**Alive counts are directly readable.** The roster bars draw a portrait only for
+a player who is *alive* -- it disappears on death -- so counting portraits gives
+both teams' alive counts as a per-frame state. No integration of killfeed
+events, no error accumulation. `hud_roster` already covered the friendly side;
+`hud_roster_enemy` now covers the other, measured at px ~1167..1467.
+
+**That is also a continuous audit of the killfeed.** The roster is state and the
+killfeed is events, so a running killfeed total should always agree with the
+roster count. Where they diverge, an entry was missed -- and unlike the
+scoreboard, which gives ~50 checks a match at best and 5 at worst, this checks
+every sampled frame. It is the densest validity signal available and it costs
+one new ROI.
+
+**Allies are on the left, enemies on the right.** The roster bars are green-left
+and red-right, which independently confirms what `rounds.infer_player_side`
+derived statistically from eleven sessions. Two unrelated methods, same answer.
+
+**The spike icon sits in the scoreline ROI.** When the spike is planted the
+round timer is replaced by a red spike graphic, centre-screen, for the whole 45
+seconds -- inside a region already being cropped. That is the persistent
+indicator `rounds.py` wants instead of the one-sample clock discontinuity it
+currently uses, and it needs no new ROI at all.
+
+It probably also explains a standing oddity. Clock read rates sit at 33-60% and
+`9acf02f98283` is 39.7%; planted rounds have no clock to read, because the spike
+graphic is where the digits would be. Some unknown share of "unreadable" frames
+are not misreads at all -- they are frames with nothing to read.
+
 ## Scoreboard divergence is a finding, not an error
 
 The killfeed and the scoreboard answer different questions, and where they
