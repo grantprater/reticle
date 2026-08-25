@@ -47,6 +47,15 @@ Known limits
   the floorplan. Where dA/ds says how much a peek exposes, the cones say how much
   of that exposure the team already had eyes on.
 
+  Enemy icons come in **three states, and the difference is time**: a solid icon
+  means somebody can see them *now*; a **question mark** means recently revealed,
+  shown for a little while after vision is lost; a red X marks where one died.
+  So the minimap does not just say what the team knows, it says how *stale* that
+  knowledge is -- and staleness is the whole point for judging a peek. Taking an
+  angle where an enemy is visible right now, where one was seen five seconds ago,
+  and where one has never been seen are three different decisions, and this is
+  the only thing in the capture that separates them.
+
   Neither needs hand labels: an enemy icon must disappear when that enemy dies,
   and per-team alive counts come from the killfeed, so the detector has an
   external anchor. Hand-labelling should be spent only where no anchor exists.
