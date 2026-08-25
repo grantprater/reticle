@@ -55,6 +55,15 @@ def _date_of(manifest: dict) -> str:
     return manifest["ingested_at"][:10]
 
 
+def _dividers(table, column: str):
+    """The packed divider column, or None on a session stored without one.
+
+    Sessions read before hud-0.8.0 carry no divider, and `track_entries` falls
+    back to slot and time for them rather than refusing to score them at all.
+    """
+    return table.column(column).to_pylist() if column in table.column_names else None
+
+
 def _resolve_session(store: Store, session: str | None) -> dict:
     sessions = store.sessions()
     if not sessions:
@@ -496,6 +505,9 @@ def cmd_hud(args) -> int:
             "kf_kill_mask": kf.kill_mask,
             "kf_death_mask": kf.death_mask,
             "kf_unattributed": kf.unattributed,
+            "kf_entry_wx": kf.entry_dividers,
+            "kf_kill_wx": kf.kill_dividers,
+            "kf_death_wx": kf.death_dividers,
             "confidence": r.confidence,
             "bottom_confidence": b.confidence,
             "n_glyphs": r.n_glyphs,
@@ -533,6 +545,8 @@ def cmd_hud(args) -> int:
         [r["t_ms"] for r in rows],
         [r["kf_kill_mask"] for r in rows],
         [r["kf_death_mask"] for r in rows],
+        [r["kf_kill_wx"] for r in rows],
+        [r["kf_death_wx"] for r in rows],
     )
     print(f"killfeed   {kf_frames} frames show an entry   "
           f"player in-frame: {kf_kill} kill, {kf_death} death")
@@ -726,9 +740,11 @@ def cmd_board(args) -> int:
     tracked = None
     if hud is not None:
         ht = hud.column("t_ms").to_pylist()
-        kills = [e["t_first"] for e in track_entries(ht, hud.column("kf_kill_mask").to_pylist())
+        kills = [e["t_first"] for e in track_entries(ht, hud.column("kf_kill_mask").to_pylist(),
+                                                     _dividers(hud, "kf_kill_wx"))
                  if e["counted"]]
-        deaths = [e["t_first"] for e in track_entries(ht, hud.column("kf_death_mask").to_pylist())
+        deaths = [e["t_first"] for e in track_entries(ht, hud.column("kf_death_mask").to_pylist(),
+                                                      _dividers(hud, "kf_death_wx"))
                   if e["counted"]]
         tracked = (kills, deaths)
 
@@ -811,9 +827,11 @@ def cmd_kd(args) -> int:
     t = table.column("t_ms").to_pylist()
     sl = table.column("score_left").to_pylist()
     sr = table.column("score_right").to_pylist()
-    kills = [a for a in track_entries(t, table.column("kf_kill_mask").to_pylist())
+    kills = [a for a in track_entries(t, table.column("kf_kill_mask").to_pylist(),
+                                      _dividers(table, "kf_kill_wx"))
              if a["counted"]]
-    deaths = [a for a in track_entries(t, table.column("kf_death_mask").to_pylist())
+    deaths = [a for a in track_entries(t, table.column("kf_death_mask").to_pylist(),
+                                       _dividers(table, "kf_death_wx"))
               if a["counted"]]
 
     # round boundaries: the moment the two scores sum to one more than before

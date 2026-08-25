@@ -199,6 +199,14 @@ class Store:
             "kf_kill_mask": pa.array(col("kf_kill_mask"), type=pa.int16()),
             "kf_death_mask": pa.array(col("kf_death_mask"), type=pa.int16()),
             "kf_unattributed": pa.array(col("kf_unattributed"), type=pa.int16()),
+            # Each entry's weapon-icon divider column, packed nine bits per
+            # stack slot. An entry's divider does not move while it is on
+            # screen, so this is what tells one entry from the next when both
+            # occupy the same slot in turn -- the merge the masks above cannot
+            # see. int64: six slots of nine bits. See killfeed.divider_of_ys.
+            "kf_entry_wx": pa.array(col("kf_entry_wx"), type=pa.int64()),
+            "kf_kill_wx": pa.array(col("kf_kill_wx"), type=pa.int64()),
+            "kf_death_wx": pa.array(col("kf_death_wx"), type=pa.int64()),
             "n_glyphs": pa.array(col("n_glyphs"), type=pa.int16()),
             "session_id": pa.array([fingerprint.session_id] * n, type=pa.string()),
             "content_key": pa.array([fingerprint.content_key] * n, type=pa.string()),
