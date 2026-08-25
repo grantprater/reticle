@@ -95,16 +95,21 @@ entries versus scoreboard, at 2 Hz, over ten sessions:
     9acf02f98283    11 / 13   vs  13 / 16     -2 / -3
     b7d24102a6f6    10 / 12   vs  10 / 12     exact
     75a55a296d3b     5 /  5   vs   5 /  5     exact
-    59c70f1ef720    15 / 16   vs  15 / 16     exact
+    59c70f1ef720    15 / 15   vs  15 / 16     +0 / -1
     bfad2778a372    19 / 13   vs  19 / 15     +0 / -2
-    c40d950031bb     3 /  4   vs   2 /  7     +1 / -3
+    c40d950031bb     2 /  4   vs   2 /  7     +0 / -3
     ff636d173b07    23 / 24   vs  27 / 20     -4 / +4
 
-24 events off across 285. Note two of those rows are not clean comparisons.
-ff636d173b07 is a Phoenix game, and a death inside Run It Back shows in the
-killfeed but is never counted on the scoreboard, so some of its +4 deaths are
-probably entries we now read correctly rather than errors. c40d950031bb's +1
-kill is a genuine misattribution, described below.
+24 events off across 285, against 22 before the icon work -- but the total hides
+what moved. ff636d173b07 is a Phoenix game and is not a clean comparison: a
+death inside Run It Back appears in the killfeed and is never counted on the
+scoreboard, so its +4 deaths are as likely to be entries now read correctly as
+errors. Setting that session aside, the error fell from 18 to 16, two sessions
+improved, none regressed, and the one misattribution in the set was removed.
+
+Every remaining delta is a miss. Nothing in these ten sessions is now counted
+as the wrong *kind* of event, and c40d950031bb still holds exactly two real
+kills and reports two.
 
 Known defects, in the order worth attacking
 -------------------------------------------
@@ -120,12 +125,15 @@ Known defects, in the order worth attacking
    **There is no full list of these icons.** Two are known; how many exist is an
    open question and the single most useful thing to find out.
 
-2. **A non-weapon mark in the weapon slot splits the entry wrongly.** At
-   c40d950031bb 13:14, "HungryHamster5 (X) Me" -- a death -- is now read as a
-   *kill*, because the crossed circle is taken for the weapon icon and "Me"
-   lands on the killer side of it. This is the only case in ten sessions where
-   the wrong *type* is asserted rather than an event merely missed, and it
-   arrived with the fix above. It wants the icon list too.
+2. **Fixed: a non-weapon mark in the weapon slot split the entry wrongly.**
+   c40d950031bb 13:14, "HungryHamster5 (X) Me", was read as a *kill*. There is
+   no weapon icon on that entry at all, so the largest-blob rule took the
+   victim's portrait at the ROI edge for the divider and put "Me" on the killer
+   side. The divider must now have ink on both sides of it, which a portrait
+   never has -- so the entry goes unparsed instead of wrong. Neither this nor
+   defect 1 needed a list of icons: an icon is one solid shape where a name is
+   several glyphs, and a divider has names on both sides. Both are properties of
+   what a name *is*, not of which icons exist.
 
 3. **Clipping at the ROI's top edge.** c40d950031bb 15:12, "pan (rifle) Me"
    scoring 0.41 against a 0.65 bar on a band at y0-37: the newest entry is still
@@ -219,6 +227,13 @@ ME_W = (14, 26)
 # How many text runs to try on one side before giving up. Two is enough for the
 # marks seen so far (headshot, wallbang); a third covers one more appearing.
 MAX_NAME_RUNS = 3
+# A name is *text*: several separate glyphs on a shared baseline. "Me" is two
+# components. The marks that sit beside a name -- a wallbang arrow, an ability
+# icon -- are single solid shapes. That difference identifies an icon without
+# knowing which icon it is, which matters because no complete list of them
+# exists and enumerating them would be endless: abilities alone cover mollies,
+# shock darts, turrets and whatever ships next patch.
+MIN_NAME_PARTS = 2
 
 # A pixel white in this share of sampled frames is an overlay, not an entry.
 PERSIST_FRAC = 0.85
@@ -486,6 +501,10 @@ def _match_me(region: np.ndarray, tpl_info, side: int) -> tuple[int, float]:
         width = run[1] - run[0] + 1
         if not (ME_W[0] <= width <= ME_W[1]):
             continue
+        parts = cv2.connectedComponents(
+            (region[:, run[0]:run[1] + 1] > 0).astype(np.uint8), 8)[0] - 1
+        if parts < MIN_NAME_PARTS:
+            continue          # one solid shape: a mark, not a name
         lo = max(0, run[0] - t0)
         hi = min(region.shape[1], run[1] + 1 + (tpl.shape[1] - 1 - t1))
         sub = region[:, lo:hi]
@@ -523,7 +542,20 @@ def _band_text(
         icons = [i for i in idx if st[i, 4] >= ICON_MIN_AREA]
     if not icons:
         return None
-    wep = max(icons, key=lambda i: st[i, 4])
+    # The divider separates two names, so it must have ink on both sides of it.
+    # Without that test the largest blob wins outright, and on an entry with no
+    # weapon icon at all -- an ability kill -- that blob is the victim's
+    # portrait at the ROI edge. The split then lands beyond the victim's name
+    # and reads a death as a kill, which is worse than not answering.
+    ink_cols = np.where(wb.any(axis=0))[0]
+    wep = None
+    for i in sorted(icons, key=lambda i: -st[i, 4]):
+        a0, a1 = int(st[i, 0]), int(st[i, 0] + st[i, 2])
+        if ink_cols.size and (ink_cols < a0).any() and (ink_cols > a1).any():
+            wep = i
+            break
+    if wep is None:
+        return None
     wx0, wx1 = int(st[wep, 0]), int(st[wep, 0] + st[wep, 2])
     if usable is not None:
         for lo, hi in ((0, wx0), (wx1, usable.shape[1])):
