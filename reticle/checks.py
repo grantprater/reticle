@@ -49,20 +49,26 @@ KF_SIG_TOL = 6
 # Scoreboard K/D read off the end-of-match screen, keyed by session. This is the
 # only external ground truth in the project -- everything else here is a
 # label-free invariant -- so it is the one number that can say whether killfeed
-# attribution is actually right rather than merely self-consistent. Recorded by
-# Grant on 2026-08-24 for the four captures of 2026-08-23, in play order.
+# attribution is actually right rather than merely self-consistent. Transcribed
+# off the end screens as each capture was ingested, then checked in full against
+# Grant's match history on 2026-08-25.
 KNOWN_KD = {
-    # 2026-08-23, in play order.
-    "0f08b3dc3777": (19, 12),   # 16-51-47, cropped capture
-    "b3b9defb6fd7": (14, 18),   # 18-24-15
-    "bdfdcf009dba": (17, 14),   # 19-25-23
-    "223d636bf8d2": (25, 15),   # 20-09-01
-    # 2026-08-24, new maps. Recorded with the shooting-error readout switched
-    # off, so their killfeed ROI is clear of overlays.
-    "9acf02f98283": (13, 16),   # 11-55-34
-    "b7d24102a6f6": (10, 12),   # 12-37-04
-    "75a55a296d3b": (5, 5),     # 13-34-38, a short match
-    "59c70f1ef720": (15, 16),   # 13-58-11
+    # In play order, with the map. Grant read the whole run off his match
+    # history on 2026-08-25 and every one of these agreed with what had already
+    # been transcribed off the end screens -- so this table now has two
+    # independent sources behind it, which is worth more than either alone.
+    #
+    # 2026-08-23.
+    "0f08b3dc3777": (19, 12),   # 16-51-47  Summit, cropped capture
+    "b3b9defb6fd7": (14, 18),   # 18-24-15  Summit
+    "bdfdcf009dba": (17, 14),   # 19-25-23  Lotus
+    "223d636bf8d2": (25, 15),   # 20-09-01  Haven
+    # 2026-08-24. Recorded with the shooting-error readout switched off, so
+    # their killfeed ROI is clear of overlays.
+    "9acf02f98283": (13, 16),   # 11-55-34  Ascent
+    "b7d24102a6f6": (10, 12),   # 12-37-04  Split
+    "75a55a296d3b": (5, 5),     # 13-34-38  Abyss, a short match
+    "59c70f1ef720": (15, 16),   # 13-58-11  Ascent
     # 19/15 confirmed by Grant off the end screen. The killfeed reads 20 kills
     # and all 20 are read correctly; the extra one is a kill on an *enemy
     # Phoenix inside Run It Back*, which the scoreboard does not credit. Same
@@ -73,10 +79,14 @@ KNOWN_KD = {
     #   ends -- both "Me (Vandal) BiGDonut101", eight seconds apart, with the
     #   victim taking a kill in between because Run It Back returned him. The
     #   first carries the Phoenix ult mark.
-    "bfad2778a372": (19, 15),   # 14-45-35
+    "bfad2778a372": (19, 15),   # 14-45-35  Split
+    # Ingested long before it had a K/D, so it was never scored and never used
+    # to tune anything. Given ground truth for the first time on 2026-08-25 it
+    # came out *exact* -- the only genuinely out-of-sample number in the table.
+    "96aa1ae9b96f": (16, 10),   # 17-51-06  Haven
     # A low-event match: with only two real kills, a single false positive shows
     # up as a 50% error, so this is the sharpest precision test in the set.
-    "c40d950031bb": (2, 7),     # 18-27-17
+    "c40d950031bb": (2, 7),     # 18-27-17  Ascent
     # Grant played Phoenix here. A death inside Run It Back is *not* counted on
     # the scoreboard (nor is Kayo's), while a Sage or Clove revive death is --
     # so the two behave oppositely, and only the Phoenix/Kayo case can leave a
@@ -87,7 +97,10 @@ KNOWN_KD = {
     # 20:00, 29:13 and 38:20. 24 - 4 = 20, the recorded figure. Checked by
     # rendering every tracked death entry into one contact sheet and counting
     # the marks; see the note in CLAUDE.md.
-    "ff636d173b07": (27, 20),   # 18-47-51
+    "ff636d173b07": (27, 20),   # 18-47-51  Summit
+    # 2026-08-25.
+    "e37fdeca944f": (16, 19),   # 13-17-45  Sunset, a map not seen before
+    "043bafca271a": (11, 15),   # 13-59-44  Haven
 }
 
 

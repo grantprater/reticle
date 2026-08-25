@@ -13,13 +13,28 @@ Section references in docstrings (`SS3`, `SS7`) mean §3, §7 of that doc.
 
 ## Picking up
 
-Last worked 2026-08-25. Twelve sessions ingested, ten with scoreboard K/D in
-`checks.KNOWN_KD`. The store is at **`hud-0.8.1`**, re-read across all ten
-scored sessions. The gap against the scoreboard is 6 events, down from 24, seven
-sessions are exact, and **only one of the six is a read error** — see "Scoreboard
-divergence is a finding" below for why those are counted separately. Thin tracks
-are 6 of 289; long tracks are 0 of 289, from 7. Nothing is half-applied and the
-tree is clean.
+Last worked 2026-08-25. **Fourteen sessions ingested, fourteen with scoreboard
+K/D in `checks.KNOWN_KD`, and every one carries its map.** Thirteen are
+scorable (`0f08b3dc3777` is the cropped capture and has no killfeed ROI). The
+store is at **`hud-0.8.1`** throughout. **Nine of thirteen are exact and the gap is 8 events across 372.** Five of the
+eight are Run It Back (see "Scoreboard divergence is a finding" below), one is
+the ability-kill read error, and two are new and uninvestigated — see below.
+Long tracks are 0. Nothing is half-applied and the tree is clean.
+
+**Ground truth is now corroborated.** Grant read his whole match history on
+2026-08-25 and every K/D already transcribed off the end screens agreed, so
+`KNOWN_KD` has two independent sources behind it. Two sessions gained ground
+truth for the first time and both were fully out-of-sample — never scored, never
+used to tune anything: `96aa1ae9b96f` (Haven) came out **exact**, and the brand
+new `043bafca271a` (Haven) came out **exact** as well.
+
+**One match has no capture.** The history lists a thirteenth match on 2026-08-24
+(Split, 3/13) with no corresponding file. Nothing is wrong with the pipeline;
+the recording is simply absent.
+
+**Open: `e37fdeca944f` (Sunset) is −2 deaths.** A brand new capture on a map
+never seen before, kills exact. Not yet investigated and not yet known whether
+it is a read error or another divergence. It is the first thing to look at.
 
 `hud-0.7.0` — **three band-detection fixes**, all found from five misses Grant
 spotted by eye on `9acf02f98283` (4:27, 20:32, 24:35, 31:22, 32:22). Four of the
