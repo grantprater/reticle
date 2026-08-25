@@ -220,6 +220,58 @@ its own coachable category: prediction, recon and map knowledge rather than aim.
 The icon is detectable, so capture it as a field on the entry when the icon list
 lands, rather than only stepping over it.
 
+## What this is for (decided 2026-08-25)
+
+**Main goal: statistical relationships, via win probability.** Not "does X
+correlate with winning" over named facts -- that design is arithmetically
+doomed. A round yields *one bit* of outcome, so 262 rounds is 262 bits, and
+conditioning splits it to nothing; at 242 scored rounds nothing separates from
+baseline except the tautological survive/die pair, and adding facts makes it
+worse rather than better because each one is another chance to find noise.
+
+Instead: estimate P(win | round state) and value every event by how much it
+moved that probability. State is small -- `(alive_us, alive_them, phase,
+coarse_time, side, score_diff)`. The reasons this wins:
+
+* a round passes through eight to ten states, so 262 rounds give ~2000
+  state-transition observations rather than 242 outcomes;
+* WPA is continuous, so effects resolve with far less data than a win/loss bit;
+* conditioning is automatic. "Win% on first blood" stops being its own question
+  and becomes the average WPA of the first kill, already conditioned on state.
+  A 5v1 peek and a 5v5 peek are never averaged together, which is exactly
+  Grant's objection to counting exposed angles;
+* it handles the post-plant rule change natively, because phase is in the state.
+
+**Co-equal goal: film retrieval.** The largest |WPA| events *are* the list of
+moments that decided a session, so this falls out for free -- and it is the
+delivery mechanism for everything else. Nobody changes behaviour from a
+coefficient table; people change behaviour after watching themselves throw a
+4v2. Highest value per unit of effort in the whole project.
+
+**Standing constraint: metrics must stay versioned and stable**, so the
+longitudinal question ("am I improving, on what axis, over months") stays open.
+The version stamps already in the store are what protect this and are easy to
+break casually.
+
+**Deferred, not dropped: mechanical coaching.** Aim, peeks, positioning --
+prescriptive rather than diagnostic, and it needs a different architecture: high
+sample rate, engagement-level detail, minimap geometry. It continues on its own
+track. It is *not* subsumed by the statistical goal, because statistics describe
+the policy Grant already plays and can never say what a different policy would
+have produced. That counterfactual gap is the ceiling of the main goal.
+
+**Blocked, for now: opponent and meta priors.** Needs enemy positions, which no
+capture of one's own screen contains.
+
+**A goal in its own right: data quality.** With no labelled data and one
+customer, a number that cannot be trusted is worse than no number, and this
+session produced several corrections to confident claims. Cross-checks are a
+feature, not scaffolding.
+
+Fact tables follow from this: the **engagement** is the fact and the **round**
+is a dimension, because there are five to ten times more engagements and each
+carries richer covariates.
+
 ## How peeking actually works, and what to measure instead
 
 Grant's domain knowledge, 2026-08-25. None of this is recoverable from the code
