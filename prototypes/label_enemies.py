@@ -8,6 +8,7 @@ Controls
     left click        mark a VISIBLE enemy player's head
     ctrl+left click   mark a REVEALED enemy -- outlined through map geometry by
                       Sova recon, Fade, Skye and the like
+    middle click      mark a CORPSE -- a dead body, which stays outlined
     shift+left click  mark an enemy DEPLOYABLE (KJ turret, Cypher cage, drone)
     right click       undo the last mark on this frame
     SPACE or D   save this frame and advance
@@ -16,6 +17,23 @@ Controls
                  of scoring. Use it whenever a call is a coin flip.
     A            go back a frame
     Q / ESC      save and quit
+
+Corpses stay outlined, so they are a fourth class. Same reasoning as the others
+-- the detector will find one whether or not we ask, so an unlabelled body is a
+correct detection scored as a false positive -- but the consequence is sharper
+here, because a corpse is a *plausible* target rather than an obvious non-target.
+Crosshair placement on a body would count as target acquisition and inflate
+every aim statistic, and unlike a turret it is exactly where a real enemy was a
+moment ago, so the error would look reasonable.
+
+They are worth keeping rather than merely excluding: a body marks where a death
+happened, which is spatial data the killfeed has no way to give.
+
+The rule at the moment of a kill: if the model is still standing or animating
+as alive, it is an enemy; once it is ragdolling or on the ground, it is a
+corpse; mid-fall is a coin flip and takes U. The killfeed timestamps can sharpen
+this afterwards -- a body within a second or two of a tracked kill is certainly
+a corpse -- so a few ambiguous calls here are recoverable.
 
 Only mark what is **outlined**. The detector keys on the enemy outline, so an
 un-outlined object is something it structurally cannot see, and labelling one
@@ -148,6 +166,10 @@ def main() -> int:
     ap.add_argument("session")
     ap.add_argument("--n", type=int, default=300)
     ap.add_argument("--scale", type=float, default=0.75)
+    ap.add_argument("--redo", action="store_true",
+                    help="revisit frames already labelled, to correct them. The "
+                         "file is append-only and the LAST row for a timestamp "
+                         "wins, so nothing is lost by relabelling.")
     args = ap.parse_args()
 
     man = json.loads((STORE / "manifests" / f"{args.session}.json").read_text())
@@ -161,7 +183,8 @@ def main() -> int:
             if line.strip():
                 done.add(round(json.loads(line)["t_ms"]))
 
-    times = [(t, k) for t, k in sample_times(args.session, args.n) if round(t) not in done]
+    times = [(t, k) for t, k in sample_times(args.session, args.n)
+             if args.redo or round(t) not in done]
     if not times:
         print("every sampled frame for this session is already labelled")
         return 0
@@ -194,7 +217,8 @@ def main() -> int:
         canvas.delete("all")
         canvas.create_image(0, 0, anchor="nw", image=state["img"])
         for (px, py, kind) in state["pts"]:
-            col = {"player": "#ff2020", "revealed": "#ffd020"}.get(kind, "#20c0ff")
+            col = {"player": "#ff2020", "revealed": "#ffd020",
+                   "corpse": "#a060ff"}.get(kind, "#20c0ff")
             canvas.create_oval(px - 11, py - 11, px + 11, py + 11, outline=col, width=2)
             canvas.create_line(px - 16, py, px + 16, py, fill=col, width=1)
             canvas.create_line(px, py - 16, px, py + 16, fill=col, width=1)
@@ -202,9 +226,10 @@ def main() -> int:
         status.config(text=f"  {state['i']+1}/{len(times)}   {s//60}:{s%60:02d}   [{pool}]   "
                            f"vis={sum(1 for m in state['pts'] if m[2] == 'player')} "
                            f"rev={sum(1 for m in state['pts'] if m[2] == 'revealed')} "
-                           f"dep={sum(1 for m in state['pts'] if m[2] == 'deployable')}   "
+                           f"dep={sum(1 for m in state['pts'] if m[2] == 'deployable')} "
+                           f"corpse={sum(1 for m in state['pts'] if m[2] == 'corpse')}   "
                            f"click=visible  ctrl=revealed  shift=deployable   "
-                           f"rclick=undo  U=unsure   "
+                           f"mclick=corpse  rclick=undo  U=unsure   "
                            f"SPACE=next  N=none  A=back  Q=quit")
 
     def record():
@@ -245,6 +270,7 @@ def main() -> int:
                 lambda e: (state["pts"].append((e.x, e.y, "deployable")), show()))
     canvas.bind("<Control-Button-1>",
                 lambda e: (state["pts"].append((e.x, e.y, "revealed")), show()))
+    canvas.bind("<Button-2>", lambda e: (state["pts"].append((e.x, e.y, "corpse")), show()))
     canvas.bind("<Button-3>", lambda e: (state["pts"] and state["pts"].pop(), show()))
     root.bind("<space>", lambda e: advance(+1))
     root.bind("d", lambda e: advance(+1))
