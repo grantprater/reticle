@@ -183,6 +183,70 @@ the compromised number it was meant to rescue. The signature is real in the mean
 false positives start wide (0.27-0.44) -- but individual profiles overlap far too
 much. It was the most promising item on this list and it is now closed.
 
+Second map: what actually costs recall (adjudicated)
+----------------------------------------------------
+Lotus (bdfdcf009dba, 303 frames / 65 enemies) run with Ascent's cut points
+untouched: **76.2% recall, 42.5% precision, 0.2 FP/frame** against Ascent's
+91.3% / 41.2% / 0.4.
+
+Precision transferred and the adversarial test passed -- Lotus is pink-magenta
+temple stone sitting INSIDE the widened band, the prediction was that it would
+flood, and instead false positives per frame halved. Hue 130 is a property of
+the outline, not a fit to Ascent's terracotta.
+
+All 17 misses were adjudicated by eye. **None were corpses**, which refutes the
+hypothesis that produced them. The statistic behind that hypothesis was real and
+reproducible -- misses sat at a median 2.7s after a killfeed death against 5.2s
+for detections, twice as likely to fall within 4s -- but the mechanism was wrong.
+Deaths correlate with SHOOTING, and shooting produces muzzle flashes, tracers and
+particle effects: six of the seventeen are obscured by exactly that. A
+correlation with the right shape and the wrong cause, believed because two
+earlier observations about corpses made it feel confirmed.
+
+    combat effects over the enemy   6   muzzle flash, tracer, particles, scope
+    tiny slivers                    4   gun+hand, bare gun barrel, a head
+    agent colour / scene tint       4   Waylay x3, Clove under a green tint
+    cluster not separated           2   one of three enemies in a group
+    MISLABELLED muzzle flashes      2   corrected in the label file
+
+Measuring the colour gates at each miss splits them by what actually fails:
+
+* **zero top-hat response** (both gun barrels): there is no rim at all. No colour
+  or size tuning reaches these. Grant identified them only from the minimap,
+  which is the strongest argument yet that bearing confirmation is not a
+  precision filter but the ONLY route to a class of enemy the screen does not
+  carry.
+* **size floor after gating** (Waylay x3, bare head, head over dune, scoping):
+  6 to 76 pixels survive every colour gate and then fail AREA >= 120. This is
+  the largest fixable class.
+* **downstream rejection** (tejo at 6:26, twice): 332 and 779 pixels pass every
+  colour gate and the detection is still lost, so shape, aspect or the closing
+  merging the enemy with the muzzle flash is throwing away a well-found enemy.
+  Bug-shaped, not threshold-shaped, and unexplained.
+* **hue** (green-tinted Clove): 434 top-hat pixels, median hue 11, rejected
+  because the orange edge is 6. A green tint pushes the rim UP toward orange
+  exactly as smoke pushes it DOWN toward magenta -- the band was only ever
+  widened in one direction, because that is where Ascent's misses happened to be.
+
+**The orange edge stays at 6 anyway, measured on both maps.** Widening to 10
+recovers that single enemy and costs 10-14 false positives on Lotus (precision
+42.5% -> 38.3%); Ascent is flat on recall throughout. One compelling crop is not
+worth a fifth of the precision, and the green-tint case is a singleton rather
+than a class.
+
+**Clustered enemies are not separated.** Three enemies standing together yield
+fewer than three detections. The vertical closing kernel exists to merge one
+enemy's broken rim and cannot tell those fragments from a neighbour's, so it
+merges people. Untested and unfixed.
+
+**Corpse outline persistence remains unexplained.** Some corpses carry a red
+outline and some do not; 8 of 36 fire the detector. The obvious hypothesis, that
+the outline fades with age, is unsupported (fired corpses median 4.0s since a
+death against 3.0s for silent ones) but the test is underpowered rather than
+conclusive: with 157 killfeed events ~95% of corpses sit within 12s of some
+death, and the killfeed timestamps deaths without locating them, so it cannot age
+an individual body.
+
 Known error classes still open
 ------------------------------
 From a hand-reviewed sample of 30 false positives:
