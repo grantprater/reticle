@@ -107,6 +107,11 @@ KNOWN_KD = {
     # against it, and it is the first session recorded after the minimap size
     # change, so it also tests that the change cost the killfeed nothing.
     "a06f04a0059f": (19, 19),   # 09-56-37  Ascent
+    # Two more on the enlarged minimap the same afternoon, on maps never seen
+    # at this widget size. Confirmed `valorant-16x9-bigmap` before ingest: the
+    # floor slab reaches x 452 / 458 against the old widget's 346.
+    "5822b6646448": (13, 21),   # 12-38-38  Lotus
+    "c62c2b06bcfb": (13, 15),   # 13-18-48  Split
 }
 
 
