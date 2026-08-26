@@ -18,12 +18,41 @@ Split.** Portrait identification is BUILT and measured -- `minimap_portrait.py`,
 93.0% leave-one-out over five agents, detail under "Portrait identification"
 below. Two things gate what comes next and both are cheap:
 
-* **71 of the 107 agent labels are still `claude-provisional`.** Grant ran the
+* ~~71 of the 107 agent labels are provisional~~ **DONE 2026-08-26: all 107
+  icons are Grant's.** On hand labels, leave-one-out: **88.6% over the five
+  agents** (`?` excluded), 84.8% for agents with `?` sitting in the gallery,
+  78.6% recall on `?` itself, 83.2% over all six classes. The **roster alive
+  check is now 79/79 = 100%** against a 67% chance rate -- every identification
+  names an agent the roster shows alive, and that check finally means something
+  because the labels are no longer mine. My provisional labels turned out to
+  agree with Grant's on 69/71 (97.2%), so the earlier 93.0% was circular rather
+  than wrong; the honest five-way number is 88.6%, and the gap is mostly the
+  eight hard icons Grant added that my clustering had dropped -- blurry ones,
+  and a Jett mostly covered by Grant's own icon in a close-range duel.
+  Superseded caveat, kept because the mechanism was the point:
+* **~~71 of the 107 agent labels are `claude-provisional`~~.** Grant ran the
   labeller on 2026-08-26 and it presented only 36 icons, because seeding the
   file with provisional rows made every seeded icon look already-done. Fixed --
   provenance now decides, not presence -- but the fix does not relabel anything:
   **`label_icon_agent.py a06f04a0059f --names ... --redo` still needs a pass**,
   and until it has had one the 93.0% is my clustering scored against itself;
+* **I named two of the five agents wrong, and no automatic check caught it.**
+  Grant, reading the labeller's own key: what I called `sage` is **Skye** and
+  what I called `yoru` is **Iso**. The a06f04a0059f enemy lineup is
+  **Skye, Iso, Jett, Omen, Killjoy**. Nothing measured changes -- the classes
+  were consistent throughout, so every accuracy, the clustering and the abstain
+  curve all stand; only the strings were wrong. But it exposes a real limit of
+  the roster alive check: it verifies which CLUSTER belongs to which ROSTER
+  SLOT, and the slot's name came from the same `--names` list I got wrong, so
+  the whole thing was self-consistently mislabelled. I wrote that naming
+  therefore needs a human, and **that was wrong, discovered ten minutes later
+  on the pixels**: the Tab scoreboard prints the AGENT NAME as a second, grey
+  line under each player name -- Omen / Jett / Killjoy / Skye / Iso down the
+  enemy block, and "Me / Phoenix" on Grant's own row. So a capture names its own
+  agents, and it needs no alphabet: agent names are a CLOSED SET of about
+  twenty-five strings, so twenty-five mined word bitmaps matched whole will do
+  it, which is exactly the trick `killfeed.py` already uses for "Me". Until that
+  is built, treat agent names as an unverified layer over verified classes;
 * **the question mark needs its own mechanism, not a tuned threshold.** With
   `?` added as a sixth class the mixed set reads 85.0% overall, 87.3% over the
   five agents alone, and **13 of the 16 misses involve a `?`, in both

@@ -14,9 +14,14 @@ The interior of an enemy icon is the agent's portrait, drawn at roughly 11 px
 across, composited over live scenery, through 4:2:0 chroma. It survives all of
 that. Clustering 71 hand-marked enemy icons on `a06f04a0059f` by nothing but
 their interiors produced 19 groups, every one of them visually pure, merging by
-eye into exactly the five agents the enemy roster shows -- Sage, Yoru, Jett,
+eye into exactly the five agents the enemy roster shows -- Skye, Iso, Jett,
 Omen, Killjoy -- plus a sixth, entirely separate group for the question-mark
 icons. Nothing was tuned to make that happen.
+
+(I first recorded that lineup as Sage and Yoru rather than Skye and Iso, and
+Grant corrected it off the labeller's own key. It changed no measurement -- the
+classes were consistent -- but see the note in CLAUDE.md on why no check in the
+capture could have caught a wrong NAME on a right class.)
 
 Why the portrait survives when the ring barely does: the ring is a 1-2 px
 COLOUR feature and colour is exactly what 4:2:0 halves, but the portrait is a
@@ -351,6 +356,86 @@ def mine_lineup(cap, n_probe=240):
 
 
 # ---------------------------------------------------------------------------
+# The Tab scoreboard: ten portraits, unmirrored, dead players included.
+#
+# Grant: the scoreboard and the minimap hold every agent in ONE orientation,
+# where the enemy side of the top roster is mirrored. Confirmed on the pixels
+# -- Killjoy's yellow jacket sits bottom-LEFT on both surfaces and bottom-right
+# on the roster. So this, not the roster, is the surface a cross-surface
+# transform should be fitted against.
+#
+# Three things it has that the roster does not:
+#
+#   * it keeps DEAD players, so all ten rows are always there;
+#   * it carries both teams at once -- ten agents per opening, not five;
+#   * `scoreboard.py` already finds the rows from their own slab profile, so
+#     the geometry is derived rather than measured, and the portrait is simply
+#     the left end of a row it has already located.
+#
+# What it costs: it is only on screen while Grant holds Tab. a06f04a0059f has
+# 22 openings, which is ample -- one is enough to mine from.
+
+# The portrait occupies the left end of the row, slightly narrower than the row
+# is tall. Measured off a06f04a0059f at 42 px rows, by vertical-structure
+# density across all ten rows at once: the art peaks at x0+18..28 (detail 130),
+# collapses to a TROUGH at x0+34..38 (detail 14) and rises again at x0+40 where
+# the text starts. The trough is the separator and it is unambiguous, so this is
+# a ratio rather than a pixel count and should survive a resolution change.
+#
+# The first value here was 1.4, eyeballed, and it swallowed the player name.
+SB_PORTRAIT_ASPECT = 0.79
+# Where the two text lines live, as fractions of row height from the row's left
+# edge. The upper line is the PLAYER name and the lower is the AGENT name, and
+# the agent name is what makes a session self-naming -- see the note in
+# CLAUDE.md. Nothing reads these yet.
+SB_TEXT_X0 = 0.95
+
+
+def scoreboard_portraits(frame, sb):
+    """(team, is_player, portrait) for every row of an open scoreboard."""
+    if not sb.open_ or not sb.rows:
+        return []
+    h = sb.rows[0].y1 - sb.rows[0].y0
+    w = int(h * SB_PORTRAIT_ASPECT)
+    out = []
+    for r in sb.rows:
+        art = frame[r.y0:r.y1, sb.x0:sb.x0 + w]
+        if art.shape[0] > 4 and art.shape[1] > 4:
+            out.append((r.team, r.is_player, art.copy()))
+    return out
+
+
+def mine_scoreboard(cap, templates, n_probe=400, want_rows=10):
+    """Ten portraits from the busiest full scoreboard opening in the capture.
+
+    Scans for an opening rather than being handed a timestamp, and keeps the
+    one whose rows carry the most detail -- the table animates in, so an
+    opening caught mid-fade is readable enough to pass `read_scoreboard` and
+    still too washed out to mine art from.
+    """
+    from reticle.scoreboard import read_scoreboard
+    tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    best = None
+    for i in np.linspace(tot * 0.02, tot * 0.98, n_probe).astype(int):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
+        ok, fr = cap.read()
+        if not ok:
+            continue
+        sb = read_scoreboard(fr, templates)
+        if not sb.open_ or len(sb.rows) < want_rows:
+            continue
+        arts = scoreboard_portraits(fr, sb)
+        if len(arts) < want_rows:
+            continue
+        g = [cv2.cvtColor(a, cv2.COLOR_BGR2GRAY).astype(np.float32) for _, _, a in arts]
+        # Weakest row decides, same argument as `mine_lineup`.
+        score = min(float(np.abs(cv2.Sobel(x, cv2.CV_32F, 0, 1, ksize=3)).mean()) for x in g)
+        if best is None or score > best[0]:
+            best = (score, int(i), arts)
+    return best
+
+
+# ---------------------------------------------------------------------------
 
 def load_agent_labels(sid):
     p = STORE / "labels" / "minimap_agent" / f"{sid}.jsonl"
@@ -514,9 +599,47 @@ def cmd_eval(args):
     return 0
 
 
+def cmd_mine_sb(args):
+    from reticle.ocr import Templates
+    man = json.loads((STORE / "manifests" / f"{args.session}.json").read_text())
+    src = man["source"]
+    prof = get_profile(man["source_profile"])
+    cap = cv2.VideoCapture(src["path"])
+    found = mine_scoreboard(cap, Templates.load(prof.name))
+    cap.release()
+    if found is None:
+        print("no full scoreboard opening found -- does this capture use Tab?")
+        return 1
+    score, frame_i, arts = found
+    out = STORE / "rosters" / f"{args.session}.scoreboard.npz"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        out, frame=frame_i,
+        teams=np.array([t for t, _, _ in arts]),
+        is_player=np.array([p for _, p, _ in arts]),
+        **{f"row{k}": a for k, (_, _, a) in enumerate(arts)})
+    h = max(a.shape[0] for _, _, a in arts)
+    w = max(a.shape[1] for _, _, a in arts)
+    def cell(a):
+        return cv2.resize(a, (w, h), interpolation=cv2.INTER_NEAREST)
+    ally = [cell(a) for t, _, a in arts if t == "ally"]
+    enemy = [cell(a) for t, _, a in arts if t == "enemy"]
+    strip = np.vstack([np.hstack(ally), np.hstack(enemy)])
+    png = out.with_suffix(".png")
+    cv2.imwrite(str(png), cv2.resize(strip, None, fx=3, fy=3, interpolation=cv2.INTER_NEAREST))
+    print(f"mined {len(arts)} scoreboard portraits from frame {frame_i} "
+          f"(weakest row detail {score:.1f})")
+    print(f"  {out}")
+    print(f"  {png}   <- allies on top, enemies below, in row order; NOT mirrored")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("mine-sb", help="mine ten portraits from the Tab scoreboard")
+    s.add_argument("session")
+    s.set_defaults(fn=cmd_mine_sb)
     s = sub.add_parser("mine", help="mine the five enemy roster portraits")
     s.add_argument("session")
     s.set_defaults(fn=cmd_mine)
