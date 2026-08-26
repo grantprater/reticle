@@ -71,6 +71,36 @@ def usable(crop, floor):
     return float(g[floor].mean()) >= USABLE_MIN
 
 
+def motion(track, per_frame):
+    """Total translation and total rotation along a track.
+
+    Grant's point, and it is the discriminator persistence cannot supply:
+    **a player icon is the only thing that moves relative to the minimap.**
+    Map furniture, site boxes, X death marks, Cypher cams and Killjoy turrets
+    are all static once placed, so they persist exactly as well as a real icon
+    does and survive any track-length filter.
+
+    Rotation matters as much as translation and possibly more: a player holding
+    an angle does not translate, but they still turn, and the facing triangle
+    turns with them. A placed ability never turns.
+
+    Neither is guaranteed -- a genuinely motionless player exists -- so this is
+    evidence, not a veto.
+    """
+    pts, faces = [], []
+    for i, j in sorted(track["idx"].items()):
+        d = per_frame[i][j]
+        pts.append((d["cx"], d["cy"]))
+        if d.get("facing") is not None:
+            faces.append(d["facing"])
+    disp = sum(float(np.hypot(b[0] - a[0], b[1] - a[1]))
+               for a, b in zip(pts, pts[1:]))
+    rot = 0.0
+    for a, b in zip(faces, faces[1:]):
+        rot += abs((b - a + 180) % 360 - 180)
+    return disp, rot
+
+
 def link(per_frame, step_ms, min_len, gate_scale=2.0):
     """Greedy nearest-neighbour tracks with a speed bound.
 
@@ -109,11 +139,20 @@ def link(per_frame, step_ms, min_len, gate_scale=2.0):
             if j not in taken:
                 tracks.append({"x": d["cx"], "y": d["cy"], "last": i,
                                "idx": {i: j}})
+    return tracks
+
+
+def keep_from(tracks, per_frame, min_len, min_disp=0.0, min_rot=0.0):
     keep = [set() for _ in per_frame]
     for t in tracks:
-        if len(t["idx"]) >= min_len:
-            for i, j in t["idx"].items():
-                keep[i].add(j)
+        if len(t["idx"]) < min_len:
+            continue
+        if min_disp > 0 or min_rot > 0:
+            disp, rot = motion(t, per_frame)
+            if disp < min_disp and rot < min_rot:
+                continue
+        for i, j in t["idx"].items():
+            keep[i].add(j)
     return keep
 
 
@@ -146,8 +185,9 @@ def main() -> int:
     step_f = max(1, int(round(args.step / 1000.0 * fps)))
     span_f = step_f * (len(offs) - 1) + 1
 
+    from minimap_ring_sweep import FIT_VERSION
     cache_path = (STORE / "labels" / "minimap" /
-                  f"{args.session}.temporal_{args.step}_{args.half}.json")
+                  f"{args.session}.temporal_{args.step}_{args.half}_{FIT_VERSION}.json")
     cache = json.loads(cache_path.read_text()) if cache_path.is_file() else {}
     todo = [r for r in rows if str(r["t_ms"]) not in cache]
     if todo:
@@ -180,46 +220,79 @@ def main() -> int:
     print(f"\n{len(rows)} labelled frames, window +/-{args.half}ms at {args.step}ms")
     print(f"centre frame unusable (Omen ult / fade) in {n_unusable}")
 
-    for cov, ired in ((0.30, 0.25), (0.35, 0.25), (0.42, 0.25), (0.50, 0.25)):
-        print(f"\ncov>={cov} inner_red<={ired}")
-        for min_len in (1, 2, 3, 4):
-            st = {}
-            for r in rows:
-                per = cache.get(str(r["t_ms"]))
-                if per is None or per[centre] is None:
-                    continue
-                filt = [None if p is None else
-                        [d for d in p if d["cov"] >= cov and d["inner_red"] <= ired]
-                        for p in per]
-                keep = link(filt, args.step, min_len)
-                cs = [{"box": (d["cx"] - d["r"], d["cy"] - d["r"], 2 * d["r"], 2 * d["r"]),
-                       "xy": (d["cx"], d["cy"])}
-                      for j, d in enumerate(filt[centre]) if j in keep[centre]]
-                b = st.setdefault(batch_of(r), dict(tp=0, fn=0, fp=0))
-                used = set()
-                for m in [m for m in r["marks"] if m["kind"] == "enemy"]:
-                    j = next((j for j, c in enumerate(cs)
-                              if j not in used and hits(m["x"], m["y"], c)), None)
-                    if j is None:
-                        b["fn"] += 1
-                    else:
-                        b["tp"] += 1
-                        used.add(j)
-                for m in [m for m in r["marks"] if m["kind"] != "enemy"]:
-                    j = next((j for j, c in enumerate(cs)
-                              if j not in used and hits(m["x"], m["y"], c)), None)
-                    if j is not None:
-                        used.add(j)
-                b["fp"] += len(cs) - len(used)
-            parts = []
-            for name in sorted(st):
-                s = st[name]
-                if not (s["tp"] + s["fn"]):
-                    continue
-                parts.append(f"{name}: R {s['tp']/max(s['tp']+s['fn'],1)*100:5.1f}% "
-                             f"P {s['tp']/max(s['tp']+s['fp'],1)*100:5.1f}% "
-                             f"(TP{s['tp']:3d} FN{s['fn']:3d} FP{s['fp']:3d})")
-            print(f"  len>={min_len}  " + "   ".join(parts))
+    COV, IRED = rf.COV_MIN, rf.INNER_RED_MAX
+
+    def windows():
+        for r in rows:
+            per = cache.get(str(r["t_ms"]))
+            if per is None or per[centre] is None:
+                continue
+            filt = [None if p is None else
+                    [d for d in p if d["cov"] >= COV and d["inner_red"] <= IRED]
+                    for p in per]
+            yield r, filt, link(filt, args.step, 1)
+
+    # ---- diagnostic: do enemy tracks actually move more? -------------------
+    good, bad = [], []
+    for r, filt, tracks in windows():
+        pl = [(m["x"], m["y"]) for m in r["marks"] if m["kind"] == "enemy"]
+        for t in tracks:
+            j = t["idx"].get(centre)
+            if j is None:
+                continue
+            d = filt[centre][j]
+            c = {"box": (d["cx"] - d["r"], d["cy"] - d["r"], 2 * d["r"], 2 * d["r"]),
+                 "xy": (d["cx"], d["cy"])}
+            (good if any(hits(px, py, c) for px, py in pl) else bad).append(
+                motion(t, filt) + (len(t["idx"]),))
+    if good and bad:
+        g, b = np.array(good), np.array(bad)
+        print(f"\ntracks through the centre frame: {len(g)} on an enemy, {len(b)} not")
+        for k, name in ((0, "translation px"), (1, "rotation deg"), (2, "track len")):
+            print(f"  {name:16s} enemy p25/med/p75 "
+                  f"{np.percentile(g[:,k],25):6.1f}/{np.median(g[:,k]):6.1f}/"
+                  f"{np.percentile(g[:,k],75):6.1f}    other "
+                  f"{np.percentile(b[:,k],25):6.1f}/{np.median(b[:,k]):6.1f}/"
+                  f"{np.percentile(b[:,k],75):6.1f}")
+
+    # ---- sweep: track length, then motion ---------------------------------
+    print(f"\ncov>={COV} inner_red<={IRED}   (disp px OR rot deg to survive)")
+    for min_len, min_disp, min_rot in ((1, 0, 0), (3, 0, 0),
+                                       (2, 3, 15), (2, 5, 25), (2, 8, 40),
+                                       (3, 3, 15), (3, 5, 25), (3, 8, 40)):
+        st = {}
+        for r, filt, tracks in windows():
+            keep = keep_from(tracks, filt, min_len, min_disp, min_rot)
+            cs = [{"box": (d["cx"] - d["r"], d["cy"] - d["r"], 2 * d["r"], 2 * d["r"]),
+                   "xy": (d["cx"], d["cy"])}
+                  for j, d in enumerate(filt[centre]) if j in keep[centre]]
+            b = st.setdefault(batch_of(r), dict(tp=0, fn=0, fp=0))
+            used = set()
+            for m in [m for m in r["marks"] if m["kind"] == "enemy"]:
+                j = next((j for j, c in enumerate(cs)
+                          if j not in used and hits(m["x"], m["y"], c)), None)
+                if j is None:
+                    b["fn"] += 1
+                else:
+                    b["tp"] += 1
+                    used.add(j)
+            for m in [m for m in r["marks"] if m["kind"] != "enemy"]:
+                j = next((j for j, c in enumerate(cs)
+                          if j not in used and hits(m["x"], m["y"], c)), None)
+                if j is not None:
+                    used.add(j)
+            b["fp"] += len(cs) - len(used)
+        parts = []
+        for name in sorted(st):
+            sd = st[name]
+            if not (sd["tp"] + sd["fn"]):
+                continue
+            parts.append(f"{name}: R {sd['tp']/max(sd['tp']+sd['fn'],1)*100:5.1f}% "
+                         f"P {sd['tp']/max(sd['tp']+sd['fp'],1)*100:5.1f}% "
+                         f"(TP{sd['tp']:3d} FN{sd['fn']:3d} FP{sd['fp']:3d})")
+        tag = f"len>={min_len}" + (f" disp>={min_disp} or rot>={min_rot}"
+                                   if (min_disp or min_rot) else "")
+        print(f"  {tag:32s} " + "   ".join(parts))
     return 0
 
 

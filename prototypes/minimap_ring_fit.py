@@ -79,6 +79,12 @@ def _circle_offsets():
 
 RING, DISC = _circle_offsets()
 
+# Rays for reading the facing triangle: for each angle, how far past the ring
+# does red reach. The triangle is the only thing outside the circle, so the
+# angle where red reaches furthest IS the facing.
+N_FACE = 32
+_FACE_TH = np.arange(N_FACE) / N_FACE * 2 * np.pi
+
 
 def fit_ring(red, grey, cx, cy):
     """Best (coverage, cx, cy, r, interior stats) over centres and radii.
@@ -113,7 +119,52 @@ def fit_ring(red, grey, cx, cy):
     inner_red = float(red[ys[ok], xs[ok]].mean())
     inner_v = float(grey[ys[ok], xs[ok]].mean())
     return {"cov": cov, "cx": x0, "cy": y0, "r": r,
-            "inner_red": inner_red, "inner_v": inner_v}
+            "inner_red": inner_red, "inner_v": inner_v,
+            "facing": _facing(red, x0, y0, r)}
+
+
+def _facing(red, cx, cy, r):
+    """Bearing of the facing triangle, or None if no lobe stands out.
+
+    Grant: a player icon is the only thing on the widget that MOVES relative to
+    the map, and rotation counts as movement -- someone holding an angle still
+    turns. So the facing is not a nicety, it is the signal that separates a
+    player from a Cypher cam or a turret, which are static once placed and never
+    turn.
+
+    Read by rays rather than from the blob's shape: the triangle is the only
+    part of the icon outside the fitted circle, so "how far past r does red
+    reach at this angle" isolates it without needing the ring to be connected
+    to it.
+    """
+    h, w = red.shape
+    reach = np.zeros(N_FACE)
+    for k, th in enumerate(_FACE_TH):
+        dx, dy = np.cos(th), np.sin(th)
+        for rr in np.arange(r + 1, r * 1.9, 0.7):
+            x, y = int(round(cx + dx * rr)), int(round(cy + dy * rr))
+            if not (0 <= x < w and 0 <= y < h):
+                break
+            if red[y, x]:
+                reach[k] = rr - r
+    if reach.max() <= 0:
+        return None
+    # Weighted mean over the contiguous peak, so the answer is not quantised to
+    # one of 32 bins -- rotation is the signal, and a bin width of 11 degrees
+    # would swallow most of it.
+    k = int(np.argmax(reach))
+    ws, xs_, ys_ = 0.0, 0.0, 0.0
+    for d in (-2, -1, 0, 1, 2):
+        kk = (k + d) % N_FACE
+        wgt = reach[kk]
+        if wgt <= 0:
+            continue
+        ws += wgt
+        xs_ += wgt * np.cos(_FACE_TH[kk])
+        ys_ += wgt * np.sin(_FACE_TH[kk])
+    if ws == 0:
+        return None
+    return float(np.degrees(np.arctan2(ys_, xs_)))
 
 
 # An icon is a well-covered ring around a NON-red interior. Both halves are
