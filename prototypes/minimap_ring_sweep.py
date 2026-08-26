@@ -35,7 +35,8 @@ from minimap_icons import floor_mask, static_map                  # noqa: E402
 from minimap_icon_eval import hits                                # noqa: E402
 
 STORE = Path.home() / "reticle-store"
-FIT_VERSION = f"r{rf.R_MIN}-{rf.R_MAX}_s{rf.SEARCH}_t{rf.N_THETA}_f{rf.N_FACE}"
+FIT_VERSION = (f"r{rf.R_MIN}-{rf.R_MAX}_s{rf.SEARCH}_t{rf.N_THETA}"
+               f"_f{rf.N_FACE}_L{rf.LOBE_MIN_FRAC}")
 
 
 def load_labels(sid):
