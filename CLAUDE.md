@@ -630,7 +630,13 @@ scrubbing an overlay video, and it is the right tool whenever the question is
    across rounds, and a capture recorded with defaults breaks that **silently**:
    position extraction still returns answers, they are just rotated or mirrored.
    Same class of per-session setting as the enemy outline colour above.
-9. **Check whether the minimap has an opacity setting.** Unresolved. The widget
+9. **Record whether the weapon is left- or right-handed.** Toggleable, and it
+   mirrors the view model across the vertical axis. The enemy detector masks the
+   player's own weapon by region -- the one place persistence provably fails --
+   so the wrong handedness breaks it in both directions at once and silently:
+   the mask covers empty screen on one side, costing recall on enemies peeking
+   there, while the weapon sits unmasked on the other, costing precision.
+10. **Check whether the minimap has an opacity setting.** Unresolved. The widget
    being semi-transparent over the void is the single largest difficulty in
    minimap extraction; if it can be made opaque most of that goes away for
    future recordings. Same class of fix as the shooting-error readout above.

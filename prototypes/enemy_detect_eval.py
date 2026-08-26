@@ -394,6 +394,12 @@ AR   = (1.15, 5.0)        # 1.20 rejects a real enemy at 1.18; below 1.15 buys n
 HUE_MAGENTA, HUE_ORANGE = 130, 6
 SAT, AST = 130, 155
 WEAP = (0.50, 0.66)
+# Left-handed weapon is a toggleable setting, and it mirrors the view model
+# across the vertical axis. Getting this wrong fails in BOTH directions at once
+# and silently: the mask covers empty screen on one side, costing recall on
+# enemies peeking there, while the actual weapon sits unmasked on the other,
+# costing precision. Nothing in the output would look wrong.
+HANDED = "right"
 # UI box finder
 SCALE, GRAD, TOL, PAD = 4, 10, 12, 6
 MINRUN, MINROWS, MINSPAN = 380, 3, 15
@@ -406,8 +412,11 @@ TOP1 = 0.90
 # Persistence, applied by track_filter() over a sequence -- NOT by detect(),
 # which sees one frame. len>=3 costs no recall at all.
 MINTRACK, TRACK_GAP, TRACK_GATE = 3, 2, 90.0
-# At 29:54 the enemy was already dead -- bad ground truth, not a detector miss.
-BAD_LABELS = {29*60 + 54}
+# Known-bad ground truth, per session -- at 9acf02f98283 29:54 the enemy had
+# already been killed. Keyed by session: an unqualified set would silently drop
+# a legitimate frame at the same timestamp in any other capture.
+BAD_BY_SESSION = {"9acf02f98283": {29*60 + 54}}
+BAD_LABELS = BAD_BY_SESSION.get(SID, set())
 
 man = json.loads((STORE/"manifests"/f"{SID}.json").read_text())
 src = man["source"]; fps = float(src["fps"])
@@ -429,8 +438,12 @@ def hud_mask(h, w):
     m[60:360, w-520:] = False                      # killfeed
     # The player's own weapon: red-rimmed like everything else and in frame
     # constantly. Persistence cannot find it (the model bobs and sways), so this
-    # is a measured region -- 21% of false positives, 0 of 47 labels.
-    m[int(h*WEAP[1]):, int(w*WEAP[0]):] = False
+    # is a measured region -- 21% of false positives, 0 of 47 labels. Measured
+    # right-handed; a left-handed view model is the same region mirrored.
+    if HANDED == "right":
+        m[int(h*WEAP[1]):, int(w*WEAP[0]):] = False
+    else:
+        m[int(h*WEAP[1]):, :int(w*(1.0 - WEAP[0]))] = False
     # Bottom-left corner HUD. Corner, not mid-screen, which is what makes a
     # positional mask defensible here where it was not for the combat report.
     m[int(0.75*h):, :int(0.09*w)] = False
