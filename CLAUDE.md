@@ -113,6 +113,20 @@ from the pixels and two of them correct claims this file previously made.**
   a perfect circle would report a confident bearing from noise and the rotation
   branch would pass the one object it most needs to reject. Absence of a lobe is
   itself a positive discriminator.
+
+  **Measured effect of the floor, and its limit.** Adding `LOBE_MIN_FRAC`
+  dropped the median rotation of non-enemy tracks from **8.9 deg to 2.0 deg**
+  while leaving enemy tracks at 103.0 deg -- so the separation on the rotation
+  axis widened from 12x to 50x. **The scored operating points did not move at
+  all**, because blobs yielding 8.9 deg were already under the `rot >= 15` gate;
+  the floor cleans up sub-threshold noise and widens the margin rather than
+  changing today's numbers. Its p75 still reaches 121 deg, so lobeless blobs can
+  occasionally still produce a large spurious bearing.
+
+  **The cam case itself is still UNTESTED.** Nothing in the label set identifies
+  which `other_red` marks are Cypher cams, so the guard is principled and
+  unmeasured. Testing it needs cams labelled as such, or frames known to contain
+  one.
 * **The triangle is the most important part of the teardrop.** The ring is
   1-2 px over most of its circumference and 7.3 px at the triangle, so the
   triangle is both the most robust part of the icon and the part that carries
