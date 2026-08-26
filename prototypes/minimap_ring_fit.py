@@ -130,8 +130,6 @@ def fit_ring(red, grey, cx, cy):
 # *something*, so unbounded-below fits collapse to r=6 with a meaningless
 # coverage. A real icon on the enlarged widget sits at r 8-13.
 #
-# COV_MIN swept against Grant's 96 hand labels on a06f04a0059f, prekill pool:
-#
 # Swept against 164 hand labels on a06f04a0059f, pre-kill pool, at
 # inner_red <= 0.25 (which dominates 0.35 and 0.50 on both axes):
 #
