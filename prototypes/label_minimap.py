@@ -165,7 +165,14 @@ def main() -> int:
         canvas.config(width=view.shape[1], height=view.shape[0])
         canvas.delete("all")
         canvas.create_image(0, 0, anchor="nw", image=state["img"])
+        # Only the left panel takes clicks, so say so on the image itself --
+        # the right one is context for the "is there an icon at all" call and
+        # clicking it does nothing, which reads as broken if unlabelled.
         canvas.create_line(mw, 0, mw, mh, fill="#404040", width=2)
+        canvas.create_text(8, 10, anchor="nw", fill="#40ff40",
+                           font=("Consolas", 12, "bold"), text="CLICK HERE")
+        canvas.create_text(mw + 8, 10, anchor="nw", fill="#808080",
+                           font=("Consolas", 12), text="context only - not clickable")
         for (px, py, kind) in state["pts"]:
             col = "#ff2020" if kind == "enemy" else "#20c0ff"
             canvas.create_oval(px - 13, py - 13, px + 13, py + 13, outline=col, width=2)
