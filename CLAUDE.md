@@ -655,6 +655,34 @@ scrubbing an overlay video, and it is the right tool whenever the question is
   floor's job is only to reject things that are not the colour at all; it must
   never be the test that decides what counts as red *enough*, which is the
   mistake that started the whole sequence.
+
+- **The enemy outline is red *through magenta*, not red.** Measured at 47 hand
+  labels on 9acf02f98283: the rim sits at OpenCV hue 171-179 and 0-1, 88% of rim
+  pixels inside `(h < 10 | h > 170)`. But every miss that failed on colour sat at
+  hue **132-160** with *zero* pixels in that band -- while still carrying `a*`
+  173-207 and saturation 243-255. They are not faint, they are the wrong hue.
+  The cause is tinting: **anything that colours the model shifts the rim toward
+  magenta while leaving `a*` high** -- smoke the enemy is standing in, and Reyna's
+  ult, which renders the model purple. Widening the band's lower edge from 170 to
+  130 took recall from 69.6% to 91.3% for under two points of precision.
+
+  The direction matters as much as the width. Orange scenery -- a confirmed false
+  positive on a building at 38:03 -- lives just *above* hue 10, so the band must
+  grow downward into magenta and stay tight on the orange side. Widening
+  symmetrically, which is the reflex, buys the false positives and not the misses.
+  Outline colour is also a **player-toggleable setting** (yellow exists, and at
+  least one more), so this band is right for these captures, not universal; it is
+  a per-profile value the moment a capture uses a different setting.
+- **An ablation is only valid for the configuration it ran in.** Dropping each
+  gate in turn showed the saturation and `a*` floors to be completely inert --
+  removing either changed one false positive out of a hundred. The obvious
+  conclusion, that they were dead weight, was wrong. They were inert only because
+  the *hue* gate upstream was already rejecting everything they would have caught.
+  Widening that band made both live again, worth 20 false positives between them.
+  Deleting them on the ablation's evidence would have given back a fifth of the
+  precision the widening was for. Re-measure a gate after changing anything
+  upstream of it; "contributes nothing" is a statement about a configuration, not
+  about a gate.
 - **Never guess a value.** A field the extractor cannot read stays `null`.
   Everything is range-checked before return — a clock of 7:41 is a misread, not
   a fact. This is what makes `checks.py` meaningful.

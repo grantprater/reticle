@@ -1,16 +1,66 @@
 """PROTOTYPE: screen-space enemy detection, scored against hand labels.
 
-    python prototypes/enemy_detect_eval.py <session> [thr k area ar fill hmin ck]
+    python prototypes/enemy_detect_eval.py <session> [thr k area hmin ck]
 
-Best measured so far, on 150 hand-labelled frames of 9acf02f98283:
-**77% recall, 14% precision, 1.5 false positives per frame.** Good enough to
-feed a tracker, not good enough to use per-frame.
+Best measured, on 149 hand-labelled frames / 46 labelled enemies of
+9acf02f98283: **93.5% recall, 35.0% precision.** One session, one enemy-outline
+colour setting; nothing here has been tested across sessions yet.
 
-How it got there, because the wrong turns are the useful part
--------------------------------------------------------------
-The enemy outline is a **rim light**: red *relative to what it borders*, not red
-in absolute terms. Against a dark wall it is vivid; against Ascent's terracotta
-it is barely there. Every absolute test failed accordingly:
+The outline is red THROUGH MAGENTA, not red
+-------------------------------------------
+This was worth more than every threshold in the file put together, and it was
+found by asking why specific misses failed rather than by sweeping.
+
+Measured at the 47 labels: the rim sits at OpenCV hue 171-179 and 0-1, with 88%
+of rim pixels inside `(h < 10 | h > 170)`. Every miss that failed on colour sat
+at hue **132-160** with *zero* pixels in that band -- while still carrying `a*`
+173-207 and saturation 243-255. They were never faint. They were the wrong hue.
+
+The cause is tinting. **Anything that colours the model shifts the rim toward
+magenta while leaving `a*` high**: smoke the enemy is standing in, and Reyna's
+ult, which renders the model purple. Widening the band's lower edge from 170 to
+130 took recall from 69.6% to 91.3% for under two points of precision.
+
+Direction matters as much as width. Orange scenery -- a confirmed false positive
+on a building -- lives just *above* hue 10, so the band grows downward into
+magenta and stays tight on the orange side (6, not 10, which was worth 4 false
+positives at no recall cost). Widening symmetrically, the reflex, buys the false
+positives and not the misses.
+
+Outline colour is a **player-toggleable setting** (yellow exists, and at least
+one more), so this band is right for these captures, not universal.
+
+An ablation is only valid for the configuration it ran in
+---------------------------------------------------------
+Dropping each gate in turn showed the saturation and `a*` floors to be inert:
+removing either changed one false positive in a hundred. The obvious conclusion,
+that they were dead weight, was wrong. They were inert only because the *hue*
+gate upstream already rejected everything they would have caught. Widening the
+band made both live again, worth 20 false positives between them.
+
+Two full parameter sweeps were spent on those two constants before the ablation
+showed they could not have mattered. Ablate first; it is far cheaper than
+sweeping something inert, and it says which knob is even connected.
+
+Gate-by-gate, at the pre-widening configuration (dTP / dFP when removed):
+
+    sat          +0   +1     inert (see above -- became live after widening)
+    a-star       +0   +1     inert (ditto)
+    ownmask      +0   +0     inert, deleted
+    fill         +2   +8     bad trade, deleted
+    aspect       +0  +26     kept
+    hollow       +0  +15     kept
+    area         +1  +30     kept
+    hmin         +1 +110     kept, the single biggest filter
+    weapmask     +0  +14     kept
+
+The rim light, and how it got there
+-----------------------------------
+The outline is a **rim light**: red *relative to what it borders*. Against a
+dark wall it is vivid; against Ascent's terracotta it is barely there. A
+morphological **top-hat on Lab's a-star channel** keeps structures thinner than
+its kernel and removes anything larger, whatever the background level -- exactly
+the difference between a 1-4 px rim and a brick wall.
 
     absolute red, S>150             53% recall,  3% precision
     + hollow-rim shape filter       30%         10%
@@ -18,222 +68,455 @@ it is barely there. Every absolute test failed accordingly:
     + shape filters                 57%         32%
     + shape tests only on big blobs 75%         11%
     + vertical closing              77%         14%
+    + absolute floor                69.6%       24.2%
+    + magenta band, drop fill       91.3%       22.3%
+    + tighter orange/sat/a*, ar1.15 93.5%       25.3%
+    + combat-report box detection   93.5%       33.6%
+    + bottom-left corner            93.5%       35.0%
 
-A morphological **top-hat on Lab's a-star channel** is what works. Top-hat keeps
-structures thinner than its kernel and removes anything larger, whatever the
-background level -- which is exactly the difference between a 1-4 px rim and a
-brick wall, and exactly what a threshold cannot express.
+Three misreadings, each fixed by looking at pixels rather than a summary:
 
-Three separate misreadings, each fixed by looking at pixels rather than at a
-summary statistic:
-
-1. **The outline is a rim, not a fill.** Cost four rounds of threshold tuning
-   before anyone looked at a labelled crop.
+1. **The outline is a rim, not a fill.**
 2. **A shape prior needs the shape to exist.** Demanding hollowness of a sliver
    of an enemy -- a shoulder past a corner, which is where peeking happens --
-   asks a question with no answer, and the filter answers no. Shape tests now
-   apply only to blobs big enough to be a body.
+   asks a question with no answer, and the filter answers no. Shape tests apply
+   only to blobs big enough to be a body.
 3. **A broken contour is not a small object.** The rim is interrupted by the
    body and by limbs, so connected components shattered one enemy into fragments
-   that each failed the size tests. Rendering the misses showed the top-hat
-   response containing an unmistakable human shape in *every* one. A vertically
-   biased closing kernel bridges them, because a person is taller than wide.
+   that each failed the size tests. A vertically biased closing kernel bridges
+   them, because a person is taller than wide.
 
-That third one also explains why raising `area` had seemed to trade recall for
-precision: it was selecting for enemies whose rims happened to be continuous,
-not for real detections, so every operating point along it was bad.
+UI is found by its own structure, not by masking screen area
+------------------------------------------------------------
+Half the false positives in a reviewed sample of 30 were UI, and the combat
+report was most of it -- its crimson row stripes, red damage numbers and red
+name banner are *genuinely red*, so no colour test will ever separate them.
+
+Masking the region outright reached 40.2% precision at no measured recall cost,
+with zero labels inside. It was still refused: the region is x 0.78-1.0 at
+mid-screen height, which is exactly where an enemy peeking your right side
+appears, and 46 labelled players is far too thin to conclude enemies never
+appear in a quarter of the screen. That "0 labels inside" would have read fine
+in a commit message and cost real detections later.
+
+So the box is located per frame from its own structure. **A box is several
+horizontal rules of the same width at the same x.** Rows carrying a long
+horizontal edge run are its rules, so grouping them by shared x-span -- not by
+y-proximity -- gives the bounding box directly, and only that rectangle is
+excluded. Third-longest run rather than longest, because one long scenery edge
+is common and three stacked ones is furniture. Cost is a 1/4-scale grey resize
+and one Sobel.
+
+Measured: panel in 62/149 frames, 5/5 by-eye panel frames found, 0/8 clean
+frames, precision 25.3% -> 33.6% at **zero** recall cost.
+
+`minrun` is the whole ballgame and the coverage table hides it:
+
+    minrun 440   covers  1/15 UI false positives   (panel is ~408 px wide!)
+    minrun 380   covers  8/15   -> precision 33.6%, recall 93.5%
+    minrun 300   covers  9/15   -> precision 31.6%, recall 80.4%
+
+At 300 it buys 5 false positives by swallowing 8 labelled enemies. The gap
+between 380 and 300 is the difference between masking furniture and masking the
+game, and it is invisible in the coverage numbers alone.
+
+An earlier version of this grouped rule rows by y-proximity and took the median
+x-span. It fired in 116/149 frames and removed almost nothing, because the
+longest run in one row and the longest in the next are frequently different
+structures, so the median described no real rectangle. It also searched the full
+frame while the separation had been measured on a band, so every "clean" box it
+found was the top HUD. Measure and build on the same region.
 
 What did not work
 -----------------
 **Persistence could not find the player's own weapon.** It was roughly half the
-false positives -- red-rimmed like everything else and in frame constantly -- so
-the killfeed's overlay-mask trick looked obvious. It failed: the derived mask
-covered 0.7% of the frame and changed nothing, because the first-person model
-bobs, sways and changes when the weapon does, so no pixel responds often enough.
-**Persistence finds things that do not move, not things that are always there**,
-and those are different properties. A measured region works instead -- the
-labels put 21% of false positives and 0 of 47 enemies in the lower right -- but
-it is cruder and costs any genuinely low-right enemy.
+false positives, so the killfeed's overlay-mask trick looked obvious. The
+derived mask covered 0.7% of the frame and changed nothing, because the
+first-person model bobs, sways and changes when the weapon does, so no pixel
+responds often enough. **Persistence finds things that do not move, not things
+that are always there.** A measured region works instead. The persistence mask
+was later shown inert by ablation and deleted.
 
-**Skipping Tab-scoreboard frames is not worth doing.** One frame in 150 has it
-open, contributing 3 false positives of 225. A single vivid example in the
-sample looked like a category and was not.
+**A "player is dead" gate does not remove the combat report.** The panel's
+timestamps cluster in time, which suggested it was a death artifact, and the
+killfeed already knows when the player died. Measured: only 4 of 13 combat
+report false positives occur while dead. The player holds Tab mid-round. The
+hypothesis was clean, cheap to test, and wrong.
 
-**The label set is centre-biased and must not be fitted to.** 97.9% of labels
-fall in the middle third of the screen, because half the frames were sampled
-just before a kill, when the player is by definition looking at the enemy. A
-centre prior would score well here and be wrong: exposure analysis needs
-peripheral enemies most of all.
-A **width profile** -- blob width per row, matched against a template mined from
-the labels -- separates only about 1.8 to 1 (50% of enemies against 28% of false
-positives). The signature is visibly real: enemies average a narrow head, a
-shoulder peak, a taper and narrow feet, where false positives are nearly flat.
-The distributions simply overlap too much.
+**Skipping Tab-scoreboard frames is not worth doing** as a frame gate: one frame
+in 150 has the full scoreboard open. (The combat report is a different, far more
+common panel -- see above.)
 
-That test is also compromised and worth redoing: it measured the profile on the
-*closed* mask, and the vertical kernel that fixes grouping smooths away the very
-detail a profile test needs. The honest version computes the profile from the
-raw top-hat mask inside the merged bounding box.
+**A width profile does not work, and the redo settled it.** The original test
+scored 1.8:1 and was compromised -- measured on the *closed* mask, whose vertical
+kernel smooths away the detail a profile depends on. Recomputed on the raw
+top-hat mask and scored leave-one-out, it separates 28.5%, which is *worse* than
+the compromised number it was meant to rescue. The signature is real in the mean
+-- enemies show a narrow head (0.15-0.24 of max width in the top two bins) where
+false positives start wide (0.27-0.44) -- but individual profiles overlap far too
+much. It was the most promising item on this list and it is now closed.
+
+Known error classes still open
+------------------------------
+From a hand-reviewed sample of 30 false positives:
+
+* **UI that is not a box** -- "recon bolt destroyed" and spike-planted alerts are
+  text banners, and box detection structurally cannot reach them. The top-centre
+  region they occupy (x 0.42-0.53, y 0.17-0.28) is dead centre above the
+  horizon, where a distant enemy on high ground appears, so it must NOT be
+  masked positionally. It wants the same structural treatment.
+* **An ally read as an enemy (Clove).** This is a direct consequence of the
+  magenta widening, not a stray: Clove's colour identity is purple, and the band
+  was widened precisely to admit purple-tinted enemies. The same knob pulls both
+  ways, so it cannot be tuned out on the hue axis -- the discriminator has to be
+  structural (a rim is a closed contour around a silhouette; costume colour is
+  interior fill) or external (the roster and minimap already know who is an
+  ally). Expect this to worsen on teams running Clove rather than stay flat.
+* **Particle effects** -- weapon muzzle/impact particles and Killjoy molly
+  particles, ~17% of the sample.
+* **Enemy limbs scored as false positives.** A Reyna leg and a Killjoy leg are
+  *correct* detections the head-click matcher cannot credit. With a probable
+  unmarked enemy in the sample too, measured precision understates the detector
+  by roughly 10%.
+* **Clove smoke against map geometry** forming a tall thin human-like shape.
+
+The four remaining misses are all at the size floor: 21, 42 and 45 px blobs
+(a gun barrel through smoke is 9x6), plus one aspect rejection at 1.18 against a
+1.15 threshold. A single frame does not carry enough evidence at that size, and
+lowering `area` to reach them floods the false positives. This is the end of
+per-frame tuning, not a threshold left untuned.
 
 What the label set does NOT cover
 ---------------------------------
-"77% recall" means recall *on the cases that were sampled*, and one important
-case is missing entirely: an enemy visible only as a **head above a box, or over
-an elevated edge**. Grant reports no such frame came up while labelling. It is a
-standard strong position, so its absence is a gap in the evidence rather than in
-the game.
+"93.5% recall" means recall *on the cases sampled*, and one case is missing
+entirely: an enemy visible only as a **head above a box or an elevated edge**.
+Grant reports no such frame came up while labelling. It is a standard strong
+position, so its absence is a gap in the evidence rather than in the game.
 
-It is also the hardest case for everything here. A head alone is small, wider
-than tall, and has no silhouette to match -- so the aspect and hollowness tests
-would all reject it if they applied. They do not, because those tests are
-size-conditional and a head falls under the threshold, which means the design
-happens to treat it correctly. But "happens to" is not "is shown to", and
-nothing has tested it.
+It is also the hardest case here. A head alone is small, wider than tall, and
+has no silhouette to match -- so the aspect and hollowness tests would reject it
+if they applied. They do not, because those tests are size-conditional and a head
+falls under the threshold, which means the design happens to treat it correctly.
+"Happens to" is not "is shown to", and nothing has tested it.
 
-Targeting such frames for labelling is awkward: they cannot be found by sampling
-without already having a detector. The practical route is to run the detector at
-scale, pull frames where it fires on short wide blobs, and check those by eye --
-using the detector to find its own test set, which is sound as long as the
-result is treated as a floor on recall rather than a measurement of it.
+The label set is also **centre-biased and must not be fitted to**: 97.9% of
+labels fall in the middle third of the screen, because half the frames were
+sampled just before a kill, when the player is by definition looking at the
+enemy. A centre prior would score well here and be wrong -- exposure analysis
+needs peripheral enemies most of all. For the same reason the **50% UI share of
+false positives is inflated**: event-pool sampling lands on kills and deaths,
+which is exactly when the combat report is up. In continuous play it will be far
+lower, and that number must not be quoted as a production figure.
+
+One label is known bad and excluded: at 29:54 the enemy had already been killed.
+
+Fragmentation is the strongest shape signal found
+------------------------------------------------
+Measured over a battery of twelve raw-mask features, ranked by best achievable
+(enemies kept - false positives kept):
+
+    fragments        50.2%   TP med 13 pieces, FP med 5
+    frag_top1        49.2%   share of mass in the largest piece: TP 0.38, FP 0.62
+    aspect           37.8%
+    shoulder_at      29.7%
+    profile corr     28.5%   (leave-one-out; see above)
+    solidity         12.5%   near useless
+    compactness      11.3%   near useless
+
+**An enemy's rim shatters into many pieces with no dominant one; a false
+positive is a few pieces with the mass concentrated in one.** The fragmentation
+that finding 3 above treats purely as a problem -- the thing the vertical closing
+kernel exists to paper over -- is itself the signal.
+
+It is not a size proxy, which was the obvious way for it to be a false discovery.
+Within matched raw-area bands the separation *increases* with size (21.8%, 50.0%,
+75.5%), and size alone scores only 42.5%. The mechanism is in the correlations:
+`corr(fragments, area)` is **+0.75 for enemies and +0.05 for false positives**.
+A long thin contour breaks up in proportion to its length; a compact blob's
+piece-count does not depend on how big it is. Structurally different objects.
+
+**Use frag_top1, not the raw count.** It is scale-free and separates in every
+band (41.5 / 54.8 / 72.1%), where the raw count collapses to 21.8% in the
+smallest -- and the smallest band is exactly where the four remaining misses live.
+
+A second, weaker shape signal: whether the rim **seals into a silhouette** when
+gaps are bridged at a small radius. Closing at 21 px seals 54% of enemies against
+21% of false positives (2.6:1); a convex hull seals 98% against 89% and is
+useless, because convexifying swallows the concavities that carry the shape.
+
+Temporal: persistence works, relative motion does not
+-----------------------------------------------------
+**Persistence separates.** Over +/-250 ms at 50 ms steps, len>=3 keeps 98% of
+enemy detections and removes 27% of false positives; len>=5 removes half of them
+for 16%. That is safe to apply because the detector is stable: measured against
+the labels it fires on a real enemy in a median of 9 of 11 samples, and 46/46
+labelled enemies appear in at least two.
+
+That last measurement mattered more than the filter. A first tracker reported a
+median enemy track of 6 with eleven single-sample tracks -- a plausible-looking
+modest signal that was entirely two bugs:
+
+* **no gap tolerance** -- tracks were extended only from the immediately previous
+  sample, so one missed detection ended a track and started a new one, shredding
+  a 9-of-11 detector into short pieces;
+* **an inverted camera-compensation sign** -- the prediction subtracted the phase
+  correlation shift instead of adding it, which doubles the error during fast
+  pans and blows the match gate exactly when the camera moves fastest. With the
+  wrong sign there was NO separation at all: 86% of enemies against 84.9% of
+  false positives, a diagonal.
+
+The contradiction that exposed both -- "the detector sees it in 9 of 11 frames but
+the tracker says 6" -- was findable in a way that "this number looks a bit low"
+never is. Prefer measurements with a known-correct answer to check against.
+
+**Relative motion is not recoverable, across five attempts.** Enemies do move
+relative to the background and the game renders them that way, but what the
+detector hands over is a fragmentary contour, not an object:
+
+    global camera compensation, centroid   measured mask instability -- a broken
+                                           rim's centroid wanders while the
+                                           object sits still. FP median 227 px/s
+                                           where static scenery must be ~0.
+    local flow, bounding box               measured background against background:
+                                           a rim's box is mostly the scenery it
+                                           encloses. TP 24.8, FP 24.8 px/s.
+    local flow, rim pixels, 2x baseline    TP 15.0, FP 15.2. Aperture problem: two
+                                           dimensions of motion are not
+                                           recoverable from a 1-D edge.
+    interior by hole-filling               empty -- the rim seals in only 5 of 50
+                                           enemies and 0 of 73 false positives.
+    interior by convex hull                seals 98%/89% but TP 13.7 vs FP 14.9:
+                                           the hull pulls background inside.
+
+Diagnostic that the camera estimate was never the problem: changing its region
+between a wide patch and a tight one around the crosshair barely moved the
+numbers, which cannot happen if camera error dominates.
+
+This also removes the most expensive operation measured -- Farneback flow at half
+resolution costs 63.5 ms/frame, **2.7x the entire detector** -- so dropping it is
+a cost win as well as a complexity win. A speed-range filter is blocked by the
+same defect, since it needs the same unmeasurable quantity.
+
+What it costs, measured
+-----------------------
+Per 1920x1080 frame on the development machine:
+
+    decode (sequential)          2.4 ms
+    detect() end to end         23.6 ms      (close 8.9, HSV 4.7, top-hat 4.0,
+                                              find_boxes 3.3)
+    Farneback flow, half res    63.5 ms      -- dropped, see above
+
+At 10 Hz that is ~10 minutes per 40-minute session, so the fifteen-session
+library is under three hours, offline and embarrassingly parallel. On hardware
+that barely clears Valorant's (deliberately low) minimum spec, scale by ~3-4x:
+still an overnight job. Nothing here runs alongside the game.
+
+On pose estimation
+------------------
+Human pose estimation is genuinely a solved problem, and `cv2.dnn` is available,
+so an ONNX model would add **no new Python dependency** -- only a weights file.
+(`cv2.HOGDescriptor` and its built-in pedestrian detector are NOT available;
+OpenCV 5.0 dropped them.) Three things to weigh before taking that step:
+
+* it breaks **no model in stage 02**, the property that makes every extractor
+  auditable against something the game itself reported;
+* it is likely to fail where it is needed. Pose models are trained on photographs
+  of real, largely unoccluded humans. The remaining misses are 21-45 px fragments
+  and slivers past a corner -- stylised, tiny, heavily occluded. Expect it to
+  confirm the enemies already detected and miss the ones that are missed;
+* cost only works in a **two-stage** design: full-frame inference is roughly 2-4x
+  the current detector on CPU and hours per session on weak hardware, while
+  verifying only the 1-3 crops the detector proposes is comparable to current
+  cost and fits the existing "expensive layer sees <1% of frames" rule.
 
 Where to go next
 ----------------
-Precision is the remaining problem and **temporal consistency is the strongest
-unused signal**: a real enemy persists across frames and moves plausibly, an
-architectural edge does not. That is what took the minimap tracker from 5.5%
-bad jumps to 1.5%, and it is untested here only because the labels are isolated
-frames and cannot score a tracker.
+Combine frag_top1 with persistence and re-score end to end. Both are measured,
+neither is applied in `detect()` yet, and they are independent signals -- one
+shape, one temporal -- so they should not be redundant.
 
-It can be validated without more labelling. The killfeed is an anchor: before
-every tracked kill an enemy was demonstrably visible, so "was an enemy tracked
-in the two seconds before a kill" measures sequence-level recall for free across
-all fifteen sessions. It is biased toward enemies about to die, but it tests the
-tracker rather than the frame detector, which is exactly the gap.
+Everything above is measured on **one session, 149 frames, 50 enemy detections
+against 73 false positives**, and a best-cut-over-a-continuum statistic is
+optimistic on samples that small. Some of the top of that feature table is noise
+fitted to this sample. The honest confirmation is a second session's labels, not
+a tighter threshold on this one.
+
+The tracker itself is still unvalidated as a tracker: every label here is an
+isolated frame, so these numbers say persistence *separates*, not that a tracker
+run continuously over a match works. The killfeed anchor tests that for free --
+"was an enemy tracked in the two seconds before a kill" -- across all fifteen
+sessions, biased toward enemies about to die but testing the sequence rather than
+the frame.
+
+The head-peek gap wants the detector used to find its own test set: run at scale,
+pull frames where it fires on short wide blobs, check by eye. Sound as long as
+the result is treated as a floor on recall rather than a measurement of it.
 """
 import json, sys
 from pathlib import Path
 import numpy as np, cv2
+
 STORE = Path.home()/"reticle-store"
 SID  = sys.argv[1]
-THR  = int(sys.argv[2]) if len(sys.argv) > 2 else 30      # top-hat strength
-K    = int(sys.argv[3]) if len(sys.argv) > 3 else 11      # kernel, > rim width
-AREA = int(sys.argv[4]) if len(sys.argv) > 4 else 60
-AR   = tuple(float(x) for x in (sys.argv[5] if len(sys.argv) > 5 else "0.7,7.0").split(","))
-FILL = tuple(float(x) for x in (sys.argv[6] if len(sys.argv) > 6 else "0.0,0.7").split(","))
-HMIN = int(sys.argv[7]) if len(sys.argv) > 7 else 12
-WEAP = (0.42, 0.58)
-CK   = int(sys.argv[8]) if len(sys.argv) > 8 else 9
+THR  = int(sys.argv[2]) if len(sys.argv) > 2 else 25       # top-hat strength
+K    = int(sys.argv[3]) if len(sys.argv) > 3 else 11       # kernel, > rim width
+AREA = int(sys.argv[4]) if len(sys.argv) > 4 else 120
+HMIN = int(sys.argv[5]) if len(sys.argv) > 5 else 22
+CK   = int(sys.argv[6]) if len(sys.argv) > 6 else 13
+AR   = (1.15, 5.0)        # 1.20 rejects a real enemy at 1.18; below 1.15 buys nothing
+HUE_MAGENTA, HUE_ORANGE = 130, 6
+SAT, AST = 130, 155
+WEAP = (0.50, 0.66)
+# UI box finder
+SCALE, GRAD, TOL, PAD = 4, 10, 12, 6
+MINRUN, MINROWS, MINSPAN = 380, 3, 15
+# At 29:54 the enemy was already dead -- bad ground truth, not a detector miss.
+BAD_LABELS = {29*60 + 54}
 
-man = json.loads((STORE/"manifests"/f"{SID}.json").read_text()); src=man["source"]; fps=float(src["fps"])
-rows={}
-for l in (STORE/"labels"/"enemies"/f"{SID}.jsonl").read_text().splitlines():
-    if l.strip(): r=json.loads(l); rows[r["t_ms"]]=r
-rows=[r for r in rows.values() if not r.get("uncertain")]
+man = json.loads((STORE/"manifests"/f"{SID}.json").read_text())
+src = man["source"]; fps = float(src["fps"])
+rows = {}
+for line in (STORE/"labels"/"enemies"/f"{SID}.jsonl").read_text().splitlines():
+    if line.strip():
+        r = json.loads(line); rows[r["t_ms"]] = r
+rows = [r for r in rows.values()
+        if not r.get("uncertain") and r["t_ms"]//1000 not in BAD_LABELS]
 
-def hud_mask(h,w):
-    m=np.ones((h,w),bool); m[:120,:]=False; m[h-190:,:]=False
-    m[:360,:360]=False; m[60:360,w-520:]=False
-    # The player's own weapon. It is red-rimmed like everything else and in
-    # frame constantly, and it was roughly half the false positives. Persistence
-    # cannot find it -- the model bobs, sways and changes with the weapon held,
-    # so no pixel responds often enough -- so this is a region, measured rather
-    # than guessed: it holds 21% of false positives and 0 of 47 labels.
-    ww, hh = int(w*WEAP[0]), int(h*WEAP[1])
-    m[hh:, ww:] = False
+KER  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (K, K))
+CKER = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (CK, CK*2))
+
+
+def hud_mask(h, w):
+    m = np.ones((h, w), bool)
+    m[:120, :] = False; m[h-190:, :] = False       # top and bottom HUD bands
+    m[:360, :360] = False                          # minimap
+    m[60:360, w-520:] = False                      # killfeed
+    # The player's own weapon: red-rimmed like everything else and in frame
+    # constantly. Persistence cannot find it (the model bobs and sways), so this
+    # is a measured region -- 21% of false positives, 0 of 47 labels.
+    m[int(h*WEAP[1]):, int(w*WEAP[0]):] = False
+    # Bottom-left corner HUD. Corner, not mid-screen, which is what makes a
+    # positional mask defensible here where it was not for the combat report.
+    m[int(0.75*h):, :int(0.09*w)] = False
     return m
 
-KER = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (K,K))
 
-def _resp(fr):
-    a = cv2.cvtColor(fr, cv2.COLOR_BGR2LAB)[:,:,1]
-    return cv2.morphologyEx(a, cv2.MORPH_TOPHAT, KER)
+def _runs(b):
+    if not b.any(): return []
+    idx = np.flatnonzero(np.diff(np.concatenate(([0], b.view(np.int8), [0]))))
+    return list(zip(idx[::2], idx[1::2]))
 
-def own_weapon_mask(cap, fps, times, h, w):
-    """Pixels that respond in most frames are the player's own weapon.
 
-    The first-person model is red-rimmed like everything else and sits in the
-    same region every frame; an enemy never does. Same reasoning as the
-    killfeed's overlay mask, and derived from the footage rather than hardcoded,
-    so it follows whatever weapon is held and needs no region guessed at."""
-    acc = np.zeros((h,w), np.float32); n = 0
-    for tm in times:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(tm/1000.0*fps)))
-        ok, fr = cap.read()
-        if not ok: continue
-        acc += (_resp(fr) > THR).astype(np.float32); n += 1
-    if not n: return np.ones((h,w), bool)
-    persistent = (acc/n) > 0.30
-    grown = cv2.dilate(persistent.astype(np.uint8), np.ones((15,15), np.uint8)) > 0
-    return ~grown
+def find_boxes(fr):
+    """UI boxes, from the one thing a box has and scenery does not: several
+    horizontal rules of the same width at the same x."""
+    h, w = fr.shape[:2]
+    g = cv2.resize(cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY), (w//SCALE, h//SCALE),
+                   interpolation=cv2.INTER_AREA)
+    hot = np.abs(cv2.Sobel(g, cv2.CV_16S, 0, 1, ksize=3)) > GRAD
+    cand = [(y, a, b)
+            for y in range(120//SCALE, min((h-190)//SCALE, hot.shape[0]))
+            for a, b in _runs(hot[y]) if (b-a)*SCALE >= MINRUN]
+    boxes, used = [], [False]*len(cand)
+    for i, (y, a, b) in enumerate(cand):
+        if used[i]: continue
+        grp = [(y, a, b)]; used[i] = True
+        for j in range(i+1, len(cand)):
+            if not used[j] and abs(cand[j][1]-a) <= TOL and abs(cand[j][2]-b) <= TOL:
+                grp.append(cand[j]); used[j] = True
+        ys = sorted({z[0] for z in grp})
+        if len(ys) >= MINROWS and (ys[-1]-ys[0]) >= MINSPAN:
+            x0 = min(z[1] for z in grp)*SCALE; x1 = max(z[2] for z in grp)*SCALE
+            boxes.append((max(0, x0-PAD), max(0, ys[0]*SCALE-PAD),
+                          min(w, x1+PAD), min(h, ys[-1]*SCALE+PAD)))
+    return boxes
+
+
 def detect(fr):
-    h,w = fr.shape[:2]
+    h, w = fr.shape[:2]
     lab = cv2.cvtColor(fr, cv2.COLOR_BGR2LAB)
-    a = lab[:,:,1]                                  # red-green opponent axis
-    top = cv2.morphologyEx(a, cv2.MORPH_TOPHAT, KER)
-    detect.top = top
-    m = ((top > THR) & hud_mask(h,w) & OWN).astype(np.uint8)
-    # Join the rim into ONE region before measuring it. The rim is broken by the
-    # body, by limbs and by occlusion, so connected components shatters a single
-    # enemy into fragments that each fail the size tests -- the feature found
-    # them, the grouping threw them away. A human is taller than wide, so the
-    # kernel is too: it bridges vertically without merging neighbours sideways.
-    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE,
-                         cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (CK, CK*2)))
-    n,l2,st,cen = cv2.connectedComponentsWithStats(m, 8)
-    out=[]
-    for i in range(1,n):
-        x,y,bw,bh,ar = st[i]
+    a = lab[:, :, 1].astype(np.int16)              # red-green opponent axis
+    top = cv2.morphologyEx(lab[:, :, 1], cv2.MORPH_TOPHAT, KER)
+    hsv = cv2.cvtColor(fr, cv2.COLOR_BGR2HSV)
+    hu, sa = hsv[:, :, 0].astype(np.int16), hsv[:, :, 1].astype(np.int16)
+    # Relative test (is this a thin rim) AND absolute (is it the colour at all).
+    # Neither substitutes for the other: top-hat alone fires on a grey line
+    # beside cyan, and an absolute floor alone fires on any terracotta wall.
+    keep = ((top > THR)
+            & ((hu < HUE_ORANGE) | (hu > HUE_MAGENTA))
+            & (sa > SAT) & (a > AST)
+            & hud_mask(h, w))
+    for bx in find_boxes(fr):
+        keep[bx[1]:bx[3], bx[0]:bx[2]] = False
+    # Join the rim into ONE region before measuring it: it is broken by the body,
+    # by limbs and by occlusion. A human is taller than wide, so the kernel is.
+    m = cv2.morphologyEx(keep.astype(np.uint8), cv2.MORPH_CLOSE, CKER)
+    n, _lbl, st, _cen = cv2.connectedComponentsWithStats(m, 8)
+    out = []
+    for i in range(1, n):
+        x, y, bw, bh, ar = st[i]
         if ar < AREA or bh < HMIN: continue
-        f = ar/max(bw*bh,1)
-        # Hollowness only means something on a whole model. A sliver of an enemy
-        # -- a shoulder past a corner, which is where peeking actually happens --
-        # has no interior to be hollow, and demanding one filters out precisely
-        # the detections that matter most. So the shape tests apply to blobs big
-        # enough to be a body, and small ones get through on contrast alone and
-        # are left for the tracker to confirm or discard.
+        # Shape tests only where the shape exists. A sliver of an enemy has no
+        # interior to be hollow, and demanding one filters out precisely the
+        # detections that matter most.
         big = bw >= 14 and bh >= 30
-        if big and not (FILL[0] <= f <= FILL[1]): continue
-        if big and not (AR[0] <= bh/max(bw,1) <= AR[1]): continue
-        # the interior must be *less* red than the rim -- a model sits inside an
-        # outline, so the middle is the agent, not more outline
+        if big and not (AR[0] <= bh/max(bw, 1) <= AR[1]): continue
         ix0, iy0 = x + bw//4, y + bh//4
         ix1, iy1 = x + bw - bw//4, y + bh - bh//4
         if bw >= 14 and bh >= 24 and ix1 > ix0 and iy1 > iy0:
             inner = top[iy0:iy1, ix0:ix1]
+            # the interior must be LESS red than the rim: a model sits inside an
+            # outline, so the middle is the agent, not more outline
             if inner.size and float((inner > THR).mean()) > 0.45: continue
-        out.append((x,y,bw,bh,ar))
+        out.append((x, y, bw, bh, ar))
     return out
 
-cap=cv2.VideoCapture(str(src["path"])); PAD=14
-_ok, _fr0 = cap.read()
-H0, W0 = _fr0.shape[:2]
-import random as _rnd
-_rnd.seed(1)
-OWN = own_weapon_mask(cap, fps, [r["t_ms"] for r in _rnd.sample(rows, min(60, len(rows)))], H0, W0)
-print(f"own-weapon mask covers {(~OWN).mean()*100:.1f}% of the frame")
-st_={p:dict(tp=0,fn=0,fp=0,nt=0) for p in ("uniform","event")}
-for r in rows:
-    cap.set(cv2.CAP_PROP_POS_FRAMES,int(round(r["t_ms"]/1000.0*fps))); ok,fr=cap.read()
-    if not ok: continue
-    dets=detect(fr); pool=st_[r["pool"]]
-    players=[(m["x"],m["y"]) for m in r.get("marks",[]) if m["kind"]=="player"]
-    others =[(m["x"],m["y"]) for m in r.get("marks",[]) if m["kind"] in ("corpse","deployable","revealed")]
-    used=set()
-    for (px,py) in players:
-        hit=None
-        for j,(x,y,bw,bh,ar) in enumerate(dets):
-            if j in used: continue
-            if x-PAD<=px<=x+bw+PAD and y-PAD<=py<=y+bh+PAD: hit=j; break
-        if hit is None: pool["fn"]+=1
-        else: pool["tp"]+=1; used.add(hit)
-    for (px,py) in others:
-        for j,(x,y,bw,bh,ar) in enumerate(dets):
-            if j in used: continue
-            if x-PAD<=px<=x+bw+PAD and y-PAD<=py<=y+bh+PAD: used.add(j); pool["nt"]+=1; break
-    pool["fp"]+=len(dets)-len(used)
-cap.release()
-t={k:sum(s[k] for s in st_.values()) for k in ("tp","fn","fp","nt")}
-rec=t["tp"]/max(t["tp"]+t["fn"],1); pre=t["tp"]/max(t["tp"]+t["fp"],1)
-print(f"tophat>{THR} k={K} area>={AREA} h>={HMIN} ck={CK} ar={AR} fill={FILL}:  TP {t['tp']:3d}  FN {t['fn']:3d}  FP {t['fp']:4d}  "
-      f"nontgt {t['nt']:2d}   recall {rec*100:5.1f}%  precision {pre*100:5.1f}%  "
-      f"FP/frame {t['fp']/max(len(rows),1):4.1f}")
+
+def body_box(px, py):
+    """The region a head click implies. A detection anywhere in it is a hit --
+    a leg or a torso is a correct detection of that enemy, and requiring the box
+    to contain the head scores real detections as false positives."""
+    return (px-55, py-25, px+55, py+135)
+
+
+def hits(px, py, x, y, bw, bh):
+    bx0, by0, bx1, by1 = body_box(px, py)
+    return not (x > bx1 or x+bw < bx0 or y > by1 or y+bh < by0)
+
+
+def main() -> int:
+    cap = cv2.VideoCapture(str(src["path"]))
+    st_ = {p: dict(tp=0, fn=0, fp=0, nt=0) for p in ("uniform", "event")}
+    for r in rows:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(r["t_ms"]/1000.0*fps)))
+        ok, fr = cap.read()
+        if not ok: continue
+        dets = detect(fr); pool = st_[r["pool"]]
+        players = [(m["x"], m["y"]) for m in r.get("marks", []) if m["kind"] == "player"]
+        others = [(m["x"], m["y"]) for m in r.get("marks", [])
+                  if m["kind"] in ("corpse", "deployable", "revealed")]
+        used = set()
+        for (px, py) in players:
+            j = next((j for j, d in enumerate(dets)
+                      if j not in used and hits(px, py, *d[:4])), None)
+            if j is None: pool["fn"] += 1
+            else: pool["tp"] += 1; used.add(j)
+        for (px, py) in others:
+            j = next((j for j, d in enumerate(dets)
+                      if j not in used and hits(px, py, *d[:4])), None)
+            if j is not None: used.add(j); pool["nt"] += 1
+        pool["fp"] += len(dets) - len(used)
+    cap.release()
+    t = {k: sum(s[k] for s in st_.values()) for k in ("tp", "fn", "fp", "nt")}
+    rec = t["tp"]/max(t["tp"]+t["fn"], 1)
+    pre = t["tp"]/max(t["tp"]+t["fp"], 1)
+    print(f"tophat>{THR} k={K} area>={AREA} h>={HMIN} ck={CK} "
+          f"hue=(<{HUE_ORANGE}|>{HUE_MAGENTA}) sat>{SAT} a*>{AST} ar={AR}:")
+    print(f"  TP {t['tp']:3d}  FN {t['fn']:3d}  FP {t['fp']:4d}  nontgt {t['nt']:2d}   "
+          f"recall {rec*100:5.1f}%  precision {pre*100:5.1f}%  "
+          f"FP/frame {t['fp']/max(len(rows), 1):4.1f}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
