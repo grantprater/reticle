@@ -110,12 +110,42 @@ Five measurements, each refuting a hypothesis that felt obvious:
                                       keeps 79.5% of enemy frames and drops 45.3%
                                       of empty ones
 
-That last line is the disqualifying one. The gate's value was being a PROOF: if
-no teammate can see an enemy, a screen detection is provably false. A gate that
-discards a fifth of the frames that do contain an enemy is not a proof, it is
-another lossy filter, and frag_top1 and persistence are cheaper and already
-measured. The only sound version remains the crude count -- 100% of enemy frames
-kept, 16% of empty frames dropped -- which is small but valid.
+**Correction: the feature was wrong, not absent.** The list above tested "is this
+a ring", but an enemy icon is a ring PLUS A TRIANGLE -- the orientation
+indicator -- and several other red round things live on this widget: Reyna
+blinds, Cypher cameras, warning pings. Only enemies carry the ring with the
+triangle. That is why the distributions looked identical: empty frames are full
+of other red round objects, so the comparison was never measuring what it
+claimed. Wrong feature, not absent signal.
+
+Two things follow from the corrected model, and one of them works.
+
+**Hollowness separates.** An enemy icon rings a bright agent portrait; an X mark
+is solid red throughout. Measuring the red fraction of each closed blob gives
+enemy-frame blobs p25 0.63 / median 0.76 against empty-frame blobs 0.76 / 0.92 --
+the first real separation found on this axis. It is the same interior-versus-rim
+test detect() already applies on screen. An earlier centre-brightness gate tested
+the same idea and reported nothing, but only because the area and fill gates had
+emptied the pool before it ran; it was never actually measured.
+
+**The size window was right in principle and wrong in its bounds.** Icons sit at
+area 50-200. The blobs dominating empty frames are flat magenta UI slabs at
+700-1150 -- five to twenty times larger, and trivially separable. The original
+20-260 window was set by eye from a sheet of mid-sized crops and cut through the
+middle of the icon population instead.
+
+**What still does not reach: a proof gate.** Best hollowness cut keeps 77.3% of
+frames that provably contain a visible enemy while dropping 58.5% of empty ones;
+ring-closing tops out at 79.5%/45.3%. The gate's value was being a PROOF -- no
+visible enemy means a screen detection is provably false -- and one that discards
+a quarter of real frames is not a proof, it is another lossy filter competing
+with frag_top1 and persistence, which are cheaper and already measured. About a
+quarter of enemy frames yield no hollow red blob at all, and why is unresolved.
+
+So there are now two usable results rather than none: the crude count remains the
+only SOUND proof gate (100% of enemy frames kept, 16% of empty dropped), and
+hollowness is a genuine soft signal (0.76 vs 0.92) that could serve as a feature
+rather than a veto.
 
 **This blocks bearing confirmation too, which was not obvious up front.** Bearing
 needs enemy POSITIONS, and positions come from the same icon detection that
