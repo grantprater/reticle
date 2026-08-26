@@ -101,24 +101,32 @@ Two more recall classes, both newly isolated and neither addressed:
 **SETTLED 2026-08-26, against 96 of Grant's hand labels on `a06f04a0059f`.
 Two results, and the first one bounds the whole idea.**
 
-**1. The minimap is NOT a proof gate. An enemy icon is present in only 58% of
-frames where an enemy provably existed.**
+**1. The premise HOLDS. Grant labelled 96 frames with the screen visible beside
+the minimap and reports there was never a frame with an enemy present and no
+icon.** That is the strong ring-and-triangle form of the claim, checked by eye
+against the screen, and it is the best evidence the premise has ever had.
 
-    prekill (an enemy provably there)   34/59 carry an enemy icon   57.6%
-    uniform control                      4/37                       10.8%
+**A number I published as "58% -- not a proof gate" was wrong, and the error is
+worth keeping.** The pre-kill pool samples 300-1400 ms before the killfeed entry
+APPEARS, and the entry lags the kill -- so most of that window sits before the
+enemy ever came into view. Grant: *the enemy is often only in view 400 ms or
+less before the kill.* So the 42% of pre-kill frames with no icon are frames
+with no enemy yet, not counterexamples.
 
-The 5x separation says the signal is real and worth having. The 58% says the
-*gate* is dead: "no icon therefore no enemy" is wrong roughly two times in five,
-and a proof gate needs ~100%. **This kills the use the minimap was being pursued
-for** -- rejecting whole frames of screen detections -- and no amount of finder
-work changes it, which is exactly why this number was worth getting before more
-finder work. It survives as a FEATURE alongside frag_top1 and persistence.
+    prekill  34/59 carry an enemy icon   57.6%
+    uniform   4/37                       10.8%
 
-Read 58% as a floor, for one reason recorded in `label_minimap.py`: the killfeed
-timestamps when an entry APPEARS, so the 300-1400 ms sampling window straddles
-the kill and some frames legitimately sit after the death, where the icon is
-correctly gone. Valorant also only shows an enemy while somebody on the team can
-see them, so a duel nobody else witnessed may genuinely carry no icon at all.
+Those numbers are real but they measure **"is an enemy icon on screen in this
+frame"**, which is a fact about the sampling window, not about the premise. The
+5x gap says the pool is doing its job; neither number tests the gate. I treated
+"a kill happened 1.4 s later" as "an enemy is present now" without checking it,
+and the whole conclusion followed from that one unverified denominator.
+
+**Consequence: the sampling window is too early and has been tightened** to
+0-600 ms before the entry, which straddles the kill given the lag rather than
+preceding it. Frames labelled under the old window are still valid -- the marks
+record what was actually there -- but the pool is biased toward the approach
+rather than the duel.
 
 **2. The seal test is dead at 4:2:0 and ring-fitting replaces it.** Scored
 against the same labels:

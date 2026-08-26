@@ -60,9 +60,15 @@ when the numbers are quoted:
 * it is the EASY end. A kill usually means a close, clearly-visible enemy, so
   icon recall measured here is a ceiling, not a typical case;
 * the killfeed timestamps when the entry APPEARS, which lags the kill. The
-  sampling window is 300-1400 ms before that, so it straddles the kill itself --
+  sampling window is 0-600 ms before that, so it straddles the kill itself --
   some frames will be just after, where the enemy is dead and the icon is gone.
   Those are `N` and are correct as `N`.
+
+A wider window is NOT better here, and the first version got it wrong. At
+300-1400 ms most frames landed before the enemy had come into view at all --
+Grant, after labelling: the enemy is often only in view 400 ms or less before
+the kill. Frames like that are `N` for a reason that has nothing to do with the
+minimap, and counting them made the icon look absent when the enemy was.
 """
 from __future__ import annotations
 
@@ -100,9 +106,17 @@ def sample_times(sid: str, n: int, prekill_frac: float) -> list[tuple[float, str
         per = max(1, round(want_pk / len(kills)))
         for k in kills:
             for _ in range(per):
-                # "the second or so before the kill" -- and the killfeed lags,
-                # so this window straddles the kill rather than preceding it.
-                out.append((k - rng.uniform(300, 1400), "prekill"))
+                # TIGHT, and close to the entry. The killfeed lags the kill, so
+                # this window straddles the kill rather than preceding it.
+                #
+                # The first version used 300-1400 ms and was too early. Grant,
+                # after labelling 96 frames: the enemy is often only in view 400
+                # ms or less before the kill. So most of that window held no
+                # enemy yet, and the 42% of pre-kill frames with no icon read as
+                # premise counterexamples when they were nothing of the kind.
+                # A pool meant to guarantee an enemy is present has to sit on
+                # the duel, not on the approach to it.
+                out.append((k - rng.uniform(0, 600), "prekill"))
     out = out[:want_pk]
     total = sum(b - a for a, b in active)
     for _ in range(max(0, n - len(out))):
