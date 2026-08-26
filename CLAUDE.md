@@ -13,10 +13,37 @@ Section references in docstrings (`SS3`, `SS7`) mean §3, §7 of that doc.
 
 ## Picking up
 
-**NEXT SESSION: get Grant's agent labels, then take the icon work to Lotus and
-Split.** Portrait identification is BUILT and measured -- `minimap_portrait.py`,
-93.0% leave-one-out over five agents, detail under "Portrait identification"
-below. Two things gate what comes next and both are cheap:
+**NEXT SESSION: run `label_dynamic.py`, then fit the ability classifier.**
+Grant's call -- a full game-event classifier off the minimap, and the minimap is
+the easiest source of it. Everything for it is built except the labels, and the
+labels are the blocker:
+
+    .\.venv\Scripts\python.exe prototypes\label_dynamic.py a06f04a0059f --colour none
+
+`--colour none` is the point: the black-and-white glyphs are what the red
+finder can never see, and they are what the pass is for. A couple of hundred
+answers settles whether the colour-free channel finds real glyphs at a usable
+rate. Six keys, uniform over active play, and it asks only WHAT the ringed thing
+is -- not which ability, which is a later pass over the same rows.
+
+Read "Colour-free detection" below before starting: that channel is NOT the
+enemy detector and trying to make it one is how the last session ended.
+
+Two smaller things left open by this session:
+
+* **the cold identification path works on unseen sessions** (85.7-100%
+  alive-consistent on three, two of them new lineups on new maps) but n is only
+  14-22 per session because the motion filter is strict, and the alive check
+  cannot separate 85% from 95% at a 53-69% chance rate. Confirming it properly
+  needs a small agent-label pass on Lotus -- cheaper than the first one, since
+  candidates can come straight from the ring finder;
+* **the question mark still needs a shape test.** It is 13 of 16 remaining
+  misses, red-inside does not separate it (0.08 against 0.09) and neither does
+  the sampling radius (flat 82-86%). It is a fixed glyph and belongs with the
+  digit templates, decided before the portrait match.
+
+*Previous handoff, resolved 2026-08-26:* portrait identification is built and
+measured. Two things gated it and both are now done:
 
 * ~~71 of the 107 agent labels are provisional~~ **DONE 2026-08-26: all 107
   icons are Grant's.** On hand labels, leave-one-out: **88.6% over the five
