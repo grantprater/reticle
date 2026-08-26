@@ -22,12 +22,72 @@ is half-applied.
     + track_filter()          ascent 91.3% / 48.8%
     detect() single frame     lotus  76.2% / 42.5%   (cut points UNCHANGED)
 
-**Start here: lower `AREA` with persistence as the safety net.** It is the
-largest remaining recall class and it is one parameter. Grant adjudicated all 17
-Lotus misses by eye: six of them survive every colour gate with 6-76 pixels and
-then fail `AREA >= 120`. `track_filter()` at len>=3 costs NO recall and removes
-27% of false positives, which is exactly the safety net a lower floor needs. The
-pairing is measured separately and has never been tested together.
+**CLOSED 2026-08-26: lowering `AREA` with persistence as the safety net does
+not work, and neither does track-level back-fill.** This was the standing "start
+here" and it is now measured, three ways, on both corpora. Everything below is
+scored inside a +/-250 ms window at 50 ms around each label -- a track cannot
+exist at an isolated frame -- with only the centre frame scored, so the numbers
+are directly comparable to the shipped ones. `prototypes/enemy_teacher.py`
+(decode + dump) and `enemy_teacher_sweep.py` (rules, from the dump, no video).
+
+**The floor sweep is the decisive one.** A track is accepted if it contains one
+shipped-quality member (the safety net) and its centre member clears `floor`:
+
+    floor    ascent               lotus
+      8      93.5% / 21.6%        82.5% / 29.5%
+    120      91.3% / 27.8%        76.2% / 37.5%      <- the SHIPPED floor
+    160      91.3% / 31.3%        73.0% / 39.3%
+
+At the shipped floor the track rule reaches **exactly shipped recall** (91.3%,
+76.2%) with far worse precision than shipped `detect()`'s 41.2% / 42.1%. So
+back-filling from a confident sibling recovers **zero** enemies there and only
+admits blobs the shape gates were right to reject. Taking the floor from 120 to
+8 then buys 2 enemies on Ascent and 4 on Lotus for 43% and 55% more false
+positives. Persistence at len>=3 is applied throughout all of those numbers: it
+is not a sufficient net, and the pairing the README proposed is now tested.
+
+**The shape gates, not the size floor, are doing the work.** That is the
+inversion worth keeping: `AREA` looked like the binding constraint because the
+adjudicated misses die there, but relaxing what `frag_top1`, aspect and
+hollowness reject costs precision immediately and buys almost nothing.
+
+Two weaker variants were tried and both are below shipped at matched recall: a
+hand-tuned track rule (best: two gated members, `3/2/0`, 93.5% / 31.6% on
+Ascent) and a **fitted** track-level score over seven track features, cross-map
+validated (89.1% / 28.7% on Ascent, 74.6% / 37.3% on Lotus). The eval's own
+`track_filter()` at TOP1-off/len>=3 already reaches 93.5% / 42.2% on Ascent and
+beats every one of them on both axes.
+
+**One thing did come out of it: a blob-level calibrated score reaches a
+high-precision operating point the AND-chain has no equivalent for.** Fitted by
+IRLS over the 16 blob features plus four log-size terms, trained on one map and
+scored on the other:
+
+    fit lotus -> ascent    50.0% recall / 85.2% precision    (p93)
+                           67.4%         / 67.4%             (p88)
+    fit ascent -> lotus    28.6%         / 75.0%             (p93)
+                           60.3%         / 59.4%             (p82)
+
+It does **not** beat shipped+persistence in the useful region (Ascent
+91.3% / 48.8%) -- at 84.8% recall it gives 40.2%. The gain is only at the far
+precision end, which is exactly the end a *pseudo-labelling* teacher needs and
+the end the conjunction cannot reach at all, because a veto has no confidence.
+
+**What this says about the teacher idea overall.** The premise was that offline
+evidence -- the whole video, 20x the compute -- could reach near-perfect
+precision and recall and then be distilled. Recall has a real ceiling and it is
+close: the permissive proposer finds 97.8% of Ascent labels and 92.1% of Lotus,
+so the enemies are nearly all *proposed*. Precision is the wall. Nothing tested
+gets past ~85% precision on one map and ~75% on the other, and pseudo-labelling
+needs better than that or it poisons the student. **Screen-space evidence alone
+will not produce a near-perfect teacher**, which is a direct argument for the
+independent modality already identified -- the minimap as a frame-level gate --
+rather than for more work on the rim.
+
+Caveat that cuts the other way, from the eval docstring: measured precision
+**understates** the detector by roughly 10%, because enemy limbs are scored as
+false positives by the head-click matcher and there is at least one unmarked
+enemy in the reviewed sample.
 
 Two more recall classes, both newly isolated and neither addressed:
 
