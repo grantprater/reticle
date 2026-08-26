@@ -13,441 +13,132 @@ Section references in docstrings (`SS3`, `SS7`) mean §3, §7 of that doc.
 
 ## Picking up
 
-**2026-08-25, enemy detector.** Two label corpora now exist:
-`9acf02f98283` (Ascent, 149 frames / 46 enemies) and `bdfdcf009dba` (Lotus, 303
-frames / 65 enemies). Everything below is measured; the tree is clean and nothing
-is half-applied.
+**NEXT SESSION: portrait identification.** Grant's call. The interior portrait
+of a minimap icon is the same art as the **killfeed portrait and the top roster
+portrait** (NOT the Tab scoreboard). That makes it a route to *identification*
+rather than detection -- which agent, not just "an enemy" -- and it fits the
+mining convention already used for digit glyphs: templates taken from Grant's
+own footage on two surfaces the pipeline already locates, rather than authored.
+It should be unusually tractable because **the minimap's palette is narrow** --
+grey, yellow, black, red -- so portrait colours are distinctive against it in a
+way they never are against the game world. Nothing built or measured yet.
 
-    detect() single frame     ascent 91.3% recall / 41.2% precision
-    + track_filter()          ascent 91.3% / 48.8%
-    detect() single frame     lotus  76.2% / 42.5%   (cut points UNCHANGED)
+Two smaller threads left open, both cheap:
 
-**CLOSED 2026-08-26: lowering `AREA` with persistence as the safety net does
-not work, and neither does track-level back-fill.** This was the standing "start
-here" and it is now measured, three ways, on both corpora. Everything below is
-scored inside a +/-250 ms window at 50 ms around each label -- a track cannot
-exist at an isolated frame -- with only the centre frame scored, so the numbers
-are directly comparable to the shipped ones. `prototypes/enemy_teacher.py`
-(decode + dump) and `enemy_teacher_sweep.py` (rules, from the dump, no video).
+* **label Cypher cams specifically.** `LOBE_MIN_FRAC` was added to stop a cam
+  passing the motion filter, and the cam case is still UNTESTED -- nothing in the
+  label set says which `other_red` marks are cams. A cam is a perfect circle, so
+  it is likely a strong ring-fit candidate on coverage alone.
+* **`a06f04a0059f` is +2 kills / +3 deaths** against Grant's 19/19, the widest
+  gap in the set, uninvestigated. Run It Back would explain deaths running high,
+  which is the direction seen, but no agent has been checked.
 
-**The floor sweep is the decisive one.** A track is accepted if it contains one
-shipped-quality member (the safety net) and its centre member clears `floor`:
+### State, 2026-08-26
 
-    floor    ascent               lotus
-      8      93.5% / 21.6%        82.5% / 29.5%
-    120      91.3% / 27.8%        76.2% / 37.5%      <- the SHIPPED floor
-    160      91.3% / 31.3%        73.0% / 39.3%
+**Screen enemy detector: unchanged and still the shipped numbers.** 91.3% /
+41.2% on Ascent, 76.2% / 42.5% on Lotus (`prototypes/enemy_detect_eval.py`,
+which stays the reference oracle). `enemy_features.py` splits it into
+`propose()` + `gate()`, proven bit-identical frame by frame.
 
-At the shipped floor the track rule reaches **exactly shipped recall** (91.3%,
-76.2%) with far worse precision than shipped `detect()`'s 41.2% / 42.1%. So
-back-filling from a confident sibling recovers **zero** enemies there and only
-admits blobs the shape gates were right to reject. Taking the floor from 120 to
-8 then buys 2 enemies on Ascent and 4 on Lotus for 43% and 55% more false
-positives. Persistence at len>=3 is applied throughout all of those numbers: it
-is not a sufficient net, and the pairing the README proposed is now tested.
+**CLOSED: lowering `AREA` with persistence as the net does not work**, and
+neither does track-level back-fill. At the shipped floor the track rule reaches
+*exactly* shipped recall with much worse precision, so back-fill recovers zero
+enemies there; 120 -> 8 buys 2 enemies on Ascent and 4 on Lotus for 43-55% more
+false positives. **The shape gates, not the size floor, are doing the work.**
+A blob-level fitted score gives a high-precision point the AND-chain has no
+equivalent for (50.0% / 85.2% cross-map) but does not beat shipped+persistence
+in the useful region. Detail in `enemy_teacher.py`, `enemy_teacher_sweep.py`.
 
-**The shape gates, not the size floor, are doing the work.** That is the
-inversion worth keeping: `AREA` looked like the binding constraint because the
-adjudicated misses die there, but relaxing what `frag_top1`, aspect and
-hollowness reject costs precision immediately and buys almost nothing.
+**Screen detector regression on the new capture, unfixed.** On
+`2026-08-26 09-56-37.mp4` the aggregate rate is normal (0.42 det/frame against
+Ascent's 0.40) but the STRONG detections are dominated by purple Ascent foliage
+and a **magenta weapon skin** at a fixed screen position (36 of 125 in
+x 1360-1840, y 320-480). Both follow from widening the hue band to 130. Two
+things to act on: a **weapon skin is a per-session property like the outline
+colour**, and the weapon mask's `y > 0.66h` bound is too low for a raised gun
+model. The summary statistic hid this completely; a contact sheet took one
+glance.
 
-Two weaker variants were tried and both are below shipped at matched recall: a
-hand-tuned track rule (best: two gated members, `3/2/0`, 93.5% / 31.6% on
-Ascent) and a **fitted** track-level score over seven track features, cross-map
-validated (89.1% / 28.7% on Ascent, 74.6% / 37.3% on Lotus). The eval's own
-`track_filter()` at TOP1-off/len>=3 already reaches 93.5% / 42.2% on Ascent and
-beats every one of them on both axes.
+**Minimap: the line is reopened and the finder works.** Full arc today, all
+against Grant's 164 hand labels on `a06f04a0059f`, pre-kill pool:
 
-**One thing did come out of it: a blob-level calibrated score reaches a
-high-precision operating point the AND-chain has no equivalent for.** Fitted by
-IRLS over the 16 blob features plus four log-size terms, trained on one map and
-scored on the other:
+    seal test (hole in the blob)          0.0% recall
+    ring fit, per frame                80.8% / 54.6%    uniform P 19.4%
+    + persistence len>=3               76.7% / 70.0%    uniform P 19.2%
+    + motion (disp>=3 or rot>=15)      72.6% / 74.6%    uniform P 29.4%
 
-    fit lotus -> ascent    50.0% recall / 85.2% precision    (p93)
-                           67.4%         / 67.4%             (p88)
-    fit ascent -> lotus    28.6%         / 75.0%             (p93)
-                           60.3%         / 59.4%             (p82)
+The seal test died because **the ring is a teardrop, not an annulus** (Grant):
+7.3 px thick at the triangle and **1.1-2.0 px over most of the rest**. Closure
+is topological, needs every pixel of that thin arc, and one break loses it --
+which is exactly what half-resolution chroma does. Fitting the circle that best
+covers the arc needs no closing kernel (the thing that merged adjacent icons in
+every earlier attempt) and degrades gracefully. `inner_red` is required
+alongside coverage, or solid red things win; the radius must NOT float, or the
+fit collapses to the smallest circle through a surviving fragment.
 
-It does **not** beat shipped+persistence in the useful region (Ascent
-91.3% / 48.8%) -- at 84.8% recall it gives 40.2%. The gain is only at the far
-precision end, which is exactly the end a *pseudo-labelling* teacher needs and
-the end the conjunction cannot reach at all, because a veto has no confidence.
+Persistence and motion attack **different** classes -- flicker and static
+decoys -- which is why both earn their place. Every cut point is fitted to ONE
+session; the project's history says a new map is where these break.
 
-**What this says about the teacher idea overall.** The premise was that offline
-evidence -- the whole video, 20x the compute -- could reach near-perfect
-precision and recall and then be distilled. Recall has a real ceiling and it is
-close: the permissive proposer finds 97.8% of Ascent labels and 92.1% of Lotus,
-so the enemies are nearly all *proposed*. Precision is the wall. Nothing tested
-gets past ~85% precision on one map and ~75% on the other, and pseudo-labelling
-needs better than that or it poisons the student. **Screen-space evidence alone
-will not produce a near-perfect teacher**, which is a direct argument for the
-independent modality already identified -- the minimap as a frame-level gate --
-rather than for more work on the rim.
+**The premise HOLDS**, in the strong ring-and-triangle form: Grant labelled with
+the screen beside the minimap and reports no frame with an enemy present and no
+icon. A "58%, so not a proof gate" figure I published was **wrong** -- the pool
+sampled 300-1400 ms before the killfeed entry, which lags the kill, so most of
+that window held no enemy yet. I treated "a kill happened 1.4 s later" as "an
+enemy is present now" without checking it.
 
-Caveat that cuts the other way, from the eval docstring: measured precision
-**understates** the detector by roughly 10%, because enemy limbs are scored as
-false positives by the head-click matcher and there is at least one unmarked
-enemy in the reviewed sample.
-
-Two more recall classes, both newly isolated and neither addressed:
-
-* **clustered enemies are not separated** -- three enemies standing together
-  yield fewer than three detections, because the vertical closing kernel that
-  merges one enemy's broken rim cannot tell those fragments from a neighbour's;
-* **6:26 on Lotus is bug-shaped** -- 332 and 779 pixels pass every colour gate
-  and the enemy is still lost, so shape, aspect or the closing is discarding a
-  well-found enemy. Unexplained.
-
-**Grant's domain notes on the minimap, 2026-08-26. None of this is recoverable
-from the pixels and two of them correct claims this file previously made.**
+### Grant's domain notes on the minimap -- not recoverable from the pixels
 
 * **A Cypher cam ROTATES**, and it is the **only other moving icon** on the
-  widget. It is a perfect circle, it never translates, and its rotation shows as
-  the camera glyph turning INSIDE the ring -- **with no lobe**. This corrects
-  "a placed ability never turns", which was written into `motion()` and was
-  load-bearing for the motion filter. The consequence is that the filter's two
-  branches are not interchangeable: **translation** holds against everything
-  including the cam, while **rotation does not reject a cam at all** -- rotation
-  here is measured from the lobe, and a cam has none, so any rotation a cam
-  yields is ring roughness. `minimap_ring_fit.LOBE_MIN_FRAC` now floors that, or
-  a perfect circle would report a confident bearing from noise and the rotation
-  branch would pass the one object it most needs to reject. Absence of a lobe is
-  itself a positive discriminator.
-
-  **Measured effect of the floor, and its limit.** Adding `LOBE_MIN_FRAC`
-  dropped the median rotation of non-enemy tracks from **8.9 deg to 2.0 deg**
-  while leaving enemy tracks at 103.0 deg -- so the separation on the rotation
-  axis widened from 12x to 50x. **The scored operating points did not move at
-  all**, because blobs yielding 8.9 deg were already under the `rot >= 15` gate;
-  the floor cleans up sub-threshold noise and widens the margin rather than
-  changing today's numbers. Its p75 still reaches 121 deg, so lobeless blobs can
-  occasionally still produce a large spurious bearing.
-
-  **The cam case itself is still UNTESTED.** Nothing in the label set identifies
-  which `other_red` marks are Cypher cams, so the guard is principled and
-  unmeasured. Testing it needs cams labelled as such, or frames known to contain
-  one.
-* **The triangle is the most important part of the teardrop.** The ring is
-  1-2 px over most of its circumference and 7.3 px at the triangle, so the
-  triangle is both the most robust part of the icon and the part that carries
-  identity -- a cam has a ring and no triangle.
-* **The interior portrait is the same art as the killfeed portrait and the top
-  roster portrait** (not the Tab scoreboard). That is a route to *identification*
-  rather than detection, and it fits the mining convention already used for digit
-  glyphs: the templates would be taken from Grant's own footage on two surfaces
-  the pipeline already locates, rather than authored. It should be unusually
-  tractable because **the minimap's own palette is narrow** -- grey, yellow,
-  black and red -- so an agent portrait's colours are distinctive against it.
-  Nothing has been built or measured here.
+  widget. Perfect circle, never translates, rotation shown by the camera glyph
+  turning INSIDE the ring -- **no lobe**. This corrected "a placed ability never
+  turns", which was load-bearing in `motion()`. Consequence: **translation**
+  holds against everything including the cam; **rotation does not reject a cam
+  at all**, since rotation is read from the lobe and a cam has none.
+  `minimap_ring_fit.LOBE_MIN_FRAC` floors that so a perfect circle cannot report
+  a confident bearing from noise. **Still UNTESTED against a real cam** -- no
+  label says which `other_red` marks are cams.
+* **The triangle is the most important part of the teardrop** -- 7.3 px against
+  1-2 px for the rest of the ring, so it is both the most robust part and the
+  part carrying identity. A cam has a ring and no triangle.
+* **The interior portrait is the same art as the KILLFEED portrait and the top
+  roster portrait** (not the Tab scoreboard). Route to identification; see
+  "NEXT SESSION" above.
 * **Omen's ultimate turns the minimap a fuzzy black for a few seconds** and is
-  the only ability in the game that renders the widget unusable; Omen also
-  teleports globally, so position continuity breaks across it. Detected and
-  abstained on rather than tuned through -- see `minimap_temporal.USABLE_MIN`.
+  the ONLY ability in the game that does so; Omen also teleports globally, so
+  position continuity breaks across it. Detected and abstained on rather than
+  tuned through -- `minimap_temporal.USABLE_MIN = 70`, sitting in an empty gap
+  (floor brightness 121 median / 131 p95 normally, 0-30 affected, p01 39).
+  Round-transition fades trip it too. A frame that is unreadable must produce
+  NO answer, not a confident empty one.
 * **The local player's icon draws ON TOP of an enemy's** when they overlap.
-  Deprioritised on Grant's call: it only happens at extreme short range, where
-  the screen detector has a large unambiguous blob and does not need the minimap.
+  Deprioritised on Grant's call: only at extreme short range, where the screen
+  detector has a large unambiguous blob anyway.
 
-**SETTLED 2026-08-26, against 96 of Grant's hand labels on `a06f04a0059f`.
-Two results, and the first one bounds the whole idea.**
+**Profile: `valorant-16x9-bigmap`.** The enlarged widget spans px 15..480 x
+15..500 against the old 15..346 x 22..351, so the shipped `minimap` ROI missed
+most of it. Overrides that one ROI and nothing else; borrows
+`valorant-16x9`'s mined templates via `Profile.template_profile`. Its bounding
+box clips the ally roster (starts x=434), so the corner x 434..480, y 15..90
+holds roster HUD as well as minimap -- accepted, but anything reading this ROI
+as a change signal should know it also changes when a teammate dies.
 
-**1. The premise HOLDS. Grant labelled 96 frames with the screen visible beside
-the minimap and reports there was never a frame with an enemy present and no
-icon.** That is the strong ring-and-triangle form of the claim, checked by eye
-against the screen, and it is the best evidence the premise has ever had.
+**Capture side: 4:2:0 costs a fifth of the screen detector and most of the
+minimap.** Measured on a lossless round against its own subsampled twin, so only
+chroma resolution moves: 65.6% of rim pixels survive, top-hat at the rim falls
+43.8 -> 27.6 against a threshold of 25, detections fall 103 -> 80. On the
+minimap the enemy ring seals in lossless (hole_frac 0.69) and not at 4:2:0
+(0.00-0.09). Grant's call: stay on 4:2:0 and prove it there, which the ring fit
+now does. `prototypes/chroma_test.py`, and item 12 of the pre-ingest checklist.
 
-**A number I published as "58% -- not a proof gate" was wrong, and the error is
-worth keeping.** The pre-kill pool samples 300-1400 ms before the killfeed entry
-APPEARS, and the entry lags the kill -- so most of that window sits before the
-enemy ever came into view. Grant: *the enemy is often only in view 400 ms or
-less before the kill.* So the 42% of pre-kill frames with no icon are frames
-with no enemy yet, not counterexamples.
-
-    prekill  34/59 carry an enemy icon   57.6%
-    uniform   4/37                       10.8%
-
-Those numbers are real but they measure **"is an enemy icon on screen in this
-frame"**, which is a fact about the sampling window, not about the premise. The
-5x gap says the pool is doing its job; neither number tests the gate. I treated
-"a kill happened 1.4 s later" as "an enemy is present now" without checking it,
-and the whole conclusion followed from that one unverified denominator.
-
-**Consequence: the sampling window is too early and has been tightened** to
-0-600 ms before the entry, which straddles the kill given the lag rather than
-preceding it. Frames labelled under the old window are still valid -- the marks
-record what was actually there -- but the pool is biased toward the approach
-rather than the duel.
-
-**2. The seal test is dead at 4:2:0 and ring-fitting replaces it.** Scored
-against the same labels:
-
-    seal (hole test)                       0.0% recall
-    ring fit, cov>=0.60                   37.2% recall / 76.2% precision
-    ring fit, cov>=0.35                   79.1% recall / 61.8% precision
-
-From zero to 79%. The fix came straight from Grant's observation that the ring
-is a **teardrop, not an annulus** -- measured thickness by angle from the facing
-triangle: 7.3 px at the triangle, 4.1/1.9 at +/-30 deg, and **1.1-2.0 px over
-most of the rest**. Closure is topological, so it needs every pixel of that thin
-arc to survive and one break loses it entirely; half-resolution chroma is
-precisely what a 1-2 px colour feature does not survive. Fitting the circle that
-best covers the arc, then testing the disc it encloses, needs no closing kernel
-(the thing that merged adjacent icons in every earlier attempt) and degrades
-gracefully instead of failing outright.
-
-Both halves of the criterion are load-bearing and measured on one lossless frame:
-
-    enemy icon   cov 0.85  r 10  inner_red 0.00     ring around a portrait
-    red X mark   cov 0.33  r  6  inner_red 0.67     solid throughout
-
-Ranking on coverage alone picks solid red things, since a disc's circumference
-is fully red. And the radius must NOT float: with the search open to r=6 a small
-surviving fragment always fits something, and the fit collapsed to r=6 with a
-meaningless coverage on nearly every miss. The widget size is fixed, so the icon
-radius is nearly constant -- letting it float gave away the strongest prior
-available. Re-measure if the size slider moves.
-
-**Z-order: the local player's icon draws ON TOP of an enemy's.** Grant found it;
-at 13:00 only an 18 px, 7x4 sliver of the enemy ring survives underneath. This
-happens at exactly the range a duel happens, so it hits the pre-kill pool
-hardest, and no colour or shape work reaches it -- the pixels are not rendered.
-The player's own icon is findable, so this is at least a *detectable* condition
-rather than a silent miss.
-
-COV_MIN 0.35 is fitted to 96 labels on ONE session and is provisional.
-
-**Superseded detail: the enlarged minimap fixes the seal, and 4:2:0 undoes it.**
-
-Rendering the minimap 800 ms before each of the 21 tracked kills gives a
-contact sheet where an enemy icon is visible **by eye in most of them** — so the
-premise holds in the strong form, not just the "there is red somewhere" form.
-The finder fired on **1 of 21**. The finder is what is broken, not the premise.
-
-Why, measured at four of those kills. Blobs of exactly icon size ARE found —
-126-238 px at 14x19 to 30x21 — and then die on the seal:
-
-    lossless, enlarged widget    hole_frac 0.69     seals cleanly
-    4:2:0,    enlarged widget    hole_frac 0.00-0.09
-
-Lowering the saturation cut to 85 and then 70 does not rescue it, with or
-without the floor mask. **The ring's ~2 px band does not survive half-resolution
-chroma**, so the portrait interior is never enclosed and the one feature that
-separates an enemy icon from a red X mark is gone. This is exactly the
-prediction made from the lossless round, now confirmed on a full match with a
-killfeed anchor rather than on a single round with no denominator.
-
-**The fallback if 4:2:0 has to stay: the triangle survives where the seal does
-not.** `lobe` fires at 1.46-3.78 on these same blobs even at 4:2:0. A finder
-built on red + icon size + lobe, with no seal requirement, is therefore possible
-— but it has not been tested against the confounder that matters, and an X mark
-has four arms, so its own angular profile is not flat. Measure it against
-labelled X marks before believing it.
-
-**INGESTED as `a06f04a0059f`** (profile `valorant-16x9-bigmap`, tags
-`map:ascent, outline:red, minimap:large, chroma:420`) — 11608 L1 rows, 58 spans.
-Grant's scoreboard K/D is **19/19**, now in `checks.KNOWN_KD`. Fully
-out-of-sample -- nothing has been tuned against it, and it is the first session
-recorded after the minimap change, so it also tests that the change cost the
-killfeed nothing.
-
-**It did not, but this is the widest gap in the set: 21/22 against 19/19,
-delta +2 kills / +3 deaths, 5 events across 43.** Not yet investigated. The
-Run It Back rule would explain deaths running HIGH against the board, which is
-the direction seen here, but no agent has been checked. `verify` also flags one
-score violation at 30:01 (`11 -> 1`), which is the known spurious-leading-1 OCR
-defect already recorded for `9acf02f98283`, not a new fault.
-
-Read rates are in line with the set: clock 47.7%, scores 48.8%, hp 85.1%,
-ammo 46.5%. Final 13-11 over 24 rounds.
-
-**The minimap line's next step is labels, and the tools are ready.**
-`prototypes/label_minimap.py` samples 70% in the 300-1400 ms before each
-killfeed kill (Grant's call, and correct: at a kill an enemy provably existed)
-and 30% uniform over active play as the control — a pre-kill-only set cannot be
-falsified, since a detector that always says yes would score 100%.
-`minimap_icon_eval.py` then answers two questions, and **the first needs no
-detector at all**: of the pre-kill frames, how many actually carry an enemy
-icon. That is the premise, in the form that matters, and it has never been
-tested — what was verified earlier is that no enemy frame had zero red PIXELS,
-which includes X marks, Reyna blinds, Cypher cams and pings. If the pre-kill
-rate is far below 100%, the proof gate is dead however good the finder gets.
-
-**The ring+triangle finder now works** (`minimap_icon_scan.py`). Grant's shape —
-a red-circled icon with a red triangle for facing — is measured as an angular
-profile: a bare ring has the same outer radius at every angle, a ring with a
-triangle has one sector reaching further, so the signal is the ratio of the
-largest sector radius to the typical one. Dimensionless, so it survives the
-widget being resized again. Verified on the one hand-checked frame:
-
-    enemy icon  area 119  hole 261  hole_frac 0.69  lobe 1.54  facing -169
-    red X mark  area  74  hole   0  hole_frac 0.00  lobe 0.00  facing none
-
--169 degrees is left, which is where the wedge is by eye. Two bugs got there
-first and both are geometric: thresholding at `1.35 x max hole radius` counted
-nothing, because an irregular hole already reaches the ring's inner edge; and
-measuring from the BLOB centroid reported the facing 180 degrees out, because
-the solid triangle drags the centroid into itself. The hole's centroid is the
-ring's centre and is what the geometry actually says.
-
-**2026-08-26, full game with the enlarged minimap (`2026-08-26 09-56-37.mp4`,
-38.7 min, Ascent, standard 4:2:0). Two findings, and the second is the bigger
-one.**
-
-**The minimap finder gets almost nothing on it.** Scanning 599 frames yields 7
-candidates; a contact sheet of all 7 shows **four are map geometry** (site boxes
-and warm floor panels reading as red), one is an ability icon, one an ally, and
-**one plausibly a real enemy icon**. The triangle-lobe feature returned 0.00 on
-every candidate including the real one, so it is not working -- the lobe radius
-is taken from the hole's *max* extent, which already reaches past the ring band,
-so nothing is ever counted as outside it.
-
-**The screen detector cannot anchor that number, and finding out why matters
-more.** The plan was to use the verified premise -- an enemy on screen implies an
-icon on the minimap -- to get a denominator without labels. It gave 0/44, which
-looked catastrophic and is meaningless, because the anchor is contaminated. A
-contact sheet of the 35 strongest detections (>= 500 px) on this capture shows
-they are dominated by:
-
-* **purple/violet foliage** -- Ascent's flowers, sitting squarely in the widened
-  magenta band;
-* **a magenta weapon skin**, firing repeatedly at a FIXED screen position
-  (x 1360-1840, y 320-480, 36 of 125 detections in that band). The weapon mask
-  is `y > 0.66h = 713`; the gun model reaches well above it, so the mask does
-  not cover the skin.
-
-Neither is in the recorded false-positive classes, and both are direct
-consequences of widening the hue band to 130 -- the same knob that bought 22
-points of recall. **The aggregate rate is unchanged at 0.42 detections/frame
-(Ascent measured 0.40), so nothing looks wrong until you look at what the strong
-detections ARE.** A summary statistic hid it completely; the contact sheet took
-one glance.
-
-Two consequences worth acting on: a **weapon skin is a per-session property like
-the outline colour**, and a magenta one defeats a magenta-widened detector; and
-the weapon mask's vertical bound is wrong for a raised gun model.
-
-**Not established either way: the premise itself.** Note that the recorded
-verification is that no enemy frame had *zero red on the minimap* -- red PIXELS,
-not an enemy ICON. "There is red somewhere" and "there is a ring-plus-triangle
-icon" are different claims, and only the first was ever measured. The second is
-what a bearing or a proof gate needs. My 24 missed minimaps mostly carry no red
-icon, but since the anchor was contaminated those frames probably carried no
-enemy either, so they are not evidence against it. **This needs a real anchor:
-ingest the capture and use killfeed kills**, where an enemy provably existed.
-
-**2026-08-26, enlarged minimap: the ring DOES seal, and 4:2:0 takes it away
-again.** `prototypes/minimap_icons.py`, run on the lossless round (which carries
-the enlarged widget). The blocking finding at the old size was "the ring does
-not seal, and the closing radius that would seal it merges adjacent icons".
-Measured side by side on one frame, with no closing applied at all:
-
-    enemy icon   27x21, area 119, SEALED, hole 261 px, hole_frac 0.69
-    red X mark   13x13, area  74, open,   hole   0 px, hole_frac 0.00
-
-That is a **complete** separation where the old size gave a soft 0.76-against-
-0.92 overlap, and it is the discrimination the whole minimap line was blocked
-on. Only 3 blobs in that frame; the flood is gone.
-
-**Two corrections were needed before it was visible, and both were mine.**
-
-* `SAT_MIN` 120 -> **100**. At 120 the ring does not seal *at all* (hole 0); at
-  100 the same icon encloses 261 px. The ring's outer half is anti-aliased
-  against the map and its saturation falls between the two, so a cut 20 points
-  too tight opens the ring and destroys the only feature that identifies it.
-  This is "never test an absolute level against this HUD" biting on the minimap.
-* The **floor mask had to be re-derived**: `sat < 20`, not `sat < 60`, and the
-  largest connected component only. At `sat < 60` it took **83%** of the ROI --
-  admitting the hazed background wholesale. Value cannot do this job here
-  because the background is BRIGHTER than the floor (map slab S=0 V=118;
-  scenery through the transparent part S 36-58, V 97-140), so the old
-  `val > 110` passes it. Skipping the floor mask entirely, which I did first,
-  reproduced the original failure exactly: median "icon" area 956 px, diameter
-  59 -- scenery, not icons.
-
-**What is NOT established: the rate.** Only 3 of 120 sampled frames yield an
-icon-shaped seal in lossless. That number is **uninterpretable** without knowing
-how many of those frames contain a minimap-visible enemy at all, and this
-capture has no labels and is a single remade round. Do not quote it as recall
-in either direction.
-
-**What IS interpretable, and it is the actionable part: 4:2:0 collapses it.**
-Same frames, subsampled:
-
-    sealed blobs        31.8% -> 15.4%
-    icon-shaped seals    3/120 -> 0/120
-
-So the enlarged widget and the lossless codec are two changes at once, and the
-chroma half of it is doing real work. **A full-length capture at standard 4:2:0
-settings will be materially worse for the minimap line than this round
-suggests.** Same mechanism as the screen rim (see the chroma section above): the
-ring is ~2 px of colour, and half-resolution chroma averages it into the map.
-
-Next step is the rate, and it needs an anchor rather than more tuning: an enemy
-icon must disappear when that enemy dies, and per-team alive counts come from
-the killfeed, so an ingested session gives ground truth without hand labels.
-The profile's `minimap` ROI is still the OLD size and must be re-measured with
-`probe` before any enlarged capture is ingested.
-
-**The minimap line is parked, and Grant is unblocking it on the capture side.**
-He is recording a session tomorrow (2026-08-26) with a LARGER MINIMAP. That is
-the right fix: five algorithmic approaches all failed on the same thing -- the
-icon ring does not seal, and the closing radius that would seal it merges
-adjacent icons -- and the ceiling was 77-79% of enemy frames where a proof gate
-needs ~100%. Resolution is the binding constraint, not cleverness.
-
-**What is already established there, so it does not need redoing:** the premise
-survived adversarial review. An enemy on screen ALWAYS has an icon on the
-minimap; all ten apparent counterexamples confirmed it (a dead enemy, a
-question-mark icon for a revealed-but-not-visible enemy, and detection failures
-with the icon plainly present). Hollowness is a real discriminator (red fraction
-0.76 for enemy-frame blobs against 0.92 for empty) -- an icon rings a bright
-portrait, an X mark is solid red. Icons are area 50-200; the slabs swamping empty
-frames are 700-1150 and separable on size alone. When the bigger capture lands,
-re-run those three against it before building anything new.
-
-**Measured 2026-08-26: 4:2:0 chroma subsampling costs a fifth of the detector.**
-Grant recorded one lossless round (`2026-08-26 09-16-10.avi`, Ut Video RGB,
-5.7 GB for 60 s), which makes a controlled test possible for the first time:
-degrade those exact frames and compare each with its own subsampled twin, so
-scene, lighting and colour range are held fixed and only chroma resolution
-moves. `prototypes/chroma_test.py`, 240 sampled frames:
-
-    rim pixels surviving 4:2:0        65.6%
-    top-hat at the reference rim      43.8 -> 27.6   (-37%, threshold is 25)
-    SHIPPED detections                 103 ->   80   (-22%)
-
-The rim is 1-4 px and its whole signal is chroma -- that is what the Lab `a*`
-top-hat reads -- so storing chroma at half resolution averages it with the
-background it borders *before the file is written*. Mean rim response lands at
-27.6 against a threshold of 25: the surviving rim is one step from not being
-there, which is exactly what the two adjudicated Lotus misses with **zero
-top-hat response** look like. **This is a lower bound** -- it isolates
-subsampling and excludes quantisation, because no ffmpeg is on PATH to do a real
-encode.
-
-Suggestive but not conclusive, because the scenes differ: the conditional shape
-of rim strength in the H.264 library straddles the simulation, with Ascent
-*below* pure subsampling, consistent with quantisation adding to it.
-
-    lossless RGB          median 48   p75 65   share in 25-35  22.7%
-      same frames 4:2:0   median 39   p75 48                   34.6%
-    H.264 ascent          median 35   p75 45                   46.7%
-    H.264 lotus           median 42   p75 52                   27.5%
-
-**Do not read that ordering as explaining the map gap.** Ascent has the weaker
-rims and the *better* recall (91.3% against Lotus's 76.2%), so rim strength is
-not what separates the two sessions.
-
-Lossless is not the fix -- 5.7 GB/round is ~226 GB for a 40-minute match.
-**4:4:4 H.264/HEVC is**, and it keeps full chroma resolution at a fraction of
-that. See item 12 under "Before ingesting any new capture".
 
 **Also unresolved and worth an eye:** some corpses carry a red outline and some
 do not, and no explanation survived testing. The obvious one -- the outline fades
 with age -- is unsupported but the test is underpowered, because the killfeed
 timestamps deaths without locating them and so cannot age an individual body.
 
-Last worked 2026-08-25. **Fourteen sessions ingested, fourteen with scoreboard
-K/D in `checks.KNOWN_KD`, and every one carries its map.** Thirteen are
+Last worked 2026-08-26. **Fifteen sessions ingested, fifteen with scoreboard
+K/D in `checks.KNOWN_KD`, and every one carries its map.** Fourteen are
 scorable (`0f08b3dc3777` is the cropped capture and has no killfeed ROI). The
 store is at **`hud-0.8.1`** throughout. **Nine of thirteen are exact and the gap is 8 events across 372.** Five of the
 eight are Run It Back (see "Scoreboard divergence is a finding" below), one is
@@ -1183,3 +874,27 @@ scrubbing an overlay video, and it is the right tool whenever the question is
   edit, re-run the thing and confirm a **known number** comes back -- for the
   detector that is TP 43 / FN 3 / FP 80. That check is only meaningful because
   the number was measured before the edit, so measure first, then edit.
+- **Keep "Picking up" current, and keep it SHORT. Standing instruction from
+  Grant (2026-08-26): do this unprompted.** It is the first thing read next
+  session and it decays fastest, so a stale one actively misleads. Detail does
+  NOT belong there -- it belongs in the prototype docstring next to the code it
+  describes, and in the commit message, both of which are searchable and neither
+  of which goes stale silently. One session left it at 560 lines and it had to
+  be cut by two thirds.
+
+  **On the trigger, honestly: there is no context-usage readout available.**
+  Grant asked for "around 94% of the session limit"; that cannot be implemented
+  literally, because nothing exposes a percentage to work from. Guessing at one
+  would be worse than not having it. Use what IS observable instead:
+
+  * **rewrite it when a result changes what the next session should do first.**
+    This is the real trigger and it is not an end-of-session activity at all --
+    a finding that closes a line or opens one should update "Picking up" as part
+    of recording it, in the same commit;
+  * refresh it when several verified results have landed without one;
+  * refresh it when Grant signals winding down, or asks for a handoff.
+
+  The durable protection is the convention above it -- commit whenever a result
+  is verified -- because that survives a session ending abruptly, which no
+  end-of-session ritual can. Treat the handoff as a summary of commits already
+  made, never as the only place a finding is written down.
