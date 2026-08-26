@@ -356,6 +356,84 @@ def mine_lineup(cap, n_probe=240):
 
 
 # ---------------------------------------------------------------------------
+# Composition matching: identify an icon from art on ANOTHER surface.
+#
+# Grant asked whether there is a technique for fuzzy matching across downscaled
+# or partial copies, after pixel-wise correlation failed to carry identity from
+# the scoreboard to the minimap at any crop. There is, and it is the one thing
+# tried here that does not need the two framings to agree at all: throw the
+# spatial layout away and compare COLOUR COMPOSITION. "How much blue, how much
+# yellow, how much skin" survives a reframe, a rescale and a partial crop,
+# because it never depended on where anything sat.
+#
+# Measured on a06f04a0059f, scoreboard art against Grant's 79 labelled icons,
+# five agents, chance 20%:
+#
+#     whole portrait, NO parameters at all           77.2%
+#     central disc, held out by agent                83.5%   (icon-weighted)
+#     central disc, fitted on all five               92.4%   (in-sample)
+#     in-domain control: icon histograms             91.1%   (leave-one-out)
+#
+# against 88.6% for the hand-labelled in-domain NCC gallery. So composition
+# matching gets within five points of a fully labelled gallery **using no
+# minimap labels whatsoever**, which is the whole point: it transfers.
+#
+# The held-out-agent fit is also STABLE -- three of five folds choose the same
+# (cx 0.42, frac 0.28), where the pixel-wise fit chose a different crop every
+# fold and scored below chance. A parametrisation that agrees with itself
+# across folds is the signal that it found something real.
+#
+# Why it works where correlation did not: at 11 px there is very little layout
+# to match, and what identity there is lives in the palette. The minimap's own
+# narrow palette -- grey, black, red -- is what makes an agent's colours stand
+# out, which was the original argument for portrait identification being
+# tractable at all.
+#
+# 10 hue bins x 3 saturation x 3 value. Coarse deliberately: the icon is ~90
+# unmasked cells, so a finer histogram is mostly empty bins and the intersection
+# becomes noise.
+HIST_H, HIST_S, HIST_V = 10, 3, 3
+# The disc taken out of the source portrait, in units of its height. Fitted by
+# held-out agent, not by hand -- and note that skipping the crop entirely still
+# scores 77.2%, so this is a refinement rather than a load-bearing constant.
+SRC_DISC_CX, SRC_DISC_FRAC = 0.42, 0.28
+
+
+def composition(bgr, mask=None):
+    """Colour histogram, L1-normalised. Layout-free by construction."""
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    h, sa, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    keep = np.ones(h.shape, bool) if mask is None else mask
+    if not keep.any():
+        return np.zeros(HIST_H * HIST_S * HIST_V, np.float32)
+    hi = (h[keep].astype(int) * HIST_H // 180).clip(0, HIST_H - 1)
+    si = (sa[keep].astype(int) * HIST_S // 256).clip(0, HIST_S - 1)
+    vi = (v[keep].astype(int) * HIST_V // 256).clip(0, HIST_V - 1)
+    out = np.bincount((hi * HIST_S + si) * HIST_V + vi,
+                      minlength=HIST_H * HIST_S * HIST_V).astype(np.float32)
+    return out / max(1.0, out.sum())
+
+
+def source_composition(art, cx=SRC_DISC_CX, frac=SRC_DISC_FRAC):
+    """Composition of a source portrait, over the disc that best transfers."""
+    h = art.shape[0]
+    r = int(h * frac)
+    cyp, cxp = h // 2, int(h * cx)
+    yy, xx = np.mgrid[0:art.shape[0], 0:art.shape[1]]
+    return composition(art, ((yy - cyp) ** 2 + (xx - cxp) ** 2) <= r * r)
+
+
+def classify_composition(hq, sources):
+    """Nearest source by histogram intersection. `sources` is {name: hist}."""
+    order = sorted(((float(np.minimum(hq, hs).sum()), n) for n, hs in sources.items()),
+                   reverse=True)
+    if not order:
+        return None, 0.0, 0.0
+    runner = order[1][0] if len(order) > 1 else 0.0
+    return order[0][1], order[0][0], order[0][0] - runner
+
+
+# ---------------------------------------------------------------------------
 # The Tab scoreboard: ten portraits, unmirrored, dead players included.
 #
 # Grant: the scoreboard and the minimap hold every agent in ONE orientation,

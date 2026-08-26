@@ -208,13 +208,45 @@ scale, and as-is beats mirrored (24.7% against 17.3%), so the orientation claim
 holds. What failed is my inference that the circle is cut from the scoreboard's
 surface.
 
-**Next, and the only source not yet tried: the KILLFEED portrait** -- the one
-Grant named first. It is small and square, far closer to the icon's scale than
-a 42 px bust, and `killfeed.py` already locates entry geometry. If it fails the
-same way then no surface in the capture carries the minimap's art, and a
-cross-session gallery must be seeded from the minimap itself: one labelled
-session per agent, reused forever. That is still much better than one per
-capture, and it is the fallback to take rather than a dead end.
+**The killfeed portrait fails the same way, and testing it exposed a flaw in
+how the scoreboard result was read.** Killfeed portraits are a much tighter
+face crop, so they looked promising; clustered and swept against each agent's
+icons, every cluster scores the SAME against a given agent (Skye 0.43-0.61
+across eight unrelated clusters, Iso 0.32-0.63), with the best beating the
+runner-up by 0.002-0.02. So the 0.63 that Skye and Iso reached from the
+scoreboard was never partial success -- it is a per-agent FLOOR, set by that
+agent's icons correlating with any face-shaped patch. **Resemblance numbers
+without a null control are uninterpretable, and mine did not have one.** The
+correct statistic is resemblance-to-own-agent minus resemblance-to-others, and
+by that measure the pixel-wise signal is zero on both surfaces.
+
+**SOLVED, by throwing the layout away: composition matching transfers.**
+Grant's question -- is there a technique for fuzzy matching across downscaled or
+partial copies -- has an answer, and it is the one method that never needed the
+framings to agree. Compare COLOUR COMPOSITION, not pixels. Scoreboard art
+against the 79 labelled icons, five agents, chance 20%:
+
+    whole portrait, NO parameters at all           77.2%
+    central disc, held out by agent                83.5%   icon-weighted
+    central disc, fitted on all five               92.4%   in-sample only
+    in-domain control: icon histograms             91.1%   leave-one-out
+
+against **88.6%** for the hand-labelled in-domain NCC gallery. Composition gets
+within five points of a fully labelled gallery **using no minimap labels at
+all**. The held-out fit is also stable -- three of five folds pick the same
+(cx 0.42, frac 0.28) where the pixel-wise fit picked a different crop every
+fold and scored below chance. `minimap_portrait.composition()`.
+
+Why it works where correlation did not: at 11 px there is barely any layout to
+match, and the identity that survives lives in the palette. Which is the
+original argument for this being tractable -- the minimap's own palette is
+narrow, so an agent's colours stand out against it.
+
+**Next:** wire composition into a per-session bootstrap (read the ten agent
+names off the scoreboard, cut the ten portraits, classify with no labels), then
+test it on Lotus and Split where the lineups are different. The natural end
+state is both: composition to bootstrap a session cold, then the in-domain NCC
+gallery it collects to sharpen it.
 
 Roster geometry, measured at 1920x1080: enemy slot k at
 x = 1175 + 65.75k, y 30..70, 40 px square, slot 0 nearest the scoreline.
