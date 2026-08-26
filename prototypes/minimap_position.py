@@ -142,10 +142,39 @@ a quarter of real frames is not a proof, it is another lossy filter competing
 with frag_top1 and persistence, which are cheaper and already measured. About a
 quarter of enemy frames yield no hollow red blob at all, and why is unresolved.
 
-So there are now two usable results rather than none: the crude count remains the
-only SOUND proof gate (100% of enemy frames kept, 16% of empty dropped), and
-hollowness is a genuine soft signal (0.76 vs 0.92) that could serve as a feature
-rather than a veto.
+**Counting holes instead of blobs also fails, and predictably.** Grant's read of
+the ten failures put icon OVERLAP first -- icons touching each other, and one
+merging with a smoke icon -- which blob-level hollowness cannot survive, since two
+touching rings stop looking like a ring. Each icon punches a portrait-shaped hole
+in the red mask, so two overlapping icons should be one blob with two holes, and
+counting holes would handle merging by construction. It returns 2.3% of enemy
+frames: the flood escapes, because the ring is not closed.
+
+That failure was already measured earlier in this codebase and not applied: on
+screen, hole-filling the enemy rim sealed 5 of 50 enemies for exactly this
+reason. The same evidence was in hand and the same fix was proposed anyway.
+
+**The premise survived adversarial review, which is the durable result.** All ten
+apparent counterexamples confirm it: one was the known-bad 29:54 label where the
+enemy was already dead (a miss-sheet bug -- it did not apply BAD_BY_SESSION), one
+was a question-mark icon for a revealed-but-not-visible enemy, and the rest are
+detection failures where the icon is plainly present. There is no case of "enemy
+on screen, no icon on minimap".
+
+The identified failure causes, from Grant's read: icons overlapping each other or
+another icon (3 of 9), a white vision cone drawn OVER an icon against white
+background (contrast -- and unreachable, since the cone composites on top of the
+icon so no threshold on the icon's own colour recovers it), and one case where
+the detector found a Killjoy turret instead of the enemy.
+
+Every attempt is blocked by the same thing: **the ring does not seal, and the
+closing radius that would seal it merges adjacent icons.** Ceiling across all
+approaches is 77-79% of enemy frames, where a proof gate needs ~100%.
+
+Net: the crude count remains the only SOUND proof gate (100% of enemy frames
+kept, 16% of empty dropped), and hollowness is a genuine soft signal (0.76 vs
+0.92) usable as a feature rather than a veto. Further tuning is not the way
+through; a larger minimap or the opacity setting in the pre-ingest checklist is.
 
 **This blocks bearing confirmation too, which was not obvious up front.** Bearing
 needs enemy POSITIONS, and positions come from the same icon detection that
