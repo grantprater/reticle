@@ -192,6 +192,30 @@ does not:
   every session**, and a new capture needs no labelling at all. That is worth
   more than the 18 points.
 
+**CLOSED: the minimap icon is not a crop of the scoreboard bust.**
+`prototypes/minimap_portrait_transform.py`. Held-out accuracy 24.7% against a
+20% chance rate, and the diagnostic that settles it is the per-agent best case
+-- a crop fitted to ONE agent's own icons, with no generalisation asked for:
+Omen 0.215, Jett 0.236, Killjoy 0.160 resemblance, against 0.513 / 0.624 /
+0.904 for two real icons of the same agent. Skye and Iso reach 0.63-0.65 and
+still fall short. The per-agent optimal crops also disagree with each other.
+Three agents at 0.16-0.24 in the best case is a different ASSET, not a
+mis-placed crop, and the three it fails on are the ones with strong silhouette
+furniture -- Omen's hood, Jett's hair, Killjoy's beanie.
+
+Grant's observation is not what failed: the icon IS a circle at a consistent
+scale, and as-is beats mirrored (24.7% against 17.3%), so the orientation claim
+holds. What failed is my inference that the circle is cut from the scoreboard's
+surface.
+
+**Next, and the only source not yet tried: the KILLFEED portrait** -- the one
+Grant named first. It is small and square, far closer to the icon's scale than
+a 42 px bust, and `killfeed.py` already locates entry geometry. If it fails the
+same way then no surface in the capture carries the minimap's art, and a
+cross-session gallery must be seeded from the minimap itself: one labelled
+session per agent, reused forever. That is still much better than one per
+capture, and it is the fallback to take rather than a dead end.
+
 Roster geometry, measured at 1920x1080: enemy slot k at
 x = 1175 + 65.75k, y 30..70, 40 px square, slot 0 nearest the scoreline.
 Survivors PACK toward the scoreline keeping team order, so slot index is not
