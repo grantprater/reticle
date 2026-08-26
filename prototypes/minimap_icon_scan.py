@@ -53,22 +53,45 @@ def icon_features(sub, cx, cy):
     area = int(sub.sum())
     if not n_hole:
         return {"hole": 0, "hole_frac": 0.0, "lobe": 0.0, "facing": None}
-    # The ring's radius is set by the portrait it encloses, so take it from the
-    # HOLE rather than from the blob -- the triangle inflates the blob's own
-    # extent in one direction and would bias any radius measured off it.
-    hy, hx = np.nonzero(hole)
-    r_hole = np.hypot(hx - cx, hy - cy).max()
+    # The triangle is found by ANGULAR PROFILE, not by a radius threshold.
+    #
+    # The first version thresholded on `1.35 * max distance from the centroid to
+    # a hole pixel`, and returned 0.00 on every candidate including a
+    # hand-verified enemy icon: an irregular hole's max extent already reaches
+    # the ring's inner edge, so 1.35x of it lands outside the ring entirely and
+    # nothing is ever counted. A ratio between two measured radii is the fix,
+    # because it needs no absolute scale at all.
+    #
+    # A bare ring has roughly the same outer radius at every angle. A ring with
+    # a triangle has one sector reaching much further. So the signal is the
+    # ratio of the largest sector radius to the typical one, which is
+    # dimensionless and survives the widget being resized again.
+    # Measure from the HOLE's centroid, not the blob's. The triangle is solid
+    # and drags the blob centroid toward itself, which pushes the far side of
+    # the ring further away and reports the facing 180 degrees out -- measured:
+    # an icon whose wedge is plainly on the left reported facing +11 degrees.
+    # The portrait sits concentric in the ring, so its centroid is the ring's.
+    hy_, hx_ = np.nonzero(hole)
+    cx, cy = float(hx_.mean()), float(hy_.mean())
     ys, xs = np.nonzero(sub)
+    ang = np.arctan2(ys - cy, xs - cx)
     d = np.hypot(xs - cx, ys - cy)
-    # 1.35x the portrait radius clears the ring band itself; anything past that
-    # is the triangle.
-    out = d > r_hole * 1.35
-    facing = None
-    if out.any():
-        facing = float(np.degrees(np.arctan2((ys[out] - cy).mean(),
-                                             (xs[out] - cx).mean())))
+    nb = 16
+    b = np.clip(((ang + np.pi) / (2 * np.pi) * nb).astype(int), 0, nb - 1)
+    r_out = np.full(nb, np.nan)
+    for k in range(nb):
+        m = b == k
+        if m.any():
+            r_out[k] = d[m].max()
+    if np.isnan(r_out).all():
+        return {"hole": n_hole, "hole_frac": n_hole / (area + n_hole),
+                "lobe": 0.0, "facing": None}
+    typ = float(np.nanmedian(r_out))
+    kmax = int(np.nanargmax(r_out))
+    lobe = float(np.nanmax(r_out) / typ) if typ > 0 else 0.0
+    facing = float(np.degrees((kmax + 0.5) / nb * 2 * np.pi - np.pi))
     return {"hole": n_hole, "hole_frac": n_hole / (area + n_hole),
-            "lobe": float(out.mean()), "facing": facing}
+            "lobe": lobe, "facing": facing}
 
 
 def candidates(crop, floor, sat_min=100, min_area=40):
