@@ -141,7 +141,7 @@ def main() -> int:
     print(f"\n{len(rows)} labelled frames: "
           f"{dict(Counter(batch_of(r) for r in rows))}")
 
-    for ired in (0.25, 0.35, 0.50):
+    for ired in (0.08, 0.15, 0.25, 0.35):
         print(f"\ninner_red <= {ired}")
         for cov in (0.15, 0.20, 0.25, 0.30, 0.35, 0.42, 0.50, 0.60):
             st = score(rows, cache, cov, ired)
