@@ -194,18 +194,17 @@ def _hue_axis(hu_vals):
     return np.where(hu_vals >= 90, hu_vals - 180, hu_vals)
 
 
-def propose(fr, cfg=PERMISSIVE, boxes=None):
-    """Candidate blobs with every measured feature attached.
+def rim_mask(fr, cfg=SHIPPED, boxes=None):
+    """The rim mask and the channels it was built from.
 
-    Returns a list of dicts. At `SHIPPED` plus `gate()` this reproduces the
-    shipped detector exactly; at `PERMISSIVE` it is the teacher's proposal set.
+    Split out of `propose()` so the mask itself can be measured -- the codec
+    test needs the rim before it becomes blobs, because chroma subsampling acts
+    on pixels and the blob stage would hide how much of the rim survived.
 
-    `boxes` lets a caller pass in `find_boxes(fr)` when it already has them --
-    the teacher runs the proposer once per frame, so this is only for callers
-    that want both the boxes and the blobs.
+    Returns `(keep, top, hu, sa, a)`.
     """
     h, w = fr.shape[:2]
-    ker, cker = _kernels(cfg)
+    ker, _cker = _kernels(cfg)
     lab = cv2.cvtColor(fr, cv2.COLOR_BGR2LAB)
     a = lab[:, :, 1].astype(np.int16)                  # red-green opponent axis
     top = cv2.morphologyEx(lab[:, :, 1], cv2.MORPH_TOPHAT, ker)
@@ -220,6 +219,22 @@ def propose(fr, cfg=PERMISSIVE, boxes=None):
             & hud_mask(h, w, cfg))
     for bx in (find_boxes(fr, cfg) if boxes is None else boxes):
         keep[bx[1]:bx[3], bx[0]:bx[2]] = False
+    return keep, top, hu, sa, a
+
+
+def propose(fr, cfg=PERMISSIVE, boxes=None):
+    """Candidate blobs with every measured feature attached.
+
+    Returns a list of dicts. At `SHIPPED` plus `gate()` this reproduces the
+    shipped detector exactly; at `PERMISSIVE` it is the teacher's proposal set.
+
+    `boxes` lets a caller pass in `find_boxes(fr)` when it already has them --
+    the teacher runs the proposer once per frame, so this is only for callers
+    that want both the boxes and the blobs.
+    """
+    h, w = fr.shape[:2]
+    _ker, cker = _kernels(cfg)
+    keep, top, hu, sa, a = rim_mask(fr, cfg, boxes)
     # Join the rim into ONE region before measuring it: it is broken by the
     # body, by limbs and by occlusion. A human is taller than wide, so the
     # kernel is. This is also what merges adjacent enemies in a cluster, which
