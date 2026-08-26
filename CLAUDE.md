@@ -98,6 +98,59 @@ Two more recall classes, both newly isolated and neither addressed:
   and the enemy is still lost, so shape, aspect or the closing is discarding a
   well-found enemy. Unexplained.
 
+**2026-08-26, enlarged minimap: the ring DOES seal, and 4:2:0 takes it away
+again.** `prototypes/minimap_icons.py`, run on the lossless round (which carries
+the enlarged widget). The blocking finding at the old size was "the ring does
+not seal, and the closing radius that would seal it merges adjacent icons".
+Measured side by side on one frame, with no closing applied at all:
+
+    enemy icon   27x21, area 119, SEALED, hole 261 px, hole_frac 0.69
+    red X mark   13x13, area  74, open,   hole   0 px, hole_frac 0.00
+
+That is a **complete** separation where the old size gave a soft 0.76-against-
+0.92 overlap, and it is the discrimination the whole minimap line was blocked
+on. Only 3 blobs in that frame; the flood is gone.
+
+**Two corrections were needed before it was visible, and both were mine.**
+
+* `SAT_MIN` 120 -> **100**. At 120 the ring does not seal *at all* (hole 0); at
+  100 the same icon encloses 261 px. The ring's outer half is anti-aliased
+  against the map and its saturation falls between the two, so a cut 20 points
+  too tight opens the ring and destroys the only feature that identifies it.
+  This is "never test an absolute level against this HUD" biting on the minimap.
+* The **floor mask had to be re-derived**: `sat < 20`, not `sat < 60`, and the
+  largest connected component only. At `sat < 60` it took **83%** of the ROI --
+  admitting the hazed background wholesale. Value cannot do this job here
+  because the background is BRIGHTER than the floor (map slab S=0 V=118;
+  scenery through the transparent part S 36-58, V 97-140), so the old
+  `val > 110` passes it. Skipping the floor mask entirely, which I did first,
+  reproduced the original failure exactly: median "icon" area 956 px, diameter
+  59 -- scenery, not icons.
+
+**What is NOT established: the rate.** Only 3 of 120 sampled frames yield an
+icon-shaped seal in lossless. That number is **uninterpretable** without knowing
+how many of those frames contain a minimap-visible enemy at all, and this
+capture has no labels and is a single remade round. Do not quote it as recall
+in either direction.
+
+**What IS interpretable, and it is the actionable part: 4:2:0 collapses it.**
+Same frames, subsampled:
+
+    sealed blobs        31.8% -> 15.4%
+    icon-shaped seals    3/120 -> 0/120
+
+So the enlarged widget and the lossless codec are two changes at once, and the
+chroma half of it is doing real work. **A full-length capture at standard 4:2:0
+settings will be materially worse for the minimap line than this round
+suggests.** Same mechanism as the screen rim (see the chroma section above): the
+ring is ~2 px of colour, and half-resolution chroma averages it into the map.
+
+Next step is the rate, and it needs an anchor rather than more tuning: an enemy
+icon must disappear when that enemy dies, and per-team alive counts come from
+the killfeed, so an ingested session gives ground truth without hand labels.
+The profile's `minimap` ROI is still the OLD size and must be re-measured with
+`probe` before any enlarged capture is ingested.
+
 **The minimap line is parked, and Grant is unblocking it on the capture side.**
 He is recording a session tomorrow (2026-08-26) with a LARGER MINIMAP. That is
 the right fix: five algorithmic approaches all failed on the same thing -- the
