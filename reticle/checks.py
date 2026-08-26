@@ -102,6 +102,11 @@ KNOWN_KD = {
     "e37fdeca944f": (16, 19),   # 13-17-45  Sunset, a map not seen before
     "043bafca271a": (11, 15),   # 13-59-44  Haven
     "3694746e4e54": (14, 17),   # 14-42-25  Ascent
+    # 2026-08-26. The first capture with the ENLARGED MINIMAP, ingested under
+    # `valorant-16x9-bigmap`. Fully out-of-sample: nothing has been tuned
+    # against it, and it is the first session recorded after the minimap size
+    # change, so it also tests that the change cost the killfeed nothing.
+    "a06f04a0059f": (19, 19),   # 09-56-37  Ascent
 }
 
 
