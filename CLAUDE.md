@@ -98,6 +98,42 @@ Two more recall classes, both newly isolated and neither addressed:
   and the enemy is still lost, so shape, aspect or the closing is discarding a
   well-found enemy. Unexplained.
 
+**INGESTED as `a06f04a0059f`** (profile `valorant-16x9-bigmap`, tags
+`map:ascent, outline:red, minimap:large, chroma:420`) — 11608 L1 rows, 58 spans.
+**It needs Grant's scoreboard K/D**, which is not yet in `checks.KNOWN_KD`;
+without it this session cannot be scored and it is the fifteenth capture in the
+set. A mid-match scoreboard visible in the probe frame reads `Me 15/10/3` at
+9-5, so the read is at least plausible.
+
+**The minimap line's next step is labels, and the tools are ready.**
+`prototypes/label_minimap.py` samples 70% in the 300-1400 ms before each
+killfeed kill (Grant's call, and correct: at a kill an enemy provably existed)
+and 30% uniform over active play as the control — a pre-kill-only set cannot be
+falsified, since a detector that always says yes would score 100%.
+`minimap_icon_eval.py` then answers two questions, and **the first needs no
+detector at all**: of the pre-kill frames, how many actually carry an enemy
+icon. That is the premise, in the form that matters, and it has never been
+tested — what was verified earlier is that no enemy frame had zero red PIXELS,
+which includes X marks, Reyna blinds, Cypher cams and pings. If the pre-kill
+rate is far below 100%, the proof gate is dead however good the finder gets.
+
+**The ring+triangle finder now works** (`minimap_icon_scan.py`). Grant's shape —
+a red-circled icon with a red triangle for facing — is measured as an angular
+profile: a bare ring has the same outer radius at every angle, a ring with a
+triangle has one sector reaching further, so the signal is the ratio of the
+largest sector radius to the typical one. Dimensionless, so it survives the
+widget being resized again. Verified on the one hand-checked frame:
+
+    enemy icon  area 119  hole 261  hole_frac 0.69  lobe 1.54  facing -169
+    red X mark  area  74  hole   0  hole_frac 0.00  lobe 0.00  facing none
+
+-169 degrees is left, which is where the wedge is by eye. Two bugs got there
+first and both are geometric: thresholding at `1.35 x max hole radius` counted
+nothing, because an irregular hole already reaches the ring's inner edge; and
+measuring from the BLOB centroid reported the facing 180 degrees out, because
+the solid triangle drags the centroid into itself. The hole's centroid is the
+ring's centre and is what the geometry actually says.
+
 **2026-08-26, full game with the enlarged minimap (`2026-08-26 09-56-37.mp4`,
 38.7 min, Ascent, standard 4:2:0). Two findings, and the second is the bigger
 one.**
