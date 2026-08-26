@@ -13,6 +13,53 @@ Section references in docstrings (`SS3`, `SS7`) mean §3, §7 of that doc.
 
 ## Picking up
 
+**2026-08-25, enemy detector.** Two label corpora now exist:
+`9acf02f98283` (Ascent, 149 frames / 46 enemies) and `bdfdcf009dba` (Lotus, 303
+frames / 65 enemies). Everything below is measured; the tree is clean and nothing
+is half-applied.
+
+    detect() single frame     ascent 91.3% recall / 41.2% precision
+    + track_filter()          ascent 91.3% / 48.8%
+    detect() single frame     lotus  76.2% / 42.5%   (cut points UNCHANGED)
+
+**Start here: lower `AREA` with persistence as the safety net.** It is the
+largest remaining recall class and it is one parameter. Grant adjudicated all 17
+Lotus misses by eye: six of them survive every colour gate with 6-76 pixels and
+then fail `AREA >= 120`. `track_filter()` at len>=3 costs NO recall and removes
+27% of false positives, which is exactly the safety net a lower floor needs. The
+pairing is measured separately and has never been tested together.
+
+Two more recall classes, both newly isolated and neither addressed:
+
+* **clustered enemies are not separated** -- three enemies standing together
+  yield fewer than three detections, because the vertical closing kernel that
+  merges one enemy's broken rim cannot tell those fragments from a neighbour's;
+* **6:26 on Lotus is bug-shaped** -- 332 and 779 pixels pass every colour gate
+  and the enemy is still lost, so shape, aspect or the closing is discarding a
+  well-found enemy. Unexplained.
+
+**The minimap line is parked, and Grant is unblocking it on the capture side.**
+He is recording a session tomorrow (2026-08-26) with a LARGER MINIMAP. That is
+the right fix: five algorithmic approaches all failed on the same thing -- the
+icon ring does not seal, and the closing radius that would seal it merges
+adjacent icons -- and the ceiling was 77-79% of enemy frames where a proof gate
+needs ~100%. Resolution is the binding constraint, not cleverness.
+
+**What is already established there, so it does not need redoing:** the premise
+survived adversarial review. An enemy on screen ALWAYS has an icon on the
+minimap; all ten apparent counterexamples confirmed it (a dead enemy, a
+question-mark icon for a revealed-but-not-visible enemy, and detection failures
+with the icon plainly present). Hollowness is a real discriminator (red fraction
+0.76 for enemy-frame blobs against 0.92 for empty) -- an icon rings a bright
+portrait, an X mark is solid red. Icons are area 50-200; the slabs swamping empty
+frames are 700-1150 and separable on size alone. When the bigger capture lands,
+re-run those three against it before building anything new.
+
+**Also unresolved and worth an eye:** some corpses carry a red outline and some
+do not, and no explanation survived testing. The obvious one -- the outline fades
+with age -- is unsupported but the test is underpowered, because the killfeed
+timestamps deaths without locating them and so cannot age an individual body.
+
 Last worked 2026-08-25. **Fourteen sessions ingested, fourteen with scoreboard
 K/D in `checks.KNOWN_KD`, and every one carries its map.** Thirteen are
 scorable (`0f08b3dc3777` is the cropped capture and has no killfeed ROI). The
@@ -636,7 +683,13 @@ scrubbing an overlay video, and it is the right tool whenever the question is
    so the wrong handedness breaks it in both directions at once and silently:
    the mask covers empty screen on one side, costing recall on enemies peeking
    there, while the weapon sits unmasked on the other, costing precision.
-10. **Check whether the minimap has an opacity setting.** Unresolved. The widget
+10. **Record the minimap size.** Grant is enlarging it from 2026-08-26. Icon
+    extraction is resolution-bound, not algorithm-bound: at the original size an
+    icon is a ~12 px ring around a portrait, the ring does not survive
+    thresholding intact, and every approach tried topped out at 77-79% of frames
+    that provably contain a visible enemy. A larger widget should move all of it.
+    Record the size per session -- geometry and icon thresholds both scale with it.
+11. **Check whether the minimap has an opacity setting.** Unresolved. The widget
    being semi-transparent over the void is the single largest difficulty in
    minimap extraction; if it can be made opaque most of that goes away for
    future recordings. Same class of fix as the shooting-error readout above.
