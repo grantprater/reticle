@@ -75,17 +75,34 @@ def motion(track, per_frame):
     """Total translation and total rotation along a track.
 
     Grant's point, and it is the discriminator persistence cannot supply:
-    **a player icon is the only thing that moves relative to the minimap.**
-    Map furniture, site boxes, X death marks, Cypher cams and Killjoy turrets
-    are all static once placed, so they persist exactly as well as a real icon
-    does and survive any track-length filter.
+    **a player icon is the only thing that TRANSLATES relative to the minimap.**
+    Map furniture, site boxes, X death marks and Killjoy turrets are static once
+    placed, so they persist exactly as well as a real icon does and survive any
+    track-length filter.
 
-    Rotation matters as much as translation and possibly more: a player holding
-    an angle does not translate, but they still turn, and the facing triangle
-    turns with them. A placed ability never turns.
+    **Correction, from Grant, to what this docstring previously claimed.** It
+    said "a placed ability never turns". That is false: a **Cypher cam rotates**,
+    and it is the only other moving icon on the widget. It is a perfect circle,
+    it never translates, and its rotation shows as the camera glyph turning
+    INSIDE the ring -- with no lobe.
 
-    Neither is guaranteed -- a genuinely motionless player exists -- so this is
-    evidence, not a veto.
+    So the two branches are not interchangeable and must not be read as equally
+    strong:
+
+    * **translation** holds against everything including the cam, because the
+      cam never moves;
+    * **rotation** does NOT reject a cam. This measures rotation from the lobe,
+      a cam has no lobe, so any rotation a cam yields here is ring roughness
+      rather than its real turning. `minimap_ring_fit.LOBE_MIN_FRAC` exists to
+      stop that noise being reported as a confident bearing, which would let the
+      rotation branch pass the very object it most needs to reject.
+
+    Rotation still earns its place for the case translation cannot reach -- a
+    player holding an angle turns without moving -- but it is the weaker half,
+    not "possibly more" as previously claimed.
+
+    Neither is guaranteed: a genuinely motionless player exists. Evidence, not
+    a veto.
     """
     pts, faces = [], []
     for i, j in sorted(track["idx"].items()):

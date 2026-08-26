@@ -98,6 +98,41 @@ Two more recall classes, both newly isolated and neither addressed:
   and the enemy is still lost, so shape, aspect or the closing is discarding a
   well-found enemy. Unexplained.
 
+**Grant's domain notes on the minimap, 2026-08-26. None of this is recoverable
+from the pixels and two of them correct claims this file previously made.**
+
+* **A Cypher cam ROTATES**, and it is the **only other moving icon** on the
+  widget. It is a perfect circle, it never translates, and its rotation shows as
+  the camera glyph turning INSIDE the ring -- **with no lobe**. This corrects
+  "a placed ability never turns", which was written into `motion()` and was
+  load-bearing for the motion filter. The consequence is that the filter's two
+  branches are not interchangeable: **translation** holds against everything
+  including the cam, while **rotation does not reject a cam at all** -- rotation
+  here is measured from the lobe, and a cam has none, so any rotation a cam
+  yields is ring roughness. `minimap_ring_fit.LOBE_MIN_FRAC` now floors that, or
+  a perfect circle would report a confident bearing from noise and the rotation
+  branch would pass the one object it most needs to reject. Absence of a lobe is
+  itself a positive discriminator.
+* **The triangle is the most important part of the teardrop.** The ring is
+  1-2 px over most of its circumference and 7.3 px at the triangle, so the
+  triangle is both the most robust part of the icon and the part that carries
+  identity -- a cam has a ring and no triangle.
+* **The interior portrait is the same art as the killfeed portrait and the top
+  roster portrait** (not the Tab scoreboard). That is a route to *identification*
+  rather than detection, and it fits the mining convention already used for digit
+  glyphs: the templates would be taken from Grant's own footage on two surfaces
+  the pipeline already locates, rather than authored. It should be unusually
+  tractable because **the minimap's own palette is narrow** -- grey, yellow,
+  black and red -- so an agent portrait's colours are distinctive against it.
+  Nothing has been built or measured here.
+* **Omen's ultimate turns the minimap a fuzzy black for a few seconds** and is
+  the only ability in the game that renders the widget unusable; Omen also
+  teleports globally, so position continuity breaks across it. Detected and
+  abstained on rather than tuned through -- see `minimap_temporal.USABLE_MIN`.
+* **The local player's icon draws ON TOP of an enemy's** when they overlap.
+  Deprioritised on Grant's call: it only happens at extreme short range, where
+  the screen detector has a large unambiguous blob and does not need the minimap.
+
 **SETTLED 2026-08-26, against 96 of Grant's hand labels on `a06f04a0059f`.
 Two results, and the first one bounds the whole idea.**
 

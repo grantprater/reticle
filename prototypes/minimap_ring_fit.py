@@ -120,17 +120,59 @@ def fit_ring(red, grey, cx, cy):
     inner_v = float(grey[ys[ok], xs[ok]].mean())
     return {"cov": cov, "cx": x0, "cy": y0, "r": r,
             "inner_red": inner_red, "inner_v": inner_v,
-            "facing": _facing(red, x0, y0, r)}
+            "facing": _facing(red, x0, y0, r),
+            "lobe": _lobe(red, x0, y0, r)}
+
+
+def _lobe(red, cx, cy, r):
+    """How far the largest lobe reaches past the ring, as a fraction of r.
+
+    Reported separately from `facing` because it answers a different question:
+    `facing` is WHERE the triangle points, `lobe` is WHETHER there is one. A
+    Cypher cam is a perfect circle, so a lobe near zero is evidence against a
+    player independent of any rotation measurement.
+    """
+    h, w = red.shape
+    best = 0.0
+    for th in _FACE_TH:
+        dx, dy = np.cos(th), np.sin(th)
+        for rr in np.arange(r + 1, r * 1.9, 0.7):
+            x, y = int(round(cx + dx * rr)), int(round(cy + dy * rr))
+            if not (0 <= x < w and 0 <= y < h):
+                break
+            if red[y, x]:
+                best = max(best, rr - r)
+    return float(best / r) if r else 0.0
+
+
+# Minimum lobe height, as a fraction of the fitted radius, for a facing to be
+# reported at all. Below this the "triangle" is ring roughness and the angle it
+# produces is noise -- which matters because a Cypher cam is a PERFECT CIRCLE and
+# would otherwise yield a confident, meaningless bearing.
+LOBE_MIN_FRAC = 0.22
 
 
 def _facing(red, cx, cy, r):
-    """Bearing of the facing triangle, or None if no lobe stands out.
+    """Bearing of the facing triangle, or None if no real lobe stands out.
 
-    Grant: a player icon is the only thing on the widget that MOVES relative to
-    the map, and rotation counts as movement -- someone holding an angle still
-    turns. So the facing is not a nicety, it is the signal that separates a
-    player from a Cypher cam or a turret, which are static once placed and never
-    turn.
+    Grant, correcting an earlier claim of mine that a placed ability never
+    turns: **a Cypher cam rotates.** It is a perfect circle that never
+    translates, and it is the only other moving icon on the widget -- its
+    rotation is shown by the camera glyph turning INSIDE the ring, with no lobe
+    at all.
+
+    Two consequences, pulling opposite ways:
+
+    * a cam's real rotation is INVISIBLE to this function, because this reads
+      the lobe and a cam has none. So rotation measured here cannot be trusted
+      to reject a cam -- any value it returns for one is ring roughness. The
+      discriminator that does hold against a cam is TRANSLATION;
+    * but the absence of a lobe is itself a positive discriminator: a player
+      icon has a triangle and a cam does not.
+
+    So `LOBE_MIN_FRAC` is load-bearing, not cosmetic. Without it a perfect
+    circle yields a confident bearing from noise, and the motion filter's
+    rotation branch would pass exactly the object it most needs to reject.
 
     Read by rays rather than from the blob's shape: the triangle is the only
     part of the icon outside the fitted circle, so "how far past r does red
@@ -147,7 +189,7 @@ def _facing(red, cx, cy, r):
                 break
             if red[y, x]:
                 reach[k] = rr - r
-    if reach.max() <= 0:
+    if reach.max() < LOBE_MIN_FRAC * r:
         return None
     # Weighted mean over the contiguous peak, so the answer is not quantised to
     # one of 32 bins -- rotation is the signal, and a bin width of 11 degrees
