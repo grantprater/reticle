@@ -44,15 +44,29 @@ icon through the filters:
     no blob at all                     5
     span > 40                          1
 
-**Differencing an annulus gives a broken annulus.** The raw signal is not the
+**Differencing a thin teardrop gives fragments.** The raw signal is not the
 problem -- peak difference at a mark has a median of 147 and 96% of marks carry
-ample over-threshold pixels -- but a ring 1-2 px thick over most of its
-circumference falls apart into fragments of median area 57 and p10 of SIX. Every
-repair makes it worse: closing at 3 px takes recall from 55.6% to 21.8%, because
-the radius that reconnects a broken ring is the radius that merges adjacent
-icons. That is the same trap recorded in `minimap_icons` and `minimap_position`,
-met for the third time, and it is why `minimap_ring_fit` FITS a circle instead
-of trying to repair one.
+ample over-threshold pixels -- but the icon's rim is 1-2 px thick over most of
+its circumference and falls apart into fragments of median area 57 and p10 of
+SIX. Every repair makes it worse: closing at 3 px takes recall from 55.6% to
+21.8%, because the radius that reconnects a broken rim is the radius that merges
+adjacent icons. Same trap as `minimap_icons` and `minimap_position`, met a third
+time, and it is why `minimap_ring_fit` FITS a circle rather than repairing one.
+
+(To be exact about what that means, since I described it loosely once and Grant
+caught it: the shipped detector fits a CIRCLE, scored by how much of its
+circumference is red, plus a non-red interior test. The teardrop is why we got
+there -- it is what killed the closure test -- and the thick triangle is read
+separately by rays as `facing` and `lobe`. No teardrop is ever fitted.)
+
+The teardrop suggests an obvious rescue and it does NOT work. The triangle is
+7.3 px thick against 1-2 px for the rest, so it ought to be what survives
+differencing, which would make a triangle-first detector the natural move. It is
+not what survives: the angle between the largest surviving fragment and the
+triangle's own measured bearing has a median of 77 degrees, with 30% inside 45
+degrees against 25% for a uniform random bearing. The icon fragments roughly
+evenly, and the fragments run 107 px median -- bigger than the triangle alone.
+Tested because it was Grant's own observation and it was worth one measurement.
 
 Two other guesses died on the way, both worth keeping because both were
 reasonable:
