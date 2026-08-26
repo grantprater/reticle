@@ -310,6 +310,72 @@ x = 1175 + 65.75k, y 30..70, 40 px square, slot 0 nearest the scoreline.
 Survivors PACK toward the scoreline keeping team order, so slot index is not
 identity -- the sequence is.
 
+**The cold bootstrap works on unseen sessions.** All three, no minimap labels
+anywhere, enemies named from scoreboard art by composition:
+
+    session          map      ids   alive-consistent   chance
+    a06f04a0059f     Ascent    15        86.7%          69%
+    5822b6646448     Lotus     14        85.7%          53%
+    c62c2b06bcfb     Split     22       100.0%          69%
+
+Two lineups never seen on two maps never seen at this widget size, and the
+distribution spreads across all five enemies on both rather than collapsing.
+What it does NOT show: n is 14-22 because the motion filter is strict, and at
+these chance rates the alive check separates "not collapsing" from "collapsing"
+and cannot separate 85% from 95%.
+
+### The minimap's own palette and geometry, measured 2026-08-26
+
+Grant named these off footage and had never noticed the elevated shade before,
+so none of it appears in any earlier measurement. What the pixels say:
+
+* **the map has real HOLES**, 33.9% of the footprint on Split and 33.3% on
+  Ascent -- unwalkable interior, bounded by the white/off-white borders that
+  Grant says dictate them. Consistent across maps, so `floor_mask` excluding
+  them is correct behaviour and not a defect;
+* **a dark low-saturation band is the VOID, not elevated ground.** Split's
+  static map is 73% low-saturation against Ascent's 29%, with 55% of it in
+  V 60-90 where Ascent sits at V115. I took that for elevated walkable area
+  being wrongly excluded and it is not: overlaying the mask shows the band is
+  the semi-transparent region OUTSIDE the map, and Split's void is simply
+  darker because of what renders behind it. `floor_mask` is right;
+* **the viewcone shows up as a per-frame brightness LIFT over the static map** --
+  p90 +51 on Split, +8 on Ascent, against a p50 of 0. That is worth flagging
+  well beyond ability work: a lighter-grey cone is *what your team can currently
+  see*, which is exactly the basis SS4 needs for peek exposure and which the
+  design doc's version was declared out of reach for. Not pursued yet.
+
+### Ability icons: what Grant sees, and what it implies
+
+Corrections he made to two guesses of mine, both worth keeping because both
+were plausible and both were wrong:
+
+* the `other_red` clusters I presented as candidate classes are **scenes, not
+  marks**. A 36 px tile holds a Cypher cam AND two overlapping X marks AND a
+  dropped spike AND ally portraits. The descriptor only reads a ~5 px disc so it
+  was not confused, but every class I read off that sheet was an artefact of the
+  tile size;
+* ability icons are **not** uniformly a black-and-white glyph inside a
+  team-coloured surround. Some are pure black and white with no team indication
+  at all; Skye's bird and dog were the only ones Grant saw with a green outline
+  (plus a small directional arrow). **A pure B/W glyph is invisible to the
+  current finder**, which masks on red -- those are not confounders being
+  misclassified, they are undetected.
+
+Named so far: the yellow triangle with a ringed glyph is the **dropped spike**.
+The rest of the pool is dominated by X death marks.
+
+**How team gets attributed, which is the design's load-bearing idea.** Grant:
+an ability's team is inferred from WHOSE ability it is -- most abilities belong
+to exactly one agent -- or from the teammate it originated with. He is not sure
+whether a small team indicator exists. That does not matter, because the
+scoreboard already gives the full ten-agent lineup: **ability -> agent is nearly
+1:1 and agent -> team is known**, so classifying the glyph attributes the team
+for free. It also collapses the search space from every ability in the game to
+the thirty-odd the two teams in THIS match can actually produce, and prunes by
+who is alive. That is the same scoreboard read the identification work already
+depends on, doing a second job.
+
 ### Grant's domain notes on the minimap -- not recoverable from the pixels
 
 * **A Cypher cam ROTATES**, and it is the **only other moving icon** on the
