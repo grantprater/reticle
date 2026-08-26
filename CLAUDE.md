@@ -701,3 +701,18 @@ scrubbing an overlay video, and it is the right tool whenever the question is
   self-revive both let a player die twice in a round.
 - Cost rule from §3: if the expensive layer ever sees more than ~1% of frames,
   stage 01 is wrong. Fix gating before buying compute.
+- **Commit whenever a result is verified. Standing authorisation -- no need to
+  ask.** The bar is "a measurement reproduces" or "a section is written", not
+  "the task is finished". A session that reached 93.5%/35.0% then carried 500
+  insertions of verified work in the working tree while running destructive
+  edits against it; a patch that split the file on a section marker discarded
+  every function in it, and the work survived only because it could be
+  reconstructed from earlier in the same conversation. Small commits also make
+  `git show HEAD:path` a real recovery tool -- it has already restored notes
+  deleted by a careless rewrite once.
+- **A parse check is not a verification.** `ast.parse` reported "parses clean"
+  on the gutted file above, because a module containing only a docstring is
+  valid Python. Syntax checks cannot see missing behaviour. After any structural
+  edit, re-run the thing and confirm a **known number** comes back -- for the
+  detector that is TP 43 / FN 3 / FP 80. That check is only meaningful because
+  the number was measured before the edit, so measure first, then edit.
