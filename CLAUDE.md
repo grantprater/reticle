@@ -329,10 +329,15 @@ and cannot separate 85% from 95%.
 Grant named these off footage and had never noticed the elevated shade before,
 so none of it appears in any earlier measurement. What the pixels say:
 
-* **the map has real HOLES**, 33.9% of the footprint on Split and 33.3% on
-  Ascent -- unwalkable interior, bounded by the white/off-white borders that
-  Grant says dictate them. Consistent across maps, so `floor_mask` excluding
-  them is correct behaviour and not a defect;
+* **the map has real HOLES** -- unwalkable interior bounded by the white
+  lines Grant says dictate them. **17.5% of the footprint on Split, 14.5% on
+  Ascent** (`prototypes/minimap_geometry.py`). An earlier figure of 33.9% and
+  33.3% here was WRONG: it took the floor's convex hull as the footprint, and a
+  floor plan is deeply concave, so the gaps between the map's arms counted as
+  interior holes. I read the two maps agreeing to within half a point as
+  confirmation when it was really two maps being equally convex-ish -- a
+  spurious agreement is not a check. The footprint is now what the floor
+  encloses, found by flooding the exterior inward;
 * **a dark low-saturation band is the VOID, not elevated ground.** Split's
   static map is 73% low-saturation against Ascent's 29%, with 55% of it in
   V 60-90 where Ascent sits at V115. I took that for elevated walkable area
