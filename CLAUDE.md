@@ -55,6 +55,43 @@ portrait, an X mark is solid red. Icons are area 50-200; the slabs swamping empt
 frames are 700-1150 and separable on size alone. When the bigger capture lands,
 re-run those three against it before building anything new.
 
+**Measured 2026-08-26: 4:2:0 chroma subsampling costs a fifth of the detector.**
+Grant recorded one lossless round (`2026-08-26 09-16-10.avi`, Ut Video RGB,
+5.7 GB for 60 s), which makes a controlled test possible for the first time:
+degrade those exact frames and compare each with its own subsampled twin, so
+scene, lighting and colour range are held fixed and only chroma resolution
+moves. `prototypes/chroma_test.py`, 240 sampled frames:
+
+    rim pixels surviving 4:2:0        65.6%
+    top-hat at the reference rim      43.8 -> 27.6   (-37%, threshold is 25)
+    SHIPPED detections                 103 ->   80   (-22%)
+
+The rim is 1-4 px and its whole signal is chroma -- that is what the Lab `a*`
+top-hat reads -- so storing chroma at half resolution averages it with the
+background it borders *before the file is written*. Mean rim response lands at
+27.6 against a threshold of 25: the surviving rim is one step from not being
+there, which is exactly what the two adjudicated Lotus misses with **zero
+top-hat response** look like. **This is a lower bound** -- it isolates
+subsampling and excludes quantisation, because no ffmpeg is on PATH to do a real
+encode.
+
+Suggestive but not conclusive, because the scenes differ: the conditional shape
+of rim strength in the H.264 library straddles the simulation, with Ascent
+*below* pure subsampling, consistent with quantisation adding to it.
+
+    lossless RGB          median 48   p75 65   share in 25-35  22.7%
+      same frames 4:2:0   median 39   p75 48                   34.6%
+    H.264 ascent          median 35   p75 45                   46.7%
+    H.264 lotus           median 42   p75 52                   27.5%
+
+**Do not read that ordering as explaining the map gap.** Ascent has the weaker
+rims and the *better* recall (91.3% against Lotus's 76.2%), so rim strength is
+not what separates the two sessions.
+
+Lossless is not the fix -- 5.7 GB/round is ~226 GB for a 40-minute match.
+**4:4:4 H.264/HEVC is**, and it keeps full chroma resolution at a fraction of
+that. See item 12 under "Before ingesting any new capture".
+
 **Also unresolved and worth an eye:** some corpses carry a red outline and some
 do not, and no explanation survived testing. The obvious one -- the outline fades
 with age -- is unsupported but the test is underpowered, because the killfeed
@@ -689,7 +726,22 @@ scrubbing an overlay video, and it is the right tool whenever the question is
     thresholding intact, and every approach tried topped out at 77-79% of frames
     that provably contain a visible enemy. A larger widget should move all of it.
     Record the size per session -- geometry and icon thresholds both scale with it.
-11. **Check whether the minimap has an opacity setting.** Unresolved. The widget
+12. **Record in 4:4:4 if the encoder allows it, and record which was used.**
+    Measured 2026-08-26 (see "4:2:0 chroma subsampling costs a fifth of the
+    detector" above): 4:2:0 alone destroys 34% of enemy-rim pixels and 22% of
+    detections, on identical frames. The enemy rim is 1-4 px of pure chroma, so
+    half-resolution chroma averages it away before the file exists — and no
+    algorithm recovers what was never written. This is the same class of
+    capture-side constraint as the minimap size, and the same lesson: the
+    binding limit is what reached the file.
+
+    Lossless is *not* the recommendation — 5.7 GB per round is ~226 GB for a
+    match. NVENC HEVC (and AV1 on newer cards) supports 4:4:4 at ordinary
+    bitrates; that is the setting worth changing. Keep the lossless round as a
+    reference capture, because a controlled A/B needs an undegraded source and
+    it is the only one that exists.
+
+13. **Check whether the minimap has an opacity setting.** Unresolved. The widget
    being semi-transparent over the void is the single largest difficulty in
    minimap extraction; if it can be made opaque most of that goes away for
    future recordings. Same class of fix as the shooting-error readout above.
