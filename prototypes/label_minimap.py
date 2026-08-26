@@ -105,6 +105,9 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=300)
     ap.add_argument("--zoom", type=float, default=1.9, help="minimap magnification")
     ap.add_argument("--prekill-frac", type=float, default=0.70)
+    ap.add_argument("--max-width", type=int, default=1850,
+                    help="total window width; the minimap keeps its zoom "
+                         "and the context frame takes what is left")
     ap.add_argument("--redo", action="store_true")
     args = ap.parse_args()
 
@@ -155,11 +158,17 @@ def main() -> int:
         mini = cv2.resize(frame[MY0:MY1, MX0:MX1], None, fx=args.zoom, fy=args.zoom,
                           interpolation=cv2.INTER_NEAREST)
         mh, mw = mini.shape[:2]
-        # The whole frame beside it, at whatever scale makes the heights match:
-        # the "is there an icon at all" call needs to see the screen.
-        fs = mh / frame.shape[0]
+        # The context frame gets whatever width is LEFT, not a height matched to
+        # the minimap. Matching heights made the window 2520 px wide -- off the
+        # side of a 1080p screen -- and the minimap is the panel whose
+        # magnification actually matters, so it keeps its zoom and the context
+        # shrinks. Top-aligned, padded to the minimap's height.
+        avail = max(240, args.max_width - mw)
+        fs = min(avail / frame.shape[1], mh / frame.shape[0])
         full = cv2.resize(frame, None, fx=fs, fy=fs, interpolation=cv2.INTER_AREA)
-        view = np.hstack([mini, full])
+        pane = np.zeros((mh, full.shape[1], 3), np.uint8)
+        pane[:full.shape[0]] = full
+        view = np.hstack([mini, pane])
         _ok, buf = cv2.imencode(".png", view)
         state["img"] = tk.PhotoImage(data=base64.b64encode(buf.tobytes()))
         canvas.config(width=view.shape[1], height=view.shape[0])
