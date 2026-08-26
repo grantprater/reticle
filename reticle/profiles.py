@@ -275,7 +275,44 @@ VALORANT_16_9_CROP75 = Profile(
 )
 
 
-PROFILES: dict[str, Profile] = {p.name: p for p in (VALORANT_16_9, VALORANT_16_9_CROP75)}
+# ---------------------------------------------------------------------------
+# Enlarged minimap.
+#
+# Grant raised Valorant's minimap size setting on 2026-08-26, because icon
+# extraction was resolution-bound rather than algorithm-bound: at the old size
+# the enemy icon was a ~12 px ring that never sealed, and every one of five
+# approaches topped out at 77-79% of frames that provably contain a visible
+# enemy. The ring now measures ~21-27 px across and does seal (measured: an
+# enemy icon encloses a 261 px portrait hole where the red X beside it encloses
+# none), which is what reopens the whole minimap line.
+#
+# ONLY the minimap ROI moves. Every other widget is anchored to the screen edges
+# or to centre and is unaffected by this setting, which is why this is a small
+# override rather than a second full profile.
+#
+# Measured off "2026-08-26 09-56-37.mp4" (Ascent, 1920x1080): the widget circle
+# is centred near (245, 257) with radius ~228, so it spans px 15..480 x 15..500
+# against the old 15..346 x 22..351.
+#
+# The bounding box of that circle CLIPS THE ALLY ROSTER, which starts at
+# x=434 (`hud_roster` at 0.226). The corner x 434..480, y 15..90 therefore holds
+# roster HUD as well as minimap. That is accepted deliberately: the ROI's job is
+# to say where the widget is, and cropping the widget to dodge the corner would
+# throw away real minimap for the icon work, which is the active line. Anything
+# reading this ROI for a *change* signal should know the corner also changes
+# when a teammate dies.
+VALORANT_16_9_BIGMAP = Profile(
+    name="valorant-16x9-bigmap",
+    aspect=VALORANT_16_9.aspect,
+    rois=[Roi("minimap", 0.008, 0.014, 0.250, 0.463) if r.name == "minimap" else r
+          for r in VALORANT_16_9.rois],
+    minimap=VALORANT_16_9.minimap,
+    overlay_zones=VALORANT_16_9.overlay_zones,
+)
+
+
+PROFILES: dict[str, Profile] = {p.name: p for p in (VALORANT_16_9, VALORANT_16_9_CROP75,
+                                                    VALORANT_16_9_BIGMAP)}
 DEFAULT_PROFILE = VALORANT_16_9.name
 
 
