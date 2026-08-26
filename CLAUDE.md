@@ -324,6 +324,54 @@ What it does NOT show: n is 14-22 because the motion filter is strict, and at
 these chance rates the alive check separates "not collapsing" from "collapsing"
 and cannot separate 85% from 95%.
 
+### Colour-free detection: measured, and blocked on labels
+
+`prototypes/minimap_dynamic.py`, `prototypes/label_dynamic.py`.
+
+**As a replacement for the red finder it loses decisively**: 55.6% / 29.6% at
+its best of eighteen configurations, against `minimap_ring_fit`'s shipped
+80.8% / 54.6%. Structural, not a threshold -- tracing every hand-marked enemy
+icon through the filters gives 32 fragmented below the area floor, 29 kept, 11
+merged above the ceiling, 5 with no blob at all. The raw signal is fine (peak
+difference at a mark has a median of 147); the icon's 1-2 px rim simply falls
+apart under differencing, into fragments of median area 57 and p10 SIX. Closing
+to repair it takes recall to 21.8%, because the radius that reconnects a rim is
+the radius that merges neighbours -- the same trap for the third time.
+
+Three reasonable guesses died here, all recorded in the module:
+
+* guarding box edges as well as borders leaves 25.2% of the widget searchable
+  and cuts recall to 38.9%; box edges run through the interior, so guarding them
+  deletes the floor icons stand on. **Borders only**;
+* the viewcone merging icons into itself is real but small -- 11 marks against
+  fragmentation's 32. Top-hatting the difference bought 2 points;
+* **the triangle does not survive where the rim dies.** It is 7.3 px against
+  1-2, so a triangle-first detector looked like the natural rescue and it is
+  Grant's own observation. The angle between the largest surviving fragment and
+  the triangle's measured bearing has a median of 77 degrees, 30% inside 45
+  against 25% for random. The icon fragments evenly.
+
+**So this is not the enemy detector and expecting it to be was the error.** The
+circle fit is better at finding red rings and keeps that job. What this channel
+uniquely does is see what has NO colour -- the pure black-and-white ability
+glyphs a red mask cannot reach at any threshold.
+
+**BLOCKED: that cannot be scored.** Nothing in the store says where an ability
+icon is. The channel reports 1300-3900 uncoloured blobs per sweep against
+200-300 red, and there is no telling glyphs from noise without labels.
+`label_dynamic.py` is the pass that unblocks it -- uniform over active play (an
+ability has no pre-kill anchor, and a pre-kill pool would over-represent X
+marks), asking only "what is the ringed thing" from six classes, with the blob's
+measured features stored beside the answer so a classifier can be fitted later
+without re-detecting. It does not ask WHICH ability: detection first, identity
+second, the order that let every earlier stage be measured on its own.
+
+Note on the primitive, since I described it loosely once: **the shipped detector
+fits a CIRCLE**, scored by how much of its circumference is red, plus a non-red
+interior test. The teardrop is why we got there -- it killed the closure test --
+and the thick triangle is read separately by rays as `facing` and `lobe`. No
+teardrop is ever fitted.
+
 ### The minimap's own palette and geometry, measured 2026-08-26
 
 Grant named these off footage and had never noticed the elevated shade before,

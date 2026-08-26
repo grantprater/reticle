@@ -1,0 +1,264 @@
+"""Say what each colour-free minimap detection actually IS.
+
+    .\\.venv\\Scripts\\python.exe prototypes\\label_dynamic.py <session> [--n 250]
+
+Controls
+--------
+    1   an ABILITY icon -- any deployed utility, named later, not now
+    2   an X DEATH MARK
+    3   the SPIKE (dropped or planted)
+    4   a PLAYER icon -- enemy, ally or self; the colour is already recorded
+    5   a QUESTION MARK -- an enemy last seen here
+    0   nothing: map furniture, a viewcone edge, an artefact
+    U   unsure, recorded and kept out of scoring
+    A   back one
+    Q / ESC  save and quit
+
+Why this exists
+---------------
+`minimap_dynamic.py` finds what differs from the static map, which is the only
+channel that can see the ability glyphs Grant reports are **pure black and
+white** -- a red mask is blind to those by construction, so no amount of work on
+`minimap_ring_fit` will ever reach them. The channel produces 1300-3900
+uncoloured blobs per sweep against 200-300 red ones, and **nothing in the store
+says which of those are real glyphs**. That is the blocker: the one thing the
+channel is for cannot be scored at all.
+
+It is deliberately NOT asking which ability. Detection first, identity second,
+which is the order the enemy work went in and the order that let each stage be
+measured on its own. "Is this an ability icon at all" needs no ability list and
+no memory of what Reyna's Leer looks like from above; naming them is a second
+pass over rows that already exist, exactly as `label_icon_agent.py` was a second
+pass over `label_minimap.py`.
+
+Two lessons from earlier labelling in this project are built in
+---------------------------------------------------------------
+* **the tile is not the object.** A 36 px crop of this widget routinely holds a
+  Cypher cam AND two overlapping X marks AND a dropped spike AND ally portraits
+  -- Grant, reading a contact sheet I had wrongly presented as one-object-per-
+  tile. So the candidate under question is ringed in every panel, and the answer
+  is about the ringed thing, not the tile;
+* **never seed the file.** Seeding `minimap_agent` with provisional rows made
+  the labeller skip every seeded icon as already done, and the number that came
+  back was still scoring my own clustering against itself. Nothing is
+  pre-filled here, and every row records who wrote it.
+
+The blob's measured features go into the row alongside the answer -- colour,
+area, box, difference magnitude -- so a classifier can be fitted later without
+re-running detection, and so the eventual question "which features separate an
+ability from an artefact" can be asked of the labels directly.
+
+Sampling is uniform over ACTIVE play, not pre-kill. The enemy work sampled
+pre-kill because that is where an enemy provably exists; abilities have no such
+anchor, and a pre-kill pool would over-represent X marks -- a kill just happened
+-- and under-represent everything placed mid-round.
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import random
+import sys
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pyarrow.parquet as pq
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
+from reticle.profiles import get_profile                          # noqa: E402
+import minimap_dynamic as md                                      # noqa: E402
+from minimap_temporal import usable                               # noqa: E402
+
+STORE = Path.home() / "reticle-store"
+
+KINDS = {"1": "ability", "2": "x_mark", "3": "spike",
+         "4": "player", "5": "question", "0": "nothing"}
+
+
+def active_times(sid, n, seed=17):
+    """Uniform over active play, from the stored spans."""
+    spans = pq.read_table(next((STORE / "l2" / "spans").rglob(f"session={sid}/spans.parquet")))
+    active = [(a, b) for a, b, s in zip(spans.column("t_start_ms").to_pylist(),
+                                        spans.column("t_end_ms").to_pylist(),
+                                        spans.column("state").to_pylist()) if s == "active"]
+    if not active:
+        raise SystemExit(f"no active spans for {sid} -- run `reticle segment` first")
+    total = sum(b - a for a, b in active)
+    rng = random.Random(seed)
+    out = []
+    for _ in range(n):
+        x = rng.uniform(0, total)
+        for a, b in active:
+            if x < b - a:
+                out.append(a + x)
+                break
+            x -= b - a
+    return sorted(out)
+
+
+def main() -> int:
+    import tkinter as tk
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("session")
+    ap.add_argument("--n", type=int, default=250, help="candidates to present")
+    ap.add_argument("--frames", type=int, default=120, help="frames to draw them from")
+    ap.add_argument("--zoom", type=int, default=10)
+    ap.add_argument("--diff", type=int, default=md.DIFF_MIN)
+    ap.add_argument("--colour", default=None,
+                    help="only present blobs of this colour, e.g. 'none' for the "
+                         "black-and-white glyphs that are the point of this")
+    args = ap.parse_args()
+
+    man = json.loads((STORE / "manifests" / f"{args.session}.json").read_text())
+    src = man["source"]
+    fps = float(src["fps"])
+    prof = get_profile(man["source_profile"])
+    W, H = int(src["width"]), int(src["height"])
+    MX0, MY0, MX1, MY1 = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
+    labels, static = md.load_geometry(args.session)
+    sgray = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.int16)
+    ok_area = md.searchable(labels)
+    floor = labels != md.VOID
+
+    out_path = STORE / "labels" / "minimap_dynamic" / f"{args.session}.jsonl"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    done = set()
+    if out_path.is_file():
+        for line in out_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                r = json.loads(line)
+                done.add((r["t_ms"], r["x"], r["y"]))
+
+    print("detecting candidates...")
+    cap = cv2.VideoCapture(src["path"])
+    cands = []
+    for t in active_times(args.session, args.frames):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t / 1000.0 * fps)))
+        ok, fr = cap.read()
+        if not ok:
+            continue
+        crop = fr[MY0:MY1, MX0:MX1]
+        if not usable(crop, floor):
+            continue
+        for d in md.detect(crop, sgray, ok_area, args.diff):
+            if args.colour and d["colour"] != args.colour:
+                continue
+            key = (round(t), int(d["xy"][0]), int(d["xy"][1]))
+            if key in done:
+                continue
+            cands.append({"t_ms": round(t), **d})
+    rng = random.Random(23)
+    rng.shuffle(cands)
+    cands = cands[:args.n]
+    if not cands:
+        print("no candidates to label")
+        return 0
+    from collections import Counter
+    print(f"{len(cands)} candidates, colours: "
+          f"{dict(Counter(c['colour'] for c in cands))}")
+
+    fh = out_path.open("a", encoding="utf-8")
+    state = {"i": 0, "img": None, "written": 0}
+
+    root = tk.Tk()
+    root.title("reticle - what is this?")
+    canvas = tk.Canvas(root, highlightthickness=0)
+    canvas.pack(fill="both", expand=True)
+    status = tk.Label(root, anchor="w", font=("Consolas", 11))
+    status.pack(fill="x")
+
+    def show():
+        c = cands[state["i"]]
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(c["t_ms"] / 1000.0 * fps)))
+        ok, frame = cap.read()
+        if not ok:
+            step(+1, None)
+            return
+        crop = frame[MY0:MY1, MX0:MX1]
+        cx, cy = int(c["xy"][0]), int(c["xy"][1])
+        p = 20
+        y0, x0 = max(0, cy - p), max(0, cx - p)
+        tile = crop[y0:cy + p, x0:cx + p]
+        big = cv2.resize(tile, None, fx=args.zoom, fy=args.zoom,
+                         interpolation=cv2.INTER_NEAREST)
+        bh, bw = big.shape[:2]
+        mini = cv2.resize(crop, None, fx=bh / crop.shape[0], fy=bh / crop.shape[0],
+                          interpolation=cv2.INTER_NEAREST)
+        fs = bh / frame.shape[0]
+        full = cv2.resize(frame, None, fx=fs, fy=fs, interpolation=cv2.INTER_AREA)
+        view = np.hstack([big, mini, full[:bh]])
+        _ok, buf = cv2.imencode(".png", view)
+        state["img"] = tk.PhotoImage(data=base64.b64encode(buf.tobytes()))
+        canvas.config(width=view.shape[1], height=view.shape[0])
+        canvas.delete("all")
+        canvas.create_image(0, 0, anchor="nw", image=state["img"])
+        # Ring the candidate in BOTH panels. The tile is not the object -- it
+        # routinely holds three or four -- so the question has to point.
+        tx = (cx - x0) * args.zoom
+        ty = (cy - y0) * args.zoom
+        canvas.create_oval(tx - 34, ty - 34, tx + 34, ty + 34, outline="#40ff40", width=3)
+        sc = bh / crop.shape[0]
+        canvas.create_oval(bw + cx * sc - 14, cy * sc - 14,
+                           bw + cx * sc + 14, cy * sc + 14, outline="#40ff40", width=2)
+        canvas.create_text(8, 8, anchor="nw", fill="#40ff40",
+                           font=("Consolas", 13, "bold"), text="what is the RINGED thing?")
+        s = c["t_ms"] // 1000
+        canvas.create_text(bw + 8, 8, anchor="nw", fill="#a0a0a0",
+                           font=("Consolas", 11), text=f"{s//60}:{s%60:02d}")
+        status.config(
+            text=f"  {state['i']+1}/{len(cands)}   colour={c['colour']} "
+                 f"area={c['area']}   "
+                 f"1=ability 2=X-mark 3=spike 4=player 5=question 0=nothing "
+                 f"U=unsure A=back Q=quit")
+
+    def step(delta, kind):
+        if kind is not None:
+            c = cands[state["i"]]
+            fh.write(json.dumps({
+                "session_id": args.session,
+                "t_ms": c["t_ms"],
+                # Minimap-crop pixels at original resolution, matching
+                # label_minimap's convention.
+                "x": int(c["xy"][0]), "y": int(c["xy"][1]),
+                "roi": [MX0, MY0, MX1, MY1],
+                # The measured features, stored with the answer so a classifier
+                # can be fitted later without re-running detection.
+                "colour": c["colour"], "colour_frac": round(c["colour_frac"], 3),
+                "area": c["area"], "box": list(c["box"]), "diff_min": args.diff,
+                "kind": None if kind == "__unsure__" else kind,
+                "uncertain": kind == "__unsure__",
+                "by": "grant",
+            }) + chr(10))
+            fh.flush()
+            state["written"] += 1
+        state["i"] += delta
+        if not (0 <= state["i"] < len(cands)):
+            finish()
+            return
+        show()
+
+    def finish():
+        fh.close()
+        cap.release()
+        print(f"wrote {state['written']} labels to {out_path}")
+        root.destroy()
+
+    for key, name in KINDS.items():
+        root.bind(key, lambda e, n=name: step(+1, n))
+    root.bind("u", lambda e: step(+1, "__unsure__"))
+    root.bind("a", lambda e: step(-1, None))
+    root.bind("q", lambda e: finish())
+    root.bind("<Escape>", lambda e: finish())
+    root.protocol("WM_DELETE_WINDOW", finish)
+
+    show()
+    root.mainloop()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
