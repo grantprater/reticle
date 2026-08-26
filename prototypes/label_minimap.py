@@ -64,6 +64,15 @@ when the numbers are quoted:
   some frames will be just after, where the enemy is dead and the icon is gone.
   Those are `N` and are correct as `N`.
 
+**Post-kill frames are a feature of this window, not a fault.** The kill entry
+is read at 2 Hz, so its timestamp is quantised to 500 ms and the duel cannot be
+targeted more precisely than that -- some samples land just after the death,
+where the enemy icon has correctly become an X mark and the corpse is still
+falling on screen. Label those `N` plus a ctrl+click on the X. They are the most
+valuable negatives in the set: an X is the same red as an icon (hue 177 either
+way), so "does the finder fire on X marks" is the whole precision question, and
+a pool containing only enemy-present frames could not test it.
+
 A wider window is NOT better here, and the first version got it wrong. At
 300-1400 ms most frames landed before the enemy had come into view at all --
 Grant, after labelling: the enemy is often only in view 400 ms or less before
