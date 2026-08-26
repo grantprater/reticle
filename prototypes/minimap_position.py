@@ -90,6 +90,46 @@ slab -- the fix this file already carried, and which should have been reused
 immediately -- separates the medians to 3.0 against 2.0 and lifts the gate from
 11.3% to 16.0% of empty frames dropped at no cost to enemy frames.
 
+**Icon discrimination was attempted and does not work at this resolution.**
+Five measurements, each refuting a hypothesis that felt obvious:
+
+    X marks are the confounder        no -- the distributions are identical with
+                                      and without a visible enemy
+    the red bars are static furniture no -- 0.0% of the per-pixel median is red
+                                      on the floor, so they are transient
+    a tighter floor mask helps        no -- both floors leave every enemy frame
+                                      with blobs; the floor was never the problem
+    an icon is a disc                 NO. It is a RING around an agent portrait,
+                                      and the portrait is not red, so the mask
+                                      captures a thin annulus that shatters --
+                                      median blob 7 px, 58% under 10 px. A
+                                      fill >= 0.45 gate inverted the signal.
+                                      This is the same "the outline is a rim, not
+                                      a fill" mistake the screen detector made.
+    closing the ring rescues it       no -- best case (ellipse 9, area >= 40)
+                                      keeps 79.5% of enemy frames and drops 45.3%
+                                      of empty ones
+
+That last line is the disqualifying one. The gate's value was being a PROOF: if
+no teammate can see an enemy, a screen detection is provably false. A gate that
+discards a fifth of the frames that do contain an enemy is not a proof, it is
+another lossy filter, and frag_top1 and persistence are cheaper and already
+measured. The only sound version remains the crude count -- 100% of enemy frames
+kept, 16% of empty frames dropped -- which is small but valid.
+
+**This blocks bearing confirmation too, which was not obvious up front.** Bearing
+needs enemy POSITIONS, and positions come from the same icon detection that
+fails. Falling back to unclassified red blobs does not rescue it: at ~4 blobs per
+frame and a +/-8 degree tolerance at close range, the permitted bearings span
+roughly 64 degrees of a 103 degree FOV. The gate would permit most of the screen
+while appearing to do something, which is worse than not having it.
+
+So the premise is verified and correct and currently unexploitable: a 12 px ring
+composited over moving scenery does not survive thresholding well enough to count
+or locate enemies. What would change this is capture-side, not algorithmic -- a
+larger minimap, or the opacity setting in the pre-ingest checklist. Worth
+revisiting if either becomes available, and not worth more tuning until then.
+
 **16% is the ceiling for counting; icon discrimination is the requirement.**
 Red on the floor is not the same as an enemy being visible: X marks from past
 deaths and question marks from stale reveals persist long after the enemy is
