@@ -256,7 +256,7 @@ import numpy as np
 
 import cv2
 
-from .profiles import Profile, Roi
+from .profiles import Profile, Roi, template_key
 
 # Entry geometry in ROI pixels at 1080p. Measured off the row profile across a
 # full session: band heights pile up hard at 34, at a PITCH of 40, with the
@@ -645,7 +645,7 @@ def me_template(profile_name: str) -> np.ndarray | None:
     are (see ocr.py): what matters is how this build renders at this resolution.
     """
     if profile_name not in _ME_CACHE:
-        path = Path(__file__).with_name("templates") / f"{profile_name}-killfeed.npz"
+        path = Path(__file__).with_name("templates") / f"{template_key(profile_name)}-killfeed.npz"
         if not path.is_file():
             _ME_CACHE[profile_name] = None
         else:

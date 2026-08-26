@@ -175,10 +175,27 @@ class Profile:
     # this is the envelope, and what is actually switched on is measured per
     # capture.
     overlay_zones: list[OverlayZone] = field(default_factory=list)
+    # Which profile's mined templates to use. Templates are keyed by profile
+    # name and mined from footage, so a profile that differs only in where a
+    # widget SITS -- not in how the game renders glyphs -- would otherwise have
+    # to re-mine an identical set. `valorant-16x9-bigmap` moves the minimap ROI
+    # and nothing else, so it borrows.
+    #
+    # This must NOT be used to share templates across a change that alters
+    # rendering: resolution, HUD scale, or a game restyle all change the
+    # bitmaps, and the whole point of mining them is that they match this build
+    # at this size.
+    template_profile: str | None = None
 
     @property
     def roi_names(self) -> list[str]:
         return [r.name for r in self.rois]
+
+
+def template_key(profile_name: str) -> str:
+    """The profile whose mined templates `profile_name` should load."""
+    p = PROFILES.get(profile_name)
+    return (p.template_profile or profile_name) if p else profile_name
 
 
 VALORANT_16_9 = Profile(
@@ -308,6 +325,10 @@ VALORANT_16_9_BIGMAP = Profile(
           for r in VALORANT_16_9.rois],
     minimap=VALORANT_16_9.minimap,
     overlay_zones=VALORANT_16_9.overlay_zones,
+    # Same game, same resolution, same HUD scale -- only the minimap moved, so
+    # the glyph and "Me" bitmaps are identical and re-mining them would produce
+    # the same file under a different name.
+    template_profile=VALORANT_16_9.name,
 )
 
 

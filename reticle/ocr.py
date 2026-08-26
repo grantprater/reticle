@@ -31,7 +31,7 @@ import numpy as np
 
 import cv2
 
-from .profiles import Profile, Roi
+from .profiles import Profile, Roi, template_key
 
 # Normalised glyph grid. Every blob is scaled into this box before matching, so
 # the score digits (h~20px at 1080p) and the larger clock digits (h~26px) share
@@ -200,7 +200,7 @@ class Templates:
 
     @classmethod
     def path_for(cls, profile_name: str) -> Path:
-        return TEMPLATE_DIR / f"{profile_name}-digits.npz"
+        return TEMPLATE_DIR / f"{template_key(profile_name)}-digits.npz"
 
     @classmethod
     def load(cls, profile_name: str) -> "Templates":
