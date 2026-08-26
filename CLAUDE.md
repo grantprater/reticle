@@ -98,6 +98,52 @@ Two more recall classes, both newly isolated and neither addressed:
   and the enemy is still lost, so shape, aspect or the closing is discarding a
   well-found enemy. Unexplained.
 
+**2026-08-26, full game with the enlarged minimap (`2026-08-26 09-56-37.mp4`,
+38.7 min, Ascent, standard 4:2:0). Two findings, and the second is the bigger
+one.**
+
+**The minimap finder gets almost nothing on it.** Scanning 599 frames yields 7
+candidates; a contact sheet of all 7 shows **four are map geometry** (site boxes
+and warm floor panels reading as red), one is an ability icon, one an ally, and
+**one plausibly a real enemy icon**. The triangle-lobe feature returned 0.00 on
+every candidate including the real one, so it is not working -- the lobe radius
+is taken from the hole's *max* extent, which already reaches past the ring band,
+so nothing is ever counted as outside it.
+
+**The screen detector cannot anchor that number, and finding out why matters
+more.** The plan was to use the verified premise -- an enemy on screen implies an
+icon on the minimap -- to get a denominator without labels. It gave 0/44, which
+looked catastrophic and is meaningless, because the anchor is contaminated. A
+contact sheet of the 35 strongest detections (>= 500 px) on this capture shows
+they are dominated by:
+
+* **purple/violet foliage** -- Ascent's flowers, sitting squarely in the widened
+  magenta band;
+* **a magenta weapon skin**, firing repeatedly at a FIXED screen position
+  (x 1360-1840, y 320-480, 36 of 125 detections in that band). The weapon mask
+  is `y > 0.66h = 713`; the gun model reaches well above it, so the mask does
+  not cover the skin.
+
+Neither is in the recorded false-positive classes, and both are direct
+consequences of widening the hue band to 130 -- the same knob that bought 22
+points of recall. **The aggregate rate is unchanged at 0.42 detections/frame
+(Ascent measured 0.40), so nothing looks wrong until you look at what the strong
+detections ARE.** A summary statistic hid it completely; the contact sheet took
+one glance.
+
+Two consequences worth acting on: a **weapon skin is a per-session property like
+the outline colour**, and a magenta one defeats a magenta-widened detector; and
+the weapon mask's vertical bound is wrong for a raised gun model.
+
+**Not established either way: the premise itself.** Note that the recorded
+verification is that no enemy frame had *zero red on the minimap* -- red PIXELS,
+not an enemy ICON. "There is red somewhere" and "there is a ring-plus-triangle
+icon" are different claims, and only the first was ever measured. The second is
+what a bearing or a proof gate needs. My 24 missed minimaps mostly carry no red
+icon, but since the anchor was contaminated those frames probably carried no
+enemy either, so they are not evidence against it. **This needs a real anchor:
+ingest the capture and use killfeed kills**, where an enemy provably existed.
+
 **2026-08-26, enlarged minimap: the ring DOES seal, and 4:2:0 takes it away
 again.** `prototypes/minimap_icons.py`, run on the lossless round (which carries
 the enlarged widget). The blocking finding at the old size was "the ring does
