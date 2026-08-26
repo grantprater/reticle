@@ -87,10 +87,12 @@ def main() -> int:
         with_icon = sum(1 for r in ps
                         if any(m["kind"] == "enemy" for m in r["marks"]))
         n_icons = sum(sum(1 for m in r["marks"] if m["kind"] == "enemy") for r in ps)
-        n_other = sum(sum(1 for m in r["marks"] if m["kind"] != "enemy") for r in ps)
+        n_q = sum(sum(1 for m in r["marks"] if m["kind"] == "question") for r in ps)
+        n_other = sum(sum(1 for m in r["marks"]
+                          if m["kind"] not in ("enemy", "question")) for r in ps)
         print(f"  {pool:8s} {with_icon:4d}/{len(ps):4d} frames carry an enemy icon "
               f"({with_icon/len(ps)*100:5.1f}%)   "
-              f"{n_icons} icons, {n_other} other-red marks")
+              f"{n_icons} icons, {n_q} question marks, {n_other} other-red")
     print("\n  prekill is a CEILING: a kill means a close, clearly visible enemy.")
     print("  The window straddles the kill, so some frames are legitimately empty.")
     if args.premise_only:
@@ -111,7 +113,8 @@ def main() -> int:
             med.append(fr[y0:y1, x0:x1])
     floor = floor_mask(static_map(med))
 
-    st = {p: dict(tp=0, fn=0, fp=0, fp_named=0) for p in ("prekill", "uniform")}
+    st = {p: dict(tp=0, fn=0, fp=0, fp_named=0, on_q=0, n_q=0)
+          for p in ("prekill", "uniform")}
     for n, r in enumerate(rows):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(r["t_ms"] / 1000.0 * fps)))
         ok, fr = cap.read()
@@ -128,7 +131,19 @@ def main() -> int:
             else:
                 pool["tp"] += 1
                 used.add(j)
-        for m in [m for m in r["marks"] if m["kind"] != "enemy"]:
+        # Question marks are counted SEPARATELY and are neither credited nor
+        # penalised. A `?` is a real enemy position gone stale, and whether a
+        # detection on one is right depends on the use: a proof gate wants only
+        # enemies visible now, bearing work wants the stale position too.
+        # Folding them either way here would bake that choice into the number.
+        for m in [m for m in r["marks"] if m["kind"] == "question"]:
+            pool["n_q"] += 1
+            j = next((j for j, c in enumerate(cs)
+                      if j not in used and hits(m["x"], m["y"], c)), None)
+            if j is not None:
+                used.add(j)
+                pool["on_q"] += 1
+        for m in [m for m in r["marks"] if m["kind"] not in ("enemy", "question")]:
             j = next((j for j, c in enumerate(cs)
                       if j not in used and hits(m["x"], m["y"], c)), None)
             if j is not None:
@@ -148,6 +163,9 @@ def main() -> int:
         print(f"  {p:8s} TP {s['tp']:3d}  FN {s['fn']:3d}  FP {s['fp']:3d} "
               f"(+{s['fp_named']} on a marked non-enemy)   "
               f"recall {rec*100:5.1f}%  precision {pre*100:5.1f}%")
+        if s["n_q"]:
+            print(f"  {'':8s} question marks: {s['on_q']}/{s['n_q']} fired on -- "
+                  f"counted neither way, see the code comment")
     return 0
 
 

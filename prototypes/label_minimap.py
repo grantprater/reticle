@@ -5,7 +5,10 @@
 Controls
 --------
     left click        mark an ENEMY icon -- the red ring with the facing triangle
-    ctrl+left click   mark a red thing that is NOT an enemy icon: an X death
+    shift+left click  mark a QUESTION-MARK icon -- an enemy last seen there,
+                      shown for a while after vision is lost. Its own class on
+                      purpose; see below.
+    ctrl+left click   mark a red thing that is NOT an enemy at all: an X death
                       mark, a Reyna blind, a Cypher cam, a warning ping. These
                       are the confounders the finder has to reject, and marking
                       them is what turns "it fired" into "it fired on what".
@@ -15,6 +18,23 @@ Controls
     U                 uncertain -- recorded, kept out of scoring
     A                 back a frame
     Q / ESC           save and quit
+
+Why question marks are not just "other red"
+-------------------------------------------
+A `?` icon is still a red RING -- around a question-mark glyph rather than a
+portrait -- so it may well seal, which means the finder will fire on it. Filed
+as a confounder every one of those becomes a false positive; filed as an enemy
+they inflate recall with enemies nobody can currently see. A separate class
+defers that choice to scoring time instead of baking it in at labelling time,
+and the choice differs by use: a proof gate wants only enemies visible NOW
+(a `?` means vision was LOST, so an on-screen enemy carries a solid icon, not a
+`?`), while bearing and exposure work wants the stale position too.
+
+It is also the distinction the project already leans on -- "an enemy visible now,
+one seen five seconds ago, and one never seen are three different decisions" --
+and the `?` is the only thing in the capture that separates the middle case. One
+of the ten adversarial counterexamples to the premise was exactly a `?` for a
+revealed-but-not-visible enemy.
 
 The full frame is shown beside the minimap deliberately. The question a
 pre-kill frame answers is not only "where is the icon" but "is there one at
@@ -183,15 +203,16 @@ def main() -> int:
         canvas.create_text(mw + 8, 10, anchor="nw", fill="#808080",
                            font=("Consolas", 12), text="context only - not clickable")
         for (px, py, kind) in state["pts"]:
-            col = "#ff2020" if kind == "enemy" else "#20c0ff"
+            col = {"enemy": "#ff2020", "question": "#ffd020"}.get(kind, "#20c0ff")
             canvas.create_oval(px - 13, py - 13, px + 13, py + 13, outline=col, width=2)
         s = int(t_ms) // 1000
         n_e = sum(1 for m in state["pts"] if m[2] == "enemy")
-        n_o = len(state["pts"]) - n_e
+        n_q = sum(1 for m in state["pts"] if m[2] == "question")
+        n_o = len(state["pts"]) - n_e - n_q
         status.config(
             text=f"  {state['i']+1}/{len(times)}   {s//60}:{s%60:02d}   [{pool}]   "
-                 f"enemy={n_e} other-red={n_o}   "
-                 f"click=enemy icon  ctrl+click=other red  rclick=undo   "
+                 f"enemy={n_e} question={n_q} other-red={n_o}   "
+                 f"click=enemy  shift=question-mark  ctrl=other red  rclick=undo   "
                  f"SPACE=next  N=none  U=unsure  A=back  Q=quit")
 
     def record():
@@ -234,6 +255,7 @@ def main() -> int:
             show()
 
     canvas.bind("<Button-1>", lambda e: click(e, "enemy"))
+    canvas.bind("<Shift-Button-1>", lambda e: click(e, "question"))
     canvas.bind("<Control-Button-1>", lambda e: click(e, "other_red"))
     canvas.bind("<Button-3>", lambda e: (state["pts"] and state["pts"].pop(), show()))
     root.bind("<space>", lambda e: advance(+1))
