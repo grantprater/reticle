@@ -68,6 +68,60 @@ Known limits
   and per-team alive counts come from the killfeed, so the detector has an
   external anchor. Hand-labelling should be spent only where no anchor exists.
 * Scale is roughly 0.2 m per pixel, from map extent rather than calibration.
+
+Confirming screen detections from the minimap
+---------------------------------------------
+The minimap shows an enemy while ANY teammate can see them, and the local player
+is a teammate -- so **an enemy on screen implies an enemy icon on the minimap**.
+The contrapositive is a free precision gate: no enemy icons means every screen
+detection in that frame is a false positive. That attacks whole frames rather
+than individual blobs, which matters because blob-level filters have run out at
+48.8% precision.
+
+**The premise checks out.** Measured against the 46 hand labels on 9acf02f98283:
+0 of 43 frames carrying a labelled on-screen enemy had zero red on the minimap.
+
+**A red-pixel count does not implement it.** First attempt scored a median of
+3.0 red blobs whether or not an enemy was visible -- no information whatsoever.
+The widget is composited over live scenery and transparent everywhere but the
+floor, so the count was measuring the wall the player was facing; one frame
+scored 39 "blobs", every one a contour on the world behind. Masking to the floor
+slab -- the fix this file already carried, and which should have been reused
+immediately -- separates the medians to 3.0 against 2.0 and lifts the gate from
+11.3% to 16.0% of empty frames dropped at no cost to enemy frames.
+
+**16% is the ceiling for counting; icon discrimination is the requirement.**
+Red on the floor is not the same as an enemy being visible: X marks from past
+deaths and question marks from stale reveals persist long after the enemy is
+gone and keep permitting empty frames. Separating a solid circle-with-portrait
+from an X or a question mark is a shape test on a small, opaque, fixed-scale
+glyph -- the same problem the killfeed templates already solve.
+
+That classifier is also prerequisite #1 for the stronger version, **bearing
+confirmation**: given the player's position and facing and an enemy's position,
+the angle to that enemy predicts a screen column, and a detection nowhere near
+any real bearing is a false positive. Three notes on feasibility:
+
+* **bearing needs no metric calibration.** It is atan2 of pixel differences on a
+  uniform top-down projection, so the shaky 0.2 m/px estimate above never enters;
+* **facing must be read from the vision cone**, which renders as a clear white
+  wedge. It is not implicitly "up" -- see the capture setting below;
+* **it is a coarse gate.** A 2 px position error is ~2 degrees of bearing at 10 m
+  but ~8 degrees at 3 m -- roughly 40 px against 140 px of screen. Good for
+  rejecting a detection on the wrong side of the screen, not for confirming one
+  to the pixel.
+
+**The fixed orientation is a SETTING, not a property of the game.** Grant set the
+minimap to fixed -- not rotating with the player, and not swapping sides between
+attack and defence -- deliberately, to make parsing tractable. Valorant's
+defaults do both. Two consequences:
+
+* it is what makes map geometry genuinely shareable between sessions on the same
+  map, and bearings comparable across rounds, which the note above only hoped for;
+* a capture recorded with defaults breaks every assumption here **silently** --
+  the extractor would still return positions, just rotated or mirrored. It must
+  be verified per session, not assumed, and it belongs with the enemy-outline
+  colour in the pre-ingest checklist.
 * Map identity is unknown. Geometry should be shared between sessions on the
   same map rather than re-derived, which needs a label at ingest.
 """

@@ -623,7 +623,14 @@ scrubbing an overlay video, and it is the right tool whenever the question is
    a corpse is the dangerous one because it sits exactly where a real enemy just
    was, so counting it as target acquisition would look reasonable and inflate
    every aim number.
-8. **Check whether the minimap has an opacity setting.** Unresolved. The widget
+8. **Confirm the minimap is fixed, not rotating, and not side-swapping.**
+   Grant sets it that way deliberately -- Valorant's defaults both rotate the map
+   with the player and mirror it between attack and defence. It is the setting
+   that makes map geometry shareable between sessions and bearings comparable
+   across rounds, and a capture recorded with defaults breaks that **silently**:
+   position extraction still returns answers, they are just rotated or mirrored.
+   Same class of per-session setting as the enemy outline colour above.
+9. **Check whether the minimap has an opacity setting.** Unresolved. The widget
    being semi-transparent over the void is the single largest difficulty in
    minimap extraction; if it can be made opaque most of that goes away for
    future recordings. Same class of fix as the shooting-error readout above.
