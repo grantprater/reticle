@@ -87,6 +87,11 @@ from reticle.checks import track_entries                          # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
 
 STORE = Path.home() / "reticle-store"
+# The pre-kill sampling window, in ms before the killfeed entry appears. Stamped
+# into every row: it was widened once already and the rows written under the old
+# window measure something different, so a later analysis must be able to tell
+# the batches apart rather than silently pooling them.
+PREKILL_WINDOW = (0, 600)
 
 
 def sample_times(sid: str, n: int, prekill_frac: float) -> list[tuple[float, str]]:
@@ -116,7 +121,7 @@ def sample_times(sid: str, n: int, prekill_frac: float) -> list[tuple[float, str
                 # premise counterexamples when they were nothing of the kind.
                 # A pool meant to guarantee an enemy is present has to sit on
                 # the duel, not on the approach to it.
-                out.append((k - rng.uniform(0, 600), "prekill"))
+                out.append((k - rng.uniform(*PREKILL_WINDOW), "prekill"))
     out = out[:want_pk]
     total = sum(b - a for a, b in active)
     for _ in range(max(0, n - len(out))):
@@ -235,6 +240,9 @@ def main() -> int:
             "session_id": args.session,
             "t_ms": round(t_ms),
             "pool": pool,
+            # Which pre-kill window this row was sampled under. Rows without it
+            # are the first batch, at 300-1400 ms -- too early, see sample_times.
+            "window": list(PREKILL_WINDOW) if pool == "prekill" else None,
             "uncertain": bool(state["uncertain"]),
             # Stored in MINIMAP-CROP pixels at original resolution, so the zoom
             # is free to change and the ROI is recorded alongside.
