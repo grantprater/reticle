@@ -98,8 +98,67 @@ Two more recall classes, both newly isolated and neither addressed:
   and the enemy is still lost, so shape, aspect or the closing is discarding a
   well-found enemy. Unexplained.
 
-**SETTLED 2026-08-26: the enlarged minimap fixes the seal, and 4:2:0 undoes it.
-Measured against real killfeed kills, so the anchor is sound this time.**
+**SETTLED 2026-08-26, against 96 of Grant's hand labels on `a06f04a0059f`.
+Two results, and the first one bounds the whole idea.**
+
+**1. The minimap is NOT a proof gate. An enemy icon is present in only 58% of
+frames where an enemy provably existed.**
+
+    prekill (an enemy provably there)   34/59 carry an enemy icon   57.6%
+    uniform control                      4/37                       10.8%
+
+The 5x separation says the signal is real and worth having. The 58% says the
+*gate* is dead: "no icon therefore no enemy" is wrong roughly two times in five,
+and a proof gate needs ~100%. **This kills the use the minimap was being pursued
+for** -- rejecting whole frames of screen detections -- and no amount of finder
+work changes it, which is exactly why this number was worth getting before more
+finder work. It survives as a FEATURE alongside frag_top1 and persistence.
+
+Read 58% as a floor, for one reason recorded in `label_minimap.py`: the killfeed
+timestamps when an entry APPEARS, so the 300-1400 ms sampling window straddles
+the kill and some frames legitimately sit after the death, where the icon is
+correctly gone. Valorant also only shows an enemy while somebody on the team can
+see them, so a duel nobody else witnessed may genuinely carry no icon at all.
+
+**2. The seal test is dead at 4:2:0 and ring-fitting replaces it.** Scored
+against the same labels:
+
+    seal (hole test)                       0.0% recall
+    ring fit, cov>=0.60                   37.2% recall / 76.2% precision
+    ring fit, cov>=0.35                   79.1% recall / 61.8% precision
+
+From zero to 79%. The fix came straight from Grant's observation that the ring
+is a **teardrop, not an annulus** -- measured thickness by angle from the facing
+triangle: 7.3 px at the triangle, 4.1/1.9 at +/-30 deg, and **1.1-2.0 px over
+most of the rest**. Closure is topological, so it needs every pixel of that thin
+arc to survive and one break loses it entirely; half-resolution chroma is
+precisely what a 1-2 px colour feature does not survive. Fitting the circle that
+best covers the arc, then testing the disc it encloses, needs no closing kernel
+(the thing that merged adjacent icons in every earlier attempt) and degrades
+gracefully instead of failing outright.
+
+Both halves of the criterion are load-bearing and measured on one lossless frame:
+
+    enemy icon   cov 0.85  r 10  inner_red 0.00     ring around a portrait
+    red X mark   cov 0.33  r  6  inner_red 0.67     solid throughout
+
+Ranking on coverage alone picks solid red things, since a disc's circumference
+is fully red. And the radius must NOT float: with the search open to r=6 a small
+surviving fragment always fits something, and the fit collapsed to r=6 with a
+meaningless coverage on nearly every miss. The widget size is fixed, so the icon
+radius is nearly constant -- letting it float gave away the strongest prior
+available. Re-measure if the size slider moves.
+
+**Z-order: the local player's icon draws ON TOP of an enemy's.** Grant found it;
+at 13:00 only an 18 px, 7x4 sliver of the enemy ring survives underneath. This
+happens at exactly the range a duel happens, so it hits the pre-kill pool
+hardest, and no colour or shape work reaches it -- the pixels are not rendered.
+The player's own icon is findable, so this is at least a *detectable* condition
+rather than a silent miss.
+
+COV_MIN 0.35 is fitted to 96 labels on ONE session and is provisional.
+
+**Superseded detail: the enlarged minimap fixes the seal, and 4:2:0 undoes it.**
 
 Rendering the minimap 800 ms before each of the 21 tracked kills gives a
 contact sheet where an enemy icon is visible **by eye in most of them** — so the
