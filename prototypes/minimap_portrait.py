@@ -462,6 +462,11 @@ def classify_composition(hq, sources):
 #
 # The first value here was 1.4, eyeballed, and it swallowed the player name.
 SB_PORTRAIT_ASPECT = 0.79
+# Vertical-detail floor for the weakest of the ten cut portraits. A good
+# opening measures 64-85; a cut or blank one measures 0.5-2.5, so this sits in
+# an enormous gap and is not a tuned edge. It is the validity test that
+# `read_scoreboard`'s own geometry does not provide.
+SB_MIN_ROW_DETAIL = 30.0
 # Where the two text lines live, as fractions of row height from the row's left
 # edge. The upper line is the PLAYER name and the lower is the AGENT name, and
 # the agent name is what makes a session self-naming -- see the note in
@@ -470,14 +475,56 @@ SB_TEXT_X0 = 0.95
 
 
 def scoreboard_portraits(frame, sb):
-    """(team, is_player, portrait) for every row of an open scoreboard."""
+    """(team, is_player, portrait) for every row of an open scoreboard.
+
+    The portrait is LOCATED, not measured off `sb.x0`. That was the first
+    version and it broke two sessions out of three: the table-edge detection in
+    `scoreboard.py` is derived from dense slab columns and moves a long way
+    between openings -- a06f04a0059f reported x0 240 at one opening and 572 at
+    another -- so a fixed offset from it cut the portraits clean off on
+    `c62c2b06bcfb` and left a sliver. Everything downstream then collapsed, and
+    the symptom (a lineup that would not map to the roster) looked nothing like
+    the cause.
+
+    Found instead from the structure measured across all ten rows at once: the
+    portrait is a dense band of vertical detail, and it is followed by a trough
+    where the slab shows through before the text starts. Averaging the profile
+    over ten rows is what makes it stable -- one row's text is noise, ten rows'
+    text is not in the same place as one row's portrait.
+    """
     if not sb.open_ or not sb.rows:
         return []
     h = sb.rows[0].y1 - sb.rows[0].y0
-    w = int(h * SB_PORTRAIT_ASPECT)
+    w = max(4, int(round(h * SB_PORTRAIT_ASPECT)))
+    lo = max(0, sb.x0 - 2 * h)
+    hi = min(frame.shape[1], sb.x0 + 3 * h)
+    if hi - lo < w + 4:
+        return []
+    prof = np.zeros(hi - lo, np.float32)
+    for r in sb.rows:
+        band = cv2.cvtColor(frame[r.y0 + 1:r.y1 - 1, lo:hi], cv2.COLOR_BGR2GRAY)
+        prof += np.abs(cv2.Sobel(band.astype(np.float32), cv2.CV_32F, 0, 1, ksize=3)).mean(0)
+    prof /= max(1, len(sb.rows))
+    # The TROUGH, not the densest window. Density is the wrong feature and
+    # picking it put the crop on the player names: measured across ten rows the
+    # name text peaks at 151 and the portrait at 130, so "densest" prefers text.
+    # What is unambiguous is the GAP between them -- detail 14 against 130 --
+    # because nothing is drawn there. So find the gap and take the portrait's
+    # width back off it.
+    prof = np.convolve(prof, np.ones(3) / 3, "same")
+    # Start the search INSIDE the table. Everything left of the table edge is
+    # flat background with detail near zero, which is a deeper minimum than the
+    # gap being looked for -- searching from x0 - 0.5h put the crop on empty
+    # screen. The gap cannot be closer to the edge than most of a portrait.
+    a = max(0, sb.x0 - lo + int(0.6 * w))
+    b = min(len(prof), sb.x0 + 2 * h - lo)
+    if b - a < 6:
+        return []
+    gap = a + int(np.argmin(prof[a:b]))
+    x0 = max(lo, lo + gap - w)
     out = []
     for r in sb.rows:
-        art = frame[r.y0:r.y1, sb.x0:sb.x0 + w]
+        art = frame[r.y0:r.y1, x0:x0 + w]
         if art.shape[0] > 4 and art.shape[1] > 4:
             out.append((r.team, r.is_player, art.copy()))
     return out
@@ -493,7 +540,7 @@ def mine_scoreboard(cap, templates, n_probe=400, want_rows=10):
     """
     from reticle.scoreboard import read_scoreboard
     tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    best = None
+    cand = []
     for i in np.linspace(tot * 0.02, tot * 0.98, n_probe).astype(int):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
         ok, fr = cap.read()
@@ -508,9 +555,38 @@ def mine_scoreboard(cap, templates, n_probe=400, want_rows=10):
         g = [cv2.cvtColor(a, cv2.COLOR_BGR2GRAY).astype(np.float32) for _, _, a in arts]
         # Weakest row decides, same argument as `mine_lineup`.
         score = min(float(np.abs(cv2.Sobel(x, cv2.CV_32F, 0, 1, ksize=3)).mean()) for x in g)
-        if best is None or score > best[0]:
-            best = (score, int(i), arts)
-    return best
+        cand.append((sb.rows[0].y1 - sb.rows[0].y0, score, int(i), arts))
+    if not cand:
+        return None
+    # The table ANIMATES OPEN, and a half-expanded board still parses. On
+    # a06f04a0059f one opening reports x 240..1699 with 42 px rows and another
+    # 572..1347 with 34 px rows -- the same scoreboard, caught at two points in
+    # the same animation. Detail alone picked between them arbitrarily and the
+    # answer changed when unrelated code changed, which is how this surfaced.
+    #
+    # Row height is the scale, so take the fully-expanded boards first and let
+    # detail choose among those.
+    # Two conditions, and taking either one alone fails. Preferring detail
+    # picked half-expanded boards; preferring the tallest then picked
+    # MISDETECTIONS -- `read_scoreboard` reported 55 and 60 px rows on Lotus and
+    # Split against 42 on Ascent, and the portraits it cut from them were blank
+    # (weakest-row detail 0.5 against 78 for a good one).
+    #
+    # So gate on detail first -- the portraits have to actually contain art,
+    # which no bad geometry survives -- and only then prefer the tallest, which
+    # is what picks the fully-expanded board among the valid ones.
+    good = [c for c in cand if c[1] >= SB_MIN_ROW_DETAIL]
+    if not good:
+        print(f"  {len(cand)} openings seen, none with readable portraits "
+              f"(best weakest-row detail {max(c[1] for c in cand):.1f} "
+              f"against a floor of {SB_MIN_ROW_DETAIL})")
+        return None
+    tallest = max(c[0] for c in good)
+    full = [c for c in good if c[0] >= 0.95 * tallest]
+    best = max(full, key=lambda c: c[1])
+    print(f"  {len(cand)} openings seen, {len(good)} with readable portraits, "
+          f"{len(full)} fully expanded (row height {tallest} px)")
+    return (best[1], best[2], best[3])
 
 
 # ---------------------------------------------------------------------------
@@ -712,9 +788,280 @@ def cmd_mine_sb(args):
     return 0
 
 
+def map_roster_to_names(roster_slots, sb_art, names):
+    """Which roster slot holds which agent, by matching the two BUST surfaces.
+
+    Needed because the roster and the scoreboard order their teams differently
+    -- on a06f04a0059f the roster runs Skye, Iso, Jett, Omen, Killjoy and the
+    scoreboard runs Omen, Jett, Killjoy, Skye, Iso -- so the alive check cannot
+    borrow the scoreboard's order.
+
+    Done by COMPOSITION, not correlation -- and the first version got this
+    wrong for a reason worth recording. I reasoned that both surfaces carry the
+    same bust asset at a similar scale, so pixel correlation was the right tool
+    here even though it had just failed against the minimap. It scored 0.23-0.48
+    on a06f04a0059f and happened to produce the correct bijection, which I read
+    as it working. On two new sessions it scored 0.02-0.49 and 0.07-0.49 and
+    produced no bijection at all: the a06f result was luck, and the low scores
+    were saying so the whole time.
+
+    Composition is the right tool for the same reason it was against the
+    minimap, and it gets a bonus here: being layout-free it does not care that
+    the enemy roster is MIRRORED, so the flip stops being something to handle.
+    """
+    out = {}
+    srcs = {n: composition(a) for n, a in sb_art.items()}
+    for k, slot in enumerate(roster_slots):
+        hq = composition(slot)
+        name, sc, mg = classify_composition(hq, srcs)
+        out[k] = (sc, name)
+    return out
+
+
+def cmd_confounders(args):
+    """Mine the red things that are NOT agents, once, for reuse everywhere.
+
+    An agent's portrait changes every match; a question-mark glyph and an X
+    death mark do not. They are the same art in every capture the game has ever
+    drawn, so unlike a lineup they can be mined once and reused -- which makes
+    them the only part of a gallery that never needs relabelling.
+
+    Measured caveat, and it is why bootstrap only uses `other_red`: adding a
+    question-mark prototype lifts overall accuracy on a06f04a0059f from 68.2%
+    to 79.4% and DROPS agent accuracy from 92.4% to 82.3%, because a `?` is a
+    red glyph on grey and so is a dark agent on the map floor. Composition
+    cannot separate those two, exactly as correlation could not. The `?` needs
+    a shape test, which is a different piece of work.
+    """
+    man = json.loads((STORE / "manifests" / f"{args.session}.json").read_text())
+    src = man["source"]
+    fps = float(src["fps"])
+    prof = get_profile(man["source_profile"])
+    W, H = int(src["width"]), int(src["height"])
+    mx0, my0, mx1, my1 = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
+    fits_p = STORE / "labels" / "minimap" / f"{args.session}.fits.json"
+    fits = json.loads(fits_p.read_text())["fits"] if fits_p.is_file() else {}
+    rows = {}
+    for line in (STORE / "labels" / "minimap" / f"{args.session}.jsonl").read_text(
+            encoding="utf-8").splitlines():
+        if line.strip():
+            r = json.loads(line)
+            rows[r["t_ms"]] = r
+    cap = cv2.VideoCapture(src["path"])
+    got = {"other_red": [], "question": []}
+    for t, r in sorted(rows.items()):
+        if r.get("uncertain"):
+            continue
+        want = [m for m in r["marks"] if m["kind"] in got]
+        if not want:
+            continue
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t / 1000.0 * fps)))
+        ok, fr = cap.read()
+        if not ok:
+            continue
+        crop = fr[my0:my1, mx0:mx1]
+        red = red_mask(crop, 100)
+        for m in want:
+            b = min(fits.get(str(t), []),
+                    key=lambda q: np.hypot(q["cx"] - m["x"], q["cy"] - m["y"]), default=None)
+            if b and np.hypot(b["cx"] - m["x"], b["cy"] - m["y"]) <= 16:
+                cx, cy, rr = b["cx"], b["cy"], b["r"]
+            else:
+                cx, cy, rr = m["x"], m["y"], 9
+            pch, msk = descriptor(crop, red, cx, cy, rr)
+            if pch is not None:
+                got[m["kind"]].append(composition(pch.astype(np.uint8), msk))
+    cap.release()
+    out = STORE / "rosters" / "confounders.npz"
+    np.savez_compressed(out, **{k: np.mean(v, 0) for k, v in got.items() if v},
+                        **{f"n_{k}": len(v) for k, v in got.items()})
+    print(f"mined confounder compositions from {args.session}: "
+          + ", ".join(f"{k} n={len(v)}" for k, v in got.items()))
+    print(f"  {out}  -- session-independent, reuse on every capture")
+    return 0
+
+
+def cmd_bootstrap(args):
+    """Identify a session's enemy icons COLD -- no minimap labels anywhere.
+
+    The whole chain: cut ten portraits off one scoreboard opening, turn the
+    five enemy ones into colour compositions, find icons with the ring fit, and
+    name each one by composition. Then check the answers against the roster,
+    which says who is alive and needs no labels either.
+    """
+    import minimap_ring_fit as ringfit
+    names = [x.strip() for x in args.enemy.split(",")]
+    man = json.loads((STORE / "manifests" / f"{args.session}.json").read_text())
+    src = man["source"]
+    fps = float(src["fps"])
+    prof = get_profile(man["source_profile"])
+    W, H = int(src["width"]), int(src["height"])
+    mx0, my0, mx1, my1 = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
+
+    z = np.load(STORE / "rosters" / f"{args.session}.scoreboard.npz")
+    teams = [str(t) for t in z["teams"]]
+    rows = [z[f"row{k}"] for k in range(len(teams))]
+    sb_art = {n: rows[i] for n, i in zip(names, [k for k, t in enumerate(teams) if t == "enemy"])}
+    sources = {n: source_composition(a) for n, a in sb_art.items()}
+    print(f"sources: {', '.join(sb_art)}  (from the scoreboard, no labels)")
+    # Reject classes, mined once and reused. Without somewhere to put X marks
+    # and abilities the classifier has to call every red blob an agent, and on
+    # a06f04a0059f that collapsed 73% of detections onto one name.
+    cpath = STORE / "rosters" / "confounders.npz"
+    rejects = set()
+    if cpath.is_file() and not args.no_reject:
+        cz = np.load(cpath)
+        for k in [x.strip() for x in args.reject.split(",") if x.strip()]:
+            if k in cz:
+                sources[k] = cz[k]
+                rejects.add(k)
+        print(f"  reject classes: {sorted(rejects) or 'none'}")
+
+    rp = STORE / "rosters" / f"{args.session}.npz"
+    lineup = None
+    if rp.is_file():
+        rz = np.load(rp)
+        slots = [rz[f"slot{k}"] for k in range(5)]
+        mapped = map_roster_to_names(slots, sb_art, names)
+        lineup = [(mapped[k][1], slots[k]) for k in range(5)]
+        print("roster slots -> agents: " + ", ".join(
+            f"{k}:{mapped[k][1]}({mapped[k][0]:.2f})" for k in range(5)))
+        if len({m[1] for m in mapped.values()}) != 5:
+            print("  ! not a bijection -- alive check disabled")
+            lineup = None
+
+    cap = cv2.VideoCapture(src["path"])
+    tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    med = []
+    for i in np.linspace(tot * 0.1, tot * 0.9, 150).astype(int):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
+        ok, fr = cap.read()
+        if ok:
+            med.append(fr[my0:my1, mx0:mx1])
+    from minimap_icons import floor_mask, static_map
+    from minimap_temporal import usable
+    floor = floor_mask(static_map(med))
+    print(f"floor slab {floor.mean()*100:.1f}% of the widget")
+
+    # BURSTS, not scattered frames. The filters that make this population clean
+    # are temporal -- an icon has to persist, and it has to MOVE. Grant's point,
+    # and it is the one discriminator that holds against every confounder at
+    # once: a player is the only thing that TRANSLATES relative to the minimap.
+    # X death marks, turrets and question marks are all static once placed, so
+    # they survive any track-length filter and die to this one. A question mark
+    # in particular marks a last-known position -- it cannot move by definition.
+    step = max(1, int(round(args.burst_dt / 1000.0 * fps)))
+    starts = np.linspace(tot * 0.05, tot * 0.95 - step * args.burst_len,
+                         args.bursts).astype(int)
+    tracks, unusable = [], 0
+    for s0 in starts:
+        seq = []
+        for k in range(args.burst_len):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(s0 + k * step))
+            ok, fr = cap.read()
+            if not ok:
+                continue
+            crop = fr[my0:my1, mx0:mx1]
+            if not usable(crop, floor):
+                unusable += 1
+                continue
+            red = red_mask(crop, 100)
+            dets = []
+            for f in ringfit.find(crop, floor, 100):
+                if not ringfit.is_icon(f):
+                    continue
+                pch, msk = descriptor(crop, red, f["cx"], f["cy"], f["r"])
+                if pch is None:
+                    continue
+                dets.append({"f": f, "h": composition(pch.astype(np.uint8), msk)})
+            seq.append((fr, dets))
+        # link by proximity within the burst; 10 px is well inside RUN_PX at
+        # 200 ms and well outside the jitter of a fit on a static mark
+        live = []
+        for fi, (fr, dets) in enumerate(seq):
+            used = set()
+            for tr in live:
+                lx, ly = tr["pts"][-1]
+                best, bd = None, 1e9
+                for di, d in enumerate(dets):
+                    if di in used:
+                        continue
+                    dd = np.hypot(d["f"]["cx"] - lx, d["f"]["cy"] - ly)
+                    if dd < bd:
+                        best, bd = di, dd
+                if best is not None and bd <= 10:
+                    used.add(best)
+                    tr["pts"].append((dets[best]["f"]["cx"], dets[best]["f"]["cy"]))
+                    tr["h"].append(dets[best]["h"])
+                    tr["disp"] += bd
+                    tr["frame"] = fr
+            for di, d in enumerate(dets):
+                if di not in used:
+                    live.append({"pts": [(d["f"]["cx"], d["f"]["cy"])], "h": [d["h"]],
+                                 "disp": 0.0, "frame": fr})
+        tracks.extend(live)
+    cap.release()
+
+    kept = [t for t in tracks
+            if len(t["h"]) >= args.min_len and t["disp"] >= args.min_disp]
+    print(f"{len(tracks)} tracks over {len(starts)} bursts, {unusable} unusable frames; "
+          f"{len(kept)} pass len>={args.min_len} and displacement>={args.min_disp}")
+    if not kept:
+        print("nothing survived the filters")
+        return 1
+
+    from collections import Counter
+    calls, scored, sizes = [], [], []
+    for t in kept:
+        # One answer per TRACK, from the summed composition of its frames: the
+        # same argument as a gallery of exemplars, applied over time instead of
+        # over appearance.
+        hq = np.mean(t["h"], 0)
+        name, sc, mg = classify_composition(hq, sources)
+        calls.append(name)
+        if lineup is not None and name not in rejects:
+            av = alive(t["frame"], lineup)
+            sizes.append(len(av))
+            scored.append((name, mg, name in av))
+    print()
+    print(f"{len(calls)} tracks named")
+    print("  distribution:", dict(Counter(calls).most_common()))
+    if scored:
+        chance = float(np.mean(sizes)) / 5
+        good = sum(1 for _, _, a in scored if a)
+        print()
+        print(f"ROSTER ALIVE CHECK (no labels): {good}/{len(scored)} = "
+              f"{good/len(scored)*100:.1f}%   chance {chance*100:.0f}% "
+              f"(mean {np.mean(sizes):.2f} of 5 alive)")
+        for mth in (0.0, 0.02, 0.05, 0.10):
+            keep = [x for x in scored if x[1] >= mth]
+            if keep:
+                g2 = sum(1 for _, _, a in keep if a)
+                print(f"    margin>={mth:.2f}: answered {len(keep)/len(scored)*100:5.1f}%"
+                      f"   alive-consistent {g2/len(keep)*100:5.1f}%")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("bootstrap", help="identify a session cold, with no labels")
+    s.add_argument("session")
+    s.add_argument("--enemy", required=True,
+                   help="five enemy agent names in scoreboard ROW order")
+    s.add_argument("--bursts", type=int, default=90)
+    s.add_argument("--burst-len", type=int, default=5)
+    s.add_argument("--burst-dt", type=float, default=200.0, help="ms between burst frames")
+    s.add_argument("--min-len", type=int, default=3)
+    s.add_argument("--min-disp", type=float, default=3.0)
+    s.add_argument("--no-reject", action="store_true",
+                   help="drop the confounder classes, to see what they buy")
+    s.add_argument("--reject", default="other_red,question",
+                   help="which mined confounder classes to load")
+    s.set_defaults(fn=cmd_bootstrap)
+    s = sub.add_parser("confounders", help="mine reusable non-agent prototypes")
+    s.add_argument("session")
+    s.set_defaults(fn=cmd_confounders)
     s = sub.add_parser("mine-sb", help="mine ten portraits from the Tab scoreboard")
     s.add_argument("session")
     s.set_defaults(fn=cmd_mine_sb)

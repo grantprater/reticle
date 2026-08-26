@@ -242,11 +242,68 @@ match, and the identity that survives lives in the palette. Which is the
 original argument for this being tractable -- the minimap's own palette is
 narrow, so an agent's colours stand out against it.
 
-**Next:** wire composition into a per-session bootstrap (read the ten agent
-names off the scoreboard, cut the ten portraits, classify with no labels), then
-test it on Lotus and Split where the lineups are different. The natural end
-state is both: composition to bootstrap a session cold, then the in-domain NCC
-gallery it collects to sharpen it.
+**The cold bootstrap is wired and does not work yet, and the blocker is not
+identification.** `minimap_portrait.py bootstrap` runs the whole chain with no
+labels: scoreboard opening -> ten portraits -> five enemy compositions -> ring
+fit -> named, with the roster giving a label-free alive check. Two things stop
+it being trustworthy, and only the first is fixed.
+
+**Fixed: scoreboard portrait extraction was wrong on two sessions of three, in
+three compounding ways.** Each masked the next and none of them looked like
+what it was -- the symptom was always "the lineup will not map to the roster".
+
+* `read_scoreboard`'s table geometry moves a long way between openings, because
+  **the board ANIMATES OPEN and a half-expanded board still parses**. One
+  a06f04a0059f opening reports x 240..1699 with 42 px rows, another 572..1347
+  with 34 px. Anything taken as a fixed offset from `sb.x0` inherits that;
+* locating the portrait by DENSEST window put the crop on the player names.
+  Measured across ten rows, name text peaks at 151 and portrait art at 130 --
+  text is denser. The reliable feature is the GAP between them (detail 14
+  against 130), searched from inside the table, since everything left of the
+  table edge is flat background and a deeper minimum still;
+* selecting an opening by detail alone picks half-expanded boards, and
+  selecting by tallest picks MISDETECTIONS -- 55 and 60 px rows on Lotus and
+  Split against 42, with blank portraits (weakest-row detail 0.5 against 78).
+  Both conditions are needed: gate on portrait readability
+  (`SB_MIN_ROW_DETAIL`, a floor of 30 in a gap between 2.5 and 64), then prefer
+  the tallest of what survives.
+
+All three sessions now cut ten clean portraits, and the roster-to-agent mapping
+is a clean bijection on all three at 0.49-0.79.
+
+**That mapping is also done by COMPOSITION, and the first version was a
+mistake worth recording.** I used pixel correlation, reasoning that the roster
+and scoreboard carry the same bust asset so correlation was fine here even
+though it had just failed against the minimap. It scored 0.23-0.48 on
+a06f04a0059f and produced the right answer, which I read as it working; on the
+two new sessions it scored 0.02-0.49 and produced no bijection at all. The
+first result was luck and the low scores were saying so. Composition also
+happens to make the roster's mirroring irrelevant, being layout-free.
+
+**NOT fixed, and now the binding constraint: the icon population.** Over a whole
+match the ring finder's output is dominated by things that are not agents --
+X marks, abilities, question marks -- and there are far more of them than
+enemies. Reject classes help (`confounders.npz`, mined once from a06f's labels
+and reusable because a `?` glyph and an X mark are the same art in every
+capture) but each one becomes a sink that absorbs most detections. Persistence
+plus translation is the right filter -- **a question mark marks a last-known
+position, so it cannot move, and neither can an X mark or a turret** -- but at
+len>=3 and displacement>=3 it cuts yield to roughly 10% of tracks, which is too
+few to measure anything on.
+
+So identification is proven as a METHOD and unproven as a PIPELINE, and the gap
+is detection, not matching. Two ways forward:
+
+1. **confirm transfer with a small label pass on Lotus.** Feed
+   `label_icon_agent.py` candidates straight from the ring finder so Grant names
+   icons that are already found rather than clicking to find them -- perhaps 60
+   keypresses. That turns 83.5% from "held out by agent on one session" into
+   "measured on a lineup never seen";
+2. **go at the detector**, which is now what limits everything downstream.
+
+The label-free alive check cannot settle this on its own: with four of five
+enemies typically alive its chance rate is 67-81%, so it catches a collapse and
+cannot separate 85% from 95%.
 
 Roster geometry, measured at 1920x1080: enemy slot k at
 x = 1175 + 65.75k, y 30..70, 40 px square, slot 0 nearest the scoreline.
