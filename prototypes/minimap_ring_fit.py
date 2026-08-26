@@ -132,19 +132,28 @@ def fit_ring(red, grey, cx, cy):
 #
 # COV_MIN swept against Grant's 96 hand labels on a06f04a0059f, prekill pool:
 #
-#     cov_min   recall   precision
-#       0.35     79.1%     61.8%      <- default
-#       0.42     60.5%     68.4%
-#       0.50     55.8%     70.6%
-#       0.60     37.2%     76.2%      <- the first guess, and much too tight
-#       0.80      9.3%    100.0%
+# Swept against 164 hand labels on a06f04a0059f, pre-kill pool, at
+# inner_red <= 0.25 (which dominates 0.35 and 0.50 on both axes):
 #
-# 0.35 is chosen because this is a FEATURE, not a veto: the premise measurement
-# below caps what a gate could ever be worth, so recall is what matters and
-# precision is cheap to recover downstream. It is also the edge of the swept
-# range and may want to go lower -- and it is fitted to 96 labels on ONE
-# session, so treat it as provisional until a second session exists.
-COV_MIN, INNER_RED_MAX = 0.35, 0.35
+#     cov_min   recall   precision
+#       0.20     86.3%     38.7%
+#       0.30     80.8%     54.6%      <- default, with persistence behind it
+#       0.35     76.7%     60.9%
+#       0.42     54.8%     63.5%
+#       0.60     32.9%     77.4%
+#
+# 0.30 rather than something tighter because PERSISTENCE recovers the precision
+# far more cheaply than the threshold does -- at len>=3 this point becomes
+# 76.7% / 70.0%, which beats every per-frame cut on both axes at once. Tightening
+# `cov` throws away recall that cannot be recovered; letting a track vouch for
+# the blob throws away false positives that can.
+#
+# inner_red 0.25 beats both 0.35 and 0.50 everywhere, and 0.08/0.15 collapse
+# recall (38% / 68%) -- the portrait is not uniformly dark, so demanding almost
+# no red inside rejects real icons.
+#
+# Fitted to ONE session. Provisional until a second exists.
+COV_MIN, INNER_RED_MAX = 0.30, 0.25
 R_ICON = (8, 13)
 
 
