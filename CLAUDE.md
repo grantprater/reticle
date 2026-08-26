@@ -13,15 +13,32 @@ Section references in docstrings (`SS3`, `SS7`) mean §3, §7 of that doc.
 
 ## Picking up
 
-**NEXT SESSION: portrait identification.** Grant's call. The interior portrait
-of a minimap icon is the same art as the **killfeed portrait and the top roster
-portrait** (NOT the Tab scoreboard). That makes it a route to *identification*
-rather than detection -- which agent, not just "an enemy" -- and it fits the
-mining convention already used for digit glyphs: templates taken from Grant's
-own footage on two surfaces the pipeline already locates, rather than authored.
-It should be unusually tractable because **the minimap's palette is narrow** --
-grey, yellow, black, red -- so portrait colours are distinctive against it in a
-way they never are against the game world. Nothing built or measured yet.
+**NEXT SESSION: get Grant's agent labels, then take the icon work to Lotus and
+Split.** Portrait identification is BUILT and measured -- `minimap_portrait.py`,
+93.0% leave-one-out over five agents, detail under "Portrait identification"
+below. Two things gate what comes next and both are cheap:
+
+* **71 of the 107 agent labels are still `claude-provisional`.** Grant ran the
+  labeller on 2026-08-26 and it presented only 36 icons, because seeding the
+  file with provisional rows made every seeded icon look already-done. Fixed --
+  provenance now decides, not presence -- but the fix does not relabel anything:
+  **`label_icon_agent.py a06f04a0059f --names ... --redo` still needs a pass**,
+  and until it has had one the 93.0% is my clustering scored against itself;
+* **the question mark needs its own mechanism, not a tuned threshold.** With
+  `?` added as a sixth class the mixed set reads 85.0% overall, 87.3% over the
+  five agents alone, and **13 of the 16 misses involve a `?`, in both
+  directions**. Two explanations were measured and both failed: red inside the
+  interior does not separate them (median 0.08 vs 0.09) and neither does the
+  sampling radius (flat, 82.2-86.0% from FRAC 0.55 to 0.94). What does show is
+  that a minority of `?` interiors are nearly featureless -- raw contrast p10
+  5.9 against 31.1 for agents -- and NCC normalises a flat patch up to full
+  weight and then correlates noise. A `?` is a fixed GLYPH, so it belongs with
+  the digit templates: matched by shape, decided BEFORE the 5-way portrait
+  match;
+* **it is one session with one lineup.** `5822b6646448` (Lotus) and
+  `c62c2b06bcfb` (Split) are ingested, on the same enlarged widget, with
+  different agents. The project's history says a new map is where these break,
+  and neither has minimap labels yet.
 
 Two smaller threads left open, both cheap:
 
@@ -87,6 +104,70 @@ sampled 300-1400 ms before the killfeed entry, which lags the kill, so most of
 that window held no enemy yet. I treated "a kill happened 1.4 s later" as "an
 enemy is present now" without checking it.
 
+**Portrait identification works, and the interior is a far stronger signal than
+the ring.** `prototypes/minimap_portrait.py`, `prototypes/label_icon_agent.py`.
+Leave-one-out over 71 hand-marked enemy icons on `a06f04a0059f`, five agents:
+
+    nearest exemplar (1-NN)              93.0%
+    3-NN                                 84.5%
+    one median template per agent        70.4%
+    roster art as the template, flipped  74.6%   (crop fitted on the test set)
+    roster art as the template, as-is    63.4%   (crop fitted on the test set)
+
+and it abstains usefully -- answering 94.4% of icons at 97.0% correct, 69.0% at
+98.0%, 52.1% at 100%, on the margin between the best-matching agent and the
+runner-up AGENT (not the runner-up exemplar; two views of the same player
+first and second is the confident case).
+
+Four things worth carrying forward:
+
+* **nearest exemplar, not a per-agent template.** A single template scores
+  70.4% because the same agent's icons do not correlate well with *each other*:
+  the facing triangle sweeps across the interior, the map floor bleeds in at the
+  rim, and the local player's icon draws over the top at close range. Averaging
+  over that is a blur that matches nobody. Free clustering of the 71 icons gave
+  **19 groups, every one visually pure**, merging by eye into exactly the five
+  agents the roster shows plus a sixth clean group for the question marks --
+  those extra groups are the appearance modes, and holding them is the job;
+* **it survives 4:2:0 where the ring nearly does not.** The ring is a 1-2 px
+  *colour* feature and colour is what subsampling halves; the portrait is an
+  ~11 px *luma* structure. Same file, same frames, opposite outcome;
+* **the descriptor is scale-free** -- a disc of 0.55x the fitted ring radius on
+  an 11x11 grid, red masked out, per-channel NCC. Every grid size from 11 to 17
+  scored within 1.5 points, which says the information is in the pixels the icon
+  actually has;
+* **the failures are background, not confusion.** All five misses are icons
+  sitting over warm scenery or heavily covered by the triangle, and no agent
+  pair is systematically confused (five distinct one-off confusions). Masking
+  the interior better is the next lever, ahead of any change to the matcher.
+
+**The roster names the gallery; it is not the template source.** Mining the
+five enemy portraits is automatic (`minimap_portrait.py mine` finds a frame
+where all five are alive by requiring the *weakest* of the five slots to be
+detailed, and cuts them at the measured grid). Two jobs it does well and one it
+does not:
+
+* it turns five clusters of *players* into five *agents*, needing one frame;
+* it says who is ALIVE per frame, which is an external check on identification
+  with no hand labels behind it -- 70 of 71 provisional labels name an agent the
+  roster shows alive at that instant, against a 77% chance rate. Over all 120
+  namings of the five clusters the labelling ranks first at 98.6%, but the
+  runner-up is 97.2%, one observation behind: **corroboration, not proof**;
+* it is a poor template source, and the reason is Grant's (below): the enemy
+  side of the roster draws its art MIRRORED. Even flipped back it tops out at
+  74.6% with the crop fitted to the answers. But Grant also says the minimap
+  icon is a **circular crop of the same art at a consistent size and scale**,
+  which means a fixed transform exists and I swept the wrong family. Fitting it
+  against an unmirrored surface -- the Tab scoreboard, which `scoreboard.py`
+  already locates -- would mean **a gallery mined once per agent transfers to
+  every session**, and a new capture needs no labelling at all. That is worth
+  more than the 18 points.
+
+Roster geometry, measured at 1920x1080: enemy slot k at
+x = 1175 + 65.75k, y 30..70, 40 px square, slot 0 nearest the scoreline.
+Survivors PACK toward the scoreline keeping team order, so slot index is not
+identity -- the sequence is.
+
 ### Grant's domain notes on the minimap -- not recoverable from the pixels
 
 * **A Cypher cam ROTATES**, and it is the **only other moving icon** on the
@@ -102,8 +183,15 @@ enemy is present now" without checking it.
   1-2 px for the rest of the ring, so it is both the most robust part and the
   part carrying identity. A cam has a ring and no triangle.
 * **The interior portrait is the same art as the KILLFEED portrait and the top
-  roster portrait** (not the Tab scoreboard). Route to identification; see
-  "NEXT SESSION" above.
+  roster portrait.** Route to identification, and it works -- see "Portrait
+  identification works" above. Two corrections Grant made once it was measured:
+  **the ENEMY SIDE of the roster draws the art mirrored**, so the two teams face
+  each other, while **the Tab scoreboard and the minimap hold every agent in one
+  orientation, always**; and **the minimap icon is a circular CROP of that art,
+  not the whole bust, at a consistent size and scale**. The first explains why
+  flipping the roster art gained 11 points of matching accuracy; the second says
+  a fixed crop-and-scale transform exists to be fitted, which is what a
+  cross-session gallery needs.
 * **Omen's ultimate turns the minimap a fuzzy black for a few seconds** and is
   the ONLY ability in the game that does so; Omen also teleports globally, so
   position continuity breaks across it. Detected and abstained on rather than
@@ -113,7 +201,20 @@ enemy is present now" without checking it.
   NO answer, not a confident empty one.
 * **The local player's icon draws ON TOP of an enemy's** when they overlap.
   Deprioritised on Grant's call: only at extreme short range, where the screen
-  detector has a large unambiguous blob anyway.
+  detector has a large unambiguous blob anyway. It IS in the agent-label set --
+  Grant flagged one Jett icon mostly covered by his own in a close-range duel --
+  so identification sees the case even though detection was allowed to skip it.
+* **An ally Breach ultimate draws a big RED BAR across the minimap**, and it
+  occludes icons: Grant hit one covering the top of a question-mark icon while
+  labelling. This is the sharpest counterexample yet to the assumption the whole
+  minimap line rests on -- **red does not mean enemy**. Every red confounder
+  catalogued so far (X marks, Reyna blinds, Cypher cams, pings) is small and
+  roughly icon-sized, which is why area and ring-fit gates have been enough; a
+  bar is large, is drawn by YOUR OWN TEAM, and lands on top of real icons rather
+  than beside them. Consequences to check, none of them measured yet: it may
+  survive `floor_mask`, it is the wrong shape for `fit_ring` but could still
+  supply a stray arc, and for the portrait descriptor it is occlusion the red
+  mask happens to remove for free. Not in any label set as its own class.
 
 **Profile: `valorant-16x9-bigmap`.** The enlarged widget spans px 15..480 x
 15..500 against the old 15..346 x 22..351, so the shipped `minimap` ROI missed
@@ -137,13 +238,27 @@ do not, and no explanation survived testing. The obvious one -- the outline fade
 with age -- is unsupported but the test is underpowered, because the killfeed
 timestamps deaths without locating them and so cannot age an individual body.
 
-Last worked 2026-08-26. **Fifteen sessions ingested, fifteen with scoreboard
-K/D in `checks.KNOWN_KD`, and every one carries its map.** Fourteen are
-scorable (`0f08b3dc3777` is the cropped capture and has no killfeed ROI). The
-store is at **`hud-0.8.1`** throughout. **Nine of thirteen are exact and the gap is 8 events across 372.** Five of the
+Last worked 2026-08-26. **Seventeen sessions ingested, seventeen with
+scoreboard K/D in `checks.KNOWN_KD`, and every one carries its map.** Sixteen
+are scorable (`0f08b3dc3777` is the cropped capture and has no killfeed ROI).
+The store is at **`hud-0.8.1`** throughout. **Nine of thirteen are exact and the gap is 8 events across 372.** Five of the
 eight are Run It Back (see "Scoreboard divergence is a finding" below), one is
 the ability-kill read error, and two are new and uninvestigated — see below.
 Long tracks are 0. Nothing is half-applied and the tree is clean.
+
+**`5822b6646448` (Lotus, 13/21) is EXACT with no invariant violations**, and it
+is fully out-of-sample: recorded 2026-08-26 after the widget change, ingested
+and scored the same day, nothing tuned against it. It is the second capture on
+the enlarged minimap and the first on a map that widget has not seen, which is
+the test the icon work most needs. `c62c2b06bcfb` (Split, 13/15) is **kills exact, deaths -1**,
+with 5 invariant violations and both open. The violations look like one cause,
+not five: the scoreline reads a two-digit score as one digit twice
+(0:06:51 12 -> 2, 0:31:43 12 -> 1) and recovers within 3.5s each time, so the
+two decreases and the two illegal sum steps are the same event counted from
+both sides. The 4.5s clock jump at 0:00:03 is pre-match. Neither the -1 death
+nor the dropped digit has been investigated; a Split lineup has not been seen
+at this widget size before. Both were confirmed `valorant-16x9-bigmap` before ingest by
+measuring the floor slab — it reaches x 452 / 458 against the old widget's 346.
 
 **Ground truth is now corroborated.** Grant read his whole match history on
 2026-08-25 and every K/D already transcribed off the end screens agreed, so
