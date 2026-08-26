@@ -98,12 +98,50 @@ Two more recall classes, both newly isolated and neither addressed:
   and the enemy is still lost, so shape, aspect or the closing is discarding a
   well-found enemy. Unexplained.
 
+**SETTLED 2026-08-26: the enlarged minimap fixes the seal, and 4:2:0 undoes it.
+Measured against real killfeed kills, so the anchor is sound this time.**
+
+Rendering the minimap 800 ms before each of the 21 tracked kills gives a
+contact sheet where an enemy icon is visible **by eye in most of them** — so the
+premise holds in the strong form, not just the "there is red somewhere" form.
+The finder fired on **1 of 21**. The finder is what is broken, not the premise.
+
+Why, measured at four of those kills. Blobs of exactly icon size ARE found —
+126-238 px at 14x19 to 30x21 — and then die on the seal:
+
+    lossless, enlarged widget    hole_frac 0.69     seals cleanly
+    4:2:0,    enlarged widget    hole_frac 0.00-0.09
+
+Lowering the saturation cut to 85 and then 70 does not rescue it, with or
+without the floor mask. **The ring's ~2 px band does not survive half-resolution
+chroma**, so the portrait interior is never enclosed and the one feature that
+separates an enemy icon from a red X mark is gone. This is exactly the
+prediction made from the lossless round, now confirmed on a full match with a
+killfeed anchor rather than on a single round with no denominator.
+
+**The fallback if 4:2:0 has to stay: the triangle survives where the seal does
+not.** `lobe` fires at 1.46-3.78 on these same blobs even at 4:2:0. A finder
+built on red + icon size + lobe, with no seal requirement, is therefore possible
+— but it has not been tested against the confounder that matters, and an X mark
+has four arms, so its own angular profile is not flat. Measure it against
+labelled X marks before believing it.
+
 **INGESTED as `a06f04a0059f`** (profile `valorant-16x9-bigmap`, tags
 `map:ascent, outline:red, minimap:large, chroma:420`) — 11608 L1 rows, 58 spans.
-**It needs Grant's scoreboard K/D**, which is not yet in `checks.KNOWN_KD`;
-without it this session cannot be scored and it is the fifteenth capture in the
-set. A mid-match scoreboard visible in the probe frame reads `Me 15/10/3` at
-9-5, so the read is at least plausible.
+Grant's scoreboard K/D is **19/19**, now in `checks.KNOWN_KD`. Fully
+out-of-sample -- nothing has been tuned against it, and it is the first session
+recorded after the minimap change, so it also tests that the change cost the
+killfeed nothing.
+
+**It did not, but this is the widest gap in the set: 21/22 against 19/19,
+delta +2 kills / +3 deaths, 5 events across 43.** Not yet investigated. The
+Run It Back rule would explain deaths running HIGH against the board, which is
+the direction seen here, but no agent has been checked. `verify` also flags one
+score violation at 30:01 (`11 -> 1`), which is the known spurious-leading-1 OCR
+defect already recorded for `9acf02f98283`, not a new fault.
+
+Read rates are in line with the set: clock 47.7%, scores 48.8%, hp 85.1%,
+ammo 46.5%. Final 13-11 over 24 rounds.
 
 **The minimap line's next step is labels, and the tools are ready.**
 `prototypes/label_minimap.py` samples 70% in the 300-1400 ms before each
