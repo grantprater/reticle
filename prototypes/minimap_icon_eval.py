@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from minimap_icons import floor_mask, static_map                   # noqa: E402
 from minimap_icon_scan import candidates                          # noqa: E402
+import minimap_ring_fit as ringfit                                # noqa: E402
 
 STORE = Path.home() / "reticle-store"
 # A mark is credited to a detection whose box contains it, or which lands within
@@ -61,6 +62,9 @@ def main() -> int:
     ap.add_argument("session")
     ap.add_argument("--premise-only", action="store_true")
     ap.add_argument("--sat", type=int, default=100)
+    ap.add_argument("--finder", choices=("seal", "ring"), default="seal",
+                    help="seal = hole test (minimap_icon_scan); "
+                         "ring = arc-coverage fit (minimap_ring_fit)")
     args = ap.parse_args()
 
     lab_path = STORE / "labels" / "minimap" / f"{args.session}.jsonl"
@@ -120,7 +124,13 @@ def main() -> int:
         ok, fr = cap.read()
         if not ok:
             continue
-        cs = candidates(fr[y0:y1, x0:x1], floor, sat_min=args.sat)
+        if args.finder == "ring":
+            cs = [{"box": (f["cx"] - f["r"], f["cy"] - f["r"], 2 * f["r"], 2 * f["r"]),
+                   "xy": (f["cx"], f["cy"])}
+                  for f in ringfit.find(fr[y0:y1, x0:x1], floor, sat_min=args.sat)
+                  if ringfit.is_icon(f)]
+        else:
+            cs = candidates(fr[y0:y1, x0:x1], floor, sat_min=args.sat)
         pool = st[r["pool"]]
         used = set()
         for m in [m for m in r["marks"] if m["kind"] == "enemy"]:
