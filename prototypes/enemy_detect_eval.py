@@ -3,8 +3,35 @@
     python prototypes/enemy_detect_eval.py <session> [thr k area hmin ck]
 
 Best measured, on 149 hand-labelled frames / 46 labelled enemies of
-9acf02f98283: **93.5% recall, 35.0% precision.** One session, one enemy-outline
-colour setting; nothing here has been tested across sessions yet.
+9acf02f98283:
+
+    detect() alone, single frame        91.3% recall, 41.2% precision
+    + track_filter() over a sequence    91.3% recall, 48.8% precision
+
+Scored on LABELS, not on tracks -- a label hit by two detections survives losing
+one, so these do not match the per-detection tables further down.
+
+The knobs are not independent and the whole curve is worth seeing before picking
+a point:
+
+    TOP1  MINTRACK   recall  precision
+    off      1        93.5%     35.0%     <- no filtering
+    off      3        93.5%     42.2%     <- persistence is FREE
+    0.90     3        91.3%     48.8%     <- shipped
+    0.60     3        84.8%     57.4%
+    0.60     5        78.3%     65.5%     <- best F1, but a third of enemies gone
+
+**Persistence at len>=3 costs no recall at all.** If only one filter is wanted,
+it is that one; TOP1 trades 2.2 points of recall for 6.6 of precision.
+
+99% precision is not reachable this way, and it is worth being concrete about
+why: it means removing 79 of 80 false positives, where these filters remove 26
+at no recall cost. The best precision available at >=90% recall is 48.8%. The
+route to substantially better is not a sharper threshold on a blob -- it is a
+signal that rejects whole FRAMES, and the minimap is the candidate (see below).
+
+One session, one enemy-outline colour setting; nothing here has been tested
+across sessions yet, and every cut point is fitted to this one.
 
 The outline is red THROUGH MAGENTA, not red
 -------------------------------------------
@@ -370,6 +397,15 @@ WEAP = (0.50, 0.66)
 # UI box finder
 SCALE, GRAD, TOL, PAD = 4, 10, 12, 6
 MINRUN, MINROWS, MINSPAN = 380, 3, 15
+# Fragmentation: an enemy's rim shatters into many pieces with no dominant one,
+# a false positive concentrates its mass in one. Reject a blob whose largest
+# piece holds more than this share of the raw rim. 0.90 is deliberately mild --
+# it costs 2.2 points of recall for 6.6 of precision; 0.60 is much sharper
+# (recall 84.8%, precision 57.4%) but the cut is fitted to one session.
+TOP1 = 0.90
+# Persistence, applied by track_filter() over a sequence -- NOT by detect(),
+# which sees one frame. len>=3 costs no recall at all.
+MINTRACK, TRACK_GAP, TRACK_GATE = 3, 2, 90.0
 # At 29:54 the enemy was already dead -- bad ground truth, not a detector miss.
 BAD_LABELS = {29*60 + 54}
 
@@ -451,11 +487,20 @@ def detect(fr):
     # Join the rim into ONE region before measuring it: it is broken by the body,
     # by limbs and by occlusion. A human is taller than wide, so the kernel is.
     m = cv2.morphologyEx(keep.astype(np.uint8), cv2.MORPH_CLOSE, CKER)
-    n, _lbl, st, _cen = cv2.connectedComponentsWithStats(m, 8)
+    n, lbl, st, _cen = cv2.connectedComponentsWithStats(m, 8)
     out = []
     for i in range(1, n):
         x, y, bw, bh, ar = st[i]
         if ar < AREA or bh < HMIN: continue
+        # Fragmentation, measured on the RAW rim inside this component -- the
+        # closing above deliberately destroys the very structure this reads, so
+        # it must come from `keep`, not from `m`.
+        raw_i = (keep & (lbl == i))[y:y+bh, x:x+bw].astype(np.uint8)
+        a_raw = int(raw_i.sum())
+        if a_raw >= 10:
+            fn_, _fl, fst, _fc = cv2.connectedComponentsWithStats(raw_i, 8)
+            top1 = (fst[1:, 4].max()/a_raw) if fn_ > 1 else 1.0
+            if top1 > TOP1: continue
         # Shape tests only where the shape exists. A sliver of an enemy has no
         # interior to be hollow, and demanding one filters out precisely the
         # detections that matter most.
@@ -482,6 +527,69 @@ def body_box(px, py):
 def hits(px, py, x, y, bw, bh):
     bx0, by0, bx1, by1 = body_box(px, py)
     return not (x > bx1 or x+bw < bx0 or y > by1 or y+bh < by0)
+
+
+def _world_grey(fr):
+    """Grey patch for camera-motion estimation: world only.
+
+    The HUD does not move with the camera, so including it drags the estimate
+    toward zero. Which patch of world barely matters -- a wide one and a tight
+    one around the crosshair gave the same answer -- so this takes the wide one.
+    """
+    h, w = fr.shape[:2]
+    g = cv2.cvtColor(fr[int(0.20*h):int(0.75*h), int(0.15*w):int(0.85*w)],
+                     cv2.COLOR_BGR2GRAY)
+    g = cv2.resize(g, (g.shape[1]//4, g.shape[0]//4), interpolation=cv2.INTER_AREA)
+    return np.float32(g) * cv2.createHanningWindow((g.shape[1], g.shape[0]), cv2.CV_32F)
+
+
+def track_filter(frames, dets_per_frame):
+    """Keep only detections belonging to a track of at least MINTRACK samples.
+
+    Persistence is the temporal signal that works; relative motion is not
+    recoverable from a fragmentary rim and five attempts at it are recorded
+    above. Two details are load-bearing and both were bugs first:
+
+    * gap tolerance -- the detector fires on a real enemy in a median of 9 of 11
+      samples but NOT contiguously, so extending tracks only from the previous
+      sample shreds one enemy into several short tracks;
+    * the camera shift is ADDED to the prediction. Subtracting it doubles the
+      error during fast pans and flattens the signal to a diagonal -- 86% of
+      enemies against 84.9% of false positives, i.e. nothing.
+
+    Returns a list parallel to dets_per_frame, filtered.
+    """
+    greys = [_world_grey(f) for f in frames]
+    shifts = [cv2.phaseCorrelate(greys[i], greys[i+1])[0] for i in range(len(greys)-1)]
+    tracks = []
+    for i, cur in enumerate(dets_per_frame):
+        cents = [(d[0]+d[2]/2, d[1]+d[3]/2) for d in cur]
+        taken = set()
+        for t in tracks:
+            last = t["pts"][-1][0]
+            gap = i - last
+            if gap <= 0 or gap > TRACK_GAP + 1: continue
+            px, py = t["pts"][-1][1], t["pts"][-1][2]
+            dx = sum(shifts[k][0] for k in range(last, i)) * 4
+            dy = sum(shifts[k][1] for k in range(last, i)) * 4
+            best, bd = None, TRACK_GATE * gap
+            for j, (cx, cy) in enumerate(cents):
+                if j in taken: continue
+                d = np.hypot(cx - (px + dx), cy - (py + dy))
+                if d < bd: best, bd = j, d
+            if best is not None:
+                taken.add(best)
+                t["pts"].append((i, *cents[best])); t["idx"][i] = best
+        for j, c in enumerate(cents):
+            if j not in taken:
+                tracks.append({"pts": [(i, *c)], "idx": {i: j}})
+    keep = [set() for _ in dets_per_frame]
+    for t in tracks:
+        if len(t["pts"]) >= MINTRACK:
+            for i, j in t["idx"].items():
+                keep[i].add(j)
+    return [[d for j, d in enumerate(ds) if j in keep[i]]
+            for i, ds in enumerate(dets_per_frame)]
 
 
 def main() -> int:
