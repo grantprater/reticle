@@ -52,8 +52,14 @@ Three things found while labelling, all Grant's, all recorded below:
   barrier is the easiest signal in this document;
 * **the size gate is fitted to icons**, so smokes, walls and ultimates are cut
   outright. `8 area` and `9 barrier` are now separate classes;
-* a few barriers labelled `nothing` before `9` existed. `nothing` is very
-  slightly contaminated in the buy-phase rows.
+* ~~a few barriers labelled `nothing` before `9` existed~~ **fixed.** Sweeping
+  all 148 `nothing` rows for strong green or red within 12 px gave 16 hits;
+  Grant identified exactly two as barriers, both ally green, and corrected rows
+  supersede them by the last-write-wins convention. No number moved. Of the
+  other fourteen he said: *most of the rest of those are "problem areas" of the
+  map I noticed before with high misfire rates* -- so a colour sweep finds the
+  high-traffic zones, which is what the viewcone story predicts, since a cone
+  is where the coloured things are.
 
 *Previous handoff, resolved 2026-08-26:* portrait identification is built and
 measured. Two things gated it and both are now done:
@@ -525,6 +531,11 @@ stream at 2.5+ -- but those 55 are ENEMY icons, and a Sage or Viper wall is
 drawn on the minimap as a long thin shape. Filtering on it before the labels
 exist would delete exactly the abilities the pass is for. It is stored per row
 as `aspect` and asked of the labels afterwards instead.
+
+The labels settled it three times over: a **ping** is an expanding ripple whose
+fragments are thin arcs, an **area** ability is a wall, and the corrected
+**barrier** at t=1041958 has an aspect of **9.50**. Every one would have been
+deleted by a filter that looked decisive at 0 of 55 enemy icons over 2.0.
 
 Note on the primitive, since I described it loosely once: **the shipped detector
 fits a CIRCLE**, scored by how much of its circumference is red, plus a non-red
