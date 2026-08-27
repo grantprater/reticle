@@ -183,21 +183,47 @@ measured. Two things gated it and both are now done:
 
 Two smaller threads left open, both cheap:
 
-* ~~**label Cypher cams specifically.**~~ **CLOSED 2026-08-27, and not by
-  labelling: there is no Cypher in `a06f04a0059f`.** Two `glance` sheets over 30
-  of the 144 `other_red` marks found **zero cams** -- 19 death marks, 3 of a
-  recurring pink-triangle-on-a-ring object, 4 occluded, 4 controls all hit -- and
-  the roster portrait strip has no Cypher on either team. So `LOBE_MIN_FRAC`
-  cannot be tested on the only session that has minimap labels, and the cam case
-  stays UNTESTED for a reason that no amount of work on this session would have
-  fixed. What `other_red` actually IS, on this session, is **death marks**: that
-  is the class `minimap_ring_fit` is really competing with, not cams.
-  **Two things for Grant**, both seconds of his time: confirm no Cypher played
-  (I read the portrait strip at 0.85, and this is the domain my own log says I am
-  worst at), and say what the **pink triangle with a black outline, sometimes on
-  a pink ring**, is -- it appeared 4 times in 30 marks and is in no class list
-  here. Killjoy is on the enemy team, so Nanoswarm or Alarmbot is the guess.
+* **label Cypher cams specifically -- MOVED TO LOTUS, and to the other
+  channel.** Two corrections on 2026-08-27, in order. First: `a06f04a0059f` has
+  **no Cypher** (Grant confirmed), so the cam case was never runnable there, and
+  two `glance` sheets over 30 of its 144 `other_red` marks duly found zero cams
+  (19 death marks, 3 warning pings, 4 occluded, 8/8 controls). Second, and the
+  reason those sheets were the wrong instrument anyway: **a cam glyph is black
+  and white, so it lives in the COLOUR-FREE channel, not the red mask.** Looking
+  for cams in `other_red` could not have worked whoever was on the roster.
+  `5822b6646448` (Lotus) **does** have a Cypher, and it is the session already
+  queued for the labelling pass -- so the cam question and the ability pass are
+  the same errand now.
+  The premise that needs re-examining is the one in `minimap_ring_fit`:
+  `LOBE_MIN_FRAC` was added to stop *a cam* passing the motion filter, which
+  assumes cams reach the red mask at all. Check that against Lotus before
+  trusting the constant.
   Reproduce: `prototypes\glance_cams.py a06f04a0059f --seed 3` and `--seed 91`.
+
+* **Positional persistence separates map-static objects from deployed ones, for
+  free.** Same detector, same size and shape gate (area 200-420, aspect <= 1.25),
+  200 frames each:
+
+      ascent  91 disc-like   66 of 91 at TWO positions, spanning 1222s and 966s
+      lotus   90 disc-like   24 of 90 at the top two, every cluster 30-90s long
+
+  Ascent's dominant object holds one pixel for the whole match; Lotus's live
+  about a round and move. **No new pixels are needed to tell those apart**, and
+  the two features the ability classifier is being fitted on -- host span and
+  top-hat peak -- are both per-blob appearance. This is a third feature, it is
+  free, and it needs no labels.
+
+* **THE ONE THAT CHANGES THE NEXT STEP: Grant's `ability` class is mostly one
+  static object.** 33 of his 53 `ability` rows sit within 6 px of (137,170), from
+  t=30s to t=1252s; another 12 sit at (96,180). **44 of 53 (83%) are two fixed
+  map positions.** So the 77% recall / 96% precision operating point is
+  overwhelmingly measuring whatever sits at those two spots, not deployed
+  utility -- the ground-truth-population trap again, in the class the classifier
+  is about to be fitted on. **Split the class before fitting.** At 10x there are
+  at least THREE visually distinct disc glyphs passing the same gate, so
+  `ability` is hiding a taxonomy, not a variance.
+  Awaiting Grant on the identities:
+  `scratchpad/correspond-20260827-103122-ee66.png`.
 * **`a06f04a0059f` is +2 kills / +3 deaths** against Grant's 19/19, the widest
   gap in the set, uninvestigated. Run It Back would explain deaths running high,
   which is the direction seen, but no agent has been checked.
