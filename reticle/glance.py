@@ -309,6 +309,7 @@ def build(items: list[Item], *, question: str, classes: list[str],
           kind: str = "present", scope: str = "per_item", zoom: int = 4,
           pad: int = 20, cols: int = 6, truth_source: str = "",
           extra_panels: list[np.ndarray] | None = None,
+          control_population: str = "", item_population: str = "",
           domain: str = "vision", seed: int | None = None) -> Sheet:
     """Render a sheet, shuffling controls in among the open items.
 
@@ -346,6 +347,18 @@ def build(items: list[Item], *, question: str, classes: list[str],
                      "box": list(it.box), "void_frac": round(vf, 4)})
     if extra_panels:
         panels.extend(extra_panels)
+    # CONVENTION, ENFORCED: check that ground truth comes from the same
+    # population as the thing being filtered. *0 of 55 hand-marked icons
+    # have aspect >= 2.0* was a perfect measurement over the wrong
+    # population, and the cam sheets drew controls from `enemy` marks
+    # while asking about `other_red` -- a floor, not a ceiling, and it was
+    # only ever noted in prose. Now the sheet says so on its own face.
+    pop_mismatch = bool(control_population and item_population
+                        and control_population != item_population)
+    if pop_mismatch:
+        warnings.append(f"controls are {control_population!r} but the open "
+                        f"items are {item_population!r}: this measures a "
+                        f"FLOOR, not a ceiling")
     if zoom < 1:
         warnings.append(f"minified to {zoom}x -- detail destroyed, do not read fine structure")
     if void_hits:
@@ -361,6 +374,9 @@ def build(items: list[Item], *, question: str, classes: list[str],
         "domain": domain, "zoom": zoom, "pad": pad,
         "n_items": len(items), "n_controls": len(controls),
         "truth_source": truth_source, "items": meta,
+        "control_population": control_population,
+        "item_population": item_population,
+        "population_mismatch": pop_mismatch,
         "built": time.strftime("%Y-%m-%dT%H:%M:%S"), "warnings": warnings,
     }
     return Sheet(sheet_id, kind, question, classes, scope, img, order,
@@ -447,6 +463,14 @@ def answer(sheet_id: str, answers: dict[str, str], *, confidence: float,
             f"truth_source is {src!r}: the controls are my own prior claims, so "
             "this sheet cannot measure anything. See 'never seed the file'.")
 
+    # CONVENTION, MADE OBSERVABLE: predict before you look. A prediction is
+    # OPEN when it was recorded with outcome=None; answering a sheet with none
+    # open for its domain means the look came first. This does not refuse --
+    # refusing blocks work and teaches nothing -- it RECORDS, so the convention
+    # can finally be evaluated instead of merely asserted.
+    from . import judgement
+    predicted_first = bool(judgement.open_predictions(manifest.get("domain", "vision")))
+
     hits, misses, skipped = [], [], []
     for disp, truth in key.items():
         got = answers.get(disp)
@@ -491,6 +515,8 @@ def answer(sheet_id: str, answers: dict[str, str], *, confidence: float,
             # `ontology` when the sheet decides what KIND of thing exists,
             # which is the expensive case and the overconfident one.
             "level": level, "rests_on": list(rests_on), "cost": cost,
+            "predicted_first": predicted_first,
+            "population_mismatch": manifest.get("population_mismatch"),
         }) + "\n")
     return rec
 
