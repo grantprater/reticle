@@ -85,6 +85,7 @@ map, and Split's void is darker only because of what renders behind it.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -150,6 +151,23 @@ PLANT_MIN_AREA = 500
 # off. Lines are 1-2 px, so this has to clear the line itself and land on what
 # is beyond it.
 PROBE = 4
+
+
+def source_stamp():
+    """A hash of THIS FILE, stamped into every npz it writes.
+
+    A cached derived artefact that does not say what made it hides a regression
+    until someone happens to run the input that exposes it. Measured cost of not
+    having this, 2026-08-26: widening the plant test grew a third "bomb site" on
+    Split -- a 10921 px blob of brown void -- and nothing noticed, because
+    Split's npz was months stale and the two maps anyone was looking at were
+    fine. It surfaced only because the file got rebuilt for unrelated reasons.
+
+    Hashing the whole module is deliberately blunt: it will report stale after a
+    comment change, which costs one rebuild, and it can never report fresh after
+    a threshold change, which is the failure that matters.
+    """
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
 def classify(med):
@@ -285,8 +303,9 @@ def main() -> int:
 
     out = STORE / "geometry" / f"{args.session}.npz"
     out.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(out, labels=lab, static=med, roi=np.array([x0, y0, x1, y1]))
-    print(f"  wrote {out}")
+    np.savez_compressed(out, labels=lab, static=med, roi=np.array([x0, y0, x1, y1]),
+                        built_by=np.array(source_stamp()))
+    print(f"  wrote {out}  (stamp {source_stamp()[:8]})")
     if args.sheet:
         cv2.imwrite(args.sheet, render(med, lab))
         print(f"  wrote {args.sheet}")

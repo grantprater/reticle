@@ -1421,6 +1421,51 @@ scrubbing an overlay video, and it is the right tool whenever the question is
 
 ## Conventions that are load-bearing
 
+**Ask Grant before deriving, when he can just look.** The searchable mask was
+derived and re-derived five times on 2026-08-26, each attempt measured and
+plausible and wrong, and he named the defect by eye every time in seconds.
+`paint_map.py` settled it in one pass and the result transferred to a second map
+at 92.8% IoU. The project's own history says the same thing more quietly: every
+stage that works was preceded by a labelling pass. **On the FIRST failure of a
+perceptual question, build the tool that asks him** -- not the fifth.
+
+**In vision work, look at the image before measuring it.** Rendering the
+offending candidate took one tool call and settled what three analysis scripts
+had not. Several dead ends that day -- two flood-fill variants, a distance-to-
+void analysis -- would have died in seconds against a picture.
+
+**Check that ground truth comes from the same population as the thing being
+filtered.** Twice on 2026-08-26 a measurement was true and misleading: *0 of 55
+hand-marked icons have aspect >= 2.0* (they were ENEMY icons; the target was
+ability glyphs, and the filter would have deleted Sage walls, ping ripples and
+spawn barriers) and *0 of 254 hand-marked icons sit on a HOLE* (nearly cut the
+holes wholesale). A perfect measurement over the wrong population gives a wrong
+conclusion with full confidence.
+
+**Stamp every cached artefact with the code that built it.** `minimap_geometry`
+writes `built_by`, a hash of itself, and `load_geometry` warns when it does not
+match. Without it, widening the plant test grew a third "bomb site" on Split --
+10921 px of brown void -- and nothing noticed, because that npz was stale and
+the two maps in use were fine. **Rebuild every session's geometry whenever
+`minimap_geometry.py` changes.**
+
+**Analysis that produces a quotable number goes in `prototypes/`, not scratch.**
+If a figure is worth putting in a commit message it will be re-run, and the next
+session should not start by rebuilding feature extraction. `dynamic_eval.py` is
+the pattern.
+
+**A label row needs the answer and enough to find the pixel again -- nothing
+more.** Features are recomputed, not stored. That is what let host span and
+top-hat peak, invented after 154 rows were answered, be applied to all of them
+for free.
+
+**Where things live, so this file does not have to repeat them.** Module
+docstrings carry why the code is as it is, and they load when the file is read;
+this file carries what you need BEFORE you know which file to open. If a fact
+would stop a mistake being repeated, it belongs here. If it explains an existing
+decision, it belongs in the docstring.
+
+
 - **Never test an absolute level against this HUD.** It is composited over
   live scenery, so any absolute threshold eventually measures the world instead
   of the widget. This is not a series of unrelated bugs, it is one property of
