@@ -109,9 +109,18 @@ COLOURS = {VOID: (40, 40, 40), FLOOR: (90, 90, 90), HOLE: (20, 20, 110),
 # absolute level is safe, and it is safe precisely because the median removed
 # everything transient.
 WHITE_V, WHITE_S = 170, 60
-# Yellow plant zones, measured on both maps at ~0.1% of the widget each.
-PLANT_H = (20, 35)
-PLANT_S, PLANT_V = 60, 90
+# Yellow plant zones. The first version -- hue 20-35, sat > 60 -- was fitted to
+# the SATURATED CORE of the paint and caught 3% of the zone; the other 97% fell
+# through to VOID, so the two bomb sites were 93% unsearchable. That is the
+# worst place on the map to be blind: 19 of 254 hand-marked icons stand inside
+# one, and a site is where utility gets thrown. The zone is opaque map, not
+# transparency -- its temporal SD is 17.9 against the lit slab's 16.6 and the
+# exterior void's 42.5 -- it simply fails `floor_mask`'s `sat < 20` because it
+# is tinted. Widened to the hue alone, with a size floor so stray yellow specks
+# (a dropped spike, the plant timer) cannot become a site.
+PLANT_H = (15, 40)
+PLANT_S, PLANT_V = 25, 90
+PLANT_MIN_AREA = 500
 # How far to look either side of a white pixel when asking whether the grey cuts
 # off. Lines are 1-2 px, so this has to clear the line itself and land on what
 # is beyond it.
@@ -147,6 +156,33 @@ def classify(med):
 
     white = (v >= WHITE_V) & (s < WHITE_S)
     plant = (h >= PLANT_H[0]) & (h <= PLANT_H[1]) & (s > PLANT_S) & (v > PLANT_V)
+    # Close and keep only the large components, then fill what they enclose:
+    # Grant, on what is inside a zone -- the site letters are a very dark grey,
+    # almost black, always against the yellow. They are opaque map like the
+    # paint around them, and they are holes in the hue mask, so filling the
+    # zone is what keeps A, B (and C, on a three-site map) searchable.
+    #
+    # A component must also TOUCH THE FLOOR, which is not a formality: widening
+    # the hue caught the agent HUD in the top-right corner as a third "site",
+    # 34x68 over the churning void at a temporal SD of 42.5, and it alone
+    # produced 102 of the 116 colour-free blobs the three zones contributed.
+    # The two real sites gave 9 and 5, at SD 13.8 and 17.8. Same corner and the
+    # same fix as `minimap_icons.floor_mask`, which drops that HUD by taking the
+    # largest component: a bomb site is part of the map, so it adjoins the map.
+    near_floor = cv2.dilate(fl8, np.ones((5, 5), np.uint8)) > 0
+    pz = cv2.morphologyEx(plant.astype(np.uint8), cv2.MORPH_CLOSE,
+                          np.ones((15, 15), np.uint8))
+    nz, zl, zst, _ = cv2.connectedComponentsWithStats(pz, 8)
+    plant = np.zeros_like(plant)
+    for i in range(1, nz):
+        comp = (zl == i)
+        if zst[i, 4] < PLANT_MIN_AREA or not (comp & near_floor).any():
+            continue
+        c8 = comp.astype(np.uint8)
+        ff = c8.copy()
+        m2 = np.zeros((ff.shape[0] + 2, ff.shape[1] + 2), np.uint8)
+        cv2.floodFill(ff, m2, (0, 0), 1)
+        plant |= comp | (ff == 0)                   # the paint, plus its letter
 
     # Grant's test -- does the grey cut off? -- asked against the EXTERIOR the
     # flood fill already found, rather than by probing for floor on both sides.

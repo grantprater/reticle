@@ -114,7 +114,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle.profiles import get_profile                          # noqa: E402
-from minimap_geometry import BORDER, BOXEDGE, VOID                # noqa: E402
+from minimap_geometry import BORDER, BOXEDGE, PLANT, VOID         # noqa: E402
+from minimap_icons import floor_mask                              # noqa: E402
 from minimap_temporal import usable                               # noqa: E402
 
 STORE = Path.home() / "reticle-store"
@@ -160,8 +161,42 @@ def blob_colour(bgr, mask):
     return (best, frac) if frac >= 0.08 else ("none", frac)
 
 
-def searchable(labels, guard_px=LINE_GUARD, guard_boxedges=False):
-    """Where a detection is allowed to be: the footprint, minus the lines.
+def searchable(labels, guard_px=LINE_GUARD, guard_boxedges=False, static=None):
+    """Where a detection is allowed to be.
+
+    Pass `static` and the answer is one line: **the opaque slab, plus the bomb
+    sites.** That is not a simplification of the rule below, it replaces it, and
+    it came from asking Grant to paint the mask by hand (`paint_map.py`) after
+    he had caught five separate defects in the derived one by eye. Scored
+    against his painting:
+
+        slab + sites, no guard              IoU 91.3%   241 of 254 marks
+        slab + sites, border guard 1px      IoU 89.4%   227
+        slab + sites, border guard 3px      IoU 83.9%   211
+        + the floor mask's dilation ring    IoU 76.4%   220
+        Grant's own painting (ceiling)      IoU  100%   227
+
+    Everything the derived version had accumulated -- an exterior flood fill, a
+    dilation fringe scoped to it, a hole rule, a pocket rule, a per-region
+    threshold -- was machinery for deciding which SEE-THROUGH areas to keep. He
+    kept none of them: 0.0% of the holes, 0.0% of the exterior, 7.3% of the
+    overhang ring. The question was never which transparency is tolerable.
+
+    **`guard_px` is not applied when `static` is given, and that is the
+    surprise.** The module opens by saying the white lines are where the false
+    positives live -- 107 blobs against the red mask's 7 on `c62c2b06bcfb` --
+    and the guard has been in since. Measured on the slab: a white line is the
+    QUIETEST thing on the widget, temporal SD 7.4 against plain slab's 17.1, so
+    a noise-matched threshold there would be 12, not 28. The flicker was never
+    the line. It was the void beside the line, and the guard was charging the
+    line for its neighbour's noise. Grant painted over 71% of the box edges and
+    47% of the borders, which is what a person does when the line is just map.
+
+    Icons stand on those lines: dropping the guard takes reachable hand-marked
+    centres from 211 to 241 of 254, and the stream stays at 278.
+
+    The old rule remains for `static=None` callers, unchanged, so every number
+    measured against it still holds:
 
     `guard_boxedges` defaults FALSE, measured rather than cautious. Guarding box
     edges as well as borders is the obvious reading of "the lines are where the
@@ -171,6 +206,9 @@ def searchable(labels, guard_px=LINE_GUARD, guard_boxedges=False):
     red finder's 80.8%. Most of what it excluded was ordinary floor with icons
     standing on it.
     """
+    if static is not None:
+        # dilate=1 is the slab itself; a 0-wide kernel is an error, not a no-op.
+        return floor_mask(static, dilate=1) | (labels == PLANT)
     lines = (labels == BORDER)
     if guard_boxedges:
         lines = lines | (labels == BOXEDGE)
@@ -178,6 +216,21 @@ def searchable(labels, guard_px=LINE_GUARD, guard_boxedges=False):
         lines = cv2.dilate(lines.astype(np.uint8),
                            np.ones((2 * guard_px + 1,) * 2, np.uint8)) > 0
     return (labels != VOID) & ~lines
+
+
+def painted_mask(sid):
+    """Grant's hand-painted searchable mask for a session, if he has made one.
+
+    Ground truth where it exists, but NOT automatically better than the derived
+    rule: his own words on the first one were *that's not even close to pixel
+    perfect ... but that's the gist*, and it reaches 227 of 254 hand-marked
+    centres where the rule it produced reaches 241. Use it to score a rule, not
+    to run detection.
+    """
+    p = STORE / "labels" / "map_mask" / f"{sid}.png"
+    if not p.is_file():
+        return None
+    return cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) > 127
 
 
 # Top-hat kernel, in pixels. Must be comfortably LARGER than an icon (16-27 px
