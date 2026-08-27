@@ -29,6 +29,7 @@ loads when a session touches that directory.
 - [Scoreboard divergence is a finding, not an error](#scoreboard-divergence-is-a-finding-not-an-error)
 - [Open design question: engagements without a kill](#open-design-question-engagements-without-a-kill)
 - [Debugging what the extractors see](#debugging-what-the-extractors-see)
+- [Asking myself a perceptual question](#asking-myself-a-perceptual-question)
 - [Open defects](#open-defects)
 - [Before ingesting any new capture](#before-ingesting-any-new-capture)
 - [Conventions that are load-bearing](#conventions-that-are-load-bearing)
@@ -150,10 +151,21 @@ measured. Two things gated it and both are now done:
 
 Two smaller threads left open, both cheap:
 
-* **label Cypher cams specifically.** `LOBE_MIN_FRAC` was added to stop a cam
-  passing the motion filter, and the cam case is still UNTESTED -- nothing in the
-  label set says which `other_red` marks are cams. A cam is a perfect circle, so
-  it is likely a strong ring-fit candidate on coverage alone.
+* ~~**label Cypher cams specifically.**~~ **CLOSED 2026-08-27, and not by
+  labelling: there is no Cypher in `a06f04a0059f`.** Two `glance` sheets over 30
+  of the 144 `other_red` marks found **zero cams** -- 19 death marks, 3 of a
+  recurring pink-triangle-on-a-ring object, 4 occluded, 4 controls all hit -- and
+  the roster portrait strip has no Cypher on either team. So `LOBE_MIN_FRAC`
+  cannot be tested on the only session that has minimap labels, and the cam case
+  stays UNTESTED for a reason that no amount of work on this session would have
+  fixed. What `other_red` actually IS, on this session, is **death marks**: that
+  is the class `minimap_ring_fit` is really competing with, not cams.
+  **Two things for Grant**, both seconds of his time: confirm no Cypher played
+  (I read the portrait strip at 0.85, and this is the domain my own log says I am
+  worst at), and say what the **pink triangle with a black outline, sometimes on
+  a pink ring**, is -- it appeared 4 times in 30 marks and is in no class list
+  here. Killjoy is on the enemy team, so Nanoswarm or Alarmbot is the guess.
+  Reproduce: `prototypes\glance_cams.py a06f04a0059f --seed 3` and `--seed 91`.
 * **`a06f04a0059f` is +2 kills / +3 deaths** against Grant's 19/19, the widest
   gap in the set, uninvestigated. Run It Back would explain deaths running high,
   which is the direction seen, but no agent has been checked.
@@ -624,6 +636,62 @@ with its timestamp. Twenty-four rows fit in a single glance, which is how the
 four Phoenix marks on `ff636d173b07` were found and counted. Far cheaper than
 scrubbing an overlay video, and it is the right tool whenever the question is
 "which of these entries carries X" rather than "what happened at time T".
+
+## Asking myself a perceptual question
+
+`reticle/glance.py` is one fixed encoding for every perceptual question in this
+repo, and `prototypes/glance_cams.py` is the first thing built on it. Read its
+module docstring before building a new debug view; the short version is why it
+exists at all:
+
+**`notes/predictions.jsonl` says claims about what a rendered image contains
+were 5 of 5 WRONG at a mean stated confidence of 0.85.** Five-for-five wrong is
+not a bandwidth failure -- bandwidth failures produce uncertainty, not confident
+wrongness. Two things cause it, and only one of them is about pixels:
+
+* **acuity against feature size.** The enemy rim is 1-4 px; a whole 1080p frame
+  arrives downsampled to roughly a thousand tokens, so the thing this project
+  measures is below the delivered sensory floor. The fix is magnification at a
+  STATED factor, not a bigger image. A 200x200 crop at 4x costs about what the
+  full frame costs and resolves the rim;
+* **nothing pooled.** Every debug view here was bespoke -- the killfeed contact
+  sheet in a scratch script, `label_dynamic`'s panel layout, `paint_map`'s -- so
+  an error rate on killfeed bands said nothing about minimap glyphs and
+  calibration restarted at n=1 in every module. A fixed encoding is what makes
+  `reticle.glance calibration` a table that gets sharper across domains.
+
+**A sheet is a backdrop plus ringed items, each answered from a closed set.**
+That is the whole grammar; `present`, `which_of_k`, `boundary`, `count`,
+`correspond` and `ordering` are layouts over it, not six renderers. Invariants
+are enforced in code rather than remembered: INTER_NEAREST with the factor
+printed, a 10-source-pixel scale bar on every panel, the candidate ringed in
+every panel, off-source padding filled magenta so "no data" and "nothing here"
+cannot be confused, and structural colour reserved for the QUESTION (amber
+covered, magenta no-data, matching `overlay.py`) while domain colour stays for
+the answer.
+
+**The control is the mechanism.** Each sheet plants items whose answer is
+already known, shuffled in; the footer says how many and never which. Miss one
+and the sheet is scored VOID and its other answers are DISCARDED, not doubted --
+the finding is then that this question cannot be read at this magnification, and
+the next move is a labeller, not a threshold.
+
+    .\.venv\Scripts\python.exe -m reticle.glance --self-test      # 8 sheets, all six kinds
+    .\.venv\Scripts\python.exe -m reticle.glance calibration      # pooled, by domain and band
+
+**Controls must be someone else's labels.** `truth_source` is required and
+`answer()` refuses a `claude-*` provenance outright -- a control built from my
+own prior claim is the `minimap_agent` seeding mistake in a new costume. The cam
+sheets drew theirs from Grant's 79 `enemy` and 31 `question` marks, placed long
+before the question existed. Be honest about what that buys: controls from a
+DIFFERENT population establish a floor (can this be read at 6x at all), never a
+ceiling (is the open class separable) -- the same trap as *0 of 55 hand-marked
+icons have aspect >= 2.0*.
+
+First load, 2026-08-27: both cam sheets VALID, 8 of 8 controls hit, and the
+queued cam task closed in minutes by discovering it was unrunnable. Of six
+side predictions logged the same session, 3 right, 2 wrong, 1 couldn't-tell --
+so the `minimap` row of the calibration table now exists.
 
 ## Open defects
 
