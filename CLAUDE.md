@@ -191,6 +191,12 @@ each one is a mistake that has already been made more than once:
   the labeller skip them as done, and the number that came back was scoring my
   own clustering against itself.
 
+**Building or running a labeller? Invoke the `labelling-pass` skill first.** It
+carries the shared control layout, the append-only last-write-wins file format,
+and the mistakes each of the five labellers here made once. It is a skill rather
+than a section because it is a PROCEDURE with a clear trigger — but a skill only
+loads when invoked, so the three lessons above stay stated here in full.
+
 ## Running
 
 Always via the venv interpreter — there is no console script:
