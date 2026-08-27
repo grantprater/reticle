@@ -11,6 +11,26 @@ https://claude.ai/code/artifact/3854df28-3e45-4783-8aee-7e7f062ac461
 
 Section references in docstrings (`SS3`, `SS7`) mean §3, §7 of that doc.
 
+## Contents
+
+- [Picking up](#picking-up)
+- [Detector state, and the minimap in detail](#detector-state-and-the-minimap-in-detail)
+- [Running](#running)
+- [Pipeline status](#pipeline-status)
+- [Checking against the game's own numbers](#checking-against-the-games-own-numbers)
+- [Wallbangs are a finding, not just a parsing problem](#wallbangs-are-a-finding-not-just-a-parsing-problem)
+- [What this is for (decided 2026-08-25)](#what-this-is-for-decided-2026-08-25)
+- [How peeking actually works, and what to measure instead](#how-peeking-actually-works-and-what-to-measure-instead)
+- [Sampling densely where it matters, without poisoning the sample](#sampling-densely-where-it-matters-without-poisoning-the-sample)
+- [The top HUD says more than it looks like](#the-top-hud-says-more-than-it-looks-like)
+- [Scoreboard divergence is a finding, not an error](#scoreboard-divergence-is-a-finding-not-an-error)
+- [Open design question: engagements without a kill](#open-design-question-engagements-without-a-kill)
+- [Debugging what the extractors see](#debugging-what-the-extractors-see)
+- [Open defects](#open-defects)
+- [Before ingesting any new capture](#before-ingesting-any-new-capture)
+- [Conventions that are load-bearing](#conventions-that-are-load-bearing)
+
+
 ## Picking up
 
 **NEXT SESSION: the labels are IN -- fit the ability classifier, then take it
@@ -36,6 +56,11 @@ below), against 35 glyphs and 55 artefacts:
     no filter                    100% recall   39% precision vs artefacts
     host span <= 40               77%          96%
     host span <= 40, tophat >=110 31%         100%
+
+    .\.venv\Scripts\python.exe prototypes\dynamic_eval.py a06f04a0059f
+
+reproduces every number in this section, and `--mask` reproduces the IoU
+figures. Start there rather than rebuilding feature extraction.
 
 Read that as promising, not settled. n is 35 positives, the thresholds are
 picked on the same rows they are scored on, and it is one session on one map.
@@ -124,6 +149,11 @@ Two smaller threads left open, both cheap:
 * **`a06f04a0059f` is +2 kills / +3 deaths** against Grant's 19/19, the widest
   gap in the set, uninvestigated. Run It Back would explain deaths running high,
   which is the direction seen, but no agent has been checked.
+
+## Detector state, and the minimap in detail
+
+Reference, not a to-do list. The handoff above says what to DO;
+this says where everything stands and why it is the way it is.
 
 ### State, 2026-08-26
 
@@ -801,6 +831,21 @@ Always via the venv interpreter — there is no console script:
 
 Default store is `~/reticle-store` (outside this repo); override with `--store`.
 `fixtures/`, `teststore/`, `probe_*/`, `frames_*/` are gitignored scratch.
+
+Prototypes are run directly, not through `-m`. The minimap ones, in the order a
+new session needs them:
+
+```
+prototypes\minimap_geometry.py <session>            # once per session; writes the npz
+prototypes\paint_map.py       <session>            # Grant paints the searchable mask
+prototypes\label_dynamic.py   <session> --colour none   # Grant answers 250 candidates
+prototypes\dynamic_eval.py    <session> [--mask]   # scores both of the above
+```
+
+`dynamic_eval.py` is the one to reach for first: no arguments beyond a session,
+it recomputes the classifier features from the labels and prints the operating
+points, and `--mask` scores the searchable rule against a painting. Neither
+needs anything rebuilt.
 
 ## Pipeline status
 
