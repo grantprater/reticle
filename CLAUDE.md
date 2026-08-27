@@ -292,14 +292,52 @@ Two smaller threads left open, both cheap:
   is one kill and one death in the unrecorded tail, not two read errors. Check
   capture completeness before quoting a K/D delta as a defect.
 
-* **NEXT, and the pixels are already cropped: the plant.** The Lotus top-HUD
-  frame at t=2206s shows the **red spike graphic centre-screen where the round
-  timer would be**, exactly as "The top HUD says more than it looks like"
-  predicted -- inside the `scoreline` ROI, needing no new ROI. `spike_planted`
-  currently finds **1 plant in 24 rounds** on Ascent via the one-sample clock
-  discontinuity, where the true figure is many times that. A state that persists
-  45 s is ~90 samples at 2 Hz and is trivial to catch. The plant is a PHASE
-  boundary, so this is what splits a round into the two games the endstate wants.
+* **DONE: the plant, at ~88% either way, from stored L1 alone.** The spike
+  graphic sits exactly where the round timer's digits are, so a planted round has
+  **no clock to read** -- and `clock_ms is None` is already in L1. The rule needs
+  no new ROI and no video re-read:
+
+      a plant is the run of unreadable clock that REACHES the round's end,
+      when it is at least as long as a defuse takes.
+
+  **The tail is the discriminator, not the length.** Over 349 rounds the
+  trailing-run histogram is 200 rounds at 0-4 s (end-of-round animation), a
+  sparse 5-19 s band, then a broad 20-45 s plateau that stops exactly at the
+  spike's 45 s fuse. The floor is a GAME RULE rather than a fitted number: **a
+  defuse takes 7 s**, so no post-plant is shorter. My first guess of 20 s cost
+  2 of 5 plants on `223d636bf8d2`, both real, at 18.5 s and 16.0 s -- fast
+  defuses missed by seconds.
+
+      old clock-jump rule       6 plants / 262 rounds
+      new rule, 20 s floor    114 plants / 349 rounds (33%), per-session 11-62%
+      new rule,  7 s floor    170 plants / 349 rounds (49%), per-session 35-57%
+
+  Validated against pixels three times with `prototypes/plant_probe.py`, all
+  sheets VALID:
+
+      9acf02f98283   tuning   recall 100%  precision 88%
+      223d636bf8d2   surprise recall  60%  precision 100%   -> found the 20s bug
+      e37fdeca944f   HELD OUT recall  88%  precision  88%
+
+  **The controls are free and non-circular**: a READABLE clock proves the graphic
+  is absent, because they occupy the same pixels, and that truth comes from
+  `ocr.py` -- a different extractor written long before this question -- not from
+  my eye and not from the rule under test.
+
+* **Two limits on the plant, both stated in `rounds.py`.** The **boundary is only
+  good to +/-5 s**, since an OCR drop can start the run before the plant: enough
+  to SPLIT a round into phases, not to time one, so **do not cut a clip on
+  `plant_t_ms`**. And the honest way to sharpen it is **audio**, which this
+  pipeline has never touched. Grant, 2026-08-27: *the spike beeping speeds up at
+  standard intervals, so that's the main way players tell how much time is left
+  in postplant.* That is not a cheaper plant flag, it is a **post-plant clock** --
+  for the one window where the pixels have no digits by construction.
+
+* **A probe that copies the rule is not a probe.** `plant_probe.py` first
+  duplicated `PLANT_MIN_MS` and the run scan, so it was validating a rule that no
+  longer matched the shipping one the moment the constant moved. It imports
+  `rounds._plant` now. Any future probe does the same: **import the thing under
+  test, never restate it.**
 
 * **A rotation-variant glyph breaks template matching.** If the cam icon rotates
   to show facing, then `minimap_portrait`'s NCC gallery approach cannot identify

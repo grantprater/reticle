@@ -33,18 +33,24 @@ Free from what is already stored:
   player's, so the earliest entry of a round is that round's first blood. If it
   is also the player's kill he took it; if it is his death he was traded out
   first. No new extractor and no name reading;
-* **which side of the scoreline is the player's** -- see `infer_player_side`.
-  Eleven sessions infer "left" independently and unanimously, so the player's
-  team is on the left; the two that abstain are the shortest matches in the set.
+* **which side of the scoreline is the player's** -- `PLAYER_SIDE`, structural
+  since 2026-08-27. The top HUD band is COLOURED BY TEAM (green ally left, red
+  enemy right), so the scoreline states it outright; `infer_player_side` is kept
+  only as a check. It used to decide, and abstained on 3 sessions, leaving `won`
+  NULL for 43 rounds -- all 23 of Lotus among them.
 
-**`spike_planted` is unreliable and should not be used yet.** The post-plant
-timer is a fixed 45 s (confirmed by Grant), so a plant is a discontinuity in the
-round clock -- but catching a one-sample jump needs two readable clock values
-straddling it, and the clock reads at only ~50% at 2 Hz. It finds 6 plants in
-262 rounds where the true figure is many times that. The fix is not a better
-threshold: a plant leaves a *persistent* state on screen for those 45 s, and a
-state that lasts 90 samples is trivial to catch where a single transition is
-not. Read the planted indicator instead of inferring the jump.
+**`spike_planted` is USABLE as of 2026-08-27, at ~88% either way.** It used to
+catch a one-sample clock discontinuity and found 6 plants in 262 rounds. It now
+reads the plant as the *persistent state* it is, and needs no new ROI and no
+video re-read: the spike graphic sits exactly where the digits are, so a planted
+round has no clock to read and `clock_ms is None` is already stored. See the
+PLANT_* block for the rule and its validation. **170 of 349 rounds (49%)**, with
+per-session rates 35-57% where the first threshold gave 11-62%.
+
+Two limits to respect. The **boundary is only good to about +/-5 s**, because an
+OCR drop can start the run before the plant -- enough to SPLIT a round into
+phases, not to time one. And `plant_t_ms` is therefore a phase marker, not an
+event timestamp; do not cut a clip on it.
 
 The plant is a **phase boundary**, not just a fact (Grant). Pre-plant and
 post-plant are different games -- attackers switch to holding, defenders must
@@ -53,10 +59,13 @@ retake -- so a round splits into two phases, and the *state at the transition*
 for everything that follows it. That is the shape the next version wants, and it
 is another reason `spike_planted` has to become reliable before it is used.
 
-Two ways in, both better than the clock jump: Grant reports a **spike icon at
-the top of the screen** once planted, which persists for the whole 45 s, and an
-**audio cue**, which this pipeline has never touched but which is a far cheaper
-signal than pixels for an event with a fixed duration.
+**Audio is the way to sharpen it, and it is still untouched.** Grant, 2026-08-27:
+*the spike beeping speeds up at standard intervals, so that's the main way
+players tell how much time is left in postplant.* That makes audio not merely a
+cheaper plant flag but **a post-plant CLOCK** -- and post-plant is the one window
+where the pixels have no digits at all, by construction. The exact-boundary
+alternative is a red-fraction test on the scoreline centre, which is trivial but
+costs a `hud` re-run over every capture.
 
 **A round ends exactly three ways** (Grant): team wipe, spike defused, spike
 detonated -- plus time expiring with no plant, which the defenders take. And the
@@ -125,6 +134,61 @@ SPIKE_STEP_MIN_MS = 6_000
 # The killfeed entry that opened a round, and the player's own entry, are the
 # same event when their track starts within this of each other.
 FIRST_BLOOD_TOL_MS = 1_500
+
+# --- the plant, read as a PERSISTENT state (2026-08-27) --------------------
+# The spike graphic replaces the round timer for the whole post-plant, so a
+# planted round has no clock to read and `clock_ms` is already None in L1. That
+# makes the plant free to detect with no new ROI and no video re-read:
+#
+#     a plant is the longest run of unreadable clock inside a round, when that
+#     run is long enough and reaches the round's end.
+#
+# Validated against pixels on 9acf02f98283 via `prototypes/plant_probe.py`:
+# 20 frames, 6 of them controls (a READABLE clock proves the graphic is absent,
+# since they occupy the same pixels -- truth from `ocr.py`, not from this rule),
+# sheet VALID at 6/6. On the 14 open frames: **recall 100%, precision 88%.**
+# Rate 145 of 349 rounds (42%) at PLANT_MIN_MS=7s, against the 6 in 262 the old
+# clock-jump rule found. Held-out recheck below.
+#
+# **The boundary is only good to about +/-5 s.** The single false positive was a
+# frame whose clock reads `1:14` to the eye while `ocr.py` returned None, so an
+# OCR drop can start the run before the plant. Good enough to SPLIT a round into
+# phases, not good enough to time one. Two ways to sharpen it, both out of scope
+# here: a red-fraction test on the scoreline centre (exact, but needs `hud`
+# re-run), or audio -- Grant reports the spike's beep speeds up at standard
+# intervals, which encodes the remaining time and is the only channel that still
+# has a clock after the digits are gone.
+# The TAIL is the discriminator, not the length: a post-plant run always reaches
+# the round's end, an OCR dropout mid-round does not. Over 349 rounds the
+# trailing-run histogram is 200 rounds at 0-4 s (the end-of-round animation),
+# a sparse 5-19 s band, then a broad 20-45 s plateau that stops exactly at the
+# spike's 45 s fuse. So the floor is set by a GAME RULE rather than fitted:
+# **a defuse takes 7 s**, so no post-plant can be shorter than that. 20_000 was
+# the first guess and it cost 2 of 5 plants on 223d636bf8d2 -- both real, at
+# 18.5 s and 16.0 s, fast defuses missed by seconds.
+PLANT_MIN_MS = 7_000
+PLANT_TAIL_MS = 2_500
+PLANT_MIN_ELAPSED_MS = 15_000
+
+
+def _plant(t, clock, a: float, z: float) -> tuple[bool, float | None]:
+    """Longest unreadable-clock run in [a, z), and whether it is a plant."""
+    best, cur, cstart = (0.0, None, None), 0, None
+    for i in range(len(t)):
+        if not (a <= t[i] < z):
+            continue
+        if clock[i] is None:
+            if cur == 0:
+                cstart = t[i]
+            cur += 1
+            if t[i] - cstart > best[0]:
+                best = (t[i] - cstart, cstart, t[i])
+        else:
+            cur = 0
+    span, s0, s1 = best
+    ok = bool(s0 is not None and span >= PLANT_MIN_MS
+              and (z - s1) <= PLANT_TAIL_MS and (s0 - a) >= PLANT_MIN_ELAPSED_MS)
+    return ok, (s0 if ok else None)
 
 
 def round_bounds(t, score_left, score_right) -> list[dict]:
@@ -243,21 +307,13 @@ def build_rounds(table) -> list[dict]:
             r["first_event"] = ("player_kill" if near(rk)
                                 else "player_death" if near(rd) else "other")
 
-        # A plant resets the clock to 45 s well inside the round.
-        planted = False
-        prev_c = None
-        for i in range(len(t)):
-            if not (a <= t[i] < z) or clock[i] is None:
-                continue
-            c = clock[i]
-            if (prev_c is not None
-                    and abs(c - SPIKE_MS) <= SPIKE_TOL_MS
-                    and abs(prev_c - SPIKE_MS) >= SPIKE_STEP_MIN_MS
-                    and t[i] - a >= SPIKE_MIN_ELAPSED_MS):
-                planted = True
-                break
-            prev_c = c
+        # The plant is a persistent state, not a one-sample clock jump: the
+        # spike graphic sits where the digits are, so the clock goes unreadable
+        # and stays that way to the round's end. See the PLANT_* block.
+        planted, t_plant = _plant(t, clock, a, z)
         r["spike_planted"] = planted
+        r["plant_t_ms"] = t_plant
+        r["post_plant_ms"] = (z - t_plant) if t_plant is not None else None
 
     # PLAYER_SIDE decides; the inference is carried alongside as a check whose
     # disagreement is worth looking at, never as the answer.
