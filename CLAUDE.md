@@ -1125,6 +1125,38 @@ powered domains is the same and does not yet reach significance: accuracy falls
 in the second half of each, and both second halves are dominated by **guesses at
 constants** rather than predictions about what running existing code will do.
 
+**Stake: what it costs to be wrong, which is not what accuracy measures.**
+Grant: predicting a file's word count has a different salience to predicting
+whether your ontology was correct. The first attempt to show that ran the wrong
+test -- accuracy by level -- and found nothing, because cost was not in the log
+at all. That absence was the gap. With cost recorded, over 33 backfilled rows:
+
+    level         n    acc     gap   mean cost
+    ontology      8   0.38   -0.46         2.1
+    mechanism     7   0.43   -0.38         1.1
+    value        13   0.62   -0.05         0.2
+
+Cost orders as predicted, an order of magnitude apart. **The gap column is the
+finding nobody was looking for**: the claims that cost the most are the ones I
+am most overconfident about. Two wrong ontology claims cost a session each
+(*the bomb sites are correctly classified*, *the class list is complete at six*)
+against a wrong value claim costing a requote.
+
+`level` is a priori and nearly SYNTACTIC -- readable off the claim's grammar --
+so it cannot be quietly under-rated for a claim about to fail. `cost` is a
+posteriori and ORDINAL, anchored to things that happened here rather than to
+minutes, because an absolute scale would be false precision. **Stake is reported
+as a percentile within this log, never as an absolute**: Grant's point that
+comparison is inevitably relative, which is the right resolution rather than a
+dodge, since every decision this feeds is a ranking. `stake()` is explicitly a
+prior to be replaced -- once enough rows carry an observed cost, fit
+`level x rests_on -> cost` from history, exactly as the calibration table
+replaced asking how confident I felt.
+
+Caveat, load-bearing: those rows are `level_by: claude-retro`, my own labelling
+of my own claims after the outcomes were known. It is the hypothesis the
+forward-recorded rows exist to test, not a result.
+
 `reticle.glance calibration` is the BAND view of the same log (am I calibrated
 at the confidence I claim); this is the TIME view. Different questions, kept
 apart on purpose.
