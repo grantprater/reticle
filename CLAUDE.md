@@ -71,6 +71,13 @@ one and scored on the other. If it holds, this channel is a glyph detector at
 an operating point the red ring-finder cannot reach, rather than the weaker
 enemy detector it was measured as.
 
+**Also first live test of "predict before you look"** (in the conventions).
+Tomorrow is the first session where it applies prospectively rather than
+retrospectively, and the Lotus pass is a good case: predict the class
+distribution and the stream size BEFORE running `label_dynamic`, at whatever
+resolution holds at 0.7, and score it. If the log ends the session with more
+`couldn't-tell` than `wrong`, the technique is already decaying.
+
 Three things found while labelling, all Grant's, all recorded below:
 
 * **`active` contains the buy phase**, so 38% of the questions were about an
@@ -797,46 +804,40 @@ scrubbing an overlay video, and it is the right tool whenever the question is
 
 ## Conventions that are load-bearing
 
-**Predict before you look, and go to the surprise. UNDER TEST — log it.**
-Before opening an unfamiliar part of this project, or committing to a threshold
-or a design, write three to five claims specific enough to die cleanly — a
-number, a class, a count. Then look, then go to the WRONG ones first, before
-going where the task pointed. A broken prediction localises the part of your
-model that is actually wrong, which is worth more than the thing you came for.
-For searches, predict the result COUNT: a grep returning five where fifty were
-expected is the finding, and reading the five discards it.
+**Predict before you look. UNDER TEST from 2026-08-27 — log it, do not trust
+it.** Before opening unfamiliar ground, or committing to a threshold or design:
 
-Guard: a hypothesis you generated is one you will confirm. A vague prediction
-survives evidence that should have killed it and leaves you more confident, so a
-high `couldn't-tell` rate means the technique is failing, not succeeding.
+1. **Ask what is predictable at all**, before spending effort on accuracy.
+   Measure the noise floor; repeat an observation to see whether the OUTCOME
+   varies (varies = irreducible, stop; stable and you were wrong = your model,
+   go look). Log irreducible ones `verdict: aleatoric` and route them to Grant.
+2. **State 3-5 claims specific enough to die cleanly** — a number, a class, a
+   count. Finest resolution you can hold at 0.7 confidence, no finer: existence,
+   direction, magnitude, value-with-a-band, mechanism. For a search, predict the
+   result COUNT.
+3. **Look, score each right / wrong / couldn't-tell, and go to the WRONG ones
+   first**, before going where the task pointed. A broken prediction localises
+   the part of your model that is actually wrong, which is worth more than the
+   thing you came for.
+4. **Log to `<store>/notes/predictions.jsonl`** — `{when, domain, claim,
+   confidence, outcome, retrospective}`. Escalate resolution per DOMAIN and gate
+   on CALIBRATION, not hit rate: right 80% of the time while claiming 0.9 means
+   fix the confidence, not the resolution.
 
-This is a claim about what helps, and it has never been measured. Log every
-prediction to `<store>/notes/predictions.jsonl` — `{when, domain, claim,
-confidence, outcome, retrospective}` — so it can be scored rather than believed.
-**Resolution is self-tuning: state the finest claim you can make at 0.7
-confidence, no finer.** Existence, then direction, then order of magnitude, then
-a value with a band, then a mechanism. Escalate per DOMAIN and gate on
-CALIBRATION, not hit rate — being right 80% of the time while claiming 0.9 means
-fix the confidence before going finer, or you get confidently wrong detail,
-which is what 2026-08-26 produced.
+Two failure signatures worth naming. **Three predictions that agree and are all
+wrong = a bad frame**, which feels like corroboration and is the dangerous case;
+disagreement is ordinary ignorance. And a **rising `couldn't-tell` rate means
+the technique is decaying into ritual**, since a vague claim survives evidence
+that should have killed it.
 
-**Before predicting, ask what is predictable at all.** Three instruments, cheap:
-repeat the observation under nominally identical conditions (outcome varies =
-irreducible, stop trying; outcome stable and you were wrong = your model, go
-look); generate three independent predictions, since **agreeing and wrong is the
-signature of a bad frame** while disagreeing is ordinary ignorance; and measure
-the noise floor before trying to beat it. That last one is not hypothetical —
-the per-region temporal SD map computed late on 2026-08-26 (7.4 on white lines,
-16.9 on the slab, 42.5 in the void) IS a map of what is predictable, and
-computing it FIRST would have answered the searchable-area question in one step
-instead of five. Log irreducible ones as `verdict: aleatoric` so they stop being
-scored as model failures, and route them to Grant instead.
-
-**That log is the only artefact here whose value grows across sessions**:
-everything else in this file is a conclusion that must be re-read cold, while a
-calibration table gets sharper with n and says which DOMAINS to trust. Current
-read from one session: structural claims about code, fair; claims about what a
-rendered image contains, poor enough that asking Grant beat five derivations.
+Why bother: on 2026-08-26 the per-region temporal SD map (7.4 on white lines,
+16.9 on the slab, 42.5 in the void) IS a map of what is predictable and answers
+the searchable-area question outright — it was computed LAST, to explain a
+conclusion, after five derived masks had failed. **That log is also the only
+artefact here whose value grows across sessions**, since a calibration table
+gets sharper with n and says which domains to trust. First read, retrospective:
+structural claims about code fair; claims about what a rendered image contains,
+5 of 5 wrong at a mean stated confidence of 0.85.
 
 **Ask Grant before deriving, when he can just look.** The searchable mask was
 derived and re-derived five times on 2026-08-26, each attempt measured and
