@@ -813,6 +813,25 @@ high `couldn't-tell` rate means the technique is failing, not succeeding.
 This is a claim about what helps, and it has never been measured. Log every
 prediction to `<store>/notes/predictions.jsonl` — `{when, domain, claim,
 confidence, outcome, retrospective}` — so it can be scored rather than believed.
+**Resolution is self-tuning: state the finest claim you can make at 0.7
+confidence, no finer.** Existence, then direction, then order of magnitude, then
+a value with a band, then a mechanism. Escalate per DOMAIN and gate on
+CALIBRATION, not hit rate — being right 80% of the time while claiming 0.9 means
+fix the confidence before going finer, or you get confidently wrong detail,
+which is what 2026-08-26 produced.
+
+**Before predicting, ask what is predictable at all.** Three instruments, cheap:
+repeat the observation under nominally identical conditions (outcome varies =
+irreducible, stop trying; outcome stable and you were wrong = your model, go
+look); generate three independent predictions, since **agreeing and wrong is the
+signature of a bad frame** while disagreeing is ordinary ignorance; and measure
+the noise floor before trying to beat it. That last one is not hypothetical —
+the per-region temporal SD map computed late on 2026-08-26 (7.4 on white lines,
+16.9 on the slab, 42.5 in the void) IS a map of what is predictable, and
+computing it FIRST would have answered the searchable-area question in one step
+instead of five. Log irreducible ones as `verdict: aleatoric` so they stop being
+scored as model failures, and route them to Grant instead.
+
 **That log is the only artefact here whose value grows across sessions**:
 everything else in this file is a conclusion that must be re-read cold, while a
 calibration table gets sharper with n and says which DOMAINS to trust. Current
