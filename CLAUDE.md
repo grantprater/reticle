@@ -36,41 +36,38 @@ loads when a session touches that directory.
 - [Conventions that are load-bearing](#conventions-that-are-load-bearing)
 ## Picking up
 
-**NEXT SESSION: the Lotus labelling pass, and ONE question for Grant first.**
-The cross-session step below was pre-screened on 2026-08-27 with
-`prototypes/glance_dynamic.py 5822b6646448 --fit a06f04a0059f`, and the sheet
-came back **VOID**: 4 of 6 controls hit, and **both misses were the same
-object** -- a dark disc with a white radial pattern that I read as `spike` and
-Grant had labelled `ability`. I gave that same answer to three more Lotus
-panels, so this is not diffuse noise but **one glyph misread five times in one
-direction, on two different maps**. That is the "three predictions that agree
-and are all wrong" signature, and it is why the sheet's other 16 answers are
-discarded rather than doubted: without the controls they would have gone into
-the fit as labels.
+**NEXT SESSION: the Lotus labels are IN -- run the held-out fit.** 373 answered
+rows on `5822b6646448`, all from Grant, uniform-in-time sampling (the two-pool
+sampler is built but nothing has used it yet):
 
-So the pre-screen did its job by failing. Two consequences:
+    nothing 151   ability 64   player 46   area 34   unsure 69   other 5   spike 1
 
-* **ask Grant what the dark disc with the white radial spokes is** before the
-  pass. It appears on Ascent AND Lotus, so it is not map furniture, and it is
-  the single confusion driving the void. Ultimate orb is the guess;
-* **the class list needs `warning_ping`.** Grant, 2026-08-27, on the pink
-  triangle on a pink ring in the red channel: *that's a warning ping.* So pings
-  appear in BOTH channels and `label_dynamic`'s `6 = ping` -- *a pond ripple,
-  white and bluish* -- only ever named the colour-free one. A warning ping is a
-  red-channel object being marked `other_red` in `labels/minimap`, and pings are
-  explicitly in the endstate ("abilities and pings on the minimap"), so this is
-  an event class, not a nuisance class. Ask for the full list once, the way the
-  `labelling-pass` skill says: `label_dynamic` was launched six times in one
-  session because ping, area and barrier each surfaced mid-run.
+The first command to run, and the first genuinely held-out cross-map number this
+channel has ever had:
 
-Measured while pre-screening, and worth keeping: **Lotus streams 3.7 colour-free
-candidates per usable frame against Ascent's 2.7** (429/116 vs 321/119, same
-sweep, same `searchable` rule, 120 frames). More per frame on a new map, which
-is the direction the size gate has to survive.
+    .\.venv\Scripts\python.exe prototypes\dynamic_eval.py --fit a06f04a0059f --score 5822b6646448 --by-position
 
-*The step itself, unchanged:* **the labels are IN -- fit the ability classifier,
-then take it to a second session.** 251 answers from Grant on `a06f04a0059f`, uniform over
-active play, colour-free candidates only:
+**The `ability` class no longer needs splitting first**, which was the blocker
+written here this morning. On Ascent it was 53 rows at 9 positions with 33 of
+them one Deadlock Sonic Sensor; on Lotus it is **64 rows at 35 positions, top-2
+holding 11%, worst spot 4**. The sampler fix did that, and it is why the fit is
+worth running now rather than after a class split.
+
+Then, in order and all cheap:
+
+* **the 5 `other` rows are Lotus doors** -- split them out by position, no
+  questions needed, since a rotating door is a fixed map structure;
+* **the cam test finally works.** Lotus has a Cypher, a cam glyph is colour-free
+  so it is in THIS channel and not the red mask, and `minimap_ring_fit`'s
+  `LOBE_MIN_FRAC` has never met a real one. `prototypes/CLAUDE.md` says a cam
+  rotates but never translates and has no lobe -- all three are now testable;
+* **69 `unsure` rows are the death-screen cost**, 18.5% of the pass. Fixed by
+  `minimap_temporal.drawn()` after row 4; a re-run would not pay them again.
+
+**Known-bad and unmeasured:** the Omen smoke that translates while deploying is
+the only counterexample to the translation invariant, and the narrowed version
+-- *translates then stops forever = smoke; keeps moving = player* -- has never
+been measured. `motion()` says so.
 
     nothing 148   ability 53   player 25   area 20   ping 4   other 1
 
