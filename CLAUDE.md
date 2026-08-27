@@ -200,30 +200,61 @@ Two smaller threads left open, both cheap:
   trusting the constant.
   Reproduce: `prototypes\glance_cams.py a06f04a0059f --seed 3` and `--seed 91`.
 
-* **Positional persistence separates map-static objects from deployed ones, for
-  free.** Same detector, same size and shape gate (area 200-420, aspect <= 1.25),
-  200 frames each:
+* **The Ascent roster, read off the Tab scoreboard TEXT, is definitive.**
+  Frame 111702 (31.0 min), `rosters/a06f04a0059f.scoreboard.npz` records the
+  index; seek to it and the grey second line under each player name reads:
+
+      allies    Reyna | Me/Phoenix | WhaleKicker/Deadlock | Seacow/Breach | tin/Miks
+      enemies   Deebo/Omen | Truewarrior/Jett | vanshrana/Killjoy | Lil2Foot/Skye | chxck/Iso
+
+  **No Cypher.** This is the mechanism this file already predicted would work --
+  agent names are a closed set printed as text -- and it settles in one look what
+  two rounds of portrait-reading could not. **Read the names, never the
+  portraits.** Portraits got `sage` for Skye and `yoru` for Iso in an earlier
+  session, and cost two exchanges again on 2026-08-27.
+
+* **So the object at (137,170) is NOT a Cypher cam, whatever it resembles.**
+  Grant, on the 10x comparison sheet: *top row is all cypher cams, so is bottom
+  right*, and *the reason 06 reads as a different glyph is probably because it's
+  a different rotation* -- which collapses my "three distinct glyphs" claim to
+  ONE glyph under rotation. But two of those panels are Ascent, and Ascent has no
+  Cypher, so either that glyph is not exclusively a cam or the Lotus reading
+  generalised. **Open, and it is the blocker on the class list.** The ally with
+  placeable devices on Ascent is Deadlock (Sonic Sensor, Barrier Mesh); `Miks` is
+  an agent whose kit is not in my knowledge at all, which is worth stating
+  plainly rather than guessing around.
+  Also from Grant, same pass: **04 is a KJ wall** -- *that light blue going off;
+  there are four of them but they can get destroyed or be up against a wall and
+  very small* -- so it is a MULTI-SEGMENT object with a variable segment count,
+  which no size gate fitted to icons will survive. And **05 is a viewcone through
+  a doorway**, on Ascent at (264,128), which kills that as a candidate object.
+
+* **A rotation-variant glyph breaks template matching.** If the cam icon rotates
+  to show facing, then `minimap_portrait`'s NCC gallery approach cannot identify
+  it without a rotation bank or a rotation-invariant feature. Nothing in this
+  repo has assumed a rotating glyph before.
+
+* **Positional persistence is a real signal, but NOT static-versus-deployed.**
+  Same detector, same gate (area 200-420, aspect <= 1.25), 200 frames each:
 
       ascent  91 disc-like   66 of 91 at TWO positions, spanning 1222s and 966s
       lotus   90 disc-like   24 of 90 at the top two, every cluster 30-90s long
 
-  Ascent's dominant object holds one pixel for the whole match; Lotus's live
-  about a round and move. **No new pixels are needed to tell those apart**, and
-  the two features the ability classifier is being fitted on -- host span and
-  top-hat peak -- are both per-blob appearance. This is a third feature, it is
-  free, and it needs no labels.
+  I read that as map-static furniture versus deployed utility. **That reading was
+  wrong**: Ascent has no map object there, so what holds one pixel for twenty
+  minutes is a player re-placing a device in a favourite spot every round. The
+  measurement stands and the feature is still free and label-free -- it just
+  measures a PLACEMENT HABIT, not an object class, and a feature fitted to one
+  player's habit will not transfer to another session.
 
-* **THE ONE THAT CHANGES THE NEXT STEP: Grant's `ability` class is mostly one
-  static object.** 33 of his 53 `ability` rows sit within 6 px of (137,170), from
+* **STILL THE ONE THAT CHANGES THE NEXT STEP: the `ability` class is mostly one
+  object.** 33 of Grant's 53 `ability` rows sit within 6 px of (137,170), from
   t=30s to t=1252s; another 12 sit at (96,180). **44 of 53 (83%) are two fixed
-  map positions.** So the 77% recall / 96% precision operating point is
-  overwhelmingly measuring whatever sits at those two spots, not deployed
-  utility -- the ground-truth-population trap again, in the class the classifier
-  is about to be fitted on. **Split the class before fitting.** At 10x there are
-  at least THREE visually distinct disc glyphs passing the same gate, so
-  `ability` is hiding a taxonomy, not a variance.
-  Awaiting Grant on the identities:
-  `scratchpad/correspond-20260827-103122-ee66.png`.
+  positions.** The rotation point makes this worse, not better: if those are all
+  one glyph, the 77% recall / 96% precision operating point is measuring a single
+  object type at two spots in one match. **Split the class before fitting**, and
+  get the identities first -- the fit is not worth running until the class list
+  is real.
 * **`a06f04a0059f` is +2 kills / +3 deaths** against Grant's 19/19, the widest
   gap in the set, uninvestigated. Run It Back would explain deaths running high,
   which is the direction seen, but no agent has been checked.
