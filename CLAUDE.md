@@ -469,61 +469,40 @@ Net over the same 120 frames: stream **925 -> 278**, reachable hand-marked
 centres **212 -> 241 of 254**, bomb sites 7% -> 100% searchable, and the rule is
 one line instead of five.
 
-**Still to use: his straight-line observation.** *All edges are straight lines,
-most orthogonal to the screen edge but some diagonal.* Nothing exploits that
-yet. The derived mask's boundary is per-pixel and ragged where anti-aliasing
-puts it; snapping it to axis-aligned and 45-degree segments is a real
-improvement available for free, and it is also the check that the rule
-TRANSFERS -- a mask that is straight on Ascent and ragged on Lotus has not
-generalised, whatever its IoU says. `paint_map.py` is there for that second map;
-its brush and zoom keys were bound wrong the first time (a bare `"bracketleft"`
-is eleven keypresses to Tk, not a keysym) so the first mask was painted at one
-brush size and one zoom.
+**The rule TRANSFERS, and the straight-line idea is dead.** Grant painted Lotus
+too, again without pressing `m`, and the derived rule scores **IoU 92.8%** on it
+against 91.3% on Ascent -- a different map, a different site count, a mask made
+independently:
 
-**The size gate is fitted to ICONS and is blind to areas.** `AREA_MIN/MAX` are
-30/1200 and `SPAN_MIN/MAX` 6/40, all four chosen when the only target was an
-icon. A smoke, a wall or an ultimate's footprint is not an icon: over the same
-120 frames the detector discards **265 over-size blobs against the 278 it
-keeps**, median span 68 px and max 252. Grant, watching one come up: *it looks
-like it's pointing to the portion of the smoke in the doorway* -- the whole
-smoke blew the ceiling and the only piece that fit through was the fragment a
-doorway happened to frame. He adds that ultimates will do the same, which is
-the worst possible thing to be blind to given this is meant to become a
-game-event classifier.
+                     Ascent   Lotus
+    IoU               91.3%   92.8%
+    lit slab          94.2%   92.9%   painted
+    bomb sites        99.0%   93.3%
+    HOLE               0.0%    0.0%
+    exterior void      0.9%    0.0%
+    BORDER line       46.6%   47.7%
+    BOXEDGE line      71.3%   58.0%
 
-Inspecting the over-size blobs, most are not abilities at all: they are ally
-icons FUSED TO THEIR VIEWCONES, which is the merge `TOPHAT_K` was introduced to
-break and evidently does not break at this widget size. So the over-size stream
-is at least two different problems and cannot be rescued by raising a bound.
+Two maps, two independent paintings, near-identical profile. The plant fix
+transferred unseeded as well: three zones found on Lotus, A B and C, 100%
+searchable, on the first map with a site count different from the one it was
+built against.
 
-Nothing is changed here yet, deliberately -- but `label_dynamic` now separates
-**`8` area** from **`1` ability**, because merging them would train a shape
-classifier on glyphs and on arbitrary doorway-shaped offcuts at the same time.
-Areas are a different detector: big, soft-edged, persistent, and better found by
-what they COVER over time than by a connected component in one frame.
+**Grant then withdrew the straight-line observation, and he was right to.**
+*I think my assertion was wrong, there is at least one line that looks like it's
+supposed to be curved.* Fitting `approxPolyDP` to the searchable boundary:
 
-**`active` contains the buy phase, and that costs this pass 38% of its
-questions.** `reticle/segment.py` defines `active` as *in_match, with meaningful
-scene motion* -- there is no notion of round phase anywhere in it. So the ~30 s
-buy phase is inside every active span, and `label_dynamic`, which samples
-uniformly over active time, spends a large share of its questions on a minimap
-holding nothing but spawn barriers and players milling about. Grant found it by
-naming a barrier at 242/250, not from the spans.
+    Ascent  eps=2px   96.0% orthogonal   0.3% at 45deg    3.6% neither
+    Lotus   eps=2px   81.7% orthogonal   3.3% at 45deg   15.0% neither
 
-Measured on his 251 labelled rows, by how far into an active span the candidate
-falls:
-
-        0-10 s   n=49   71% nothing   16% real
-       10-20 s   n=29   66% nothing   28% real
-       20-30 s   n=56   70% nothing   23% real
-       30-45 s   n=42   50% nothing   43% real
-       45-90 s   n=52   38% nothing   54% real
-
-The first 30 s of a span is **38% of all active time** and roughly half as
-productive as the 30-90 s window. Two consequences: every rate this pass
-reports is depressed by a knowable amount, and a phase detector is now clearly
-worth building -- the barrier is a green or red line across a spawn corridor,
-which is a far easier thing to find than anything else in this document.
+Ascent IS 96% axis-aligned, which is why the claim felt true -- it was true of
+the map he was looking at. Lotus is not, and its 15% does not shrink when the
+tolerance doubles (14.6% -> 15.0%), which is the signature of a genuine curve: a
+curve is merely re-approximated by a looser epsilon where a straight edge
+collapses into fewer segments. So **do not snap the mask boundary to straight
+segments.** It would be correct on Ascent and would cut corners off Lotus, and
+the failure would be invisible at the IoU level -- 15% of a 1568 px perimeter is
+a few hundred pixels against a mask of 70,000.
 
 **Do NOT pre-filter the pool on shape.** Aspect looks decisive -- 0 of 55 blobs
 at Grant's hand-marked icons reach 2.0, p95 1.71, against a quarter of the
@@ -924,15 +903,37 @@ document has been circling:
 * **duels and rounds are the unit**, not frames or detections. That is what the
   L2 event log has to emit, and it is the join point for the win probability
   model;
-* **shooting error is in scope**, which is worth flagging against the capture
-  settings: the readout is currently switched OFF because it covers the victim
-  name in the killfeed ROI (see the capture notes). Those two needs collide and
-  will have to be reconciled -- most likely by moving the readout rather than
-  choosing between them;
-* **surfacing clips is the delivery mechanism.** A pattern the model finds is
-  only useful if it comes back as footage, so every event needs a timestamp
-  precise enough to cut on. That is a constraint on the event log, not a
-  separate feature.
+* **shooting error comes from the in-game UI, not from us.** Grant, asked
+  directly: *I was thinking we derive shooting error but it is probably better
+  to use the in-game UI element. I think we have enough confirming signals that
+  the reduced accuracy in killfeed reading is acceptable, but we can see.* That
+  reverses capture note #3, which switched the readout OFF because it covers
+  59% of the victim-name box in stack slot 3. **Turn it back on**, accept the
+  killfeed cost, and lean on the other signals -- the scoreboard read, `board`
+  per-round, and the minimap events this session unblocked -- to cover the
+  attribution gap. Provisional: "but we can see" means measure the killfeed
+  cost on the next capture rather than assume it is affordable. Moving the
+  readout out of the top right is still strictly better than either choice if
+  the game allows it;
+* **surfacing clips needs a SECOND, higher-fidelity pass.** A pattern the model
+  finds is only useful if it comes back as footage, and Grant: *the clips likely
+  need a higher fidelity pass to get the exact bounds.* So the event log's
+  timestamp locates a clip; it does not define it. Detection can stay cheap and
+  sampled, with an expensive pass run only over the handful of moments that are
+  actually going to be cut. That is a two-stage design, and it means precision
+  of event TIMING is not a constraint on the main extractors -- a useful thing
+  to know before anyone raises a sample rate to chase it;
+* **whether any of this can be a pure streaming algorithm is open.** Grant: *if
+  we want to try to do this with a pure streaming algorithm for efficiency I
+  actually don't even know if it's possible.* Nor do I, and the honest answer
+  has parts. Per-frame reads (killfeed, HUD, minimap detection) stream fine. Two
+  things currently do not: the **static map** is a per-pixel median over ~180
+  frames spread across the session, and **`active` spans** come from segmenting
+  the whole file. Both look convertible -- a median over a warm-up window that
+  updates incrementally, and an online segmenter -- but neither has been tried,
+  and a warm-up means the first round of a VOD is read with a worse static map
+  than the last. Anything needing FUTURE context is the real obstacle, and the
+  round-phase detector is the first candidate.
 
 Nothing here is scheduled. It is recorded so that the next person choosing
 between four plausible next steps can ask which one is on this path.
