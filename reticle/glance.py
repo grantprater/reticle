@@ -491,6 +491,11 @@ def answer(sheet_id: str, answers: dict[str, str], *, confidence: float,
 def calibration(path: Path | None = None) -> str:
     """Pooled calibration by domain and confidence band -- the reason for all this.
 
+    This is the BAND view: am I calibrated at the confidence I claim. The TIME
+    view -- is this domain predictable at all, and has its regime changed since
+    the calibration was measured -- lives in `reticle.judgement`. Keep them
+    separate deliberately; they answer different questions off the same log.
+
     Gate on CALIBRATION, not hit rate: right 80% of the time while claiming 0.9
     means fix the confidence, not the resolution. A rising `couldnt-tell` share
     means the technique is decaying into ritual.

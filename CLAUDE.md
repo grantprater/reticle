@@ -32,6 +32,7 @@ loads when a session touches that directory.
 - [Asking myself a perceptual question](#asking-myself-a-perceptual-question)
 - [Open defects](#open-defects)
 - [Before ingesting any new capture](#before-ingesting-any-new-capture)
+- [A model of where my judgement is reliable](#a-model-of-where-my-judgement-is-reliable)
 - [Conventions that are load-bearing](#conventions-that-are-load-bearing)
 ## Picking up
 
@@ -1078,6 +1079,55 @@ layout regressions in this module are correctness bugs, not cosmetics.
    being semi-transparent over the void is the single largest difficulty in
    minimap extraction; if it can be made opaque most of that goes away for
    future recordings. Same class of fix as the shooting-error readout above.
+
+## A model of where my judgement is reliable
+
+`reticle/judgement.py`, built 2026-08-27 from a question of Grant's: novelty
+seems to carry the most information, the way human memory over-weights novel or
+emotionally volatile events -- is there a core idea there?
+
+There is, and the naive version was tried and failed the same day. **Novelty in
+INPUT space is the wrong measure, because noise is maximally novel.** Onset
+sampling was exactly that, and against Grant's existing labels it selected 68%
+artefacts and would have gutted the ability class (8 rows against 45). The
+useful reading of "emotionally volatile" is not *new* -- it is **surprise
+weighted by consequence**, which is a real quantity: prioritised experience
+replay ranks memories by prediction error, and information gain is only defined
+relative to something you care about. This project's stake function is written
+down as the endstate, which is why writing it down paid for itself.
+
+What survives and is measurable is defined on the MODEL's behaviour, not the
+input's strangeness:
+
+    acc / gap    am I right, and am I right at the confidence I claim
+    runs z       do outcomes CLUSTER (structure -- chase the run of wrongs)
+                 or ALTERNATE (irreducible -- log aleatoric and stop tuning)
+    change point has the error rate SHIFTED, i.e. have my assumptions lapsed
+
+**The third is the one worth having.** Every expensive failure in this project
+is a regime boundary where an assumption silently stopped applying: the death
+screen where `usable()` lapsed, buy phase against live play, the halftime side
+swap, 4:2:0 chroma. Each looked like ordinary noise until somebody looked.
+**Sample where the error rate CHANGES, not where it is high** -- a stable 30%
+teaches nothing new, a jump to 30% is a boundary.
+
+**It refuses rather than guesses, and that is load-bearing.** A staleness
+detector that hallucinates staleness is worse than none, so the change point is
+Bonferroni-corrected for the number of splits searched and returns `None` below
+5 scored outcomes a side. Measured in `--self-test` over 2000 coin-flip
+sequences of n=30: **corrected fires 0.8%, uncorrected would fire 19.9%.** A
+real change (15 right then 15 wrong) is caught at exactly #15.
+
+First read, 39 predictions: no regime change anywhere, and every domain except
+`minimap` and `rounds` is underpowered for one. `geometry` is overconfident by
+0.85 -- that is the old retrospective batch. The directional hint in both
+powered domains is the same and does not yet reach significance: accuracy falls
+in the second half of each, and both second halves are dominated by **guesses at
+constants** rather than predictions about what running existing code will do.
+
+`reticle.glance calibration` is the BAND view of the same log (am I calibrated
+at the confidence I claim); this is the TIME view. Different questions, kept
+apart on purpose.
 
 ## Conventions that are load-bearing
 
