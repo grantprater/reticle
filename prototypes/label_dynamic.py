@@ -9,6 +9,36 @@ Controls
     3   the SPIKE (dropped or planted)
     4   a PLAYER icon -- enemy, ally or self; the colour is already recorded
     5   a QUESTION MARK -- an enemy last seen here
+    6   a PING -- Grant, on candidate 1 of the first real run: *sort of like a
+        pond ripple, white and bluish*. Concentric expanding rings, so it is
+        ANIMATED and cannot fail to light up a difference channel, and its
+        fragments are thin arcs -- a second reason not to pre-filter on aspect.
+        Pings are also the one thing on this widget a player PUTS there, so
+        they are a different kind of fact from everything else in the list:
+        they say where a teammate's attention was, not where an object is.
+        Being white they read as `colour: none`, which is why they land in this
+        pool at all
+    8   an AREA ability -- a smoke, a wall, an ultimate's footprint. The test
+        is not which ability it is, it is whether the ringed thing is a
+        discrete drawn ICON or a piece of a large soft REGION. Grant, on a
+        smoke: *it looks like it's pointing to the portion of the smoke in the
+        doorway* -- which is what the size gate does to one. A smoke or an ult
+        blows AREA_MAX (1200) and SPAN_MAX (40) outright, so what reaches this
+        pool is whatever fragment a doorway happened to frame. Those two bounds
+        were fitted to ICONS and nothing has ever re-derived them for areas:
+        over the same 120 frames the detector throws away 265 over-size blobs
+        against the 278 it keeps, median span 68 px and max 252. Keeping this
+        separate from `1` matters because merging them would train a shape
+        classifier on glyphs and on arbitrary doorway-shaped offcuts at once
+    9   a SPAWN BARRIER -- Grant: *those represent the map borders for each side
+        pre-round/buy phase*, ally green and enemy red. Added at 242/250 of the
+        first run, so the first pass has them under `7`. They matter beyond
+        being a class: a barrier is a BUY PHASE object, and this pass samples
+        `active` play, so their presence says the segmenter's `active` contains
+        the buy phase -- see the note in CLAUDE.md
+    7   something real that is none of the above -- an escape hatch, because
+        `0` is a claim (this is an artefact) and being forced to make it
+        wrongly is how a class gets poisoned
     0   nothing: map furniture, a viewcone edge, an artefact
     U   unsure, recorded and kept out of scoring
     A   back one
@@ -75,7 +105,8 @@ from minimap_temporal import usable                               # noqa: E402
 STORE = Path.home() / "reticle-store"
 
 KINDS = {"1": "ability", "2": "x_mark", "3": "spike",
-         "4": "player", "5": "question", "0": "nothing"}
+         "4": "player", "5": "question", "6": "ping", "7": "other",
+         "8": "area", "9": "barrier", "0": "nothing"}
 
 
 def active_times(sid, n, seed=17):
@@ -121,7 +152,14 @@ def main() -> int:
     MX0, MY0, MX1, MY1 = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
     labels, static = md.load_geometry(args.session)
     sgray = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.int16)
-    ok_area = md.searchable(labels)
+    # `static=` gives the rule Grant's painted mask produced: the opaque slab
+    # plus the bomb sites, and nothing else. No guard, no fringe, no pockets --
+    # see `minimap_dynamic.searchable`. Stream 925 -> 278 over the same frames,
+    # with reachable hand-marked centres going UP, 212 -> 241 of 254.
+    ok_area = md.searchable(labels, static=static)
+    # `usable` asks whether the widget is drawn at all in this frame, which is a
+    # different question from where a detection may sit -- it wants the whole
+    # footprint, not the searchable part.
     floor = labels != md.VOID
 
     out_path = STORE / "labels" / "minimap_dynamic" / f"{args.session}.jsonl"
@@ -212,7 +250,8 @@ def main() -> int:
         status.config(
             text=f"  {state['i']+1}/{len(cands)}   colour={c['colour']} "
                  f"area={c['area']}   "
-                 f"1=ability 2=X-mark 3=spike 4=player 5=question 0=nothing "
+                 f"1=ability(glyph) 8=area(smoke/ult/wall) 2=X 3=spike "
+                 f"4=player 5=question 6=ping 9=barrier 7=other 0=nothing "
                  f"U=unsure A=back Q=quit")
 
     def step(delta, kind):
@@ -228,7 +267,16 @@ def main() -> int:
                 # The measured features, stored with the answer so a classifier
                 # can be fitted later without re-running detection.
                 "colour": c["colour"], "colour_frac": round(c["colour_frac"], 3),
-                "area": c["area"], "box": list(c["box"]), "diff_min": args.diff,
+                "area": c["area"], "box": list(c["box"]),
+                "diff_min": args.diff,
+                # Aspect is stored rather than filtered on. It looks decisive --
+                # 0 of 55 blobs at Grant's hand-marked icons reach 2.0, p95 1.71,
+                # against 25% of the candidate stream at 2.5+ -- but those 55 are
+                # ENEMY icons, and a Sage or Viper wall is drawn on the minimap as
+                # a long thin shape. Filtering the pool on it before the labels
+                # exist would delete exactly the abilities this pass is for.
+                "aspect": round(max(c["box"][2], c["box"][3])
+                                / max(1, min(c["box"][2], c["box"][3])), 2),
                 "kind": None if kind == "__unsure__" else kind,
                 "uncertain": kind == "__unsure__",
                 "by": "grant",

@@ -13,34 +13,47 @@ Section references in docstrings (`SS3`, `SS7`) mean §3, §7 of that doc.
 
 ## Picking up
 
-**NEXT SESSION: run `label_dynamic.py`, then fit the ability classifier.**
-Grant's call -- a full game-event classifier off the minimap, and the minimap is
-the easiest source of it. Everything for it is built except the labels, and the
-labels are the blocker:
+**NEXT SESSION: the labels are IN -- fit the ability classifier, then take it
+to a second session.** 251 answers from Grant on `a06f04a0059f`, uniform over
+active play, colour-free candidates only:
 
-    .\.venv\Scripts\python.exe prototypes\label_dynamic.py a06f04a0059f --colour none
+    nothing 148   ability 53   player 25   area 20   ping 4   other 1
 
-`--colour none` is the point: the black-and-white glyphs are what the red
-finder can never see, and they are what the pass is for. A couple of hundred
-answers settles whether the colour-free channel finds real glyphs at a usable
-rate. Six keys, uniform over active play, and it asks only WHAT the ringed thing
-is -- not which ability, which is a later pass over the same rows.
+The channel was blocked because nothing in the store said which colour-free
+blobs were real. It is not blocked any more, and the first cut of the answer is
+better than expected. Two features separate an ability glyph from a viewcone
+corner-clip, and **neither is currently recorded by the detector**:
 
-Read "Colour-free detection" below before starting: that channel is NOT the
-enemy detector and trying to make it one is how the last session ended.
+* **host span** -- the span of the RAW difference region a blob belongs to,
+  before the top-hat fragments it. Grant, on candidate 149: *part of the vision
+  cone barely clipping a corner and producing something that vaguely could look
+  like an icon.* Median 24 px under a glyph against 127 under a `nothing`;
+* **top-hat peak** at the blob, median 132 against 63.
 
-Two smaller things left open by this session:
+On live play only (30 s or more into an active span, see the buy-phase note
+below), against 35 glyphs and 55 artefacts:
 
-* **the cold identification path works on unseen sessions** (85.7-100%
-  alive-consistent on three, two of them new lineups on new maps) but n is only
-  14-22 per session because the motion filter is strict, and the alive check
-  cannot separate 85% from 95% at a 53-69% chance rate. Confirming it properly
-  needs a small agent-label pass on Lotus -- cheaper than the first one, since
-  candidates can come straight from the ring finder;
-* **the question mark still needs a shape test.** It is 13 of 16 remaining
-  misses, red-inside does not separate it (0.08 against 0.09) and neither does
-  the sampling radius (flat 82-86%). It is a fixed glyph and belongs with the
-  digit templates, decided before the portrait match.
+    no filter                    100% recall   39% precision vs artefacts
+    host span <= 40               77%          96%
+    host span <= 40, tophat >=110 31%         100%
+
+Read that as promising, not settled. n is 35 positives, the thresholds are
+picked on the same rows they are scored on, and it is one session on one map.
+**The next step is a second labelled session** -- Lotus or Split, which also
+serves the older open question about the cold identification path -- fitted on
+one and scored on the other. If it holds, this channel is a glyph detector at
+an operating point the red ring-finder cannot reach, rather than the weaker
+enemy detector it was measured as.
+
+Three things found while labelling, all Grant's, all recorded below:
+
+* **`active` contains the buy phase**, so 38% of the questions were about an
+  empty minimap. Fix the sampling, and consider a phase detector -- the spawn
+  barrier is the easiest signal in this document;
+* **the size gate is fitted to icons**, so smokes, walls and ultimates are cut
+  outright. `8 area` and `9 barrier` are now separate classes;
+* a few barriers labelled `nothing` before `9` existed. `nothing` is very
+  slightly contaminated in the buy-phase rows.
 
 *Previous handoff, resolved 2026-08-26:* portrait identification is built and
 measured. Two things gated it and both are now done:
@@ -392,6 +405,126 @@ marks), asking only "what is the ringed thing" from six classes, with the blob's
 measured features stored beside the answer so a classifier can be fitted later
 without re-detecting. It does not ask WHICH ability: detection first, identity
 second, the order that let every earlier stage be measured on its own.
+
+**What this channel may look at: the opaque slab, plus the bomb sites.**
+`prototypes/paint_map.py`, `searchable(labels, static=...)`. That is the whole
+rule, and getting to it took five corrections from Grant in one session, every
+one of them found by eye off a labeller screen after I had already convinced
+myself with numbers:
+
+1. the dilation fringe at the map's rim -- *the outer bounds are a row of white
+   pixels and then outside that a row of grey.* It is `floor_mask`'s deliberate
+   9 px dilation, added so a red ring OVERHANGING the slab edge is still
+   scored; `LINE_GUARD` missed it by exactly one pixel;
+2. **cutting the whole fringe was wrong** and he called it before the numbers
+   did: *those are on a map border, but not outside it.* Ten of the eleven
+   hand-marked centres it lost were 1-3 px from an interior BOX EDGE;
+3. **the bomb sites were 93% VOID.** `floor_mask` is `sat < 20` and the paint is
+   tinted, so it fails; the PLANT class was fitted to the saturated core at
+   `sat > 60` and caught 3% of the zone. A site is opaque (SD 17.9 v the slab's
+   16.6) and 19 of 254 hand-marked icons stand in one. Widened to the hue
+   alone, closed, size-floored, filled so the LETTER comes with it -- *the
+   letters are a very dark grey, almost black, always against the yellow* --
+   and required to TOUCH THE FLOOR, because widening also caught the agent HUD
+   in the top-right corner as a third "site", 102 of 116 blobs at SD 42.5;
+4. enclosed void pockets, which no flood from the frame edge can reach: *a void
+   right next to the site ... it goes straight from white to the muddy brown of
+   the background*;
+5. the borders have a **drop shadow** -- white, then light grey, then darker
+   grey on the bottom edge, plain white on the top -- so no symmetric guard
+   fits them anyway.
+
+**Then he painted the mask** and it replaced all of it. Scored against his
+painting, on a mask he made without ever pressing `m` to see mine:
+
+    slab + sites, no guard              IoU 91.3%   241 of 254 marks reachable
+    slab + sites, border guard 1px      IoU 89.4%   227
+    slab + sites, border guard 3px      IoU 83.9%   211
+    + the floor mask's dilation ring    IoU 76.4%   220
+    Grant's own painting (ceiling)      IoU  100%   227
+
+He kept 0.0% of the holes, 0.0% of the exterior and 7.3% of the overhang ring.
+**The question was never which transparency is tolerable**, which is what four
+of my five patches had been about. Everything they added -- an exterior flood
+fill, a fringe scoped to it, a hole rule, a pocket rule, a per-region threshold
+-- is deleted.
+
+**`LINE_GUARD` goes too, and that is the surprise.** This module opens by saying
+the white lines are where the false positives live, 107 blobs against the red
+mask's 7, and the guard has been in since. Measured on the slab, a white line is
+the QUIETEST thing on the widget -- temporal SD **7.4** against plain slab's
+17.1, so a noise-matched threshold there would be 12, not 28. The flicker was
+never the line; it was the void beside the line, and the guard was charging the
+line for its neighbour's noise. Grant painted over 71% of the box edges and 47%
+of the borders, which is what a person does when a line is just map. Dropping it
+takes reachable centres from 211 to 241 of 254 with the stream unchanged.
+
+Net over the same 120 frames: stream **925 -> 278**, reachable hand-marked
+centres **212 -> 241 of 254**, bomb sites 7% -> 100% searchable, and the rule is
+one line instead of five.
+
+**Still to use: his straight-line observation.** *All edges are straight lines,
+most orthogonal to the screen edge but some diagonal.* Nothing exploits that
+yet. The derived mask's boundary is per-pixel and ragged where anti-aliasing
+puts it; snapping it to axis-aligned and 45-degree segments is a real
+improvement available for free, and it is also the check that the rule
+TRANSFERS -- a mask that is straight on Ascent and ragged on Lotus has not
+generalised, whatever its IoU says. `paint_map.py` is there for that second map;
+its brush and zoom keys were bound wrong the first time (a bare `"bracketleft"`
+is eleven keypresses to Tk, not a keysym) so the first mask was painted at one
+brush size and one zoom.
+
+**The size gate is fitted to ICONS and is blind to areas.** `AREA_MIN/MAX` are
+30/1200 and `SPAN_MIN/MAX` 6/40, all four chosen when the only target was an
+icon. A smoke, a wall or an ultimate's footprint is not an icon: over the same
+120 frames the detector discards **265 over-size blobs against the 278 it
+keeps**, median span 68 px and max 252. Grant, watching one come up: *it looks
+like it's pointing to the portion of the smoke in the doorway* -- the whole
+smoke blew the ceiling and the only piece that fit through was the fragment a
+doorway happened to frame. He adds that ultimates will do the same, which is
+the worst possible thing to be blind to given this is meant to become a
+game-event classifier.
+
+Inspecting the over-size blobs, most are not abilities at all: they are ally
+icons FUSED TO THEIR VIEWCONES, which is the merge `TOPHAT_K` was introduced to
+break and evidently does not break at this widget size. So the over-size stream
+is at least two different problems and cannot be rescued by raising a bound.
+
+Nothing is changed here yet, deliberately -- but `label_dynamic` now separates
+**`8` area** from **`1` ability**, because merging them would train a shape
+classifier on glyphs and on arbitrary doorway-shaped offcuts at the same time.
+Areas are a different detector: big, soft-edged, persistent, and better found by
+what they COVER over time than by a connected component in one frame.
+
+**`active` contains the buy phase, and that costs this pass 38% of its
+questions.** `reticle/segment.py` defines `active` as *in_match, with meaningful
+scene motion* -- there is no notion of round phase anywhere in it. So the ~30 s
+buy phase is inside every active span, and `label_dynamic`, which samples
+uniformly over active time, spends a large share of its questions on a minimap
+holding nothing but spawn barriers and players milling about. Grant found it by
+naming a barrier at 242/250, not from the spans.
+
+Measured on his 251 labelled rows, by how far into an active span the candidate
+falls:
+
+        0-10 s   n=49   71% nothing   16% real
+       10-20 s   n=29   66% nothing   28% real
+       20-30 s   n=56   70% nothing   23% real
+       30-45 s   n=42   50% nothing   43% real
+       45-90 s   n=52   38% nothing   54% real
+
+The first 30 s of a span is **38% of all active time** and roughly half as
+productive as the 30-90 s window. Two consequences: every rate this pass
+reports is depressed by a knowable amount, and a phase detector is now clearly
+worth building -- the barrier is a green or red line across a spawn corridor,
+which is a far easier thing to find than anything else in this document.
+
+**Do NOT pre-filter the pool on shape.** Aspect looks decisive -- 0 of 55 blobs
+at Grant's hand-marked icons reach 2.0, p95 1.71, against a quarter of the
+stream at 2.5+ -- but those 55 are ENEMY icons, and a Sage or Viper wall is
+drawn on the minimap as a long thin shape. Filtering on it before the labels
+exist would delete exactly the abilities the pass is for. It is stored per row
+as `aspect` and asked of the labels afterwards instead.
 
 Note on the primitive, since I described it loosely once: **the shipped detector
 fits a CIRCLE**, scored by how much of its circumference is red, plus a non-red
