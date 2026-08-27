@@ -428,7 +428,8 @@ def ordering(items, *, question, **kw):
 
 def answer(sheet_id: str, answers: dict[str, str], *, confidence: float,
            by: str = "claude", out_dir: Path | None = None,
-           retrospective: bool = False, log_path: Path | None = None) -> dict:
+           retrospective: bool = False, log_path: Path | None = None,
+           level: str = "value", rests_on=(), cost: str | None = None) -> dict:
     """Score the controls, mark the sheet VALID or VOID, and log one row.
 
     A missed control voids the whole sheet: its open answers are recorded but
@@ -484,6 +485,12 @@ def answer(sheet_id: str, answers: dict[str, str], *, confidence: float,
             "n_controls": manifest["n_controls"],
             "controls_hit": len(hits), "controls_told": n_told,
             "truth_source": src, "by": by,
+            # See `reticle.judgement`: LEVEL is what it costs to be wrong,
+            # which is not what accuracy measures. A sheet usually asks
+            # "what is this one thing", so the default is `value`; pass
+            # `ontology` when the sheet decides what KIND of thing exists,
+            # which is the expensive case and the overconfident one.
+            "level": level, "rests_on": list(rests_on), "cost": cost,
         }) + "\n")
     return rec
 
