@@ -61,6 +61,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -153,6 +154,136 @@ def change_point(outcomes: list[int], min_side: int = MIN_SIDE):
     return best
 
 
+
+# --------------------------------------------------------------------------
+# stake: what it costs to be wrong, which is not the same as how often you are
+# --------------------------------------------------------------------------
+#
+# Grant: predicting a file's word count has a different salience to predicting
+# whether your ontology was correct. It does, and the first attempt to show it
+# ran the WRONG TEST -- accuracy by level, which found nothing (value 0.55,
+# ontology 0.67) because accuracy was never the point. Stake is what it costs to
+# be wrong, and cost was not in the log at all. That absence is the gap this
+# closes.
+#
+# The evidence for the ordering is consequence, not error rate. Two wrong
+# ontology claims from this log:
+#
+#     "the bomb sites are correctly classified"      -> sites were 93% VOID,
+#                                                       the searchable mask broke
+#     "the label class list is complete at six"      -> six labeller restarts
+#
+# against a wrong value claim from the same day, "plant rate lands 40-60%",
+# whose cost was editing a number. Same log, same `wrong`, orders of magnitude
+# apart.
+#
+#: LEVEL is a priori and nearly SYNTACTIC -- readable off the claim's grammar,
+#: which is what stops it being quietly under-rated for claims about to fail.
+LEVELS = {
+    "value": "X is N -- a number, a count, a threshold. Wrong: one number is wrong",
+    "mechanism": "X works because Y. Wrong: a class of approaches is wrong",
+    "ontology": "X is a kind of Y. Wrong: every measurement in those categories "
+                "is wrong, INCLUDING the ones that looked right",
+    "instrument": "this tool measures X. Wrong: all data it produced is suspect",
+}
+LEVEL_WEIGHT = {"value": 1, "mechanism": 2, "ontology": 4, "instrument": 4}
+
+#: COST is a posteriori, ordinal, and anchored to things that actually happened
+#: here -- an absolute scale in minutes would be false precision and would not
+#: survive comparison across sessions of different length.
+COST = {
+    "none": (0, "noted and moved on -- 'plant rate lands 40-60%'"),
+    "minutes": (1, "a number requoted or an edit -- PLANT_MIN_MS=20s, 2 missed plants"),
+    "hours": (2, "work built then retracted -- onset sampling"),
+    "session": (3, "a session's direction wasted -- the searchable mask, derived five times"),
+    "sessions": (4, "multiple sessions, or a SHIPPED number invalidated -- seeding "
+                    "minimap_agent made a measured 93% circular"),
+}
+
+
+def record(claim, *, domain, confidence, level, outcome=None, rests_on=(),
+           cost=None, retrospective=False, by="claude", log_path=None, **extra):
+    """Append one prediction. `level` is required, and validated.
+
+    Requiring `level` at write time is the whole point: it is cheap, it is
+    syntactic, and it cannot be assigned after the outcome is known without
+    that being visible in the file.
+    """
+    if level not in LEVELS:
+        raise ValueError(f"level must be one of {sorted(LEVELS)}, got {level!r}")
+    if cost is not None and cost not in COST:
+        raise ValueError(f"cost must be one of {sorted(COST)}, got {cost!r}")
+    row = {"when": time.strftime("%Y-%m-%d"), "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+           "domain": domain, "claim": claim, "confidence": confidence,
+           "outcome": outcome, "retrospective": retrospective,
+           "level": level, "rests_on": list(rests_on), "cost": cost,
+           "by": by, **extra}
+    log = Path(log_path) if log_path else LOG
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row) + chr(10))
+    return row
+
+
+def stake(row) -> float:
+    """Raw stake for one row: level weight x (1 + things resting on it).
+
+    Deliberately crude. It is a PRIOR to be replaced: once enough rows carry an
+    observed `cost`, fit `level x rests_on -> cost` from history and use that
+    instead, exactly as the calibration table replaced asking how confident I
+    felt. Until then this is an ordering, not a measurement.
+    """
+    return LEVEL_WEIGHT.get(row.get("level", "value"), 1) * (1 + len(row.get("rests_on") or ()))
+
+
+def stake_ranked(rows) -> list[tuple[float, float, dict]]:
+    """(stake, percentile, row), highest first.
+
+    Reported as a PERCENTILE WITHIN THIS LOG, never as an absolute. Grant's
+    point, and it is the right resolution rather than a dodge: there is no
+    universal unit of importance, and none is needed, because every decision
+    this feeds -- what to check first, what to re-measure -- is a RANKING.
+    Human status being relative is the same observation; comparison is cheap and
+    well-defined where an absolute scale is neither.
+    """
+    scored = [(stake(r), r) for r in rows]
+    if not scored:
+        return []
+    vals = sorted(v for v, _ in scored)
+    out = []
+    for v, r in scored:
+        pct = sum(1 for x in vals if x <= v) / len(vals)
+        out.append((v, pct, r))
+    return sorted(out, key=lambda t: -t[0])
+
+
+def by_level(rows) -> str:
+    """Accuracy AND observed cost per level. The second column is the point."""
+    seen = {}
+    for r in rows:
+        if r.get("outcome") in SCORED:
+            seen.setdefault(r.get("level", "unlabelled"), []).append(r)
+    if not seen:
+        return "no levelled rows yet -- pass level= to judgement.record()"
+    out = [f"{'level':<12} {'n':>4} {'acc':>6} {'gap':>7} {'mean cost':>10}  worst"]
+    for lv in sorted(seen, key=lambda k: -LEVEL_WEIGHT.get(k, 0)):
+        rs = seen[lv]
+        right = sum(1 for r in rs if r["outcome"] == "right")
+        mc = sum(float(r.get("confidence", 0)) for r in rs) / len(rs)
+        costs = [COST[r["cost"]][0] for r in rs if r.get("cost") in COST]
+        worst = max((r for r in rs if r.get("cost") in COST),
+                    key=lambda r: COST[r["cost"]][0], default=None)
+        acc = right / len(rs)
+        cs = f"{sum(costs) / len(costs):.1f}" if costs else "--"
+        out.append(f"{lv:<12} {len(rs):>4} {acc:>6.2f} {acc - mc:>+7.2f} {cs:>10}  "
+                   f"{(worst['claim'][:44] if worst else '')}")
+    out.append("")
+    out.append("acc is NOT the interesting column. A wrong `value` claim costs a")
+    out.append("requote; a wrong `ontology` claim invalidates every measurement")
+    out.append("expressed in those categories, including the ones that looked right.")
+    return chr(10).join(out)
+
+
 def analyse(rows: list[dict], domain: str) -> dict:
     """Everything this module knows about one domain."""
     rs = [r for r in rows if r.get("domain") == domain]
@@ -233,6 +364,18 @@ def report(rows: list[dict], only: str | None = None) -> str:
             out.append(f"  {'':<12}   underpowered for a change point "
                        f"({a['n_scored']} scored, need {2 * MIN_SIDE})")
 
+    lv = by_level(rows)
+    if "no levelled rows" not in lv:
+        out += ["", "By LEVEL of claim -- what it costs to be wrong:", ""]
+        out += ["  " + l for l in lv.splitlines()]
+        top = [t for t in stake_ranked([r for r in rows if r.get("level")])
+               if (t[2].get("rests_on") or [])][:5]
+        if top:
+            out += ["", "Highest stake (percentile within this log):"]
+            for v, pct, r in top:
+                out.append(f"  {v:5.1f}  p{pct * 100:3.0f}  [{r['level']:<10}] "
+                           f"{r['claim'][:52]}")
+
     out += ["",
             "gap = accuracy minus mean stated confidence; negative is overconfidence.",
             "runs z: negative = outcomes cluster (structure, chase the run of wrongs),",
@@ -286,6 +429,31 @@ def _self_test() -> int:
     r2 = runs([1] * 10 + [0] * 10)
     assert r2 and r2[2] < -RUNS_Z, r2
     print(f"  runs test: alternating z={r[2]:+.2f}, clustered z={r2[2]:+.2f}")
+
+    import tempfile
+    tmp = Path(tempfile.gettempdir()) / "judgement-selftest.jsonl"
+    if tmp.exists():
+        tmp.unlink()
+    record("a value claim", domain="t", confidence=0.7, level="value",
+           outcome="wrong", cost="none", log_path=tmp)
+    record("an ontology claim", domain="t", confidence=0.9, level="ontology",
+           outcome="wrong", cost="sessions", rests_on=["a", "b"], log_path=tmp)
+    got = load(tmp)
+    assert len(got) == 2 and got[1]["level"] == "ontology", got
+    assert stake(got[1]) > stake(got[0]), "ontology with 2 dependents must outrank a bare value claim"
+    for bad in (dict(level="vibes"), dict(level="value", cost="ages")):
+        try:
+            record("x", domain="t", confidence=0.5, outcome="wrong",
+                   log_path=tmp, **bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"accepted {bad}")
+    ranked = stake_ranked(got)
+    assert ranked[0][2]["level"] == "ontology" and ranked[0][1] == 1.0, ranked
+    tmp.unlink()
+    print(f"  stake: ontology+2 deps = {stake(got[1]):.0f} vs bare value "
+          f"= {stake(got[0]):.0f}; bad level and bad cost both refused")
     print("self-test OK")
     return 0
 
@@ -295,9 +463,14 @@ def main(argv=None) -> int:
     ap.add_argument("--domain", default=None)
     ap.add_argument("--log", default=None)
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--levels", action="store_true",
+                    help="only the by-level view")
     a = ap.parse_args(argv)
     if a.self_test:
         return _self_test()
+    if a.levels:
+        print(by_level(load(Path(a.log) if a.log else None)))
+        return 0
     print(report(load(Path(a.log) if a.log else None), a.domain))
     return 0
 
