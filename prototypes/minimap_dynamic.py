@@ -13,12 +13,16 @@ The alternative needs no colour. Every icon, ability and viewcone is by
 definition what DIFFERS from the static map, and `minimap_geometry` now supplies
 both the static map and the labels needed to keep the difference honest:
 
-* **the white lines are where the false positives live.** A 1-2 px line between
-  two very different levels shifts slightly frame to frame and lights up under
-  any difference threshold. On `c62c2b06bcfb` that was most of 107 blobs
-  against the red mask's 7 over the same six frames. The geometry map locates
-  those lines exactly, so they are excluded BY CONSTRUCTION rather than by
-  another threshold;
+* ~~**the white lines are where the false positives live**~~ **WRONG, and it
+  took until 2026-08-26 to catch.** A 1-2 px line does shift frame to frame,
+  and on `c62c2b06bcfb` most of 107 blobs sat on one against the red mask's 7 --
+  but the line was not the source. Measured on the slab, a white line is the
+  QUIETEST thing on the widget: temporal SD **7.4** against plain slab's 17.1,
+  so its noise-matched threshold would be 12, not 28. What flickers is the
+  see-through VOID beside the line, and guarding the line was charging it for
+  its neighbour's noise. Once the searchable area is restricted to what is
+  opaque the guard has nothing left to do, and dropping it takes reachable
+  hand-marked icon centres from 211 to 241 of 254. See `searchable`;
 * **the void is not part of the map.** The widget is semi-transparent, so
   outside the floor plan the world churns behind it -- the failure that killed
   five earlier content-based approaches in `minimap_position.py`. Restricting to
