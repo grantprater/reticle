@@ -797,42 +797,27 @@ scrubbing an overlay video, and it is the right tool whenever the question is
 
 ## Conventions that are load-bearing
 
-**Predict before you look, and go to the surprise.** Reading a system
-passively teaches less than committing to a falsifiable claim about it first,
-because a prediction that is never scored cannot be wrong. Before opening an
-unfamiliar part of this project, write down three to five claims at COARSE
-resolution -- what the main components are, where state lives, what the biggest
-file will be, roughly what a search will return -- then look, then mark each one
-right, wrong, or couldn't-tell.
+**Predict before you look, and go to the surprise. UNDER TEST — log it.**
+Before opening an unfamiliar part of this project, or committing to a threshold
+or a design, write three to five claims specific enough to die cleanly — a
+number, a class, a count. Then look, then go to the WRONG ones first, before
+going where the task pointed. A broken prediction localises the part of your
+model that is actually wrong, which is worth more than the thing you came for.
+For searches, predict the result COUNT: a grep returning five where fifty were
+expected is the finding, and reading the five discards it.
 
-**The wrong ones are the map.** Go there first, before going where the task
-pointed you. A broken prediction localises the part of your model of this system
-that is actually wrong, which is worth more than the thing you came for.
+Guard: a hypothesis you generated is one you will confirm. A vague prediction
+survives evidence that should have killed it and leaves you more confident, so a
+high `couldn't-tell` rate means the technique is failing, not succeeding.
 
-Then repeat at finer resolution on the part that matters, and only then start
-changing things. Passive first, experiment second: an intervention whose outcome
-you cannot predict at all teaches much less than one you predicted wrongly.
-
-For searching specifically: **predict the shape of the result before running the
-search.** A `grep` that returns five hits when you expected fifty has told you
-your model of the codebase is wrong, and that is more information than the five
-hits. Reading the five hits and moving on discards it.
-
-Worked example, from the session that produced this rule: the first candidate
-`label_dynamic.py` ever presented was 4 px outside the map. Predicting *"the
-searchable area excludes everything the widget draws see-through"* and checking
-it against that one candidate would have failed immediately and localised the
-defect to `floor_mask`'s dilation in one step. Instead five successive masks
-were derived, each measured, each wrong, over about four hours.
-
-**The risk to guard is self-anchoring.** A hypothesis you generated is one you
-will be inclined to confirm, so the prediction must be specific enough to be
-cleanly falsified -- a number, a class, a count. A vague prediction is worse than
-none, because it survives contact with evidence that should have killed it.
-
-Not free, so spend it where being wrong is expensive: before committing to a
-threshold, a design, or a claim that goes in a commit message. Not before every
-file read.
+This is a claim about what helps, and it has never been measured. Log every
+prediction to `<store>/notes/predictions.jsonl` — `{when, domain, claim,
+confidence, outcome, retrospective}` — so it can be scored rather than believed.
+**That log is the only artefact here whose value grows across sessions**:
+everything else in this file is a conclusion that must be re-read cold, while a
+calibration table gets sharper with n and says which DOMAINS to trust. Current
+read from one session: structural claims about code, fair; claims about what a
+rendered image contains, poor enough that asking Grant beat five derivations.
 
 **Ask Grant before deriving, when he can just look.** The searchable mask was
 derived and re-derived five times on 2026-08-26, each attempt measured and
