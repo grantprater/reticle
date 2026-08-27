@@ -223,11 +223,44 @@ Two smaller threads left open, both cheap:
   placeable devices on Ascent is Deadlock (Sonic Sensor, Barrier Mesh); `Miks` is
   an agent whose kit is not in my knowledge at all, which is worth stating
   plainly rather than guessing around.
-  Also from Grant, same pass: **04 is a KJ wall** -- *that light blue going off;
-  there are four of them but they can get destroyed or be up against a wall and
-  very small* -- so it is a MULTI-SEGMENT object with a variable segment count,
-  which no size gate fitted to icons will survive. And **05 is a viewcone through
+  Also from Grant, same pass: **04 is a DEADLOCK wall** (Barrier Mesh) --
+  *that light blue going off; there are four of them but they can get destroyed
+  or be up against a wall and very small* -- so it is a MULTI-SEGMENT object with
+  a variable segment count, which no size gate fitted to icons will survive. And **05 is a viewcone through
   a doorway**, on Ascent at (264,128), which kills that as a candidate object.
+
+* **Ultimate orbs have NO minimap icon.** Grant checked in a custom game,
+  2026-08-27: *I don't believe ult orbs have a minimap icon. They didn't in the
+  custom game I just opened to test. I think they used to though. They are
+  generally in the "no man's zone" area of the map, between the barriers.* This
+  kills the hypothesis outright -- an orb was the obvious reading of "two fixed
+  positions per map" and it is simply wrong. **A five-minute custom game settles
+  what the pixels cannot**, and it is the cheapest instrument in this project.
+
+* **The Ascent object is HALF-SCOPED, which rules out a map fixture.** Over 250
+  frames, same gate:
+
+      (136, 168)  n=79   t=  30..1252s   then absent for the last 18 minutes
+      (264, 128)  n= 9   t=  77..1043s   same, stops early
+      (224, 216)  n= 2   t=1681..2289s   appears only late
+
+  Two positions carry the first half and a different one carries the second.
+  That is the **side swap**, so the object is a placed device whose position is a
+  per-half placement habit -- not furniture, and not a habit that survives
+  halftime, let alone another session. On the Ascent ally roster the candidate is
+  **Deadlock's Sonic Sensor** (WhaleKicker), a placed device that persists until
+  destroyed. Miks is the other candidate but his deployable is THROWN, which
+  fits 2 px repeatability across twenty minutes poorly.
+  **Miks's kit, from Grant** (not in my knowledge, so recorded here): smokes, a
+  teammate buff (movement speed and fire rate), a cone ult, and a deployable
+  toggleable before throwing between healing and stunning.
+
+* **`active` spans are NOT rounds.** `l2/spans` gives **29 active spans** for
+  a06f04a0059f, a match that can hold at most ~24 rounds, and several are 12-26s
+  fragments. There is no `l2/rounds` parquet for this session at all. The
+  endstate emits **duels and rounds** as the event unit, so this is a gap on the
+  critical path and not just a labelling nuisance -- and it is the same defect
+  that put 38% of the first `label_dynamic` pass inside the buy phase.
 
 * **A rotation-variant glyph breaks template matching.** If the cam icon rotates
   to show facing, then `minimap_portrait`'s NCC gallery approach cannot identify
