@@ -22,12 +22,13 @@ geometry at all:
    107 dynamic blobs against 7 from the red mask over the same six frames,
    including a B/W circular ability icon at Mid Vent.
 
-   But most of those 107 are artefacts hugging the WHITE BORDERS, because a
-   1 px line between two very different levels moves a little frame to frame
-   and lights up under any difference threshold. Borders are static and white,
-   so this map locates them exactly -- which removes the dominant artefact
-   class BY CONSTRUCTION rather than by another threshold. The detector needs
-   this map and this map is what fixes the detector.
+   Most of those 107 hug the WHITE BORDERS, and the obvious reading of that --
+   that the line itself flickers -- is WRONG. Measured 2026-08-26: a white line
+   is the quietest thing on the widget, temporal SD 7.4 against the lit slab's
+   17.1. What moves is the see-through void on the other side of it. The lesson
+   survives, with the cause corrected: this map is what the detector needs, but
+   for locating the OPAQUE SLAB and the bomb sites, not for guarding lines.
+   See `minimap_dynamic.searchable`.
 
 2. **It is the occlusion grid.** `minimap_position.py` already noted the static
    map falls out as a per-pixel median and is also what the visibility work
