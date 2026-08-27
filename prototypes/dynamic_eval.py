@@ -130,6 +130,71 @@ def features(sid, rows):
 
 POINTS = ((999, 0), (80, 0), (40, 0), (999, 90), (60, 90), (40, 90), (40, 110))
 
+#: Rows this close together are the same OBJECT observed twice. On
+#: a06f04a0059f, 33 of 53 `ability` rows are one Deadlock Sonic Sensor at
+#: (137,170) and 44 of 53 are two positions -- so a per-ROW recall there is
+#: 62% "did we find the sensor again". `--by-position` collapses to one row per
+#: (position, kind) so the metric counts objects, which is what the detector is
+#: actually for. Quote both; a large gap between them means the class is
+#: dominated by something that sits still.
+COLLAPSE_PX = 8
+
+
+def collapse(rows, px=COLLAPSE_PX):
+    """One row per (position, kind) -- objects, not observations."""
+    seen, out = set(), []
+    for r in rows:
+        k = (r["x"] // px, r["y"] // px, r["kind"])
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(r)
+    return out
+
+
+def sweep_best(rows, spans=range(20, 201, 5), tops=range(0, 181, 5)):
+    """Best (span, tophat) on THESE rows, by F1 of glyph against `nothing`.
+
+    Only ever called on the FIT session. The handoff's own caveat about the
+    first cut was that "the thresholds are picked on the same rows they are
+    scored on"; this is the half that fixes it.
+    """
+    pos = [r for r in rows if r["kind"] in GLYPH]
+    neg = [r for r in rows if r["kind"] == "nothing"]
+    if not pos or not neg:
+        return None
+    best = None
+    for S in spans:
+        for T in tops:
+            kp = sum(1 for r in pos if r["span"] <= S and r["tophat"] >= T)
+            kn = sum(1 for r in neg if r["span"] <= S and r["tophat"] >= T)
+            if not kp:
+                continue
+            rec, prec = kp / len(pos), kp / (kp + kn)
+            f1 = 2 * rec * prec / (rec + prec)
+            if best is None or f1 > best[0]:
+                best = (f1, S, T, rec, prec)
+    return best
+
+
+def at_point(rows, S, T, name):
+    """Score one fixed operating point. No choosing happens here."""
+    pos = [r for r in rows if r["kind"] in GLYPH]
+    neg = [r for r in rows if r["kind"] == "nothing"]
+    oth = [r for r in rows if r["kind"] not in GLYPH and r["kind"] != "nothing"]
+    if not pos:
+        print(f"   {name}: no glyph rows")
+        return
+    kp = [r for r in pos if r["span"] <= S and r["tophat"] >= T]
+    kn = [r for r in neg if r["span"] <= S and r["tophat"] >= T]
+    ko = [r for r in oth if r["span"] <= S and r["tophat"] >= T]
+    rec = len(kp) / len(pos)
+    prec = len(kp) / (len(kp) + len(kn)) if (kp or kn) else float("nan")
+    pall = len(kp) / (len(kp) + len(kn) + len(ko)) if (kp or kn or ko) else float("nan")
+    print(f"   {name:<26} n={len(rows):4d} glyph={len(pos):3d}  "
+          f"recall {rec * 100:5.1f}%  vs nothing {prec * 100:5.1f}%  "
+          f"vs all kept {pall * 100:5.1f}%")
+
 
 def report(rows, name):
     pos = [r for r in rows if r["kind"] in GLYPH]
@@ -175,10 +240,45 @@ def score_mask(sid):
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("sessions", nargs="+")
+    ap.add_argument("sessions", nargs="*")
     ap.add_argument("--mask", action="store_true",
                     help="score the searchable rule against the painted mask instead")
+    ap.add_argument("--fit", help="session to CHOOSE the operating point on")
+    ap.add_argument("--score", help="session to report it on, never fitted")
+    ap.add_argument("--by-position", action="store_true",
+                    help="collapse to one row per (position, kind): objects, not observations")
     args = ap.parse_args()
+
+    if args.fit and args.score:
+        # The honest cross-session number: choose on one map, report on another,
+        # never look at the scoring session while choosing.
+        def prep(sid):
+            rows = load(sid)
+            if not rows:
+                raise SystemExit(f"{sid}: no labels -- run label_dynamic.py --colour none")
+            features(sid, rows)
+            rows = [r for r in rows if "span" in r]
+            return collapse(rows) if args.by_position else rows
+
+        fit_rows, score_rows = prep(args.fit), prep(args.score)
+        unit = "objects" if args.by_position else "observations"
+        best = sweep_best(fit_rows)
+        if best is None:
+            raise SystemExit("could not fit: the fit session has no glyph or no nothing rows")
+        f1, S, T, rec, prec = best
+        print()
+        print(f"FIT on {args.fit} ({len(fit_rows)} {unit}): "
+              f"span<={S}, tophat>={T}  (F1 {f1:.2f} in-sample)")
+        print(f"SCORE on {args.score} ({len(score_rows)} {unit}) -- never fitted:")
+        print()
+        at_point(fit_rows, S, T, f"{args.fit} (in-sample)")
+        at_point(score_rows, S, T, f"{args.score} (HELD OUT)")
+        print()
+        print("The held-out row is the number to quote. A large in-sample/held-out")
+        print("gap means the point is fitted to one map; run --by-position too, since")
+        print("a class dominated by one static object flatters the per-row figure.")
+        return 0
+
     for sid in args.sessions:
         if args.mask:
             score_mask(sid)
@@ -191,6 +291,11 @@ def main() -> int:
         print("  ", dict(Counter(r["kind"] for r in rows).most_common()))
         features(sid, rows)
         rows = [r for r in rows if "span" in r]
+        if args.by_position:
+            before = len(rows)
+            rows = collapse(rows)
+            print(f"   collapsed {before} observations -> {len(rows)} objects "
+                  f"({1 - len(rows) / max(1, before):.0%} were repeats of a position)")
         report(rows, "ALL rows")
         report([r for r in rows if r["into"] is not None and r["into"] >= BUY_S],
                f"LIVE PLAY ({BUY_S:.0f}s+ into a span)")

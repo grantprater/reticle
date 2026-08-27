@@ -125,7 +125,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle.profiles import get_profile                          # noqa: E402
 import minimap_dynamic as md                                      # noqa: E402
-from minimap_temporal import usable                               # noqa: E402
+from minimap_temporal import usable, drawn                        # noqa: E402
 
 STORE = Path.home() / "reticle-store"
 
@@ -252,6 +252,7 @@ def main() -> int:
                 done.add((r["t_ms"], r["x"], r["y"]))
 
     print("detecting candidates...")
+    n_undrawn = 0
     cap = cv2.VideoCapture(src["path"])
     cands = []
     for t in live_times(args.session, args.frames):
@@ -262,6 +263,14 @@ def main() -> int:
         crop = fr[MY0:MY1, MX0:MX1]
         if not usable(crop, floor):
             continue
+        # `usable` asks whether the widget is READABLE; `drawn` asks whether it
+        # is there at all. On the death screen Valorant swaps the corner widget
+        # for the full map centre-screen, and the ROI then holds world pixels
+        # that pass every brightness test. Caught 4 questions into the Lotus
+        # pass by Grant, who noticed a circled item outside the minimap bounds.
+        if not drawn(crop, sgray, floor):
+            n_undrawn += 1
+            continue
         for d in md.detect(crop, sgray, ok_area, args.diff):
             if args.colour and d["colour"] != args.colour:
                 continue
@@ -270,6 +279,9 @@ def main() -> int:
                 continue
             cands.append({"t_ms": round(t), **d})
     rng = random.Random(23)
+    if n_undrawn:
+        print(f"skipped {n_undrawn} frames with no minimap widget drawn "
+              f"(death screen / full-map overlay)")
     raw = len(cands)
     cands, n_pos = diversify(cands, rng)
     print(f"{raw} candidates at {n_pos} distinct positions "
