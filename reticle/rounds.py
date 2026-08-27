@@ -163,8 +163,33 @@ def _tracks(t, masks, dividers):
     return [a for a in track_entries(t, masks, dividers) if a["counted"]]
 
 
+#: The player's team is drawn on the LEFT of the scoreline. Structural, not
+#: inferred, and settled 2026-08-27 by three independent lines:
+#:
+#: * **direct**: the top HUD band on `5822b6646448` at t=2206s shows the GREEN
+#:   ally bar left with score 11 and the RED enemy bar right with 12. The
+#:   scoreline is coloured by team, so it says which side is ours outright;
+#: * **statistical**: `infer_player_side` resolves LEFT on 14 sessions and RIGHT
+#:   on none, abstaining on 3. Under a coin flip that is p ~ 6e-5;
+#: * **structural**: the roster bars are green-left / red-right (see "The top HUD
+#:   says more than it looks like"), in the same order as the scoreline.
+#:
+#: This matters because abstaining left `won` NULL for every round of the
+#: abstaining sessions -- 43 rounds, including all 23 of Lotus, the session
+#: queued for labelling. The old comment was right that a coin flip here would
+#: corrupt every win rate downstream; the answer is not to flip a coin but to
+#: stop guessing at something the pixels state directly.
+PLAYER_SIDE = "left"
+
+
 def infer_player_side(rounds: list[dict]) -> tuple[str | None, float]:
     """Which side of the scoreline is the player's team, and how sure.
+
+    **Demoted 2026-08-27 to a CHECK.** `PLAYER_SIDE` decides; this is kept
+    because a disagreement is a real finding -- either a session where the
+    player traded unusually, or a capture whose scoreline is mirrored -- and it
+    is free to keep computing. `build_rounds` records the verdict per round as
+    `side_inferred` / `side_agrees` and never lets it override.
 
     Nothing on screen says it -- the scoreline is left and right, not us and
     them -- but the player trades better in rounds his team wins, so his kills
@@ -234,10 +259,16 @@ def build_rounds(table) -> list[dict]:
             prev_c = c
         r["spike_planted"] = planted
 
-    side, sep = infer_player_side(rounds)
+    # PLAYER_SIDE decides; the inference is carried alongside as a check whose
+    # disagreement is worth looking at, never as the answer.
+    inferred, sep = infer_player_side(rounds)
+    side = PLAYER_SIDE
     for r in rounds:
-        r["player_side"] = side or "unknown"
-        r["won"] = None if side is None else bool(r["won_left"] == (side == "left"))
+        r["player_side"] = side
+        r["side_inferred"] = inferred or "abstain"
+        r["side_separation"] = round(sep, 3)
+        r["side_agrees"] = bool(inferred is None or inferred == side)
+        r["won"] = bool(r["won_left"] == (side == "left"))
         r["score_us"] = r["left_before"] if side == "left" else r["right_before"]
         r["score_them"] = r["right_before"] if side == "left" else r["left_before"]
     return rounds
