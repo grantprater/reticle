@@ -257,8 +257,13 @@ def _grid(panels, cols, gap=6):
     out[:] = PAPER
     for i, p in enumerate(panels):
         r, c = divmod(i, cols)
-        y = gap + r * (ch + gap)
-        x = gap + c * (cw + gap)
+        # Centre each panel in a uniform cell. Boxes vary a lot in size, so
+        # laying panels flush left made the Lotus sheet read as a ragged pile
+        # and cost real scanning effort -- a grid whose rows do not line up is
+        # a worse contact sheet, and this encoding is only worth what a glance
+        # can take off it.
+        y = gap + r * (ch + gap) + (ch - p.shape[0]) // 2
+        x = gap + c * (cw + gap) + (cw - p.shape[1]) // 2
         out[y:y + p.shape[0], x:x + p.shape[1]] = p
     return out
 

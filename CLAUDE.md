@@ -35,8 +35,40 @@ loads when a session touches that directory.
 - [Conventions that are load-bearing](#conventions-that-are-load-bearing)
 ## Picking up
 
-**NEXT SESSION: the labels are IN -- fit the ability classifier, then take it
-to a second session.** 251 answers from Grant on `a06f04a0059f`, uniform over
+**NEXT SESSION: the Lotus labelling pass, and ONE question for Grant first.**
+The cross-session step below was pre-screened on 2026-08-27 with
+`prototypes/glance_dynamic.py 5822b6646448 --fit a06f04a0059f`, and the sheet
+came back **VOID**: 4 of 6 controls hit, and **both misses were the same
+object** -- a dark disc with a white radial pattern that I read as `spike` and
+Grant had labelled `ability`. I gave that same answer to three more Lotus
+panels, so this is not diffuse noise but **one glyph misread five times in one
+direction, on two different maps**. That is the "three predictions that agree
+and are all wrong" signature, and it is why the sheet's other 16 answers are
+discarded rather than doubted: without the controls they would have gone into
+the fit as labels.
+
+So the pre-screen did its job by failing. Two consequences:
+
+* **ask Grant what the dark disc with the white radial spokes is** before the
+  pass. It appears on Ascent AND Lotus, so it is not map furniture, and it is
+  the single confusion driving the void. Ultimate orb is the guess;
+* **the class list needs `warning_ping`.** Grant, 2026-08-27, on the pink
+  triangle on a pink ring in the red channel: *that's a warning ping.* So pings
+  appear in BOTH channels and `label_dynamic`'s `6 = ping` -- *a pond ripple,
+  white and bluish* -- only ever named the colour-free one. A warning ping is a
+  red-channel object being marked `other_red` in `labels/minimap`, and pings are
+  explicitly in the endstate ("abilities and pings on the minimap"), so this is
+  an event class, not a nuisance class. Ask for the full list once, the way the
+  `labelling-pass` skill says: `label_dynamic` was launched six times in one
+  session because ping, area and barrier each surfaced mid-run.
+
+Measured while pre-screening, and worth keeping: **Lotus streams 3.7 colour-free
+candidates per usable frame against Ascent's 2.7** (429/116 vs 321/119, same
+sweep, same `searchable` rule, 120 frames). More per frame on a new map, which
+is the direction the size gate has to survive.
+
+*The step itself, unchanged:* **the labels are IN -- fit the ability classifier,
+then take it to a second session.** 251 answers from Grant on `a06f04a0059f`, uniform over
 active play, colour-free candidates only:
 
     nothing 148   ability 53   player 25   area 20   ping 4   other 1
@@ -688,10 +720,20 @@ DIFFERENT population establish a floor (can this be read at 6x at all), never a
 ceiling (is the open class separable) -- the same trap as *0 of 55 hand-marked
 icons have aspect >= 2.0*.
 
-First load, 2026-08-27: both cam sheets VALID, 8 of 8 controls hit, and the
-queued cam task closed in minutes by discovering it was unrunnable. Of six
-side predictions logged the same session, 3 right, 2 wrong, 1 couldn't-tell --
-so the `minimap` row of the calibration table now exists.
+Two loads on 2026-08-27, and the pair is the argument. The **cam** sheets came
+back VALID at 8 of 8 controls and closed a queued task in minutes by finding it
+unrunnable. The **Lotus cross-session** sheet came back VOID on 2 of 6, and the
+misses localised to one glyph -- which is the more valuable of the two results,
+because those controls were strong: same detector, same channel, same question,
+different map only. Eleven side predictions logged across both, 5 right, 3
+wrong, 3 couldn't-tell, and the `minimap` rows of the calibration table now
+exist at three confidence bands.
+
+One defect the Lotus sheet exposed in the encoding itself, since it is the kind
+that recurs: panels were laid flush left in a max-sized cell, so a sheet whose
+boxes vary in size read as a ragged pile. Panels are centred in a uniform cell
+now. **A contact sheet is worth exactly what a glance can take off it**, so
+layout regressions in this module are correctness bugs, not cosmetics.
 
 ## Open defects
 
