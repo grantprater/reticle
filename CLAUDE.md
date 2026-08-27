@@ -255,12 +255,51 @@ Two smaller threads left open, both cheap:
   teammate buff (movement speed and fire rate), a cone ult, and a deployable
   toggleable before throwing between healing and stunning.
 
-* **`active` spans are NOT rounds.** `l2/spans` gives **29 active spans** for
-  a06f04a0059f, a match that can hold at most ~24 rounds, and several are 12-26s
-  fragments. There is no `l2/rounds` parquet for this session at all. The
-  endstate emits **duels and rounds** as the event unit, so this is a gap on the
-  critical path and not just a labelling nuisance -- and it is the same defect
-  that put 38% of the first `label_dynamic` pass inside the buy phase.
+* **Rounds were never missing -- `reticle rounds` had simply never been run on
+  the three enlarged-minimap sessions.** `rounds.py` derives bounds from the
+  scoreline climbing by one, recomputed from stored L1 without opening the
+  video. Ascent 24 rounds 13-11, Lotus 23, Split 21 21-rounds 13-8, all now
+  persisted. My earlier claim that no `l2/rounds` parquet existed was a
+  truncated `find | head`; the round table is 349 rounds over 17 sessions.
+  (`active` spans still are not rounds -- 29 spans against 24 rounds on Ascent,
+  several of them 12-26s fragments -- but nothing on the endstate path needs
+  them to be, because the scoreline gives rounds directly.)
+
+* **`PLAYER_SIDE = "left"` is structural now, and it recovered 43 rounds.**
+  `infer_player_side` decided the player's side from kill differential and
+  ABSTAINED on three sessions, leaving `won` NULL for all 43 of their rounds --
+  including all 23 of Lotus, the session queued for labelling. Three independent
+  lines settle it instead:
+
+      direct        the top HUD band is COLOURED BY TEAM -- green ally bar left,
+                    red enemy bar right. Confirmed by eye on 5822b6646448
+                    (bigmap profile, 11-12) and c40d950031bb (16x9 profile, 7-1)
+      statistical   the old inference resolves LEFT on 14 sessions, RIGHT on 0
+      structural    the roster bars are green-left / red-right, same order
+
+  **The scoreline ROI already contained the answer and nothing was reading it.**
+  Rounds with a known outcome went 306 -> 349, and every one of the 14 sessions
+  that previously resolved kept an identical W-L, so the change is non-
+  destructive. The inference is kept as a CHECK: `reticle rounds` prints `~` where
+  it abstains and `!` where it actively disagrees, and a `!` is worth opening the
+  capture for. None currently disagree.
+
+* **All three abstaining sessions are TRUNCATED captures**, which is one
+  explanation rather than three: 5822b6646448 ends 12 s after its last read at
+  11-12, c40d950031bb at 7-1, 75a55a296d3b at 10-2. `infer_player_side` abstains
+  exactly on short or lopsided partial matches, as its own docstring predicted.
+  **This resolves Lotus's K/D gap**: our 12/20 against Grant's end-of-match 13/21
+  is one kill and one death in the unrecorded tail, not two read errors. Check
+  capture completeness before quoting a K/D delta as a defect.
+
+* **NEXT, and the pixels are already cropped: the plant.** The Lotus top-HUD
+  frame at t=2206s shows the **red spike graphic centre-screen where the round
+  timer would be**, exactly as "The top HUD says more than it looks like"
+  predicted -- inside the `scoreline` ROI, needing no new ROI. `spike_planted`
+  currently finds **1 plant in 24 rounds** on Ascent via the one-sample clock
+  discontinuity, where the true figure is many times that. A state that persists
+  45 s is ~90 samples at 2 Hz and is trivial to catch. The plant is a PHASE
+  boundary, so this is what splits a round into the two games the endstate wants.
 
 * **A rotation-variant glyph breaks template matching.** If the cam icon rotates
   to show facing, then `minimap_portrait`'s NCC gallery approach cannot identify

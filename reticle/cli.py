@@ -1055,7 +1055,12 @@ def cmd_rounds(args) -> int:
         every += rs
         store.write_rounds(rs, sid, date)
         won = [r["won"] for r in rs if r["won"] is not None]
-        print(f"{sid:14s} {mp:8s} {len(rs):6d} {rs[0]['player_side']:>6s} "
+        # `player_side` is structural now (rounds.PLAYER_SIDE). The statistical
+        # inference rides alongside: `~` where it abstained, `!` where it
+        # actively disagreed -- and a `!` is worth opening the capture for.
+        chk = rs[0]["side_inferred"]
+        mark = "" if chk == rs[0]["player_side"] else ("~" if chk == "abstain" else "!")
+        print(f"{sid:14s} {mp:8s} {len(rs):6d} {rs[0]['player_side'] + mark:>6s} "
               f"{sum(won):3d}-{len(won) - sum(won):<3d}  "
               f"{sum(r['player_kills'] for r in rs):3d}/{sum(r['player_deaths'] for r in rs):<4d}")
 
