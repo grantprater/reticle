@@ -140,6 +140,25 @@ POINTS = ((999, 0), (80, 0), (40, 0), (999, 90), (60, 90), (40, 90), (40, 110))
 COLLAPSE_PX = 8
 
 
+def in_pool(rows, pool):
+    """Filter to one sampling pool. `uniform` is the only one a rate is valid on.
+
+    `label_dynamic` splits each pass in two: a small `uniform` pool with
+    untouched sampling, and a larger `diversity` pool ordered by appearance
+    novelty so the labeller sees many DIFFERENT icons rather than one Sonic
+    Sensor thirty-three times. The second is deliberately not a random draw
+    from the population, so precision and recall computed on it are
+    meaningless -- the same trap as *0 of 55 hand-marked icons have aspect
+    >= 2.0*, a perfect measurement over the wrong population.
+
+    Rows predating 2026-08-27 have no `pool` field and were uniformly sampled,
+    so they read as `uniform`.
+    """
+    if pool == "all":
+        return rows
+    return [r for r in rows if r.get("pool", "uniform") == pool]
+
+
 def collapse(rows, px=COLLAPSE_PX):
     """One row per (position, kind) -- objects, not observations."""
     seen, out = set(), []
@@ -245,6 +264,10 @@ def main() -> int:
                     help="score the searchable rule against the painted mask instead")
     ap.add_argument("--fit", help="session to CHOOSE the operating point on")
     ap.add_argument("--score", help="session to report it on, never fitted")
+    ap.add_argument("--pool", default="uniform",
+                    choices=("uniform", "diversity", "all"),
+                    help="which sampling pool to score; defaults to uniform, "
+                         "the only pool a RATE may be quoted from")
     ap.add_argument("--by-position", action="store_true",
                     help="collapse to one row per (position, kind): objects, not observations")
     args = ap.parse_args()
@@ -253,9 +276,9 @@ def main() -> int:
         # The honest cross-session number: choose on one map, report on another,
         # never look at the scoring session while choosing.
         def prep(sid):
-            rows = load(sid)
+            rows = in_pool(load(sid), args.pool)
             if not rows:
-                raise SystemExit(f"{sid}: no labels -- run label_dynamic.py --colour none")
+                raise SystemExit(f"{sid}: no labels in pool {args.pool!r}")
             features(sid, rows)
             rows = [r for r in rows if "span" in r]
             return collapse(rows) if args.by_position else rows
@@ -283,11 +306,11 @@ def main() -> int:
         if args.mask:
             score_mask(sid)
             continue
-        rows = load(sid)
+        rows = in_pool(load(sid), args.pool)
         if not rows:
-            print(f"{sid}: no labels -- run label_dynamic.py --colour none")
+            print(f"{sid}: no labels in pool {args.pool!r}")
             continue
-        print(f"\n=== {sid} ===  {len(rows)} answered")
+        print(f"\n=== {sid} ===  {len(rows)} answered (pool: {args.pool})")
         print("  ", dict(Counter(r["kind"] for r in rows).most_common()))
         features(sid, rows)
         rows = [r for r in rows if "span" in r]
