@@ -12,6 +12,7 @@
     reticle overlay [SESSION]                 render detections onto the video
     reticle kd      [SESSION]                 running K/D per round, to check against the scoreboard
     reticle board   [SESSION]                 read the Tab scoreboard and score our K/D against it
+    reticle status  [--write]                 generated pipeline status -> STATUS.md
     reticle sql     "SELECT ..."              DuckDB over the store
 """
 
@@ -1098,6 +1099,28 @@ def cmd_rounds(args) -> int:
     return 0
 
 
+def cmd_status(args) -> int:
+    """Status, computed from the store rather than written down.
+
+    28.8 KB of CLAUDE.md was status carrying 77 numeric claims, every one a
+    snapshot that rots silently. On the day this landed the written status was
+    wrong three ways in a single paragraph -- seventeen sessions against 18,
+    hud-0.8.1 against hud-0.9.0, nine of thirteen exact against 9 of 17. A fact
+    that is computed cannot disagree with the code.
+    """
+    from .status import collect, render
+
+    data = collect(Store(args.store))
+    text = render(data, markdown=args.markdown or args.write)
+    if args.write:
+        p = Path(__file__).resolve().parent.parent / "STATUS.md"
+        p.write_text(text + chr(10), encoding="utf-8")
+        print(f"wrote {p}")
+    else:
+        print(text)
+    return 0
+
+
 def cmd_sql(args) -> int:
     import duckdb
 
@@ -1263,6 +1286,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("session", nargs="?")
     s.add_argument("--by-map", action="store_true", help="also split every fact by map")
     s.set_defaults(func=cmd_rounds)
+
+    s = sub.add_parser("status", help="generated pipeline status "
+                       "(the perishable half of CLAUDE.md, computed)")
+    s.add_argument("--write", action="store_true",
+                   help="write STATUS.md instead of printing")
+    s.add_argument("--markdown", action="store_true")
+    s.set_defaults(func=cmd_status)
 
     s = sub.add_parser("sql", help="run DuckDB over the store")
     s.add_argument("query", nargs="?"); s.add_argument("--limit", type=int, default=50)
