@@ -59,12 +59,15 @@ stand on or behind.
 
 Measured, both maps
 -------------------
-    class        Split    Ascent
-    floor        39.9%     32.4%
-    hole          9.2%      6.0%      17.5% / 14.5% of the footprint
-    border        1.0%      1.3%
-    box edge      2.1%      1.7%
-    plantable     0.09%     0.10%
+    class        Split    Ascent    Lotus
+    floor        39.1%     31.9%     35.6%
+    hole          8.8%      6.0%      5.1%     15.1% / 13.9% / 11.3% of footprint
+    border        0.9%      1.2%      0.8%
+    box edge      2.1%      1.7%      1.7%
+    plantable     2.2%      2.6%      2.2%
+
+(`plantable` read 0.09% / 0.10% before 2026-08-26, when the hue test was fitted
+to the saturated core of the paint and found 3% of each zone.)
 
 The holes are real -- Grant: the map simply has them. An earlier version of
 this file put them at 33.9% and 33.3%, from taking the floor's CONVEX HULL as
@@ -117,10 +120,31 @@ WHITE_V, WHITE_S = 170, 60
 # one, and a site is where utility gets thrown. The zone is opaque map, not
 # transparency -- its temporal SD is 17.9 against the lit slab's 16.6 and the
 # exterior void's 42.5 -- it simply fails `floor_mask`'s `sat < 20` because it
-# is tinted. Widened to the hue alone, with a size floor so stray yellow specks
-# (a dropped spike, the plant timer) cannot become a site.
+# is tinted.
+#
+# Widened to hue 15-40 with a size floor so stray yellow specks (a dropped
+# spike, the plant timer) cannot become a site -- but the FIRST widening went
+# too far the other way, `sat > 25, val > 90`, and Split grew a third "site":
+# a 102x257 blob of brown void at the map's left edge, 10921 px, which reached
+# the floor and so passed the adjacency test too. Caught only by rebuilding
+# Split's geometry, which is the argument for rebuilding all of them whenever
+# this file changes.
+#
+# The real paint has a tight signature across every zone measured -- hue 32-33,
+# sat 43-58, val 153-171 on five zones over three maps -- against that blob's
+# hue 19, sat 28, val 90. Swept, with the correct answer being Split 2, Lotus 3
+# (A, B and C), Ascent 2:
+#
+#     sat>25 val>90    Split 3 <- the blob      Lotus 3      Ascent 2
+#     sat>35 val>110   Split 2                  Lotus 3      Ascent 2
+#     sat>40 val>120   Split 2                  Lotus 3      Ascent 2
+#     sat>45 val>130   Split 2                  Lotus 3, C shrinks 1375->602
+#     sat>50 val>140   Split 2                  Lotus 2 <- C lost
+#
+# 40/120 sits in the middle of the plateau rather than on either edge, and the
+# zones it finds are within 10% of the loosest setting's.
 PLANT_H = (15, 40)
-PLANT_S, PLANT_V = 25, 90
+PLANT_S, PLANT_V = 40, 120
 PLANT_MIN_AREA = 500
 # How far to look either side of a white pixel when asking whether the grey cuts
 # off. Lines are 1-2 px, so this has to clear the line itself and land on what
