@@ -1163,6 +1163,32 @@ apart on purpose.
 
 ## Conventions that are load-bearing
 
+**Conversion audit, 2026-08-27.** This section's job is to change behaviour,
+and measured against that it has been the worst-performing part of the file:
+**six recorded recurrences**, each a documented lesson that failed to prevent
+its own repetition. Today's evidence is one-sided -- every convention that was
+merely written down got violated again (*look at the image* twice, *verify the
+patch applied* twice), while every one encoded as **code that refuses** held.
+So each convention now carries its enforcement status, and prose that cannot
+become a check is a candidate for deletion rather than for better wording.
+
+    convention                          recur  status
+    predict before you look                 -  OBSERVABLE: glance.answer records
+                                               `predicted_first` from open rows
+    ask Grant before deriving               5  prose only -- judgement call, but
+                                               "on the FIRST failure" is countable
+    look at the image before measuring      2  prose only -- ordering, not yet checkable
+    ground truth from the same population    2  ENFORCED: glance.build warns and
+                                               records `population_mismatch`
+    stamp every cached artefact              0  ENFORCED since built (`built_by` hash)
+                                               -- and it has never recurred
+    quotable numbers go in prototypes/       1  partial -- a commit check could catch it
+    a label row needs nothing more           -  **RETIRED, it was false.** See below
+
+**`reticle.judgement compliance` reports whether the enforced ones are followed.**
+That is the difference that matters: a convention nobody can tell whether you
+obeyed cannot be evaluated, only repeated.
+
 **Predict before you look. UNDER TEST from 2026-08-27 — log it, do not trust
 it.** Before opening unfamiliar ground, or committing to a threshold or design:
 
@@ -1212,7 +1238,8 @@ had not. Several dead ends that day -- two flood-fill variants, a distance-to-
 void analysis -- would have died in seconds against a picture.
 
 **Check that ground truth comes from the same population as the thing being
-filtered.** Twice on 2026-08-26 a measurement was true and misleading: *0 of 55
+filtered. ENFORCED: pass `control_population` / `item_population` to
+`glance.build`, which warns on the sheet's own face and records the mismatch.** Twice on 2026-08-26 a measurement was true and misleading: *0 of 55
 hand-marked icons have aspect >= 2.0* (they were ENEMY icons; the target was
 ability glyphs, and the filter would have deleted Sage walls, ping ripples and
 spawn barriers) and *0 of 254 hand-marked icons sit on a HOLE* (nearly cut the
@@ -1231,10 +1258,17 @@ If a figure is worth putting in a commit message it will be re-run, and the next
 session should not start by rebuilding feature extraction. `dynamic_eval.py` is
 the pattern.
 
-**A label row needs the answer and enough to find the pixel again -- nothing
-more.** Features are recomputed, not stored. That is what let host span and
-top-hat peak, invented after 154 rows were answered, be applied to all of them
-for free.
+**A label row must carry enough to RECOMPUTE any feature later.** That is what
+let host span and top-hat peak, invented after 154 rows were answered, be
+applied to all of them for free -- every row had `(t_ms, x, y)`.
+
+*Corrected 2026-08-27.* This used to read "nothing more -- features are
+recomputed, not stored", and **that was false**: `label_dynamic` stores colour,
+area, box and aspect on purpose, and says so in its own docstring. The
+convention described a practice the repo had abandoned and nobody noticed,
+which is the failure mode this whole file is exposed to -- prose that is never
+checked drifts away from the code and then misleads. The principle that
+survived is the KEY, not the absence of a cache.
 
 **Where things live, so this file does not have to repeat them.** Module
 docstrings carry why the code is as it is, and they load when the file is read;

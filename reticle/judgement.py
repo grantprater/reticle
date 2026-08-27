@@ -284,6 +284,48 @@ def by_level(rows) -> str:
     return chr(10).join(out)
 
 
+def open_predictions(domain, log_path=None):
+    """Predictions logged but not yet scored -- i.e. a look that was predicted.
+
+    This is the machinery behind "predict before you look". A prediction is
+    OPEN when it was recorded with `outcome=None`; scoring closes it. So
+    "did I predict before looking" becomes an observable fact rather than a
+    convention I am trusted to have followed.
+
+    Deliberately does NOT refuse. Refusing would block work and teach nothing;
+    RECORDING the violation makes the convention measurable, which is the whole
+    point -- a convention nobody can tell whether you followed is a convention
+    that cannot be evaluated.
+    """
+    rows = load(log_path)
+    return [r for r in rows
+            if r.get("domain") == domain and r.get("outcome") is None]
+
+
+def compliance(rows=None, log_path=None) -> str:
+    """How often the recorded conventions were actually followed.
+
+    The point of the whole exercise: 17 recurrences are recorded across
+    CLAUDE.md, each a documented lesson that failed to prevent its own
+    repetition. Prose is a weak actuator. What this measures is whether the
+    ENFORCED versions do better.
+    """
+    rows = rows if rows is not None else load(log_path)
+    checked = [r for r in rows if "predicted_first" in r]
+    lines = []
+    if checked:
+        ok = sum(1 for r in checked if r["predicted_first"])
+        lines.append(f"predict-before-you-look   {ok}/{len(checked)} "
+                     f"({ok / len(checked):.0%}) of scored sheets had an open "
+                     f"prediction first")
+    pop = [r for r in rows if r.get("population_mismatch") is not None]
+    if pop:
+        bad = sum(1 for r in pop if r["population_mismatch"])
+        lines.append(f"control population        {bad}/{len(pop)} sheets drew "
+                     f"controls from a different population than the open items")
+    return chr(10).join(lines) if lines else "no enforced-convention rows yet"
+
+
 def analyse(rows: list[dict], domain: str) -> dict:
     """Everything this module knows about one domain."""
     rs = [r for r in rows if r.get("domain") == domain]
