@@ -898,6 +898,46 @@ lands, rather than only stepping over it.
 
 ## What this is for (decided 2026-08-25)
 
+### The endstate, in Grant's words (2026-08-26)
+
+Asked directly, at the end of the minimap labelling session:
+
+> For this basically event-tracking phase, my ideal endstate would be real-time
+> labelling of a VOD of enemies and allies on screen and on minimap, as well as
+> labelling of abilities and pings on the minimap, and position estimation of
+> enemies and allies, leading into logging and statistical analysis of duels and
+> rounds as events, using the win probability model discussed, and including
+> shooting error and ability to surface clips denoting notable patterns.
+
+Read that as the ordering it implies, because it settles several questions this
+document has been circling:
+
+* **the minimap is not the goal, it is the cheapest source of events.** Every
+  minimap sub-problem -- glyph detection, ability identity, position estimation
+  -- is instrumental. When one of them stalls, the question is whether the event
+  it feeds can be got another way, not how to rescue the technique;
+* **detection and identity are both required, and so is TIME.** "Real-time
+  labelling of a VOD" means the extractors have to run at a usable rate over a
+  whole match, not just be accurate on sampled frames. Nothing has been measured
+  for throughput yet. The 15-20 Hz minimap sample rate already noted under
+  minimap position tracking is the first place this bites;
+* **duels and rounds are the unit**, not frames or detections. That is what the
+  L2 event log has to emit, and it is the join point for the win probability
+  model;
+* **shooting error is in scope**, which is worth flagging against the capture
+  settings: the readout is currently switched OFF because it covers the victim
+  name in the killfeed ROI (see the capture notes). Those two needs collide and
+  will have to be reconciled -- most likely by moving the readout rather than
+  choosing between them;
+* **surfacing clips is the delivery mechanism.** A pattern the model finds is
+  only useful if it comes back as footage, so every event needs a timestamp
+  precise enough to cut on. That is a constraint on the event log, not a
+  separate feature.
+
+Nothing here is scheduled. It is recorded so that the next person choosing
+between four plausible next steps can ask which one is on this path.
+
+
 **Main goal: statistical relationships, via win probability.** Not "does X
 correlate with winning" over named facts -- that design is arithmetically
 doomed. A round yields *one bit* of outcome, so 262 rounds is 262 bits, and
