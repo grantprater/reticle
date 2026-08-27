@@ -131,8 +131,17 @@ def motion(track, per_frame):
     So the two branches are not interchangeable and must not be read as equally
     strong:
 
-    * **translation** holds against everything including the cam, because the
-      cam never moves;
+    * **translation** rejects almost everything, including the cam, because the
+      cam never moves -- but it has exactly ONE known counterexample.
+      **Grant, 2026-08-27: an OMEN SMOKE TRANSLATES while it deploys.** Dark
+      Cover is the only smoke in the game that travels from Omen to its placed
+      location, so mid-deploy it is a moving non-player icon. Viper's orb is
+      throwable but draws no icon in flight, so it is not a second case.
+      This narrows the claim rather than killing it: the window is short and
+      one-way, ending where the smoke lands, so a track that translates and
+      then STOPS FOREVER is a smoke and a track that keeps moving is a player.
+      Nothing has measured that yet, and until something does, treat translation
+      as strong evidence rather than the proof gate this docstring used to imply;
     * **rotation** does NOT reject a cam. This measures rotation from the lobe,
       a cam has no lobe, so any rotation a cam yields here is ring roughness
       rather than its real turning. `minimap_ring_fit.LOBE_MIN_FRAC` exists to

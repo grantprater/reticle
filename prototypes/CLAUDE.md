@@ -477,11 +477,22 @@ depends on, doing a second job.
   widget. Perfect circle, never translates, rotation shown by the camera glyph
   turning INSIDE the ring -- **no lobe**. This corrected "a placed ability never
   turns", which was load-bearing in `motion()`. Consequence: **translation**
-  holds against everything including the cam; **rotation does not reject a cam
-  at all**, since rotation is read from the lobe and a cam has none.
+  holds against the cam; **rotation does not reject a cam at all**, since
+  rotation is read from the lobe and a cam has none.
   `minimap_ring_fit.LOBE_MIN_FRAC` floors that so a perfect circle cannot report
   a confident bearing from noise. **Still UNTESTED against a real cam** -- no
   label says which `other_red` marks are cams.
+* **An OMEN SMOKE TRANSLATES while it deploys**, and it is the only one. Grant,
+  2026-08-27, on candidate 61 of the Lotus pass: *it's the only smoke in the
+  game that moves from omen to the placed location. Viper orb is throwable but I
+  don't recall what the icon is and it's not "out" while in flight.* This is the
+  **only known counterexample to the translation invariant**, which
+  `motion()` had been treating as holding against everything. It narrows the
+  claim rather than killing it: the movement is short and one-way and ends where
+  the smoke lands, so **a track that translates and then stops forever is a
+  smoke; one that keeps moving is a player.** Unmeasured -- until it is measured,
+  translation is strong evidence, not a proof gate.
+
 * **The triangle is the most important part of the teardrop** -- 7.3 px against
   1-2 px for the rest of the ring, so it is both the most robust part and the
   part carrying identity. A cam has a ring and no triangle.
