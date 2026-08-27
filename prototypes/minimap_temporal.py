@@ -71,6 +71,48 @@ def usable(crop, floor):
     return float(g[floor].mean()) >= USABLE_MIN
 
 
+#: `drawn()` separates cleanly at this: measured on 120 sampled Lotus frames,
+#: widget-absent tops out at 0.135 and widget-present bottoms out at 0.45.
+DRAWN_MIN_CORR = 0.30
+
+
+def drawn(crop, sgray, floor, min_corr=DRAWN_MIN_CORR):
+    """Is the widget RENDERED AT ALL, or are we looking at the world through it?
+
+    **`usable()` does not answer this**, and finding that out cost 16% of a
+    labelling pass. On the DEATH SCREEN Valorant removes the corner minimap and
+    draws the full map centre-screen instead, so the ROI holds ordinary world
+    pixels -- bright, high-contrast, and sailing straight through a brightness
+    floor built for Omen's ult and round fades. Every detection in such a frame
+    is a phantom, and a widget-less frame FLOODS the detector: on Lotus, 6 of 119
+    sampled frames (5%) were widget-absent and produced 16% of all candidates.
+
+    The test is scale-free rather than a fitted magnitude: correlate the crop
+    against the static map over the floor mask. When the widget is drawn the
+    static map IS most of what is there, so the correlation is high whatever the
+    brightness; when it is absent there is no relationship at all.
+
+        widget absent   0.001  0.009  0.039  0.067  0.070  0.135
+        widget drawn    >= 0.45 (n=113, median 0.92)
+
+    A mean-absolute-difference threshold also separates these, but only just
+    (42 against a p90 of 20) and it moves with scene brightness. The first cut
+    of this used one and put the boundary 0.003 apart, because two absent frames
+    had been miscounted as present -- rendering all six settled it in one look.
+
+    **Deliberately NOT folded into `usable()`.** Every shipped number in this
+    directory was measured with `usable()` as it stands, and silently changing
+    it would move them all without re-measurement. Callers adopt `drawn()` on
+    purpose: `label_dynamic` does, the detectors do not yet.
+    """
+    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float64)[floor]
+    s = np.asarray(sgray, dtype=np.float64)[floor]
+    g = g - g.mean()
+    s = s - s.mean()
+    den = float(np.sqrt((g * g).sum() * (s * s).sum()))
+    return den > 0 and float((g * s).sum() / den) >= min_corr
+
+
 def motion(track, per_frame):
     """Total translation and total rotation along a track.
 
