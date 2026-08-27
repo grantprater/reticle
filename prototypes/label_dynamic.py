@@ -32,10 +32,11 @@ Controls
         classifier on glyphs and on arbitrary doorway-shaped offcuts at once
     9   a SPAWN BARRIER -- Grant: *those represent the map borders for each side
         pre-round/buy phase*, ally green and enemy red. Added at 242/250 of the
-        first run, so the first pass has them under `7`. They matter beyond
-        being a class: a barrier is a BUY PHASE object, and this pass samples
-        `active` play, so their presence says the segmenter's `active` contains
-        the buy phase -- see the note in CLAUDE.md
+        first run, so the first pass has them under `7`. **Now a self-check:**
+        sampling is live-play only as of 2026-08-27, and a barrier is a BUY
+        PHASE object, so barriers should be near-absent. If they keep appearing,
+        `live_windows` is wrong -- treat a run of `9`s as a bug report about the
+        sampler, not as a class
     7   something real that is none of the above -- an escape hatch, because
         `0` is a claim (this is an artefact) and being forced to make it
         wrongly is how a class gets poisoned
@@ -78,10 +79,34 @@ area, box, difference magnitude -- so a classifier can be fitted later without
 re-running detection, and so the eventual question "which features separate an
 ability from an artefact" can be asked of the labels directly.
 
-Sampling is uniform over ACTIVE play, not pre-kill. The enemy work sampled
-pre-kill because that is where an enemy provably exists; abilities have no such
-anchor, and a pre-kill pool would over-represent X marks -- a kill just happened
--- and under-represent everything placed mid-round.
+Sampling, rebuilt 2026-08-27 after the first pass spent itself badly
+-----------------------------------------------------------------
+Not pre-kill: the enemy work sampled pre-kill because that is where an enemy
+provably exists, but abilities have no such anchor, and a pre-kill pool would
+over-represent X marks -- a kill just happened -- and under-represent everything
+placed mid-round.
+
+The first pass then wasted itself two ways, and both are fixed here:
+
+* **38% of its questions were about an empty minimap**, because `segment` calls
+  the buy phase `active`. `live_windows` trims each round to after the spawn
+  barriers drop, found per round as the last frame whose clock reads >= 95 s
+  (the round timer starts at 100 s). Measured at 41 s after the round bound on
+  both sessions, p10-p90 38-42 s;
+* **it asked about the same object over and over.** 33 of Grant's 53 `ability`
+  answers were ONE Deadlock Sonic Sensor at (137,170), and 44 of 53 were two
+  positions -- 44 keypresses for two facts, because a placed device sits still
+  and every sampled frame finds it again. `diversify` caps any 8 px position at
+  DEDUP_CAP candidates.
+
+Measured effect, same budget of 250 questions:
+
+    first pass  255 answers -> 142 distinct positions   1.80 per position, worst 33
+    new         250 answers -> 190 distinct positions   1.32 per position, worst 2
+
+and on Lotus the raw stream is **51% positional repeats** before capping. Times
+are also stratified ACROSS ROUNDS rather than uniform over time, so a long round
+cannot buy more questions than a short one by being slow.
 """
 from __future__ import annotations
 
@@ -109,25 +134,78 @@ KINDS = {"1": "ability", "2": "x_mark", "3": "spike",
          "8": "area", "9": "barrier", "0": "nothing"}
 
 
-def active_times(sid, n, seed=17):
-    """Uniform over active play, from the stored spans."""
-    spans = pq.read_table(next((STORE / "l2" / "spans").rglob(f"session={sid}/spans.parquet")))
-    active = [(a, b) for a, b, s in zip(spans.column("t_start_ms").to_pylist(),
-                                        spans.column("t_end_ms").to_pylist(),
-                                        spans.column("state").to_pylist()) if s == "active"]
-    if not active:
-        raise SystemExit(f"no active spans for {sid} -- run `reticle segment` first")
-    total = sum(b - a for a, b in active)
+#: Two candidates this close in the widget are the SAME OBJECT, and asking about
+#: both spends a keypress to learn nothing. On the first pass 33 of Grant's 53
+#: `ability` answers were one Deadlock Sonic Sensor at (137,170) and 44 of 53
+#: were two positions -- 44 keypresses for two facts.
+DEDUP_PX = 8
+DEDUP_CAP = 2       # at most this many questions about any one position
+#: Fallback when a round's clock never reads >= 95 s. Measured at 41 s median,
+#: p10-p90 38-42 s, on both a06f04a0059f and 5822b6646448.
+BUY_FALLBACK_MS = 41_000
+
+
+def live_windows(sid):
+    """Each round trimmed to LIVE PLAY -- after the spawn barriers drop.
+
+    `segment` calls the buy phase `active`, and the first pass drew uniformly
+    over that, so **38% of the questions were about an empty minimap**. A round
+    from `rounds.round_bounds` starts at the PREVIOUS scoreline increment, so it
+    opens with the end-of-round animation and then the buy phase.
+
+    The barrier drop is derivable and needs no new extractor: the round timer
+    starts at 100 s, so the last frame reading >= 95 s is the drop. Measured at
+    41 s after the round bound on both sessions, p10-p90 38-42 s -- but it is
+    taken per round rather than assumed, and only falls back to the constant on
+    the rounds whose clock never reads that high (2 of 23 on Lotus).
+    """
+    from reticle.rounds import round_bounds
+
+    hp = next((STORE / "l1" / "hud").rglob(f"session={sid}/hud.parquet"))
+    tb = pq.read_table(hp)
+    ts = tb.column("t_ms").to_pylist()
+    clk = tb.column("clock_ms").to_pylist()
+    rounds = round_bounds(ts, tb.column("score_left").to_pylist(),
+                          tb.column("score_right").to_pylist())
+    if not rounds:
+        raise SystemExit(f"no rounds for {sid} -- run `reticle rounds` first")
+    out = []
+    for r in rounds:
+        a, z = r["t_start_ms"], r["t_end_ms"]
+        hi = [ts[i] for i in range(len(ts))
+              if a <= ts[i] < z and clk[i] is not None and clk[i] >= 95_000]
+        start = max(hi) if hi else a + BUY_FALLBACK_MS
+        if z - start > 5_000:
+            out.append((start, z))
+    return out
+
+
+def live_times(sid, n, seed=17):
+    """`n` sample times, spread EVENLY ACROSS ROUNDS rather than over raw time.
+
+    Uniform-over-time hands long rounds proportionally more questions, and a
+    long round is usually one slow round rather than a more interesting one.
+    Stratifying per round buys variety for free.
+    """
+    wins = live_windows(sid)
     rng = random.Random(seed)
     out = []
-    for _ in range(n):
-        x = rng.uniform(0, total)
-        for a, b in active:
-            if x < b - a:
-                out.append(a + x)
-                break
-            x -= b - a
+    for k in range(n):
+        a, b = wins[k % len(wins)]
+        out.append(rng.uniform(a, b))
     return sorted(out)
+
+
+def diversify(cands, rng, cap=DEDUP_CAP, px=DEDUP_PX):
+    """Cap how many candidates any one position may contribute."""
+    by: dict = {}
+    for c in cands:
+        by.setdefault((int(c["xy"][0]) // px, int(c["xy"][1]) // px), []).append(c)
+    out = []
+    for v in by.values():
+        rng.shuffle(v)
+        out += v[:cap]
+    return out, len(by)
 
 
 def main() -> int:
@@ -139,6 +217,8 @@ def main() -> int:
     ap.add_argument("--frames", type=int, default=120, help="frames to draw them from")
     ap.add_argument("--zoom", type=int, default=10)
     ap.add_argument("--diff", type=int, default=md.DIFF_MIN)
+    ap.add_argument("--dry-run", action="store_true",
+                    help="report what would be asked, and stop")
     ap.add_argument("--colour", default=None,
                     help="only present blobs of this colour, e.g. 'none' for the "
                          "black-and-white glyphs that are the point of this")
@@ -174,7 +254,7 @@ def main() -> int:
     print("detecting candidates...")
     cap = cv2.VideoCapture(src["path"])
     cands = []
-    for t in active_times(args.session, args.frames):
+    for t in live_times(args.session, args.frames):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t / 1000.0 * fps)))
         ok, fr = cap.read()
         if not ok:
@@ -190,10 +270,23 @@ def main() -> int:
                 continue
             cands.append({"t_ms": round(t), **d})
     rng = random.Random(23)
+    raw = len(cands)
+    cands, n_pos = diversify(cands, rng)
+    print(f"{raw} candidates at {n_pos} distinct positions "
+          f"-> {len(cands)} after capping {DEDUP_CAP} per position "
+          f"({1 - len(cands) / max(1, raw):.0%} redundant)")
     rng.shuffle(cands)
     cands = cands[:args.n]
     if not cands:
         print("no candidates to label")
+        return 0
+    if args.dry_run:
+        from collections import Counter
+        rounds_hit = len({round(c["t_ms"] / 1000) // 60 for c in cands})
+        print(f"DRY RUN: {len(cands)} questions, "
+              f"{len({(int(c['xy'][0]) // DEDUP_PX, int(c['xy'][1]) // DEDUP_PX) for c in cands})} "
+              f"distinct positions, colours "
+              f"{dict(Counter(c['colour'] for c in cands))}")
         return 0
     from collections import Counter
     print(f"{len(cands)} candidates, colours: "
