@@ -126,6 +126,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from reticle.profiles import get_profile                          # noqa: E402
 import minimap_dynamic as md                                      # noqa: E402
 from minimap_temporal import usable, drawn                        # noqa: E402
+from diversity_test import descriptor, farthest_point             # noqa: E402
 
 STORE = Path.home() / "reticle-store"
 
@@ -196,6 +197,77 @@ def live_times(sid, n, seed=17):
     return sorted(out)
 
 
+#: How far back to look for the same blob when deciding whether a candidate is
+#: NEW. 2 s is long enough that a placed object is certainly still there and
+#: short enough that a travelling one (a deploying Omen smoke) has not left.
+ONSET_LOOKBACK_MS = 2_000
+ONSET_PX = 10
+
+
+def split_pools(cands, rng, n_uniform):
+    """Two pools, kept apart on purpose: honest rates and wide coverage.
+
+    Sampling uniformly in TIME samples proportional to on-screen DURATION, so a
+    Sonic Sensor visible for 90 s outweighs a 2 s ping ripple ~45:1. Measured on
+    Lotus over 300 frames: **34 positions (12% of objects) are 60% of the raw
+    pool**, and objects seen only once are 54% of the objects but 13% of the
+    pool. `diversify` flattens that per POSITION; it cannot flatten it per ICON,
+    because five sensors at five places are five positions showing one glyph.
+
+    An ONSET fixes the duration bias properly: every object has exactly one
+    birth however long it lives, so onset-sampling weights a ping and a sensor
+    equally. It also catches the only moment some things are visible as a
+    discrete icon at all -- Grant, on a deploying Omen smoke.
+
+    **But selecting for uniqueness biases the sample**, and a biased label set
+    cannot estimate a RATE. That is the trap this project already walked into
+    with *0 of 55 hand-marked icons have aspect >= 2.0* -- a perfect measurement
+    over the wrong population. So the pass carries two pools and says which is
+    which:
+
+        uniform     untouched selection, for precision/recall on the real
+                    distribution. Small, and the only pool a rate may be quoted
+                    from
+        diversity   onsets first, for teaching the classifier what EXISTS.
+                    Wider coverage, and a rate computed on it means nothing
+
+    Every row records its pool, so `dynamic_eval` can never mix them by
+    accident. Rows written before 2026-08-27 have no `pool` field and are read
+    as `uniform`, which is what they were.
+    """
+    import numpy as np
+
+    pool = list(cands)
+    rng.shuffle(pool)
+    uniform = pool[:n_uniform]
+    rest = pool[n_uniform:]
+    for c in uniform:
+        c["pool"] = "uniform"
+    for c in rest:
+        c["pool"] = "diversity"
+    # Order the diversity half by APPEARANCE novelty, greedily: each next
+    # question is the candidate most unlike everything already chosen. Measured
+    # against Grant's Ascent labels (`diversity_test.py`), 100 picks from 251:
+    #
+    #     farthest-point   rare-class rows 4.0   nothing 60    ability  9
+    #     random (x200)    rare-class rows 2.7   nothing 58    ability 21
+    #
+    # +48% on the starved classes at no extra `nothing`, and the ability drop is
+    # the point rather than a loss: random's 21 are largely one Sonic Sensor
+    # seen again, these 9 are 9 different abilities. Rates come from `uniform`.
+    #
+    # That test selects from rows that were THEMSELVES uniformly sampled, so its
+    # pool is already diversity-depleted; on a live sweep there is far more to
+    # separate. Treat +48% as a floor, and re-measure once Lotus is labelled.
+    keyed = [c for c in rest if c.get("vec") is not None]
+    if len(keyed) > 2:
+        order = farthest_point(np.stack([c["vec"] for c in keyed]), len(keyed))
+        rest = [keyed[i] for i in order] + [c for c in rest if c.get("vec") is None]
+    for c in pool:
+        c.pop("vec", None)
+    return uniform, rest
+
+
 def diversify(cands, rng, cap=DEDUP_CAP, px=DEDUP_PX):
     """Cap how many candidates any one position may contribute."""
     by: dict = {}
@@ -217,6 +289,9 @@ def main() -> int:
     ap.add_argument("--frames", type=int, default=120, help="frames to draw them from")
     ap.add_argument("--zoom", type=int, default=10)
     ap.add_argument("--diff", type=int, default=md.DIFF_MIN)
+    ap.add_argument("--uniform", type=int, default=50,
+                    help="questions drawn with untouched sampling, for honest "
+                         "rates; the rest go to the diversity pool")
     ap.add_argument("--dry-run", action="store_true",
                     help="report what would be asked, and stop")
     ap.add_argument("--colour", default=None,
@@ -255,7 +330,22 @@ def main() -> int:
     n_undrawn = 0
     cap = cv2.VideoCapture(src["path"])
     cands = []
+    def detections_at(t_ms):
+        """Colour-filtered detections at a time, or None if the frame is unusable."""
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t_ms / 1000.0 * fps)))
+        got, f = cap.read()
+        if not got:
+            return None
+        c = f[MY0:MY1, MX0:MX1]
+        if not usable(c, floor) or not drawn(c, sgray, floor):
+            return None
+        return [d for d in md.detect(c, sgray, ok_area, args.diff)
+                if not args.colour or d["colour"] == args.colour]
+
     for t in live_times(args.session, args.frames):
+        # One extra decode per FRAME, not per candidate: everything found at t
+        # shares the same lookback.
+        prev = detections_at(t - ONSET_LOOKBACK_MS)
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t / 1000.0 * fps)))
         ok, fr = cap.read()
         if not ok:
@@ -277,7 +367,16 @@ def main() -> int:
             key = (round(t), int(d["xy"][0]), int(d["xy"][1]))
             if key in done:
                 continue
-            cands.append({"t_ms": round(t), **d})
+            # NEW since the lookback? `None` when the lookback frame was
+            # unreadable, which is not the same as "was already there".
+            onset = None
+            if prev is not None:
+                onset = not any(abs(q["xy"][0] - d["xy"][0]) <= ONSET_PX
+                                and abs(q["xy"][1] - d["xy"][1]) <= ONSET_PX
+                                for q in prev)
+            cands.append({"t_ms": round(t), "onset": onset,
+                          "vec": descriptor(crop, int(d["xy"][0]), int(d["xy"][1])),
+                          **d})
     rng = random.Random(23)
     if n_undrawn:
         print(f"skipped {n_undrawn} frames with no minimap widget drawn "
@@ -287,8 +386,17 @@ def main() -> int:
     print(f"{raw} candidates at {n_pos} distinct positions "
           f"-> {len(cands)} after capping {DEDUP_CAP} per position "
           f"({1 - len(cands) / max(1, raw):.0%} redundant)")
+    n_on = sum(1 for c in cands if c.get("onset") is True)
+    n_unk = sum(1 for c in cands if c.get("onset") is None)
+    print(f"{n_on} are NEW since {ONSET_LOOKBACK_MS / 1000:.0f}s earlier, "
+          f"{n_unk} unknown (lookback frame unreadable)")
+    n_uniform = min(args.uniform, args.n, len(cands))
+    uniform, diversity = split_pools(cands, rng, n_uniform)
+    cands = uniform + diversity[:max(0, args.n - len(uniform))]
+    print(f"asking {len(uniform)} uniform + {len(cands) - len(uniform)} diversity "
+          f"(diversity ordered by appearance novelty, farthest-point)")
+    # Shuffled together so the pool is invisible while answering.
     rng.shuffle(cands)
-    cands = cands[:args.n]
     if not cands:
         print("no candidates to label")
         return 0
@@ -382,6 +490,10 @@ def main() -> int:
                 # exist would delete exactly the abilities this pass is for.
                 "aspect": round(max(c["box"][2], c["box"][3])
                                 / max(1, min(c["box"][2], c["box"][3])), 2),
+                # Which pool this question came from, and whether the blob
+                # was new. A rate may only be quoted from `uniform`.
+                "pool": c.get("pool", "uniform"),
+                "onset": c.get("onset"),
                 "kind": None if kind == "__unsure__" else kind,
                 "uncertain": kind == "__unsure__",
                 "by": "grant",
