@@ -118,6 +118,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle.profiles import get_profile                          # noqa: E402
+import minimap_geometry as mg                                     # noqa: E402
 from minimap_geometry import BORDER, BOXEDGE, PLANT, VOID         # noqa: E402
 from minimap_icons import floor_mask                              # noqa: E402
 from minimap_temporal import usable                               # noqa: E402
@@ -288,6 +289,14 @@ def load_geometry(sid):
     if not p.is_file():
         raise SystemExit(f"no geometry for {sid} -- run minimap_geometry.py first")
     z = np.load(p)
+    # Warn rather than refuse: a stale npz is usually still usable, and stopping
+    # the world mid-analysis is worse than saying so. See `source_stamp`.
+    stamp = str(z["built_by"]) if "built_by" in z.files else None
+    if stamp != mg.source_stamp():
+        was = f"{stamp[:8]}" if stamp else "built before stamping"
+        print(f"  WARNING: {sid} geometry was built by a different "
+              f"minimap_geometry.py ({was} != {mg.source_stamp()[:8]}). "
+              f"Rebuild it before trusting anything derived from it.")
     return z["labels"], z["static"]
 
 
