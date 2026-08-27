@@ -552,27 +552,28 @@ do not, and no explanation survived testing. The obvious one -- the outline fade
 with age -- is unsupported but the test is underpowered, because the killfeed
 timestamps deaths without locating them and so cannot age an individual body.
 
-Last worked 2026-08-26. **Seventeen sessions ingested, seventeen with
-scoreboard K/D in `checks.KNOWN_KD`, and every one carries its map.** Sixteen
-are scorable (`0f08b3dc3777` is the cropped capture and has no killfeed ROI).
-The store is at **`hud-0.8.1`** throughout. **Nine of thirteen are exact and the gap is 8 events across 372.** Five of the
-eight are Run It Back (see "Scoreboard divergence is a finding" below), one is
-the ability-kill read error, and two are new and uninvestigated — see below.
-Long tracks are 0. Nothing is half-applied and the tree is clean.
+**Per-session status is GENERATED, not written here.** Run
+`reticle status` (or read `STATUS.md`) for sessions ingested, store version,
+rounds, plant rates, and every K/D against `checks.KNOWN_KD`. This paragraph
+used to carry those numbers by hand and on 2026-08-27 it was wrong three ways at
+once -- *seventeen sessions* against 18, *the store is at hud-0.8.1 throughout*
+against hud-0.9.0, *nine of thirteen are exact* against 9 of 17. Nothing had
+changed except the world; the prose simply could not keep up, which is the
+argument for computing it.
 
-**`5822b6646448` (Lotus, 13/21) is EXACT with no invariant violations**, and it
-is fully out-of-sample: recorded 2026-08-26 after the widget change, ingested
-and scored the same day, nothing tuned against it. It is the second capture on
-the enlarged minimap and the first on a map that widget has not seen, which is
-the test the icon work most needs. `c62c2b06bcfb` (Split, 13/15) is **kills exact, deaths -1**,
-with 5 invariant violations and both open. The violations look like one cause,
-not five: the scoreline reads a two-digit score as one digit twice
-(0:06:51 12 -> 2, 0:31:43 12 -> 1) and recovers within 3.5s each time, so the
-two decreases and the two illegal sum steps are the same event counted from
-both sides. The 4.5s clock jump at 0:00:03 is pre-match. Neither the -1 death
-nor the dropped digit has been investigated; a Split lineup has not been seen
-at this widget size before. Both were confirmed `valorant-16x9-bigmap` before ingest by
-measuring the floor slab — it reaches x 452 / 458 against the old widget's 346.
+What is NOT derivable, and so stays here:
+
+**`5822b6646448` (Lotus) was fully out-of-sample** -- recorded 2026-08-26 after
+the widget change, ingested and scored the same day, nothing tuned against it.
+It is the second capture on the enlarged minimap and the first on a map that
+widget had not seen, which is the test the icon work most needed.
+`c62c2b06bcfb` (Split) shows **5 invariant violations that look like one cause,
+not five**: the scoreline reads a two-digit score as one digit twice
+(0:06:51 12 -> 2, 0:31:43 12 -> 1) and recovers within 3.5 s each time, so the
+two decreases and the two illegal sum steps are the same event counted from both
+sides. The 4.5 s clock jump at 0:00:03 is pre-match. Both were confirmed
+`valorant-16x9-bigmap` before ingest by measuring the floor slab -- it reaches
+x 452 / 458 against the old widget's 346.
 
 **Ground truth is now corroborated.** Grant read his whole match history on
 2026-08-25 and every K/D already transcribed off the end screens agreed, so

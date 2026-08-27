@@ -444,6 +444,12 @@ needs anything rebuilt.
 
 ## Pipeline status
 
+**Per-session status is generated: `reticle status`, or read `STATUS.md`.** It
+computes sessions, store version, rounds, W-L, plant rate and every K/D against
+`checks.KNOWN_KD`, so those numbers cannot drift from the code. The stage table
+below is design state -- what is built -- which nothing in the store implies, so
+it stays written.
+
 Stage numbers are the design doc's §3 stages, not release versions.
 
 | Stage | What | Status |
