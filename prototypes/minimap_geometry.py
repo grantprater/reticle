@@ -151,6 +151,56 @@ PLANT_MIN_AREA = 500
 # off. Lines are 1-2 px, so this has to clear the line itself and land on what
 # is beyond it.
 PROBE = 4
+# Bridges the same kind of single-frame dropout `minimap_icons.floor_mask`
+# already closes for the floor slab, applied here to the white-line mask
+# before border/box-edge classification -- see the note at that call site.
+LINE_CLOSE = 5
+LINE_MIN_AREA = 20
+
+
+def two_state_gray(gray_stack, trim=0.05):
+    """Per pixel, the two colours it actually rests at -- not one median.
+
+    Grant's model, checked against real footage before building this: **a
+    geometry pixel has exactly two legitimate colours, unlit and lit by a
+    viewcone** -- everything else at that pixel is something real drawn over
+    it. Measured on `a06f04a0059f` at genuine interior border/box-edge points
+    (at least 25px clear of the widget's own outer rim, which is a different,
+    noisier thing -- it borders void by definition): 81-91% of 400 samples at
+    one value, most of the rest at a single adjacent second value, and a small
+    scatter that is almost certainly real events (a ping, an X mark, a player)
+    passing over that exact pixel across a 44-minute match, not a third
+    lighting state. The single-median `static` this module already builds
+    collapses both legitimate states into one reference, so a pixel simply
+    switching from unlit to lit reads as "dynamic" -- which is the mechanism
+    behind the border/box-edge false positives `scan_ability_clip.py` kept
+    finding: the detector was never wrong that the pixel changed, it was
+    wrong that a known, legitimate change means something is there.
+
+    Per pixel: sort its value across sampled frames, trim the extreme `trim`
+    fraction off each end (a real object passing over reads as an outlier
+    excursion, not a resting state), then split the remainder at its single
+    biggest gap and return each side's mean. A pixel with no real two-state
+    structure -- never lit all match, or always lit -- still gets a split,
+    typically a small one, so `lo` and `hi` end up close together and behave
+    like today's single reference. Fully vectorised: this is a one-time,
+    per-session build step, not something running per detected frame.
+    """
+    K = gray_stack.shape[0]
+    s = np.sort(gray_stack.astype(np.int16), axis=0)
+    lo_i, hi_i = int(K * trim), max(int(K * (1 - trim)), int(K * trim) + 2)
+    s = s[lo_i:hi_i]
+    K2 = s.shape[0]
+    gaps = np.diff(s, axis=0)
+    split = np.argmax(gaps, axis=0)                      # (H,W): last LOW-group index
+    cumsum = np.cumsum(s, axis=0).astype(np.float32)
+    total = cumsum[-1]
+    low_sum = np.take_along_axis(cumsum, split[None, :, :], axis=0)[0]
+    low_count = (split + 1).astype(np.float32)
+    lo = low_sum / low_count
+    high_count = K2 - low_count
+    hi = np.where(high_count > 0, (total - low_sum) / np.maximum(high_count, 1), lo)
+    return lo.astype(np.float32), hi.astype(np.float32)
 
 
 def source_stamp():
@@ -247,8 +297,35 @@ def classify(med):
     # decimal places, which is what gave it away.
     ext = cv2.dilate(exterior.astype(np.uint8), np.ones((13, 13), np.uint8)) > 0
     both = ~ext
-    out[white & both] = BOXEDGE
-    out[white & ~both] = BORDER
+
+    # `white` is used RAW above nowhere else, but border/box-edge must not be:
+    # Grant caught "small squares scattered all over the map" in the rendered
+    # sheet, 2026-08-27, and it is not noise filtered by a size floor alone --
+    # a real wall is exactly as prone to fragmenting as an artefact is, because
+    # neither the border/box-edge split above nor this raw threshold has ever
+    # closed the line first the way `minimap_icons.floor_mask` closes its own
+    # slab. A 1-2 px line has zero redundancy: one pixel dipping under
+    # WHITE_V for one frame's contribution to the median breaks it in two, real
+    # wall or not. Closing first, THEN filtering size, fixes that: a
+    # genuinely continuous wall reassembles across the small gap and survives
+    # any area floor; an isolated artefact -- measured here as a small
+    # permanent floor decal near (256,82) whose antialiased rim crosses
+    # WHITE_V at only a few points around its circumference -- does not grow
+    # by closing and stays small. Checked before picking numbers: with a 5x5
+    # close, 3 of 4 previously-fragmented corner pieces merge into the map's
+    # single connected wall network (3512 px), and every remaining small
+    # (<=20 px) piece is either that decal or sits at x>=434 -- the ally-roster
+    # HUD-bleed zone this ROI already clips into, not the floor plan at all.
+    white_closed = cv2.morphologyEx(white.astype(np.uint8), cv2.MORPH_CLOSE,
+                                    np.ones((LINE_CLOSE, LINE_CLOSE), np.uint8)) > 0
+    nl, lbl, st, _ = cv2.connectedComponentsWithStats(white_closed.astype(np.uint8), 8)
+    line = np.zeros_like(white_closed)
+    for i in range(1, nl):
+        if st[i, 4] > LINE_MIN_AREA:
+            line |= (lbl == i)
+
+    out[line & both] = BOXEDGE
+    out[line & ~both] = BORDER
     out[plant] = PLANT
     return out
 
@@ -272,28 +349,102 @@ def render(med, lab):
     return np.hstack([med, vis])
 
 
+def sample_frames(session, n, roi):
+    """`n` BGR crops evenly spread over the middle 70% of a session's video.
+
+    Shared between the geometry classify() pass and the two-state reference
+    build -- both want "ordinary play", not the pre-match lobby or the
+    post-match screen at either end.
+    """
+    man = json.loads((STORE / "manifests" / f"{session}.json").read_text())
+    src = man["source"]
+    x0, y0, x1, y1 = roi
+    cap = cv2.VideoCapture(src["path"])
+    tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frames = []
+    for i in np.linspace(tot * 0.15, tot * 0.85, n).astype(int):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
+        ok, fr = cap.read()
+        if ok:
+            frames.append(fr[y0:y1, x0:x1])
+    cap.release()
+    return frames, man
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("session")
     ap.add_argument("--n", type=int, default=180, help="frames to median over")
     ap.add_argument("--sheet")
+    ap.add_argument("--two-state-from",
+                    help="build the lo/hi lighting reference from a DIFFERENT, "
+                         "longer session on the same map/profile instead of this "
+                         "one's own frames. Use this for a short controlled clip: "
+                         "the two-state split assumes real content is a small "
+                         "minority of the sampling window, which a demo clip "
+                         "built around one deliberate event violates by design "
+                         "-- a 2.4s ability in a 37s clip is ~9%% of the window, "
+                         "not negligible. The lighting model is a property of "
+                         "the MAP, not the match, so any full match on the same "
+                         "map/profile is a valid, uncontaminated source.")
+    ap.add_argument("--two-state-n", type=int, default=400,
+                    help="frames to sample from the two-state reference source")
+    ap.add_argument("--geometry-from",
+                    help="borrow the ENTIRE geometry -- floor plan, walls, bomb "
+                         "sites, and the lighting reference -- from a different, "
+                         "already-built session on the same map/profile, rather "
+                         "than deriving any of it from this session's own frames. "
+                         "Supersedes --two-state-from. Use this for a short "
+                         "controlled clip: the floor plan and bomb sites are a "
+                         "property of the MAP, not the recording, and deriving "
+                         "them from a clip built around one deliberate event "
+                         "risks the same contamination as --two-state-from, "
+                         "just hitting classify() instead of the lighting "
+                         "reference. Measured 2026-08-27: Brimstone's orange "
+                         "ultimate overlay bled into a few of the 180 sampled "
+                         "frames and the plant-zone hue test misfired, labelling "
+                         "a strip of VOID a 'bomb site' right next to it.")
     args = ap.parse_args()
 
     man = json.loads((STORE / "manifests" / f"{args.session}.json").read_text())
     src = man["source"]
     prof = get_profile(man["source_profile"])
     W, H = int(src["width"]), int(src["height"])
-    x0, y0, x1, y1 = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
+    roi = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
+    x0, y0, x1, y1 = roi
 
-    cap = cv2.VideoCapture(src["path"])
-    tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    frames = []
-    for i in np.linspace(tot * 0.15, tot * 0.85, args.n).astype(int):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
-        ok, fr = cap.read()
-        if ok:
-            frames.append(fr[y0:y1, x0:x1])
-    cap.release()
+    if args.geometry_from:
+        ref_man = json.loads((STORE / "manifests" / f"{args.geometry_from}.json").read_text())
+        if ref_man["source_profile"] != man["source_profile"]:
+            print(f"  WARNING: --geometry-from {args.geometry_from} uses profile "
+                  f"{ref_man['source_profile']!r}, this session uses "
+                  f"{man['source_profile']!r} -- the ROI will not line up, refusing")
+            return 1
+        ref_path = STORE / "geometry" / f"{args.geometry_from}.npz"
+        if not ref_path.is_file():
+            print(f"no geometry for {args.geometry_from} -- build it first")
+            return 1
+        z = np.load(ref_path)
+        if "lo_gray" not in z.files:
+            print(f"{args.geometry_from}'s geometry predates the two-state "
+                  f"reference -- rebuild it first")
+            return 1
+        out = STORE / "geometry" / f"{args.session}.npz"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(out, labels=z["labels"], static=z["static"],
+                            roi=np.array([x0, y0, x1, y1]),
+                            lo_gray=z["lo_gray"], hi_gray=z["hi_gray"],
+                            built_by=z["built_by"])
+        summarise(z["labels"], f"{args.session}  (borrowed wholesale from "
+                                f"{args.geometry_from}, {', '.join(man.get('tags', []))})")
+        print(f"  wrote {out}  (entirely {args.geometry_from}'s geometry -- "
+              f"nothing derived from this session's own frames)")
+        if args.sheet:
+            cv2.imwrite(args.sheet, render(z["static"], z["labels"]))
+            print(f"  wrote {args.sheet}")
+        return 0
+
+    frames, _ = sample_frames(args.session, args.n, roi)
     if not frames:
         print("no frames decoded")
         return 1
@@ -301,9 +452,28 @@ def main() -> int:
     lab = classify(med)
     summarise(lab, f"{args.session}  ({', '.join(man.get('tags', []))})")
 
+    if args.two_state_from:
+        ref_man = json.loads((STORE / "manifests" / f"{args.two_state_from}.json").read_text())
+        if ref_man["source_profile"] != man["source_profile"]:
+            print(f"  WARNING: --two-state-from {args.two_state_from} uses profile "
+                  f"{ref_man['source_profile']!r}, this session uses "
+                  f"{man['source_profile']!r} -- the ROI will not line up, refusing")
+            return 1
+        ref_frames, _ = sample_frames(args.two_state_from, args.two_state_n, roi)
+        if not ref_frames:
+            print(f"no frames decoded from --two-state-from {args.two_state_from}")
+            return 1
+        print(f"  two-state reference: {len(ref_frames)} frames from "
+              f"{args.two_state_from} (not this session's own footage)")
+        gray_stack = np.stack([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in ref_frames])
+    else:
+        gray_stack = np.stack([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames])
+    lo_gray, hi_gray = two_state_gray(gray_stack)
+
     out = STORE / "geometry" / f"{args.session}.npz"
     out.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out, labels=lab, static=med, roi=np.array([x0, y0, x1, y1]),
+                        lo_gray=lo_gray, hi_gray=hi_gray,
                         built_by=np.array(source_stamp()))
     print(f"  wrote {out}  (stamp {source_stamp()[:8]})")
     if args.sheet:

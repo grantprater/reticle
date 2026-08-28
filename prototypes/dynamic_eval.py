@@ -51,6 +51,7 @@ import pyarrow.parquet as pq
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle.profiles import get_profile                          # noqa: E402
+from reticle import metrics                                       # noqa: E402
 import minimap_dynamic as md                                      # noqa: E402
 import minimap_geometry as mg                                     # noqa: E402
 from minimap_icons import floor_mask                              # noqa: E402
@@ -197,13 +198,18 @@ def sweep_best(rows, spans=range(20, 201, 5), tops=range(0, 181, 5)):
 
 
 def at_point(rows, S, T, name):
-    """Score one fixed operating point. No choosing happens here."""
+    """Score one fixed operating point. No choosing happens here.
+
+    Returns the scored numbers, or None when it refuses. A caller recording a
+    summary has to tell "no glyph rows" from a legitimate zero, and a printed
+    line cannot carry that distinction.
+    """
     pos = [r for r in rows if r["kind"] in GLYPH]
     neg = [r for r in rows if r["kind"] == "nothing"]
     oth = [r for r in rows if r["kind"] not in GLYPH and r["kind"] != "nothing"]
     if not pos:
         print(f"   {name}: no glyph rows")
-        return
+        return None
     kp = [r for r in pos if r["span"] <= S and r["tophat"] >= T]
     kn = [r for r in neg if r["span"] <= S and r["tophat"] >= T]
     ko = [r for r in oth if r["span"] <= S and r["tophat"] >= T]
@@ -213,6 +219,8 @@ def at_point(rows, S, T, name):
     print(f"   {name:<26} n={len(rows):4d} glyph={len(pos):3d}  "
           f"recall {rec * 100:5.1f}%  vs nothing {prec * 100:5.1f}%  "
           f"vs all kept {pall * 100:5.1f}%")
+    return {"n": len(rows), "glyph": len(pos), "recall": round(rec, 4),
+            "prec_vs_nothing": round(prec, 4), "prec_vs_all_kept": round(pall, 4)}
 
 
 def report(rows, name):
@@ -237,16 +245,33 @@ def report(rows, name):
 
 def score_mask(sid):
     p = STORE / "labels" / "map_mask" / f"{sid}.png"
+    deps = {"searchable": metrics.fingerprint(md.searchable, floor_mask)}
     if not p.is_file():
         print(f"{sid}: no painted mask -- run paint_map.py")
+        # A refusal, recorded as one. It is not a zero, and it must not become
+        # the baseline the next real run is compared against.
+        metrics.record("dynamic_eval", part="mask", session=sid, values={},
+                       deps=deps, status=metrics.CANNOT_ANSWER,
+                       note="no painted mask -- run paint_map.py")
         return
     meta = json.loads(p.with_suffix(".json").read_text())
     g = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) > 127
     labels, static = md.load_geometry(sid)
     d = md.searchable(labels, static=static)
+    iou = (g & d).sum() / max(1, (g | d).sum())
     print(f"\n{sid}: painted {g.mean() * 100:.1f}%  derived {d.mean() * 100:.1f}%  "
-          f"IoU {(g & d).sum() / max(1, (g | d).sum()) * 100:.1f}%  "
+          f"IoU {iou * 100:.1f}%  "
           f"(seeded={meta['compared_against_derived']})")
+    # `seeded` is a DEP, not context. A painting seeded from the derived mask
+    # is scoring the rule against a copy of itself, so its IoU is not on the
+    # same scale as an unseeded one and the two must never be diffed.
+    metrics.record(
+        "dynamic_eval", part="mask", session=sid,
+        values={"painted": round(float(g.mean()), 4),
+                "derived": round(float(d.mean()), 4), "iou": round(float(iou), 4)},
+        deps={**deps, "seeded": str(meta["compared_against_derived"])},
+        context={},
+    )
     for nm, m in (("lit slab", floor_mask(static, dilate=1)),
                   ("bomb sites", labels == mg.PLANT),
                   ("HOLE", labels == mg.HOLE),
@@ -295,11 +320,29 @@ def main() -> int:
         print(f"SCORE on {args.score} ({len(score_rows)} {unit}) -- never fitted:")
         print()
         at_point(fit_rows, S, T, f"{args.fit} (in-sample)")
-        at_point(score_rows, S, T, f"{args.score} (HELD OUT)")
+        held = at_point(score_rows, S, T, f"{args.score} (HELD OUT)")
         print()
         print("The held-out row is the number to quote. A large in-sample/held-out")
         print("gap means the point is fitted to one map; run --by-position too, since")
         print("a class dominated by one static object flatters the per-row figure.")
+        # Only the held-out row is recorded: it is the number that gets quoted,
+        # and the in-sample one measures nothing portable. GLYPH is a DEP and
+        # not context -- the queued `ability` split changes what `recall` MEANS
+        # while leaving its name and dtype intact, which is precisely the
+        # boundary a field-identity check walks straight across.
+        metrics.record(
+            "dynamic_eval", part=f"held-out/{unit}", session=args.score,
+            values=held or {},
+            status=None if held else metrics.CANNOT_ANSWER,
+            note="" if held else "no glyph rows in the scoring pool",
+            deps={"features": metrics.fingerprint(features, sweep_best, at_point,
+                                                  GLYPH=sorted(GLYPH), BUY_S=BUY_S),
+                  "fit_session": args.fit, "pool": args.pool,
+                  "operating_point": f"span<={S},tophat>={T}"},
+            context={"n_score_rows": len(score_rows), "n_fit_rows": len(fit_rows)},
+        )
+        print()
+        print(metrics.report(tool="dynamic_eval"))
         return 0
 
     for sid in args.sessions:
@@ -311,7 +354,20 @@ def main() -> int:
             print(f"{sid}: no labels in pool {args.pool!r}")
             continue
         print(f"\n=== {sid} ===  {len(rows)} answered (pool: {args.pool})")
-        print("  ", dict(Counter(r["kind"] for r in rows).most_common()))
+        counts = dict(Counter(r["kind"] for r in rows).most_common())
+        print("  ", counts)
+        # The class composition is worth diffing on its own -- "ability went 53
+        # rows at 9 positions to 64 at 35" is the fact that unblocked the fit.
+        # `n_answered` is the context that makes it readable: answered rows
+        # growing explains a class count moving, while a class count moving
+        # with the SAME number of answered rows is the loader or the class map
+        # having changed underneath, which is a fault and reads as BROKEN.
+        metrics.record(
+            "dynamic_eval", part=f"pool/{args.pool}", session=sid,
+            values={f"kind_{k}": v for k, v in counts.items()},
+            deps={"classes": ",".join(sorted(GLYPH)), "pool": args.pool},
+            context={"n_answered": len(rows)},
+        )
         features(sid, rows)
         rows = [r for r in rows if "span" in r]
         if args.by_position:

@@ -243,7 +243,7 @@ def painted_mask(sid):
 TOPHAT_K = 31
 
 
-def detect(crop, static_gray, ok_area, diff_min=DIFF_MIN, tophat=True):
+def detect(crop, static_gray, ok_area, diff_min=DIFF_MIN, tophat=True, static_gray2=None):
     """Dynamic blobs: what differs from the static map, inside the footprint.
 
     The difference is TOP-HATTED before thresholding, and without that this does
@@ -260,13 +260,60 @@ def detect(crop, static_gray, ok_area, diff_min=DIFF_MIN, tophat=True):
     what is locally bright and removes what is broadly bright, which is exactly
     the icon-versus-cone distinction. It is the same instrument the screen
     detector uses at the enemy rim, for the same reason.
+
+    `static_gray2` is the second of TWO known resting colours a geometry pixel
+    can legitimately have -- unlit and viewcone-lit, Grant's model, confirmed
+    2026-08-27 against real footage (see `minimap_geometry.two_state_gray`).
+    When given, a pixel counts as dynamic only when it falls OUTSIDE the
+    interval the two references span, not merely far from the nearer one.
+    That distinction is load-bearing, found from Grant catching a residual
+    false positive after the two-state fix landed: a viewcone edge (or,
+    here, the ally-roster HUD the ROI clips into) sweeping across a pixel
+    passes through real INTERMEDIATE brightness on the way between its two
+    resting states, and `min(|g-lo|, |g-hi|)` can still exceed `diff_min` at
+    the midpoint even though the value is entirely explained by an
+    interpolation between two legitimate colours -- "muddy", his word, against
+    a real icon's "stark" contrast. Measured on the two flagged false
+    positives: both sat strictly inside `[lo, hi]` (148 in [93,189], 142 in
+    [96,201]). Checked against every confirmed-real detection before shipping:
+    two of four Orbital Strike fragments ALSO sit inside their own [lo,hi] range
+    (70 in [51,73], 117 in [116,176]) despite being real, so this must never be
+    the only gate -- both are independently caught by the saturation trigger
+    below regardless of where their brightness falls, which is exactly why that
+    trigger has to stay a separate OR, not folded into this one. Optional and
+    backward compatible: omitted, this is exactly the single-reference
+    behaviour it always was.
+
+    A pixel also counts as dynamic when it is meaningfully SATURATED,
+    independent of brightness. Found the same day: Brimstone's Orbital Strike
+    marker measured BGR(72,76,205), HSV saturation 165, at a moment its
+    grayscale luminance (114) happened to sit almost exactly on this pixel's
+    known unlit reference (117, diff 3) -- invisible to brightness differencing
+    at any threshold. Grant: several abilities TINT the widget rather than
+    fully overwrite it -- Brimstone's ult orange, Skye's heal a green circular
+    area, Breach's ult a reddish bar -- so this needs a real trigger, not a
+    special case for one ability. Geometry (floor, lines) is reliably
+    achromatic -- measured at 8 real points on `a06f04a0059f`, p90 saturation
+    0-66 over 300 samples across a full match -- and this needs no top-hat the
+    way brightness does, because the viewcone's own brightness lift is itself
+    achromatic and so can never trigger it by accident. `COLOUR_SAT` (90) is
+    reused rather than a new threshold invented: it already separates real
+    team-colour from background bleed for `blob_colour`, and it clears every
+    measured geometry point with real margin while sitting well under the
+    155-point gap this glyph showed.
     """
     g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.int16)
-    raw = np.abs(g - static_gray).astype(np.uint8)
+    if static_gray2 is not None:
+        lo_eff = np.minimum(static_gray, static_gray2)
+        hi_eff = np.maximum(static_gray, static_gray2)
+        raw = np.maximum(lo_eff - g, np.maximum(g - hi_eff, 0)).astype(np.uint8)
+    else:
+        raw = np.abs(g - static_gray).astype(np.uint8)
     if tophat:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (TOPHAT_K, TOPHAT_K))
         raw = cv2.morphologyEx(raw, cv2.MORPH_TOPHAT, k)
-    d = (raw > diff_min) & ok_area
+    sat = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[:, :, 1]
+    d = ((raw > diff_min) | (sat > COLOUR_SAT)) & ok_area
     d = cv2.morphologyEx(d.astype(np.uint8), cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
     n, lbl, st, cen = cv2.connectedComponentsWithStats(d, 8)
     out = []
@@ -298,6 +345,23 @@ def load_geometry(sid):
               f"minimap_geometry.py ({was} != {mg.source_stamp()[:8]}). "
               f"Rebuild it before trusting anything derived from it.")
     return z["labels"], z["static"]
+
+
+def load_two_state(sid):
+    """The two-reference gray maps, or `(None, None)` for geometry built before them.
+
+    Kept separate from `load_geometry` rather than added as a third return
+    value there, so every existing caller of `load_geometry` -- `paint_map.py`,
+    `dynamic_eval.py`'s mask scoring -- keeps working unchanged; only the
+    callers of `detect()` that want the fix need to ask for this too.
+    """
+    p = STORE / "geometry" / f"{sid}.npz"
+    if not p.is_file():
+        return None, None
+    z = np.load(p)
+    if "lo_gray" not in z.files:
+        return None, None
+    return z["lo_gray"], z["hi_gray"]
 
 
 def labelled_frames(sid):

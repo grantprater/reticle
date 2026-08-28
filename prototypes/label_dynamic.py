@@ -312,6 +312,9 @@ def main() -> int:
     # see `minimap_dynamic.searchable`. Stream 925 -> 278 over the same frames,
     # with reachable hand-marked centres going UP, 212 -> 241 of 254.
     ok_area = md.searchable(labels, static=static)
+    lo_gray, hi_gray = md.load_two_state(args.session)
+    if lo_gray is not None:
+        sgray, hi_gray = lo_gray.astype(np.int16), hi_gray.astype(np.int16)
     # `usable` asks whether the widget is drawn at all in this frame, which is a
     # different question from where a detection may sit -- it wants the whole
     # footprint, not the searchable part.
@@ -339,7 +342,7 @@ def main() -> int:
         c = f[MY0:MY1, MX0:MX1]
         if not usable(c, floor) or not drawn(c, sgray, floor):
             return None
-        return [d for d in md.detect(c, sgray, ok_area, args.diff)
+        return [d for d in md.detect(c, sgray, ok_area, args.diff, static_gray2=hi_gray)
                 if not args.colour or d["colour"] == args.colour]
 
     for t in live_times(args.session, args.frames):
@@ -361,7 +364,7 @@ def main() -> int:
         if not drawn(crop, sgray, floor):
             n_undrawn += 1
             continue
-        for d in md.detect(crop, sgray, ok_area, args.diff):
+        for d in md.detect(crop, sgray, ok_area, args.diff, static_gray2=hi_gray):
             if args.colour and d["colour"] != args.colour:
                 continue
             key = (round(t), int(d["xy"][0]), int(d["xy"][1]))

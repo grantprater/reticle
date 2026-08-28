@@ -65,6 +65,10 @@ HUE_LO, HUE_HI, SAT_MIN, VAL_MIN = 8, 168, 100, 90
 # not a profile fraction: the profile's `minimap` ROI is still the OLD size and
 # must be re-measured with `probe` before anything is ingested.
 ROI = (0, 0, 530, 515)
+# How close another component may be to the main floor slab and still count as
+# part of it -- a real room cut off by one narrow doorway, not a HUD element or
+# an edge-scenery speck. See `floor_mask`.
+BRIDGE = 25
 
 
 def red_mask(bgr, sat_min=SAT_MIN):
@@ -110,6 +114,24 @@ def floor_mask(med, dilate=9):
       top-right corner and the scenery specks at the edges by derivation rather
       than by a hand-drawn box, which is the same argument that made the screen
       detector locate the combat report from its own structure.
+
+    **"Largest component only" is too strict, and Grant caught it by eye,
+    2026-08-27.** Ascent's Boathouse -- a real room beside B, plain floor by
+    every pixel statistic (identical HSV to confirmed-good floor elsewhere) --
+    was rendered entirely VOID. It passes the same threshold as the rest of the
+    slab, but the doorway connecting it to the main blob does not survive the
+    5px close above, so it lands in its own small component and the
+    single-largest rule throws the whole room away as if it were the HUD
+    corner or an edge-scenery speck.
+
+    The fix: after taking the largest component, also recover any OTHER
+    component within `bridge` px of it -- a real room cut off by one narrow
+    gap sits right next to the main slab; a HUD element or scenery speck does
+    not. Checked on `a06f04a0059f` before picking a number: the five closest
+    unclaimed components (6.2-24.0 px away, all >=30 px area) are ALL visibly
+    real interior rooms by eye -- Boathouse, two small nooks near A and B, and
+    a spot at attacker spawn -- and the next-nearest beyond that jumps to
+    31 px and is a 5 px speck. `bridge=25` sits in that gap.
     """
     hsv = cv2.cvtColor(med, cv2.COLOR_BGR2HSV)
     m = ((hsv[:, :, 1] < 20) & (hsv[:, :, 2] > 100)).astype(np.uint8)
@@ -119,8 +141,13 @@ def floor_mask(med, dilate=9):
     n, lbl, st, _ = cv2.connectedComponentsWithStats(j, 8)
     if n <= 1:
         return np.zeros(m.shape, bool)
-    big = (lbl == 1 + int(np.argmax(st[1:, 4])))
-    return cv2.dilate(big.astype(np.uint8), np.ones((dilate, dilate), np.uint8)) > 0
+    big_id = 1 + int(np.argmax(st[1:, 4]))
+    big = (lbl == big_id).astype(np.uint8)
+    near = cv2.dilate(big, np.ones((BRIDGE, BRIDGE), np.uint8)) > 0
+    for i in range(1, n):
+        if i != big_id and (lbl == i)[near].any():
+            big[lbl == i] = 1
+    return cv2.dilate(big, np.ones((dilate, dilate), np.uint8)) > 0
 
 
 def blobs(crop, floor=None, min_area=25, sat_min=SAT_MIN):
