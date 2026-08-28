@@ -447,6 +447,9 @@ import json, sys
 from pathlib import Path
 import numpy as np, cv2
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from reticle import metrics                                       # noqa: E402
+
 STORE = Path.home()/"reticle-store"
 SID  = sys.argv[1]
 THR  = int(sys.argv[2]) if len(sys.argv) > 2 else 25       # top-hat strength
@@ -700,6 +703,29 @@ def main() -> int:
     print(f"  TP {t['tp']:3d}  FN {t['fn']:3d}  FP {t['fp']:4d}  nontgt {t['nt']:2d}   "
           f"recall {rec*100:5.1f}%  precision {pre*100:5.1f}%  "
           f"FP/frame {t['fp']/max(len(rows), 1):4.1f}")
+
+    # The numbers above are also the regression check, and were only ever that
+    # by hand ("confirm TP 43 / FN 3 / FP 80 comes back"). Recording them with
+    # what produced them makes the check automatic: same deps and a different
+    # number is reported BROKEN rather than read as a result. There is no
+    # external control here on purpose -- the previous run is not one, and
+    # treating it as one is how a tool ends up scored against itself.
+    metrics.record(
+        "enemy_detect", part="labels", session=SID,
+        values={"tp": t["tp"], "fn": t["fn"], "fp": t["fp"], "nontarget": t["nt"],
+                "recall": round(rec, 4), "precision": round(pre, 4)},
+        deps={"detect": metrics.fingerprint(
+                  detect, hits, hud_mask, find_boxes,
+                  THR=THR, K=K, AREA=AREA, HMIN=HMIN, CK=CK, AR=AR,
+                  HUE_MAGENTA=HUE_MAGENTA, HUE_ORANGE=HUE_ORANGE,
+                  SAT=SAT, AST=AST, WEAP=WEAP, HANDED=HANDED, TOP1=TOP1)},
+        # Labels arriving is the main legitimate reason these move, so it is
+        # context: the comparison stays valid and says what grew.
+        context={"n_frames": len(rows), "n_enemies": t["tp"] + t["fn"],
+                 "pools": ",".join(sorted({r["pool"] for r in rows}))},
+    )
+    print()
+    print(metrics.report(tool="enemy_detect"))
     return 0
 
 
