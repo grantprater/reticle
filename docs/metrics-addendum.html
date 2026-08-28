@@ -1,0 +1,834 @@
+<title>Comparable Runs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+:root {
+  /* Neutrals carry a slight blue bias — picked to sit under the magenta,
+     not inherited from a default grey ramp. */
+  --ground:      #f4f5f7;
+  --panel:       #ffffff;
+  --panel-sunk:  #eceef2;
+  --rule:        #d4d8e0;
+  --rule-soft:   #e3e6ec;
+  --ink:         #1b1f27;
+  --ink-mid:     #4c5464;
+  --ink-soft:    #6d7688;
+
+  /* The four verdict colours are the repo's own structural language,
+     borrowed from overlay.py and glance.py: magenta means NO DATA,
+     amber means something is covering the answer. They are not decoration. */
+  --incomparable: #a82f7a;
+  --broken:       #a8631a;
+  --changed:      #1d6f74;
+  --unchanged:    #7b8496;
+
+  --incomparable-bg: #fbeef5;
+  --broken-bg:       #fbf2e6;
+  --changed-bg:      #e8f3f3;
+  --unchanged-bg:    #eef0f4;
+
+  --measure: 68ch;
+}
+
+:root:not([data-theme="light"]) {
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #14171d;
+    --panel:       #1b1f27;
+    --panel-sunk:  #101318;
+    --rule:        #333947;
+    --rule-soft:   #262c37;
+    --ink:         #e8eaef;
+    --ink-mid:     #a8b0c0;
+    --ink-soft:    #7d8698;
+
+    --incomparable: #e878b8;
+    --broken:       #e0a355;
+    --changed:      #5fc0c4;
+    --unchanged:    #7d8698;
+
+    --incomparable-bg: #2a1526;
+    --broken-bg:       #271c10;
+    --changed-bg:      #10262a;
+    --unchanged-bg:    #1e222b;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:      #14171d;
+  --panel:       #1b1f27;
+  --panel-sunk:  #101318;
+  --rule:        #333947;
+  --rule-soft:   #262c37;
+  --ink:         #e8eaef;
+  --ink-mid:     #a8b0c0;
+  --ink-soft:    #7d8698;
+
+  --incomparable: #e878b8;
+  --broken:       #e0a355;
+  --changed:      #5fc0c4;
+  --unchanged:    #7d8698;
+
+  --incomparable-bg: #2a1526;
+  --broken-bg:       #271c10;
+  --changed-bg:      #10262a;
+  --unchanged-bg:    #1e222b;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+  font-size: 17px;
+  line-height: 1.62;
+  margin: 0;
+  padding: 0 24px 96px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 44px;
+}
+
+/* ---------- masthead ---------- */
+
+header.masthead {
+  padding: 72px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.eyebrow .dot {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--incomparable); flex: none;
+}
+
+h1 {
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 700;
+  font-size: clamp(34px, 6vw, 54px);
+  line-height: 1.04;
+  letter-spacing: -0.022em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.standfirst {
+  font-size: 20px;
+  line-height: 1.5;
+  color: var(--ink-mid);
+  max-width: var(--measure);
+  margin: 0;
+}
+
+.masthead-rule {
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--incomparable) 0 25%,
+    var(--broken) 25% 50%,
+    var(--changed) 50% 75%,
+    var(--unchanged) 75% 100%);
+  border-radius: 2px;
+}
+
+/* ---------- sections ---------- */
+
+section { display: flex; flex-direction: column; gap: 16px; }
+
+h2 {
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 600;
+  font-size: 25px;
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+  margin: 0;
+  text-wrap: balance;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+h2 .marker {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  letter-spacing: 0.08em;
+  flex: none;
+}
+
+h3 {
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+p { margin: 0; max-width: var(--measure); }
+
+strong { font-weight: 600; }
+
+code {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 0.87em;
+  background: var(--panel-sunk);
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  padding: 0.08em 0.34em;
+}
+
+/* ---------- the three output shapes ---------- */
+
+.scroller { overflow-x: auto; }
+
+table.shapes {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 540px;
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+table.shapes th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+table.shapes td {
+  padding: 11px 14px 11px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: top;
+  color: var(--ink-mid);
+}
+
+table.shapes td:first-child { color: var(--ink); font-weight: 500; }
+
+.verdict-cost { white-space: nowrap; }
+.neg { color: var(--broken); font-weight: 600; }
+.pos { color: var(--changed); font-weight: 600; }
+
+/* ---------- deps split ---------- */
+
+.split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.dep {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dep .kind {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dep.invalidating { border-top: 3px solid var(--incomparable); }
+.dep.invalidating .kind { color: var(--incomparable); }
+.dep.explanatory { border-top: 3px solid var(--changed); }
+.dep.explanatory .kind { color: var(--changed); }
+
+.dep p { font-size: 15.5px; line-height: 1.55; }
+
+.dep ul {
+  margin: 0; padding: 0; list-style: none;
+  display: flex; flex-direction: column; gap: 5px;
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--ink-mid);
+}
+
+.dep ul li::before { content: "· "; color: var(--ink-soft); }
+
+/* ---------- the verdict matrix ---------- */
+
+.matrix-frame {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.matrix-caption {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+table.matrix {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 520px;
+}
+
+table.matrix th {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: bottom;
+}
+
+table.matrix th.rowhead {
+  text-align: right;
+  width: 1%;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+table.matrix td {
+  padding: 6px;
+  width: 50%;
+}
+
+.cell {
+  border-radius: 5px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  height: 100%;
+  border: 1px solid transparent;
+}
+
+.cell .name {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.cell .gloss {
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--ink-mid);
+}
+
+.cell.c-incomparable { background: var(--incomparable-bg); border-color: var(--incomparable); }
+.cell.c-incomparable .name { color: var(--incomparable); }
+.cell.c-broken       { background: var(--broken-bg);       border-color: var(--broken); }
+.cell.c-broken .name { color: var(--broken); }
+.cell.c-changed      { background: var(--changed-bg);      border-color: var(--changed); }
+.cell.c-changed .name { color: var(--changed); }
+.cell.c-unchanged    { background: var(--unchanged-bg);    border-color: var(--rule); }
+.cell.c-unchanged .name { color: var(--unchanged); }
+
+.spanned { grid-column: span 2; }
+
+/* ---------- callout ---------- */
+
+.callout {
+  border-left: 3px solid var(--incomparable);
+  background: var(--panel);
+  border-radius: 0 6px 6px 0;
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.callout .label {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--incomparable);
+}
+
+.callout p { font-size: 16px; }
+
+/* ---------- terminal sample ---------- */
+
+pre.term {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  background: var(--panel-sunk);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 18px 20px;
+  margin: 0;
+  overflow-x: auto;
+  color: var(--ink-mid);
+  tab-size: 4;
+}
+
+pre.term .cmd { color: var(--ink); font-weight: 600; }
+pre.term .v-broken { color: var(--broken); font-weight: 600; }
+pre.term .v-inc { color: var(--incomparable); font-weight: 600; }
+pre.term .v-chg { color: var(--changed); font-weight: 600; }
+pre.term .dim { color: var(--ink-soft); }
+
+/* ---------- status strip ---------- */
+
+.statuses {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.status {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 16px 18px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.status .n {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+.status .d { font-size: 14.5px; line-height: 1.45; color: var(--ink-mid); }
+.status.s-pass .n   { color: var(--changed); }
+.status.s-cannot .n { color: var(--unchanged); }
+.status.s-broken .n { color: var(--broken); }
+
+/* ---------- wired list ---------- */
+
+dl.wired {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(180px, max-content) 1fr;
+  gap: 10px 22px;
+  align-items: baseline;
+}
+
+dl.wired dt {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+dl.wired dd {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--ink-mid);
+}
+
+@media (max-width: 560px) {
+  dl.wired { grid-template-columns: 1fr; gap: 2px 0; }
+  dl.wired dd { margin-bottom: 12px; }
+}
+
+/* ---------- open questions ---------- */
+
+ol.open {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  counter-reset: q;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+ol.open li {
+  counter-increment: q;
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+ol.open li::before {
+  content: "Q" counter(q);
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  letter-spacing: 0.06em;
+  padding-top: 4px;
+}
+
+ol.open p { font-size: 16px; }
+
+footer {
+  border-top: 1px solid var(--rule);
+  padding-top: 20px;
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.7;
+}
+
+a { color: var(--incomparable); }
+a:focus-visible, :focus-visible {
+  outline: 2px solid var(--changed);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>Reticle</span><span class="dot"></span>
+      <span>Design doc §7 addendum</span><span class="dot"></span>
+      <span>2026-08-27</span>
+    </div>
+    <h1>Comparable Runs</h1>
+    <p class="standfirst">
+      Storing each run's summary and printing the diff, so that a number which
+      moved for the wrong reason cannot arrive looking like a result.
+    </p>
+    <div class="masthead-rule"></div>
+  </header>
+
+  <section>
+    <h2><span class="marker">01</span>The summary was the thing that hid the bug</h2>
+    <p>
+      The obvious efficiency move is to make tools print summaries instead of
+      dumps. <code>enemy_detect_eval.py</code> already printed exactly two
+      lines, and it is the tool that produced this, recorded in
+      <code>prototypes/CLAUDE.md</code>:
+    </p>
+    <div class="callout">
+      <span class="label">Already on the record</span>
+      <p>
+        the aggregate rate is normal (0.42 det/frame against Ascent's 0.40) but
+        the STRONG detections are dominated by purple Ascent foliage and a
+        magenta weapon skin at a fixed screen position (36 of 125 in
+        x&nbsp;1360-1840, y&nbsp;320-480). <strong>The summary statistic hid
+        this completely; a contact sheet took one glance.</strong>
+      </p>
+    </div>
+    <p>
+      The cheapest possible output was worse than useless: it asserted health
+      while the detector was broken. Cost is not the axis. What separates a
+      useful observation from a misleading one is whether it
+      <strong>carries the structure that would falsify it</strong> — a count
+      without a concentration measure is not a summary, it is an assertion.
+    </p>
+    <div class="scroller">
+      <table class="shapes">
+        <thead>
+          <tr><th>Output shape</th><th class="verdict-cost">Tokens</th><th>What it actually tells you</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>373-row dump</td>
+            <td class="verdict-cost">high</td>
+            <td>Low — no pattern survives being read one row at a time.</td>
+          </tr>
+          <tr>
+            <td>0.42 det/frame</td>
+            <td class="verdict-cost">≈ nil</td>
+            <td><span class="neg">Negative</span> — it induced confident wrongness.</td>
+          </tr>
+          <tr>
+            <td>Contact sheet, 24 rows</td>
+            <td class="verdict-cost">mid</td>
+            <td><span class="pos">High</span> — spatial concentration is what a glance is for.</td>
+          </tr>
+          <tr>
+            <td><code>--by-position</code></td>
+            <td class="verdict-cost">low</td>
+            <td><span class="pos">High</span> — it carries its own distribution.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="marker">02</span>Two kinds of dependency</h2>
+    <p>
+      Comparability is a property of the dependency chain, not of the field.
+      <code>recall</code> keeps its name and its dtype across a class split and
+      stops being the same quantity — the queued <code>ability</code> split is
+      exactly that boundary. So every record declares what it was computed
+      from, in two buckets. Putting a field in the wrong bucket is the only way
+      to get this wrong quietly.
+    </p>
+    <div class="split">
+      <div class="dep invalidating">
+        <span class="kind">deps · invalidating</span>
+        <p>Different deps is <strong>not a comparison at all</strong>. New baseline, and no delta is shown.</p>
+        <ul>
+          <li>code fingerprint</li>
+          <li>class list (<code>GLYPH</code>)</li>
+          <li>sampling rule / pool</li>
+          <li>the fit session</li>
+          <li>whether a mask was seeded</li>
+        </ul>
+      </div>
+      <div class="dep explanatory">
+        <span class="kind">context · explanatory</span>
+        <p>Different context is a comparison, and it is <strong>the interesting one</strong>. Annotated with what grew.</p>
+        <ul>
+          <li>answered label count</li>
+          <li>frames scored</li>
+          <li>rows either side of a fit</li>
+        </ul>
+      </div>
+    </div>
+    <p>
+      Collapse the two and it degrades either way. Everything invalidating and
+      each code touch resets the baseline — the version of this idea that is
+      genuinely useless. Nothing invalidating and you get confident false
+      comparisons across a boundary. Because the label files are append-only,
+      the explanatory case is the <em>common</em> one here: labels arriving is
+      the main legitimate reason a number moves, and it is the case you least
+      want voided.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="marker">03</span>The verdict is a total function</h2>
+    <p>
+      Two booleans — did deps move, did context move — with the values either
+      matching or not. That is four outcomes and there are no others, which is
+      why they are a matrix and not a list.
+    </p>
+    <div class="matrix-frame">
+      <span class="matrix-caption">values differ from the baseline</span>
+      <div class="scroller">
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th class="rowhead"></th>
+              <th>context unchanged</th>
+              <th>context changed</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th class="rowhead">deps unchanged</th>
+              <td>
+                <div class="cell c-broken">
+                  <span class="name">BROKEN</span>
+                  <span class="gloss">Nothing it depends on moved and the number did. An unversioned edit, or nondeterminism.</span>
+                </div>
+              </td>
+              <td>
+                <div class="cell c-changed">
+                  <span class="name">CHANGED</span>
+                  <span class="gloss">A real measurement change. Annotated with what grew — this is the case worth reading.</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <th class="rowhead">deps changed</th>
+              <td colspan="2">
+                <div class="cell c-incomparable">
+                  <span class="name">INCOMPARABLE</span>
+                  <span class="gloss">A different question. The delta is <strong>withheld rather than captioned</strong> — printing it with a caveat is the confident-wrongness failure this exists to prevent.</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <th class="rowhead">nothing moved</th>
+              <td colspan="2">
+                <div class="cell c-unchanged">
+                  <span class="name">UNCHANGED</span>
+                  <span class="gloss">One line. The common case, and the reason a run costs almost nothing to read.</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p>
+      The <span style="color:var(--broken);font-weight:600">BROKEN</span> cell
+      is the derived control. <code>version.py</code> already promises that a
+      version is bumped when a column's meaning changes; read as a contract,
+      that is checkable, and it replaces the standing instruction to confirm a
+      known number by hand.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="marker">04</span>Status is not verdict, and it gates the write</h2>
+    <p>
+      A verdict describes a comparison. A status describes the run itself, and
+      only one of the three is ever eligible to be a baseline.
+    </p>
+    <div class="statuses">
+      <div class="status s-pass">
+        <span class="n">pass</span>
+        <span class="d">The run answered. The only status <code>baseline()</code> will ever return.</span>
+      </div>
+      <div class="status s-cannot">
+        <span class="n">cannot-answer</span>
+        <span class="d">The tool refused — no glyph rows, no painted mask. Not a zero, and not a result.</span>
+      </div>
+      <div class="status s-broken">
+        <span class="n">broken</span>
+        <span class="d">A declared external control missed. Everything else in the run is uninterpretable.</span>
+      </div>
+    </div>
+    <div class="callout">
+      <span class="label">Why the gate is the feature</span>
+      <p>
+        A broken run allowed to become the new normal would re-baseline the
+        fault, and the check would never fire again. That is
+        <strong>the seeding mistake in a third costume</strong> — after
+        <code>minimap_agent</code>, and after <code>answer()</code> refusing
+        <code>claude-*</code> provenance. So <code>baseline()</code> has no
+        flag to include a non-passing run. The gate is structural, not a
+        convention to remember.
+      </p>
+    </div>
+    <p>
+      A control is an <strong>external</strong> truth —
+      <code>checks.KNOWN_KD</code>, a fixture's answer. The tool's own previous
+      output is never one; that is the baseline, and treating it as a control
+      is how a tool ends up scored against itself.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="marker">05</span>Deps are fingerprinted, not listed</h2>
+    <p>
+      A hand-kept dependency list rots in the one direction that is silent: add
+      a knob, forget the list, and every later diff crosses a boundary it
+      should have refused. <code>metrics.fingerprint()</code> hashes function
+      source via <code>inspect.getsource</code> plus the named parameters, so
+      the dependency is read off the call rather than remembered.
+    </p>
+    <p>
+      Granularity is the whole game. Fingerprinting a module would reset the
+      baseline on a comment — the failure mode where this stops being worth
+      having. Fingerprinting the functions that produced the number tracks
+      behaviour and ignores edits elsewhere in the file. Editing a comment
+      <em>inside</em> a fingerprinted function does still reset it. That is the
+      over-declaring side of the trade, taken deliberately:
+      <strong>a spurious INCOMPARABLE is visible and cheap; a missed one is
+      silent and expensive.</strong>
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="marker">06</span>What it looks like</h2>
+    <pre class="term"><span class="cmd">$ reticle metrics</span>
+dynamic_eval pool/uniform a06f04a0059f: unchanged
+dynamic_eval held-out/objects 5822b6646448: <span class="v-chg">CHANGED</span> <span class="dim">-- context changed: n_score_rows</span>
+    recall                     0.771 -&gt;        0.804
+    (n_score_rows now 251)
+enemy_detect labels 9acf02f98283: <span class="v-broken">BROKEN</span> <span class="dim">-- nothing it depends on</span>
+<span class="dim">    changed and the numbers did -- an unversioned edit or nondeterminism</span>
+    fp                            60 -&gt;           64</pre>
+    <p>
+      A series where nothing moved is one line. That is what makes the tool
+      cheap to read on the ninety-ninth run, and it is the same principle
+      <code>judgement.py</code> arrived at from the other direction:
+      <em>sample where the error rate changes, not where it is high.</em>
+    </p>
+    <dl class="wired">
+      <dt>reticle/metrics.py</dt>
+      <dd>The log, the four verdicts, the baseline gate, <code>fingerprint()</code>. Self-test covers all four verdicts, both refusal statuses, and tolerance.</dd>
+      <dt>reticle metrics</dt>
+      <dd>CLI view. The companion to <code>status</code>: that computes the present so it cannot rot, this compares it to the past.</dd>
+      <dt>enemy_detect_eval.py</dt>
+      <dd>Detector against hand labels. No external control on purpose — the derived one does the work.</dd>
+      <dt>dynamic_eval.py</dt>
+      <dd>Three series: the held-out fit, the label-pool composition, and the painted mask (with its <code>seeded</code> flag as a dep).</dd>
+      <dt>~/reticle-store/notes/<wbr>metrics.jsonl</dt>
+      <dd>Append-only, beside <code>predictions.jsonl</code>. Same idiom, same store.</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2><span class="marker">07</span>Found while wiring it</h2>
+    <div class="callout">
+      <span class="label">The hand-carried control had drifted</span>
+      <p>
+        <code>CLAUDE.md</code> instructed: <em>confirm a known number comes
+        back — for the detector that is TP 43 / FN 3 / FP 80.</em> The command
+        it was attached to returns <strong>TP 42 / FN 4 / FP 60</strong>.
+        Nothing had regressed: 43&nbsp;/&nbsp;3&nbsp;/&nbsp;80 is the
+        <em>unfiltered</em> row of the module's own table (93.5% / 35.0%),
+        while the default run is the shipped configuration (91.3% / 41.2%,
+        matching the docstring exactly). The control had been copied from the
+        wrong row and could not be checked without already knowing which row it
+        came from.
+      </p>
+    </div>
+    <p>
+      It is the argument for the mechanism, found by building it. The number is
+      no longer written in the conventions; the log holds it, keyed to what
+      produced it.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="marker">08</span>Still open</h2>
+    <ol class="open">
+      <li><p><strong>Schema growth is re-baselining in slow motion.</strong> Adding a metric is a dep change and comparability resets at that boundary. Correct, and visible rather than silent — but it should be a deliberate act, not a surprise.</p></li>
+      <li><p><strong>No continuous change-point test.</strong> <code>judgement.change_point</code> is applied only to the control pass/fail series, which is genuinely binary. A continuous metric needs a different test, and guessing at one would manufacture regimes — the exact failure that test is corrected against.</p></li>
+      <li><p><strong>Nothing records the concentration measures yet.</strong> The insight in §1 was that a rate needs a spatial distribution beside it. The mechanism now exists to store one; <code>enemy_detect</code> still records only totals.</p></li>
+    </ol>
+  </section>
+
+  <footer>
+    Reticle · addendum to design doc §7 · written 2026-08-27<br>
+    Source: <code>docs/metrics-addendum.html</code> · implementation: <code>reticle/metrics.py</code>
+  </footer>
+
+</div>

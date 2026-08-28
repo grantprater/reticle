@@ -1121,6 +1121,19 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_metrics(args) -> int:
+    """What moved since the last comparable run, and nothing else.
+
+    The companion to `status`: that one computes the present so it cannot rot,
+    this one compares it to the past so a silent change cannot pass as one. A
+    series where nothing moved prints one line.
+    """
+    from . import metrics
+
+    print(metrics.report(tool=args.tool, verbose=args.verbose))
+    return 0
+
+
 def cmd_sql(args) -> int:
     import duckdb
 
@@ -1293,6 +1306,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="write STATUS.md instead of printing")
     s.add_argument("--markdown", action="store_true")
     s.set_defaults(func=cmd_status)
+
+    s = sub.add_parser("metrics", help="what moved since the last comparable "
+                       "run (quiet when nothing did)")
+    s.add_argument("--tool", default=None, help="only this tool's series")
+    s.add_argument("--verbose", action="store_true",
+                   help="print every value, not only the ones that moved")
+    s.set_defaults(func=cmd_metrics)
 
     s = sub.add_parser("sql", help="run DuckDB over the store")
     s.add_argument("query", nargs="?"); s.add_argument("--limit", type=int, default=50)
