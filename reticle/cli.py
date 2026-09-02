@@ -7,6 +7,7 @@
     reticle inspect [SESSION]                 what is in the store
     reticle frames  SESSION --every N         dump frames for eyeballing
     reticle hud     [SESSION]                 stage 02: read the scoreline
+    reticle minimap [SESSION]                 stage 02: player position off the minimap
     reticle glyphs  VIDEO                     mine digit templates from footage
     reticle verify  [SESSION]                 check HUD reads against domain invariants
     reticle overlay [SESSION]                 render detections onto the video
@@ -26,13 +27,15 @@ from pathlib import Path
 
 import numpy as np
 
-from .decode import sample_frames
+from .decode import sample_frames, sample_spans
 from .checks import KNOWN_KD, check_hud, player_events, track_entries
 from .rounds import build_rounds, summarise
 from .scoreboard import read_scoreboard
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
+from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px,
+                      pick_self, self_rings, static_map)
 from .overlay import OverlayContext, draw
 from .ocr import (GLYPH_H, GLYPH_W, Templates, cluster_glyphs, crop_gray,
                   read_bottom_hud, read_scoreline, scoreline_roi, segment_glyphs)
@@ -40,7 +43,7 @@ from .primitives import PrimitiveExtractor
 from .profiles import DEFAULT_PROFILE, MinimapMode, get_profile
 from .segment import HUD_CHROME_ROIS, STATES, SegmentConfig, classify, segment
 from .store import DEFAULT_STORE, Store
-from .version import EXTRACTOR_VERSION, HUD_VERSION, SEGMENTER_VERSION
+from .version import EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, SEGMENTER_VERSION
 
 
 def _fmt_ms(ms: float) -> str:
@@ -565,6 +568,122 @@ def cmd_hud(args) -> int:
         print(f"           ! {unattr} frames hold an entry whose name an overlay covers "
               f"-- attribution impossible there")
     print(f"\nnext: reticle verify {sid}")
+    return 0
+
+
+# --------------------------------------------------------------------------- minimap
+
+def cmd_minimap(args) -> int:
+    """Stage 02: player position off the minimap.
+
+    Needs `reticle segment` to have run first -- active spans bound both the
+    static-map sample and the decode itself, since the minimap has nothing
+    to say off-round. Sampled at a higher rate than `hud` (default 15 Hz vs
+    2 Hz): everything downstream of position is a *speed* measurement, and
+    2 Hz cannot support one. See `reticle/minimap.py` for what is and is not
+    validated yet -- self is a real track, allies are per-frame candidates.
+    """
+    import cv2
+
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    sid = manifest["session_id"]
+    date = _date_of(manifest)
+    src = manifest["source"]
+    profile = get_profile(manifest["source_profile"])
+
+    if store.has_minimap(sid, date) and not args.force:
+        print(f"cache hit  session {sid} already has minimap positions at {MINIMAP_VERSION}")
+        print(f"           {store.minimap_path(sid, date)}")
+        print("           pass --force to re-read")
+        return 0
+
+    spans_tbl = store.read_spans(sid, date)
+    if spans_tbl is None:
+        raise SystemExit(f"no spans for session {sid} -- run `reticle segment {sid}` first")
+    spans = [(a, b) for a, b, s in zip(spans_tbl.column("t_start_ms").to_pylist(),
+                                       spans_tbl.column("t_end_ms").to_pylist(),
+                                       spans_tbl.column("state").to_pylist()) if s == "active"]
+    if not spans:
+        raise SystemExit(f"session {sid} has no active spans -- nothing to track")
+
+    media = Path(src["path"])
+    if not media.is_file():
+        raise SystemExit(
+            f"source media has moved: {media}\n"
+            "the manifest records where it was at ingest time"
+        )
+    w, h, fps = int(src["width"]), int(src["height"]), float(src["fps"])
+    box = minimap_roi_px(profile, w, h)
+    x0, y0, x1, y1 = box
+
+    print(f"session    {sid}  ({src['filename']})")
+    print(f"profile    {profile.name}  ({MINIMAP_VERSION})")
+    print(f"roi        minimap {box}   active spans {len(spans)} "
+          f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)")
+    print(f"sampling   {args.hz:g} Hz")
+
+    cap = cv2.VideoCapture(str(media))
+    med = static_map(cap, fps, spans, box)
+    cap.release()
+    floor = floor_mask(med)
+    print(f"floor      {floor.mean() * 100:.1f}% of the widget is walkable")
+
+    rows: list[dict] = []
+    step_ms = 1000.0 / args.hz
+    prev = None
+    t0 = time.perf_counter()
+    last = t0
+    for smp in sample_spans(str(media), spans, args.hz, fps):
+        crop = smp.frame[y0:y1, x0:x1]
+        self_cands = self_rings(crop, floor)
+        pick = pick_self(self_cands, prev, step_ms)
+        if pick is not None:
+            prev = pick
+        allies = sorted(ally_rings(crop, floor), key=lambda c: -c[0])[:MAX_ALLIES]
+        ally_x = [c[1] for c in allies] + [None] * (MAX_ALLIES - len(allies))
+        ally_y = [c[2] for c in allies] + [None] * (MAX_ALLIES - len(allies))
+        rows.append({
+            "frame_idx": smp.frame_idx,
+            "t_ms": smp.t_ms,
+            "self_x": pick[0] if pick else None,
+            "self_y": pick[1] if pick else None,
+            "n_allies": len(allies),
+            "ally_x": ally_x,
+            "ally_y": ally_y,
+        })
+        now = time.perf_counter()
+        if now - last >= 2.0:
+            pct = (smp.t_ms / src["duration_ms"] * 100) if src["duration_ms"] else 0.0
+            sys.stdout.write(f"\r  {len(rows):>7d} frames  {_fmt_hms(smp.t_ms)}  {pct:5.1f}%")
+            sys.stdout.flush()
+            last = now
+    sys.stdout.write("\r" + " " * 72 + "\r")
+
+    if not rows:
+        raise SystemExit("decoded zero frames inside active spans -- is segmentation right?")
+
+    out = store.write_minimap(rows, _FP(src, sid), profile.name, date)
+    dt = time.perf_counter() - t0
+
+    n = len(rows)
+    got_self = sum(1 for r in rows if r["self_x"] is not None)
+    got_ally = sum(1 for r in rows if r["n_allies"] > 0)
+    print(f"minimap wrote  {n} rows  ({dt:.1f}s, {n / max(dt, 1e-9):.1f} rows/s)")
+    print(f"               {out}")
+    print(f"               {out.stat().st_size / 1e3:.1f} kB")
+    print(f"self       raw {got_self}/{n} ({got_self / n * 100:.1f}%)")
+
+    track = filter_track([(r["t_ms"], r["self_x"], r["self_y"]) for r in rows
+                          if r["self_x"] is not None], step_ms)
+    print(f"           filtered {len(track)} points "
+          f"({len(track) / n * 100:.1f}% coverage after gap interpolation)")
+    sp = np.array([np.hypot(b[1] - a[1], b[2] - a[2]) / ((b[0] - a[0]) / 1000.0)
+                   for a, b in zip(track, track[1:]) if 0 < b[0] - a[0] <= 1.5 * step_ms])
+    if sp.size:
+        print(f"           px/s median {np.median(sp):.1f}  p95 {np.percentile(sp, 95):.1f}  "
+              f"jumps>60px/s: {(sp > 60).mean() * 100:.1f}%")
+    print(f"ally       at least one candidate: {got_ally}/{n} ({got_ally / n * 100:.1f}%)")
     return 0
 
 
@@ -1245,6 +1364,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "nearer than the next digit (default 0.05)")
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_hud)
+
+    s = sub.add_parser("minimap", help="stage 02: player position off the minimap")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--hz", type=float, default=15.0,
+                   help="sample rate (default 15 -- position is a speed measurement, "
+                        "2 Hz cannot support one)")
+    s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
+    s.set_defaults(func=cmd_minimap)
 
     s = sub.add_parser("glyphs", help="mine digit templates from real footage")
     s.add_argument("video", nargs="+", help="one or more captures to mine")

@@ -24,7 +24,8 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .version import EXTRACTOR_VERSION, HUD_VERSION, SCHEMA_VERSION, SEGMENTER_VERSION
+from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, SCHEMA_VERSION,
+                      SEGMENTER_VERSION)
 
 DEFAULT_STORE = Path.home() / "reticle-store"
 
@@ -50,6 +51,9 @@ class Store:
     def hud_path(self, session_id: str, date: str) -> Path:
         return self.root / "l1" / "hud" / f"date={date}" / f"session={session_id}" / "hud.parquet"
 
+    def minimap_path(self, session_id: str, date: str) -> Path:
+        return self.root / "l1" / "minimap" / f"date={date}" / f"session={session_id}" / "minimap.parquet"
+
     def primitives_glob(self) -> str:
         return str(self.root / "l1" / "primitives" / "**" / "*.parquet")
 
@@ -58,6 +62,9 @@ class Store:
 
     def hud_glob(self) -> str:
         return str(self.root / "l1" / "hud" / "**" / "*.parquet")
+
+    def minimap_glob(self) -> str:
+        return str(self.root / "l1" / "minimap" / "**" / "*.parquet")
 
     # ---------- manifests ----------
 
@@ -242,6 +249,66 @@ class Store:
         if not path.is_file():
             raise SystemExit(
                 f"no HUD reads for session {session_id} -- run `reticle hud` first"
+            )
+        return pq.read_table(path)
+
+    # ---------- L1 · minimap position (stage 02) ----------
+
+    def has_minimap(self, session_id: str, date: str) -> bool:
+        path = self.minimap_path(session_id, date)
+        if not path.is_file():
+            return False
+        try:
+            meta = pq.read_schema(path).metadata or {}
+            return meta.get(b"minimap_version", b"").decode() == MINIMAP_VERSION
+        except Exception:
+            return False
+
+    def write_minimap(self, rows: list[dict], fingerprint, profile_name: str, date: str) -> Path:
+        if not rows:
+            raise SystemExit("no frames were read -- nothing to write")
+        n = len(rows)
+        col = lambda k: [r[k] for r in rows]
+        arrays = {
+            "frame_idx": pa.array(col("frame_idx"), type=pa.int64()),
+            "t_ms": pa.array(col("t_ms"), type=pa.float64()),
+            # Raw per-frame detections, unfiltered -- nothing here has been
+            # through filter_track's jump rejection or gap interpolation, so
+            # a change to RUN_PX/GAP_MS never invalidates this cache. Self is
+            # a real track (nearest-to-previous); allies are per-frame
+            # candidates with no identity across frames -- see minimap.py.
+            "self_x": pa.array(col("self_x"), type=pa.float32()),
+            "self_y": pa.array(col("self_y"), type=pa.float32()),
+            "n_allies": pa.array(col("n_allies"), type=pa.int8()),
+        }
+        for i in range(len(rows[0]["ally_x"])):
+            arrays[f"ally{i}_x"] = pa.array([r["ally_x"][i] for r in rows], type=pa.float32())
+            arrays[f"ally{i}_y"] = pa.array([r["ally_y"][i] for r in rows], type=pa.float32())
+        arrays["session_id"] = pa.array([fingerprint.session_id] * n, type=pa.string())
+        arrays["content_key"] = pa.array([fingerprint.content_key] * n, type=pa.string())
+        arrays["source_profile"] = pa.array([profile_name] * n, type=pa.string())
+        arrays["minimap_version"] = pa.array([MINIMAP_VERSION] * n, type=pa.string())
+        arrays["schema_version"] = pa.array([SCHEMA_VERSION] * n, type=pa.int32())
+
+        table = pa.table(arrays).replace_schema_metadata(
+            {
+                "minimap_version": MINIMAP_VERSION,
+                "schema_version": str(SCHEMA_VERSION),
+                "session_id": fingerprint.session_id,
+                "content_key": fingerprint.content_key,
+                "source_profile": profile_name,
+            }
+        )
+        path = self.minimap_path(fingerprint.session_id, date)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(table, path, compression="zstd")
+        return path
+
+    def read_minimap(self, session_id: str, date: str):
+        path = self.minimap_path(session_id, date)
+        if not path.is_file():
+            raise SystemExit(
+                f"no minimap position for session {session_id} -- run `reticle minimap` first"
             )
         return pq.read_table(path)
 

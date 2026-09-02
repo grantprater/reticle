@@ -13,6 +13,36 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
+**DONE 2026-09-02: minimap position tracking is promoted and wired in.**
+`prototypes/minimap_position.py` -> `reticle/minimap.py` + `reticle minimap
+<session>` (stage 02, L1). Self position is a real filtered track; ally rings
+are still per-frame candidates with no identity across frames (see the
+module docstring). New CLI command samples at 15 Hz by default over active
+spans only (`reticle/decode.py` gained `sample_spans()`, the uniform-stride
+sibling of today's `sample_at()` -- one sequential `grab()` pass, no
+per-sample seeking). Run on the three geometry-validated sessions:
+
+    session         map    self raw   filtered coverage   jumps>60px/s
+    a06f04a0059f    Ascent   95.6%          88.2%              5.0%
+    5822b6646448    Lotus    96.3%          85.8%              3.3%
+    c62c2b06bcfb    Split    95.5%          83.8%              3.8%
+
+Consistent with the prototype's original 60s-window numbers (86%/92%/1.5%),
+slightly lower on filtered coverage over a full match -- more occlusion,
+death and spectate stretches than a clean sample window. Ally candidates
+land at 89.4-96.3% "at least one visible" but are NOT yet a per-player track;
+building real ally identity (needed before dA/ds or peek-exposure can use
+more than the local player) is the next step on this thread, not done here.
+
+**NEXT on this thread, in order:**
+1. Ally identity across frames -- probably nearest-to-previous per slot, the
+   same trick `pick_self` uses, seeded each round start when allies are known
+   to be spread out (spawn barrier still up).
+2. The visibility computation (dA/ds) that position tracking was always
+   gating -- `floor_mask` is already the occlusion grid it needs.
+3. Vision cones (facing) and enemy-icon states (solid/question-mark/X) --
+   still unread; see "Known limits" in `reticle/minimap.py`.
+
 **SUPERSEDED THE SAME DAY, evening of 2026-08-27: the match-derived ability fit
 below (held-out F1, "more Ascent fit data") is no longer the active plan.**
 the call, later the same day: record short CONTROLLED clips, one agent per

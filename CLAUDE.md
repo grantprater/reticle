@@ -147,13 +147,19 @@ K/D/A and which row is the local player's. `reticle board` reads it live off the
 video; nothing writes it to L1 yet, which is the obvious next step if it starts
 getting used for more than checking.
 
-Not built: **credits**, **minimap position tracking**, **main-view detection**,
-**combat report**.
+Not built: **credits**, **main-view detection**, **combat report**.
 
-Minimap position tracking is the gating dependency for the doc's peek-exposure
-metric and for movement state generally; §2 calls the homography trivial, and
-`MinimapMode.has_static_homography` records per session whether a single
-constant transform exists — true for every capture from 2026-08-23 evening on.
+**Minimap position tracking (self) is built and wired in as of 2026-09-02**:
+`reticle minimap <session>` writes `l1/minimap` at 15 Hz over active spans —
+self is a filtered track, validated against two independent ground truths
+(the X mark a death leaves, and the map's physical chokepoints; see
+`prototypes/CLAUDE.md`). Ally positions are still per-frame candidates with
+no identity across frames — that, plus the visibility (dA/ds) computation
+this was always gating, is the next step; see `NOTES.md`.
+
+§2 calls the homography trivial, and `MinimapMode.has_static_homography`
+records per session whether a single constant transform exists — true for
+every capture from 2026-08-23 evening on.
 
 The **combat report** (the post-death panel, right of centre) is the richest
 unread surface in the game: per enemy it shows outgoing damage, incoming damage,

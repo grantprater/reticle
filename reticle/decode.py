@@ -121,3 +121,53 @@ def sample_at(path: str, targets_ms: list[float], nominal_fps: float) -> Iterato
             idx += 1
     finally:
         cap.release()
+
+
+def sample_spans(path: str, spans_ms: list[tuple[float, float]], target_hz: float,
+                  nominal_fps: float) -> Iterator[Sample]:
+    """Yield frames at ~`target_hz` inside `spans_ms`, in ONE sequential pass.
+
+    The uniform-stride counterpart to `sample_at()`: minimap position needs a
+    higher, steady sample rate over the *active* portions of a whole session
+    (15-20 Hz per the design doc, well above the 2 Hz HUD read), not scattered
+    timestamps. A per-sample `cap.set()` seek would pay the same keyframe-seek
+    cost `sample_at()` was built to avoid, and there are far more samples here
+    than in any validation script that motivated it. `grab()` skips
+    out-of-span frames for the price of a demux, not a decode.
+
+    `spans_ms` need not be sorted; gaps between spans reset the stride so a
+    span's first frame is never held hostage by the stride phase of the one
+    before it.
+    """
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        raise SystemExit(f"could not open {path}")
+
+    spans = sorted(spans_ms)
+    step_ms = 1000.0 / target_hz if target_hz > 0 else 0.0
+    si = 0
+    next_t = spans[0][0] if spans else None
+    idx = 0
+    try:
+        while si < len(spans):
+            ok = cap.grab()
+            if not ok:
+                break
+            t_ms = float(cap.get(cv2.CAP_PROP_POS_MSEC))
+            if t_ms <= 0 and idx > 0 and nominal_fps > 0:
+                t_ms = idx / nominal_fps * 1000.0
+            while si < len(spans) and t_ms > spans[si][1]:
+                si += 1
+                if si < len(spans):
+                    next_t = max(next_t if next_t is not None else 0.0, spans[si][0])
+            if si >= len(spans):
+                break
+            s0, s1 = spans[si]
+            if s0 <= t_ms <= s1 and (next_t is None or t_ms >= next_t):
+                ok, frame = cap.retrieve()
+                if ok and frame is not None:
+                    yield Sample(frame_idx=idx, t_ms=t_ms, frame=frame)
+                next_t = t_ms + step_ms
+            idx += 1
+    finally:
+        cap.release()

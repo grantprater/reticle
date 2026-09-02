@@ -16,3 +16,8 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # template set, or field parsing changes -- that invalidates stored HUD reads
 # and forces a re-decode, since this stage needs pixels.
 HUD_VERSION = "hud-0.9.0"
+# Stage 02 minimap position tracking. Bump when self/ally detection, the
+# floor mask, or the filtering constants (RUN_PX, GAP_MS) change -- raw
+# positions are stored unfiltered, so a filter-only change does NOT need a
+# version bump or a re-decode (see minimap.filter_track).
+MINIMAP_VERSION = "minimap-0.1.0"

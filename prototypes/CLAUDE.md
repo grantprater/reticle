@@ -644,20 +644,25 @@ event that happened and that the scoreboard does not count — rather than a
 filter. Stage 05 subtracts them when reconciling totals; stage 06 decides per
 metric whether to include them. Same treatment as wallbangs.
 
-**In flight: minimap position tracking** (`prototypes/minimap_position.py`,
-not wired into the pipeline). Measured on `9acf02f98283`: 86% of frames yield a
-position, 92% coverage after filtering, 1.5% of steps physically implausible.
-Ally rings detect too. The static map falls out as a per-pixel median and is
-also the occlusion grid the geometry work needs. Read the rejected-approaches
-list at the foot of that file before trying anything clever — five variants
-failed there and the failures share one cause: **the widget is semi-transparent
-over the void, so anything content-based drowns in the world moving behind it.**
-Masking to the opaque floor slab is what fixed it.
+**DONE 2026-09-02: minimap position tracking is promoted.** `minimap_position.py`
+-> `reticle/minimap.py` + `reticle minimap <session>` (L1, 15 Hz default, active
+spans only). Self is a real filtered track; ally rings are still per-frame
+candidates with no cross-frame identity. Two independent ground-truth checks
+now back it (see `xmark_eval.py`, `chokepoint_eval.py`, both 2026-09-02):
+teammate deaths' pre-death ally-ring positions land within ~1-1.5m of the blue
+X mark, and self-track positions near a location-banner text transition land
+close to the map's own physical chokepoints (distance-transform ridge of the
+floor mask) — both well inside the baseline-window null. This module's
+rejected-approaches list (foot of the old prototype file, preserved in
+`reticle/minimap.py`'s docstring) is still the reason to read before trying
+anything content-based here again: five variants failed for one shared cause,
+**the widget is semi-transparent over the void, so anything content-based
+drowns in the world moving behind it.** Masking to the opaque floor slab is
+what fixed it, and it is also the occlusion grid the visibility work needs.
 
-Next steps, in order: promote it to `reticle/minimap.py` with L1 columns; settle
-the sample rate (everything downstream is a *speed* measurement, so 2 Hz cannot
-work — 15-20 Hz for the minimap, likely a separate pass from the 2 Hz HUD read);
-then the visibility computation.
+Next steps, in order (see NOTES.md "Picking up" for the fuller version): ally
+identity across frames; the visibility computation (dA/ds); vision cones and
+enemy-icon states (solid / question-mark / X), still entirely unread.
 
 **Peek exposure as the design doc defines it is out of reach**, and that is a
 design-doc correction rather than a missing feature. It needs enemy positions,
@@ -687,8 +692,8 @@ The four candidates for what comes next, with the case for each:
    that changes only when Riot ships a new revive ult. Worth capturing as a
    field on the entry either way: a kill undone is its own coachable category,
    the same argument as wallbangs.
-3. **Minimap position tracking** — the last big stage-02 extractor, and the
-   gating dependency for the doc's peek-exposure metric.
+3. ~~Minimap position tracking~~ **DONE 2026-09-02** — self is promoted and
+   validated; ally identity and the visibility computation are what remain.
 4. **Keep grinding killfeed recall.** Diminishing: four causes found, two fixed,
    the rest cost a re-ingest or need a new primitive.
 
