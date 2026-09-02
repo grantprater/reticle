@@ -1,4 +1,21 @@
-"""Ask, in the `glance` grammar, which `other_red` minimap marks are Cypher cams.
+"""WRONG PREMISE, kept for the `enemy`/`question-mark` sub-question only.
+
+**Cypher cams are NOT red** (the player, 2026-09-02, after a Lotus sheet from this
+script came back with two guessed "cam" answers on ordinary red confounders:
+"none of those frames included cypher cams that I recall. Cypher cams are not
+red."). This script samples exclusively from `labels/minimap/<session>.jsonl`,
+the RED-mask confounder file -- a cam cannot be found here even in principle,
+since it lives in the colour-free channel (`minimap_dynamic.py`). This is the
+second time this exact mistake was made in this repo; see the correction in
+`prototypes/CLAUDE.md` under "the domain notes on the minimap". Do not run
+this for the cam question. It may still be useful for the `enemy` /
+`question-mark` / `death-mark` split within the red channel, which the
+`CLASSES` list and controls below still support -- but rename `cam` out of the
+answer set before trusting anything it reports as one.
+
+Original docstring, for the still-valid half of the question
+--------------------------------------------------------------
+Ask, in the `glance` grammar, which `other_red` minimap marks are Cypher cams.
 
     .\\.venv\\Scripts\\python.exe prototypes\\glance_cams.py a06f04a0059f [--n 12] [--controls 4]
 

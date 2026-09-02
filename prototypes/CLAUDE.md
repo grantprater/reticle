@@ -482,6 +482,22 @@ depends on, doing a second job.
   `minimap_ring_fit.LOBE_MIN_FRAC` floors that so a perfect circle cannot report
   a confident bearing from noise. **Still UNTESTED against a real cam** -- no
   label says which `other_red` marks are cams.
+  **CORRECTION, 2026-09-02: Cypher cams are NOT red.** the player, directly, after a
+  `glance_cams.py` sheet built entirely from `labels/minimap/<session>.jsonl`
+  (the RED-mask confounder file) came back with two guessed "cam" answers on
+  Lotus: *none of those frames included cypher cams that I recall. Cypher cams
+  are not red.* This is the second time this exact mistake happened -- the
+  first is recorded above under "the cam question and the ability pass": *a
+  cam glyph is black and white, so it lives in the COLOUR-FREE channel, not
+  the red mask. Looking for cams in `other_red` could not have worked whoever
+  was on the roster.* Both `label_minimap.py`'s ctrl+click example list and
+  `glance_cams.py`'s entire premise wrongly named Cypher cams as a red
+  confounder; both are corrected/flagged. **Do not build another cam-finding
+  tool against the red mask.** The right place to look is the colour-free
+  channel's `other` class (`label_dynamic.py`, `minimap_dynamic.py`) --
+  currently 5 rows on Lotus, already accounted for as doors, so no cam has
+  actually been found yet anywhere. The fastest unblock is asking the player for a
+  timestamp where he placed or saw a cam, rather than mining for one blind.
 * **An OMEN SMOKE TRANSLATES while it deploys**, and it is the only one. the player,
   2026-08-27, on candidate 61 of the Lotus pass: *it's the only smoke in the
   game that moves from omen to the placed location. Viper orb is throwable but I
@@ -522,7 +538,8 @@ depends on, doing a second job.
   occludes icons: the player hit one covering the top of a question-mark icon while
   labelling. This is the sharpest counterexample yet to the assumption the whole
   minimap line rests on -- **red does not mean enemy**. Every red confounder
-  catalogued so far (X marks, Reyna blinds, Cypher cams, pings) is small and
+  catalogued so far (X marks, Reyna blinds, pings -- NOT Cypher cams, wrongly listed here until the player
+  corrected it 2026-09-02; see the correction below) is small and
   roughly icon-sized, which is why area and ring-fit gates have been enough; a
   bar is large, is drawn by YOUR OWN TEAM, and lands on top of real icons rather
   than beside them. Consequences to check, none of them measured yet: it may

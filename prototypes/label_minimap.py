@@ -9,9 +9,11 @@ Controls
                       shown for a while after vision is lost. Its own class on
                       purpose; see below.
     ctrl+left click   mark a red thing that is NOT an enemy at all: an X death
-                      mark, a Reyna blind, a Cypher cam, a warning ping. These
-                      are the confounders the finder has to reject, and marking
-                      them is what turns "it fired" into "it fired on what".
+                      mark, a Reyna blind, a warning ping. These are the
+                      confounders the finder has to reject, and marking them
+                      is what turns "it fired" into "it fired on what". NOT a
+                      Cypher cam -- corrected 2026-09-02, the player: "Cypher cams
+                      are not red." A cam is colour-free; see prototypes/CLAUDE.md.
     right click       undo the last mark
     SPACE or D        save and advance
     N                 no enemy icon on this minimap, and advance

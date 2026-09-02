@@ -34,6 +34,26 @@ land at 89.4-96.3% "at least one visible" but are NOT yet a per-player track;
 building real ally identity (needed before dA/ds or peek-exposure can use
 more than the local player) is the next step on this thread, not done here.
 
+**Icon tour, 2026-09-02: Lotus hand-marked (`label_minimap.py`, 301 rows) --
+207 enemy, 52 question-mark, 60 nothing, 222 `other_red` confounders (X marks,
+Reyna blinds, pings -- NOT cams, see correction below).** First transfer test
+of enemy/question-mark identification onto a second map and lineup. A glance
+sheet scoring 8 enemy/question-mark controls came back VALID (8/8), so that
+split holds on Lotus too -- worth a proper `label_icon_agent.py` pass on these
+207 to measure portrait ID transfer numerically, not just eyeball it.
+
+**Mistake, caught by the player, corrected same session: Cypher cams are NOT red.**
+`glance_cams.py` was run against Lotus's new `other_red` pool and guessed two
+"cam" answers; the player: *none of those frames included cypher cams that I
+recall. Cypher cams are not red.* This is the SECOND time this exact mistake
+happened -- `prototypes/CLAUDE.md` already recorded on 2026-08-27 that a cam
+is colour-free and cannot be found in the red mask, and today's session read
+that file and then did it anyway. Fixed: `label_minimap.py`'s ctrl+click
+example list and `glance_cams.py`'s docstring both corrected; see
+`prototypes/CLAUDE.md`'s "the domain notes" for the full correction. No
+cam has actually been found/labelled anywhere yet. **Fastest unblock: ask
+the player for a timestamp where a cam appears, rather than mining blind again.**
+
 **NEXT on this thread, in order:**
 1. Ally identity across frames -- probably nearest-to-previous per slot, the
    same trick `pick_self` uses, seeded each round start when allies are known
