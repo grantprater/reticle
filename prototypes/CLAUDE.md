@@ -480,24 +480,52 @@ depends on, doing a second job.
   holds against the cam; **rotation does not reject a cam at all**, since
   rotation is read from the lobe and a cam has none.
   `minimap_ring_fit.LOBE_MIN_FRAC` floors that so a perfect circle cannot report
-  a confident bearing from noise. **Still UNTESTED against a real cam** -- no
-  label says which `other_red` marks are cams.
-  **CORRECTION, 2026-09-02: Cypher cams are NOT red.** the player, directly, after a
-  `glance_cams.py` sheet built entirely from `labels/minimap/<session>.jsonl`
-  (the RED-mask confounder file) came back with two guessed "cam" answers on
-  Lotus: *none of those frames included cypher cams that I recall. Cypher cams
-  are not red.* This is the second time this exact mistake happened -- the
-  first is recorded above under "the cam question and the ability pass": *a
-  cam glyph is black and white, so it lives in the COLOUR-FREE channel, not
-  the red mask. Looking for cams in `other_red` could not have worked whoever
-  was on the roster.* Both `label_minimap.py`'s ctrl+click example list and
-  `glance_cams.py`'s entire premise wrongly named Cypher cams as a red
-  confounder; both are corrected/flagged. **Do not build another cam-finding
-  tool against the red mask.** The right place to look is the colour-free
-  channel's `other` class (`label_dynamic.py`, `minimap_dynamic.py`) --
-  currently 5 rows on Lotus, already accounted for as doors, so no cam has
-  actually been found yet anywhere. The fastest unblock is asking the player for a
-  timestamp where he placed or saw a cam, rather than mining for one blind.
+  a confident bearing from noise.
+
+  **RESOLVED 2026-09-02, with real reference footage.** the player recorded two
+  controlled clips placing his own Cypher kit (`eb10db50b1fb`, one cam plus
+  the rest of his util; `d95cfad5693a`, several cams, deliberately "going
+  inside" each to trigger the view). Confirmed against them, measured, not
+  guessed:
+
+  * **Cypher cams are NOT red**, correcting a mistake made twice in this repo
+    (see below). At rest every placed Cypher device -- cam, trapwire, cage --
+    is a **black/near-achromatic circle** (colour-free channel, not the red
+    mask) with a small white line-art glyph inside identifying which device it
+    is (a two-dot "lens" glyph read as the most likely cam candidate; a
+    caution-tape X for the trapwire). Three distinct such glyphs appear
+    together in `eb10db50b1fb`, matching three placed devices.
+  * **A NEW mechanic, found while confirming the above: the icon changes
+    colour while the player is actively viewing through it.** the player: *"I noticed
+    the cam icon turned blue when I was in it."* Measured directly off
+    `d95cfad5693a` (region-restricted HSV sample, not a whole-frame scan --
+    the minimap's transparent-void scenery bleed makes an unrestricted colour
+    search noisy): **H=76-77, S=166-168, V=144-148** (OpenCV 0-179 scale) at
+    two independent viewing instances, against 4 stray background pixels in
+    an unrestricted same-region resting-state control. That hue sits right at
+    the edge of `minimap_position.ALLY_H = (75, 100)` -- the SAME teal already
+    used for ally rings elsewhere on this widget, not a new colour family.
+    "Blue" is the read of that teal by eye; the measurement says teal/cyan.
+    The main view also shows a corroborating, unmistakable signal at the same
+    moment -- a **"LIMITED ... MIN ... ZOOM" HUD overlay**, cheap to detect
+    and useful as a second confirmation independent of the minimap.
+  * **UNCONFIRMED, the hedge**: *"I believe when it's an enemy it
+    turns red."* Not measured -- neither clip contains an enemy cam. Treat as
+    a hypothesis, not a fact, until tested.
+  * **Next step to make this a real detector**: run `scan_ability_clip.py` on
+    both sessions and let the player label the candidates it finds with
+    `label_ability.py` -- now that the actual glyphs and their two colour
+    states are known, this should take minutes rather than another blind
+    mining pass.
+
+  **The mistake this corrects, for the record**: `glance_cams.py` was run
+  against Lotus's red-confounder pool this same session and guessed two wrong
+  "cam" answers; the player caught it immediately. This was the SECOND time this
+  exact error happened -- the first is recorded under "the cam question and
+  the ability pass" above: *a cam glyph is black and white, so it lives in the
+  COLOUR-FREE channel, not the red mask.* `label_minimap.py`'s ctrl+click
+  example list and `glance_cams.py`'s docstring are both corrected/flagged.
+  **Do not build a cam-finding tool against the red mask.**
 * **An OMEN SMOKE TRANSLATES while it deploys**, and it is the only one. the player,
   2026-08-27, on candidate 61 of the Lotus pass: *it's the only smoke in the
   game that moves from omen to the placed location. Viper orb is throwable but I

@@ -42,17 +42,22 @@ sheet scoring 8 enemy/question-mark controls came back VALID (8/8), so that
 split holds on Lotus too -- worth a proper `label_icon_agent.py` pass on these
 207 to measure portrait ID transfer numerically, not just eyeball it.
 
-**Mistake, caught by the player, corrected same session: Cypher cams are NOT red.**
-`glance_cams.py` was run against Lotus's new `other_red` pool and guessed two
-"cam" answers; the player: *none of those frames included cypher cams that I
-recall. Cypher cams are not red.* This is the SECOND time this exact mistake
-happened -- `prototypes/CLAUDE.md` already recorded on 2026-08-27 that a cam
-is colour-free and cannot be found in the red mask, and today's session read
-that file and then did it anyway. Fixed: `label_minimap.py`'s ctrl+click
-example list and `glance_cams.py`'s docstring both corrected; see
-`prototypes/CLAUDE.md`'s "the domain notes" for the full correction. No
-cam has actually been found/labelled anywhere yet. **Fastest unblock: ask
-the player for a timestamp where a cam appears, rather than mining blind again.**
+**Mistake caught by the player, then actually RESOLVED same session: Cypher cams
+are NOT red, and now there's real reference footage.** `glance_cams.py` was
+run against Lotus's new `other_red` pool and guessed two wrong "cam" answers
+(the second time this exact mistake happened -- see `prototypes/CLAUDE.md`).
+Rather than mine blind again, the player recorded two controlled clips
+(`eb10db50b1fb`, `d95cfad5693a`) placing his own Cypher kit. Confirmed and
+measured: cams are black/colour-free at rest (three distinct device glyphs
+visible in `eb10db50b1fb`), and **a previously-unknown mechanic** -- the icon
+turns teal (H=76-77, S=166-168, V=144-148, essentially `ALLY_H`) while the player
+is actively viewing through it, corroborated by a "LIMITED...ZOOM" HUD overlay
+in the main view at the same moment. Enemy cams turning red is the
+hedge ("I believe"), not yet confirmed. Full writeup in `prototypes/CLAUDE.md`
+under "the domain notes on the minimap". **Next: run
+`scan_ability_clip.py` on both sessions + `label_ability.py` to turn this into
+an actual scored detector** -- should be fast now that the glyphs and both
+colour states are known.
 
 **NEXT on this thread, in order:**
 1. Ally identity across frames -- probably nearest-to-previous per slot, the
