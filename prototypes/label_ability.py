@@ -101,6 +101,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from dynamic_eval import load as load_dynamic_labels, COLLAPSE_PX   # noqa: E402
+from review_candidates import is_reviewed                          # noqa: E402
 
 STORE = Path.home() / "reticle-store"
 CATS_PATH = STORE / "labels" / "ability_categories.json"
@@ -224,6 +225,12 @@ def main() -> int:
     cand_path = STORE / "labels" / "ability_candidates" / f"{args.session}.jsonl"
     from_candidates = args.source == "candidates" or (args.source == "auto" and cand_path.is_file())
     if from_candidates:
+        if not is_reviewed(args.session):
+            print(f"REFUSING: {cand_path} has not been reviewed since it was last written.")
+            print(f"  run:  .\\.venv\\Scripts\\python.exe prototypes\\review_candidates.py {args.session}")
+            print("  then actually look at the PNG it writes before running this again.")
+            print("  (2026-09-02: this gate exists because that step kept getting skipped.)")
+            return 1
         rows = load_scan_candidates(args.session)
         if not rows:
             print(f"no scanned candidates for {args.session} -- run scan_ability_clip.py first")

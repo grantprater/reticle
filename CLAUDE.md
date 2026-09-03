@@ -889,7 +889,19 @@ become a check is a candidate for deletion rather than for better wording.
                                                `predicted_first` from open rows
     ask the player before deriving               5  prose only -- judgement call, but
                                                "on the FIRST failure" is countable
-    look at the image before measuring      2  prose only -- ordering, not yet checkable
+    look at the image before measuring      3  PARTIALLY ENFORCED (2026-09-02):
+                                               label_ability.py's `candidates`
+                                               source now REFUSES to launch until
+                                               `review_candidates.py` has rendered
+                                               and content-hash-stamped that exact
+                                               candidates file (see it and
+                                               `filter_ability_candidates.py`).
+                                               It can force the render to happen;
+                                               it cannot force the looking, which
+                                               is the gap the 3rd recurrence lived
+                                               in -- twice a labelling GUI was
+                                               launched against a candidate file
+                                               nobody had rendered at all.
     ground truth from the same population    2  ENFORCED: glance.build warns and
                                                records `population_mismatch`
     stamp every cached artefact              0  ENFORCED since built (`built_by` hash)
@@ -948,6 +960,19 @@ perceptual question, build the tool that asks him** -- not the fifth.
 offending candidate took one tool call and settled what three analysis scripts
 had not. Several dead ends that day -- two flood-fill variants, a distance-to-
 void analysis -- would have died in seconds against a picture.
+
+**Third recurrence, 2026-09-02, and this is the one that got a real gate.**
+the player recorded two controlled Cypher clips; `scan_ability_clip.py` was run and
+a labelling GUI launched straight off its output TWICE without anyone
+rendering a single candidate first. Both times the candidates were mostly
+garbage from detector bugs (self-derived geometry baking a persistent device
+into its own "empty floor" reference; a cross-session `--geometry-from`
+donor's pixel-value mismatch fragmenting the viewcone into fake icon-sized
+blobs), and the player spent real time clicking through it before either was
+caught. His question, verbatim: *this has already happened multiple times,
+how can you note this so you don't keep repeating it.* Prose had already
+answered that question twice and been ignored both times under time pressure,
+which is why `review_candidates.py` exists now — see the table above.
 
 **Check that ground truth comes from the same population as the thing being
 filtered. ENFORCED: pass `control_population` / `item_population` to
