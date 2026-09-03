@@ -576,6 +576,53 @@ the thirty-odd the two teams in THIS match can actually produce, and prunes by
 who is alive. That is the same scoreboard read the identification work already
 depends on, doing a second job.
 
+### The ability class list has a SHAPE, and the player named it (2026-09-03)
+
+Asked where to go after generic shape features kept failing, the player gave the
+taxonomy the template bank should be built on. His words:
+
+> There are essentially two categories of abilities: icons and regions, each
+> with sub-categories depending on duration/lifetime and whether they have
+> multiple modes for ally/enemy/self or controlled (and also whether they have
+> portions that extend past the icon). So it is sort of a modal template
+> matching but the modal part might not even be necessary if you can find the
+> invariant part.
+
+**Take this seriously: it retro-explains four separate failures already
+measured in this repo, none of which was connected to the others at the time.**
+
+* **icons vs REGIONS** explains why the shipped finder keeps missing things. It
+  fits a CIRCLE, so it is an icon detector by construction -- and it cannot see
+  a Sage/Viper wall (aspect 9.50), Deadlock's Barrier Mesh (multi-segment,
+  variable segment count, "they can get destroyed or be up against a wall and
+  very small"), or a deployed smoke. Those are regions. The standing rule *do
+  NOT pre-filter the pool on shape* is the same fact discovered from the other
+  end;
+* **portions that extend past the icon** is the Cypher trapwire exactly: the
+  icon is a small black-and-white circle and the WIRE is a separate coloured bar
+  across the chokepoint. Recorded as "two independent, differently-shaped
+  signals for the same object" before there was a category for it;
+* **modes** is the cam turning teal while the player views through it (measured,
+  H=76-77) and the unconfirmed hedge that an enemy cam turns red;
+* **duration/lifetime** is what `ability_eval.py` found by accident --
+  `n_observations` was being written to every candidate row and never read, and
+  gating on it roughly doubled precision at no recall cost.
+
+**Design consequence, and it is the point of writing this down: the template
+bank is not flat.** It is two families, and a detector that assumes one shape
+family will keep failing on the other -- which is what every generic feature
+tried so far has done. Build the icon matcher first (fixed art, fixed size, one
+orientation except the rotating cam) and treat regions as a separate problem
+with its own primitive, rather than hoping one gate covers both.
+
+**"Find the invariant part" is the right instinct and there is precedent.**
+Where a mode changes colour, match on shape and let colour be a separate field;
+where a glyph rotates, the ring is invariant and the glyph inside is not. This
+is the same lesson `minimap_portrait` already paid for: pixel-wise correlation
+failed across surfaces and **composition** matching transferred at 83.5%
+held-out, because it threw away the layout that was not invariant. Look for the
+part that survives the mode before building a bank of modes.
+
 ### the domain notes on the minimap -- not recoverable from the pixels
 
 * **A Cypher cam ROTATES**, and it is the **only other moving icon** on the

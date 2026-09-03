@@ -787,10 +787,18 @@ one `metrics.record()` at the end is the whole cost.
     reference capture, because a controlled A/B needs an undegraded source and
     it is the only one that exists.
 
-13. **Check whether the minimap has an opacity setting.** Unresolved. The widget
-   being semi-transparent over the void is the single largest difficulty in
-   minimap extraction; if it can be made opaque most of that goes away for
-   future recordings. Same class of fix as the shooting-error readout above.
+13. **The minimap has NO opacity setting. ANSWERED by the player, and do not ask
+   again.** Valorant does not expose one, so the widget being semi-transparent
+   over the void is a permanent property of the problem, not a capture setting
+   that could be fixed. Every approach must be built to survive it.
+
+   **Recorded here because it has now been asked twice.** the player answered it once
+   before and this checklist still said "Unresolved", so a second session spent
+   it again — and worse, offered it as the highest-payoff next step. That is the
+   documented failure mode of this file: a question written down as open stays
+   open forever, because nothing marks it answered. **When the player answers a
+   standing question, write the ANSWER here in the same turn**, not a note that
+   it was discussed.
 
 ## A model of where my judgement is reliable
 
