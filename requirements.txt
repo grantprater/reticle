@@ -2,3 +2,4 @@ numpy>=2.0
 opencv-python-headless>=4.10
 pyarrow>=17.0
 duckdb>=1.0
+av>=15.0                 # audio decode; the video path stays on OpenCV
