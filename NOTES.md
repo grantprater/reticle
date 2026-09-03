@@ -82,11 +82,32 @@ docstring:
    22 objects and needs re-fitting as the set grows, and that `sign_ok`'s colour
    escape is still inert under `--from-labels` (label rows carry no
    `colour_local`), so it is only exercised on the candidate path.
-3. **Re-derive `dark`/`bright` against the cone rather than a 5x5 max.** The
-   failure above is specific and fixable: the window mixes ink and lift.
-   `minimap_cone.py` already computes a raycast mask and is imported by nothing.
-   Subtracting the predicted lit region before measuring the excursion is the
-   "explain the frame" move applied to the one place it is now known to matter.
+3. ~~Re-derive `dark`/`bright` against the cone.~~ **DONE 2026-09-03, and it
+   does NOT work** — `prototypes/ability_cone.py`. The diagnosis was right:
+   **6 of 22 positives (27%) are invisible to the interval test at their own
+   pixel**, because `lo` is the *unlit* resting value and ink on lit ground need
+   only be darker than *lit* floor. But no alternative reference beats the plain
+   interval residual — `dark >= 10` gives 95.5%/43.8%, expected-state gives
+   100%/35.5%, and the raycast gives 93.8%/34.1% against the interval's
+   93.8%/38.5% on the same objects. **A more permissive reference lifts the
+   noise as much as the signal.**
+
+   **What replaces it: normalise by local noise, not by a better reference.**
+   Median `dark` is 105 / 102 / 95 for the sonic sensor, trapwire and barrier
+   mesh — and **13** for Brimstone's Orbital Strike. The classes differ ~8x in
+   contrast, so any global floor that keeps the strong three deletes the faint
+   one (17% recall). This is the "never test an absolute level against this HUD"
+   rule arriving in the ability channel. The per-pixel temporal SD map already
+   measured (7.4 on white lines, 16.9 on the slab, 42.5 in the void) is the
+   divisor to try.
+
+   **Correction that came out of this and reopens a parked line: the vision
+   cone's "4 of 50" yield is wrong.** Seeded from the largest `self_rings` ring,
+   `self_cone` answers on 100% / 98% / 95% / 56% of labelled frames per session
+   (89% pooled) — 56% even on the session the original figure came from. It was
+   a seeding problem, not `LOBE_MIN_FRAC` refusing. **the two parked cone
+   hypotheses (termination proximity, local sliver/thinness) were shelved on
+   that figure and are affordable again.**
 4. **Ally identity across frames** — unchanged from below, still the blocker on
    dA/ds.
 
