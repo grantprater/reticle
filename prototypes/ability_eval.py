@@ -145,6 +145,40 @@ def join(sid):
     return rows, diag
 
 
+def label_rows(sid):
+    """the answers alone, with no candidate join. Returns (rows, diagnosis).
+
+    The join in `join()` exists to attach the candidate's stored features
+    (`self_icon_dist`, `n_observations`, `duration_ms`), and it is what the
+    orphaned-key defect costs: 1 of 40 rows survive on `2ba870ccbd50`.
+
+    But a feature RECOMPUTED from the pixels needs none of that -- a label row
+    carries the answer and `(t_ms, x, y)`, which is enough to find the pixel
+    again, and that is exactly the property `dynamic_eval.features` was built
+    around. So any recomputed measurement can use every answer the player has ever
+    given, including on sessions whose candidate file was regenerated and
+    sessions that never had one.
+
+    Concretely this is the difference between measuring the sign test on 9
+    positives of ONE ability class and measuring it on 70 across four.
+    """
+    lab = _rows(STORE / "labels" / "ability" / f"{sid}.jsonl")
+    rows = []
+    for d in lab.values():
+        if d.get("uncertain"):
+            continue
+        r = dict(d)
+        r["_true"] = not d.get("not_ability")
+        r["_agent"] = d.get("agent")
+        r["_ability"] = d.get("ability")
+        rows.append(r)
+    diag = {"n_lab": len(lab), "n_joined": len(rows), "n_cand": 0,
+            "n_uncertain": sum(1 for d in lab.values() if d.get("uncertain")),
+            "n_pos": sum(1 for r in rows if r["_true"]),
+            "n_neg": sum(1 for r in rows if not r["_true"])}
+    return rows, diag
+
+
 def collapse(rows, px=COLLAPSE_PX):
     """One row per position -- objects, not tracks.
 
@@ -164,10 +198,18 @@ def collapse(rows, px=COLLAPSE_PX):
         groups.setdefault((int(r["x"]) // px, int(r["y"]) // px), []).append(r)
     out = []
     for g in groups.values():
-        rep = dict(min(g, key=lambda r: r["t_ms"]))
+        true = any(r["_true"] for r in g)
+        # The representative must come from the WINNING side. Taking the
+        # earliest row outright and then OR-ing the truth produced positives
+        # carrying a negative row's empty `agent`/`ability`, which showed up as
+        # a phantom `?:?` class of 6 objects in the per-ability breakdown --
+        # a position labelled `not_ability` early and named later is one object,
+        # and it is the named row that describes it.
+        side = [r for r in g if r["_true"] == true]
+        rep = dict(min(side, key=lambda r: r["t_ms"]))
         rep["n_observations"] = max((r.get("n_observations") or 0) for r in g)
         rep["duration_ms"] = max((r.get("duration_ms") or 0) for r in g)
-        rep["_true"] = any(r["_true"] for r in g)
+        rep["_true"] = true
         rep["_n_tracks"] = len(g)
         out.append(rep)
     return out

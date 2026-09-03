@@ -69,22 +69,63 @@ guesses about shape that happened to fit one object; this says ink is darker
 than the map and a viewcone is brighter, which is a fact about how the widget is
 drawn. There is no number in it to overfit -- `dark > bright` has no parameter.
 
-**The population limit, and it is the one that matters.** All 9 positives are
-`colour: none` -- the black/achromatic Cypher devices. So this is measured on
-ONE class, and there is a predictable failure mode for the others:
-`minimap_dynamic.detect` fires a second way, `sat > COLOUR_SAT`, which exists
-precisely because **Brimstone's Orbital Strike marker measured gray 114 against
-an unlit reference of 117** -- invisible to brightness differencing at any
-threshold. For such a candidate `dark` and `bright` are both ~0, so
-`dark > bright` is FALSE and a naive gate would DELETE it. That is the
-aspect-filter mistake in a new costume (*0 of 55 hand-marked icons have
-aspect >= 2.0* -- true, and about the wrong population).
+CORRECTION, same day: the result above is ONE ABILITY CLASS
+------------------------------------------------------------
+Everything above was measured on the two Cypher sessions, whose 9 positives are
+all `colour: none` trapwires. `--from-labels` then widened the population, and
+**the comparison rule does not survive it.**
 
-So `sign_ok` below is an OR mirroring the OR already in `detect()`: a coloured
-candidate is never rejected on sign. **The coloured branch is unmeasured** --
-there is not one coloured positive in the label set to test it against, and the
-right way to get one is a controlled clip for an agent whose kit tints
-(Brimstone, Skye), not a threshold argued from here.
+The widening cost nothing and should have been done first. The candidate join
+was never required for this question: `dark` and `bright` are RECOMPUTED from
+`(t_ms, x, y)`, so every answer the player has ever given is usable, including on
+`2ba870ccbd50`, where 39 of 40 labels are orphaned from their candidate file,
+and on `a06f04a0059f`, which never had one. 9 positives of one class became 22
+objects across four.
+
+Per ability, collapsed to OBJECTS (`--by-position`), because 48 of
+`a06f04a0059f`'s 53 rows are one Deadlock sonic sensor at two spots and a
+per-observation rate there measures one object 48 times:
+
+    ability                    n   dark>bright   med dark   med bright
+    cypher:trapwire            7        100%          102           10
+    brimstone:orbital strike   6         83%           13            0
+    deadlock:barrier mesh      4         75%           95           82
+    deadlock:sonic sensor      5         60%          105          101
+
+**The mechanism I proposed is wrong, and the table says why.** I expected the
+split to be about COLOUR -- that a tint would sit at both excursions near zero
+and be deleted. Brimstone is the coloured case and it passes at 83%. What
+actually breaks the rule is a device sitting on LIT ground: the sonic sensor and
+the barrier mesh have median dark ~100 *and* median bright ~100, because the
+5x5 window holds the glyph's ink and the viewcone's lift at once, so
+`dark > bright` becomes a coin flip. Cypher's trapwires happened to sit on
+unlit floor.
+
+So the comparison is the wrong form. **Presence of ink is the signal, not ink
+beating lift**, and a floor states that directly:
+
+    pooled, 22 objects / 90 negatives     recall   precision
+    no filter                              100%       19.6%
+    dark > bright  (and sign_ok)            81.8%     39.1%
+    dark >= 10                              95.5%     43.8%
+    dark >= 20                              77.3%     40.5%
+
+`dark >= 10` is better than the comparison on both axes. It is also a
+THRESHOLD, which the comparison was not, so it can be overfitted and 22 objects
+is not enough to set it confidently -- treat 10 as provisional and re-fit it
+when the label set grows. `d95cfad5693a`'s 47 reviewed-but-unanswered candidates
+are the cheapest source.
+
+`sign_ok`'s colour escape survives as a guard but is still **unmeasured**: label
+rows carry no `colour_local`, so under `--from-labels` it is inert and reads
+identically to the raw comparison. It only does anything on the candidate path.
+
+Four predictions were logged before this ran and **all four were wrong** --
+Brimstone would fail (it passed), the sonic sensor would behave like Cypher
+(it was the worst class), the barrier mesh would fall below the sensor (it beat
+it), and `sign_ok` would hold 90% recall (81.8%). One consistent error behind
+all four: I reasoned about the ability's own colour and not about what it was
+drawn on top of.
 """
 from __future__ import annotations
 
@@ -100,7 +141,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle import metrics                                       # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
-from ability_eval import join, gate, _sha, STORE                  # noqa: E402
+from ability_eval import (join, label_rows, gate, collapse,       # noqa: E402
+                          _sha, STORE)
 
 #: Half-width of the window the excursion is read over, in minimap pixels.
 WIN = 2
@@ -182,15 +224,33 @@ def q(vals):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("sessions", nargs="+")
+    ap.add_argument("--from-labels", action="store_true",
+                    help="read the answers directly, skipping the candidate "
+                         "join -- dark/bright are recomputed, so the candidate's "
+                         "stored features are not needed and orphaned keys cost "
+                         "nothing. Use this for the sign question.")
+    ap.add_argument("--by-ability", action="store_true",
+                    help="break the sign result down per ability class")
+    ap.add_argument("--by-position", action="store_true",
+                    help="one row per OBJECT, not per observation. 48 of "
+                         "a06f04a0059f's 53 positives are one Deadlock sonic "
+                         "sensor at two spots, so a per-observation rate there "
+                         "measures one object 48 times")
     args = ap.parse_args()
 
     pool = []
     for sid in args.sessions:
-        rows, diag = join(sid)
-        if diag["n_pos"] == 0 or diag["n_neg"] == 0:
-            print(f"\n=== {sid} === refused: {diag['n_pos']} pos / {diag['n_neg']} neg")
+        rows, diag = (label_rows(sid) if args.from_labels else join(sid))
+        if diag["n_pos"] == 0:
+            print(f"\n=== {sid} === refused: no positives")
             continue
         rows = signed_at(sid, rows)
+        if args.by_position:
+            before = len(rows)
+            # Collapsed PER SESSION, before pooling: two sessions can share a
+            # pixel and are not the same object.
+            rows = collapse(rows)
+            print(f"\n   {sid}: {before} observations -> {len(rows)} objects")
         pos = [r for r in rows if r["_true"]]
         neg = [r for r in rows if not r["_true"]]
         print(f"\n=== {sid} ===  {len(pos)} real, {len(neg)} not")
@@ -213,7 +273,11 @@ def main() -> int:
     print(f"   NOT   bright {q([r['bright'] for r in neg])}")
 
     print("\n   operating points, pooled (recall / precision):")
-    base = (7, 5, True)                       # the fixed point ability_eval ships
+    # With --from-labels there are no candidate features to gate on -- a label
+    # row carries the answer and the pixel, nothing else -- so the base gate is
+    # the identity. Applying (7,5,True) there would reject every row on a
+    # missing `n_observations` and silently report zeros.
+    base = (0, 0, False) if args.from_labels else (7, 5, True)
     rows_b = [r for r in pool if gate(r, *base)]
 
     def sc(name, keep, src):
@@ -235,6 +299,26 @@ def main() -> int:
     print("\n   sign alone, no other gate:")
     sc("sign_ok", sign_ok, pool)
     sc("dark > bright", lambda r: r["dark"] > r["bright"], pool)
+
+    if args.by_ability:
+        print("\n   per ABILITY CLASS -- recall of the raw sign test and of sign_ok.")
+        print("   This is the population question: the rule was measured on black")
+        print("   devices, and a coloured TINT can sit at both excursions ~0.")
+        byab: dict = {}
+        for r in pool:
+            if r["_true"]:
+                k = f"{(r['_agent'] or '?').lower()}:{(r['_ability'] or '?').lower()}"
+                byab.setdefault(k, []).append(r)
+        print(f"   {'ability':<28}{'n':>4}{'dark>bright':>13}{'sign_ok':>9}"
+              f"{'med dark':>10}{'med bright':>12}{'colour':>10}")
+        for k, g in sorted(byab.items(), key=lambda kv: -len(kv[1])):
+            raw = sum(1 for r in g if r["dark"] > r["bright"]) / len(g)
+            ok = sum(1 for r in g if sign_ok(r)) / len(g)
+            cols = {(r.get("colour_local") or r.get("colour") or "n/a") for r in g}
+            print(f"   {k:<28}{len(g):>4}{raw * 100:>12.0f}%{ok * 100:>8.0f}%"
+                  f"{int(np.median([r['dark'] for r in g])):>10}"
+                  f"{int(np.median([r['bright'] for r in g])):>12}"
+                  f"{'/'.join(sorted(cols)):>10}")
 
     print("\n   per session, so transfer is visible rather than pooled away:")
     for sid in args.sessions:
