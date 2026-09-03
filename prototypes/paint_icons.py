@@ -6,7 +6,8 @@ Controls
 --------
     left click       ICON mode: drop a disc.  REGION mode: paint.
     r                toggle ICON / REGION mode -- shown in the status bar
-    TAB              switch the 1-9 bank: ABILITIES <-> WORLD OBJECTS
+    t                switch the 1-9 bank: ABILITIES <-> WORLD OBJECTS
+    h                help overlay, drawn ON the map. Shown on launch.
     [ / ]            disc radius / brush radius smaller / larger
     shift + drag     paint a region without leaving ICON mode
     shift + right    erase from the current region
@@ -71,6 +72,16 @@ and the number that came back was scoring my own clustering against itself.
 every labeller in this repo uses. `label_ability.py` binds `N` to *new
 category*, so the muscle memory collides; new class is `c` here and the legend
 says so on screen.
+
+**Discoverability is a correctness property here, and it failed twice.** the player
+completed two passes without finding the bank switch or the radius keys, so the
+first 12 frames carry no world objects and every icon at the default radius --
+both of which were things the pass existed to collect. Three causes, all mine:
+the controls lived only in a label under a 485 px canvas; the tool is launched
+detached so its stdout is never seen; and the bank was bound to `<Tab>`, which
+Tk consumes for focus traversal and which therefore may never have fired at all.
+Hence `h`, an overlay drawn ON the map and **shown on launch**, and `t` for the
+bank. Treat a control nobody found as a bug, not as a note to repeat.
 
 One row per FRAME, not one per mark
 -------------------------------------
@@ -217,7 +228,7 @@ def main() -> int:
 
     st = {"i": 0, "r": R0, "zoom": fit, "bd": 0, "flash": False,
           "used_derived": False, "cat": None, "img": None, "undo": [],
-          "region": False, "bank": 0}
+          "region": False, "bank": 0, "help": True}
 
     def bank():
         """The nine classes currently on 1-9: abilities, or world objects.
@@ -275,6 +286,33 @@ def main() -> int:
             cv2.circle(base, (d["x"], d["y"]), d["r"], (60, 230, 60), 1)
             cv2.drawMarker(base, (d["x"], d["y"]), (60, 230, 60),
                            cv2.MARKER_CROSS, 5, 1)
+        if st["help"]:
+            # Drawn ON the map, because the tool runs detached and its stdout is
+            # never seen. Two passes were completed without the player finding the
+            # bank switch or the radius keys, both of which were only ever in a
+            # label under a 485px canvas. A control nobody sees does not exist.
+            pad = np.zeros((base.shape[0], base.shape[1], 3), np.uint8)
+            lines = ["CONTROLS", "",
+                     "left click    drop icon (ICON mode)",
+                     "left drag     paint      (REGION mode)",
+                     "r             switch ICON <-> REGION",
+                     "t             switch ABILITIES <-> WORLD",
+                     "1-9           pick class from the bank",
+                     "[  ]          radius smaller / larger",
+                     "c             new ability class by name",
+                     "right click   undo last mark",
+                     "SPACE / d     frame done, next",
+                     "n             nothing here, next",
+                     "u             unsure    a  back one",
+                     "m (hold)      flash disc detector",
+                     "f             backdrop  - =  zoom",
+                     "h             close this help",
+                     "q / ESC       save and quit"]
+            for i, s in enumerate(lines):
+                cv2.putText(pad, s, (10, 22 + i * 17), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.42, (255, 255, 255) if i else (80, 230, 255), 1,
+                            cv2.LINE_AA)
+            base = (base * 0.15 + pad * 0.95).clip(0, 255).astype(np.uint8)
         z = st["zoom"]
         big = cv2.resize(base, None, fx=z, fy=z, interpolation=cv2.INTER_NEAREST)
         _o, buf = cv2.imencode(".png", big)
@@ -294,11 +332,12 @@ def main() -> int:
             f"   class={(cname.get('agent') or '') + ':' + (cname.get('ability') or '-') if cat else 'NONE - press 1-9'}"
             f"{'   << DISC DETECTOR >>' if st['flash'] else ''}"))
         legend.config(text=(
-            f"  [{'ABILITIES' if not st['bank'] else 'WORLD OBJECTS'}]  "
-            + " | ".join(f"{i + 1}:{nm}" for i, (_k, nm) in enumerate(bank()))
-            + "\n  TAB switch bank | r ICON/REGION | [ ] radius | c new class"
-              " | SPACE done+next | n nothing | u unsure | a back"
-            + "\n  m compare | f backdrop | right-click undo | q quit"))
+            f"  BANK ({'t' if not st['bank'] else 't'} switches) ->  "
+            f"{'ABILITIES' if not st['bank'] else 'WORLD OBJECTS'}   "
+            + " ".join(f"[{i + 1}]{nm}" for i, (_k, nm) in enumerate(bank()))
+            + f"\n  t BANK   r {'->ICON' if st['region'] else '->REGION'}"
+              f"   [ ] radius={st['r']}   c new class   h help"
+              "   SPACE done+next   n nothing   u unsure   a back   q quit"))
 
     def push():
         f = wf()
@@ -473,8 +512,8 @@ def main() -> int:
                     ("c", new_class),
                     ("r", lambda e: (st.__setitem__("region", not st["region"]),
                                      compose())),
-                    ("<Tab>", lambda e: (st.__setitem__("bank", 1 - st["bank"]),
-                                         compose())),
+                    ("t", lambda e: (st.__setitem__("bank", 1 - st["bank"]), compose())),
+                    ("h", lambda e: (st.__setitem__("help", not st["help"]), compose())),
                     ("f", backdrop),
                     ("s", lambda e: save_frame(cur()[0], True)),
                     ("q", finish),
