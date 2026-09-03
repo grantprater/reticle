@@ -13,6 +13,79 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
+**NEW 2026-09-03: the ability-icon problem was REFRAMED, and three of the four
+cheapest consequences are measured.** The framing, in one line: stop classifying
+blobs and start explaining the frame — the minimap is a composite of layers we
+can already model (static map, cone lighting, self icon, ally/enemy rings), and
+the residual is the ability layer. `self_icon_dist` was already the only feature
+that held, and it held because it reuses a validated model of a nuisance rather
+than guessing at shape. Four commits, each with its numbers in the module
+docstring:
+
+1. **`prototypes/ability_eval.py` — the clip-candidate path finally has a
+   scorer.** `dynamic_eval.py` reads the other label store and cannot join to
+   it, so every 2026-09-02 finding was counted by hand off five rows.
+   **`n_observations` and `duration_ms` were already written to every candidate
+   row and nothing had ever looked at them**; gating on lifetime roughly doubles
+   precision at zero recall cost on both widget sizes. An ability is an event,
+   so it has a birth: no real object in either session starts at `t_ms == 0`.
+   **Do not fit the threshold** — fitting by F1 and scoring across sessions
+   gives 100%/38.5% one way and 50%/12.5% the other.
+2. **`prototypes/ability_signed.py` — the sign of the residual beats every shape
+   feature ever tried here.** `minimap_dynamic.detect` computes
+   `max(lo-g, g-hi, 0)`, collapsing two opposite things: the viewcone is a
+   brightness LIFT and a resting Cypher device is a black disc. Split them and
+   REAL reads dark median 102 / bright 10 against NOT at 0 / 59. With the
+   lifetime gate: **100% recall at 40.0% precision on the bigmap and 100% at
+   100% on the small widget**, against 6.1% and 16.1% unfiltered. It has never
+   cost a true positive. It should transfer where `device_glyph_score` and
+   `host_span` did not because it is a mechanism with no parameter to overfit.
+3. **`prototypes/audio_probe.py` — audio decodes, and onset detection is dead.**
+   Every capture already carries a stereo 48 kHz AAC track (all 18 sessions),
+   so the "deferred until a demo clip supplies reference audio" note below was
+   already satisfied. But the clips are **saturated with onsets**: at ±0.3 s the
+   null median spectral-flux rank is 0.99, marks sit where random times sit at
+   every tolerance from ±0.02 s to ±0.3 s, and 2 of 32 p-values under 0.05 is
+   chance. Audio needs IDENTITY (a matched filter on one SFX), not onset — and
+   a matched filter needs a reference cut at a known cast time.
+4. **`prototypes/ability_hud.py` — which is where a known cast time comes
+   from.** The bottom-left tray had no ROI and had never been read; there is one
+   now (`hud_abilities`). On a real match the fill levels quantise cleanly to
+   0.00 / 0.50 / 1.00 and a drop is a cast.
+
+**NEXT, in order:**
+1. **Grow the evaluation set — it is 9 positives, all Cypher trapwires.**
+   `d95cfad5693a` has 47 reviewed candidates and **zero labels**; that is the
+   cheapest label pass available and it needs no new footage.
+2. **Test the sign gate on a class that is NOT black.** All 9 positives are
+   `colour: none`. `detect` fires a second way on `sat > COLOUR_SAT` because
+   Orbital Strike's marker sits at gray 114 against an unlit 117 — both
+   excursions ~0, so a naive sign gate would DELETE it. `sign_ok` already
+   refuses to reject a coloured candidate, but **that branch is unmeasured**.
+   This is the aspect-filter mistake waiting to happen again.
+3. **Ally identity across frames** — unchanged from below, still the blocker on
+   dA/ds.
+
+**Two defects found on the way, both worth fixing before they cost more:**
+
+* **The label store's key is not stable.** Labels are keyed `(t_ms, x, y)` to
+  candidate rows, and re-running `scan_ability_clip.py` regenerates those rows
+  and **orphans every answer**. It has already cost 19 of 50 labels on
+  `eb10db50b1fb` and 39 of 40 on `2ba870ccbd50`. Anything that re-scans a
+  labelled session must migrate or refuse. It is why `ability_eval` treats the
+  candidate file's content hash as a **dep**.
+* **Infinite abilities are on in the controlled clips**, so the ability tray
+  reads nothing there — the C slot holds ~734 teal px across all of
+  `eb10db50b1fb` despite four labelled placements. A deliberate demo clip is the
+  *worst* place to read casts, not the best. **Ask the player to record one
+  controlled clip with infinite abilities OFF** if cast-anchored audio
+  references are wanted; otherwise use the 17 real matches.
+
+*Correction to the note below: `79a706a7ce4c` HAS been scanned and labelled (68
+candidates, 69 answers, 4 real trapwires). It was done on 2026-09-02 evening
+after that paragraph was written.*
+
+
 **NEW 2026-09-02 evening: vision-cone origin/facing/raycast started, real
 progress.** `prototypes/minimap_cone.py`, from the spec after
 recording a clip specifically to watch cones. Facing extraction (fit a circle
@@ -25,11 +98,35 @@ preceded it (a UI ping-ring and the plantable-zone tint both looked like cone
 brightness before being caught and excluded). Box pass-through is coded per
 the stated fact, not yet independently confirmed.
 
-**NEXT on this thread:** confirm the half-angle on a second map; find a real
-test case where a raycast actually crosses a boxedge pixel to confirm
-pass-through; then the follow-up idea -- use many cone instances to
-tell a real wall from a mislabelled box in `minimap_geometry`, which needs
-substantially more footage than one clip.
+**SAME EVENING, later: `scan_ability_clip.py` got its first real candidate
+review, and the fix that actually worked was not a shape heuristic.** Full
+detail in `prototypes/CLAUDE.md` under the vision-cone section; short version:
+`device_glyph_score` (ring-fit on raw-frame edges) and `host_span` (reused
+from `dynamic_eval.py`) both FAILED to transfer to the Cypher trapwire class
+after looking like they might work. What actually held up:
+`self_icon_dist` -- checking a candidate against `reticle.minimap.self_rings`,
+code already shipped for a different job -- correctly explains 5 of 6 false
+positives that turned out to just be fragments of the player icon (0
+real trapwire lost). Two of the follow-up hypotheses (cone
+termination proximity; sliver/local-thinness, a distinct property) are
+recorded but UNTESTED -- the cone's facing fit only returns an answer on 4 of
+50 real candidate positions, too sparse to measure either one yet.
+
+**NEXT, and this is the one to do FIRST: today's whole ability-candidate
+thread ran on the wrong session.** `eb10db50b1fb` and `d95cfad5693a` are both
+`valorant-16x9` (the small widget). `79a706a7ce4c`, recorded the same evening
+an HOUR LATER on `valorant-16x9-bigmap` (the enlarged widget), has geometry
+built and has never been scanned -- caught by the player, not found proactively.
+Re-run `scan_ability_clip.py` there before trusting any of today's numbers
+(`self_icon_dist`'s threshold, `device_glyph_score`'s radius range) on the
+bigger widget; icon size and cone geometry both scale with widget size and
+neither has been re-measured.
+
+**After that:** confirm the half-angle on a second map; find a real test case
+where a raycast actually crosses a boxedge pixel to confirm pass-through;
+then the follow-up idea -- use many cone instances to tell a real
+wall from a mislabelled box in `minimap_geometry`, which needs substantially
+more footage than one clip.
 
 **DONE 2026-09-02: minimap position tracking is promoted and wired in.**
 `prototypes/minimap_position.py` -> `reticle/minimap.py` + `reticle minimap
