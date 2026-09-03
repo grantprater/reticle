@@ -4,13 +4,15 @@
 
 Controls
 --------
-    left click       drop an ICON mark (a disc) at the current radius
-    [ / ]            disc radius smaller / larger
-    shift + drag     brush a REGION of the current class (wall, smoke, ult)
+    left click       ICON mode: drop a disc.  REGION mode: paint.
+    r                toggle ICON / REGION mode -- shown in the status bar
+    TAB              switch the 1-9 bank: ABILITIES <-> WORLD OBJECTS
+    [ / ]            disc radius / brush radius smaller / larger
+    shift + drag     paint a region without leaving ICON mode
     shift + right    erase from the current region
     right click      undo the last mark on this frame
-    1-9              pick the class from the legend (most recently used)
-    c                new class by name -- agent, then ability
+    1-9              pick the class from the current bank
+    c                new ability class by name -- agent, then ability
     SPACE / d        this frame is DONE and exhaustive; save and advance
     n                nothing on this frame at all; save and advance
     u                mark this frame UNSURE -- recorded, kept out of scoring
@@ -106,6 +108,23 @@ OUT_DIR = STORE / "labels" / "ability_paint"
 #: this tool exists.
 R0 = 7
 
+#: Non-ability things that appear on the same widget. They are NOT abilities and
+#: they are the whole reason precision means anything: the self, ally and enemy
+#: icons are the disc detector's main confounders -- a player icon IS a small
+#: ringed disc -- so a frame that marks abilities and leaves players unmarked
+#: calls its worst false positives "true negatives" and flatters every number.
+#: the player raised this; it was a gap in the class list I should have asked about.
+#:
+#: `world:audio_ring` is his too, and it is new to this repo: **a white circular
+#: shadow at a FIXED radius around the player, showing how far events can be
+#: heard -- and the same circle is the spike's detonation radius.** Player-
+#: anchored and fixed-size, so once its radius is measured it is derivable
+#: rather than detectable; until then it is a large soft-edged circle that a
+#: region pass should capture, both as a confounder and because a detonation
+#: radius is directly useful to post-plant analysis.
+WORLD = ["world:self", "world:ally", "world:enemy", "world:question_mark",
+         "world:x_mark", "world:spike", "world:audio_ring", "world:other"]
+
 
 def load_done(path: Path):
     """Frames already answered, last write winning -- the store convention."""
@@ -197,7 +216,20 @@ def main() -> int:
     legend.pack(fill="x")
 
     st = {"i": 0, "r": R0, "zoom": fit, "bd": 0, "flash": False,
-          "used_derived": False, "cat": None, "img": None, "undo": []}
+          "used_derived": False, "cat": None, "img": None, "undo": [],
+          "region": False, "bank": 0}
+
+    def bank():
+        """The nine classes currently on 1-9: abilities, or world objects.
+
+        Two banks rather than one MRU list, because there are now ~15 classes
+        and a single nine-slot legend churns -- the ability you want drops off
+        it exactly when a run of world objects has been marked. `WORLD` is a
+        fixed order so its keys never move.
+        """
+        if st["bank"]:
+            return [(k, k.split(":")[-1][:14]) for k in WORLD]
+        return [(k, k.split(":")[-1][:14]) for k, _v in la.mru(reg)]
     #: per-frame working state: icons list and class -> region mask
     work: dict = {}
 
@@ -252,17 +284,21 @@ def main() -> int:
         canvas.config(scrollregion=(0, 0, w * z, h * z))
         cat = st["cat"]
         cname = reg["categories"].get(cat, {}) if cat else {}
+        mode = "REGION (drag to paint)" if st["region"] else "ICON (click to drop)"
         status.config(text=(
             f"  frame {st['i'] + 1}/{len(frames)}  t={t / 1000:7.1f}s"
             f"  {'ANSWERED' if t in done else 'new':8s}"
             f"  icons={len(f['icons'])} regions={sum(1 for m in f['regions'].values() if m.any())}"
             f"  r={st['r']}px zoom={z}x"
-            f"  class={(cname.get('agent') or '') + ':' + (cname.get('ability') or '-') if cat else 'NONE - press 1-9 or c'}"
+            f"   MODE={mode}"
+            f"   class={(cname.get('agent') or '') + ':' + (cname.get('ability') or '-') if cat else 'NONE - press 1-9'}"
             f"{'   << DISC DETECTOR >>' if st['flash'] else ''}"))
-        legend.config(text="  " + " | ".join(
-            f"{i + 1}:{k[0].split(':')[-1][:12]}" for i, k in enumerate(la.mru(reg)))
-            + "\n  SPACE done+next | n nothing | u unsure | a back | c new class"
-              " | m compare | f backdrop | right-click undo | q quit")
+        legend.config(text=(
+            f"  [{'ABILITIES' if not st['bank'] else 'WORLD OBJECTS'}]  "
+            + " | ".join(f"{i + 1}:{nm}" for i, (_k, nm) in enumerate(bank()))
+            + "\n  TAB switch bank | r ICON/REGION | [ ] radius | c new class"
+              " | SPACE done+next | n nothing | u unsure | a back"
+            + "\n  m compare | f backdrop | right-click undo | q quit"))
 
     def push():
         f = wf()
@@ -274,16 +310,32 @@ def main() -> int:
         z = st["zoom"]
         return int(canvas.canvasx(ev.x) / z), int(canvas.canvasy(ev.y) / z)
 
+    def cat_info(cid):
+        """(agent, ability) for either bank. World classes are not in the
+        registry on purpose -- they are not abilities and must not pollute
+        `label_ability`'s legend."""
+        if cid in reg["categories"]:
+            c = reg["categories"][cid]
+            return c.get("agent", ""), c.get("ability", "")
+        return "world", cid.split(":")[-1]
+
     def add_icon(ev):
         if not st["cat"]:
             return
         push()
         x, y = xy(ev)
-        c = reg["categories"][st["cat"]]
+        a, b = cat_info(st["cat"])
         wf()["icons"].append({"x": x, "y": y, "r": st["r"],
-                              "category_id": st["cat"],
-                              "agent": c.get("agent", ""), "ability": c.get("ability", "")})
+                              "category_id": st["cat"], "agent": a, "ability": b})
         compose()
+
+    def click(ev):
+        """Left button: paint in REGION mode, drop a disc otherwise."""
+        if st["region"]:
+            push()
+            region_stroke(ev, True)
+        else:
+            add_icon(ev)
 
     def region_stroke(ev, on):
         if not st["cat"]:
@@ -316,9 +368,9 @@ def main() -> int:
             ys, xs = np.where(m > 0)
             x0, y0 = int(xs.min()), int(ys.min())
             x1, y1 = int(xs.max()) + 1, int(ys.max()) + 1
-            c = reg["categories"].get(cid, {})
-            regions.append({"category_id": cid, "agent": c.get("agent", ""),
-                            "ability": c.get("ability", ""),
+            ra, rb = cat_info(cid)
+            regions.append({"category_id": cid, "agent": ra,
+                            "ability": rb,
                             "bbox": [x0, y0, x1 - x0, y1 - y0],
                             "mask_png": png_b64(m[y0:y1, x0:x1])})
         row = {"kind": "frame", "session_id": sid, "t_ms": t,
@@ -363,9 +415,9 @@ def main() -> int:
         compose()
 
     def pick(i):
-        m = la.mru(reg)
-        if i < len(m):
-            st["cat"] = m[i][0]
+        b = bank()
+        if i < len(b):
+            st["cat"] = b[i][0]
             compose()
 
     def radius(d):
@@ -389,7 +441,9 @@ def main() -> int:
         print(f"wrote {out_path}  ({len(done)} frames answered)")
         root.destroy()
 
-    canvas.bind("<Button-1>", add_icon)
+    canvas.bind("<Button-1>", click)
+    canvas.bind("<B1-Motion>", lambda e: region_stroke(e, True) if st["region"] else None)
+    canvas.bind("<ButtonRelease-1>", lambda e: compose() if st["region"] else None)
     canvas.bind("<Shift-Button-1>", lambda e: (push(), region_stroke(e, True)))
     canvas.bind("<Shift-B1-Motion>", lambda e: region_stroke(e, True))
     canvas.bind("<Shift-ButtonRelease-1>", lambda e: compose())
@@ -417,6 +471,10 @@ def main() -> int:
                     ("u", unsure),
                     ("a", lambda e: advance(-1)),
                     ("c", new_class),
+                    ("r", lambda e: (st.__setitem__("region", not st["region"]),
+                                     compose())),
+                    ("<Tab>", lambda e: (st.__setitem__("bank", 1 - st["bank"]),
+                                         compose())),
                     ("f", backdrop),
                     ("s", lambda e: save_frame(cur()[0], True)),
                     ("q", finish),

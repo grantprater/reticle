@@ -623,6 +623,42 @@ failed across surfaces and **composition** matching transferred at 83.5%
 held-out, because it threw away the layout that was not invariant. Look for the
 part that survives the mode before building a bank of modes.
 
+### The audio ring: an information boundary drawn on the widget (the player, 2026-09-03)
+
+> There's another sort of "region", the audio range around the player, which is
+> represented by sort of a white circular shadow in a fixed radius around the
+> player. Again it represents the audio range for events, and also the spike
+> detonation radius.
+
+Not previously recorded anywhere here, and it is worth more than the confounder
+it looks like. Three separate uses, in increasing order of value:
+
+* **a confounder.** A large soft-edged white circle centred on the player is
+  exactly the kind of thing a region detector will propose and an icon detector
+  will clip corners off. It is one more reason a frame's ground truth has to
+  include non-ability objects -- `paint_icons.WORLD` carries it as
+  `world:audio_ring`;
+* **free once measured.** It is player-anchored and FIXED radius, and the self
+  track is already shipped (`reticle/minimap.py`), so after one measurement it
+  is *derivable* rather than detectable -- draw it, do not look for it. Same
+  class of thing as dA/ds being a property of the map rather than of the round;
+* **the one that matters: it is a rendering of WHAT THE PLAYER COULD HEAR.**
+  CLAUDE.md's peek section argues the minimap shows *what your team knows*
+  rather than ground truth, and that this is the right basis for decision
+  analysis -- you cannot be faulted for an enemy nobody had seen. The audio ring
+  is the same argument for sound, drawn on screen at a known radius: an event
+  inside it was audible, one outside it was not. That is an information boundary
+  the pipeline can compute per frame, and it bears directly on whether a peek or
+  a rotate was justified.
+
+**And it doubles as the spike's detonation radius**, which is immediately usable:
+post-plant, whether the player stood inside the lethal circle is a fact about a
+round that `rounds.py` already knows the phase of.
+
+Unmeasured so far: the radius itself, in minimap pixels and in metres. The
+region pass is the cheapest way to get it -- paint the circle once or twice and
+read it off, rather than deriving it.
+
 ### the domain notes on the minimap -- not recoverable from the pixels
 
 * **A Cypher cam ROTATES**, and it is the **only other moving icon** on the
