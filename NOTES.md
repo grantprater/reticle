@@ -31,15 +31,35 @@ docstring:
    so it has a birth: no real object in either session starts at `t_ms == 0`.
    **Do not fit the threshold** — fitting by F1 and scoring across sessions
    gives 100%/38.5% one way and 50%/12.5% the other.
-2. **`prototypes/ability_signed.py` — the sign of the residual beats every shape
-   feature ever tried here.** `minimap_dynamic.detect` computes
-   `max(lo-g, g-hi, 0)`, collapsing two opposite things: the viewcone is a
-   brightness LIFT and a resting Cypher device is a black disc. Split them and
-   REAL reads dark median 102 / bright 10 against NOT at 0 / 59. With the
-   lifetime gate: **100% recall at 40.0% precision on the bigmap and 100% at
-   100% on the small widget**, against 6.1% and 16.1% unfiltered. It has never
-   cost a true positive. It should transfer where `device_glyph_score` and
-   `host_span` did not because it is a mechanism with no parameter to overfit.
+2. **`prototypes/ability_signed.py` — splitting the residual's SIGN is worth a
+   lot, but the first form of the rule was one ability class.**
+   `minimap_dynamic.detect` computes `max(lo-g, g-hi, 0)`, collapsing two
+   opposite things: the viewcone is a brightness LIFT and a resting Cypher
+   device is a black disc. On the two Cypher sessions `dark > bright` gave 100%
+   recall at 40.0%/100.0% precision against 6.1%/16.1% unfiltered — **and that
+   did not survive a wider population.** Per ability, at OBJECT level:
+
+       ability                    n   dark>bright   med dark   med bright
+       cypher:trapwire            7        100%          102           10
+       brimstone:orbital strike   6         83%           13            0
+       deadlock:barrier mesh      4         75%           95           82
+       deadlock:sonic sensor      5         60%          105          101
+
+   **The mechanism I proposed was wrong.** I expected COLOUR to be the split — a
+   tint sitting at both excursions near zero. Brimstone is the coloured case and
+   it passes at 83%. What breaks the rule is a device on **lit ground**: sensor
+   and mesh have median dark *and* bright both ~100, because the sampling window
+   holds the glyph's ink and the cone's lift at once. Cypher's trapwires simply
+   sat on unlit floor. So the right form is a floor, not a comparison —
+   `dark >= 10` gives **95.5% recall / 43.8% precision** over 22 objects, better
+   than the comparison on both axes. It is a threshold though, where the
+   comparison was not, and 22 objects cannot set one confidently: **provisional**.
+
+   **`label_rows()` is the reusable lesson here.** Any RECOMPUTED feature needs
+   only `(t_ms, x, y)` and the answer, so it can use every label ever given —
+   including the 39 of 40 orphaned on `2ba870ccbd50` and the sessions that never
+   had a candidate file. That turned 9 positives of one class into 22 objects
+   across four, and it should have been done before quoting the first number.
 3. **`prototypes/audio_probe.py` — audio decodes, and onset detection is dead.**
    Every capture already carries a stereo 48 kHz AAC track (all 18 sessions),
    so the "deferred until a demo clip supplies reference audio" note below was
@@ -57,13 +77,17 @@ docstring:
 1. **Grow the evaluation set — it is 9 positives, all Cypher trapwires.**
    `d95cfad5693a` has 47 reviewed candidates and **zero labels**; that is the
    cheapest label pass available and it needs no new footage.
-2. **Test the sign gate on a class that is NOT black.** All 9 positives are
-   `colour: none`. `detect` fires a second way on `sat > COLOUR_SAT` because
-   Orbital Strike's marker sits at gray 114 against an unlit 117 — both
-   excursions ~0, so a naive sign gate would DELETE it. `sign_ok` already
-   refuses to reject a coloured candidate, but **that branch is unmeasured**.
-   This is the aspect-filter mistake waiting to happen again.
-3. **Ally identity across frames** — unchanged from below, still the blocker on
+2. ~~Test the sign gate on a class that is NOT black.~~ **DONE, and it changed
+   the rule** — see item 2 above. What remains is that `dark >= 10` is fitted on
+   22 objects and needs re-fitting as the set grows, and that `sign_ok`'s colour
+   escape is still inert under `--from-labels` (label rows carry no
+   `colour_local`), so it is only exercised on the candidate path.
+3. **Re-derive `dark`/`bright` against the cone rather than a 5x5 max.** The
+   failure above is specific and fixable: the window mixes ink and lift.
+   `minimap_cone.py` already computes a raycast mask and is imported by nothing.
+   Subtracting the predicted lit region before measuring the excursion is the
+   "explain the frame" move applied to the one place it is now known to matter.
+4. **Ally identity across frames** — unchanged from below, still the blocker on
    dA/ds.
 
 **Two defects found on the way, both worth fixing before they cost more:**
