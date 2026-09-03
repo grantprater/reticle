@@ -134,8 +134,15 @@ BH_MIN = 130
 #: A disc's area at the measured icon size, generously bounded.
 AREA_MIN, AREA_MAX = 40, 900
 
-#: 4*pi*A/P^2. A perfect disc is 1.0; line art and cone slivers are far lower.
-CIRC_MIN = 0.45
+#: 4*pi*A/P^2. **Was 0.45 on the reasoning that a disc scores near 1.0, and that
+#: was wrong** -- caught by the first exhaustively painted frames (`paint_eval.py`).
+#: The black-hat does not return a filled disc; it returns the icon's dark EDGE
+#: structure, whose perimeter is ragged, so a real icon scores far below a
+#: circle. At 0.45 the gate was rejecting real icons and recall against painted
+#: ground truth was 54.5%; at 0.15 it is 90.9% for the SAME precision. The area
+#: gate turned out to be inert here (900/1600/3000 give identical numbers), so
+#: shape was doing all the damage and none of the work.
+CIRC_MIN = 0.15
 
 #: A detection this close to a labelled object is that object.
 MATCH_PX = 8
