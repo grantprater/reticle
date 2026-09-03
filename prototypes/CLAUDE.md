@@ -45,6 +45,83 @@ is a full wall mislabelled as a box. That is a label-free fix for
 `minimap_geometry`'s box/wall classification, already known to be poor, but
 needs far more cone observations than one clip supplies.
 
+**Practical yield is much lower than the demo clip suggested -- measured
+2026-09-02 trying to use this for something else.** Applying `icon_facing` to
+50 real ability-candidate positions on `eb10db50b1fb` (not the curated demo
+clip this module was built and tuned against) returned a usable cone for only
+4 of them -- `LOBE_MIN_FRAC`'s refuse-over-guess gate is doing its job, but it
+means the cone is not yet a tool you can point at an arbitrary frame and
+expect an answer from. Anything built on top of it needs to budget for that.
+
+**CORRECTED 2026-09-03: the yield is ~90%, and the 4-of-50 was a SEEDING
+problem, not the gate refusing.** Seeding `self_cone` from the largest ring
+returned by `reticle.minimap.self_rings` (`prototypes/ability_cone.py`,
+`--cone`), measured over every labelled ability frame:
+
+    2ba870ccbd50   22/22 frames   100%
+    79a706a7ce4c   54/55           98%
+    a06f04a0059f   40/42           95%
+    eb10db50b1fb   18/32           56%   <- the session 4-of-50 came from
+                                          89% pooled
+
+Even on the original session the yield is 56%, not 8%. So `LOBE_MIN_FRAC` is
+not the binding constraint and the paragraph above should not be used to price
+cone work. **The two parked hypotheses below -- cone-termination proximity and
+local sliver/thinness -- are affordable again**; they were shelved on the
+strength of the 4-of-50 figure.
+
+Separately, and it is a different question from yield: using the cone as the
+LIGHTING REFERENCE for ability detection was tried and does **not** beat the
+plain two-state interval residual (93.8% recall at 34.1% precision against
+38.5% at the same recall). See `ability_cone.py` -- the diagnosis behind it
+holds, 27% of labelled positives are invisible to the interval test at their
+own pixel, but a more permissive reference lifts the noise as much as the
+signal.
+
+**Two open hypotheses from the player, 2026-09-02, neither tested successfully
+yet -- recorded so they aren't re-guessed blind next time:**
+
+* **Cone TERMINATION proximity.** Several false-positive ability candidates
+  on `eb10db50b1fb` turned out to be fragments of the player icon
+  (confirmed by eye: 1 and 3 were the icon's arrow, 2/4/5 were its middle),
+  and the read was that they "all have relatively close terminations of
+  the viewcone" -- i.e. the icon sitting near where a ray stops might be *why*
+  the icon's own diff signature fragments into separate candidate pieces
+  rather than being caught as one blob. Tried two ways, neither worked: (1)
+  seeding the cone fit from the CANDIDATE's own position rather than the
+  icon's true position, which is invalid whenever the two are far apart (the
+  real trapwire instances sit 8-32px from the self icon, past `fit_ring`'s
+  +/-5px search); (2) seeding properly from `reticle.minimap.self_rings`'s
+  fitted centre instead, which is correct but starved by the yield problem
+  above -- only 4 of 50 rows produced a cone to measure distance-to-boundary
+  from at all. **Not disproven, just unmeasured.**
+* **Sliver / local thinness -- a DIFFERENT property, the distinction.**
+  Not "does a ray stop here" but "is the lit region narrow here" (a ray
+  passing through a doorway gap, per this module's own doorway-finger
+  behaviour). A quick substitute -- distance to the nearest wall on the
+  STATIC floor mask, needing no facing fit at all -- was tried as a
+  same-day cousin of this idea and came back flat (real trapwire 38-65px
+  from a wall, `not_ability` 14-78px, total overlap, zero separating power).
+  That result says wall-proximity alone isn't it, not that thinness isn't --
+  thinness needs the actual cone's local width, which inherits the yield
+  problem above.
+
+Both need either a way to raise the facing-fit's yield (a looser gate for
+diagnostic use, trading confidence for coverage -- a real design decision,
+not a quick fix) or a controlled clip built specifically to produce many
+cone instances near walls/dooprways on purpose, the same way the original
+half-angle measurement clip was built on purpose.
+
+**Wrong session used for this whole thread, caught by the player 2026-09-02.**
+`eb10db50b1fb` and `d95cfad5693a` are both `valorant-16x9` (the small
+widget). A third Cypher session, `79a706a7ce4c`, was recorded the same
+evening an hour later on `valorant-16x9-bigmap` (the enlarged widget) --
+geometry is built but nothing has scanned it yet. Every finding in this
+section (`self_icon_dist`, `device_glyph_score`, `host_span`'s failure, the
+two hypotheses above) was measured on the SMALL widget only and has not been
+checked against the bigger one, where icon radius and cone geometry both
+scale differently.
+
 ### State, 2026-08-26
 
 **Screen enemy detector: unchanged and still the shipped numbers.** 91.3% /
@@ -540,6 +617,21 @@ depends on, doing a second job.
   * **UNCONFIRMED, the hedge**: *"I believe when it's an enemy it
     turns red."* Not measured -- neither clip contains an enemy cam. Treat as
     a hypothesis, not a fact, until tested.
+  * **The trapwire is TWO separate drawn things, and the player did not know the
+    second one was on the minimap at all until seeing it in a labelling
+    pass, 2026-09-02.** The trapwire's ICON is black-and-white like every
+    other Cypher device (the caution-tape-X glyph above) -- but the WIRE
+    ITSELF is ALSO rendered, as a straight coloured span across the
+    chokepoint it's strung through, in the placing player's own team colour
+    (light blue/teal on the). What `scan_ability_clip.py` actually
+    found and the player named `Cypher:Trapwire` five times in `eb10db50b1fb` was
+    this wire span, not the icon -- a short, roughly rectangular, hard-edged
+    coloured bar sitting exactly in a doorway gap. Practically load-bearing:
+    **the icon and the wire are two independent, differently-shaped signals
+    for the same object**, and a detector built around one shape family
+    (a ring-fit, tuned for the icon) will not recognise the other (a bar).
+    Confirming the icon separately -- small, circular, black/white, at one
+    end of the wire's span -- is still open.
   * **Next step to make this a real detector**: run `scan_ability_clip.py` on
     both sessions and let the player label the candidates it finds with
     `label_ability.py` -- now that the actual glyphs and their two colour
