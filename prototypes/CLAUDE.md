@@ -17,6 +17,34 @@ part of the teardrop, the site letters are dark grey on the yellow. If any of it
 is ever contradicted by measurement, correct it in place and say so; do not
 delete it.
 
+### The vision cone: origin, facing, raycast -- started 2026-09-02
+
+`prototypes/minimap_cone.py`. the spec, from watching cones deliberately
+on a fresh clip: the cone originates at the icon's own teardrop point, spans a
+fixed angle centred on the direction that teardrop points, and each ray stops
+at the first wall -- no reflection. Full detail, including two real mistakes
+made building it (a facing calculation that was ~180 degrees off from icon
+fragmentation, and a brightness-diff width measurement contaminated first by
+a UI ping-range ring and then by the plantable-zone tint), is in that module's
+docstring, not repeated here.
+
+Working state: facing extraction is solid, verified by eye against real
+frames (the fitted arrow lands on the visible triangle bulge, not assumed).
+The raycast mask is verified too, in a way that wasn't planned -- rendered on
+a doorway frame, it splits into thin fingers through the gap and re-expands
+beyond it, unprompted, exactly the behaviour the player described from playing.
+`CONE_HALF_ANGLE_DEG = 56` (112 total) is a working estimate from 23 samples
+on ONE clip, ONE map -- confirm on a second map before trusting it further.
+Box pass-through is coded per the stated fact, not yet independently
+measured (the one test case tried didn't actually cross a boxedge pixel).
+
+**Not yet done, and the reason to come back to this**: the
+follow-up -- across many cone instances, a boxedge segment light passes both
+sides of in the same frame is a real low obstacle, one that's never lit past
+is a full wall mislabelled as a box. That is a label-free fix for
+`minimap_geometry`'s box/wall classification, already known to be poor, but
+needs far more cone observations than one clip supplies.
+
 ### State, 2026-08-26
 
 **Screen enemy detector: unchanged and still the shipped numbers.** 91.3% /

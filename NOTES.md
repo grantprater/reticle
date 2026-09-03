@@ -13,6 +13,24 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
+**NEW 2026-09-02 evening: vision-cone origin/facing/raycast started, real
+progress.** `prototypes/minimap_cone.py`, from the spec after
+recording a clip specifically to watch cones. Facing extraction (fit a circle
+to the self-colour mask, read the triangle the same way enemy facing already
+works) is verified by eye. The raycast mask is verified too -- it produces the
+thin-doorway-sliver behaviour the player described from playing, unprompted, on a
+real doorway frame. `CONE_HALF_ANGLE_DEG=56` is measured (23 samples, one
+clip/map), not assumed -- see the module docstring for the two dead ends that
+preceded it (a UI ping-ring and the plantable-zone tint both looked like cone
+brightness before being caught and excluded). Box pass-through is coded per
+the stated fact, not yet independently confirmed.
+
+**NEXT on this thread:** confirm the half-angle on a second map; find a real
+test case where a raycast actually crosses a boxedge pixel to confirm
+pass-through; then the follow-up idea -- use many cone instances to
+tell a real wall from a mislabelled box in `minimap_geometry`, which needs
+substantially more footage than one clip.
+
 **DONE 2026-09-02: minimap position tracking is promoted and wired in.**
 `prototypes/minimap_position.py` -> `reticle/minimap.py` + `reticle minimap
 <session>` (stage 02, L1). Self position is a real filtered track; ally rings
