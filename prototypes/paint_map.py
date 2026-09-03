@@ -84,7 +84,7 @@ def main() -> int:
     floor = labels != md.VOID
     backdrops = [("static map", static)]
     cap = cv2.VideoCapture(src["path"])
-    for t in ld.active_times(sid, args.frames, seed=11):
+    for t in ld.live_times(sid, args.frames, seed=11):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t / 1000.0 * fps)))
         ok, fr = cap.read()
         if not ok:
