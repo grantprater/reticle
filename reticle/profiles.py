@@ -239,6 +239,16 @@ VALORANT_16_9 = Profile(
         # Nowhere near the bottom-right corner -- that holds the weapon name
         # and credit total.
         Roi("hud_ammo", 0.654, 0.917, 0.729, 0.977),
+        # Ability tray: four slots C/Q/E/X, each a line-art glyph over a teal
+        # charge bar. Measured at 1920x1080 on a06f04a0059f -- bars at
+        # y 1032..1051, slot centres x = 789 + 113k, so slot 3 (the ultimate)
+        # lands at 1128 against a measured 1130. The ROI is widened to take in
+        # the glyph above and the key letter below, because the glyph is what
+        # says WHICH ability a slot holds.
+        # A charge bar falling between samples is a cast, exactly as ammo_mag
+        # falling is a shot fired. See prototypes/ability_hud.py -- and note
+        # that it reads nothing on a custom game with infinite abilities on.
+        Roi("hud_abilities", 0.385, 0.896, 0.609, 0.991),
         # Crosshair region. Low texture when scoped or in a menu.
         Roi("center", 0.460, 0.450, 0.540, 0.550),
     ],
