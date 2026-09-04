@@ -13,8 +13,8 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
-**2026-09-03 evening: a 26-clip one-agent-per-clip ability corpus exists, and
-the scan of it is running.** the player recorded the roster on Ascent (alt account,
+**2026-09-03 evening: a 26-clip one-agent-per-clip ability corpus exists and
+is fully scanned (30 candidate files, 713 grouped events).** the player recorded the roster on Ascent (alt account,
 custom game, infinite abilities), one agent per clip, casting every ability he
 could, in slot order after the first couple. All ingested `valorant-16x9-bigmap`,
 tagged `ability-demo,<agent>`. **The detail lives in `prototypes/CLAUDE.md`** --
@@ -36,65 +36,91 @@ class carry no information about. So keep `self_icon_dist`, fix its NULL case
 coverage bug, and the highest-value repair available), and stop adding weight
 to the other three for this cut.
 
-**DO THIS FIRST: kill the two survivors by MODELLING them, not filtering.**
-Both are layers we can already compute, which is the "explain the frame"
-reframe with evidence behind it now.
+**NEXT STEPS, agreed with the player 2026-09-03, in this order.**
 
-  a. **"tiny cracks in the minimap"** -- thin dark features of the static map.
-     Test the hypothesis in `prototypes/CLAUDE.md` first, because it explains
-     why the onset signal failed to drop them: a crack is invisible unlit and
-     appears when the cone sweeps it, so it gets a FALSE onset at a FIXED
-     position. If that holds, the discriminator is whether a candidate's
-     appearance CORRELATES WITH CONE COVERAGE over time -- not a shape feature,
-     and not `ability_cone.py`'s per-pixel reference level, which was already
-     tried and did not beat the plain interval residual.
-  b. **viewcone fragments** -- `minimap_cone.py` fits the cone directly and now
-     answers on 89% of frames (the 4-of-50 figure that shelved it was a seeding
-     bug). Subtract the cone before proposing, rather than filtering after.
-  c. **A ONE-LINE FIX THAT IS NOT A MODELLING PROBLEM.** `self_icon_dist` is
-     computed once at each track's BIRTH frame and never updated
-     (`scan_ability_clip.py`, the branch that opens a track), so a single
-     missed frame nulls the whole track. `self_rings` actually finds the player
-     in 70-100% of frames and the floor gate costs 1.7% at worst -- both
-     measured. Worse, the failures are CORRELATED: candidates are
-     disproportionately born in frames where something covers the widget, which
-     is exactly when the self colour is hidden, so the one sample is taken at
-     the worst moment. Take the min over the track's frames. This is the single
-     filter the reading confirms works, so its coverage is the cheapest
-     real gain available.
+**1. FIX `self_icon_dist`'s SAMPLING, then re-run the corpus. One line, and it
+is the prerequisite for step 2.** It is computed once at each track's BIRTH
+frame and never updated (`scan_ability_clip.py`, the branch that opens a
+track), so one missed frame nulls the whole track. Measured: `self_rings`
+finds the player in 70-100% of frames and the floor gate costs 1.7% at worst,
+so neither explains a 58% null rate. The failures are CORRELATED -- a candidate
+is disproportionately born in a frame where something covers the widget, which
+is exactly when the self colour is hidden, so the single sample lands at the
+worst possible moment. Take the min over the track's frames. This is the one
+filter the reading of the gallery confirms works; fixing its coverage
+strips the player-icon band before he ever sees it.
 
-**Then the three below, which still stand:**
+**2. A LABELLING PASS ON THE GROUPED EVENTS. This is the real next step, and
+everything else is unfalsifiable without it.** There are 713 events and ZERO
+labels on them. The ranked corpus failed precisely because its features were
+validated on a narrow population (mostly Cypher trapwires over two clips) and
+did not transfer to twenty-three agents -- so adding more unvalidated features
+repeats the mistake. the two sentences about the gallery are currently the
+closest thing to ground truth that exists on this corpus.
 
-1. **Finish/redo the scan.** `scan_ability_clip.py` was running over all 26 when
-   the session ended (~2 min each; Tejo, Astra, Breach, Chamber done). Check
-   `labels/ability_candidates/` for which have files. **Do NOT re-scan
-   `2ba870ccbd50`, `eb10db50b1fb`, `d95cfad5693a`, `79a706a7ce4c`** -- they
-   carry labels and re-scanning orphans them (the unstable-key defect below,
-   still unfixed).
-2. **Group candidates into EVENTS before launching any labeller.** Measured:
-   Tejo 45 candidates -> 28 events, with one region fragmenting into 7. Asking
-   the player about 7 fragments of one object spends his time 7x for one answer.
-   Grouping on (onset within ~300 ms, adjacency within ~60 px) is all it took;
-   the scratch version is not committed, write it into `prototypes/`.
-3. **Write an OCCLUSION rule for HUD overlays that cover the widget.** the player:
-   the drone HUD wedge *is an overlay, it just overlaps the minimap*, and
-   *shouldn't be interpreted as being on the minimap*. It occupies minimap
-   pixels without being minimap content, so its candidates get a confident
-   world position through the homography that is meaningless -- and unlike the
-   shooting-error box, this occluder is icon-coloured and MOVES, so it looks
-   like a find. It is the whole 7-fragment cluster in the Tejo clip. Same
-   treatment as the killfeed's occlusion mask; also re-check
-   `minimap_cone.py`, which fits ONE cone and can lock onto a drone wedge.
-   **But masking is the side effect, not the goal.** the player: *there would only
-   be a hud like that if a player ability is currently active, and the cause
-   can be known, there are only a few.* So recognise it and emit
-   "<ability> active t0..t1" -- a cast time and duration read off the pixels,
-   which is what `ability_hud.py`'s tray was for and cannot give while infinite
-   abilities pins it full. Small closed set, local player only.
-4. **Fix `self_icon_dist` returning NULL.** It is the strongest filter available
-   (17 of Tejo's 45 candidates are within 20 px of the self icon) but it is
-   NULL on 25 of Astra's 43, because it only computes where
-   `minimap.self_rings` finds the player. Worth more than another shape feature.
+It is newly tractable in a way it was not this morning: grouping cuts 713
+candidates to a far smaller set of objects (`prototypes/ability_corpus.py`
+does the grouping), and step 1 removes the player icons. **Invoke the
+`labelling-pass` skill first**, and run `review_candidates.py` before launching
+anything -- that gate exists because a labeller was twice launched on garbage.
+the per-agent ability DESCRIPTIONS in `prototypes/CLAUDE.md` make each clip
+a CHECK against a known kit rather than an open-ended question, and he intends
+to supply a full description list for every agent next session.
+
+**3. THEN the temporal techniques, scored against those labels.** The full
+inventory and the reasoning are in `prototypes/CLAUDE.md` under "The untried
+temporal space" -- the short version is that every temporal feature in this
+repo is a scalar summary of a track (presence, length, displacement) and
+nothing looks at the SHAPE of a signal over time. The two to try first, both
+attacking a named false-positive class with data already on disk:
+
+  a. **visibility vs CONE COVERAGE** kills the cracks. A crack is invisible
+     unlit and appears when the cone sweeps it, giving it a FALSE onset at a
+     FIXED position -- which is why the onset signal failed to drop them.
+     `minimap_cone.py` answers on 89% of frames. NOT `ability_cone.py`, which
+     used the cone as a per-pixel reference level and did not beat the plain
+     interval residual;
+  b. **intra-patch temporal variance** turns the animation observation into
+     a positive feature: a lit crack is static, an animating ultimate is not.
+     It separates the two classes lifetime cannot.
+
+  Also queued there: correlating a candidate's position against the shipped
+  self track, to mark player-anchored things (the drone HUD overlay, the audio
+  ring, Vyse's ult) as derivable rather than detectable; repeat-structure at a
+  position; and the per-pixel temporal SD map as a divisor, which NOTES has
+  named for a while and which is still not done.
+
+**4. AUDIO, and specifically ULTIMATE VOICELINES.** the player ranks this alongside
+temporal, and it may be the highest-value untouched thread. `audio_probe.py`
+already established that every capture carries a stereo 48 kHz track and that
+ONSET detection is dead; audio needs IDENTITY via a matched filter, which needs
+a reference cut at a known cast time. A fixed per-agent ultimate voiceline is a
+far better target than any SFX -- long, loud, spectrally distinctive, a closed
+set, announcing the highest-stakes event in a round, and needing no minimap at
+all, so it reaches ultimates that draw nothing. The demo clips are the clean
+reference source.
+
+**Two standing hazards for any of the above:** the label store's key is
+unstable, so re-scanning a labelled session orphans its answers -- never
+re-scan `2ba870ccbd50`, `eb10db50b1fb`, `d95cfad5693a`, `79a706a7ce4c`. And
+HUD overlays that overlap the widget (the drone HUD) are not minimap content,
+so their candidates carry meaningless world positions; recognise and mask them,
+and emit the "<ability> active" event that their presence implies.
+
+**Two supporting pieces the steps above depend on:**
+
+* **Grouping candidates into EVENTS is implemented but the tool it lives in is
+  a renderer.** `prototypes/ability_corpus.py` groups on (onset within 300 ms,
+  adjacency within 60 px) -- Tejo's 45 candidates become 28 events, one region
+  having fragmented into 7. The labelling pass needs that grouping as its
+  input, so lift `load_events()` out into something the labeller can call
+  rather than re-deriving it. Its known gap: a PULSING region (Tejo's E and X)
+  gets one event per pulse, because each pulse is a fresh onset -- grouping
+  "same place, repeating" is not done.
+* **`ability_corpus.py` also builds the review gallery** that produced the
+  verdict, ordered by a ranking heuristic that is explicitly NOT a confidence
+  (no labels exist to calibrate one). Re-run it after step 1 to see the
+  player-icon band disappear; that is the cheapest confirmation the fix worked.
 
 **TWO THINGS THE PLAYER ADDED THAT CHANGE LATER STEPS, both in
 `prototypes/CLAUDE.md` in full:**
