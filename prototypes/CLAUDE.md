@@ -1107,6 +1107,74 @@ stop classifying blobs, explain the frame. Both survivors are layers we can
 model -- the static map and the cone -- so they should be SUBTRACTED, not
 filtered after the fact by a feature that hopes to correlate with them.
 
+### The untried temporal space, and why it is the right direction
+
+the player, 2026-09-03: *what other temporal techniques do we have that we haven't
+tried yet? I think that's the direction probably next, along with audio.*
+
+**The inventory first, because it makes the gap obvious. Every temporal feature
+in this repo is a SCALAR SUMMARY of a track:**
+
+    drawn() / usable()          is the widget rendered at all
+    n_observations, duration_ms how long a track lived
+    motion(), keep_from()       how far it moved, whether it rotated
+    link()                      which per-frame blobs are one track
+    static_gray, two_state_gray per-pixel median / bimodal level over time
+    per-pixel temporal SD       measured once, on 2026-08-26, to EXPLAIN the
+                                searchable area -- never used as a feature
+
+**Nothing anywhere looks at the SHAPE of a signal over time.** That is the
+entire untried space, and both surviving false-positive classes live in it.
+
+**1. Correlate a candidate against something else that varies over time.** The
+strongest family, because both survivors are caused by things already
+computable.
+
+* **visibility vs CONE COVERAGE** -- a crack is invisible on unlit ground and
+  appears when the cone sweeps it, so its appearances should correlate with
+  cone coverage at its own pixel; an ability's should not. `minimap_cone.py`
+  answers on 89% of frames. **Distinct from `ability_cone.py`**, which used the
+  cone as a per-pixel reference LEVEL and did not beat the plain interval
+  residual -- this is correlation of APPEARANCE with COVERAGE over time;
+* **position vs the SELF TRACK** -- anything player-anchored moves with him:
+  the drone HUD overlay, the audio ring, Vyse's ultimate. Correlating a
+  candidate's position series against the shipped self track marks those
+  DERIVABLE rather than detectable, and it kills the overlay class that all
+  four of the corpus ranking's signals are blind to.
+
+**2. Look at the candidate's own signal instead of summarising it.**
+
+* **intra-patch temporal variance** turns the animation observation into a
+  POSITIVE feature. A crack, once lit, is static -- near-zero variance within
+  its own patch. An animating ultimate is high. That separates exactly the two
+  classes lifetime cannot, using one measurement read in both directions;
+* **repeat structure at a position** -- how many SEPARATE onsets occur at one
+  pixel across a clip. A placed device: one. A crack: one per cone sweep. A
+  pulsing ability (Tejo's E and X): a regular period. This also closes the
+  pulse-grouping gap `ability_corpus.py` documents.
+
+**3. Normalise by temporal noise rather than thresholding.** The per-pixel SD
+map is already measured and NOTES already names it as the divisor for the 8x
+contrast spread between Orbital Strike (median dark 13) and the sensors (95-105).
+Still not done.
+
+**4. Adaptive background.** A running-window median rather than one over the
+whole clip, so a long-lived ability eventually becomes background while a crack
+always is. Less obviously right than the others; worth measuring, not assuming.
+
+**THE CAVEAT THAT RANKS ABOVE ALL OF THEM: 713 events, zero labels.** Every
+technique here is unfalsifiable until some are labelled, and the lesson of the
+ranked corpus was exactly that features validated on a narrow population do not
+transfer. the two sentences about the gallery -- the top is cone fragments
+and cracks, the bottom is cleanly player icons -- are currently the closest
+thing to ground truth on this corpus.
+
+So the cheapest real move is probably a LABELLING PASS on the grouped events
+before any of the above, and it is now tractable in a way it was not this
+morning: grouping cuts 713 candidates to a far smaller set of objects, and the
+`self_icon_dist` sampling fix strips the player-icon band before the player ever
+sees it. Invoke the `labelling-pass` skill first.
+
 ### Ability icons ANIMATE, and ultimates have fixed voicelines (the player, 2026-09-03)
 
 > A fair number of the abilities, especially ultimates, essentially have minimap
