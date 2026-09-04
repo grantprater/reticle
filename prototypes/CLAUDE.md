@@ -872,6 +872,50 @@ arrays are cluster centres computed from different frame counts by different
 runs, so they differ for reasons that have nothing to do with the recordings.
 Compare the RAW medians when the question is about the recordings.
 
+### Yoru's DECOY may be a false player icon -- check this first (2026-09-03)
+
+the description:
+
+    C   a DECOY CLONE that looks like him and moves in a straight line; when
+        shot it becomes a flash
+    Q   a bounceable FLASH
+    E   a TELEPORT marker, either stationary or travelling in a straight line;
+        activating it teleports him to its location
+    X   invulnerable and INVISIBLE for the duration; nearby enemies see blue at
+        the screen edge and hear a noise. He can teleport during it
+
+**The decoy is the most consequential thing in this sitting after the teleports,
+and it is a HYPOTHESIS, not a finding.** If a decoy renders on the minimap as a
+player icon, then the widget can show a player who does not exist, moving in a
+straight line. That would break things this repo currently treats as solid:
+
+* **the roster-portrait alive count**, which CLAUDE.md calls a per-frame state
+  needing no event integration, and which is also the continuous audit of the
+  killfeed. A phantom body would desynchronise them and look like a missed
+  killfeed entry;
+* **ally/enemy identity across frames**, the next step on the position thread.
+  A decoy travelling in a straight line is exactly the trajectory a
+  nearest-to-previous matcher will happily adopt;
+* **`paint_icons.WORLD`'s self/ally/enemy classes**, which assume an icon
+  corresponds to a person. A decoy needs its own class before anything is
+  painted on a Yoru clip.
+
+**What is NOT known and must not be assumed:** whether the decoy appears on the
+minimap at all, and whether it appears to Yoru's own team the same way it
+appears to enemies. This capture is the screen with Yoru on his own
+side, so it can only answer the friendly case. The enemy case needs a different
+capture and cannot be got from this corpus.
+
+`5a63cc4fecfc` is the clip. Check it BEFORE trusting any player-icon count on
+a session with a Yoru, and record the answer here either way -- a confirmed
+"the decoy does not draw" is as valuable as the alternative and closes the
+question permanently.
+
+**The ultimate raises the mirror question: does an INVISIBLE Yoru still draw on
+his own team's minimap?** Almost certainly yes for allies, but "almost
+certainly" is how the cam-is-red mistake happened twice. It is checkable in the
+same clip.
+
 ### Waylay's kit, and a HUD element nothing has read (the player, 2026-09-03)
 
     C   a GRENADE causing movement and weapon slow on impact
@@ -954,6 +998,7 @@ of omen's abilities are teleports, and one of chamber's.*
     omen      two abilities
     chamber   one ability
     waylay    E, a RECALL teleport -- she places an anchor and returns to it
+    yoru      E, a teleport marker that may be STATIONARY OR TRAVELLING
 
 Waylay's is worth separating because it is a **two-part** teleport: placing the
 anchor is itself a deployable (so probably an icon), and the recall is the
