@@ -82,7 +82,8 @@ from reticle import metrics                                       # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
 import minimap_dynamic as md                                      # noqa: E402
 from ability_disc import find_discs                               # noqa: E402
-from paint_icons import OUT_DIR, load_done                        # noqa: E402
+from paint_icons import OUT_DIR, is_world, load_done                        # noqa: E402
+from ability_scale import calibrate                               # noqa: E402
 
 STORE = Path.home() / "reticle-store"
 
@@ -100,12 +101,6 @@ def region_mask(row, shape):
         if sub is not None:
             m[y0:y0 + bh, x0:x0 + bw] |= (sub > 127).astype(np.uint8)
     return m
-
-
-def is_world(ic):
-    """A painted non-ability object: player icons, X marks, the spike, the
-    audio ring. `paint_icons.WORLD` writes these with agent 'world'."""
-    return (ic.get("agent") or "").lower() == "world"
 
 
 def score(sid, detector, name, abilities_only=False):
@@ -197,6 +192,13 @@ def main() -> int:
     def disc(crop, g, ok, sgray, hi):
         return find_discs(g, ok)
 
+    def disc_cal(cal):
+        """The disc detector with its sizes derived from this session's own
+        self-icon radius instead of the constants eyeballed on a06f04a0059f."""
+        def f(crop, g, ok, sgray, hi):
+            return find_discs(g, ok, cal["bh_k"], area=cal["area"])
+        return f
+
     def dynamic(crop, g, ok, sgray, hi):
         return [(d["xy"][0], d["xy"][1]) for d in
                 (md.detect(crop, sgray, ok, static_gray2=hi) or [])]
@@ -207,7 +209,12 @@ def main() -> int:
         score(sid, disc, "ability_disc")
         score(sid, dynamic, "minimap_dynamic.detect")
         print("   ABILITIES only -- world objects get their own column:")
-        got = score(sid, disc, "ability_disc", abilities_only=True)
+        got = score(sid, disc, "ability_disc (constants)", abilities_only=True)
+        cal = calibrate(sid)
+        if cal:
+            print(f"   calibrated from self icon: self_r={cal['self_r']} -> "
+                  f"icon_r={cal['icon_r']}, bh_k={cal['bh_k']}, area={cal['area']}")
+            score(sid, disc_cal(cal), "ability_disc (calibrated)", abilities_only=True)
         score(sid, dynamic, "minimap_dynamic.detect", abilities_only=True)
         if got is None:
             print("   no exhaustive painted frames")

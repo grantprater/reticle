@@ -51,6 +51,76 @@ handling use elsewhere in this project). Each finished track becomes ONE
 candidate row, timestamped at its FIRST observation, carrying `n_observations`
 (frames it was seen) and `duration_ms` so a one-frame flicker
 (`--persist-min`) can be told from something that was actually placed.
+
+Two re-checks from `ability_shape.py`, added after the FIRST real run of this
+tool (`eb10db50b1fb`) came back 19 of 20 candidates `not_ability`
+------------------------------------------------------------------------------
+Both are computed once per track, on the raw frame at its onset, rather than
+from `d`'s own diff-blob -- see that module's docstring for why the blob
+shape is the wrong thing to measure (it merges with adjacent geometry, and it
+can barely register a long-placed device that baked into its own static
+reference).
+
+* **`device_glyph` (`cov`, `inner_edge`, `r`)** -- is there a real hard-edged
+  ring here. Reported, not filtered by default: it is scoped to small
+  device-glyph icons (Cypher, Deadlock) and scores real Brimstone-style
+  translucent overlays low on purpose, since those have no hard boundary at
+  any radius. `--device-inner-min` opts into dropping candidates below a
+  threshold, and it must not be turned on for a clip that can contain an
+  area/ultimate ability;
+* **`colour_local` / `colour_frac_local`** -- `blob_colour` re-scored on a
+  fixed disc at the candidate point instead of the production blob's own
+  (possibly geometry-merged) mask, which can dilute a genuinely coloured
+  object's fraction under threshold. Reported alongside the original
+  `colour`/`colour_frac` rather than replacing them, since `--colour`
+  filtering above already ran against the original by the time this is
+  computed -- a divergence between the two fields is itself worth a look.
+
+**`host_span` (`dynamic_eval.py`'s pre-top-hat raw-diff-region size, shipped
+at 77%/96% on `a06f04a0059f`) was tried here too and FAILED to transfer** --
+tested against the real `eb10db50b1fb` labels (5 confirmed
+`Cypher:Trapwire`, 45 confirmed `not_ability`) before wiring it in: 11.1%
+precision at the same threshold, barely above the 10.2% base rate. Do not
+re-try it blind here; whatever separates real from junk on the Sonic Sensor
+class does not hold for the trapwire.
+
+**`self_icon_dist` -- the fix that actually worked, and why it's a different
+KIND of check from the two above.** Line 33 above named this gap when the
+tool was built ("the player icon sitting there the whole time... No
+attempt is made here to tell those apart algorithmically") and it sat
+unaddressed until the player, reading a rendered comparison of real vs false
+candidates, named the pattern by eye: several false positives had no
+trapwire in the crop AT ALL, just his own icon. `device_glyph`/`host_span`
+are GENERIC shape/size guesses that turned out not to transfer between
+object classes; this instead reuses `reticle.minimap.self_rings` --
+already-shipped, already-validated code for a DIFFERENT job (self-position
+tracking) -- to ask a specific, answerable question: is the local player's
+own icon sitting right here. Distance from the candidate to the nearest
+fitted self-ring, on the SAME real labels: real trapwire 8.0-31.5px, false
+positives 2.6-6.5px (n=5 of 6 -- clean separation at `SELF_ICON_DIST_MIN=7`).
+**What it does NOT fix**: the sixth false positive, a circle sitting on the
+barrier/wire's own rendering below the real icon, scored 45.4px -- far from
+the self icon, for an entirely unrelated reason. That is still open. Do not
+read this check's success as evidence the OTHER problem is close to solved.
+
+**`geo_label` -- what `minimap_geometry` classification says is under the
+candidate, found checking the hunch that "quite a few" candidates on
+`79a706a7ce4c` (the bigmap Cypher session) were off the map entirely.**
+Two real, different things turned up:
+
+* **3 candidates sit on VOID outright** -- `searchable()` is supposed to make
+  this impossible, so this is a genuine (small, low-`n_observations`) leak,
+  most likely `floor_mask`'s own dilation margin admitting a thin
+  void-adjacent strip. Not fixed here; recorded so it isn't mistaken for
+  something else next time it's seen.
+* **PLANT (bomb site) is a strong prior for junk, NOT a safe exclusion.**
+  15 of 68 candidates here sit on a plant zone and the player called every one of
+  them `not_ability` -- but checked against every session with confirmed real
+  labels, 1 of 53 real abilities on `a06f04a0059f` and 1 of 35 on
+  `5822b6646448` DO sit on a plant zone. Excluding it outright would be the
+  exact population-mismatch mistake this project has made before (*0 of 254
+  hand-marked icons sit on a HOLE* nearly cut holes wholesale) in a new
+  costume, so `geo_label` is reported, not filtered.
 """
 from __future__ import annotations
 
@@ -65,8 +135,21 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle.profiles import get_profile                          # noqa: E402
+from reticle import minimap as mm                                 # noqa: E402
 import minimap_dynamic as md                                      # noqa: E402
 from minimap_temporal import usable, drawn                        # noqa: E402
+import ability_shape as ashape                                    # noqa: E402
+
+#: Below this, a candidate is almost certainly the local player's OWN icon,
+#: not a placed device -- see ability_shape.py / scan() for how this was
+#: found and what it does and does not fix.
+SELF_ICON_DIST_MIN = 7.0
+
+#: minimap_geometry.py's label enum, by value -- NOT re-imported, because that
+#: module also exports unrelated same-valued constants (LINE_CLOSE=5 collided
+#: with PLANT=5 once already, 2026-09-02). Kept in sync by hand; it is a
+#: closed set that has not changed since the module was written.
+GEO_LABEL_NAMES = {0: "VOID", 1: "FLOOR", 2: "HOLE", 3: "BORDER", 4: "BOXEDGE", 5: "PLANT"}
 
 STORE = Path.home() / "reticle-store"
 
@@ -78,7 +161,8 @@ TRACK_PX = 10
 TRACK_GAP_MS = 600
 
 
-def scan(sid, step_ms=150, persist_min=2, colour=None):
+def scan(sid, step_ms=150, persist_min=2, colour=None, device_inner_min=None,
+         drop_self_icon=False):
     man = json.loads((STORE / "manifests" / f"{sid}.json").read_text())
     src = man["source"]
     fps = float(src["fps"])
@@ -141,6 +225,18 @@ def scan(sid, step_ms=150, persist_min=2, colour=None):
 
         for i, d in enumerate(dets):
             if i not in matched:
+                # Onset-only, on the RAW frame -- see ability_shape.py for why
+                # this must not be derived from d's own diff-blob.
+                x0i, y0i = int(round(d["xy"][0])), int(round(d["xy"][1]))
+                d["device"] = ashape.device_glyph_score(crop, x0i, y0i)
+                d["colour_local"], d["colour_frac_local"] = ashape.local_colour(
+                    crop, x0i, y0i)
+                d["geo_label"] = int(labels[y0i, x0i]) if (0 <= y0i < labels.shape[0]
+                                                           and 0 <= x0i < labels.shape[1]) else None
+                self_rings = mm.self_rings(crop, floor)
+                d["self_icon_dist"] = (
+                    min(float(np.hypot(rx - x0i, ry - y0i)) for _a, rx, ry in self_rings)
+                    if self_rings else None)
                 open_tracks.append({"x": d["xy"][0], "y": d["xy"][1],
                                     "t0": t, "t_last": t, "n": 1, "rep": d})
         t += step_ms
@@ -152,16 +248,31 @@ def scan(sid, step_ms=150, persist_min=2, colour=None):
               f"unreadable (minimap not drawn / not usable there)")
 
     out = []
+    n_device_dropped = 0
+    n_self_dropped = 0
     for tr in closed:
         if tr["n"] < persist_min:
             continue
         d = tr["rep"]
+        if device_inner_min is not None and d["device"]["inner_edge"] < device_inner_min:
+            n_device_dropped += 1
+            continue
+        sd = d["self_icon_dist"]
+        if drop_self_icon and sd is not None and sd < SELF_ICON_DIST_MIN:
+            n_self_dropped += 1
+            continue
         bw, bh = d["box"][2], d["box"][3]
         out.append({
             "session_id": sid, "t_ms": round(tr["t0"]),
             "x": int(d["xy"][0]), "y": int(d["xy"][1]),
             "roi": [mx0, my0, mx1, my1],
             "colour": d["colour"], "colour_frac": round(d["colour_frac"], 3),
+            "colour_local": d["colour_local"],
+            "colour_frac_local": round(d["colour_frac_local"], 3),
+            "device_cov": d["device"]["cov"], "device_inner_edge": d["device"]["inner_edge"],
+            "device_r": d["device"]["r"],
+            "self_icon_dist": round(sd, 2) if sd is not None else None,
+            "geo_label": GEO_LABEL_NAMES.get(d["geo_label"], d["geo_label"]),
             "area": d["area"], "box": list(d["box"]),
             "diff_min": md.DIFF_MIN,
             "aspect": round(max(bw, bh) / max(1, min(bw, bh)), 2),
@@ -171,6 +282,12 @@ def scan(sid, step_ms=150, persist_min=2, colour=None):
             "uncertain": False,
             "by": "claude",
         })
+    if n_device_dropped:
+        print(f"  --device-inner-min dropped {n_device_dropped} candidate(s) below threshold "
+              f"-- do not use this on a clip that can contain an area/ultimate overlay")
+    if n_self_dropped:
+        print(f"  --drop-self-icon dropped {n_self_dropped} candidate(s) within "
+              f"{SELF_ICON_DIST_MIN}px of the fitted self-icon position")
     out.sort(key=lambda r: r["t_ms"])
     return out
 
@@ -185,12 +302,23 @@ def main() -> int:
     ap.add_argument("--colour", default=None,
                     help="only keep blobs of this colour, e.g. 'none'; default keeps all, "
                          "since a controlled clip may show a team-coloured controlled ability")
+    ap.add_argument("--device-inner-min", type=float, default=None,
+                    help="drop candidates below this interior-edge-density score "
+                         "(see ability_shape.py). SCOPED TO DEVICE-GLYPH ICONS "
+                         "(Cypher, Deadlock) -- do not use on a clip that can contain "
+                         "an area/ultimate overlay, which scores low on purpose")
+    ap.add_argument("--drop-self-icon", action="store_true",
+                    help="drop candidates within SELF_ICON_DIST_MIN of the fitted self-icon "
+                         "position -- validated 2026-09-02 on eb10db50b1fb (5/5 real trapwire "
+                         "kept, 5/6 self-icon false positives dropped); does NOT catch a real "
+                         "object that merely sits near the barrier/wire rendering")
     ap.add_argument("--dry-run", action="store_true",
                     help="scan and report, but do not write the candidate file")
     args = ap.parse_args()
 
     rows = scan(args.session, step_ms=args.step_ms, persist_min=args.persist_min,
-                colour=args.colour)
+                colour=args.colour, device_inner_min=args.device_inner_min,
+                drop_self_icon=args.drop_self_icon)
     print(f"{len(rows)} candidate objects found "
           f"(n_observations {min((r['n_observations'] for r in rows), default=0)}-"
           f"{max((r['n_observations'] for r in rows), default=0)})")

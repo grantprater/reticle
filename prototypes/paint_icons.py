@@ -137,6 +137,20 @@ WORLD = ["world:self", "world:ally", "world:enemy", "world:question_mark",
          "world:x_mark", "world:spike", "world:audio_ring", "world:other"]
 
 
+def is_world(ic):
+    """A painted NON-ability object: player icons, X marks, the spike, the
+    audio ring -- anything in `WORLD`, which is written with agent 'world'.
+
+    Lives here, beside the list that defines the class, rather than in a
+    scorer: `paint_eval` and `ability_scale` both need it and both already
+    import from this module, and having it in `paint_eval` made those two
+    import each other at module level -- a cycle that stopped
+    `ability_scale.py` running at all.
+    """
+    return (ic.get("agent") or "").lower() == "world"
+
+
+
 def load_done(path: Path):
     """Frames already answered, last write winning -- the store convention."""
     if not path.is_file():
