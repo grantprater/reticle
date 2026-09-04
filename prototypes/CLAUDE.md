@@ -774,6 +774,30 @@ Note also that the gate is not always "needs a kill": Sage's is an ally state,
 and an ally who has taken damage is unobtainable in a solo custom game for a
 different reason than a kill is. Do not encode this as one flag.
 
+**And there are TWO kinds of gate, which must not be collapsed.** the player, with
+the Skye clip: her ultimate *requires enemies to be alive to track*. That is
+not "cannot cast" -- the ult goes off and the seekers exist. It is **cast but
+UNREPRESENTATIVE**: with nothing to track, a seeker will not travel the way it
+does in a real round.
+
+    NOT CASTABLE     no observation at all. Absence is uninformative.
+                     clove, reyna, sage
+    CASTABLE BUT     the ARTWORK is valid -- an icon's appearance does not
+    UNREPRESENTATIVE depend on there being a target. Its MOTION, LIFETIME and
+                     final position do not transfer.
+                     skye's ultimate
+
+The distinction is load-bearing because the two families of evidence this
+corpus produces are affected differently. A template bank built on artwork can
+use an unrepresentative cast; anything using `n_observations`, `duration_ms` or
+the translation invariant cannot. `ability_eval`'s lifetime gate is exactly the
+second kind, and it is the feature that doubled precision -- so feeding it a
+solo-cast seeker would poison the number that currently works best.
+
+Same caution applies to any MOVING icon cast with no target: Sova's drone and
+Skye's seekers are the two known, and neither has been recorded moving as it
+would in a real round.
+
 Both clips are short for exactly this reason (`28f53bfddbbe` 0:20,
 `af09094c0729` 0:24), so clip LENGTH is itself a hint that a kit was only
 partly exercised.
