@@ -43,6 +43,12 @@ results. What follows is only what the next session needs first.
    like a find. It is the whole 7-fragment cluster in the Tejo clip. Same
    treatment as the killfeed's occlusion mask; also re-check
    `minimap_cone.py`, which fits ONE cone and can lock onto a drone wedge.
+   **But masking is the side effect, not the goal.** the player: *there would only
+   be a hud like that if a player ability is currently active, and the cause
+   can be known, there are only a few.* So recognise it and emit
+   "<ability> active t0..t1" -- a cast time and duration read off the pixels,
+   which is what `ability_hud.py`'s tray was for and cannot give while infinite
+   abilities pins it full. Small closed set, local player only.
 4. **Fix `self_icon_dist` returning NULL.** It is the strongest filter available
    (17 of Tejo's 45 candidates are within 20 px of the self icon) but it is
    NULL on 25 of Astra's 43, because it only computes where

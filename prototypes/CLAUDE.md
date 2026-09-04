@@ -901,7 +901,31 @@ Four consequences, and the first is the important one:
   exactly like a find. The seven fragments at t=28350 are a real detection of a
   real ability and a WRONG position, simultaneously.
 
-  So it needs an occlusion rule, not a class. And a caution for
+  **But do not stop at masking it, because the player inverted this immediately:**
+  *there would only be a hud like that if a player ability is currently active,
+  and the cause can be known, there are only a few.*
+
+  So the overlay is an EVENT, not just a nuisance. Three things follow and they
+  are the most useful consequence of the whole Tejo thread:
+
+  * **its presence means the local player has an ability ACTIVE**, with a start
+    and an end read directly off the pixels -- that is a cast time and a
+    duration, which is exactly what `ability_hud.py`'s tray was built to give
+    and cannot in these clips, because infinite abilities pins the tray full;
+  * **the cause is identifiable from a SMALL CLOSED SET.** Only a few abilities
+    draw a HUD of this kind, so this is a bounded classification, not an open
+    one -- the same shape as the digit templates and the twenty-five agent-name
+    bitmaps, both of which worked;
+  * **it is the LOCAL player only.** An ally's or enemy's active ability draws
+    nothing on the HUD, so this channel is about his own actions. That is a
+    limit, not a defect: his own casts are the half of the event log that feeds
+    the self track and the duel context around it.
+
+  Treat it as: recognise the overlay, emit "<ability> active from t0 to t1",
+  and mask the widget region for its duration. The mask is a side effect of the
+  identification, not the goal.
+
+  And a caution for
   `prototypes/minimap_cone.py`, which fits one cone seeded from the largest
   `self_rings` ring: a drone wedge drawn over the widget is a second wedge the
   fit can lock onto. `CONE_HALF_ANGLE_DEG=56` was measured on 23 samples from
