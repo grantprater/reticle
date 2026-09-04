@@ -741,6 +741,10 @@ infinite abilities makes the tray unreadable, so the only anchor is the icon's
 own first appearance, which lags the cast by however long the projectile takes.
 And "after the first couple" means the earliest clips are UNORDERED; applying
 the prior to them would silently mislabel. Mark them, do not assume.
+**Provisionally those two are Tejo (`c0b63335e635`) and Viper
+(`6bb88dba5d2c`)** -- the recollection, to be verified against the clips;
+they are also the first two recorded, and every clip after them runs the roster
+alphabetically, which is consistent.
 
 **Per-agent gating known so far** -- extend this as it is found, because an
 absent icon means nothing without it:
