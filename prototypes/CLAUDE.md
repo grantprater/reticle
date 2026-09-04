@@ -872,6 +872,49 @@ arrays are cluster centres computed from different frame counts by different
 runs, so they differ for reasons that have nothing to do with the recordings.
 Compare the RAW medians when the question is about the recordings.
 
+### First scan of the demo corpus: candidates are not events (2026-09-03)
+
+26 clips rebuilt with `--geometry-from a06f04a0059f` (which removes the parked
+vision cone the clips' own medians bake in) and scanned with
+`scan_ability_clip.py`. First numbers, and the shape of the problem:
+
+    c0b63335e635 tejo    45 candidates -> 28 events   4 fragmented into >=3
+    c7674c699ad0 astra   43 candidates -> 33 events   1 fragmented into >=3
+    a7ce88bf341c breach  50 candidates
+
+**A candidate is not an object, and an object is not an event.** The clearest
+case is Tejo at t=28350 ms: SEVEN candidates share that onset within 300 ms and
+sit adjacent (x 227-270, y 230-319). Rendering the widget there shows why --
+one large pale wedge appears and the blob detector proposes pieces of its edge.
+That is the icon-vs-region split in the taxonomy, arriving as a measurement:
+an icon detector run over a region returns the region's fragments.
+
+**Grouping on (shared onset, adjacency) is the cheap fix and it belongs before
+the labeller.** Asking the player about seven fragments of one object spends his
+time seven times for one answer, and it also breaks the arithmetic -- a
+per-candidate precision figure counts one real object as seven.
+
+**`self_icon_dist` explains a large share of what remains**, as it did when it
+was first built:
+
+    tejo    17 of 45 candidates within 20 px of the self icon (38%)
+    astra   12 of 43 -- but 25 rows have self_icon_dist NULL
+
+The null rate on Astra is its own defect: the feature is only computable where
+`minimap.self_rings` finds the player, so on the clips where it does not, the
+strongest available filter is simply absent rather than negative. Fixing that
+is worth more than another shape feature.
+
+**Read the first render honestly, because the first reading of it was wrong.**
+The contact sheet shows many panels of pale yellow chevron texture and they
+look exactly like static map hatching; the conclusion drawn from the sheet
+alone was "mostly map texture, ~15% precision". The candidate TABLE then showed
+those panels share one onset, and the rendered frames showed a live object
+appearing at that instant. **A contact sheet of crops cannot distinguish a
+static texture from a large object seen through small windows** -- it has no
+time axis and no context. Look at the whole widget over time before judging a
+scan's output, not only the crops it proposes.
+
 ### Uncertainty is ACCEPTABLE, and that ranks everything above (the player, 2026-09-03)
 
 Said after a run of notes here each treating an open question as a blocker:
