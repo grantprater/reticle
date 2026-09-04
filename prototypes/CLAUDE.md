@@ -995,6 +995,48 @@ static texture from a large object seen through small windows** -- it has no
 time axis and no context. Look at the whole widget over time before judging a
 scan's output, not only the crops it proposes.
 
+### `self_icon_dist` is NULL for a SAMPLING reason, not a detection one
+
+the player, on the ranked corpus: *I thought we had template matching for player
+minimap icons working?* Worth answering precisely, because the answer is a bug.
+
+**What exists.** `minimap_portrait` does composition matching (83.5% held-out,
+88.6% leave-one-out over five agents) -- but that IDENTIFIES which agent an
+icon is, given a location. Finding the location is `reticle.minimap.self_rings`
+/ `ally_rings`, and `minimap_ring_fit` for enemies. `self_rings` is not template
+matching at all: it is an absolute BGR threshold on the self colour,
+intersected with `floor_mask`.
+
+**Measured, so the obvious suspects can be dropped.** 60 frames per clip:
+
+    session       agent     self_rings ok   without the floor gate
+    c0b63335e635  tejo         100.0%              100.0%
+    dae6f33f3f48  killjoy       96.7%               96.7%
+    64d0fb783be2  vyse          95.0%               95.0%
+    c7674c699ad0  astra         70.0%               71.7%
+
+The floor gate costs 1.7% at worst and is NOT the problem, and the colour gate
+finds the player in 70-100% of frames. Neither explains `self_icon_dist` being
+NULL on 25 of Astra's 43 candidate rows (58%).
+
+**The real cause: it is computed ONCE, at the track's BIRTH frame**
+(`scan_ability_clip.py`, in the branch that opens a new track) and never
+updated. One frame where `self_rings` misses sets the field NULL for that whole
+track, however many later frames would have answered.
+
+**And the two failures are CORRELATED, which is why 58% > 30%.** A candidate is
+disproportionately born in a frame where something is covering the widget -- an
+ability, an overlay, a flash -- and that is exactly when the self colour is
+hidden too. So the sampling takes its one measurement at the moment it is least
+likely to succeed. That is worse than random sampling, not equivalent to it.
+
+**Fix: take the min over the track's frames, not the birth frame.** The feature
+already earns its keep -- the reading of the gallery is that the bottom band
+is cleanly player icons -- so this is coverage, and the cheapest real gain in
+this channel. **Generalise it**: any per-track feature measured at one frame
+inherits that frame's failures, and a track has many frames precisely so it
+does not have to.
+
 ### The ranked corpus FAILED, and the player named the two survivors (2026-09-03)
 
 713 events across 23 demo clips were grouped, scored and published as a gallery
@@ -1064,6 +1106,55 @@ that shelved it.
 stop classifying blobs, explain the frame. Both survivors are layers we can
 model -- the static map and the cone -- so they should be SUBTRACTED, not
 filtered after the fact by a feature that hopes to correlate with them.
+
+### Ability icons ANIMATE, and ultimates have fixed voicelines (the player, 2026-09-03)
+
+> A fair number of the abilities, especially ultimates, essentially have minimap
+> icon animations, so that's something we probably need to deal with temporally.
+> There are also fixed agent voicelines for ultimates.
+
+**Animation breaks template matching in a way none of the taxonomy's axes
+covered.** Duration, mode and portions-extending-past-the-icon all describe a
+STATIC appearance that changes state. An animating icon has no single
+appearance to match, and the shipped approach for icon identity
+(`minimap_portrait`'s composition matching) assumes one. Three consequences:
+
+* **a template bank needs a temporal entry per animated class**, or an
+  invariant that survives the animation -- the same "find the invariant part"
+  move that made composition matching work when pixel correlation failed;
+* **it partly explains the FRAGMENTATION already measured.** An icon whose
+  appearance changes frame to frame will not track cleanly, so one object
+  breaks into several short candidates -- which the lifetime feature then scores
+  DOWN, exactly backwards, since animation is evidence of a real ability rather
+  than of noise;
+* **detection may be EASIER than identity here.** A patch of widget changing
+  every frame in a structured way is conspicuous; deciding which ultimate it is
+  is the hard half.
+
+**The voicelines are the more valuable half, and they unblock a parked thread.**
+`prototypes/audio_probe.py` established that every capture carries a stereo
+48 kHz AAC track and that ONSET detection is dead -- marks sit where random
+times sit at every tolerance tried. Its conclusion was that audio needs
+IDENTITY, a matched filter on one sound, and that a matched filter needs a
+reference cut at a known cast time, which infinite abilities made hard to get.
+
+**A fixed per-agent ultimate voiceline is the ideal matched-filter target**, and
+a better one than the SFX that thread was aiming at:
+
+* it is long, loud and spectrally distinctive, where a device-placement click is
+  short and quiet;
+* it is a CLOSED SET, one or a few per agent -- the same shape as the digit
+  templates and the twenty-five agent-name bitmaps, both of which worked;
+* it announces an ULTIMATE, the highest-stakes event in a round and the one
+  most worth having in the log;
+* **it needs no minimap at all**, so it reaches ultimates that draw nothing --
+  the negative class this corpus cannot otherwise touch;
+* and the demo clips are a clean reference source: one agent per clip, ults cast
+  deliberately, little else happening.
+
+Enemy ultimate voicelines are audible to the enemy team in-game, so this may
+also reach events on the other side. Unconfirmed -- ask the player rather than
+assume.
 
 ### Uncertainty is ACCEPTABLE, and that ranks everything above (the player, 2026-09-03)
 
