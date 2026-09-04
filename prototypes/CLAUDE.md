@@ -659,6 +659,75 @@ Unmeasured so far: the radius itself, in minimap pixels and in metres. The
 region pass is the cheapest way to get it -- paint the circle once or twice and
 read it off, rather than deriving it.
 
+### The one-agent-per-clip demo corpus, recorded 2026-09-03
+
+the player recorded a sitting of controlled clips on **Ascent**, one agent each, on
+an alt account with every agent unlocked, custom game, infinite abilities ON.
+Ingested `valorant-16x9-bigmap`, tagged `ability-demo,<agent>`. This is the
+template-bank ground truth the candidate-anchored label store structurally
+cannot give: the player knows what he cast, so the labels are free and exact.
+
+**Check every clip with `prototypes/clip_preflight.py` BEFORE ingesting.** The
+first take of the sitting was recorded with minimap orientation left on
+side-based, so the entire widget was rotated 180 degrees -- checklist item 8,
+the setting that breaks silently, arriving for real. Nothing downstream would
+have said so; the map simply would not have matched Ascent's geometry. Caught
+in one render, and the same check then cleared fifteen more clips in seconds.
+
+Two limits on what a solo custom game can record, both from the player, neither
+recoverable from the footage:
+
+* **some abilities cannot be demonstrated alone.** Clove's clip is 20s because
+  two of her abilities require KILLS. Any agent whose kit is conditioned on
+  kills, deaths or teammates is under-covered by this corpus by construction,
+  and a class missing from it is not evidence the class draws nothing;
+* **infinite abilities makes the ability TRAY unreadable** (already recorded
+  below): a demo clip is the worst place to read cast times and the best place
+  to read artwork. Do not try to get both from one clip.
+
+**A negative result from the sitting, and it is a real one: Neon's E (High
+Gear -- speed and slide) has NO minimap icon.** the player, unprompted, after a
+bright vertical band down the left edge of the frame tripped the pre-flight's
+bounding box: that band is the ability's own screen effect, and the widget
+shows nothing. Same class of fact as *ult orbs have no minimap icon* -- knowing
+which abilities draw nothing bounds the class list from below, and only a
+controlled clip can establish it.
+
+**Contamination is REAL in these clips and it is the player, not the ability.**
+`c0b63335e635` (Tejo, 38s) disagrees with the full Ascent match's geometry on
+2.07% of the ROI, and the largest blob is 2271 px at (215,183), 45x107,
+classified `box edge` in the clip where the match says `floor`. That is the
+own icon and vision cone, stationary long enough to survive the median and be
+baked in as map structure. Smaller blobs are the callout text along the top
+edge. The capture-side fix is to KEEP MOVING while placing; the post-hoc fix is
+to borrow the full match's geometry, for which see the next note.
+
+**A donor's lighting reference IS transferable between recordings, measured.**
+NOTES has `--geometry-from` down as unresolved -- it fixed contamination on
+`2ba870ccbd50` but introduced large false positives from a pixel-value mismatch
+between recordings that was never root caused. Tested directly here, medianing
+the raw widget from each recording and comparing gray on the 73061 pixels the
+donor calls floor:
+
+    clip                     mean|d|   p95|d|    bias
+    c0b63335e635 (Tejo)         3.72     18.0   +3.57
+    6bb88dba5d2c (Viper)        2.31     15.0   +2.15
+
+Small, and a consistent slight positive bias. So a different account, a
+different day and a different encode still put the same map pixel at nearly the
+same value, and the `2ba870ccbd50` failure was NOT a general property of
+borrowing across recordings. **Do not read this as a clearance for that
+session** -- it says the mechanism blamed there is absent HERE, on Ascent, on
+these clips; `2ba870ccbd50` is a different map and profile and remains
+unexplained.
+
+Caution on how this was measured, because it nearly went the other way: the
+same comparison run on the two sessions' STORED `lo_gray`/`hi_gray` gives mean
+12.1 / p95 45.0, three times worse, and would have said the opposite. Those
+arrays are cluster centres computed from different frame counts by different
+runs, so they differ for reasons that have nothing to do with the recordings.
+Compare the RAW medians when the question is about the recordings.
+
 ### the domain notes on the minimap -- not recoverable from the pixels
 
 * **A Cypher cam ROTATES**, and it is the **only other moving icon** on the
