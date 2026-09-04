@@ -872,6 +872,40 @@ arrays are cluster centres computed from different frame counts by different
 runs, so they differ for reasons that have nothing to do with the recordings.
 Compare the RAW medians when the question is about the recordings.
 
+### Uncertainty is ACCEPTABLE, and that ranks everything above (the player, 2026-09-03)
+
+Said after a run of notes here each treating an open question as a blocker:
+
+> It's acceptable to have some degree of uncertainty as well. You won't always
+> know which abilities have been used or even what abilities they had to begin
+> with. This is just recording the known event log as well as we can.
+
+**Read this as a calibration on the whole ability line, because the notes above
+were drifting the wrong way.** The deliverable is an event log, not a complete
+ontology. "An ability icon appeared at (x, y) at t, class unknown" is a usable
+event -- it has a time, a position and a team-ish prior from who is alive. It
+does not become useful only once the class list is closed. And the class list
+will never close: agents are added, an enemy's kit is only known from the
+roster read, and abilities that draw nothing are unobservable by construction.
+
+So the ordering that follows:
+
+* **ship partial identification.** Detect > localise > classify, in that order
+  of confidence, and emit what is known at each level rather than waiting;
+* **do not gate the event log on the taxonomy.** The taxonomy improves the log;
+  it is not a precondition for it;
+* **an unresolved class is a cost, not a fault.** Several notes above imply a
+  question must be settled before proceeding. Most need not be.
+
+**One distinction this does NOT dissolve**, and it is why the Yoru decoy note
+still stands as written: not knowing which ability an icon is costs precision
+in a log that is honest about it. An object that silently CORRUPTS a signal
+already trusted elsewhere -- a phantom player icon desynchronising the
+roster-portrait alive count, which is also the killfeed's continuous audit --
+is a different category, because nothing downstream would report lower
+confidence. Uncertainty that is visible is affordable; uncertainty that
+disguises itself as a confident number is the thing this repo keeps paying for.
+
 ### Yoru's DECOY may be a false player icon -- check this first (2026-09-03)
 
 the description:
