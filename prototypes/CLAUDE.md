@@ -872,6 +872,33 @@ arrays are cluster centres computed from different frame counts by different
 runs, so they differ for reasons that have nothing to do with the recordings.
 Compare the RAW medians when the question is about the recordings.
 
+### Waylay's kit, and a HUD element nothing has read (the player, 2026-09-03)
+
+    C   a GRENADE causing movement and weapon slow on impact
+    Q   a toggleable DASH or double dash; the first can go UPWARD
+    E   a RECALL TELEPORT -- place an anchor, instantly return to it for the
+        duration. Recharged on KILLS: two kills refills it, and there is an
+        ICON ABOVE IT IN THE HUD indicating that
+    X   a RECTANGULAR area that stuns like the grenade, slowing enemies and
+        their fire rate
+
+Three things to take from it beyond the teleport, which is filed above:
+
+* **a REGION can be RECTANGULAR.** Every region in this document so far is a
+  circle (smokes, Vyse's ult, the audio ring) or a wall (Sage, Viper,
+  Deadlock's mesh). A rectangle is neither, and it kills any thought of
+  identifying the region family by fitting one shape -- the same mistake the
+  icon branch already made with `minimap_ring_fit` fitting a circle;
+* **the ability TRAY carries a charge-state icon**, drawn above the ability.
+  `ability_hud.py` reads the tray's fill levels and quantises them cleanly to
+  0.00 / 0.50 / 1.00; nothing knows about a second indicator sitting above a
+  slot. Worth checking it does not corrupt the fill read, and worth having --
+  "this ability is kill-charged and currently ready" is round state;
+* **a grenade again**, consistent with the rule that grenades, flashes and
+  molotovs are the common no-icon family. Waylay's C and X are both damage/slow
+  effects and the X is explicitly an AREA, so it is the more likely of the two
+  to draw something.
+
 ### Ability DESCRIPTIONS are worth more than more clips (the player, 2026-09-03)
 
 the player, sending the Vyse clip: *I should have given ability descriptions.* He
@@ -926,6 +953,13 @@ of omen's abilities are teleports, and one of chamber's.*
     veto      one ability
     omen      two abilities
     chamber   one ability
+    waylay    E, a RECALL teleport -- she places an anchor and returns to it
+
+Waylay's is worth separating because it is a **two-part** teleport: placing the
+anchor is itself a deployable (so probably an icon), and the recall is the
+discontinuity. Chamber's Rendezvous is the same shape. So a teleport may
+announce itself on the widget before it happens, which is a detectable
+precondition rather than only a jump to explain after the fact.
 
 **This is not an ability-icon note. It is a defect in the shipped position
 track, and it was invisible because the player has not played these agents on any
@@ -956,6 +990,18 @@ Three consequences, in order of how soon they bite:
   meaningless across a teleport -- the player did not cross the intervening
   ground and was never exposed on it. A teleport must break the path, not
   contribute a huge dA/ds spike.
+
+**And the jump metric conflates a THIRD thing: dashes.** Waylay's Q is a
+toggleable dash or double dash. A dash is continuous motion, unlike a teleport,
+but at 15 Hz it can easily exceed 60 px/s between samples and be counted as a
+fault. So `jumps > 60 px/s` is currently measuring tracking error, teleports
+and dashes together, and only the first is a defect. Jett and Neon are the
+obvious other dash cases; Neon's slide is already recorded here as drawing
+nothing on the widget, which does not mean it does not MOVE her.
+
+the player also notes the first part of her dash **can go upward** -- which the
+minimap cannot show at all, the same standing limit as jump peeks being
+invisible. Vertical displacement is simply absent from this channel.
 
 **What to do about it is not yet decided, and should not be guessed.** The
 honest options are to detect the discontinuity from the track itself (a jump
