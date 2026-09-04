@@ -723,7 +723,14 @@ pixels:
 * **every ability cast** makes absence informative. An agent's kit is a known
   closed set, so "cast four, found two icons" is direct evidence that the other
   two draw nothing -- the negative class becomes free rather than needing its
-  own labelling pass;
+  own labelling pass. **But it is every ability he CAN cast, and that is the
+  whole caveat.** the player, correcting the sentence above: Clove needs a KILL for
+  two abilities and a DEATH for her ultimate; Reyna's need kills as well. So a
+  missing icon has TWO possible causes -- the ability draws nothing, or it was
+  never castable solo -- and they are not separable from the footage. Treat
+  kill/death-gated abilities as UNTESTED, never as negatives. Getting this
+  wrong would put a real icon class into the negative list permanently, which
+  is the population trap this repo has already paid for twice;
 * **cast in order** makes identity largely derivable. The icons that appear
   form a SUBSEQUENCE of the agent's ability order, so the k-th icon is not
   necessarily the k-th ability, but the relative order is fixed. That is a
@@ -734,6 +741,16 @@ infinite abilities makes the tray unreadable, so the only anchor is the icon's
 own first appearance, which lags the cast by however long the projectile takes.
 And "after the first couple" means the earliest clips are UNORDERED; applying
 the prior to them would silently mislabel. Mark them, do not assume.
+
+**Per-agent gating known so far** -- extend this as it is found, because an
+absent icon means nothing without it:
+
+    clove    two abilities need a KILL; the ultimate needs a DEATH
+    reyna    abilities need KILLS (soul orbs)
+
+Both clips are short for exactly this reason (`28f53bfddbbe` 0:20,
+`af09094c0729` 0:24), so clip LENGTH is itself a hint that a kit was only
+partly exercised.
 
 **Contamination is REAL in these clips and it is the player, not the ability.**
 `c0b63335e635` (Tejo, 38s) disagrees with the full Ascent match's geometry on
