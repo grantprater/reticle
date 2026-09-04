@@ -739,12 +739,23 @@ pixels:
 Two cautions before leaning on the ordering. It does NOT give cast times --
 infinite abilities makes the tray unreadable, so the only anchor is the icon's
 own first appearance, which lags the cast by however long the projectile takes.
-And "after the first couple" means the earliest clips are UNORDERED; applying
-the prior to them would silently mislabel. Mark them, do not assume.
-**Provisionally those two are Tejo (`c0b63335e635`) and Viper
-(`6bb88dba5d2c`)** -- the recollection, to be verified against the clips;
-they are also the first two recorded, and every clip after them runs the roster
-alphabetically, which is consistent.
+And "after the first couple" means SOME early clip may be UNORDERED; applying
+the prior to it would silently mislabel.
+
+**Which ones is OPEN, and recollection is the wrong instrument for it.** Asked,
+the player first said Tejo (`c0b63335e635`) and Viper (`6bb88dba5d2c`), then revised
+to Viper probably being in order and Tejo possibly too. That is not a
+contradiction to resolve by asking a third time -- it is a memory of a detail
+that was never deliberate at the time, and the answer is in the footage.
+
+**Verify it instead, and the check is nearly free.** Every agent's kit is a
+known closed set and the icons that appear are a subsequence of the cast order,
+so once a clip's icons are detected and identified, the observed sequence
+either is or is not consistent with the slot order. Run that test on all of
+them rather than trusting any clip's ordering: it costs one comparison per
+clip, it covers the ones nobody is unsure about, and it would also catch a
+mis-tagged agent. Until it has run, treat the ordering prior as UNVERIFIED
+everywhere rather than as verified for seventeen clips and doubtful for two.
 
 **Per-agent gating known so far** -- extend this as it is found, because an
 absent icon means nothing without it:
