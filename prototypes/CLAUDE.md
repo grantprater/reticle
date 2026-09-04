@@ -762,6 +762,17 @@ absent icon means nothing without it:
 
     clove    two abilities need a KILL; the ultimate needs a DEATH
     reyna    abilities need KILLS (soul orbs)
+    sage     E needs an ALLY WHO HAS TAKEN DAMAGE; the ultimate needs a DEAD ALLY
+
+Sage is the sharpest case so far and worth stating in full, because it shows
+the gating is not a minor asterisk: only her two ORB abilities are castable
+solo, and both are REGIONS -- the wall is the multi-segment object already
+recorded at aspect 9.50. So her clip is evidence about regions and says
+NOTHING about her other two, in either direction.
+
+Note also that the gate is not always "needs a kill": Sage's is an ally state,
+and an ally who has taken damage is unobtainable in a solo custom game for a
+different reason than a kill is. Do not encode this as one flag.
 
 Both clips are short for exactly this reason (`28f53bfddbbe` 0:20,
 `af09094c0729` 0:24), so clip LENGTH is itself a hint that a kit was only
