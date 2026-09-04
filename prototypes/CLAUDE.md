@@ -794,9 +794,30 @@ the translation invariant cannot. `ability_eval`'s lifetime gate is exactly the
 second kind, and it is the feature that doubled precision -- so feeding it a
 solo-cast seeker would poison the number that currently works best.
 
-Same caution applies to any MOVING icon cast with no target: Sova's drone and
-Skye's seekers are the two known, and neither has been recorded moving as it
-would in a real round.
+**Corrected immediately, and the correction is the useful part.** The first
+version of this note extended the caution to "any moving icon cast with no
+target". the player, on the Sova clip: *Sova drone is controlled by the player, I
+flew it around* -- and then, unprompted, *same with fade dogs* and *and skye
+dog and birds*. So PILOTED utility is the norm and autonomous seeking is the
+exception:
+
+    piloted by the player, motion IS representative
+        sova    drone
+        fade    prowler ("dogs")
+        skye    trailblazer ("dog"), and the birds
+    autonomous, needs a target to behave normally
+        skye    ultimate (seekers)
+
+That inverts the practical consequence. The corpus DOES contain valid moving-
+icon data -- several clips of it, deliberately flown -- which is the first of
+its kind here and directly relevant to the translation invariant, since
+`motion()` currently rests on "a placed ability never translates" with the Omen
+smoke as its only known counterexample. A piloted drone is a second, and one
+that translates for its whole lifetime rather than briefly.
+
+The generalisation was mine and it was wrong in the direction that would have
+discarded good data. Ask which specific abilities are autonomous rather than
+inferring it from "it moves".
 
 Both clips are short for exactly this reason (`28f53bfddbbe` 0:20,
 `af09094c0729` 0:24), so clip LENGTH is itself a hint that a kit was only
