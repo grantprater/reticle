@@ -885,31 +885,44 @@ Asked what the pale wedge in `c0b63335e635` at t=28350 ms is:
 
 Four consequences, and the first is the important one:
 
-* **THE WIDGET CAN SHOW MORE THAN ONE VIEW CONE.** `prototypes/minimap_cone.py`
-  fits the cone by seeding from the largest `self_rings` ring -- one cone,
-  anchored to the player. A controllable drone draws a SECOND cone that moves
-  independently of him, and Sova's drone is presumably the same. Everything
-  built on the cone has to be re-examined against that: the facing fit could
-  lock onto the wrong wedge, `CONE_HALF_ANGLE_DEG=56` was measured on 23
-  samples from one clip that may or may not have contained a drone, and the
-  raycast means something different for a cone that is not the player's.
-  It also cuts the other way and is worth more than the risk: **a second cone
-  IS the drone's position and facing**, which is an event -- where the player is
-  looking WITHOUT being there;
-* **the 7-fragment object at t=28350 is a TRUE POSITIVE.** The scan found the C
-  ability, not noise. The fragmentation is a representation problem, not a
-  detection failure, which is the better of the two;
+* **IT IS AN OVERLAY THAT OVERLAPS THE MINIMAP, AND MUST NOT BE READ AS
+  MINIMAP CONTENT.** the player, correcting a first reading of it as the ability's
+  "minimap presence": *well it's an overlay, it just overlaps the minimap* ...
+  *but it shouldn't be interpreted as being on the minimap.* Confirmed by
+  rendering the whole frame with the ROI outlined -- the wedge sits inside the
+  minimap ROI, drawn near the self icon, while the drone's other UI (a large
+  golden circular map) sits centre-screen and clear of it.
+
+  **That combination is the dangerous one**: it occupies minimap pixels without
+  being minimap content, so every candidate it produces gets a confident world
+  position through the homography that means nothing at all. It is the same
+  class of hazard as the shooting-error box over the killfeed -- an occluder --
+  except that here the occluder is itself icon-coloured and moves, so it looks
+  exactly like a find. The seven fragments at t=28350 are a real detection of a
+  real ability and a WRONG position, simultaneously.
+
+  So it needs an occlusion rule, not a class. And a caution for
+  `prototypes/minimap_cone.py`, which fits one cone seeded from the largest
+  `self_rings` ring: a drone wedge drawn over the widget is a second wedge the
+  fit can lock onto. `CONE_HALF_ANGLE_DEG=56` was measured on 23 samples from
+  one clip that may or may not have contained a drone -- worth re-checking
+  before that constant is trusted further;
+* **the 7-fragment object at t=28350 detects a real ability at a meaningless
+  place.** The scan found the C ability -- so it is not noise -- but as an
+  overlay its position is screen-space, not map-space. "True positive" was the
+  first reading here and it was too generous by half;
 * **`E` and `X` PULSE.** A region that appears, vanishes and reappears in place
   breaks lifetime reasoning in a specific way: `n_observations` and
   `duration_ms` will see one pulsing ability as several short-lived objects at
   one position, and the onset-grouping proposed for fragments will split them
   by design, since each pulse is a fresh onset. Grouping needs a notion of
   "same place, repeating" as well as "same instant, adjacent";
-* **the "iPad" deployment is a full-screen map interface** used by Tejo,
-  Brimstone, Astra and others. While it is open the player is not looking at
-  the world, so main-view metrics are invalid for those frames -- the same
-  class of exclusion as spectating, and nothing detects it either. It may also
-  occlude or replace the minimap widget; unchecked.
+* **the "iPad" deployment is a large map interface** used by Tejo, Brimstone,
+  Astra and others. While it is open the player is not looking at the world, so
+  main-view metrics are invalid for those frames -- the same class of exclusion
+  as spectating, and nothing detects it either. **ANSWERED, not left open: it
+  is an overlay and it draws centre-screen**, clear of the minimap ROI on
+  `c0b63335e635` -- so it is a main-view problem, not a minimap one.
 
 ### First scan of the demo corpus: candidates are not events (2026-09-03)
 
