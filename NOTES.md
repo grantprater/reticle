@@ -21,7 +21,31 @@ tagged `ability-demo,<agent>`. **The detail lives in `prototypes/CLAUDE.md`** --
 the corpus, the per-agent gating, the taxonomy facts the player gave, and the scan
 results. What follows is only what the next session needs first.
 
-**DO THIS FIRST -- three things, in order:**
+**THE SCAN IS DONE AND THE RANKING FAILED.** 713 events were grouped, scored
+and shown to the player as a gallery ordered weakest-to-strongest. His verdict: *a
+lot of those examples are still essentially fragments of viewcone or tiny
+cracks in the minimap.* The four signals it ranked on were each measured on
+mostly Cypher trapwires over two clips and do NOT transfer to twenty-three
+agents -- so start from the two named false-positive classes, not from another
+feature.
+
+**DO THIS FIRST: kill the two survivors by MODELLING them, not filtering.**
+Both are layers we can already compute, which is the "explain the frame"
+reframe with evidence behind it now.
+
+  a. **"tiny cracks in the minimap"** -- thin dark features of the static map.
+     Test the hypothesis in `prototypes/CLAUDE.md` first, because it explains
+     why the onset signal failed to drop them: a crack is invisible unlit and
+     appears when the cone sweeps it, so it gets a FALSE onset at a FIXED
+     position. If that holds, the discriminator is whether a candidate's
+     appearance CORRELATES WITH CONE COVERAGE over time -- not a shape feature,
+     and not `ability_cone.py`'s per-pixel reference level, which was already
+     tried and did not beat the plain interval residual.
+  b. **viewcone fragments** -- `minimap_cone.py` fits the cone directly and now
+     answers on 89% of frames (the 4-of-50 figure that shelved it was a seeding
+     bug). Subtract the cone before proposing, rather than filtering after.
+
+**Then the three below, which still stand:**
 
 1. **Finish/redo the scan.** `scan_ability_clip.py` was running over all 26 when
    the session ended (~2 min each; Tejo, Astra, Breach, Chamber done). Check
