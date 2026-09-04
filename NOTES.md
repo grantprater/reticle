@@ -13,6 +13,57 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
+**2026-09-03 evening: a 26-clip one-agent-per-clip ability corpus exists, and
+the scan of it is running.** the player recorded the roster on Ascent (alt account,
+custom game, infinite abilities), one agent per clip, casting every ability he
+could, in slot order after the first couple. All ingested `valorant-16x9-bigmap`,
+tagged `ability-demo,<agent>`. **The detail lives in `prototypes/CLAUDE.md`** --
+the corpus, the per-agent gating, the taxonomy facts the player gave, and the scan
+results. What follows is only what the next session needs first.
+
+**DO THIS FIRST -- three things, in order:**
+
+1. **Finish/redo the scan.** `scan_ability_clip.py` was running over all 26 when
+   the session ended (~2 min each; Tejo, Astra, Breach, Chamber done). Check
+   `labels/ability_candidates/` for which have files. **Do NOT re-scan
+   `2ba870ccbd50`, `eb10db50b1fb`, `d95cfad5693a`, `79a706a7ce4c`** -- they
+   carry labels and re-scanning orphans them (the unstable-key defect below,
+   still unfixed).
+2. **Group candidates into EVENTS before launching any labeller.** Measured:
+   Tejo 45 candidates -> 28 events, with one region fragmenting into 7. Asking
+   the player about 7 fragments of one object spends his time 7x for one answer.
+   Grouping on (onset within ~300 ms, adjacency within ~60 px) is all it took;
+   the scratch version is not committed, write it into `prototypes/`.
+3. **Fix `self_icon_dist` returning NULL.** It is the strongest filter available
+   (17 of Tejo's 45 candidates are within 20 px of the self icon) but it is
+   NULL on 25 of Astra's 43, because it only computes where
+   `minimap.self_rings` finds the player. Worth more than another shape feature.
+
+**Then:** `label_ability.py` on the grouped events, which is where the class
+list finally gets built. the ability DESCRIPTIONS (in `prototypes/CLAUDE.md`)
+make each clip a check against a known kit rather than an open search.
+
+**Two findings from tonight that are NOT about ability icons and are worth more
+than the corpus:**
+
+* **Teleports break the shipped position track.** Veto, Omen (x2), Chamber and
+  Waylay have them. `jumps > 60 px/s` (quoted at 5.0/3.3/3.8% as a quality
+  figure) conflates tracking error, teleports AND dashes. Ally identity across
+  frames -- the next planned step -- was to be nearest-to-previous per slot,
+  which is exactly the rule a teleport breaks, and it fails silently.
+* **Yoru's decoy may draw a false player icon**, which would desynchronise the
+  roster-portrait alive count from the killfeed. `5a63cc4fecfc` answers it for
+  the friendly case; check before trusting a player count on a Yoru session.
+
+**Open question left with the player:** what the large pale wedge appearing at
+t=28350 ms in the Tejo clip is -- cone-shaped, follows facing, and it is the
+object that fragments into 7. He was looking it up when the session ended.
+
+**New tool:** `prototypes/clip_preflight.py` -- run it on every new clip before
+ingest. It caught the first take recorded with side-based minimap orientation
+(rotated 180) and then cleared 25 more in seconds.
+
+
 **NEW 2026-09-03: the ability-icon problem was REFRAMED, and three of the four
 cheapest consequences are measured.** The framing, in one line: stop classifying
 blobs and start explaining the frame — the minimap is a composite of layers we
