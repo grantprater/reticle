@@ -1004,15 +1004,33 @@ on it:
 > a lot of those examples are still essentially fragments of viewcone or tiny
 > cracks in the minimap
 
-**Record this as a failure of the SCORE, not of the corpus.** The four signals
-it ranks on -- lifetime, having an onset, `self_icon_dist`, geometry class --
-were each measured honestly, but every one of them was measured on a narrow
-population: mostly Cypher trapwires over two clips. They do not transfer to
-twenty-three agents. That is CLAUDE.md's own "ground truth from the same
-population" rule arriving for the third time, and the ranking inherited it
-wholesale. **A weighted sum of features that individually fail to transfer does
-not transfer either** -- combining them added no information, it only made the
-failure harder to see.
+**But he also said, of the other end of the same gallery:**
+
+> all the weakest examples shown are either literally only player icons or very
+> close to player icons
+
+**Those two sentences together are a much sharper result than either alone, and
+they SPLIT the four signals rather than condemning them.** The bottom band is
+clean and homogeneous -- it is player icons, and nothing else. So
+`self_icon_dist` WORKS, and it is the one signal here that demonstrably
+transferred from the two Cypher clips to twenty-three agents. The failure is
+narrower than "the score does not separate": it separates player icons from
+everything else, and then fails to separate ABILITIES from CONE FRAGMENTS and
+CRACKS, which is a different and harder cut that lifetime, onset and geometry
+class carry no information about.
+
+Two consequences for the next attempt:
+
+* **keep `self_icon_dist` and fix its NULL case** -- it is null on 25 of
+  Astra's 43 rows, wherever `minimap.self_rings` misses the player, and on
+  those rows the one working filter is simply absent. That is the highest-value
+  repair available and it is a coverage bug, not a modelling problem;
+* **stop adding weight to lifetime, onset and geometry class for this cut.**
+  Each was measured honestly on mostly Cypher trapwires over two clips, and a
+  weighted sum of features that do not separate the classes you care about does
+  not separate them either -- it only makes the failure harder to see. This is
+  the "ground truth from the same population" rule again, and the ranking
+  inherited it.
 
 **The two surviving false-positive classes, in the words, and both are
 things we can already MODEL:**

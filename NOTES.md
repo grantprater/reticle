@@ -24,10 +24,17 @@ results. What follows is only what the next session needs first.
 **THE SCAN IS DONE AND THE RANKING FAILED.** 713 events were grouped, scored
 and shown to the player as a gallery ordered weakest-to-strongest. His verdict: *a
 lot of those examples are still essentially fragments of viewcone or tiny
-cracks in the minimap.* The four signals it ranked on were each measured on
-mostly Cypher trapwires over two clips and do NOT transfer to twenty-three
-agents -- so start from the two named false-positive classes, not from another
-feature.
+cracks in the minimap.* And of the other end: *all the weakest examples shown
+are either literally only player icons or very close to player icons.*
+
+Together those SPLIT the four signals instead of condemning them.
+**`self_icon_dist` works** -- the bottom band is clean player icons, so it did
+transfer from two Cypher clips to twenty-three agents. What fails is the harder
+cut: abilities vs cone fragments and cracks, which lifetime, onset and geometry
+class carry no information about. So keep `self_icon_dist`, fix its NULL case
+(null on 25 of Astra's 43 rows, wherever `self_rings` misses the player -- a
+coverage bug, and the highest-value repair available), and stop adding weight
+to the other three for this cut.
 
 **DO THIS FIRST: kill the two survivors by MODELLING them, not filtering.**
 Both are layers we can already compute, which is the "explain the frame"
