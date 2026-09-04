@@ -995,6 +995,58 @@ static texture from a large object seen through small windows** -- it has no
 time axis and no context. Look at the whole widget over time before judging a
 scan's output, not only the crops it proposes.
 
+### The ranked corpus FAILED, and the player named the two survivors (2026-09-03)
+
+713 events across 23 demo clips were grouped, scored and published as a gallery
+ordered weakest-to-strongest (`prototypes/ability_corpus.py`). the verdict
+on it:
+
+> a lot of those examples are still essentially fragments of viewcone or tiny
+> cracks in the minimap
+
+**Record this as a failure of the SCORE, not of the corpus.** The four signals
+it ranks on -- lifetime, having an onset, `self_icon_dist`, geometry class --
+were each measured honestly, but every one of them was measured on a narrow
+population: mostly Cypher trapwires over two clips. They do not transfer to
+twenty-three agents. That is CLAUDE.md's own "ground truth from the same
+population" rule arriving for the third time, and the ranking inherited it
+wholesale. **A weighted sum of features that individually fail to transfer does
+not transfer either** -- combining them added no information, it only made the
+failure harder to see.
+
+**The two surviving false-positive classes, in the words, and both are
+things we can already MODEL:**
+
+* **viewcone fragments** -- the cone clipping a corner, already the known
+  nuisance that `host span` was invented for and that `minimap_cone.py` fits
+  directly;
+* **"tiny cracks in the minimap"** -- thin dark features of the static map
+  itself. A NEW name for something this channel has produced all along, and a
+  better one than "line-work artefacts", because it says where they come from.
+
+**A hypothesis worth testing first, because it explains why the onset signal
+did not remove the cracks.** A crack is static, so it should have no onset and
+should have scored badly -- yet cracks are in the top band. The likely reason:
+a crack is invisible on unlit ground and becomes visible when the cone sweeps
+over it, so it acquires a FALSE onset, at a fixed position, correlated with
+cone presence. If that is right, the discriminator is not a shape feature at
+all: **does this candidate's appearance correlate with the cone covering it?**
+Static position plus cone-correlated visibility is a crack; an ability is
+neither.
+
+Note what that is NOT. `prototypes/ability_cone.py` already tried using the
+cone as a REFERENCE for expected pixel values and it did not beat the plain
+interval residual ("a more permissive reference lifts the noise as much as the
+signal"). This is a different question -- correlation of APPEARANCE with cone
+COVERAGE over time, not a per-pixel reference level -- and it needs the cone
+fit, which is now known to answer on 89% of frames rather than the 4-of-50
+that shelved it.
+
+**And it is the reframe already written in NOTES, arriving with evidence:**
+stop classifying blobs, explain the frame. Both survivors are layers we can
+model -- the static map and the cone -- so they should be SUBTRACTED, not
+filtered after the fact by a feature that hopes to correlate with them.
+
 ### Uncertainty is ACCEPTABLE, and that ranks everything above (the player, 2026-09-03)
 
 Said after a run of notes here each treating an open question as a blocker:
