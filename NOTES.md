@@ -51,6 +51,17 @@ reframe with evidence behind it now.
   b. **viewcone fragments** -- `minimap_cone.py` fits the cone directly and now
      answers on 89% of frames (the 4-of-50 figure that shelved it was a seeding
      bug). Subtract the cone before proposing, rather than filtering after.
+  c. **A ONE-LINE FIX THAT IS NOT A MODELLING PROBLEM.** `self_icon_dist` is
+     computed once at each track's BIRTH frame and never updated
+     (`scan_ability_clip.py`, the branch that opens a track), so a single
+     missed frame nulls the whole track. `self_rings` actually finds the player
+     in 70-100% of frames and the floor gate costs 1.7% at worst -- both
+     measured. Worse, the failures are CORRELATED: candidates are
+     disproportionately born in frames where something covers the widget, which
+     is exactly when the self colour is hidden, so the one sample is taken at
+     the worst moment. Take the min over the track's frames. This is the single
+     filter the reading confirms works, so its coverage is the cheapest
+     real gain available.
 
 **Then the three below, which still stand:**
 
@@ -84,6 +95,21 @@ reframe with evidence behind it now.
    (17 of Tejo's 45 candidates are within 20 px of the self icon) but it is
    NULL on 25 of Astra's 43, because it only computes where
    `minimap.self_rings` finds the player. Worth more than another shape feature.
+
+**TWO THINGS THE PLAYER ADDED THAT CHANGE LATER STEPS, both in
+`prototypes/CLAUDE.md` in full:**
+
+* **ability icons ANIMATE, especially ultimates.** Template matching assumes one
+  appearance per class and there isn't one. It also partly explains the
+  fragmentation already measured -- an animating icon tracks poorly, and the
+  lifetime feature then scores it DOWN, exactly backwards.
+* **ultimates have fixed per-agent VOICELINES**, which unblocks the audio thread
+  `audio_probe.py` parked. Onset detection is dead; audio needs identity via a
+  matched filter, and a voiceline is a better target than any SFX -- long, loud,
+  a closed set, announcing the highest-stakes event in a round, and needing no
+  minimap, so it reaches ultimates that draw nothing. The demo clips are the
+  clean reference source. **This is probably the highest-value thread not yet
+  started.**
 
 **A free control the corpus gives, worth using before quoting any precision:**
 candidate counts track how much minimap-drawing utility an agent has --
