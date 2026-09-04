@@ -872,6 +872,45 @@ arrays are cluster centres computed from different frame counts by different
 runs, so they differ for reasons that have nothing to do with the recordings.
 Compare the RAW medians when the question is about the recordings.
 
+### Tejo's kit, and a SECOND vision cone on the widget (the player, 2026-09-03)
+
+Asked what the pale wedge in `c0b63335e635` at t=28350 ms is:
+
+    C   a CONTROLLABLE DRONE. The wedge is the drone's own HUD on the widget
+    Q   a stunning and damaging GRENADE
+    E   a charged, STAGED MOLOTOV -- damages an area in PULSES, deployed
+        through an "iPad"-like map interface, as many smoke agents do
+    X   like E but in a LINE: pulses of damage from origin to end, one-shots
+        anyone standing in it
+
+Four consequences, and the first is the important one:
+
+* **THE WIDGET CAN SHOW MORE THAN ONE VIEW CONE.** `prototypes/minimap_cone.py`
+  fits the cone by seeding from the largest `self_rings` ring -- one cone,
+  anchored to the player. A controllable drone draws a SECOND cone that moves
+  independently of him, and Sova's drone is presumably the same. Everything
+  built on the cone has to be re-examined against that: the facing fit could
+  lock onto the wrong wedge, `CONE_HALF_ANGLE_DEG=56` was measured on 23
+  samples from one clip that may or may not have contained a drone, and the
+  raycast means something different for a cone that is not the player's.
+  It also cuts the other way and is worth more than the risk: **a second cone
+  IS the drone's position and facing**, which is an event -- where the player is
+  looking WITHOUT being there;
+* **the 7-fragment object at t=28350 is a TRUE POSITIVE.** The scan found the C
+  ability, not noise. The fragmentation is a representation problem, not a
+  detection failure, which is the better of the two;
+* **`E` and `X` PULSE.** A region that appears, vanishes and reappears in place
+  breaks lifetime reasoning in a specific way: `n_observations` and
+  `duration_ms` will see one pulsing ability as several short-lived objects at
+  one position, and the onset-grouping proposed for fragments will split them
+  by design, since each pulse is a fresh onset. Grouping needs a notion of
+  "same place, repeating" as well as "same instant, adjacent";
+* **the "iPad" deployment is a full-screen map interface** used by Tejo,
+  Brimstone, Astra and others. While it is open the player is not looking at
+  the world, so main-view metrics are invalid for those frames -- the same
+  class of exclusion as spectating, and nothing detects it either. It may also
+  occlude or replace the minimap widget; unchecked.
+
 ### First scan of the demo corpus: candidates are not events (2026-09-03)
 
 26 clips rebuilt with `--geometry-from a06f04a0059f` (which removes the parked
@@ -888,6 +927,10 @@ sit adjacent (x 227-270, y 230-319). Rendering the widget there shows why --
 one large pale wedge appears and the blob detector proposes pieces of its edge.
 That is the icon-vs-region split in the taxonomy, arriving as a measurement:
 an icon detector run over a region returns the region's fragments.
+
+**the player identified that wedge as his DRONE's HUD -- his C ability -- so those
+seven fragments are a TRUE POSITIVE**, and the failure is representation
+rather than detection. See the Tejo section above.
 
 **Grouping on (shared onset, adjacency) is the cheap fix and it belongs before
 the labeller.** Asking the player about seven fragments of one object spends his
