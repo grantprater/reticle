@@ -872,6 +872,52 @@ arrays are cluster centres computed from different frame counts by different
 runs, so they differ for reasons that have nothing to do with the recordings.
 Compare the RAW medians when the question is about the recordings.
 
+### Ability DESCRIPTIONS are worth more than more clips (the player, 2026-09-03)
+
+the player, sending the Vyse clip: *I should have given ability descriptions.* He
+should have, and the first one he gave proves it -- a paragraph of his prose
+constrains the class list harder than a minute of footage, because it says what
+an object IS rather than what it looked like once.
+
+**Vyse, in his words, and what each part implies:**
+
+    C   a charged deployable VINES that, when activated, form a CIRCLE that
+        damages enemies in it who move
+    Q   a WALL that activates when an enemy crosses it, and cannot be destroyed
+        while up, for a short duration
+    E   a deployable FLASH FLOWER, placeable either side of the wall, flashes
+        when activated, CAN BE PICKED BACK UP, reactivated and redeployed on
+        cooldown
+    X   a circular REGION CENTRED ON VYSE that goes off after a few seconds and
+        stops enemies using their primary weapon
+
+Four things fall out, and three of them are new to this document:
+
+* **C is an ICON that BECOMES A REGION.** Deployed it is a placed device;
+  activated it is a damaging circle. That is the `modes` axis of the
+  taxonomy in its strongest form so far -- not a colour change like the Cypher
+  cam turning teal, but a change of FAMILY. A detector that assigns an object
+  to the icon branch or the region branch once, at first sight, is wrong for
+  this class. It has to be allowed to change;
+* **E CAN BE PICKED BACK UP.** So a placed device disappearing does NOT imply
+  it was destroyed, and the same physical object can reappear elsewhere later.
+  Anything reasoning about lifetime or identity by "device at position P
+  persists until it stops being there" is wrong for this class -- and lifetime
+  (`n_observations`, `duration_ms`) is currently the feature that doubled
+  precision, so this is a caveat on the best number we have;
+* **X is PLAYER-ANCHORED**, exactly like the audio ring. So the same argument
+  applies: once its radius is measured it is DERIVABLE from the shipped self
+  track rather than detectable -- draw it, do not look for it. Second instance
+  of that pattern, which makes it a pattern rather than a special case;
+* **Q is a triggered region**, so a region can have an activation state as well
+  as a lifetime.
+
+**Ask for these for every agent.** Free prose is the right form -- the player
+describes, this file classifies; he should not be asked to fill in a taxonomy.
+At 27 demo sessions against 4 labelled ability classes, the corpus is no longer
+the bottleneck: knowing what the objects ARE is. A description also says what
+to LOOK for in a clip, which turns a scan of it from open-ended into a check.
+
 ### TELEPORTS: player icons move discontinuously, and nothing here knows it
 
 the player, 2026-09-03, with the Veto clip: *One of his abilities is a teleport. Two
