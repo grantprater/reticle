@@ -34,10 +34,27 @@ results. What follows is only what the next session needs first.
    the player about 7 fragments of one object spends his time 7x for one answer.
    Grouping on (onset within ~300 ms, adjacency within ~60 px) is all it took;
    the scratch version is not committed, write it into `prototypes/`.
-3. **Fix `self_icon_dist` returning NULL.** It is the strongest filter available
+3. **Write an OCCLUSION rule for HUD overlays that cover the widget.** the player:
+   the drone HUD wedge *is an overlay, it just overlaps the minimap*, and
+   *shouldn't be interpreted as being on the minimap*. It occupies minimap
+   pixels without being minimap content, so its candidates get a confident
+   world position through the homography that is meaningless -- and unlike the
+   shooting-error box, this occluder is icon-coloured and MOVES, so it looks
+   like a find. It is the whole 7-fragment cluster in the Tejo clip. Same
+   treatment as the killfeed's occlusion mask; also re-check
+   `minimap_cone.py`, which fits ONE cone and can lock onto a drone wedge.
+4. **Fix `self_icon_dist` returning NULL.** It is the strongest filter available
    (17 of Tejo's 45 candidates are within 20 px of the self icon) but it is
    NULL on 25 of Astra's 43, because it only computes where
    `minimap.self_rings` finds the player. Worth more than another shape feature.
+
+**A free control the corpus gives, worth using before quoting any precision:**
+candidate counts track how much minimap-drawing utility an agent has --
+Clove 14 and Jett 24 against Gekko, Harbor and Chamber at 51. **Jett and Neon
+are near-negative controls**, since their kits draw little or nothing on the
+widget (Neon's E is confirmed to draw nothing), so their counts estimate the
+per-clip false-positive floor. That control is not self-derived: it comes from
+the descriptions of the kits, not from any detector's output.
 
 **Then:** `label_ability.py` on the grouped events, which is where the class
 list finally gets built. the ability DESCRIPTIONS (in `prototypes/CLAUDE.md`)
