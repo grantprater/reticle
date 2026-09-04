@@ -715,10 +715,25 @@ left edge of the frame tripped the pre-flight's bounding box -- that band is
 the ability's own screen effect, and the widget shows nothing. Same class of
 fact as *ult orbs have no minimap icon*.
 
-**So record the negative per clip.** A demo clip whose agent cast four
-abilities and produced two icons is evidence about the other two, but only if
-the corpus says which four were cast. Nothing currently captures that; the
-manifest tag names the agent, not the casts.
+**The recording protocol closes that gap, and the player stated it (2026-09-03):
+every ability is cast in every clip, and after the first couple of clips, cast
+IN ORDER.** Both halves are load-bearing and neither is recoverable from the
+pixels:
+
+* **every ability cast** makes absence informative. An agent's kit is a known
+  closed set, so "cast four, found two icons" is direct evidence that the other
+  two draw nothing -- the negative class becomes free rather than needing its
+  own labelling pass;
+* **cast in order** makes identity largely derivable. The icons that appear
+  form a SUBSEQUENCE of the agent's ability order, so the k-th icon is not
+  necessarily the k-th ability, but the relative order is fixed. That is a
+  strong prior over a small closed set, and it costs the player nothing.
+
+Two cautions before leaning on the ordering. It does NOT give cast times --
+infinite abilities makes the tray unreadable, so the only anchor is the icon's
+own first appearance, which lags the cast by however long the projectile takes.
+And "after the first couple" means the earliest clips are UNORDERED; applying
+the prior to them would silently mislabel. Mark them, do not assume.
 
 **Contamination is REAL in these clips and it is the player, not the ability.**
 `c0b63335e635` (Tejo, 38s) disagrees with the full Ascent match's geometry on
