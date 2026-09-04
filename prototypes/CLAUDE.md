@@ -685,13 +685,40 @@ recoverable from the footage:
   below): a demo clip is the worst place to read cast times and the best place
   to read artwork. Do not try to get both from one clip.
 
-**A negative result from the sitting, and it is a real one: Neon's E (High
-Gear -- speed and slide) has NO minimap icon.** the player, unprompted, after a
-bright vertical band down the left edge of the frame tripped the pre-flight's
-bounding box: that band is the ability's own screen effect, and the widget
-shows nothing. Same class of fact as *ult orbs have no minimap icon* -- knowing
-which abilities draw nothing bounds the class list from below, and only a
-controlled clip can establish it.
+**THE NEGATIVE CLASS IS LARGE, and the player named its shape (2026-09-03):**
+
+> There are actually quite a few abilities with no icons. Grenades, flashes,
+> molotovs are the most common.
+
+Take that as a structural claim about the class list, not a footnote. It says
+the icon/region taxonomy covers PLACED and PERSISTENT things, and that a whole
+family -- thrown, instantaneous, or short-lived damage and blind utility -- is
+simply absent from the widget. Consequences, in order of how much they change
+what to build:
+
+* **the class list is far smaller than the ~110 agent-ability pairs**, so
+  enumerating it is tractable and a template bank is a realistic object;
+* **a missing detection is often correct.** Any recall figure computed over
+  "abilities cast" rather than "abilities that DRAW something" is wrong by
+  however large this family is, and it would look like a detector defect;
+* **audio is the only channel for these.** This is the strongest argument yet
+  for the matched-filter work in NOTES: the events with no minimap footprint
+  are exactly the ones that must come from sound, and they are common ones
+  (a flash before a peek bears directly on a duel);
+* **it can only be established by controlled clips.** Mining footage can never
+  distinguish "this ability draws nothing" from "no one cast it, or we missed
+  it".
+
+The first instance measured: **Neon's E (High Gear -- speed and slide) has NO
+minimap icon.** the player said so unprompted after a bright vertical band down the
+left edge of the frame tripped the pre-flight's bounding box -- that band is
+the ability's own screen effect, and the widget shows nothing. Same class of
+fact as *ult orbs have no minimap icon*.
+
+**So record the negative per clip.** A demo clip whose agent cast four
+abilities and produced two icons is evidence about the other two, but only if
+the corpus says which four were cast. Nothing currently captures that; the
+manifest tag names the agent, not the casts.
 
 **Contamination is REAL in these clips and it is the player, not the ability.**
 `c0b63335e635` (Tejo, 38s) disagrees with the full Ascent match's geometry on
@@ -701,6 +728,20 @@ own icon and vision cone, stationary long enough to survive the median and be
 baked in as map structure. Smaller blobs are the callout text along the top
 edge. The capture-side fix is to KEEP MOVING while placing; the post-hoc fix is
 to borrow the full match's geometry, for which see the next note.
+
+**Borrowing measured, not assumed.** `--geometry-from a06f04a0059f` against
+the clip's own `--two-state-from` build, `ability_disc.find_discs` over 40
+frames of `c0b63335e635`:
+
+    geometry-from     1.00 candidates/frame   mean area 93.9
+    two-state-from    0.78 candidates/frame   mean area 94.4
+
+The `2ba870ccbd50` symptom was LARGE, LONG-LIVED false positives, so identical
+mean area is the reassuring number and the rate difference is small. Read the
+direction carefully rather than as a cost: the contaminated build proposes
+FEWER because the parked cone is baked into it as map structure, so
+`searchable()` masks out exactly the region he was placing abilities in. Fewer
+candidates there is a recall loss disguised as a precision win.
 
 **A donor's lighting reference IS transferable between recordings, measured.**
 NOTES has `--geometry-from` down as unresolved -- it fixed contamination on
