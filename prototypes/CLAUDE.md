@@ -872,6 +872,53 @@ arrays are cluster centres computed from different frame counts by different
 runs, so they differ for reasons that have nothing to do with the recordings.
 Compare the RAW medians when the question is about the recordings.
 
+### TELEPORTS: player icons move discontinuously, and nothing here knows it
+
+the player, 2026-09-03, with the Veto clip: *One of his abilities is a teleport. Two
+of omen's abilities are teleports, and one of chamber's.*
+
+    veto      one ability
+    omen      two abilities
+    chamber   one ability
+
+**This is not an ability-icon note. It is a defect in the shipped position
+track, and it was invisible because the player has not played these agents on any
+recorded match.**
+
+`reticle/minimap.py` filters the self track, and NOTES quotes **jumps > 60 px/s
+at 5.0% / 3.3% / 3.8%** across the three geometry-validated sessions as a
+quality figure -- implicitly, the residual error rate. That reading assumes
+every large jump is a tracking fault. **A teleport is a real, correct jump**,
+so on any session where the local player or a tracked ally is Veto, Omen or
+Chamber, that metric conflates two different things and the filter will fight
+the truth: nearest-to-previous is exactly the rule a teleport breaks, and it
+will either reject the real new position or smear the transition across frames
+that never happened.
+
+Three consequences, in order of how soon they bite:
+
+* **the current 5.0%/3.3%/3.8% figures are probably clean**, because the player
+  played Phoenix on Ascent and neither of the other two lineups is known to
+  have had him on a teleport agent -- but that is an assumption nobody checked,
+  and it is checkable from the roster once the lineup read works;
+* **ally identity across frames -- the next step on this thread -- must
+  tolerate discontinuity.** The planned rule is nearest-to-previous per slot,
+  the same trick `pick_self` uses. That rule is wrong for three agents on the
+  roster, and it will fail SILENTLY by swapping two allies' identities when one
+  teleports past the other;
+* **dA/ds assumes motion is continuous.** Exposure per unit of movement is
+  meaningless across a teleport -- the player did not cross the intervening
+  ground and was never exposed on it. A teleport must break the path, not
+  contribute a huge dA/ds spike.
+
+**What to do about it is not yet decided, and should not be guessed.** The
+honest options are to detect the discontinuity from the track itself (a jump
+larger than any possible run speed over one sample interval), or to know the
+agent from the roster and expect it. The first needs no roster and catches
+unknown future agents; the second is exact where it applies. Neither has been
+tried, and the demo clips are the place to measure what a teleport actually
+looks like at 15 Hz before choosing.
+
 ### the domain notes on the minimap -- not recoverable from the pixels
 
 * **A Cypher cam ROTATES**, and it is the **only other moving icon** on the
