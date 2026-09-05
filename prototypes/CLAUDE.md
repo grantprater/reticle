@@ -692,6 +692,85 @@ counterexample beside it. The audio ring is derivable once its radius is known.
 An ability's active radius is not -- it depends on which device is placed and
 where -- so the two must not be handled by one rule despite looking the same.
 
+**the player confirms the anchor, and narrows the class to TWO AGENTS.** The device
+radius does stay constant, and *"Killjoy and Chamber are the only agents I can
+think of with that mechanic."* That is a strong prior and it is worth stating as
+a filter: on the one-agent-per-clip demo corpus only `dae6f33f3f48` (Killjoy)
+and `ccff4a11ff5a` (Chamber) can produce a device radius at all, so a ring in any
+other clip is the audio ring, a smoke edge, or a false positive.
+
+**Checked against the reference, and it is NOT derivable -- keep it as the.**
+`ability_reference` has no structured field for a leash. The descriptions only
+hint: Killjoy's Alarmbot and Turret mention "in range" and "recall", Chamber's
+Rendezvous mentions "in range of the anchor". Worse, a keyword sweep for range
+language also catches Chamber's Trademark (*"when a visible enemy comes in
+range"*), which is a DETECTION radius and a different mechanic -- so the obvious
+automatic extraction of this fact produces a wrong third class.
+
+### Abilities have PLACEMENT MODES, and only for your own agent (the player, 2026-09-04)
+
+> quite a few abilities have different colors/modes while being placed, so that's
+> sort of a modal thing. It would only apply to the player's current agent
+
+Three consequences, and the first is the one that has already cost this project
+a technique once.
+
+* **it is an APPEARANCE-MODES problem, the exact shape that killed single-template
+  matching.** One template per agent scored 41.8% against a gallery's 88.6%
+  precisely because a class with several appearances cannot be one exemplar. If
+  placement preview and deployed device are both labelled `turret`, that category
+  is bimodal by construction, and any centroid, median template or single
+  threshold fitted to it sits between two modes and matches neither;
+* **a preview is PROOF the object is the local player's.** Enemies never render
+  their placement previews on your minimap, so in a real match -- where the demo
+  corpus's solo assumption breaks -- preview mode is a free ally/self attribution
+  signal, not just a nuisance;
+* **the mode does not need to be labelled, because it is RECOVERABLE.** The tray
+  says whether an ability is currently equipped, and every label row carries
+  `(t_ms, x, y)`, so mode can be recomputed for rows already answered -- the same
+  property that let host span and top-hat peak be applied to 154 existing rows
+  for free. `ability_hud.py` has the tray geometry already, though it currently
+  reads charge FILL rather than equipped state, so this is an addition to a
+  working reader rather than a new surface. **Do not ask the player to label a mode he
+  can only guess at when the HUD states it outright.**
+
+**The first one found is a CONE, and that breaks an assumption.** the player, naming
+the category while labelling: *"I'm naming one for the turret `place_color`. It's
+a green vision cone of the turret."*
+
+That is the **third** cone known to be drawn on this widget -- the player's own,
+Tejo's (recorded above, 2026-09-03), and now Killjoy's turret during placement --
+and it collides head-on with a class this project has treated as pure noise.
+*"Fragments of viewcone"* is one of the two false-positive classes the player named
+from the gallery, and every cone feature is built on `minimap_cone.self_cone()`,
+which fits THE cone, singular, anchored at the player. A turret placement cone is
+cone-shaped, fragments the same way, and is **positive evidence of an ability**.
+
+So "cone-shaped therefore not an ability" is false, and two things follow:
+
+* it is a candidate explanation for why `cone_cond` failed as a gate (0.40
+  pooled, 2 of 4 sessions) while still carrying orthogonal signal among gate
+  survivors. A feature keyed to the player's cone is being asked about frames
+  where a *different* cone is the thing on screen;
+* `self_cone()` fitting one cone anchored at the player is now a known
+  incompleteness, not just a simplification. Nothing yet reads a cone that is
+  anchored somewhere else.
+
+On the name: the category registry is GLOBAL across agents and sessions, and
+rows store `category_id`, so a name reused later for a different agent's
+placement mode cannot be split apart afterwards. `place_color` will read as
+generic once a second agent has one. Not worth interrupting a pass to change --
+but if a Chamber or Vyse placement mode turns up, give it its own name rather
+than reusing this one.
+
+This also gives a candidate mechanism for a measured result nobody had explained:
+`n_runs` is INVERTED in `ability_features.py` -- real abilities produce FEWER
+contiguous detection runs than false positives. A preview that resolves into a
+deployment is one object appearing twice with a gap, which would push a real
+ability's run count UP, not down. So either previews are rare in the labelled
+set, or they are being detected as separate candidates rather than one track.
+Worth checking against the new labels before trusting either reading.
+
 ### The one-agent-per-clip demo corpus, recorded 2026-09-03
 
 the player recorded a sitting of controlled clips on **Ascent**, one agent each, on
