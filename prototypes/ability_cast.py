@@ -185,10 +185,20 @@ POS_PRE, POS_POST = 2.0, 2.0
 #: single placement truncates it. Sova's Hunter's Fury put 3 of its 10 labelled
 #: fragments inside +/-2s and the other 7 at 30.7-33.2s, entirely outside.
 #:
-#: Derived, not listed: 12 of the reference's 121 descriptions say RE-USE, and
-#: they are the right 12 -- Hunter's Fury, Cypher's Spycam, Jett's Tailwind,
-#: Skye's Regrowth, and BOTH of Viper's, which is the resource-bar wrinkle
-#: arriving from the game's own text rather than from memory.
+#: Whether the ability is re-usable at all is DERIVED, not listed: 12 of the
+#: reference's 121 descriptions say RE-USE, and they are the right 12 --
+#: Hunter's Fury, Cypher's Spycam, Jett's Tailwind, Skye's Regrowth, and BOTH
+#: of Viper's, which is the resource-bar wrinkle arriving from the game's
+#: own text rather than from memory.
+#:
+#: **The 6.0 is NOT derived and must not be read as if it were. the player flagged
+#: it: "which you said is 5 seconds I would verify that."** The description says
+#: the ability can be re-used *"while the ability timer is active"* and the
+#: infobox does not state that timer's duration, so the reference cannot supply
+#: it. 6.0 covers the 4.95 s spread observed in ONE clip (labels 28.20-33.15 s
+#: against a cast at 28.5 s) with margin. That is a constant fitted to a single
+#: observation, which is the class of thing this repo has been burned by --
+#: treat it as provisional and re-measure on a second re-usable cast.
 #:
 #: Affordable only because the extending signature is self-validating: a wider
 #: window adds candidates, and each one either joins a group that extends
@@ -312,13 +322,19 @@ def extending_entities(gs):
     any origin by construction and agree inside the tolerance ~8% of the time
     by chance.
 
-    **Returns a LIST, because a cast produces 1..N entities and not exactly
+    **Returns a LIST, because a cast produces 0..N entities and not exactly
     one.** That was an ontology error in the first version of this module, and
     the game's own data says so: Sova's Hunter's Fury is *"three long-range,
-    wall-piercing energy blasts ... can be RE-USED up to two more times"*, so
-    one cast is up to three separate extending objects, each with its own
-    origin and bearing. Treating a second qualifying group as ambiguity threw
-    away a real entity.
+    wall-piercing energy blasts ... can be RE-USED up to two more times while
+    the ability timer is active"*. Treating a second qualifying group as
+    ambiguity threw away a real entity.
+
+    **The count is variable and UP TO three, not three.** the player: *Sova ult does
+    not have to have exactly 3 entities. Can be fired 0-3 times within the time
+    window.* So finding three in one clip is what that cast did, never a spec to
+    validate against -- and an event carrying fewer is not evidence of a miss.
+    The same reading applies to every re-usable ability: the reference gives a
+    MAXIMUM, and the log records what happened.
     """
     ok = []
     for g in gs:
