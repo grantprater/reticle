@@ -659,6 +659,39 @@ Unmeasured so far: the radius itself, in minimap pixels and in metres. The
 region pass is the cheapest way to get it -- paint the circle once or twice and
 read it off, rather than deriving it.
 
+**2026-09-04, mid-labelling, the player: ABILITIES DRAW RADIUS RINGS TOO, and they
+look like the audio ring.** Killjoy candidates 8-10 of `dae6f33f3f48` are the
+*active radius* of her devices, and his verdict on how to label them:
+
+> visually [they] are very similar to the audio radius around the player. But it
+> wouldn't be entirely accurate to call that an ability
+
+This upgrades the audio ring from confounder to one member of a CLASS of
+concentric ring annotations, and it changes two things.
+
+**It is a third label class, not a positive and not a negative.** Marking a
+radius ring `not_ability` poisons the negative class with something an ability
+genuinely caused; giving it an ability name trains the detector to fire on
+annotations rather than objects. It gets its own category -- `agent=""`,
+`ability="radius_ring"`, following the cross-agent convention that made all
+deployed smokes one category -- and because `category_id` is on every row,
+scoring includes or excludes it per metric. Same pattern as revive and wallbang
+kills in the root `CLAUDE.md`.
+
+**The two kinds are separable by ANCHOR even when they are identical in a crop.**
+The audio ring is player-anchored at fixed radius; a device's active radius is
+anchored to the device and does not move when the player does. So `self_d` in
+the Phase 1 series decides it -- a player-centred ring holds a constant distance
+from the self icon across its whole window, a device-centred one does not. That
+is worth knowing before anyone tries to separate them by appearance, which is
+the expensive way to fail: **a distinction the player cannot make by eye may still be
+recoverable from the track.**
+
+It also means the "derive it, do not detect it" argument above now has a
+counterexample beside it. The audio ring is derivable once its radius is known.
+An ability's active radius is not -- it depends on which device is placed and
+where -- so the two must not be handled by one rule despite looking the same.
+
 ### The one-agent-per-clip demo corpus, recorded 2026-09-03
 
 the player recorded a sitting of controlled clips on **Ascent**, one agent each, on
