@@ -70,6 +70,36 @@ asset can simply not resemble the render, and the honest test is
 set in advance by that module's own in-domain figure -- ONE median template per
 agent scored 70.4%.
 
+HARVESTED, 2026-09-04
+---------------------
+    29 agents   121 abilities   74 with an infobox
+    118 ability icons, 29 minimap portraits, 56 ultimate voicelines
+
+**`check` passes with 74 agree, 0 disagree.** Every ability whose wiki page
+states a `Default Key` agrees with the API's slot ordering, so the C/Q/E/X
+mapping is now measured against an independent source rather than assumed --
+which is the one thing `ability_hud.py` had no way to confirm on its own.
+
+`Deployment Type`, the field the acausal lifetime pass consumes:
+
+    13  Placement          6  Class 3 Projectile     3  Grounded Object
+    10  Missile            4  Grounded AoE           3  Hitscan
+     9  Self-targeted      3  Possession             2  Beam
+
+plus the mixed-mode entries ("Placement (Setup) Possession (Post-setup) Missile
+(Dart)"), which are the abilities that change behaviour mid-life and are exactly
+the ones a single lifetime model will get wrong. 21 deployables state a Health,
+from Cypher's Spycam at 1 HP to Deadlock's Annihilation at 600.
+
+**Coverage is 74 of 121 and the gap is name matching, not missing pages.** An
+ability is joined to its wiki page through the index tables by display name, and
+the misses are compound names ("Nebula/Dissipate"), case, and agents newer than
+the tables. The 47 without an infobox keep their API description and icon.
+
+One thing the gap is worth noting for: the catalogue contains agents this model
+has never heard of. Whatever the roster does next, the harvest tracks it and I
+do not have to.
+
 The wiki is community-maintained and lags patches. Costs and charge counts drift
 first. Treat every field here as a PRIOR, never as an oracle.
 """
