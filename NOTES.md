@@ -13,747 +13,118 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
-**2026-09-04: Phase 0 and Phase 1 of the temporal build are DONE and committed.**
-The design doc is the authority on the whole plan and carries the phases, the
-features, the label-free scores and the hazard register:
-`docs/ability-temporal.html` --
-https://claude.ai/code/artifact/9874912c-e084-497f-bd41-594944581e36
+**2026-09-04. A LABELLING PASS IS QUEUED AND READY — that is the next action.**
+Five sessions are filtered, rendered, reviewed and stamped. the player runs:
 
-Full detail, with every number, is in `prototypes/CLAUDE.md` under *Phase 0 and
-Phase 1 of the temporal build are DONE*. The short version:
+    .\.venv\Scripts\python.exe prototypes\label_ability.py <session>
 
-* **Phase 0a** -- `self_icon_dist` is sampled over the whole track. NOTES said
-  take the MIN; measured against real labels at the already-set 7 px gate, the
-  **median keeps 5 of 5 real trapwires where the min keeps 3**, so the shipped
-  field is the median. Min means "was the player ever here", which is a
-  different and much commoner event than "is this the player";
-* **Phase 0b** -- `sd_lo` / `sd_hi`, the per-state noise map, in every geometry
-  npz (`minimap_dynamic.load_noise`). Per-state is the whole point: overall SD
-  at a two-state pixel measures the lighting switch, not the noise. All 34
-  geometries rebuilt, bit-reproducibly;
-* **Phase 1** -- `prototypes/ability_series.py`. One sequential pass per clip
-  gives a per-frame series at each query position. Keyed on `(t_ms, x, y)` and
-  recomputed, never re-scanned, so it reaches every label the player has ever given.
-  `<store>/series/` and `<store>/series-labels/`. Use `--window-s 3` on a FULL
-  MATCH (9.9% of samples, 11m39s on `a06f04a0059f`); leave it unset on a demo
-  clip.
+    dae6f33f3f48  Killjoy  76 candidates   Nanoswarm / Alarmbot / Turret / Lockdown
+    02cf738b1c8f  Sova     29              Owl Drone / Shock Bolt / Recon Bolt / Hunter's Fury
+    6bb88dba5d2c  Viper    22              Snake Bite / Poison Cloud / Toxic Screen / Viper's Pit
+    6ab7a9e99235  Skye     16              Regrowth / Trailblazer / Guiding Light / Seekers
+    ff19748eea8c  Jett     13              CONTROL -- no persistent minimap devices
 
-**TWO MEASURED FINDINGS THAT CHANGE WHAT IS WORTH DOING, both in
-`prototypes/CLAUDE.md` in full:**
+the player chose the spread over labelling one session deep, because the corpus that
+failed to transfer was five ability classes from three agents. Jett is in as the
+false-positive floor: nearly everything it surfaces should be a negative, and if
+it is not, the detector is finding something nobody has named.
 
-* **the ability tray READS on the demo corpus.** "Infinite abilities makes the
-  tray unreadable" was written twice and is wrong -- the bar refills but the
-  drop is still there. 7 clips, 2-4 clean drops each, 0 SUSPECT, in C > Q > E
-  order. That is a **free, label-free supervisor** with slot identity, and it
-  independently verifies the cast-order prior. **Slot X never drops in 7 of 7**,
-  so the tray covers C/Q/E and audio voicelines cover the ultimate -- they are
-  complementary, not competing;
-* **the demo clips are SOLO.** No allies, so the local cone is the only lighting
-  source. Cone coverage is a complete model on this corpus and an incomplete one
-  in a real match. **Any cone threshold tuned here will be optimistic** -- state
-  it on every figure.
+**`64d0fb783be2` (Vyse) was PULLED and its stamp revoked.** 65 of its 96
+candidates fall in a single 10-second window of a 56-second clip, and they render
+as flat salmon-pink tiles with no object in them. That is one event flooding the
+file, not a detection class. Find out what happens at 40-50s before labelling it.
+
+**What was measured this session, in one place**
+
+* **`patch_range` is the first ability feature that transfers.** Precision
+  0.13 -> **0.49 at 0.85 recall**, leave-one-session-out. It is the median over
+  the window of `g_max - g_min` in the 15x15 patch: intra-patch contrast. Most
+  of its signal is SPATIAL -- a single frame scores 0.76 pooled against the
+  median's 0.86 -- so Phase 1's payoff here was cheap aggregation, not a
+  temporal signal. `prototypes/ability_features.py`;
+* **complements are real, weighting them is not affordable.** `n_runs`
+  (correlation 0.26 with contrast) and `cone_cond` (0.04) separate the
+  candidates that PASS the contrast gate. `AND` them and precision goes 0.49 ->
+  0.73 -> 0.80 while recall collapses; an equal-weight z-sum ties at best. A
+  weighted combiner is what the evidence asks for and 27 positives will not
+  support fitting one. **This is why the labelling pass is the next action** --
+  the blocker stopped being feature design;
+* **`cone_cond` is NOT falsified**, though an earlier commit said so. A
+  single-feature AUC structurally cannot see a complement;
+* **noise normalisation hurts** (`dark_z_p90` 0.63 vs plain `dark_p90` 0.79).
+  The earlier 1.36 -> 2.69 figure was five positives of one class and does not
+  survive four sessions;
+* **`patch_range AND n_runs` gives 0.73 precision at 0.41 recall** -- a usable
+  operating point for ranking candidates in assisted labelling, though its F1 is
+  worse than contrast alone.
+
+**The reference harvest is done and is a new substrate.**
+`prototypes/ability_reference.py`, into `<store>/reference/`: 29 agents, 121
+abilities, 118 icons, 29 minimap portraits, **56 ultimate voicelines as isolated
+game-file MP3s** (ally and enemy variants). `check` passes 74 agree / 0 disagree,
+so `ability_hud.py`'s C/Q/E/X slot mapping is now measured against an
+independent source. `Deployment Type` gives the shape family per ability
+(13 Placement, 10 Missile, 9 Self-targeted, 4 Grounded AoE, 3 Grounded Object)
+and 21 deployables state a Health. **The class list for any ability labeller is
+now derivable** -- the agent is in the manifest `tags`, the kit is in the
+reference.
+
+**Two things the official art did NOT do.** `minimapPortrait` scored by pixel
+NCC misses badly (41.8% against a 70.4% bar) -- and that re-ran a method
+`prototypes/CLAUDE.md` already records as dead, since identity at 11 px lives in
+the palette, not the layout. By COMPOSITION it reaches **78.5% at zero
+parameters** against the scoreboard's 77.2%, which is a wash on accuracy and a
+real win operationally: it needs no scoreboard opening, and scoreboard portrait
+extraction is recorded as wrong on two sessions of three.
 
 **NEXT, in order.**
 
-**0. SLICE BY `win_lo`/`win_hi`. Every Phase 2 feature, without exception.**
-A series read against the whole shared axis instead of the query's own window
-dilutes every candidate with time in which its object does not exist, and the
-result is uniform across queries -- which reads as a finding and is arithmetic.
-On the Tejo clip, whole-axis against own-window: `detect` fired 14.9% vs 40.8%
-at the median query, 61.0% vs 94.5% at the max, and the nearest query to the
-self icon is 35.3 px vs 3.9 px. Same data, same pass.
-
-**1. Phase 2 features, scored as a FALSIFICATION gate only.** The two to build
-first, and they must be **scored together** -- a patch on the cone's moving edge
-has huge variance, and cone edges are where the other false-positive class
-lives, so measured separately each would look like a success:
-
-  a. **cone-coverage conditional** kills the cracks. NOT the plain correlation:
-     27% of positives are invisible at their own pixel on unlit ground, so a
-     real device that only shows when lit correlates with the cone exactly like
-     a crack. Use the two-factor form -- `P(visible | covered, t < t0)` against
-     `P(visible | covered, t >= t0)`. Drop no-fit frames from BOTH conditionals;
-  b. **intra-patch temporal variance** separates animating abilities from lit
-     static cracks.
-
-  Then position-vs-self-track (player-anchored overlays) and repeat structure
-  (closes the pulse-grouping gap). Adaptive background last.
-
-**2. The three label-free scores**, which are honest before any labelling:
-tray-anchored recall; Jett/Neon as the false-positive floor; and clusters-vs-kit-size,
-since the player cast each ability deliberately so surviving events should collapse
-into about as many distinct places as the agent has drawing abilities.
-
-**3. THE LABELLING PASS** -- moved to after Phase 1 by the player on 2026-09-04,
-because Phase 1 builds its instrument: a rendered time-series strip per event is
-far easier to judge than a static crop. Invoke the `labelling-pass` skill first
-and run `review_candidates.py` before launching anything.
-
-**4. AUDIO -- ultimate voicelines.** Sharpened by the tray finding above: X is
-the one slot the tray cannot read. Onset detection is dead; audio needs identity
-via a matched filter, and the demo clips are a clean reference source.
-
-**Do not quote a corpus precision figure from step 1.** The existing 254 label
-rows are five ability classes from three agents -- the same narrow population
-whose failure to transfer killed the ranked corpus. They can falsify a feature;
-they cannot validate one.
-
-**Standing hazards.** The label store's key is unstable, so never re-scan
-`2ba870ccbd50`, `eb10db50b1fb`, `d95cfad5693a`, `79a706a7ce4c` (Phase 1 is built
-so it never needs to). HUD overlays that overlap the widget are not minimap
-content -- recognise and mask them, and emit the "<ability> active" event their
-presence implies.
-
-**Two open defects found on 2026-09-04, neither fixed:**
-
-* `ability_corpus.load_events` takes `min(dists)` across an event's fragments,
-  re-introducing the Phase 0a failure one level up;
-* three different `floor` conventions feed `self_rings` (`cli.py`
-  `floor_mask(med)`, `ability_cone` `floor_mask(static, dilate=1)`,
-  `scan_ability_clip` `labels != VOID`). `ability_series` picks per use
-  deliberately and documents why, but the divergence itself is latent.
-
-**Still true and still queued:** grouping lives in `ability_corpus.load_events`
-and should be lifted out for the labeller; a pulsing region still gets one event
-per pulse; Yoru's decoy may draw a false player icon (`5a63cc4fecfc`); teleports
-break the shipped position track for Veto, Omen, Chamber and Waylay; and the player
-intends to supply ability DESCRIPTIONS for every agent, which are worth more
-per minute than more clips.
-
-
-**NEW 2026-09-03: the ability-icon problem was REFRAMED, and three of the four
-cheapest consequences are measured.** The framing, in one line: stop classifying
-blobs and start explaining the frame — the minimap is a composite of layers we
-can already model (static map, cone lighting, self icon, ally/enemy rings), and
-the residual is the ability layer. `self_icon_dist` was already the only feature
-that held, and it held because it reuses a validated model of a nuisance rather
-than guessing at shape. Four commits, each with its numbers in the module
-docstring:
-
-1. **`prototypes/ability_eval.py` — the clip-candidate path finally has a
-   scorer.** `dynamic_eval.py` reads the other label store and cannot join to
-   it, so every 2026-09-02 finding was counted by hand off five rows.
-   **`n_observations` and `duration_ms` were already written to every candidate
-   row and nothing had ever looked at them**; gating on lifetime roughly doubles
-   precision at zero recall cost on both widget sizes. An ability is an event,
-   so it has a birth: no real object in either session starts at `t_ms == 0`.
-   **Do not fit the threshold** — fitting by F1 and scoring across sessions
-   gives 100%/38.5% one way and 50%/12.5% the other.
-2. **`prototypes/ability_signed.py` — splitting the residual's SIGN is worth a
-   lot, but the first form of the rule was one ability class.**
-   `minimap_dynamic.detect` computes `max(lo-g, g-hi, 0)`, collapsing two
-   opposite things: the viewcone is a brightness LIFT and a resting Cypher
-   device is a black disc. On the two Cypher sessions `dark > bright` gave 100%
-   recall at 40.0%/100.0% precision against 6.1%/16.1% unfiltered — **and that
-   did not survive a wider population.** Per ability, at OBJECT level:
-
-       ability                    n   dark>bright   med dark   med bright
-       cypher:trapwire            7        100%          102           10
-       brimstone:orbital strike   6         83%           13            0
-       deadlock:barrier mesh      4         75%           95           82
-       deadlock:sonic sensor      5         60%          105          101
-
-   **The mechanism I proposed was wrong.** I expected COLOUR to be the split — a
-   tint sitting at both excursions near zero. Brimstone is the coloured case and
-   it passes at 83%. What breaks the rule is a device on **lit ground**: sensor
-   and mesh have median dark *and* bright both ~100, because the sampling window
-   holds the glyph's ink and the cone's lift at once. Cypher's trapwires simply
-   sat on unlit floor. So the right form is a floor, not a comparison —
-   `dark >= 10` gives **95.5% recall / 43.8% precision** over 22 objects, better
-   than the comparison on both axes. It is a threshold though, where the
-   comparison was not, and 22 objects cannot set one confidently: **provisional**.
-
-   **`label_rows()` is the reusable lesson here.** Any RECOMPUTED feature needs
-   only `(t_ms, x, y)` and the answer, so it can use every label ever given —
-   including the 39 of 40 orphaned on `2ba870ccbd50` and the sessions that never
-   had a candidate file. That turned 9 positives of one class into 22 objects
-   across four, and it should have been done before quoting the first number.
-3. **`prototypes/audio_probe.py` — audio decodes, and onset detection is dead.**
-   Every capture already carries a stereo 48 kHz AAC track (all 18 sessions),
-   so the "deferred until a demo clip supplies reference audio" note below was
-   already satisfied. But the clips are **saturated with onsets**: at ±0.3 s the
-   null median spectral-flux rank is 0.99, marks sit where random times sit at
-   every tolerance from ±0.02 s to ±0.3 s, and 2 of 32 p-values under 0.05 is
-   chance. Audio needs IDENTITY (a matched filter on one SFX), not onset — and
-   a matched filter needs a reference cut at a known cast time.
-4. **`prototypes/ability_hud.py` — which is where a known cast time comes
-   from.** The bottom-left tray had no ROI and had never been read; there is one
-   now (`hud_abilities`). On a real match the fill levels quantise cleanly to
-   0.00 / 0.50 / 1.00 and a drop is a cast.
-
-**NEXT, in order:**
-1. **Grow the evaluation set — it is 9 positives, all Cypher trapwires.**
-   `d95cfad5693a` has 47 reviewed candidates and **zero labels**; that is the
-   cheapest label pass available and it needs no new footage.
-2. ~~Test the sign gate on a class that is NOT black.~~ **DONE, and it changed
-   the rule** — see item 2 above. What remains is that `dark >= 10` is fitted on
-   22 objects and needs re-fitting as the set grows, and that `sign_ok`'s colour
-   escape is still inert under `--from-labels` (label rows carry no
-   `colour_local`), so it is only exercised on the candidate path.
-3. ~~Re-derive `dark`/`bright` against the cone.~~ **DONE 2026-09-03, and it
-   does NOT work** — `prototypes/ability_cone.py`. The diagnosis was right:
-   **6 of 22 positives (27%) are invisible to the interval test at their own
-   pixel**, because `lo` is the *unlit* resting value and ink on lit ground need
-   only be darker than *lit* floor. But no alternative reference beats the plain
-   interval residual — `dark >= 10` gives 95.5%/43.8%, expected-state gives
-   100%/35.5%, and the raycast gives 93.8%/34.1% against the interval's
-   93.8%/38.5% on the same objects. **A more permissive reference lifts the
-   noise as much as the signal.**
-
-   **What replaces it: normalise by local noise, not by a better reference.**
-   Median `dark` is 105 / 102 / 95 for the sonic sensor, trapwire and barrier
-   mesh — and **13** for Brimstone's Orbital Strike. The classes differ ~8x in
-   contrast, so any global floor that keeps the strong three deletes the faint
-   one (17% recall). This is the "never test an absolute level against this HUD"
-   rule arriving in the ability channel. The per-pixel temporal SD map already
-   measured (7.4 on white lines, 16.9 on the slab, 42.5 in the void) is the
-   divisor to try.
-
-   **Correction that came out of this and reopens a parked line: the vision
-   cone's "4 of 50" yield is wrong.** Seeded from the largest `self_rings` ring,
-   `self_cone` answers on 100% / 98% / 95% / 56% of labelled frames per session
-   (89% pooled) — 56% even on the session the original figure came from. It was
-   a seeding problem, not `LOBE_MIN_FRAC` refusing. **the two parked cone
-   hypotheses (termination proximity, local sliver/thinness) were shelved on
-   that figure and are affordable again.**
-4. **Ally identity across frames** — unchanged from below, still the blocker on
-   dA/ds.
-
-**Two defects found on the way, both worth fixing before they cost more:**
-
-* **The label store's key is not stable.** Labels are keyed `(t_ms, x, y)` to
-  candidate rows, and re-running `scan_ability_clip.py` regenerates those rows
-  and **orphans every answer**. It has already cost 19 of 50 labels on
-  `eb10db50b1fb` and 39 of 40 on `2ba870ccbd50`. Anything that re-scans a
-  labelled session must migrate or refuse. It is why `ability_eval` treats the
-  candidate file's content hash as a **dep**.
-* **Infinite abilities are on in the controlled clips**, so the ability tray
-  reads nothing there — the C slot holds ~734 teal px across all of
-  `eb10db50b1fb` despite four labelled placements. A deliberate demo clip is the
-  *worst* place to read casts, not the best. **Ask the player to record one
-  controlled clip with infinite abilities OFF** if cast-anchored audio
-  references are wanted; otherwise use the 17 real matches.
-
-*Correction to the note below: `79a706a7ce4c` HAS been scanned and labelled (68
-candidates, 69 answers, 4 real trapwires). It was done on 2026-09-02 evening
-after that paragraph was written.*
-
-
-**NEW 2026-09-02 evening: vision-cone origin/facing/raycast started, real
-progress.** `prototypes/minimap_cone.py`, from the spec after
-recording a clip specifically to watch cones. Facing extraction (fit a circle
-to the self-colour mask, read the triangle the same way enemy facing already
-works) is verified by eye. The raycast mask is verified too -- it produces the
-thin-doorway-sliver behaviour the player described from playing, unprompted, on a
-real doorway frame. `CONE_HALF_ANGLE_DEG=56` is measured (23 samples, one
-clip/map), not assumed -- see the module docstring for the two dead ends that
-preceded it (a UI ping-ring and the plantable-zone tint both looked like cone
-brightness before being caught and excluded). Box pass-through is coded per
-the stated fact, not yet independently confirmed.
-
-**SAME EVENING, later: `scan_ability_clip.py` got its first real candidate
-review, and the fix that actually worked was not a shape heuristic.** Full
-detail in `prototypes/CLAUDE.md` under the vision-cone section; short version:
-`device_glyph_score` (ring-fit on raw-frame edges) and `host_span` (reused
-from `dynamic_eval.py`) both FAILED to transfer to the Cypher trapwire class
-after looking like they might work. What actually held up:
-`self_icon_dist` -- checking a candidate against `reticle.minimap.self_rings`,
-code already shipped for a different job -- correctly explains 5 of 6 false
-positives that turned out to just be fragments of the player icon (0
-real trapwire lost). Two of the follow-up hypotheses (cone
-termination proximity; sliver/local-thinness, a distinct property) are
-recorded but UNTESTED -- the cone's facing fit only returns an answer on 4 of
-50 real candidate positions, too sparse to measure either one yet.
-
-**NEXT, and this is the one to do FIRST: today's whole ability-candidate
-thread ran on the wrong session.** `eb10db50b1fb` and `d95cfad5693a` are both
-`valorant-16x9` (the small widget). `79a706a7ce4c`, recorded the same evening
-an HOUR LATER on `valorant-16x9-bigmap` (the enlarged widget), has geometry
-built and has never been scanned -- caught by the player, not found proactively.
-Re-run `scan_ability_clip.py` there before trusting any of today's numbers
-(`self_icon_dist`'s threshold, `device_glyph_score`'s radius range) on the
-bigger widget; icon size and cone geometry both scale with widget size and
-neither has been re-measured.
-
-**After that:** confirm the half-angle on a second map; find a real test case
-where a raycast actually crosses a boxedge pixel to confirm pass-through;
-then the follow-up idea -- use many cone instances to tell a real
-wall from a mislabelled box in `minimap_geometry`, which needs substantially
-more footage than one clip.
-
-**DONE 2026-09-02: minimap position tracking is promoted and wired in.**
-`prototypes/minimap_position.py` -> `reticle/minimap.py` + `reticle minimap
-<session>` (stage 02, L1). Self position is a real filtered track; ally rings
-are still per-frame candidates with no identity across frames (see the
-module docstring). New CLI command samples at 15 Hz by default over active
-spans only (`reticle/decode.py` gained `sample_spans()`, the uniform-stride
-sibling of today's `sample_at()` -- one sequential `grab()` pass, no
-per-sample seeking). Run on the three geometry-validated sessions:
-
-    session         map    self raw   filtered coverage   jumps>60px/s
-    a06f04a0059f    Ascent   95.6%          88.2%              5.0%
-    5822b6646448    Lotus    96.3%          85.8%              3.3%
-    c62c2b06bcfb    Split    95.5%          83.8%              3.8%
-
-Consistent with the prototype's original 60s-window numbers (86%/92%/1.5%),
-slightly lower on filtered coverage over a full match -- more occlusion,
-death and spectate stretches than a clean sample window. Ally candidates
-land at 89.4-96.3% "at least one visible" but are NOT yet a per-player track;
-building real ally identity (needed before dA/ds or peek-exposure can use
-more than the local player) is the next step on this thread, not done here.
-
-**Icon tour, 2026-09-02: Lotus hand-marked (`label_minimap.py`, 301 rows) --
-207 enemy, 52 question-mark, 60 nothing, 222 `other_red` confounders (X marks,
-Reyna blinds, pings -- NOT cams, see correction below).** First transfer test
-of enemy/question-mark identification onto a second map and lineup. A glance
-sheet scoring 8 enemy/question-mark controls came back VALID (8/8), so that
-split holds on Lotus too -- worth a proper `label_icon_agent.py` pass on these
-207 to measure portrait ID transfer numerically, not just eyeball it.
-
-**Mistake caught by the player, then actually RESOLVED same session: Cypher cams
-are NOT red, and now there's real reference footage.** `glance_cams.py` was
-run against Lotus's new `other_red` pool and guessed two wrong "cam" answers
-(the second time this exact mistake happened -- see `prototypes/CLAUDE.md`).
-Rather than mine blind again, the player recorded two controlled clips
-(`eb10db50b1fb`, `d95cfad5693a`) placing his own Cypher kit. Confirmed and
-measured: cams are black/colour-free at rest (three distinct device glyphs
-visible in `eb10db50b1fb`), and **a previously-unknown mechanic** -- the icon
-turns teal (H=76-77, S=166-168, V=144-148, essentially `ALLY_H`) while the player
-is actively viewing through it, corroborated by a "LIMITED...ZOOM" HUD overlay
-in the main view at the same moment. Enemy cams turning red is the
-hedge ("I believe"), not yet confirmed. Full writeup in `prototypes/CLAUDE.md`
-under "the domain notes on the minimap". **Next: run
-`scan_ability_clip.py` on both sessions + `label_ability.py` to turn this into
-an actual scored detector** -- should be fast now that the glyphs and both
-colour states are known.
-
-**NEXT on this thread, in order:**
-1. Ally identity across frames -- probably nearest-to-previous per slot, the
-   same trick `pick_self` uses, seeded each round start when allies are known
-   to be spread out (spawn barrier still up).
-2. The visibility computation (dA/ds) that position tracking was always
-   gating -- `floor_mask` is already the occlusion grid it needs.
-3. Vision cones (facing) and enemy-icon states (solid/question-mark/X) --
-   still unread; see "Known limits" in `reticle/minimap.py`.
-
-**SUPERSEDED THE SAME DAY, evening of 2026-08-27: the match-derived ability fit
-below (held-out F1, "more Ascent fit data") is no longer the active plan.**
-the call, later the same day: record short CONTROLLED clips, one agent per
-clip, using every ability on purpose, instead of mining full matches and hoping
-the right agents show up. Two new tools support it:
-
-    prototypes\scan_ability_clip.py <session>     # dense per-clip scan -> candidates
-    prototypes\label_ability.py <session>         # name/correct them (freeform, MRU categories)
-
-`label_ability.py` also still serves the older match-derived `kind: ability`
-rows (`--source dynamic`) -- both paths coexist, `--source auto` picks
-whichever candidate file exists. Full worked example: `2ba870ccbd50`, a
-37s Brimstone ability demo, ingested and iterated through several rounds of
-false-positive hunting that turned into the detector work below.
-
-**The colour-free detector itself changed, in `minimap_dynamic.detect()`, and
-now benefits every caller** (`label_dynamic.py`, `scan_ability_clip.py`):
-
-1. **Two-state lighting reference.** A geometry pixel has exactly two
-   legitimate resting colours -- unlit and viewcone-lit (the model,
-   confirmed against real footage: 81-91% of samples at one interior
-   border/box-edge point cluster at a single value, most of the rest at one
-   adjacent second value). `minimap_geometry.two_state_gray` learns both per
-   pixel; `detect(..., static_gray2=hi_gray)` counts a pixel dynamic only when
-   it falls OUTSIDE the interval the two references span, not merely far from
-   the nearer one -- the earlier "far from nearest" version still flagged
-   viewcone-transition midpoints as dynamic. Fixes the border/box-edge false
-   positives that four earlier downstream filters (aspect, bbox line-overlap,
-   mask line-overlap, host span) all failed to separate cleanly.
-2. **Saturation trigger.** Several abilities TINT the widget rather than
-   fully overwrite it -- Brimstone's ult orange, Skye's heal a green area,
-   Breach's ult a reddish bar -- and can coincidentally match the resting
-   grayscale luminance exactly (measured: Orbital Strike's marker at gray=114
-   against an unlit reference of 117). `sat > COLOUR_SAT` is now an
-   independent OR, reusing the constant `blob_colour` already had.
-3. **`minimap_geometry.py --two-state-from OTHER` / `--geometry-from OTHER`.**
-   A short demo clip's own frames can contaminate its own reference -- a 2.4s
-   ability in a 37s clip is ~9% of the sampling window, not the rare minority
-   a full match gives you. Source the lighting reference (or the whole
-   geometry: floor plan, holes, bomb sites too) from a full match on the same
-   map/profile instead. **Still open:** wholesale `--geometry-from` borrowing
-   fixed the contamination but introduced a NEW problem on `2ba870ccbd50` --
-   large, long-duration false positives from a pixel-value mismatch between
-   the two recordings (brightness/gamma/encoding drift, not yet root-caused).
-   That session's own geometry needs another pass before its candidates are
-   trustworthy; don't trust `--geometry-from` blindly until this is understood.
-
-**Two bugs fixed in shared geometry code** (`minimap_icons.floor_mask`,
-`minimap_geometry.classify`), both found by the player reading the rendered
-geometry sheet by eye, same evening:
-
-* **`floor_mask` was discarding real rooms cut off by one narrow doorway.**
-  It keeps only the SINGLE largest connected component (to drop HUD/scenery),
-  and Ascent's Boathouse -- plain floor by every pixel statistic -- formed its
-  own small island because the doorway to the main slab didn't survive the
-  5px close. Now also recovers any component within `BRIDGE=25` px of the
-  main slab; validated by eye against the 5 closest unclaimed components
-  (Boathouse plus 4 real nooks, all confirmed on the map; the next-nearest
-  jumps to 31px and is a 5px speck).
-* **Box-edge classification had no line-closing step**, unlike `floor_mask`,
-  so a real 1-2px wall is exactly as prone to fragmenting from ordinary pixel
-  noise as an artefact is (measured: real corner fragments and a small floor
-  decal's antialiased rim showed the SAME size and aspect-ratio statistics).
-  Fixed the same way `floor_mask` does: close the white-line mask first
-  (`LINE_CLOSE=5`), filter by area AFTER closing (`LINE_MIN_AREA=20`). Real
-  walls reassemble into one connected network (3 of 4 previously-isolated
-  corners merged into a single 3512px component); the decal and an
-  ally-roster HUD-bleed cluster at x>=434 stayed small and got dropped.
-  54 -> 24 box-edge components on `a06f04a0059f`, tiny (<=12px) ones 37 -> 4.
-  the read on the result: better, though some remaining "box edge" pixels
-  are legitimately walls/map edges rather than small boxes -- that's expected
-  (the class name covers any interior line), not a new defect.
-
-**NEXT SESSION:**
-1. Root-cause the `--geometry-from` pixel-mismatch false positives on
-   `2ba870ccbd50` before trusting wholesale geometry borrowing again.
-2. `5822b6646448` and `c62c2b06bcfb`'s geometry predates ALL of tonight's
-   fixes (only `a06f04a0059f` was rebuilt, twice, while verifying) --
-   rebuild both before running `label_dynamic.py` on them again.
-3. Record a second controlled ability-demo clip (different agent) and run it
-   through `scan_ability_clip.py` + `label_ability.py` end to end, now that
-   the detector fixes are in place.
-4. Audio, raised by the player as a confirmation/primary signal for abilities with
-   no minimap footprint at all: matched-filtering against a clean per-ability
-   reference clip is the cheap approach (no ML needed, these are fixed
-   deterministic SFX) -- `av` is the one new dependency, everything else is
-   plain numpy. Deferred until a demo clip supplies clean isolated reference
-   audio per ability; not started.
-
-*Below this point, the ability-class-splitting narrative and its "NEXT
-SESSION: more Ascent fit data" are the superseded plan -- kept for the
-embedded domain facts (Ascent roster, Miks's kit, ultimate orbs having no
-icon) which are still true, not as a live instruction.*
-
-373 answered rows on `5822b6646448`, all from the player, uniform-in-time sampling
-(the two-pool sampler is built but nothing has used it yet):
-
-    nothing 151   ability 64   player 46   area 34   unsure 69   other 5   spike 1
-
-**The `ability` class did not need splitting first**, which was the blocker
-written here this morning. On Ascent it was 53 rows at 9 positions with 33 of
-them one Deadlock Sonic Sensor; on Lotus it is **64 rows at 35 positions, top-2
-holding 11%, worst spot 4**. The sampler fix did that, and it is why the fit is
-worth running now rather than after a class split.
-
-Then, in order and all cheap:
-
-* **the 5 `other` rows are Lotus doors** -- split them out by position, no
-  questions needed, since a rotating door is a fixed map structure;
-* **the cam test finally works.** Lotus has a Cypher, a cam glyph is colour-free
-  so it is in THIS channel and not the red mask, and `minimap_ring_fit`'s
-  `LOBE_MIN_FRAC` has never met a real one. `prototypes/CLAUDE.md` says a cam
-  rotates but never translates and has no lobe -- all three are now testable;
-* **69 `unsure` rows are the death-screen cost**, 18.5% of the pass. Fixed by
-  `minimap_temporal.drawn()` after row 4; a re-run would not pay them again.
-
-**Known-bad and unmeasured:** the Omen smoke that translates while deploying is
-the only counterexample to the translation invariant, and the narrowed version
--- *translates then stops forever = smoke; keeps moving = player* -- has never
-been measured. `motion()` says so.
-
-    nothing 148   ability 53   player 25   area 20   ping 4   other 1
-
-The channel was blocked because nothing in the store said which colour-free
-blobs were real. It is not blocked any more, and the first cut of the answer is
-better than expected. Two features separate an ability glyph from a viewcone
-corner-clip, and **neither is currently recorded by the detector**:
-
-* **host span** -- the span of the RAW difference region a blob belongs to,
-  before the top-hat fragments it. the player, on candidate 149: *part of the vision
-  cone barely clipping a corner and producing something that vaguely could look
-  like an icon.* Median 24 px under a glyph against 127 under a `nothing`;
-* **top-hat peak** at the blob, median 132 against 63.
-
-On live play only (30 s or more into an active span, see the buy-phase note
-below), against 35 glyphs and 55 artefacts:
-
-    no filter                    100% recall   39% precision vs artefacts
-    host span <= 40               77%          96%
-    host span <= 40, tophat >=110 31%         100%
-
-    .\.venv\Scripts\python.exe prototypes\dynamic_eval.py a06f04a0059f
-
-reproduces every number in this section, and `--mask` reproduces the IoU
-figures. Start there rather than rebuilding feature extraction.
-
-Read that as promising, not settled. n is 35 positives, the thresholds are
-picked on the same rows they are scored on, and it is one session on one map.
-**The next step is a second labelled session** -- Lotus or Split, which also
-serves the older open question about the cold identification path -- fitted on
-one and scored on the other. If it holds, this channel is a glyph detector at
-an operating point the red ring-finder cannot reach, rather than the weaker
-enemy detector it was measured as.
-
-**Also first live test of "predict before you look"** (in the conventions).
-Tomorrow is the first session where it applies prospectively rather than
-retrospectively, and the Lotus pass is a good case: predict the class
-distribution and the stream size BEFORE running `label_dynamic`, at whatever
-resolution holds at 0.7, and score it. If the log ends the session with more
-`couldn't-tell` than `wrong`, the technique is already decaying.
-
-Three things found while labelling, all the, all recorded below:
-
-* **`active` contains the buy phase**, so 38% of the questions were about an
-  empty minimap. Fix the sampling, and consider a phase detector -- the spawn
-  barrier is the easiest signal in this document;
-* **the size gate is fitted to icons**, so smokes, walls and ultimates are cut
-  outright. `8 area` and `9 barrier` are now separate classes;
-* ~~a few barriers labelled `nothing` before `9` existed~~ **fixed.** Sweeping
-  all 148 `nothing` rows for strong green or red within 12 px gave 16 hits;
-  the player identified exactly two as barriers, both ally green, and corrected rows
-  supersede them by the last-write-wins convention. No number moved. Of the
-  other fourteen he said: *most of the rest of those are "problem areas" of the
-  map I noticed before with high misfire rates* -- so a colour sweep finds the
-  high-traffic zones, which is what the viewcone story predicts, since a cone
-  is where the coloured things are.
-
-*Previous handoff, resolved 2026-08-26:* portrait identification is built and
-measured. Two things gated it and both are now done:
-
-* ~~71 of the 107 agent labels are provisional~~ **DONE 2026-08-26: all 107
-  icons are the.** On hand labels, leave-one-out: **88.6% over the five
-  agents** (`?` excluded), 84.8% for agents with `?` sitting in the gallery,
-  78.6% recall on `?` itself, 83.2% over all six classes. The **roster alive
-  check is now 79/79 = 100%** against a 67% chance rate -- every identification
-  names an agent the roster shows alive, and that check finally means something
-  because the labels are no longer mine. My provisional labels turned out to
-  agree with the on 69/71 (97.2%), so the earlier 93.0% was circular rather
-  than wrong; the honest five-way number is 88.6%, and the gap is mostly the
-  eight hard icons the player added that my clustering had dropped -- blurry ones,
-  and a Jett mostly covered by the icon in a close-range duel.
-  Superseded caveat, kept because the mechanism was the point:
-* **~~71 of the 107 agent labels are `claude-provisional`~~.** the player ran the
-  labeller on 2026-08-26 and it presented only 36 icons, because seeding the
-  file with provisional rows made every seeded icon look already-done. Fixed --
-  provenance now decides, not presence -- but the fix does not relabel anything:
-  **`label_icon_agent.py a06f04a0059f --names ... --redo` still needs a pass**,
-  and until it has had one the 93.0% is my clustering scored against itself;
-* **I named two of the five agents wrong, and no automatic check caught it.**
-  the player, reading the labeller's own key: what I called `sage` is **Skye** and
-  what I called `yoru` is **Iso**. The a06f04a0059f enemy lineup is
-  **Skye, Iso, Jett, Omen, Killjoy**. Nothing measured changes -- the classes
-  were consistent throughout, so every accuracy, the clustering and the abstain
-  curve all stand; only the strings were wrong. But it exposes a real limit of
-  the roster alive check: it verifies which CLUSTER belongs to which ROSTER
-  SLOT, and the slot's name came from the same `--names` list I got wrong, so
-  the whole thing was self-consistently mislabelled. I wrote that naming
-  therefore needs a human, and **that was wrong, discovered ten minutes later
-  on the pixels**: the Tab scoreboard prints the AGENT NAME as a second, grey
-  line under each player name -- Omen / Jett / Killjoy / Skye / Iso down the
-  enemy block, and "Me / Phoenix" on the row. So a capture names its own
-  agents, and it needs no alphabet: agent names are a CLOSED SET of about
-  twenty-five strings, so twenty-five mined word bitmaps matched whole will do
-  it, which is exactly the trick `killfeed.py` already uses for "Me". Until that
-  is built, treat agent names as an unverified layer over verified classes;
-* **the question mark needs its own mechanism, not a tuned threshold.** With
-  `?` added as a sixth class the mixed set reads 85.0% overall, 87.3% over the
-  five agents alone, and **13 of the 16 misses involve a `?`, in both
-  directions**. Two explanations were measured and both failed: red inside the
-  interior does not separate them (median 0.08 vs 0.09) and neither does the
-  sampling radius (flat, 82.2-86.0% from FRAC 0.55 to 0.94). What does show is
-  that a minority of `?` interiors are nearly featureless -- raw contrast p10
-  5.9 against 31.1 for agents -- and NCC normalises a flat patch up to full
-  weight and then correlates noise. A `?` is a fixed GLYPH, so it belongs with
-  the digit templates: matched by shape, decided BEFORE the 5-way portrait
-  match;
-* **it is one session with one lineup.** `5822b6646448` (Lotus) and
-  `c62c2b06bcfb` (Split) are ingested, on the same enlarged widget, with
-  different agents. The project's history says a new map is where these break,
-  and neither has minimap labels yet.
-
-Two smaller threads left open, both cheap:
-
-* **label Cypher cams specifically -- MOVED TO LOTUS, and to the other
-  channel.** Two corrections on 2026-08-27, in order. First: `a06f04a0059f` has
-  **no Cypher** (the player confirmed), so the cam case was never runnable there, and
-  two `glance` sheets over 30 of its 144 `other_red` marks duly found zero cams
-  (19 death marks, 3 warning pings, 4 occluded, 8/8 controls). Second, and the
-  reason those sheets were the wrong instrument anyway: **a cam glyph is black
-  and white, so it lives in the COLOUR-FREE channel, not the red mask.** Looking
-  for cams in `other_red` could not have worked whoever was on the roster.
-  `5822b6646448` (Lotus) **does** have a Cypher, and it is the session already
-  queued for the labelling pass -- so the cam question and the ability pass are
-  the same errand now.
-  The premise that needs re-examining is the one in `minimap_ring_fit`:
-  `LOBE_MIN_FRAC` was added to stop *a cam* passing the motion filter, which
-  assumes cams reach the red mask at all. Check that against Lotus before
-  trusting the constant.
-  Reproduce: `prototypes\glance_cams.py a06f04a0059f --seed 3` and `--seed 91`.
-
-* **The Ascent roster, read off the Tab scoreboard TEXT, is definitive.**
-  Frame 111702 (31.0 min), `rosters/a06f04a0059f.scoreboard.npz` records the
-  index; seek to it and the grey second line under each player name reads:
-
-      allies    Reyna | Me/Phoenix | WhaleKicker/Deadlock | Seacow/Breach | tin/Miks
-      enemies   Deebo/Omen | Truewarrior/Jett | vanshrana/Killjoy | Lil2Foot/Skye | chxck/Iso
-
-  **No Cypher.** This is the mechanism this file already predicted would work --
-  agent names are a closed set printed as text -- and it settles in one look what
-  two rounds of portrait-reading could not. **Read the names, never the
-  portraits.** Portraits got `sage` for Skye and `yoru` for Iso in an earlier
-  session, and cost two exchanges again on 2026-08-27.
-
-* **So the object at (137,170) is NOT a Cypher cam, whatever it resembles.**
-  the player, on the 10x comparison sheet: *top row is all cypher cams, so is bottom
-  right*, and *the reason 06 reads as a different glyph is probably because it's
-  a different rotation* -- which collapses my "three distinct glyphs" claim to
-  ONE glyph under rotation. But two of those panels are Ascent, and Ascent has no
-  Cypher, so either that glyph is not exclusively a cam or the Lotus reading
-  generalised. **Open, and it is the blocker on the class list.** The ally with
-  placeable devices on Ascent is Deadlock (Sonic Sensor, Barrier Mesh); `Miks` is
-  an agent whose kit is not in my knowledge at all, which is worth stating
-  plainly rather than guessing around.
-  Also from the player, same pass: **04 is a DEADLOCK wall** (Barrier Mesh) --
-  *that light blue going off; there are four of them but they can get destroyed
-  or be up against a wall and very small* -- so it is a MULTI-SEGMENT object with
-  a variable segment count, which no size gate fitted to icons will survive. And **05 is a viewcone through
-  a doorway**, on Ascent at (264,128), which kills that as a candidate object.
-
-* **Ultimate orbs have NO minimap icon.** the player checked in a custom game,
-  2026-08-27: *I don't believe ult orbs have a minimap icon. They didn't in the
-  custom game I just opened to test. I think they used to though. They are
-  generally in the "no man's zone" area of the map, between the barriers.* This
-  kills the hypothesis outright -- an orb was the obvious reading of "two fixed
-  positions per map" and it is simply wrong. **A five-minute custom game settles
-  what the pixels cannot**, and it is the cheapest instrument in this project.
-
-* **The Ascent object is HALF-SCOPED, which rules out a map fixture.** Over 250
-  frames, same gate:
-
-      (136, 168)  n=79   t=  30..1252s   then absent for the last 18 minutes
-      (264, 128)  n= 9   t=  77..1043s   same, stops early
-      (224, 216)  n= 2   t=1681..2289s   appears only late
-
-  Two positions carry the first half and a different one carries the second.
-  That is the **side swap**, so the object is a placed device whose position is a
-  per-half placement habit -- not furniture, and not a habit that survives
-  halftime, let alone another session. On the Ascent ally roster the candidate is
-  **Deadlock's Sonic Sensor** (WhaleKicker), a placed device that persists until
-  destroyed. Miks is the other candidate but his deployable is THROWN, which
-  fits 2 px repeatability across twenty minutes poorly.
-  **Miks's kit, from the player** (not in my knowledge, so recorded here): smokes, a
-  teammate buff (movement speed and fire rate), a cone ult, and a deployable
-  toggleable before throwing between healing and stunning.
-
-* **Rounds were never missing -- `reticle rounds` had simply never been run on
-  the three enlarged-minimap sessions.** `rounds.py` derives bounds from the
-  scoreline climbing by one, recomputed from stored L1 without opening the
-  video. Ascent 24 rounds 13-11, Lotus 23, Split 21 21-rounds 13-8, all now
-  persisted. My earlier claim that no `l2/rounds` parquet existed was a
-  truncated `find | head`; the round table is 349 rounds over 17 sessions.
-  (`active` spans still are not rounds -- 29 spans against 24 rounds on Ascent,
-  several of them 12-26s fragments -- but nothing on the endstate path needs
-  them to be, because the scoreline gives rounds directly.)
-
-* **`PLAYER_SIDE = "left"` is structural now, and it recovered 43 rounds.**
-  `infer_player_side` decided the player's side from kill differential and
-  ABSTAINED on three sessions, leaving `won` NULL for all 43 of their rounds --
-  including all 23 of Lotus, the session queued for labelling. Three independent
-  lines settle it instead:
-
-      direct        the top HUD band is COLOURED BY TEAM -- green ally bar left,
-                    red enemy bar right. Confirmed by eye on 5822b6646448
-                    (bigmap profile, 11-12) and c40d950031bb (16x9 profile, 7-1)
-      statistical   the old inference resolves LEFT on 14 sessions, RIGHT on 0
-      structural    the roster bars are green-left / red-right, same order
-
-  **The scoreline ROI already contained the answer and nothing was reading it.**
-  Rounds with a known outcome went 306 -> 349, and every one of the 14 sessions
-  that previously resolved kept an identical W-L, so the change is non-
-  destructive. The inference is kept as a CHECK: `reticle rounds` prints `~` where
-  it abstains and `!` where it actively disagrees, and a `!` is worth opening the
-  capture for. None currently disagree.
-
-* **All three abstaining sessions are TRUNCATED captures**, which is one
-  explanation rather than three: 5822b6646448 ends 12 s after its last read at
-  11-12, c40d950031bb at 7-1, 75a55a296d3b at 10-2. `infer_player_side` abstains
-  exactly on short or lopsided partial matches, as its own docstring predicted.
-  **This resolves Lotus's K/D gap**: our 12/20 against the end-of-match 13/21
-  is one kill and one death in the unrecorded tail, not two read errors. Check
-  capture completeness before quoting a K/D delta as a defect.
-
-* **DONE: the plant, at ~88% either way, from stored L1 alone.** The spike
-  graphic sits exactly where the round timer's digits are, so a planted round has
-  **no clock to read** -- and `clock_ms is None` is already in L1. The rule needs
-  no new ROI and no video re-read:
-
-      a plant is the run of unreadable clock that REACHES the round's end,
-      when it is at least as long as a defuse takes.
-
-  **The tail is the discriminator, not the length.** Over 349 rounds the
-  trailing-run histogram is 200 rounds at 0-4 s (end-of-round animation), a
-  sparse 5-19 s band, then a broad 20-45 s plateau that stops exactly at the
-  spike's 45 s fuse. The floor is a GAME RULE rather than a fitted number: **a
-  defuse takes 7 s**, so no post-plant is shorter. My first guess of 20 s cost
-  2 of 5 plants on `223d636bf8d2`, both real, at 18.5 s and 16.0 s -- fast
-  defuses missed by seconds.
-
-      old clock-jump rule       6 plants / 262 rounds
-      new rule, 20 s floor    114 plants / 349 rounds (33%), per-session 11-62%
-      new rule,  7 s floor    170 plants / 349 rounds (49%), per-session 35-57%
-
-  Validated against pixels three times with `prototypes/plant_probe.py`, all
-  sheets VALID:
-
-      9acf02f98283   tuning   recall 100%  precision 88%
-      223d636bf8d2   surprise recall  60%  precision 100%   -> found the 20s bug
-      e37fdeca944f   HELD OUT recall  88%  precision  88%
-
-  **The controls are free and non-circular**: a READABLE clock proves the graphic
-  is absent, because they occupy the same pixels, and that truth comes from
-  `ocr.py` -- a different extractor written long before this question -- not from
-  my eye and not from the rule under test.
-
-* **Two limits on the plant, both stated in `rounds.py`.** The **boundary is only
-  good to +/-5 s**, since an OCR drop can start the run before the plant: enough
-  to SPLIT a round into phases, not to time one, so **do not cut a clip on
-  `plant_t_ms`**. And the honest way to sharpen it is **audio**, which this
-  pipeline has never touched. the player, 2026-08-27: *the spike beeping speeds up at
-  standard intervals, so that's the main way players tell how much time is left
-  in postplant.* That is not a cheaper plant flag, it is a **post-plant clock** --
-  for the one window where the pixels have no digits by construction.
-
-* **A probe that copies the rule is not a probe.** `plant_probe.py` first
-  duplicated `PLANT_MIN_MS` and the run scan, so it was validating a rule that no
-  longer matched the shipping one the moment the constant moved. It imports
-  `rounds._plant` now. Any future probe does the same: **import the thing under
-  test, never restate it.**
-
-* **A rotation-variant glyph breaks template matching.** If the cam icon rotates
-  to show facing, then `minimap_portrait`'s NCC gallery approach cannot identify
-  it without a rotation bank or a rotation-invariant feature. Nothing in this
-  repo has assumed a rotating glyph before.
-
-* **Positional persistence is a real signal, but NOT static-versus-deployed.**
-  Same detector, same gate (area 200-420, aspect <= 1.25), 200 frames each:
-
-      ascent  91 disc-like   66 of 91 at TWO positions, spanning 1222s and 966s
-      lotus   90 disc-like   24 of 90 at the top two, every cluster 30-90s long
-
-  I read that as map-static furniture versus deployed utility. **That reading was
-  wrong**: Ascent has no map object there, so what holds one pixel for twenty
-  minutes is a player re-placing a device in a favourite spot every round. The
-  measurement stands and the feature is still free and label-free -- it just
-  measures a PLACEMENT HABIT, not an object class, and a feature fitted to one
-  player's habit will not transfer to another session.
-
-* **STILL THE ONE THAT CHANGES THE NEXT STEP: the `ability` class is mostly one
-  object.** 33 of the 53 `ability` rows sit within 6 px of (137,170), from
-  t=30s to t=1252s; another 12 sit at (96,180). **44 of 53 (83%) are two fixed
-  positions.** The rotation point makes this worse, not better: if those are all
-  one glyph, the 77% recall / 96% precision operating point is measuring a single
-  object type at two spots in one match. **Split the class before fitting**, and
-  get the identities first -- the fit is not worth running until the class list
-  is real.
-* **`a06f04a0059f` is +2 kills / +3 deaths** against the 19/19, the widest
-  gap in the set, uninvestigated. Run It Back would explain deaths running high,
-  which is the direction seen, but no agent has been checked.
+1. **The labelling pass above.** Then re-run `ability_features.py --gate`; with
+   positives in the hundreds a weighted combiner becomes fittable, and the shape
+   and colour families have something to join.
+2. **The mini design doc for ability recognition** -- the player asked for this
+   explicitly as the next session's work. It should supersede the Phase 2 plan in
+   `docs/ability-temporal.html`, whose first-named feature (the cone-coverage
+   two-factor conditional) failed as a gate.
+3. **Shape features**, deferred deliberately: `cv2.minAreaRect` elongation,
+   solidity, Euler number, `cv2.matchShapes` Hu moments. They need a decode pass,
+   and adding a family to a set that cannot be weighted will produce better
+   single-feature AUCs and no better detector.
+4. **The free geometry trim.** VOID / BOXEDGE / unreadable candidates are 28 of
+   205 labelled and **0 of them are real** -- precision 15% -> 17% at zero recall
+   cost. `geo_label` is in the candidate schema and is never populated.
+5. **Ultimate voicelines**, now unblocked: `audio_probe.py` killed onset
+   detection and said a matched filter needs a reference cut at a known cast
+   time. The 56 MP3s are those cuts, and ally-vs-enemy carries team identity.
+
+**Standing hazards.** Never re-scan `2ba870ccbd50`, `eb10db50b1fb`,
+`d95cfad5693a`, `79a706a7ce4c` -- the label store key is unstable. Never seed a
+label file. **The tile is not the object**: reading the Killjoy contact sheet I
+called "map line-work" a large false-positive class, and at the candidate's own
+pixel 177 of 205 sit on FLOOR. The eye pools a neighbourhood; the detector must
+commit to a pixel.
+
+**Other live threads, not touched this session.** Detail is in
+`git show HEAD~1:NOTES.md` and in the module docstrings; only the heads are kept
+here, because this section grew to 744 lines by stacking handoffs and the
+standing instruction is to keep it short.
+
+* **minimap position (self) is shipped; allies are not.** Next: ally identity
+  across frames (nearest-to-previous per slot, seeded at round start while the
+  spawn barrier is up), then the visibility computation dA/ds that position
+  tracking was always gating -- `floor_mask` is already the occlusion grid it
+  needs -- then enemy-icon states (solid / question-mark / X), still unread;
+* **vision cones:** confirm the half-angle on a second map, and find a case
+  where a raycast actually crosses a boxedge pixel to confirm pass-through.
+  the follow-up: use many cone instances to tell a real wall from a
+  mislabelled box in `minimap_geometry`, which needs more footage than one clip.
+
+**Still true and still queued:** `ability_corpus.load_events` takes `min(dists)`
+across an event's fragments, re-introducing the Phase 0a failure one level up;
+three different `floor` conventions feed `self_rings`; grouping lives in
+`load_events` and should be lifted out for the labeller; a pulsing region still
+gets one event per pulse; teleports break the shipped position track for Veto,
+Omen, Chamber and Waylay.
 
 ## Live defects
 
