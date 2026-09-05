@@ -288,7 +288,7 @@ footer {
 <div class="wrap">
 
 <header class="masthead">
-  <div class="eyebrow"><span class="dot"></span> Reticle · ability channel · 2026-09-04</div>
+  <div class="eyebrow"><span class="dot"></span> Reticle · ability channel · 2026-09-04 · Phase 0 &amp; 1 built</div>
   <h1>The Temporal Ability Channel</h1>
   <p class="standfirst">Every temporal feature in this repo is a scalar summary of a track. Nothing looks at the shape of a signal over time — and both surviving false-positive classes live there. This is the build that opens that space.</p>
   <div class="masthead-rule"></div>
@@ -364,20 +364,51 @@ footer {
   <div class="phases">
 
     <div class="phase">
-      <div class="phase-id">Phase 0<span class="chip measured">prereq</span></div>
+      <div class="phase-id">Phase 0<span class="chip measured">done</span></div>
       <div class="phase-body">
         <h3>Two repairs, both small</h3>
-        <p><strong><code>self_icon_dist</code> as a minimum over the track's frames</strong>, not the single sample at its birth (<code>scan_ability_clip.py</code>, the branch that opens a track). It is null on 25 of Astra's 43 rows and 58% corpus-wide, while <code>self_rings</code> finds the player in 70–100% of frames — so the nulls are not a detection failure. They are correlated: a candidate is disproportionately born in a frame where something covers the widget, which is exactly when the self colour is hidden. The one sample lands at the worst possible moment. This is the only filter the reading of the gallery confirms works, and its coverage bug is the highest-value repair available.</p>
-        <p><strong>Per-state standard deviation into the geometry npz.</strong> The divisor NOTES has named for a fortnight. Critically <em>not</em> overall SD — at a two-state pixel that measures the lighting switch rather than the noise, so it would be largest precisely on the swept floor where everything interesting lives. <code>sd_lo</code> and <code>sd_hi</code>, computed inside <code>two_state_gray</code>'s existing split, from the same frames <code>lo</code>/<code>hi</code> came from.</p>
-        <p class="depends">All 27 demo clips + the Brimstone session share ONE borrowed geometry; the labelled small-widget sessions share another. Three rebuilds cover everything.</p>
+        <p><strong><code>self_icon_dist</code> sampled over the whole track</strong>, not the single frame at its birth. It was null on 25 of Astra's 43 rows and 58% corpus-wide, while <code>self_rings</code> finds the player in 70–100% of frames — so the nulls were not a detection failure. They were correlated: a candidate is disproportionately born in a frame where something covers the widget, which is exactly when the self colour is hidden, so the one sample landed at the worst available moment. <strong>Null rate on Astra 58% → 33%</strong>; the residue is short tracks that never coincided with a ring fit, which is honest.</p>
+
+        <div class="correction">
+          <div class="label">Measured — and it overturns what NOTES proposed</div>
+          <p>NOTES said take the <em>min</em> over the track. Scored against the real <code>eb10db50b1fb</code> labels at the already-set 7 px gate — two aggregates at one fixed threshold, nothing re-fitted:</p>
+          <div class="scroller">
+          <table>
+            <thead><tr><th>aggregate</th><th class="num">real trapwires kept</th><th class="num">not_ability kept</th></tr></thead>
+            <tbody>
+              <tr><td>median <span class="chip measured">shipped</span></td><td class="num">5 of 5</td><td class="num">18 of 26</td></tr>
+              <tr><td>min</td><td class="num">3 of 5</td><td class="num">16 of 26</td></tr>
+            </tbody>
+          </table>
+          </div>
+          <p>Min trades 40% of the real class for seven points more junk. The mechanism: min was proposed as part of a <em>coverage</em> fix, but the coverage fix is the per-frame sampling, not the aggregate. Once a whole track is sampled, min stops meaning “is the player's icon here” and starts meaning “was the player <em>ever</em> here” — a far commoner event. Visible directly in the Astra clip: min 2.7 / median 54.6 over 275 ring fits is an object the player walked over, while genuine player-icon fragments score small on <em>both</em> (2.3/2.3, 0.34/2.43).</p>
+        </div>
+
+        <p><strong>Per-state standard deviation into the geometry npz</strong> — <code>sd_lo</code>, <code>sd_hi</code>, and <code>minimap_dynamic.load_noise</code>. Measured on <code>a06f04a0059f</code>, 400 frames, median per class:</p>
+        <div class="scroller">
+        <table>
+          <thead><tr><th>class</th><th class="num">sd_lo</th><th class="num">sd_hi</th><th class="num">overall SD</th></tr></thead>
+          <tbody>
+            <tr><td>FLOOR</td><td class="num">3.17</td><td class="num">3.30</td><td class="num">25.33</td></tr>
+            <tr><td>BOXEDGE</td><td class="num">5.97</td><td class="num">3.92</td><td class="num">33.60</td></tr>
+            <tr><td>PLANT</td><td class="num">6.00</td><td class="num">4.99</td><td class="num">27.45</td></tr>
+            <tr><td>BORDER</td><td class="num">9.37</td><td class="num">5.14</td><td class="num">38.68</td></tr>
+            <tr><td>VOID</td><td class="num">28.44</td><td class="num">6.86</td><td class="num">—</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p><strong>Overall SD is 5–8× the within-state figure in every class</strong> — that is the lighting switch being counted as noise, measured. Across the whole searchable area the within-state noise sits in a narrow 3.2–6.4 band, so it behaves as a divisor where it is actually used; the wild value is VOID, which <code>searchable()</code> masks out anyway. A state of one frame has SD 0 by construction on 6.5–8.8% of the widget, so the floor is mandatory rather than defensive.</p>
+        <p>All 34 geometries rebuilt, each keeping its own provenance. The rebuild is bit-reproducible — <code>a06f04a0059f</code> returns <code>labels</code> f94b85d0, <code>static</code> 96a251e0 and <code>lo_gray</code> ab7b0d1b byte-for-byte, which is what proves the chunked rewrite changed nothing. It also caught <code>2ba870ccbd50</code> carrying stale labels from an older <code>classify()</code>: the stamp convention doing its job.</p>
       </div>
     </div>
 
     <div class="phase">
-      <div class="phase-id">Phase 1<span class="chip measured">enabling</span></div>
+      <div class="phase-id">Phase 1<span class="chip measured">done</span></div>
       <div class="phase-body">
         <h3><code>prototypes/ability_series.py</code> — the per-frame series</h3>
-        <p>One sequential pass per clip. Given query positions from <em>either</em> the candidate file or the label file, it returns for each position an array aligned over frames: the patch's grayscale, the <code>dark</code>/<code>bright</code> interval excursions, whether the fitted self-cone covers that pixel, the self track's position, and whether <code>detect</code> fired there. One npz per clip, written and dropped — the corpus never sits in memory at once.</p>
+        <p>One sequential pass per clip. Given query positions from <em>either</em> the candidate file or the label file, it returns for each position an array aligned over frames: the patch's grayscale, the split <code>dark</code>/<code>bright</code> interval excursions, both normalised by the Phase 0 noise map, whether the fitted self-cone covers that pixel, whether the cone fit at all, the self track's position and distance, and whether <code>detect</code> fired within 10 px. One npz per clip, written and dropped — the corpus never sits in memory at once.</p>
+        <p><strong>Cost: 45 s and 0.5 MB per clip</strong> at native 60 Hz with the cone (<code>c0b63335e635</code>, 45 queries × 2308 frames). The cone answered 92.0% of frames there and 48.0% on <code>eb10db50b1fb</code> — both consistent with the yields already on record, so nothing new is being claimed for it.</p>
+        <p>Smoke test rather than a score: four <code>detect</code> onsets land at <strong>28.3 s</strong>, which is the drone-HUD wedge independently recorded at t=28350 ms. The substrate lines up with a finding it knows nothing about.</p>
         <p class="depends">depends on ← Phase 0 (sd_lo/sd_hi) · blocks → every feature in Phase 2, and the labelling pass</p>
       </div>
     </div>
@@ -394,7 +425,7 @@ footer {
       <div class="phase-id">Phase 3<span class="chip measured">agreed</span></div>
       <div class="phase-body">
         <h3>The labelling pass, moved to <em>after</em> Phase 1</h3>
-        <p>NOTES put this before the temporal work, on the correct reasoning that everything else is unfalsifiable without it. the player moved it after Phase 1 on 2026-09-04, and the argument is that Phase 1 builds the pass's <em>instrument</em>: a rendered time-series strip per event is far easier to judge than a static crop. That is the <code>labelling-pass</code> skill's own lesson — <em>the tile is not the object</em> — extended one axis. The pass gets cheaper and more accurate for waiting, and the time is the scarce resource.</p>
+        <p>NOTES put this before the temporal work, on the correct reasoning that everything else is unfalsifiable without it. <strong>the player moved it after Phase 1 on 2026-09-04</strong>, and the argument is that Phase 1 builds the pass's <em>instrument</em>: a rendered time-series strip per event is far easier to judge than a static crop. That is the <code>labelling-pass</code> skill's own lesson — <em>the tile is not the object</em> — extended one axis. The pass gets cheaper and more accurate for waiting, and the time is the scarce resource.</p>
         <p class="depends">Invoke the <code>labelling-pass</code> skill first. Run <code>review_candidates.py</code> before launching anything — that gate exists because a labeller was twice launched on garbage.</p>
       </div>
     </div>
@@ -496,9 +527,12 @@ footer {
       <tr><td>Tray recall is low by construction</td><td>a re-cast refills between samples</td><td>a missing drop is no evidence, never “no cast”</td></tr>
       <tr><td>Teleports and dashes</td><td>self-track continuity assumed</td><td>median distance, not correlation</td></tr>
       <tr><td>Memory</td><td>whole-corpus patches ≈ 700 MB</td><td>per clip ≈ 30 MB; write and drop</td></tr>
+      <tr><td>Three <code>floor</code> conventions <span class="chip hazard">found 2026-09-04</span></td><td><code>self_rings</code> is called with <code>floor_mask(med)</code> in <code>cli.py</code>, <code>floor_mask(static, dilate=1)</code> in <code>ability_cone</code>, <code>labels != VOID</code> in <code>scan_ability_clip</code></td><td>Phase 1 matches each use to the code its numbers must compare with; the divergence itself is latent and unfixed</td></tr>
+      <tr><td>An unreadable clip <span class="chip hazard">found 2026-09-04</span></td><td>OpenCV reports <code>frame_count = -1</code>, so the failure surfaces as an <code>IndexError</code> on an empty array far from its cause — and abandoned 26 good clips</td><td><code>MediaUnreadable</code> raised at the cause, skipped per session, tallied at the end</td></tr>
     </tbody>
   </table>
   </div>
+  <p>The last two were not predicted — they were found by running the thing. Both are recorded here rather than only fixed, because the shape of each will recur: a repo-wide convention that quietly forked, and a batch job that abandoned its good work over one bad input.</p>
 </section>
 
 <section>
