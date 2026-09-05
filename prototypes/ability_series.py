@@ -94,6 +94,49 @@ Per query position, per sampled frame:
 shares one time axis by construction, which is what makes them comparable
 without a join.
 
+ONE SHARED AXIS, AND A PER-QUERY WINDOW ON IT (`win_lo`, `win_hi`)
+-------------------------------------------------------------------
+`win_lo[k]:win_hi[k]` is the half-open slice of the axis that belongs to query
+`k`. **Read a series against the wrong span and it says nothing, very
+confidently** -- that is not a hypothetical, it is what the first windowed run
+of `a06f04a0059f` printed: `detect` fired for 75.5% of frames at the median
+query and 75.7% at the max, across 53 queries, which looked like a signal and
+was arithmetic. Each query was being averaged over 13843 frames when only 360
+were its own.
+
+It bites on a short clip too, which is the part worth internalising. The same
+Tejo series read whole-axis against per-query-window:
+
+    statistic                          whole axis   own +/-3s
+    detect fired, median query             14.9%       40.8%
+    detect fired, max query                61.0%       94.5%
+    nearest query to the self icon        35.3 px      3.9 px
+
+Same data, same pass. The whole-axis reading dilutes every candidate with the
+38 seconds in which its object does not exist.
+
+**The two spans are different questions and must not be collapsed.**
+`win_lo`/`win_hi` say what was DECODED and is valid for that query. On a demo
+clip nothing is windowed, so they are the whole axis on purpose -- the whole
+clip is relevant there, and clipping to a few seconds would destroy the
+repeat-structure feature, which is about an object recurring later. A feature
+that wants a LOCAL window computes it from `t_ms` and the query's own `t_ms`;
+it must still respect `win_lo`/`win_hi` as the outer bound of what exists.
+
+`--window-s` and when to use it
+--------------------------------
+Unset for a demo clip: 20-64 s, candidates throughout, decode all of it.
+
+Set it for a FULL MATCH, where ~50 labels are scattered over 40 minutes and
+decoding 139288 frames to serve them is ~2 hours of work for 10% of it.
+`a06f04a0059f` at `--window-s 3` keeps 13843 of 139288 samples (9.9%) and takes
+11m39s. Skipped frames are passed with `cap.grab()`, which advances the decoder
+without producing an image, rather than by seeking -- so the frames that ARE
+measured still come from an unbroken sequential decode and consecutive samples
+within a window are genuinely consecutive. Verified against a full pass of the
+Tejo clip: the retained frame set is exactly the frames within the window, and
+every value at them is identical to the unwindowed run.
+
 What this module deliberately does NOT do
 ------------------------------------------
 No thresholds, no scores, no verdicts. It is the substrate, and the features
@@ -204,7 +247,7 @@ def _queries_from_labels(sid):
 
 
 def series(sid, from_labels=False, step=1, use_cone=True, cone_every=CONE_EVERY,
-           progress=False):
+           window_s=None, progress=False):
     """One sequential pass over the clip; returns (queries, time axis, fields).
 
     `fields` is a dict of (n_queries, n_frames) arrays, one per measurement in
@@ -278,7 +321,34 @@ def series(sid, from_labels=False, step=1, use_cone=True, cone_every=CONE_EVERY,
         raise MediaUnreadable(
             f"{sid}: cannot decode {src['path']}"
             + ("  (file does not exist)" if not Path(src["path"]).exists() else ""))
-    n_samp = len(range(0, n_frames, step))
+    # WINDOWED sampling, for a sparse query set over a long recording.
+    #
+    # A demo clip is 20-64s with candidates all through it, so the whole thing
+    # is worth decoding. A full match is 40 MINUTES with ~50 labels scattered
+    # through it, and decoding all 140k frames to serve 50 moments is ~45
+    # minutes of work for ~13% of it. `window_s` keeps only frames within that
+    # many seconds of some query, which is CLAUDE.md's *decode ranges, not
+    # scattered frames* -- a window IS a range.
+    #
+    # Skipped frames are passed over with `cap.grab()`, which advances the
+    # decoder without producing an image, rather than by seeking. That keeps
+    # the whole no-seeking argument intact: the frames that ARE measured still
+    # arrive from an unbroken sequential decode, so consecutive samples within
+    # a window are genuinely consecutive.
+    wanted = None
+    if window_s is not None and qs:
+        wf = int(round(window_s * fps))
+        wanted = np.zeros(n_frames + 1, bool)
+        for q in qs:
+            c = int(round(q["t_ms"] / 1000.0 * fps))
+            wanted[max(0, c - wf):min(n_frames, c + wf + 1)] = True
+        keep = [i for i in range(0, n_frames, step) if wanted[i]]
+        n_samp = len(keep)
+        print(f"  {sid}: windowed +/-{window_s:g}s around {len(qs)} queries -- "
+              f"{n_samp} of {len(range(0, n_frames, step))} samples "
+              f"({100 * n_samp / max(1, len(range(0, n_frames, step))):.1f}%)")
+    else:
+        n_samp = len(range(0, n_frames, step))
     nq = len(qs)
 
     F = {k: np.zeros((nq, n_samp), np.float32) for k in
@@ -295,12 +365,14 @@ def series(sid, from_labels=False, step=1, use_cone=True, cone_every=CONE_EVERY,
     t0 = time.time()
     fi = si = 0
     while si < n_samp:
+        if fi % step or (wanted is not None and not wanted[min(fi, n_frames)]):
+            if not cap.grab():        # advance without decoding an image
+                break
+            fi += 1
+            continue
         got, fr = cap.read()
         if not got:
             break
-        if fi % step:
-            fi += 1
-            continue
         t_ms[si] = fi / fps * 1000.0
         crop = fr[my0:my1, mx0:mx1]
         if crop.shape[:2] != lo.shape:
@@ -368,6 +440,31 @@ def series(sid, from_labels=False, step=1, use_cone=True, cone_every=CONE_EVERY,
         F = {k: v[:, :si] for k, v in F.items()}
     F["cone_ok"] = cone_ok
     F["usable"] = frame_usable
+
+    # Each query's OWN slice of the shared axis, and it is not optional bookkeeping.
+    #
+    # Windowing keeps the UNION of every query's window, so on a full match the
+    # axis spans 33 minutes while any single label is only about its own few
+    # seconds. Measured over the union, every query looks identical -- the first
+    # windowed run of `a06f04a0059f` reported `detect` fired for 75.5% of frames
+    # at the median query and 75.7% at the max, across 53 queries, because each
+    # was being averaged over 13843 frames when only 360 were its own. Read
+    # against the wrong axis a series says nothing, very confidently.
+    #
+    # Half-open [win_lo, win_hi). With no window they are the whole axis, so a
+    # consumer can always slice by them and never needs to know which mode ran.
+    n = len(t_ms)
+    win_lo = np.zeros(nq, np.int64)
+    win_hi = np.full(nq, n, np.int64)
+    if window_s is not None and nq and n:
+        half = window_s * 1000.0
+        for k, q in enumerate(qs):
+            inside = np.flatnonzero(np.abs(t_ms - q["t_ms"]) <= half)
+            if len(inside):
+                win_lo[k], win_hi[k] = inside[0], inside[-1] + 1
+            else:
+                win_lo[k] = win_hi[k] = 0          # query outside the decoded range
+    F["win_lo"], F["win_hi"] = win_lo, win_hi
     return qs, t_ms, F
 
 
@@ -405,19 +502,37 @@ def summarise(sid, qs, t_ms, F):
           f"cone answered {100 * F['cone_ok'].mean():.1f}% of frames")
     if not len(qs):
         return
-    det = F["detect"].mean(axis=1)
-    cov = F["cone"].mean(axis=1)
-    sd = F["g_mean"].std(axis=1)
-    sdist = np.nanmedian(np.where(np.isnan(F["self_d"]), np.nan, F["self_d"]), axis=1)
-    print(f"   present  (detect fired) per query: p50 {100 * np.median(det):.1f}%  "
-          f"max {100 * det.max():.1f}%")
-    print(f"   cone covers query:                 p50 {100 * np.median(cov):.1f}%  "
-          f"max {100 * cov.max():.1f}%")
-    print(f"   patch grey SD over time:           p50 {np.median(sd):.2f}  "
-          f"max {sd.max():.2f}")
+    # Per query, over ITS OWN window -- never the whole shared axis. See the
+    # comment on win_lo/win_hi in series() for what reading the wrong axis costs.
+    lo_i, hi_i = F["win_lo"], F["win_hi"]
+    def _per_query(fn, field):
+        out = np.full(len(qs), np.nan)
+        for k in range(len(qs)):
+            a = F[field][k, lo_i[k]:hi_i[k]]
+            if a.size:
+                out[k] = fn(a)
+        return out
+    det = _per_query(np.mean, "detect")
+    cov = _per_query(np.mean, "cone")
+    sd = _per_query(np.std, "g_mean")
     with np.errstate(invalid="ignore"):
-        print(f"   median distance to self icon:      p50 {np.nanmedian(sdist):.1f}px  "
-              f"min {np.nanmin(sdist):.1f}px")
+        sdist = _per_query(np.nanmedian, "self_d")
+    windowed = not np.all((lo_i == 0) & (hi_i == n))
+    if windowed:
+        print(f"   per-query windows: {int(np.median(hi_i - lo_i))} frames each "
+              f"(the shared axis is {n})")
+    print(f"   present  (detect fired) per query: p50 {100 * np.nanmedian(det):.1f}%  "
+          f"max {100 * np.nanmax(det):.1f}%")
+    print(f"   cone covers query:                 p50 {100 * np.nanmedian(cov):.1f}%  "
+          f"max {100 * np.nanmax(cov):.1f}%")
+    print(f"   patch grey SD over time:           p50 {np.nanmedian(sd):.2f}  "
+          f"max {np.nanmax(sd):.2f}")
+    with np.errstate(invalid="ignore"):
+        if np.isnan(sdist).all():
+            print("   median distance to self icon:      no ring fitted anywhere")
+        else:
+            print(f"   median distance to self icon:      p50 {np.nanmedian(sdist):.1f}px  "
+                  f"min {np.nanmin(sdist):.1f}px")
 
 
 def demo_sessions():
@@ -448,6 +563,11 @@ def main() -> int:
     ap.add_argument("--cone-every", type=int, default=CONE_EVERY,
                     help="refit the cone every Nth sampled frame, holding the "
                          "answer between fits")
+    ap.add_argument("--window-s", type=float, default=None,
+                    help="keep only frames within this many seconds of a query. "
+                         "Leave unset for a demo clip (decode it all); set it for "
+                         "a full match, where ~50 labels are scattered over 40 "
+                         "minutes and decoding everything serves 13%% of it")
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--dry-run", action="store_true", help="summarise, write nothing")
     args = ap.parse_args()
@@ -462,7 +582,7 @@ def main() -> int:
         try:
             qs, t_ms, F = series(sid, from_labels=args.from_labels, step=args.step,
                                  use_cone=not args.no_cone, cone_every=args.cone_every,
-                                 progress=len(sids) == 1)
+                                 window_s=args.window_s, progress=len(sids) == 1)
         except MediaUnreadable as e:
             print(f"SKIP {e}")
             skipped.append(sid)
