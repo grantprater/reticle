@@ -103,6 +103,48 @@ The same two agents win and the same three lose as in the bust experiment
 unrelated source assets failing on the same three agents points at something
 those three icons share in the CAPTURE, not at the source.
 
+THE ABOVE RE-RAN A METHOD ALREADY RECORDED AS DEAD
+---------------------------------------------------
+`prototypes/CLAUDE.md` says it plainly: pixel-wise resemblance has **zero**
+signal on both surfaces once a null control is applied, and identity at 11 px
+*"lives in the palette"* rather than in layout, because there is barely any
+layout left to match. Scoring official art by NCC was re-running a known-dead
+method with a new asset. The composition result below is the one that counts;
+the NCC table above is kept because it is the like-for-like comparison against
+the bust experiment, not because 41.8% means anything on its own.
+
+RESULT, `--composition`: the art is on par with the scoreboard, and needs no scoreboard
+----------------------------------------------------------------------------------------
+Same 79 icons, same `minimap_portrait.composition()` histogram-intersection
+rule, official art as the source instead of scoreboard busts:
+
+    disc frac   accuracy    iso     jett    killjoy   omen    skye
+    1.00 (none)   78.5%    20/21    9/9      10/23    7/7    16/19
+    0.70          84.8%    21/21    9/9      12/23    7/7    18/19
+    0.30          83.5%    19/21    3/9      20/23    7/7    17/19
+
+    scoreboard art, same rule:  77.2% no parameters, 83.5% held out by agent,
+                                92.4% fitted in-sample, 91.1% in-domain control
+
+Read it honestly in both directions. At **zero parameters the official art wins,
+78.5% against 77.2%**. Fitted, it loses -- 84.8% in-sample against the
+scoreboard's 92.4% in-sample -- and the held-out-by-agent number for this source
+has not been computed, so it must not be compared to 83.5%.
+
+What is unambiguous is operational rather than statistical: this source needs no
+scoreboard opening. Scoreboard portrait extraction is recorded as wrong on two
+sessions of three, and it is the blocker on the cold bootstrap. It also covers
+all 29 agents rather than the ten a given scoreboard shows.
+
+**Killjoy is the whole error budget, and it is not amorphousness.** Every other
+agent is at or near perfect (iso 21/21, jett 9/9, omen 7/7, skye 18/19). Killjoy
+runs 10-12 of 23 at the fractions that suit the others and climbs to 20/23 at
+frac 0.30 -- where Jett collapses to 3/9. So the agents disagree about WHICH
+RADIUS carries their identity, and one global disc cannot serve both. That is a
+concrete, addressable shape, and it argues for concentric-ring histograms
+(centre disc plus annuli, concatenated) over picking a single radius: it keeps
+where-the-colour-sits without asking layout to align.
+
 What has NOT been tried, and the trap next to it
 -------------------------------------------------
 This fitted ONE scalar -- the crop fraction. The bust experiment fitted a
@@ -215,10 +257,89 @@ def score(icons, templates):
     return acc, per, res
 
 
+def icon_compositions(sid, src, rows):
+    """Colour composition of every labelled icon interior, ring red excluded.
+
+    The same disc the NCC descriptor uses (r * INTERIOR_FRAC), so the two
+    representations are scored over identical pixels and any difference between
+    them is the representation rather than the sampling.
+    """
+    from reticle.profiles import get_profile
+    from minimap_icons import red_mask
+    from minimap_portrait import composition
+
+    man = json.loads((STORE / "manifests" / f"{sid}.json").read_text())
+    prof = get_profile(man["source_profile"])
+    W, H = int(src["width"]), int(src["height"])
+    mx0, my0, mx1, my1 = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
+    fps = float(src["fps"])
+    cap = cv2.VideoCapture(src["path"])
+    out = []
+    for t in sorted({r["t_ms"] for r in rows}):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t / 1000.0 * fps)))
+        ok, fr = cap.read()
+        if not ok:
+            continue
+        crop = fr[my0:my1, mx0:mx1]
+        red = red_mask(crop, 100)
+        for r in [q for q in rows if q["t_ms"] == t]:
+            rr = max(2, int(round(r["r"] * INTERIOR_FRAC)))
+            y0, x0 = r["y"] - rr, r["x"] - rr
+            if y0 < 0 or x0 < 0 or y0 + 2 * rr > crop.shape[0] or x0 + 2 * rr > crop.shape[1]:
+                continue
+            yy, xx = np.mgrid[0:2 * rr, 0:2 * rr]
+            msk = (((yy - rr) ** 2 + (xx - rr) ** 2) <= rr * rr) \
+                & ~red[y0:y0 + 2 * rr, x0:x0 + 2 * rr]
+            if msk.sum() < 12:
+                continue
+            out.append((composition(crop[y0:y0 + 2 * rr, x0:x0 + 2 * rr], msk), r["agent"]))
+    cap.release()
+    return out
+
+
+def art_composition(agent: str, frac: float = 1.0):
+    """Composition of the official art over a central disc, intersected with its alpha."""
+    from minimap_portrait import composition
+
+    im = cv2.imread(str(art_path(agent)), cv2.IMREAD_UNCHANGED)
+    if im is None:
+        return None
+    h, w = im.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w]
+    r = frac * min(h, w) / 2
+    m = ((yy - h / 2) ** 2 + (xx - w / 2) ** 2) <= r * r
+    if im.shape[2] == 4:
+        m &= im[:, :, 3] > 128
+    return composition(im[:, :, :3], m)
+
+
+def run_composition(sid, src, rows, agents) -> None:
+    from minimap_portrait import classify_composition
+
+    icons = icon_compositions(sid, src, rows)
+    print(f"\n=== composition (the method CLAUDE.md records as the one that transfers) ===")
+    print(f"  {len(icons)} icons   scoreboard bars: 77.2% no-param, 83.5% held-out, "
+          f"92.4% in-sample, 91.1% in-domain")
+    for frac in (1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3):
+        srcs = {a: art_composition(a, frac) for a in agents}
+        per: dict[str, list[int]] = {}
+        for hq, true in icons:
+            name, _, _ = classify_composition(hq, srcs)
+            per.setdefault(true, [0, 0])
+            per[true][0] += int(name == true)
+            per[true][1] += 1
+        tot = sum(v[0] for v in per.values())
+        tag = "   <- ZERO parameters" if frac == 1.0 else ""
+        print(f"  disc frac {frac:.2f}   {tot/len(icons)*100:5.1f}%   " +
+              "  ".join(f"{n[:4]}:{v[0]}/{v[1]}" for n, v in sorted(per.items())) + tag)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("session")
     ap.add_argument("--sweep", action="store_true", help="leave-one-agent-out crop diagnostic")
+    ap.add_argument("--composition", action="store_true",
+                    help="score by colour composition instead of pixel NCC")
     a = ap.parse_args()
 
     man = json.loads((STORE / "manifests" / f"{a.session}.json").read_text())
@@ -245,6 +366,11 @@ def main() -> int:
     if missing:
         print(f"\nNO OFFICIAL ART for {missing} -- run ability_reference.py harvest")
         return 1
+
+    if a.composition:
+        run_composition(a.session, man["source"], [r for r in rows if r["agent"] != "question"],
+                        agents)
+        return 0
 
     print("\n=== zero free parameters: crop = INTERIOR_FRAC = %.2f ===" % INTERIOR_FRAC)
     for mirror in (False, True):
