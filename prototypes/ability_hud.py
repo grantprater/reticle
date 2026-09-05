@@ -50,10 +50,21 @@ screen, in the buy menu and in the settings overlay. So when EVERY slot reads
 near zero the frame is refused and the reading is `None`, never "no charges".
 `reticle` never guesses a value.
 
+SUPERSEDED -- the paragraph below is wrong for the 2026-09-03 sitting
+----------------------------------------------------------------------
+**the player, 2026-09-05: `infinite-abilities` was toggled ON to charge the ult and
+then OFF again.** So the tag on those five manifests is misleading and the
+clips spend charges normally -- `ability_cast.py` reads 17 clean casts across
+them. `prototypes/CLAUDE.md` already recorded the tray reading cleanly on seven
+demo clips; this is the reason why.
+
+The paragraph below still holds for `eb10db50b1fb`, where infinite charges were
+genuinely on for the whole clip. Keep it as a description of THAT session, not
+of the demo corpus.
+
 Known limit, found the hard way, 2026-09-03
 --------------------------------------------
-**On the controlled ability clips the tray is useless, because infinite
-charges are on.** Tracked across all of `eb10db50b1fb`, the C slot holds ~734
+**On `eb10db50b1fb` the tray is useless, because infinite charges are on.** Tracked across all of `eb10db50b1fb`, the C slot holds ~734
 teal pixels for the entire clip and never halves, despite four labelled trapwire
 placements; the only zero is the settings overlay at t=40 s. A custom game with
 cheats enabled does not spend charges.
@@ -194,19 +205,59 @@ def drawn(f_row) -> bool:
 
 
 def casts(ts, counts, clean=None):
-    """Charge drops: (t, slot, from_fill, to_fill), skipping unusable frames."""
+    """Charge drops: (t, slot, from_fill, to_fill, suspect), skipping unusable frames.
+
+    **Slot 3 IS read, corrected 2026-09-05.** This loop ran `range(3)` on the
+    belief that the ultimate's pips could not be read as a fill. the player: *for ult
+    the tray cast should be the pips going hollow* -- and rendered, that is what
+    happens, except the pips do not merely hollow, they DESATURATE from teal to
+    grey along with the bar beneath them. So the existing teal mask reads them
+    with no new geometry at all. Measured on `02cf738b1c8f`, slot X goes
+    **909 raw teal px -> 0 between 28.0s and 28.5s**, against a first Hunter's
+    Fury label at **28.2s**.
+
+    It is not observable in every clip, and that is a property of the recording
+    rather than of the widget: on `6bb88dba5d2c` and `2ba870ccbd50` the X bar
+    stays full straight through a labelled ult, which is what an ult being
+    recharged looks like. The module's own rule applies -- **a missing drop is
+    no evidence, never "no cast"**.
+
+    The all-spent exception
+    -----------------------
+    `drawn()` refuses a frame where every slot reads near zero, to avoid the
+    `hp`-as-a-death-signal defect. That is right for a death screen and wrong
+    for the one state this corpus ends in: a player who has deliberately spent
+    EVERYTHING. Sova's ult lands exactly there -- C, Q and E were already empty,
+    so the frame the ult drop occurs in is refused and `prev` is reset, and the
+    drop is never compared.
+
+    So a slot emptying on the FIRST refused frame after a drawn one is still
+    evaluated -- and flagged `suspect`, because the alternative reading (the
+    widget genuinely vanished at that instant) cannot be excluded from the
+    fill alone. Flagged rather than dropped is this module's existing treatment
+    of an ambiguous drop, and the same call CLAUDE.md makes for Run It Back
+    deaths and wallbangs: a category on the event, decided per metric later.
+    A chrome-based structural test for "is the tray rendered" was measured and
+    does NOT separate cleanly (bright scenery scores like tray outlines), so no
+    threshold is invented here.
+    """
     f = fills(counts, clean)
     out = []
     prev = None
     for i, (t, row) in enumerate(zip(ts, f)):
         if not drawn(row) or (clean is not None and not clean[i]):
+            if prev is not None and (clean is None or clean[i]):
+                for k in range(4):
+                    if prev[k] - row[k] >= CAST_DROP:
+                        out.append((t, SLOT_KEYS[k], round(float(prev[k]), 2),
+                                    round(float(row[k]), 2), True))
             prev = None                    # a gap is not a drop
             continue
         if prev is not None:
-            for k in range(3):             # slot 3 is the ult; pips, not segments
+            for k in range(4):
                 if prev[k] - row[k] >= CAST_DROP:
                     out.append((t, SLOT_KEYS[k], round(float(prev[k]), 2),
-                                round(float(row[k]), 2)))
+                                round(float(row[k]), 2), False))
         prev = row
     return flag_suspect(out)
 
@@ -233,10 +284,10 @@ def flag_suspect(ev):
     decided per metric later.
     """
     out = []
-    for i, (t, k, a, b) in enumerate(ev):
-        near = sum(1 for j, (t2, k2, _a, _b) in enumerate(ev)
+    for i, (t, k, a, b, forced) in enumerate(ev):
+        near = sum(1 for j, (t2, k2, _a, _b, _f) in enumerate(ev)
                    if j != i and abs(t2 - t) <= SUSPECT_S and k2 != k)
-        out.append((t, k, a, b, near > 0))
+        out.append((t, k, a, b, bool(near) or bool(forced)))
     return out
 
 

@@ -75,6 +75,37 @@ than baseline" test independent of the real cone edge. Working estimate:
 This is ONE clip, ONE map. Treat it as a working default, not a constant to
 build downstream logic on before a second clip confirms it holds.
 
+The player is not the only cone source
+------------------------------------------------------------------------------
+the stated fact, not yet independently measured: controllable deployable
+recon abilities emanate a vision cone on the minimap too -- Sova's Owl Drone,
+Tejo's Stealth Drone, Skye's Trailblazer, Fade's Prowler (Gekko's Wingman and
+Thrash are player-steered and worth checking on the same pass). the player expects
+the same half-angle but is explicitly NOT sure, so do not reuse
+`CONE_HALF_ANGLE_DEG` for a deployable without measuring it -- if a drone's
+cone reads a different angle that is a finding about FOV, not an outlier to
+exclude, and the exclusion rules above (local-baseline contamination) are the
+only ones that license dropping a sample.
+
+**The turret's angle is ANSWERED, and it is not the player's.** Killjoy's TURRET
+description in `reference/abilities.json` says it *fires at enemies in a 100
+degree cone* -- so 100 degrees full, against the player's measured ~112. Close
+enough to look identical by eye, different enough that reusing
+`CONE_HALF_ANGLE_DEG` for it would be wrong. It came from the reference rather
+than a measurement, which is the cheapest possible answer; check the other
+cone-emitting deployables the same way before measuring them. Note the reference
+names an angle for exactly ONE ability, so the rest still need measuring.
+
+Two consequences, both of which cost nothing extra to collect:
+
+* the box/wall idea below wants "many more cone observations than one clip
+  supplies". A deployable is a SECOND cone in the same clip, moving through
+  the map on a path the player never takes -- exactly the independent
+  observations that pass needs, without new footage;
+* `self_cone()` seeds from the self ring and so structurally cannot see these.
+  Whatever finds a deployable cone needs its own seed; the ability candidates
+  are the obvious source, and the two threads meet there.
+
 Boxes: pass-through is the stated fact, not yet independently measured
 ------------------------------------------------------------------------------
 the player, describing the cone from having watched it directly: it does not

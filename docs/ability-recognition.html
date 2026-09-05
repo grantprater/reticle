@@ -1,0 +1,668 @@
+<title>Ability Recognition, Rebuilt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+:root {
+  /* Carried unchanged from docs/ability-temporal.html and
+     docs/metrics-addendum.html -- these three are linked from one CLAUDE.md
+     and have to read as one system. */
+  --ground:      #f4f5f7;
+  --panel:       #ffffff;
+  --panel-sunk:  #eceef2;
+  --rule:        #d4d8e0;
+  --rule-soft:   #e3e6ec;
+  --ink:         #1b1f27;
+  --ink-mid:     #4c5464;
+  --ink-soft:    #6d7688;
+
+  --measured:      #1d6f74;
+  --unfalsifiable: #a82f7a;
+  --hazard:        #a8631a;
+  --deferred:      #7b8496;
+
+  --measured-bg:      #e8f3f3;
+  --unfalsifiable-bg: #fbeef5;
+  --hazard-bg:        #fbf2e6;
+  --deferred-bg:      #eef0f4;
+
+  /* NEW, and the reason this document needed a fifth colour: the existing
+     language can say measured, unscoreable, hazardous or deferred. It has no
+     way to say "this WAS measured, was quoted for a week, and no longer
+     reproduces" -- which is most of what is written here. Rust, adjacent to
+     hazard amber but darker and desaturated, so a superseded number reads as
+     retired rather than as a warning. */
+  --superseded:    #96402f;
+  --superseded-bg: #f7ece9;
+
+  --measure: 68ch;
+}
+
+:root:not([data-theme="light"]) { color-scheme: light dark; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #14171d;
+    --panel:       #1b1f27;
+    --panel-sunk:  #101318;
+    --rule:        #333947;
+    --rule-soft:   #262c37;
+    --ink:         #e8eaef;
+    --ink-mid:     #a8b0c0;
+    --ink-soft:    #7d8698;
+
+    --measured:      #5fc0c4;
+    --unfalsifiable: #e878b8;
+    --hazard:        #e0a355;
+    --deferred:      #7d8698;
+    --superseded:    #e08a72;
+
+    --measured-bg:      #10262a;
+    --unfalsifiable-bg: #2a1526;
+    --hazard-bg:        #271c10;
+    --deferred-bg:      #1e222b;
+    --superseded-bg:    #2b1712;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:      #14171d;
+  --panel:       #1b1f27;
+  --panel-sunk:  #101318;
+  --rule:        #333947;
+  --rule-soft:   #262c37;
+  --ink:         #e8eaef;
+  --ink-mid:     #a8b0c0;
+  --ink-soft:    #7d8698;
+
+  --measured:      #5fc0c4;
+  --unfalsifiable: #e878b8;
+  --hazard:        #e0a355;
+  --deferred:      #7d8698;
+  --superseded:    #e08a72;
+
+  --measured-bg:      #10262a;
+  --unfalsifiable-bg: #2a1526;
+  --hazard-bg:        #271c10;
+  --deferred-bg:      #1e222b;
+  --superseded-bg:    #2b1712;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 17px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 56px 28px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 44px;
+}
+
+p { margin: 0; max-width: var(--measure); }
+ul { margin: 0; padding-left: 1.15em; max-width: var(--measure); display: flex; flex-direction: column; gap: 8px; }
+li { padding-left: 2px; }
+strong { font-weight: 600; }
+em { font-style: italic; }
+
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.eyebrow .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--superseded); flex: none; }
+
+h1 {
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 700;
+  font-size: clamp(32px, 5.4vw, 46px);
+  line-height: 1.08;
+  letter-spacing: -0.022em;
+  margin: 14px 0 16px;
+  text-wrap: balance;
+}
+
+.standfirst { font-size: 20px; line-height: 1.5; color: var(--ink-mid); max-width: var(--measure); }
+
+.masthead-rule { height: 3px; background: var(--ink); margin-top: 30px; }
+
+section { display: flex; flex-direction: column; gap: 18px; }
+
+h2 {
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 700;
+  font-size: 25px;
+  letter-spacing: -0.014em;
+  margin: 0;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  text-wrap: balance;
+}
+h2 .marker {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  flex: none;
+  padding-top: 2px;
+}
+
+h3 { font-family: Archivo, "Helvetica Neue", Arial, sans-serif; font-weight: 600; font-size: 17px; margin: 0; }
+
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.87em;
+  background: var(--panel-sunk);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--ink);
+}
+
+.chip {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.chip.measured      { color: var(--measured);      background: var(--measured-bg); }
+.chip.unfalsifiable { color: var(--unfalsifiable); background: var(--unfalsifiable-bg); }
+.chip.hazard        { color: var(--hazard);        background: var(--hazard-bg); }
+.chip.deferred      { color: var(--deferred);      background: var(--deferred-bg); }
+.chip.superseded    { color: var(--superseded);    background: var(--superseded-bg); }
+
+.scroller { overflow-x: auto; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--rule);
+  padding: 7px 12px 7px 0;
+  white-space: nowrap;
+}
+table td {
+  border-bottom: 1px solid var(--rule-soft);
+  padding: 7px 12px 7px 0;
+  color: var(--ink-mid);
+  white-space: nowrap;
+}
+table td:first-child, table th:first-child { color: var(--ink); font-weight: 500; }
+table .num { text-align: right; }
+table .dead { color: var(--superseded); }
+table .live { color: var(--measured); }
+
+/* The ledger is this document's spine: a figure that was quoted, beside the
+   figure that came back. Two columns of one object, never two objects. */
+.ledger { display: flex; flex-direction: column; gap: 0; }
+.led {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px 18px;
+  align-items: baseline;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.led:first-child { border-top: 1px solid var(--rule); }
+.led-claim { grid-column: 1; font-size: 16px; color: var(--ink); max-width: 46ch; }
+.led-was, .led-now {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.led-was { color: var(--superseded); text-decoration: line-through; text-decoration-thickness: 1px; }
+.led-now { color: var(--measured); font-weight: 500; }
+.led-note { grid-column: 1 / -1; font-size: 15px; color: var(--ink-soft); max-width: var(--measure); }
+
+.finding, .correction {
+  border-left: 3px solid var(--measured);
+  background: var(--panel);
+  padding: 15px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.correction { border-left-color: var(--superseded); }
+.finding .label, .correction .label {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--measured);
+}
+.correction .label { color: var(--superseded); }
+.finding p, .correction p { font-size: 16px; }
+
+.hazards { display: flex; flex-direction: column; gap: 0; }
+.hz {
+  display: flex;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  align-items: flex-start;
+}
+.hz:first-child { border-top: 1px solid var(--rule); }
+.hz-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.hz-body p { font-size: 15.5px; color: var(--ink-mid); }
+
+/* Build order is a real sequence -- each step is blocked by the one above it --
+   so it is numbered. Nothing else in this document is. */
+.steps { display: flex; flex-direction: column; gap: 0; }
+.step {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 18px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.step:first-child { border-top: 1px solid var(--rule); }
+.step-n {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  line-height: 1.2;
+}
+.step-body { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.step-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+.step-body p { font-size: 16px; }
+.gates {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  padding-top: 2px;
+}
+
+pre {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  background: var(--panel-sunk);
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 0;
+  color: var(--ink-mid);
+  font-variant-numeric: tabular-nums;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule-soft);
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.legend span { display: flex; align-items: center; gap: 7px; }
+
+a { color: var(--measured); text-underline-offset: 2px; }
+a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+@media (max-width: 620px) {
+  .wrap { padding: 36px 18px 64px; gap: 34px; }
+  .led { grid-template-columns: 1fr; }
+  .step { grid-template-columns: 30px 1fr; gap: 12px; }
+}
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow"><span class="dot"></span> Reticle · ability channel · 2026-09-05 · supersedes the Phase 2 plan</div>
+  <h1>Ability Recognition, Rebuilt</h1>
+  <p class="standfirst">The labelling pass tripled the corpus and the detector got worse. Not noisier — worse, and measurably so. This document records what died, explains why the weighted combiner was the right last experiment inside the old framing, and sets out what to build instead.</p>
+  <div class="masthead-rule"></div>
+</header>
+
+<section>
+  <h2><span class="marker">§1</span> What the pass returned</h2>
+  <p>Five sessions were labelled by hand — Killjoy, Sova, Viper, Skye, and Jett as a deliberate false-positive floor. <strong>161 records, 58 new positives</strong>, which with the older sessions gives <strong>85 positives against 252 negatives over 9 sessions</strong>, up from 27 positives over 4.</p>
+  <p>The pass was queued to unblock a weighted combiner. It did something more useful: it falsified the numbers the channel was being steered by.</p>
+
+  <div class="ledger">
+    <div class="led">
+      <div class="led-claim"><code>patch_range</code> pooled AUC — “the first ability feature that transfers”</div>
+      <div class="led-was">0.86</div>
+      <div class="led-now">0.57</div>
+      <div class="led-note">Consistent on 4 of 9 sessions, having been 4 of 4. Device-only, with rings and smokes split out, it reaches 0.65.</div>
+    </div>
+    <div class="led">
+      <div class="led-claim">Best gate operating point</div>
+      <div class="led-was">0.49 @ 0.85</div>
+      <div class="led-now">0.44 @ 0.45</div>
+      <div class="led-note">Precision at recall, leave-one-session-out. The recorded pair was never reproduced at any threshold on the wider corpus.</div>
+    </div>
+    <div class="led">
+      <div class="led-claim">Blocker on fitting a weighted combiner</div>
+      <div class="led-was">27 positives</div>
+      <div class="led-now">not label volume</div>
+      <div class="led-note">At 62 device positives it fits cleanly, with stable weights, and still loses to equal weighting. The diagnosis was wrong, not merely premature.</div>
+    </div>
+    <div class="led">
+      <div class="led-claim"><code>cone_cond</code> — called falsified, then called a complement</div>
+      <div class="led-was">0.40, 2 of 4</div>
+      <div class="led-now">0.30, 7 of 9</div>
+      <div class="led-note">Now the largest deviation and the most consistent column in the bank, read inverted. It is also the leading suspect in §5.</div>
+    </div>
+  </div>
+
+  <div class="correction">
+    <div class="label">Superseded — and the reason to distrust the shape of the old result, not just its value</div>
+    <p><code>patch_range</code> does not degrade gracefully across the new sessions. It splits them cleanly in two, and the split is not random:</p>
+  </div>
+
+  <div class="scroller">
+  <pre>ordinary captures      2ba870 0.74   79a706 0.95   d95cfa 0.94   eb10db 0.90
+infinite-abilities     02cf73 0.43   6ab7a9 0.20   6bb88d 0.19   dae6f3 0.55   ff1974 0.33</pre>
+  </div>
+
+  <p>Every session below chance is an <code>infinite-abilities</code> custom-game demo clip on Ascent. Every session above it is an ordinary capture, and two of those sit on a different <code>source_profile</code> entirely. <strong>The feature's failure is perfectly confounded with capture regime</strong>, so this corpus cannot distinguish two very different stories:</p>
+  <ul>
+    <li><code>patch_range</code> never generalised, and 0.86 was a four-session artifact of one regime;</li>
+    <li>an infinite-abilities clip is a different visual world — util is being spammed continuously, so the <em>negatives</em> plausibly sit on real ability residue, and intra-patch contrast stops discriminating for a reason that says nothing about ordinary play.</li>
+  </ul>
+  <p>Both readings fit every number here. Only one session of ordinary capture, labelled the new way, separates them — and that is a footage ask, not a code task.</p>
+</section>
+
+<section>
+  <h2><span class="marker">§2</span> The combiner failed, and how it failed is the finding</h2>
+  <p><code>prototypes/ability_combiner.py</code> fits L2 logistic regression by Newton–IRLS, with lambda chosen by an inner leave-one-session-out loop over the training sessions only, scored leave-one-<em>session</em>-out on 62 device positives against 240 negatives.</p>
+
+  <div class="scroller">
+  <table>
+    <thead><tr><th>configuration</th><th class="num">combiner AUC</th><th class="num">equal-weight z-sum</th></tr></thead>
+    <tbody>
+      <tr><td>6 features, per-session z</td><td class="num">0.69</td><td class="num live">0.74</td></tr>
+      <tr><td>10 features, per-session z</td><td class="num">0.70</td><td class="num live">0.74</td></tr>
+      <tr><td>6 features, global z</td><td class="num">0.64</td><td class="num">0.64</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The equal-weight z-sum matches or beats the fitted model in every configuration. The old note predicted it would “tie at best”; it wins.</p>
+
+  <div class="finding">
+    <div class="label">Measured 2026-09-05 — this is not fold noise, which is what makes it conclusive</div>
+    <p>Sign agreement across all eight folds is <strong>100% on every feature</strong>, and the magnitudes barely move between folds. The fit is not thrashing; it finds a stable, reproducible weighting. That weighting simply carries no advantage over weighting everything equally. A combiner that cannot beat equal weights <em>while fitting consistently</em> is telling you the features are near-redundant — they are re-measuring one quantity, so there is no weighting left to discover.</p>
+  </div>
+
+  <p>Which is what the bank looks like when read as a whole. <code>dark_p90</code>, <code>dark_med</code>, <code>dark_max</code>, <code>dark_tvar</code>, <code>onset_step</code>, <code>offset_step</code>, <code>patch_range</code>, <code>autocorr1</code>, <code>persist</code>, <code>life_frac</code>, <code>detect_frac</code>, <code>longest_run</code>, <code>n_runs</code> — <strong>thirteen scalar summaries of one grey series at one pixel.</strong> They differ in how they summarise, not in what they observe. Adding a fourteenth, or learning what to multiply them by, cannot add an observation.</p>
+
+  <div class="finding">
+    <div class="label">Measured 2026-09-05 — the biggest lever found all day is not a weighting</div>
+    <p>Per-session z-scoring is worth <strong>0.74 against 0.64 AUC</strong> on the identical equal-weight model — a larger gain than any combiner produced. It uses no labels, so it leaks nothing. <strong>That the dominant recoverable variance is per-session rather than per-object is the whole diagnosis</strong>: the detector spends most of its discriminative power fighting how a session looks, not what an ability is. Any successor must be session-invariant <em>by construction</em>, not by adding a feature that happens to be robust.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="marker">§3</span> The positives are four different objects</h2>
+  <p>Splitting the positives by what they physically are — and dropping other groups rather than relabelling them negative, since they are real abilities — separates signatures that pooling had been averaging together.</p>
+
+  <div class="scroller">
+  <table>
+    <thead><tr><th>group</th><th class="num">n</th><th class="num">sess</th><th class="num">patch_range</th><th class="num">n_runs</th><th class="num">cone_cond</th><th class="num">self_d_med</th><th class="num">dark_p90</th></tr></thead>
+    <tbody>
+      <tr><td>device</td><td class="num">62</td><td class="num">8</td><td class="num">0.65</td><td class="num">0.42</td><td class="num">0.32</td><td class="num">0.44</td><td class="num">0.64</td></tr>
+      <tr><td>ring</td><td class="num">18</td><td class="num">1</td><td class="num">0.40</td><td class="num">0.34</td><td class="num">0.26</td><td class="num live">0.83</td><td class="num">0.32</td></tr>
+      <tr><td>place</td><td class="num">3</td><td class="num">1</td><td class="num">0.78</td><td class="num">0.48</td><td class="num">0.24</td><td class="num">0.34</td><td class="num">0.72</td></tr>
+      <tr><td>smoke</td><td class="num">2</td><td class="num">2</td><td class="num live">0.13</td><td class="num live">0.90</td><td class="num">0.40</td><td class="num">0.19</td><td class="num live">0.96</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><code>ring</code> inverts <code>self_d_med</code> against <code>device</code> — 0.83 against 0.44 — exactly as the geometry demands, because a radius ring's perimeter <em>is</em> at a radius. <code>smoke</code> is the opposite of a device on contrast and on darkness. These are not noisy versions of one class; they are three shapes.</p>
+
+  <p>The distinction that generated the split is the, made while labelling: <strong>a radius ring is what a deployed device draws, not the device.</strong> Only some kits have one — Killjoy, Chamber, Veto. A candidate that lands on the perimeter sits tens of pixels from the object it belongs to, so every patch feature computed there describes the ring. That is <em>the tile is not the object</em>, one level out, and it currently affects 18 of 62 device-adjacent positives.</p>
+
+  <p>Held placeables are a second axis rather than a class: the same ability renders differently while you are holding it and walking around. It has been leaking into category names as <code>place_color</code> and as <code>smoke</code> versus <code>smoke_deployed</code>. It wants a <code>mode</code> field, and it has a measurable consequence — a placement preview sits at the player's feet by definition, so it contaminates <code>self_d_med</code>, the feature whose whole claim is that abilities sit close to the player.</p>
+
+  <p><span class="chip unfalsifiable">needs labels</span> &nbsp;<code>ring</code> and <code>place</code> exist in one session each, so their rows above are in-sample and cannot be validated leave-one-session-out. Chamber or Veto footage gives <code>ring</code> a second session; Reyna's Leer and Cypher's Trapwire and Spycam are held placeables already labelled in older sessions, so <code>place</code> may be recoverable from data in hand.</p>
+</section>
+
+<section>
+  <h2><span class="marker">§4</span> The redirection: stop scoring candidates, start explaining casts</h2>
+  <p>Every technique in the old plan answers <em>is this pixel an ability?</em> — a candidate at a time, independent of everything else in the frame. That framing is now measured out: thirteen views of one pixel's brightness, near-redundant, beaten by their own unweighted sum, and dominated by session appearance.</p>
+  <p>The evidence points at a different question. <strong>The pipeline already knows when abilities were cast, for free, and has never used it.</strong></p>
+
+  <div class="finding">
+    <div class="label">Measured 2026-09-04, in the document this one supersedes</div>
+    <p>The HUD ability tray gives cast times by charge-drop on the demo corpus: seven clips, every one clean, zero <code>SUSPECT</code> rows, and the drops fall in <strong>C → Q → E slot order</strong> — the recording protocol the player described, recovered independently from pixels. It is high precision, low recall, carries <em>slot identity</em>, and costs no labelling time.</p>
+  </div>
+
+  <p>That inverts the problem. Instead of asking whether an unexplained blob is an ability, ask: <strong>a Killjoy Alarmbot was cast at 26.75s — what appeared on the minimap, and where?</strong> Detection with a strong prior on time, agent, slot and — through the reference harvest — deployment shape, health, and icon. The reference already carries 121 abilities across 29 agents with a Deployment Type per ability, which is the class list and the shape family in one.</p>
+  <p>Three properties make this the right pivot rather than a nicer framing:</p>
+  <ul>
+    <li><strong>it is session-invariant by construction.</strong> A cast time is read from HUD structure, not from minimap appearance, so it does not care how a session's floor renders — which is the axis §2 says is eating the current detector;</li>
+    <li><strong>it turns precision into a search problem</strong> — though not as cheaply as this document first claimed. See the correction below: the narrower question helps, but it does not make the position free;</li>
+    <li><strong>it produces the event the endstate actually wants.</strong> CLAUDE.md is explicit that the minimap is instrumental and <em>duels and rounds are the unit</em>. A cast with a time, a slot and an agent is already an event. A scored pixel is not, and never becomes one without this join.</li>
+  </ul>
+  <div class="finding">
+    <div class="label">Built and measured 2026-09-05 — <code>prototypes/ability_cast.py</code></div>
+    <p>The join runs. Against the hand labels, at a window derived from the data rather than assumed:</p>
+    <div class="scroller">
+    <table>
+      <thead><tr><th>quantity</th><th class="num">n</th><th class="num">share</th></tr></thead>
+      <tbody>
+        <tr><td>agent-named positives explained</td><td class="num live">27 / 43</td><td class="num live">63%</td></tr>
+        <tr><td>… of those, ULTIMATES</td><td class="num">21</td><td class="num">49%</td></tr>
+        <tr><td>ultimates matched</td><td class="num live">11 / 21</td><td class="num live">52%</td></tr>
+        <tr><td>casts read from the tray</td><td class="num">24</td><td class="num">—</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p><strong>Every one of the 8 unexplained casts has a known cause, and none is a detection failure.</strong> Five are abilities that draw nothing on the minimap — Shock Bolt, Snake Bite, Tailwind, the grenade/flash/dash family. Three have a label that carries no agent: Jett's Cloudburst is the generic <code>smoke</code> row, Killjoy's TURRET is <code>place_color</code>. The object was seen and labelled; the join cannot name it.</p>
+  </div>
+
+  <div class="finding">
+    <div class="label">Measured — the search window, and what the long tail actually is</div>
+    <p>Signed gap from each labelled instance to the nearest cast of its own ability: 5th percentile <strong>−2.2s</strong>, median <strong>+2.9s</strong>, 95th <strong>+11.0s</strong>. <strong>Read neither tail as a detector property.</strong></p>
+    <p>The negative tail is <strong>placement hold time, and it is unbounded</strong> — a player can hold a placeable for an entire round, so the observed −4.1s is a fact about how long the player happened to hold it, not about the ability. Only the <strong>~1–2s before the commit</strong> carries positional information; earlier than that the preview is wherever he was walking. A long hold is not noise to widen a window for — it is its own signal: hesitation, or a player repositioning a placement.</p>
+    <p>The positive tail is <strong>device lifetime.</strong> Alarmbot's six labels run +1.9s to +14.7s because a persistent device keeps being labelled for as long as it exists. Both bounds belong to the ability, not the detector.</p>
+  </div>
+
+  <div class="correction">
+    <div class="label">Superseded within the hour — “slot X never drops” was a reader defect</div>
+    <p>the player: <em>for ult the tray cast should be the pips going hollow.</em> Rendered and then measured, slot X goes <strong>909 teal pixels → 0 between 28.0s and 28.5s</strong> against a first Hunter's Fury label at <strong>28.2s</strong>. The pips do not merely hollow — they <em>desaturate</em> along with the bar, so the existing teal mask reads them with no new geometry. Two bugs hid it: <code>casts()</code> looped <code>range(3)</code>, and <code>drawn()</code> refused the frame because after the ult <em>every</em> slot is empty — which it read as “tray not rendered”. That is the <code>hp</code>-as-a-death-signal defect from the other side, and an all-spent tray is exactly how a demo clip ends.</p>
+    <p>Where an ult is still unmatched the cause is the <strong>recording</strong>, not the widget: Brimstone's clip had infinite abilities on, and <strong>Viper's Pit is sustained</strong> — the bar holds full while the pit is up and releases only when it ends, landing the drop at 44.0s against labels at 36.9–42.6s. A toggled ult gives a cast time at its <em>end</em>.</p>
+  </div>
+
+  <div class="correction">
+    <div class="label">Corrected by building it — a cast buys the event, not the position</div>
+    <p>This document argued that inside a known cast window the candidate set would be small enough for a weak per-pixel score to suffice. Measured, it is not. Taking the candidate whose onset is nearest the cast:</p>
+    <div class="scroller">
+    <table>
+      <thead><tr><th>position window</th><th class="num">scoreable</th><th class="num">correct</th><th class="num">median miss</th></tr></thead>
+      <tbody>
+        <tr><td>±2s</td><td class="num">5</td><td class="num">3</td><td class="num live">0.0 px</td></tr>
+        <tr><td>−2s … +15s</td><td class="num">11</td><td class="num">3</td><td class="num dead">36.1 px</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p><strong>Widening never raised the number of correct picks</strong> — it stayed at 3 — so the rule was only ever right where there was nothing to choose between. It is gone. Position is emitted only when the window holds exactly one candidate (2 of 2 exact, 0 px), and is otherwise <code>null</code> with the candidates carried in the event for a later scorer.</p>
+    <p>So <strong>time and identity come free from HUD structure; location still needs the detector that is weak.</strong> That belongs beside the 63% wherever it is quoted. It does not undermine the pivot — an event with a time, an agent and an ability is still the thing stage 03 wants — but it does mean §2's exhausted bank is still on the critical path for <em>where</em>, just no longer for <em>whether</em>.</p>
+  </div>
+
+  <p><span class="chip measured">still true</span> &nbsp;Audio remains the channel for <em>other players'</em> casts, which the tray can never see — and the reference harvest's <strong>56 isolated ultimate voicelines, in ally and enemy variants</strong>, are the reference cuts a matched filter was blocked on. the framing is why that generalises rather than merely extends: <strong>audio range is roughly the observable range, and roughly what is worth recording</strong>, so a supervisor bounded by what can be heard is bounded by what matters.</p>
+</section>
+
+<section>
+  <h2><span class="marker">§5</span> Two channels that are genuinely untouched</h2>
+  <p>Distinct from the bank in §2, because neither is a summary of grey level at a pixel.</p>
+
+  <div class="finding">
+    <div class="label">Measured 2026-09-05 — the tint is real and the colour test structurally cannot see it</div>
+    <p>Killjoy's turret cone is green-tinted. Only 2 of 27 candidates in that window carry <code>colour: green</code>, and <code>colour_frac</code> has median <strong>0.000</strong> across uncertain, positive and negative alike. <code>minimap_dynamic.blob_colour</code> gates on <code>s &gt; 90</code> and <code>v &gt; 80</code> before naming any colour, then needs 8% coverage. <strong>A translucent tint over floor is low-saturation by construction and never clears 90.</strong> The gate was built for solid team-coloured icons and is being asked about illumination.</p>
+    <p>Do not loosen <code>COLOUR_SAT</code> — its docstring records 90 as load-bearing for keeping achromatic pixels out. This wants a separate low-saturation hue test, which is a new observation rather than a recombination of old ones.</p>
+  </div>
+
+  <div class="finding">
+    <div class="label">the domain fact, 2026-09-05 — the player is not the only cone source</div>
+    <p>Controllable deployables emit vision cones too: Sova's Owl Drone, Tejo's Stealth Drone, Skye's Trailblazer <em>and</em> Guiding Light, Fade's Prowler, and Killjoy's turret. the player expects the same half-angle and says he is not sure — so it is measured, never assumed. A turret's arc is a property of the device rather than a player's FOV, and is the case most likely to differ.</p>
+  </div>
+
+  <p>This bears directly on the best feature in the bank. <code>cone_cond</code> is computed against <code>self_cone</code> — the player's cone, and only ever the player's. A device lit by its own drone is detected while the player's cone reads dark, which drives the feature the wrong way on exactly the candidates it exists to rescue. the sharper version: <em>a turret placed in a doorway lights a wedge the player's own cone never covers.</em> The per-session numbers are consistent with that, and were predicted before they were computed:</p>
+
+  <div class="scroller">
+  <pre>Skye     0.08   dog AND bird       Sova    0.29   owl drone
+Killjoy  0.17   turret             Viper   0.31   no cone deployable</pre>
+  </div>
+
+  <p><span class="chip unfalsifiable">not proof</span> &nbsp;Four sessions, and the mechanism is not isolated — but the direction and the ordering are both as predicted, and the fix is a mechanism to build rather than a weight to tune.</p>
+
+  <p>Two further notes on cones, both cheap and both currently unused. Ally cones need no ally identity across frames, because a cone is a per-frame quantity — position and facing in <em>that</em> frame — and <code>minimap.ally_rings()</code> already returns the <code>(area, cx, cy)</code> tuple <code>self_cone()</code> takes as a seed. Ring-seeding is what took cone yield from 8% to 89% pooled, and allies give rings. But the demo corpus is <strong>solo</strong>, so ally cones buy nothing there and everything on real-match footage; deployable cones are the reverse.</p>
+</section>
+
+<section>
+  <h2><span class="marker">§6</span> What can honestly be scored, and what gates it</h2>
+  <p>The current best operating point, leave-one-session-out over 8 sessions, is worth stating plainly because it is worse than the number the project has been carrying:</p>
+
+  <div class="scroller">
+  <table>
+    <thead><tr><th>model</th><th class="num">precision</th><th class="num">recall</th><th class="num">AUC</th></tr></thead>
+    <tbody>
+      <tr><td>equal-weight z-sum, per-session z</td><td class="num live">0.36</td><td class="num live">0.68</td><td class="num live">0.74</td></tr>
+      <tr><td><code>patch_range</code> alone</td><td class="num">0.44</td><td class="num">0.45</td><td class="num">0.66</td></tr>
+      <tr><td>weighted combiner</td><td class="num">0.28</td><td class="num">0.66</td><td class="num">0.69</td></tr>
+      <tr><td>baseline — mark everything positive</td><td class="num">0.21</td><td class="num">1.00</td><td class="num">—</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Two things block any number above from being trusted further, and neither is a modelling choice.</p>
+
+  <div class="finding">
+    <div class="label">Found 2026-09-05 — 88 positives are stranded, which is more than the entire usable corpus</div>
+    <p><code>a06f04a0059f</code> (53 positives) and <code>5822b6646448</code> (35) were labelled <strong>positives-only</strong> — zero negatives each — so the scorer skips them for having no both-class labels, silently. Labelling negatives on those two more than doubles the corpus, needs no new footage and no new video decode, and brings in all the Deadlock held-placeable data that §3 wants. <code>5822b6646448</code> additionally dies on a stale npz schema and is not on the never-re-scan list, so it can simply be rebuilt.</p>
+  </div>
+
+  <p>The second is the regime confound in §1. Until one ordinary-capture session is labelled the new way, every figure here is measured across two visual worlds at once, and a model fitted on it can fit the world instead of the ability. <strong>That is the one footage ask in this document, and it is worth more than any number of additional demo clips.</strong></p>
+</section>
+
+<section>
+  <h2><span class="marker">§7</span> Hazard register</h2>
+  <div class="hazards">
+    <div class="hz">
+      <span class="chip hazard">carried</span>
+      <div class="hz-body">
+        <h3>The tile is not the object</h3>
+        <p>Reading the Killjoy contact sheet, “map line-work” was called a large false-positive class; at the candidate's own pixel, 177 of 205 sit on <code>FLOOR</code>. The eye pools a neighbourhood, the detector must commit to a pixel. The <code>ring</code> group in §3 is the same hazard at object scale.</p>
+      </div>
+    </div>
+    <div class="hz">
+      <span class="chip hazard">found 2026-09-05</span>
+      <div class="hz-body">
+        <h3>A group present in one session cannot be validated</h3>
+        <p><code>ring</code> and <code>place</code> are Killjoy-only. Any figure computed on them is in-sample, and leave-one-session-out silently degenerates rather than refusing. The scorer now prints a session count per group for exactly this reason.</p>
+      </div>
+    </div>
+    <div class="hz">
+      <span class="chip hazard">found 2026-09-05</span>
+      <div class="hz-body">
+        <h3>Positives-only sessions are dropped without a word</h3>
+        <p>The both-class check is correct and its silence is not. Two sessions and 88 positives left the corpus this way and nobody noticed for a week; the total in every quoted figure was 27 when the store held 115.</p>
+      </div>
+    </div>
+    <div class="hz">
+      <span class="chip hazard">standing</span>
+      <div class="hz-body">
+        <h3>Never re-scan four sessions, and never seed a label file</h3>
+        <p><code>2ba870ccbd50</code>, <code>eb10db50b1fb</code>, <code>d95cfad5693a</code>, <code>79a706a7ce4c</code> — the label store key is unstable. Separately, <code>64d0fb783be2</code> (Vyse) remains pulled: 65 of 96 candidates fall in one 10-second window and render as flat salmon tiles with no object in them. Note that a coherent illuminated region produces that same signature, so the pull is worth revisiting with §5 in hand.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="marker">§8</span> Build order</h2>
+  <p>Ordered by what unblocks what, not by expected payoff. Each step's gate is what makes the next one's number meaningful.</p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-n">1</div>
+      <div class="step-body">
+        <div class="step-head"><h3>Label negatives on the two positives-only sessions</h3><span class="chip measured">no new footage</span></div>
+        <p>88 positives for one labelling session, including every Deadlock held-placeable. Rebuild <code>5822b6646448</code>'s stale series first.</p>
+        <div class="gates">gates → every figure in §6</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-n">2</div>
+      <div class="step-body">
+        <div class="step-head"><h3>One ordinary-capture session, labelled the new way</h3><span class="chip unfalsifiable">footage ask</span></div>
+        <p>The only thing that separates “<code>patch_range</code> never generalised” from “infinite-abilities is a different world”. Until it exists, do not fit anything across both regimes.</p>
+        <div class="gates">gates → §1, and any successor model</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-n">3</div>
+      <div class="step-body">
+        <div class="step-head"><h3>Join the tray's cast times to the candidate stream</h3><span class="chip measured">built + emitting</span></div>
+        <p>The pivot in §4, and it works: <strong>27 of 43 agent-named positives explained (63%), ultimates included</strong>, with every miss attributable to an ability that draws nothing, a label that carries no agent, or a recording where the charge was refilled. <code>ability_cast.py --emit</code> now writes <strong>24 events</strong> to <code>&lt;store&gt;/events/ability/</code> — 10 carrying a position, 12 refusing one, 2 with no candidate at all. Not <code>l2/</code>: stage 03 has no schema yet and this must not look like it is claiming one.</p>
+        <div class="gates">done → the first stage-03 output this project has had</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-n">4</div>
+      <div class="step-body">
+        <div class="step-head"><h3>A low-saturation tint test, and a deployable cone seed</h3><span class="chip measured">new observations</span></div>
+        <p>The two channels in §5. The tint test is small and self-contained. The cone seed removes the confound sitting under the bank's best feature, and needs the seed source that <code>self_cone()</code> structurally cannot provide.</p>
+        <div class="gates">gates → whether <code>cone_cond</code> is signal or artifact</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-n">5</div>
+      <div class="step-body">
+        <div class="step-head"><h3>Shape features</h3><span class="chip deferred">still deferred, and now for a measured reason</span></div>
+        <p><code>minAreaRect</code> elongation, solidity, Euler number, Hu moments. Previously deferred because they need a decode pass. Deferred again on stronger grounds: §2 shows adding a near-redundant family to a bank that already cannot be usefully weighted produces better single-feature AUCs and no better detector. Revisit only after step 3 changes the question being asked.</p>
+        <div class="gates">blocked by → step 3</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><span class="chip measured">measured</span> reproduces</span>
+    <span><span class="chip superseded">superseded</span> was measured, no longer reproduces</span>
+    <span><span class="chip unfalsifiable">needs labels</span> cannot be scored yet</span>
+    <span><span class="chip hazard">hazard</span> has already cost time</span>
+    <span><span class="chip deferred">deferred</span> on purpose</span>
+  </div>
+</section>
+
+</div>

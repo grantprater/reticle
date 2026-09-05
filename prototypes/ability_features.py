@@ -132,6 +132,51 @@ STORE = Path.home() / "reticle-store"
 SERIES_LABELS = STORE / "series-labels"
 
 
+# --- positive GROUPS -------------------------------------------------------
+# Not every positive is the same kind of thing, and fitting one combiner across
+# them averages geometries that do not belong together (the player, 2026-09-05):
+#
+#   ring   `radius_ring` is the radius circle a DEPLOYED device draws -- only
+#          some kits have one (Killjoy, Chamber, Veto). The ring is NOT the
+#          device: a candidate on the perimeter sits tens of px from the object,
+#          so its patch features describe the ring;
+#   place  the held/preview state before you commit the util. It sits at the
+#          player's FEET, which is why it contaminates `self_d_med`;
+#   smoke  deployed smokes, which look the same on the minimap whoever threw
+#          them -- agent identity is not in these pixels;
+#   device the actual deployed objects. The class the detector is really for.
+SPLIT_FEATS = ["patch_range", "n_runs", "cone_cond", "self_d_med", "dark_p90"]
+
+GROUP_BY_CID = {"radius_ring": "ring", "place_color": "place",
+                "smoke": "smoke", "smoke_deployed": "smoke",
+                "audio radius": "audio"}
+
+
+def group_of(q):
+    """Positive group for a query, reconstructed from its canonical cid."""
+    ag = (q.get("agent") or "").lower()
+    ab = (q.get("ability") or "").lower()
+    cid = f"{ag}:{ab}" if ag else ab
+    return GROUP_BY_CID.get(cid, "device")
+
+
+def restrict(per, ys, gs, grp):
+    """per/ys keeping all negatives but only the positives of one group.
+
+    Other groups are DROPPED, not relabelled negative -- they are real abilities
+    and calling them false would manufacture false positives out of correct
+    detections.
+    """
+    P, Y = {}, {}
+    for s in per:
+        m = (~ys[s]) | (gs[s] == grp)
+        if not (ys[s] & m).any() or not (~ys[s] & m).any():
+            continue
+        P[s] = {k: v[m] for k, v in per[s].items()}
+        Y[s] = ys[s][m]
+    return P, Y
+
+
 def auc(pos, neg) -> float:
     """Mann-Whitney AUC. Threshold-free, so there is nothing here to overfit."""
     pos = np.asarray(pos, float)
@@ -173,7 +218,7 @@ def features(sid):
     qs, t_ms, F = asr.load(sid, SERIES_LABELS)
     sd_lo, _ = md.load_noise(sid)
     out: dict[str, list] = {}
-    y_true, keep = [], []
+    y_true, keep, grp = [], [], []
 
     for i, q in enumerate(qs):
         if q.get("uncertain"):
@@ -239,6 +284,15 @@ def features(sid):
         # The two-factor conditional. Plain correlation with the cone cannot
         # separate a crack from a device that is only VISIBLE when lit; the
         # difference between them is whether being lit predicts detection.
+        # HAZARD, predicted not measured (2026-09-05): `cone` is `self_cone`,
+        # the PLAYER's cone. Controllable deployables light the map too (Owl
+        # Drone, Stealth Drone, Trailblazer, Prowler -- see minimap_cone.py), so
+        # a device lit by its own drone is detected while the player's cone
+        # reads dark, which drives `cone_cond` the WRONG way on exactly the
+        # candidates it is supposed to rescue. The four sessions this was scored
+        # on had no drone events; Sova and Skye are next in the labelling queue,
+        # so the gate re-run is the first time it can bite. Check the sign there
+        # before concluding the feature decayed.
         f["cone_cond"] = (float(det[c].mean()) - float(det[nc].mean())
                           if c.sum() >= 3 and nc.sum() >= 3 else float("nan"))
         f["dark_lit_gap"] = (float(dark[c].mean()) - float(dark[nc].mean())
@@ -247,9 +301,11 @@ def features(sid):
         for k, v in f.items():
             out.setdefault(k, []).append(v)
         y_true.append(bool(q.get("true")))
+        grp.append(group_of(q))
         keep.append(i)
 
-    return {k: np.array(v, float) for k, v in out.items()}, np.array(y_true, bool)
+    return ({k: np.array(v, float) for k, v in out.items()},
+            np.array(y_true, bool), np.array(grp, object))
 
 
 def gate(per, ys, keys, signs):
@@ -296,22 +352,27 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--min-auc", type=float, default=0.0,
                     help="only print features reaching this |AUC-0.5|+0.5 pooled")
+    ap.add_argument("--split", action="store_true",
+                    help="score each positive GROUP separately (ring / place / "
+                         "smoke / device) instead of pooling them. Negatives are "
+                         "shared; other groups' positives are dropped, not "
+                         "counted as false")
     ap.add_argument("--gate", action="store_true",
                     help="leave-one-session-out precision/recall for feature gates")
     a = ap.parse_args()
 
     sids = sorted(p.stem for p in SERIES_LABELS.glob("*.npz"))
-    per, ys, names = {}, {}, None
+    per, ys, gs, names = {}, {}, {}, None
     for sid in sids:
         try:
-            f, y = features(sid)
+            f, y, g = features(sid)
         except Exception as e:  # noqa: BLE001
             print(f"{sid}: SKIPPED ({e})")
             continue
         if y.sum() == 0 or (~y).sum() == 0:
             print(f"{sid}: no both-class labels ({int(y.sum())} pos / {int((~y).sum())} neg)")
             continue
-        per[sid], ys[sid] = f, y
+        per[sid], ys[sid], gs[sid] = f, y, g
         names = sorted(f) if names is None else names
 
     if not per:
@@ -351,6 +412,34 @@ def main() -> int:
     print("agreeing is the ranked-corpus failure in miniature -- it means one")
     print("population is carrying the figure.")
 
+    if a.split:
+        import collections
+        comp = collections.Counter()
+        for sid in per:
+            for gg, yy in zip(gs[sid], ys[sid]):
+                if yy:
+                    comp[gg] += 1
+        print("\n=== positive composition ===")
+        for gg, n in comp.most_common():
+            print(f"  {gg:<8} {n:4d}")
+        print("\nPer-group AUC (positives of that group vs ALL negatives;")
+        print("other groups' positives dropped, not counted false).\n")
+        print(f"{'group':<8}{'n':>5}{'sess':>6}  " + "  ".join(f"{k:>12}" for k in SPLIT_FEATS))
+        for gg, n in comp.most_common():
+            P, Y = restrict(per, ys, gs, gg)
+            if not P:
+                print(f"{gg:<8}{n:5d}  -- no session has both classes")
+                continue
+            cells = []
+            for k in SPLIT_FEATS:
+                pp = np.concatenate([P[s][k][Y[s]] for s in P])
+                nn = np.concatenate([P[s][k][~Y[s]] for s in P])
+                cells.append(f"{auc(pp, nn):12.2f}")
+            mark = "" if len(P) > 1 else "  <- ONE session: no leave-one-out"
+            print(f"{gg:<8}{n:5d}{len(P):6d}  " + "  ".join(cells) + mark)
+        print("\nA group whose AUC differs sharply from the pooled row above is")
+        print("one the pooled figure was averaging away.")
+
     if a.gate:
         # Sign: +1 where real abilities score HIGHER, -1 where they score lower.
         cands = [
@@ -363,7 +452,7 @@ def main() -> int:
             (["patch_range", "autocorr1", "self_d_med"], [1, 1, -1]),
             (["patch_range", "autocorr1", "dark_med"], [1, 1, 1]),
         ]
-        print("\n=== leave-one-SESSION-out gate: threshold fitted on the other three ===")
+        print("\n=== leave-one-SESSION-out gate: threshold fitted on the other sessions ===")
         print(f"{'gate':<44}{'prec':>7}{'recall':>8}   per-session tp/fp/fn")
         for keys, signs in cands:
             p, r, rows = gate(per, ys, keys, signs)

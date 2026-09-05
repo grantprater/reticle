@@ -13,116 +13,148 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
-**2026-09-04. A LABELLING PASS IS QUEUED AND READY — that is the next action.**
-Five sessions are filtered, rendered, reviewed and stamped. the player runs:
+**2026-09-05. The ability channel was re-founded on a different question, and
+the full argument is a document rather than a handoff:**
 
-    .\.venv\Scripts\python.exe prototypes\label_ability.py <session>
+**Ability recognition, rebuilt** -- `docs/ability-recognition.html`,
+https://claude.ai/code/artifact/bffd7660-cd3e-4e6f-ada9-3be6b0dca887
+It supersedes the Phase 2 plan in `docs/ability-temporal.html` and carries the
+build order. Read it before picking this up; what follows is only the state.
 
-    dae6f33f3f48  Killjoy  76 candidates   Nanoswarm / Alarmbot / Turret / Lockdown
-    02cf738b1c8f  Sova     29              Owl Drone / Shock Bolt / Recon Bolt / Hunter's Fury
-    6bb88dba5d2c  Viper    22              Snake Bite / Poison Cloud / Toxic Screen / Viper's Pit
-    6ab7a9e99235  Skye     16              Regrowth / Trailblazer / Guiding Light / Seekers
-    ff19748eea8c  Jett     13              CONTROL -- no persistent minimap devices
+**What today settled, in one place.**
 
-the player chose the spread over labelling one session deep, because the corpus that
-failed to transfer was five ability classes from three agents. Jett is in as the
-false-positive floor: nearly everything it surfaces should be a negative, and if
-it is not, the detector is finding something nobody has named.
+* **the labelling pass is DONE** -- 5 sessions, 161 records, 58 new positives,
+  giving 85 pos / 252 neg over 9 sessions, up from 27 over 4;
+* **it falsified the claim it was run to support.** `patch_range` pooled AUC
+  **0.86 -> 0.57**, consistent 4 of 9. The break is perfectly confounded with
+  capture regime (4 ordinary captures vs 5 `infinite-abilities` demos), so the
+  corpus cannot say whether the feature never generalised or the demos are a
+  different world. **One ordinary-capture session labelled the new way is the
+  one footage ask**, and it is worth more than any number of demo clips;
+* **the weighted combiner does not earn its parameters.** Equal-weight z-sum
+  matches or beats it in every configuration (0.74 vs 0.69 AUC), and sign
+  agreement is 100% across all 8 folds -- so this is not fold noise, the
+  features are near-redundant. Label volume was never the blocker;
+* **per-session z-scoring is worth more than any weighting** (0.74 vs 0.64).
+  The dominant recoverable variance is per-session, not per-object;
+* **current honest best**: equal-weight z-sum, per-session z, leave-one-session-
+  out -- precision 0.36, recall 0.68, AUC 0.74, against a 0.21 baseline. Worse
+  than the 0.49 @ 0.85 that was on record, on three times the data;
+* **the cast-anchored detector is built and emitting.**
+  `prototypes/ability_cast.py`, joining `ability_hud.py`'s tray drops to the
+  reference kit: **24 casts, 27 of 43 agent-named positives explained (63%)**,
+  and `--emit` writes events to `<store>/events/ability/`;
+* **"slot X never drops" was a defect in the READER.** The ult pips desaturate
+  with the bar, so the existing teal mask reads them: slot X goes 909 -> 0 teal
+  px between 28.0s and 28.5s against a Hunter's Fury label at 28.2s. Two bugs
+  compounded -- `casts()` looped `range(3)`, and `drawn()` refused the frame
+  because an all-spent tray reads as "not rendered". Both fixed;
+* **a cast buys the EVENT cheaply and NOT the POSITION.** Widening the position
+  window never raised the number of correct picks (3, at every width), so
+  position is emitted only when the window holds exactly one candidate -- 2 of 2
+  exact -- and is null otherwise, with the candidates carried along. Time and
+  identity come free from HUD structure; location still needs the weak detector.
+  **State this wherever the 63% is quoted.**
 
-**`64d0fb783be2` (Vyse) was PULLED and its stamp revoked.** 65 of its 96
-candidates fall in a single 10-second window of a 56-second clip, and they render
-as flat salmon-pink tiles with no object in them. That is one event flooding the
-file, not a detection class. Find out what happens at 40-50s before labelling it.
+**the domain facts from today, none recoverable from pixels.** Detail is in
+the module docstrings and the design doc; the heads only:
 
-**What was measured this session, in one place**
+* **controllable deployables emit vision cones too** -- Owl Drone, Tejo's
+  Stealth Drone, Skye's Trailblazer AND Guiding Light, Fade's Prowler, Killjoy's
+  turret. Same half-angle is EXPECTED, not known. `self_cone()` cannot see them,
+  and `cone_cond` -- now the best single feature, inverted, 7 of 9 consistent --
+  is computed against the player's cone only. See `minimap_cone.py`;
+* **`radius_ring` is what a DEPLOYED device draws, not placement** (Killjoy,
+  Chamber, Veto). The ring is not the device: a candidate on the perimeter sits
+  tens of px from its object;
+* **held placeables want a `mode` field**, currently leaking into category names
+  (`place_color`, `smoke` vs `smoke_deployed`). A preview sits at the player's
+  feet, so it contaminates `self_d_med`;
+* **deployed smokes are one agent-independent class on purpose** -- Jett's
+  Cloudburst and Viper's Poison Cloud are both generic `smoke`, because the
+  minimap carries no thrower identity;
+* **placement hold time is unbounded** -- only the ~1-2s before the commit
+  carries positional information; a long hold is its own signal;
+* **`infinite-abilities` is a misleading tag on the five demo sessions** --
+  toggled on to charge the ult, then off. `2ba870ccbd50` (Brimstone) genuinely
+  had it on. **Viper's Pit is SUSTAINED**, so its bar releases when the pit ENDS
+  (drop at 44.0s against labels at 36.9-42.6s);
+* **Skye's Regrowth drains only while healing someone**, so `no cast` in a solo
+  clip is correct, not a sampling defect.
 
-* **`patch_range` is the first ability feature that transfers.** Precision
-  0.13 -> **0.49 at 0.85 recall**, leave-one-session-out. It is the median over
-  the window of `g_max - g_min` in the 15x15 patch: intra-patch contrast. Most
-  of its signal is SPATIAL -- a single frame scores 0.76 pooled against the
-  median's 0.86 -- so Phase 1's payoff here was cheap aggregation, not a
-  temporal signal. `prototypes/ability_features.py`;
-* **complements are real, weighting them is not affordable.** `n_runs`
-  (correlation 0.26 with contrast) and `cone_cond` (0.04) separate the
-  candidates that PASS the contrast gate. `AND` them and precision goes 0.49 ->
-  0.73 -> 0.80 while recall collapses; an equal-weight z-sum ties at best. A
-  weighted combiner is what the evidence asks for and 27 positives will not
-  support fitting one. **This is why the labelling pass is the next action** --
-  the blocker stopped being feature design;
-* **`cone_cond` is NOT falsified**, though an earlier commit said so. A
-  single-feature AUC structurally cannot see a complement;
-* **noise normalisation hurts** (`dark_z_p90` 0.63 vs plain `dark_p90` 0.79).
-  The earlier 1.36 -> 2.69 figure was five positives of one class and does not
-  survive four sessions;
-* **`patch_range AND n_runs` gives 0.73 precision at 0.41 recall** -- a usable
-  operating point for ranking candidates in assisted labelling, though its F1 is
-  worse than contrast alone.
+**The cone tint is real and `blob_colour` structurally cannot see it.** Killjoy's
+turret cone is green-tinted; `minimap_dynamic.blob_colour` gates on `s > 90`
+before naming any colour and a translucent tint never clears it. Needs its own
+low-saturation hue test -- do NOT loosen `COLOUR_SAT`, which is load-bearing.
 
-**The reference harvest is done and is a new substrate.**
-`prototypes/ability_reference.py`, into `<store>/reference/`: 29 agents, 121
-abilities, 118 icons, 29 minimap portraits, **56 ultimate voicelines as isolated
-game-file MP3s** (ally and enemy variants). `check` passes 74 agree / 0 disagree,
-so `ability_hud.py`'s C/Q/E/X slot mapping is now measured against an
-independent source. `Deployment Type` gives the shape family per ability
-(13 Placement, 10 Missile, 9 Self-targeted, 4 Grounded AoE, 3 Grounded Object)
-and 21 deployables state a Health. **The class list for any ability labeller is
-now derivable** -- the agent is in the manifest `tags`, the kit is in the
-reference.
+**NEXT, in order.** (The design doc's SS8 is the fuller version.)
 
-**Two things the official art did NOT do.** `minimapPortrait` scored by pixel
-NCC misses badly (41.8% against a 70.4% bar) -- and that re-ran a method
-`prototypes/CLAUDE.md` already records as dead, since identity at 11 px lives in
-the palette, not the layout. By COMPOSITION it reaches **78.5% at zero
-parameters** against the scoreboard's 77.2%, which is a wash on accuracy and a
-real win operationally: it needs no scoreboard opening, and scoreboard portrait
-extraction is recorded as wrong on two sessions of three.
+1. **Label negatives on `a06f04a0059f` (53 positives) and `5822b6646448` (35).**
+   Both were labelled POSITIVES-ONLY, so the scorer skips them for having no
+   both-class labels, silently -- 88 positives stranded, more than the whole
+   usable corpus. No new footage, no decode. Render and review the candidates
+   first; that mistake has three recorded recurrences.
+2. **One ordinary-capture session labelled the new way**, to break the regime
+   confound. Until it exists, do not fit anything across both regimes.
+3. **Audit the other readers for silent exclusions.** Every real gain today came
+   from finding something discarded without a word -- the both-class check,
+   `range(3)`, `drawn()`. `killfeed.py`, `scoreboard.py` and
+   `minimap_temporal.usable()` all carry guards of the same shape.
+4. **Audio**, now genuinely unblocked: `audio_probe.py` killed onset detection
+   and said a matched filter needs a reference cut at a known cast time. The 56
+   ultimate voicelines are the cuts and the tray now supplies the times. It is
+   also the only channel for OTHER players' casts -- and the framing is why
+   that generalises: **audio range is roughly the observable range, and roughly
+   what is worth recording**.
+5. **A low-saturation tint test, and a deployable cone seed.** New observations
+   rather than recombinations of the exhausted bank. Killjoy's turret cone is
+   **100 degrees** against the player's measured ~112 -- from the reference
+   text, not a measurement, so do not reuse `CONE_HALF_ANGLE_DEG` for it.
+6. **A per-ability distance-from-player prior**, to break the position ties this
+   module currently refuses. the player: only Omen's smoke and ultimate are truly
+   global, so the shipped self track constrains every other ability. Measured
+   medians span 21 px (Viper's Pit) to 180 px (Toxic Screen) and the ordering
+   matches his families -- but n is 1-3 placements per ability, and the
+   reference's `Deployment Type` is a different axis. See `ability_cast.py`.
+7. **Represent an ability as ORIGIN + an OPTIONAL DEPLOYMENT VECTOR.** the player:
+   every ability except Phoenix's wall fits that, and Blaze is freeform because
+   it is steered while extending. The vector is absent for rotation-invariant
+   abilities (standard smokes) -- absent by construction, which is information,
+   not a failed fit. One representation for icons AND regions, and it is what
+   `icon_facing()` already returns. It also re-justifies `cv2.minAreaRect`:
+   deferred as a classifier feature, but the long axis of a grouped region IS
+   the deployment vector, and measuring an object whose identity the cast
+   already gave you is not classification.
 
-**NEXT, in order.**
-
-1. **The labelling pass above.** Then re-run `ability_features.py --gate`; with
-   positives in the hundreds a weighted combiner becomes fittable, and the shape
-   and colour families have something to join.
-2. **The mini design doc for ability recognition** -- the player asked for this
-   explicitly as the next session's work. It should supersede the Phase 2 plan in
-   `docs/ability-temporal.html`, whose first-named feature (the cone-coverage
-   two-factor conditional) failed as a gate.
-3. **Shape features**, deferred deliberately: `cv2.minAreaRect` elongation,
-   solidity, Euler number, `cv2.matchShapes` Hu moments. They need a decode pass,
-   and adding a family to a set that cannot be weighted will produce better
-   single-feature AUCs and no better detector.
-4. **The free geometry trim.** VOID / BOXEDGE / unreadable candidates are 28 of
-   205 labelled and **0 of them are real** -- precision 15% -> 17% at zero recall
-   cost. `geo_label` is in the candidate schema and is never populated.
-5. **Ultimate voicelines**, now unblocked: `audio_probe.py` killed onset
-   detection and said a matched filter needs a reference cut at a known cast
-   time. The 56 MP3s are those cuts, and ally-vs-enemy carries team identity.
+**Do NOT**: add shape features (the bank is near-redundant and cannot be
+usefully weighted -- measured); record more demo clips; chase `patch_range`.
 
 **Standing hazards.** Never re-scan `2ba870ccbd50`, `eb10db50b1fb`,
 `d95cfad5693a`, `79a706a7ce4c` -- the label store key is unstable. Never seed a
-label file. **The tile is not the object**: reading the Killjoy contact sheet I
-called "map line-work" a large false-positive class, and at the candidate's own
-pixel 177 of 205 sit on FLOOR. The eye pools a neighbourhood; the detector must
-commit to a pixel.
+label file. **The tile is not the object**: at the candidate's own pixel 177 of
+205 sit on FLOOR.
 
-**Other live threads, not touched this session.** Detail is in
-`git show HEAD~1:NOTES.md` and in the module docstrings; only the heads are kept
-here, because this section grew to 744 lines by stacking handoffs and the
-standing instruction is to keep it short.
+**`64d0fb783be2` (Vyse) is PULLED and TABLED at the call** -- 65 of 96
+candidates in one 10s window, rendering as flat salmon tiles with no object.
+Worth revisiting with the tint/illumination work: a coherent lit region produces
+exactly that signature.
+
+**Other live threads, not touched.** Detail in `git show HEAD~1:NOTES.md` and in
+the module docstrings; heads only, because this section grows by stacking.
 
 * **minimap position (self) is shipped; allies are not.** Next: ally identity
-  across frames (nearest-to-previous per slot, seeded at round start while the
-  spawn barrier is up), then the visibility computation dA/ds that position
-  tracking was always gating -- `floor_mask` is already the occlusion grid it
-  needs -- then enemy-icon states (solid / question-mark / X), still unread;
+  across frames, then the visibility computation dA/ds, then enemy-icon states.
+  Note ally CONES need no identity -- a cone is per-frame, and `ally_rings()`
+  already returns the tuple `self_cone()` seeds from -- but the demo corpus is
+  SOLO, so ally cones buy nothing there and everything on real-match footage;
 * **vision cones:** confirm the half-angle on a second map, and find a case
-  where a raycast actually crosses a boxedge pixel to confirm pass-through.
-  the follow-up: use many cone instances to tell a real wall from a
-  mislabelled box in `minimap_geometry`, which needs more footage than one clip.
+  where a raycast actually crosses a boxedge pixel. Deployable cones are a
+  second cone per clip on a path the player never walks, which is the cheap way
+  out of "more footage than one clip supplies".
 
 **Still true and still queued:** `ability_corpus.load_events` takes `min(dists)`
 across an event's fragments, re-introducing the Phase 0a failure one level up;
-three different `floor` conventions feed `self_rings`; grouping lives in
-`load_events` and should be lifted out for the labeller; a pulsing region still
+three different `floor` conventions feed `self_rings`; a pulsing region still
 gets one event per pulse; teleports break the shipped position track for Veto,
 Omen, Chamber and Waylay.
 
