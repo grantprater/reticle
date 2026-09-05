@@ -16,10 +16,12 @@ Split out of `CLAUDE.md` on 2026-08-27.
 **2026-09-05. The ability channel was re-founded on a different question, and
 the full argument is a document rather than a handoff:**
 
-**Ability recognition, rebuilt** -- `docs/ability-recognition.html`,
+**The ability event log** -- `docs/ability-recognition.html`,
 https://claude.ai/code/artifact/bffd7660-cd3e-4e6f-ada9-3be6b0dca887
-It supersedes the Phase 2 plan in `docs/ability-temporal.html` and carries the
-build order. Read it before picking this up; what follows is only the state.
+**The minimap entity model** -- `docs/minimap-entity-model.html`,
+https://claude.ai/code/artifact/324e1c5f-9240-4b13-8ff1-59adb24a2f06
+The first is what the log contains; the second is what an entity IS, with a
+driver PER PARAMETER. Read both before picking this up; below is only state.
 
 **What today settled, in one place.**
 

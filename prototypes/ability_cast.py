@@ -5,7 +5,12 @@
 
 Why this exists
 ---------------
-`docs/ability-recognition.html` §4. Every ability feature in this repo answers
+`docs/ability-recognition.html` §4 for the pivot, and
+**`docs/minimap-entity-model.html` for what an emitted entity IS** -- origin,
+bearing, extent, existence, anchor and frame, with a driver PER PARAMETER
+rather than per object. This module is the first consumer of that model and the
+place its claims get tested; where the two disagree, the disagreement is the
+result, not a bug to paper over. Every ability feature in this repo answers
 *is this pixel an ability?* -- a candidate at a time, independent of everything
 else in the frame. Measured on 85 positives across 9 sessions that framing tops
 out at 0.36 precision / 0.68 recall, thirteen features prove near-redundant, and
@@ -146,6 +151,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -175,28 +181,180 @@ EVENTS = STORE / "events" / "ability"
 #: is wherever the player happened to be walking.
 POS_PRE, POS_POST = 2.0, 2.0
 
+#: A RE-USABLE ability fires over several seconds, so a window sized for a
+#: single placement truncates it. Sova's Hunter's Fury put 3 of its 10 labelled
+#: fragments inside +/-2s and the other 7 at 30.7-33.2s, entirely outside.
+#:
+#: Derived, not listed: 12 of the reference's 121 descriptions say RE-USE, and
+#: they are the right 12 -- Hunter's Fury, Cypher's Spycam, Jett's Tailwind,
+#: Skye's Regrowth, and BOTH of Viper's, which is the resource-bar wrinkle
+#: arriving from the game's own text rather than from memory.
+#:
+#: Affordable only because the extending signature is self-validating: a wider
+#: window adds candidates, and each one either joins a group that extends
+#: monotonically outward from a shared origin or it does not.
+POS_POST_REUSE = 6.0
+
 #: Fragments of one object: `ability_corpus`'s rule, reused rather than
 #: reinvented -- same onset, adjacent centroid.
 ONSET_S, DIST_PX = 0.30, 60
 
-#: What drives an object's state AFTER deployment. the player, 2026-09-05. This is a
-#: property of the ABILITY, known from the kit, never inferred from pixels.
-#: Everything unlisted is static.
-DRIVER = {
-    ("killjoy", "alarmbot"): "enemy-reactive",
-    ("killjoy", "turret"): "enemy-reactive",
-    ("sova", "owl drone"): "piloted",
-    ("tejo", "stealth drone"): "piloted",
-    ("fade", "prowler"): "piloted",
-    ("skye", "trailblazer"): "piloted",
-    ("skye", "guiding light"): "piloted",
-    ("cypher", "spycam"): "aimed",
-    ("phoenix", "blaze"): "freeform",
+#: A driver belongs to a PARAMETER, not to an object -- the central claim of
+#: `docs/minimap-entity-model.html`, and it came from a flat per-object table
+#: failing here first. Killjoy's turret has a FIXED origin and an
+#: ENEMY-REACTIVE bearing; her alarmbot has an enemy-reactive origin and no
+#: bearing at all. One label per object cannot say that.
+#:
+#: **Unlisted abilities are `unknown`, NOT a default.** Defaulting 121 abilities
+#: to fixed/absent/none would assert 121 facts nobody has established, and the
+#: model's own rule is that absent-by-construction and unknown-by-refusal are
+#: different answers. This table holds what the player has actually said.
+def _P(origin="fixed", bearing="absent", extent="none"):
+    return {"origin": origin, "bearing": bearing, "extent": extent}
+
+
+PARAMS = {
+    ("killjoy", "alarmbot"): _P(origin="enemy-reactive"),
+    ("killjoy", "turret"): _P(bearing="enemy-reactive"),
+    ("sova", "owl drone"): _P(origin="piloted", bearing="piloted"),
+    ("tejo", "stealth drone"): _P(origin="piloted", bearing="piloted"),
+    ("fade", "prowler"): _P(origin="piloted", bearing="piloted"),
+    ("skye", "trailblazer"): _P(origin="piloted", bearing="piloted"),
+    ("skye", "guiding light"): _P(origin="piloted", bearing="piloted"),
+    ("cypher", "spycam"): _P(bearing="aimed"),
+    ("cypher", "trapwire"): _P(bearing="fixed", extent="extending"),
+    ("phoenix", "blaze"): _P(bearing="fixed", extent="freeform"),
+    ("viper", "toxic screen"): _P(bearing="fixed", extent="extending"),
+    ("sova", "hunter's fury"): _P(bearing="fixed", extent="extending"),
+    # Rotation-invariant: bearing ABSENT by construction, radius fixed.
+    ("viper", "poison cloud"): _P(extent="radius"),
+    ("viper", "viper's pit"): _P(extent="radius"),
+    ("jett", "cloudburst"): _P(extent="radius"),
+    ("brimstone", "sky smoke"): _P(extent="radius"),
+    ("omen", "dark cover"): _P(origin="global", extent="radius"),
 }
 
+UNKNOWN = {"origin": "unknown", "bearing": "unknown", "extent": "unknown"}
 
-def driver_of(agent, ability):
-    return DRIVER.get(((agent or "").lower(), (ability or "").lower()), "static")
+
+def params_of(agent, ability):
+    return PARAMS.get(((agent or "").lower(), (ability or "").lower()), UNKNOWN)
+
+
+def reusable(agent, ability):
+    """Does the official description say the ability can be RE-USED?"""
+    ref = json.loads((STORE / "reference" / "abilities.json").read_text())["agents"]
+    a = ref.get(agent)
+    if not a or not ability:
+        return False
+    b = next((x for x in a["abilities"] if x["name"].lower() == ability.lower()),
+             None)
+    return bool(b) and "RE-USE" in (b.get("description") or "").upper()
+
+
+BEARING_TOL = 15.0
+
+
+def bearing_group(rows):
+    """Fragments sharing a BEARING from the earliest candidate -> one group.
+
+    For an `extending` extent the fragments are the ANIMATION tracing the
+    deployment vector, so they share a bearing from the origin rather than an
+    onset. `prototypes/ability_extent.py` has the measurement and its caveat.
+
+    **Clustered by sorting and splitting at gaps, NOT greedily.** The first
+    version walked the candidates in time order and joined each to the first
+    group whose RUNNING MEAN was within tolerance. That is order-dependent, and
+    it showed: widening the window for Sova's re-usable ult changed which bolts
+    came back -- +45 and +78 degrees became +78 and +170 -- because one extra
+    candidate at an intermediate bearing bridged two clusters and dragged the
+    mean. A result that moves when an unrelated candidate enters the window is
+    not a measurement. Sorting the bearings and splitting wherever the gap to
+    the next exceeds the tolerance depends only on the SET, not its order.
+    """
+    rows = sorted(rows, key=lambda c: c[0])
+    if len(rows) < 2:
+        return [list(rows)] if rows else []
+    ox, oy = rows[0][1], rows[0][2]
+    bs = sorted(((math.degrees(math.atan2(r[2] - oy, r[1] - ox)) % 360.0, r)
+                 for r in rows[1:]), key=lambda z: z[0])
+    if not bs:
+        return [[rows[0]]]
+    # circular gaps, including the wrap from the last bearing back to the first
+    gaps = [(bs[i + 1][0] - bs[i][0], i) for i in range(len(bs) - 1)]
+    gaps.append((360.0 - bs[-1][0] + bs[0][0], len(bs) - 1))
+    cuts = sorted(i for g, i in gaps if g > BEARING_TOL)
+    if not cuts:
+        return [[rows[0]] + [r for _b, r in bs]]
+    out, start = [], (cuts[-1] + 1) % len(bs)
+    order = [(start + k) % len(bs) for k in range(len(bs))]
+    cur = []
+    for k, idx in enumerate(order):
+        cur.append(bs[idx][1])
+        if idx in cuts:
+            out.append([rows[0]] + cur)
+            cur = []
+    if cur:
+        out.append([rows[0]] + cur)
+    return out or [[rows[0]]]
+
+
+def extending_entities(gs):
+    """Every group that behaves like an EXTENDING entity. May be more than one.
+
+    Not a size heuristic -- the last two of those cost a wrong answer each
+    today. This is the entity model's own definition applied as a test: an
+    extending extent animates OUTWARD along its bearing, so its fragments must
+    show distance from the origin INCREASING with time. A group that merely
+    shares a bearing does not qualify.
+
+    Requires three distinct positions, because two points are collinear with
+    any origin by construction and agree inside the tolerance ~8% of the time
+    by chance.
+
+    **Returns a LIST, because a cast produces 1..N entities and not exactly
+    one.** That was an ontology error in the first version of this module, and
+    the game's own data says so: Sova's Hunter's Fury is *"three long-range,
+    wall-piercing energy blasts ... can be RE-USED up to two more times"*, so
+    one cast is up to three separate extending objects, each with its own
+    origin and bearing. Treating a second qualifying group as ambiguity threw
+    away a real entity.
+    """
+    ok = []
+    for g in gs:
+        seen, uniq = set(), []
+        for c in sorted(g, key=lambda c: c[0]):
+            if (c[1], c[2]) not in seen:
+                seen.add((c[1], c[2]))
+                uniq.append(c)
+        if len(uniq) < 3:
+            continue
+        ox, oy = uniq[0][1], uniq[0][2]
+        d = [((c[1] - ox) ** 2 + (c[2] - oy) ** 2) ** 0.5 for c in uniq]
+        # non-decreasing, with a few px of slack for detection jitter
+        if all(b >= a - 4.0 for a, b in zip(d, d[1:])) and d[-1] > d[0]:
+            ok.append(uniq)
+    return ok
+
+
+def _bearing(g):
+    """Mean bearing of a group's fragments from its origin."""
+    ox, oy = g[0][1], g[0][2]
+    bs = [math.degrees(math.atan2(c[2] - oy, c[1] - ox)) for c in g[1:]]
+    return round(sum(bs) / len(bs), 1) if bs else None
+
+
+def group_for(rows, extent):
+    """Grouping conditioned on the object's KIND, which the cast supplies.
+
+    This is the conflict the entity model resolves. `ability_corpus`'s rule --
+    onset within 300 ms, centroid within 60 px -- encodes "appeared at the same
+    moment", which is right for a device that pops into existence and wrong for
+    anything that extends: Viper's Toxic Screen fragments are 23-41 px apart,
+    well inside DIST_PX, but span 2.85 s. The extent driver says which rule
+    applies, and the cast is what tells you the extent driver before you group.
+    """
+    return bearing_group(rows) if extent == "extending" else group(rows)
 
 
 def group(rows):
@@ -552,14 +710,29 @@ def emit(sid, pre=POS_PRE, post=POS_POST, step_s=0.5):
     src = hashlib.blake2b(Path(__file__).read_bytes(), digest_size=4).hexdigest()
     out = []
     for t, slot, ab, sus in cs:
-        win = [c for c in cands if -pre <= (c[0] - t) <= post]
-        drv = driver_of(agent, ab)
-        gs = group(win)
+        post_t = POS_POST_REUSE if reusable(agent, ab) else post
+        win = [c for c in cands if -pre <= (c[0] - t) <= post_t]
+        par = params_of(agent, ab)
+        gs = group_for(win, par["extent"])
         # THE TEST (2026-09-05): does typing the edges turn a refusal into an
         # answer? Measured on all 24 events -- see RESULT in the docstring.
         # ANCHOR earns a narrow place; DRIVER did not, as first implemented.
         anchor = None
-        if len(win) == 1:
+        exts = extending_entities(gs) if par["extent"] == "extending" else []
+        ext = exts[0] if len(exts) == 1 else None
+        if ext is not None:
+            # The extending entity IS the group that extends. Its position is
+            # its ORIGIN -- where the wall or the bolt started -- not a centroid
+            # over an object that has length.
+            pick = (ext[0][0], ext[0][1], ext[0][2], 0, 0)
+            anchor = f"extending origin ({len(ext)} fragments)"
+        elif len(exts) > 1:
+            # Several extending objects from one cast. NOT ambiguity -- an event
+            # with no single position, which is the honest answer for an ult
+            # that fires three bolts. They ride in `entities`.
+            pick = None
+            anchor = f"{len(exts)} extending entities"
+        elif len(win) == 1:
             pick, anchor = win[0], "single candidate"
         elif len(gs) == 1:
             g = gs[0]
@@ -571,10 +744,34 @@ def emit(sid, pre=POS_PRE, post=POS_POST, step_s=0.5):
             # A `piloted` branch taking the EARLIEST group as the track origin
             # was tried and removed: it is the nearest-onset heuristic in
             # disguise, and it put Skye's Trailblazer at (80,153) against a
-            # label at (159,138) -- 79 px wrong. `driver` is real domain
+            # label at (159,138) -- 79 px wrong. A driver is real domain
             # knowledge; that was not a valid way to spend it. A piloted track
             # needs actual chaining under a speed bound, not "take the first".
             pick = None
+
+        # BEARING, three-valued exactly as the entity model requires. It is
+        # measured only where the ability HAS one and the fit has something to
+        # fit: an extending extent whose group holds the origin plus two or
+        # more fragments. A single pair agrees inside the tolerance about 8% of
+        # the time by chance, which is not a measurement.
+        # BEARING is a parameter in its own right and is NOT gated on having
+        # resolved the position. Coupling them was a bug in the first version of
+        # this module, not something the entity model asks for: the two are
+        # separate fields with separate drivers, and an extending entity's
+        # bearing is measurable exactly when its fragments are, whether or not
+        # anything else in the window is ambiguous.
+        bearing, bearing_state = None, "unknown"
+        if par["bearing"] == "absent":
+            bearing_state = "absent"                 # rotation-invariant
+        elif ext is not None:
+            bearing = _bearing(ext)
+            bearing_state = f"fitted from {len(ext)} fragments"
+        elif len(exts) > 1:
+            bearing_state = f"one per entity ({len(exts)})"
+
+        entities = [{"origin_x": int(e[0][1]), "origin_y": int(e[0][2]),
+                     "bearing": _bearing(e), "n_fragments": len(e),
+                     "extent": "extending"} for e in exts]
         out.append({
             "session_id": sid,
             "t_ms": int(round(t * 1000)),
@@ -586,14 +783,20 @@ def emit(sid, pre=POS_PRE, post=POS_POST, step_s=0.5):
             "x": None if pick is None else int(pick[1]),
             "y": None if pick is None else int(pick[2]),
             "position_from": anchor,
-            "driver": drv,
+            "drivers": par,
+            "bearing": bearing,
+            "bearing_state": bearing_state,
+            "entities": entities,
+            "n_entities": len(entities),
+            "frame": "map",
             "position_dt_s": None if pick is None else round(pick[0] - t, 2),
             "position_ambiguous": pick is None and len(win) > 0,
             "n_candidates": len(win),
             "n_objects": len(gs),
             "candidates": [{"t_ms": int(round(c[0] * 1000)), "x": c[1],
                             "y": c[2]} for c in win],
-            "window_s": [-pre, post],
+            "window_s": [-pre, post_t],
+            "reusable": reusable(agent, ab),
             "built_by": src,
         })
     return out, agent
@@ -665,12 +868,12 @@ def main() -> int:
 
     if a.emit:
         EVENTS.mkdir(parents=True, exist_ok=True)
-        tot = dict(ev=0, pos=0, amb=0, nocand=0)
+        tot = dict(ev=0, pos=0, ent=0, amb=0, nocand=0)
         dists, chosen_right = [], 0
         print(f"Emitting to {EVENTS}  (position window -{a.pos_pre:.1f}s .. +{a.pos_post:.1f}s)")
         print("")
         print(f"{'session':<14}{'agent':<10}{'events':>7}{'with pos':>9}"
-              f"{'ambig':>7}{'no cand':>8}")
+              f"{'multi':>7}{'ambig':>7}{'no cand':>8}")
         for sid in sids:
             try:
                 evs, agent = emit(sid, a.pos_pre, a.pos_post, a.step)
@@ -683,14 +886,17 @@ def main() -> int:
             f.write_text("".join(json.dumps(e) + chr(10) for e in evs),
                          encoding="utf-8")
             npos = sum(1 for e in evs if e["x"] is not None)
-            namb = sum(1 for e in evs if e["position_ambiguous"])
+            nent = sum(1 for e in evs if e["x"] is None and e["n_entities"] > 1)
+            namb = sum(1 for e in evs if e["x"] is None and e["n_entities"] <= 1
+                       and e["n_candidates"] > 0)
             nnone = sum(1 for e in evs if e["n_candidates"] == 0)
             tot["ev"] += len(evs)
             tot["pos"] += npos
+            tot["ent"] += nent
             tot["amb"] += namb
             tot["nocand"] += nnone
-            print(f"{sid[:12]:<14}{agent:<10}{len(evs):>7}{npos:>9}{namb:>7}"
-                  f"{nnone:>8}")
+            print(f"{sid[:12]:<14}{agent:<10}{len(evs):>7}{npos:>9}{nent:>7}"
+                  f"{namb:>7}{nnone:>8}")
 
             # Did the selection rule pick the RIGHT candidate? Only answerable
             # where a label of that ability exists in the same window.
@@ -709,15 +915,19 @@ def main() -> int:
                 dists.append(d)
                 chosen_right += (d < 1.0)
         print(f"{'TOTAL':<14}{'':<10}{tot['ev']:>7}{tot['pos']:>9}"
-              f"{tot['amb']:>7}{tot['nocand']:>8}")
+              f"{tot['ent']:>7}{tot['amb']:>7}{tot['nocand']:>8}")
         print("")
         print(f"{tot['ev']} events written, and they partition cleanly:")
-        print(f"  {tot['pos']:>3} carry a POSITION -- one candidate, or"
-              " several that group into one object")
-        print(f"  {tot['amb']:>3} REFUSED a position -- more than one candidate,"
-              " so x/y are null and the")
-        print("      candidates ride along in the event for a later scorer to"
-              " choose between")
+        print(f"  {tot['pos']:>3} carry ONE position -- a single candidate,"
+              " fragments of one object,")
+        print("      or an extending object resolved to its origin")
+        print(f"  {tot['ent']:>3} carry SEVERAL entities -- one cast, N objects."
+              " Sova's ult is three bolts")
+        print("      from one origin, so an event with no single x/y is the"
+              " honest answer, not a refusal")
+        print(f"  {tot['amb']:>3} REFUSED a position -- more than one candidate"
+              " and nothing to choose on;")
+        print("      the candidates ride along for a later scorer")
         print(f"  {tot['nocand']:>3} had NO candidate at all, and many of those"
               " are CORRECT: a grenade,")
         print("      flash, molotov or dash draws nothing on the widget and is"

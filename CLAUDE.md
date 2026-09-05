@@ -12,10 +12,10 @@ https://claude.ai/code/artifact/3854df28-3e45-4783-8aee-7e7f062ac461
 kinds of dependency). Source in `docs/metrics-addendum.html`:
 https://claude.ai/code/artifact/a045817e-a254-4b79-b1cf-20c11b7a452a
 
-**Ability recognition, rebuilt** (2026-09-05) -- supersedes the Phase 2 plan in
-`docs/ability-temporal.html`, whose leading feature failed as a gate. Records
-what the 5-session labelling pass falsified, why the weighted combiner lost to
-equal weights, and the event-first redirection. Source in
+**The ability event log** (2026-09-05) -- supersedes the Phase 2 plan in
+`docs/ability-temporal.html`, whose leading feature failed as a gate. What the
+log contains, where each field comes from, and the four answers an event may
+give. Read with the entity model below. Source in
 `docs/ability-recognition.html`:
 https://claude.ai/code/artifact/bffd7660-cd3e-4e6f-ada9-3be6b0dca887
 
