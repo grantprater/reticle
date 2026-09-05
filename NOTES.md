@@ -13,161 +13,102 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
-**2026-09-03 evening: a 26-clip one-agent-per-clip ability corpus exists and
-is fully scanned (30 candidate files, 713 grouped events).** the player recorded the roster on Ascent (alt account,
-custom game, infinite abilities), one agent per clip, casting every ability he
-could, in slot order after the first couple. All ingested `valorant-16x9-bigmap`,
-tagged `ability-demo,<agent>`. **The detail lives in `prototypes/CLAUDE.md`** --
-the corpus, the per-agent gating, the taxonomy facts the player gave, and the scan
-results. What follows is only what the next session needs first.
+**2026-09-04: Phase 0 and Phase 1 of the temporal build are DONE and committed.**
+The design doc is the authority on the whole plan and carries the phases, the
+features, the label-free scores and the hazard register:
+`docs/ability-temporal.html` --
+https://claude.ai/code/artifact/9874912c-e084-497f-bd41-594944581e36
 
-**THE SCAN IS DONE AND THE RANKING FAILED.** 713 events were grouped, scored
-and shown to the player as a gallery ordered weakest-to-strongest. His verdict: *a
-lot of those examples are still essentially fragments of viewcone or tiny
-cracks in the minimap.* And of the other end: *all the weakest examples shown
-are either literally only player icons or very close to player icons.*
+Full detail, with every number, is in `prototypes/CLAUDE.md` under *Phase 0 and
+Phase 1 of the temporal build are DONE*. The short version:
 
-Together those SPLIT the four signals instead of condemning them.
-**`self_icon_dist` works** -- the bottom band is clean player icons, so it did
-transfer from two Cypher clips to twenty-three agents. What fails is the harder
-cut: abilities vs cone fragments and cracks, which lifetime, onset and geometry
-class carry no information about. So keep `self_icon_dist`, fix its NULL case
-(null on 25 of Astra's 43 rows, wherever `self_rings` misses the player -- a
-coverage bug, and the highest-value repair available), and stop adding weight
-to the other three for this cut.
+* **Phase 0a** -- `self_icon_dist` is sampled over the whole track. NOTES said
+  take the MIN; measured against real labels at the already-set 7 px gate, the
+  **median keeps 5 of 5 real trapwires where the min keeps 3**, so the shipped
+  field is the median. Min means "was the player ever here", which is a
+  different and much commoner event than "is this the player";
+* **Phase 0b** -- `sd_lo` / `sd_hi`, the per-state noise map, in every geometry
+  npz (`minimap_dynamic.load_noise`). Per-state is the whole point: overall SD
+  at a two-state pixel measures the lighting switch, not the noise. All 34
+  geometries rebuilt, bit-reproducibly;
+* **Phase 1** -- `prototypes/ability_series.py`. One sequential pass per clip
+  gives a per-frame series at each query position. Keyed on `(t_ms, x, y)` and
+  recomputed, never re-scanned, so it reaches every label the player has ever given.
+  `<store>/series/` and `<store>/series-labels/`.
 
-**NEXT STEPS, agreed with the player 2026-09-03, in this order.**
-
-**1. FIX `self_icon_dist`'s SAMPLING, then re-run the corpus. One line, and it
-is the prerequisite for step 2.** It is computed once at each track's BIRTH
-frame and never updated (`scan_ability_clip.py`, the branch that opens a
-track), so one missed frame nulls the whole track. Measured: `self_rings`
-finds the player in 70-100% of frames and the floor gate costs 1.7% at worst,
-so neither explains a 58% null rate. The failures are CORRELATED -- a candidate
-is disproportionately born in a frame where something covers the widget, which
-is exactly when the self colour is hidden, so the single sample lands at the
-worst possible moment. Take the min over the track's frames. This is the one
-filter the reading of the gallery confirms works; fixing its coverage
-strips the player-icon band before he ever sees it.
-
-**2. A LABELLING PASS ON THE GROUPED EVENTS. This is the real next step, and
-everything else is unfalsifiable without it.** There are 713 events and ZERO
-labels on them. The ranked corpus failed precisely because its features were
-validated on a narrow population (mostly Cypher trapwires over two clips) and
-did not transfer to twenty-three agents -- so adding more unvalidated features
-repeats the mistake. the two sentences about the gallery are currently the
-closest thing to ground truth that exists on this corpus.
-
-It is newly tractable in a way it was not this morning: grouping cuts 713
-candidates to a far smaller set of objects (`prototypes/ability_corpus.py`
-does the grouping), and step 1 removes the player icons. **Invoke the
-`labelling-pass` skill first**, and run `review_candidates.py` before launching
-anything -- that gate exists because a labeller was twice launched on garbage.
-the per-agent ability DESCRIPTIONS in `prototypes/CLAUDE.md` make each clip
-a CHECK against a known kit rather than an open-ended question, and he intends
-to supply a full description list for every agent next session.
-
-**3. THEN the temporal techniques, scored against those labels.** The full
-inventory and the reasoning are in `prototypes/CLAUDE.md` under "The untried
-temporal space" -- the short version is that every temporal feature in this
-repo is a scalar summary of a track (presence, length, displacement) and
-nothing looks at the SHAPE of a signal over time. The two to try first, both
-attacking a named false-positive class with data already on disk:
-
-  a. **visibility vs CONE COVERAGE** kills the cracks. A crack is invisible
-     unlit and appears when the cone sweeps it, giving it a FALSE onset at a
-     FIXED position -- which is why the onset signal failed to drop them.
-     `minimap_cone.py` answers on 89% of frames. NOT `ability_cone.py`, which
-     used the cone as a per-pixel reference level and did not beat the plain
-     interval residual;
-  b. **intra-patch temporal variance** turns the animation observation into
-     a positive feature: a lit crack is static, an animating ultimate is not.
-     It separates the two classes lifetime cannot.
-
-  Also queued there: correlating a candidate's position against the shipped
-  self track, to mark player-anchored things (the drone HUD overlay, the audio
-  ring, Vyse's ult) as derivable rather than detectable; repeat-structure at a
-  position; and the per-pixel temporal SD map as a divisor, which NOTES has
-  named for a while and which is still not done.
-
-**4. AUDIO, and specifically ULTIMATE VOICELINES.** the player ranks this alongside
-temporal, and it may be the highest-value untouched thread. `audio_probe.py`
-already established that every capture carries a stereo 48 kHz track and that
-ONSET detection is dead; audio needs IDENTITY via a matched filter, which needs
-a reference cut at a known cast time. A fixed per-agent ultimate voiceline is a
-far better target than any SFX -- long, loud, spectrally distinctive, a closed
-set, announcing the highest-stakes event in a round, and needing no minimap at
-all, so it reaches ultimates that draw nothing. The demo clips are the clean
-reference source.
-
-**Two standing hazards for any of the above:** the label store's key is
-unstable, so re-scanning a labelled session orphans its answers -- never
-re-scan `2ba870ccbd50`, `eb10db50b1fb`, `d95cfad5693a`, `79a706a7ce4c`. And
-HUD overlays that overlap the widget (the drone HUD) are not minimap content,
-so their candidates carry meaningless world positions; recognise and mask them,
-and emit the "<ability> active" event that their presence implies.
-
-**Two supporting pieces the steps above depend on:**
-
-* **Grouping candidates into EVENTS is implemented but the tool it lives in is
-  a renderer.** `prototypes/ability_corpus.py` groups on (onset within 300 ms,
-  adjacency within 60 px) -- Tejo's 45 candidates become 28 events, one region
-  having fragmented into 7. The labelling pass needs that grouping as its
-  input, so lift `load_events()` out into something the labeller can call
-  rather than re-deriving it. Its known gap: a PULSING region (Tejo's E and X)
-  gets one event per pulse, because each pulse is a fresh onset -- grouping
-  "same place, repeating" is not done.
-* **`ability_corpus.py` also builds the review gallery** that produced the
-  verdict, ordered by a ranking heuristic that is explicitly NOT a confidence
-  (no labels exist to calibrate one). Re-run it after step 1 to see the
-  player-icon band disappear; that is the cheapest confirmation the fix worked.
-
-**TWO THINGS THE PLAYER ADDED THAT CHANGE LATER STEPS, both in
+**TWO MEASURED FINDINGS THAT CHANGE WHAT IS WORTH DOING, both in
 `prototypes/CLAUDE.md` in full:**
 
-* **ability icons ANIMATE, especially ultimates.** Template matching assumes one
-  appearance per class and there isn't one. It also partly explains the
-  fragmentation already measured -- an animating icon tracks poorly, and the
-  lifetime feature then scores it DOWN, exactly backwards.
-* **ultimates have fixed per-agent VOICELINES**, which unblocks the audio thread
-  `audio_probe.py` parked. Onset detection is dead; audio needs identity via a
-  matched filter, and a voiceline is a better target than any SFX -- long, loud,
-  a closed set, announcing the highest-stakes event in a round, and needing no
-  minimap, so it reaches ultimates that draw nothing. The demo clips are the
-  clean reference source. **This is probably the highest-value thread not yet
-  started.**
+* **the ability tray READS on the demo corpus.** "Infinite abilities makes the
+  tray unreadable" was written twice and is wrong -- the bar refills but the
+  drop is still there. 7 clips, 2-4 clean drops each, 0 SUSPECT, in C > Q > E
+  order. That is a **free, label-free supervisor** with slot identity, and it
+  independently verifies the cast-order prior. **Slot X never drops in 7 of 7**,
+  so the tray covers C/Q/E and audio voicelines cover the ultimate -- they are
+  complementary, not competing;
+* **the demo clips are SOLO.** No allies, so the local cone is the only lighting
+  source. Cone coverage is a complete model on this corpus and an incomplete one
+  in a real match. **Any cone threshold tuned here will be optimistic** -- state
+  it on every figure.
 
-**A free control the corpus gives, worth using before quoting any precision:**
-candidate counts track how much minimap-drawing utility an agent has --
-Clove 14 and Jett 24 against Gekko, Harbor and Chamber at 51. **Jett and Neon
-are near-negative controls**, since their kits draw little or nothing on the
-widget (Neon's E is confirmed to draw nothing), so their counts estimate the
-per-clip false-positive floor. That control is not self-derived: it comes from
-the descriptions of the kits, not from any detector's output.
+**NEXT, in order.**
 
-**Then:** `label_ability.py` on the grouped events, which is where the class
-list finally gets built. the ability DESCRIPTIONS (in `prototypes/CLAUDE.md`)
-make each clip a check against a known kit rather than an open search.
+**1. Phase 2 features, scored as a FALSIFICATION gate only.** The two to build
+first, and they must be **scored together** -- a patch on the cone's moving edge
+has huge variance, and cone edges are where the other false-positive class
+lives, so measured separately each would look like a success:
 
-**Two findings from tonight that are NOT about ability icons and are worth more
-than the corpus:**
+  a. **cone-coverage conditional** kills the cracks. NOT the plain correlation:
+     27% of positives are invisible at their own pixel on unlit ground, so a
+     real device that only shows when lit correlates with the cone exactly like
+     a crack. Use the two-factor form -- `P(visible | covered, t < t0)` against
+     `P(visible | covered, t >= t0)`. Drop no-fit frames from BOTH conditionals;
+  b. **intra-patch temporal variance** separates animating abilities from lit
+     static cracks.
 
-* **Teleports break the shipped position track.** Veto, Omen (x2), Chamber and
-  Waylay have them. `jumps > 60 px/s` (quoted at 5.0/3.3/3.8% as a quality
-  figure) conflates tracking error, teleports AND dashes. Ally identity across
-  frames -- the next planned step -- was to be nearest-to-previous per slot,
-  which is exactly the rule a teleport breaks, and it fails silently.
-* **Yoru's decoy may draw a false player icon**, which would desynchronise the
-  roster-portrait alive count from the killfeed. `5a63cc4fecfc` answers it for
-  the friendly case; check before trusting a player count on a Yoru session.
+  Then position-vs-self-track (player-anchored overlays) and repeat structure
+  (closes the pulse-grouping gap). Adaptive background last.
 
-**Open question left with the player:** what the large pale wedge appearing at
-t=28350 ms in the Tejo clip is -- cone-shaped, follows facing, and it is the
-object that fragments into 7. He was looking it up when the session ended.
+**2. The three label-free scores**, which are honest before any labelling:
+tray-anchored recall; Jett/Neon as the false-positive floor; and clusters-vs-kit-size,
+since the player cast each ability deliberately so surviving events should collapse
+into about as many distinct places as the agent has drawing abilities.
 
-**New tool:** `prototypes/clip_preflight.py` -- run it on every new clip before
-ingest. It caught the first take recorded with side-based minimap orientation
-(rotated 180) and then cleared 25 more in seconds.
+**3. THE LABELLING PASS** -- moved to after Phase 1 by the player on 2026-09-04,
+because Phase 1 builds its instrument: a rendered time-series strip per event is
+far easier to judge than a static crop. Invoke the `labelling-pass` skill first
+and run `review_candidates.py` before launching anything.
+
+**4. AUDIO -- ultimate voicelines.** Sharpened by the tray finding above: X is
+the one slot the tray cannot read. Onset detection is dead; audio needs identity
+via a matched filter, and the demo clips are a clean reference source.
+
+**Do not quote a corpus precision figure from step 1.** The existing 254 label
+rows are five ability classes from three agents -- the same narrow population
+whose failure to transfer killed the ranked corpus. They can falsify a feature;
+they cannot validate one.
+
+**Standing hazards.** The label store's key is unstable, so never re-scan
+`2ba870ccbd50`, `eb10db50b1fb`, `d95cfad5693a`, `79a706a7ce4c` (Phase 1 is built
+so it never needs to). HUD overlays that overlap the widget are not minimap
+content -- recognise and mask them, and emit the "<ability> active" event their
+presence implies.
+
+**Two open defects found on 2026-09-04, neither fixed:**
+
+* `ability_corpus.load_events` takes `min(dists)` across an event's fragments,
+  re-introducing the Phase 0a failure one level up;
+* three different `floor` conventions feed `self_rings` (`cli.py`
+  `floor_mask(med)`, `ability_cone` `floor_mask(static, dilate=1)`,
+  `scan_ability_clip` `labels != VOID`). `ability_series` picks per use
+  deliberately and documents why, but the divergence itself is latent.
+
+**Still true and still queued:** grouping lives in `ability_corpus.load_events`
+and should be lifted out for the labeller; a pulsing region still gets one event
+per pulse; Yoru's decoy may draw a false player icon (`5a63cc4fecfc`); teleports
+break the shipped position track for Veto, Omen, Chamber and Waylay; and the player
+intends to supply ability DESCRIPTIONS for every agent, which are worth more
+per minute than more clips.
 
 
 **NEW 2026-09-03: the ability-icon problem was REFRAMED, and three of the four

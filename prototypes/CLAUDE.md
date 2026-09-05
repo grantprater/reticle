@@ -1175,6 +1175,166 @@ morning: grouping cuts 713 candidates to a far smaller set of objects, and the
 `self_icon_dist` sampling fix strips the player-icon band before the player ever
 sees it. Invoke the `labelling-pass` skill first.
 
+### Phase 0 and Phase 1 of the temporal build are DONE (2026-09-04)
+
+Design doc, and the authority on what the phases are and why:
+`docs/ability-temporal.html` --
+https://claude.ai/code/artifact/9874912c-e084-497f-bd41-594944581e36
+
+the player moved the labelling pass to AFTER Phase 1, agreeing the argument that
+Phase 1 builds the pass's instrument: a rendered time-series strip per event is
+far easier to judge than a static crop, which is the `labelling-pass` skill's
+own *the tile is not the object* extended one axis.
+
+**Two things measured before planning, both of which changed the plan.**
+
+* **the ability TRAY reads cleanly on the demo corpus, and "infinite abilities
+  makes the tray unreadable" -- written twice in this file -- is WRONG.** The
+  bar refills, but the drop is still there to see. Seven clips, `ability_hud.py`
+  at `--step 0.25`, every one clean with 0 SUSPECT:
+
+        clip           agent     drops   slots, in order
+        c0b63335e635   tejo        4     C 5.5 . E 16.5>17.0 . Q 22.5
+        ff19748eea8c   jett        3     C 4.25>8.5 . E 16.25
+        f1cf160b213d   neon        2     C 3.0 . E 18.0
+        dae6f33f3f48   killjoy     4     C 5.25>8.5 . Q 26.75 . E 33.25
+        64d0fb783be2   vyse        4     C 5.25>11.5 . Q 30.25 . E 39.0
+        5a63cc4fecfc   yoru        4     C 5.25 . Q 15.25 . E 18.5>26.0
+        2f4ef4e8da23   harbor      3     C 6.25 . Q 11.25 . E 22.75
+
+  The drops come out in **C > Q > E order**, which is the stated recording
+  protocol arriving independently from the pixels -- so it also VERIFIES the
+  ordering prior this file records as unverified, on seven clips at least.
+
+  This is a **supervisor, not a feature**: high precision, low recall, carrying
+  slot identity, costing the player no labelling time. It is the first label-free
+  score this channel has ever had. Recall is low by construction -- with
+  infinite abilities a re-cast refills between samples -- so **a missing drop is
+  no evidence, never "no cast"**.
+
+  **Slot X never drops, in 7 of 7.** The tray draws the ultimate as pips rather
+  than a bar. So the tray covers C/Q/E and the ultimate-voiceline matched filter
+  covers X: audio is not a parallel thread, it is the missing quarter of this
+  one.
+* **the demo clips are SOLO** -- one roster portrait, one player icon. So the
+  local player's cone is the ONLY lighting source on the whole corpus, which
+  makes cone coverage a complete lighting model there and an incomplete one in a
+  real match where four ally cones also light the map. **Any cone threshold
+  tuned on this corpus will be optimistic**; that is the population-mismatch
+  trap in a new costume and it should be stated on every figure.
+
+**Phase 0a: `self_icon_dist` is sampled over the whole track, and the MEDIAN
+beats the min.** NOTES proposed the min. Measured against the real
+`eb10db50b1fb` labels at the already-set `SELF_ICON_DIST_MIN = 7` -- two
+aggregates at one fixed gate, nothing re-fitted:
+
+    aggregate   real trapwires kept   not_ability kept
+    median             5 of 5             18 of 26
+    min                3 of 5             16 of 26
+
+Min drops two real trapwires for seven points more junk, which is the wrong
+trade when recall is the scarce quantity. **The mechanism, and why min looked
+right until it was measured**: min was proposed as part of a COVERAGE fix, and
+the coverage fix is the per-frame sampling, not the aggregate. Once a whole
+track is sampled, min stops meaning "is the player's icon here" and starts
+meaning "was the player EVER here", which is a far more common event. Visible
+directly in the Astra clip -- candidates at min 2.7 / median 54.6 over 275 ring
+fits, and min 0.26 / median 20.4 over 211, are objects the player walked over, while
+genuine player-icon fragments score small on BOTH (2.3/2.3, 0.34/2.43).
+
+Null rate on Astra 58% -> 33%; the residue is short tracks that never coincided
+with a ring fit at all, which is honest. `self_icon_dist_min` and `self_icon_n`
+are stored beside it so the choice can be re-run as labels arrive.
+
+**Still open, same bug one level up**: `ability_corpus.load_events` takes
+`min(dists)` across an event's fragments, so a grouped event with one
+near-player fragment inherits its distance. Same argument, same fix.
+
+**Phase 0b: `two_state_gray` also returns WITHIN-STATE standard deviation**
+(`sd_lo`, `sd_hi` in every geometry npz; `minimap_dynamic.load_noise`). This is
+the divisor NOTES has named for a fortnight, and **it has to be per-state**.
+Overall per-pixel SD at a two-state pixel measures the unlit-to-lit distance
+rather than the noise, so it is largest exactly on the swept floor where every
+interesting candidate sits -- dividing by it would suppress the signal hardest
+where the signal is. Measured on `a06f04a0059f`, 400 frames, median per class:
+
+    class      sd_lo   sd_hi   overall SD
+    FLOOR       3.17    3.30        25.33
+    BOXEDGE     5.97    3.92        33.60
+    PLANT       6.00    4.99        27.45
+    BORDER      9.37    5.14        38.68
+    VOID       28.44    6.86            -
+
+Overall SD is 5-8x the within-state figure in every class. Across the whole
+searchable area the within-state noise sits in a narrow 3.2-6.4 band, so it
+behaves as a divisor where it is used; the wild value is VOID, which
+`searchable()` masks out anyway. A state made of ONE frame has SD 0 by
+construction, on 6.5-8.8% of the widget, so `SD_FLOOR` is mandatory rather than
+defensive.
+
+**These are NOT the 2026-08-26 figures** (7.4 on white lines, 16.9 on the slab,
+42.5 in the void) and must not be read against them. Those are an OVERALL SD on
+a different session, they do not reproduce here, and the regions are not the
+same ones: interior line-work classifies BOXEDGE, and BORDER has no pixel more
+than 25 px from void, being the void boundary by construction. The colour-free
+section's reasoning about `LINE_GUARD` stands as written.
+
+**All 34 geometries were rebuilt** (the file changed, so the stamp did), each
+keeping its own provenance -- donors from their own frames, borrowers
+re-borrowed wholesale. The rebuild is bit-reproducible: `a06f04a0059f` comes
+back with `labels` f94b85d0, `static` 96a251e0 and `lo_gray` ab7b0d1b
+byte-for-byte, which is what proves the chunked rewrite of `two_state_gray`
+changed nothing. It also caught **`2ba870ccbd50` carrying stale labels** from an
+older `classify()` -- same static and lo_gray as its donor, different labels,
+`built_by` bbded829 against everything else's f1390557. The stamp convention
+doing its job.
+
+**Phase 1: `prototypes/ability_series.py` -- the per-frame series.** Given query
+positions it does ONE sequential pass per clip and returns, per position per
+frame: patch grey (mean/max/min), the split `dark`/`bright` interval residual,
+both normalised by the Phase 0b noise map, cone coverage at that pixel, whether
+the cone fit at all, the self track's position and distance, and whether
+`detect` fired within 10 px. Written to `<store>/series/` and
+`<store>/series-labels/`.
+
+Three decisions, each from a mistake already in this file:
+
+* **queries are `(t_ms, x, y)` and everything is RECOMPUTED, never re-scanned.**
+  `label_rows()`'s lesson applied to time, and the load-bearing one: a rescan
+  orphans the label store's unstable key, and the four sessions that must never
+  be rescanned are exactly the four carrying every ability label the player has
+  given. A rescan-based design could be scored against NO labels at all;
+* **sequential decode, not `cap.set()` per sample.** Speed, and correctness --
+  OpenCV's frame-exact H.264 seeking is unreliable and the measurement here IS
+  the frame-to-frame difference;
+* **native rate, not the scan's 150 ms.** Animation and pulse features alias
+  below their own rate into what looks like broadband noise, which would make
+  the animation feature measure the opposite of what it is for.
+
+Cost: 45 s and 0.5 MB per clip at 60 Hz with the cone (`c0b63335e635`, 45
+queries x 2308 frames). Cone answered 92.0% of frames there, 48.0% on
+`eb10db50b1fb` -- both consistent with the yields already recorded above.
+
+**Two `floor` masks are used deliberately, and the divergence is a latent
+defect worth knowing about.** This repo has THREE conventions for the `floor`
+argument of `self_rings`: `reticle/cli.py` (the shipped self track) passes
+`floor_mask(med)`, `ability_cone.py` passes `floor_mask(static, dilate=1)`, and
+`scan_ability_clip.py` passes `labels != VOID`. `ability_series` matches each
+use to the code its numbers must be comparable with -- the ring fit to
+`scan_ability_clip`'s, so `self_d` reads against the stored `self_icon_dist`;
+the cone to `ability_cone`'s, so coverage reads against the 89%-of-frames yield
+everything downstream budgets from. Picking one would silently invalidate one of
+those two comparisons, and it would not be obvious which.
+
+**`28f53bfddbbe` (Clove) had lost its media** -- the player had renamed
+`2026-09-03 18-58-15.mp4` to `clove.mp4`. Manifest repointed, verified by
+re-deriving the blake2b content key rather than trusting the name. It was 1 of
+48; the rest all resolve. The failure is worth recording because of how it
+presented: OpenCV reports `frame_count = -1` for a file it cannot open, so the
+error surfaced as an `IndexError` on an empty array several functions away, and
+it abandoned 26 good clips on the way. `MediaUnreadable` is now raised at the
+cause and skipped per session with a tally at the end.
+
 ### Ability icons ANIMATE, and ultimates have fixed voicelines (the player, 2026-09-03)
 
 > A fair number of the abilities, especially ultimates, essentially have minimap
