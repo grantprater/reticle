@@ -175,6 +175,44 @@ EVENTS = STORE / "events" / "ability"
 #: is wherever the player happened to be walking.
 POS_PRE, POS_POST = 2.0, 2.0
 
+#: Fragments of one object: `ability_corpus`'s rule, reused rather than
+#: reinvented -- same onset, adjacent centroid.
+ONSET_S, DIST_PX = 0.30, 60
+
+#: What drives an object's state AFTER deployment. the player, 2026-09-05. This is a
+#: property of the ABILITY, known from the kit, never inferred from pixels.
+#: Everything unlisted is static.
+DRIVER = {
+    ("killjoy", "alarmbot"): "enemy-reactive",
+    ("killjoy", "turret"): "enemy-reactive",
+    ("sova", "owl drone"): "piloted",
+    ("tejo", "stealth drone"): "piloted",
+    ("fade", "prowler"): "piloted",
+    ("skye", "trailblazer"): "piloted",
+    ("skye", "guiding light"): "piloted",
+    ("cypher", "spycam"): "aimed",
+    ("phoenix", "blaze"): "freeform",
+}
+
+
+def driver_of(agent, ability):
+    return DRIVER.get(((agent or "").lower(), (ability or "").lower()), "static")
+
+
+def group(rows):
+    """Fragments of one object -> one group. `ability_corpus`'s rule."""
+    out = []
+    for r in sorted(rows, key=lambda c: c[0]):
+        for g in out:
+            if abs(g[0][0] - r[0]) <= ONSET_S and any(
+                    (r[1] - m[1]) ** 2 + (r[2] - m[2]) ** 2 <= DIST_PX ** 2
+                    for m in g):
+                g.append(r)
+                break
+        else:
+            out.append([r])
+    return out
+
 #: Slot letter for each reference `slot` field. Confirmed against the reference
 #: for five agents: Sova's Grenade is Owl Drone, which is C in game.
 SLOT_OF = {"Grenade": "C", "Ability1": "Q", "Ability2": "E", "Ultimate": "X"}
@@ -416,13 +454,91 @@ def emit(sid, pre=POS_PRE, post=POS_POST, step_s=0.5):
       already known from the cast is not classification at all. Detection-first
       then measure, rather than measure-in-order-to-classify.
 
-    **The exception is NAMED and there is one of it**, which is what makes the
-    rule usable. This project keeps landing on that shape: Omen's smoke is the
-    only ability that translates while deploying, Omen's smoke and ultimate are
-    the only globally-deployed ones, a Cypher cam is the only icon that rotates
-    without translating, and now Phoenix's wall is the only freeform region. A
-    rule plus a short enumerated exception list is a complete model; "some
-    abilities might" is not.
+    CORRECTED SAME DAY: a POSE IS NOT ENOUGH, and the driver is the point
+    ------------------------------------------------------------------------
+    the player, withdrawing his own claim within the hour: *deployment position and
+    orientation are not sufficient to fully describe ability icons/animations on
+    the minimap.* Objects change state AFTER deployment, and what matters is not
+    that they move but **what drives the motion**:
+
+        driver              what moves                     examples
+        static              nothing                        most placed devices
+        ENEMY-REACTIVE      the icon translates or turns    Killjoy's Alarmbot
+                            in response to an enemy         moves toward enemies;
+                                                            her TURRET snaps onto
+                                                            one in its cone
+        PLAYER-PILOTED      translate and rotate under      Sova's drone, Tejo's
+                            direct control                  drone, Fade's Prowler,
+                                                            Skye's dog AND birds
+        PLAYER-AIMED        rotate only, while the player   Cypher's cam
+                            is viewing through it
+        freeform-at-cast    shape is steered as it forms    Phoenix's wall
+
+    So an event is a TRAJECTORY with a lifetime, not a pose. The driver is a
+    per-ability property, knowable from the kit rather than from pixels.
+
+    **The enemy-reactive row is worth more than the schema.** `CLAUDE.md` records
+    opponent priors as *blocked, for now: needs enemy positions, which no capture
+    of one's own screen contains.* But an Alarmbot that moves is moving TOWARD an
+    enemy, and a turret that snaps is snapping ONTO one -- so the motion of your
+    own utility is an enemy detection, derived from your own screen, at a known
+    position and time. That is a new source for something recorded as
+    structurally unavailable, and it costs no new extractor: it is the position
+    track applied to an object the cast already identified.
+
+    **the player hedged both** (*I believe its icon moves*, *I believe it might rotate
+    its icon*), and **the demo corpus structurally cannot settle them**: a solo
+    custom game has no enemies, so an enemy-reactive object has nothing to react
+    to. That is the CASTABLE BUT UNREPRESENTATIVE category `prototypes/CLAUDE.md`
+    already defines for Skye's seekers, arriving for a second ability. Absence of
+    motion in these clips is not evidence.
+
+    What the corpus DOES show, from the labels: **Sova's Owl Drone translates 18
+    px in 0.9s** ((243,143) -> (244,161)), which is the piloted row confirmed.
+    The Alarmbot drifts ~10 px over 16s, consistent with static, as it should be
+    with no enemy present.
+
+    **The exceptions are NAMED and few**, which is what makes any of this usable.
+    This project keeps landing on that shape: Omen's smoke is the only ability
+    that translates while DEPLOYING, Omen's smoke and ultimate are the only
+    globally-deployed ones, Phoenix's wall is the only freeform region. A rule
+    plus a short enumerated exception list is a complete model; "some abilities
+    might" is not. The list is longer than it looked this morning, and it is
+    still a list.
+
+    RESULT of the two-field test, 2026-09-05
+    ------------------------------------------------------------------------
+    Adding `anchor` and `driver` moved positions from 10 to 12 of 24, and the
+    selection check from 2/2 to 2/3 -- so one of the two new answers was WRONG.
+    Read that as three separate findings, because they point different ways:
+
+    * **the anchor edge is real but narrow.** Jett's second Cloudburst had two
+      candidates that are one object, and merging them is correct and costs
+      nothing. That refusal was never ambiguity;
+    * **the driver edge, as implemented, was a heuristic wearing a type.**
+      Taking the earliest group as a piloted object's origin is nearest-onset
+      again, and it put Trailblazer 79 px from its label. Removed;
+    * **most refusals are GENUINE multi-object windows, not bookkeeping.**
+      Grouping barely dents them -- ALARMBOT 14 candidates to 10 objects,
+      TURRET 10 to 7, Hunter's Fury 6 to 4. So the position problem is not
+      waiting on a better ontology; it is waiting on the detector or the
+      distance prior.
+
+    **And one specific defect the test exposed, which IS worth fixing.** Viper's
+    Toxic Screen has 5 candidates in its window and groups into 5 objects, when
+    the player says it is one long straight line. The fragments are spatially
+    adjacent -- (243,367), (283,375), (306,376), gaps of 23-41 px, well inside
+    `DIST_PX` -- but they span **2.85 seconds** against an `ONSET_S` of 0.30.
+    `ability_corpus`'s rule encodes "appeared at the same moment", which is
+    right for a device that pops into existence and wrong for a region that
+    GROWS: a wall extends, a smoke expands, a beam sweeps.
+
+    That is the abstraction earning its place in the one way it actually did:
+    **the grouping rule should be conditioned on the object's kind, and the cast
+    is what tells you the kind before you group.** A compact device wants a
+    300 ms window; an extending region wants seconds. Not implemented -- it
+    would be fitted to one wall -- but the cause is measured and the fix is
+    named.
 
     NOT changed here: the event still carries a bare `x`/`y`. Adding an
     `orientation` field would want three states (a value, null-by-construction,
@@ -437,7 +553,28 @@ def emit(sid, pre=POS_PRE, post=POS_POST, step_s=0.5):
     out = []
     for t, slot, ab, sus in cs:
         win = [c for c in cands if -pre <= (c[0] - t) <= post]
-        pick = win[0] if len(win) == 1 else None
+        drv = driver_of(agent, ab)
+        gs = group(win)
+        # THE TEST (2026-09-05): does typing the edges turn a refusal into an
+        # answer? Measured on all 24 events -- see RESULT in the docstring.
+        # ANCHOR earns a narrow place; DRIVER did not, as first implemented.
+        anchor = None
+        if len(win) == 1:
+            pick, anchor = win[0], "single candidate"
+        elif len(gs) == 1:
+            g = gs[0]
+            pick = (min(c[0] for c in g),
+                    int(sum(c[1] for c in g) / len(g)),
+                    int(sum(c[2] for c in g) / len(g)), 0, 0)
+            anchor = f"fragments merged ({len(g)})"
+        else:
+            # A `piloted` branch taking the EARLIEST group as the track origin
+            # was tried and removed: it is the nearest-onset heuristic in
+            # disguise, and it put Skye's Trailblazer at (80,153) against a
+            # label at (159,138) -- 79 px wrong. `driver` is real domain
+            # knowledge; that was not a valid way to spend it. A piloted track
+            # needs actual chaining under a speed bound, not "take the first".
+            pick = None
         out.append({
             "session_id": sid,
             "t_ms": int(round(t * 1000)),
@@ -448,10 +585,12 @@ def emit(sid, pre=POS_PRE, post=POS_POST, step_s=0.5):
             "confidence": "suspect" if sus else "clean",
             "x": None if pick is None else int(pick[1]),
             "y": None if pick is None else int(pick[2]),
-            "position_from": None if pick is None else "candidate:unique",
+            "position_from": anchor,
+            "driver": drv,
             "position_dt_s": None if pick is None else round(pick[0] - t, 2),
-            "position_ambiguous": len(win) > 1,
+            "position_ambiguous": pick is None and len(win) > 0,
             "n_candidates": len(win),
+            "n_objects": len(gs),
             "candidates": [{"t_ms": int(round(c[0] * 1000)), "x": c[1],
                             "y": c[2]} for c in win],
             "window_s": [-pre, post],
@@ -573,8 +712,8 @@ def main() -> int:
               f"{tot['amb']:>7}{tot['nocand']:>8}")
         print("")
         print(f"{tot['ev']} events written, and they partition cleanly:")
-        print(f"  {tot['pos']:>3} carry a POSITION -- exactly one candidate in"
-              " the window")
+        print(f"  {tot['pos']:>3} carry a POSITION -- one candidate, or"
+              " several that group into one object")
         print(f"  {tot['amb']:>3} REFUSED a position -- more than one candidate,"
               " so x/y are null and the")
         print("      candidates ride along in the event for a later scorer to"

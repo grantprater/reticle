@@ -1763,8 +1763,14 @@ looks like at 15 Hz before choosing.
 
 ### the domain notes on the minimap -- not recoverable from the pixels
 
-* **A Cypher cam ROTATES**, and it is the **only other moving icon** on the
-  widget. Perfect circle, never translates, rotation shown by the camera glyph
+* **A Cypher cam ROTATES.** *(It was recorded here as "the only other moving
+  icon on the widget". **the player withdrew that on 2026-09-05** and it is corrected
+  in place per this file's own rule. Killjoy's Alarmbot translates toward
+  enemies and her turret snaps onto them; the piloted scouts -- Sova's drone,
+  Tejo's drone, Fade's Prowler, Skye's dog and birds -- translate AND rotate
+  under player control. Measured from the labels: the Owl Drone moves 18 px in
+  0.9 s. What separates these is the DRIVER of the motion, not the fact of it;
+  the taxonomy is in `prototypes/ability_cast.py`.)* Perfect circle, never translates, rotation shown by the camera glyph
   turning INSIDE the ring -- **no lobe**. This corrected "a placed ability never
   turns", which was load-bearing in `motion()`. Consequence: **translation**
   holds against the cam; **rotation does not reject a cam at all**, since

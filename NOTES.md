@@ -116,15 +116,23 @@ low-saturation hue test -- do NOT loosen `COLOUR_SAT`, which is load-bearing.
    medians span 21 px (Viper's Pit) to 180 px (Toxic Screen) and the ordering
    matches his families -- but n is 1-3 placements per ability, and the
    reference's `Deployment Type` is a different axis. See `ability_cast.py`.
-7. **Represent an ability as ORIGIN + an OPTIONAL DEPLOYMENT VECTOR.** the player:
-   every ability except Phoenix's wall fits that, and Blaze is freeform because
-   it is steered while extending. The vector is absent for rotation-invariant
-   abilities (standard smokes) -- absent by construction, which is information,
-   not a failed fit. One representation for icons AND regions, and it is what
-   `icon_facing()` already returns. It also re-justifies `cv2.minAreaRect`:
+7. **Represent an ability as ORIGIN + an OPTIONAL DEPLOYMENT VECTOR + a
+   TRAJECTORY DRIVER.** the player proposed origin+vector, then withdrew it the same
+   hour: objects change state after deployment, and the useful axis is what
+   DRIVES the motion -- static, enemy-reactive (Killjoy's Alarmbot and turret),
+   player-piloted (the scouts), player-aimed (Cypher's cam), or freeform-at-cast
+   (Phoenix's wall). The vector is absent for rotation-invariant smokes: absent
+   by construction, which is information, not a failed fit. `icon_facing()`
+   already returns the pose half. It also re-justifies `cv2.minAreaRect` --
    deferred as a classifier feature, but the long axis of a grouped region IS
    the deployment vector, and measuring an object whose identity the cast
    already gave you is not classification.
+8. **Enemy-reactive motion is an ENEMY DETECTION**, and CLAUDE.md lists opponent
+   priors as blocked for want of enemy positions. An Alarmbot that moves is
+   moving toward one; a turret that snaps is snapping onto one. Needs no new
+   extractor -- the position track applied to an object the cast identified.
+   Both are UNTESTABLE on the demo corpus (solo game, no enemies to react to),
+   so this needs match footage.
 
 **Do NOT**: add shape features (the bank is near-redundant and cannot be
 usefully weighted -- measured); record more demo clips; chase `patch_range`.
