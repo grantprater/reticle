@@ -1326,6 +1326,53 @@ the cone to `ability_cone`'s, so coverage reads against the 89%-of-frames yield
 everything downstream budgets from. Picking one would silently invalidate one of
 those two comparisons, and it would not be obvious which.
 
+**Two Phase 1 defects found by RUNNING it on a full match, both worth keeping
+because the shape of each will recur.**
+
+* **a full match is not a demo clip.** `--from-labels` on `a06f04a0059f`
+  decoded all 139288 frames to serve 53 labels scattered over 39 minutes --
+  about two hours of work for 10% of it. `--window-s` keeps only frames within
+  N seconds of a query (9.9% of samples, 11m39s) and skips the rest with
+  `cap.grab()`, which advances the decoder without producing an image, rather
+  than by seeking. That keeps the no-seeking argument intact: the frames that
+  ARE measured still arrive from an unbroken sequential decode, so consecutive
+  samples inside a window are genuinely consecutive. Verified against a full
+  pass of the Tejo clip -- the retained frame set is exactly the frames inside
+  the window, and every value at them is bit-identical to the unwindowed run;
+* **READ A SERIES AGAINST THE WRONG SPAN AND IT SAYS NOTHING, VERY
+  CONFIDENTLY.** Windowing keeps the UNION of every query's window, so the axis
+  spans 33 minutes while any one label is about its own few seconds. The first
+  windowed run reported `detect` firing for 75.5% of frames at the median query
+  and **75.7% at the max, across 53 queries** -- uniformity that reads as a
+  finding and is arithmetic. Each query was being averaged over 13843 frames
+  when 360 were its own.
+
+  **It bites on a SHORT clip too**, which is the half worth internalising --
+  the same Tejo series read whole-axis against per-query-window:
+
+        statistic                          whole axis   own +/-3s
+        detect fired, median query             14.9%       40.8%
+        detect fired, max query                61.0%       94.5%
+        nearest query to the self icon        35.3 px      3.9 px
+
+  Same data, same pass. The whole-axis reading dilutes every candidate with the
+  38 seconds in which its object does not exist. `win_lo`/`win_hi` now carry
+  each query's own half-open slice and `summarise()` respects it; **every Phase
+  2 feature must slice by it too.**
+
+  The two spans are deliberately NOT collapsed. `win_lo`/`win_hi` say what was
+  DECODED and is valid for that query, and on a demo clip that is the whole
+  axis on purpose -- clipping there would destroy the repeat-structure feature,
+  which is precisely about an object recurring later. A feature wanting a LOCAL
+  window derives it from `t_ms` and still respects `win_lo`/`win_hi` as the
+  outer bound of what exists.
+
+**And an n worth knowing before quoting one: `a06f04a0059f`'s 53 ability label
+rows sit at only 16 DISTINCT positions.** They are repeat observations of the
+same devices, which is exactly what `ability_eval.collapse()` exists for
+(*one row per position -- objects, not tracks*). Any figure quoted off the raw
+row count on that session overstates its evidence by more than three times.
+
 **`28f53bfddbbe` (Clove) had lost its media** -- the player had renamed
 `2026-09-03 18-58-15.mp4` to `clove.mp4`. Manifest repointed, verified by
 re-deriving the blake2b content key rather than trusting the name. It was 1 of

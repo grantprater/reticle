@@ -34,7 +34,9 @@ Phase 1 of the temporal build are DONE*. The short version:
 * **Phase 1** -- `prototypes/ability_series.py`. One sequential pass per clip
   gives a per-frame series at each query position. Keyed on `(t_ms, x, y)` and
   recomputed, never re-scanned, so it reaches every label the player has ever given.
-  `<store>/series/` and `<store>/series-labels/`.
+  `<store>/series/` and `<store>/series-labels/`. Use `--window-s 3` on a FULL
+  MATCH (9.9% of samples, 11m39s on `a06f04a0059f`); leave it unset on a demo
+  clip.
 
 **TWO MEASURED FINDINGS THAT CHANGE WHAT IS WORTH DOING, both in
 `prototypes/CLAUDE.md` in full:**
@@ -52,6 +54,14 @@ Phase 1 of the temporal build are DONE*. The short version:
   it on every figure.
 
 **NEXT, in order.**
+
+**0. SLICE BY `win_lo`/`win_hi`. Every Phase 2 feature, without exception.**
+A series read against the whole shared axis instead of the query's own window
+dilutes every candidate with time in which its object does not exist, and the
+result is uniform across queries -- which reads as a finding and is arithmetic.
+On the Tejo clip, whole-axis against own-window: `detect` fired 14.9% vs 40.8%
+at the median query, 61.0% vs 94.5% at the max, and the nearest query to the
+self icon is 35.3 px vs 3.9 px. Same data, same pass.
 
 **1. Phase 2 features, scored as a FALSIFICATION gate only.** The two to build
 first, and they must be **scored together** -- a patch on the cone's moving edge
