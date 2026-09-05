@@ -148,6 +148,17 @@ WIN = 7
 #: being distinguishable on this widget.
 DETECT_PX = 10
 
+class MediaUnreadable(RuntimeError):
+    """The manifest points at a video this machine cannot decode.
+
+    Its own class because it is a STORE problem, not a detector one, and the two
+    want different responses: a detector fault should stop a corpus pass and be
+    looked at, an absent recording should be reported and stepped over. Found
+    the honest way -- `28f53bfddbbe` (the Clove clip) is the one manifest of 48
+    whose media is gone, and the first corpus run abandoned 26 good clips over it.
+    """
+
+
 #: Refit the cone every Nth sampled frame and hold the answer between fits.
 #: See the module docstring on cost. At 60 fps this is ~8 Hz, far faster than a
 #: player turns through a 112-degree wedge.
@@ -257,6 +268,16 @@ def series(sid, from_labels=False, step=1, use_cone=True, cone_every=CONE_EVERY,
 
     cap = cv2.VideoCapture(src["path"])
     n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if n_frames <= 0:
+        # OpenCV reports -1 for a file it cannot open at all, which then makes
+        # `range(0, -1)` empty and every downstream array zero-length -- a
+        # confusing IndexError several frames away from the cause. Raised here,
+        # where the cause is still visible, and caught per session in main() so
+        # one absent recording does not abandon a corpus pass.
+        cap.release()
+        raise MediaUnreadable(
+            f"{sid}: cannot decode {src['path']}"
+            + ("  (file does not exist)" if not Path(src["path"]).exists() else ""))
     n_samp = len(range(0, n_frames, step))
     nq = len(qs)
 
@@ -374,8 +395,12 @@ def summarise(sid, qs, t_ms, F):
     be read as a result and there are no labels behind one yet.
     """
     n = len(t_ms)
+    if not n:
+        print(f"{sid}: NO FRAMES DECODED -- nothing to summarise")
+        return
+    secs = float(t_ms[-1]) / 1000.0
     print(f"{sid}: {len(qs)} queries x {n} frames "
-          f"({t_ms[-1] / 1000:.1f}s @ {n / max(t_ms[-1] / 1000, 1e-9):.0f} Hz)")
+          f"({secs:.1f}s @ {n / max(secs, 1e-9):.0f} Hz)")
     print(f"   widget usable {100 * F['usable'].mean():.1f}%   "
           f"cone answered {100 * F['cone_ok'].mean():.1f}% of frames")
     if not len(qs):
@@ -431,16 +456,29 @@ def main() -> int:
     if not sids:
         ap.error("give a session or --all-demo")
     out_dir = Path(args.out)
+    skipped = []
     for sid in sids:
         t0 = time.time()
-        qs, t_ms, F = series(sid, from_labels=args.from_labels, step=args.step,
-                             use_cone=not args.no_cone, cone_every=args.cone_every,
-                             progress=len(sids) == 1)
+        try:
+            qs, t_ms, F = series(sid, from_labels=args.from_labels, step=args.step,
+                                 use_cone=not args.no_cone, cone_every=args.cone_every,
+                                 progress=len(sids) == 1)
+        except MediaUnreadable as e:
+            print(f"SKIP {e}")
+            skipped.append(sid)
+            continue
         summarise(sid, qs, t_ms, F)
         if not args.dry_run:
             p = write(sid, qs, t_ms, F, out_dir)
             print(f"   wrote {p}  ({p.stat().st_size / 1e6:.1f} MB, "
                   f"{time.time() - t0:.0f}s)")
+    if skipped:
+        # Loud at the end as well as inline: a skip buried 26 sessions up is a
+        # silent hole in a corpus, and a hole nobody sees is how a population
+        # gets quietly mis-stated.
+        print()
+        print(f"{len(skipped)} of {len(sids)} session(s) SKIPPED, media "
+              f"unreadable: {', '.join(skipped)}")
     return 0
 
 
