@@ -112,6 +112,35 @@ and review the candidates first -- launching a GUI against unreviewed
 candidates has three recorded recurrences and cost the player real clicking time
 twice. `review_candidates.py` gates it.
 
+**QUEUED CAPTURE, the player 2026-09-05: a PING clip.** *I want to record a ping
+minimap session where I just spam ping for a minute or so.* Same shape as the
+one-agent-per-clip demo corpus and the same reason it works -- he knows what he
+did, so the labels are free and exact.
+
+It is worth more than a confounder clip. Pings are named in the endstate
+alongside abilities (*labelling of abilities and pings on the minimap*), the
+only evidence in the store today is a handful of rows from the colour-free pass
+(*a ping is an expanding ripple whose fragments are thin arcs*, aspect ratios
+that would have been deleted by a shape filter), and a minute of deliberate
+spam gives more instances than the whole corpus has.
+
+Two things it settles that nothing else can:
+
+* **it is a THIRD extent kind.** The entity model has `extending` (outward
+  along a bearing, a wall) and `radius` (fixed, a smoke). A ping expands
+  RADIALLY -- a growing radius with no bearing at all -- so the model needs a
+  fourth value and the ping clip is what measures its rate and lifetime;
+* **fragments of one expanding ring are the grouping problem in its purest
+  form.** Thin arcs at a shared centre, appearing over successive frames,
+  which the onset rule and the bearing rule both handle badly. If the object
+  grouping labeller is built first it can be pointed straight at this.
+
+Pre-ingest, per the root checklist: crosshair centred, perf stats text-only,
+shooting-error off, minimap fixed/always_same/uncentered, record the widget
+size and the outline colour, and run `clip_preflight.py` BEFORE ingesting --
+the first take of the last sitting was recorded with side-based orientation and
+the whole widget was rotated 180 degrees.
+
 **Then, in order.** (The event log doc's SS7 is the fuller version.)
 
 1. **Label negatives on `a06f04a0059f` (53 positives) and `5822b6646448` (35).**
