@@ -256,6 +256,7 @@ import numpy as np
 
 import cv2
 
+from .census import Census
 from .profiles import Profile, Roi, template_key
 
 # Entry geometry in ROI pixels at 1080p. Measured off the row profile across a
@@ -290,8 +291,27 @@ EXTENT_TRIM = 0.05
 TEXT_V_MIN = 200
 TEXT_S_MAX = 50
 MIN_COMP_AREA = 6
-# The weapon icon: far wider and taller than a glyph. Ability kills draw a
-# smaller icon, so fall back to the largest blob above this area.
+# The weapon icon: far wider and taller than a glyph. A small icon -- a pistol,
+# an ability mark -- can miss the size test, so an area test runs BESIDE it,
+# in a SECOND TIER that is only reached when no size-passer works.
+#
+# It used to be a fallback taken only when the size test found *nothing*, and
+# that is a different thing: the killer portrait at the ROI edge passes the
+# size test on every entry, so the fallback never ran and a small weapon icon
+# was never a candidate at all. The band then had exactly one icon -- the
+# portrait, with no name to its left -- and went `no_divider`. Twenty-one bands
+# on c40d950031bb, of which the multi-frame ones are real entries: the pistol
+# kill at 6:34 reads `SJK (Classic)(headshot) HungryHamster5` perfectly by eye
+# and its icon is 27x21, four columns under ICON_MIN_W.
+#
+# **Tiers, not a union, and that was measured rather than argued.** A plain
+# union re-decided three bands on that session as well as recovering eight,
+# because an area-passer can outweigh a size-passer and the loop takes the
+# largest first: at 3:33 the divider moved from the rifle at 218 to a blob at
+# 131 *inside the killer's own name*. Tiering restores the old preference
+# exactly -- every size-passer is tried before any area-only one -- so a band
+# the old rule could parse parses identically, and only a band it refused can
+# change. Re-measured: 8 recovered, 0 lost, 0 re-decided.
 ICON_MIN_W, ICON_MIN_H, ICON_MIN_AREA = 34, 15, 150
 # Name glyphs. The headshot icon's fragments pass the size test but scatter off
 # the baseline, which is what excludes them.
@@ -733,16 +753,75 @@ def _match_me(region: np.ndarray, tpl_info, side: int) -> tuple[int, float]:
     return best_w, best_s
 
 
+#: Why `_band_text` refused a band, in the order the guards run. Each is a
+#: different *kind* of failure and they do not deserve one name between them:
+#:
+#:   no_ink      no component above MIN_COMP_AREA -- an empty or dark band
+#:   no_icon     ink, but nothing icon-shaped to divide the two names at
+#:   no_glyphs   ink, but nothing glyph-shaped: no name on either side
+#:   no_divider  no icon with a name on BOTH sides AND no unambiguous plate
+#:               seam either -- both dividers refused. An entry with no weapon
+#:               icon at all (an ability kill) reaches the second of these and
+#:               usually parses; what is left here is a band with two seams or
+#:               none, which is a band this module does not model.
+#:   no_baseline glyphs, but none within BASELINE_TOL of the modal baseline
+BAND_REFUSALS = ("no_ink", "no_icon", "no_glyphs", "no_divider", "no_baseline")
+
+
+def plate_seam(green_band: np.ndarray, red_band: np.ndarray) -> int | None:
+    """The column where the killer's plate ends and the victim's begins.
+
+    A divider that needs **no icon at all**, which is the whole point: it is the
+    only one that can split an ability kill. `c40d950031bb` 13:14,
+    `HungryHamster5 (x) Me`, is the one read error left in stage 02 -- there is
+    no weapon icon, and the ability mark fragments under the white-text cut into
+    pieces too small to be a divider candidate, so the band goes unparsed and
+    the death is lost. The two plate colours are still perfectly separated
+    there: `R(29,143) R(209,383) G(383,419)`, seam at 383.
+
+    Both plates are always drawn and they are always different colours -- that
+    is what `_entry_bands` is built on and what makes an entry specific in the
+    first place -- so this exists on every entry, whatever is drawn inside it.
+    What it costs is precision of a different kind: the seam sits *past* the
+    weapon icon and any mark after it, at the start of the victim's name, so it
+    splits killer-plus-marks from victim rather than killer from victim. That is
+    fine for attribution, because `_match_me` already searches several runs per
+    side for exactly that reason, and it is *better* for `victim_is_ally`, whose
+    sample then starts at the victim's plate rather than at the weapon icon.
+
+    Returned only when the seam is UNAMBIGUOUS: exactly one place where two
+    wide runs of opposite colour touch. Two such places means the band holds
+    something this function does not model -- most likely two entries merged --
+    and guessing between them is how a death gets read as a kill. The rule of
+    this module is never to guess a value.
+
+    Reuses `victim_is_ally`'s run finder verbatim rather than a second copy,
+    which is also why the constants are shared: coverage, not mere colour.
+    """
+    runs = _plate_runs(green_band, red_band)
+    seams = [b[1] for a, b in zip(runs, runs[1:])
+             if a[0] != b[0] and a[2] == b[1]]
+    return int(seams[0]) if len(seams) == 1 else None
+
+
 def _band_text(
-    white: np.ndarray, usable: np.ndarray | None = None
+    white: np.ndarray, usable: np.ndarray | None = None, plates=None
 ):
     """Isolate the band's name text and locate the weapon icon dividing it.
 
-    Returns (text_mask, wx0, wx1), or None when the band cannot be parsed, or
-    "occluded" when a toggled overlay covers enough of one name that a match
-    there would fail for the wrong reason. That distinction matters: an occluded
-    victim name silently looks like "not the player", turning a missed death
-    into a confident wrong answer.
+    Returns (text_mask, wx0, wx1) on success, otherwise a **string naming the
+    guard that refused**: "occluded" when a toggled overlay covers enough of one
+    name that a match there would fail for the wrong reason, and one of
+    `BAND_REFUSALS` when the band cannot be parsed at all.
+
+    The occluded/unparsed distinction matters: an occluded victim name silently
+    looks like "not the player", turning a missed death into a confident wrong
+    answer. The *reason* matters for the same kind of reason one level down.
+    Five guards here all produced the single word "unparsed", so the one known
+    read error left in this stage -- c40d950031bb 13:14, an ability kill with no
+    weapon icon -- was indistinguishable in every summary from a band of empty
+    scenery. `no_divider` says which of the five it is, and it is the one that
+    can be fixed without a list of icons.
 
     The text mask keeps only glyph-sized components sharing the text baseline.
     Two other bright things in a band would otherwise be taken for a name: the
@@ -753,18 +832,17 @@ def _band_text(
     n, lab, st, _cen = cv2.connectedComponentsWithStats(wb, 8)
     idx = [i for i in range(1, n) if st[i, 4] >= MIN_COMP_AREA]
     if not idx:
-        return None
-    icons = [i for i in idx if st[i, 2] >= ICON_MIN_W and st[i, 3] >= ICON_MIN_H]
-    if not icons:
-        icons = [i for i in idx if st[i, 4] >= ICON_MIN_AREA]
-    if not icons:
-        return None
+        return "no_ink"
+    big = [i for i in idx if st[i, 2] >= ICON_MIN_W and st[i, 3] >= ICON_MIN_H]
+    small = [i for i in idx if st[i, 4] >= ICON_MIN_AREA and i not in set(big)]
+    if not big and not small:
+        return "no_icon"
     cand = [
         i for i in idx
         if GLYPH_W[0] <= st[i, 2] <= GLYPH_W[1] and GLYPH_H[0] <= st[i, 3] <= GLYPH_H[1]
     ]
     if not cand:
-        return None
+        return "no_glyphs"
     # The divider separates two names, so it must have a *name* on both sides of
     # it -- glyph-sized components, not merely ink. Without any such test the
     # largest blob wins outright, and on an entry with no weapon icon at all --
@@ -779,14 +857,26 @@ def _band_text(
     # kill reported as a death. Scenery makes blobs; it does not make glyphs.
     glyph_cols = np.array([st[i, 0] + st[i, 2] // 2 for i in cand])
     wep = None
-    for i in sorted(icons, key=lambda i: -st[i, 4]):
-        a0, a1 = int(st[i, 0]), int(st[i, 0] + st[i, 2])
-        if (glyph_cols < a0).any() and (glyph_cols > a1).any():
-            wep = i
+    for tier in (big, small):
+        for i in sorted(tier, key=lambda i: -st[i, 4]):
+            a0, a1 = int(st[i, 0]), int(st[i, 0] + st[i, 2])
+            if (glyph_cols < a0).any() and (glyph_cols > a1).any():
+                wep = i
+                break
+        if wep is not None:
             break
     if wep is None:
-        return None
-    wx0, wx1 = int(st[wep, 0]), int(st[wep, 0] + st[wep, 2])
+        # Nothing icon-shaped divides two names. The plates still do -- see
+        # `plate_seam`, which is what reads an ability kill. Last resort on
+        # purpose: the seam is a *coarser* split than the icon (marks fall on
+        # the killer's side of it), so it is only right to prefer it where
+        # there is no icon to be had.
+        seam = plate_seam(*plates) if plates is not None else None
+        if seam is None:
+            return "no_divider"
+        wx0 = wx1 = seam
+    else:
+        wx0, wx1 = int(st[wep, 0]), int(st[wep, 0] + st[wep, 2])
     if usable is not None:
         for lo, hi in ((0, wx0), (wx1, usable.shape[1])):
             if hi - lo <= 0:
@@ -801,7 +891,7 @@ def _band_text(
         if abs(int(st[i, 1] + st[i, 3]) - base) <= BASELINE_TOL:
             keep[i] = True
     if not keep.any():
-        return None
+        return "no_baseline"
     # Copy the glyph pixels themselves -- filling their bounding boxes instead
     # would leave the template nothing of the letter shapes to correlate with.
     return keep[lab].astype(np.uint8) * 255, wx0, wx1
@@ -830,6 +920,10 @@ class EntryView:
     victim_ally: bool | None = None
     # "kill" | "death" | "other" | "occluded" | "unparsed" | "tie"
     verdict: str = "unparsed"
+    # Which guard refused, when the verdict is "unparsed": one of
+    # `BAND_REFUSALS`, or a band-level reason when the band never reached
+    # `_band_text` at all. Empty when nothing refused.
+    reason: str = ""
 
 
 def victim_is_ally(green, red, a: int, z: int, wx1: int) -> bool | None:
@@ -861,13 +955,22 @@ def victim_is_ally(green, red, a: int, z: int, wx1: int) -> bool | None:
     W = green.shape[1]
     if wx1 >= W - MIN_PLATE_RUN:
         return None
-    g = green[a:z, wx1:].sum(axis=0)
-    r = red[a:z, wx1:].sum(axis=0)
-    # A plate column is *covered*, not merely coloured. Past the entry's right
-    # edge the ROI is open scenery, and warm scenery reads as the enemy plate's
-    # red -- the same thing that used to merge background into the band above.
-    # A real plate spans most of the band's height; background never does.
-    live = (g + r) >= PLATE_COL_FRAC * (z - a)
+    runs = _plate_runs(green[a:z, wx1:], red[a:z, wx1:])
+    return bool(runs[-1][0] > 0) if runs else None
+
+
+def _plate_runs(green_band: np.ndarray, red_band: np.ndarray) -> list[tuple[int, int, int]]:
+    """Wide contiguous runs of one plate colour: `(+1 green | -1 red, x0, x1)`.
+
+    A plate column is *covered*, not merely coloured. Past the entry's right
+    edge the ROI is open scenery, and warm scenery reads as the enemy plate's
+    red -- the same thing that used to merge background into the band above.
+    A real plate spans most of the band's height; background never does.
+    """
+    h = green_band.shape[0]
+    g = green_band.sum(axis=0)
+    r = red_band.sum(axis=0)
+    live = (g + r) >= PLATE_COL_FRAC * h
     colour = np.where(g > r, 1, -1) * live          # 1 green, -1 red, 0 nothing
     runs, i = [], 0
     while i < len(colour):
@@ -878,9 +981,9 @@ def victim_is_ally(green, red, a: int, z: int, wx1: int) -> bool | None:
         while j < len(colour) and colour[j] == colour[i]:
             j += 1
         if j - i >= MIN_PLATE_RUN:
-            runs.append((colour[i], j - i))
+            runs.append((int(colour[i]), i, j))
         i = j
-    return bool(runs[-1][0] > 0) if runs else None
+    return runs
 
 
 def _plate_masks(crop: np.ndarray, mask: np.ndarray):
@@ -906,8 +1009,21 @@ def analyse_killfeed(
     height: int,
     mask: np.ndarray | None = None,
     profile_name: str = "valorant-16x9",
+    census: "Census | None" = None,
+    t_ms: float | None = None,
 ) -> list[EntryView]:
-    """Per-entry detail for one frame. `read_killfeed` is a summary of this."""
+    """Per-entry detail for one frame. `read_killfeed` is a summary of this.
+
+    `census`, when given, is told about every band this function discards and
+    every band it keeps but cannot read. **The returned views are unchanged by
+    it** -- the two band-level guards below still `continue`, and a dropped band
+    is still absent from `views` and from `entries`. That is deliberate: every
+    number in this module's docstring was measured with those bands absent, and
+    admitting them as views would move all of them at once without anyone having
+    re-scored a session. The census makes the rate *visible* first; whether a
+    dropped band should have been a view is then a question with evidence
+    behind it rather than a guess. See `reticle.census`.
+    """
     tpl = me_template(profile_name)
     x0, y0, x1, y1 = roi.pixels(width, height)
     crop = frame[y0:y1, x0:x1]
@@ -919,17 +1035,25 @@ def analyse_killfeed(
     views: list[EntryView] = []
     for (a, z) in _entry_bands(green, red, mask):
         slot = absolute_slot(a)
+        where = (round(t_ms / 1000.0, 2) if t_ms is not None else None, slot)
+        if census is not None:
+            census.saw("bands")
         if mask[a:z].sum() < 500:        # too much of this band is occluded
+            if census is not None:
+                census.drop("band_masked_out", where)
             continue
         # Both plate colours must be present: that is what rejects warm scenery.
         if green[a:z].mean() < PLATE_MIN_FRAC or red[a:z].mean() < PLATE_MIN_FRAC:
+            if census is not None:
+                census.drop("band_one_plate_colour", where)
             continue
-        parsed = _band_text(white[a:z] > 0, mask[a:z])
-        if parsed is None:
-            views.append(EntryView(slot, int(a), int(z), verdict="unparsed"))
-            continue
-        if parsed == "occluded":
-            views.append(EntryView(slot, int(a), int(z), verdict="occluded"))
+        parsed = _band_text(white[a:z] > 0, mask[a:z], (green[a:z], red[a:z]))
+        if isinstance(parsed, str):
+            verdict = "occluded" if parsed == "occluded" else "unparsed"
+            if census is not None:
+                census.drop(parsed, where)
+            views.append(EntryView(slot, int(a), int(z),
+                                   verdict=verdict, reason=parsed))
             continue
         band, wx0, wx1 = parsed
         # Match "Me" against each name region. The killer's name ends at the
@@ -984,9 +1108,12 @@ def read_killfeed(
     height: int,
     mask: np.ndarray | None = None,
     profile_name: str = "valorant-16x9",
+    census: "Census | None" = None,
+    t_ms: float | None = None,
 ) -> KillfeedRead:
     """Count killfeed entries and attribute any the local player is in."""
-    views = analyse_killfeed(frame, roi, width, height, mask, profile_name)
+    views = analyse_killfeed(frame, roi, width, height, mask, profile_name,
+                             census, t_ms)
     kills = [v for v in views if v.verdict == "kill"]
     deaths = [v for v in views if v.verdict == "death"]
     return KillfeedRead(

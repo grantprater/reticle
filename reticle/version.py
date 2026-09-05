@@ -15,7 +15,7 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the
 # template set, or field parsing changes -- that invalidates stored HUD reads
 # and forces a re-decode, since this stage needs pixels.
-HUD_VERSION = "hud-0.9.0"
+HUD_VERSION = "hud-0.10.0"
 # Stage 02 minimap position tracking. Bump when self/ally detection, the
 # floor mask, or the filtering constants (RUN_PX, GAP_MS) change -- raw
 # positions are stored unfiltered, so a filter-only change does NOT need a
