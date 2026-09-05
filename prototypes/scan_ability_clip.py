@@ -103,6 +103,64 @@ barrier/wire's own rendering below the real icon, scored 45.4px -- far from
 the self icon, for an entirely unrelated reason. That is still open. Do not
 read this check's success as evidence the OTHER problem is close to solved.
 
+**SAMPLED OVER THE WHOLE TRACK from 2026-09-04, not once at its birth. Phase 0
+of the temporal design doc** (`docs/ability-temporal.html`), and it is a
+COVERAGE repair, not a new idea. `self_icon_dist` was computed on the single
+frame that opened a track, so one bad frame nulled the whole candidate --
+`null` on 25 of Astra's 43 rows and 58% corpus-wide. That is not a detection
+failure: `self_rings` finds the player in 70-100% of frames and the floor gate
+costs 1.7% at worst. The nulls are CORRELATED. A candidate is
+disproportionately born in the frame where something covers the widget, which
+is exactly when the self colour is hidden, so the one sample lands at the worst
+possible moment available. the reading of the ranked gallery -- *all the
+weakest examples are literally only player icons or very close to player
+icons* -- confirms this is the one filter here that works, so its coverage was
+the highest-value repair on the board.
+
+`mm.self_rings` is now called once per FRAME rather than once per new track
+(every track matching a detection in that frame wants the same fit), and each
+track keeps the series of distances from its OWN current position to the
+nearest ring. Measuring from the current position rather than the birth
+position is the point: a candidate that IS the player's icon stays glued to it
+as he moves, while a real placed device falls behind him.
+
+**`self_icon_dist` is the MEDIAN over the track, not the min, and that
+overturns what NOTES proposed.** NOTES said take the min; measured against
+the real `eb10db50b1fb` labels at the SAME already-set threshold
+(`SELF_ICON_DIST_MIN = 7` -- nothing was re-fitted, this is a comparison of two
+aggregates at one fixed gate):
+
+    aggregate   real trapwires kept   not_ability dropped
+    min                 3 of 5             10 of 26  (38%)
+    median              5 of 5              8 of 26  (31%)
+
+Min drops two real trapwires that score 4.54 and 4.04 px, for seven percentage
+points more junk. That is a bad trade in the direction that matters, since
+recall is the scarce quantity here.
+
+**The mechanism, and why min looked right until it was measured.** Min was
+proposed as part of a COVERAGE fix, and the coverage fix is the per-frame
+sampling -- not the aggregate. Once a whole track is sampled, min stops meaning
+"is the player's icon here" and starts meaning "was the player EVER here", which
+is a different and much more common event. It is visible directly in the Astra
+clip: candidates scoring min 2.7 / median 54.6 over 275 ring fits, and min 0.26
+/ median 20.4 over 211. Those are objects the player walked over once. The genuine
+player-icon fragments score small on BOTH (2.3/2.3, 0.34/2.43, 2.18/2.18), so
+the median separates the two and the min collapses them.
+
+`self_icon_dist_min` and `self_icon_n` (frames that produced a ring at all) are
+stored alongside, the same way `label_dynamic` stores colour, area, box and
+aspect on purpose -- so this comparison can be re-run as the label set grows
+rather than re-argued. **Caveat on the table above, and it is the standing
+one**: n=5 real of ONE ability class on ONE session. It is a like-for-like
+comparison against the population the 7px threshold was itself set on, which
+makes it fair, not general.
+
+**Known and NOT fixed here**: `ability_corpus.load_events` takes `min(dists)`
+across the fragments of a grouped event, which re-introduces exactly this
+failure one level up -- an event with one near-player fragment inherits its
+distance. Same argument, same fix, different module; recorded in NOTES.
+
 **`geo_label` -- what `minimap_geometry` classification says is under the
 candidate, found checking the hunch that "quite a few" candidates on
 `79a706a7ce4c` (the bigmap Cypher session) were off the map entirely.**
@@ -161,6 +219,18 @@ TRACK_PX = 10
 TRACK_GAP_MS = 600
 
 
+def _self_dist(rings, x, y):
+    """Distance from (x, y) to the nearest fitted self-ring, or None if none fit.
+
+    None means `self_rings` did not find the player in that frame -- absence of
+    evidence, not evidence of distance. It must never be folded into an
+    aggregate as a large value; callers skip it instead.
+    """
+    if not rings:
+        return None
+    return min(float(np.hypot(rx - x, ry - y)) for _a, rx, ry in rings)
+
+
 def scan(sid, step_ms=150, persist_min=2, colour=None, device_inner_min=None,
          drop_self_icon=False):
     man = json.loads((STORE / "manifests" / f"{sid}.json").read_text())
@@ -203,6 +273,11 @@ def scan(sid, step_ms=150, persist_min=2, colour=None, device_inner_min=None,
         else:
             n_unreadable += 1
 
+        # Once per FRAME, not once per new track: every track that matches a
+        # detection here wants the same fit, and it is the same fit. Skipped
+        # entirely on a frame with nothing to attach it to.
+        rings = mm.self_rings(crop, floor) if dets else []
+
         matched = set()
         for tr in open_tracks:
             best, best_d = None, TRACK_PX
@@ -217,6 +292,9 @@ def scan(sid, step_ms=150, persist_min=2, colour=None, device_inner_min=None,
                 tr["x"], tr["y"] = dets[best]["xy"]
                 tr["t_last"] = t
                 tr["n"] += 1
+                sd = _self_dist(rings, tr["x"], tr["y"])
+                if sd is not None:
+                    tr["sd"].append(sd)
 
         still_open = []
         for tr in open_tracks:
@@ -233,12 +311,10 @@ def scan(sid, step_ms=150, persist_min=2, colour=None, device_inner_min=None,
                     crop, x0i, y0i)
                 d["geo_label"] = int(labels[y0i, x0i]) if (0 <= y0i < labels.shape[0]
                                                            and 0 <= x0i < labels.shape[1]) else None
-                self_rings = mm.self_rings(crop, floor)
-                d["self_icon_dist"] = (
-                    min(float(np.hypot(rx - x0i, ry - y0i)) for _a, rx, ry in self_rings)
-                    if self_rings else None)
+                sd = _self_dist(rings, d["xy"][0], d["xy"][1])
                 open_tracks.append({"x": d["xy"][0], "y": d["xy"][1],
-                                    "t0": t, "t_last": t, "n": 1, "rep": d})
+                                    "t0": t, "t_last": t, "n": 1, "rep": d,
+                                    "sd": [] if sd is None else [sd]})
         t += step_ms
     closed += open_tracks
     cap.release()
@@ -257,7 +333,13 @@ def scan(sid, step_ms=150, persist_min=2, colour=None, device_inner_min=None,
         if device_inner_min is not None and d["device"]["inner_edge"] < device_inner_min:
             n_device_dropped += 1
             continue
-        sd = d["self_icon_dist"]
+        # MEDIAN over the track, not the min and not the birth sample. The
+        # docstring carries the measurement that chose it: min drops 2 of 5
+        # real trapwires because it means "was the player ever here", which is
+        # a different question from "is this the player".
+        sds = tr["sd"]
+        sd = float(np.median(sds)) if sds else None
+        sd_min = min(sds) if sds else None
         if drop_self_icon and sd is not None and sd < SELF_ICON_DIST_MIN:
             n_self_dropped += 1
             continue
@@ -272,6 +354,8 @@ def scan(sid, step_ms=150, persist_min=2, colour=None, device_inner_min=None,
             "device_cov": d["device"]["cov"], "device_inner_edge": d["device"]["inner_edge"],
             "device_r": d["device"]["r"],
             "self_icon_dist": round(sd, 2) if sd is not None else None,
+            "self_icon_dist_min": round(sd_min, 2) if sd_min is not None else None,
+            "self_icon_n": len(sds),
             "geo_label": GEO_LABEL_NAMES.get(d["geo_label"], d["geo_label"]),
             "area": d["area"], "box": list(d["box"]),
             "diff_min": md.DIFF_MIN,
