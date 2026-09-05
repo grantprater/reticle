@@ -89,7 +89,30 @@ turret cone is green-tinted; `minimap_dynamic.blob_colour` gates on `s > 90`
 before naming any colour and a translucent tint never clears it. Needs its own
 low-saturation hue test -- do NOT loosen `COLOUR_SAT`, which is load-bearing.
 
-**NEXT, in order.** (The design doc's SS8 is the fuller version.)
+**NEXT SESSION STARTS HERE: A LABELLING PASS ON OBJECT GROUPING.** the
+call, 2026-09-05, closing the session -- *next session we can start on the
+labelling pass.*
+
+**Nothing in the label store says WHICH CANDIDATES ARE ONE OBJECT.** Grouping
+has been in this pipeline since `ability_corpus` and has never been scored
+against anything, so three separate things are currently unfalsifiable and one
+pass settles all of them:
+
+* the **extending signature** in `ability_cast.py` -- distance from an origin
+  increasing over >=3 fragments. It resolved Viper's Toxic Screen correctly
+  (+9.7 deg, 3 fragments) and returned three bolts for Sova's ult, but the rule
+  was designed after looking at the Toxic Screen window, so that case is what
+  it was fitted to rather than evidence for it;
+* the **onset rule** it replaces for extending abilities (300 ms, 60 px);
+* the **10 refused positions**, which are refused precisely because nothing can
+  say whether several candidates are several objects or fragments of one.
+
+Before building the labeller: **invoke the `labelling-pass` skill**, and render
+and review the candidates first -- launching a GUI against unreviewed
+candidates has three recorded recurrences and cost the player real clicking time
+twice. `review_candidates.py` gates it.
+
+**Then, in order.** (The event log doc's SS7 is the fuller version.)
 
 1. **Label negatives on `a06f04a0059f` (53 positives) and `5822b6646448` (35).**
    Both were labelled POSITIVES-ONLY, so the scorer skips them for having no
