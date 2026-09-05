@@ -409,6 +409,25 @@ footer {
         <p>One sequential pass per clip. Given query positions from <em>either</em> the candidate file or the label file, it returns for each position an array aligned over frames: the patch's grayscale, the split <code>dark</code>/<code>bright</code> interval excursions, both normalised by the Phase 0 noise map, whether the fitted self-cone covers that pixel, whether the cone fit at all, the self track's position and distance, and whether <code>detect</code> fired within 10 px. One npz per clip, written and dropped — the corpus never sits in memory at once.</p>
         <p><strong>Cost: 45 s and 0.5 MB per clip</strong> at native 60 Hz with the cone (<code>c0b63335e635</code>, 45 queries × 2308 frames). The cone answered 92.0% of frames there and 48.0% on <code>eb10db50b1fb</code> — both consistent with the yields already on record, so nothing new is being claimed for it.</p>
         <p>Smoke test rather than a score: four <code>detect</code> onsets land at <strong>28.3 s</strong>, which is the drone-HUD wedge independently recorded at t=28350 ms. The substrate lines up with a finding it knows nothing about.</p>
+
+        <div class="correction">
+          <div class="label">Found by running it — read a series against the wrong span and it says nothing, very confidently</div>
+          <p>A full match is not a demo clip. <code>--from-labels</code> on <code>a06f04a0059f</code> decoded all 139,288 frames to serve 53 labels scattered over 39 minutes. <code>--window-s</code> keeps only frames near a query — 9.9% of them — and skips the rest with <code>grab()</code> rather than seeking, so the frames that <em>are</em> measured still come from an unbroken sequential decode.</p>
+          <p>But windowing keeps the <em>union</em> of every query's window, and the first run then reported <code>detect</code> firing for 75.5% of frames at the median query and 75.7% at the max, across 53 queries. That looks like a signal and is arithmetic: each query was averaged over 13,843 frames when 360 were its own. <code>win_lo</code>/<code>win_hi</code> now carry each query's own slice.</p>
+          <p><strong>It bites on a short clip too</strong>, which is the part worth keeping. The same Tejo series, read two ways:</p>
+          <div class="scroller">
+          <table>
+            <thead><tr><th>statistic</th><th class="num">whole axis</th><th class="num">own ±3 s</th></tr></thead>
+            <tbody>
+              <tr><td>detect fired, median query</td><td class="num">14.9%</td><td class="num">40.8%</td></tr>
+              <tr><td>detect fired, max query</td><td class="num">61.0%</td><td class="num">94.5%</td></tr>
+              <tr><td>nearest query to the self icon</td><td class="num">35.3 px</td><td class="num">3.9 px</td></tr>
+            </tbody>
+          </table>
+          </div>
+          <p>Same data, same pass — the whole-axis reading dilutes every candidate with the 38 seconds in which its object does not exist. <strong>Every Phase 2 feature must slice by the query's own window.</strong></p>
+        </div>
+
         <p class="depends">depends on ← Phase 0 (sd_lo/sd_hi) · blocks → every feature in Phase 2, and the labelling pass</p>
       </div>
     </div>
@@ -529,6 +548,8 @@ footer {
       <tr><td>Memory</td><td>whole-corpus patches ≈ 700 MB</td><td>per clip ≈ 30 MB; write and drop</td></tr>
       <tr><td>Three <code>floor</code> conventions <span class="chip hazard">found 2026-09-04</span></td><td><code>self_rings</code> is called with <code>floor_mask(med)</code> in <code>cli.py</code>, <code>floor_mask(static, dilate=1)</code> in <code>ability_cone</code>, <code>labels != VOID</code> in <code>scan_ability_clip</code></td><td>Phase 1 matches each use to the code its numbers must compare with; the divergence itself is latent and unfixed</td></tr>
       <tr><td>An unreadable clip <span class="chip hazard">found 2026-09-04</span></td><td>OpenCV reports <code>frame_count = -1</code>, so the failure surfaces as an <code>IndexError</code> on an empty array far from its cause — and abandoned 26 good clips</td><td><code>MediaUnreadable</code> raised at the cause, skipped per session, tallied at the end</td></tr>
+      <tr><td>Reading a series whole-axis <span class="chip hazard">found 2026-09-04</span></td><td>every query looks identical, and the uniformity reads as a result rather than as dilution</td><td>slice by <code>win_lo</code>/<code>win_hi</code>; see Phase 1</td></tr>
+      <tr><td>Repeat observations inflate n</td><td><code>a06f04a0059f</code>'s 53 labels sit at <strong>16 distinct positions</strong></td><td><code>ability_eval.collapse()</code> — objects, not rows</td></tr>
     </tbody>
   </table>
   </div>
