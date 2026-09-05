@@ -19,6 +19,12 @@ equal weights, and the event-first redirection. Source in
 `docs/ability-recognition.html`:
 https://claude.ai/code/artifact/bffd7660-cd3e-4e6f-ada9-3be6b0dca887
 
+**The minimap entity model** (2026-09-05) -- what is drawn on the widget, as
+entities with parameters and a driver PER PARAMETER rather than a taxonomy of
+blobs. Carries the seven places it disagrees with the code, which is what it
+has to be judged by. Source in `docs/minimap-entity-model.html`:
+https://claude.ai/code/artifact/324e1c5f-9240-4b13-8ff1-59adb24a2f06
+
 Section references in docstrings (`SS3`, `SS7`) mean §3, §7 of that doc.
 
 ## Contents
