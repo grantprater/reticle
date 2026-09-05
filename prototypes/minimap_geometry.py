@@ -158,7 +158,7 @@ LINE_CLOSE = 5
 LINE_MIN_AREA = 20
 
 
-def two_state_gray(gray_stack, trim=0.05):
+def two_state_gray(gray_stack, trim=0.05, band=48):
     """Per pixel, the two colours it actually rests at -- not one median.
 
     the model, checked against real footage before building this: **a
@@ -183,24 +183,92 @@ def two_state_gray(gray_stack, trim=0.05):
     biggest gap and return each side's mean. A pixel with no real two-state
     structure -- never lit all match, or always lit -- still gets a split,
     typically a small one, so `lo` and `hi` end up close together and behave
-    like today's single reference. Fully vectorised: this is a one-time,
-    per-session build step, not something running per detected frame.
+    like today's single reference.
+
+    Also returns the WITHIN-STATE standard deviation of each side
+    -------------------------------------------------------------
+    Added 2026-09-04 as Phase 0 of `docs/ability-temporal.html`, which needs a
+    per-pixel noise scale to divide by. NOTES has named that divisor for a
+    fortnight -- the ability classes differ ~8x in contrast (median `dark` 105 /
+    102 / 95 for the sonic sensor, trapwire and barrier mesh against **13** for
+    Brimstone's Orbital Strike), so any global floor that keeps the strong three
+    deletes the faint one at 17% recall. That is CLAUDE.md's *never test an
+    absolute level against this HUD* arriving in the ability channel, and the
+    fix it always wants is to compare relatively.
+
+    **It must be per-state, and this is the whole subtlety.** The obvious
+    measurement -- SD over all frames at a pixel -- is not a noise scale at all
+    on this widget. A pixel the cone sweeps is BIMODAL by construction, so its
+    overall SD measures the distance between unlit and lit, which is the
+    largest number available and is largest exactly on the swept floor where
+    every interesting candidate sits. Dividing by it would suppress the signal
+    hardest where the signal is. `sd_lo` and `sd_hi` are the spread WITHIN each
+    resting state, which is the quantity "how much does this pixel wobble when
+    nothing is happening to it" actually means. They come from the same trimmed,
+    split frames as `lo`/`hi`, so they describe the same two states rather than
+    a separately-sampled approximation of them.
+
+    Two properties a consumer has to handle rather than discover:
+
+    * **a state of ONE frame has SD 0 by definition** -- a pixel that is almost
+      always lit puts one sample in the low group. Zero is honest (there is no
+      spread in one observation) and is a division hazard, so anything using
+      these as a divisor must floor them. It must NOT be read as "this pixel is
+      perfectly quiet";
+    * they are only as good as the frames they were built from, and for a demo
+      clip that is a DIFFERENT session's frames via `--two-state-from` /
+      `--geometry-from`. That is correct -- the lighting model is a property of
+      the map, not the match -- and it means the noise scale is the donor's.
+
+    Chunked over row bands rather than vectorised over the whole widget
+    -------------------------------------------------------------------
+    The single-shot version allocated a full (K, H, W) int cumulative sum --
+    ~650 MB at 400 frames on the enlarged widget -- and the squares needed for a
+    variance would have doubled it. Banding costs nothing (this is a one-time
+    per-session build step, not something running per detected frame) and the
+    per-band arithmetic is bit-identical to the whole-array form, because
+    `argmax` and the cumulative sums are per-pixel independent. Verified
+    bit-identical for `lo`/`hi` against the pre-2026-09-04 implementation before
+    this replaced it, on real frames -- the "confirm a known number comes back"
+    check, run on the values rather than on a parse.
     """
-    K = gray_stack.shape[0]
-    s = np.sort(gray_stack.astype(np.int16), axis=0)
+    K, H, W = gray_stack.shape
     lo_i, hi_i = int(K * trim), max(int(K * (1 - trim)), int(K * trim) + 2)
-    s = s[lo_i:hi_i]
-    K2 = s.shape[0]
-    gaps = np.diff(s, axis=0)
-    split = np.argmax(gaps, axis=0)                      # (H,W): last LOW-group index
-    cumsum = np.cumsum(s, axis=0).astype(np.float32)
-    total = cumsum[-1]
-    low_sum = np.take_along_axis(cumsum, split[None, :, :], axis=0)[0]
-    low_count = (split + 1).astype(np.float32)
-    lo = low_sum / low_count
-    high_count = K2 - low_count
-    hi = np.where(high_count > 0, (total - low_sum) / np.maximum(high_count, 1), lo)
-    return lo.astype(np.float32), hi.astype(np.float32)
+    lo = np.empty((H, W), np.float32)
+    hi = np.empty((H, W), np.float32)
+    sd_lo = np.empty((H, W), np.float32)
+    sd_hi = np.empty((H, W), np.float32)
+
+    for y0 in range(0, H, band):
+        y1 = min(y0 + band, H)
+        s = np.sort(gray_stack[:, y0:y1].astype(np.int16), axis=0)[lo_i:hi_i]
+        K2 = s.shape[0]
+        # (h,w): index of the last element of the LOW group. `np.diff` is one
+        # shorter than `s`, so this is always in [0, K2-2] and BOTH groups are
+        # non-empty -- which is why no zero-count guard is needed below.
+        split = np.argmax(np.diff(s, axis=0), axis=0)
+        sel = split[None, :, :]
+
+        cumsum = np.cumsum(s, axis=0).astype(np.float32)
+        low_sum = np.take_along_axis(cumsum, sel, axis=0)[0]
+        low_count = (split + 1).astype(np.float32)
+        high_count = K2 - low_count
+        m_lo = low_sum / low_count
+        m_hi = (cumsum[-1] - low_sum) / high_count
+
+        # float64 for the squares: 360 frames of 255**2 overflows float32's
+        # exact-integer range (2**24), and E[x2]-E[x]2 is the unstable form.
+        cumsq = np.cumsum(s.astype(np.int32) ** 2, axis=0).astype(np.float64)
+        low_sq = np.take_along_axis(cumsq, sel, axis=0)[0]
+        v_lo = low_sq / low_count - np.float64(m_lo) ** 2
+        v_hi = (cumsq[-1] - low_sq) / high_count - np.float64(m_hi) ** 2
+
+        lo[y0:y1] = m_lo
+        hi[y0:y1] = m_hi
+        sd_lo[y0:y1] = np.sqrt(np.maximum(v_lo, 0.0))
+        sd_hi[y0:y1] = np.sqrt(np.maximum(v_hi, 0.0))
+
+    return lo, hi, sd_lo, sd_hi
 
 
 def source_stamp():
@@ -431,10 +499,18 @@ def main() -> int:
             return 1
         out = STORE / "geometry" / f"{args.session}.npz"
         out.parent.mkdir(parents=True, exist_ok=True)
+        # sd_lo/sd_hi ride along with lo/hi -- they describe the SAME two
+        # states from the SAME donor frames, so a borrow that took the lighting
+        # reference without its noise scale would hand out a divisor measured
+        # against different states than the levels it divides.
+        extra = {k: z[k] for k in ("sd_lo", "sd_hi") if k in z.files}
+        if not extra:
+            print(f"  NOTE: {args.geometry_from}'s geometry predates the "
+                  f"per-state SD map -- rebuild it to get sd_lo/sd_hi here too")
         np.savez_compressed(out, labels=z["labels"], static=z["static"],
                             roi=np.array([x0, y0, x1, y1]),
                             lo_gray=z["lo_gray"], hi_gray=z["hi_gray"],
-                            built_by=z["built_by"])
+                            built_by=z["built_by"], **extra)
         summarise(z["labels"], f"{args.session}  (borrowed wholesale from "
                                 f"{args.geometry_from}, {', '.join(man.get('tags', []))})")
         print(f"  wrote {out}  (entirely {args.geometry_from}'s geometry -- "
@@ -468,12 +544,13 @@ def main() -> int:
         gray_stack = np.stack([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in ref_frames])
     else:
         gray_stack = np.stack([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames])
-    lo_gray, hi_gray = two_state_gray(gray_stack)
+    lo_gray, hi_gray, sd_lo, sd_hi = two_state_gray(gray_stack)
 
     out = STORE / "geometry" / f"{args.session}.npz"
     out.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out, labels=lab, static=med, roi=np.array([x0, y0, x1, y1]),
                         lo_gray=lo_gray, hi_gray=hi_gray,
+                        sd_lo=sd_lo, sd_hi=sd_hi,
                         built_by=np.array(source_stamp()))
     print(f"  wrote {out}  (stamp {source_stamp()[:8]})")
     if args.sheet:

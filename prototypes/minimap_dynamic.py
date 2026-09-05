@@ -364,6 +364,62 @@ def load_two_state(sid):
     return z["lo_gray"], z["hi_gray"]
 
 
+#: Divisor floor for `load_noise`. A resting state made of ONE frame has a
+#: standard deviation of exactly zero by construction, and 6.5-8.8% of the
+#: widget is in that position (a pixel almost always lit puts one sample in the
+#: low group). Zero is an honest answer to "what is the spread of one
+#: observation" and a division by it is not, so a floor is mandatory rather than
+#: defensive. 1.0 gray level is the quantisation step of the source itself --
+#: nothing on this widget can be quieter than its own encoding -- so it is a
+#: physical floor, not a fitted one.
+SD_FLOOR = 1.0
+
+
+def load_noise(sid):
+    """Per-pixel WITHIN-STATE noise for each of the two lighting states.
+
+    `(None, None)` for geometry built before 2026-09-04. Separate from
+    `load_two_state` for the same reason that is separate from `load_geometry`:
+    an existing caller must not have to change to keep working.
+
+    **This is the divisor NOTES has been asking for**, and the reason it is not
+    the obvious per-pixel SD is in `minimap_geometry.two_state_gray` -- overall
+    SD at a bimodal pixel measures the unlit-to-lit distance, not the noise, and
+    is therefore largest exactly on the swept floor where candidates live.
+    Measured on `a06f04a0059f`, 400 frames, median per class:
+
+        class      sd_lo   sd_hi   overall SD
+        FLOOR       3.17    3.30        25.33
+        BOXEDGE     5.97    3.92        33.60
+        PLANT       6.00    4.99        27.45
+        BORDER      9.37    5.14        38.68
+        VOID       28.44    6.86            -
+
+    Two things to read off that. Overall SD is 5-8x the within-state figure in
+    every class, which is the lighting switch being counted as noise. And across
+    the whole SEARCHABLE area -- floor, box edges, plant zones -- the within-
+    state noise sits in a narrow 3.2-6.4 band, so this behaves as a divisor
+    where it is actually used; the wild value is VOID, which `searchable()`
+    masks out anyway.
+
+    **Not comparable to the 2026-08-26 figures** quoted in `prototypes/
+    CLAUDE.md` (7.4 on white lines, 16.9 on the slab, 42.5 in the void). Those
+    are an OVERALL per-pixel SD on a different session and a differently-defined
+    set of regions, and the attempt to reproduce them here does not: interior
+    line-work classifies as BOXEDGE rather than BORDER, and BORDER has no pixel
+    at all more than 25 px from void, being the void boundary by construction.
+    Different measurement, not a contradiction -- do not read one against the
+    other.
+    """
+    p = STORE / "geometry" / f"{sid}.npz"
+    if not p.is_file():
+        return None, None
+    z = np.load(p)
+    if "sd_lo" not in z.files:
+        return None, None
+    return z["sd_lo"], z["sd_hi"]
+
+
 def labelled_frames(sid):
     """the minimap marks, keyed by time. Red things only -- that is all he
     was asked to mark, so allies must never be scored as false positives."""
