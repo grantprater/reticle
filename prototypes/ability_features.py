@@ -58,18 +58,39 @@ recall, on sessions whose threshold it never saw.** It is the median of
 predicted to separate animating abilities from lit static cracks. It is also the
 only feature that separates on all four sessions in the same direction.
 
-**Every combination is worse than the single feature.** `patch_range AND
-autocorr1` costs 18 points of recall for nothing, and on `2ba870ccbd50` it
-returns 0/0/8 -- the threshold learned on the other three excludes that session
-entirely. At 27 positives an AND of two thresholds is already too much capacity.
-This is the ranked-corpus failure reproduced deliberately, at a scale small
-enough to watch.
+**Combining raises PRECISION a long way and costs recall, and no combiner tried
+wins on both.** The features that complement contrast are the ones weakly
+correlated with it -- `n_runs` (0.26) and `cone_cond` (0.04) -- not the
+amplitude siblings (`autocorr1` 0.50, `dark_p90` 0.55) tried first:
+
+    combiner (all thresholds fitted leave-one-session-out)  prec  recall   F1
+    patch_range alone                                       0.49    0.85  0.62
+    AND n_runs                                              0.73    0.41  0.52
+    AND cone_cond                                           0.80    0.15  0.25
+    AND cone_cond AND n_runs                                 nan    0.00   nan
+    soft z-sum + n_runs                                     0.54    0.74  0.62
+    soft z-sum + n_runs + cone_cond                         0.35    0.78  0.48
+
+AND-ing hard thresholds multiplies misses -- three of them delete every positive
+-- and an equal-weight z-sum dilutes a strong feature with weak ones. What is
+missing is a WEIGHTED combiner, and 27 positives will not support fitting one
+without landing back in the ranked-corpus failure.
+
+So: the complements are real, and the blocker is label volume rather than
+feature design. The high-precision operating point is genuinely available if it
+is wanted -- `patch_range AND n_runs` gives 0.73 precision at 0.41 recall, which
+suits assisted labelling even though its F1 is worse.
 
 Three things falsified, which is what the gate is for
 ------------------------------------------------------
-* **the cone-coverage two-factor conditional FAILS.** `cone_cond` scores 0.40
-  pooled and agrees on 2 of 4 sessions. The design doc names it FIRST among the
-  Phase 2 features and predicts it "kills the cracks"; it does not separate.
+* **the cone-coverage two-factor conditional fails AS A GATE, and that is not
+  the same as failing.** `cone_cond` scores 0.40 pooled and agrees on 2 of 4
+  sessions, so it cannot be a first-stage filter. But among the 47 candidates
+  that PASS the `patch_range` gate (23 real, 24 false) it separates at 0.32
+  (0.68 inverted) while correlating **0.04** with `patch_range` -- it is very
+  nearly orthogonal to contrast, and it carries signal on exactly the cases
+  contrast cannot resolve. The first version of this docstring called it
+  falsified. That was wrong: a single-feature AUC cannot see a complement.
   `dark_lit_gap`, the same idea on raw darkness, scores 0.48;
 * **noise normalisation HURTS.** `dark_z_p90` (0.63) is well below plain
   `dark_p90` (0.79). The early directional figure on 2026-09-04 -- pos/neg
