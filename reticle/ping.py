@@ -103,13 +103,24 @@ because each one is a way a persistence test can be fooled:
   measuring the span called that a 4 s object. A ping is drawn CONTINUOUSLY, so
   the span it was seen over must equal the number of frames it was seen in.
 
+  **That test is now redundant and is kept only as a backstop: contiguity is
+  enforced at CONSTRUCTION, in `Grouper`, because testing for it afterwards
+  cost a real ping.** A sighting joins a run only if it is adjacent in time as
+  well as in space, so a flicker becomes many short runs that die on
+  `MIN_FRAMES` instead of one long one that dies on its span. Verified by eye
+  on the spam clip: the fourth `danger` was being merged into a longer group
+  and thrown away, and it comes back at 43.7 s with an 11.0 s life. The clip
+  holds **15** pings -- 6 standard, 4 need help, 1 watching here, 4 danger,
+  which is exactly the hand-counted table above -- and the detector now finds
+  all 15 rather than 14.
+
 A run truncated by the end of observation is reported UNCONFIRMED rather than
 either accepted or dropped -- its lifetime cannot be measured, so the strongest
-feature is simply missing. That is not a technicality: with the gate as
-described, 14 of the spam clip's 15 hits are correct by eye and **the single
-false positive is exactly the truncated one**, yellow foliage 1.9 s before the
-recording stopped. Reporting it as a ping would be the pipeline claiming more
-than its evidence supports; dropping it silently would be the class of mistake
+feature is simply missing. That is not a technicality: the yellow foliage 1.9 s
+before the clip stops is still refused, along with four more tail flickers that
+used to be rejected on span and are now honestly unmeasurable instead.
+Reporting one as a ping would be the pipeline claiming more than its evidence
+supports; dropping it silently would be the class of mistake
 `reticle/census.py` exists to catch.
 
 Three things a session needs that a 65-second clip did not
@@ -183,18 +194,44 @@ def classify(hue: int) -> str | None:
 
 
 class Grouper:
-    """Sightings of a fixed mark, collected into runs by position.
+    """Sightings of a fixed mark, collected into CONTIGUOUS runs by position.
 
     A ping does not move, so two sightings within `SAME_PX` are the same
-    object. The index exists only for speed: matching is against each group's
-    FIRST sighting, so a group's cell never changes and the 3x3 neighbourhood
-    of a candidate's cell contains every group that could possibly match.
-    Ties go to the earliest-created group, which is what the linear scan this
-    replaced did by breaking on its first hit.
+    object -- but only if they are also adjacent in TIME. A group is a run,
+    not a bag, and enforcing that here rather than testing for it afterwards
+    is the difference between a clip and a session:
+
+    **over 31 minutes every walkable cell eventually holds a group.** Allies
+    walk the whole map, so an unexpiring group at each cell is reached within
+    a few rounds -- and a ping placed where a teammate stood ten minutes ago
+    then JOINS that group, inherits its ten-minute span, and is thrown away by
+    the contiguity test in `resolve` for being what it is not. Measured on
+    587c15b07779: 316 groups in one 90 s window, spans up to the full window,
+    and nothing at all survived to be confirmed. On a 65 s clip the cells are
+    sparse and this never fires, which is why the prototype could not see it.
+
+    Breaking a run at a gap is also strictly the better mechanism for what the
+    contiguity test was FOR. Scenery flickering in and out across a clip used
+    to accumulate 41 sightings over 58 s and be caught afterwards; it now
+    becomes many short runs, each of which dies on `MIN_FRAMES` instead.
+
+    `max_gap` is the one tolerance. It has to exceed a sample period -- an
+    ally icon sliding over a ping costs frames, and OBS output is
+    variable-rate -- and it must stay far below a lifetime or the merging
+    above comes straight back. A ping obscured for longer than it splits into
+    two runs and both fail the gate, which loses the ping rather than
+    inventing one.
+
+    The index exists only for speed: matching is against each group's FIRST
+    sighting, so a group's cell never changes and the 3x3 neighbourhood of a
+    candidate's cell contains every group that could possibly match. Ties go
+    to the earliest-created live group, which is what a linear scan does by
+    breaking on its first hit.
     """
 
-    def __init__(self, same_px: int = SAME_PX):
+    def __init__(self, hz: float = 10.0, same_px: int = SAME_PX):
         self.same = same_px
+        self.max_gap = GAP_PERIODS / hz
         self.groups: list[list[tuple[float, int, int, int]]] = []
         self._cells: dict[tuple[int, int], list[int]] = {}
 
@@ -206,7 +243,10 @@ class Grouper:
                 for i in self._cells.get((cx + dx, cy + dy), ()):
                     if best is not None and i > best:
                         continue
-                    _t0, gx, gy, _h = self.groups[i][0]
+                    g = self.groups[i]
+                    if t - g[-1][0] > self.max_gap:
+                        continue          # stale: a different object, later
+                    _t0, gx, gy, _h = g[0]
                     if abs(x - gx) < self.same and abs(y - gy) < self.same:
                         best = i
         if best is not None:
@@ -315,7 +355,7 @@ class PingReader:
         self.box = box
         self.floor = floor
         self.sgray = sgray
-        self.g = Grouper()
+        self.g = Grouper(hz)
         self.ts: list[float] = []
         self.n_absent = 0
         self.hits: list = []

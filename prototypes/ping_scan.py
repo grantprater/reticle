@@ -55,7 +55,7 @@ def scan(path: str, roi=MINIMAP_ROI, hz: float = 10.0, fps: float = 60.0):
         return [], None
     med = np.median(np.stack(frames[::3]), axis=0).astype(np.uint8)
     floor = floor_mask(med)
-    g = Grouper()
+    g = Grouper(hz)
     for t, c in zip(ts, frames):
         for x, y, hue in sightings(c, floor):
             g.add(t, x, y, hue)
