@@ -40,6 +40,7 @@ from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_
 from .overlay import OverlayContext, draw
 from .passes import SessionContext, run as passes_run
 from .ping import LIFETIME_S, PingReader
+from .roster import RosterReader
 from .ocr import (GLYPH_H, GLYPH_W, Templates, cluster_glyphs, crop_gray,
                   read_bottom_hud, read_scoreline, scoreline_roi, segment_glyphs)
 from .primitives import PrimitiveExtractor
@@ -47,6 +48,7 @@ from .profiles import DEFAULT_PROFILE, MinimapMode, get_profile
 from .segment import HUD_CHROME_ROIS, STATES, SegmentConfig, classify, segment
 from .store import DEFAULT_STORE, Store
 from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
+                      ROSTER_VERSION,
                       SEGMENTER_VERSION)
 
 
@@ -841,9 +843,11 @@ def cmd_scan(args) -> int:
     # which is the one job version.py says a stamp exists to do.
     want_ping = args.ping and (args.force
                                or store.events_version("ping", sid) != PING_VERSION)
-    if not (want_hud or want_mm or want_ping):
+    want_roster = args.roster and (args.force or not store.has_roster(sid, date))
+    if not (want_hud or want_mm or want_ping or want_roster):
         print(f"cache hit  session {sid} has HUD at {HUD_VERSION}, minimap at "
-              f"{MINIMAP_VERSION}, pings at {PING_VERSION}; --force to re-read")
+              f"{MINIMAP_VERSION}, pings at {PING_VERSION}, roster at "
+              f"{ROSTER_VERSION}; --force to re-read")
         return 0
 
     print(f"session    {sid}  ({src['filename']})")
@@ -852,7 +856,8 @@ def cmd_scan(args) -> int:
         ([f"hud {args.hz:g} Hz, whole capture"] if want_hud else [])
         + ([f"minimap {args.minimap_hz:g} Hz, {len(spans)} active spans "
             f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)"] if want_mm else [])
-        + ([f"ping {args.ping_hz:g} Hz, active spans"] if want_ping else [])))
+        + ([f"ping {args.ping_hz:g} Hz, active spans"] if want_ping else [])
+        + ([f"roster {args.hz:g} Hz, whole capture"] if want_roster else [])))
 
     hp = _HudPass(store, manifest, profile, args) if want_hud else None
     mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
@@ -875,7 +880,15 @@ def cmd_scan(args) -> int:
             spans=spans,
         )
 
-    readers = [r for r in (hp, mp, pp) if r is not None]
+    # The roster rides the HUD's frames: same ROIs, same rate, same whole-capture
+    # span, so `sample_multi` serves one retrieval to both and this costs a
+    # Laplacian per frame and no decode at all. That is the point of the
+    # registry -- a reader that cannot justify opening the file joins a pass
+    # that was happening anyway.
+    rp = (RosterReader(profile, ctx.wh, hz=args.hz, spans=None)
+          if want_roster else None)
+
+    readers = [r for r in (hp, mp, pp, rp) if r is not None]
 
     t0 = time.perf_counter()
     last = [t0]
@@ -916,6 +929,37 @@ def cmd_scan(args) -> int:
               f"({mp.n_absent / len(mp.rows) * 100:.1f}%)")
         print(f"           self raw {got}/{len(mp.rows)} "
               f"({got / len(mp.rows) * 100:.1f}%)")
+    if rp is not None:
+        if not rp.rows:
+            raise SystemExit("decoded zero frames -- is the file readable?")
+        out = store.write_roster(rp.rows, _FP(src, sid), profile.name, date)
+        n = len(rp.rows)
+        both = sum(1 for r in rp.rows
+                   if r["alive_ally"] is not None and r["alive_enemy"] is not None)
+        five = sum(1 for r in rp.rows if r["alive_ally"] == 5 and r["alive_enemy"] == 5)
+        over = sum(1 for r in rp.rows
+                   if (r["alive_ally"] or 0) > 5 or (r["alive_enemy"] or 0) > 5)
+        # `(0,0)` cannot happen inside a round -- a round ends when one team
+        # is wiped, so both being empty means the roster is not drawn at all.
+        # It is printed because it is a KNOWN DEFECT rather than a count: an
+        # undrawn bar reads as 0 instead of refusing (see roster.py). The rate
+        # is the size of the population this table cannot speak for.
+        zero = sum(1 for r in rp.rows
+                   if r["alive_ally"] == 0 and r["alive_enemy"] == 0)
+        print(f"roster     {n} rows -> {out}")
+        print(f"           answered {both}/{n} ({both / n * 100:.1f}%), "
+              f"5v5 on {five} ({five / n * 100:.1f}%)")
+        if zero:
+            print(f"           {zero} rows read 0/0 ({zero / n * 100:.1f}%) "
+                  f"-- not-in-round, not a count; see roster.py")
+        # `over` is a HARD invariant -- a team cannot field six -- so it is
+        # printed even when zero. A count above five is not a bad reading to
+        # weigh, it is proof the split rule is wrong, and a reader that only
+        # reports what it accepted cannot be audited.
+        if over:
+            print(f"           !! {over} rows report MORE THAN FIVE alive "
+                  f"-- the split rule is wrong, do not use this table")
+
     if pp is not None:
         pp.finish()
         out = store.write_events("ping", sid, pp.events(sid))
@@ -1655,6 +1699,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "resolves 7.0s from 10.0s, so this is not a knob to "
                         "lower casually)")
     s.set_defaults(ping=True)
+    # Same argument as --no-ping: it rides the HUD's own frames, so skipping it
+    # saves one Laplacian per frame and nothing else.
+    s.add_argument("--no-roster", dest="roster", action="store_false",
+                   help="skip the roster alive-count reader (it rides this pass free)")
+    s.set_defaults(roster=True)
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_scan)
 

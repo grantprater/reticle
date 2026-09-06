@@ -54,3 +54,16 @@ MINIMAP_VERSION = "minimap-0.3.0"
 # key -- nothing skips a ping read on a version match, because pings ride a
 # pass that was going to happen anyway and cost no decode of their own.
 PING_VERSION = "ping-0.1.0"
+# Stage 02 roster alive counts, read off the two HUD roster bars. Bump when
+# `ART_FRAC`, `DETAIL_FLOOR` or the split rule in `roster.alive_from_detail`
+# changes -- that needs pixels, so it re-decodes.
+#
+# **Its own table and its own stamp, rather than two more columns on
+# `l1/hud`.** They are read from the same frames in the same pass, so fusing
+# them would cost nothing to write -- but it would put the roster behind
+# `HUD_VERSION`, and then a `DETAIL_FLOOR` tweak would restamp all 34 HUD
+# columns as a new definition and a HUD bump would restamp every roster read as
+# new when nothing about the roster moved. That is exactly the comparability
+# fault `metrics.py` splits deps from context to avoid: a version that moves
+# for reasons unrelated to the number it stamps is not a version, it is noise.
+ROSTER_VERSION = "roster-0.1.0"

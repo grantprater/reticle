@@ -38,7 +38,7 @@ from pathlib import Path
 
 from .checks import KNOWN_KD, player_events
 from .store import DEFAULT_STORE, Store
-from .version import HUD_VERSION, MINIMAP_VERSION, PING_VERSION
+from .version import HUD_VERSION, MINIMAP_VERSION, PING_VERSION, ROSTER_VERSION
 
 LABEL_KINDS = ("minimap", "minimap_dynamic", "minimap_agent", "enemies", "map_mask")
 
@@ -78,7 +78,8 @@ def stored_versions(root: Path) -> dict[str, collections.Counter]:
 
     out: dict[str, collections.Counter] = {}
     for kind, fname, key in (("hud", "hud.parquet", b"hud_version"),
-                             ("minimap", "minimap.parquet", b"minimap_version")):
+                             ("minimap", "minimap.parquet", b"minimap_version"),
+                             ("roster", "roster.parquet", b"roster_version")):
         c: collections.Counter = collections.Counter()
         d = root / "l1" / kind
         if d.is_dir():
@@ -118,6 +119,7 @@ def collect(store: Store) -> dict:
            "hud_version": HUD_VERSION,
            "minimap_version": MINIMAP_VERSION,
            "ping_version": PING_VERSION,
+           "roster_version": ROSTER_VERSION,
            "stored": {k: dict(v) for k, v in stored_versions(root).items()}}
     label_rows: dict = collections.defaultdict(dict)
     for kind in LABEL_KINDS:
@@ -224,7 +226,8 @@ def render(data: dict, markdown: bool = False) -> str:
                          ("minimap", data["minimap_version"]),
                          # events, not a table -- but a version stamp nothing
                          # reports is a version stamp nothing can act on
-                         ("ping", data["ping_version"])):
+                         ("ping", data["ping_version"]),
+                         ("roster", data["roster_version"])):
         got = data.get("stored", {}).get(kind, {})
         if not got:
             continue

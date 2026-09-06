@@ -47,6 +47,13 @@ def main(argv=None) -> int:
     ap.add_argument("session")
     ap.add_argument("--probes", type=int, default=PROBES)
     ap.add_argument("--quiet", action="store_true")
+    # Read the STORED table instead of seeking. Same probe instants, so the
+    # number stays comparable with the seek-based figure on record -- the
+    # sampling rule is a dep, and changing it would make this a different
+    # quantity rather than a cheaper measurement of the same one.
+    ap.add_argument("--stored", action="store_true",
+                    help="read l1/roster rather than seeking the video "
+                         "(free, and the reason the table exists)")
     a = ap.parse_args(argv)
 
     store = Store()
@@ -63,9 +70,42 @@ def main(argv=None) -> int:
     import pyarrow.parquet as pq
     rounds = build_rounds(pq.read_table(store.hud_path(a.session, date)))
 
-    cap = cv2.VideoCapture(src["path"])
-    if not cap.isOpened():
-        raise SystemExit(f"could not open {src['path']}")
+    # The whole point of storing the roster: this audit stops costing a decode.
+    # `roster_alive` was written the day before the table existed and seeked for
+    # its frames -- 6 per round, and validating a reader should not need the
+    # capture at all once its output is L1. Seeking is kept as the fallback for
+    # a session that has not been scanned yet.
+    stored_t = stored_a = stored_e = None
+    if a.stored:
+        rt = store.read_roster(a.session, date)
+        stored_t = rt.column("t_ms").to_pylist()
+        stored_a = rt.column("alive_ally").to_pylist()
+        stored_e = rt.column("alive_enemy").to_pylist()
+        print(f"stored      {len(stored_t)} roster rows, no decode")
+
+    cap = None
+    if not a.stored:
+        cap = cv2.VideoCapture(src["path"])
+        if not cap.isOpened():
+            raise SystemExit(f"could not open {src['path']}")
+
+    def at(t_ms):
+        """(ally, enemy) nearest this instant -- from L1, or by seeking."""
+        if a.stored:
+            if not stored_t:
+                return None, None
+            j = min(range(len(stored_t)), key=lambda i: abs(stored_t[i] - t_ms))
+            # A row far from the instant asked for is not an answer. At 2 Hz a
+            # match is within 250 ms; anything past a second means the table
+            # simply does not cover this round.
+            if abs(stored_t[j] - t_ms) > 1000.0:
+                return None, None
+            return stored_a[j], stored_e[j]
+        cap.set(cv2.CAP_PROP_POS_MSEC, t_ms)
+        ok, fr = cap.read()
+        if not ok:
+            return None, None
+        return alive_counts(fr, prof, w, h)
 
     # ---- the CROSS-CHANNEL check ---------------------------------------
     # The roster is STATE and the killfeed is EVENTS, and they are read off
@@ -106,12 +146,8 @@ def main(argv=None) -> int:
             # answer the invariant. Same defect as reading an ability series
             # against the whole axis instead of its own window.
             f = 0.20 + 0.72 * k / max(1, a.probes - 1)
-            cap.set(cv2.CAP_PROP_POS_MSEC, a0 + (z0 - a0) * f)
-            ok, fr = cap.read()
+            ca, ce = at(a0 + (z0 - a0) * f)
             n_probe += 1
-            if not ok:
-                seq_a.append(None); seq_e.append(None); continue
-            ca, ce = alive_counts(fr, prof, w, h)
             n_read += (ca is not None) + (ce is not None)
             seq_a.append(ca); seq_e.append(ce)
         for seq in (seq_a, seq_e):

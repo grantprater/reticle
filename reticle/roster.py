@@ -64,6 +64,32 @@ which direction is in force at any time is not pedantry here -- circular
 validation has already cost this repo real work twice (`plant_probe`'s controls
 drawn from the population under test, and seeding `minimap_agent` with
 provisional rows).
+
+KNOWN DEFECT: an UNDRAWN roster reads as 0, not as unreadable
+--------------------------------------------------------------
+Found by `roster_alive.py --stored` on `c40d950031bb` the day the table
+landed, which is the audit doing its job on its first run. **9.6% of stored
+rows read `(0, 0)`**, and every one of them falls outside a round -- 0:08 to
+1:53, the pre-match menu and loading, plus 16:06-16:09 after the final round.
+Not one occurs mid-round.
+
+The mechanism is in `alive_from_detail`. When nothing on the bar is crisp,
+every split with an occupied slot is rejected by `DETAIL_FLOOR`, so `n = 0`
+wins by elimination and is returned as a CONFIDENT count. "No roster is drawn"
+and "all five are dead" are the same answer, and they should not be.
+
+One cause, both of this session's imperfect numbers: the three `-10` probes in
+the cross-channel check are round 0's first three, and the two "starts at 5"
+failures are round 0's two teams.
+
+**Not patched, deliberately.** `DETAIL_FLOOR`'s whole stated purpose is to
+resolve the all-dead case, so returning `None` there contradicts the reason it
+exists, and one session is not enough to reverse that on. The two candidate
+fixes are a drawn/undrawn test of the kind `minimap.widget_drawn` does for the
+widget, or bounding the reader to rounds rather than the whole capture. Both
+need a second session. Until then `(0, 0)` is the marker: it cannot happen
+inside a round, so treat it as not-in-round rather than as a count, and
+`reticle scan` prints the rate for exactly that reason.
 """
 
 from __future__ import annotations
