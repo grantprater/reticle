@@ -634,6 +634,42 @@ fingerprint`) rather than listed, because a hand-kept list rots in the silent
 direction -- add a knob, forget the list, and every later diff crosses a
 boundary it should have refused.
 
+**A moved number now carries whether the move CLEARS ITS OWN NOISE**
+(2026-09-06). `metrics.wilson(k, n)` for anything k-of-n, `bootstrap_ci` for
+anything else, passed to `record(ci={...})`; a `CHANGED` verdict then prints
+both intervals and says `SEPARATED` or `within noise`.
+
+**It applies to CHANGED only, and that is the whole design.** The obvious
+version -- let `BROKEN` fire only past the interval -- is wrong and was written
+into the plan before being caught: on `BROKEN` the deps AND context are
+identical, so the number had no licence to move at all, and an interval there
+would excuse exactly the small unversioned edit the check exists to catch.
+Reproducibility and significance are different questions and only one of them
+is about sampling. `--self-test` asserts a CI never softens `BROKEN`.
+
+Two traps, both live here:
+
+* **the interval must be DETERMINISTIC.** A resampled CI recorded into the log
+  would move run to run with identical deps and trip `BROKEN` every time --
+  the module failing its own check. `wilson` is closed-form; `bootstrap_ci`
+  takes a fixed `seed` and the docstring says not to vary it;
+* **n is the number of INDEPENDENT units, not of observations.** `roster_alive`
+  reports 43/48 probes agreeing and that is not 48 samples -- six probes inside
+  one round share a roster state, so it records the ROUND rate instead: 6/8,
+  95% CI **[41%, 93%]**. And this is why pixel counts must never be fed to
+  `wilson`: `floor_mask_eval` compares masks over ~225k spatially correlated
+  pixels, where an interval would come out microscopic and be badly wrong.
+
+**First retroactive read, and it corrects a claim already written down.**
+`NOTES.md` records the ability channel's current best as *worse than the 0.49 @
+0.85 that was on record, on three times the data*. Recall 0.85 rested on 27
+positives -- 95% CI **[0.675, 0.941]** -- against 0.68 on 85, CI
+**[0.577, 0.772]**. Those overlap, so **the decline is not established**; the
+old number was simply too weak to be worse than. The detector clearing the
+0.252 class baseline IS established (no overlap). Note the test is conservative
+in one direction: non-overlap implies a real difference, overlap does not
+disprove one, so read it as *not shown* rather than *not there*.
+
 **Only `pass` runs are ever a baseline, and that gate is structural** --
 `baseline()` has no flag to include a `broken` or `cannot-answer` run. A broken
 run allowed to become the new normal would re-baseline the fault and the check

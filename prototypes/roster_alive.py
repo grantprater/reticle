@@ -33,6 +33,7 @@ import sys
 import cv2
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from reticle import metrics                                       # noqa: E402
 from reticle.checks import track_entries                          # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
 from reticle.roster import alive_counts                           # noqa: E402
@@ -131,6 +132,12 @@ def main(argv=None) -> int:
     mono_bad = over_five = 0
     xc_ok = xc_seen = 0
     xc_diffs: list[int] = []
+    # Agreement per ROUND, not per probe. Six probes inside one round share a
+    # roster state and a killfeed window, so they are not six independent
+    # observations -- an interval built on 48 of them would be about half the
+    # width it should be. The round is the independent unit, and n=8 giving a
+    # wide interval is the honest picture rather than a defect.
+    round_ok: list[int] = []
     if not a.quiet:
         print(f"{'#':>3}  {'ally':<26}{'enemy':<26}")
     for i, r in enumerate(rounds):
@@ -190,6 +197,12 @@ def main(argv=None) -> int:
             xc_seen += 1
             xc_ok += d == 0
             xc_diffs.append(d)
+        seen_here = [k for k in range(len(seq_a))
+                     if seq_a[k] is not None and seq_e[k] is not None]
+        if seen_here:
+            round_ok.append(1 if all(
+                xc_diffs[-len(seen_here):][j] == 0 for j in range(len(seen_here))
+            ) else 0)
         if not a.quiet:
             fmt = lambda s: " ".join("?" if x is None else str(x) for x in s)
             print(f"{i:>3}  {fmt(seq_a):<26}{fmt(seq_e):<26}"
@@ -212,6 +225,25 @@ def main(argv=None) -> int:
               f"({xc_ok / xc_seen * 100:.0f}%)")
         print(f"  diffs      " + ", ".join(f"{k:+d} x{v}"
                                            for k, v in sorted(hist.items())))
+        if round_ok:
+            k, n = sum(round_ok), len(round_ok)
+            lo, hi = metrics.wilson(k, n)
+            print(f"  by ROUND   {k}/{n} rounds fully agree "
+                  f"({k / n * 100:.0f}%), 95% CI [{lo * 100:.0f}%, {hi * 100:.0f}%]")
+            print(f"             (the round is the independent unit -- probes "
+                  f"inside one are not)")
+            metrics.record(
+                "roster_alive", part="cross_channel", session=a.session,
+                values={"rounds_agree": k, "rounds": n,
+                        "rate": round(k / n, 4)},
+                # The reader's behaviour and the sampling rule both invalidate.
+                # `--stored` does NOT: it was verified to reproduce the seek
+                # path exactly, so it is the same measurement taken cheaper.
+                deps={"reader": metrics.fingerprint(alive_counts),
+                      "probes": str(a.probes)},
+                context={"n_rounds": n},
+                ci={"rate": list(metrics.wilson(k, n))},
+            )
     return 0
 
 

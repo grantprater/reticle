@@ -204,8 +204,14 @@ driver PER PARAMETER. Read both before picking this up; below is only state.
 * **per-session z-scoring is worth more than any weighting** (0.74 vs 0.64).
   The dominant recoverable variance is per-session, not per-object;
 * **current honest best**: equal-weight z-sum, per-session z, leave-one-session-
-  out -- precision 0.36, recall 0.68, AUC 0.74, against a 0.21 baseline. Worse
-  than the 0.49 @ 0.85 that was on record, on three times the data;
+  out -- precision 0.36, recall 0.68, AUC 0.74, against a 0.21 baseline.
+  **CORRECTED 2026-09-06: it is NOT established as worse than the 0.49 @ 0.85
+  that was on record.** That recall rested on 27 positives, 95% CI
+  [0.675, 0.941], against 0.68 on 85 at [0.577, 0.772] -- they overlap, so the
+  old figure was too weak to be worse than rather than better. Clearing the
+  0.252 class baseline IS established. This sentence asserted a decline for a
+  fortnight and the arithmetic never supported it; `metrics.wilson` exists now
+  so the next one says so on its own;
 * **the cast-anchored detector is built and emitting.**
   `prototypes/ability_cast.py`, joining `ability_hud.py`'s tray drops to the
   reference kit: **24 casts, 27 of 43 agent-named positives explained (63%)**,

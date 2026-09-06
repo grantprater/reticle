@@ -79,6 +79,64 @@ UNCHANGED = "UNCHANGED"
 DEFAULT_TOL = 0.0
 
 
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Confidence interval for a PROPORTION -- k successes of n.
+
+    Closed form and therefore DETERMINISTIC, which is not a nicety here: an
+    interval computed by resampling would differ run to run, and a value that
+    moves with identical deps is exactly what `BROKEN` exists to catch. A
+    stochastic CI recorded into the log would make this module fail its own
+    check. Prefer this over `bootstrap_ci` for anything that is k-of-n, which
+    is most of what this repo measures -- recall, precision, agreement rates.
+
+    Wilson rather than the textbook normal interval because the normal one is
+    badly wrong exactly where this project lives: small n, and proportions near
+    0 or 1, where it happily returns bounds outside [0, 1].
+    """
+    if n <= 0:
+        return (0.0, 1.0)
+    ph = k / n
+    d = 1 + z * z / n
+    centre = (ph + z * z / (2 * n)) / d
+    half = z * ((ph * (1 - ph) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return (max(0.0, centre - half), min(1.0, centre + half))
+
+
+def bootstrap_ci(sample, stat, n_boot: int = 2000, alpha: float = 0.05,
+                 seed: int = 0) -> tuple[float, float]:
+    """Percentile interval for any statistic of a resampleable sample.
+
+    For statistics that are NOT a simple proportion -- AUC, a median, anything
+    over (score, label) pairs. `sample` is a list of items and `stat` takes a
+    list of items, so resampling pairs works unchanged.
+
+    **`seed` is fixed on purpose and must stay fixed.** See `wilson`: a run
+    whose recorded numbers move without its deps moving is reported BROKEN, and
+    a freshly-seeded bootstrap would trip that every time. If a caller wants a
+    different draw it should say so in `deps`, because it is then a different
+    computation.
+    """
+    import random
+    if not sample:
+        return (0.0, 0.0)
+    rng = random.Random(seed)
+    n = len(sample)
+    idx = range(n)
+    draws = []
+    for _ in range(n_boot):
+        pick = [sample[rng.choice(idx)] for _ in range(n)]
+        draws.append(stat(pick))
+    draws.sort()
+    lo = draws[int(alpha / 2 * n_boot)]
+    hi = draws[min(n_boot - 1, int((1 - alpha / 2) * n_boot))]
+    return (lo, hi)
+
+
+def _overlap(a, b) -> bool:
+    """Do two intervals share any point? Conservative by construction."""
+    return not (a[1] < b[0] or b[1] < a[0])
+
+
 def load(path: Path | None = None) -> list[dict]:
     """Rows in file order, which is time order -- the log is append-only."""
     p = Path(path) if path else LOG
@@ -138,7 +196,7 @@ def fingerprint(*objs, **params) -> str:
 
 
 def record(tool, *, part="", session="", values, deps, context=None,
-           controls=(), status=None, tol=None, note="", log_path=None,
+           controls=(), status=None, tol=None, note="", ci=None, log_path=None,
            **extra) -> dict:
     """Append one run summary.
 
@@ -164,7 +222,8 @@ def record(tool, *, part="", session="", values, deps, context=None,
            "tool": tool, "part": part, "session": session,
            "status": status, "values": dict(values), "deps": dict(deps),
            "context": dict(context or {}), "controls": controls,
-           "tol": dict(tol or {}), "note": note, **extra}
+           "tol": dict(tol or {}), "ci": {k: list(v) for k, v in (ci or {}).items()},
+           "note": note, **extra}
     log = Path(log_path) if log_path else LOG
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("a", encoding="utf-8") as fh:
@@ -197,7 +256,8 @@ def compare(prev: dict | None, cur: dict) -> dict:
     """
     if prev is None:
         return {"verdict": None, "reason": "no comparable baseline",
-                "deps_changed": [], "context_changed": [], "values": {}}
+                "deps_changed": [], "context_changed": [], "values": {},
+                "established": {}, "ci_before": {}, "ci_after": {}}
 
     tol = {**prev.get("tol", {}), **cur.get("tol", {})}
     deps_changed = _differing(prev.get("deps", {}), cur.get("deps", {}))
@@ -222,8 +282,22 @@ def compare(prev: dict | None, cur: dict) -> dict:
         reason = "context changed: " + ", ".join(ctx_changed)
     else:
         verdict, reason = UNCHANGED, ""
+
+    # Whether a moved number moved by more than its own sampling error. Only
+    # meaningful on CHANGED -- see the module docstring: on BROKEN the deps and
+    # context are identical, so the number had no licence to move at all and an
+    # interval would only excuse a fault.
+    established = {}
+    if verdict == CHANGED:
+        pci, cci = prev.get("ci") or {}, cur.get("ci") or {}
+        for k in moved:
+            if k in pci and k in cci:
+                established[k] = not _overlap(pci[k], cci[k])
     return {"verdict": verdict, "reason": reason, "deps_changed": deps_changed,
             "context_changed": ctx_changed, "values": moved,
+            "established": established,
+            "ci_before": {k: (prev.get("ci") or {}).get(k) for k in moved},
+            "ci_after": {k: (cur.get("ci") or {}).get(k) for k in moved},
             "before_at": prev.get("at"), "after_at": cur.get("at")}
 
 
@@ -293,7 +367,17 @@ def report(rows=None, tool=None, log_path=None, verbose=False) -> str:
         else:
             lines.append(f"{name}: {v} -- {d['reason']}")
             for kk, (a, b) in d["values"].items():
-                lines.append(f"    {kk:<20} {_fmt(a):>12} -> {_fmt(b):>12}")
+                line = f"    {kk:<20} {_fmt(a):>12} -> {_fmt(b):>12}"
+                est = d.get("established", {}).get(kk)
+                if est is not None:
+                    ca, cb = d["ci_before"].get(kk), d["ci_after"].get(kk)
+                    band = (f"  [{_fmt(ca[0])}, {_fmt(ca[1])}] -> "
+                            f"[{_fmt(cb[0])}, {_fmt(cb[1])}]")
+                    # Overlapping intervals do not PROVE no effect -- the test
+                    # is conservative in that direction -- so the wording says
+                    # what was established rather than what is true.
+                    line += band + ("  SEPARATED" if est else "  within noise")
+                lines.append(line)
             if v == CHANGED:
                 for kk in d["context_changed"]:
                     lines.append(f"    ({kk} now {_fmt(run.get('context', {}).get(kk))})")
@@ -372,6 +456,52 @@ def _self_test() -> int:
            tol={"tp": 0.5}, **base)
     d = diff(rows=load(tmp))[0]
     check("tolerance covers tp, not fp", list(d["values"]), ["fp"])
+
+    # ---- intervals -------------------------------------------------------
+    # Wilson is deterministic and sane at the edges, which is the whole reason
+    # it is the default: the normal interval returns bounds outside [0,1] here.
+    lo, hi = wilson(9, 10)
+    check("wilson stays in [0,1]", lo >= 0.0 and hi <= 1.0, True)
+    check("wilson is deterministic", wilson(9, 10) == (lo, hi), True)
+    check("wilson narrows with n",
+          (wilson(90, 100)[1] - wilson(90, 100)[0]) < (hi - lo), True)
+    b1 = bootstrap_ci([1, 0, 1, 1, 0, 1, 1, 1], lambda v: sum(v) / len(v))
+    check("bootstrap is deterministic",
+          bootstrap_ci([1, 0, 1, 1, 0, 1, 1, 1], lambda v: sum(v) / len(v)) == b1,
+          True)
+
+    tmp.unlink(missing_ok=True)
+    base2 = dict(tool="ci", part="", session="s", log_path=tmp)
+    # Labels arrive and the number drifts inside its own error -> CHANGED, and
+    # explicitly NOT established.
+    record(values={"recall": 0.68}, deps={"v": "1"}, context={"n": 40},
+           ci={"recall": list(wilson(27, 40))}, **base2)
+    record(values={"recall": 0.64}, deps={"v": "1"}, context={"n": 44},
+           ci={"recall": list(wilson(28, 44))}, **base2)
+    d = diff(rows=load(tmp))[0]
+    check("small drift is CHANGED", d["verdict"], CHANGED)
+    check("small drift is NOT established", d["established"]["recall"], False)
+
+    # A move that clears both intervals at a decent n IS established.
+    record(values={"recall": 0.30}, deps={"v": "1"}, context={"n": 400},
+           ci={"recall": list(wilson(120, 400))}, **base2)
+    d = diff(rows=load(tmp))[0]
+    check("large drift is established", d["established"]["recall"], True)
+
+    # THE ONE THAT MATTERS. Same deps AND same context: the number had no
+    # licence to move, so an interval must not excuse it. This is the check the
+    # plan's own wording would have broken -- it asked for BROKEN to fire only
+    # past the interval, which would let an unversioned edit through whenever
+    # its effect was small. Reproducibility and significance are different
+    # questions and only one of them is about noise.
+    tmp.unlink(missing_ok=True)
+    record(values={"recall": 0.68}, deps={"v": "1"}, context={"n": 40},
+           ci={"recall": list(wilson(27, 40))}, **base2)
+    record(values={"recall": 0.67}, deps={"v": "1"}, context={"n": 40},
+           ci={"recall": list(wilson(27, 40))}, **base2)
+    d = diff(rows=load(tmp))[0]
+    check("a CI never softens BROKEN", d["verdict"], BROKEN_CMP)
+    check("BROKEN carries no established flag", d["established"], {})
 
     tmp.unlink(missing_ok=True)
     print("PASS" if ok else "FAIL")
