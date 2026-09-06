@@ -48,17 +48,26 @@ from his own framing:
 
 **What is ready, and what is not:**
 
-* **READY: alive counts.** `reticle/roster.py` reads them as per-frame state,
-  validated label-free on all 18 sessions (97.9% answered, starts-at-5 96.7%,
-  32 in-round increases, 0 over-five). **Not yet stored** -- it is a
-  `passes.Reader` and needs wiring into `scan` with its own small table and
-  version, the same shape as the ping reader. That is the first job;
-* **READY: cross-channel.** Roster (state) vs killfeed (events): deaths must
-  equal the drop in the two alive counts. 100/113 probes agree (88%) on
-  587c15b07779. **The 13 disagreements are the audit signal** and nobody has
-  looked at them. Direction is declared in the code and must not silently
-  reverse -- that run calibrates the roster; afterwards the killfeed is the
-  audited channel;
+* **DONE: alive counts are STORED.** `l1/roster` at `roster-0.1.0`, written by
+  `reticle scan`; the reader rides the HUD's own frames, so it costs no decode.
+  `status` reports its staleness. First session `c40d950031bb`: 1945 rows,
+  90.2% answered, 0 over-five. `roster_alive.py --stored` now runs the whole
+  audit off L1 with no decode and reproduces the seek path EXACTLY (43/48,
+  14/16, identical histogram) -- the end-to-end check on the wiring;
+* **The cross-channel audit found its first defect, and it is in the ROSTER.**
+  All five misses on `c40d950031bb` have ONE cause: an undrawn roster reads as
+  `0`, not as unreadable. 9.6% of stored rows are `(0,0)` and every one is
+  outside a round (0:08-1:53 pre-match, 16:06-16:09 after). Round 0's window
+  starts in that prologue, so its first three probes are the three `-10`s and
+  its two teams are the two `starts at 5` failures. **Not patched on one
+  session** -- `DETAIL_FLOOR` exists to resolve the all-dead case, so refusing
+  there contradicts its purpose. Fix is a drawn/undrawn test (as
+  `minimap.widget_drawn` does) or bounding the reader to rounds. Full note in
+  `roster.py`. Direction still holds and must not silently reverse: this
+  calibrates the roster; afterwards the killfeed is the audited channel;
+* **587c15b07779's 13 disagreements remain unopened** -- it needs a scan, and
+  every session now also wants a minimap re-read, which is TABLED in
+  `BACKLOG.md`;
 * **READY: window refinement.** `reticle/refine.py`. On the ping detector it
   takes precision 26% -> 42% at NO recall cost, killing every world, xmark and
   bar false positive (`prototypes/ping_edge_eval.py`);
