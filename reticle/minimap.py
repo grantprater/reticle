@@ -433,11 +433,22 @@ def filter_track(found: list[tuple[float, float, float]],
                   motion=None) -> list[tuple[float, float, float]]:
     """Drop impossible steps, then interpolate the short gaps they leave.
 
-    **`motion` selects the law.** `None` -- the default -- keeps the fixed
-    `RUN_PX * 1.6` gate this has always used, so no stored number moves until a
-    caller opts in. Pass a `track.CLASSES` key (or a `track.Motion`) and the
-    gate becomes `track.admits`, which is per-identity: a teleport is legal for
-    Omen, Chamber, Veto, Waylay and Yoru and for nobody else.
+    **`motion` selects the law**, and takes three shapes:
+
+        None                        the fixed `RUN_PX * 1.6` gate, unchanged
+        "walker_teleport"           `track.admits` for the WHOLE track
+        [(t0, t1, "walker_teleport"), ...]   that class inside each span in
+                                    ms, the default gate everywhere else
+
+    The third is the one to reach for, and the measurement says why. Applying a
+    class to a whole session is net **+835 observations and NEGATIVE on three
+    of five sessions** (`jump_census.py --motion`), because `admits` gives up
+    this gate's 1.6x slack everywhere to buy jumps in a few places. A span is
+    how the permissiveness gets spent only where something licensed it -- a
+    cast on the ability tray, which `prototypes/cast_motion.py` reads.
+
+    Spans need not be sorted and may overlap; the first one containing the
+    step's arrival time wins.
 
     Why the parameter exists, from `prototypes/jump_census.py` over 102,239
     steps: of the 11,599 observations the fixed gate drops, **54.7% sit at
@@ -496,10 +507,26 @@ def filter_track(found: list[tuple[float, float, float]],
 
     # Deferred: `track` imports RUN_PX from here, so a module-level import
     # would be circular. Nothing is imported at all on the default path.
-    mot = None
+    mot, spans = None, None
     if motion is not None:
         from . import track as _track
-        mot = motion if isinstance(motion, _track.Motion) else _track.CLASSES[motion]
+        if isinstance(motion, (list, tuple)):
+            spans = [(float(a), float(b),
+                      c if isinstance(c, _track.Motion) else _track.CLASSES[c])
+                     for a, b, c in motion]
+        elif isinstance(motion, _track.Motion):
+            mot = motion
+        else:
+            mot = _track.CLASSES[motion]
+
+    def law(t_ms):
+        """The class governing a step arriving at `t_ms`, or None for the gate."""
+        if spans is None:
+            return mot
+        for t0, t1, m in spans:
+            if t0 <= t_ms <= t1:
+                return m
+        return None
 
     keep: list = []
     jumps: set[int] = set()          # keep[i] -> keep[i+1] is a legal teleport
@@ -507,12 +534,13 @@ def filter_track(found: list[tuple[float, float, float]],
         if keep:
             dt = (p[0] - keep[-1][0]) / 1000.0
             dist = float(np.hypot(p[1] - keep[-1][1], p[2] - keep[-1][2]))
-            if mot is None:
+            m = law(p[0])
+            if m is None:
                 if dt > 0 and dist / dt > RUN_PX * scale * 1.6:
                     continue
             else:
                 from . import track as _track
-                ok, why = _track.admits(mot, dist, dt, scale)
+                ok, why = _track.admits(m, dist, dt, scale)
                 if not ok:
                     continue
                 if why == "teleport":

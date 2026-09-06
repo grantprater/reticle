@@ -366,6 +366,17 @@ def _self_test() -> int:
     check("a teleport gap is NOT interpolated",
           len(filter_track(gapped, step, motion="walker_teleport")), 2)
 
+    # A SPAN list applies a class only inside it. The jump sits at t=200 ms,
+    # so a span covering it keeps all four and a span missing it does not.
+    check("a span containing the jump keeps it",
+          len(filter_track(jump, step,
+                           motion=[(150.0, 250.0, "walker_teleport")])), 4)
+    check("a span elsewhere does not",
+          len(filter_track(jump, step,
+                           motion=[(900.0, 1000.0, "walker_teleport")])), 2)
+    check("an empty span list is the default gate",
+          len(filter_track(jump, step, motion=[])), 2)
+
     # The default path is untouched by any of this.
     check("default still interpolates a walkable gap",
           len(filter_track([(0.0, 0.0, 0.0), (500.0, walk, 0.0)], step)) > 2, True)

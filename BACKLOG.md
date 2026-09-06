@@ -314,7 +314,46 @@ instance. **38% is still the number to beat.**
 measured `R_MIN/R_MAX`, because the icon radius is a widget-size constant: a
 331 px widget wants 6-9 where the enlarged one wants 8-13.
 
-## Combine the detection channels: a CAST licenses a jump
+## ~~Combine the detection channels: a CAST licenses a jump~~ BUILT + MEASURED 2026-09-06
+
+**`prototypes/cast_motion.py`**, and it found the reason the whole chain has
+been underperforming. `filter_track` now also takes SPAN-conditional motion --
+`[(t0_ms, t1_ms, class), ...]`, the class inside each span and the default gate
+outside -- which is the mechanism this entry asked for.
+
+**The class map is DERIVED from `ability_reference`'s `functions` field**, not
+hand-listed: `Teleport` -> `walker_teleport` (5 abilities), `Dash` ->
+`walker_dash` (5). It disagrees with `track.py`'s prose note twice -- Waylay E
+is `Invulnerability Mobility` (a fast travel, not a discontinuity) and Raze Q
+is missing from the dash note. **`Displacement` was in the map for one run and
+was a real defect**: it describes what an ability does to ANYONE, so it
+licensed jumps for Astra, Breach, Deadlock and Miks, four ultimates that move
+enemies and leave the caster still.
+
+**THE MEASUREMENT, and it invalidates a constant.** `--steps` gives the largest
+step in the 3 s after each teleport cast, agent from the ingest tag:
+
+    yoru GATECRASH 4.6 / 6.3 px | omen Shrouded Step 38.5 / 40.1
+    veto Crosscut 65.0 / 6.8    | chamber Rendezvous 323.8
+    median 38.5 px, 1 of 8 reaching TELEPORT_PX
+
+`track.TELEPORT_PX` is 200 px and its own comment admits what it is -- a bound
+on the impossible, not a measurement. At 15 Hz `admits` allows a walker 3.0 px,
+so **`walker_teleport` REFUSES three of the four real teleports it exists to
+admit** ("too far to walk, too near to be a teleport"). The default gate
+refuses them too. Every short teleport lives in that dead zone, and that is
+also why item 1's session-wide `walker_teleport` was only +835: the teleport
+branch almost never fires on a real teleport.
+
+**NEXT, and do not skip the middle step:** `TELEPORT_PX` wants re-measuring,
+and n=8 casts on 4 solo clips is not enough to refit it on -- a constant fitted
+to the 8 observations that must pass is the degenerate-crop mistake again. The
+cheap way to get n is more teleport-agent clips, which cost the player a few minutes
+each. Two limits the run also established: a two-part teleport (Yoru, Chamber,
+Waylay) drops on PLACEMENT and jumps on traversal, so no fixed window catches
+it in general; and slot X still draws pips, so ultimates need the audio half.
+
+## Superseded discussion of the cast/jump combination
 
 **the player, 2026-09-06, and he notes he has raised it before:** *a teleport
 activated on the hotbar (or in audio once that's built) should be triggering an

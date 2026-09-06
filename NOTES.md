@@ -78,7 +78,33 @@ the fixed gate always had. Against a strict walker the teleport branch is worth
 NEGATIVE. So the old gate's slack was doing a motion class's job badly, for
 every agent at once.
 
-**NEXT: item 2, cast events select the class** -- and the numbers above are the
+**Item 2 is BUILT and MEASURED** (`prototypes/cast_motion.py`), and it found
+why the chain underperforms. `filter_track` also takes span-conditional motion
+now -- `[(t0_ms, t1_ms, class), ...]` -- which is the mechanism item 2 wanted.
+The class map is derived from `ability_reference`'s `functions` field rather
+than hand-listed (and `Displacement` had to come out of it: it licensed jumps
+for four ultimates that move ENEMIES, not the caster).
+
+**What a teleport actually looks like, measured for the first time** -- largest
+step in the 3 s after each teleport cast, agent from the ingest tag:
+
+    yoru GATECRASH 4.6 / 6.3 px    omen Shrouded Step 38.5 / 40.1 px
+    veto Crosscut 65.0 / 6.8 px    chamber Rendezvous 323.8 px
+
+**`track.TELEPORT_PX` (200 px) is far too high, and `walker_teleport` refuses
+three of the four real teleports it exists to admit** -- "too far to walk, too
+near to be a teleport". The default gate refuses them too. Every SHORT teleport
+lives in that dead zone, which is also why item 1's session-wide class was only
++835: the teleport branch almost never fires on a real teleport.
+
+**NEXT: `TELEPORT_PX` wants re-measuring, and n=8 on 4 solo clips is not enough
+to refit it on** -- fitting a constant to the observations that must pass is
+the degenerate-crop mistake. More teleport-agent demo clips are the cheap way
+to get n, and cost the player a few minutes each. Also open from the same run: a
+two-part teleport (Yoru, Chamber, Waylay) drops on PLACEMENT and jumps on
+traversal, so no fixed window catches it in general.
+
+*Superseded framing, kept for the argument:* **item 2, cast events select the class** -- and the numbers above are the
 argument for it rather than a per-session agent. the player: *a teleport activated
 on the hotbar (or in audio) should be triggering an expected agent teleport.* A
 session-wide class gives up the slack everywhere to buy jumps in a few places;
