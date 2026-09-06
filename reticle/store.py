@@ -487,6 +487,23 @@ class Store:
                 f.write(json.dumps(r) + "\n")
         return path
 
+    def events_version(self, kind: str, session_id: str) -> str | None:
+        """The version an event file was written at, or None if there is none.
+
+        Reads ONE line rather than parsing the whole file, because the caller
+        is asking an existence-and-staleness question and a session's events
+        are answered by any row -- `write_events` rewrites whole, so a file
+        cannot hold two versions.
+        """
+        path = self.events_path(kind, session_id)
+        if not path.is_file():
+            return None
+        with open(path, encoding="utf-8") as f:
+            for ln in f:
+                if ln.strip():
+                    return json.loads(ln).get(f"{kind}_version")
+        return None
+
     def read_events(self, kind: str, session_id: str) -> list[dict]:
         path = self.events_path(kind, session_id)
         if not path.is_file():

@@ -114,6 +114,26 @@ KNOWN_KD = {
     "c62c2b06bcfb": (13, 15),   # 13-18-48  Split
 }
 
+#: Divergences that are READ CORRECTLY and that the game does not count, so
+#: they must be subtracted before a residue is called a read error. Every entry
+#: needs a verified cause written beside it -- this table is an allowance, and
+#: an allowance with no reason is just a way of hiding a defect.
+#:
+#: the rule (CLAUDE.md): **Sage and Clove revive after a real death and
+#: that death counts; Phoenix and Kayo grant the second life BEFORE the fact,
+#: and those never counted.** Both entries below are the Phoenix case, seen
+#: from opposite sides, and both were confirmed entry by entry.
+KNOWN_DIVERGENCE: dict[str, tuple[int, int]] = {
+    # +4 deaths: all 24 tracked deaths read correctly and exactly four carry
+    # the Phoenix ult mark (13:21, 20:00, 29:13, 38:20). the deaths
+    # inside Run It Back. 24 - 4 = 20, the recorded figure.
+    "ff636d173b07": (0, 4),
+    # +1 kill: the same rule from the other side -- a kill on an ENEMY Phoenix
+    # inside Run It Back. 19/15 confirmed off the end screen; `board` agrees at
+    # all ~50 openings.
+    "bfad2778a372": (1, 0),
+}
+
 
 def _slots(mask) -> list[int]:
     if mask is None:
@@ -374,7 +394,30 @@ def check_hud(table) -> dict:
         )
         sid = table.column("session_id")[0].as_py() if "session_id" in names else None
         ev["known"] = KNOWN_KD.get(sid)
+        ev["allowed"] = KNOWN_DIVERGENCE.get(sid)
+        if ev["known"]:
+            ak, ad = ev["allowed"] or (0, 0)
+            ev["read_error"] = (ev["kills"] - ev["known"][0] - ak,
+                                ev["deaths"] - ev["known"][1] - ad)
         out["killfeed"] = ev
 
-    out["violations"] = drift + len(left_drops) + len(right_drops) + len(sum_jumps)
+    # The scoreboard delta COUNTS. It used to be computed here and left out of
+    # this sum, which made the one check that compares against something
+    # outside the pipeline unable to fail: `a06f04a0059f` is off by five events
+    # and `verify` would have printed "OK no invariant violations" but for an
+    # unrelated scoreline blip. CLAUDE.md calls KNOWN_KD "the only checks that
+    # compare against something outside the pipeline"; it was the only signal
+    # excluded from the verdict.
+    #
+    # `KNOWN_DIVERGENCE` is what keeps this honest in the OTHER direction. Per
+    # the call, a Run It Back event is read correctly and simply not
+    # counted by the game -- it must be LABELLED, not eliminated, or the next
+    # person tunes the extractor until a real duel disappears. So an allowed
+    # divergence is subtracted before the residue is called a fault, and the
+    # residue is what "read error" has always meant in the docs.
+    kf = out.get("killfeed") or {}
+    read_err = kf.get("read_error")
+    out["violations"] = (drift + len(left_drops) + len(right_drops)
+                         + len(sum_jumps)
+                         + (abs(read_err[0]) + abs(read_err[1]) if read_err else 0))
     return out

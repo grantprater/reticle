@@ -7,6 +7,7 @@ that is a decision, not a fact, and stays in CLAUDE.md by hand.*
 49 sessions ingested, 369 rounds derived.
 L1 hud: 18 at `hud-0.11.0`; code is at `hud-0.11.0`
 L1 minimap: 3 at `minimap-0.1.0`, 1 at `minimap-0.2.0`; code is at `minimap-0.2.0` -- **3 STALE**, re-read with `reticle scan`
+L1 ping: 1 at `ping-0.1.0`; code is at `ping-0.1.0`
 12 of 17 exact against `checks.KNOWN_KD`.
 Plants: 183/369 rounds (50%).
 

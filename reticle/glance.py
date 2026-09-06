@@ -316,10 +316,26 @@ def build(items: list[Item], *, question: str, classes: list[str],
     `truth_source` says where the controls' answers came from and is REQUIRED
     when any item carries one -- see the module docstring on why a control from
     my own prior claim measures nothing.
+
+    **So are the two populations, and for the same reason.** They used to
+    default to `""`, which made `population_mismatch` come back `False` -- an
+    asserted negative from a question nobody answered. Every sheet in the store
+    was built that way, including `plant_probe`, which is the textbook case:
+    controls drawn from frames where the clock READ, items from frames where it
+    did not. CLAUDE.md lists this convention as ENFORCED; it was opt-in, and
+    the enforcement mechanism was itself breaking *never guess a value*.
+    Unknown is now `None`, and controls without a declared population raise the
+    way controls without a `truth_source` already did.
     """
     controls = [i for i in items if i.is_control]
     if controls and not truth_source:
         raise ValueError("controls present but truth_source is empty")
+    if controls and not (control_population and item_population):
+        raise ValueError(
+            "controls present but control_population/item_population are not "
+            "both declared -- a control from a different population sets a "
+            "FLOOR and never a ceiling, and the sheet has to say so on its "
+            "own face. Pass both; pass the same string twice if they match.")
     classes = list(classes)
     if CANT_TELL not in classes:
         classes.append(CANT_TELL)
@@ -353,8 +369,11 @@ def build(items: list[Item], *, question: str, classes: list[str],
     # population, and the cam sheets drew controls from `enemy` marks
     # while asking about `other_red` -- a floor, not a ceiling, and it was
     # only ever noted in prose. Now the sheet says so on its own face.
-    pop_mismatch = bool(control_population and item_population
-                        and control_population != item_population)
+    # None, not False, when nobody said. A sheet with no controls has no
+    # populations to compare and must not record a clean bill for a question
+    # that was never asked.
+    pop_mismatch = (None if not (control_population and item_population)
+                    else control_population != item_population)
     if pop_mismatch:
         warnings.append(f"controls are {control_population!r} but the open "
                         f"items are {item_population!r}: this measures a "
@@ -598,7 +617,8 @@ def _self_test(out_dir: Path) -> int:
     sh = present(items, question="SELF TEST -- is the ringed thing a ring (cam) "
                                  "or a line (not-cam)?",
                  classes=["cam", "not-cam"], zoom=6, pad=14,
-                 truth_source="synthetic (self-test)", domain="selftest", seed=1)
+                 truth_source="synthetic (self-test)", domain="selftest", seed=1,
+                 control_population="synthetic", item_population="synthetic")
     png = sh.write(out_dir)
     assert sh.manifest["n_controls"] == 3, sh.manifest["n_controls"]
     assert len(sh.key) == 3
@@ -612,6 +632,7 @@ def _self_test(out_dir: Path) -> int:
     bad = {d: ("cam" if v == "not-cam" else "not-cam") for d, v in sh.key.items()}
     sh2 = present(items, question="SELF TEST -- void path", classes=["cam", "not-cam"],
                   zoom=6, pad=14, truth_source="synthetic (self-test)",
+                  control_population="synthetic", item_population="synthetic",
                   domain="selftest", seed=2)
     sh2.write(out_dir)
     bad2 = {d: ("cam" if v == "not-cam" else "not-cam") for d, v in sh2.key.items()}
@@ -621,6 +642,7 @@ def _self_test(out_dir: Path) -> int:
     # a claude-sourced control must be refused outright
     sh3 = present(items[:4], question="SELF TEST -- seeded control", classes=["cam", "not-cam"],
                   zoom=4, pad=10, truth_source="claude-provisional",
+                  control_population="synthetic", item_population="synthetic",
                   domain="selftest", seed=3)
     sh3.write(out_dir)
     try:
@@ -644,7 +666,8 @@ def _self_test(out_dir: Path) -> int:
     boundary([Item(image=src, box=(140, 140, 8, 8), key="p0", overlay=mask, truth="inside"),
               Item(image=src, box=(40, 40, 8, 8), key="p1", overlay=mask, truth="outside")],
              question="SELF TEST -- inside the amber region?", zoom=4, pad=24,
-             truth_source="synthetic", domain="selftest", seed=5).write(out_dir)
+             truth_source="synthetic",
+                 control_population="synthetic", item_population="synthetic", domain="selftest", seed=5).write(out_dir)
     count(plain[:6], question="SELF TEST -- how many rings?", zoom=4, pad=10,
           domain="selftest", seed=6).write(out_dir)
     correspond(plain[:4], question="SELF TEST -- same object?", zoom=4, pad=10,

@@ -827,14 +827,16 @@ def cmd_scan(args) -> int:
 
     want_hud = args.force or not store.has_hud(sid, date)
     want_mm = args.force or not store.has_minimap(sid, date)
-    # Pings are events rather than a versioned table, so "already read" is
-    # simply "the file is there" -- a reader that costs no decode of its own
-    # earns no cache key. It still gates the pass, so a session that has HUD
-    # and minimap but no pings is not reported as a cache hit.
-    want_ping = args.ping and (args.force or not store.read_events("ping", sid))
+    # Pings are events rather than a versioned table, but the cache key is the
+    # VERSION, not the file's existence. Keying on existence made `PING_VERSION`
+    # a stamp nothing read: bumping it re-read nothing, and a store could hold
+    # pings at three definitions with no way to say which sessions were stale --
+    # which is the one job version.py says a stamp exists to do.
+    want_ping = args.ping and (args.force
+                               or store.events_version("ping", sid) != PING_VERSION)
     if not (want_hud or want_mm or want_ping):
         print(f"cache hit  session {sid} has HUD at {HUD_VERSION}, minimap at "
-              f"{MINIMAP_VERSION} and pings; pass --force to re-read")
+              f"{MINIMAP_VERSION}, pings at {PING_VERSION}; --force to re-read")
         return 0
 
     print(f"session    {sid}  ({src['filename']})")
@@ -1062,6 +1064,16 @@ def cmd_verify(args) -> int:
             k_err, d_err = kf["kills"] - known[0], kf["deaths"] - known[1]
             print(f"           scoreboard says {known[0]} / {known[1]}"
                   f"   delta {k_err:+d} / {d_err:+d}")
+            allow = kf.get("allowed")
+            if allow:
+                print(f"           allowed {allow[0]:+d} / {allow[1]:+d}  "
+                      f"(read correctly, not counted by the game "
+                      f"-- see checks.KNOWN_DIVERGENCE)")
+            re_ = kf.get("read_error")
+            if re_:
+                print(f"           READ ERROR {re_[0]:+d} / {re_[1]:+d}"
+                      + ("   (this is the number that should go to zero)"
+                         if any(re_) else "   -- exact"))
         else:
             print("           no scoreboard K/D recorded for this session "
                   "-- add it to checks.KNOWN_KD to score attribution")

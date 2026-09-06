@@ -38,7 +38,7 @@ from pathlib import Path
 
 from .checks import KNOWN_KD, player_events
 from .store import DEFAULT_STORE, Store
-from .version import HUD_VERSION, MINIMAP_VERSION
+from .version import HUD_VERSION, MINIMAP_VERSION, PING_VERSION
 
 LABEL_KINDS = ("minimap", "minimap_dynamic", "minimap_agent", "enemies", "map_mask")
 
@@ -90,6 +90,24 @@ def stored_versions(root: Path) -> dict[str, collections.Counter]:
                     continue
                 c[md.get(key, b"?").decode()] += 1
         out[kind] = c
+
+    # Events are not parquet and were invisible here, which is half of why
+    # `PING_VERSION` could be written by every row and read by nothing. A
+    # store holding pings at two definitions now says so.
+    c = collections.Counter()
+    d = root / "events" / "ping"
+    if d.is_dir():
+        for f in sorted(d.glob("*.jsonl")):
+            v = None
+            try:
+                for ln in f.read_text(encoding="utf-8").splitlines():
+                    if ln.strip():
+                        v = json.loads(ln).get("ping_version")
+                        break
+            except Exception:
+                v = "unreadable"
+            c[v or "(no rows)"] += 1
+    out["ping"] = c
     return out
 
 
@@ -99,6 +117,7 @@ def collect(store: Store) -> dict:
     out = {"sessions": [], "store": str(root),
            "hud_version": HUD_VERSION,
            "minimap_version": MINIMAP_VERSION,
+           "ping_version": PING_VERSION,
            "stored": {k: dict(v) for k, v in stored_versions(root).items()}}
     label_rows: dict = collections.defaultdict(dict)
     for kind in LABEL_KINDS:
@@ -146,8 +165,13 @@ def collect(store: Store) -> dict:
                 rs = build_rounds(pq.read_table(store.hud_path(sid, date)))
                 if rs:
                     rec["n_rounds"] = len(rs)
-                    rec["won"] = sum(1 for r in rs if r["won"])
-                    rec["lost"] = len(rs) - rec["won"]
+                    # `is True` / `is False`, not truthiness: an unresolved
+                    # side leaves `won` NULL, and `len(rs) - won` would book
+                    # every one of those as a loss. `cmd_rounds` already
+                    # excludes nulls and this disagreed with it -- the wrong
+                    # one being the half that generates STATUS.md.
+                    rec["won"] = sum(1 for r in rs if r["won"] is True)
+                    rec["lost"] = sum(1 for r in rs if r["won"] is False)
                     rec["planted"] = sum(1 for r in rs if r["spike_planted"])
                     # Per-round sums, kept because the GAP between these and
                     # the session totals below is itself a measurement: it is
@@ -197,7 +221,10 @@ def render(data: dict, markdown: bool = False) -> str:
     L.append(f"{len(ss)} sessions ingested, "
              f"{sum(s['n_rounds'] or 0 for s in ss)} rounds derived.")
     for kind, code_v in (("hud", data["hud_version"]),
-                         ("minimap", data["minimap_version"])):
+                         ("minimap", data["minimap_version"]),
+                         # events, not a table -- but a version stamp nothing
+                         # reports is a version stamp nothing can act on
+                         ("ping", data["ping_version"])):
         got = data.get("stored", {}).get(kind, {})
         if not got:
             continue

@@ -159,7 +159,14 @@ def sample_spans(path: str, spans_ms: list[tuple[float, float]], target_hz: floa
             while si < len(spans) and t_ms > spans[si][1]:
                 si += 1
                 if si < len(spans):
-                    next_t = max(next_t if next_t is not None else 0.0, spans[si][0])
+                    # A NEW SPAN IS A NEW PHASE. `max(next_t, s0)` kept the old
+                    # stride whenever it landed past the new span's start, which
+                    # is what the docstring above says does not happen and what
+                    # `sample_multi` correctly does not do (it sets None). The
+                    # two therefore disagreed by up to one frame at every span
+                    # boundary, which quietly undercut `scan`'s claim to be
+                    # frame-for-frame identical to running both stages.
+                    next_t = spans[si][0]
             if si >= len(spans):
                 break
             s0, s1 = spans[si]

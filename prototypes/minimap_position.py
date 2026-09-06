@@ -254,28 +254,19 @@ def _roi_px(prof, w, h):
     return next(r for r in prof.rois if r.name == "minimap").pixels(w, h)
 
 
-def static_map(cap, fps, spans, box, n=120):
-    """The map with every icon removed, as a per-pixel median."""
-    x0, y0, x1, y1 = box
-    total = sum(b - a for a, b in spans)
-    stride = total / n
-    frames = []
-    for a, b in spans:
-        t = a
-        while t < b:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t / 1000.0 * fps)))
-            ok, fr = cap.read()
-            if ok:
-                frames.append(fr[y0:y1, x0:x1])
-            t += stride
-    return np.median(np.stack(frames), axis=0).astype(np.uint8)
-
-
-def floor_mask(med):
-    """The opaque walkable slab. Everything else is see-through and churns."""
-    hsv = cv2.cvtColor(med, cv2.COLOR_BGR2HSV)
-    m = (hsv[:, :, 1] < 60) & (hsv[:, :, 2] > 110)
-    return cv2.dilate(m.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+# PROMOTED. `static_map` and `floor_mask` live in `reticle/minimap.py` and are
+# re-exported here rather than copied, which is what `drawn`/`usable` got at
+# their promotion and this file did not. The copies left behind were BYTE
+# IDENTICAL to the shipped pair, so nothing disagreed -- until the shipped
+# `floor_mask` changes, at which point every eval importing this module would
+# silently keep measuring the old behaviour while the pipeline measured the
+# new. That is the `built_by` stamp lesson with the stamp missing: the artefact
+# was versioned, the code path was not.
+#
+# The rule, now in CLAUDE.md: a promoted function is DELETED from its prototype
+# and re-exported, never copied. It is grep-checkable -- duplicate `def` names
+# across the two trees.
+from reticle.minimap import floor_mask, static_map              # noqa: E402,F401
 
 
 def _rings(mask, floor):

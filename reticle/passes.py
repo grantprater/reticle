@@ -34,7 +34,19 @@ import numpy as np
 
 
 class Reader(Protocol):
-    """What `run` needs of a reader. `hz` and `spans` decide which frames."""
+    """What `run` needs of a reader. `hz` and `spans` decide which frames.
+
+    **`finish` is part of the contract, not an extra.** It was left out of the
+    first version and that is a way for a reader to be silently inert: a
+    two-phase reader like `ping.PingReader` has no results at all until it is
+    called, while `_HudPass` and `_MinimapPass` accumulate into `.rows` and need
+    nothing. A fourth reader of the first kind, added to a `readers` list, would
+    have been fed every frame and produced nothing, with no error anywhere.
+    `run` now calls it on every reader that has one, so the failure cannot
+    happen -- and calling it twice is not an error, because the two-phase
+    readers here are idempotent by construction (`finish` recomputes from
+    accumulated state rather than consuming it).
+    """
 
     name: str
     hz: float
@@ -166,4 +178,8 @@ def run(ctx: SessionContext, readers: list, progress=None) -> int:
             by_name[name].feed(smp)
         if progress is not None:
             progress(n, smp)
+    for r in readers:
+        fin = getattr(r, "finish", None)
+        if callable(fin):
+            fin()
     return n
