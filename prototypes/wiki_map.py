@@ -65,6 +65,52 @@ required -- `widget_drawn`'s correlation, the two-state interval residual and
 every ability diff need to know what THESE pixels look like with nothing on
 them, and no external render can say that. The two stop being one array.
 
+What the art encodes, and the two hopes for it
+--------------------------------------------------
+the player, on why he raised it: *what I'm hoping this fixes the tiny holes in the
+map firing off misreads, and makes the boxes easier to identify.* Measured:
+
+**The alpha channel is exactly binary.** 0.0% of Ascent's and Split's pixels
+carry a partial alpha, 0.5% of Lotus's. So the footprint is STATED, not
+inferred, and there is no threshold anywhere in it.
+
+**The greys are quantised, and the levels are structure.** Ascent's opaque
+pixels, by value:
+
+    118  69.0%   the base floor
+    255   6.2%   the white line-work
+    139   3.9%       145   2.8%    |  raised platforms, ramps, and BOXES -- rendered on the
+    133   1.7%    |  map as small discrete rectangles at exactly the places
+    136   0.9%    |  a box stands
+    122   1.2%   /
+    221   0.6%
+    everything else < 0.4% each, and it is antialiasing
+
+plus `BGR (118,152,152)` at 6.0%, the olive of the bomb sites, which is the
+only non-grey. **So boxes and elevation come free as a lookup**, where
+`minimap_geometry`'s box/wall split is described in this file as "already known
+to be poor" -- the second hope, answered.
+
+**His first hope needs a correction, and the correction is the useful part.**
+The "tiny cracks in the minimap" are NOT interior holes in the art: Ascent has
+8 interior holes, Lotus 13, Split 10, and they are mostly LARGE (median 563 to
+2670 widget px, only 0-3 per map under 60). Counting holes does not find them.
+
+What differs is the DILATION. `floor_mask` grows its answer by 9 px on purpose
+-- so a red enemy ring OVERHANGING the slab edge is still scored -- and a 9 px
+dilation closes every crack narrower than that, which makes cracks read as
+floor. The art does not dilate, so a candidate sitting in a crack is refusable
+exactly.
+
+**Do not read that as "floor_mask is 40% wrong".** It is 51.5% of the widget
+against the art's 30.6%, but those two masks have different jobs and the
+comparison is not like for like: the dilation is deliberate and load-bearing
+for ring detection. The mask that IS comparable is the ability channel's
+`searchable`, and there the painting is 29.8% against the art's 30.6% --
+agreeing at 92.7% IoU. **The art is a drop-in for the searchable rule; it is
+not a replacement for `floor_mask`, and swapping it in there would cost enemy
+recall at the slab edge.**
+
 Fitting a map with no painting
 -------------------------------
 Sixteen maps have no painted ground truth, so the fit there aligns the art's
@@ -107,6 +153,26 @@ API = "https://valorant.fandom.com/api.php"
 #: distinct values over the whole image, almost all 0 or 255 -- so this is a
 #: formality rather than a tuned edge.
 ALPHA_MIN = 40
+
+#: How far the wiki's art is rotated from what the game draws, per map.
+#:
+#: **THE, 2026-09-05, read off the maps directly -- not fitted.** The search
+#: in `fit()` recovers 270 for Ascent and 0 for Lotus unprompted, which is what
+#: makes this table checkable, but it is minutes per map to derive and seconds
+#: for him to look at. Ask, do not derive.
+#:
+#: His reading of the split, which is the part no measurement would have given:
+#: *all of the maps either kept the rotation the same or did the same rotation
+#: as ascent ... seems like basically based on the geometry of the maps.* So
+#: there are exactly TWO values and the choice follows the map's shape -- a
+#: long map is turned to fit the square widget. That is why a third value has
+#: never appeared and probably will not.
+ROTATION = {
+    "bind": 0.0, "breeze": 0.0, "fracture": 0.0, "pearl": 0.0,
+    "lotus": 0.0, "sunset": 0.0,
+    "haven": 270.0, "split": 270.0, "ascent": 270.0,
+    "icebox": 270.0, "abyss": 270.0, "corrode": 270.0,
+}
 
 
 def fetch(names: list[str]) -> None:
@@ -215,6 +281,8 @@ def main(argv=None) -> int:
     g.add_argument("--fine", action="store_true",
                    help="1-degree rotation search around the coarse answer")
     g.add_argument("--dump", default=None)
+    g.add_argument("--search-rot", action="store_true",
+                   help="re-derive the rotation instead of using the table")
     a = ap.parse_args(argv)
 
     if a.cmd == "fetch":
@@ -238,11 +306,18 @@ def main(argv=None) -> int:
         target = lab == (1 + int(np.argmax(st[1:, 4]))) if n > 1 else m
         what = "the derived floor_mask"
 
-    best = fit(alpha, target)
+    # With the rotation known the fit has TWO free parameters, not three, and
+    # the search becomes a check rather than a derivation.
+    known = ROTATION.get(a.map)
+    rots = [known] if (known is not None and not a.search_rot) else range(0, 360, 5)
+    if known is not None and not a.search_rot:
+        print(f"  rotation {known:.0f} deg from the table (--search-rot to re-derive)")
+    best = fit(alpha, target, rots=rots)
     if a.fine:
         v, rot, s, _dx, _dy = best
-        best = fit(alpha, target,
-                   rots=np.arange(rot - 4, rot + 4.1, 1.0),
+        fine_rots = ([rot] if (known is not None and not a.search_rot)
+                     else np.arange(rot - 4, rot + 4.1, 1.0))
+        best = fit(alpha, target, rots=fine_rots,
                    scales=np.arange(s * 0.94, s * 1.06, s * 0.006))
     v, rot, s, dx, dy = best
     print(f"{a.map} art vs {what} ({a.session})")
