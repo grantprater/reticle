@@ -103,9 +103,26 @@ def minimap_roi_px(profile: Profile, w: int, h: int) -> tuple[int, int, int, int
     return next(r for r in profile.rois if r.name == "minimap").pixels(w, h)
 
 
+def median_widget(frames) -> np.ndarray:
+    """The widget with every icon removed, as a per-pixel median.
+
+    Icons move, map furniture does not. Split out of `static_map` on
+    2026-09-06: this half was the whole of `prototypes/minimap_icons.static_map`
+    for ten days, which is the same fork `floor_mask` had -- one name, two
+    definitions, in the two files that already disagreed about the slab.
+
+    The two callers differ only in where the frames come from. A clip takes
+    them directly, because a short lossless capture is never ingested and has
+    no spans; a session samples them off active spans below.
+    """
+    if len(frames) == 0:
+        raise SystemExit("no frames -- cannot build a static map")
+    return np.median(np.stack(frames), axis=0).astype(np.uint8)
+
+
 def static_map(cap, fps: float, spans: list[tuple[float, float]],
                 box: tuple[int, int, int, int], n: int = 120) -> np.ndarray:
-    """The map with every icon removed, as a per-pixel median."""
+    """The map with every icon removed, sampled off active spans."""
     x0, y0, x1, y1 = box
     total = sum(b - a for a, b in spans)
     stride = total / n if total > 0 else 1.0
@@ -120,18 +137,164 @@ def static_map(cap, fps: float, spans: list[tuple[float, float]],
             t += stride
     if not frames:
         raise SystemExit("no active-span frames decoded -- cannot build a static map")
-    return np.median(np.stack(frames), axis=0).astype(np.uint8)
+    return median_widget(frames)
 
 
-def floor_mask(med: np.ndarray) -> np.ndarray:
-    """The opaque walkable slab. Everything else is see-through and churns."""
+#: The slab gate. Measured on the enlarged widget 2026-08-26: the map slab is
+#: pure grey (S=0, V=118) and the scenery hazing through the transparent part
+#: sits at S 36-58, V 97-140. **Value cannot do this job** -- the background is
+#: BRIGHTER than the floor, not darker -- so saturation is the discriminator
+#: and the level is tight on purpose.
+FLOOR_S_MAX, FLOOR_V_MIN = 20, 100
+
+#: The yellow plant zones, PROMOTED from `prototypes/minimap_geometry.py` on
+#: 2026-09-06 so the tint rule exists once. That module keys its `PLANT` class
+#: on these and adds the letter fill, which is a LABELLING concern; walkability
+#: is this.
+#:
+#: **A site is FLOOR.** the player, 2026-09-06, on a version of `floor_mask` that had
+#: just started excluding them: *why would floor mask exclude bomb sites? Those
+#: are part of the floor.* Exactly right, and it names the error: the tint is
+#: PAINT ON the floor, a rendering property, not a different surface. Measured
+#: consequence of getting it wrong -- 9.6% of stored self positions and 4.4-6.7%
+#: of ally positions on `a06f04a0059f` sit inside a site, so a slab-only mask
+#: blinds the position reader on exactly the ground a round is decided on.
+SITE_H = (15, 40)
+SITE_S, SITE_V = 40, 120
+#: A site is a painted REGION. This floors out warm specks and, with the
+#: touches-the-slab test, the agent HUD in the corner -- which a first widening
+#: of the hue test turned into a third "bomb site" of 10921 px of brown void.
+SITE_MIN_AREA = 500
+#: How close another component may sit to the main slab and still count as part
+#: of it -- a real room cut off by one narrow doorway, not a HUD element or an
+#: edge-scenery speck. the player caught Ascent's Boathouse being thrown away whole
+#: by a largest-component-only rule; the five closest unclaimed components on
+#: `a06f04a0059f` are 6.2-24.0 px away and all visibly real interior rooms,
+#: and the next jumps to 31 px and is a 5 px speck. 25 sits in that gap.
+#: A LENGTH, so it scales with the widget.
+BRIDGE = 25
+
+
+def floor_mask(med: np.ndarray, dilate: float = 9) -> np.ndarray:
+    """The opaque walkable slab. Everything else is see-through and churns.
+
+    **Reconciled 2026-09-06.** This function existed twice with different
+    behaviour -- here on `sat < 60 & val > 110` with a bare dilation, and in
+    `prototypes/minimap_icons.py` on `sat < 20 & val > 100` plus the component
+    rule below. They had been diverging since 2026-08-27, when the prototype
+    was improved and this copy was not; the promotion on 2026-09-02 took the
+    older branch. `CLAUDE.md` recorded the fork as byte-identical and harmless,
+    and by then it was neither.
+
+    Arbitrated against the two unseeded painted map masks
+    (`prototypes/floor_mask_eval.py`), which is the version kept:
+
+        a06f04a0059f  Ascent   sat<60  IoU 57.8%   sat<20  IoU 74.8%
+        5822b6646448  Lotus    sat<60  IoU 74.0%   sat<20  IoU 75.5%
+
+    The loose gate is a near-strict SUPERSET -- so it scores 100% recall on
+    both, which is what a superset of the answer always scores and is not a
+    result. What it adds on Ascent is 15.2% of the widget, **90.1% of it
+    outside the painting**: the semi-transparent void, which is the documented
+    cause of reading non-minimap content as icons.
+
+    **THE SITES ARE FLOOR, and the slab gate alone drops them.** A tight gate
+    lost 5.1% of the painting on Ascent as two compact blobs and three on
+    Lotus -- each map's site count exactly, all five at saturation ~58 where
+    the slab is S=0. the player, shown that: *why would floor mask exclude bomb
+    sites? Those are part of the floor.* The tint is paint ON the floor, so
+    `site_mask` joins them back and the union is what this returns.
+
+    Scored against the two paintings, which is the whole arbitration:
+
+        gate                       Ascent IoU   Lotus IoU   recall
+        sat<60, bare dilation         57.8%       74.0%      100%  (superset)
+        sat<20 slab only              74.8%       75.5%     94.9% / 96.8%
+        sat<20 slab | sites           78.8%       77.9%      100% / 100%
+
+    The old threshold caught the sites for the right reason and the void for
+    the wrong one with a single number, which is why it could not be tightened.
+    Separating slab from tint is what lets the void go without losing ground a
+    player actually stands on -- measured, 9.6% of stored self positions on
+    `a06f04a0059f` are inside a site.
+
+    That the union reproduces `minimap_geometry`'s independently-fitted `PLANT`
+    class exactly, on both maps, is the check on `site_mask` rather than a
+    coincidence -- `prototypes/floor_mask_eval.py` scores both and they agree
+    to the pixel.
+
+    Every length here scales with the widget, for the reason the dilation
+    already did: left fixed, a 9 px close eats proportionally wider cracks on a
+    smaller widget and quietly admits void. `widget_scale` is exactly 1.0 on
+    every capture read so far, so nothing measured moves -- which is how this
+    was verified, not an argument that it is safe.
+
+    `dilate` is exposed because the widget grew ~1.5x on 2026-08-26 and this
+    radius was measured before that. **`dilate=1` means no dilation at all**
+    and several ability callers rely on it, so it is preserved exactly rather
+    than rounded up to the minimum odd kernel.
+    """
+    scale = widget_scale(med.shape[1])
     hsv = cv2.cvtColor(med, cv2.COLOR_BGR2HSV)
-    m = (hsv[:, :, 1] < 60) & (hsv[:, :, 2] > 110)
-    # The 9 px dilation is a LENGTH -- it exists so a ring overhanging the slab
-    # edge is still scored -- so it scales linearly. Left fixed it would close
-    # proportionally wider cracks on a smaller widget and quietly admit void.
-    k = _odd(9 * widget_scale(med.shape[1]))
-    return cv2.dilate(m.astype(np.uint8), np.ones((k, k), np.uint8)) > 0
+    m = ((hsv[:, :, 1] < FLOOR_S_MAX) & (hsv[:, :, 2] > FLOOR_V_MIN)).astype(np.uint8)
+    # Join the floorplan's own thin corridors before taking a component, or the
+    # slab arrives as several pieces and the largest is one wing of the map.
+    c = _odd(5 * scale)
+    j = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((c, c), np.uint8))
+    n, lbl, st, _ = cv2.connectedComponentsWithStats(j, 8)
+    if n <= 1:
+        return np.zeros(m.shape, bool)
+    # Largest component drops the corner HUD and the edge-scenery specks by
+    # derivation rather than by a hand-drawn box. Then recover the rooms a
+    # narrow doorway cut off -- see BRIDGE.
+    big_id = 1 + int(np.argmax(st[1:, 4]))
+    big = (lbl == big_id).astype(np.uint8)
+    b = _odd(BRIDGE * scale)
+    near = cv2.dilate(big, np.ones((b, b), np.uint8)) > 0
+    for i in range(1, n):
+        if i != big_id and (lbl == i)[near].any():
+            big[lbl == i] = 1
+    # The sites are floor too, and they join BEFORE the dilation so a site's
+    # edge gets the same overhang margin the slab's does.
+    big |= site_mask(med, big > 0).astype(np.uint8)
+    d = int(round(dilate * scale))
+    if d > 1:
+        d = _odd(d)
+        big = cv2.dilate(big, np.ones((d, d), np.uint8))
+    return big > 0
+
+
+def site_mask(med: np.ndarray, slab: np.ndarray) -> np.ndarray:
+    """The yellow plantable zones -- painted floor, and floor is what they are.
+
+    Separate from the slab gate because they are separable in the pixels and
+    NOT separable in the old `sat < 60` threshold, which caught the sites and
+    the semi-transparent void with one number and could not be tightened
+    without losing the sites. Splitting them is what lets the void go.
+
+    `slab` is required rather than optional: a site is recognised as tinted
+    paint **that touches walkable ground**, which is what stops the agent HUD
+    in the corner becoming a third bomb site. That failure is on record -- a
+    first widening of the hue test grew one out of 10921 px of brown void on
+    Split, and nothing noticed because the npz was stale.
+    """
+    hsv = cv2.cvtColor(med, cv2.COLOR_BGR2HSV)
+    h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    tint = ((h >= SITE_H[0]) & (h <= SITE_H[1]) & (s > SITE_S) & (v > SITE_V))
+    scale = widget_scale(med.shape[1])
+    c = _odd(5 * scale)
+    tint = cv2.morphologyEx(tint.astype(np.uint8), cv2.MORPH_CLOSE,
+                            np.ones((c, c), np.uint8))
+    near = cv2.dilate(slab.astype(np.uint8), np.ones((c, c), np.uint8)) > 0
+    n, lbl, st, _ = cv2.connectedComponentsWithStats(tint, 8)
+    out = np.zeros(tint.shape, bool)
+    # Area is in PIXELS, so it scales with the widget's AREA, not its length.
+    min_area = SITE_MIN_AREA * scale * scale
+    for i in range(1, n):
+        comp = lbl == i
+        if st[i, 4] >= min_area and (comp & near).any():
+            out |= comp
+    return out
 
 
 #: Floor-slab mean brightness below which the widget is unreadable. The gap it

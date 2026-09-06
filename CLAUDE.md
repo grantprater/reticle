@@ -1138,6 +1138,33 @@ keeps silently measuring the old behaviour while the pipeline measures the new.
 That is the `built_by` stamp lesson with the stamp missing: the ARTEFACT was
 versioned, the CODE PATH was not.
 
+**CORRECTED 2026-09-06: they had ALREADY diverged when the paragraph above was
+written, and it said they had not.** `minimap_icons` gained `sat < 20`, a
+largest-component rule and `BRIDGE` on 2026-08-27; the promotion on 2026-09-02
+copied the *older* branch, so the shipped reader ran a gate the prototype had
+already measured and replaced five days earlier. Nine lines against sixty-one.
+Reconciled -- one `floor_mask`, one `median_widget`, one tint rule
+(`SITE_*`, promoted out of `minimap_geometry.PLANT_*`), scored against the
+two paintings by `prototypes/floor_mask_eval.py`:
+
+    gate                       Ascent IoU   Lotus IoU   recall
+    sat<60, bare dilation         57.8%       74.0%      100%  (a superset)
+    sat<20 slab only              74.8%       75.5%     94.9% / 96.8%
+    sat<20 slab | sites           78.8%       77.9%      100% / 100%   <- shipped
+
+**Two lessons, and the second is the one that generalises.** The check written
+to catch this could not see it: `git grep -h "^def "` matches the whole
+signature line, and the two were `floor_mask(med)` and
+`floor_mask(med, dilate=9)`. **Match on the NAME, in both trees.** And the
+slab-only middle row looked correct and was not -- the player, shown the two blobs
+it lost: *why would floor mask exclude bomb sites? Those are part of the
+floor.* The tint is paint ON the floor. A rendering property is not a
+different surface, and the old threshold's real fault was catching the sites
+and the void with one number.
+
+**All 34 geometry npz are STALE** -- `floor_mask` moved, so `classify()` moves.
+Rebuild before trusting any minimap number.
+
 **It is checkable rather than remembered** -- grep for a `def` name defined in
 both trees:
 

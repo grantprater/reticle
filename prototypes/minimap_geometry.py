@@ -96,6 +96,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle.profiles import get_profile                          # noqa: E402
+from reticle import minimap as mm                                 # noqa: E402
 from minimap_icons import floor_mask, static_map                  # noqa: E402
 
 STORE = Path.home() / "reticle-store"
@@ -144,9 +145,13 @@ WHITE_V, WHITE_S = 170, 60
 #
 # 40/120 sits in the middle of the plateau rather than on either edge, and the
 # zones it finds are within 10% of the loosest setting's.
-PLANT_H = (15, 40)
-PLANT_S, PLANT_V = 40, 120
-PLANT_MIN_AREA = 500
+# PROMOTED 2026-09-06 to `reticle/minimap.py` as SITE_*, because `floor_mask`
+# needs the same rule -- a site is FLOOR, so the slab gate alone was dropping
+# ground the position reader is read on. Aliased here rather than re-declared:
+# two copies of a threshold is exactly the fork that made `floor_mask` diverge
+# for ten days. The values are unchanged, so `classify()` returns what it did.
+PLANT_H, PLANT_S, PLANT_V = mm.SITE_H, mm.SITE_S, mm.SITE_V
+PLANT_MIN_AREA = mm.SITE_MIN_AREA
 # How far to look either side of a white pixel when asking whether the grey cuts
 # off. Lines are 1-2 px, so this has to clear the line itself and land on what
 # is beyond it.

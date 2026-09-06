@@ -1,0 +1,541 @@
+<title>The Reconciliation Pass</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+:root {
+  /* Fifth document in one system -- docs/metrics-addendum.html,
+     docs/ability-temporal.html, docs/ability-recognition.html,
+     docs/minimap-entity-model.html. Palette and colour language carried
+     unchanged. Two components are new (.item, .rank) because a PLAN has a
+     shape the other four did not need; no new colour token was required,
+     which is still the point of having one. */
+  --ground:      #f4f5f7;
+  --panel:       #ffffff;
+  --panel-sunk:  #eceef2;
+  --rule:        #d4d8e0;
+  --rule-soft:   #e3e6ec;
+  --ink:         #1b1f27;
+  --ink-mid:     #4c5464;
+  --ink-soft:    #6d7688;
+
+  --measured:      #1d6f74;
+  --unfalsifiable: #a82f7a;
+  --hazard:        #a8631a;
+  --deferred:      #7b8496;
+  --superseded:    #96402f;
+
+  --measured-bg:      #e8f3f3;
+  --unfalsifiable-bg: #fbeef5;
+  --hazard-bg:        #fbf2e6;
+  --deferred-bg:      #eef0f4;
+  --superseded-bg:    #f7ece9;
+
+  --measure: 68ch;
+}
+
+:root:not([data-theme="light"]) { color-scheme: light dark; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #14171d;
+    --panel:       #1b1f27;
+    --panel-sunk:  #101318;
+    --rule:        #333947;
+    --rule-soft:   #262c37;
+    --ink:         #e8eaef;
+    --ink-mid:     #a8b0c0;
+    --ink-soft:    #7d8698;
+    --measured:      #5fc0c4;
+    --unfalsifiable: #e878b8;
+    --hazard:        #e0a355;
+    --deferred:      #7d8698;
+    --superseded:    #e08a72;
+    --measured-bg:      #10262a;
+    --unfalsifiable-bg: #2a1526;
+    --hazard-bg:        #271c10;
+    --deferred-bg:      #1e222b;
+    --superseded-bg:    #2b1712;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:      #14171d;
+  --panel:       #1b1f27;
+  --panel-sunk:  #101318;
+  --rule:        #333947;
+  --rule-soft:   #262c37;
+  --ink:         #e8eaef;
+  --ink-mid:     #a8b0c0;
+  --ink-soft:    #7d8698;
+  --measured:      #5fc0c4;
+  --unfalsifiable: #e878b8;
+  --hazard:        #e0a355;
+  --deferred:      #7d8698;
+  --superseded:    #e08a72;
+  --measured-bg:      #10262a;
+  --unfalsifiable-bg: #2a1526;
+  --hazard-bg:        #271c10;
+  --deferred-bg:      #1e222b;
+  --superseded-bg:    #2b1712;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 17px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 56px 28px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 44px;
+}
+
+p { margin: 0; max-width: var(--measure); }
+ul { margin: 0; padding-left: 1.15em; max-width: var(--measure); display: flex; flex-direction: column; gap: 8px; }
+li { padding-left: 2px; }
+strong { font-weight: 600; }
+em { font-style: italic; }
+
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--ink-soft); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.eyebrow .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--measured); flex: none; }
+
+h1 {
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 700; font-size: clamp(32px, 5.4vw, 46px);
+  line-height: 1.08; letter-spacing: -0.022em; margin: 14px 0 16px; text-wrap: balance;
+}
+.standfirst { font-size: 20px; line-height: 1.5; color: var(--ink-mid); max-width: var(--measure); }
+.masthead-rule { height: 3px; background: var(--ink); margin-top: 30px; }
+
+section { display: flex; flex-direction: column; gap: 18px; }
+
+h2 {
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 700; font-size: 25px; letter-spacing: -0.014em; margin: 0;
+  display: flex; gap: 12px; align-items: baseline; text-wrap: balance;
+}
+h2 .marker {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px; font-weight: 500; color: var(--ink-soft); flex: none; padding-top: 2px;
+}
+h3 { font-family: Archivo, "Helvetica Neue", Arial, sans-serif; font-weight: 600; font-size: 17px; margin: 0; }
+
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.87em; background: var(--panel-sunk);
+  padding: 1px 5px; border-radius: 3px; color: var(--ink);
+}
+
+.chip {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 3px; white-space: nowrap;
+}
+.chip.measured      { color: var(--measured);      background: var(--measured-bg); }
+.chip.unfalsifiable { color: var(--unfalsifiable); background: var(--unfalsifiable-bg); }
+.chip.hazard        { color: var(--hazard);        background: var(--hazard-bg); }
+.chip.deferred      { color: var(--deferred);      background: var(--deferred-bg); }
+.chip.superseded    { color: var(--superseded);    background: var(--superseded-bg); }
+
+.scroller { overflow-x: auto; }
+
+table {
+  border-collapse: collapse; width: 100%;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px; font-variant-numeric: tabular-nums;
+}
+table th {
+  text-align: left; font-weight: 600; color: var(--ink-soft);
+  border-bottom: 1px solid var(--rule); padding: 7px 14px 7px 0; white-space: nowrap;
+}
+table td {
+  border-bottom: 1px solid var(--rule-soft); padding: 7px 14px 7px 0;
+  color: var(--ink-mid); vertical-align: top;
+}
+table td:first-child, table th:first-child { color: var(--ink); font-weight: 500; white-space: nowrap; }
+table .live { color: var(--measured); }
+table .dead { color: var(--superseded); }
+table .warn { color: var(--hazard); }
+
+.finding, .correction {
+  border-left: 3px solid var(--measured); background: var(--panel);
+  padding: 15px 18px; display: flex; flex-direction: column; gap: 8px;
+}
+.correction { border-left-color: var(--superseded); }
+.finding .label, .correction .label {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--measured);
+}
+.correction .label { color: var(--superseded); }
+.finding p, .correction p { font-size: 16px; }
+
+pre {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px; line-height: 1.55; background: var(--panel-sunk);
+  border: 1px solid var(--rule-soft); border-radius: 4px;
+  padding: 14px 16px; overflow-x: auto; margin: 0; color: var(--ink-mid);
+}
+
+/* The spine of THIS document: a dependency-ordered work item. The rank is
+   information -- item 2 cannot be started before item 1 lands -- which is the
+   only reason it is numbered at all. */
+.plan { display: flex; flex-direction: column; gap: 0; }
+.item {
+  display: grid; grid-template-columns: 44px 1fr; gap: 6px 18px;
+  padding: 18px 0; border-bottom: 1px solid var(--rule-soft);
+}
+.item:first-child { border-top: 1px solid var(--rule); }
+.rank {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 20px; font-weight: 600; color: var(--ink-soft);
+  line-height: 1.2; padding-top: 2px; font-variant-numeric: tabular-nums;
+}
+.item-body { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.item-head { display: flex; flex-wrap: wrap; gap: 9px; align-items: baseline; }
+.item-head h3 { font-size: 18px; }
+.item-body p { font-size: 16px; }
+.done {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12.5px; line-height: 1.5; color: var(--ink-mid);
+  border-left: 2px solid var(--rule); padding-left: 11px; max-width: var(--measure);
+}
+.done b { color: var(--ink); font-weight: 600; }
+
+/* §7 speaks in a quieter register on purpose -- these are not commitments. */
+.longshots { display: flex; flex-direction: column; gap: 0; }
+.shot {
+  display: grid; grid-template-columns: 190px 1fr; gap: 6px 20px;
+  padding: 14px 0; border-bottom: 1px solid var(--rule-soft);
+}
+.shot:first-child { border-top: 1px solid var(--rule-soft); }
+.shot-name {
+  font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 600; font-size: 15px; color: var(--ink); padding-top: 1px;
+}
+.shot-body { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.shot-body p { font-size: 15.5px; color: var(--ink-mid); }
+.shot-body p strong { color: var(--ink); }
+
+a { color: var(--measured); text-underline-offset: 2px; }
+a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+@media (max-width: 640px) {
+  .wrap { padding: 36px 18px 64px; gap: 34px; }
+  .item, .shot { grid-template-columns: 1fr; }
+  .rank { font-size: 15px; }
+}
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow"><span class="dot"></span> Reticle · architecture · 2026-09-06 · a plan, with one result already in</div>
+  <h1>The Reconciliation Pass</h1>
+  <p class="standfirst">The pipeline has forked in three places while nobody was looking, and the checks written to catch exactly that could not see any of them. This is what forked, what the arbitration says, and the order I would fix it in — followed by the work that comes next once the trunk is single again.</p>
+  <div class="masthead-rule"></div>
+</header>
+
+<section>
+  <h2><span class="marker">§1</span> The result that reorders the queue</h2>
+
+  <p><code>floor_mask</code> exists twice, and the two implementations disagree. <code>reticle/minimap.py</code> gates on <code>sat &lt; 60 &amp; val &gt; 110</code> and dilates; <code>prototypes/minimap_icons.py</code> gates on <code>sat &lt; 20 &amp; val &gt; 100</code>, takes the largest connected component, and bridges nearby ones. <code>CLAUDE.md</code> records this fork as byte-identical and therefore harmless. <strong>That note is stale.</strong> They are 9 lines and 61 lines, and they have been diverging since 2026-08-27.</p>
+
+  <p>the two painted map masks settle it. Both are unseeded, both predate the current form of either mask, and neither was made for this question — which is the good case.</p>
+
+  <div class="scroller">
+  <table>
+    <thead><tr><th>session</th><th>mask</th><th>area</th><th>recall</th><th>precision</th><th>IoU</th></tr></thead>
+    <tbody>
+      <tr><td>a06f04a0059f · Ascent</td><td>shipped</td><td>51.5%</td><td>100.0%</td><td class="dead">57.8%</td><td class="dead">57.8%</td></tr>
+      <tr><td></td><td>prototype</td><td>36.2%</td><td>94.9%</td><td class="live">78.0%</td><td class="live">74.8%</td></tr>
+      <tr><td>5822b6646448 · Lotus</td><td>shipped</td><td>42.2%</td><td>100.0%</td><td>74.0%</td><td>74.0%</td></tr>
+      <tr><td></td><td>prototype</td><td>39.1%</td><td>96.8%</td><td class="live">77.4%</td><td class="live">75.5%</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="finding">
+    <div class="label">The prototype mask wins, and the shipped mask's perfect recall is an artefact</div>
+    <p>The prototype's mask is a near-strict <em>subset</em> of the shipped one — it adds 0.01% on Ascent and 0.11% on Lotus, and none of that lands inside the painting. So the whole question is what the shipped mask adds on top, and on Ascent that extra 15.2% of the widget is <strong>90.1% outside the painting</strong>. It is the semi-transparent void, which is the single documented cause of reading non-minimap content as icons. Shipped scores 100% recall on both sessions because a superset of the answer trivially contains the answer; IoU is the column that means anything, and it is 74.8 against 57.8.</p>
+  </div>
+
+  <p>Two honest caveats, because this changes stored numbers. First, the painting is the <em>searchable</em> area and <code>floor_mask</code> is the <em>opaque slab</em> — related targets, not identical ones, and the verdict on his first painting was <em>that's not even close to pixel perfect … but that's the gist.</em> Second, I could not reproduce the prototype docstring's claim that <code>sat &lt; 60</code> "took 83% of the ROI". It takes 51.5%. That number is itself stale, which is the disease rather than a second opinion.</p>
+
+  <div class="correction">
+    <div class="label">And the prototype mask has its own defect, now localised</div>
+    <p>The 5.1% of Ascent it loses is not scattered edge pixels — it is <strong>two blobs, 2355 px and 1059 px</strong>, plus three on Lotus. Sweeping <code>BRIDGE</code> from 25 to 60 moves recall 94.9% → 95.3% and then costs precision, so these are not rooms cut off by a narrow gap. They fail <code>sat &lt; 20 &amp; val &gt; 100</code> outright. Render those two blobs and ask the player what they are; that is a one-minute question for him and an afternoon of derivation for anyone else. It is the same shape as the Boathouse finding that produced <code>BRIDGE</code> in the first place.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="marker">§2</span> What forked, and why nothing caught it</h2>
+
+  <p>Three forks, one mechanism. In each case a thing was added and the thing it superseded was left running.</p>
+
+  <div class="scroller">
+  <table>
+    <thead><tr><th>fork</th><th>state</th><th>who uses the other branch</th></tr></thead>
+    <tbody>
+      <tr><td><code>floor_mask</code></td><td class="dead">two implementations, divergent</td><td>shipped path + pings + xmark/chokepoint on one; all geometry, dynamic, ring-fit, portrait, ability work on the other</td></tr>
+      <tr><td><code>reticle/refine.py</code></td><td class="warn">shipped tree, not shipped</td><td>one prototype eval imports it; no CLI command calls it</td></tr>
+      <tr><td><code>reticle/roster.py</code></td><td class="warn">shipped tree, not shipped</td><td><code>RosterReader</code> appears zero times in <code>cli.py</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><strong>The duplicate-<code>def</code> check cannot see the fork it was written for.</strong> <code>git grep -h "^def " | sort | uniq -d</code> matches on the whole signature line, and the two are <code>floor_mask(med)</code> and <code>floor_mask(med, dilate=9)</code>. The check passes clean. It is the <code>built_by</code> lesson one level further out: the artefact was stamped, the code path was not, and then the <em>check on the code path</em> was written to match text rather than meaning.</p>
+
+  <p>Three more instances of the same drift, none urgent on its own and all pointing the same way:</p>
+
+  <ul>
+    <li><strong>19 of 70 prototypes are named by no other file and no document.</strong> The 2026-08-26 enemy-teacher cluster (~2,400 lines) is the part that reads as genuinely superseded rather than pending;</li>
+    <li><strong>persistence has forked four ways.</strong> The L0/L1/L2 design covers three tables — <code>hud</code>, <code>minimap</code>, <code>primitives</code>. Pings and abilities go to <code>events/*.jsonl</code>, casts to <code>casts/</code>, series to <code>series/</code>, rosters to <code>rosters/</code>, and the readable scoreboard goes nowhere. Version stamps, recompute triggers and <code>metrics</code> comparability only reach the parquet three, so every channel added since has landed <em>outside</em> the machinery built to keep channels honest;</li>
+    <li><strong>"shipped" has two meanings.</strong> <code>prototypes/CLAUDE.md</code> calls <code>minimap_ring_fit.py</code> the SHIPPED enemy finder; no module in <code>reticle/</code> imports it, and <code>reticle/minimap.py</code>'s docstring says enemy icons are out of scope. It means <em>chosen</em>, not <em>in the pipeline</em>.</li>
+  </ul>
+
+  <div class="finding">
+    <div class="label">The ratio worth staring at</div>
+    <p><code>prototypes/</code> is <strong>21,479 lines against <code>reticle/</code>'s 9,772</strong> — 2.2 to 1 — and it holds code the docs call shipped. Alongside it sits 3,956 lines of prose across the two <code>CLAUDE.md</code> files and <code>NOTES.md</code>. Neither ratio is wrong for an exploratory phase. Both mean that "which tree is the truth" has to be answered by a rule rather than by convention, because convention has now failed at it three times.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="marker">§3</span> The rule I would adopt, and how to make it refuse</h2>
+
+  <p>The existing rule — <em>a promoted function is DELETED from its prototype and re-exported, never copied</em> — is correct and was violated anyway, because nothing enforced it. The repo's own conversion audit already predicts this: every convention encoded as code that refuses has held, and every one written as prose has recurred. So the fix is not a better sentence.</p>
+
+  <p><strong>One name, one implementation, one tree.</strong> If a symbol is defined in <code>reticle/</code>, defining it again anywhere in <code>prototypes/</code> is an error. Not a warning, not a note. That is checkable in about fifteen lines of AST walk, and it catches all three forks above plus the ones not yet made.</p>
+
+  <p>I would fold that into a single command rather than a git hook, because a hook that fires on commit is a hook that gets bypassed under time pressure — which is precisely the condition under which the last three recurrences happened.</p>
+
+  <pre>reticle doctor            # every structural check, one exit code
+
+  DUPLICATE   floor_mask defined in reticle/minimap.py and
+              prototypes/minimap_icons.py  -- one name, one implementation
+  UNWIRED     reticle/refine.py, reticle/roster.py reachable from no CLI command
+  ORPHAN      19 prototypes named by no code and no document
+  STALE       3 sessions at minimap-0.1.0; code is at minimap-0.2.0
+  DONOR       2ba870ccbd50 is tagged small-widget and shares a
+              large-widget donor's static map</pre>
+
+  <p>Every one of those lines is a fact I had to derive by hand today, and every one will need deriving again next month. <code>reticle status</code> already proved the principle for the store — <em>a fact that is computed cannot disagree with the code</em>. This is the same move applied to the repo.</p>
+
+  <div class="finding">
+    <div class="label">The one convention I would try hardest to convert</div>
+    <p><strong>Align the window to the question</strong> has five recorded recurrences and is the most repeated mistake in the codebase. It cannot be caught by types, because the wrong span returns a plausible number of the right type. But it <em>can</em> be caught by refusal: a small <code>Window(t0, t1, why)</code> value that every aggregate takes and echoes into its own output. That does not stop you choosing the wrong window — nothing can — but it makes every printed figure carry the span it was computed over, which is the second of the three tells the convention already names. A number without a window becomes unprintable rather than merely unchecked.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="marker">§4</span> The CV assumptions I would attack, ranked</h2>
+
+  <p>These are ordered by how much they would change if they are wrong, not by how likely they are to be wrong.</p>
+
+  <div class="scroller">
+  <table>
+    <thead><tr><th>assumption</th><th>status</th><th>what it would cost</th></tr></thead>
+    <tbody>
+      <tr><td>Stage-02's recipe suits the minimap</td><td><span class="chip hazard">inherited</span></td><td>threshold → components → geometry filter was justified for flat HUD digits and carried unexamined onto 8&ndash;10 px glyphs composited over live 3D</td></tr>
+      <tr><td>The position track has ground truth</td><td><span class="chip unfalsifiable">circular</span></td><td>X-marks come from the killfeed, chokepoints from banner OCR — both pipeline outputs. Independent of the reader and of each other; not external</td></tr>
+      <tr><td>The homography is trivial</td><td><span class="chip deferred">unmeasured</span></td><td>no reprojection residual exists anywhere; scale is "roughly 0.2 m/px from map extent rather than calibration"</td></tr>
+      <tr><td>A moved metric is a result</td><td><span class="chip hazard">no interval</span></td><td>AUC 0.74 on 85 pos / 252 neg carries roughly ±0.06; <code>metrics</code> can say a number moved, never that it moved more than sampling error</td></tr>
+      <tr><td>Nearest-neighbour association is tracking</td><td><span class="chip deferred">holds so far</span></td><td>fine for a single self track; fails on ally identity, which is the named next step, exactly when two allies cross</td></tr>
+      <tr><td>the labels are the ceiling</td><td><span class="chip unfalsifiable">unmeasured</span></td><td>no self-agreement estimate exists, so "precision 0.36" has nothing to be read against</td></tr>
+      <tr><td>Thresholds survive a second capture regime</td><td><span class="chip hazard">one regime</span></td><td>every constant is fit to one player, one monitor, one OBS config, mostly Ascent</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="finding">
+    <div class="label">The cheapest unexploited idea in the repo</div>
+    <p>The per-region temporal SD map — 7.4 on white lines, 16.9 on the slab, 42.5 in the void — is, up to a constant, a map of <strong>how much world bleeds through each pixel</strong>. It is currently used once, as an argument, computed last to explain a conclusion after five derived masks had failed. It could be the per-pixel <em>weight</em> in every minimap detector, replacing the binary searchable mask that five derivations and a painting pass have each only partly settled. Soft weight instead of hard gate, per session, from frames already decoded. This is the one item on this page whose ceiling I genuinely cannot guess.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="marker">§5</span> The sequence</h2>
+
+  <p>Dependency-ordered. The numbering is real: each item's evidence or plumbing is produced by the one above it.</p>
+
+  <div class="plan">
+
+    <div class="item">
+      <div class="rank">01</div>
+      <div class="item-body">
+        <div class="item-head"><h3>Collapse <code>floor_mask</code> to one implementation</h3><span class="chip measured">arbitrated</span></div>
+        <p>Adopt the prototype's version into <code>reticle/minimap.py</code>, delete the prototype's copy, re-export. Then render the two lost Ascent blobs and ask the player what they are before touching the threshold. Everything minimap-shaped sits downstream of this, which is why it is first despite being the least interesting.</p>
+        <div class="done"><b>Done when:</b> one <code>def floor_mask</code> exists across both trees; <code>xmark_eval</code> and <code>chokepoint_eval</code> have been re-run and their new figures recorded through <code>metrics.record</code> as a deliberate dep change, not a silent one.</div>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="rank">02</div>
+      <div class="item-body">
+        <div class="item-head"><h3>Build <code>reticle doctor</code></h3><span class="chip measured">cheap</span></div>
+        <p>The five checks in §3. Written second rather than first so that item 01's fix is the thing that proves it fires — a checker whose first run is clean has not been tested.</p>
+        <div class="done"><b>Done when:</b> reverting item 01 in a scratch branch makes <code>doctor</code> exit non-zero on the <code>DUPLICATE</code> line.</div>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="rank">03</div>
+      <div class="item-body">
+        <div class="item-head"><h3>Wire the roster reader into <code>scan</code></h3><span class="chip measured">ready</span></div>
+        <p>Already <code>NOTES.md</code>'s first job, and item 02 now names it as a defect rather than a plan. Do it with the persistence question settled rather than deferred: this is the fourth channel to need somewhere to live, so decide the rule — <strong>anything with a version and a recompute trigger is an L1 table; anything else is not a channel yet</strong> — and move pings to match.</p>
+        <div class="done"><b>Done when:</b> <code>l1/roster</code> exists with its own version; <code>status</code> reports staleness for it; the 13 roster-vs-killfeed disagreements on <code>587c15b07779</code> have been looked at, because they are the audit signal and nobody has opened them.</div>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="rank">04</div>
+      <div class="item-body">
+        <div class="item-head"><h3>Give <code>metrics</code> an interval</h3><span class="chip hazard">changes verdicts</span></div>
+        <p>A bootstrap CI stored beside each value, and a <code>BROKEN</code> verdict that fires on a shift larger than the interval rather than on any shift at all. This is small, and it retroactively re-reads every comparison already in the log — including the ability numbers that drove a whole re-founding.</p>
+        <div class="done"><b>Done when:</b> a re-run with the same deps and a 0.01 drift reports <code>pass</code>, and the same drift at n=20 reports <code>broken</code>.</div>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="rank">05</div>
+      <div class="item-body">
+        <div class="item-head"><h3>Measure the label ceiling</h3><span class="chip unfalsifiable">unknown</span></div>
+        <p>Re-present ~30 already-answered items in the next labelling pass, shuffled in, unmarked. the self-agreement is a hard bound on any classifier and it is currently unknown, so every precision figure in the repo is being read against nothing. <code>glance.py</code> already does exactly this for my own perception; the asymmetry is not defensible.</p>
+        <div class="done"><b>Done when:</b> a self-agreement rate exists per label kind, and the ability numbers are quoted as a fraction of it rather than of 1.0.</div>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="rank">06</div>
+      <div class="item-body">
+        <div class="item-head"><h3>The object-grouping labelling pass</h3><span class="chip deferred">already queued</span></div>
+        <p>Unchanged from <code>NOTES.md</code> and still the right next substantive step — three unfalsifiable rules settled by one pass. It moves to sixth only because items 01 and 03 change the candidates it would be labelling, and the recorded cost of labelling stale candidates is two sessions of the clicking.</p>
+        <div class="done"><b>Done when:</b> the extending signature, the onset rule and the 10 refused positions each have a number.</div>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="rank">07</div>
+      <div class="item-body">
+        <div class="item-head"><h3>Ally identity, with a motion model</h3><span class="chip deferred">next channel</span></div>
+        <p>Constant-velocity Kalman, gated, with Hungarian assignment per frame. Roughly eighty lines, and the alternative is greedy nearest-neighbour, which is what the self track uses and which fails precisely when two allies cross — the case ally identity exists to handle. Worth writing down that the entity model's "causal, temporal, aggregated" plan <em>is</em> multi-object tracking, so the prior art is deep and should be read rather than re-derived.</p>
+        <div class="done"><b>Done when:</b> an identity swap rate exists, scored against the X-mark check on a session with a teammate death near the player.</div>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="rank">08</div>
+      <div class="item-body">
+        <div class="item-head"><h3>Then dA/ds, and only then</h3><span class="chip deferred">gated</span></div>
+        <p>The visibility field is the first thing on the critical path to the actual goal that is not plumbing, and it needs nothing from items 04&ndash;07 except a position track that is trusted. It has been gated on that since 2026-08-25 and item 01 is what ungates it.</p>
+        <div class="done"><b>Done when:</b> the scalar field is precomputed per map and "was the player near a high-dA/ds cell" is a lookup.</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2><span class="marker">§6</span> One question that changes the architecture</h2>
+
+  <p>The endstate says <strong>real-time labelling of a VOD</strong>. Everything downstream has read that as "runs over a whole match at a usable rate", and that reading may well be right — but it has never been put back to the player, and the two readings build different systems.</p>
+
+  <p>Nothing in the current design streams. The static map is a per-pixel median over ~120 seeks spread across the session; spans come from segmenting the whole file; every minimap detector depends on the median existing first. If real-time means live-while-playing, the median becomes an incremental warm-up estimate and the first round is read with a worse map than the last — a real, permanent accuracy cost that should be chosen deliberately rather than discovered in month three. If it means offline-but-fast, then throughput is a metric to record and nothing structural changes.</p>
+
+  <p><span class="chip hazard">ask, do not derive</span> This is a question, not a finding. It is on this page because it is the highest-leverage sentence the player could say in the next session, and because the project's own convention says to ask him on the first failure rather than the fifth.</p>
+</section>
+
+<section>
+  <h2><span class="marker">§7</span> Lower expected value, kept on the page anyway</h2>
+
+  <p>Asked for explicitly, and worth writing down because the cheap ones are cheap enough that being wrong about them costs an hour. Roughly descending by my own estimate of value, which §4 of the judgement log suggests should be read with suspicion.</p>
+
+  <div class="longshots">
+
+    <div class="shot">
+      <div class="shot-name">The clock is a known dynamical system</div>
+      <div class="shot-body">
+        <p>It decrements at exactly 1 Hz. It is the <strong>only field in the entire pipeline whose dynamics are known exactly</strong>, and it is being read independently per frame at a 33&ndash;60% success rate with a documented transient-extra-digit defect on <code>9acf02f98283</code>. A one-dimensional filter with a known rate makes every neighbour-inconsistent read detectable, and probably correctable. This is on the low-EV list only because I have not checked whether <code>rounds.py</code> already absorbs the damage; if it does not, this is not low EV at all.</p>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="shot-name">Composite your own training data</div>
+      <div class="shot-body">
+        <p>The widget is <code>α·widget + (1−α)·world</code>, α is fixed and unexposed, you have static maps for the widget term and endless main-view frames for a plausible world term. So labelled glyph data can be <strong>synthesised at known positions, known α, known occlusion</strong> — unlimited exact labels for the problem currently starved at 85 positives. The synthetic-to-real gap is the risk and it is a real one, but the control is free: score a synthetic-fit detector against the existing painted frames and you learn the size of the gap rather than assuming it.</p>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="shot-name">Buy a second regime for one session</div>
+      <div class="shot-body">
+        <p>Ask the player to record one match with the enemy outline set to <strong>yellow</strong> instead of red, and one with visibly different brightness. Every hue and level constant in the repo is currently "right for these captures"; two sessions convert the whole set from unmeasured to measured-across-two-regimes, and the enemy-outline band is explicitly documented as a per-profile value the moment a capture uses a different setting. Cheapest insurance on the page.</p>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="shot-name">Golden frames in the repo</div>
+      <div class="shot-body">
+        <p><code>teststore/</code> half-exists already. A dozen committed frames with hand-checked answers turn "re-run it and confirm a known number comes back" from a convention into a command that takes four seconds. The convention it replaces has one recorded near-catastrophe behind it — a gutted file that passed <code>ast.parse</code>.</p>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="shot-name">Matched filtering for pings</div>
+      <div class="shot-body">
+        <p>Four classes, fixed size, no growth phase, free labels from a clip the player already recorded, and a documented finding that a colour threshold cannot work because warm Sunset scenery floods it. That is close to a textbook normalised-cross-correlation problem, and <code>wiki_map.py</code> already has NCC in the repo — used for map alignment, never for glyphs.</p>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="shot-name">Skip stage 01's classifier</div>
+      <div class="shot-body">
+        <p>The design doc wants a trained buy/in-round/post-round/menu/spectate classifier and there is no labelled data for one. But the spike graphic gives post-plant, the roster gives alive counts and therefore round boundaries, the clock gives phase, and the combat report gives spectating. Four deterministic signals may make the classifier unnecessary — and if they do not, they are its features and its labels.</p>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="shot-name">Ship the film retrieval early</div>
+      <div class="shot-body">
+        <p><code>CLAUDE.md</code> calls this the highest value per unit of effort in the whole project and then schedules it last, behind WPA. A ranked list of moments with timestamps does not actually need the win-probability model to be useful — <em>rounds you died first in</em>, <em>rounds where the alive count went 5v5 to 2v5 inside ten seconds</em>, and <em>every entry the killfeed and roster disagreed about</em> are all computable today from stored L1, and all three are things the player would watch. It is a way to find out whether the delivery mechanism works before spending months on the thing it delivers.</p>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="shot-name">Delete more than feels comfortable</div>
+      <div class="shot-body">
+        <p>Genuinely low EV and listed for completeness. The 2,400-line enemy-teacher cluster, the four superseded portrait variants, the <code>ability_*</code> files the corpus re-founding orphaned. Nothing breaks by leaving them; the cost is that the next session reads them as live and copies from them, which is the mechanism that produced the <code>floor_mask</code> fork in the first place. <code>git</code> is the archive — that is what it is for.</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2><span class="marker">§8</span> What I would not do</h2>
+  <ul>
+    <li><strong>Not shrink <code>CLAUDE.md</code> for its own sake.</strong> It is 1,293 lines and every attempt to describe it as bloat runs into the fact that its domain notes are the least replaceable thing in the repo. The problem is not length, it is that prose sections claim enforcement they do not have — which §3 fixes by moving checks into code, and which shortens the file as a side effect rather than as a goal.</li>
+    <li><strong>Not chase the remaining killfeed divergences.</strong> One read error and two unexplained across 372 events, with the definitional-divergence rule now doing the explaining. That is past the point where more tuning is measurement rather than improvement.</li>
+    <li><strong>Not raise any sample rate</strong> until the two-pass design is real. Event timing is explicitly not a constraint on the main extractors, and a raised rate is the most expensive way to buy something the architecture already says you do not need.</li>
+    <li><strong>Not add shape features to the ability bank.</strong> Measured near-redundant, and the equal-weight z-sum already beats the weighted combiner. This is in <code>NOTES.md</code> as a standing "do not" and it belongs here too, because a plan that does not repeat its own prohibitions gets them re-litigated.</li>
+  </ul>
+</section>
+
+</div>

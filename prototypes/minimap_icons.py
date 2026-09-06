@@ -46,8 +46,22 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from chroma_test import to_420                                 # noqa: E402
+# PROMOTED 2026-09-06. `floor_mask` lived here AND in `reticle/minimap.py` with
+# different behaviour for ten days -- see that docstring for the arbitration and
+# `prototypes/floor_mask_eval.py` for the numbers. Re-exported, never copied:
+# fifteen modules import it from here, and a second definition is how the fork
+# happened the first time. `BRIDGE` moved with it.
+#
+# `static_map` was the same fork in the same two files, benign only because both
+# copies computed the identical median. It is `median_widget` there now -- the
+# shared core -- while `reticle.minimap.static_map` keeps the span-SAMPLING half
+# that a clip does not need. Aliased rather than renamed because eight modules
+# here call `static_map(frames)` and the name is right from their side.
+from reticle.minimap import (BRIDGE, floor_mask,                # noqa: E402,F401
+                             median_widget as static_map)
 
 # Measured off the enlarged widget on 2026-08-26: the enemy ring sits at hue
 # 177, sat 152, val 197, and the X mark at hue 177, sat 156, val 196 -- the same
@@ -65,89 +79,12 @@ HUE_LO, HUE_HI, SAT_MIN, VAL_MIN = 8, 168, 100, 90
 # not a profile fraction: the profile's `minimap` ROI is still the OLD size and
 # must be re-measured with `probe` before anything is ingested.
 ROI = (0, 0, 530, 515)
-# How close another component may be to the main floor slab and still count as
-# part of it -- a real room cut off by one narrow doorway, not a HUD element or
-# an edge-scenery speck. See `floor_mask`.
-BRIDGE = 25
 
 
 def red_mask(bgr, sat_min=SAT_MIN):
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
     return (((h < HUE_LO) | (h > HUE_HI)) & (s > sat_min) & (v > VAL_MIN))
-
-
-def static_map(frames):
-    """The widget with every icon removed, as a per-pixel median.
-
-    Icons move, map furniture does not. One round is almost entirely active
-    play, so this takes the sampled frames directly rather than reading spans
-    out of the store -- the lossless capture is not ingested.
-    """
-    return np.median(np.stack(frames), axis=0).astype(np.uint8)
-
-
-def floor_mask(med, dilate=9):
-    """The opaque walkable slab. Everything else is see-through and churns.
-
-    This is the fix `minimap_position.py` already carried and the one thing that
-    every failed content-based approach was missing: the widget is
-    semi-transparent over the void, so a red mask taken over the whole ROI
-    measures the wall the player happens to be facing. Skipping it here first
-    time round reproduced exactly that -- median "icon" area 956 px and diameter
-    59, which is scenery, not an icon.
-
-    `dilate` was 9 at the old widget size, to admit icons standing at a floor
-    edge. It is exposed because the widget is now ~1.5x larger and this radius
-    has not been re-measured against it.
-
-    Two changes from the version in `minimap_position.py`, both measured on the
-    enlarged widget rather than assumed:
-
-    * **`sat < 20`, not `sat < 60`.** The map slab is pure grey (S=0, V=118);
-      the scenery hazing through the transparent part of the widget sits at
-      S 36-58, V 97-140. At `sat < 60` the mask took 83% of the ROI -- it was
-      admitting the background wholesale. Value cannot do this job here: the
-      background is BRIGHTER than the floor, not darker, so the old `val > 110`
-      passes it.
-    * **the largest connected component only.** That drops the HUD in the
-      top-right corner and the scenery specks at the edges by derivation rather
-      than by a hand-drawn box, which is the same argument that made the screen
-      detector locate the combat report from its own structure.
-
-    **"Largest component only" is too strict, and the player caught it by eye,
-    2026-08-27.** Ascent's Boathouse -- a real room beside B, plain floor by
-    every pixel statistic (identical HSV to confirmed-good floor elsewhere) --
-    was rendered entirely VOID. It passes the same threshold as the rest of the
-    slab, but the doorway connecting it to the main blob does not survive the
-    5px close above, so it lands in its own small component and the
-    single-largest rule throws the whole room away as if it were the HUD
-    corner or an edge-scenery speck.
-
-    The fix: after taking the largest component, also recover any OTHER
-    component within `bridge` px of it -- a real room cut off by one narrow
-    gap sits right next to the main slab; a HUD element or scenery speck does
-    not. Checked on `a06f04a0059f` before picking a number: the five closest
-    unclaimed components (6.2-24.0 px away, all >=30 px area) are ALL visibly
-    real interior rooms by eye -- Boathouse, two small nooks near A and B, and
-    a spot at attacker spawn -- and the next-nearest beyond that jumps to
-    31 px and is a 5 px speck. `bridge=25` sits in that gap.
-    """
-    hsv = cv2.cvtColor(med, cv2.COLOR_BGR2HSV)
-    m = ((hsv[:, :, 1] < 20) & (hsv[:, :, 2] > 100)).astype(np.uint8)
-    # Join the floorplan's own thin corridors before taking a component, or the
-    # slab arrives as several pieces and the largest is one wing of the map.
-    j = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-    n, lbl, st, _ = cv2.connectedComponentsWithStats(j, 8)
-    if n <= 1:
-        return np.zeros(m.shape, bool)
-    big_id = 1 + int(np.argmax(st[1:, 4]))
-    big = (lbl == big_id).astype(np.uint8)
-    near = cv2.dilate(big, np.ones((BRIDGE, BRIDGE), np.uint8)) > 0
-    for i in range(1, n):
-        if i != big_id and (lbl == i)[near].any():
-            big[lbl == i] = 1
-    return cv2.dilate(big, np.ones((dilate, dilate), np.uint8)) > 0
 
 
 def blobs(crop, floor=None, min_area=25, sat_min=SAT_MIN):
