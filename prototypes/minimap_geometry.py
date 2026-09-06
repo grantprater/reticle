@@ -96,6 +96,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle.profiles import get_profile                          # noqa: E402
+from reticle import metrics                                       # noqa: E402
 from reticle import minimap as mm                                 # noqa: E402
 from minimap_icons import floor_mask, static_map                  # noqa: E402
 
@@ -289,8 +290,27 @@ def source_stamp():
     Hashing the whole module is deliberately blunt: it will report stale after a
     comment change, which costs one rebuild, and it can never report fresh after
     a threshold change, which is the failure that matters.
+
+    **WIDENED 2026-09-06, and the gap it closes is the one this stamp exists
+    for.** Hashing this file alone was correct only while every input to
+    `classify()` lived in it. `floor_mask` and the plant tint were promoted to
+    `reticle/minimap.py` that day, so from then on the shipped slab rule could
+    have moved with every npz still reporting fresh -- the ARTEFACT versioned
+    and the CODE PATH not, which is the exact failure `floor_mask`'s ten-day
+    fork already cost once. The promoted definitions are fingerprinted in.
+
+    `metrics.fingerprint` hashes function SOURCE, so this tracks behaviour and
+    ignores edits elsewhere in that module -- the same granularity, and the
+    same over-declaring trade, that `metrics` already took on purpose.
     """
-    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    return hashlib.sha256(
+        Path(__file__).read_bytes()
+        + metrics.fingerprint(mm.floor_mask, mm.site_mask, mm.median_widget,
+                              site_h=mm.SITE_H, site_s=mm.SITE_S,
+                              site_v=mm.SITE_V, site_area=mm.SITE_MIN_AREA,
+                              floor_s=mm.FLOOR_S_MAX, floor_v=mm.FLOOR_V_MIN,
+                              bridge=mm.BRIDGE).encode()
+    ).hexdigest()
 
 
 def classify(med):

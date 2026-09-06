@@ -101,6 +101,11 @@ fork in the first place.
 **Trigger: `reticle doctor`'s ORPHAN check listing them twice in a row**, i.e.
 once it is clear which are pending and which are dead. `git` is the archive.
 
+`doctor` now reports 7 rather than the 19 counted by hand -- it checks every
+`.md` in the repo as well as every `.py`, which is the more honest test. Three
+of the seven (`roster_alive`, `roster_scan`, `roster_names_scan`) are days old
+and pending item 03, not dead.
+
 ## Two modules in `reticle/` that no CLI command reaches
 
 `reticle/refine.py` is imported only by `prototypes/ping_edge_eval.py`;
@@ -111,3 +116,24 @@ promoted before being wired, which makes "is it in `reticle/`?" stop meaning
 **Trigger: `roster.py` is item 03 and closes itself.** `refine.py` has no
 scheduled caller, so it needs a decision rather than a task — wire it into the
 ping reader, or move it back to `prototypes/`.
+
+## `2ba870ccbd50` is tagged small-widget and was ingested as bigmap
+
+Found by `reticle doctor`'s MANIFEST check on its first run, 2026-09-06, and
+nobody was looking for it. The session is already on record twice -- a standing
+*never re-scan* hazard in this file's ancestor and in `NOTES.md`, and a geometry
+failure `prototypes/CLAUDE.md` describes as **unexplained**: "it fixed
+contamination on `2ba870ccbd50` but introduced large false positives from a
+pixel-value mismatch between recordings that was never root caused."
+
+A wrong-profile ingest is a candidate explanation for exactly that. The profile
+sets the minimap ROI and every constant in `minimap.py` is in widget pixels, so
+the crop would be wrong and everything downstream would return confident answers
+about the wrong pixels.
+
+**Not diagnosed.** Which of the tag and the profile is wrong needs one look at a
+frame, and `doctor` deliberately does not guess.
+
+**Trigger: any attempt to use that session, or to close the unexplained
+`--geometry-from` note.** Cheap to settle -- `reticle probe 2ba870ccbd50` and
+look at the widget.

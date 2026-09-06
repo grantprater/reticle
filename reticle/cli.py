@@ -1479,6 +1479,18 @@ def cmd_rounds(args) -> int:
     return 0
 
 
+def cmd_doctor(args) -> int:
+    """Structural checks on the REPO, the half `status` does not cover.
+
+    `status` says what is in the store. This says what shape the codebase is
+    in, which nothing computed until `floor_mask` had been forked for ten days
+    while the check meant to catch it passed clean.
+    """
+    from .doctor import main as doctor_main
+
+    return doctor_main(["--store", str(args.store)])
+
+
 def cmd_status(args) -> int:
     """Status, computed from the store rather than written down.
 
@@ -1707,6 +1719,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("session", nargs="?")
     s.add_argument("--by-map", action="store_true", help="also split every fact by map")
     s.set_defaults(func=cmd_rounds)
+
+    s = sub.add_parser("doctor", help="structural checks on the repo "
+                       "(duplicates, unwired modules, stale geometry)")
+    s.set_defaults(func=cmd_doctor)
 
     s = sub.add_parser("status", help="generated pipeline status "
                        "(the perishable half of CLAUDE.md, computed)")

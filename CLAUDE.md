@@ -1165,10 +1165,36 @@ and the void with one number.
 **All 34 geometry npz are STALE** -- `floor_mask` moved, so `classify()` moves.
 Rebuild before trusting any minimap number.
 
-**It is checkable rather than remembered** -- grep for a `def` name defined in
-both trees:
+**It is checkable rather than remembered -- `reticle doctor`, added
+2026-09-06.** The grep this line used to recommend is kept below because the
+way it FAILED is the lesson:
 
-    git grep -h "^def " reticle/ prototypes/ | sort | uniq -d
+    git grep -h "^def " reticle/ prototypes/ | sort | uniq -d   # DOES NOT WORK
+
+It matches the whole signature line, so it passed clean for ten days across
+`floor_mask(med)` and `floor_mask(med, dilate=9)`. **Match on the NAME**, which
+is what `doctor` does, with a small allowlist for genuinely local helpers
+(`load`, `render`, `summarise`) that has to be edited to grow.
+
+`doctor` is the repo's half of `status`: `status` says what is in the store,
+`doctor` says what shape the codebase is in. Five checks, each a fault that has
+actually happened here -- a name defined in both trees (ERROR), a `reticle/`
+module no CLI command reaches, a prototype named by no code and no doc, a
+geometry npz whose `built_by` is stale (ERROR), a donor shared across widget
+sizes, and a manifest whose tags contradict its profile. Only an ERROR fails
+the command; a checker that fails on everything gets ignored.
+
+Run it when picking work UP. It is deliberately not a git hook: a hook fires
+when someone is in a hurry, which is when all three recorded recurrences of
+*look at the image before measuring it* happened, and a hook that gets bypassed
+also creates the belief that something is watching.
+
+It earned itself on the first run by finding a manifest contradiction nobody
+was looking for -- `2ba870ccbd50` is tagged `small-widget` and was ingested
+`valorant-16x9-bigmap`. That session is on record twice already, as a "never
+re-scan" hazard and as a geometry failure `prototypes/CLAUDE.md` calls
+*unexplained*. A wrong-profile ingest would explain it. Which of the tag or the
+profile is wrong is NOT decided, and the check does not guess.
 
 *Added 2026-09-05, after a review found the duplicate. The first version of
 this note claimed the rule was already here when it was not, which is the

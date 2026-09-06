@@ -34,7 +34,20 @@ HUD_VERSION = "hud-0.11.0"
 # This MOVES every stored minimap number and every figure derived from one; the
 # validations that backed the track (xmark_eval, chokepoint_eval) were measured
 # with those frames in and are re-run against it.
-MINIMAP_VERSION = "minimap-0.2.0"
+# 0.3.0: `floor_mask` was reconciled (`18b0912`). It had been defined twice with
+# different behaviour since 2026-08-27 and the shipped reader ran the older
+# branch; the gate is now `sat < 20` plus a largest-component rule, UNIONED with
+# the tinted bomb sites, which are floor. Measured against the two paintings
+# it goes 57.8% -> 78.8% IoU on Ascent at 100% recall.
+#
+# This bump is what the stamp is FOR and it was nearly missed: the note above
+# says to bump when the floor mask changes, and the change landed a commit
+# earlier without one. The stored track is built on the old gate, whose extra
+# 13.7% of the widget on Ascent is 100.0% outside the painted map -- 878 stored
+# self positions and ~8,400 ally candidates of pure phantom. Re-reading it is
+# TABLED in BACKLOG.md, so this stamp is the thing that keeps the staleness
+# visible in `reticle status` rather than resting on someone reading a note.
+MINIMAP_VERSION = "minimap-0.3.0"
 # Minimap pings, emitted as EVENTS rather than per-frame rows. Bump when the
 # hue bands, the size gates or the lifetime gate change. Events are rewritten
 # whole per session, so this is a stamp for attribution rather than a cache
