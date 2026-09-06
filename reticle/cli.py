@@ -777,8 +777,11 @@ def cmd_minimap(args) -> int:
           f"-- death screen or the full-size map; those rows carry no position")
     print(f"self       raw {got_self}/{n} ({got_self / n * 100:.1f}%)")
 
-    track = filter_track([(r["t_ms"], r["self_x"], r["self_y"]) for r in rows
-                          if r["self_x"] is not None], step_ms,
+    # NULL rows go IN, not out: they are how `filter_track` tells a widget-absent
+    # hole from a detection miss, and stripping them here is what made the
+    # comment in `_MinimapPass.feed` describe behaviour nothing implemented.
+    track = filter_track([(r["t_ms"], r["self_x"], r["self_y"]) for r in rows],
+                         step_ms,
                          widget_scale(minimap_roi_px(profile, w, h)[2]
                                       - minimap_roi_px(profile, w, h)[0]))
     print(f"           filtered {len(track)} points "

@@ -1076,6 +1076,31 @@ until the pass is over. That is affordable over a 65 s clip and is not over a
 match -- 650 crops is 440 MB -- so a long session uses the store's cached
 static map and a one-phase `feed`.
 
+**A promoted function is DELETED from its prototype and re-exported, never
+copied.** Promotion has happened twice and took two different shapes, and only
+one of them is safe. `ping_scan` was done right: detection moved to
+`reticle/ping.py` and the prototype now imports `Grouper`, `resolve` and
+`sightings` from it. `minimap_position` was done wrong: `reticle/minimap.py`
+was created by COPY and the prototype kept byte-identical `floor_mask` and
+`static_map` definitions of its own.
+
+Nothing disagreed, which is exactly why it survived a year of review -- two
+copies of the same code agree until one of them changes. The moment the
+shipped `floor_mask` moves (its 9 px dilation is a live candidate, being a
+length that should scale with the widget), every eval importing the prototype
+keeps silently measuring the old behaviour while the pipeline measures the new.
+That is the `built_by` stamp lesson with the stamp missing: the ARTEFACT was
+versioned, the CODE PATH was not.
+
+**It is checkable rather than remembered** -- grep for a `def` name defined in
+both trees:
+
+    git grep -h "^def " reticle/ prototypes/ | sort | uniq -d
+
+*Added 2026-09-05, after a review found the duplicate. The first version of
+this note claimed the rule was already here when it was not, which is the
+failure mode the note itself is about.*
+
 **Analysis that produces a quotable number goes in `prototypes/`, not scratch.**
 If a figure is worth putting in a commit message it will be re-run, and the next
 session should not start by rebuilding feature extraction. `dynamic_eval.py` is

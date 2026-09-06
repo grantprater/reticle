@@ -274,7 +274,30 @@ def filter_track(found: list[tuple[float, float, float]],
     recomputes spans from L1. Filtering is not stored: it is cheap, and
     storing raw reads lets a later change to RUN_PX or GAP_MS be replayed
     without a re-decode.
+
+    **Pass `(t, None, None)` for a frame where the widget was not drawn, and
+    this will not interpolate across it.** That is what the NULL rows in
+    `l1/minimap` are for, and until 2026-09-05 the only caller stripped them
+    before calling -- so `cmd_minimap`'s own comment ("the track keeps its time
+    axis and gap interpolation sees the hole for what it is") described
+    behaviour the code did not have. A hole and a detection miss arrived here
+    as the same thing: an absent timestamp. With `GAP_MS = 1000` that is up to
+    **fourteen invented positions** across a one-second map glance at 15 Hz,
+    indistinguishable in the output from measured ones -- *never guess a value*
+    violated in the module that had just been fixed for the same class of
+    fault.
+
+    A refusal is a HARD BREAK: the run ends and a new one begins after it.
+    Interpolating a gap the widget was absent for would be inventing a path
+    through the only frames that state outright that nobody was looking.
     """
+    holes = sorted(p[0] for p in found if p[1] is None or p[2] is None)
+    found = [p for p in found if p[1] is not None and p[2] is not None]
+
+    def spans_hole(t0: float, t1: float) -> bool:
+        i = int(np.searchsorted(holes, t0, side="right"))
+        return i < len(holes) and holes[i] < t1
+
     keep = []
     for p in found:
         if keep:
@@ -287,7 +310,7 @@ def filter_track(found: list[tuple[float, float, float]],
     for a, b in zip(keep, keep[1:]):
         out.append(a)
         gap = b[0] - a[0]
-        if step_ms < gap <= GAP_MS:
+        if step_ms < gap <= GAP_MS and not spans_hole(a[0], b[0]):
             k = int(round(gap / step_ms)) - 1
             for j in range(1, k + 1):
                 f = j / (k + 1)

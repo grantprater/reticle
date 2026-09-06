@@ -266,51 +266,14 @@ def _roi_px(prof, w, h):
 # The rule, now in CLAUDE.md: a promoted function is DELETED from its prototype
 # and re-exported, never copied. It is grep-checkable -- duplicate `def` names
 # across the two trees.
-from reticle.minimap import floor_mask, static_map              # noqa: E402,F401
-
-
-def _rings(mask, floor):
-    m = cv2.morphologyEx((mask & floor).astype(np.uint8), cv2.MORPH_CLOSE,
-                         np.ones((3, 3), np.uint8))
-    n, _lab, st, cen = cv2.connectedComponentsWithStats(m, 8)
-    return [(int(st[i, 4]), float(cen[i][0]), float(cen[i][1]))
-            for i in range(1, n) if st[i, 4] >= MIN_ICON_AREA]
-
-
-def self_rings(crop, floor):
-    b, g, r = (crop[:, :, i].astype(np.int16) for i in range(3))
-    return _rings((g > SELF_G_MIN) & (r > SELF_R_MIN)
-                  & ((g - b) > SELF_B_UNDER_G), floor)
-
-
-def ally_rings(crop, floor):
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    hh, ss, vv = (hsv[:, :, i].astype(np.int16) for i in range(3))
-    return _rings((hh > ALLY_H[0]) & (hh < ALLY_H[1])
-                  & (ss > ALLY_S_MIN) & (vv > ALLY_V_MIN), floor)
-
-
-def filter_track(found, step):
-    """Drop impossible steps, then interpolate the short gaps they leave."""
-    keep = []
-    for p in found:
-        if keep:
-            dt = (p[0] - keep[-1][0]) / 1000.0
-            if dt > 0 and np.hypot(p[1] - keep[-1][1], p[2] - keep[-1][2]) / dt > RUN_PX * 1.6:
-                continue
-        keep.append(p)
-    out = []
-    for a, b in zip(keep, keep[1:]):
-        out.append(a)
-        gap = b[0] - a[0]
-        if step < gap <= GAP_MS:
-            k = int(round(gap / step)) - 1
-            for j in range(1, k + 1):
-                f = j / (k + 1)
-                out.append((a[0] + gap * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f))
-    if keep:
-        out.append(keep[-1])
-    return out
+#
+# The FIRST pass at this replaced only `static_map` and `floor_mask` and left
+# `_rings`, `self_rings`, `ally_rings` and `filter_track` behind -- and within
+# the hour the shipped `filter_track` gained the widget-absent hole break,
+# which this copy did not have. A half-applied de-duplication is the same
+# defect with a smaller surface, and it demonstrated itself in under an hour.
+from reticle.minimap import (ally_rings, filter_track, floor_mask,   # noqa: E402,F401
+                             self_rings, static_map)
 
 
 def main() -> int:
