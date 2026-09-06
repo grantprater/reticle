@@ -164,8 +164,15 @@ each one is a way a clip-shaped detector fails at session length:
   of a busy map build tens of thousands of groups, and the prototype's linear
   scan over all of them is billions of comparisons. `Grouper` indexes groups by
   an 8 px cell and searches the 3x3 neighbourhood, which is the same answer --
-  ties broken by creation order exactly as the linear scan's `break` did -- in
-  constant time per sighting.
+  ties broken by creation order exactly as the linear scan's `break` did.
+
+  **This said "in constant time per sighting" and that was false**, caught in
+  review the same day. The index was append-only and dead groups were merely
+  SKIPPED, so the neighbourhood a sighting walks grew for the whole session and
+  the total was quadratic again -- the bug the class was written to fix, one
+  level down, and invisible on a clip for the same reason the merging bug was.
+  Stale entries are now dropped from the cell as they are passed, so the search
+  is bounded by what is live. The clip control is unchanged at 15.
 """
 
 from __future__ import annotations
@@ -259,15 +266,28 @@ class Grouper:
         best = None
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
-                for i in self._cells.get((cx + dx, cy + dy), ()):
-                    if best is not None and i > best:
-                        continue
+                cell = self._cells.get((cx + dx, cy + dy))
+                if not cell:
+                    continue
+                # A group that can no longer be extended is DROPPED FROM THE
+                # INDEX, not merely skipped. Leaving it in is what made the
+                # first version of this linear in session length and so
+                # quadratic overall -- the same asymptotic bug the class was
+                # written to fix, one level down, and invisible on a clip
+                # because a clip never accumulates dead groups. The group
+                # itself stays in `self.groups`; only its index entry goes.
+                live = []
+                for i in cell:
                     g = self.groups[i]
                     if t - g[-1][0] > self.max_gap:
-                        continue          # stale: a different object, later
+                        continue
+                    live.append(i)
+                    if best is not None and i > best:
+                        continue
                     _t0, gx, gy, _h = g[0]
                     if abs(x - gx) < self.same and abs(y - gy) < self.same:
                         best = i
+                cell[:] = live
         if best is not None:
             self.groups[best].append((t, x, y, hue))
             return
