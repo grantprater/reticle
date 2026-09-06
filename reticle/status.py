@@ -38,7 +38,7 @@ from pathlib import Path
 
 from .checks import KNOWN_KD
 from .store import DEFAULT_STORE, Store
-from .version import HUD_VERSION
+from .version import HUD_VERSION, MINIMAP_VERSION
 
 LABEL_KINDS = ("minimap", "minimap_dynamic", "minimap_agent", "enemies", "map_mask")
 
@@ -55,10 +55,51 @@ def _has(root: Path, *parts: str) -> bool:
     return any(root.joinpath(*parts).parent.glob(parts[-1])) if parts else False
 
 
+def stored_versions(root: Path) -> dict[str, collections.Counter]:
+    """What version each L1 table was ACTUALLY written at.
+
+    This line of the report used to print `version.HUD_VERSION` -- the version
+    the code would produce if you re-ran it, not the one in the store. It is a
+    tempting mistake because the header of the generated file says *a fact that
+    is computed cannot disagree with the code*, and this one could not: it WAS
+    the code, and never opened the store at all.
+
+    It went wrong the moment a version was bumped. On 2026-09-05 the report read
+    `store hud-0.10.0` while all 17 tables in it were `hud-0.9.0` and the three
+    minimap tables were a version behind as well -- and the one number whose job
+    is to say what the store contains was the one saying otherwise.
+
+    The same paragraph in prototypes/CLAUDE.md records the hand-written version
+    of this exact error (*the store is at hud-0.8.1 throughout* against 0.9.0),
+    which is what motivated generating the report. Generating it fixed the
+    staleness and kept the wrong source.
+    """
+    import pyarrow.parquet as pq
+
+    out: dict[str, collections.Counter] = {}
+    for kind, fname, key in (("hud", "hud.parquet", b"hud_version"),
+                             ("minimap", "minimap.parquet", b"minimap_version")):
+        c: collections.Counter = collections.Counter()
+        d = root / "l1" / kind
+        if d.is_dir():
+            for f in d.rglob(fname):
+                try:
+                    md = pq.read_schema(f).metadata or {}
+                except Exception:
+                    c["unreadable"] += 1
+                    continue
+                c[md.get(key, b"?").decode()] += 1
+        out[kind] = c
+    return out
+
+
 def collect(store: Store) -> dict:
     """Everything the status report needs, read once."""
     root = store.root
-    out = {"sessions": [], "store": str(root), "hud_version": HUD_VERSION}
+    out = {"sessions": [], "store": str(root),
+           "hud_version": HUD_VERSION,
+           "minimap_version": MINIMAP_VERSION,
+           "stored": {k: dict(v) for k, v in stored_versions(root).items()}}
     label_rows: dict = collections.defaultdict(dict)
     for kind in LABEL_KINDS:
         d = root / "labels" / kind
@@ -130,8 +171,19 @@ def render(data: dict, markdown: bool = False) -> str:
     scored = [s for s in ss if s["known"] and s["kills"] is not None]
     exact = [s for s in scored
              if (s["kills"], s["deaths"]) == (s["known"][0], s["known"][1])]
-    L.append(f"{len(ss)} sessions ingested, store `{data['hud_version']}`, "
+    L.append(f"{len(ss)} sessions ingested, "
              f"{sum(s['n_rounds'] or 0 for s in ss)} rounds derived.")
+    for kind, code_v in (("hud", data["hud_version"]),
+                         ("minimap", data["minimap_version"])):
+        got = data.get("stored", {}).get(kind, {})
+        if not got:
+            continue
+        parts = ", ".join(f"{n} at `{v}`" for v, n in sorted(got.items()))
+        stale = sum(n for v, n in got.items() if v != code_v)
+        line = f"L1 {kind}: {parts}; code is at `{code_v}`"
+        if stale:
+            line += f" -- **{stale} STALE**, re-read with `reticle scan`"
+        L.append(line)
     if scored:
         L.append(f"{len(exact)} of {len(scored)} exact against `checks.KNOWN_KD`.")
     planted = [s for s in ss if s["planted"] is not None and s["n_rounds"]]
