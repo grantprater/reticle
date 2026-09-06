@@ -137,8 +137,60 @@ down onto it scores well on coverage. Scoring `coverage - interior` cancels
 that, needs no new threshold, and **changes nothing** (9/26, the same nine).
 So the tail is not stealing the fit either.
 
-Where the evidence points instead: the DESCRIPTOR
----------------------------------------------------
+THE DESCRIPTOR SWAP, and it re-reads the result above (2026-09-06)
+--------------------------------------------------------------------
+`--desc ncc` replaces the colour histogram with `minimap_portrait`'s masked
+NCC against the same official art. Crossed with the geometry:
+
+                        --geom bbox        --geom pin
+        --desc hist       10/26  38%         9/26  35%
+        --desc ncc         0/26   0%         8/26  31%
+
+**Neither wins, and the interaction is the finding.** Under the histogram the
+geometry is worth -1; under NCC it is worth +8, from BELOW CHANCE to 31%. A
+histogram is alignment-blind by construction, so it could not see a better
+centre; NCC decorrelates under misalignment, so it can see nothing else. The
+fitted ring was therefore not useless -- **it was measured with an instrument
+that could not detect it**, and the honest version of the falsification above
+is narrower than it first read: the crop is not what caps the HISTOGRAM at ten.
+
+The wash hypothesis is confirmed on its own terms. `chamber -> sova`, the
+confident wrong answer that motivated the swap, becomes **`chamber -> chamber`**
+under NCC. So the ring's glow was displacing that histogram, exactly as
+predicted -- removing the per-channel mean fixes that session.
+
+**The two descriptors are COMPLEMENTARY, and that is the result worth acting
+on.** They agree on only 4 of the 26 (brimstone, astra, veto, gekko), and the
+union of what they get right is **13/26 -- 50%, against 38% for the better one
+alone**. NCC alone recovers clove, phoenix, chamber and killjoy; the histogram
+alone recovers sova, yoru, breach, miks and omen. An oracle picking between
+them doubles chance-adjusted performance, so the ceiling is not the problem and
+neither descriptor is the answer.
+
+NCC brings its own sink -- `cypher` x12 -- and its per-frame shares collapse to
+18-50% where the histogram reached 99%. A vote that thin is a vote that is
+barely deciding, which is consistent with 121 grid cells masked down to the
+low twenties on a glyph whose rim only reads over half its circumference.
+
+Where this goes: STOP CHOOSING A DESCRIPTOR
+---------------------------------------------
+Two descriptors that fail on disjoint agents, both of them discarding most of
+the glyph -- the histogram throws away position, NCC throws away level, and
+both mask out the ring and the tail as nuisance -- is the signature of the
+wrong question. The forward model is the right one, and `BACKLOG.md`'s
+analysis-by-synthesis entry is where it is argued: hypothesise agent X, DRAW
+the glyph agent X would produce (the art, the glow that washes it, the tail at
+the observed facing), subtract, and score the residual. The wash stops being a
+nuisance to remove and becomes part of the prediction; the tail stops being
+masked out and becomes evidence.
+
+`self_agent` is the smallest instance of that idea anywhere in this repo: ONE
+entity, 29 hypotheses, no assignment problem, and a ground truth that already
+exists in the ingest tags. If analysis-by-synthesis cannot be made to work
+here, it will not work on overlapping icons or spatialised audio.
+
+The evidence that named the descriptor, kept for the record
+--------------------------------------------------------------
 `chamber -> sova` at a 99% share and a 98% margin is not a blurred histogram;
 it is a confident wrong answer, and it survives every geometry. The renders
 show why it might: the ring is a thick glow and it **washes the portrait
@@ -167,8 +219,10 @@ import numpy as np
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 with contextlib.redirect_stdout(io.StringIO()):
-    from minimap_portrait import composition, classify_composition
-    from minimap_portrait_official import ART, art_composition, art_path
+    from minimap_portrait import (composition, classify_composition,
+                                  classify, descriptor)
+    from minimap_portrait_official import (ART, art_composition, art_path,
+                                           template_set)
     import minimap_ring_fit as rf
 from reticle.decode import sample_at                              # noqa: E402
 from reticle.minimap import (SELF_B_UNDER_G, SELF_G_MIN,          # noqa: E402
@@ -358,6 +412,46 @@ def self_composition(crop, floor, geom="pin", r_min=None, r_max=None):
     return composition(patch, msk), cov
 
 
+def self_descriptor(crop, floor, geom="pin", r_min=None, r_max=None):
+    """The self interior as an 11x11 masked patch, for NCC instead of a histogram.
+
+    Why this exists, when `self_composition` already answers the same question:
+    **a colour histogram has no invariance to a level shift, and this surface
+    has one.** The self ring is a thick glow that washes the portrait
+    yellow-green -- hard on a pale agent, barely at all on a dark one like Omen
+    -- so the query histogram is displaced bodily toward the ring colour by an
+    amount that depends on the agent. That is a confident wrong answer waiting
+    to happen, and `chamber -> sova` at a 99% share and a 98% margin is what it
+    looks like when it does.
+
+    `minimap_portrait.similarity` removes the per-channel mean and normalises,
+    so an additive wash and a multiplicative one both cancel. It is also
+    SPATIAL where a histogram is not. The cost is the other side of that coin:
+    NCC decorrelates under misalignment, and this glyph's centre is the least
+    certain thing about it -- the rim reads over its lower half only. So this
+    is a real experiment either way, not a free upgrade.
+
+    Returns `(patch, mask, coverage)` in `descriptor`'s own space, so the
+    official-art templates need no conversion.
+    """
+    m = self_mask(crop)
+    mf = m & floor
+    if geom == "pin":
+        got = fit_self_ring(mf, r_min, r_max)
+    elif geom == "ring":
+        got = self_icon_ring(mf, cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY),
+                             r_min, r_max)
+    else:
+        got = self_icon_bbox(mf)
+    if got is None:
+        return None
+    cx, cy, r, cov = got
+    pa, ma = descriptor(crop, m, int(round(cx)), int(round(cy)), r)
+    if pa is None:
+        return None
+    return pa, ma, cov
+
+
 def generality(sources: dict) -> dict:
     """How close each source sits to every OTHER source.
 
@@ -390,7 +484,7 @@ def classify_nulled(hq, sources, gen) -> tuple[str | None, float]:
 
 
 def vote(sid: str, n: int, sources: dict, gen: dict | None = None,
-         geom: str = "pin") -> dict:
+         geom: str = "pin", desc: str = "hist") -> dict:
     store = Store()
     man = store.read_manifest(sid)
     src = man["source"]
@@ -418,16 +512,28 @@ def vote(sid: str, n: int, sources: dict, gen: dict | None = None,
     covs: list[float] = []
     for smp in sample_at(src["path"], times, float(src["fps"])):
         crop = smp.frame[y0:y1, x0:x1]
-        got = self_composition(crop, floor, geom, r_min, r_max)
-        if got is None:
-            continue
-        hq, cov = got
+        if desc == "ncc":
+            got = self_descriptor(crop, floor, geom, r_min, r_max)
+            if got is None:
+                continue
+            pa, ma, cov = got
+            # `sources` is a gallery of (patch, mask, name) here, and `classify`
+            # is the same nearest-exemplar the enemy path uses. The null control
+            # is a histogram-path device and does not apply: NCC has already
+            # removed the per-channel mean, which is what generality corrected
+            # for by subtraction.
+            name, _score, _margin = classify(pa, ma, sources)
+        else:
+            got = self_composition(crop, floor, geom, r_min, r_max)
+            if got is None:
+                continue
+            hq, cov = got
+            if gen is None:
+                name, _, _ = classify_composition(hq, sources)
+            else:
+                name, _ = classify_nulled(hq, sources, gen)
         covs.append(cov)
         seen += 1
-        if gen is None:
-            name, _, _ = classify_composition(hq, sources)
-        else:
-            name, _ = classify_nulled(hq, sources, gen)
         if name:
             tally[name] += 1
     if not tally:
@@ -462,6 +568,10 @@ def main(argv=None) -> int:
                     help="score every session whose tags name an agent")
     ap.add_argument("--raw", action="store_true",
                     help="score WITHOUT the null control, to reproduce the sink")
+    ap.add_argument("--desc", choices=("hist", "ncc"), default="hist",
+                    help="interior descriptor: colour-histogram intersection "
+                         "(the 38%% baseline) or masked NCC on an 11x11 grid, "
+                         "which is level-invariant and spatial")
     ap.add_argument("--geom", choices=("pin", "ring", "bbox"), default="pin",
                     help="how the crop is centred and sized: a fitted circle "
                          "(default) or the component's bounding box (the "
@@ -470,12 +580,19 @@ def main(argv=None) -> int:
 
     store = Store()
     names = agents_available()
-    sources = {n: art_composition(n, ART_FRAC) for n in names}
-    sources = {k: v for k, v in sources.items() if v is not None}
-    gen = None if a.raw else generality(sources)
-    print(f"{len(sources)} agents with official minimap art "
-          f"(chance {100 / len(sources):.1f}%), null control "
-          f"{'OFF' if a.raw else 'ON'}, geometry {a.geom.upper()}\n")
+    if a.desc == "ncc":
+        sources = template_set(names)
+        gen = None
+        n_src = len(sources)
+    else:
+        sources = {n: art_composition(n, ART_FRAC) for n in names}
+        sources = {k: v for k, v in sources.items() if v is not None}
+        gen = None if a.raw else generality(sources)
+        n_src = len(sources)
+    print(f"{n_src} agents with official minimap art "
+          f"(chance {100 / n_src:.1f}%), descriptor {a.desc.upper()}, "
+          f"null control {'n/a' if a.desc == 'ncc' else ('OFF' if a.raw else 'ON')}"
+          f", geometry {a.geom.upper()}\n")
 
     if a.demo_corpus:
         truth = tagged_agents(store)
@@ -486,7 +603,7 @@ def main(argv=None) -> int:
         ok = tot = 0
         wrong: collections.Counter = collections.Counter()
         for sid, want in truth:
-            r = vote(sid, a.n, sources, gen, a.geom)
+            r = vote(sid, a.n, sources, gen, a.geom, a.desc)
             if "error" in r:
                 print(f"{sid:<14}{want:<12}{'--':<12}{'':>7}{'':>8}{'':>8}"
                       f"{'':>7}  {r['error']}")
@@ -502,7 +619,7 @@ def main(argv=None) -> int:
                   f"{'YES' if good else 'no'}")
         if tot:
             print(f"\n{ok}/{tot} correct ({ok / tot * 100:.0f}%), "
-                  f"29-way, chance {100 / len(sources):.1f}%")
+                  f"29-way, chance {100 / n_src:.1f}%")
             if wrong:
                 # The sink is the diagnostic, not a curiosity: one class taking
                 # most of the misses is what said the first run of this file was
@@ -513,7 +630,7 @@ def main(argv=None) -> int:
 
     if not a.session:
         ap.error("give a session or --demo-corpus")
-    r = vote(a.session, a.n, sources, gen, a.geom)
+    r = vote(a.session, a.n, sources, gen, a.geom, a.desc)
     if "error" in r:
         raise SystemExit(r["error"])
     print(f"{a.session}: {r['agent']}  "

@@ -58,14 +58,35 @@ reason and the trigger that would un-defer it.
    is the right fix rather than a parallel one -- it makes the tray and the
    position track each other's control, and every piece already exists.
 
-The third item, **`fit_ring` on the self key, is DONE and FALSIFIED**: 9/26
-against the bbox baseline's 10/26, and a third geometry that penalises the
-tail lands on the same nine. The crop is not what caps `self_agent.py` at 38%.
-It bought two facts about the self glyph -- the key survives only over the
-lower half of the rim (22-23% present at the top bearings), and there is no
-hole to find (0 in 347 frames) -- and it re-aims the question at the
-DESCRIPTOR: a colour histogram is not level-invariant and the ring's glow
-washes the portrait. Full argument in `self_agent.py` and `BACKLOG.md`.
+The third item, **`fit_ring` on the self key, is DONE**, and so is the
+descriptor swap it pointed at. Crossed:
+
+                        --geom bbox        --geom pin
+        --desc hist       10/26  38%         9/26  35%
+        --desc ncc         0/26   0%         8/26  31%
+
+**Nothing beat 38%, and the interaction is the finding.** Geometry is worth -1
+under a histogram and **+8 under NCC** -- the fitted ring was measured with an
+instrument (an alignment-blind histogram) that could not detect it, so the
+falsification is narrower than it first read. The wash hypothesis is confirmed
+on its own terms: `chamber -> sova` at a 98% margin becomes `chamber ->
+chamber` under NCC. And the two descriptors are **complementary** -- they agree
+on 4 of 26 and their union is **13/26 (50%)**.
+
+Two facts about the self glyph came out of it, neither known before: the key
+survives only over the lower half of the rim (22-23% present at the top
+bearings, a dropout fixed in SCREEN space), and there is no hole to find (0 in
+347 frames), so the portrait cannot be had as a hole in the key.
+
+**So stop choosing a descriptor.** Both discard most of the glyph and they fail
+on disjoint agents. `BACKLOG.md`'s analysis-by-synthesis entry now names
+`self_agent` as its FIRST INSTANCE -- one entity, 29 hypotheses, no assignment
+problem, and a ground-truth label already in the ingest tags. Draw the glyph
+agent X would produce, subtract, score the residual against `sd_lo/sd_hi`; the
+wash becomes part of the prediction instead of a nuisance to remove, and the
+tail becomes evidence instead of a mask. It is the only place the loop can be
+proved without also solving the pruning, which is why it is worth taking before
+the audio half.
 
 **Note for item 1.** Its `BACKLOG.md` trigger is *an agent is known for a
 session*, which was item 3's job, and item 3 did not deliver it. So the motion

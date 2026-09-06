@@ -256,14 +256,25 @@ from the enemy icon's shape rather than from this one:
   would hand over the portrait as the largest hole in the key, with no fitting
   at all. It is not closed. Do not re-try it.
 
-**The next suspect is the DESCRIPTOR, not the crop.** `chamber -> sova` at a
-99% share and a 98% margin survives every geometry, which is a confident wrong
-answer rather than a blurred one. The ring is a thick glow that washes the
-portrait yellow-green -- badly on pale agents, barely on a dark one like Omen
--- and `composition` is a colour histogram, so a wash moves it bodily.
-`minimap_portrait.similarity` is masked NCC with the per-channel mean removed,
-chosen on the enemy path for exactly this reason, and `descriptor()` already
-exists. **38% is still the number to beat**, measured the same way.
+**The descriptor was tried the same day (`--desc ncc`) and the crossing
+re-reads this entry:**
+
+                        --geom bbox        --geom pin
+        --desc hist       10/26  38%         9/26  35%
+        --desc ncc         0/26   0%         8/26  31%
+
+Under the histogram the geometry is worth -1; under NCC it is worth **+8, from
+below chance to 31%**. A histogram is alignment-blind, so it could not see a
+better centre. **The fitted ring was measured with an instrument that could not
+detect it**, and the falsification above is narrower than it reads: the crop is
+not what caps the HISTOGRAM at ten. The wash hypothesis is confirmed on its own
+terms -- `chamber -> sova` becomes `chamber -> chamber` under NCC.
+
+**Neither descriptor is the answer and they are COMPLEMENTARY**: they agree on
+4 of 26, and the union of what they get right is **13/26 (50%)** against 38%
+for the better one alone. That is the reason not to keep picking descriptors --
+see the analysis-by-synthesis entry, which now names this as its first
+instance. **38% is still the number to beat.**
 
 `fit_ring` gained a per-call radius range in the same commit, defaulting to the
 measured `R_MIN/R_MAX`, because the icon radius is a widget-size constant: a
@@ -367,7 +378,38 @@ where the signal is.
   already in use: score against something the model did not fit, and refuse
   rather than guess.
 
-**Trigger: after the cast-licenses-a-jump entry above.** That is the smallest
-instance of the same idea -- a hypothesised event predicting an observable --
-and it is worth proving the loop on one cheap channel before building a
-dictionary.
+**THE FIRST INSTANCE IS `self_agent`, and it is smaller than the trigger below.**
+Added 2026-09-06 after the descriptor crossing, which is what named it. Two
+descriptors that fail on DISJOINT agents, each discarding most of the glyph --
+the histogram throws away position, NCC throws away level, and both mask the
+ring and the tail out as nuisance -- is the signature of the wrong question.
+The forward model asks the right one:
+
+    hypothesise agent X -> DRAW the self glyph agent X would produce, at the
+    observed facing: the official portrait, the ring's glow washing it, the
+    solid tail -> subtract -> score the residual against sd_lo/sd_hi
+
+Everything the loop needs is already measured or already stored:
+
+* the 29 portraits are the hypothesis set, and the ground truth is in the
+  ingest tags on 26 demo clips -- a label recorded for another purpose;
+* the wash stops being a nuisance to REMOVE and becomes part of the
+  PREDICTION, which is exactly what neither descriptor could do;
+* the tail stops being masked out and becomes evidence, and its facing is
+  independently readable (`minimap_ring_fit._facing`, magnitude validated
+  against camera pan in `minimap_self_check`);
+* the rim reading over its lower half only (22-23% present at the top) stops
+  being a defect and becomes something the forward model must reproduce -- if
+  the model does not predict the dropout, that is a falsifiable claim about it.
+
+**Why here rather than on audio or on overlapping icons: ONE entity, 29
+hypotheses, no assignment problem, and a free label.** The combinatorial
+caveat below does not apply at all, which makes this the only place the loop
+can be proved without also solving the pruning. If analysis-by-synthesis
+cannot be made to work here, it will not work on a spatialised waveform.
+
+**Trigger for the AUDIO half: after the cast-licenses-a-jump entry above.**
+That is the smallest instance on the event side -- a hypothesised event
+predicting an observable -- and it is worth proving the loop on one cheap
+channel before building a dictionary. The `self_agent` instance has no such
+dependency and can be taken whenever agent identity is next worked on.
