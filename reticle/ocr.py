@@ -31,6 +31,7 @@ import numpy as np
 
 import cv2
 
+from .census import Census
 from .profiles import Profile, Roi, template_key
 
 # Normalised glyph grid. Every blob is scaled into this box before matching, so
@@ -287,12 +288,24 @@ def read_scoreline(
     templates: Templates,
     min_confidence: float = 0.82,
     min_margin: float = 0.05,
+    census: "Census | None" = None,
+    t_ms: float | None = None,
 ) -> ScorelineRead:
     """Read clock and both scores out of an already-cropped scoreline ROI.
 
     Every field is validated against what Valorant can actually display before
     it is returned. A clock of 7:41 or a score of 87 is a misread, not a fact,
     and is dropped rather than passed downstream for stage 05 to catch.
+
+    `census`, when given, is told WHICH guard refused each field. Six of them
+    return `None` here and every one of them reads identically downstream --
+    the field is simply absent -- so the clock read rate of 33-60% that this
+    stage has reported since it was built says nothing at all about its cause.
+    CLAUDE.md's standing hypothesis is that some large share of it is the spike
+    graphic occupying the digits' pixels, i.e. frames with nothing to read
+    rather than frames misread. `occluded` against `few_glyphs` separates those
+    two, and nothing else does. The reader is unchanged by it; see
+    `reticle.census`.
     """
     glyphs, blockers = _components(frame_gray_roi)
     width = frame_gray_roi.shape[1]
@@ -319,24 +332,51 @@ def read_scoreline(
 
     confidences: list[float] = []
 
+    def refuse(field: str, reason: str) -> None:
+        if census is not None:
+            census.drop(f"{field}:{reason}",
+                        round(t_ms / 1000.0, 2) if t_ms is not None else None)
+
     def read_int(name: str, lo: int, hi: int) -> int | None:
+        if census is not None:
+            census.saw(name)
         if name in occluded:
+            refuse(name, "occluded")
             return None
         text, worst, margin = _digits(buckets[name], templates)
         if not text or not text.isdigit():
+            refuse(name, "no_digits" if not text else "not_a_number")
             return None
-        if worst < min_confidence or margin < min_margin:
+        if worst < min_confidence:
+            refuse(name, "low_confidence")
+            return None
+        if margin < min_margin:
+            refuse(name, "low_margin")
             return None
         value = int(text)
         if not (lo <= value <= hi):
+            refuse(name, "out_of_range")
             return None
         confidences.append(worst)
         return value
 
     # Round scores. 13 wins a normal match; overtime can climb, so the ceiling
     # is loose. Two digits maximum.
-    score_left = read_int("score_left", 0, 30) if len(buckets["score_left"]) <= 2 else None
-    score_right = read_int("score_right", 0, 30) if len(buckets["score_right"]) <= 2 else None
+    def read_score(name: str) -> int | None:
+        # More than two glyphs in a score field is not a number this game can
+        # show, so it is refused before any matching. It is ALSO the signature
+        # of the live defect in CLAUDE.md -- 9acf02f98283 reads `1 -> 11 -> 1`
+        # within half a second, a spurious leading digit -- so the rate here is
+        # the measurement that defect needs, and it was invisible before.
+        if len(buckets[name]) > 2:
+            if census is not None:
+                census.saw(name)
+            refuse(name, "too_many_glyphs")
+            return None
+        return read_int(name, 0, 30)
+
+    score_left = read_score("score_left")
+    score_right = read_score("score_right")
 
     # Clock is M:SS -- one minute digit, two second digits. A round starts at
     # 1:40 and buy at 0:30, so minutes never exceed 1 in normal play.
@@ -351,11 +391,29 @@ def read_scoreline(
     # and there the conservative refusal stands.
     clock_ms: int | None = None
     clock_glyphs = buckets["clock"]
-    if len(clock_glyphs) == 3:
+    if census is not None:
+        census.saw("clock")
+    if len(clock_glyphs) != 3:
+        # The clock is always M:SS, so anything but three glyphs is not a clock.
+        # Distinguishing NONE from SOME is what tests CLAUDE.md's hypothesis
+        # that much of the 33-60% read rate is the spike graphic standing where
+        # the digits go -- a planted round has nothing to read, and that is not
+        # the same failure as a clock that was there and could not be matched.
+        refuse("clock", "no_glyphs" if not clock_glyphs else
+               f"{len(clock_glyphs)}_glyphs")
+    else:
         text, worst, margin = _digits(clock_glyphs, templates)
-        if text.isdigit() and worst >= min_confidence and margin >= min_margin:
+        if not text.isdigit():
+            refuse("clock", "not_a_number")
+        elif worst < min_confidence:
+            refuse("clock", "low_confidence")
+        elif margin < min_margin:
+            refuse("clock", "low_margin")
+        else:
             minutes, seconds = int(text[0]), int(text[1:])
-            if minutes <= 1 and seconds <= 59:
+            if minutes > 1 or seconds > 59:
+                refuse("clock", "out_of_range")
+            else:
                 clock_ms = (minutes * 60 + seconds) * 1000
                 confidences.append(worst)
 

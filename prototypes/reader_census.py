@@ -56,6 +56,9 @@ from reticle.decode import sample_frames                          # noqa: E402
 from reticle.killfeed import (                                    # noqa: E402
     BAND_REFUSALS, analyse_killfeed, killfeed_roi, overlay_mask,
 )
+from reticle.ocr import (                                         # noqa: E402
+    Templates, crop_gray, read_scoreline, scoreline_roi,
+)
 from reticle.profiles import get_profile                          # noqa: E402
 
 STORE = Path.home() / "reticle-store"
@@ -156,6 +159,12 @@ def main(argv=None) -> int:
               f"{(~kf_mask).mean() * 100:.1f}% of the ROI masked out")
 
     cen = Census(name=f"killfeed {a.session}", keep=a.keep)
+    # The scoreline reader gets its own census in the same pass -- the decode is
+    # 93% of the cost, so a second reader riding along is nearly free, and the
+    # two rates are only comparable when they come from the same frames.
+    ocr_cen = Census(name=f"scoreline {a.session}", keep=a.keep)
+    templates = Templates.load(prof.name)
+    sroi = scoreline_roi(prof)
     kept = {}
     dump = Path(a.dump) if a.dump else None
     x0, y0, x1, y1 = kf_roi.pixels(W, H)
@@ -170,6 +179,8 @@ def main(argv=None) -> int:
         before = dict(cen.counts)
         views = analyse_killfeed(smp.frame, kf_roi, W, H, kf_mask, prof.name,
                                  cen, smp.t_ms)
+        read_scoreline(crop_gray(smp.frame, sroi, W, H), templates,
+                       census=ocr_cen, t_ms=smp.t_ms)
         for v in views:
             kept[v.verdict] = kept.get(v.verdict, 0) + 1
         if dump is not None:
@@ -203,6 +214,16 @@ def main(argv=None) -> int:
         print(f"           {n:6d}  {k}")
     print()
     print("band refusals in guard order:", ", ".join(BAND_REFUSALS))
+    print()
+    for field in ("clock", "score_left", "score_right"):
+        seen = ocr_cen.seen.get(field, 0)
+        drops = {k.split(":", 1)[1]: v for k, v in ocr_cen.counts.items()
+                 if k.startswith(field + ":")}
+        got = seen - sum(drops.values())
+        print(f"{field:12s} read {got}/{seen} "
+              f"({got / seen * 100:.1f}%)" if seen else f"{field:12s} not seen")
+        for reason, n in sorted(drops.items(), key=lambda kv: -kv[1]):
+            print(f"             {n / seen * 100:5.1f}%  {n:6d}  {reason}")
     if dump is not None:
         print(f"crops      {dump}")
     return 0
