@@ -13,49 +13,40 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
-**2026-09-05, LATER SESSION. Read this first; the ability-channel handoff
+**2026-09-05, EVENING SESSION. Read this first; the ability-channel handoff
 further down is unchanged and still the plan for that thread.**
 
-**IN FLIGHT WHEN THE SESSION ENDED, and the first thing to pick up:**
+**A new match is ingested and read: `587c15b07779`, Lotus, 31:04, the recording
+the player made at 19:21.** `valorant-16x9-bigmap` (the default profile is wrong for
+everything since 2026-08-26 and was used by mistake once here). 38 spans, 3730
+HUD rows, 21387 minimap rows, self raw 93.4%, widget absent 3.4%. Killfeed
+reads **19 kills / 14 deaths** and **there is no ground truth for it yet --
+ask the player for the scoreboard K/D**, or run `reticle board` if he opened Tab.
 
-* **the corpus re-scan at `hud-0.11.0`** was 7 of 17 sessions through, running
-  from `scratchpad/rescan.log`. It re-reads every session with the killfeed
-  icon-tier fix, `plate_seam`, and the new reason columns. **Re-run it** (the
-  loop is trivial: `reticle hud <sid> --force` per session) and score the
-  result against `checks.KNOWN_KD`. First three came back exact -- 14/18,
-  17/14, 25/15. This is what turns two fixes into a corpus number instead of
-  three spot checks;
-* **the census on `e37fdeca944f` LANDED, and it is a clean negative that
-  narrows the search.** Over the whole session, **every band-level refusal is a
-  SINGLE FRAME** -- 15 clusters, 14 of them one frame and one of two -- and
-  `no_divider` fires only four times, all transient. Those are half-formed
-  bands mid-slide, which is expected and costs nothing.
+**`ping_scan` is INCORPORATED and it was run on that match. The answer is 8 real
+pings of 31 confirmed -- 26% precision, against 15 of 15 on the clip.**
 
-  **So the -2 deaths are NOT a parsing failure: the bands were parsed.** That
-  rules out the entire family the killfeed work has been in all day -- dividers,
-  plate colours, icon tiers -- and leaves exactly two candidates:
-
-  1. **attribution**: the band was read and the verdict came out `other`,
-     i.e. `_match_me` did not find "Me" on either side. 1535 of this session's
-     1918 views are `other`, so a death hiding there is invisible to the census;
-  2. **band formation**: no band ever formed, so nothing reached the census at
-     all. CLAUDE.md records the cause -- a row almost entirely behind a toggled
-     overlay never reaches `PLATE_ROW_FRAC` and *the entry is not reported
-     occluded, it is simply absent*.
-
-  The census cannot see either by construction: it counts what was found and
-  refused, never what was never found. **Distinguishing them needs a different
-  instrument** -- the roster alive-count audit named in CLAUDE.md ("The top HUD
-  says more than it looks like"), which is state rather than events and so
-  catches a missing entry the killfeed itself cannot. That is the next move on
-  this defect, not more killfeed work.
-
-  Worth noting beside it: this session reads `occluded` on 24.6% / 25.1% of
-  score-field frames, far above the others measured. Whether something is
-  covering the top HUD here is unchecked and would bear on candidate 2;
-* **`ping_scan` on a real match session** -- the ask, not started. The
-  lifetime gate is map-independent so this tests the one-map hue bands at zero
-  footage cost. `PingReader` now exists so it can ride a `scan` pass.
+* pings now ride `reticle scan` by default (`--no-ping` to skip) and land in
+  `<store>/events/ping/<sid>.jsonl` through `Store.write_events`. Detection
+  moved to `reticle/ping.py`; `prototypes/ping_scan.py` is the clip path and
+  the contact sheet;
+* **the clip's 15th ping was being lost to a merge**, and finding it is what
+  the session run bought. `Grouper` now breaks a run at a time gap, so a group
+  is contiguous by construction. On a 31-minute match every walkable cell
+  eventually holds a group and a ping joins one from ten minutes ago; on a 65 s
+  clip that never happens. Control went 14 -> 15, verified by eye, and the
+  module's own table said 15 all along;
+* **the false positives are five named classes and the clip could not contain
+  any of them** -- ally icons (13), warm scenery at the widget edge (4), other
+  minimap icons (3), X death marks (2), a red team bar (1). An ally holding an
+  angle for 7 s IS a standard ping on hue, size and lifetime;
+* **DEAD: reusing `ally_rings` to subtract allies.** It fires on the cyan ping
+  harder than on allies (median 0.9 px vs 4.0 px) -- gating keeps 1 of 8;
+* **LIVE and deliberately not shipped: an ally icon is a hollow RING and a ping
+  is a filled glyph.** Fill 0.25-0.53 against 0.44-0.79. The overlap has to be
+  resolved per glyph and **the only labels are my own reading of a sheet**, so
+  the next move is a labelling pass, not a constant. Numbers in
+  `prototypes/ping_match_eval.py`.
 
 **The map art is wired into `searchable` and is the biggest available accuracy
 win still unclaimed.** `searchable(labels, art=art_mask(sid))` scores 92.3% /

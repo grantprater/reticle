@@ -56,7 +56,26 @@ Limits, stated because the numbers look better than they are
 * **one map, one widget size, one sitting.** Sunset, bigmap. The hues are of a
   glyph drawn over a grey slab so they ought to be stable, but that is an
   argument, not a measurement -- which is what running this on match footage is
-  for;
+  for.
+
+  **It has now been run on match footage, and the hues held while the
+  PRECISION collapsed: 8 real of 31 confirmed on a 31-minute Lotus match,
+  against 15 of 15 on the clip.** The clip was recorded solo in a custom game,
+  so its widget contained pings and nothing else -- and the thing that made the
+  lifetime gate look like a complete detector was the absence of everything a
+  real minimap draws. Full numbers and the two hypotheses tested against them
+  in `prototypes/ping_match_eval.py`; the classes, none of which the clip could
+  have contained:
+
+      ally icon (teal ring + portrait + cone)      13   hue 78-81 vs 82
+      warm world scenery at the widget's edge       4   hue 14-15 vs 17
+      another minimap icon (yellow triangle)        3   hue 24-35
+      red X death mark                              2   hue 174-175 vs 174
+      a red team bar across the map                 1   hue 177
+
+  **An ally holding an angle for seven seconds is a standard ping to this
+  detector**, on hue, on size and on lifetime. That is the finding, and it is
+  not a threshold problem;
 * **n=1 for `watching here`**, and `on my way` appears only in its own clip.
   The lifetimes of those two are assumed from the other three, not observed;
 * ~~a ping over the VOID is invisible to this~~ -- **ANSWERED by the player,
