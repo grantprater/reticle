@@ -91,16 +91,28 @@ only non-grey. **So boxes and elevation come free as a lookup**, where
 `minimap_geometry`'s box/wall split is described in this file as "already known
 to be poor" -- the second hope, answered.
 
-**His first hope needs a correction, and the correction is the useful part.**
-The "tiny cracks in the minimap" are NOT interior holes in the art: Ascent has
-8 interior holes, Lotus 13, Split 10, and they are mostly LARGE (median 563 to
-2670 widget px, only 0-3 per map under 60). Counting holes does not find them.
+**His first hope was RIGHT and my first check of it was aimed at the wrong
+quantity.** I counted interior holes -- Ascent 8, Lotus 13, Split 10, mostly
+large -- concluded "the cracks are not holes", and reported that as a
+correction to him. the player, immediately: *I'm not entirely sure that's accurate.
+There were misreads of non-minimap content as icons.*
 
-What differs is the DILATION. `floor_mask` grows its answer by 9 px on purpose
--- so a red enemy ring OVERHANGING the slab edge is still scored -- and a 9 px
-dilation closes every crack narrower than that, which makes cracks read as
-floor. The art does not dilate, so a candidate sitting in a crack is refusable
-exactly.
+That is the mechanism, and it makes the hole COUNT beside the point. A hole or
+crack is a place where the widget is TRANSPARENT, so what shows through it is
+the live world -- moving, high-contrast, and exactly the thing a blob detector
+fires on. This directory's own opening line says it: *the widget is
+semi-transparent over the void, and every content-based approach that ignored
+it drowned in the world moving behind it.* A crack is a small piece of void
+INSIDE the map, and the detections it produces are world content wearing an
+icon's shape.
+
+So the question is not how many holes there are, it is whether the searchable
+mask admits them -- and the derived one does, because `floor_mask` grows by
+9 px and that closes every crack narrower than that. Whether the count is 8 or
+800 does not change it.
+
+The art does not dilate, so a candidate sitting in a crack is refusable exactly
+rather than by a margin.
 
 **Do not read that as "floor_mask is 40% wrong".** It is 51.5% of the widget
 against the art's 30.6%, but those two masks have different jobs and the
