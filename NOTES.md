@@ -13,64 +13,21 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
-**2026-09-06, later. `floor_mask` WAS FORKED and is now reconciled. Read this
-before any minimap work; everything below it is unchanged.**
+**2026-09-06, later. `floor_mask` was FORKED for ten days and is now
+reconciled — `18b0912`. Read that commit before any minimap work.**
 
-Two definitions with different behaviour since 2026-08-27 -- the shipped
-reader on `sat < 60`, fifteen prototypes on `sat < 20` + largest-component +
-`BRIDGE` -- because the 2026-09-02 promotion copied the older branch.
-`CLAUDE.md` recorded the fork as byte-identical; it was not. Arbitrated
-against the two unseeded paintings by the new
-`prototypes/floor_mask_eval.py`, and **the shipped gate now scores 78.8% /
-77.9% IoU at 100% recall against 57.8% / 74.0%**.
+One implementation each of `floor_mask`, `median_widget` (was `static_map` in
+both trees) and the plant tint (`SITE_*`, which `minimap_geometry.PLANT_*`
+aliases). The shipped gate scores **78.8% / 77.9% IoU at 100% recall** against
+the old 57.8% / 74.0%, on the two paintings, via the new
+`prototypes/floor_mask_eval.py`.
 
-Three things now have exactly one implementation: `floor_mask`,
-`median_widget` (was `static_map` in both trees), and the plant tint
-(`reticle.minimap.SITE_*`, which `minimap_geometry.PLANT_*` aliases).
+**A SITE IS FLOOR** — the correction, and it caught a real defect mid-fix.
+The full argument is in `reticle/minimap.py`'s docstring.
 
-**A SITE IS FLOOR.** the correction, and it caught a real defect mid-fix:
-the slab gate alone dropped the bomb sites, and 9.6% of stored self positions
-and 4.4-6.7% of ally positions on `a06f04a0059f` sit inside one. `site_mask`
-joins them back, and that it reproduces `minimap_geometry`'s independently
-fitted PLANT class to the pixel on both maps is the check on it.
-
-**THREE JOBS, IN THIS ORDER, BEFORE ANY MINIMAP NUMBER IS QUOTED:**
-
-1. **rebuild all 34 geometry npz.** `floor_mask` moved, so `classify()` moves
-   and every stamp is stale. This is the documented consequence, not a
-   surprise;
-2. **re-read `l1/minimap`.** The stored track was built on the old gate. The
-   change drops 13.7% of the widget on Ascent, **100.0% of it outside the
-   painting**, and that region held 878 stored self positions and ~8,400 ally
-   candidates -- all phantoms;
-3. **re-run `xmark_eval` and `chokepoint_eval` after (2), not before.**
-
-Measured on the OLD stored track, so read them as a preview and not as the
-re-validation:
-
-    xmark_eval  a06f04a0059f      before      after
-      scored                       61/67      57/67    <- coverage cost, real
-      closest-to-X median         24.3 px    22.4 px
-      closest-to-X p95           144.1 px   136.7 px
-      closest-to-X max           306.7 px   235.5 px
-      ally-to-ally spread        141.9 px    72.6 px
-
-Median, p95 and max all improve while four fewer deaths score: the signature
-of removing phantoms rather than of a better detector, the same shape the
-widget guard produced. **`chokepoint_eval` is NOT comparable across this
-change** -- its chokepoints are the distance-transform ridge OF `floor_mask`,
-so the ground truth moved with the thing under test (31 chokepoints before,
-14 after). Its separation ratio is identical at 2.8x, which is all it can say.
-That circularity is worth remembering before it is quoted as independent
-validation again.
-
-**Also open, unfalsifiable with current data:** the lengths now scale with the
-widget (`BRIDGE` 25->19, dilation 9->7 at 331 px), which moves three
-small-widget sessions and no large one. Direction is right -- strictly less
-void, nothing added -- but **no small-widget painting exists**, so it is
-unscored. One `paint_map.py 9acf02f98283` would close it.
-
----
+**The stored minimap track is known-superseded**, and re-validating it is
+TABLED — see `BACKLOG.md`, which is new and holds the three jobs, the reason,
+and what would un-defer them. Do not quote a minimap number until it is done.
 
 **2026-09-06. The ability-channel handoff further down is
 unchanged and still the plan for that thread.**
