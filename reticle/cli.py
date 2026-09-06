@@ -35,6 +35,7 @@ from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
 from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px,
+                      widget_scale,
                       pick_self, self_rings, static_map, widget_drawn)
 from .overlay import OverlayContext, draw
 from .passes import SessionContext, run as passes_run
@@ -587,7 +588,8 @@ class _MinimapPass:
                 "ally_x": [None] * MAX_ALLIES, "ally_y": [None] * MAX_ALLIES,
             })
             return
-        pick = pick_self(self_rings(crop, self.floor), self.prev, self.step_ms)
+        pick = pick_self(self_rings(crop, self.floor), self.prev, self.step_ms,
+                         widget_scale(crop.shape[1]))
         if pick is not None:
             self.prev = pick
         allies = sorted(ally_rings(crop, self.floor), key=lambda c: -c[0])[:MAX_ALLIES]
@@ -776,7 +778,9 @@ def cmd_minimap(args) -> int:
     print(f"self       raw {got_self}/{n} ({got_self / n * 100:.1f}%)")
 
     track = filter_track([(r["t_ms"], r["self_x"], r["self_y"]) for r in rows
-                          if r["self_x"] is not None], step_ms)
+                          if r["self_x"] is not None], step_ms,
+                         widget_scale(minimap_roi_px(profile, w, h)[2]
+                                      - minimap_roi_px(profile, w, h)[0]))
     print(f"           filtered {len(track)} points "
           f"({len(track) / n * 100:.1f}% coverage after gap interpolation)")
     sp = np.array([np.hypot(b[1] - a[1], b[2] - a[2]) / ((b[0] - a[0]) / 1000.0)

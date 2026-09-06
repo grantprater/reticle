@@ -45,8 +45,49 @@ import numpy as np
 
 from .profiles import Profile
 
+# ---------------------------------------------------------------- widget scale
+#
+# **Every constant below is in WIDGET PIXELS, and the widget has two sizes.**
+# `valorant-16x9-bigmap` is ~1.4x `valorant-16x9` linearly, and the pre-ingest
+# checklist has said since 2026-08-26 that "geometry and icon thresholds both
+# scale with it" while nothing in the code did. All four sessions with minimap
+# L1 are bigmap; SIXTEEN sessions in the store are the small widget and none has
+# been read, so this was prospective rather than wrong -- but the failure modes
+# differ in loudness, which is the reason to fix it before those are read.
+# `MIN_ICON_AREA` fails LOUDLY on a smaller widget (the self rate collapses).
+# The `floor_mask` dilation fails SILENTLY and in the dangerous direction: a
+# fixed 9 px closes proportionally wider cracks on a smaller widget, admitting
+# more of the semi-transparent void, which is the documented cause of reading
+# non-minimap content as icons.
+#
+# The derivation needs no plumbing, which is why it is worth doing rather than
+# discussing: **every function here is already handed a crop whose width IS the
+# widget width.** So the scale is available in place, at each call, with no
+# argument threading and no per-session state to keep in sync.
+#
+# The reference is the widget these constants were measured on.
+REF_WIDGET_W = 465.0        # valorant-16x9-bigmap at 1920x1080: x 15..480
+
+
+def widget_scale(width_px: float) -> float:
+    """Linear scale of this widget against the one the constants were measured on.
+
+    Exactly 1.0 for `valorant-16x9-bigmap` at 1080p, so nothing that has ever
+    been read moves -- which is the check this change is verified by, not an
+    argument that it is safe.
+    """
+    return float(width_px) / REF_WIDGET_W
+
+
+def _odd(n: float, lo: int = 3) -> int:
+    """Nearest odd kernel size, floored -- an even structuring element is off-centre."""
+    k = max(lo, int(round(n)))
+    return k if k % 2 else k + 1
+
+
 # Top speed of a real track, px/s, measured rather than derived: every
 # filtered track sits under it and every misdetection blew far past it.
+# A SPEED in widget pixels, so it scales linearly with the widget.
 RUN_PX = 45.0
 GAP_MS = 1000.0
 # The pale yellow-green the game rings the local player with -- the same
@@ -86,7 +127,11 @@ def floor_mask(med: np.ndarray) -> np.ndarray:
     """The opaque walkable slab. Everything else is see-through and churns."""
     hsv = cv2.cvtColor(med, cv2.COLOR_BGR2HSV)
     m = (hsv[:, :, 1] < 60) & (hsv[:, :, 2] > 110)
-    return cv2.dilate(m.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+    # The 9 px dilation is a LENGTH -- it exists so a ring overhanging the slab
+    # edge is still scored -- so it scales linearly. Left fixed it would close
+    # proportionally wider cracks on a smaller widget and quietly admit void.
+    k = _odd(9 * widget_scale(med.shape[1]))
+    return cv2.dilate(m.astype(np.uint8), np.ones((k, k), np.uint8)) > 0
 
 
 #: Floor-slab mean brightness below which the widget is unreadable. The gap it
@@ -171,11 +216,16 @@ def widget_drawn(crop: np.ndarray, sgray: np.ndarray, floor: np.ndarray,
 
 
 def _rings(mask: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]]:
+    # AREA scales as the SQUARE of the linear scale; the closing kernel is a
+    # length and scales linearly. Getting those two the same way round is the
+    # whole content of this change.
+    sc = widget_scale(mask.shape[1])
     m = cv2.morphologyEx((mask & floor).astype(np.uint8), cv2.MORPH_CLOSE,
-                         np.ones((3, 3), np.uint8))
+                         np.ones((_odd(3 * sc), _odd(3 * sc)), np.uint8))
     n, _lab, st, cen = cv2.connectedComponentsWithStats(m, 8)
+    min_area = max(4, int(round(MIN_ICON_AREA * sc * sc)))
     return [(int(st[i, 4]), float(cen[i][0]), float(cen[i][1]))
-            for i in range(1, n) if st[i, 4] >= MIN_ICON_AREA]
+            for i in range(1, n) if st[i, 4] >= min_area]
 
 
 def self_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]]:
@@ -193,7 +243,7 @@ def ally_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, fl
 
 def pick_self(cands: list[tuple[int, float, float]],
               prev: tuple[float, float] | None,
-              step_ms: float) -> tuple[float, float] | None:
+              step_ms: float, scale: float = 1.0) -> tuple[float, float] | None:
     """Nearest-to-previous when there is a previous point, else largest blob.
 
     Nearest-to-previous is what gives this a track rather than a per-frame
@@ -204,7 +254,11 @@ def pick_self(cands: list[tuple[int, float, float]],
     if not cands:
         return None
     if prev is not None:
-        lim = RUN_PX * (step_ms / 1000.0) * 2.0
+        # RUN_PX is widget px/s, so the gate scales with the widget. `scale`
+        # defaults to 1.0 rather than being derived, because this is the one
+        # function here that is handed candidates instead of a crop -- the
+        # caller has the width and passes it.
+        lim = RUN_PX * scale * (step_ms / 1000.0) * 2.0
         near = [c for c in cands if np.hypot(c[1] - prev[0], c[2] - prev[1]) <= lim]
         if near:
             return max(near, key=lambda c: c[0])[1:]
@@ -212,7 +266,7 @@ def pick_self(cands: list[tuple[int, float, float]],
 
 
 def filter_track(found: list[tuple[float, float, float]],
-                  step_ms: float) -> list[tuple[float, float, float]]:
+                  step_ms: float, scale: float = 1.0) -> list[tuple[float, float, float]]:
     """Drop impossible steps, then interpolate the short gaps they leave.
 
     Pure function of the raw (t_ms, x, y) stream -- callers can run this
@@ -225,7 +279,8 @@ def filter_track(found: list[tuple[float, float, float]],
     for p in found:
         if keep:
             dt = (p[0] - keep[-1][0]) / 1000.0
-            if dt > 0 and np.hypot(p[1] - keep[-1][1], p[2] - keep[-1][2]) / dt > RUN_PX * 1.6:
+            if dt > 0 and (np.hypot(p[1] - keep[-1][1], p[2] - keep[-1][2]) / dt
+                           > RUN_PX * scale * 1.6):
                 continue
         keep.append(p)
     out = []

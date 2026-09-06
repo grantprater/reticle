@@ -255,8 +255,10 @@ class Grouper:
     breaking on its first hit.
     """
 
-    def __init__(self, hz: float = 10.0, same_px: int = SAME_PX):
-        self.same = same_px
+    def __init__(self, hz: float = 10.0, same_px: int = SAME_PX,
+                 scale: float = 1.0):
+        # SAME_PX is a distance on the widget, so it scales with the widget.
+        self.same = max(2, int(round(same_px * scale)))
         self.max_gap = GAP_PERIODS / hz
         self.groups: list[list[tuple[float, int, int, int]]] = []
         self._cells: dict[tuple[int, int], list[int]] = {}
@@ -300,16 +302,28 @@ def sightings(crop: np.ndarray, floor: np.ndarray):
 
     The only place pixels are looked at, so it is the whole definition of a
     ping CANDIDATE -- everything after it is persistence.
+
+    **The size gates are in WIDGET PIXELS and the widget has two sizes**, so
+    they are scaled from the crop's own width (`minimap.widget_scale`). A ping
+    glyph is drawn at the widget's scale like everything else on it; leaving
+    these fixed would silently reject every ping on the smaller widget, where
+    a diamond measured at 8x8 here arrives at about 6x6. AREA is an area and
+    scales as the square; SIDE is a length and scales linearly.
     """
+    from .minimap import widget_scale
+
+    sc = widget_scale(crop.shape[1])
+    a_lo, a_hi = AREA[0] * sc * sc, AREA[1] * sc * sc
+    s_lo, s_hi = SIDE[0] * sc, SIDE[1] * sc
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
     m = (floor & (hsv[:, :, 1] > SAT_MIN)
          & (hsv[:, :, 2] > VAL_MIN)).astype(np.uint8)
     n, lab, st, cen = cv2.connectedComponentsWithStats(m, 8)
     out = []
     for k in range(1, n):
-        if not AREA[0] <= st[k, 4] <= AREA[1]:
+        if not a_lo <= st[k, 4] <= a_hi:
             continue
-        if not (SIDE[0] <= st[k, 2] <= SIDE[1] and SIDE[0] <= st[k, 3] <= SIDE[1]):
+        if not (s_lo <= st[k, 2] <= s_hi and s_lo <= st[k, 3] <= s_hi):
             continue
         out.append((int(cen[k][0]), int(cen[k][1]),
                     int(np.median(hsv[:, :, 0][lab == k]))))
@@ -394,7 +408,9 @@ class PingReader:
         self.box = box
         self.floor = floor
         self.sgray = sgray
-        self.g = Grouper(hz)
+        from .minimap import widget_scale
+
+        self.g = Grouper(hz, scale=widget_scale(box[2] - box[0]))
         self.ts: list[float] = []
         self.n_absent = 0
         self.hits: list = []
