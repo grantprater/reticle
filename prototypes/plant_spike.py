@@ -26,26 +26,48 @@ planted the round timer is replaced by a red spike graphic, centre-screen, for
 the whole post-plant window -- inside an ROI already being cropped. That is a
 POSITIVE detection of the thing itself, and it needs no new ROI.
 
-What it looks like, and why the test is structural
---------------------------------------------------
+What it looks like, and the test that took two attempts
+--------------------------------------------------------
 Rendered before anything was measured (the standing rule): the graphic is a
 large solid red triangle with a hexagonal core, occupying the centre of the
 scoreline ROI where the digits go. It is unmissable by eye, and the first
 render already showed the null-clock rule getting one wrong -- a round it calls
 CLEAN at 612 s is plainly displaying the spike.
 
-The standing convention forbids an absolute level here, because the scoreline
-is composited over live scenery and warm walls sit behind it (two of the eight
-probes rendered have orange scenery right through the ROI). So the test is
-**coverage of a connected shape**, with colour only deciding what to count:
+**The first test was an ABSOLUTE coverage threshold and it was wrong**, in
+exactly the way CLAUDE.md says every absolute threshold on this HUD is
+eventually wrong. It looked perfect on one session -- Lotus, cool-toned:
+planted rounds 0.09-0.66, clean rounds exactly 0.00, nothing between -- and I
+wrote that the separation was structural. It was not; it was the map.
 
-    red mask -> largest connected component -> what fraction of the CENTRE BOX
-    does it cover
+Rendering the SIXTEEN disagreements across EIGHT sessions killed it. On Sunset
+and Haven the warm scenery behind the semi-transparent scoreline forms a large
+connected red component of its own, scoring 0.12-0.24 with the clock plainly
+readable underneath. Six of the sixteen were wrong: four such false positives,
+and two false negatives at 0.10 where the graphic was plainly there.
 
-A warm wall gives a diffuse, ragged mask that does not form one large
-component filling the box; the graphic gives one that does. Structure answers
-"is this a solid shape sitting where the timer goes", colour answers "is it the
-red we mean" -- which is exactly the division CLAUDE.md prescribes.
+The fix is the one the convention prescribes and the first version only
+claimed -- **compare relatively, inside the structure.** The graphic is a LOCAL
+feature: red in the CENTRE where the digits go, against FLANKS that hold the
+two score numbers on neutral chrome. Warm scenery is uniform across the whole
+strip, so it lifts centre and flanks together and cancels.
+
+    score = (largest red component / centre box) - (red fraction of flanks)
+
+On the same sixteen items, fixed labels, one changed function:
+
+    old (absolute centre)   planted +0.10..+0.63   clean +0.00..+0.24  OVERLAP
+    new (centre - flanks)   planted +0.09..+0.49   clean +0.00..+0.00  16/16
+
+The corpus rate moves with it, which is the point of having done both:
+
+    null-clock rule (shipped)        183/369   50%
+    spike, absolute                  212/369   57%   disagreeing on 17.1%
+    spike, relative                  210/369   57%   disagreeing on 11.1%
+
+The two spike rates are close and the DISAGREEMENT rate is what moved -- the
+absolute score was making errors in both directions that partly cancelled in
+the total. A rate is not evidence a rule is right.
 
 Cost, which is the reason this is affordable at all
 ----------------------------------------------------
@@ -86,11 +108,21 @@ from reticle.store import Store                                   # noqa: E402
 #: graphic both live. Fractions of the ROI, not of the frame.
 CENTRE = (0.34, 0.00, 0.66, 1.00)
 #: OpenCV hue. The graphic is a saturated pure red; the band is deliberately
-#: tight because STRUCTURE is doing the separating, not this.
+#: tight because the CENTRE-vs-FLANK contrast is doing the separating, not this.
 HUE_LO, HUE_HI = 168, 12
 SAT_MIN, VAL_MIN = 120, 90
-#: What fraction of the centre box the largest red component must cover.
-COVER_MIN = 0.10
+#: Centre-box coverage MINUS flank redness. On the sixteen hardest cases -- the
+#: rounds where the two rules disagree, read by eye across eight sessions --
+#: clean rounds score EXACTLY 0.00 and planted rounds 0.09-0.49, so this is not
+#: a fitted edge; it is "any red shape in the centre beyond what the flanks
+#: already show". The absolute version of this score overlapped badly on the
+#: same items (clean up to 0.24, planted down to 0.10).
+#:
+#: **The labels behind that are mine, so they FALSIFY and do not license.**
+#: They killed the absolute score, which is what a control from my own eyes can
+#: honestly do; the surviving threshold still wants the labels or a wider
+#: by-eye pass before the corpus rate is quoted as a fact.
+COVER_MIN = 0.05
 #: Probes per round, spread over the window a plant can be visible in.
 PROBE_FRACS = (0.55, 0.70, 0.82, 0.94)
 #: Bisection stops here and hands off to a sequential decode -- see the
@@ -105,25 +137,63 @@ def centre_box(roi: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
             x0 + int(w * CENTRE[2]), y0 + int(h * CENTRE[3]))
 
 
-def spike_cover(frame: np.ndarray, box: tuple[int, int, int, int]) -> float:
-    """Fraction of the centre box covered by the largest red component.
+def _red(crop: np.ndarray) -> np.ndarray:
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    hh, ss, vv = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    return (((hh >= HUE_LO) | (hh <= HUE_HI)) & (ss > SAT_MIN)
+            & (vv > VAL_MIN)).astype(np.uint8)
 
-    Coverage of ONE component, not a red pixel count: warm scenery through the
-    semi-transparent HUD produces plenty of red pixels and no single solid
-    shape, which is the whole reason this is not a threshold on redness.
+
+def spike_cover(frame: np.ndarray, box: tuple[int, int, int, int],
+                roi: tuple[int, int, int, int] | None = None) -> float:
+    """Centre-box coverage MINUS the redness of the flanks either side of it.
+
+    **The first version of this was an absolute coverage threshold and it was
+    wrong, in the way CLAUDE.md says every absolute threshold on this HUD is
+    eventually wrong.** It claimed structure was doing the separating -- one
+    large connected component rather than a red pixel count -- and on one
+    cool-toned map (Lotus) the separation looked perfect: planted 0.09-0.66,
+    clean exactly 0.00, nothing between. Rendering sixteen disagreements across
+    EIGHT sessions killed it: on Sunset and Haven the warm scenery behind the
+    semi-transparent scoreline forms a large connected red component of its own,
+    scoring 0.12-0.24 with the clock plainly readable underneath. Six of the
+    sixteen were wrong -- four such false positives and two false negatives at
+    0.10 where the graphic was plainly there.
+
+    So the fix is the one the convention prescribes and the first version only
+    claimed: **compare relatively, inside the structure.** The graphic is a
+    LOCAL feature -- red in the centre where the digits go, against flanks that
+    hold the two score numbers on neutral chrome. Warm scenery is uniform across
+    the whole strip, so it lifts centre and flanks together and cancels. That is
+    the same shape as every fix in this repo: density within the row's own
+    entry, not across the ROI.
     """
     x0, y0, x1, y1 = box
     crop = frame[y0:y1, x0:x1]
     if crop.size == 0:
         return 0.0
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    hh, ss, vv = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
-    m = (((hh >= HUE_LO) | (hh <= HUE_HI)) & (ss > SAT_MIN)
-         & (vv > VAL_MIN)).astype(np.uint8)
+    m = _red(crop)
     n, _lab, st, _cen = cv2.connectedComponentsWithStats(m, 8)
     if n <= 1:
         return 0.0
-    return float(st[1:, 4].max()) / float(crop.shape[0] * crop.shape[1])
+    centre = float(st[1:, 4].max()) / float(crop.shape[0] * crop.shape[1])
+    if roi is None:
+        return centre
+    # The flanks: the scoreline ROI either side of the centre box. They carry
+    # the two score numbers on neutral chrome, and whatever scenery is behind
+    # the whole strip.
+    rx0, ry0, rx1, ry1 = roi
+    left = frame[ry0:ry1, rx0:x0]
+    right = frame[ry0:ry1, x1:rx1]
+    flank = 0.0
+    tot = 0
+    for f in (left, right):
+        if f.size:
+            flank += float(_red(f).sum())
+            tot += f.shape[0] * f.shape[1]
+    if tot:
+        flank /= tot
+    return centre - flank
 
 
 class Prober:
@@ -153,18 +223,19 @@ class Prober:
     work, sequential decode for exact work.
     """
 
-    def __init__(self, path, box):
+    def __init__(self, path, box, roi=None):
         self.cap = cv2.VideoCapture(str(path))
         if not self.cap.isOpened():
             raise SystemExit(f"could not open {path}")
         self.box = box
+        self.roi = roi
         self.n = 0
 
     def at(self, t_ms: float) -> float:
         self.cap.set(cv2.CAP_PROP_POS_MSEC, float(t_ms))
         ok, fr = self.cap.read()
         self.n += 1
-        return spike_cover(fr, self.box) if ok else 0.0
+        return spike_cover(fr, self.box, self.roi) if ok else 0.0
 
     def close(self):
         self.cap.release()
@@ -223,7 +294,7 @@ def main(argv=None) -> int:
     print(f"session    {a.session}   {len(rounds)} rounds")
     print(f"scoreline  {roi}   centre box {box}")
     print()
-    pr = Prober(src["path"], box)
+    pr = Prober(src["path"], box, roi)
     print(f"{'#':>3}{'start':>9}{'end':>9}  {'null-clock':<11}"
           f"{'cover (probes)':<34}{'spike':<7} agree")
 
