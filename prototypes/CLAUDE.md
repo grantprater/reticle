@@ -669,11 +669,58 @@ a crop:
   Silent movement is the whole content of "was that peek telegraphed", and it
   needs no new ROI -- the ring is already in the widget.
 
-Untested and the obvious next question: does the radius CHANGE with movement
-mode (walk vs run vs crouch), or is it one radius that is simply present or
-absent? If it changes, this reads out the movement mode itself. One clip of
-deliberate walk/run/crouch cycles settles it, and it is the same shape of ask
-as the ping clip -- the player knows what he did, so the labels are free.
+**ANSWERED the same day, by the player, with the clip (`2026-09-05 18-44-09.mp4`):
+ONLY RUNNING MAKES NOISE AND ACTIVATES THE VISIBLE AUDIO RADIUS.** Walking and
+crouching draw nothing.
+
+So it is BINARY, not a variable radius -- and that is the better outcome of the
+two, because it makes the ring a direct readout rather than a measurement to
+calibrate:
+
+    ring drawn        the player is RUNNING, and is audible at that radius
+    ring absent       walking, crouching, or standing still -- inaudible
+
+**Combined with the shipped self track it separates the two absences, and that
+is the signal worth having.** Speed comes free from `reticle/minimap.py`, so:
+
+    moving + ring       running: the peek was TELEGRAPHED
+    moving + no ring    walking or crouching: DELIBERATE silence
+    still + no ring     holding
+
+The middle row is the one nothing else in the capture can see. CLAUDE.md's peek
+section argues the whole point is whether an approach gave information away;
+this is the game stating it per frame. It needs no new ROI and no classifier --
+the ring is already in the widget and the track is already stored.
+
+**MEASURED off that clip, same day: the ring radius is 94-95 px, about 19 m**
+at the widget's ~0.2 m/px. It separates cleanly rather than by a fitted edge --
+running frames score an angular-median brightness lift of 3-12 at r = 91-103,
+and every non-running frame scores exactly 0.00:
+
+    7.5 - 8.0 s     r 95      lift 3-10
+    10.0 - 13.5 s   r 93-103  lift 6-12
+    everything else  --       lift 0.00
+
+Two things about HOW it was measured, both of which the first attempt got wrong
+and both of which recur:
+
+* **the peak is the player's own icon unless you exclude it.** A radial profile
+  from r=8 reports r=8 on every frame at a lift of ~60, ring or not. Start past
+  the icon and its facing triangle;
+* **use the angular MEDIAN, not the mean.** The vision cone is a wedge over
+  roughly a third of the angles and drags a mean at every radius; the ring is
+  the only thing that lifts ALL directions at one radius. Requiring the band to
+  span at least half the angular bins is the same test from the other side.
+  This is the module's own recurring shape -- measure the property that
+  separates the two things, not a threshold on what they share.
+
+At ~19 m this is also plausible against the game: Valorant's run-footstep
+audibility is usually put at around 20 m. That is corroboration, not a source.
+
+Note the asymmetry before building on it: ring-present is a POSITIVE claim
+about audibility, ring-absent is the union of three states and only becomes
+"deliberately silent" once the self track says the player was moving. Do not
+read absence alone as quiet play.
 
 **And it doubles as the spike's detonation radius**, which is immediately usable:
 post-plant, whether the player stood inside the lethal circle is a fact about a
@@ -2027,8 +2074,44 @@ metric whether to include them. Same treatment as wallbangs.
 **DONE 2026-09-02: minimap position tracking is promoted.** `minimap_position.py`
 -> `reticle/minimap.py` + `reticle minimap <session>` (L1, 15 Hz default, active
 spans only). Self is a real filtered track; ally rings are still per-frame
-candidates with no cross-frame identity. Two independent ground-truth checks
-now back it (see `xmark_eval.py`, `chokepoint_eval.py`, both 2026-09-02):
+candidates with no cross-frame identity.
+
+**RE-VALIDATED at `minimap-0.2.0`, 2026-09-05, after the widget guard.** Both
+checks were re-run with `--no-guard` (the figure on record) and without, on
+`a06f04a0059f`. They say different things and the difference is the finding:
+
+    xmark_eval            baseline    guarded
+    scored                  64/67      61/67
+    closest-to-X median     25.9 px    24.3 px
+    closest-to-X p95       260.2 px   144.1 px      <-- the result
+    ally-to-ally spread    138.7 px   141.9 px
+    frames skipped            0.0%       9.2%
+
+    chokepoint_eval       baseline    guarded
+    scored                129/129    129/129
+    transition median       3.8 px     3.9 px
+    baseline-window median 10.2 px    10.9 px
+    frames skipped            0.0%       5.8%
+
+**The X-mark check improves sharply and the chokepoint check does not move.**
+The p95 nearly halves for a 4.7% coverage cost, which is the signature of
+removing phantoms rather than of a better detector: garbage does not shift a
+median, it lives in the tail. Chokepoint's separation is preserved exactly
+(2.7x the null before, 2.8x after) and its median moves by 0.1 px.
+
+**Why they differ is the useful part, and it generalises.** The guard skipped
+9.2% of the X-mark eval's frames against 5.8% of chokepoint's and 5.0% of the
+session as a whole -- because `xmark_eval` samples around DEATHS, which is
+exactly when the death screen is up, while `chokepoint_eval` samples at
+location-banner transitions mid-round, when the player is alive and moving and
+the widget is nearly always drawn. **Widget-absence is not uniform; it
+concentrates where a measurement anchored on deaths looks.** Same shape as the
+`self_icon_dist` sampling defect recorded above -- a per-track feature measured
+at the birth frame inherits that frame's failures -- and the same lesson: ask
+where a sample is drawn from before reading its rate.
+
+Two independent ground-truth checks back the track (see `xmark_eval.py`,
+`chokepoint_eval.py`, 2026-09-02, re-run 2026-09-05):
 teammate deaths' pre-death ally-ring positions land within ~1-1.5m of the blue
 X mark, and self-track positions near a location-banner text transition land
 close to the map's own physical chokepoints (distance-transform ridge of the

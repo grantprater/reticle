@@ -187,6 +187,25 @@ class Store:
             "clock_ms": pa.array(col("clock_ms"), type=pa.int32()),
             "score_left": pa.array(col("score_left"), type=pa.int16()),
             "score_right": pa.array(col("score_right"), type=pa.int16()),
+            # WHY a field above is null, when it is. Six different guards in
+            # `read_scoreline` return None and every one of them read
+            # identically here -- so the clock read rate of 33-60% this stage
+            # has reported since it was built said nothing at all about its
+            # cause, and could not be acted on. `clock:no_glyphs` (nothing in
+            # the field, e.g. the spike graphic standing where the digits go)
+            # and `clock:low_confidence` (a clock that was there and could not
+            # be matched) are opposite problems that looked the same.
+            #
+            # Dictionary-encoded: a handful of distinct short strings over
+            # thousands of rows costs almost nothing, and it keeps the column
+            # readable in `sql` without a join. Null means the field was READ,
+            # which is the common case, so the column is mostly nulls by design.
+            "clock_reason": pa.array(col("clock_reason"),
+                                     type=pa.dictionary(pa.int8(), pa.string())),
+            "score_left_reason": pa.array(col("score_left_reason"),
+                                          type=pa.dictionary(pa.int8(), pa.string())),
+            "score_right_reason": pa.array(col("score_right_reason"),
+                                           type=pa.dictionary(pa.int8(), pa.string())),
             # Bottom HUD (stage 02). Ammunition is the load-bearing one: a
             # magazine count that falls between samples is a shot fired.
             "hp": pa.array(col("hp"), type=pa.int16()),
@@ -209,6 +228,13 @@ class Store:
             "kf_kill_mask": pa.array(col("kf_kill_mask"), type=pa.int16()),
             "kf_death_mask": pa.array(col("kf_death_mask"), type=pa.int16()),
             "kf_unattributed": pa.array(col("kf_unattributed"), type=pa.int16()),
+            # The same idea for the killfeed: how many bands this frame held
+            # that could not be parsed, and which guard refused the first of
+            # them. `no_divider` is the ability-kill signature and was
+            # indistinguishable from empty scenery until it was named.
+            "kf_unparsed": pa.array(col("kf_unparsed"), type=pa.int16()),
+            "kf_unparsed_reason": pa.array(col("kf_unparsed_reason"),
+                                           type=pa.dictionary(pa.int8(), pa.string())),
             # Each entry's weapon-icon divider column, packed nine bits per
             # stack slot. An entry's divider does not move while it is on
             # screen, so this is what tells one entry from the next when both

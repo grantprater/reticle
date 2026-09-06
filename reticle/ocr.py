@@ -244,6 +244,17 @@ class ScorelineRead:
     confidence: float  # weakest glyph match backing a populated field, else 0.0
     n_glyphs: int
     occluded: tuple[str, ...] = ()  # fields refused because something covered them
+    # WHICH guard refused each field, or None when the field was read. Six
+    # guards return None above and they are not the same failure: `no_glyphs`
+    # is an empty field (the spike graphic stands where the clock's digits go)
+    # and `low_confidence` is a clock that was there and could not be matched.
+    # Carried on the read, not only in an optional census, because it goes to
+    # L1 -- a null with no reason beside it is a number nobody can act on, and
+    # this stage has reported a 33-60% clock read rate on exactly that basis
+    # since it was built.
+    clock_reason: str | None = None
+    score_left_reason: str | None = None
+    score_right_reason: str | None = None
 
     @property
     def complete(self) -> bool:
@@ -332,7 +343,10 @@ def read_scoreline(
 
     confidences: list[float] = []
 
+    reasons: dict[str, str] = {}
+
     def refuse(field: str, reason: str) -> None:
+        reasons[field] = reason
         if census is not None:
             census.drop(f"{field}:{reason}",
                         round(t_ms / 1000.0, 2) if t_ms is not None else None)
@@ -424,6 +438,9 @@ def read_scoreline(
         confidence=min(confidences) if confidences else 0.0,
         n_glyphs=len(glyphs),
         occluded=occluded,
+        clock_reason=reasons.get("clock"),
+        score_left_reason=reasons.get("score_left"),
+        score_right_reason=reasons.get("score_right"),
     )
 
 

@@ -54,9 +54,22 @@ Limits, stated because the numbers look better than they are
   argument, not a measurement;
 * **n=1 for `watching here`**, and `on my way` appears only in its own clip.
   The lifetimes of those two are assumed from the other three, not observed;
-* **a ping over the VOID is invisible to this.** Off-floor the world shows
-  through and hue means nothing. How often that happens is unmeasured, and it
-  is the first thing to check on match footage;
+* ~~a ping over the VOID is invisible to this~~ -- **ANSWERED by the player,
+  2026-09-05, and it is a guarantee rather than a limitation: YOU CANNOT PING
+  INTO THE VOID.** *If you ping in a hole it snaps to the nearest minimap
+  border; if you ping in the void outside the ping just doesn't work at all.*
+
+  So every ping that exists is on the map body or snapped to its border, and
+  the floor-mask gate this detector is built on is not merely convenient -- it
+  is aligned with the game's own behaviour. There is no population of pings
+  this cannot see, which was the largest unknown in the list above.
+
+  The residue is narrower and worth keeping: a ping SNAPPED to a border sits on
+  the white line-work, which `floor_mask` reaches only through its 9 px
+  dilation and which is the noisiest part of the widget (BORDER carries the
+  highest within-state SD of any class, and the player painted only ~47% of border
+  pixels as searchable). Border-snapped pings are the ones to check first on
+  match footage, not void pings -- those do not exist;
 * **`on my way` (hue 32) sits closer to `need help` (17-22) than any other
   pair.** Those two are what to watch on a different map.
 

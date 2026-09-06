@@ -394,6 +394,13 @@ class KillfeedRead:
     entry_wxs: tuple[int, ...] = ()
     # Which team each entry's victim was on, parallel to `entry_ys`.
     entry_ally: tuple[object, ...] = ()
+    # Bands this frame held that could not be parsed at all, and which guard
+    # refused the first of them. Separate from `unattributed`, which counts
+    # entries that WERE parsed and could not be attributed -- the two are
+    # different failures and were indistinguishable in L1 until now.
+    # `no_divider` is the ability-kill signature; see BAND_REFUSALS.
+    unparsed: int = 0
+    unparsed_reason: str | None = None
     # Entries whose killer or victim name was covered by a toggled overlay. They
     # are neither kills nor deaths *nor* confirmed non-player entries -- a
     # non-zero count here is a capture problem, not a code one.
@@ -1131,4 +1138,7 @@ def read_killfeed(
         kill_wxs=tuple(_trusted_wx(v) for v in kills),
         death_wxs=tuple(_trusted_wx(v) for v in deaths),
         unattributed=sum(1 for v in views if v.verdict in ("occluded", "tie")),
+        unparsed=sum(1 for v in views if v.verdict == "unparsed"),
+        unparsed_reason=next((v.reason for v in views
+                              if v.verdict == "unparsed" and v.reason), None),
     )

@@ -15,7 +15,14 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the
 # template set, or field parsing changes -- that invalidates stored HUD reads
 # and forces a re-decode, since this stage needs pixels.
-HUD_VERSION = "hud-0.10.0"
+HUD_VERSION = "hud-0.11.0"
+# 0.11.0: every null field now carries WHY. `clock_reason`,
+# `score_*_reason`, `kf_unparsed` and `kf_unparsed_reason` are new columns.
+# A null with no reason beside it is a number nobody can act on, and the
+# 33-60% clock read rate this stage has reported since it was built was
+# exactly that -- six different guards reading identically. Landed BEFORE the
+# corpus re-scan on purpose, so one decode picks up the schema and the
+# hud-0.10.0 killfeed fixes together.
 # Stage 02 minimap position tracking. Bump when self/ally detection, the
 # floor mask, or the filtering constants (RUN_PX, GAP_MS) change -- raw
 # positions are stored unfiltered, so a filter-only change does NOT need a
