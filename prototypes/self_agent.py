@@ -97,19 +97,59 @@ this: `chamber -> sova` is wrong at a 92% margin while `phoenix -> phoenix` is
 right at 8%. Reporting a confidence that does not correlate with correctness
 would be worse than reporting none.
 
-The next thing to try, and why it is the prime suspect
--------------------------------------------------------
-**The crop is probably off-centre, systematically.** The self glyph is a ring
-with a FACING TRIANGLE hanging off it, and both the component centroid and its
-bounding-box centre are pulled toward whichever way the player is looking. So
-the disc that is supposed to frame the portrait is displaced by a few pixels in
-a direction that rotates through the session -- which blurs the very histogram
-that is meant to carry identity, and does it differently for every clip.
+The prime suspect was the CROP GEOMETRY, and it is FALSIFIED (2026-09-06)
+--------------------------------------------------------------------------
+The suspect, as `BACKLOG.md` recorded it: the self glyph is a ring with a
+facing triangle hanging off it, so the centroid and the bounding-box centre are
+both dragged toward where the player is looking, the framing disc is displaced
+in a direction that rotates through the session, and the histogram is blurred
+differently in every clip. `minimap_ring_fit.fit_ring` -- the machinery that
+solved this exact teardrop for enemy icons -- should therefore lift the number.
 
-`minimap_portrait.fit_ring` fits a CIRCLE to the rim and is the machinery that
-already solved this for enemy icons, where the same teardrop shape defeated a
-closure test. Pointing it at the self key is the obvious next step and it needs
-no new labels.
+It does not. Three geometries, the same corpus, the same everything else:
+
+    --geom bbox   half the larger side of the component box    10/26   38%
+    --geom ring   fit_ring, the enemy machinery unchanged        9/26   35%
+    --geom pin    fit_ring scored coverage MINUS interior        9/26   35%
+
+`ring` and `pin` are identical answer for answer; against `bbox` they share
+eight of the ten, losing `phoenix` and `killjoy` and gaining `brimstone`. The
+sinks barely move either -- `sova` x8 -> x7, `yoru` x2 -> x4. Whatever is
+capping this at ten, **it is not where the crop is centred.**
+
+What the falsification cost, and what it bought
+-------------------------------------------------
+Two measurements now describe the self glyph properly, and neither was known
+before -- the earlier text was reasoning from the enemy icon's shape:
+
+* **the self key survives only over the LOWER HALF of the rim.** Sampled around
+  the fitted circle over five sessions, the key is present on 61-67% of the
+  bearings from 150 to 240 degrees and on **22-23% at 330-30** -- a dropout
+  fixed in SCREEN space, not one that rotates with facing. Rendering the mask
+  beside the crop shows the same thing: an open-topped arc with a solid tail;
+* **so there is no hole to find.** A closed rim would give the portrait as the
+  largest hole in the key, which is a centre with no fitting at all. Measured:
+  **0 holes in 347 frames across six sessions.** Do not re-try it.
+
+`--geom pin` was the answer to why a circle fit might still fail here -- the
+tail is solid and comparable in area to the surviving arc, so a circle slid
+down onto it scores well on coverage. Scoring `coverage - interior` cancels
+that, needs no new threshold, and **changes nothing** (9/26, the same nine).
+So the tail is not stealing the fit either.
+
+Where the evidence points instead: the DESCRIPTOR
+---------------------------------------------------
+`chamber -> sova` at a 99% share and a 98% margin is not a blurred histogram;
+it is a confident wrong answer, and it survives every geometry. The renders
+show why it might: the ring is a thick glow and it **washes the portrait
+yellow-green**, hard on pale agents and barely at all on a dark one like Omen
+-- and `composition` is a colour histogram, so a wash moves it bodily.
+
+`minimap_portrait.similarity` is masked NCC with the per-channel mean removed,
+chosen for exactly this reason on the enemy path -- *the widget is composited
+over live scenery and the whole icon shifts in level with what is behind it*.
+That descriptor is level-invariant and this one is not. Swapping it is the next
+experiment, and `descriptor()` already exists. 38% is still the number to beat.
 """
 from __future__ import annotations
 
@@ -129,6 +169,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 with contextlib.redirect_stdout(io.StringIO()):
     from minimap_portrait import composition, classify_composition
     from minimap_portrait_official import ART, art_composition, art_path
+    import minimap_ring_fit as rf
 from reticle.decode import sample_at                              # noqa: E402
 from reticle.minimap import (SELF_B_UNDER_G, SELF_G_MIN,          # noqa: E402
                              SELF_R_MIN, floor_mask, minimap_roi_px,
@@ -154,7 +195,103 @@ def agents_available() -> list[str]:
                   for p in ART.glob("*_minimap_portrait.png"))
 
 
-def self_icon(crop, floor):
+def self_mask(crop):
+    """The self colour key. Exact and exclusive, unlike the enemy red."""
+    b, g, rd = (crop[:, :, i].astype(np.int16) for i in range(3))
+    return (g > SELF_G_MIN) & (rd > SELF_R_MIN) & ((g - b) > SELF_B_UNDER_G)
+
+
+def _biggest(m):
+    """Largest component of the key, as (cx, cy, w, h, area), or None."""
+    n, _lab, st, cen = cv2.connectedComponentsWithStats(m.astype(np.uint8), 8)
+    if n <= 1:
+        return None
+    i = 1 + int(np.argmax(st[1:, 4]))
+    x, y, w, h, area = (int(v) for v in st[i])
+    if area < 4:
+        return None
+    return float(cen[i][0]), float(cen[i][1]), w, h, area
+
+
+def fit_self_ring(m, r_min, r_max):
+    """`fit_ring`'s search, scored so the SOLID TAIL cannot win it.
+
+    `minimap_ring_fit.fit_ring` picks the circle whose circumference is most
+    covered by the key. On an enemy icon that is right: the ring is 1-2 px and
+    the facing triangle is a small lobe outside it. **On the self glyph it is
+    not.** The self icon is a map pin -- a ringed portrait with a SOLID
+    triangle whose area is comparable to the arc -- and the key only survives
+    over the lower half of the rim (present 61-67% at bearings 150-240 deg,
+    22-23% at 330-30, pooled over five sessions). So a circle slid DOWN onto
+    the tail scores a high coverage on a solid blob, and that is what the fit
+    does: sampled around the winning circle, the top is neutral grey
+    (B159 G152 R164) and the bottom is ring yellow (G228 R225, G-B 59).
+
+    The correction needs no new threshold, and it is the same statistic the
+    null control already uses here -- evidence FOR minus evidence AGAINST:
+
+        score = circumference covered - interior covered
+
+    A true rim has the key on the circle and the PORTRAIT inside it, so its
+    interior term is near zero; a circle parked on the tail has both, and
+    cancels itself out. `fit_ring` already computes the interior fraction, as
+    `inner_red`; it simply does not score with it.
+    """
+    got = _biggest(m)
+    if got is None:
+        return None
+    cx, cy = got[0], got[1]
+    h, w = m.shape
+    best = None
+    for dy in range(-rf.SEARCH, rf.SEARCH + 1):
+        for dx in range(-rf.SEARCH, rf.SEARCH + 1):
+            y0, x0 = int(round(cy + dy)), int(round(cx + dx))
+            for r in range(r_min, r_max + 1):
+                pts, disc = rf._offsets(r)
+                xs, ys = x0 + pts[:, 0], y0 + pts[:, 1]
+                ok = (xs >= 0) & (ys >= 0) & (xs < w) & (ys < h)
+                if ok.sum() < len(pts) * 0.75:
+                    continue
+                cov = float(m[ys[ok], xs[ok]].mean())
+                dxs, dys = x0 + disc[:, 0], y0 + disc[:, 1]
+                dok = (dxs >= 0) & (dys >= 0) & (dxs < w) & (dys < h)
+                if not dok.any():
+                    continue
+                inner = float(m[dys[dok], dxs[dok]].mean())
+                sc = cov - inner
+                if best is None or sc > best[0]:
+                    best = (sc, x0, y0, r, cov)
+    if best is None:
+        return None
+    _sc, x0, y0, r, cov = best
+    return float(x0), float(y0), float(r), cov
+
+
+def self_icon_ring(m, grey, r_min, r_max):
+    """The self icon's centre and radius by FITTING A CIRCLE to its rim.
+
+    The reason this exists is written out in the module docstring: the bbox
+    geometry below measures a teardrop, so its centre is dragged toward the
+    facing triangle and its radius is inflated by it, in a direction that
+    rotates through the session. `minimap_ring_fit.fit_ring` brute-forces the
+    circle whose circumference is most covered by the key and was built for
+    exactly this shape on enemy icons; the mask it takes is any binary ring, so
+    the self key goes in unchanged.
+
+    Returns `(cx, cy, r, coverage)`. Coverage is reported rather than gated:
+    a floor on it would be a new free parameter, and this measures first.
+    """
+    got = _biggest(m)
+    if got is None:
+        return None
+    cx, cy = got[0], got[1]
+    f = rf.fit_ring(m, grey, cx, cy, r_min, r_max)
+    if f is None:
+        return None
+    return float(f["cx"]), float(f["cy"]), float(f["r"]), float(f["cov"])
+
+
+def self_icon_bbox(m):
     """The self icon's centre and RADIUS, measured from its own component.
 
     **`minimap.self_rings` returns `(AREA, cx, cy)`, not a radius** -- `_rings`
@@ -172,32 +309,41 @@ def self_icon(crop, floor):
     Half the larger side, because the self glyph is a ring with a facing
     triangle hanging off it -- the box is wider than the ring in one axis, and
     taking the smaller side would crop into the portrait.
+
+    **Superseded by `self_icon_ring`, and kept so the two are comparable under
+    `--geom`.** Both of the properties this docstring describes as safe are the
+    defect: half the larger side is a radius inflated by the triangle, and the
+    centroid it pairs with is displaced by it.
     """
-    b, g, rd = (crop[:, :, i].astype(np.int16) for i in range(3))
-    m = ((g > SELF_G_MIN) & (rd > SELF_R_MIN)
-         & ((g - b) > SELF_B_UNDER_G) & floor).astype(np.uint8)
-    n, _lab, st, cen = cv2.connectedComponentsWithStats(m, 8)
-    if n <= 1:
+    got = _biggest(m)
+    if got is None:
         return None
-    i = 1 + int(np.argmax(st[1:, 4]))
-    x, y, w, h, area = (int(v) for v in st[i])
-    if area < 4:
-        return None
-    return float(cen[i][0]), float(cen[i][1]), max(w, h) / 2.0
+    cx, cy, w, h, _area = got
+    return cx, cy, max(w, h) / 2.0, float("nan")
 
 
-def self_composition(crop, floor):
+def self_composition(crop, floor, geom="pin", r_min=None, r_max=None):
     """Composition of the self icon's interior, or None if no icon was found.
 
     The SELF ring colour is masked out rather than red: the interior is what
     carries identity and the ring is the same yellow-green for every agent, so
     leaving it in would make all 29 look alike in exactly the histogram that
     is supposed to separate them.
+
+    Returns `(histogram, coverage)`; coverage is NaN under `--geom bbox`, which
+    has no fit to report one from.
     """
-    got = self_icon(crop, floor)
+    m = self_mask(crop) & floor
+    if geom == "pin":
+        got = fit_self_ring(m, r_min, r_max)
+    elif geom == "ring":
+        grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        got = self_icon_ring(m, grey, r_min, r_max)
+    else:
+        got = self_icon_bbox(m)
     if got is None:
         return None
-    cx, cy, r = got
+    cx, cy, r, cov = got
     rr = max(2, int(round(r * INTERIOR_FRAC)))
     y0, x0 = int(round(cy)) - rr, int(round(cx)) - rr
     if y0 < 0 or x0 < 0 or y0 + 2 * rr > crop.shape[0] or x0 + 2 * rr > crop.shape[1]:
@@ -209,7 +355,7 @@ def self_composition(crop, floor):
     msk = (((yy - rr) ** 2 + (xx - rr) ** 2) <= rr * rr) & ~ring
     if msk.sum() < 12:
         return None
-    return composition(patch, msk)
+    return composition(patch, msk), cov
 
 
 def generality(sources: dict) -> dict:
@@ -243,12 +389,20 @@ def classify_nulled(hq, sources, gen) -> tuple[str | None, float]:
     return best[0][1], best[0][0] - (best[1][0] if len(best) > 1 else 0.0)
 
 
-def vote(sid: str, n: int, sources: dict, gen: dict | None = None) -> dict:
+def vote(sid: str, n: int, sources: dict, gen: dict | None = None,
+         geom: str = "pin") -> dict:
     store = Store()
     man = store.read_manifest(sid)
     src = man["source"]
     prof = get_profile(man["source_profile"])
     x0, y0, x1, y1 = minimap_roi_px(prof, int(src["width"]), int(src["height"]))
+
+    # The icon radius is a WIDGET constant, so the fit's radius range scales
+    # with the widget rather than being the enlarged-widget pair everywhere.
+    # `rf.R_MIN/R_MAX` were measured at scale 1.0; a 331 px widget wants 6-9.
+    sc = widget_scale(x1 - x0)
+    r_min = max(3, int(round(rf.R_MIN * sc)))
+    r_max = max(r_min + 1, int(round(rf.R_MAX * sc)))
 
     # Floor from the session's own geometry static -- every session with
     # geometry has one, where `masks/<sid>.static.npy` exists for only a few.
@@ -261,11 +415,14 @@ def vote(sid: str, n: int, sources: dict, gen: dict | None = None) -> dict:
     times = [dur * (i + 0.5) / n for i in range(n)]
     tally: collections.Counter = collections.Counter()
     seen = 0
+    covs: list[float] = []
     for smp in sample_at(src["path"], times, float(src["fps"])):
         crop = smp.frame[y0:y1, x0:x1]
-        hq = self_composition(crop, floor)
-        if hq is None:
+        got = self_composition(crop, floor, geom, r_min, r_max)
+        if got is None:
             continue
+        hq, cov = got
+        covs.append(cov)
         seen += 1
         if gen is None:
             name, _, _ = classify_composition(hq, sources)
@@ -280,7 +437,9 @@ def vote(sid: str, n: int, sources: dict, gen: dict | None = None) -> dict:
     n2 = top[1][1] if len(top) > 1 else 0
     return {"agent": first, "votes": n1, "runner_up": top[1][0] if len(top) > 1 else None,
             "runner_votes": n2, "frames": seen, "asked": n,
-            "share": n1 / seen, "margin": (n1 - n2) / seen}
+            "share": n1 / seen, "margin": (n1 - n2) / seen,
+            "cov": float(np.nanmedian(covs)) if covs else float("nan"),
+            "r_range": (r_min, r_max)}
 
 
 def tagged_agents(store) -> list[tuple[str, str]]:
@@ -303,6 +462,10 @@ def main(argv=None) -> int:
                     help="score every session whose tags name an agent")
     ap.add_argument("--raw", action="store_true",
                     help="score WITHOUT the null control, to reproduce the sink")
+    ap.add_argument("--geom", choices=("pin", "ring", "bbox"), default="pin",
+                    help="how the crop is centred and sized: a fitted circle "
+                         "(default) or the component's bounding box (the "
+                         "geometry that scored 38%%)")
     a = ap.parse_args(argv)
 
     store = Store()
@@ -312,35 +475,45 @@ def main(argv=None) -> int:
     gen = None if a.raw else generality(sources)
     print(f"{len(sources)} agents with official minimap art "
           f"(chance {100 / len(sources):.1f}%), null control "
-          f"{'OFF' if a.raw else 'ON'}\n")
+          f"{'OFF' if a.raw else 'ON'}, geometry {a.geom.upper()}\n")
 
     if a.demo_corpus:
         truth = tagged_agents(store)
         if not truth:
             raise SystemExit("no sessions carry an agent tag")
         print(f"{'session':<14}{'tagged':<12}{'read':<12}{'share':>7}"
-              f"{'margin':>8}{'frames':>8}  ok")
+              f"{'margin':>8}{'frames':>8}{'cov':>7}  ok")
         ok = tot = 0
+        wrong: collections.Counter = collections.Counter()
         for sid, want in truth:
-            r = vote(sid, a.n, sources, gen)
+            r = vote(sid, a.n, sources, gen, a.geom)
             if "error" in r:
-                print(f"{sid:<14}{want:<12}{'--':<12}{'':>7}{'':>8}{'':>8}  "
-                      f"{r['error']}")
+                print(f"{sid:<14}{want:<12}{'--':<12}{'':>7}{'':>8}{'':>8}"
+                      f"{'':>7}  {r['error']}")
                 continue
             tot += 1
             good = r["agent"] == want
             ok += good
+            if not good:
+                wrong[r["agent"]] += 1
             print(f"{sid:<14}{want:<12}{r['agent']:<12}{r['share'] * 100:>6.0f}%"
-                  f"{r['margin'] * 100:>7.0f}%{r['frames']:>8}  "
+                  f"{r['margin'] * 100:>7.0f}%{r['frames']:>8}"
+                  f"{r['cov'] * 100:>6.0f}%  "
                   f"{'YES' if good else 'no'}")
         if tot:
             print(f"\n{ok}/{tot} correct ({ok / tot * 100:.0f}%), "
                   f"29-way, chance {100 / len(sources):.1f}%")
+            if wrong:
+                # The sink is the diagnostic, not a curiosity: one class taking
+                # most of the misses is what said the first run of this file was
+                # a measurement artefact rather than a negative result.
+                top = ", ".join(f"{n} x{c}" for n, c in wrong.most_common(3))
+                print(f"largest sinks among the {sum(wrong.values())} wrong: {top}")
         return 0
 
     if not a.session:
         ap.error("give a session or --demo-corpus")
-    r = vote(a.session, a.n, sources, gen)
+    r = vote(a.session, a.n, sources, gen, a.geom)
     if "error" in r:
         raise SystemExit(r["error"])
     print(f"{a.session}: {r['agent']}  "

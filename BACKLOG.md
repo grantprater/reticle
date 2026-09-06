@@ -234,26 +234,40 @@ changing the gate would only swap one assumption for another.
 `xmark_eval` has been re-run: this moves every stored minimap number and the
 re-validation is itself tabled at the top of this file.
 
-## Fit a CIRCLE to the self ring, not a bounding box
+## ~~Fit a CIRCLE to the self ring, not a bounding box~~ DONE, FALSIFIED
 
-The prime suspect for why `self_agent.py` reaches only 38% at 29-way (chance
-3.4%), and it needs no new labels.
+**Run 2026-09-06 and it does not work.** The suspect was that the facing
+triangle drags the crop off-centre in a rotating direction, and that
+`fit_ring` -- which solved that teardrop for enemy icons -- would lift the
+number. Three geometries on the same corpus:
 
-The self glyph is a ring with a FACING TRIANGLE hanging off it. Both the
-component centroid and its bounding-box centre are pulled toward whichever way
-the player is looking, so the disc meant to frame the portrait is displaced by
-a few pixels **in a direction that rotates through the session**. That blurs
-the histogram carrying identity, and blurs it differently in every clip --
-which would also explain why a per-source null control moved *which* sessions
-were right without moving the count.
+    --geom bbox   the component bounding box (the 38% baseline)   10/26
+    --geom ring   fit_ring, the enemy machinery unchanged          9/26
+    --geom pin    fit_ring scored coverage MINUS interior          9/26
 
-`minimap_portrait.fit_ring` fits a circle to the rim and is the machinery that
-already solved this exact teardrop shape for enemy icons, where it killed a
-closure test that had failed four times. Point it at the self colour key.
+The full argument is in `self_agent.py`'s docstring. Two facts about the self
+glyph came out of it that were not known before -- the old text was reasoning
+from the enemy icon's shape rather than from this one:
 
-**Trigger: any further work on agent identity.** Measure it the same way --
-`--demo-corpus` against the ingest tags -- so the before/after is directly
-comparable. 38% is the number to beat.
+* **the key survives only over the LOWER HALF of the rim** -- present on 61-67%
+  of bearings 150-240 deg and **22-23% at 330-30**, over five sessions. A
+  dropout fixed in SCREEN space, not one that rotates with facing;
+* **there is no hole to find: 0 in 347 frames over six sessions.** A closed rim
+  would hand over the portrait as the largest hole in the key, with no fitting
+  at all. It is not closed. Do not re-try it.
+
+**The next suspect is the DESCRIPTOR, not the crop.** `chamber -> sova` at a
+99% share and a 98% margin survives every geometry, which is a confident wrong
+answer rather than a blurred one. The ring is a thick glow that washes the
+portrait yellow-green -- badly on pale agents, barely on a dark one like Omen
+-- and `composition` is a colour histogram, so a wash moves it bodily.
+`minimap_portrait.similarity` is masked NCC with the per-channel mean removed,
+chosen on the enemy path for exactly this reason, and `descriptor()` already
+exists. **38% is still the number to beat**, measured the same way.
+
+`fit_ring` gained a per-call radius range in the same commit, defaulting to the
+measured `R_MIN/R_MAX`, because the icon radius is a widget-size constant: a
+331 px widget wants 6-9 where the enlarged one wants 8-13.
 
 ## Combine the detection channels: a CAST licenses a jump
 

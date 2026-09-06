@@ -50,15 +50,28 @@ reason and the trigger that would un-defer it.
 * **`filter_track` cannot tell a teleport from a phantom**: 54.7% of the 11,599
   observations it drops sit at teleport distance. Backlogged.
 
-**NEXT, and the order matters** -- all three are in `BACKLOG.md` with the
-argument:
+**NEXT, and the order matters** -- both are in `BACKLOG.md` with the argument:
 
 1. **`filter_track` takes a motion class** (`track.admits` already exists);
 2. **cast events select that class.** the player: *a teleport activated on the
    hotbar (or in audio) should be triggering an expected agent teleport.* This
    is the right fix rather than a parallel one -- it makes the tray and the
-   position track each other's control, and every piece already exists;
-3. **`fit_ring` on the self key**, to lift `self_agent.py` off 38%.
+   position track each other's control, and every piece already exists.
+
+The third item, **`fit_ring` on the self key, is DONE and FALSIFIED**: 9/26
+against the bbox baseline's 10/26, and a third geometry that penalises the
+tail lands on the same nine. The crop is not what caps `self_agent.py` at 38%.
+It bought two facts about the self glyph -- the key survives only over the
+lower half of the rim (22-23% present at the top bearings), and there is no
+hole to find (0 in 347 frames) -- and it re-aims the question at the
+DESCRIPTOR: a colour histogram is not level-invariant and the ring's glow
+washes the portrait. Full argument in `self_agent.py` and `BACKLOG.md`.
+
+**Note for item 1.** Its `BACKLOG.md` trigger is *an agent is known for a
+session*, which was item 3's job, and item 3 did not deliver it. So the motion
+class has to come from somewhere else -- the ingest tag on the demo corpus, or
+a `--agent` argument -- or item 1 ships the parameter with today's `walker`
+default and nothing opts in yet, which is what its own text proposes.
 
 **the direction for the channel, in his words:** *identity-based
 identification of entities with their temporal evolution, subject to the

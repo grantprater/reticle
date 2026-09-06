@@ -63,11 +63,18 @@ SEARCH = 5
 N_THETA = 48
 
 
-def _circle_offsets():
-    """Precomputed integer ring offsets per radius, and the disc per radius."""
+def _circle_offsets(r_min: int = None, r_max: int = None):
+    """Precomputed integer ring offsets per radius, and the disc per radius.
+
+    The range is a parameter rather than the module constants because the icon
+    radius is a WIDGET-SIZE constant, not a game constant: 8-13 was measured on
+    the enlarged widget, and a session at `widget_scale` 0.71 wants 6-9. The
+    default is the measured pair, so every existing caller is unmoved.
+    """
     ring, disc = {}, {}
     th = np.arange(N_THETA) / N_THETA * 2 * np.pi
-    for r in range(R_MIN, R_MAX + 1):
+    for r in range(R_MIN if r_min is None else r_min,
+                   (R_MAX if r_max is None else r_max) + 1):
         pts = np.unique(np.stack([np.round(r * np.cos(th)),
                                   np.round(r * np.sin(th))], 1).astype(int), axis=0)
         ring[r] = pts
@@ -79,6 +86,15 @@ def _circle_offsets():
 
 RING, DISC = _circle_offsets()
 
+
+def _offsets(r: int):
+    """Ring and disc offsets for one radius, memoised into RING/DISC."""
+    if r not in RING:
+        ring, disc = _circle_offsets(r, r)
+        RING.update(ring)
+        DISC.update(disc)
+    return RING[r], DISC[r]
+
 # Rays for reading the facing triangle: for each angle, how far past the ring
 # does red reach. The triangle is the only thing outside the circle, so the
 # angle where red reaches furthest IS the facing.
@@ -86,21 +102,27 @@ N_FACE = 32
 _FACE_TH = np.arange(N_FACE) / N_FACE * 2 * np.pi
 
 
-def fit_ring(red, grey, cx, cy):
+def fit_ring(red, grey, cx, cy, r_min: int = None, r_max: int = None):
     """Best (coverage, cx, cy, r, interior stats) over centres and radii.
 
     Coverage is the share of the circle's circumference that is red. A whole
     icon scores high even with the arc broken in several places, which is the
     entire point -- unlike a hole test, it does not care whether the breaks
     happen to disconnect the ring.
+
+    `red` is any binary ring mask, not necessarily the enemy red: the self key
+    works here unchanged, which is what `self_agent.py` uses it for. `r_min`
+    and `r_max` default to the measured enlarged-widget pair.
     """
+    r_min = R_MIN if r_min is None else r_min
+    r_max = R_MAX if r_max is None else r_max
     h, w = red.shape
     best = None
     for dy in range(-SEARCH, SEARCH + 1):
         for dx in range(-SEARCH, SEARCH + 1):
             y0, x0 = int(round(cy + dy)), int(round(cx + dx))
-            for r in range(R_MIN, R_MAX + 1):
-                pts = RING[r]
+            for r in range(r_min, r_max + 1):
+                pts, _ = _offsets(r)
                 xs, ys = x0 + pts[:, 0], y0 + pts[:, 1]
                 ok = (xs >= 0) & (ys >= 0) & (xs < w) & (ys < h)
                 if ok.sum() < len(pts) * 0.75:
@@ -111,7 +133,7 @@ def fit_ring(red, grey, cx, cy):
     if best is None:
         return None
     cov, x0, y0, r = best
-    d = DISC[r]
+    _, d = _offsets(r)
     xs, ys = x0 + d[:, 0], y0 + d[:, 1]
     ok = (xs >= 0) & (ys >= 0) & (xs < w) & (ys < h)
     if not ok.any():
