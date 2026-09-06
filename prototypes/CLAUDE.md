@@ -651,6 +651,30 @@ it looks like. Three separate uses, in increasing order of value:
   the pipeline can compute per frame, and it bears directly on whether a peek or
   a rotate was justified.
 
+**2026-09-05, the player: THE AUDIO RADIUS IS ONLY DRAWN WHILE YOU ARE MAKING
+STEPS.** *The audio radius seems to only be visible while you're making steps.*
+
+That reverses the ring's status twice over and neither reading is obvious from
+a crop:
+
+* **as a confounder it is cheaper than assumed.** It is not a permanent
+  annotation to be subtracted, it is intermittent -- so a candidate at the
+  player's own radius is only contaminated on the frames where he was moving
+  audibly, and the ring's ABSENCE across a still window is not a detection
+  failure to be chased;
+* **as a signal it is worth far more than assumed, because it is a
+  MEASUREMENT OF THE PLAYER'S OWN NOISE.** Walking, running and crouching
+  differ in how loud they are, and this ring is the game stating, per frame,
+  whether the player was audible at all. Nothing else in the capture says that.
+  Silent movement is the whole content of "was that peek telegraphed", and it
+  needs no new ROI -- the ring is already in the widget.
+
+Untested and the obvious next question: does the radius CHANGE with movement
+mode (walk vs run vs crouch), or is it one radius that is simply present or
+absent? If it changes, this reads out the movement mode itself. One clip of
+deliberate walk/run/crouch cycles settles it, and it is the same shape of ask
+as the ping clip -- the player knows what he did, so the labels are free.
+
 **And it doubles as the spike's detonation radius**, which is immediately usable:
 post-plant, whether the player stood inside the lethal circle is a fact about a
 round that `rounds.py` already knows the phase of.

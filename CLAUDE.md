@@ -701,6 +701,28 @@ one `metrics.record()` at the end is the whole cost.
   recovers the partly-covered bands (`223d636bf8d2` went from 14 to 30 frames
   correctly reported as unattributed), but a row almost entirely behind the box
   is unrecoverable. That is a capture fix, not a code one.
+- **The M key removes the minimap, and it is the SAME error class as the death
+  screen.** the player found it and recorded it deliberately (`2026-09-05
+  17-55-32.mp4`): opening the full-size map takes the corner widget away
+  entirely, so the minimap ROI holds nothing but live world. Measured on that
+  clip, against a static map built from a second clip of the same session:
+
+        widget drawn    corr +0.80 .. +0.89
+        M key held      corr -0.03 .. +0.09
+        usable()        TRUE on every widget-absent frame
+
+  So `minimap_temporal.drawn()` separates it with the same margin it was built
+  for, and `usable()` does not see it at all -- exactly as `drawn()`'s docstring
+  says, one regime later. Two independent causes now produce widget-absent
+  frames, and this one is **player-initiated and can happen at any moment in a
+  round**, which the death screen cannot.
+
+  **The shipped minimap position reader has no widget guard of any kind** --
+  not `drawn()`, not even `usable()`; `cmd_minimap` reads every frame inside an
+  active span. Every detection in a widget-absent frame is a phantom, and on
+  Lotus 5% of such frames produced 16% of all candidates. This is the gap to
+  close, and closing it moves stored numbers, so it is measured before it is
+  changed: `prototypes/reader_census.py` is the tool.
 - **A dead player spectates, so the main view is not theirs.** Found while
   checking ally rendering: `9acf02f98283` 24:50 shows the combat report, "SWITCH
   PLAYER", and a teammate's first-person model. Nothing currently detects this

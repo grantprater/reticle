@@ -112,7 +112,48 @@ and review the candidates first -- launching a GUI against unreviewed
 candidates has three recorded recurrences and cost the player real clicking time
 twice. `review_candidates.py` gates it.
 
-**QUEUED CAPTURE, the player 2026-09-05: a PING clip.** *I want to record a ping
+**THE PING CLIP IS RECORDED AND IT FALSIFIED THE REASON FOR ASKING FOR IT.**
+`2026-09-05 17-39-40.mp4` (65 s, four types) and `2026-09-05 17-57-24.mp4`
+(on-my-mark). the player, on watching it back: *they did not seem to radially
+emanate*. Measured at 60 Hz and he is right --
+
+    7.133 s   nothing
+    7.150 s   the diamond is ALREADY AT FULL SIZE
+
+**There is no growth phase at all**, no ring, no arcs, and the glyph then sits
+static for its whole life. So **a ping is not a third extent kind** and the
+entity model does not need a fourth `extent` value: a ping is
+`origin=fixed, bearing=absent, extent=none`, the same parameter shape as a
+deployed device, and its identity is carried by GLYPH SHAPE AND COLOUR rather
+than by motion. `git show d15418c` is the commit that claimed otherwise.
+
+That also removes the reason to point the object-grouping labeller at pings
+first. The pitch was *fragments of one expanding ring are the grouping problem
+in its purest form*; a ping is one compact ~8x8 blob, which makes it the
+EASIEST class in the store, not the hardest. It is still worth labelling -- as
+a clean, cheap, four-class glyph problem with free labels -- just not as the
+grouping case.
+
+Where the older claim came from is worth knowing before it is written down
+again: *a ping is an expanding ripple whose fragments are thin arcs* came off
+the colour-free pass on the SMALL widget. Either the animation differs at that
+size, or those arcs were something else. Do not re-assert it without a clip.
+
+Glyphs seen so far, all ~8-10 px, hue is OpenCV:
+
+    cyan diamond      hue ~82    the standard ping
+    orange flag       hue ~17-20
+    red triangle      hue ~173   danger (last in the order, so this is it)
+    yellow stopwatch  hue ~32    on my mark (its own clip)
+
+the order in the spam clip was **standard, need help, watching here,
+danger**; three glyphs were isolated from it, so one of the middle two is
+still unassigned. The warm Sunset scenery shows through the semi-transparent
+widget at hue 10-22 and floods any saturation-based finder, which is why the
+middle of that clip is noisy -- **a ping finder cannot be a colour threshold**,
+it has to be shape against the opaque slab.
+
+**QUEUED CAPTURE (SUPERSEDED, kept for the reasoning): a PING clip.** *I want to record a ping
 minimap session where I just spam ping for a minute or so.* Same shape as the
 one-agent-per-clip demo corpus and the same reason it works -- he knows what he
 did, so the labels are free and exact.
