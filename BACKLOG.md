@@ -57,6 +57,31 @@ Preview measured on the OLD stored track, so not the re-validation:
 Better median, p95 and max on four fewer scored deaths: the signature of
 removing phantoms rather than of a better detector.
 
+## Scan `587c15b07779` and open its 13 cross-channel disagreements
+
+**Tabled 2026-09-06 by the player.** `NOTES.md` has called these *the audit signal
+and nobody has looked at them* since they were measured -- 100/113 probes agree
+(88%), leaving 13.
+
+Two things make it more than a scan:
+
+* it is 31:04, and since `MINIMAP_VERSION` went to `0.3.0` every session also
+  wants a minimap re-read, so this pulls in work that is itself tabled above;
+* **some of the 13 may already be explained.** The 88% was measured by seeking,
+  before `roster.py`'s undrawn-reads-as-zero defect was known, and on
+  `c40d950031bb` that one cause accounted for ALL five misses. If it accounts
+  for most of the 13 as well, the killfeed is cleaner than the figure suggests
+  -- and if it does not, the residue is the real signal and worth far more.
+  Either outcome is informative, which is what makes this worth doing rather
+  than a chore.
+
+Run it as `reticle scan 587c15b07779`, then `prototypes/roster_alive.py
+587c15b07779 --stored`, which costs nothing once the table exists.
+
+**Trigger: the roster's undrawn defect being fixed** -- open these against a
+reader that refuses instead of guessing, or the 13 will be re-diagnosed twice.
+Alternatively any session that is scanning that capture for another reason.
+
 ## A small-widget painting, to score the length scaling
 
 **Tabled 2026-09-06 by the player: *I don't plan on having small widget sessions be
