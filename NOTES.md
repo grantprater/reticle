@@ -25,10 +25,34 @@ further down is unchanged and still the plan for that thread.**
   result against `checks.KNOWN_KD`. First three came back exact -- 14/18,
   17/14, 25/15. This is what turns two fixes into a corpus number instead of
   three spot checks;
-* **the census on `e37fdeca944f`** (the -2 deaths, the one unexplained K/D gap
-  left) was still running. `reader_census.py e37fdeca944f` is the whole
-  command; look at the `no_divider` and `band_one_plate_colour` clusters near
-  the missing deaths;
+* **the census on `e37fdeca944f` LANDED, and it is a clean negative that
+  narrows the search.** Over the whole session, **every band-level refusal is a
+  SINGLE FRAME** -- 15 clusters, 14 of them one frame and one of two -- and
+  `no_divider` fires only four times, all transient. Those are half-formed
+  bands mid-slide, which is expected and costs nothing.
+
+  **So the -2 deaths are NOT a parsing failure: the bands were parsed.** That
+  rules out the entire family the killfeed work has been in all day -- dividers,
+  plate colours, icon tiers -- and leaves exactly two candidates:
+
+  1. **attribution**: the band was read and the verdict came out `other`,
+     i.e. `_match_me` did not find "Me" on either side. 1535 of this session's
+     1918 views are `other`, so a death hiding there is invisible to the census;
+  2. **band formation**: no band ever formed, so nothing reached the census at
+     all. CLAUDE.md records the cause -- a row almost entirely behind a toggled
+     overlay never reaches `PLATE_ROW_FRAC` and *the entry is not reported
+     occluded, it is simply absent*.
+
+  The census cannot see either by construction: it counts what was found and
+  refused, never what was never found. **Distinguishing them needs a different
+  instrument** -- the roster alive-count audit named in CLAUDE.md ("The top HUD
+  says more than it looks like"), which is state rather than events and so
+  catches a missing entry the killfeed itself cannot. That is the next move on
+  this defect, not more killfeed work.
+
+  Worth noting beside it: this session reads `occluded` on 24.6% / 25.1% of
+  score-field frames, far above the others measured. Whether something is
+  covering the top HUD here is unchecked and would bear on candidate 2;
 * **`ping_scan` on a real match session** -- the ask, not started. The
   lifetime gate is map-independent so this tests the one-map hue bands at zero
   footage cost. `PingReader` now exists so it can ride a `scan` pass.
