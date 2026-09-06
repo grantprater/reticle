@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .decode import sample_frames, sample_spans
+from .decode import sample_frames, sample_multi, sample_spans
 from .checks import KNOWN_KD, check_hud, player_events, track_entries
 from .rounds import build_rounds, summarise
 from .scoreboard import read_scoreboard
@@ -429,6 +429,148 @@ class _FP:
         self.content_key = src["content_key"]
 
 
+class _HudPass:
+    """Stage 02 HUD, as an object a decode loop can feed one frame at a time.
+
+    Exists so `hud` and `scan` cannot drift apart. The rule this repo keeps for
+    `overlay` -- a second implementation that can disagree with the extractor is
+    worse than none -- applies with more force here, because these two write the
+    SAME L1 table and a divergence would be invisible until a number moved.
+    Setup is in `__init__` and the per-frame work is in `feed`; neither command
+    has a copy of either.
+    """
+
+    def __init__(self, store, manifest, profile, args):
+        import cv2
+
+        self.src = manifest["source"]
+        self.profile = profile
+        self.w, self.h = int(self.src["width"]), int(self.src["height"])
+        self.templates = Templates.load(profile.name)
+        self.roi = scoreline_roi(profile)
+        self.kf_roi = killfeed_roi(profile)
+        self.min_conf = args.min_confidence
+        self.min_margin = args.min_margin
+        self.rows: list[dict] = []
+
+        # Which optional HUD readouts are switched on is a per-player choice, so
+        # the killfeed's occluding mask is measured from THIS capture. It costs
+        # 40 seeks over the whole file -- 6.9 s on a 16 minute session, measured
+        # -- and it is a per-session constant, so it is cached in the store and
+        # paid once rather than once per stage and once per probe.
+        self.kf_mask = None
+        if self.kf_roi is not None:
+            self.kf_mask = store.read_kf_mask(manifest["session_id"])
+            if self.kf_mask is None:
+                cap = cv2.VideoCapture(str(Path(self.src["path"])))
+                cal = []
+                try:
+                    step = max(1, int((self.src["duration_ms"] or 0) / 40))
+                    for ms in range(0, int(self.src["duration_ms"] or 0), step):
+                        cap.set(cv2.CAP_PROP_POS_MSEC, ms)
+                        ok, fr = cap.read()
+                        if ok:
+                            cal.append(fr)
+                finally:
+                    cap.release()
+                if cal:
+                    self.kf_mask = overlay_mask(cal, self.kf_roi, self.w, self.h)
+                    store.write_kf_mask(manifest["session_id"], self.kf_mask)
+                    print(f"killfeed   overlay mask from {len(cal)} frames, "
+                          f"{(~self.kf_mask).mean() * 100:.1f}% of the ROI masked out")
+            else:
+                print(f"killfeed   overlay mask cached, "
+                      f"{(~self.kf_mask).mean() * 100:.1f}% of the ROI masked out")
+
+    def feed(self, smp) -> None:
+        w, h = self.w, self.h
+        r = read_scoreline(crop_gray(smp.frame, self.roi, w, h), self.templates,
+                           self.min_conf, self.min_margin)
+        b = read_bottom_hud(smp.frame, self.profile, self.templates, w, h,
+                            self.min_conf, self.min_margin)
+        kf = (read_killfeed(smp.frame, self.kf_roi, w, h, self.kf_mask,
+                            self.profile.name)
+              if self.kf_roi is not None else KillfeedRead(0, (), False, False))
+        self.rows.append({
+            "frame_idx": smp.frame_idx,
+            "t_ms": smp.t_ms,
+            "clock_ms": r.clock_ms,
+            "score_left": r.score_left,
+            "score_right": r.score_right,
+            "hp": b.hp,
+            "shield": b.shield,
+            "ammo_mag": b.ammo_mag,
+            "ammo_reserve": b.ammo_reserve,
+            "kf_entries": kf.entries,
+            "kf_player_kill": kf.player_kill,
+            "kf_player_death": kf.player_death,
+            "kf_entry_mask": kf.entry_mask,
+            "kf_kill_mask": kf.kill_mask,
+            "kf_death_mask": kf.death_mask,
+            "kf_unattributed": kf.unattributed,
+            "kf_ally_mask": kf.ally_mask,
+            "kf_enemy_mask": kf.enemy_mask,
+            "kf_entry_wx": kf.entry_dividers,
+            "kf_kill_wx": kf.kill_dividers,
+            "kf_death_wx": kf.death_dividers,
+            "confidence": r.confidence,
+            "bottom_confidence": b.confidence,
+            "n_glyphs": r.n_glyphs,
+        })
+
+
+class _MinimapPass:
+    """Stage 02 minimap position, as a fed object. See `_HudPass` for why."""
+
+    def __init__(self, store, manifest, profile, spans, args):
+        import cv2
+
+        self.src = manifest["source"]
+        self.w, self.h = int(self.src["width"]), int(self.src["height"])
+        fps = float(self.src["fps"])
+        self.box = minimap_roi_px(profile, self.w, self.h)
+        cap = cv2.VideoCapture(str(Path(self.src["path"])))
+        med = static_map(cap, fps, spans, self.box)
+        cap.release()
+        self.floor = floor_mask(med)
+        self.step_ms = 1000.0 / args.minimap_hz
+        self.prev = None
+        self.rows: list[dict] = []
+        print(f"floor      {self.floor.mean() * 100:.1f}% of the widget is walkable")
+
+    def feed(self, smp) -> None:
+        x0, y0, x1, y1 = self.box
+        crop = smp.frame[y0:y1, x0:x1]
+        pick = pick_self(self_rings(crop, self.floor), self.prev, self.step_ms)
+        if pick is not None:
+            self.prev = pick
+        allies = sorted(ally_rings(crop, self.floor), key=lambda c: -c[0])[:MAX_ALLIES]
+        ally_x = [c[1] for c in allies] + [None] * (MAX_ALLIES - len(allies))
+        ally_y = [c[2] for c in allies] + [None] * (MAX_ALLIES - len(allies))
+        self.rows.append({
+            "frame_idx": smp.frame_idx,
+            "t_ms": smp.t_ms,
+            "self_x": pick[0] if pick else None,
+            "self_y": pick[1] if pick else None,
+            "n_allies": len(allies),
+            "ally_x": ally_x,
+            "ally_y": ally_y,
+        })
+
+
+def _active_spans(store, sid, date):
+    """The active spans, or a clear failure -- both stages need them."""
+    tbl = store.read_spans(sid, date)
+    if tbl is None:
+        raise SystemExit(f"no spans for session {sid} -- run `reticle segment {sid}` first")
+    spans = [(a, b) for a, b, s in zip(tbl.column("t_start_ms").to_pylist(),
+                                       tbl.column("t_end_ms").to_pylist(),
+                                       tbl.column("state").to_pylist()) if s == "active"]
+    if not spans:
+        raise SystemExit(f"session {sid} has no active spans -- nothing to track")
+    return spans
+
+
 def cmd_hud(args) -> int:
     """Stage 02: decode the capture again and read the scoreline off each frame.
 
@@ -457,73 +599,16 @@ def cmd_hud(args) -> int:
             "the manifest records where it was at ingest time"
         )
 
-    templates = Templates.load(profile.name)
-    roi = scoreline_roi(profile)
-    kf_roi = killfeed_roi(profile)
-    w, h = int(src["width"]), int(src["height"])
-
     print(f"session    {sid}  ({src['filename']})")
-    print(f"profile    {profile.name}  ({HUD_VERSION}, {len(templates)} glyph templates)")
-    print(f"roi        scoreline {roi.pixels(w, h)}  + hud_hp, hud_ammo")
+    print(f"profile    {profile.name}  ({HUD_VERSION})")
     print(f"sampling   {args.hz:g} Hz")
 
-    # Calibrate the killfeed overlay mask before decoding. Which optional HUD
-    # readouts are switched on is a per-player choice, so the mask is measured
-    # from this capture rather than assumed.
-    kf_mask = None
-    if kf_roi is not None:
-        cap = cv2.VideoCapture(str(media))
-        cal = []
-        try:
-            step = max(1, int((src["duration_ms"] or 0) / 40))
-            for ms in range(0, int(src["duration_ms"] or 0), step):
-                cap.set(cv2.CAP_PROP_POS_MSEC, ms)
-                ok, fr = cap.read()
-                if ok:
-                    cal.append(fr)
-        finally:
-            cap.release()
-        if cal:
-            kf_mask = overlay_mask(cal, kf_roi, w, h)
-            print(f"killfeed   overlay mask from {len(cal)} frames, "
-                  f"{(~kf_mask).mean() * 100:.1f}% of the ROI masked out")
-
-    rows: list[dict] = []
+    hp = _HudPass(store, manifest, profile, args)
+    rows = hp.rows
     t0 = time.perf_counter()
     last = t0
     for smp in sample_frames(str(media), args.hz, src["fps"], args.max_frames):
-        r = read_scoreline(crop_gray(smp.frame, roi, w, h), templates,
-                          args.min_confidence, args.min_margin)
-        b = read_bottom_hud(smp.frame, profile, templates, w, h,
-                            args.min_confidence, args.min_margin)
-        kf = (read_killfeed(smp.frame, kf_roi, w, h, kf_mask, profile.name)
-              if kf_roi is not None else KillfeedRead(0, (), False, False))
-        rows.append({
-            "frame_idx": smp.frame_idx,
-            "t_ms": smp.t_ms,
-            "clock_ms": r.clock_ms,
-            "score_left": r.score_left,
-            "score_right": r.score_right,
-            "hp": b.hp,
-            "shield": b.shield,
-            "ammo_mag": b.ammo_mag,
-            "ammo_reserve": b.ammo_reserve,
-            "kf_entries": kf.entries,
-            "kf_player_kill": kf.player_kill,
-            "kf_player_death": kf.player_death,
-            "kf_entry_mask": kf.entry_mask,
-            "kf_kill_mask": kf.kill_mask,
-            "kf_death_mask": kf.death_mask,
-            "kf_unattributed": kf.unattributed,
-            "kf_ally_mask": kf.ally_mask,
-            "kf_enemy_mask": kf.enemy_mask,
-            "kf_entry_wx": kf.entry_dividers,
-            "kf_kill_wx": kf.kill_dividers,
-            "kf_death_wx": kf.death_dividers,
-            "confidence": r.confidence,
-            "bottom_confidence": b.confidence,
-            "n_glyphs": r.n_glyphs,
-        })
+        hp.feed(smp)
         now = time.perf_counter()
         if now - last >= 2.0:
             pct = (smp.t_ms / src["duration_ms"] * 100) if src["duration_ms"] else 0.0
@@ -598,14 +683,7 @@ def cmd_minimap(args) -> int:
         print("           pass --force to re-read")
         return 0
 
-    spans_tbl = store.read_spans(sid, date)
-    if spans_tbl is None:
-        raise SystemExit(f"no spans for session {sid} -- run `reticle segment {sid}` first")
-    spans = [(a, b) for a, b, s in zip(spans_tbl.column("t_start_ms").to_pylist(),
-                                       spans_tbl.column("t_end_ms").to_pylist(),
-                                       spans_tbl.column("state").to_pylist()) if s == "active"]
-    if not spans:
-        raise SystemExit(f"session {sid} has no active spans -- nothing to track")
+    spans = _active_spans(store, sid, date)
 
     media = Path(src["path"])
     if not media.is_file():
@@ -613,45 +691,20 @@ def cmd_minimap(args) -> int:
             f"source media has moved: {media}\n"
             "the manifest records where it was at ingest time"
         )
-    w, h, fps = int(src["width"]), int(src["height"]), float(src["fps"])
-    box = minimap_roi_px(profile, w, h)
-    x0, y0, x1, y1 = box
-
+    fps = float(src["fps"])
     print(f"session    {sid}  ({src['filename']})")
     print(f"profile    {profile.name}  ({MINIMAP_VERSION})")
-    print(f"roi        minimap {box}   active spans {len(spans)} "
+    print(f"roi        active spans {len(spans)} "
           f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)")
     print(f"sampling   {args.hz:g} Hz")
 
-    cap = cv2.VideoCapture(str(media))
-    med = static_map(cap, fps, spans, box)
-    cap.release()
-    floor = floor_mask(med)
-    print(f"floor      {floor.mean() * 100:.1f}% of the widget is walkable")
-
-    rows: list[dict] = []
-    step_ms = 1000.0 / args.hz
-    prev = None
+    args.minimap_hz = args.hz
+    mp = _MinimapPass(store, manifest, profile, spans, args)
+    rows, step_ms = mp.rows, mp.step_ms
     t0 = time.perf_counter()
     last = t0
     for smp in sample_spans(str(media), spans, args.hz, fps):
-        crop = smp.frame[y0:y1, x0:x1]
-        self_cands = self_rings(crop, floor)
-        pick = pick_self(self_cands, prev, step_ms)
-        if pick is not None:
-            prev = pick
-        allies = sorted(ally_rings(crop, floor), key=lambda c: -c[0])[:MAX_ALLIES]
-        ally_x = [c[1] for c in allies] + [None] * (MAX_ALLIES - len(allies))
-        ally_y = [c[2] for c in allies] + [None] * (MAX_ALLIES - len(allies))
-        rows.append({
-            "frame_idx": smp.frame_idx,
-            "t_ms": smp.t_ms,
-            "self_x": pick[0] if pick else None,
-            "self_y": pick[1] if pick else None,
-            "n_allies": len(allies),
-            "ally_x": ally_x,
-            "ally_y": ally_y,
-        })
+        mp.feed(smp)
         now = time.perf_counter()
         if now - last >= 2.0:
             pct = (smp.t_ms / src["duration_ms"] * 100) if src["duration_ms"] else 0.0
@@ -684,6 +737,112 @@ def cmd_minimap(args) -> int:
         print(f"           px/s median {np.median(sp):.1f}  p95 {np.percentile(sp, 95):.1f}  "
               f"jumps>60px/s: {(sp > 60).mean() * 100:.1f}%")
     print(f"ally       at least one candidate: {got_ally}/{n} ({got_ally / n * 100:.1f}%)")
+    return 0
+
+
+def cmd_scan(args) -> int:
+    """Stages 02 HUD and 02 minimap in ONE decode of the capture.
+
+    Not a new stage and not a new number: it drives the same `_HudPass` and
+    `_MinimapPass` the two commands drive, over `decode.sample_multi`, and
+    writes the same two L1 tables. Frame-for-frame identical to running both --
+    verified by comparing the sampled timestamp lists, which match exactly.
+
+    **Why it is worth a command.** Decoding is 93% of the cost of a stage (13.17
+    s against 0.94 s of analysis over 300 frames), and raising the sample rate
+    is nearly free because `grab()` decodes every frame anyway -- 15 Hz costs
+    31% more than 2 Hz, not seven times. So two stages that each open the file
+    cost two passes, and fused they cost about 1.3. Measured over 200 s of
+    c40d950031bb: 46.77 s as two passes, 25.93 s as one, a **45% saving**.
+
+    Needs `segment` to have run, because the minimap half is bounded by active
+    spans -- which is also why this cannot be the path for a session's FIRST
+    read: spans are computed from the HUD table this would be writing. It is
+    the path for every re-read after that, which is the expensive case (a
+    HUD_VERSION bump re-reads every session in the store) and the common one.
+    """
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    sid = manifest["session_id"]
+    date = _date_of(manifest)
+    src = manifest["source"]
+    profile = get_profile(manifest["source_profile"])
+
+    media = Path(src["path"])
+    if not media.is_file():
+        raise SystemExit(
+            f"source media has moved: {media}\n"
+            "the manifest records where it was at ingest time"
+        )
+    spans = _active_spans(store, sid, date)
+    fps = float(src["fps"])
+
+    want_hud = args.force or not store.has_hud(sid, date)
+    want_mm = args.force or not store.has_minimap(sid, date)
+    if not want_hud and not want_mm:
+        print(f"cache hit  session {sid} has HUD at {HUD_VERSION} and minimap "
+              f"at {MINIMAP_VERSION}; pass --force to re-read")
+        return 0
+
+    print(f"session    {sid}  ({src['filename']})")
+    print(f"profile    {profile.name}")
+    print(f"stages     " + ", ".join(
+        ([f"hud {args.hz:g} Hz, whole capture"] if want_hud else [])
+        + ([f"minimap {args.minimap_hz:g} Hz, {len(spans)} active spans "
+            f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)"] if want_mm else [])))
+
+    hp = _HudPass(store, manifest, profile, args) if want_hud else None
+    mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
+
+    req = {}
+    if want_hud:
+        req["hud"] = (args.hz, None)
+    if want_mm:
+        req["minimap"] = (args.minimap_hz, spans)
+
+    t0 = time.perf_counter()
+    last = t0
+    n_dec = 0
+    for who, smp in sample_multi(str(media), fps, req):
+        n_dec += 1
+        if "hud" in who:
+            hp.feed(smp)
+        if "minimap" in who:
+            mp.feed(smp)
+        now = time.perf_counter()
+        if now - last >= 2.0:
+            pct = (smp.t_ms / src["duration_ms"] * 100) if src["duration_ms"] else 0.0
+            sys.stdout.write(
+                f"\r  {n_dec:>7d} frames  {_fmt_hms(smp.t_ms)}  {pct:5.1f}%")
+            sys.stdout.flush()
+            last = now
+    sys.stdout.write("\r" + " " * 72 + "\r")
+    dt = time.perf_counter() - t0
+
+    if hp is not None:
+        if not hp.rows:
+            raise SystemExit("decoded zero frames -- is the file readable?")
+        out = store.write_hud(hp.rows, _FP(src, sid), profile.name, date)
+        ev = player_events(
+            [r["t_ms"] for r in hp.rows],
+            [r["kf_kill_mask"] for r in hp.rows],
+            [r["kf_death_mask"] for r in hp.rows],
+            [r["kf_kill_wx"] for r in hp.rows],
+            [r["kf_death_wx"] for r in hp.rows],
+        )
+        print(f"HUD        {len(hp.rows)} rows -> {out}")
+        print(f"           tracked entries: {ev['kills']} kills, {ev['deaths']} deaths")
+    if mp is not None:
+        if not mp.rows:
+            raise SystemExit("decoded zero frames inside active spans "
+                             "-- is segmentation right?")
+        out = store.write_minimap(mp.rows, _FP(src, sid), profile.name, date)
+        got = sum(1 for r in mp.rows if r["self_x"] is not None)
+        print(f"minimap    {len(mp.rows)} rows -> {out}")
+        print(f"           self raw {got}/{len(mp.rows)} "
+              f"({got / len(mp.rows) * 100:.1f}%)")
+    print(f"one pass   {n_dec} frames retrieved in {dt:.1f}s")
+    print(f"\nnext: reticle verify {sid}")
     return 0
 
 
@@ -1364,6 +1523,17 @@ def build_parser() -> argparse.ArgumentParser:
                         "nearer than the next digit (default 0.05)")
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_hud)
+
+    s = sub.add_parser("scan", help="stages 02 hud + minimap in ONE decode pass")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--hz", type=float, default=2.0, help="HUD sample rate (default 2)")
+    s.add_argument("--minimap-hz", type=float, default=15.0,
+                   help="minimap sample rate (default 15)")
+    s.add_argument("--min-confidence", type=float, default=0.82)
+    s.add_argument("--min-margin", type=float, default=0.05)
+    s.add_argument("--max-frames", type=int, default=None)
+    s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
+    s.set_defaults(func=cmd_scan)
 
     s = sub.add_parser("minimap", help="stage 02: player position off the minimap")
     s.add_argument("session", nargs="?")

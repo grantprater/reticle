@@ -244,6 +244,31 @@ class Store:
         pq.write_table(table, path, compression="zstd")
         return path
 
+    def kf_mask_path(self, session_id: str) -> Path:
+        return self.root / "masks" / f"{session_id}.kf.npy"
+
+    def read_kf_mask(self, session_id: str):
+        """The cached killfeed overlay mask, or None.
+
+        A per-session constant that costs 40 seeks over the whole file to
+        derive -- 6.9 s on a 16 minute capture, measured, which is a tenth of
+        the whole HUD stage and is paid again by every probe that needs it.
+        Which optional HUD readouts the player has switched on cannot change
+        within a capture, so caching it is not an approximation.
+
+        Keyed on session alone and NOT version-stamped, deliberately: it is a
+        property of the recording, not of any extractor. If `overlay_mask`
+        itself changes, delete `<store>/masks/`.
+        """
+        p = self.kf_mask_path(session_id)
+        return np.load(p) if p.is_file() else None
+
+    def write_kf_mask(self, session_id: str, mask) -> Path:
+        p = self.kf_mask_path(session_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        np.save(p, mask)
+        return p
+
     def read_hud(self, session_id: str, date: str):
         path = self.hud_path(session_id, date)
         if not path.is_file():
