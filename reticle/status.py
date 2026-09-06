@@ -36,7 +36,7 @@ import json
 import sys
 from pathlib import Path
 
-from .checks import KNOWN_KD
+from .checks import KNOWN_KD, player_events
 from .store import DEFAULT_STORE, Store
 from .version import HUD_VERSION, MINIMAP_VERSION
 
@@ -149,8 +149,31 @@ def collect(store: Store) -> dict:
                     rec["won"] = sum(1 for r in rs if r["won"])
                     rec["lost"] = len(rs) - rec["won"]
                     rec["planted"] = sum(1 for r in rs if r["spike_planted"])
-                    rec["kills"] = sum(r["player_kills"] for r in rs)
-                    rec["deaths"] = sum(r["player_deaths"] for r in rs)
+                    # Per-round sums, kept because the GAP between these and
+                    # the session totals below is itself a measurement: it is
+                    # the events that fall outside any detected round.
+                    rec["round_kills"] = sum(r["player_kills"] for r in rs)
+                    rec["round_deaths"] = sum(r["player_deaths"] for r in rs)
+                # **Score against the SESSION total, not the per-round sum.**
+                # `checks.KNOWN_KD` comes off the end-of-match scoreboard, which
+                # counts every event in the match; a per-round sum silently
+                # drops any event the round detector could not attribute, and a
+                # round the scoreline was unreadable across is merged into its
+                # neighbour. Measured 2026-09-05 over 17 sessions: per-round
+                # scores 10 exact, session totals score 12 -- and the two it
+                # differs on (5822b6646448, b7d24102a6f6) are events TODAY'S
+                # killfeed fixes recovered, which the round attribution then
+                # dropped again. Comparing a partial count against a total is
+                # not a comparison.
+                tbl = pq.read_table(store.hud_path(sid, date))
+                ev = player_events(
+                    tbl.column("t_ms").to_pylist(),
+                    tbl.column("kf_kill_mask").to_pylist(),
+                    tbl.column("kf_death_mask").to_pylist(),
+                    [int(x) for x in tbl.column("kf_kill_wx").to_pylist()],
+                    [int(x) for x in tbl.column("kf_death_wx").to_pylist()],
+                )
+                rec["kills"], rec["deaths"] = ev["kills"], ev["deaths"]
             except Exception as e:                      # noqa: BLE001
                 rec["error"] = f"{type(e).__name__}: {e}"
         out["sessions"].append(rec)
