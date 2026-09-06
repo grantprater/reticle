@@ -719,10 +719,22 @@ one `metrics.record()` at the end is the whole cost.
 
   **The shipped minimap position reader has no widget guard of any kind** --
   not `drawn()`, not even `usable()`; `cmd_minimap` reads every frame inside an
-  active span. Every detection in a widget-absent frame is a phantom, and on
-  Lotus 5% of such frames produced 16% of all candidates. This is the gap to
-  close, and closing it moves stored numbers, so it is measured before it is
-  changed: `prototypes/reader_census.py` is the tool.
+  active span. Measured over all 27757 frames of `a06f04a0059f` at 15 Hz:
+
+        usable()  refuses    614  (2.2%)
+        drawn()   refuses   1394  (5.0%)
+        the gap             780  (2.8%) -- kept by usable(), refused by drawn()
+        harvested from those frames:  3605 self candidates, 4178 ally
+
+  So **5% of the shipped position track is built on frames with no widget in
+  them**, and adopting `usable()` alone would recover under half of that. The
+  detections are not few: widget-absent frames yield 2.6 self candidates each,
+  because `self_rings` is looking at open scenery.
+
+  Closing it moves stored numbers, which is why it was measured first rather
+  than patched -- but 5% is far past the level at which the position track's
+  validation (the X-mark and chokepoint ground truths) can be assumed to still
+  hold. Re-run those after the guard lands.
 - **A dead player spectates, so the main view is not theirs.** Found while
   checking ally rendering: `9acf02f98283` 24:50 shows the combat report, "SWITCH
   PLAYER", and a teammate's first-person model. Nothing currently detects this
