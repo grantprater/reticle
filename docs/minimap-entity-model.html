@@ -222,7 +222,7 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
 <div class="wrap">
 
 <header>
-  <div class="eyebrow"><span class="dot"></span> Reticle · minimap · 2026-09-05 · a model, not a taxonomy</div>
+  <div class="eyebrow"><span class="dot"></span> Reticle · minimap · 2026-09-05, revised 2026-09-06 · a model, not a taxonomy</div>
   <h1>The Minimap Entity Model</h1>
   <p class="standfirst">Every stall in this channel came from asking “what is this blob?”. The domain facts the player has given are not about appearance — they describe a small set of entities with parameters, and something that drives each parameter. This is that model, and the test it has to pass.</p>
   <div class="masthead-rule"></div>
@@ -231,7 +231,7 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
 <section>
   <h2><span class="marker">§1</span> What this has to earn</h2>
   <p>A model of this kind is cheap to write and expensive to be wrong about. The project's own judgement log is blunt on the point: claims at the <strong>ontology</strong> level score 0.38 accuracy with a −0.46 confidence gap and the highest cost of any class — the two wrong ones on record cost a session each. And the standing instruction is the right brake: <em>do not gate the event log on the taxonomy; an unresolved class is a cost, not a fault.</em></p>
-  <p>So this document is only worth having if it <strong>predicts something the current code gets wrong</strong>. §7 is that list, and every row there is either already measured or falsifiable with data in hand. If those rows don't hold, the model is decoration and should be deleted rather than refined.</p>
+  <p>So this document is only worth having if it <strong>predicts something the current code gets wrong</strong>. §8 is that list, and every row there is either already measured or falsifiable with data in hand. If those rows don't hold, the model is decoration and should be deleted rather than refined.</p>
 </section>
 
 <section>
@@ -350,7 +350,61 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
 </section>
 
 <section>
-  <h2><span class="marker">§6</span> What the model already predicted correctly</h2>
+  <h2><span class="marker">§6</span> The drivers are tracking constraints</h2>
+  <p>the player, 2026-09-06, stating the direction this is headed:</p>
+  <p><em>“identity-based identification of entities with their temporal evolution, subject to the invariants of their specific identity (most agents cannot teleport or dash, certain abilities have certain durations, movement characteristics, etc.)”</em></p>
+  <p>That is what §3's driver column is <em>for</em>, and the document did not say so. A driver is not a description of how a thing behaves — it is the <strong>law that thing's track has to obey</strong>. Identity comes first; the identity carries a set of invariants; the invariants constrain what the next frame may contain.</p>
+
+  <div class="correction">
+    <div class="label">One motion model is the wrong shape, and that was the first proposal</div>
+    <p>The plan for ally identity said “constant-velocity Kalman with gating and Hungarian assignment”. As a <em>single</em> model that is wrong, and this section is why: it would fight the truth for exactly the entities that matter. A Cypher cam rotates and <strong>never translates</strong>. A teleport is a <em>legal</em> discontinuity for five agents. A ping is static with a known lifetime. One prior treats all three as tracking faults.</p>
+    <p>The right structure is <strong>identity-conditional dynamics</strong> — a motion model per identity class, with association scoring a candidate under the model its hypothesised identity implies. The classical name is interacting-multiple-model / multiple-hypothesis tracking, so this is prior art to read rather than re-derive.</p>
+  </div>
+
+  <p>The inventory below is the point. None of it is speculative and none of it needs new footage — it is already written down across this repo, and until now nothing consumed it.</p>
+
+  <div class="scroller">
+  <table>
+    <thead><tr><th>invariant</th><th>value</th><th>where it is recorded</th></tr></thead>
+    <tbody>
+      <tr><td>top track speed</td><td class="live">45 widget px/s</td><td><code>minimap.RUN_PX</code>, measured not derived</td></tr>
+      <tr><td>may teleport</td><td>Omen ×2, Chamber, Veto, Waylay E, Yoru E</td><td>a real jump, not a fault</td></tr>
+      <tr><td>may dash</td><td>Jett, Neon, Waylay Q</td><td>continuous, but over the speed gate at 15 Hz</td></tr>
+      <tr><td>never translates</td><td>Cypher cam — rotates only, no lobe</td><td>the player; killed “a placed ability never turns”</td></tr>
+      <tr><td>translates once, then never</td><td>Omen smoke, during deploy</td><td>the only counterexample to the translation invariant</td></tr>
+      <tr><td>piloted (translates + rotates)</td><td>Sova drone, Fade prowler, Skye dog + birds, Tejo drone</td><td>motion IS representative in the demo corpus</td></tr>
+      <tr><td>enemy-reactive</td><td>KJ alarmbot (origin), KJ turret (bearing)</td><td>§3 — and an enemy sensor for free</td></tr>
+      <tr><td>cannot move at all</td><td>X marks, question marks, deployed devices</td><td>a moving one is a mis-association</td></tr>
+      <tr><td>ping lifetime</td><td class="live">7.0 s; 10.0 s danger</td><td><code>ping.LIFETIME_S</code>, exact to 0.1 s at 10 Hz</td></tr>
+      <tr><td>existence is intervals</td><td>Vyse flower, Viper bar</td><td>§4 — picked up and redeployed</td></tr>
+      <tr><td>pulsing</td><td>Tejo E and X</td><td>one object, many onsets, one position</td></tr>
+      <tr><td>audio ring</td><td class="live">94–95 px, only while RUNNING</td><td>player-anchored, so derivable not detectable</td></tr>
+      <tr><td>radius ring exists</td><td>Killjoy and Chamber only</td><td>the player; a strong prior on a small class</td></tr>
+      <tr><td>alive counts bound icons</td><td class="live">stored, <code>l1/roster</code></td><td>a count constraint, as of 2026-09-06</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="finding">
+    <div class="label">Transient overlap is what makes this tractable — measured 2026-09-06</div>
+    <p>the player: <em>for truly overlapping icons, in the vast majority of cases there was probably an instant where they were not overlapping.</em> Tested on 587c15b07779 over ±3 s windows: the extent of the object at an event's position varies by a median factor of <strong>4.75</strong> (range 1.60–51.62), <strong>9 of 10</strong> events exceed 3×, and a median <strong>12%</strong> of sampled frames offer a clean look. Rendered, two ally icons are one object at onset and two objects 0.3 s later.</p>
+    <p>This is a third source of separation after appearance and constraints — and <code>widget_objects.py</code> had already measured that appearance gives nothing, since no per-object shape feature separates a ping from an ally at any grouping distance. <strong>So the tracker is not an optimisation of the grouping pass, it is a precondition for it.</strong></p>
+  </div>
+
+  <div class="correction">
+    <div class="label">The circularity this creates, named before it bites</div>
+    <p>Identity constrains the track, and the track's behaviour is evidence for identity. Left unseparated that is the seeding mistake in a fourth costume — scoring a hypothesis against itself, which has cost this repo three times (<code>minimap_agent</code>, <code>plant_probe</code>'s controls, <code>answer()</code>'s refusal of <code>claude-*</code> provenance).</p>
+    <p>The discipline: identity comes from an <strong>independent</strong> source wherever one exists — the scoreboard lineup, the tray's cast times, the killfeed, the roster — and track behaviour is used to <strong>falsify</strong> an identity, never to assign one. <em>“This translated 200 px, so it is not a Cypher cam”</em> is sound. <em>“This did not move, so it is a cam”</em> is the trap.</p>
+  </div>
+
+  <div class="finding">
+    <div class="label">The first test it has to pass, and it needs no new data</div>
+    <p><code>prototypes/CLAUDE.md</code> quotes jumps over 60 px/s at <strong>5.0% / 3.3% / 3.8%</strong> across the three geometry-validated sessions, read as the track's residual error rate — and already records that the figure conflates tracking error, teleports and dashes, of which only the first is a defect. Under identity-conditional dynamics that single number <strong>splits three ways</strong>, and two of the three stop being errors. It should fall on a session where a mobility agent was played, without touching the detector. If it does not, this section is decoration.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="marker">§7</span> What the model already predicted correctly</h2>
   <div class="finding">
     <div class="label">Measured 2026-09-05 — extent along the bearing</div>
     <p>If a wall's fragments are an <code>extending</code> extent rather than one object that grew, they should share a <strong>bearing</strong> from the origin with distance increasing over time. Viper's Toxic Screen: the current onset rule splits its window into 5 objects; grouping by bearing returns <strong>+10° ×3</strong> — the three collinear fragments — and correctly rejects the two candidates at −96° and −61°. Sova's Hunter's Fury returns +46° ×4 and +78° ×3, two bolt directions from one origin, which is what that ultimate does. Across all 12 multi-candidate windows, objects fall from 49 to 30. <code>prototypes/ability_extent.py</code>.</p>
@@ -363,7 +417,7 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
 </section>
 
 <section>
-  <h2><span class="marker">§7</span> Where the model disagrees with the code</h2>
+  <h2><span class="marker">§8</span> Where the model disagrees with the code</h2>
   <p>The falsifiable list. If these do not hold, delete the model.</p>
   <div class="scroller">
   <table>
@@ -376,19 +430,22 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
       <tr><td>A Viper device reappearing is one entity, not two</td><td><code>n_observations</code> / <code>duration_ms</code> count it as several</td><td><span class="chip unfalsifiable">needs a Viper round</span></td></tr>
       <tr><td>A drone HUD wedge has no world position</td><td>homography returns one anyway</td><td><span class="chip hazard">known, unfixed</span></td></tr>
       <tr><td>A smoke's bearing is absent, not unmeasured</td><td>no field distinguishes them</td><td><span class="chip deferred">notation only</span></td></tr>
+      <tr><td>A teleport is a legal jump for five agents</td><td><code>filter_track</code> rejects it as impossible; the jump rate is quoted as error</td><td><span class="chip hazard">known, unfixed</span></td></tr>
+      <tr><td>Overlap is transient, so identity precedes grouping</td><td>grouping is a per-frame proximity rule with no track behind it</td><td><span class="chip measured">4.75× median</span></td></tr>
     </tbody>
   </table>
   </div>
 </section>
 
 <section>
-  <h2><span class="marker">§8</span> What to do with this</h2>
-  <p>Not a rewrite. The model is a <em>notation</em> for facts already established, and its value is in what it stops — so introduce it exactly where a row of §7 is costing something.</p>
+  <h2><span class="marker">§9</span> What to do with this</h2>
+  <p>Not a rewrite. The model is a <em>notation</em> for facts already established, and its value is in what it stops — so introduce it exactly where a row of §8 is costing something.</p>
   <ul>
-    <li><strong>Label which candidates are one object.</strong> It is the cheapest pass available and it unblocks every grouping question at once;</li>
+    <li><strong>Build the identity-conditional tracker first.</strong> Re-ordered 2026-09-06: overlap is transient, so a grouping pass over single frames asks the hardest available version of its question. The tracker is the precondition, and the pass should then present a <em>window</em> and be answered at the instant the objects are apart;</li>
+    <li><strong>Label which candidates are one object</strong>, on top of that. It remains the cheapest pass available and it unblocks every grouping question at once;</li>
     <li><strong>split <code>driver</code> across parameters</strong> in the ability event, rather than one label per object. The flat version was already measured as too coarse for a turret;</li>
     <li><strong>type the frame</strong>, so a screen-space overlay can never receive a world position. This is a correctness bug with a known cause and no fix;</li>
-    <li><strong>leave the rest as prose</strong> until a §7 row makes it pay. An ontology built ahead of its evidence is the failure this document opened by quoting.</li>
+    <li><strong>leave the rest as prose</strong> until a §8 row makes it pay. An ontology built ahead of its evidence is the failure this document opened by quoting.</li>
   </ul>
 </section>
 
