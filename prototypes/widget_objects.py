@@ -1,7 +1,7 @@
 r"""One segmentation of the widget per frame, grouped into OBJECTS, not blobs.
 
     .\.venv\Scripts\python.exe prototypes\widget_objects.py <session> --against-pings
-    .\.venv\Scripts\python.exe prototypes\widget_objects.py <session> --sheet out.png
+    .\.venv\Scripts\python.exe prototypes\widget_objects.py <session> --free
 
 the player, 2026-09-05, on the ping detector's 26% precision:
 
@@ -74,12 +74,46 @@ ally/ping collision is not only a collision in FEATURE space, it is a collision
 in SPACE, which is why every per-object shape feature fails on it and why the
 answer has to come from constraints rather than from appearance.
 
+BOTH CHANNELS, 2026-09-06 -- and the fusion has a consequence
+--------------------------------------------------------------
+the player, asked which population a grouping labelling pass should cover, chose
+**both channels in one segmentation**, and `--free` is that:
+`minimap_dynamic.dynamic_mask` (extracted from `detect` that day so there is
+one definition of "differs from the static map") is OR-ed with the saturated
+mask before a single connected-components pass. Every fragment records which
+channel covered it, because neither is a superset of the other -- a pure
+black-and-white ability glyph carries no saturation and is invisible to the
+colour mask at any threshold.
+
+**Measured immediately, and it is the closing-radius trap in a new costume:**
+
+    587c15b07779, gap 2      saturated only        both channels
+      ally   n_fragments            1-3                 1-11
+             extent               10-22               20-101
+             area                 40-83             155-1683
+      ping   extent                8-12                 9-52
+
+On one frame the saturated mask covers 0.52% of the widget in 48 fragments and
+the colour-free mask 2.09% in 45, whose largest is 1014 px. Rendering it says
+what those are: **VIEWCONES**. A cone is a large dynamic region attached to the
+icon that casts it, so a pixel-level OR merges icon and cone into one object
+and every per-object feature then measures the pair.
+
+**That is not a defect in the fusion, it is the structure -- and the
+ontology already says how to label it.** Asked what counts as one object he
+chose *physical thing, but annotations are separate*: the device is an object
+and its radius ring is an annotation OF it. A viewcone is the same shape of
+thing for an ally icon. So the cone must not be a fragment of the ally and must
+carry a belongs-to relation instead, which is exactly what the labelling pass
+has to record and what no existing label file can express.
+
+Read the blown-up numbers above as the SIZE OF THAT PROBLEM rather than as a
+regression: they are the cases the pass exists to adjudicate. `--free` is off
+by default so every figure measured on the saturated-only layer stays
+reproducible with no flag.
+
 What is NOT in this yet
 -----------------------
-* **only the saturated-on-floor channel.** That is the population that
-  collided -- pings, ally and self icons, X marks, bars. The colour-free
-  channel (black-and-white ability glyphs, invisible to any colour mask) is a
-  second layer and belongs in the same segmentation eventually;
 * **no assignment.** Objects are described, not labelled. Mutual exclusion,
   the roster's alive counts and the causal constraints the player named -- an
   ability implies a living caster, overlapping X marks imply two deaths the
@@ -113,6 +147,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from reticle.minimap import floor_mask, minimap_roi_px, widget_scale  # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
 from reticle.store import Store                                   # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import minimap_dynamic as md                                      # noqa: E402
 
 #: Saturation/value floor for "something is drawn on the opaque slab". The same
 #: values `reticle.ping` uses, deliberately -- this is meant to be the SAME
@@ -136,6 +172,12 @@ class Fragment:
     cx: float
     cy: float
     hue: int
+    #: Which channel covered this fragment -- "sat", "free", or "both".
+    #: Recorded rather than inferred because it is the thing the two-channel
+    #: fusion exists to make visible: a pure black-and-white ability glyph is
+    #: "free" and is INVISIBLE to any colour mask at any threshold, which is
+    #: why a saturated-only object layer could say nothing about abilities.
+    channel: str = "sat"
 
 
 @dataclass
@@ -176,6 +218,17 @@ class Object:
                 sum(f.cy * f.area for f in self.frags) / a)
 
     @property
+    def channels(self) -> str:
+        """Which channels this object's fragments came from, joined.
+
+        An object whose fragments are `sat` and `free` is the interesting case
+        and the reason the fusion exists -- a device icon that carries colour
+        with a black-and-white glyph inside it, or an ability whose marker is
+        colourless beside a team-coloured part.
+        """
+        return "+".join(sorted({f.channel for f in self.frags}))
+
+    @property
     def hue(self) -> int:
         """Area-weighted median hue of the LARGEST fragment.
 
@@ -185,27 +238,56 @@ class Object:
         return max(self.frags, key=lambda f: f.area).hue
 
 
-def segment(crop: np.ndarray, floor: np.ndarray) -> list[Fragment]:
-    """Everything saturated drawn on the opaque slab. ONE pass, no gates.
+def segment(crop: np.ndarray, floor: np.ndarray,
+            free: np.ndarray | None = None) -> list[Fragment]:
+    """Everything drawn on the opaque slab, BOTH channels, one pass, no gates.
 
     Deliberately ungated beyond a noise floor: the size and shape filters that
     each detector applies privately are what threw away the evidence that two
     blobs were one object, so they belong AFTER grouping, not before it.
+
+    **`free` is the colour-free channel** -- `minimap_dynamic.dynamic_mask`,
+    what differs from the static map after the top-hat. Passing it is what
+    makes this ONE segmentation rather than two, which is the whole shape the player
+    asked for. It matters because the two channels see different things and
+    neither is a superset: a pure black-and-white ability glyph carries no
+    saturation and is invisible to the colour mask at any threshold, while an
+    X mark or a ping is saturated and may sit at a brightness the static map
+    already expects.
+
+    Omitting `free` gives exactly the saturated-only behaviour this had before,
+    so every figure measured against that is still reproducible.
     """
     sc = widget_scale(crop.shape[1])
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    m = (floor & (hsv[:, :, 1] > SAT_MIN)
-         & (hsv[:, :, 2] > VAL_MIN)).astype(np.uint8)
+    sat = (floor & (hsv[:, :, 1] > SAT_MIN) & (hsv[:, :, 2] > VAL_MIN))
+    if free is None:
+        m = sat.astype(np.uint8)
+        fre = None
+    else:
+        fre = (free.astype(bool) & floor)
+        m = (sat | fre).astype(np.uint8)
     n, lab, st, cen = cv2.connectedComponentsWithStats(m, 8)
     lo = max(3, int(round(FRAG_MIN_AREA * sc * sc)))
     out = []
     for k in range(1, n):
         if st[k, 4] < lo:
             continue
+        pix = lab == k
+        if fre is None:
+            ch = "sat"
+        else:
+            # A fragment is attributed to whichever channels actually cover it.
+            # Majority rather than any-overlap: a mostly-free glyph with three
+            # stray saturated pixels is a free glyph, and calling it "both"
+            # would make the column mean nothing.
+            fs, ff = float((pix & sat).mean()), float((pix & fre).mean())
+            ch = ("both" if fs > 0 and ff > 0 and min(fs, ff) / max(fs, ff) > 0.2
+                  else ("sat" if fs >= ff else "free"))
         out.append(Fragment(int(st[k, 0]), int(st[k, 1]), int(st[k, 2]),
                             int(st[k, 3]), int(st[k, 4]),
                             float(cen[k][0]), float(cen[k][1]),
-                            int(np.median(hsv[:, :, 0][lab == k]))))
+                            int(np.median(hsv[:, :, 0][pix])), ch))
     return out
 
 
@@ -243,8 +325,9 @@ def group(frags: list[Fragment], scale: float = 1.0,
     return [Object(v) for v in buckets.values()]
 
 
-def objects_at(crop: np.ndarray, floor: np.ndarray) -> list[Object]:
-    return group(segment(crop, floor), widget_scale(crop.shape[1]))
+def objects_at(crop: np.ndarray, floor: np.ndarray,
+               free: np.ndarray | None = None) -> list[Object]:
+    return group(segment(crop, floor, free), widget_scale(crop.shape[1]))
 
 
 # --------------------------------------------------------------------- scoring
@@ -263,6 +346,13 @@ def main(argv=None) -> int:
     ap.add_argument("--gap", type=int, default=GAP_PX,
                     help="fragment grouping distance, widget px")
     ap.add_argument("--quiet", action="store_true")
+    # Off by default so every figure measured on the saturated-only layer stays
+    # reproducible by running this with no new flag. the player asked for both
+    # channels in one segmentation (2026-09-06); this is that, behind a switch
+    # until the labelling pass says what it bought.
+    ap.add_argument("--free", action="store_true",
+                    help="fuse the COLOUR-FREE channel into the same "
+                         "segmentation (needs geometry for this session)")
     ap.add_argument("--against-pings", action="store_true",
                     help="score object features against ping_match_eval's labels")
     a = ap.parse_args(argv)
@@ -274,6 +364,25 @@ def main(argv=None) -> int:
     box = minimap_roi_px(prof, int(src["width"]), int(src["height"]))
     x0, y0, x1, y1 = box
     floor = floor_mask(store.read_static_map(a.session))
+
+    # The colour-free channel's reference, built exactly as `scan_ability_clip`
+    # builds it so the two agree about what "differs from the static map"
+    # means. Two-state where the geometry has it -- a pixel is dynamic only
+    # OUTSIDE the interval its two resting colours span, not merely far from
+    # the nearer one.
+    free_ctx = None
+    if a.free:
+        labels, gstatic = md.load_geometry(a.session)
+        sgray = cv2.cvtColor(gstatic, cv2.COLOR_BGR2GRAY).astype(np.int16)
+        ok_area = md.searchable(labels, static=gstatic)
+        lo_gray, hi_gray = md.load_two_state(a.session)
+        if lo_gray is not None:
+            sgray, hi_gray = lo_gray.astype(np.int16), hi_gray.astype(np.int16)
+        else:
+            print("  no two-state reference -- single-reference detection")
+        free_ctx = (sgray, ok_area, hi_gray)
+        print(f"free       colour-free channel ON, "
+              f"searchable {ok_area.mean() * 100:.1f}% of the widget")
     rows = store.read_events("ping", a.session)
     truth = globals().get(f"TRUTH_{a.session}")
     if not rows:
@@ -299,7 +408,13 @@ def main(argv=None) -> int:
         f = frames.get(round((r["t_ms"] + 1000) / 1000.0, 1))
         if f is None:
             continue
-        objs = group(segment(f, floor), widget_scale(f.shape[1]), a.gap)
+        free = None
+        if free_ctx is not None:
+            sg, ok, hi = free_ctx
+            free = md.dynamic_mask(f, sg, ok, md.DIFF_MIN,
+                                   static_gray2=hi.astype(np.int16)
+                                   if hi is not None else None)
+        objs = group(segment(f, floor, free), widget_scale(f.shape[1]), a.gap)
         n_obj_total = max(n_obj_total, len(objs))
         # the object containing the ping detector's blob
         o = min(objs, key=lambda o: (o.centroid[0] - r["x"]) ** 2

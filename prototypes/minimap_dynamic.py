@@ -295,6 +295,43 @@ def painted_mask(sid):
 TOPHAT_K = 31
 
 
+def dynamic_mask(crop, static_gray, ok_area, diff_min=DIFF_MIN, tophat=True,
+                 static_gray2=None):
+    """The colour-free channel as a MASK, before any size or span gate.
+
+    Split out of `detect` on 2026-09-06 so `widget_objects` can fuse this
+    channel with the saturated one in a SINGLE segmentation, which is what
+    the player asked for: *segment once, group fragments into objects*. It could not
+    reuse `detect` for that, because `detect` applies `AREA_MIN/MAX` and
+    `SPAN_MIN/MAX` per component -- and the whole finding behind the object
+    layer is that per-blob gates are what throw away the evidence that two
+    blobs are one object. The gates belong after grouping, so the mask has to
+    be available before them.
+
+    Extracted rather than reimplemented, for the reason the whole of today has
+    been about: a second copy of this rule would agree with the first until one
+    of them changed. `detect` now calls it, so there is one definition of what
+    "differs from the static map" means and both callers move together.
+
+    Every subtlety in `detect`'s docstring -- the top-hat, the two-state
+    interval, the saturation OR -- lives here now and is documented there.
+    """
+    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.int16)
+    if static_gray2 is not None:
+        lo_eff = np.minimum(static_gray, static_gray2)
+        hi_eff = np.maximum(static_gray, static_gray2)
+        raw = np.maximum(lo_eff - g, np.maximum(g - hi_eff, 0)).astype(np.uint8)
+    else:
+        raw = np.abs(g - static_gray).astype(np.uint8)
+    if tophat:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (TOPHAT_K, TOPHAT_K))
+        raw = cv2.morphologyEx(raw, cv2.MORPH_TOPHAT, k)
+    sat = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[:, :, 1]
+    d = ((raw > diff_min) | (sat > COLOUR_SAT)) & ok_area
+    return cv2.morphologyEx(d.astype(np.uint8), cv2.MORPH_OPEN,
+                            np.ones((2, 2), np.uint8))
+
+
 def detect(crop, static_gray, ok_area, diff_min=DIFF_MIN, tophat=True, static_gray2=None):
     """Dynamic blobs: what differs from the static map, inside the footprint.
 
@@ -354,19 +391,7 @@ def detect(crop, static_gray, ok_area, diff_min=DIFF_MIN, tophat=True, static_gr
     measured geometry point with real margin while sitting well under the
     155-point gap this glyph showed.
     """
-    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.int16)
-    if static_gray2 is not None:
-        lo_eff = np.minimum(static_gray, static_gray2)
-        hi_eff = np.maximum(static_gray, static_gray2)
-        raw = np.maximum(lo_eff - g, np.maximum(g - hi_eff, 0)).astype(np.uint8)
-    else:
-        raw = np.abs(g - static_gray).astype(np.uint8)
-    if tophat:
-        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (TOPHAT_K, TOPHAT_K))
-        raw = cv2.morphologyEx(raw, cv2.MORPH_TOPHAT, k)
-    sat = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[:, :, 1]
-    d = ((raw > diff_min) | (sat > COLOUR_SAT)) & ok_area
-    d = cv2.morphologyEx(d.astype(np.uint8), cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
+    d = dynamic_mask(crop, static_gray, ok_area, diff_min, tophat, static_gray2)
     n, lbl, st, cen = cv2.connectedComponentsWithStats(d, 8)
     out = []
     for i in range(1, n):
