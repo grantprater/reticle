@@ -293,3 +293,67 @@ Two known limits, both already recorded elsewhere and neither fatal:
 evidence that selects the class for a window, so it wants the parameter to
 exist first. Order: `track.admits` (done) -> `filter_track` takes a class ->
 cast events select it.
+
+## Analysis-by-synthesis: hypothesise an event, render it, fit the residual
+
+**the player, 2026-09-06, closing the session:** *for audio, especially for
+overlapping audio, a technique that I'm not sure exists could be -> guess an
+event -> try to fit the sound that event would make into the audio. I think
+this could also be used for icons, and is sort of a part of what I meant by
+causal model.*
+
+**It exists, it is old, and half of it is already written in this repo.** The
+general name is ANALYSIS-BY-SYNTHESIS -- a generative forward model plus
+residual scoring, dating to 1960s speech coding and the same idea as "vision as
+inverse graphics". The entity model's §5 states it for icons already:
+
+> Draw what should be there, subtract, and the residual is either an unmodelled
+> entity or an error. Detection and validation from one mechanism, which is the
+> same move that made the two-state background work.
+
+the contribution is the generalisation: the SAME operation serves audio and
+icons, and the entity model is the forward model both share. That is what turns
+the model from a notation into something that does work.
+
+**For overlapping audio the specific tool is NMF with a FIXED dictionary.**
+Decompose the observed spectrogram as a non-negative combination of known
+source templates, solving only for the activations. Overlap is what it is
+built for, where a matched filter degrades exactly there --
+`prototypes/audio_probe.py` already killed onset detection and concluded a
+matched filter needs a reference cut at a known cast time.
+
+**What is already in place, which is more than expected:**
+
+    56 voiceline mp3s      reference/assets/voicelines, ALLY and ENEMY variants
+    118 ability icons      reference/assets/abilities
+    29 minimap portraits   reference/assets/agents
+    sd_lo / sd_hi          per-pixel, PER-STATE noise, in every geometry npz
+    tray cast times        ability_hud, clean on 7 of 7 demo clips with slot
+
+`sd_lo`/`sd_hi` is the piece that makes this more than a threshold: a residual
+needs a noise model to say what counts as small, and Phase 0b built exactly
+that -- within-state SD sitting in a narrow 3.2-6.4 band across the searchable
+area, against an overall SD 5-8x larger that would suppress the signal hardest
+where the signal is.
+
+**Three honest caveats, none fatal:**
+
+* **Valorant audio is SPATIALISED** -- HRTF, distance attenuation, occlusion
+  filtering -- so one event does not produce one waveform, and a fixed
+  dictionary is wrong for anything distant. **The local player's OWN casts are
+  the clean case**: near-field, consistent, and exactly the events the tray
+  timestamps. Start there and treat other players' audio as a later problem;
+* **the hypothesis space is combinatorial.** Guess-and-fit needs the guesses
+  pruned, which is precisely what the causal constraints are for -- the roster's
+  alive counts bound how many entities can exist, the killfeed predicts X-mark
+  counts, an ability implies a living caster, charges bound casts. This is why
+  it belongs AFTER those, not instead of them;
+* **a bad forward model produces confident wrong fits**, which is this repo's
+  signature failure in a new costume. The discipline that answers it is the one
+  already in use: score against something the model did not fit, and refuse
+  rather than guess.
+
+**Trigger: after the cast-licenses-a-jump entry above.** That is the smallest
+instance of the same idea -- a hypothesised event predicting an observable --
+and it is worth proving the loop on one cheap channel before building a
+dictionary.
