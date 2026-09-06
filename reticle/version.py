@@ -35,3 +35,9 @@ HUD_VERSION = "hud-0.11.0"
 # validations that backed the track (xmark_eval, chokepoint_eval) were measured
 # with those frames in and are re-run against it.
 MINIMAP_VERSION = "minimap-0.2.0"
+# Minimap pings, emitted as EVENTS rather than per-frame rows. Bump when the
+# hue bands, the size gates or the lifetime gate change. Events are rewritten
+# whole per session, so this is a stamp for attribution rather than a cache
+# key -- nothing skips a ping read on a version match, because pings ride a
+# pass that was going to happen anyway and cost no decode of their own.
+PING_VERSION = "ping-0.1.0"

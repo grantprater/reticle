@@ -461,3 +461,35 @@ class Store:
         if not path.is_file():
             return None
         return pq.read_table(path)
+
+    # ----------------------------------------------------------------- events
+
+    def events_path(self, kind: str, session_id: str) -> Path:
+        return self.root / "events" / kind / f"{session_id}.jsonl"
+
+    def write_events(self, kind: str, session_id: str, rows: list[dict]) -> Path:
+        """One JSONL file per (kind, session). Rewritten whole, never appended.
+
+        The layout is the one `prototypes/ability_*` already wrote by hand;
+        having it here is what stops the next reader inventing a third. Rows
+        are things that HAPPENED at an instant, so they are not the wide
+        per-frame tables L1 uses and do not belong in one -- a session's pings
+        are tens of rows, not tens of thousands.
+
+        A rewrite rather than an append because a re-read supersedes: the
+        alternative is two runs of the same detector both present in the file
+        with nothing to say which is current.
+        """
+        path = self.events_path(kind, session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        return path
+
+    def read_events(self, kind: str, session_id: str) -> list[dict]:
+        path = self.events_path(kind, session_id)
+        if not path.is_file():
+            return []
+        with open(path, encoding="utf-8") as f:
+            return [json.loads(ln) for ln in f if ln.strip()]

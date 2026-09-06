@@ -38,13 +38,15 @@ from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_
                       pick_self, self_rings, static_map, widget_drawn)
 from .overlay import OverlayContext, draw
 from .passes import SessionContext, run as passes_run
+from .ping import LIFETIME_S, PingReader
 from .ocr import (GLYPH_H, GLYPH_W, Templates, cluster_glyphs, crop_gray,
                   read_bottom_hud, read_scoreline, scoreline_roi, segment_glyphs)
 from .primitives import PrimitiveExtractor
 from .profiles import DEFAULT_PROFILE, MinimapMode, get_profile
 from .segment import HUD_CHROME_ROIS, STATES, SegmentConfig, classify, segment
 from .store import DEFAULT_STORE, Store
-from .version import EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, SEGMENTER_VERSION
+from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
+                      SEGMENTER_VERSION)
 
 
 def _fmt_ms(ms: float) -> str:
@@ -825,9 +827,14 @@ def cmd_scan(args) -> int:
 
     want_hud = args.force or not store.has_hud(sid, date)
     want_mm = args.force or not store.has_minimap(sid, date)
-    if not want_hud and not want_mm:
-        print(f"cache hit  session {sid} has HUD at {HUD_VERSION} and minimap "
-              f"at {MINIMAP_VERSION}; pass --force to re-read")
+    # Pings are events rather than a versioned table, so "already read" is
+    # simply "the file is there" -- a reader that costs no decode of its own
+    # earns no cache key. It still gates the pass, so a session that has HUD
+    # and minimap but no pings is not reported as a cache hit.
+    want_ping = args.ping and (args.force or not store.read_events("ping", sid))
+    if not (want_hud or want_mm or want_ping):
+        print(f"cache hit  session {sid} has HUD at {HUD_VERSION}, minimap at "
+              f"{MINIMAP_VERSION} and pings; pass --force to re-read")
         return 0
 
     print(f"session    {sid}  ({src['filename']})")
@@ -835,13 +842,31 @@ def cmd_scan(args) -> int:
     print(f"stages     " + ", ".join(
         ([f"hud {args.hz:g} Hz, whole capture"] if want_hud else [])
         + ([f"minimap {args.minimap_hz:g} Hz, {len(spans)} active spans "
-            f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)"] if want_mm else [])))
+            f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)"] if want_mm else [])
+        + ([f"ping {args.ping_hz:g} Hz, active spans"] if want_ping else [])))
 
     hp = _HudPass(store, manifest, profile, args) if want_hud else None
     mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
 
-    readers = [r for r in (hp, mp) if r is not None]
     ctx = SessionContext(store=store, manifest=manifest, profile=profile, spans=spans)
+    # Pings ride whatever pass is already happening -- they never justify a
+    # decode of their own, which is why this is on by default and why it takes
+    # the floor mask the minimap half has already paid for rather than
+    # deriving a second one. It cannot move the HUD or minimap numbers:
+    # `sample_multi` advances each reader's phase only when that reader is in
+    # `want`, so a third reader adds retrieved frames and changes nobody
+    # else's. That is an argument; the check is in `reticle metrics`.
+    pp = None
+    if want_ping:
+        pp = PingReader(
+            floor=mp.floor if mp is not None else ctx.floor(),
+            box=minimap_roi_px(profile, *ctx.wh),
+            sgray=mp.sgray if mp is not None else ctx.sgray(),
+            hz=args.ping_hz,
+            spans=spans,
+        )
+
+    readers = [r for r in (hp, mp, pp) if r is not None]
 
     t0 = time.perf_counter()
     last = [t0]
@@ -882,6 +907,23 @@ def cmd_scan(args) -> int:
               f"({mp.n_absent / len(mp.rows) * 100:.1f}%)")
         print(f"           self raw {got}/{len(mp.rows)} "
               f"({got / len(mp.rows) * 100:.1f}%)")
+    if pp is not None:
+        pp.finish()
+        out = store.write_events("ping", sid, pp.events(sid))
+        by: dict[str, int] = {}
+        for kind, *_r in pp.hits:
+            by[kind] = by.get(kind, 0) + 1
+        print(f"ping       {len(pp.hits)} confirmed -> {out}")
+        print(f"           " + (", ".join(f"{k} x{v}" for k, v in sorted(by.items()))
+                                or "none"))
+        # Both refusal counts are printed on purpose. A detector that reports
+        # only what it accepted cannot be audited, and `unconfirmed` in
+        # particular is a population -- runs cut off by a span end, the death
+        # screen or the M key -- whose size says how much of the session this
+        # reader could not measure at all.
+        print(f"           {len(pp.unconfirmed)} unconfirmed (observation "
+              f"stopped), {len(pp.rejected)} refused on lifetime, "
+              f"{pp.n_absent} frames widget-absent")
     print(f"one pass   {n_dec} frames retrieved in {dt:.1f}s")
     print(f"\nnext: reticle verify {sid}")
     return 0
@@ -1572,6 +1614,16 @@ def build_parser() -> argparse.ArgumentParser:
                    help="minimap sample rate (default 15)")
     s.add_argument("--min-confidence", type=float, default=0.82)
     s.add_argument("--min-margin", type=float, default=0.05)
+    # On by default: pings ride the pass, so the only thing --no-ping saves is
+    # the analysis, and decode is 93% of the cost. A corpus re-scan that has to
+    # be asked for pings is how the last one finished without any.
+    s.add_argument("--no-ping", dest="ping", action="store_false",
+                   help="skip the minimap ping reader (it rides this pass free)")
+    s.add_argument("--ping-hz", type=float, default=10.0,
+                   help="ping sample rate (default 10 -- the lifetime gate "
+                        "resolves 7.0s from 10.0s, so this is not a knob to "
+                        "lower casually)")
+    s.set_defaults(ping=True)
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_scan)
 
