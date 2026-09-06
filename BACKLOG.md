@@ -198,3 +198,38 @@ ceiling -- with no bump anywhere a dash could be. At 4x the class absorbed
 tagged.** If the distribution still shows no mode there, `walker_dash` is not a
 class this channel can carry and should be deleted rather than kept as a
 plausible-looking bucket.
+
+## Make `filter_track` identity-conditional
+
+**The correction the tracking work identified, tabled 2026-09-06 by the player.**
+`reticle/minimap.filter_track` rejects any step above `RUN_PX x 1.6` (72 px/s)
+as physically impossible. That is a fixed threshold standing in for a law that
+is actually per-identity, and it has three consequences, all measured in
+`prototypes/jump_census.py` over 102,239 steps on five sessions:
+
+* **it cannot tell a teleport from a phantom.** Of the 11,599 observations it
+  drops, **54.7% (6,341) sit at teleport distance** from the last kept point.
+  That is a ceiling rather than a count -- 5.7% of refused steps are at
+  physically impossible speeds, so most are certainly misdetections -- but a
+  fixed gate genuinely cannot separate them, and for Omen, Chamber, Veto,
+  Waylay or Yoru the real ones are being destroyed silently;
+* **the quality figure it feeds conflates three things.** `prototypes/CLAUDE.md`
+  quotes jumps > 60 px/s at 5.0% / 3.3% / 3.8% as the residual error rate, and
+  says elsewhere that it mixes tracking error, teleports and dashes. Only the
+  first is a defect;
+* **a refusal is a hard break**, so a destroyed teleport does not merely lose
+  one point -- it ends the run and starts a new one, which is exactly the
+  identity discontinuity ally tracking is meant to avoid.
+
+The shape of the fix is already written: `reticle/track.admits` takes a motion
+class and answers whether a step is legal for it, with the reason. `filter_track`
+should take a class rather than assume `walker`, defaulting to today's
+behaviour so nothing moves until a caller opts in.
+
+**Trigger: an agent is known for a session** -- see the entry above, and the
+`self_agent` work that derives it. Until then there is no class to pass, and
+changing the gate would only swap one assumption for another.
+
+**Do NOT** re-baseline the position track on the new gate before
+`xmark_eval` has been re-run: this moves every stored minimap number and the
+re-validation is itself tabled at the top of this file.
