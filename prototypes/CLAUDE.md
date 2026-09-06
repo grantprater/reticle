@@ -1954,6 +1954,29 @@ looks like at 15 Hz before choosing.
   COLOUR-FREE channel, not the red mask.* `label_minimap.py`'s ctrl+click
   example list and `glance_cams.py`'s docstring are both corrected/flagged.
   **Do not build a cam-finding tool against the red mask.**
+* **ENEMY DEATHS LEAVE MARKS TOO, but they are NOT always visible the way ally
+  marks are.** the player, 2026-09-05, asked directly because `xmark_eval` matches
+  only teammate deaths to the blue X and this file also lists red X marks as a
+  confounder class.
+
+  **The asymmetry is the whole content of the fact, and it makes the constraint
+  ONE-SIDED.** For a causal model over the widget that is the difference
+  between a usable prediction and a wrong one:
+
+      an OBSERVED enemy mark  =>  an enemy died there        (usable)
+      an ABSENT enemy mark    =>  nothing                    (NOT "no death")
+
+  So the killfeed's enemy side cannot be used to predict how many marks should
+  be on screen, the way it can for teammates -- a missing enemy mark is not
+  evidence of a missed killfeed entry, and treating it as one would generate
+  phantom faults on exactly the sessions where visibility was poor. Teammate
+  deaths keep the two-sided form, which is why `xmark_eval` is built on them
+  and should stay that way.
+
+  What decides visibility is unmeasured. The obvious candidate is the same rule
+  the whole minimap obeys -- the widget shows what your TEAM knows -- so an
+  enemy death nobody could see plausibly leaves nothing. Not confirmed; do not
+  encode it.
 * **An OMEN SMOKE TRANSLATES while it deploys**, and it is the only one. the player,
   2026-08-27, on candidate 61 of the Lotus pass: *it's the only smoke in the
   game that moves from omen to the placed location. Viper orb is throwable but I
