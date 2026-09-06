@@ -1076,6 +1076,52 @@ until the pass is over. That is affordable over a 65 s clip and is not over a
 match -- 650 crops is 440 MB -- so a long session uses the store's cached
 static map and a one-phase `feed`.
 
+**ALIGN THE WINDOW TO THE QUESTION BEFORE READING ANYTHING OUT OF IT. This is
+now the most repeated mistake in this codebase -- FOUR times on 2026-09-06
+alone, in four different files, by someone who had already written the note
+about the third one.**
+
+Every instance is the same shape: a CORRECT reader, measured over the wrong
+span, producing a confident number about a question nobody asked.
+
+    probing "starts at 5" from 6% into a round      5/22  -> 40/40
+      -- `build_rounds` bounds include the buy phase, and the roster is not
+         drawn for the new round yet
+    a refinement window butted against a run's end  0.32-0.43 -> 0.00-0.06
+      -- `t1` is the MEASURED end, up to a sample period early, so the window
+         read the object's own tail as evidence against it
+    a round's killfeed deaths vs a roster read at 92% of it   19/20 disagreed
+      -- rounds end in wipes; every death after the last probe was charged to
+         a roster that had not seen it
+    previous-round killfeed entries counted into this round   58% -> 88%
+      -- an entry stays on screen for seconds, so `t_first` lands inside the
+         next round's window
+
+And the one already recorded before today, in `prototypes/CLAUDE.md`: an
+ability series read against the whole decoded axis rather than its own query
+window reported `detect` firing on 75.5% of frames at the median query and
+75.7% at the max, across 53 queries -- uniformity that reads as a finding and
+is arithmetic.
+
+**Why it keeps happening: the wrong span never errors.** It returns a number of
+the right type in the right range, and it is usually a PLAUSIBLE number -- 58%
+agreement looks like a detector that mostly works, not like a window that
+starts too early. Nothing in the type system, the invariants or the code review
+catches it; only asking "what span is this average over, and is it the span the
+question is about" does.
+
+Three things that make it findable:
+
+* **a systematic sign is the tell.** All four had a residue skewed one way --
+  killfeed always ahead, never behind. Random error is symmetric; a one-sided
+  residue is almost always an alignment fault, not noise;
+* **state the span in the output.** A figure printed without the window it was
+  computed over cannot be checked by the person reading it, including you an
+  hour later;
+* **`win_lo`/`win_hi` already exist for exactly this** (`ability_series`), and
+  the convention there -- a feature wanting a local window derives it from
+  `t_ms` and still respects the decoded bounds -- is the general answer.
+
 **A promoted function is DELETED from its prototype and re-exported, never
 copied.** Promotion has happened twice and took two different shapes, and only
 one of them is safe. `ping_scan` was done right: detection moved to

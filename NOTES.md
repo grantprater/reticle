@@ -13,54 +13,62 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
-**2026-09-05, EVENING SESSION. Read this first; the ability-channel handoff
-further down is unchanged and still the plan for that thread.**
+**2026-09-06. Read this first. The ability-channel handoff further down is
+unchanged and still the plan for that thread.**
 
-**A new match is ingested and read: `587c15b07779`, Lotus, 31:04, the recording
-the player made at 19:21.** `valorant-16x9-bigmap` (the default profile is wrong for
-everything since 2026-08-26 and was used by mistake once here). 38 spans, 3730
-HUD rows, 21387 minimap rows, self raw 93.4%, widget absent 3.4%. Killfeed
-reads **19 kills / 14 deaths**, and `reticle board` reads the Tab scoreboard's
-last opening as **19 / 13 -- kills EXACT, deaths +1**, with the **first
-divergence at 0:15:50**, so the extra death is in or before that round. Kills
-agreeing exactly also corroborates the row identification, which is by the
-yellow outline and not by name.
+**NEXT: the causal, temporal, aggregated entity model.** the goal for the
+next session, and every piece it needs now exists in some form. The shape,
+from his own framing:
 
-**That number is NOT in `checks.KNOWN_KD` and should not be put there by me.**
-Every row in that table is the player reading his own match history and end screens
--- two sources outside the pipeline. `board` is a third extractor reading the
-same pixels, so writing its answer in as ground truth is the seeding mistake
-this repo has already paid for three times. **Ask the player to confirm 19/13 off
-his match history**, then add it.
+* **aggregated** -- one segmentation of the widget per frame, fragments grouped
+  into OBJECTS (`prototypes/widget_objects.py`), instead of five detectors
+  independently thresholding the same pixels and nothing arbitrating;
+* **causal** -- what is on screen is CAUSED by events the pipeline already
+  tracks. Two enemies dying in one place leave overlapping X marks the killfeed
+  can predict the count of; an ability implies a caster who was alive; charges
+  bound how many casts are possible;
+* **temporal** -- decide on a WINDOW, not on the sampled frame
+  (`reticle/refine.py`), and align channels in time.
 
-One honest read worth noting from the same board: an enemy row came back
-`None / 16 / 4`. The kills field refused rather than guessed, which is the
-convention working.
+**What is ready, and what is not:**
 
-**`ping_scan` is INCORPORATED and it was run on that match. The answer is 8 real
-pings of 31 confirmed -- 26% precision, against 15 of 15 on the clip.**
+* **READY: alive counts.** `reticle/roster.py` reads them as per-frame state,
+  validated label-free on all 18 sessions (97.9% answered, starts-at-5 96.7%,
+  32 in-round increases, 0 over-five). **Not yet stored** -- it is a
+  `passes.Reader` and needs wiring into `scan` with its own small table and
+  version, the same shape as the ping reader. That is the first job;
+* **READY: cross-channel.** Roster (state) vs killfeed (events): deaths must
+  equal the drop in the two alive counts. 100/113 probes agree (88%) on
+  587c15b07779. **The 13 disagreements are the audit signal** and nobody has
+  looked at them. Direction is declared in the code and must not silently
+  reverse -- that run calibrates the roster; afterwards the killfeed is the
+  audited channel;
+* **READY: window refinement.** `reticle/refine.py`. On the ping detector it
+  takes precision 26% -> 42% at NO recall cost, killing every world, xmark and
+  bar false positive (`prototypes/ping_edge_eval.py`);
+* **NOT ready: assignment.** Objects are described, not labelled. Mutual
+  exclusion and the count constraints need the roster table to exist first;
+* **FALSIFIED, do not retry as stated:** grouping does not separate ally from
+  ping on any shape feature at any gap. Pings are placed ON teammates, so the
+  collision is in SPACE as well as in feature space. And `ally_rings` cannot
+  veto a ping -- it fires harder on pings (median 0.9 px) than on allies
+  (4.0 px).
 
-* pings now ride `reticle scan` by default (`--no-ping` to skip) and land in
-  `<store>/events/ping/<sid>.jsonl` through `Store.write_events`. Detection
-  moved to `reticle/ping.py`; `prototypes/ping_scan.py` is the clip path and
-  the contact sheet;
-* **the clip's 15th ping was being lost to a merge**, and finding it is what
-  the session run bought. `Grouper` now breaks a run at a time gap, so a group
-  is contiguous by construction. On a 31-minute match every walkable cell
-  eventually holds a group and a ping joins one from ten minutes ago; on a 65 s
-  clip that never happens. Control went 14 -> 15, verified by eye, and the
-  module's own table said 15 all along;
-* **the false positives are five named classes and the clip could not contain
-  any of them** -- ally icons (13), warm scenery at the widget edge (4), other
-  minimap icons (3), X death marks (2), a red team bar (1). An ally holding an
-  angle for 7 s IS a standard ping on hue, size and lifetime;
-* **DEAD: reusing `ally_rings` to subtract allies.** It fires on the cyan ping
-  harder than on allies (median 0.9 px vs 4.0 px) -- gating keeps 1 of 8;
-* **LIVE and deliberately not shipped: an ally icon is a hollow RING and a ping
-  is a filled glyph.** Fill 0.25-0.53 against 0.44-0.79. The overlap has to be
-  resolved per glyph and **the only labels are my own reading of a sheet**, so
-  the next move is a labelling pass, not a constant. Numbers in
-  `prototypes/ping_match_eval.py`.
+**Also landed today, all committed with numbers:**
+
+* `587c15b07779` ingested -- Lotus, 31:04, `valorant-16x9-bigmap`. Killfeed
+  19/14; `board` reads 19/13, first divergence 0:15:50. **Not in `KNOWN_KD`
+  and must not be added until the player confirms it off his match history** --
+  `board` is a third extractor over the same pixels, not an external source;
+* **the plant is detected positively off the spike graphic**
+  (`prototypes/plant_spike.py`), 210/369 rounds (57%) against the null-clock
+  rule's 183 (50%), disagreeing on 11%. `rounds._plant` is UNCHANGED pending
+  the labels. The absolute version of that test was wrong (6 of 16
+  disagreements misread) and the relative one is 16/16 -- and the two rates
+  were nearly identical, so a rate is not evidence a rule is right;
+* seven review findings fixed, including `verify` being unable to fail on
+  `KNOWN_KD`, and the widget-size scale is now DERIVED (exactly 1.0 on
+  everything read so far, so nothing moved).
 
 **The map art is wired into `searchable` and is the biggest available accuracy
 win still unclaimed.** `searchable(labels, art=art_mask(sid))` scores 92.3% /
