@@ -148,6 +148,19 @@ def widget_drawn(crop: np.ndarray, sgray: np.ndarray, floor: np.ndarray,
     the shipped position reader adopted it. That module now delegates rather
     than keeping a copy: two implementations of a gate that decides which frames
     exist is exactly the kind of divergence nothing would report.
+
+    **One circularity, stated because it is real and unfixed.** `sgray` comes
+    from `static_map`, a median over active-span frames -- which may themselves
+    include widget-absent ones. So the reference used to detect them is built
+    partly from them. At the rates measured (5.0% on a06f04a0059f) a per-pixel
+    median is entirely robust to it, and the M-key clip separates by an order
+    of magnitude, so this is not affecting any number here. But it degrades in
+    the direction that HIDES the problem: a session where the full-size map was
+    open for a large share of active play would pull the median toward the
+    world behind the widget, raising the correlation of exactly the frames this
+    is meant to refuse. Check the reported absent rate before trusting a
+    session where it is unusually high -- a LOW rate is the ambiguous reading,
+    not a high one.
     """
     g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float64)[floor]
     sg = np.asarray(sgray, dtype=np.float64)[floor]

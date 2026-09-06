@@ -1559,7 +1559,6 @@ def build_parser() -> argparse.ArgumentParser:
                    help="minimap sample rate (default 15)")
     s.add_argument("--min-confidence", type=float, default=0.82)
     s.add_argument("--min-margin", type=float, default=0.05)
-    s.add_argument("--max-frames", type=int, default=None)
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_scan)
 
