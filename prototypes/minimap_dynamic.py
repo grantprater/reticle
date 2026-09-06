@@ -166,8 +166,19 @@ def blob_colour(bgr, mask):
     return (best, frac) if frac >= 0.08 else ("none", frac)
 
 
-def searchable(labels, guard_px=LINE_GUARD, guard_boxedges=False, static=None):
+def searchable(labels, guard_px=LINE_GUARD, guard_boxedges=False, static=None,
+               art=None):
     """Where a detection is allowed to be.
+
+    Three sources, in descending order of preference, and a caller passes
+    whichever it has:
+
+        art     the OFFICIAL map art, fitted -- see `art_mask`. 92.7 / 93.7%
+                against the paintings, no per-session derivation, and the
+                bomb sites come with it
+        static  the session's own median -- the slab plus the derived sites
+        neither the label-based rule below, kept so every number measured
+                against it still holds
 
     Pass `static` and the answer is one line: **the opaque slab, plus the bomb
     sites.** That is not a simplification of the rule below, it replaces it, and
@@ -211,6 +222,10 @@ def searchable(labels, guard_px=LINE_GUARD, guard_boxedges=False, static=None):
     red finder's 80.8%. Most of what it excluded was ordinary floor with icons
     standing on it.
     """
+    if art is not None:
+        # The official art already includes the bomb sites -- they are their own
+        # colour in it -- so no PLANT union is needed or wanted here.
+        return art
     if static is not None:
         # dilate=1 is the slab itself; a 0-wide kernel is an error, not a no-op.
         return floor_mask(static, dilate=1) | (labels == PLANT)
@@ -221,6 +236,43 @@ def searchable(labels, guard_px=LINE_GUARD, guard_boxedges=False, static=None):
         lines = cv2.dilate(lines.astype(np.uint8),
                            np.ones((2 * guard_px + 1,) * 2, np.uint8)) > 0
     return (labels != VOID) & ~lines
+
+
+def art_mask(sid, session_map=None):
+    """The OFFICIAL map art's footprint, fitted to this session's widget.
+
+    The best of the three searchable sources, and the only one that needs
+    neither a per-session median nor the time. Scored against his own
+    independent paintings, on the same ground truth the derived rule was scored
+    against:
+
+        map      art     derived rule
+        Ascent   92.7%      91.3%
+        Lotus    93.7%      92.8%
+
+    **Why it matters more than a point of IoU, in the words:** *there were
+    misreads of non-minimap content as icons.* A crack or hole in the map is a
+    place where the widget is TRANSPARENT, so what shows through is the live
+    world -- moving and high-contrast, exactly what a blob detector fires on.
+    The derived rule admits those pixels because `floor_mask` grows by 9 px and
+    that closes every crack narrower than that. The art states the footprint
+    with a fully binary alpha (0.0% partial on Ascent and Split) and does not
+    dilate, so a candidate in a crack is refusable exactly rather than by a
+    margin.
+
+    It also carries what the derived rule cannot produce at all: the bomb sites
+    are their own colour, so `PLANT` comes free rather than from a hue fit that
+    once returned 93% VOID and once grew a third site out of brown void.
+
+    Returns None when the map is unknown or the art is not fetched, so callers
+    keep their existing fallback -- this is an upgrade path, not a hard
+    dependency. `prototypes/wiki_map.py` fetches and fits.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from wiki_map import art_alpha, fit_for_session
+
+    return fit_for_session(sid, session_map)
 
 
 def painted_mask(sid):

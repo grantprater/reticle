@@ -280,6 +280,131 @@ def fit(alpha: np.ndarray, target: np.ndarray, rots=range(0, 360, 5),
     return best
 
 
+def art_grey(map_name: str):
+    """The art's grey render and its footprint, cropped together.
+
+    The SILHOUETTE is enough to place the transform roughly and not enough to
+    place it well: fitted against a session's derived floor mask -- which on
+    Ascent carries the agent HUD at the widget's edge -- the outline-only fit
+    lands 7 points worse against the painting than the same art fitted
+    against the painting itself (85.7% against 92.7%). An outline can slide
+    along its own edge; the line-work inside cannot.
+    """
+    im = cv2.imread(str(ART / f"{map_name}.png"), cv2.IMREAD_UNCHANGED)
+    a = im[:, :, 3] > ALPHA_MIN
+    g = cv2.cvtColor(im[:, :, :3], cv2.COLOR_BGR2GRAY).astype(np.float32)
+    g[~a] = 0
+    ys, xs = np.where(a)
+    sl = (slice(ys.min(), ys.max() + 1), slice(xs.min(), xs.max() + 1))
+    return g[sl], a[sl]
+
+
+def refine_ncc(map_name, med_gray, rot, scale, dx, dy, span=10):
+    """Lock the fit onto the STRUCTURE by correlating art grey against the median.
+
+    Seeded from the silhouette fit and searched locally. This is what makes the
+    art usable without a painting to fit against: measured on the two
+    paintings, silhouette-only scores 85.7% / 93.5% and the same fit refined
+    here scores **92.3% / 94.0%** -- recovering painting-quality alignment from
+    the session's own median, which every session has.
+
+    Correlation, not difference: the art is a flat render and the widget is that
+    render composited over live scenery at some brightness, so the two agree in
+    STRUCTURE and not in level. Same reason `widget_drawn` correlates.
+    """
+    ag, aa = art_grey(map_name)
+    H, W = med_gray.shape
+    best = None
+    for s in np.arange(scale * 0.94, scale * 1.06, scale * 0.004):
+        h0, w0 = ag.shape
+        M = cv2.getRotationMatrix2D((w0 / 2, h0 / 2), rot, s)
+        side = int(max(h0, w0) * s * 1.6)
+        M[0, 2] += side / 2 - w0 / 2
+        M[1, 2] += side / 2 - h0 / 2
+        rg = cv2.warpAffine(ag, M, (side, side), flags=cv2.INTER_AREA)
+        ra = cv2.warpAffine(aa.astype(np.uint8) * 255, M, (side, side),
+                            flags=cv2.INTER_AREA) > 127
+        for ddy in range(dy - span, dy + span + 1, 2):
+            for ddx in range(dx - span, dx + span + 1, 2):
+                c = np.zeros_like(med_gray)
+                cm = np.zeros(med_gray.shape, bool)
+                y0, x0 = max(0, ddy), max(0, ddx)
+                y1, x1 = min(H, ddy + side), min(W, ddx + side)
+                if y1 <= y0 or x1 <= x0:
+                    continue
+                c[y0:y1, x0:x1] = rg[y0 - ddy:y1 - ddy, x0 - ddx:x1 - ddx]
+                cm[y0:y1, x0:x1] = ra[y0 - ddy:y1 - ddy, x0 - ddx:x1 - ddx]
+                if cm.sum() < 5000:
+                    continue
+                a1 = c[cm] - c[cm].mean()
+                b1 = med_gray[cm] - med_gray[cm].mean()
+                den = float(np.sqrt((a1 * a1).sum() * (b1 * b1).sum()))
+                if den <= 0:
+                    continue
+                ncc = float((a1 * b1).sum() / den)
+                if best is None or ncc > best[0]:
+                    best = (ncc, float(s), int(ddx), int(ddy))
+    return best
+
+
+def map_of(sid: str) -> str | None:
+    """The session's map, from its manifest tags. Already recorded at ingest."""
+    m = STORE / "manifests" / f"{sid}.json"
+    if not m.is_file():
+        return None
+    tags = json.loads(m.read_text(encoding="utf-8")).get("tags", [])
+    return next((t.split(":", 1)[1] for t in tags if t.startswith("map:")), None)
+
+
+def fit_for_session(sid: str, map_name: str | None = None):
+    """The art's footprint in this session's widget pixels, or None.
+
+    **Cached per session**, because the fit is a search and the answer is a
+    constant: three numbers that depend on the map and the widget geometry,
+    neither of which moves within a session. Without the cache this would be
+    minutes on every call, which is how a good mask becomes a mask nobody uses.
+
+    Returns None -- never raises -- when the map is unknown, the art is not
+    fetched, or the session has no geometry to fit against. Callers keep their
+    existing fallback; this is an upgrade path, not a dependency.
+    """
+    map_name = map_name or map_of(sid)
+    if not map_name:
+        return None
+    cache = STORE / "reference" / "fits" / f"{sid}.npz"
+    if cache.is_file():
+        z = np.load(cache)
+        return _place(_warp(art_alpha(map_name), float(z["rot"]), float(z["scale"])),
+                      np.zeros(tuple(z["shape"]), bool), int(z["dx"]), int(z["dy"]))
+    try:
+        alpha = art_alpha(map_name)
+    except SystemExit:
+        return None
+    g = STORE / "geometry" / f"{sid}.npz"
+    if not g.is_file():
+        return None
+    z = np.load(g)
+    m = cv2.erode(floor_mask(z["static"]).astype(np.uint8),
+                  np.ones((9, 9), np.uint8)) > 0
+    n, lab, st, _ = cv2.connectedComponentsWithStats(m.astype(np.uint8), 8)
+    target = lab == (1 + int(np.argmax(st[1:, 4]))) if n > 1 else m
+    known = ROTATION.get(map_name)
+    rots = [known] if known is not None else range(0, 360, 5)
+    best = fit(alpha, target, rots=rots)
+    if best is None:
+        return None
+    v, rot, sc, dx, dy = best
+    # Silhouette to get close, STRUCTURE to lock it in -- see `refine_ncc`.
+    med_gray = cv2.cvtColor(z["static"], cv2.COLOR_BGR2GRAY).astype(np.float32)
+    ref = refine_ncc(map_name, med_gray, rot, sc, dx, dy)
+    if ref is not None:
+        ncc, sc, dx, dy = ref
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(cache, rot=rot, scale=sc, dx=dx, dy=dy, iou=v,
+             ncc=(ref[0] if ref else 0.0), shape=np.array(target.shape))
+    return _place(_warp(alpha, rot, sc), target, dx, dy)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
