@@ -414,10 +414,57 @@ distinctive, one per agent per side: the ideal matched-filter target, and a
 closed set of the same shape as the digit templates and the agent-name bitmaps,
 both of which worked.
 
-**And it is exactly the quarter the tray cannot read.** Slot X draws pips, not
-a bar, so `ability_hud` sees no drop for an ultimate in 7 of 7 clips. Audio is
-not a parallel channel here; it is the missing quarter of the existing one.
-Nothing blocks this and it needs no new footage at all. **Do it first.**
+**CORRECTED, by the player, 2026-09-06: the tray DOES read slot X.** This entry
+first said *"slot X draws pips, not a bar, so `ability_hud` sees no drop for an
+ultimate in 7 of 7 clips"* -- which is `prototypes/CLAUDE.md`'s note from
+before the **2026-09-05 fix**, and `ability_hud.casts`'s own docstring already
+records the correction: the pips DESATURATE from teal to grey along with the
+bar, so the existing teal mask reads them with no new geometry. Measured then
+on `02cf738b1c8f`: slot X goes 909 raw teal px -> 0 between 28.0 s and 28.5 s.
+`cast_motion.py --steps` also read Omen's From the Shadows off slot X the same
+day this entry was written, in the run printed above it. **A stale claim
+repeated from an index that a docstring had already superseded** -- the exact
+failure mode `CLAUDE.md` warns about for this file.
+
+So audio is not the ONLY route to an ultimate. It is still worth building
+first, for reasons that survive the correction: the voiceline references
+already exist and cost nothing, the ultimate is the highest-stakes event in a
+round, and the tray's ult read is explicitly *not observable in every clip*
+(`6bb88dba5d2c` and `2ba870ccbd50` keep a full X bar through a labelled ult).
+Two independent readings of the same event is the point.
+
+**THE REFINEMENT, and it is directly implementable from stored data:** the
+ult fill *"might need to be divided by the number of pips in the ult, which is
+a known quantity per-agent"*. It is -- `ability_reference` carries it as the
+ultimate's `cost` field, **7, 8 or 9 points, present on 28 of 29 agents**
+(Astra's row is malformed and needs a look). `fills()` normalises each slot by
+the p90 of its own non-trivial samples, so a partial charge reads as a
+fractional bar and `CAST_DROP` is being asked to separate "gained a point" from
+"spent the whole ult" without knowing the quantum. Dividing by the pip count
+makes one pip a known step: a drop of 1/N is a point being spent or the meter
+ticking, a drop from full to zero is a CAST. That should raise precision on
+slot X and make a partial-charge drop refusable rather than a threshold call.
+
+**A false positive of exactly that kind is already in the census**: Sage
+(cost 7) shows two slot-X drops, `0.98 -> 0.00` and **`1.03 -> 0.78`**. The
+first is a cast; the second is a quarter-bar step that cleared `CAST_DROP` and
+should not have. That is the case the divisor rejects.
+
+**Reading the pip count off the PIXELS was probed and is INCONCLUSIVE -- do not
+retry it as stated.** The pips are visible: a row of evenly spaced teal marks
+at **y = 1037, pitch 8.0 px** on every agent tried. But the count per frame is
+unstable (Yoru 0-8 across ten frames, Chamber 0-11) and its mode does not equal
+`cost - 1` on any of eight agents, so the "N segments have N-1 dividers"
+reading is not supported. **The pitch is the surprise**: it is 8.0-8.2 px
+regardless of whether the agent costs 7, 8 or 9, so the segment width is fixed
+and the BAR WIDTH must vary with the pip count -- which is a different and
+probably easier measurement than counting marks, and it is untested. None of
+this blocks the divisor, because `ability_reference.cost` already supplies the
+number for 28 of 29 agents; the pixels would only be a cross-check.
+
+**Astra's ultimate row is malformed in the reference** (`Astral Form / Cosmic
+Divide`, cost None) and is the one agent the divisor cannot be applied to
+without a fix.
 
 ### Half two: BASIC ABILITIES. No reference exists anywhere, so it must be cut.
 
@@ -453,11 +500,26 @@ and HRTF is on -- `audio_probe` already records that the reference should be
 cut from footage recorded the way he actually plays, so his own clips are the
 RIGHT source rather than a compromised one.
 
-**The contaminant is his own footsteps, and it is measurable.** In the Omen
-clip, **5 of 6 casts were made while moving** (max speed 14.6-63.1 px/s in the
-+/-0.5 s around the cast; only the ultimate at 29.2 s was cast standing still).
-Running footsteps are the loudest thing in a solo custom game and they overlap
-the cast directly.
+**The contaminant is his own footsteps -- but HOW MUCH is NOT ESTABLISHED, and
+the first attempt to measure it was my own aggregate error.** Over 27 demo
+clips and 119 casts, asking whether the self track says he was still in the
++/-0.5 s around each cast:
+
+    still by MAX speed over the window       8/119   ( 7%)
+    still by MEDIAN speed over the window   28/41    (68%)   (8-clip subset)
+
+**A sevenfold swing from the choice of aggregate, which means the proxy does
+not answer the question.** A max over fifteen frames is tripped by one jittery
+ring fit, so it reads "moving" on a stationary player; a median passes a window
+he moved through briefly. This is `self_icon_dist`'s min-versus-median lesson
+arriving again in a new file -- *once a whole window is sampled, the aggregate
+IS the measurement* -- and the 7% figure should not be quoted.
+
+What IS established: clip median speeds run 4.7-18.8 px/s, so these clips do
+contain a lot of movement, and the Omen clip's ultimate at 29.2 s was cast
+standing still on both statistics. **The direct test is the audio, not the
+track** -- are footsteps audible in the cast window -- and that is a question
+for the reference cut itself rather than a proxy.
 
 So the ask is a light protocol change, not a new kind of clip:
 

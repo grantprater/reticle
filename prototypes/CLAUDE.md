@@ -824,6 +824,106 @@ language also catches Chamber's Trademark (*"when a visible enemy comes in
 range"*), which is a DETECTION radius and a different mechanic -- so the obvious
 automatic extraction of this fact produces a wrong third class.
 
+### EVERY ABILITY HAS AN EQUIP SOUND AND A CAST SOUND, AND EQUIP IS SELF-ONLY
+
+**the player, 2026-09-06:** *there is a separate equip and cast sound for each
+ability. Not positive there is one for literally every ability but I would
+guess there is. The equip sound is only for the self agent.*
+
+**Self-only is the load-bearing half**, and it changes what the audio channel
+is for. Every other audio target discussed here -- ultimate voicelines, cast
+SFX -- is spatialised and can come from anybody, which is why
+`BACKLOG.md`'s analysis-by-synthesis entry has to caveat that a fixed
+dictionary only fits the local player's near-field casts. **An equip sound is
+near-field BY DEFINITION**: it exists only for the agent holding the mouse. So
+it is the one audio event with no spatialisation to model, no HRTF filter to
+undo, and no ambiguity about whose it is.
+
+Four consequences:
+
+* **it is the cleanest possible first dictionary entry.** The backlog names the
+  local player's own casts as the clean case to start from; this is a strictly
+  cleaner case inside it;
+* **it PRECEDES the cast**, so the pair is a two-event signature rather than
+  one sound -- far stronger for a matched filter than either alone, and the
+  interval between them is the hold/aim time, which is a real quantity nothing
+  in this pipeline currently measures;
+* **it pairs with the SUBMENU below, and the two are mutual controls.** The
+  submenu is drawn when an ability is pulled out; the equip sound plays at the
+  same moment. One is visual and one is acoustic, they fail for unrelated
+  reasons, and either one confirms the other -- which is the strongest
+  validation structure this repo has (the same shape as the killfeed anchor and
+  the camera-pan facing check);
+* **it bounds the tray.** `ability_hud` reads the charge AFTER the cast; equip
+  brackets it from the other side, so a cast is a sound, a submenu, and a drop
+  in a known order rather than one threshold crossing.
+
+**Unverified and stated as such: "not positive there is one for literally every
+ability".** Treat coverage as unknown per ability until measured, and remember
+the demo corpus can only establish it for abilities the player could cast solo --
+the kill-gated and ally-gated kits are UNTESTED here, same as for the icons.
+
+### THE ABILITY SUBMENU AND ITS ON-HOVER PROMPTS (the player, 2026-09-06)
+
+> When pulling out the ability there is basically a submenu above it with
+> icons. For yoru e as an example there is a left click icon and a track
+> indicating to move it forward and a right click icon with an arrow pointing
+> at the ground icon to indicate placing it on the ground. Then when you mouse
+> over the teleport location, whether through a wall or not, an F key icon with
+> fake shows up, onhover basically. There are a variety of these on-hover icons
+> and ability submenus that maybe could have the domain knowledge inferred
+> from.
+
+**This is a surface nothing in the repo has ever read, and for the fake/real
+problem it may beat audio outright.** The whole reason audio was named as
+necessary is that Yoru's fake plays the teleport sound without the
+displacement, so sound cannot separate them. **A prompt that says `F fake` is
+the game naming the choice on screen**, in text, before it is taken.
+
+Four reasons it is worth more than another SFX:
+
+* **it is a small closed set of fixed art at a fixed screen position**, which
+  is the shape every reader in this repo that works has had -- digit templates,
+  agent-name bitmaps, the 25 killfeed name glyphs. The submenu is drawn above
+  the tray, so the ROI is adjacent to `ability_hud`'s and the reader can join
+  that pass rather than opening its own decode;
+* **it states the MODE BEFORE the cast**, where the tray states the charge
+  AFTER it. That is a precondition rather than a consequence, and it is the
+  first thing in this pipeline that would be;
+* **it is self-documenting.** the point -- the domain knowledge could
+  be inferred FROM it. A submenu enumerating left-click, right-click and F for
+  one ability is the game listing that ability's modes, which is exactly the
+  `modes` axis of his taxonomy that this file has been filling in by asking
+  him. Reading it turns a per-agent interview into a per-clip measurement;
+* **it is LOCAL-PLAYER ONLY**, like the drone HUD overlay -- a limit, not a
+  defect, and the same half of the event log.
+
+Two cautions before building it. **On-hover means it is conditional on where he
+is pointing**, so its absence is no evidence -- the same one-sided rule as the
+enemy X mark and the missing tray drop. And an *available* prompt is not a
+*taken* action: `F fake` appearing says the fake was OFFERED, and only the
+keypress or its consequence says it happened. Pair it with the position track
+rather than reading it alone.
+
+**RENDERED AND CONFIRMED the same day, on `5a63cc4fecfc` at the Yoru E casts,
+region x 731-1186 y 900-1062 (the band above `ability_hud`'s bar at y 1032):**
+
+* at **18.00 s** the submenu appears above slot E as **two mouse-button glyphs
+  side by side**, white line art on dark -- left-click and right-click, exactly
+  as described;
+* at **18.40 s** the on-hover prompt reads **`F ⟋ FAKE`** in literal, legible
+  capitals beside an F-key glyph, with the rift orb lit in the world;
+* an **`E` key glyph with a yellow underline** marks the ability as equipped,
+  and it is present at 18.40 s and again at 26.50 s;
+* the **ultimate's pips are visible** as a row of evenly spaced teal marks
+  under slot X at **y = 1037, pitch 8.0 px**, directly above the charge bar.
+
+**`FAKE` is rendered as a WORD.** That is a far easier target than anything
+else in this repo -- larger than a killfeed name glyph, at a fixed position, in
+a closed set -- and it means the fake/real distinction may be readable from the
+HUD without audio at all. The caution above still applies unchanged: the prompt
+says the fake was OFFERED, not taken.
+
 ### Abilities have PLACEMENT MODES, and only for your own agent (the player, 2026-09-04)
 
 > quite a few abilities have different colors/modes while being placed, so that's
