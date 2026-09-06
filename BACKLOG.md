@@ -162,3 +162,39 @@ frame, and `doctor` deliberately does not guess.
 **Trigger: any attempt to use that session, or to close the unexplained
 `--geometry-from` note.** Cheap to settle -- `reticle probe 2ba870ccbd50` and
 look at the widget.
+
+## Record which agent the player played, per session
+
+**The binding input for the identity-conditional tracker, and it is not in the
+store.** None of the five sessions with an `l1/minimap` table records the agent
+-- tags carry map, outline colour, widget size and chroma, and nothing else.
+
+Without it the model cannot be applied to real data. `jump_census.py` can say
+that 54.7% of the observations `filter_track` drops are at teleport distance,
+and it cannot say whether a single one of them is a real teleport, because that
+depends entirely on whether the player was playing one of Omen, Chamber, Veto,
+Waylay or Yoru.
+
+Two ways in, and they are complementary rather than alternatives:
+
+* **a tag at ingest.** Costs the player one word per capture and is exact;
+* **derive it.** `minimap_portrait.bootstrap` already names the ENEMY lineup
+  from scoreboard art by composition matching (83.5% held-out, five agents).
+  The same machinery pointed at the ally side names his own, with no new
+  labelling -- and the roster gives a per-frame alive check on it for free.
+
+**Trigger: the next capture, for the tag; the next time the ally roster is
+read, for the derivation.** Neither blocks the other.
+
+## Measure a dash, or drop `walker_dash`
+
+`track.DASH_PX_S` is a bound and `jump_census.py` showed it cannot become a
+measurement from data in hand: above the walk ceiling the speed distribution is
+a smooth decay -- 40.7% of refused steps in 45-60 px/s, 75.2% within 2x the
+ceiling -- with no bump anywhere a dash could be. At 4x the class absorbed
+90.5% of all refusals, which is a bound explaining everything.
+
+**Trigger: one session where a dash agent (Jett, Neon, Waylay) was played and
+tagged.** If the distribution still shows no mode there, `walker_dash` is not a
+class this channel can carry and should be deleted rather than kept as a
+plausible-looking bucket.
