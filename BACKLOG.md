@@ -233,3 +233,63 @@ changing the gate would only swap one assumption for another.
 **Do NOT** re-baseline the position track on the new gate before
 `xmark_eval` has been re-run: this moves every stored minimap number and the
 re-validation is itself tabled at the top of this file.
+
+## Fit a CIRCLE to the self ring, not a bounding box
+
+The prime suspect for why `self_agent.py` reaches only 38% at 29-way (chance
+3.4%), and it needs no new labels.
+
+The self glyph is a ring with a FACING TRIANGLE hanging off it. Both the
+component centroid and its bounding-box centre are pulled toward whichever way
+the player is looking, so the disc meant to frame the portrait is displaced by
+a few pixels **in a direction that rotates through the session**. That blurs
+the histogram carrying identity, and blurs it differently in every clip --
+which would also explain why a per-source null control moved *which* sessions
+were right without moving the count.
+
+`minimap_portrait.fit_ring` fits a circle to the rim and is the machinery that
+already solved this exact teardrop shape for enemy icons, where it killed a
+closure test that had failed four times. Point it at the self colour key.
+
+**Trigger: any further work on agent identity.** Measure it the same way --
+`--demo-corpus` against the ingest tags -- so the before/after is directly
+comparable. 38% is the number to beat.
+
+## Combine the detection channels: a CAST licenses a jump
+
+**the player, 2026-09-06, and he notes he has raised it before:** *a teleport
+activated on the hotbar (or in audio once that's built) should be triggering an
+expected agent teleport.* `NOTES.md` has carried "causal -- what is on screen
+is CAUSED by events the pipeline already tracks" as a goal; this is the first
+concrete, cheap instance of it, and it is the RIGHT fix for the
+`filter_track` problem above rather than a parallel one.
+
+**It inverts the dependency, which is what makes it better than the identity
+prior alone.** Knowing the agent tells you a jump *may* be legal. Knowing a
+cast happened at time t tells you a jump *is expected* at time t. So the two
+channels become each other's control:
+
+    cast at t AND jump at t     corroboration -- a real teleport, keep it
+    jump at t, no cast          a phantom, and filter_track was right
+    cast at t, no jump          the ability was not a teleport, or the track
+                                lost the player through it -- itself a finding
+
+**Every piece exists.** `ability_hud.py` reads the tray and its drops came out
+clean on 7 of 7 demo clips with slot identity (C/Q/E) and in the recorded cast
+order; `ability_reference` carries the agent-to-ability mapping, so slot plus
+agent names the ability; `l1/minimap` carries the positions. Nothing new needs
+detecting.
+
+Two known limits, both already recorded elsewhere and neither fatal:
+
+* **slot X never drops** -- the tray draws the ultimate as pips rather than a
+  bar -- so Omen's ultimate and any other X-slot teleport is invisible to this
+  channel. That is exactly the quarter the ultimate-voiceline matched filter
+  was scoped to cover, which is why the player names audio in the same breath;
+* **the tray is a level, not a charge count, for Viper**, and `infinite-
+  abilities` pins it full on five demo clips. Neither affects teleports.
+
+**Trigger: after `filter_track` takes a motion class.** The cast is the
+evidence that selects the class for a window, so it wants the parameter to
+exist first. Order: `track.admits` (done) -> `filter_track` takes a class ->
+cast events select it.

@@ -13,21 +13,56 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
-**2026-09-06, later. `floor_mask` was FORKED for ten days and is now
-reconciled — `18b0912`. Read that commit before any minimap work.**
+**2026-09-06, late. A long architecture session. Six plan items, and the
+running theme is that two of them were WRONG and the measurements said so.**
 
-One implementation each of `floor_mask`, `median_widget` (was `static_map` in
-both trees) and the plant tint (`SITE_*`, which `minimap_geometry.PLANT_*`
-aliases). The shipped gate scores **78.8% / 77.9% IoU at 100% recall** against
-the old 57.8% / 74.0%, on the two paintings, via the new
-`prototypes/floor_mask_eval.py`.
+Read `BACKLOG.md` first -- it is new, and it holds everything tabled with the
+reason and the trigger that would un-defer it.
 
-**A SITE IS FLOOR** — the correction, and it caught a real defect mid-fix.
-The full argument is in `reticle/minimap.py`'s docstring.
+**What shipped:**
 
-**The stored minimap track is known-superseded**, and re-validating it is
-TABLED — see `BACKLOG.md`, which is new and holds the three jobs, the reason,
-and what would un-defer them. Do not quote a minimap number until it is done.
+* **`floor_mask` was forked for ten days** and is reconciled (`18b0912`).
+  78.8% / 77.9% IoU at 100% recall against the paintings, up from
+  57.8% / 74.0%. **A SITE IS FLOOR** -- his correction, mid-fix, and it caught a
+  real defect: 9.6% of stored self positions sit inside one;
+* **`reticle doctor`** -- the repo's half of `status`. Six structural checks,
+  and it found a manifest contradiction nobody was looking for
+  (`2ba870ccbd50` tagged small-widget, ingested bigmap);
+* **`l1/roster`** -- alive counts are stored, riding the HUD pass for free.
+  The audit that validates it now runs off L1 with no decode and reproduces the
+  seek path exactly;
+* **`metrics` intervals** -- `wilson`/`bootstrap_ci`, on CHANGED only. The plan
+  said to soften BROKEN with them, which was backwards;
+* **`reticle/track.py`** -- motion as a property of IDENTITY, 18 self-tests,
+  Hungarian assignment;
+* **the entity model doc gained §6**, republished: the drivers ARE the tracking
+  constraints, with the fourteen-row invariant inventory.
+
+**Three measurements that changed the plan rather than confirming it:**
+
+* **overlap is TRANSIENT** (the claim, tested): median 4.75x extent
+  variation over a window, 9 of 10 events, 12% of frames a clean look. So
+  identity precedes grouping, and the labelling pass must show a WINDOW. The
+  grouping pass is therefore NOT next;
+* **there is no dash mode** in 102,239 steps -- a smooth decay from the walk
+  ceiling, so `track.DASH_PX_S` cannot be validated and the census refuses to
+  quote a defect rate resting on it;
+* **`filter_track` cannot tell a teleport from a phantom**: 54.7% of the 11,599
+  observations it drops sit at teleport distance. Backlogged.
+
+**NEXT, and the order matters** -- all three are in `BACKLOG.md` with the
+argument:
+
+1. **`filter_track` takes a motion class** (`track.admits` already exists);
+2. **cast events select that class.** the player: *a teleport activated on the
+   hotbar (or in audio) should be triggering an expected agent teleport.* This
+   is the right fix rather than a parallel one -- it makes the tray and the
+   position track each other's control, and every piece already exists;
+3. **`fit_ring` on the self key**, to lift `self_agent.py` off 38%.
+
+**the direction for the channel, in his words:** *identity-based
+identification of entities with their temporal evolution, subject to the
+invariants of their specific identity.* That is design doc §6 now.
 
 **2026-09-06. The ability-channel handoff further down is
 unchanged and still the plan for that thread.**
