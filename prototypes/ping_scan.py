@@ -160,12 +160,11 @@ def classify(hue: int) -> str | None:
 
 
 def scan(path: str, roi=MINIMAP_ROI, hz: float = 10.0, fps: float = 60.0):
-    """[(kind, t0, t1, x, y, hue, n_frames)] for every ping found.
+    """[(kind, t0, t1, x, y, hue, n_frames)] for every ping in a video file.
 
-    One sequential decode. The static map is the per-pixel median of the
-    sampled frames -- the same trick `minimap_geometry` uses and for the same
-    reason: the widget is semi-transparent, so a single frame carries the
-    world moving behind it.
+    The standalone path: one sequential decode of its own. `PingReader` is the
+    same detection riding somebody else's decode, and both call `_detect`, so
+    there is one implementation of what a ping is.
     """
     x0, y0, x1, y1 = roi
     frames, ts = [], []
@@ -175,7 +174,17 @@ def scan(path: str, roi=MINIMAP_ROI, hz: float = 10.0, fps: float = 60.0):
     if not frames:
         return [], None
     med = np.median(np.stack(frames[::3]), axis=0).astype(np.uint8)
-    floor = floor_mask(med)
+    return _detect(frames, ts, floor_mask(med), hz, med)
+
+
+def _detect(frames, ts, floor, hz, med=None):
+    """Group saturated marks on the floor into pings. See the module docstring.
+
+    Split out of `scan` so `PingReader` can run the same code over frames it
+    did not decode itself. The static map is a MEDIAN, so it cannot exist
+    before the pass is over -- which is why this takes `floor` rather than
+    computing it, and why the reader is two-phase.
+    """
 
     groups: list[list] = []
     for t, c in zip(ts, frames):
@@ -237,6 +246,48 @@ def scan(path: str, roi=MINIMAP_ROI, hz: float = 10.0, fps: float = 60.0):
     for lst in (out, unconfirmed, rejected):
         lst.sort(key=lambda r: r[1])
     return out, (med, floor, unconfirmed, rejected)
+
+
+class PingReader:
+    """`ping_scan` as a `passes.Reader`, so it can ride an existing decode.
+
+    the player, on the corpus re-scan: *why is the corpus rescan not including
+    pings?* Because this module was written to take a VIDEO PATH and not a
+    session, so it could only ever be a separate full decode -- which is the
+    exact problem `reticle/passes.py` was built the same afternoon to solve,
+    applied to every reader except the one written that day.
+
+    Two-phase by necessity, and the phase boundary is the interesting part:
+    the static map is a MEDIAN over the frames, so it cannot exist until the
+    pass is over. `feed` therefore only accumulates crops, and `finish` does
+    the detection. That is affordable here and would not be at 15 Hz over a
+    whole match -- at 10 Hz over a 65 s clip it is 650 crops of 465x485x3,
+    about 440 MB, so a long session needs the store's cached static map
+    instead (`SessionContext.static_map`) and a one-phase `feed`.
+    """
+
+    def __init__(self, name="ping", hz=10.0, spans=None, roi=MINIMAP_ROI,
+                 static=None):
+        self.name, self.hz, self.spans = name, hz, spans
+        self.roi = roi
+        self.static = static          # when known, detection can run per frame
+        self.frames: list[np.ndarray] = []
+        self.ts: list[float] = []
+        self.hits: list = []
+
+    def feed(self, sample) -> None:
+        x0, y0, x1, y1 = self.roi
+        self.frames.append(sample.frame[y0:y1, x0:x1].copy())
+        self.ts.append(sample.t_ms / 1000.0)
+
+    def finish(self):
+        if not self.frames:
+            return []
+        med = (self.static if self.static is not None
+               else np.median(np.stack(self.frames[::3]), axis=0).astype(np.uint8))
+        self.hits, self.aux = _detect(self.frames, self.ts, floor_mask(med),
+                                      self.hz, med)
+        return self.hits
 
 
 def sheet(path: str, hits, out_path: str, hz: float) -> None:

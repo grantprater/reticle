@@ -1045,6 +1045,37 @@ match. Without it, widening the plant test grew a third "bomb site" on Split --
 the two maps in use were fine. **Rebuild every session's geometry whenever
 `minimap_geometry.py` changes.**
 
+**A new reader joins the PASS. the player, 2026-09-05, and it is an architectural
+rule rather than an optimisation:**
+
+> it not being a reader raises an architectural question. The reason we're
+> structuring it as a pipeline is for efficiency. If we're just leaving easy
+> efficiency gains on the table and being sloppy and adding bloat, even on a
+> first draft and exploratory phase that's not a good sign.
+
+The occasion: `reticle/passes.py` was built that afternoon so a reader could
+ride an existing decode -- decode is 93% of a stage's cost -- and `ping_scan.py`
+was written the same day taking a VIDEO PATH, so it could only ever be another
+full decode. the player asked why the corpus re-scan did not include pings, and
+that was the answer.
+
+**The cost of the miss is not the wasted decode, it is that the architecture
+becomes decorative.** A registry that the newest code does not use is not a
+registry, it is a file; and a first draft is exactly what later work is copied
+from, so exploratory phase is an argument for the rule and not an exemption
+from it.
+
+The shape that satisfies it: detection is a function over frames
+(`ping_scan._detect`), `scan()` decodes for itself and calls it, and a
+`Reader` accumulates frames from somebody else's pass and calls the same
+function. Verified both ways return 14 pings and the same four classes.
+
+One real constraint it surfaced, worth knowing before writing the next reader:
+**a reader needing a MEDIAN is two-phase**, because the median does not exist
+until the pass is over. That is affordable over a 65 s clip and is not over a
+match -- 650 crops is 440 MB -- so a long session uses the store's cached
+static map and a one-phase `feed`.
+
 **Analysis that produces a quotable number goes in `prototypes/`, not scratch.**
 If a figure is worth putting in a commit message it will be re-run, and the next
 session should not start by rebuilding feature extraction. `dynamic_eval.py` is

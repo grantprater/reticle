@@ -13,8 +13,42 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
-**2026-09-05, LATER SESSION. Four things landed; the ability-channel handoff
-below is unchanged and still the plan for that thread.**
+**2026-09-05, LATER SESSION. Read this first; the ability-channel handoff
+further down is unchanged and still the plan for that thread.**
+
+**IN FLIGHT WHEN THE SESSION ENDED, and the first thing to pick up:**
+
+* **the corpus re-scan at `hud-0.11.0`** was 7 of 17 sessions through, running
+  from `scratchpad/rescan.log`. It re-reads every session with the killfeed
+  icon-tier fix, `plate_seam`, and the new reason columns. **Re-run it** (the
+  loop is trivial: `reticle hud <sid> --force` per session) and score the
+  result against `checks.KNOWN_KD`. First three came back exact -- 14/18,
+  17/14, 25/15. This is what turns two fixes into a corpus number instead of
+  three spot checks;
+* **the census on `e37fdeca944f`** (the -2 deaths, the one unexplained K/D gap
+  left) was still running. `reader_census.py e37fdeca944f` is the whole
+  command; look at the `no_divider` and `band_one_plate_colour` clusters near
+  the missing deaths;
+* **`ping_scan` on a real match session** -- the ask, not started. The
+  lifetime gate is map-independent so this tests the one-map hue bands at zero
+  footage cost. `PingReader` now exists so it can ride a `scan` pass.
+
+**The map art is wired into `searchable` and is the biggest available accuracy
+win still unclaimed.** `searchable(labels, art=art_mask(sid))` scores 92.3% /
+94.0% against the paintings where the label rule scores 65.0% / 67.6%.
+Nothing downstream calls it yet -- `dynamic_eval`, `scan_ability_clip` and the
+ability corpus all still pass `static=`. Switching them over is the change
+that acts on the *misreads of non-minimap content as icons*, because the
+art's boundary is exact and undilated where `floor_mask` grows 9 px and closes
+every crack narrower than that.
+
+**the architectural note, now a convention in CLAUDE.md: a new reader
+joins the PASS.** `ping_scan` was written as a standalone video-path script the
+same afternoon `passes.py` was built to prevent exactly that. Fixed, both paths
+verified to return 14 pings -- but the lesson is the one to carry: a registry
+the newest code does not use is not a registry.
+
+**Four things landed earlier in the session:**
 
 * **the last known read error in stage 02 is CLOSED.** `c40d950031bb` reads
   2/7 against `KNOWN_KD`'s 2/7. Two killfeed defects, found by the exclusion
