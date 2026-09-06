@@ -20,4 +20,11 @@ HUD_VERSION = "hud-0.10.0"
 # floor mask, or the filtering constants (RUN_PX, GAP_MS) change -- raw
 # positions are stored unfiltered, so a filter-only change does NOT need a
 # version bump or a re-decode (see minimap.filter_track).
-MINIMAP_VERSION = "minimap-0.1.0"
+#
+# 0.2.0: adopted `minimap.widget_drawn`. Frames where the widget is not
+# rendered at all -- the death screen, and the M key -- are now stored with
+# NULL positions instead of whatever `self_rings` found in the world behind it.
+# This MOVES every stored minimap number and every figure derived from one; the
+# validations that backed the track (xmark_eval, chokepoint_eval) were measured
+# with those frames in and are re-run against it.
+MINIMAP_VERSION = "minimap-0.2.0"

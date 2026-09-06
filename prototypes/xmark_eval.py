@@ -41,6 +41,7 @@ from reticle import decode                                        # noqa: E402
 from reticle.checks import track_entries                          # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
 import minimap_position as mp                                     # noqa: E402
+from reticle.minimap import widget_drawn                          # noqa: E402
 
 STORE = Path.home() / "reticle-store"
 COINCIDE_MS = 500.0
@@ -78,7 +79,13 @@ def xmark_blob(crop, floor):
 
 
 def main() -> int:
-    sid = sys.argv[1]
+    # `--no-guard` reproduces the pre-2026-09-05 number, when neither this eval
+    # nor the shipped reader tested whether the widget was drawn at all. Kept as
+    # a flag rather than deleted: the validation on record was measured that way
+    # and the two figures have to be comparable to say whether the guard helped.
+    argv = [a for a in sys.argv[1:] if not a.startswith("--")]
+    guard = "--no-guard" not in sys.argv
+    sid = argv[0]
     man = json.loads((STORE / "manifests" / f"{sid}.json").read_text())
     src = man["source"]
     prof = get_profile(man["source_profile"])
@@ -99,6 +106,8 @@ def main() -> int:
     med = mp.static_map(cap, fps, spans, box)
     cap.release()  # everything below uses decode.sample_at(), which opens its own
     floor = mp.floor_mask(med)
+    sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    print(f"widget guard {'ON (minimap-0.2.0)' if guard else 'OFF (pre-0.2.0 baseline)'}")
 
     # One sequential decode.sample_at() pass over every pre-death and X-search
     # target, instead of one cap.set() seek per sample -- this was one of the
@@ -120,10 +129,14 @@ def main() -> int:
     tagged.sort(key=lambda item: item[0])
     targets = [t for t, _kind, _i in tagged]
 
+    n_absent = 0
     pre_positions = [[] for _ in deaths]
     x_hits = [[] for _ in deaths]  # appended in increasing dt order by construction
     for (_t, kind, i), sample in zip(tagged, decode.sample_at(str(src["path"]), targets, fps)):
         crop = sample.frame[y0:y1, x0:x1]
+        if guard and not widget_drawn(crop, sgray, floor):
+            n_absent += 1
+            continue
         if kind == "pre":
             pre_positions[i].extend((cx, cy) for _area, cx, cy in mp.ally_rings(crop, floor))
         else:
@@ -146,6 +159,8 @@ def main() -> int:
             spread_dists.extend(np.hypot(p1[0] - p2[0], p1[1] - p2[1])
                                  for p1, p2 in itertools.combinations(pre, 2))
 
+    print(f"widget absent, frames skipped: {n_absent}/{len(tagged)} "
+          f"({n_absent / max(len(tagged), 1) * 100:.1f}%)")
     print(f"no X detected 1.5s after: {n_no_x}/{len(deaths)}")
     print(f"X detected but no ally candidate in the 2s before: {n_no_ally}/{len(deaths)}")
     print(f"scored: {len(close_dists)}/{len(deaths)}")

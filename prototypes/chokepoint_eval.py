@@ -43,6 +43,7 @@ import pyarrow.parquet as pq
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from reticle import decode                                        # noqa: E402
+from reticle.minimap import widget_drawn                          # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
 import minimap_position as mp                                     # noqa: E402
 from location_banner_probe import banner_box, text_mask, iou      # noqa: E402
@@ -86,6 +87,11 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("session")
     ap.add_argument("--dump", action="store_true", help="write a chokepoint-overlay PNG")
+    # See xmark_eval for why the pre-guard behaviour is kept as a flag: the
+    # validation on record was measured without it, and the two figures have to
+    # be comparable to say whether adopting the guard helped or only moved things.
+    ap.add_argument("--no-guard", action="store_true",
+                    help="reproduce the pre-minimap-0.2.0 baseline")
     a = ap.parse_args()
     sid = a.session
 
@@ -106,6 +112,8 @@ def main() -> int:
     med = mp.static_map(cap, fps, spans, mm_box)
     cap.release()  # everything below uses decode.sample_at(), which opens its own
     floor = mp.floor_mask(med)
+    sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    print(f"widget guard {'OFF (pre-0.2.0 baseline)' if a.no_guard else 'ON (minimap-0.2.0)'}")
     chokes, dt = find_chokepoints(floor)
     print(f"{len(chokes)} chokepoints found "
           f"(ridge cut at p{CHOKE_PCTL} = {np.percentile(dt[floor & (dt > RIDGE_MIN_DT)], CHOKE_PCTL):.1f}px)")
@@ -195,10 +203,14 @@ def main() -> int:
 
     tagged.sort(key=lambda x: x[0])
     fine_targets = [t for t, _tag in tagged]
+    n_absent = 0
     trans_positions = [[] for _ in brackets]
     baseline_positions = [[] for _ in baseline_windows]
     for (_t, tag), sample in zip(tagged, decode.sample_at(str(src["path"]), fine_targets, fps)):
         crop = sample.frame[my0:my1, mx0:mx1]
+        if not a.no_guard and not widget_drawn(crop, sgray, floor):
+            n_absent += 1
+            continue
         pos = [(cx, cy) for _area, cx, cy in mp.self_rings(crop, floor)]
         kind, i = tag
         (trans_positions if kind == "t" else baseline_positions)[i].extend(pos)
@@ -208,6 +220,8 @@ def main() -> int:
     baseline_dists = [min(nearest_choke(p, chokes) for p in pos)
                       for pos in baseline_positions if pos and chokes]
 
+    print(f"widget absent, frames skipped: {n_absent}/{len(tagged)} "
+          f"({n_absent / max(len(tagged), 1) * 100:.1f}%)")
     print(f"scored {len(trans_dists)}/{len(brackets)} transitions, "
           f"{len(baseline_dists)} baseline windows")
     if trans_dists:

@@ -89,6 +89,74 @@ def floor_mask(med: np.ndarray) -> np.ndarray:
     return cv2.dilate(m.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
 
 
+#: Floor-slab mean brightness below which the widget is unreadable. The gap it
+#: sits in is 39 (p01) to 110 (p05), so this is not a tuned edge. Kept for
+#: callers that predate `widget_drawn`; it answers a WEAKER question -- see below.
+USABLE_MIN = 70.0
+
+#: `widget_drawn` separates cleanly at this: measured on 120 sampled Lotus
+#: frames, widget-absent tops out at 0.135 and widget-present bottoms out at
+#: 0.45. Re-confirmed 2026-09-05 on the M-key clip: -0.03..+0.09 against
+#: +0.80..+0.89.
+DRAWN_MIN_CORR = 0.30
+
+
+def usable(crop: np.ndarray, floor: np.ndarray) -> bool:
+    """Is the widget bright enough to read? A brightness floor, nothing more.
+
+    Catches Omen's ultimate and round fades. **It does not answer whether the
+    widget is there at all** -- see `widget_drawn`, which is the test almost
+    every caller actually wants.
+    """
+    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    return float(g[floor].mean()) >= USABLE_MIN
+
+
+def widget_drawn(crop: np.ndarray, sgray: np.ndarray, floor: np.ndarray,
+                 min_corr: float = DRAWN_MIN_CORR) -> bool:
+    """Is the widget RENDERED AT ALL, or are we looking at the world through it?
+
+    **`usable()` does not answer this**, and finding that out cost 16% of a
+    labelling pass. Two unrelated things remove the corner minimap and leave
+    ordinary world pixels in the ROI -- bright, high-contrast, and sailing
+    straight through a brightness floor built for Omen's ult:
+
+    * **the DEATH SCREEN**, where Valorant draws the full map centre-screen
+      instead. On Lotus, 6 of 119 sampled frames (5%) were widget-absent and
+      produced 16% of all candidates;
+    * **the M KEY**, found by the player 2026-09-05 and recorded on purpose. Opening
+      the full-size map takes the widget away the same way -- and unlike the
+      death screen this is PLAYER-INITIATED and can happen at any moment in a
+      round, as often as he presses it.
+
+    The test is scale-free rather than a fitted magnitude: correlate the crop
+    against the static map over the floor mask. When the widget is drawn the
+    static map IS most of what is there, so the correlation is high whatever the
+    brightness; when it is absent there is no relationship at all.
+
+        widget absent   0.001  0.009  0.039  0.067  0.070  0.135   (Lotus)
+        widget drawn    >= 0.45 (n=113, median 0.92)
+        M key held     -0.026  0.012  0.032  0.066  0.073  0.085   (2026-09-05)
+        same clip, drawn  +0.80 .. +0.89
+
+    A mean-absolute-difference threshold also separates these, but only just
+    (42 against a p90 of 20) and it moves with scene brightness. The first cut
+    of this used one and put the boundary 0.003 apart, because two absent frames
+    had been miscounted as present -- rendering all six settled it in one look.
+
+    Promoted here from `prototypes/minimap_temporal.drawn` on 2026-09-05, when
+    the shipped position reader adopted it. That module now delegates rather
+    than keeping a copy: two implementations of a gate that decides which frames
+    exist is exactly the kind of divergence nothing would report.
+    """
+    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float64)[floor]
+    sg = np.asarray(sgray, dtype=np.float64)[floor]
+    g = g - g.mean()
+    sg = sg - sg.mean()
+    den = float(np.sqrt((g * g).sum() * (sg * sg).sum()))
+    return den > 0 and float((g * sg).sum() / den) >= min_corr
+
+
 def _rings(mask: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]]:
     m = cv2.morphologyEx((mask & floor).astype(np.uint8), cv2.MORPH_CLOSE,
                          np.ones((3, 3), np.uint8))

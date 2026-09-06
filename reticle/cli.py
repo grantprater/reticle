@@ -35,7 +35,7 @@ from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
 from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px,
-                      pick_self, self_rings, static_map)
+                      pick_self, self_rings, static_map, widget_drawn)
 from .overlay import OverlayContext, draw
 from .ocr import (GLYPH_H, GLYPH_W, Templates, cluster_glyphs, crop_gray,
                   read_bottom_hud, read_scoreline, scoreline_roi, segment_glyphs)
@@ -533,14 +533,38 @@ class _MinimapPass:
         med = static_map(cap, fps, spans, self.box)
         cap.release()
         self.floor = floor_mask(med)
+        # The reference the widget test correlates against. See `widget_drawn`.
+        self.sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
         self.step_ms = 1000.0 / args.minimap_hz
         self.prev = None
         self.rows: list[dict] = []
+        self.n_absent = 0
         print(f"floor      {self.floor.mean() * 100:.1f}% of the widget is walkable")
 
     def feed(self, smp) -> None:
         x0, y0, x1, y1 = self.box
         crop = smp.frame[y0:y1, x0:x1]
+        # **Is the widget even there.** Two things remove it -- the death screen
+        # and the M key -- and in both the ROI holds ordinary world pixels that
+        # `self_rings` reads as icons. This reader previously had no such guard
+        # at all: measured over 27757 frames of a06f04a0059f at 15 Hz, 1394
+        # (5.0%) were widget-absent and yielded 3605 self and 4178 ally
+        # candidates, 2.6 per frame, every one of them a phantom.
+        #
+        # A refused frame is recorded as a row with NULL positions rather than
+        # dropped, so the track keeps its time axis and `filter_track`'s gap
+        # interpolation sees the hole for what it is. Dropping the row would
+        # make the absence invisible, which is the failure `reticle.census`
+        # exists to catch -- and it would silently shorten every rate this
+        # stage reports.
+        if not widget_drawn(crop, self.sgray, self.floor):
+            self.n_absent += 1
+            self.rows.append({
+                "frame_idx": smp.frame_idx, "t_ms": smp.t_ms,
+                "self_x": None, "self_y": None, "n_allies": 0,
+                "ally_x": [None] * MAX_ALLIES, "ally_y": [None] * MAX_ALLIES,
+            })
+            return
         pick = pick_self(self_rings(crop, self.floor), self.prev, self.step_ms)
         if pick is not None:
             self.prev = pick
@@ -725,6 +749,8 @@ def cmd_minimap(args) -> int:
     print(f"minimap wrote  {n} rows  ({dt:.1f}s, {n / max(dt, 1e-9):.1f} rows/s)")
     print(f"               {out}")
     print(f"               {out.stat().st_size / 1e3:.1f} kB")
+    print(f"widget     absent {mp.n_absent}/{n} ({mp.n_absent / n * 100:.1f}%) "
+          f"-- death screen or the full-size map; those rows carry no position")
     print(f"self       raw {got_self}/{n} ({got_self / n * 100:.1f}%)")
 
     track = filter_track([(r["t_ms"], r["self_x"], r["self_y"]) for r in rows
@@ -839,6 +865,8 @@ def cmd_scan(args) -> int:
         out = store.write_minimap(mp.rows, _FP(src, sid), profile.name, date)
         got = sum(1 for r in mp.rows if r["self_x"] is not None)
         print(f"minimap    {len(mp.rows)} rows -> {out}")
+        print(f"           widget absent {mp.n_absent}/{len(mp.rows)} "
+              f"({mp.n_absent / len(mp.rows) * 100:.1f}%)")
         print(f"           self raw {got}/{len(mp.rows)} "
               f"({got / len(mp.rows) * 100:.1f}%)")
     print(f"one pass   {n_dec} frames retrieved in {dt:.1f}s")

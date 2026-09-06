@@ -13,6 +13,74 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## Picking up
 
+**2026-09-05, LATER SESSION. Four things landed; the ability-channel handoff
+below is unchanged and still the plan for that thread.**
+
+* **the last known read error in stage 02 is CLOSED.** `c40d950031bb` reads
+  2/7 against `KNOWN_KD`'s 2/7. Two killfeed defects, found by the exclusion
+  census rather than by looking for them: the icon test was a FALLBACK rather
+  than a tier, so a portrait suppressed the area test small weapon icons need
+  and **pistol kills went unparsed**; and `plate_seam` is a divider that needs
+  no icon at all, which is what reads an ability kill. Nothing regressed.
+  `e37fdeca944f` is still -2 deaths and is NOT a divider problem;
+* **`reticle/census.py` + `prototypes/reader_census.py` exist**, and the audit
+  they were built for is the thing to keep running. Decode is 93% of a stage's
+  cost, so a census pass over a session is cheap relative to what it finds.
+  **`ocr.py` has ~12 unexamined guards of the same shape** and the scoreline's
+  transient extra digit on `9acf02f98283` is probably one of them;
+* **decode once, feed many.** `decode.sample_multi` + `reticle scan` run both
+  stage-02 halves in one pass, 45% saved, frame-for-frame identical. `hud`,
+  `minimap` and `scan` all drive the same `_HudPass`/`_MinimapPass`. The
+  killfeed overlay mask is cached per session at `<store>/masks/`;
+* **the shipped minimap reader now has a widget guard** (`minimap-0.2.0`), and
+  the re-validation of the position track is the live piece of work -- see
+  below.
+
+**PINGS ARE DONE AS A DETECTOR, and the clip falsified why it was asked for.**
+`prototypes/ping_scan.py`. Five glyphs, and **the LIFETIME is the feature**:
+7.0 s for standard / need help / watching here / on my way, **10.0 s for
+danger**, exact to 0.1 s at a 10 Hz sample. Hue alone gives 15 true and 24
+false; the lifetime gate leaves 14 true and 0 false, with a truncated run
+reported UNCONFIRMED rather than guessed at. A ping does NOT expand -- full
+size in under one frame -- so the entity model needs no fourth extent value.
+Details and the two ways a persistence gate can be fooled are in that module.
+
+**What is worth doing next on pings**, in order, none of it started:
+
+1. **ingest the two clips** so the events have a real session id. `ping_scan
+   --emit` writes `<store>/events/ping/<session>.jsonl` and nothing has been
+   emitted yet, because inventing a session id would put rows in the store
+   under a key no manifest backs;
+2. **a ping over the VOID is invisible to this** -- off the opaque slab the
+   world shows through and hue means nothing. How often that happens is
+   UNMEASURED and it is the first thing to check on match footage;
+3. **`on_my_way` (hue 32) sits closer to `need_help` (17-22) than any other
+   pair**, and both were measured on one map. Those two are what breaks first
+   on a different map;
+4. `watching_here` has n=1 and `on_my_way` only appears in its own short clip,
+   so their lifetimes are ASSUMED from the other three rather than observed.
+
+**THE LIVE PIECE: re-validate the minimap position track at `minimap-0.2.0`.**
+the call, 2026-09-05: add the guard, then re-validate; checking the rate on
+a second ordinary session first is TABLED.
+
+`cmd_minimap` had no widget guard of any kind. Measured over all 27757 frames
+of `a06f04a0059f` at 15 Hz: `drawn()` refuses 5.0% where `usable()` refuses
+2.2%, and those frames yield 3605 self and 4178 ally candidates -- 2.6 per
+frame, harvested from open scenery. `minimap.widget_drawn` is now called per
+frame and a refused frame is stored as a row with NULL positions rather than
+dropped, so the hole stays visible to `filter_track`.
+
+`drawn`/`usable` were PROMOTED from `prototypes/minimap_temporal` into
+`reticle/minimap.py`; the prototype re-exports them, so there is still exactly
+one implementation.
+
+**That moves every stored minimap number**, so `xmark_eval.py` and
+`chokepoint_eval.py` both take `--no-guard` to reproduce the figure on record
+and are being run both ways on `a06f04a0059f`. **Until those two numbers are
+in, the position track's validation status is UNKNOWN, not good** -- the
+figures in `prototypes/CLAUDE.md` were measured with the phantom frames in.
+
 **2026-09-05. The ability channel was re-founded on a different question, and
 the full argument is a document rather than a handoff:**
 
