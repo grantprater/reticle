@@ -11,6 +11,18 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## The north star for this channel (the player, 2026-09-06)
+
+> a system that can annotate the vods, highlight the abilities, players,
+> viewcones, pings, and any other icons as they evolve throughout a match
+
+A visually checkable proof of work, and it outranks any per-detector metric --
+recorded in full under "The NORTH STAR for the entity channel" in `CLAUDE.md`.
+`reticle/overlay.py` is the vehicle: it exists, it already refuses to hold its
+own copy of the logic, and it draws **no minimap entity at all** yet. Extending
+it to the minimap channel -- tracks, not per-frame detections, every channel in
+one frame -- is the concrete form of this.
+
 ## Picking up
 
 **2026-09-06, late. A long architecture session. Six plan items, and the

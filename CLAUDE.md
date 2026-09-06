@@ -225,6 +225,44 @@ Asked directly, at the end of the minimap labelling session:
 > rounds as events, using the win probability model discussed, and including
 > shooting error and ability to surface clips denoting notable patterns.
 
+### The NORTH STAR for the entity channel (the player, 2026-09-06)
+
+Asked for a visually checkable proof of work for this portion of the pipeline:
+
+> a system that can annotate the vods, highlight the abilities, players,
+> viewcones, pings, and any other icons as they evolve throughout a match
+
+**This is an acceptance test, and it outranks any per-detector metric.** A
+number on a held-out set says a detector is right on the frames someone chose;
+an annotated match says the whole channel is right on the frames nobody chose,
+including the ones between the samples. Every failure this repo has paid for
+twice -- a confident wrong fit, a detector validated on one clip, a threshold
+that worked on the session it was swept on -- is a failure a rendered match
+would have shown in seconds.
+
+Three things follow, and they re-rank work:
+
+* **`reticle/overlay.py` is the vehicle and it already exists**, with the right
+  discipline built in: *this module draws; it decides nothing*, every value
+  comes from calling the real extractor. It covers the killfeed, scoreline and
+  bottom HUD. It does NOT yet draw a single minimap entity. Extending it to the
+  minimap channel is the concrete form of this north star;
+* **"as they evolve" means the overlay must render TRACKS, not per-frame
+  detections.** An entity that flickers, swaps identity, or teleports between
+  frames is visible instantly in a video and nearly invisible in an aggregate.
+  That is the same argument `track.py` was built on, and this is how it gets
+  checked;
+* **it wants every channel drawn at once**, which is what makes it a test of
+  the ENTITY MODEL rather than of five detectors. Abilities, players, view
+  cones and pings sharing one frame is exactly where mutual exclusion and the
+  count constraints either hold or visibly do not.
+
+It is also the cheapest possible instrument for the perceptual questions this
+repo keeps asking me to answer: a rendered match is a thing the player and I can
+both look at, which no confusion matrix is.
+
+### The endstate this serves
+
 Read that as the ordering it implies, because it settles several questions this
 document has been circling:
 
