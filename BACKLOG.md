@@ -395,6 +395,45 @@ of five sessions, because a class applied to the whole session also gives up
 the slack everywhere. A cast selects the class **on a window**, which is the
 only version of this that spends the permissiveness where the evidence is.
 
+## Promote the WIKI MAP into `minimap_geometry`, which still bakes its own
+
+**the player, 2026-09-06, catching me reaching for the derived path on a fresh
+clip:** *why are we still baking the map? I thought we were using the minimap
+wiki reference which is higher accuracy anyway?*
+
+**He is right, and it is a promotion gap rather than an open question.**
+`prototypes/wiki_map.py` is built and validated -- the official art's ALPHA
+CHANNEL is an exact floor mask, fitted by a similarity transform whose rotation
+lands on an exact multiple of 90:
+
+    map      IoU vs the painting    derived rule scores
+    Ascent           92.7%                     91.3%
+    Lotus            93.7%                     92.8%
+
+Six maps' art is fetched. **But `minimap_geometry.py` -- which writes the npz
+that every other minimap module loads -- contains not one reference to it.**
+The only consumer is `minimap_dynamic.searchable_from_art`, and its own
+docstring calls itself *"an upgrade path, not a hard dependency"*. So the
+artefact the pipeline actually runs on is still fully derived, and the better
+source sits beside it unused. Only 2 sessions have a stored fit.
+
+**What must NOT be collapsed while doing it**, and it is already written in
+`prototypes/CLAUDE.md`: the static map does TWO jobs. **Geometry** -- floor,
+walls, holes, bomb sites -- should come from the art. **Photometry** -- what a
+pixel LOOKS LIKE in this capture, `static`/`lo_gray`/`hi_gray`/`sd_lo`/`sd_hi`
+-- cannot come from a clean external render at any quality, because the widget
+is semi-transparent over live world and the whole point is to difference
+against the actual values in these pixels. So the npz keeps its capture median
+and swaps only its labels.
+
+**Trigger: the next time a session's geometry is built.** It also retires the
+standing `doctor` ERROR that 34 of 35 npz are stale, since the labels would
+stop depending on `classify()` at all.
+
+**Interim, done 2026-09-06:** `b9558488a607` has a stored fit at **IoU 95.1%,
+rot 270, scale 0.2264** against its own derived mask, so the good geometry
+exists for that clip even though nothing loads it yet.
+
 ## THE AUDIO CHANNEL: build it next, and it splits into two unequal halves
 
 **the player, 2026-09-06:** *Teleports can be very short range or even faked though,
@@ -422,7 +461,11 @@ records the correction: the pips DESATURATE from teal to grey along with the
 bar, so the existing teal mask reads them with no new geometry. Measured then
 on `02cf738b1c8f`: slot X goes 909 raw teal px -> 0 between 28.0 s and 28.5 s.
 `cast_motion.py --steps` also read Omen's From the Shadows off slot X the same
-day this entry was written, in the run printed above it. **A stale claim
+day this entry was written, in the run printed above it. **Censused over all 27
+demo clips: 22 of 27 carry at least one slot-X drop, 25 drops in total** --
+C 31, Q 31, E 32, X 25. So slot X is read about as often as any other slot, and
+the five clips without one are the "not observable in every clip" case the
+docstring already describes, not a reader that cannot see pips. **A stale claim
 repeated from an index that a docstring had already superseded** -- the exact
 failure mode `CLAUDE.md` warns about for this file.
 

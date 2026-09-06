@@ -23,6 +23,32 @@ own copy of the logic, and it draws **no minimap entity at all** yet. Extending
 it to the minimap channel -- tracks, not per-frame detections, every channel in
 one frame -- is the concrete form of this.
 
+## The audio channel opened, and the tray CONFIRMS it (2026-09-06)
+
+the player recorded `b9558488a607` (Omen, 83 s, Ascent) to a deliberate protocol --
+equip, hold the target while stationary, cast, pause, repeat -- and it settled
+the question the corpus could not.
+
+**The tray and the audio agree to within one 50 ms bin on 6 casts of 6**
+(`prototypes/audio_events.py --align`). Two independent readers, a teal pixel
+count in the HUD and an RMS envelope of the audio, sharing no code, no pixels
+and no failure mode. That validates the tray reader as much as the audio.
+
+**The second teleport cast has FIVE SECONDS OF DIGITAL SILENCE in front of it**
+-- every bin at the 0.0002 noise floor against a cast peak of 21.1. A reference
+cut with nothing to be confused with, which is what no amount of filtering
+recovers from a clip where he was running.
+
+**The equip sound is visible**, and it is the claim arriving independently:
+two events at 3.65-4.80 s and 13.90-15.05 s, **duration 1.15 s to the bin and
+peak 9.2 / 9.4**, one before each of the two teleport casts -- and he equipped
+exactly twice. Other slots are weaker and not claimed; the first E cast has
+nothing before it at all, so coverage stays unverified exactly as he hedged it.
+
+**NEXT on this thread:** cut the references (the ult voicelines already exist,
+56 of them, all decoding), then a matched filter, then NMF with a fixed
+dictionary for the overlapping case. `prototypes/passes.py`, not another decode.
+
 ## Picking up
 
 **2026-09-06, late. A long architecture session. Six plan items, and the
