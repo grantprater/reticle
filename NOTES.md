@@ -20,8 +20,22 @@ further down is unchanged and still the plan for that thread.**
 the player made at 19:21.** `valorant-16x9-bigmap` (the default profile is wrong for
 everything since 2026-08-26 and was used by mistake once here). 38 spans, 3730
 HUD rows, 21387 minimap rows, self raw 93.4%, widget absent 3.4%. Killfeed
-reads **19 kills / 14 deaths** and **there is no ground truth for it yet --
-ask the player for the scoreboard K/D**, or run `reticle board` if he opened Tab.
+reads **19 kills / 14 deaths**, and `reticle board` reads the Tab scoreboard's
+last opening as **19 / 13 -- kills EXACT, deaths +1**, with the **first
+divergence at 0:15:50**, so the extra death is in or before that round. Kills
+agreeing exactly also corroborates the row identification, which is by the
+yellow outline and not by name.
+
+**That number is NOT in `checks.KNOWN_KD` and should not be put there by me.**
+Every row in that table is the player reading his own match history and end screens
+-- two sources outside the pipeline. `board` is a third extractor reading the
+same pixels, so writing its answer in as ground truth is the seeding mistake
+this repo has already paid for three times. **Ask the player to confirm 19/13 off
+his match history**, then add it.
+
+One honest read worth noting from the same board: an enemy row came back
+`None / 16 / 4`. The kills field refused rather than guessed, which is the
+convention working.
 
 **`ping_scan` is INCORPORATED and it was run on that match. The answer is 8 real
 pings of 31 confirmed -- 26% precision, against 15 of 15 on the clip.**
