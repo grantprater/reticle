@@ -37,6 +37,7 @@ from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
 from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px,
                       pick_self, self_rings, static_map, widget_drawn)
 from .overlay import OverlayContext, draw
+from .passes import SessionContext, run as passes_run
 from .ocr import (GLYPH_H, GLYPH_W, Templates, cluster_glyphs, crop_gray,
                   read_bottom_hud, read_scoreline, scoreline_roi, segment_glyphs)
 from .primitives import PrimitiveExtractor
@@ -452,6 +453,10 @@ class _HudPass:
         self.min_conf = args.min_confidence
         self.min_margin = args.min_margin
         self.rows: list[dict] = []
+        # Declared for `passes.Reader`: which frames this reader wants.
+        self.name = "hud"
+        self.hz = args.hz
+        self.spans = None          # the HUD is read over the whole capture
 
         # Which optional HUD readouts are switched on is a per-player choice, so
         # the killfeed's occluding mask is measured from THIS capture. It costs
@@ -534,12 +539,22 @@ class _MinimapPass:
         self.w, self.h = int(self.src["width"]), int(self.src["height"])
         fps = float(self.src["fps"])
         self.box = minimap_roi_px(profile, self.w, self.h)
-        cap = cv2.VideoCapture(str(Path(self.src["path"])))
-        med = static_map(cap, fps, spans, self.box)
-        cap.release()
+        sid = manifest["session_id"]
+        med = store.read_static_map(sid)
+        if med is None:
+            cap = cv2.VideoCapture(str(Path(self.src["path"])))
+            med = static_map(cap, fps, spans, self.box)
+            cap.release()
+            store.write_static_map(sid, med)
+        else:
+            print("static     map cached")
         self.floor = floor_mask(med)
         # The reference the widget test correlates against. See `widget_drawn`.
         self.sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
+        # Declared for `passes.Reader`.
+        self.name = "minimap"
+        self.hz = args.minimap_hz
+        self.spans = spans         # the minimap has nothing to say off-round
         self.step_ms = 1000.0 / args.minimap_hz
         self.prev = None
         self.rows: list[dict] = []
@@ -825,28 +840,21 @@ def cmd_scan(args) -> int:
     hp = _HudPass(store, manifest, profile, args) if want_hud else None
     mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
 
-    req = {}
-    if want_hud:
-        req["hud"] = (args.hz, None)
-    if want_mm:
-        req["minimap"] = (args.minimap_hz, spans)
+    readers = [r for r in (hp, mp) if r is not None]
+    ctx = SessionContext(store=store, manifest=manifest, profile=profile, spans=spans)
 
     t0 = time.perf_counter()
-    last = t0
-    n_dec = 0
-    for who, smp in sample_multi(str(media), fps, req):
-        n_dec += 1
-        if "hud" in who:
-            hp.feed(smp)
-        if "minimap" in who:
-            mp.feed(smp)
+    last = [t0]
+
+    def progress(n, smp):
         now = time.perf_counter()
-        if now - last >= 2.0:
+        if now - last[0] >= 2.0:
             pct = (smp.t_ms / src["duration_ms"] * 100) if src["duration_ms"] else 0.0
-            sys.stdout.write(
-                f"\r  {n_dec:>7d} frames  {_fmt_hms(smp.t_ms)}  {pct:5.1f}%")
+            sys.stdout.write(f"\r{n:>7d} frames  {_fmt_hms(smp.t_ms)}  {pct:5.1f}%")
             sys.stdout.flush()
-            last = now
+            last[0] = now
+
+    n_dec = passes_run(ctx, readers, progress)
     sys.stdout.write("\r" + " " * 72 + "\r")
     dt = time.perf_counter() - t0
 

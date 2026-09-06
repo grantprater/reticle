@@ -270,6 +270,39 @@ class Store:
         pq.write_table(table, path, compression="zstd")
         return path
 
+    def static_map_path(self, session_id: str) -> Path:
+        return self.root / "masks" / f"{session_id}.static.npy"
+
+    def read_static_map(self, session_id: str):
+        """The cached per-pixel median of the minimap widget, or None.
+
+        The most expensive per-session constant in the pipeline: 120 `cap.set`
+        seeks, three times the killfeed mask's 40, and EVERY minimap prototype
+        rebuilds it from scratch -- `xmark_eval`, `chokepoint_eval`,
+        `ping_scan`, `reader_census` and the shipped reader all pay it
+        separately. Caching it is worth more than any decoder flag measured
+        today (hardware acceleration was 8%, PyAV's frame skipping 25%).
+
+        Keyed on session alone and NOT version-stamped, for the same reason as
+        the killfeed mask: it is a property of the recording. If `static_map`
+        or the minimap ROI changes, delete `<store>/masks/`.
+
+        **One caveat that is real.** `static_map` takes its frames from ACTIVE
+        SPANS, so a cache written before `segment` ran, or from different
+        spans, is a different median. It is stable in practice because spans
+        move only when the segmenter does, but a session whose spans changed
+        should have its cache dropped -- which is why the file is a plain npy
+        under `masks/` and not something clever.
+        """
+        p = self.static_map_path(session_id)
+        return np.load(p) if p.is_file() else None
+
+    def write_static_map(self, session_id: str, med) -> Path:
+        p = self.static_map_path(session_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        np.save(p, med)
+        return p
+
     def kf_mask_path(self, session_id: str) -> Path:
         return self.root / "masks" / f"{session_id}.kf.npy"
 
