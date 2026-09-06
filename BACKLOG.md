@@ -199,7 +199,41 @@ tagged.** If the distribution still shows no mode there, `walker_dash` is not a
 class this channel can carry and should be deleted rather than kept as a
 plausible-looking bucket.
 
-## Make `filter_track` identity-conditional
+## ~~Make `filter_track` identity-conditional~~ DONE 2026-09-06
+
+**Shipped: `filter_track(..., motion=None)`.** `None` keeps the fixed
+`RUN_PX x 1.6` gate, and the default path is proven byte-identical against the
+pre-change module on all five sessions with an `l1/minimap` table (93,553
+points). Pass a `track.CLASSES` key and the gate becomes `track.admits`. A
+teleport is kept **and never interpolated across** -- it is a legal
+discontinuity, so drawing a path through it would invent the route, which is
+the fault the widget-absent hole break already exists to prevent. Seven
+self-tests in `reticle/track.py --self-test`.
+
+**`jump_census.py --motion` says what opting in would do**, and it is not what
+this entry predicted:
+
+    observations kept        default    walker   walker_dash   walker_teleport
+    pooled (102,765 obs)      88.7%      81.9%      95.0%           89.5%
+                                        -6,987     +6,508           +835
+
+The entry reasoned from "54.7% of the 11,599 dropped observations sit at
+teleport distance" that a teleporting class would recover most of them. **Net,
+it recovers 835**, and three of the five sessions LOSE points. The reason is
+that `admits` is two changes at once: it adds the teleport branch and it
+removes the 1.6x slack, which was never a law -- against a strict `walker` the
+teleport branch is worth +7,822, and the lost slack costs -6,987 of that.
+
+**So the fixed gate's slack was doing the work a motion class is supposed to
+do**, badly and for every agent at once. Read the deltas as a cascade, not as
+event counts: a refusal re-anchors the comparison to the last kept point.
+
+Nothing opts in yet, and nothing should until a caller knows the agent --
+which `self_agent.py` still cannot supply at 38%. The next caller is the entry
+below: a cast is evidence for the class on a WINDOW, which is a better source
+than a per-session guess.
+
+## Superseded discussion of `filter_track`, kept for the argument
 
 **The correction the tracking work identified, tabled 2026-09-06 by the player.**
 `reticle/minimap.filter_track` rejects any step above `RUN_PX x 1.6` (72 px/s)
@@ -314,10 +348,13 @@ Two known limits, both already recorded elsewhere and neither fatal:
 * **the tray is a level, not a charge count, for Viper**, and `infinite-
   abilities` pins it full on five demo clips. Neither affects teleports.
 
-**Trigger: after `filter_track` takes a motion class.** The cast is the
-evidence that selects the class for a window, so it wants the parameter to
-exist first. Order: `track.admits` (done) -> `filter_track` takes a class ->
-cast events select it.
+**Trigger: MET on 2026-09-06.** `track.admits` (done) -> `filter_track` takes a
+class (done) -> cast events select it. **This is next**, and the measurement
+above sharpens why it is better than a per-session agent: opting a whole
+session in to `walker_teleport` is net +835 observations and NEGATIVE on three
+of five sessions, because a class applied to the whole session also gives up
+the slack everywhere. A cast selects the class **on a window**, which is the
+only version of this that spends the permissiveness where the evidence is.
 
 ## Analysis-by-synthesis: hypothesise an event, render it, fit the residual
 

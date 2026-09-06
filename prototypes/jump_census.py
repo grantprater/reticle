@@ -109,15 +109,76 @@ def sessions(store, want):
         yield sid, f
 
 
+#: The classes worth crossing against the default gate: everything a PLAYER
+#: might be. The rest of `track.CLASSES` describes placed objects, which never
+#: reach `filter_track` -- it filters the self track.
+MOTION_CLASSES = ["walker", "walker_dash", "walker_teleport"]
+
+
+def motion_cost(store, rows) -> int:
+    """What opting a session in to a motion class costs and buys, per class.
+
+    The parameter landed on 2026-09-06 and this is the number that says what
+    taking it up would do. It is a KEEP RATE, not a defect rate: none of these
+    sessions records which agent was played, so no column here is the right
+    one -- the point is the size and the SIGN of each move.
+    """
+    print("observations kept by `filter_track`, default gate vs a motion class."
+          "\nThe default is RUN_PX x 1.6; `admits` has no such slack.\n")
+    print(f"{'session':<14}{'obs':>7}{'default':>9}"
+          + "".join(f"{c:>17}" for c in MOTION_CLASSES))
+    agg = {c: 0 for c in MOTION_CLASSES}
+    tot_obs = tot_def = 0
+    for sid, f in rows:
+        man = store.read_manifest(sid)
+        src = man["source"]
+        prof = get_profile(man["source_profile"])
+        x0, _, x1, _ = minimap_roi_px(prof, int(src["width"]), int(src["height"]))
+        sc = widget_scale(x1 - x0)
+        tb = pq.read_table(f)
+        raw = list(zip(tb.column("t_ms").to_pylist(),
+                       tb.column("self_x").to_pylist(),
+                       tb.column("self_y").to_pylist()))
+        obs = {round(p[0], 3) for p in raw if p[1] is not None}
+        step_ms = (raw[1][0] - raw[0][0]) if len(raw) > 1 else 66.0
+
+        def measured(pts):
+            return sum(1 for q in pts if round(q[0], 3) in obs)
+
+        base = measured(filter_track(raw, step_ms, sc))
+        tot_obs += len(obs)
+        tot_def += base
+        cells = []
+        for c in MOTION_CLASSES:
+            k = measured(filter_track(raw, step_ms, sc, motion=c))
+            agg[c] += k
+            cells.append(f"{k:>10} {k - base:+6d}")
+        print(f"{sid:<14}{len(obs):>7}{base:>9}" + "".join(cells))
+    print(f"\n{'POOLED':<14}{tot_obs:>7}{tot_def:>9}"
+          + "".join(f"{agg[c]:>10} {agg[c] - tot_def:+6d}" for c in MOTION_CLASSES))
+    print(f"{'':<14}{'':>7}{tot_def / tot_obs * 100:>8.1f}%"
+          + "".join(f"{agg[c] / tot_obs * 100:>16.1f}%" for c in MOTION_CLASSES))
+    print("\nRead the deltas as a CASCADE, not as a count of events. A refusal\n"
+          "re-anchors the comparison to the last KEPT point, so admitting one\n"
+          "jump changes every comparison after it -- `walker_teleport` +835 is\n"
+          "not 835 teleports.")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("sessions", nargs="*")
+    ap.add_argument("--motion", action="store_true",
+                    help="cross the default gate against each motion class")
     a = ap.parse_args(argv)
 
     store = Store()
     rows = list(sessions(store, a.sessions))
     if not rows:
         raise SystemExit("no l1/minimap tables -- run `reticle scan` first")
+
+    if a.motion:
+        return motion_cost(store, rows)
 
     speeds, hist = [], collections.Counter()
     tot_drop = tot_tele = tot_obs = 0

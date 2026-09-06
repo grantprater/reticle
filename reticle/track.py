@@ -334,6 +334,42 @@ def _self_test() -> int:
     r3 = assign([[3.0, 1.0, 9.0]])
     check("extra detections are left unmatched", r3, [1])
 
+    # `minimap.filter_track` taking a class. Imported here rather than at the
+    # top because `minimap` is what this module imports RUN_PX from.
+    from .minimap import RUN_PX as _RP, filter_track
+
+    step = 100.0                       # 10 Hz
+    walk = _RP * 0.1 * 0.5             # comfortably inside one step
+    #   0 -> 1 walk -> a 300 px jump -> 1 walk. Four observations, one of which
+    #   is only legal for a teleporting agent.
+    jump = [(0.0, 0.0, 0.0), (100.0, walk, 0.0),
+            (200.0, walk + 300.0, 0.0), (300.0, walk + 300.0 + walk, 0.0)]
+    check("default gate drops the jump and everything after it is a new run",
+          len(filter_track(jump, step)), 2)
+    check("walker_teleport keeps all four",
+          len(filter_track(jump, step, motion="walker_teleport")), 4)
+    check("walker refuses the jump like the default",
+          len(filter_track(jump, step, motion="walker")), 2)
+    try:
+        filter_track(jump, step, motion="not_a_class")
+        raised = False
+    except KeyError:
+        raised = True
+    check("an unknown class name raises, rather than silently walking", raised, True)
+
+    # A teleport must NOT be interpolated across: it is a legal discontinuity,
+    # and a path drawn through it is an invented one.
+    gapped = [(0.0, 0.0, 0.0), (500.0, 300.0, 0.0)]
+    check("a walkable gap IS interpolated",
+          len(filter_track([(0.0, 0.0, 0.0), (500.0, walk, 0.0)], step,
+                           motion="walker_teleport")) > 2, True)
+    check("a teleport gap is NOT interpolated",
+          len(filter_track(gapped, step, motion="walker_teleport")), 2)
+
+    # The default path is untouched by any of this.
+    check("default still interpolates a walkable gap",
+          len(filter_track([(0.0, 0.0, 0.0), (500.0, walk, 0.0)], step)) > 2, True)
+
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
 

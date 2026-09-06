@@ -50,13 +50,29 @@ reason and the trigger that would un-defer it.
 * **`filter_track` cannot tell a teleport from a phantom**: 54.7% of the 11,599
   observations it drops sit at teleport distance. Backlogged.
 
-**NEXT, and the order matters** -- both are in `BACKLOG.md` with the argument:
+**Item 1 is DONE**: `filter_track(..., motion=None)` takes a `track.CLASSES`
+key, the default path is byte-identical on all five sessions (93,553 points),
+a teleport is kept and never interpolated across, and seven self-tests cover
+it. `jump_census.py --motion` measures what opting in would do:
 
-1. **`filter_track` takes a motion class** (`track.admits` already exists);
-2. **cast events select that class.** the player: *a teleport activated on the
-   hotbar (or in audio) should be triggering an expected agent teleport.* This
-   is the right fix rather than a parallel one -- it makes the tray and the
-   position track each other's control, and every piece already exists.
+    observations kept    default   walker   walker_dash   walker_teleport
+    pooled 102,765        88.7%    81.9%       95.0%          89.5%
+                                  -6,987      +6,508          +835
+
+**That is not what the entry predicted, and it re-aims item 2.** `admits` makes
+two changes at once -- it adds the teleport branch and removes the 1.6x slack
+the fixed gate always had. Against a strict walker the teleport branch is worth
++7,822; the lost slack costs -6,987 of it. Three of five sessions come out
+NEGATIVE. So the old gate's slack was doing a motion class's job badly, for
+every agent at once.
+
+**NEXT: item 2, cast events select the class** -- and the numbers above are the
+argument for it rather than a per-session agent. the player: *a teleport activated
+on the hotbar (or in audio) should be triggering an expected agent teleport.* A
+session-wide class gives up the slack everywhere to buy jumps in a few places;
+a cast selects the class **on a window**, spending the permissiveness only
+where there is evidence for it. `ability_hud.py`, `ability_reference` and
+`l1/minimap` all exist; nothing new needs detecting.
 
 The third item, **`fit_ring` on the self key, is DONE**, and so is the
 descriptor swap it pointed at. Crossed:

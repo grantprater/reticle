@@ -429,8 +429,41 @@ def pick_self(cands: list[tuple[int, float, float]],
 
 
 def filter_track(found: list[tuple[float, float, float]],
-                  step_ms: float, scale: float = 1.0) -> list[tuple[float, float, float]]:
+                  step_ms: float, scale: float = 1.0,
+                  motion=None) -> list[tuple[float, float, float]]:
     """Drop impossible steps, then interpolate the short gaps they leave.
+
+    **`motion` selects the law.** `None` -- the default -- keeps the fixed
+    `RUN_PX * 1.6` gate this has always used, so no stored number moves until a
+    caller opts in. Pass a `track.CLASSES` key (or a `track.Motion`) and the
+    gate becomes `track.admits`, which is per-identity: a teleport is legal for
+    Omen, Chamber, Veto, Waylay and Yoru and for nobody else.
+
+    Why the parameter exists, from `prototypes/jump_census.py` over 102,239
+    steps: of the 11,599 observations the fixed gate drops, **54.7% sit at
+    teleport distance** from the last kept point. A fixed threshold cannot
+    separate a teleport from a phantom, and a refusal here is a HARD BREAK, so
+    a destroyed teleport does not lose one point -- it ends the run and starts
+    another, which is the identity discontinuity tracking exists to avoid.
+
+    **A teleport is kept but never interpolated across.** It is a legal
+    discontinuity, so inventing a path through it would be `GAP_MS`
+    interpolation drawing the player walking a route they did not walk -- the
+    same fault the widget-absent hole break was added for, and *never guess a
+    value* says the same thing about both.
+
+    Two things the caller should know before opting in:
+
+    * **`admits` is STRICTER than the default for a plain walker.** The gate
+      here carries a 1.6x slack that the law does not; `admits` allows
+      `RUN_PX * dt` exactly. So `motion="walker"` is not today's behaviour
+      written a second way, and the difference is measurable rather than
+      assumed -- `jump_census.py --motion` reports it;
+    * **a step admitted only because the class MAY DASH is WEAK.** `DASH_PX_S`
+      is a bound, not a measurement -- there is no bimodality in the speed
+      distribution to put a threshold in -- so `motion="walker_dash"` admits
+      steps on an unvalidated ceiling. That is the caller's assertion, not this
+      function's finding.
 
     Pure function of the raw (t_ms, x, y) stream -- callers can run this
     on-demand over stored L1 without touching video, the same way `segment`
@@ -461,19 +494,36 @@ def filter_track(found: list[tuple[float, float, float]],
         i = int(np.searchsorted(holes, t0, side="right"))
         return i < len(holes) and holes[i] < t1
 
-    keep = []
+    # Deferred: `track` imports RUN_PX from here, so a module-level import
+    # would be circular. Nothing is imported at all on the default path.
+    mot = None
+    if motion is not None:
+        from . import track as _track
+        mot = motion if isinstance(motion, _track.Motion) else _track.CLASSES[motion]
+
+    keep: list = []
+    jumps: set[int] = set()          # keep[i] -> keep[i+1] is a legal teleport
     for p in found:
         if keep:
             dt = (p[0] - keep[-1][0]) / 1000.0
-            if dt > 0 and (np.hypot(p[1] - keep[-1][1], p[2] - keep[-1][2]) / dt
-                           > RUN_PX * scale * 1.6):
-                continue
+            dist = float(np.hypot(p[1] - keep[-1][1], p[2] - keep[-1][2]))
+            if mot is None:
+                if dt > 0 and dist / dt > RUN_PX * scale * 1.6:
+                    continue
+            else:
+                from . import track as _track
+                ok, why = _track.admits(mot, dist, dt, scale)
+                if not ok:
+                    continue
+                if why == "teleport":
+                    jumps.add(len(keep) - 1)
         keep.append(p)
     out = []
-    for a, b in zip(keep, keep[1:]):
+    for i, (a, b) in enumerate(zip(keep, keep[1:])):
         out.append(a)
         gap = b[0] - a[0]
-        if step_ms < gap <= GAP_MS and not spans_hole(a[0], b[0]):
+        if (step_ms < gap <= GAP_MS and not spans_hole(a[0], b[0])
+                and i not in jumps):
             k = int(round(gap / step_ms)) - 1
             for j in range(1, k + 1):
                 f = j / (k + 1)
