@@ -1728,6 +1728,33 @@ appears to enemies. This capture is the screen with Yoru on his own
 side, so it can only answer the friendly case. The enemy case needs a different
 capture and cannot be got from this corpus.
 
+**THE PLAYER, 2026-09-06: YORU CAN FAKE THE TELEPORT OR TAKE IT, AND FAKING MAKES
+THE NOISE.** He demonstrated both in `5a63cc4fecfc`. This is a domain fact
+nothing in the capture states and it is the sharpest argument yet for the audio
+channel, because it makes audio and the position track answer DIFFERENT halves
+of one question:
+
+    teleport sound + a jump      he TOOK it
+    teleport sound + no jump     he FAKED it -- a deliberate deception, and an
+                                 EVENT worth logging, not a detection failure
+    no sound + a jump            not this ability; or the track is wrong
+
+**That inverts the "cast, no jump" row of the cast-licenses-a-jump table.**
+`cast_motion.py` records that row as *"not a teleport, or the track lost the
+player -- itself a finding"*, which for Yoru is exactly backwards: it is the
+ability working as intended, and it is the more interesting of the two
+outcomes, since a fake is a read on the enemy rather than a rotation.
+
+It also explains what was measured there without knowing this: Yoru's two
+GATECRASH tray drops are followed by 4.6 px and 6.3 px of movement. **Do not
+read those as two fakes** -- the tray drop is the rift being PLACED, and taking
+or faking it is a later, separate action with no tray drop of its own. The tray
+cannot tell the two apart in principle. Audio can.
+
+**Consequence for the audio plan: Yoru's teleport SFX is a poor first target
+and a valuable second one.** First target wants an ability whose sound implies
+its effect; this one is specifically designed so that it does not.
+
 `5a63cc4fecfc` is the clip. Check it BEFORE trusting any player-icon count on
 a session with a Yoru, and record the answer here either way -- a confirmed
 "the decoy does not draw" is as valuable as the alternative and closes the

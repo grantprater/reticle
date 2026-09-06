@@ -395,6 +395,92 @@ of five sessions, because a class applied to the whole session also gives up
 the slack everywhere. A cast selects the class **on a window**, which is the
 only version of this that spends the permissiveness where the evidence is.
 
+## THE AUDIO CHANNEL: build it next, and it splits into two unequal halves
+
+**the player, 2026-09-06:** *Teleports can be very short range or even faked though,
+so this may simply require the audio channel. I think we build that next. Is
+ability audio recoverable from the agent clips or do I need to do no sound but
+the ability clips?*
+
+Measured rather than guessed, 2026-09-06. **The answer is that the question
+splits, and the two halves have opposite dependencies.**
+
+### Half one: ULTIMATES. Reference audio already exists. Record nothing.
+
+`reference/assets/voicelines` holds **56 mp3s -- 28 agents x ally AND enemy
+variants** -- and all 56 decode: 52 at 48 kHz mono (the capture's own rate),
+4 at 44.1 kHz stereo, 0.77-3.98 s, median 1.63 s. Long, loud, spectrally
+distinctive, one per agent per side: the ideal matched-filter target, and a
+closed set of the same shape as the digit templates and the agent-name bitmaps,
+both of which worked.
+
+**And it is exactly the quarter the tray cannot read.** Slot X draws pips, not
+a bar, so `ability_hud` sees no drop for an ultimate in 7 of 7 clips. Audio is
+not a parallel channel here; it is the missing quarter of the existing one.
+Nothing blocks this and it needs no new footage at all. **Do it first.**
+
+### Half two: BASIC ABILITIES. No reference exists anywhere, so it must be cut.
+
+Riot publishes icons and voicelines, not SFX: the store's ability assets are
+**118 PNGs and zero audio files**. So a C/Q/E reference has to be cut from
+footage at a known cast time -- which is what `audio_probe.py` concluded a
+fortnight ago, and the tray it named as the cast-time source now exists.
+
+**Re-run with the better anchor, and the anchor helps.** `audio_probe`'s null
+used minimap-track first observations, which lag the cast and fragment. Tray
+drops are the activation itself. Flux percentile rank at +/-0.05 s, marks
+against 2000 random times from the same clip:
+
+    omen     0.994 / 0.918      chamber  0.985 / 0.940
+    yoru     0.984 / 0.924      veto     0.989 / 0.927
+
+Marks sit above the null on all four clips, where the minimap-timed marks sat
+ON it. **But the null is already 0.92-0.94**, so the clips remain saturated
+with onsets and this is a direction, not a detector -- consistent with
+`audio_probe`'s original verdict that onset cannot be the supervisor here.
+
+**LOOKING settles what the flux number cannot.** A spectrogram sheet of the six
+Omen casts against controls shows the casts at 19.9 s, 25.7 s and 29.2 s as an
+unmistakable broadband state change at the mark -- quiet before, bright and
+full-band after. **The sound is plainly there; it is SUSTAINED rather than
+transient**, which is precisely why a flux/onset statistic misses it and a
+matched filter or NMF activation would not.
+
+### So: what the player should record, and it is NOT "no sound but the ability"
+
+**That version is impossible and unnecessary.** Map ambience is always present,
+and HRTF is on -- `audio_probe` already records that the reference should be
+cut from footage recorded the way he actually plays, so his own clips are the
+RIGHT source rather than a compromised one.
+
+**The contaminant is his own footsteps, and it is measurable.** In the Omen
+clip, **5 of 6 casts were made while moving** (max speed 14.6-63.1 px/s in the
++/-0.5 s around the cast; only the ultimate at 29.2 s was cast standing still).
+Running footsteps are the loudest thing in a solo custom game and they overlap
+the cast directly.
+
+So the ask is a light protocol change, not a new kind of clip:
+
+* **stand still while casting** -- removes the dominant contaminant;
+* **pause ~3 s between casts** -- gives a clean baseline immediately BEFORE
+  each cast, which is what makes a residual calibrated rather than thresholded,
+  and stops two abilities' sounds overlapping;
+* **keep casting every ability, in order**, exactly as now -- that protocol is
+  already what makes absence informative.
+
+Everything else about the existing corpus is right, and the clips already
+recorded stay usable as test data even where they are not usable as reference.
+
+### Two things to carry into the build
+
+* **`prototypes/passes.py`, not another decode.** CLAUDE.md's rule that a new
+  reader joins the PASS was written for `ping_scan.py` taking a video path.
+  Audio is a second stream of the same file and the same argument applies;
+* **Yoru's fake teleport is the reason this is not optional** -- see
+  `prototypes/CLAUDE.md`. Faking plays the sound without the displacement, so
+  sound and position answer different halves of one question, and no amount of
+  minimap work substitutes.
+
 ## Analysis-by-synthesis: hypothesise an event, render it, fit the residual
 
 **the player, 2026-09-06, closing the session:** *for audio, especially for
