@@ -10,7 +10,15 @@ video.
 """
 
 SCHEMA_VERSION = 1
-ROUND_VERSION = "round-0.1.0"
+# 0.2.0 (2026-09-07) moved the round START to the clock RESET. It used to be
+# the previous round's score increment, which is ~6 s before that round's
+# clock expires -- measured at a median of exactly 6.0 s on 17 of 18 sessions
+# over 281 rounds, with the roster putting the real start 7.0 s later at a
+# buy-phase clock of 28 s. The END did not move, so rounds are no longer
+# contiguous and the gap between them is the post-round period. Every stored
+# round carries `start_source`, so one built by the old contiguous rule cannot
+# read as current. See `rounds.round_bounds` and `docs/ROSTER_FINDINGS.md`.
+ROUND_VERSION = "round-0.2.0"
 COACH_VERSION = "coach-0.1.0"
 EXTRACTOR_VERSION = "l1-0.1.0"
 SEGMENTER_VERSION = "seg-0.2.0"

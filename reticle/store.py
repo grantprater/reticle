@@ -507,6 +507,12 @@ class Store:
             "round_no": col("round_no", pa.int16()),
             "t_start_ms": col("t_start_ms", pa.float64()),
             "t_end_ms": col("t_end_ms", pa.float64()),
+            # WHICH DEFINITION produced this start. `clock_reset` is the
+            # current rule; `score_increment` is the fallback taken when no
+            # reset was found; `capture_start` is round 1, which opens at the
+            # first sample. Stored because a round built the old contiguous
+            # way must never be indistinguishable from a current one.
+            "start_source": col("start_source", pa.string()),
             # Nullable on purpose: an unresolved side leaves `won` null rather
             # than guessed, so a coin flip cannot corrupt a win rate downstream.
             "won": col("won", pa.bool_()),

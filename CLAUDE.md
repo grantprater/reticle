@@ -174,6 +174,18 @@ it stays written.
 
 Stage numbers are the design doc's §3 stages, not release versions.
 
+**A round runs from the CLOCK RESET to the SCORE INCREMENT (`round-0.2.0`,
+2026-09-07), and rounds are deliberately NOT contiguous.** The score updates the
+moment a round is DECIDED — the wipe — so using it as the next round's start put
+that start ~6 s before the previous round's clock even expired. Two independent
+channels fixed it: the clock reads median 6.0 s at the old start over 281 rounds
+(exactly 6.0 on 17 of 18 sessions, 95% under 15 s), and on the two sessions with
+a roster both teams return to 5 a median of 7.0 s later at a buy-phase clock of
+28.0 s. The END did not move; the ~7.5 s gap between one round's end and the
+next one's start is the post-round period, and an event landing in it now
+belongs to no round rather than to the wrong one. Every stored round carries
+`start_source`, so a round built the old way cannot read as current.
+
 | Stage | What | Status |
 |---|---|---|
 | 00 Ingest | fingerprint → profile, manifest, no media copied | **done** (`probe`, `ingest`) |
@@ -797,10 +809,24 @@ one `metrics.record()` at the end is the whole cost.
   applies to the kill side as well as the death side.
 - **Thin tracks are the leading indicator.** An entry seen in <=4 of a possible
   ~12 sampled frames is either barely caught or about to be split in two. If a
-  new capture reads badly, count these first — 7 of 290 across the set now. A
-  count *above* ~12 used to mean the opposite, two entries merged into one; the
-  divider ended that and there are now none anywhere, so one appearing again is
-  a signal that something upstream broke.
+  new capture reads badly, count these first — 7 of 290 across the set now.
+
+  **CORRECTED 2026-09-07: the claim that long tracks are gone was FALSE.** This
+  used to read *"the divider ended that and there are now none anywhere, so one
+  appearing again is a signal that something upstream broke"*. Counted over all
+  18 sessions: the entry lifetime is a hard constant at **median 10 samples and
+  4.5 s on every one of them**, and against it **154 of 2859 counted tracks
+  exceed 12 samples and 83 exceed 16, to a maximum of 38**. They were there the
+  whole time and nothing had asked.
+
+  **But long does NOT mean merged, and assuming it did is a mistake already made
+  here.** One over-long track was confirmed a real merge by rendering
+  (`587c15b07779` 775.5 s, 19 samples, swallowing a visible `Phoenix -> Fade`
+  entry at 781.0 s). The very next one tested — the corpus maximum, 38 samples
+  on `59c70f1ef720` at 2197-2215 s — is a SINGLE genuine entry on a **frozen
+  frame**, every stored HUD column identical for 17 s. `reticle audit` reports
+  both populations and marks which tracks sit on a frozen frame; 77 of the 83
+  are unexplained candidates rather than a defect rate.
 - **Fixed at `hud-0.8.0`: the entry tracker could not tell a merge from a
   split.** Matching by nearest slot merged consecutive entries reusing a vacated
   slot; matching by most-recently-seen shattered genuine doubles and scored
@@ -1199,8 +1225,12 @@ Every instance is the same shape: a CORRECT reader, measured over the wrong
 span, producing a confident number about a question nobody asked.
 
     probing "starts at 5" from 6% into a round      5/22  -> 40/40
-      -- `build_rounds` bounds include the buy phase, and the roster is not
-         drawn for the new round yet
+      -- the roster is not drawn for the new round yet. **The cause was
+         measured and fixed at `round-0.2.0` (2026-09-07): the round START was
+         the previous round's SCORE INCREMENT**, which is ~6 s before that
+         round's clock expires — median exactly 6.0 s on 17 of 18 sessions over
+         281 rounds. It is now the CLOCK RESET, which lands at a buy-phase
+         clock of median 28.0 s. See the section below
     a refinement window butted against a run's end  0.32-0.43 -> 0.00-0.06
       -- `t1` is the MEASURED end, up to a sample period early, so the window
          read the object's own tail as evidence against it

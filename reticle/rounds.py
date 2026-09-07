@@ -191,17 +191,86 @@ def _plant(t, clock, a: float, z: float) -> tuple[bool, float | None]:
     return ok, (s0 if ok else None)
 
 
-def round_bounds(t, score_left, score_right) -> list[dict]:
+#: A clock RESET raises the reading by at least this. The countdown falls by
+#: one second per second, so nothing but a reset moves it up by ten.
+ROUND_START_JUMP_MS = 10_000
+#: How far past a score increment to look for the reset before giving up.
+#: The measured gap is ~7 s; this is six times that.
+ROUND_START_WINDOW_MS = 45_000
+#: A buy-phase clock never exceeds this. It separates the FIRST reset (buy,
+#: ~30 s) from the second (the round proper, ~100 s); taking the wrong one
+#: would put the start ~30 s late.
+BUY_CLOCK_MAX_MS = 45_000
+
+
+def _clock_reset_after(t, clock, after_ms):
+    """The first upward clock JUMP after `after_ms` -- the buy-phase reset.
+
+    Detected as a JUMP rather than as a value in a band, because the band is
+    not reliably observed: on `587c15b07779` the round ending at 157.5 s has
+    its buy-phase clock first read at **16 s**, the earlier part of it lost to
+    a frozen frame. The jump is present either way.
+    """
+    prev = None
+    for i in range(len(t)):
+        if t[i] <= after_ms:
+            if clock[i] is not None:
+                prev = clock[i]
+            continue
+        if t[i] - after_ms > ROUND_START_WINDOW_MS:
+            break
+        c = clock[i]
+        if c is None:
+            continue
+        if (prev is not None and c > prev + ROUND_START_JUMP_MS
+                and c <= BUY_CLOCK_MAX_MS):
+            return float(t[i])
+        prev = c
+    return None
+
+
+def round_bounds(t, score_left, score_right, clock_ms=None):
     """Rounds read off the scoreline: one ends when the total climbs by one.
 
     Guarded against the scoreline's known misreads. `ocr.py` drops a transient
     extra digit (1 -> 11 -> 1 on 9acf02f98283), so an increment is only believed
     when the total rises by exactly one *and* neither side's score falls -- a
     spurious digit fails both tests.
+
+    THE END IS THE SCORE INCREMENT; THE START IS THE CLOCK RESET
+    --------------------------------------------------------------
+    **Corrected 2026-09-07, and only the START moved.** Rounds used to be
+    contiguous -- each began where the last ended -- which put the start at the
+    score increment, the instant the round was DECIDED rather than the instant
+    the next one began. Measured against two independent channels:
+
+        clock at the old round start   median 6.0 s over 281 rounds on all 18
+                                       sessions; the median is 6.0 s on 17 of
+                                       them and 5.0 s on the eighteenth, and
+                                       95% read under 15 s -- the PREVIOUS
+                                       round's dying seconds
+        roster, 26 rounds on the two sessions that have one:
+            wipe onset - old round END       median +0.0 s
+            both teams back to 5 - old END   median +7.0 s (p10 +4.5, p90 +7.5)
+            clock when both are back to 5    median 28.0 s -- the buy phase
+
+    A round does not begin with six seconds on the clock. The END is well
+    placed and was left exactly where it was, so rounds are no longer
+    contiguous: the gap between one end and the next start is the post-round
+    period, which is correct rather than missing.
+
+    `clock_ms` is optional so a caller holding only a scoreline still works.
+    **Without it the old contiguous definition is used**, and every round says
+    which rule produced it in `start_source` rather than being silently
+    indistinguishable. That field also carries the fallback taken when no reset
+    is found, which must stay countable rather than disappear into the total.
     """
-    out: list[dict] = []
+    out = []
     prev = None
     start = float(t[0]) if len(t) else 0.0
+    # Round 1 opens at the capture's first sample whatever the clock says: it
+    # may hold a menu or a partial capture, a known limit rather than a reset.
+    source = "capture_start"
     for i in range(len(t)):
         a, b = score_left[i], score_right[i]
         if a is None or b is None:
@@ -216,8 +285,12 @@ def round_bounds(t, score_left, score_right) -> list[dict]:
                 "t_end_ms": float(t[i]),
                 "left_before": int(pa), "right_before": int(pb),
                 "won_left": bool(a == pa + 1),
+                "start_source": source,
             })
-            start = float(t[i])
+            reset = (_clock_reset_after(t, clock_ms, float(t[i]))
+                     if clock_ms is not None else None)
+            start = reset if reset is not None else float(t[i])
+            source = "clock_reset" if reset is not None else "score_increment"
         if (a, b) != prev:
             prev = (a, b)
     return out
@@ -284,7 +357,7 @@ def build_rounds(table) -> list[dict]:
     div = lambda c: table.column(c).to_pylist() if c in names else None
 
     rounds = round_bounds(t, table.column("score_left").to_pylist(),
-                          table.column("score_right").to_pylist())
+                          table.column("score_right").to_pylist(), clock)
     kills = _tracks(t, table.column("kf_kill_mask").to_pylist(), div("kf_kill_wx"))
     deaths = _tracks(t, table.column("kf_death_mask").to_pylist(), div("kf_death_wx"))
     entries = _tracks(t, table.column("kf_entry_mask").to_pylist(), div("kf_entry_wx"))

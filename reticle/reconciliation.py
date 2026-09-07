@@ -38,7 +38,7 @@ def confirmed_score_runs(t, left, right):
 def audit_scoreline(hud):
     h = hud.to_pydict()
     t, left, right = h['t_ms'], h['score_left'], h['score_right']
-    original = round_bounds(t, left, right)
+    original = round_bounds(t, left, right, h.get('clock_ms'))
     runs = confirmed_score_runs(t, left, right)
     stable = [r for r in runs if r['observations'] >= 2]
     proposed, anomalies = [], []
@@ -79,7 +79,7 @@ def audit_roster_deltas(hud, roster):
     # without it, and a wipe is exactly the window this audit most wants.
     v['alive_ally'], v['alive_enemy'] = resolve(hud, roster)
     rt = v['t_ms']
-    rounds = round_bounds(h['t_ms'], h['score_left'], h['score_right'])
+    rounds = round_bounds(h['t_ms'], h['score_left'], h['score_right'], h.get('clock_ms'))
     entry_times = [e['t_first'] for e in track_entries(
         h['t_ms'], h['kf_entry_mask'], h.get('kf_entry_wx')) if e['counted']]
     counts, windows = Counter(), []

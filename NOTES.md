@@ -142,13 +142,33 @@ runs out. This is the single explanation for the `opens-at-5` collapse, the
 167.5-177.5s count increase, and a large share of the 111 boundary-flagged
 coaching events.
 
-**THE FIX IS THE PLAYER'S CALL, and it is not taken.** Locate the round start at
-the CLOCK RESET (the clock jumping to ~30s) rather than at the score increment.
-That signal is in `l1/hud` on all 18 sessions, needs no roster and no decode --
-so unlike the roster instrument it generalises immediately. But it changes the
-round DEFINITION: it moves every stored round, needs a `ROUND_VERSION` bump, and
-shifts every coaching event, eligible state and audit window built on them. That
-is a comparability decision rather than a measurement. Evidence is in
+**DONE 2026-09-07 -- the player took it, and `round-0.2.0` ships it.** The start
+is the first upward clock JUMP after the score increment; the END did not move,
+so rounds are no longer contiguous and the gap between them is the post-round
+period. Stored rounds carry `start_source`, so one built the old way cannot read
+as current. All rounds rebuilt, `coach` and `audit` re-run.
+
+It lands where the roster predicted, on six times the rounds: **clock median
+28.0s at the new start (p10 25.0, p90 29.0) over 275 rounds on 18 sessions**,
+92% inside a buy phase, gap median 7.5s. 22% of rounds fall back to the old
+start because their buy-phase clock was unreadable, and they are labelled.
+
+`STATUS.md` is byte-identical -- every K/D against `KNOWN_KD`, 369 rounds,
+183/369 plants -- which is the check that mattered: a start-side change must not
+touch numbers derived from session-level tracks. Coaching eligibility is also
+unchanged (329/107 states, 26 rounds, still abstaining); the rejection
+bookkeeping moved honestly, `clock_or_phase_unknown` falling by exactly the
+amount `round_boundary_or_unresolved` rose. **`round_boundary_uncertain` events
+fell 111 -> 79**, with `round_unresolved` rising 7 -> 39: the same 118 events,
+39 of them now definite rather than uncertain.
+
+The audit moved as predicted -- disagreements 6 -> 4 and 2 -> **0**, both
+boundary-straddling windows resolved, the three Run It Back windows and two
+tracker defects correctly untouched. **The 167.5-177.5s count increase
+resolved.** The one that remains is a different window, 690.5-700.5s, previously
+hidden inside an unreadable one: rendered, it is a genuine **Sage/Clove revive**
+(one portrait, then two, then one) that the reader tracks correctly at every
+step. A real event exposed, not a regression. Full numbers in
 `docs/ROSTER_FINDINGS.md`.
 
 Everything after that is in `BACKLOG.md`. The minimap channel is a separate

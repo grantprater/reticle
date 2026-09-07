@@ -413,3 +413,87 @@ it generalises to the whole corpus immediately.
 every stored round, needs a `ROUND_VERSION` bump, and shifts every coaching
 event, eligible state and audit window derived from them. That is a call about
 comparability, not a measurement, and this page is the evidence for making it.
+
+---
+
+# 2026-09-07: the round start MOVED to the clock reset (`round-0.2.0`)
+
+Decided by the player. The start is now the first upward clock JUMP after the
+score increment -- detected as a jump rather than a value band, because the band
+is not reliably read (on `587c15b07779` the buy clock after 157.5 s is first
+read at 16 s, the earlier part lost to a frozen frame). **The END did not move**,
+so rounds are no longer contiguous and the gap between them is the post-round
+period.
+
+## It lands where the roster predicted, on six times the rounds
+
+    clock at the NEW start   median 28.0s  p10 25.0  p90 29.0   n=275 rounds
+    in a buy phase (20-35s)  254/275 (92%)
+    gap, round END -> next START   median 7.5s  p10 0.0  p90 9.5   n=351
+
+The roster predicted 28.0 s from 26 rounds on two sessions; the clock rule
+delivers 28.0 s across 275 rounds on eighteen. Two channels, different pixels,
+same number.
+
+    start_source   clock_reset 275   score_increment 76   capture_start 18
+
+**22% fall back**, and they are labelled rather than hidden: those are rounds
+whose clock was unreadable through the whole buy phase, which is unsurprising at
+the 33-60% clock read rates already on record. A fallback round keeps the old
+contiguous start and says so.
+
+## What moved, and what did not
+
+**Did NOT move, and had better not have:** `STATUS.md` is byte-identical --
+every K/D against `checks.KNOWN_KD` (12 of 17 exact), 369 rounds, 183/369
+plants. Those come from session-level killfeed tracks rather than from round
+assignment, so a start-side change must not touch them, and it did not.
+
+**Coaching eligibility did not move either:** 329 and 107 states, 20 and 8
+rounds, 543 events, 26 eligible rounds, still abstaining. What changed is the
+BOOKKEEPING, and it changed honestly -- `clock_or_phase_unknown` fell by exactly
+the amount `round_boundary_or_unresolved` rose (204 on one session, 81 on the
+other). The same samples; they are now rejected as *outside a round* rather than
+as *inside a round with an unknown clock*.
+
+| event quality flag | before | after |
+|---|---:|---:|
+| `round_boundary_uncertain` | 111 | **79** |
+| `round_unresolved` | 7 | **39** |
+
+118 events carry a boundary concern either way, but 39 of them are now
+DEFINITE rather than uncertain: they land in the post-round gap and belong to no
+round. That is the flag getting sharper, not more numerous.
+
+**The audit moved the way the diagnosis predicted:**
+
+| | 587c15b07779 | c40d950031bb |
+|---|---|---|
+| agree | 116 -> 108 | 58 -> 54 |
+| disagreement | 6 -> **4** | 2 -> **0** |
+| timing_ambiguous | 1 -> 3 | 1 -> 1 |
+| unreadable_roster | 7 -> 5 | 0 -> 1 |
+| count_increase | 1 -> 1 | 0 -> 0 |
+
+Window totals fall (131 -> 121, 61 -> 56) because rounds are ~7.5 s shorter.
+**Both boundary-straddling windows resolved** -- `c40d950031bb`'s known
+cancelling pair at 690.5/700.5 s is gone entirely, and `587c15b07779`'s
+314.5-324.5 s softened from disagreement to timing_ambiguous. The three **Run It
+Back** windows and the two tracker defects persist, exactly as they should:
+moving a round boundary cannot fix a killfeed defect.
+
+## The 167.5-177.5s count increase RESOLVED, and a real one took its place
+
+It is gone, which is what the diagnosis predicted: it was a 0 -> 5 roster step
+across the true boundary, reported as an anomaly inside one derived round.
+
+The count that remains is a **different window, 690.5-700.5 s**, which was
+previously buried inside an `unreadable_roster` window and is now visible.
+Rendered at 5x: the enemy bar shows **one** portrait at 698.0 and 699.0 s,
+**two** at 699.5, 700.5 and 702.0 s, and one again at 702.5 s. The reader is
+right at every step. An enemy count rising 1 -> 2 is a **Sage or Clove revive**,
+and the return to 1 is the revived player dying again -- there is a killfeed
+track at 702.5 s. CLAUDE.md already records that those deaths count.
+
+So this is not a defect and not a regression: it is a real game event the round
+change exposed, and the audit flag did its job by demanding an explanation.

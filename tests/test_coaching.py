@@ -12,6 +12,8 @@ from reticle.coaching import (observed_states, player_observations, evaluate_sta
                               attach_event_estimates, _coach_weights, run_coaching)
 from reticle.store import Store
 from reticle.cli import _resolve_session
+from reticle.rounds import (round_bounds, _clock_reset_after,
+                            BUY_CLOCK_MAX_MS)
 from reticle.version import ROUND_VERSION, HUD_VERSION
 
 
@@ -100,6 +102,79 @@ class CoachingTests(unittest.TestCase):
         states[0]['t_ms'] = 1000
         attach_event_estimates([event], states, {'s': np.zeros(4)})
         self.assertIsNone(event['state_delta'])
+
+
+    def _score_clock(self, resets=True):
+        """A two-round scoreline with a real clock: round, then buy, then round.
+
+        Sample 0.5s apart. Round 1 counts 20 -> 0, the score steps at the wipe
+        with 6s still showing, then the clock RESETS to 30 (buy) and counts
+        down, then resets again to 100 for the round proper.
+        """
+        t, clock, left = [], [], []
+        # round 1 winding down: clock 20 -> 6, no score change
+        for k in range(28):
+            t.append(k * 500.0); clock.append(20000 - k * 500); left.append(0)
+        # the wipe: score steps while 6s remains
+        n = len(t)
+        for k in range(12):                       # 6s -> 0s, score already 1
+            t.append((n + k) * 500.0); clock.append(6000 - k * 500); left.append(1)
+        n = len(t)
+        for k in range(60):                       # buy: 30s -> 0s
+            t.append((n + k) * 500.0)
+            clock.append((30000 - k * 500) if resets else None)
+            left.append(1)
+        n = len(t)
+        for k in range(20):                       # round proper: 100s down
+            t.append((n + k) * 500.0); clock.append(100000 - k * 500); left.append(1)
+        return t, clock, left
+
+    def test_round_start_is_the_clock_reset_and_the_end_does_not_move(self):
+        """Only the START moved. The end is the score increment, as before."""
+        t, clock, left = self._score_clock()
+        right = [0] * len(t)
+        old = round_bounds(t, left, right)
+        new = round_bounds(t, left, right, clock)
+        self.assertEqual(len(old), len(new))
+        self.assertEqual([r['t_end_ms'] for r in old],
+                         [r['t_end_ms'] for r in new])   # the END is untouched
+        # Round 1 opens at the capture start under both rules.
+        self.assertEqual(new[0]['t_start_ms'], t[0])
+        self.assertEqual(new[0]['start_source'], 'capture_start')
+
+    def test_the_start_takes_the_BUY_reset_not_the_round_proper_reset(self):
+        """Two resets follow every round; taking the second is ~30s late."""
+        t, clock, left = self._score_clock()
+        right = [0] * len(t)
+        rounds = round_bounds(t, left, right, clock)
+        end = rounds[0]['t_end_ms']
+        # Emulate the caller: where would a second round start?
+        nxt = _clock_reset_after(t, clock, end)
+        self.assertIsNotNone(nxt)
+        i = t.index(nxt)
+        self.assertLessEqual(clock[i], BUY_CLOCK_MAX_MS)   # a buy clock, not 100s
+        self.assertGreater(clock[i], 20000)
+        # It is the FIRST reset after the end, so it precedes the 100s one.
+        later = [t[j] for j in range(len(t)) if t[j] > nxt and clock[j] > 90000]
+        self.assertTrue(later and later[0] > nxt)
+
+    def test_a_missing_reset_falls_back_and_SAYS_it_fell_back(self):
+        """Refuse-over-guess: the fallback must stay countable, not vanish."""
+        t, clock, left = self._score_clock(resets=False)   # buy clock unreadable
+        right = [0] * len(t)
+        self.assertIsNone(_clock_reset_after(t, clock, 20000.0))
+        # Without a clock at all, the old contiguous rule is used and labelled.
+        rounds = round_bounds(t, left, right)
+        self.assertTrue(all(r['start_source'] in
+                            ('capture_start', 'score_increment') for r in rounds))
+
+    def test_rounds_stop_being_contiguous_and_the_gap_is_post_round(self):
+        """The gap between one end and the next start is real, not missing."""
+        t, clock, left = self._score_clock()
+        right = [0] * len(t)
+        end = round_bounds(t, left, right, clock)[0]['t_end_ms']
+        start2 = _clock_reset_after(t, clock, end)
+        self.assertGreater(start2, end)     # NOT contiguous any more
 
     def test_round_fields_survive_storage(self):
         with tempfile.TemporaryDirectory() as d:
