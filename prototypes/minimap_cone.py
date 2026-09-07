@@ -1,5 +1,12 @@
 """The ally/self vision cone: origin, facing, and a raycast visibility mask.
 
+THE RAYCAST ITSELF MOVED to `reticle/cone.py` on 2026-09-06 and is imported
+back here, not copied -- it is shipped code now, the collective team viewcone
+is built on it, and a second definition is how `floor_mask` forked for ten
+days. What stays in this file is everything ABOUT the cone that is domain
+knowledge rather than geometry: where the half-angle came from, the two
+mistakes made measuring it, and what is known about the other cone sources.
+
 Built 2026-09-02 from a real spec the player gave after playing with cones
 deliberately visible: the cone originates at the icon's own teardrop point,
 covers a fixed angular span centred on the direction that teardrop points,
@@ -140,10 +147,14 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from reticle import minimap as mm                                  # noqa: E402
+# Re-exported, not copied. `cone_mask` and the half-angle now live in
+# `reticle/cone.py`; keeping a second definition here is exactly how
+# `floor_mask` forked for ten days. See that module's docstring.
+from reticle.cone import (CONE_HALF_ANGLE_DEG, coverage, observable,   # noqa: E402,F401
+                          raycast, reduce_window)
 import minimap_ring_fit as rf                                       # noqa: E402
 from minimap_geometry import BOXEDGE                                 # noqa: E402
 
-CONE_HALF_ANGLE_DEG = 56.0  # ~112 degrees full -- see module docstring, one clip
 
 
 def icon_facing(colour_mask, grey, seed_cx, seed_cy):
@@ -165,36 +176,17 @@ def icon_facing(colour_mask, grey, seed_cx, seed_cy):
 
 def cone_mask(labels, floor, cx, cy, facing_deg, half_angle_deg=CONE_HALF_ANGLE_DEG,
               pass_boxedge=True, n_rays=240, max_r=None):
-    """Raycast visibility wedge: every floor pixel a ray from (cx,cy) reaches.
+    """`reticle.cone.raycast`, with this project's two masks composed for it.
 
-    Plain 2D raycasting per the spec -- no reflection, each ray stops at
-    the first non-floor pixel. `pass_boxedge` skips `BOXEDGE`-labelled pixels
-    rather than stopping there (boxes are not illuminated), which is
-    coded but not yet independently confirmed -- see the module docstring.
+    Kept as a name because several ability prototypes call it; the raycast
+    itself is gone from this file. `pass_boxedge` now means what the domain
+    fact says -- a ray CONTINUES past a low box and the box is NOT lit --
+    where the old body marked the boxedge pixel lit as it passed through.
+    That is a deliberate correction in the under-claiming direction.
     """
-    h, w = floor.shape
-    if max_r is None:
-        max_r = max(h, w)
-    mask = np.zeros((h, w), dtype=bool)
-    facing = np.radians(facing_deg)
-    half = np.radians(half_angle_deg)
-    for i in range(n_rays):
-        theta = facing - half + (2 * half) * i / (n_rays - 1)
-        dx, dy = np.cos(theta), np.sin(theta)
-        x, y = float(cx), float(cy)
-        for _ in range(int(max_r)):
-            xi, yi = int(round(x)), int(round(y))
-            if not (0 <= xi < w and 0 <= yi < h):
-                break
-            blocked = not floor[yi, xi]
-            if blocked and pass_boxedge and labels[yi, xi] == BOXEDGE:
-                blocked = False
-            if blocked:
-                break
-            mask[yi, xi] = True
-            x += dx
-            y += dy
-    return mask
+    passable = floor | (labels == BOXEDGE) if pass_boxedge else floor
+    return raycast(passable, cx, cy, facing_deg, half_angle_deg,
+                   visible=floor, n_rays=n_rays, max_r=max_r)
 
 
 def self_cone(crop, floor, labels, seed_cx, seed_cy, half_angle_deg=CONE_HALF_ANGLE_DEG):
