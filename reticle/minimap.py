@@ -378,6 +378,202 @@ def widget_drawn(crop: np.ndarray, sgray: np.ndarray, floor: np.ndarray,
     return den > 0 and float((g * sg).sum() / den) >= min_corr
 
 
+# --------------------------------------------------------------- ring fitting
+# Promoted from `prototypes/minimap_ring_fit.py` on 2026-09-06 by DELETION plus
+# re-export there, not by copy. It fits a circle to a fragmented colour ring by
+# CIRCUMFERENCE COVERAGE, which is what tolerates an arc broken by 4:2:0 chroma
+# or by another icon drawn over it, and it reads the facing triangle by how far
+# colour reaches past that circle.
+#
+# It is here rather than in `cone.py` because it is icon geometry on this
+# widget, the same subject as `_rings` below, and because the enemy channel
+# uses it too. The prototype keeps the argument for WHY the fit has this shape.
+
+# Radii to try, in pixels. Kept NARROW on purpose. Coverage is a fraction of
+# circumference, so a small circle threaded through one surviving fragment
+# scores better than a correctly-sized circle that is mostly gap -- with the
+# range open to 6 the fit collapsed to r=6 on nearly every 4:2:0 miss and the
+# coverage it reported meant nothing. The widget size is fixed, so the icon
+# radius is very nearly a constant (measured ~9-10 on the enlarged widget) and
+# letting it float was giving away the strongest prior available.
+#
+# This is per-widget-size and must be re-measured if the player changes the slider.
+R_MIN, R_MAX = 8, 13
+# How far the true centre may sit from the blob's centroid. The triangle drags
+# the centroid toward itself by several pixels, which is the same effect that
+# reported the facing 180 degrees out before it was measured from the hole.
+SEARCH = 5
+N_THETA = 48
+
+
+def _circle_offsets(r_min: int = None, r_max: int = None):
+    """Precomputed integer ring offsets per radius, and the disc per radius.
+
+    The range is a parameter rather than the module constants because the icon
+    radius is a WIDGET-SIZE constant, not a game constant: 8-13 was measured on
+    the enlarged widget, and a session at `widget_scale` 0.71 wants 6-9. The
+    default is the measured pair, so every existing caller is unmoved.
+    """
+    ring, disc = {}, {}
+    th = np.arange(N_THETA) / N_THETA * 2 * np.pi
+    for r in range(R_MIN if r_min is None else r_min,
+                   (R_MAX if r_max is None else r_max) + 1):
+        pts = np.unique(np.stack([np.round(r * np.cos(th)),
+                                  np.round(r * np.sin(th))], 1).astype(int), axis=0)
+        ring[r] = pts
+        yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
+        inner = (yy ** 2 + xx ** 2) <= (r * 0.62) ** 2
+        disc[r] = np.stack([xx[inner], yy[inner]], 1)
+    return ring, disc
+
+
+RING, DISC = _circle_offsets()
+
+
+def _offsets(r: int):
+    """Ring and disc offsets for one radius, memoised into RING/DISC."""
+    if r not in RING:
+        ring, disc = _circle_offsets(r, r)
+        RING.update(ring)
+        DISC.update(disc)
+    return RING[r], DISC[r]
+
+# Rays for reading the facing triangle: for each angle, how far past the ring
+# does red reach. The triangle is the only thing outside the circle, so the
+# angle where red reaches furthest IS the facing.
+N_FACE = 32
+_FACE_TH = np.arange(N_FACE) / N_FACE * 2 * np.pi
+
+
+def fit_ring(red, grey, cx, cy, r_min: int = None, r_max: int = None):
+    """Best (coverage, cx, cy, r, interior stats) over centres and radii.
+
+    Coverage is the share of the circle's circumference that is red. A whole
+    icon scores high even with the arc broken in several places, which is the
+    entire point -- unlike a hole test, it does not care whether the breaks
+    happen to disconnect the ring.
+
+    `red` is any binary ring mask, not necessarily the enemy red: the self key
+    works here unchanged, which is what `self_agent.py` uses it for. `r_min`
+    and `r_max` default to the measured enlarged-widget pair.
+    """
+    r_min = R_MIN if r_min is None else r_min
+    r_max = R_MAX if r_max is None else r_max
+    h, w = red.shape
+    best = None
+    for dy in range(-SEARCH, SEARCH + 1):
+        for dx in range(-SEARCH, SEARCH + 1):
+            y0, x0 = int(round(cy + dy)), int(round(cx + dx))
+            for r in range(r_min, r_max + 1):
+                pts, _ = _offsets(r)
+                xs, ys = x0 + pts[:, 0], y0 + pts[:, 1]
+                ok = (xs >= 0) & (ys >= 0) & (xs < w) & (ys < h)
+                if ok.sum() < len(pts) * 0.75:
+                    continue
+                cov = float(red[ys[ok], xs[ok]].mean())
+                if best is None or cov > best[0]:
+                    best = (cov, x0, y0, r)
+    if best is None:
+        return None
+    cov, x0, y0, r = best
+    _, d = _offsets(r)
+    xs, ys = x0 + d[:, 0], y0 + d[:, 1]
+    ok = (xs >= 0) & (ys >= 0) & (xs < w) & (ys < h)
+    if not ok.any():
+        return None
+    inner_red = float(red[ys[ok], xs[ok]].mean())
+    inner_v = float(grey[ys[ok], xs[ok]].mean())
+    return {"cov": cov, "cx": x0, "cy": y0, "r": r,
+            "inner_red": inner_red, "inner_v": inner_v,
+            "facing": _facing(red, x0, y0, r),
+            "lobe": _lobe(red, x0, y0, r)}
+
+
+def _lobe(red, cx, cy, r):
+    """How far the largest lobe reaches past the ring, as a fraction of r.
+
+    Reported separately from `facing` because it answers a different question:
+    `facing` is WHERE the triangle points, `lobe` is WHETHER there is one. A
+    Cypher cam is a perfect circle, so a lobe near zero is evidence against a
+    player independent of any rotation measurement.
+    """
+    h, w = red.shape
+    best = 0.0
+    for th in _FACE_TH:
+        dx, dy = np.cos(th), np.sin(th)
+        for rr in np.arange(r + 1, r * 1.9, 0.7):
+            x, y = int(round(cx + dx * rr)), int(round(cy + dy * rr))
+            if not (0 <= x < w and 0 <= y < h):
+                break
+            if red[y, x]:
+                best = max(best, rr - r)
+    return float(best / r) if r else 0.0
+
+
+# Minimum lobe height, as a fraction of the fitted radius, for a facing to be
+# reported at all. Below this the "triangle" is ring roughness and the angle it
+# produces is noise -- which matters because a Cypher cam is a PERFECT CIRCLE and
+# would otherwise yield a confident, meaningless bearing.
+LOBE_MIN_FRAC = 0.22
+
+
+def _facing(red, cx, cy, r):
+    """Bearing of the facing triangle, or None if no real lobe stands out.
+
+    correcting an earlier claim of mine that a placed ability never
+    turns: **a Cypher cam rotates.** It is a perfect circle that never
+    translates, and it is the only other moving icon on the widget -- its
+    rotation is shown by the camera glyph turning INSIDE the ring, with no lobe
+    at all.
+
+    Two consequences, pulling opposite ways:
+
+    * a cam's real rotation is INVISIBLE to this function, because this reads
+      the lobe and a cam has none. So rotation measured here cannot be trusted
+      to reject a cam -- any value it returns for one is ring roughness. The
+      discriminator that does hold against a cam is TRANSLATION;
+    * but the absence of a lobe is itself a positive discriminator: a player
+      icon has a triangle and a cam does not.
+
+    So `LOBE_MIN_FRAC` is load-bearing, not cosmetic. Without it a perfect
+    circle yields a confident bearing from noise, and the motion filter's
+    rotation branch would pass exactly the object it most needs to reject.
+
+    Read by rays rather than from the blob's shape: the triangle is the only
+    part of the icon outside the fitted circle, so "how far past r does red
+    reach at this angle" isolates it without needing the ring to be connected
+    to it.
+    """
+    h, w = red.shape
+    reach = np.zeros(N_FACE)
+    for k, th in enumerate(_FACE_TH):
+        dx, dy = np.cos(th), np.sin(th)
+        for rr in np.arange(r + 1, r * 1.9, 0.7):
+            x, y = int(round(cx + dx * rr)), int(round(cy + dy * rr))
+            if not (0 <= x < w and 0 <= y < h):
+                break
+            if red[y, x]:
+                reach[k] = rr - r
+    if reach.max() < LOBE_MIN_FRAC * r:
+        return None
+    # Weighted mean over the contiguous peak, so the answer is not quantised to
+    # one of 32 bins -- rotation is the signal, and a bin width of 11 degrees
+    # would swallow most of it.
+    k = int(np.argmax(reach))
+    ws, xs_, ys_ = 0.0, 0.0, 0.0
+    for d in (-2, -1, 0, 1, 2):
+        kk = (k + d) % N_FACE
+        wgt = reach[kk]
+        if wgt <= 0:
+            continue
+        ws += wgt
+        xs_ += wgt * np.cos(_FACE_TH[kk])
+        ys_ += wgt * np.sin(_FACE_TH[kk])
+    if ws == 0:
+        return None
+    return float(np.degrees(np.arctan2(ys_, xs_)))
+
+
 def _rings(mask: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]]:
     # AREA scales as the SQUARE of the linear scale; the closing kernel is a
     # length and scales linearly. Getting those two the same way round is the
