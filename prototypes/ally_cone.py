@@ -142,8 +142,8 @@ class AllyIconReader:
         self.rows.append(row)
 
 
-def _fits_path(sid: str) -> Path:
-    return STORE / "series" / f"{sid}.allycone.json"
+def _fits_path(sid: str, tag: str = "") -> Path:
+    return STORE / "series" / f"{sid}.allycone{tag}.json"
 
 
 def scan_pass(args) -> int:
@@ -168,6 +168,12 @@ def scan_pass(args) -> int:
                                        tbl.column("state").to_pylist()) if s == "active"]
     if not spans:
         raise SystemExit(f"{args.session} has no active spans")
+    if args.minutes:
+        # The bearing-carry question turns on the SAMPLE RATE, and 2 Hz cannot
+        # see a gap under ~500 ms. Clipping the span lets a 15 Hz pass answer
+        # the regime the shipped reader actually runs in.
+        cap_ms = spans[0][0] + args.minutes * 60000.0
+        spans = [(a, min(b, cap_ms)) for a, b in spans if a < cap_ms]
 
     ctx = passes.SessionContext(store=store, manifest=man, profile=prof, spans=spans)
     med = ctx.static_map()
@@ -189,26 +195,47 @@ def scan_pass(args) -> int:
     out = {"session": args.session, "date": args.date, "hz": args.hz,
            "spans_ms": spans, "scale": ally.scale,
            "frames": ally.rows, "roster": rost.rows}
-    p = _fits_path(args.session)
+    p = _fits_path(args.session, args.tag)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(out), encoding="utf-8")
     print(f"  wrote {p}")
     return 0
 
 
-def _load(sid: str) -> dict:
-    p = _fits_path(sid)
+def _load(sid: str, tag: str = "") -> dict:
+    p = _fits_path(sid, tag)
     if not p.is_file():
         raise SystemExit(f"no scan for {sid} -- run with --scan first")
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def _joined(d: dict):
+def _round_bounds(sid: str):
+    """`[(t_start_ms, t_end_ms)]` per round, or None if no HUD is stored."""
+    from reticle.rounds import build_rounds
+    store = Store(STORE)
+    for q in (STORE / "l1" / "hud").glob(f"date=*/session={sid}"):
+        date = q.parent.name.split("=", 1)[1]
+        tbl = store.read_hud(sid, date)
+        if tbl is None:
+            continue
+        return [(r["t_start_ms"], r["t_end_ms"]) for r in build_rounds(tbl)]
+    return None
+
+
+def _joined(d: dict, skip_lead_ms: float = 0.0, bounds=None):
     """Frames where BOTH readers answered, as `(row, alive_ally)`.
 
     The join is on `t_ms` exactly, which is safe because both readers were fed
-    the same samples in the same pass -- that is the second reason to run them
+    the same samples in the same pass -- the second reason to run them
     together, after the decode cost.
+
+    **`skip_lead_ms` is not a tuning knob, it is a window correction**, and
+    leaving it out is the most repeated mistake in this codebase. `build_rounds`
+    bounds INCLUDE the buy phase, and the roster is not drawn for the new round
+    during it -- the recorded instance of exactly this went from 5/22 to 40/40
+    once the lead-in was dropped. So a frame early in a round is scored against
+    a roster describing the PREVIOUS round, and it fails silently by returning
+    a plausible number.
     """
     rost = {r["t_ms"]: r["alive_ally"] for r in d["roster"]}
     out = []
@@ -216,6 +243,10 @@ def _joined(d: dict):
         a = rost.get(row["t_ms"])
         if a is None or not row["drawn"]:
             continue
+        if bounds is not None:
+            t = row["t_ms"]
+            if not any(lo + skip_lead_ms <= t < hi for lo, hi in bounds):
+                continue
         out.append((row, a))
     return out
 
@@ -227,10 +258,11 @@ def _accept(fits, cov, inner, detail, need_facing=True):
             and (f["facing"] is not None or not need_facing)]
 
 
-def _score(d, cov, inner, detail, need_facing=True):
+def _score(d, cov, inner, detail, need_facing=True, skip_lead_ms=0.0, bounds=None):
     """Signed residual against the roster, and the agreement rate."""
+    import numpy as np
     res, exact, n = [], 0, 0
-    for row, alive in _joined(d):
+    for row, alive in _joined(d, skip_lead_ms, bounds):
         want = max(0, alive - 1)
         got = len(_accept(row["fits"], cov, inner, detail, need_facing))
         res.append(got - want)
@@ -240,53 +272,156 @@ def _score(d, cov, inner, detail, need_facing=True):
 
 
 def score(args) -> int:
-    d = _load(args.session)
-    j = _joined(d)
-    print(f"{args.session}: {len(d['frames'])} sampled frames, "
-          f"{len(j)} with the widget drawn AND a roster read")
-    span = [row["t_ms"] for row, _ in j]
-    if span:
-        print(f"  window: {min(span) / 60000:.1f} .. {max(span) / 60000:.1f} min "
-              f"(active spans only -- the roster says nothing off-round)")
+    import numpy as np
 
-    raw = [len([f for f in row["fits"] if f["key"] == "ally"]) for row, _ in j]
-    want = [max(0, a - 1) for _, a in j]
-    print(f"\n  roster says allies alive-1:  mean {np.mean(want):.2f}")
-    print(f"  RAW ally fits (no gate):     mean {np.mean(raw):.2f}")
+    d = _load(args.session, args.tag)
+    bounds = _round_bounds(args.session)
+    print(f"{args.session}: {len(d['frames'])} sampled frames at {d['hz']:g} Hz")
+    if bounds is None:
+        print("  no stored HUD -- cannot bound rounds, so ACTIVE SPANS only")
+    else:
+        print(f"  {len(bounds)} rounds from the stored HUD")
 
-    print(f"\n  {'gate':<34}{'exact':>8}{'mean res':>10}{'median':>8}"
-          f"{'|res|<=1':>10}")
+    windows = [("active spans (includes buy phase)", 0.0, None)]
+    if bounds is not None:
+        windows += [("in round, from its start", 0.0, bounds),
+                    ("in round, skipping the first 20 s", 20000.0, bounds)]
+
     rows = [
-        ("raw blobs (ally_rings equivalent)", 0.0, 1.0, 0.0, False),
-        ("cov>=.30 inner<=.25", 0.30, 0.25, 0.0, False),
-        ("+ facing required", 0.30, 0.25, 0.0, True),
-        ("+ detail>=2000", 0.30, 0.25, 2000.0, True),
-        ("+ detail>=3000", 0.30, 0.25, 3000.0, True),
+        ("raw blobs (= ally_rings)", 0.00, 1.00, 0.0, False),
+        ("cov>=.25 inner<=.25", 0.25, 0.25, 0.0, False),
+        ("+ facing required", 0.25, 0.25, 0.0, True),
+        ("cov>=.30 + facing", 0.30, 0.25, 0.0, True),
+        ("+ detail>=2000", 0.25, 0.25, 2000.0, True),
     ]
-    for label, cov, inner, det, nf in rows:
-        n, exact, res = _score(d, cov, inner, det, nf)
-        print(f"  {label:<34}{exact / max(n, 1) * 100:7.1f}%{res.mean():10.2f}"
-              f"{np.median(res):8.1f}{np.mean(np.abs(res) <= 1) * 100:9.1f}%")
-    print("\n  A SYSTEMATIC SIGN is the tell: random error is symmetric, a\n"
-          "  one-sided residual is a fault. Positive = phantom teammates,\n"
-          "  negative = missed or merged (three icons at spawn are ONE blob).")
+    for label, skip, b in windows:
+        n0 = len(_joined(d, skip, b))
+        print(f"\n  WINDOW: {label}   n = {n0}")
+        if n0 < 50:
+            print("    too few frames to read")
+            continue
+        j = _joined(d, skip, b)
+        want = [max(0, a - 1) for _, a in j]
+        print(f"    roster allies alive-1: mean {np.mean(want):.2f}")
+        print(f"    {'gate':<26}{'exact':>8}{'mean res':>10}{'median':>8}{'|res|<=1':>10}")
+        for name, cov, inner, det, nf in rows:
+            n, exact, res = _score(d, cov, inner, det, nf, skip, b)
+            print(f"    {name:<26}{exact / max(n, 1) * 100:7.1f}%{res.mean():10.2f}"
+                  f"{np.median(res):8.1f}{np.mean(np.abs(res) <= 1) * 100:9.1f}%")
+    print("\n  A SYSTEMATIC SIGN is the tell: random error is symmetric, a one-sided")
+    print("  residual is a fault. Positive = phantom teammates; negative = missed,")
+    print("  or MERGED -- three icons at spawn are one connected component.")
     return 0
 
 
 def sweep(args) -> int:
-    d = _load(args.session)
-    print(f"{args.session}: sweeping the detail floor at cov>=0.30, "
-          f"inner<=0.25, facing required\n")
-    print(f"  {'detail>=':>9}{'exact':>8}{'mean res':>10}{'|res|<=1':>10}")
-    for det in (0, 500, 1000, 1500, 2000, 2500, 3000, 4000, 6000):
-        n, exact, res = _score(d, 0.30, 0.25, float(det), True)
-        print(f"  {det:9d}{exact / max(n, 1) * 100:7.1f}%{res.mean():10.2f}"
-              f"{np.mean(np.abs(res) <= 1) * 100:9.1f}%")
-    print(f"\n  {'cov>=':>9}{'exact':>8}{'mean res':>10}{'|res|<=1':>10}")
-    for cov in (0.20, 0.25, 0.30, 0.35, 0.40, 0.50):
-        n, exact, res = _score(d, cov, 0.25, 0.0, True)
+    import numpy as np
+
+    d = _load(args.session, args.tag)
+    bounds = _round_bounds(args.session)
+    skip = 20000.0 if bounds is not None else 0.0
+    win = "in round, skipping the first 20 s" if bounds else "active spans"
+    n0 = len(_joined(d, skip, bounds))
+    print(f"{args.session}: sweeping over {n0} frames -- WINDOW: {win}\n")
+    print(f"  {'cov>=':>9}{'exact':>8}{'mean res':>10}{'|res|<=1':>10}")
+    for cov in (0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50):
+        n, exact, res = _score(d, cov, 0.25, 0.0, True, skip, bounds)
         print(f"  {cov:9.2f}{exact / max(n, 1) * 100:7.1f}%{res.mean():10.2f}"
               f"{np.mean(np.abs(res) <= 1) * 100:9.1f}%")
+    print(f"\n  {'inner<=':>9}{'exact':>8}{'mean res':>10}{'|res|<=1':>10}")
+    for inner in (0.10, 0.20, 0.25, 0.35, 0.50, 1.00):
+        n, exact, res = _score(d, 0.25, inner, 0.0, True, skip, bounds)
+        print(f"  {inner:9.2f}{exact / max(n, 1) * 100:7.1f}%{res.mean():10.2f}"
+              f"{np.mean(np.abs(res) <= 1) * 100:9.1f}%")
+    print(f"\n  {'detail>=':>9}{'exact':>8}{'mean res':>10}{'|res|<=1':>10}")
+    for det in (0, 500, 1000, 2000, 4000):
+        n, exact, res = _score(d, 0.25, 0.25, float(det), True, skip, bounds)
+        print(f"  {det:9d}{exact / max(n, 1) * 100:7.1f}%{res.mean():10.2f}"
+              f"{np.mean(np.abs(res) <= 1) * 100:9.1f}%")
+    return 0
+
+
+def _ang_diff(a, b):
+    """Smallest absolute angle between two bearings, degrees, in [0, 180]."""
+    return float(abs((a - b + 180.0) % 360.0 - 180.0))
+
+
+def interp(args) -> int:
+    """What is a CARRIED bearing worth? Measured on SELF, the one ground truth.
+
+    `track.Tracker` keeps a track's last known bearing across a frame where the
+    lobe fit refused one, and `bearings()` will not offer it unless asked. This
+    is the measurement that says whether it should ever be asked for.
+
+    **The self icon is the only bearing with a ground truth**, which is what
+    `BACKLOG.md` says to build this against, and its fit answers on ~90% of
+    frames -- so the cost of carrying a bearing forward by g milliseconds is
+    directly observable as |facing(t+g) - facing(t)| over its own series. No
+    hold-out, no labels.
+
+    Two aggregates, per the standing convention, because they answer different
+    questions: the median says what a typical carry costs, the p90 says how bad
+    the tail is, and a cone drawn from a bearing 90 degrees out is not a
+    slightly wrong cone -- it is somewhere else entirely.
+
+    THE NULL IS THE POINT. A bearing carried from a random OTHER moment is the
+    control, and it should sit near 90 degrees (the mean absolute difference of
+    two independent angles). A carry is worth having only where it is far below
+    that; where it is not, the honest answer is to refuse.
+    """
+    import numpy as np
+
+    d = _load(args.session, args.tag)
+    ser = []
+    for row in d["frames"]:
+        if not row["drawn"]:
+            continue
+        best = None
+        for f in row["fits"]:
+            if f["key"] != "self" or f["facing"] is None:
+                continue
+            if best is None or f["cov"] > best["cov"]:
+                best = f
+        if best is not None:
+            ser.append((row["t_ms"], best["facing"]))
+    ser.sort()
+    if len(ser) < 30:
+        raise SystemExit(f"only {len(ser)} self bearings -- not enough to measure")
+
+    t = np.array([a for a, _ in ser])
+    f = np.array([b for _, b in ser])
+    print(f"{args.session}: {len(ser)} self bearings over "
+          f"{t.min() / 60000:.1f} .. {t.max() / 60000:.1f} min "
+          f"(active spans only, sampled at {d['hz']:g} Hz)")
+
+    rng = np.random.default_rng(20260906)   # fixed: the null must be stable
+    null = np.array([_ang_diff(f[i], f[j]) for i, j in
+                     zip(rng.integers(0, len(f), 4000),
+                         rng.integers(0, len(f), 4000))])
+    print("")
+    print(f"  NULL, a bearing from a random other moment: "
+          f"median {np.median(null):.0f}deg  p90 {np.percentile(null, 90):.0f}deg")
+    print("")
+    print(f"  {'carry (ms)':>12}{'n':>7}{'median':>9}{'p90':>9}"
+          f"{'<30deg':>9}{'<56deg':>9}")
+    for lo, hi in ((0, 150), (150, 350), (350, 750), (750, 1500), (1500, 3000)):
+        errs = []
+        for i in range(len(ser)):
+            j = i + 1
+            while j < len(ser) and t[j] - t[i] < lo:
+                j += 1
+            if j < len(ser) and lo <= t[j] - t[i] <= hi:
+                errs.append(_ang_diff(f[i], f[j]))
+        label = f"{lo}-{hi}"
+        if len(errs) < 10:
+            print(f"  {label:>12}{len(errs):>7}   too few to read")
+            continue
+        e = np.array(errs)
+        print(f"  {label:>12}{len(e):>7}{np.median(e):8.0f}d{np.percentile(e, 90):8.0f}d"
+              f"{np.mean(e < 30) * 100:8.0f}%{np.mean(e < 56) * 100:8.0f}%")
+    print("")
+    print("  56deg is the cone HALF-ANGLE: past it a carried cone and the true")
+    print("  cone share no axis at all. Read the p90, not the median.")
     return 0
 
 
@@ -296,13 +431,21 @@ def main(argv=None) -> int:
     ap.add_argument("--scan", action="store_true")
     ap.add_argument("--score", action="store_true")
     ap.add_argument("--sweep", action="store_true")
+    ap.add_argument("--interp", action="store_true",
+                    help="what a carried bearing is worth, measured on self")
     ap.add_argument("--hz", type=float, default=2.0)
+    ap.add_argument("--minutes", type=float, default=None,
+                    help="clip the spans to the first N minutes, which is what makes a 15 Hz pass affordable")
+    ap.add_argument("--tag", default="",
+                    help="output-file suffix, so a high-rate run does not overwrite the corpus-wide one")
     ap.add_argument("--date")
     a = ap.parse_args(argv)
     if a.scan:
         return scan_pass(a)
     if a.sweep:
         return sweep(a)
+    if a.interp:
+        return interp(a)
     if a.score or True:
         return score(a)
 

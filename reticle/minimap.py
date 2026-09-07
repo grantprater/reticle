@@ -653,7 +653,21 @@ def ally_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, fl
 # Thresholds are PARAMETERS, not constants baked in, because they were swept on
 # one session -- see `prototypes/ally_cone.py`, which is where the numbers below
 # come from and where they get re-swept.
-ALLY_COV_MIN = 0.30
+# Swept against the ROSTER over 3302 in-round frames of a06f04a0059f
+# (`prototypes/ally_cone.py --sweep`), scoring `n_icons` vs `alive_ally - 1`:
+#
+#     cov>=    exact   mean residual   |residual|<=1
+#     raw      50.5%       +0.99            73.1%   <- a phantom teammate/frame
+#     0.20     52.6%       +0.24            82.4%
+#     0.25     53.0%       -0.15            82.7%   <- shipped
+#     0.30     45.1%       -0.70            75.7%   <- the enemy channel's value
+#     0.40     27.9%       -1.55            48.6%
+#
+# 0.25 rather than the enemy ring's 0.30 because it is a DIFFERENT KEY: the
+# ally surround is a filled teardrop, not a 1-2 px rim, and it fragments
+# differently. Requiring a FACING as well costs 0.6 points of exact agreement,
+# which is what makes the bearing very nearly free.
+ALLY_COV_MIN = 0.25
 ALLY_INNER_MAX = 0.25
 
 
