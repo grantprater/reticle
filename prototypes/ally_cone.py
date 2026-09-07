@@ -311,7 +311,60 @@ def score(args) -> int:
     print("\n  A SYSTEMATIC SIGN is the tell: random error is symmetric, a one-sided")
     print("  residual is a fault. Positive = phantom teammates; negative = missed,")
     print("  or MERGED -- three icons at spawn are one connected component.")
+    if args.record and bounds is not None:
+        _record(args, d, bounds, 20000.0)
     return 0
+
+
+def _record(args, d, bounds, skip):
+    """Log the shipped operating point, so the number cannot drift silently.
+
+    n is the number of INDEPENDENT units and that is NOT the frame count here:
+    frames inside one round share a roster state and an ally configuration, so
+    a Wilson interval on 3302 frames would come out microscopic and be badly
+    wrong -- the same trap `roster_alive` records. The ROUND is the unit, so the
+    interval is computed on rounds whose median residual is zero.
+    """
+    import numpy as np
+    from reticle import metrics
+    from reticle.minimap import (ALLY_COV_MIN, ALLY_INNER_MAX, ally_mask,
+                                 fit_ring, icons)
+
+    n, exact, res = _score(d, ALLY_COV_MIN, ALLY_INNER_MAX, 0.0, True, skip, bounds)
+    raw_n, raw_exact, raw_res = _score(d, 0.0, 1.0, 0.0, False, skip, bounds)
+
+    # Per ROUND: did the promoted channel agree (median residual 0) there.
+    per_round = []
+    if bounds:
+        for lo, hi in bounds:
+            rows = [(r, a) for r, a in _joined(d, skip, [(lo, hi)])]
+            if len(rows) < 5:
+                continue
+            rr = [len(_accept(r["fits"], ALLY_COV_MIN, ALLY_INNER_MAX, 0.0, True))
+                  - max(0, a - 1) for r, a in rows]
+            per_round.append(abs(float(np.median(rr))) <= 0.5)
+    k, nr = int(sum(per_round)), len(per_round)
+
+    metrics.record(
+        "ally_icons", part="vs roster", session=args.session,
+        values={"exact": round(exact / max(n, 1), 4),
+                "mean_residual": round(float(res.mean()), 4),
+                "within_1": round(float(np.mean(np.abs(res) <= 1)), 4),
+                "raw_mean_residual": round(float(raw_res.mean()), 4),
+                "rounds_agreeing": k},
+        deps={"detector": metrics.fingerprint(icons, ally_mask, fit_ring),
+              "cov_min": ALLY_COV_MIN, "inner_max": ALLY_INNER_MAX,
+              "require_facing": True,
+              "window": "in-round, skipping the first 20 s",
+              "truth": "roster alive_ally - 1"},
+        context={"frames": n, "rounds": nr, "hz": d["hz"]},
+        ci={"rounds_agreeing": list(metrics.wilson(k, nr))} if nr else None,
+        note="count agreement only -- one real ally plus one phantom scores exact")
+    print(f"\n  recorded: exact {exact / max(n, 1) * 100:.1f}%, "
+          f"mean residual {res.mean():+.2f} (raw {raw_res.mean():+.2f}), "
+          f"rounds agreeing {k}/{nr}"
+          + (f" 95% CI [{metrics.wilson(k, nr)[0]:.0%}, {metrics.wilson(k, nr)[1]:.0%}]"
+             if nr else ""))
 
 
 def sweep(args) -> int:
@@ -431,6 +484,8 @@ def main(argv=None) -> int:
     ap.add_argument("--scan", action="store_true")
     ap.add_argument("--score", action="store_true")
     ap.add_argument("--sweep", action="store_true")
+    ap.add_argument("--record", action="store_true",
+                    help="log the shipped point to `reticle metrics`")
     ap.add_argument("--interp", action="store_true",
                     help="what a carried bearing is worth, measured on self")
     ap.add_argument("--hz", type=float, default=2.0)
