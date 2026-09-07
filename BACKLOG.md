@@ -427,12 +427,25 @@ against the actual values in these pixels. So the npz keeps its capture median
 and swaps only its labels.
 
 **Trigger: the next time a session's geometry is built.** It also retires the
-standing `doctor` ERROR that 34 of 35 npz are stale, since the labels would
+standing `doctor` ERROR that 35 of 36 npz are stale, since the labels would
 stop depending on `classify()` at all.
 
-**Interim, done 2026-09-06:** `b9558488a607` has a stored fit at **IoU 95.1%,
-rot 270, scale 0.2264** against its own derived mask, so the good geometry
-exists for that clip even though nothing loads it yet.
+**Interim, done 2026-09-07 and it is most of the way there.**
+`prototypes/map_shade.py` warps the art into every session's widget pixels and
+writes six terrain classes ADDITIVELY -- `shade`, `shade_kind`, `shade_step`,
+`shade_purity`, `shade_fit`, `shade_map`, `shade_built_by` in **35 of 36 npz**.
+So the art's geometry is now IN the artefact every minimap module loads; what
+remains is for a consumer to prefer it over `labels`, which is the
+re-validation job this entry describes.
+
+**Two corrections to what this entry used to say.** *"Only 2 sessions have a
+stored fit"* -- all 35 do now, and the fit is a per-(map, profile) constant to
+within the refine search's own step, so it costs about 2 s per distinct static
+and there are only SIX distinct statics in the store. And the interim note
+recorded `b9558488a607` at **IoU 95.1%, rot 270, scale 0.2264**: no such file
+was ever in `reference/fits/`, and that session recomputes at IoU 94.6%, scale
+0.2246 -- identical to the other 28, because they all share one `static`. The
+figure was never checkable; write the path next time, not just the number.
 
 ## THE COLLECTIVE TEAM VIEWCONE -- BUILT 2026-09-06
 

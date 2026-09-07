@@ -275,6 +275,83 @@ the evidence, which is the seeding mistake in another costume. The next step is
 a bearing resolved from BOTH the track's own history and this independent
 lit-fraction test.
 
+### THE BASE LAYER IS BUILT: THE ART'S LEVELS ARE IN THE GEOMETRY NPZ (2026-09-07)
+
+`prototypes/map_shade.py`, additively -- `shade`, `shade_kind`, `shade_step`,
+`shade_purity`, `shade_fit`, `shade_map`, `shade_built_by` in **35 of 36**
+geometry npz. Nothing existing reads them and nothing existing changed. Method,
+per-map ladders and every figure are in that module's docstring; what belongs
+here is what spans files.
+
+**SIX CLASSES, because a level table alone would have lost half of it.** the
+recorder, asked what the class set needed: *there is a darker gray for the
+overhang on B site, and I believe there was lighter gray for high ground in some
+areas.* Both are in the art, both were checked by rendering the art BEFORE
+anything was baked, and only the second is a level:
+
+    FLOOR   terrain on a rung. Ascent's ladder is 118 122 133 136 139 145 --
+            five rungs of high ground, and painted, +4 is the raised strip up
+            mid and +5 the two plateaus
+    SHADOW  terrain DARKER than the base. Ascent has EXACTLY ONE region, 4643 px
+            in one component, greys 94..114 as a GRADIENT rather than a level,
+            along one edge of a bomb site. Haven has one, Abyss a small one,
+            Lotus/Split/Sunset none. It is 0.06% of the art, so a share
+            threshold drops it -- it is kept by being a COHERENT REGION
+    RAMP    coherent terrain BETWEEN rungs. A gradient is what a slope looks
+            like drawn flat, and they sit where the stairs are
+    LINE    the line-work. Not terrain, and the brightest thing on the widget
+    SITE    the bomb sites, on their own ladder -- sites have elevation too
+    VOID    off the map, from the alpha
+
+**Three separations were each nearly got wrong, and each is a general shape:**
+
+* **the bomb-site olive has GREY VALUE 148**, which collides with a plausible
+  terrain rung. Split the families on SATURATION before quantising, or every
+  site files as high ground -- which is what `cone_terrain.py` does;
+* **a plain histogram cannot tell a rung from the antialiasing between two.** On
+  Ascent the real rungs hold 0.9-4.5% each and the continuum between them holds
+  0.24-0.35% at EVERY value from 119 to 138, so a share threshold either invents
+  five rungs or loses 136. Histogram the INTERIOR -- pixels whose neighbourhood
+  is one grey -- and the continuum vanishes;
+* **area is not enough to call an off-rung region terrain; it must also be
+  THICK.** Lotus's 186 is 1.3% of the grey family in 106 components of inscribed
+  radius 2 -- the dim inner edge of the wall line-work, which area alone passes
+  as high ground 41 greys above the top rung.
+
+**Measured against `cone_terrain`'s lit-frequency map: the artefact rate climbs
+with the rung and the real cones fall away with it** -- always-lit 8.1% at the
+base against 35.8% at +5, sometimes-lit 7.7% against 0.1%. **51.9% of every
+always-lit pixel is off the base shade.** And `cone_terrain`'s "two or more steps
+lighter" bucket is 47.5% bomb SITE and 9.3% line-work -- a real artefact rate
+for a population that is mostly not elevation.
+
+**The independent alignment check is SITE against the derived `PLANT` labels:
+87.4-87.9% IoU over four independent statics on three maps**, pixel counts
+within 3%. Two methods sharing nothing -- an olive in a clean render against a
+hue rule fitted to a capture median. The alpha fit says the footprint lines up;
+this says the interior does.
+
+**Two stored fits were STALE and both were worse than the code's own answer** --
+`a06f04a0059f` IoU 79.9% / NCC 0.530 recomputing at 94.6% / 0.752, and
+`5822b6646448` 94.6% / 0.550 at 95.4% / 0.659. So every number `cone_terrain.py`
+published was measured through the worse of the two Ascent alignments. **The
+conclusion survived it unchanged** (8.2 / 22.5 / 23.4 against 8.2 / 22.0 /
+23.3), which is worth knowing in both directions: the finding is robust, and the
+cache that produced it could not say it was old. `reference/fits/*.npz` carries
+`iou` and `ncc` and no code stamp; `shade_built_by` exists because of this.
+
+**29 of the 36 npz share ONE `static`** -- they borrow wholesale from a single
+donor -- so there are only SIX distinct geometries in the store and the fit is
+warped once per static, not per session. It also means an untagged session
+sharing a tagged one's static takes that map: the shade describes the ARRAY, not
+the session. That is how three of the four untagged sessions got one.
+**`79a706a7ce4c` has its own static and no `map:` tag, so it has no shade** --
+one tag from the recorder fixes it.
+
+**A geometry rebuild DROPS these arrays**, and `doctor` already says 35 of 36
+npz are stale, so the next rebuild is coming. Re-run `map_shade.py build --all`
+after it; it is idempotent and about two minutes for the store.
+
 ### THE WIDGET IS LAYERS, AND THEY HAVE TO BE SOLVED TOGETHER (2026-09-06)
 
 **Recorded after three corrections in a row, all from the recorder, all right,

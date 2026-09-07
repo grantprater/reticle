@@ -11,35 +11,59 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-06, the collective team viewcone
+## PICKING UP -- 2026-09-07, the BASE layer is built
+
+### DONE 2026-09-07: the art's terrain LEVELS are in the geometry npz.
+
+`prototypes/map_shade.py`, additive, **35 of 36 npz**. Six classes rather than a
+level table -- FLOOR (a per-map ladder), RAMP, SHADOW, LINE, SITE, VOID -- plus
+`shade_step`, `shade_purity` and the fit used. Full argument and every figure in
+that module's docstring and in `prototypes/CLAUDE.md` under "THE BASE LAYER IS
+BUILT". The three that matter here:
+
+* **51.9% of every always-lit pixel is off the base shade**, and the artefact
+  rate climbs monotonically with the rung (8.1% at base, 35.8% at +5) while the
+  real cones fall away with it (7.7% sometimes-lit at base, 0.1% at +5);
+* **SITE against the derived `PLANT` labels is 87.4-87.9% IoU** on four
+  independent statics across three maps -- an alignment check the alpha fit
+  cannot give;
+* **two stored fits were stale and worse than the code's own answer**
+  (`a06f04a0059f` 79.9% -> 94.6% IoU). Recomputed. `cone_terrain`'s numbers were
+  measured through the worse one and **survived unchanged**.
+
+**Licensing: DECIDED, do not re-open.** the recorder, asked directly, is content
+to take level geometry from the wiki art. The PNGs stay in the store, outside
+the repo, never committed -- a BUILD-TIME input, and what ships is a derived
+geometry array.
 
 ### DO THIS FIRST. Nothing else, until it is done.
 
-**Extract the wiki art's terrain SHADE into the geometry npz.** Additive only --
-add a `shade` array beside `labels` and change NO existing consumer.
+**The ANNOTS layer: subtract the audio ring and the icons, then fit bearings to
+the residual.** BASE now exists, so this is the next layer down the list in
+`prototypes/CLAUDE.md`'s "THE WIDGET IS LAYERS", and it is unblocked rather than
+merely next.
 
-    for each session:  load reference/maps/<map>.png and reference/fits/<sid>.npz
-                       warp the art with the stored (rot, scale, dx, dy)
-                       quantise the art's floor greys into shade classes
-                       write `shade` into <sid>.npz next to `labels`
+    per frame:  fit an affine art-grey -> observed on pixels explained by
+                nothing else, using `shade` as the art level
+                subtract the KNOWN-geometry annotations -- the audio ring
+                (an annulus at 94-95 px round the self icon, drawn only while
+                running), the icons, the X marks
+                what remains is LIGHT: the union of the team's cones
 
-**Why it is first:** the derived `labels` collapses every terrain grey into one
-flat `FLOOR`, and that is measured to cause 3x the false-"lit" rate wherever the
-art says the shade changes (8.2% on the main floor shade against 22-23% one or
-two steps lighter -- `prototypes/cone_terrain.py`). Every cone number in this
-session is limited by it. It is the base layer the whole layered design needs.
+**Two things the shade work says about how to do it.** The affine should be
+fitted on `shade_kind == FLOOR & shade_step == 0` only -- the base shade is 72%
+of the usable area and carries 90% of the real cone pixels, so it is both the
+biggest and the cleanest population. And `shade_kind == LINE` should be excluded
+from every lit test outright: it is 21.4% always-lit and it is not terrain.
 
-**Why ADDITIVE and nothing more:** `floor_mask` feeds the shipped self-position
-track, which is validated by two independent ground truths (`xmark_eval`,
-`chokepoint_eval`). Switching its geometry source invalidates both and moves
-stored numbers, so that is a re-validation job with its own session. Writing a
-new array touches none of it.
+**One tag would finish the coverage:** `79a706a7ce4c` has its own static and no
+`map:` tag, so it is the only geometry npz with no shade. It is the third Cypher
+demo clip; if it is Ascent, tagging it costs nothing and
+`map_shade.py build 79a706a7ce4c --map ascent` does the rest.
 
-**Licensing: DECIDED, do not re-open.** the recorder, asked directly, is content
-to take level geometry from the wiki art. Keep the PNGs where they already are
--- fetched into the store, outside the repo, never committed (verified: no PNG
-has ever been added in this repo's history) -- so the artwork stays a
-BUILD-TIME input and what ships is a derived geometry array.
+**And re-run `map_shade.py build --all` after any geometry rebuild** --
+`minimap_geometry.py` writes the npz from scratch and will drop these arrays.
+`doctor` says 35 of 36 are stale, so that rebuild is coming.
 
 
 **The observable area is built, drawn and measured, and the session ended on a
