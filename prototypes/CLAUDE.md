@@ -223,6 +223,55 @@ correctness.** One real ally plus one phantom scores exact.
 `ALLY_COV_MIN = 0.25`, not the enemy ring's 0.30: a different key, a filled
 teardrop surround rather than a 1-2 px rim, fragmenting differently.
 
+### THE FITTED BEARING FLIPS 180 DEGREES -- 16% of frames (2026-09-06)
+
+**This is the cone channel's ceiling and it was found by accident**, while
+asking what a CARRIED bearing is worth across a bad frame. Full method and
+numbers in `prototypes/cone_flip.py`.
+
+At 15 Hz the change in the SELF bearing between consecutive frames (67 ms) is
+bimodal over 3926 pairs: 47.0% under 10 degrees, and then a **second mode at
+150-180 degrees holding 16.1%**. Nobody turns 180 degrees in 67 ms one time in
+six, and the p90 is flat at ~160 degrees across every gap from 67 ms to 3 s --
+it does not improve with sample rate, which is what rules out rotation.
+
+**It is the failure this directory records as FIXED.** `minimap_cone`'s
+docstring describes "a facing calculation that was ~180 degrees off from icon
+fragmentation" and the fix was `fit_ring`. The fix was partial, and nothing
+measured the residue for four days.
+
+**`cov` and `lobe` cannot see it**: the flipped population scores a HIGHER
+median lobe (0.65 against 0.58) and slightly lower coverage (0.46 against
+0.50). A flip is a confident answer, so no threshold on the existing features
+removes it.
+
+**Read every cone number with this.** The observable area is built out of these
+bearings, so about a sixth of the cones in it point backwards, and every SS11
+invariant written in terms of that area inherits the error. The area is drawable
+and measurable; it is not yet trustworthy as a gate.
+
+**The corroborator is the drawn cone itself, and it half works.** Comparing the
+lit fraction inside cone(fit) against cone(fit+180) is a RELATIVE test over two
+regions of one frame -- the shape that has never once been wrong here -- and
+against temporal consensus as a proxy truth it separates 80% to 48%. It is
+ASYMMETRIC and honestly so: it endorses a good bearing and merely declines to
+endorse a bad one, the same one-sided shape as the enemy X mark.
+
+Two measurement notes, and the first inverted the result:
+
+* **lit FRACTION, not median lift.** The median found nothing (+0.00 both,
+  41% against 28%) because the drawn cone is a partial bright region inside the
+  raycast area and a median over the whole area is diluted by the unlit part.
+  The aggregate convention caught this one on its own author;
+* **measured on the floor ERODED by 7 px.** A raw lift is almost entirely wall
+  outlines -- registration and anti-aliasing, not cones -- which is why an
+  absolute lift threshold had already been abandoned that morning.
+
+NOT A FIX YET. Temporal consensus defined the labels here so it cannot also be
+the evidence, which is the seeding mistake in another costume. The next step is
+a bearing resolved from BOTH the track's own history and this independent
+lit-fraction test.
+
 ### A CARRIED BEARING IS WORTHLESS AT 500 ms -- and the median hides it
 
 The origin-event model says a bad frame is a missing OBSERVATION rather than a
@@ -247,11 +296,11 @@ So `Tracker.bearings()` refuses a carried bearing by default. That is the
 under-claiming rule: an observable area that is too LARGE silently discards
 real enemy observations, one that is too small only fails to fire.
 
-**OPEN, and it is the first thing to run:** this is 2 Hz, so the smallest
-visible gap is ~500 ms, and the shipped minimap reader runs at **15 Hz
-(67 ms)**. A player can turn 180 degrees in half a second and probably cannot
-in a sixteenth of one, so the useful regime is very likely below what this pass
-can see. `ally_cone.py --scan --hz 15 --minutes 6 --tag .hz15` then `--interp`.
+**ANSWERED at 15 Hz the same day, and the answer is not about carrying.** The
+p90 is 162 degrees at a 67 ms gap and 160 at 3 s -- FLAT. The tail is not the
+player turning, it is the fit flipping 180 degrees on 16% of frames; see the
+section above. So the carry is not what is broken, and raising the sample rate
+does not help. Fix the bearing, then ask about carrying it again.
 
 ### Promotions, and what `doctor` caught the moment one moved
 
