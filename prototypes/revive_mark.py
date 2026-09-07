@@ -95,6 +95,8 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+import pyarrow.parquet as pq                                         # noqa: E402
+from reticle.checks import KNOWN_KD, track_entries                   # noqa: E402
 from reticle.killfeed import analyse_killfeed, killfeed_roi          # noqa: E402
 from reticle.profiles import get_profile                             # noqa: E402
 from reticle.store import Store                                      # noqa: E402
@@ -110,6 +112,13 @@ R_FRAC = (0.26, 0.42)
 CX_FRAC = 0.45
 #: Circumference samples per candidate.
 N_THETA = 64
+#: Longest unbroken white run along the fitted circumference, as a fraction of
+#: it, above which the entry carries a badge. **Fixed on `587c15b07779` as the
+#: midpoint of its gap (negatives 0.125-0.219, positives 0.359-0.422) and
+#: written down BEFORE `ff636d173b07` was scored** -- not swept, and not tuned
+#: on the held-out session. It lived only in this file's prose until the scan
+#: was added, which is how a gate quietly becomes unversioned.
+RUN_MIN = 0.29
 
 
 def white_mask(bgr: np.ndarray) -> np.ndarray:
@@ -198,6 +207,51 @@ def entry_marks(frame, roi, w, h, profile_name):
     return out
 
 
+def _scan(sid, st, cap, roi, w, h, profile_name) -> int:
+    """Score every counted death track IN ITS OWN SLOT, and reconcile.
+
+    **The slot restriction is the whole correctness of this.** `entry_marks`
+    returns every entry visible in the frame, and other players' entries carry
+    badges too -- an ally kill at 524.8s on `ff636d173b07` scores 0.453, higher
+    than three of the four real ones. Taking the frame's maximum finds 5 of 24
+    and breaks the reconciliation; asking the player's own slot finds 4.
+
+    Three frames per track, because a badge can be occluded as a band slides.
+    """
+    hp = list(pathlib.Path(st.root, "l1", "hud").rglob(f"session={sid}/hud.parquet"))
+    if not hp:
+        print(f"{sid}: no l1/hud -- run `reticle hud` first")
+        return 1
+    hud = pq.read_table(hp[0]).to_pydict()
+    tracks = [e for e in track_entries(hud["t_ms"], hud["kf_death_mask"],
+                                       hud.get("kf_death_wx")) if e["counted"]]
+    hits = []
+    for e in tracks:
+        best = 0.0
+        for t in (e["t_first"], (e["t_first"] + e["t_last"]) / 2, e["t_last"]):
+            cap.set(cv2.CAP_PROP_POS_MSEC, t)
+            ok, fr = cap.read()
+            if not ok:
+                continue
+            for m in entry_marks(fr, roi, w, h, profile_name):
+                if m["slot"] == e["slot"]:
+                    best = max(best, m["run"])
+        print(f"  {e['t_first']/1000:8.1f}s  slot {e['slot']}  run {best:.3f}"
+              f"{'   BADGE' if best >= RUN_MIN else ''}")
+        if best >= RUN_MIN:
+            hits.append(e["t_first"] / 1000)
+    print(f"\n{len(hits)} of {len(tracks)} counted death tracks clear "
+          f"run >= {RUN_MIN}")
+    known = KNOWN_KD.get(sid)
+    if known:
+        print(f"  {len(tracks)} - {len(hits)} = {len(tracks) - len(hits)}"
+              f"   KNOWN_KD deaths = {known[1]}"
+              f"   {'AGREE' if len(tracks) - len(hits) == known[1] else 'DISAGREE'}")
+    else:
+        print(f"  no KNOWN_KD entry for {sid} -- count not reconcilable")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("session")
@@ -212,7 +266,9 @@ def main(argv=None) -> int:
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     roi = killfeed_roi(prof)
-    times = [float(x) for x in a.at.split(",")] if a.at else []
+    if not a.at:
+        return _scan(a.session, st, cap, roi, w, h, prof.name)
+    times = [float(x) for x in a.at.split(",")]
     panels = []
     for t in times:
         cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
