@@ -455,20 +455,59 @@ N_FACE = 32
 _FACE_TH = np.arange(N_FACE) / N_FACE * 2 * np.pi
 
 
-def fit_ring(red, grey, cx, cy, r_min: int = None, r_max: int = None):
-    """Best (coverage, cx, cy, r, interior stats) over centres and radii.
+def _best_circle(red, cx, cy, r_min, r_max):
+    """The (cov, x0, y0, r) with the most red circumference. Vectorised.
 
-    Coverage is the share of the circle's circumference that is red. A whole
-    icon scores high even with the arc broken in several places, which is the
-    entire point -- unlike a hole test, it does not care whether the breaks
-    happen to disconnect the ring.
+    The search is 11x11 centre offsets by ~6 radii, and the loop version did
+    726 separate `.mean()` calls over ~40 points each -- 8 ms per blob, which
+    made `ally_icons` 114x the cost of `ally_rings` and 58 min for one session
+    at 15 Hz. All 121 centres for one radius are one gather instead.
 
-    `red` is any binary ring mask, not necessarily the enemy red: the self key
-    works here unchanged, which is what `self_agent.py` uses it for. `r_min`
-    and `r_max` default to the measured enlarged-widget pair.
+    **Tie-breaking is preserved exactly.** The loop kept the FIRST best (it
+    tested `cov > best[0]`, strictly) and iterated dy, then dx, then r; the
+    array is built in that order and `argmax` also returns the first maximum.
+    `_fit_ring_loop` is kept as the reference and `--self-test` checks them.
     """
-    r_min = R_MIN if r_min is None else r_min
-    r_max = R_MAX if r_max is None else r_max
+    h, w = red.shape
+    offs = np.arange(-SEARCH, SEARCH + 1)
+    # `rint(c + off)`, NOT `rint(c) + off`. Those are not the same under
+    # banker's rounding when the centroid lands on a half-integer, which real
+    # centroids do constantly: at cy=76.5 the loop's eleven offsets come out
+    # 72,72,74,74,76,76,78,78,80,80,82 -- duplicated and SKIPPING, so the
+    # search is neither centred nor +/-5. That is an artefact rather than a
+    # design, but it is the SHIPPED behaviour and every number on record was
+    # measured with it, so this reproduces it exactly. Widening the search to
+    # a real +/-5 is a detector change and needs its own measurement; doing it
+    # inside a speedup is the unversioned edit `metrics` BROKEN exists to
+    # catch. Recorded as a defect in NOTES.md.
+    y0s = np.rint(cy + offs).astype(int)[:, None]        # (11, 1)  dy outer
+    x0s = np.rint(cx + offs).astype(int)[None, :]        # (1, 11)  dx inner
+    n_off = len(offs)
+    radii = list(range(r_min, r_max + 1))
+
+    cov = np.full((n_off, n_off, len(radii)), -1.0)
+    for k, r in enumerate(radii):
+        pts, _ = _offsets(r)
+        xs = x0s[..., None] + pts[None, None, :, 0]      # (11, 11, P)
+        ys = y0s[..., None] + pts[None, None, :, 1]
+        ok = (xs >= 0) & (ys >= 0) & (xs < w) & (ys < h)
+        n_ok = ok.sum(-1)
+        hit = red[np.clip(ys, 0, h - 1), np.clip(xs, 0, w - 1)] & ok
+        with np.errstate(invalid="ignore", divide="ignore"):
+            c = hit.sum(-1) / n_ok
+        # The loop SKIPPED a candidate with too few in-bounds points, which is
+        # not the same as scoring it zero: a skipped candidate can never win.
+        cov[:, :, k] = np.where(n_ok >= len(pts) * 0.75, np.nan_to_num(c, nan=-1.0), -1.0)
+
+    if not (cov >= 0).any():
+        return None
+    i = int(np.argmax(cov))
+    iy, ix, ir = np.unravel_index(i, cov.shape)
+    return (float(cov[iy, ix, ir]), int(x0s[0, ix]), int(y0s[iy, 0]), radii[ir])
+
+
+def _best_circle_loop(red, cx, cy, r_min, r_max):
+    """The reference `_best_circle`. Only `--self-test` should call this."""
     h, w = red.shape
     best = None
     for dy in range(-SEARCH, SEARCH + 1):
@@ -483,6 +522,47 @@ def fit_ring(red, grey, cx, cy, r_min: int = None, r_max: int = None):
                 cov = float(red[ys[ok], xs[ok]].mean())
                 if best is None or cov > best[0]:
                     best = (cov, x0, y0, r)
+    return best
+
+
+def _reach(red, cx, cy, r):
+    """How far past `r` the key reaches, per angle. ONE ray march, two readers.
+
+    `_facing` and `_lobe` each computed this identically and independently --
+    the same 32 angles, the same radii, the same test -- which is a duplicated
+    definition of the sort this repo has paid for elsewhere. They now share it.
+    """
+    h, w = red.shape
+    reach = np.zeros(N_FACE)
+    for k, th in enumerate(_FACE_TH):
+        dx, dy = np.cos(th), np.sin(th)
+        for rr in np.arange(r + 1, r * 1.9, 0.7):
+            x, y = int(round(cx + dx * rr)), int(round(cy + dy * rr))
+            if not (0 <= x < w and 0 <= y < h):
+                break
+            if red[y, x]:
+                reach[k] = rr - r
+    return reach
+
+
+def fit_ring(red, grey, cx, cy, r_min: int = None, r_max: int = None):
+    """Best (coverage, cx, cy, r, interior stats) over centres and radii.
+
+    Coverage is the share of the circle's circumference that is red. A whole
+    icon scores high even with the arc broken in several places, which is the
+    entire point -- unlike a hole test, it does not care whether the breaks
+    happen to disconnect the ring.
+
+    `red` is any binary ring mask, not necessarily the enemy red: the self key
+    works here unchanged, which is what `self_agent.py` uses it for, and the
+    ALLY key works here too, which is what `icons` uses it for. `r_min` and
+    `r_max` default to the measured enlarged-widget pair and must be scaled by
+    the caller for the small widget.
+    """
+    r_min = R_MIN if r_min is None else r_min
+    r_max = R_MAX if r_max is None else r_max
+    h, w = red.shape
+    best = _best_circle(red, cx, cy, r_min, r_max)
     if best is None:
         return None
     cov, x0, y0, r = best
@@ -493,13 +573,14 @@ def fit_ring(red, grey, cx, cy, r_min: int = None, r_max: int = None):
         return None
     inner_red = float(red[ys[ok], xs[ok]].mean())
     inner_v = float(grey[ys[ok], xs[ok]].mean())
+    reach = _reach(red, x0, y0, r)
     return {"cov": cov, "cx": x0, "cy": y0, "r": r,
             "inner_red": inner_red, "inner_v": inner_v,
-            "facing": _facing(red, x0, y0, r),
-            "lobe": _lobe(red, x0, y0, r)}
+            "facing": _facing_from(reach, r),
+            "lobe": _lobe_from(reach, r)}
 
 
-def _lobe(red, cx, cy, r):
+def _lobe_from(reach, r):
     """How far the largest lobe reaches past the ring, as a fraction of r.
 
     Reported separately from `facing` because it answers a different question:
@@ -507,17 +588,12 @@ def _lobe(red, cx, cy, r):
     Cypher cam is a perfect circle, so a lobe near zero is evidence against a
     player independent of any rotation measurement.
     """
-    h, w = red.shape
-    best = 0.0
-    for th in _FACE_TH:
-        dx, dy = np.cos(th), np.sin(th)
-        for rr in np.arange(r + 1, r * 1.9, 0.7):
-            x, y = int(round(cx + dx * rr)), int(round(cy + dy * rr))
-            if not (0 <= x < w and 0 <= y < h):
-                break
-            if red[y, x]:
-                best = max(best, rr - r)
-    return float(best / r) if r else 0.0
+    return float(reach.max() / r) if r else 0.0
+
+
+def _lobe(red, cx, cy, r):
+    """`_lobe_from` over a freshly marched `reach`. See `_reach`."""
+    return _lobe_from(_reach(red, cx, cy, r), r)
 
 
 # Minimum lobe height, as a fraction of the fitted radius, for a facing to be
@@ -528,6 +604,11 @@ LOBE_MIN_FRAC = 0.22
 
 
 def _facing(red, cx, cy, r):
+    """`_facing_from` over a freshly marched `reach`. See `_reach`."""
+    return _facing_from(_reach(red, cx, cy, r), r)
+
+
+def _facing_from(reach, r):
     """Bearing of the facing triangle, or None if no real lobe stands out.
 
     correcting an earlier claim of mine that a placed ability never
@@ -554,16 +635,6 @@ def _facing(red, cx, cy, r):
     reach at this angle" isolates it without needing the ring to be connected
     to it.
     """
-    h, w = red.shape
-    reach = np.zeros(N_FACE)
-    for k, th in enumerate(_FACE_TH):
-        dx, dy = np.cos(th), np.sin(th)
-        for rr in np.arange(r + 1, r * 1.9, 0.7):
-            x, y = int(round(cx + dx * rr)), int(round(cy + dy * rr))
-            if not (0 <= x < w and 0 <= y < h):
-                break
-            if red[y, x]:
-                reach[k] = rr - r
     if reach.max() < LOBE_MIN_FRAC * r:
         return None
     # Weighted mean over the contiguous peak, so the answer is not quantised to
