@@ -94,11 +94,24 @@ tracker defects, and two are an onset landing across a window boundary. Full
 table in `docs/ROSTER_FINDINGS.md`.
 
 **The consequence is a re-ranking: the work is in the KILLFEED, not the
-roster.** And the revive-mark reader -- CLAUDE.md's candidate next step #2 -- is
-now the highest-value addition on evidence rather than argument: it resolves 3
-of the 7 windows outright, on top of the K/D divergences it was already wanted
-for. The marks all sit right of the weapon icon and detecting *a* badge needs no
-icon list.
+roster.** The revive-mark reader -- CLAUDE.md's candidate next step #2 -- is now
+the highest-value addition on evidence rather than argument: it resolves 3 of
+the 7 windows outright, on top of the K/D divergences it was already wanted for.
+
+**STARTED 2026-09-07, geometry located, detector NOT built.** The badge is a
+white CIRCULAR ARC and it **straddles the victim-plate boundary** -- extracting
+the weapon-icon-to-victim-name gap gets only a sliver of it, so a crop keyed to
+`EntryView.wx1 .. victim_run[0]` is the wrong window and that was the assumption
+this started from. The headshot crosshair is the common occupant of that gap and
+appears on marked entries too, so the question is *is there an arc*, not *which
+mark is this*. Measured on three confirmed positives and four negatives; full
+crops and the next step in `docs/ROSTER_FINDINGS.md`.
+
+**It stops at three positives deliberately.** `ff636d173b07` is the session to
+add before fitting anything: CLAUDE.md records four hand-verified Phoenix ult
+marks there and its K/D is +4 deaths against `KNOWN_KD` for exactly that reason,
+which makes seven positives with an independent count to score against. Then fit
+a circle rather than threshold one -- `minimap.fit_ring` is the precedent.
 
 `reticle audit` is `audit-0.3.0` and now reports killfeed health from stored L1:
 counted tracks that never formed a divider (61 corpus-wide) and tracks lasting

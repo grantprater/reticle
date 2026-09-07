@@ -497,3 +497,61 @@ track at 702.5 s. CLAUDE.md already records that those deaths count.
 
 So this is not a defect and not a regression: it is a real game event the round
 change exposed, and the audit flag did its job by demanding an explanation.
+
+---
+
+# 2026-09-07: the revive-mark reader, STARTED -- geometry located
+
+The mark that explains three of the seven unresolved audit windows. Not built;
+what follows is the measurement any detector has to be built on, and it already
+corrects the assumption I started from.
+
+## WHERE IT IS, and it is not where the layout suggests
+
+The band reads `[killer portrait][killer name][weapon icon][marks][victim name]`,
+so the obvious crop is `EntryView.wx1` (right edge of the weapon icon) to
+`victim_run[0]` (left edge of the victim's name). Extracted at 6x INTER_NEAREST
+for three confirmed Run It Back entries and four confirmed plain ones:
+
+    marked   211.5s slot 1   Vyse (+) Phoenix     gap 66 px
+             951.5s slot 1   Omen (+) Me          gap 32 px
+            1378.5s slot 0   Fade (+) Phoenix     gap 74 px
+    plain   1018.5s slot 1   Phoenix (x) Me       gap 58 px
+             323.0s slot 0   Chamber (x) Jett     gap 54 px
+             323.0s slot 2   Raze (x) Vyse        gap 54 px
+             323.0s slot 3   Omen (arrow)(x) Raze gap 88 px
+
+**The badge STRADDLES the victim-plate boundary and is only half inside that
+crop.** In every marked case the circular arc appears at the extreme right edge,
+drawn over the red victim plate, with `victim_run[0]` cutting through it. So a
+reader keyed to the weapon->victim gap alone would see a sliver of arc and
+nothing more. **The crop must extend past `victim_run[0]`.**
+
+## WHAT SEPARATES THEM
+
+    Run It Back   a large white CIRCULAR ARC enclosing a curved glyph, drawn
+                  across the plate boundary. Unmistakable at 6x.
+    headshot      four short bars arranged around a centre point -- no arc.
+                  It is the COMMON occupant of this gap and appears on marked
+                  and unmarked entries alike, so it is a confounder rather than
+                  an alternative: 211.5s and 1378.5s carry BOTH.
+    wallbang      a separate arrow-like glyph, seen at 323.0s slot 3 alongside
+                  the crosshair.
+
+So the discriminator is the ARC, and the marks are not mutually exclusive --
+a detector must answer "is there an arc" rather than "which single mark is this".
+
+## Why it stops here
+
+Three confirmed positives is not a population. This directory's own lesson from
+earlier today is that a mechanism confirmed once and generalised is how the
+`over_long` merge hypothesis got refuted on its first independent test, and
+`prototypes/CLAUDE.md` records `detail` failing the same way at n=3. The next
+step is a labelled set spanning both sessions with a Phoenix or Kayo, then a
+circle FIT rather than a threshold -- `minimap.fit_ring` is the precedent, and
+the standing rule is *fit a shape, do not repair one*.
+
+`ff636d173b07` is the session to add: CLAUDE.md records **four** Phoenix ult
+marks there at 13:21, 20:00, 29:13 and 38:20, verified by hand, and its K/D is
++4 deaths against `checks.KNOWN_KD` for exactly that reason. That is seven
+positives across two sessions with an independent count to score against.
