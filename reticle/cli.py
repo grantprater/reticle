@@ -34,7 +34,7 @@ from .scoreboard import read_scoreboard
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
-from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px,
+from .minimap import (BOXEDGE, MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px,
                       widget_scale,
                       pick_self, self_rings, static_map, widget_drawn)
 from .overlay import OverlayContext, draw
@@ -1390,9 +1390,44 @@ def cmd_overlay(args) -> int:
                          table.column("t_end_ms").to_pylist(),
                          table.column("state").to_pylist()))
 
+    # The minimap channel needs the session's static map (for `widget_drawn`
+    # and the floor) and, if it has been built, the geometry labels -- BOXEDGE
+    # is the one class a ray passes through without lighting. Without labels
+    # the area is simply the conservative one, so a missing npz degrades the
+    # picture rather than stopping it.
+    mm_box = mm_floor = mm_passable = mm_sgray = None
+    if not args.no_minimap:
+        med = store.read_static_map(sid)
+        if med is None:
+            geo = Path(args.store) / "geometry" / f"{sid}.npz"
+            if geo.is_file():
+                med = np.load(geo)["static"]
+        if med is None:
+            print("minimap    no static map and no geometry -- "
+                  "run `reticle minimap` or minimap_geometry.py to draw the cone")
+        else:
+            mm_box = minimap_roi_px(profile, w, h)
+            mm_floor = floor_mask(med)
+            mm_sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
+            mm_passable = mm_floor
+            geo = Path(args.store) / "geometry" / f"{sid}.npz"
+            if geo.is_file():
+                z = np.load(geo)
+                if "labels" in z.files and z["labels"].shape == mm_floor.shape:
+                    mm_passable = mm_floor | (z["labels"] == BOXEDGE)
+                    print("minimap    geometry labels loaded "
+                          "(rays pass low boxes without lighting them)")
+                else:
+                    print("minimap    geometry present but unusable -- "
+                          "floor only, which under-claims")
+            else:
+                print("minimap    no geometry npz -- floor only, which under-claims")
+
     ctx = OverlayContext(profile=profile, templates=templates, width=w, height=h,
                          kf_mask=kf_mask, min_confidence=args.min_confidence,
-                         min_margin=args.min_margin, spans=spans)
+                         min_margin=args.min_margin, spans=spans,
+                         mm_box=mm_box, mm_floor=mm_floor,
+                         mm_passable=mm_passable, mm_sgray=mm_sgray)
 
     out = Path(args.out) if args.out else Path.cwd() / f"overlay_{sid}_{int(t_from)}ms.mp4"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -1445,6 +1480,10 @@ def cmd_overlay(args) -> int:
           f"@ {args.fps or args.hz:g} fps")
     print("\ngreen = player kill, red = player death, grey = not the player,")
     print("amber = an overlay covers the name (attribution refused), magenta = unparsed.")
+    if ctx.has_minimap:
+        print("on the minimap: yellow = self, green = ally, AMBER = bearing "
+              "refused (so no")
+        print("cone was cast), blue tint = the collective observable area.")
     return 0
 
 
@@ -1757,6 +1796,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--scale", type=float, default=1.0, help="output scale (default 1.0)")
     s.add_argument("--no-mask", action="store_true",
                    help="skip overlay-mask calibration (faster, less faithful)")
+    s.add_argument("--no-minimap", action="store_true",
+                   help="skip the minimap channel (icons, bearings, the "
+                        "collective viewcone) -- it needs a static map")
     s.add_argument("--entries-only", action="store_true",
                    help="only render frames whose killfeed holds an entry")
     s.add_argument("--min-confidence", type=float, default=0.82)

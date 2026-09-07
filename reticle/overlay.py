@@ -17,6 +17,37 @@ Colour is the whole language here, so it is fixed in one place:
 Amber and magenta are the ones to look for. Grey on an entry that visibly says
 "Me" is the other bug worth hunting, and the per-side match scores are drawn so
 you can see how far off the threshold it was.
+
+THE MINIMAP CHANNEL, added 2026-09-06
+--------------------------------------
+This module drew no minimap entity at all, and the north star for the entity
+channel is *a system that can annotate the vods, highlight the abilities,
+players, viewcones, pings, and any other icons as they evolve*. The first
+instalment: player icons, their fitted bearings, and the COLLECTIVE TEAM
+VIEWCONE -- the union of every icon's raycast cone, which is the observable
+area four of the entity model's SS11 invariants are written in terms of.
+
+The colour language extends rather than forks. Structural colour still belongs
+to the QUESTION and domain colour to the answer:
+
+    yellow   the local player's icon           (the game draws it yellow)
+    green    a teammate's icon                 (the game draws it teal)
+    amber    an icon whose BEARING was REFUSED -- same meaning as on a
+             killfeed entry: not a negative, a refusal. It casts no cone
+    blue     the observable area, as a tint over the floor
+
+**An amber icon is the one to look for here**, because a refused bearing is a
+hole in the observable area and the area is built to UNDER-CLAIM. A ring drawn
+where there is visibly no icon is the other: the ally key fires on green
+scenery through the semi-transparent widget, which is a measured false-positive
+class (`prototypes/ally_cone.py`), and a video is where you see how often.
+
+Per-frame detections, NOT tracks, and that is a stated gap. "As they evolve"
+means the overlay should render tracks -- an entity that flickers or swaps
+identity is visible instantly in a video and nearly invisible in an aggregate.
+Identity across frames does not exist for allies yet; when it does it belongs
+here, and until then a flickering ring is an honest picture of what the
+channel actually knows.
 """
 
 from __future__ import annotations
@@ -27,7 +58,9 @@ import numpy as np
 
 import cv2
 
+from . import cone as cone_mod
 from .killfeed import ME_MATCH_MIN, analyse_killfeed, killfeed_roi
+from .minimap import ally_icons, self_icons, widget_drawn
 from .ocr import crop_gray, read_bottom_hud, read_scoreline, scoreline_roi
 from .profiles import Profile
 
@@ -40,6 +73,9 @@ GREY = (150, 150, 150)
 AMBER = (60, 180, 245)
 MAGENTA = (200, 90, 200)
 PANEL = (28, 24, 22)
+SELF = (90, 230, 250)      # the game draws the local player's icon yellow
+ALLY = (150, 230, 130)     # and a teammate's teal
+CONE = (235, 180, 80)      # the observable area, as a tint
 
 VERDICT_COLOUR = {
     "kill": GREEN,
@@ -65,6 +101,18 @@ class OverlayContext:
     min_confidence: float = 0.82
     min_margin: float = 0.05
     spans: list | None = None          # (t_start_ms, t_end_ms, state)
+    # The minimap channel. All four are needed together or none are drawn:
+    # `passable` differs from `floor` only where geometry labels exist, so a
+    # caller without them passes `floor` twice and gets the conservative area.
+    mm_box: tuple | None = None        # the widget ROI in frame pixels
+    mm_floor: np.ndarray | None = None
+    mm_passable: np.ndarray | None = None
+    mm_sgray: np.ndarray | None = None  # the static map, for `widget_drawn`
+
+    @property
+    def has_minimap(self) -> bool:
+        return (self.mm_box is not None and self.mm_floor is not None
+                and self.mm_passable is not None and self.mm_sgray is not None)
 
 
 def _text(img, s, org, colour=INK, scale=0.44, weight=1):
@@ -121,7 +169,9 @@ def draw(frame: np.ndarray, t_ms: float, frame_idx: int, ctx: OverlayContext) ->
     occl = tuple(sr.occluded) + tuple(br.occluded)
     if occl:
         lines.append("occluded: " + ", ".join(occl))
-    _panel(img, 8, 8, 430, 20 + 18 * len(lines))
+    if ctx.has_minimap:
+        lines.append(_draw_minimap(img, frame, ctx))
+    _panel(img, 8, 8, 470, 20 + 18 * len(lines))
     for i, line in enumerate(lines):
         _text(img, line, (18, 30 + 18 * i), INK, 0.46)
 
@@ -167,13 +217,72 @@ def draw(frame: np.ndarray, t_ms: float, frame_idx: int, ctx: OverlayContext) ->
 
     # ---- legend ---------------------------------------------------------
     key = [("kill", GREEN), ("death", RED), ("not player", GREY),
-           ("occluded", AMBER), ("unparsed", MAGENTA)]
+           ("occluded/refused", AMBER), ("unparsed", MAGENTA)]
+    if ctx.has_minimap:
+        key += [("self", SELF), ("ally", ALLY), ("observable", CONE)]
     _panel(img, 8, H - 34, 26 + 96 * len(key), 26)
     for i, (name, colour) in enumerate(key):
         x = 18 + 96 * i
         cv2.rectangle(img, (x, H - 26), (x + 14, H - 16), colour, -1)
         _text(img, name, (x + 20, H - 17), INK, 0.42)
     return img
+
+
+def _draw_minimap(img, frame, ctx) -> str:
+    """The minimap channel: icons, bearings, and the collective viewcone.
+
+    Returns a one-line summary for the HUD panel. Draws nothing and returns a
+    reason when the widget is not on screen -- which is a real state, not a
+    failure: the death screen and the M key both remove it, and 5% of a
+    session's frames have no widget in them.
+    """
+    x0, y0, x1, y1 = ctx.mm_box
+    crop = frame[y0:y1, x0:x1]
+
+    if not widget_drawn(crop, ctx.mm_sgray, ctx.mm_floor):
+        cv2.rectangle(img, (x0, y0), (x1, y1), MAGENTA, 2)
+        _text(img, "minimap: WIDGET NOT DRAWN", (x0 + 6, y0 + 18), MAGENTA, 0.5)
+        return "minimap  no widget (death screen, or the M key)"
+
+    # `require_facing=False` so a refused bearing is still DRAWN, in amber.
+    # Dropping it would hide the gap, and the gap is what limits the area.
+    allies = ally_icons(crop, ctx.mm_floor, require_facing=False)
+    selves = sorted(self_icons(crop, ctx.mm_floor, require_facing=False),
+                    key=lambda d: -d["cov"])[:1]
+
+    agg, per = cone_mod.observable(
+        ctx.mm_passable,
+        [(d["cx"], d["cy"], d["facing"]) for d in allies + selves],
+        visible=ctx.mm_floor)
+
+    # The observable area, tinted over the widget in place.
+    if agg.any():
+        sub = img[y0:y1, x0:x1]
+        tint = np.empty_like(sub)
+        tint[:] = CONE
+        m = agg[..., None]
+        sub[:] = np.where(m, cv2.addWeighted(sub, 0.68, tint, 0.32, 0), sub)
+
+    for d, base in [(d, ALLY) for d in allies] + [(d, SELF) for d in selves]:
+        cx, cy = int(round(d["cx"])), int(round(d["cy"]))
+        c = (x0 + cx, y0 + cy)
+        refused = d["facing"] is None
+        colour = AMBER if refused else base
+        cv2.circle(img, c, d["r"], colour, 1)
+        if refused:
+            # No arrow, because there is no bearing -- and no cone was cast.
+            _text(img, "?", (c[0] + d["r"] + 2, c[1] - d["r"]), AMBER, 0.42)
+        else:
+            th = np.radians(d["facing"])
+            tip = (int(c[0] + 2.2 * d["r"] * np.cos(th)),
+                   int(c[1] + 2.2 * d["r"] * np.sin(th)))
+            cv2.arrowedLine(img, c, tip, colour, 2, tipLength=0.32)
+
+    cov = cone_mod.coverage(agg, ctx.mm_floor)
+    n_ref = sum(1 for d in allies + selves if d["facing"] is None)
+    return (f"minimap  self {len(selves)}  allies {len(allies)}"
+            + (f"  ({n_ref} bearing refused)" if n_ref else "")
+            + f"  observable {cov * 100:.1f}% of floor")
 
 
 def _hms(ms: float) -> str:

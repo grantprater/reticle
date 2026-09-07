@@ -103,10 +103,12 @@ from minimap_icons import floor_mask, static_map                  # noqa: E402
 STORE = Path.home() / "reticle-store"
 
 # Class ids, in the order they are resolved. Later ones do not overwrite
-# earlier ones, so the order is the priority.
-VOID, FLOOR, HOLE, BORDER, BOXEDGE, PLANT = 0, 1, 2, 3, 4, 5
-NAMES = {VOID: "void", FLOOR: "floor", HOLE: "hole", BORDER: "border",
-         BOXEDGE: "box edge", PLANT: "plantable"}
+# earlier ones, so the order is the priority. RE-EXPORTED from
+# `reticle/minimap.py`, not defined here: shipped code needs them too (the cone
+# passes a ray through a BOXEDGE without lighting it), and two copies of a
+# number is a fork that agrees until it does not.
+from reticle.minimap import (BORDER, BOXEDGE, FLOOR, HOLE,        # noqa: E402,F401
+                             LABEL_NAMES as NAMES, PLANT, VOID)
 COLOURS = {VOID: (40, 40, 40), FLOOR: (90, 90, 90), HOLE: (20, 20, 110),
            BORDER: (255, 255, 255), BOXEDGE: (60, 200, 255), PLANT: (40, 220, 220)}
 

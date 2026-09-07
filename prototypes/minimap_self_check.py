@@ -76,9 +76,11 @@ from reticle.profiles import get_profile                           # noqa: E402
 STORE = Path.home() / "reticle-store"
 
 
-def self_mask(crop):
-    b, g, r = (crop[:, :, i].astype(np.int16) for i in range(3))
-    return (g > SELF_G_MIN) & (r > SELF_R_MIN) & ((g - b) > SELF_B_UNDER_G)
+# `self_mask` was defined identically HERE, in `self_agent.py`, and inline in
+# `reticle.minimap.self_rings` -- a three-way fork of one expression that
+# `doctor` could not see while every copy lived in prototypes/. One definition
+# now, in the shipped module, re-exported here.
+from reticle.minimap import self_mask                              # noqa: E402,F401
 
 
 def camera_yaw(prev_grey, grey):

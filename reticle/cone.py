@@ -315,7 +315,7 @@ def _bench(session: str) -> int:
     import time
     from pathlib import Path
 
-    from .minimap import floor_mask
+    from .minimap import BOXEDGE, floor_mask
 
     p = Path.home() / "reticle-store" / "geometry" / f"{session}.npz"
     if not p.is_file():
@@ -324,7 +324,6 @@ def _bench(session: str) -> int:
     z = np.load(p)
     labels, med = z["labels"], z["static"]
     floor = floor_mask(med)
-    BOXEDGE = 4
     passable = floor | (labels == BOXEDGE)
     ys, xs = np.where(floor)
     rng = np.random.default_rng(7)

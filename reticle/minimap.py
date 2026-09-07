@@ -159,6 +159,16 @@ FLOOR_S_MAX, FLOOR_V_MIN = 20, 100
 #: consequence of getting it wrong -- 9.6% of stored self positions and 4.4-6.7%
 #: of ally positions on `a06f04a0059f` sit inside a site, so a slab-only mask
 #: blinds the position reader on exactly the ground a round is decided on.
+# Geometry class ids, in the order `minimap_geometry.classify` resolves them --
+# later ones do not overwrite earlier ones, so the order is the priority. They
+# live here rather than in the prototype because SHIPPED code needs them: the
+# cone passes a ray through a BOXEDGE without lighting it, and `overlay` and
+# `cone` were each about to hardcode `4`, which is a fork with no name.
+VOID, FLOOR, HOLE, BORDER, BOXEDGE, PLANT = 0, 1, 2, 3, 4, 5
+LABEL_NAMES = {VOID: "void", FLOOR: "floor", HOLE: "hole", BORDER: "border",
+               BOXEDGE: "box edge", PLANT: "plantable"}
+
+
 SITE_H = (15, 40)
 SITE_S, SITE_V = 40, 120
 #: A site is a painted REGION. This floors out warm specks and, with the
@@ -587,17 +597,126 @@ def _rings(mask: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]
             for i in range(1, n) if st[i, 4] >= min_area]
 
 
-def self_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]]:
+def self_mask(crop: np.ndarray) -> np.ndarray:
+    """The local player's yellow key. One definition, two consumers."""
     b, g, r = (crop[:, :, i].astype(np.int16) for i in range(3))
-    return _rings((g > SELF_G_MIN) & (r > SELF_R_MIN)
-                  & ((g - b) > SELF_B_UNDER_G), floor)
+    return ((g > SELF_G_MIN) & (r > SELF_R_MIN) & ((g - b) > SELF_B_UNDER_G))
+
+
+def ally_mask(crop: np.ndarray) -> np.ndarray:
+    """The teammate teal key. Note it is ONE key for all four allies -- the
+    game does not colour teammates individually, so identity can never come
+    from colour here and has to come from tracking. See `track.assign`.
+    """
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    hh, ss, vv = (hsv[:, :, i].astype(np.int16) for i in range(3))
+    return ((hh > ALLY_H[0]) & (hh < ALLY_H[1])
+            & (ss > ALLY_S_MIN) & (vv > ALLY_V_MIN))
+
+
+def self_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]]:
+    return _rings(self_mask(crop), floor)
 
 
 def ally_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]]:
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    hh, ss, vv = (hsv[:, :, i].astype(np.int16) for i in range(3))
-    return _rings((hh > ALLY_H[0]) & (hh < ALLY_H[1])
-                  & (ss > ALLY_S_MIN) & (vv > ALLY_V_MIN), floor)
+    return _rings(ally_mask(crop), floor)
+
+
+# ------------------------------------------------------- icons, not just blobs
+# A BLOB of the right colour is not an icon, and on the ally key the gap between
+# those two is enormous. Measured by eye on a06f04a0059f: at 32:45 every
+# teammate is dead -- four blue X marks on the widget, zero living allies -- and
+# `l1/minimap` records `n_allies = 4`. At 4:59 exactly one ally is alive and it
+# records 4 again. Three false-positive classes are confirmed by rendering:
+# the teal SPAWN BARRIERS drawn across doorways in buy phase, the blue X marks
+# a teammate death leaves, and green scenery reaching the key through the
+# semi-transparent widget.
+#
+# So the ally channel cannot feed a vision cone as blobs. What promotes a blob
+# to an icon is the same structure `fit_ring` was built to read on the enemy:
+#
+#   cov     the fitted circle's circumference is covered by the key. A barrier
+#           is a rectangle and a stray scenery patch is neither
+#   inner   the interior is NOT the key colour, because an icon is a coloured
+#           surround around a PORTRAIT. This is what rejects a solid teal
+#           rectangle, which scores well on coverage precisely by being solid
+#   facing  the key reaches past the circle in ONE direction -- the teardrop.
+#           `_facing` returns None below LOBE_MIN_FRAC, so a compact glyph with
+#           no lobe (a standard ping, which is a cyan blob of icon size and has
+#           already been confused with an ally icon 13 times in 31) is refused
+#
+# **The third gate is the one that makes this worth doing, and it is why the
+# ally channel and the cone channel are one problem rather than two:** the test
+# for "is this a teammate" and the measurement of "where is that teammate
+# looking" are the same computation. Neither is available without the other.
+#
+# Thresholds are PARAMETERS, not constants baked in, because they were swept on
+# one session -- see `prototypes/ally_cone.py`, which is where the numbers below
+# come from and where they get re-swept.
+ALLY_COV_MIN = 0.30
+ALLY_INNER_MAX = 0.25
+
+
+def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
+          cov_min: float = ALLY_COV_MIN, inner_max: float = ALLY_INNER_MAX,
+          require_facing: bool = True, min_area: int | None = None) -> list[dict]:
+    """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
+
+    Returns a dict per icon: `cx`, `cy`, `r`, `cov`, `inner`, `facing` (degrees
+    or None), `lobe`, `area`. Facing is in the same convention as
+    `cone.raycast` -- 0 is +x and +90 is DOWN the image -- so it can be handed
+    straight to it.
+
+    `require_facing=False` keeps a positionally-good icon whose bearing was
+    refused, which is what the interpolation pass needs: a lobe the fit could
+    not read is a missing OBSERVATION, not a missing entity, and dropping the
+    row entirely would hide the gap from whatever fills it in.
+    """
+    sc = widget_scale(crop.shape[1])
+    r_min, r_max = max(3, int(round(R_MIN * sc))), max(4, int(round(R_MAX * sc)))
+    if min_area is None:
+        min_area = max(4, int(round(MIN_ICON_AREA * sc * sc)))
+    keyed = mask & floor
+    grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    m = cv2.morphologyEx(keyed.astype(np.uint8), cv2.MORPH_CLOSE,
+                         np.ones((_odd(3 * sc), _odd(3 * sc)), np.uint8))
+    n, _lbl, st, cen = cv2.connectedComponentsWithStats(m, 8)
+    out: list[dict] = []
+    for i in range(1, n):
+        if st[i, 4] < min_area:
+            continue
+        f = fit_ring(keyed, grey, cen[i][0], cen[i][1], r_min, r_max)
+        if f is None:
+            continue
+        if f["cov"] < cov_min or f["inner_red"] > inner_max:
+            continue
+        if require_facing and f["facing"] is None:
+            continue
+        # Two fragments of one broken surround fit the SAME circle. Dedupe by
+        # centre or a fragmented icon counts as several teammates, which would
+        # break the roster count constraint in the flattering direction.
+        if any(np.hypot(f["cx"] - o["cx"], f["cy"] - o["cy"]) < 8 * sc
+               for o in out):
+            continue
+        out.append({"cx": float(f["cx"]), "cy": float(f["cy"]), "r": int(f["r"]),
+                    "cov": float(f["cov"]), "inner": float(f["inner_red"]),
+                    "facing": f["facing"], "lobe": float(f["lobe"]),
+                    "area": int(st[i, 4])})
+    return out
+
+
+def ally_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
+    """Teammate icons, each carrying its own bearing. See `icons`."""
+    return icons(ally_mask(crop), crop, floor, **kw)
+
+
+def self_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
+    """The local player's icon. There is at most one, and the entity model
+    says its ABSENCE with the widget drawn is a detection failure rather than
+    information -- so a caller wanting a single answer should take the best
+    by coverage rather than treating an empty list as "not there".
+    """
+    return icons(self_mask(crop), crop, floor, **kw)
 
 
 def pick_self(cands: list[tuple[int, float, float]],

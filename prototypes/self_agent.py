@@ -249,10 +249,10 @@ def agents_available() -> list[str]:
                   for p in ART.glob("*_minimap_portrait.png"))
 
 
-def self_mask(crop):
-    """The self colour key. Exact and exclusive, unlike the enemy red."""
-    b, g, rd = (crop[:, :, i].astype(np.int16) for i in range(3))
-    return (g > SELF_G_MIN) & (rd > SELF_R_MIN) & ((g - b) > SELF_B_UNDER_G)
+# The self colour key: exact and exclusive, unlike the enemy red. Defined once,
+# in `reticle/minimap.py` -- this file and `minimap_self_check.py` each carried
+# a byte-identical copy until 2026-09-06.
+from reticle.minimap import self_mask                              # noqa: E402,F401
 
 
 def _biggest(m):
