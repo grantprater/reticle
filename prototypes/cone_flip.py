@@ -169,3 +169,23 @@ if "stable" in out and "flip" in out and len(out["flip"]):
     print(f"\n  If the drawn cone corroborates the fit, `stable` sits ABOVE zero")
     print(f"  and `flip` BELOW it. Separation by sign: stable {np.mean(s>0)*100:.0f}% "
           f"vs flip {np.mean(f_>0)*100:.0f}%")
+
+
+# ---------------------------------------------------------------- area cost
+# `python prototypes/cone_flip.py --area`
+#
+# WHAT THE GATE COSTS. A refusal can only SHRINK the observable area, so the
+# question is whether removing the backwards cones is affordable. Measured over
+# 897 frames in three 20 s windows of a06f04a0059f at 15 Hz:
+#
+#     configuration           cones/frame   observable % of floor
+#     raw bearings, 56 deg           3.53           24.8   (median 20.5)
+#     raw bearings, 51.5             3.53           23.7   (median 20.0)
+#     GATED bearings, 51.5           3.06           21.5   (median 18.9)
+#
+# **13.1% of area for the whole change**, of which roughly a third is the
+# narrower half-angle and two thirds the gate. Cones overlap heavily, so
+# refusing 13% of them costs far less than 13% of the area -- which is why the
+# gate is affordable at all. And the direction is the safe one: a too-large
+# observable area silently discards real enemy observations, a too-small one
+# only fails to fire.
