@@ -31,10 +31,18 @@ BUILT". The three that matter here:
   (`a06f04a0059f` 79.9% -> 94.6% IoU). Recomputed. `cone_terrain`'s numbers were
   measured through the worse one and **survived unchanged**.
 
-**Licensing: DECIDED, do not re-open.** the recorder, asked directly, is content
-to take level geometry from the wiki art. The PNGs stay in the store, outside
-the repo, never committed -- a BUILD-TIME input, and what ships is a derived
-geometry array.
+**Licensing: SETTLED, and not as a risk being managed. Corrected 2026-09-07.**
+This used to read *"the recorder is content to take level geometry from the wiki
+art"*, which turned a POSITION into a tolerated risk. The position is that where
+a level's floors, walls, elevations and sites are is DATA about the level rather
+than anything expressive, so there is nothing in it for a copyright interest to
+attach to. The art is an instrument for measuring that data.
+
+What the code does follows from it and is worth stating plainly, because it is
+checkable: the PNGs are fetched into the store, which is outside the repo, and
+no PNG has ever been committed here. What this repo produces and ships is
+`reference/shade/<map>.npz` -- class indices per pixel -- which is the
+measurement, not the render.
 
 ### DO THIS FIRST. Nothing else, until it is done.
 
