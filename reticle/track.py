@@ -269,6 +269,140 @@ def assign(cost: list[list[float]], forbidden: float = float("inf")) -> list[int
     return out
 
 
+# --------------------------------------------------------------------- tracker
+
+
+@dataclass
+class Track:
+    """One entity followed across frames, with its last KNOWN bearing.
+
+    `facing` and `facing_t_ms` are kept apart from the position deliberately.
+    A position is interpolated over a gap because a walker's speed is bounded
+    and the intervening path is constrained; **a bearing is not** -- a player
+    can turn 180 degrees between two samples and nothing forbids it. So a
+    carried-forward bearing is a WEAKER claim than a carried-forward position,
+    it is marked as such (`facing_age_ms`), and the collective viewcone
+    excludes it by default. See `Tracker.step`.
+    """
+
+    tid: int
+    x: float
+    y: float
+    t_ms: float
+    facing: float | None = None
+    facing_t_ms: float | None = None
+    n_obs: int = 1
+    missed: int = 0
+    born_t_ms: float = 0.0
+
+    def facing_age_ms(self, t_ms: float) -> float | None:
+        if self.facing is None or self.facing_t_ms is None:
+            return None
+        return t_ms - self.facing_t_ms
+
+
+class Tracker:
+    """Identity across frames for one class of entity. Hungarian, class-gated.
+
+    Built for ALLY ICONS, where identity cannot come from colour: the game
+    draws all four teammates in one teal, so `ally_mask` is a single key and
+    only motion separates them. That is exactly the case `assign`'s docstring
+    was written about -- when two allies cross, greedy nearest-neighbour swaps
+    their identities and a joint optimum does not.
+
+    **The motion law enters as an INADMISSIBLE COST, not as a filter applied
+    afterwards.** A pair the class cannot have done is infinite cost, so the
+    assignment routes around it rather than making a match and then having it
+    revoked -- which would leave the other track unmatched for no reason.
+
+    What this is NOT: it does not decide what class an entity is. `motion` is
+    supplied by the caller and the tracker answers "given that, who is who".
+    Concluding the class from the behaviour is the circularity SS6 names.
+    """
+
+    def __init__(self, motion: str = "walker", scale: float = 1.0,
+                 max_missed: int = 3, max_facing_age_ms: float = 500.0):
+        self.motion = CLASSES[motion]
+        self.scale = scale
+        self.max_missed = max_missed
+        self.max_facing_age_ms = max_facing_age_ms
+        self.tracks: list[Track] = []
+        self._next = 0
+
+    def step(self, t_ms: float, dets: list[dict]) -> list[Track]:
+        """Feed one frame's detections; returns the tracks alive after it.
+
+        A detection is `{"cx", "cy", "facing"}` -- `minimap.icons`'s rows fit
+        without translation. A `facing` of None does NOT end anything: the
+        track keeps its last bearing and ages it, which is the origin-event
+        model applied to one attribute (*a bad frame is a missing OBSERVATION,
+        not a missing ENTITY*).
+        """
+        alive = [t for t in self.tracks if t.missed <= self.max_missed]
+        cost: list[list[float]] = []
+        for tr in alive:
+            dt = (t_ms - tr.t_ms) / 1000.0
+            row = []
+            for d in dets:
+                dist = float(((d["cx"] - tr.x) ** 2 + (d["cy"] - tr.y) ** 2) ** 0.5)
+                ok, _why = admits(self.motion, dist, dt, self.scale)
+                row.append(dist if ok else float("inf"))
+            cost.append(row)
+
+        taken = set()
+        if alive and dets:
+            for i, j in enumerate(assign(cost)):
+                if j < 0 or cost[i][j] == float("inf"):
+                    continue
+                tr, d = alive[i], dets[j]
+                tr.x, tr.y, tr.t_ms = d["cx"], d["cy"], t_ms
+                tr.n_obs += 1
+                tr.missed = 0
+                if d.get("facing") is not None:
+                    tr.facing, tr.facing_t_ms = d["facing"], t_ms
+                taken.add(j)
+
+        for tr in alive:
+            if tr.t_ms != t_ms:
+                tr.missed += 1
+
+        for j, d in enumerate(dets):
+            if j in taken:
+                continue
+            self._next += 1
+            alive.append(Track(tid=self._next, x=d["cx"], y=d["cy"], t_ms=t_ms,
+                               facing=d.get("facing"),
+                               facing_t_ms=t_ms if d.get("facing") is not None else None,
+                               born_t_ms=t_ms))
+
+        self.tracks = [t for t in alive if t.missed <= self.max_missed]
+        return list(self.tracks)
+
+    def bearings(self, t_ms: float, allow_interpolated: bool = False):
+        """`(x, y, facing_or_None, interpolated)` per track, for the cone.
+
+        **The default REFUSES a carried-forward bearing**, and that is the
+        under-claiming rule rather than caution for its own sake: every
+        enemy-half invariant has the form *an enemy cannot originate inside
+        the observable area*, so an area that is too large silently discards
+        real observations while one that is too small only fails to fire.
+        Pass `allow_interpolated=True` to measure what the carry is worth --
+        never to widen the area without measuring it first.
+        """
+        out = []
+        for tr in self.tracks:
+            age = tr.facing_age_ms(t_ms)
+            fresh = age is not None and age <= 1e-9
+            usable = age is not None and age <= self.max_facing_age_ms
+            if fresh:
+                out.append((tr.x, tr.y, tr.facing, False))
+            elif usable and allow_interpolated:
+                out.append((tr.x, tr.y, tr.facing, True))
+            else:
+                out.append((tr.x, tr.y, None, False))
+        return out
+
+
 def _self_test() -> int:
     ok = True
 
@@ -380,6 +514,59 @@ def _self_test() -> int:
     # The default path is untouched by any of this.
     check("default still interpolates a walkable gap",
           len(filter_track([(0.0, 0.0, 0.0), (500.0, walk, 0.0)], step)) > 2, True)
+
+    # ---- Tracker: identity across frames, and the bearing carry ----------
+    tk = Tracker("walker", scale=1.0, max_facing_age_ms=500.0)
+    #   two allies approaching each other, then crossing. Greedy swaps them.
+    tk.step(0.0, [{"cx": 0.0, "cy": 0.0, "facing": 0.0},
+                  {"cx": 10.0, "cy": 0.0, "facing": 180.0}])
+    ids0 = sorted(t.tid for t in tk.tracks)
+    check("two detections make two tracks", len(ids0), 2)
+    tk.step(100.0, [{"cx": 3.0, "cy": 0.0, "facing": 0.0},
+                    {"cx": 7.0, "cy": 0.0, "facing": 180.0}])
+    check("and they keep their ids through the approach",
+          sorted(t.tid for t in tk.tracks), ids0)
+    #   the one that started at 0 is now the one further right.
+    by_id = {t.tid: t for t in tk.tracks}
+    check("the assignment is coherent, not greedy-swapped",
+          by_id[ids0[0]].x < by_id[ids0[1]].x, True)
+
+    # A step no walker could take starts a NEW track rather than teleporting.
+    tk2 = Tracker("walker", scale=1.0)
+    tk2.step(0.0, [{"cx": 0.0, "cy": 0.0, "facing": 0.0}])
+    first = tk2.tracks[0].tid
+    tk2.step(100.0, [{"cx": 300.0, "cy": 0.0, "facing": 0.0}])
+    check("an inadmissible step is a new identity, not a jump",
+          any(t.tid != first for t in tk2.tracks), True)
+    #   ...and for an agent that MAY teleport, it is the same identity.
+    tk3 = Tracker("walker_teleport", scale=1.0)
+    tk3.step(0.0, [{"cx": 0.0, "cy": 0.0, "facing": 0.0}])
+    f3 = tk3.tracks[0].tid
+    tk3.step(100.0, [{"cx": 300.0, "cy": 0.0, "facing": 0.0}])
+    check("a teleport agent keeps its identity across the jump",
+          [t.tid for t in tk3.tracks], [f3])
+
+    # The bearing carry, and the refusal that is the whole point.
+    tk4 = Tracker("walker", scale=1.0, max_facing_age_ms=500.0)
+    tk4.step(0.0, [{"cx": 0.0, "cy": 0.0, "facing": 45.0}])
+    check("a fresh bearing is offered", tk4.bearings(0.0)[0][2], 45.0)
+    tk4.step(100.0, [{"cx": 2.0, "cy": 0.0, "facing": None}])
+    check("a refused bearing is NOT offered by default",
+          tk4.bearings(100.0)[0][2], None)
+    check("but the track still knows it, and says it is carried",
+          tk4.bearings(100.0, allow_interpolated=True)[0][2:], (45.0, True))
+    check("the position is not lost with the bearing",
+          tk4.bearings(100.0)[0][0], 2.0)
+    tk4.step(1000.0, [{"cx": 4.0, "cy": 0.0, "facing": None}])
+    check("and the carry expires past max_facing_age_ms",
+          tk4.bearings(1000.0, allow_interpolated=True)[0][2], None)
+
+    # A track that is missed for too long is dropped.
+    tk5 = Tracker("walker", scale=1.0, max_missed=1)
+    tk5.step(0.0, [{"cx": 0.0, "cy": 0.0, "facing": 0.0}])
+    for t_ms in (100.0, 200.0, 300.0):
+        tk5.step(t_ms, [])
+    check("a track missed past max_missed is dropped", len(tk5.tracks), 0)
 
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
