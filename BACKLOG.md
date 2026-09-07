@@ -434,7 +434,30 @@ stop depending on `classify()` at all.
 rot 270, scale 0.2264** against its own derived mask, so the good geometry
 exists for that clip even though nothing loads it yet.
 
-## THE COLLECTIVE TEAM VIEWCONE -- the agreed next target (2026-09-06)
+## THE COLLECTIVE TEAM VIEWCONE -- BUILT 2026-09-06
+
+**DONE, and the entry is kept because its argument still ranks what comes
+next.** `reticle/cone.py` (the raycast, vectorised), `minimap.ally_icons` (a
+blob is an icon when it has coverage, a non-key interior AND a facing lobe),
+`track.Tracker` (Hungarian identity, since all four allies share one teal), and
+`overlay.py`'s minimap layer. Scored against the roster: raw ally blobs carry a
+**+0.99** residual -- one phantom teammate per frame -- and the promoted icons
+carry **-0.15**, 20 of 24 rounds agreeing, 95% CI [64%, 93%].
+
+What is NOT done, in the order this entry's own argument puts it:
+
+* **the interior-appearance invariant is not wired to anything.** The area
+  exists; nothing consumes it yet. That is the free precision gain below;
+* **a bearing cannot be carried across a bad frame at 500 ms** (p90 163 degrees
+  against a null of 160), so the area has holes where a lobe fit refused.
+  Unmeasured at the 15 Hz the shipped reader runs at, and that is the first
+  thing to run;
+* **third cones are still unread** -- a turret placement preview is drawn by
+  the local player and is cone-shaped.
+
+The original entry follows unchanged.
+
+## The argument, as written before it was built (2026-09-06)
 
 **The observable area: the union of what the team can currently see.** Agreed as
 the highest-value next piece, and the reason is structural rather than a ranking

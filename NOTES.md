@@ -11,44 +11,82 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-06, end of session
+## PICKING UP -- 2026-09-06, the collective team viewcone
 
-**The entity model gained its missing structure, and that is what to read
-first.** `docs/minimap-entity-model.html` SS10-SS12, new today:
+**The observable area exists, and `reticle overlay` draws it.** That was the
+agreed next target (`BACKLOG.md`) and the gate on the enemy half of the entity
+model, since four of the doc's SS11 invariants are written in terms of it.
 
-* **SS10 -- every interval has an ORIGIN EVENT** from a closed set (round start,
-  ability equip, cast, ping, player death, or an enemy leaving the collective
-  viewcone). The shift is birth OBSERVED -> birth EXPLAINED, and it makes a bad
-  frame a missing OBSERVATION rather than a missing ENTITY;
-* **SS11 -- the invariants that fall out**, each with its falsifier;
-* **SS12 -- the interior-appearance DECISION TREE, a draft to be corrected.**
-  It is written to be argued with, and three of its branches are flagged as
-  inference rather than fact.
+**Read `prototypes/ally_cone.py` first** -- it is where the numbers are, and
+where two of my own hypotheses died.
 
-**NEXT, agreed: the COLLECTIVE TEAM VIEWCONE.** Not one more detector -- it is
-the term four of SS11's invariants are written in, so until it exists they are
-prose. Only the local player's cone is fitted; ally cones are unread. Entry in
-`BACKLOG.md` with the argument, the three legitimate violations, and the
-under-claim warning.
+**What shipped, in one line each:**
 
-**What landed today, in one line each:**
+* `reticle/cone.py` -- the raycast, promoted out of `minimap_cone` and
+  VECTORISED (2.74 ms/cone against 37.40, exact agreement with the loop on a
+  real map). `passable` and `visible` are now separate, which fixes a real
+  under-claim bug: a low box was passed through AND lit;
+* `fit_ring` promoted to `reticle/minimap.py`, byte-identical results
+  (`minimap_icon_eval --finder ring`: 86.3% / 48.1% either side of the move);
+* `minimap.ally_icons` -- a blob is promoted to an icon by ring coverage, a
+  non-key interior, and a FACING LOBE. **The lobe gate is the whole idea: the
+  test for "is this a teammate" and the measurement of "where is it looking"
+  are one computation**, which is why the ally channel and the cone channel
+  were one problem;
+* `track.Tracker` -- Hungarian identity for allies, motion law as an
+  inadmissible cost. All four teammates share one teal, so identity can never
+  come from colour here;
+* `overlay.py` draws the minimap channel: icons, bearings, per-icon cones and
+  the aggregate. AMBER = a refused bearing, the same meaning it carries on a
+  killfeed entry.
 
-* `fit_ring` on the self key: FALSIFIED, 9/26 against 10/26. Masked NCC too
-  (8/26). The crossing is the finding -- geometry is worth -1 under a histogram
-  and +8 under NCC. The two descriptors are complementary (union 13/26);
-* `filter_track` takes a motion class, and now a SPAN-conditional one. Default
-  path byte-identical on 93,553 points;
-* **`track.TELEPORT_PX` (200 px) is far too high** -- measured teleports run
-  38-324 px, so `walker_teleport` refuses three of the four real teleports it
-  exists to admit. NOT refitted: n=8 on 4 solo clips;
-* the audio channel opened. **The tray and the audio agree to within one 50 ms
-  bin on 6 casts of 6**; six reference WAVs cut; running is never silent
-  (0 of 176 windows, non-overlapping intervals);
-* the repo was de-attributed and its history rewritten -- see `CLAUDE.md`.
+**The result, against the ROSTER -- a label-free ground truth that costs
+nothing, because a living teammate is always drawn:**
 
-**Standing asks of the recorder:** more teleport-agent clips to give
-`TELEPORT_PX` an n; and the recording protocol that made today work -- stand
-still while casting, pause between casts, equip-hold-cast.
+    gate                        exact   mean residual   |residual|<=1
+    raw blobs (= ally_rings)    50.5%       +0.99           73.1%
+    promoted icons + facing     53.0%       -0.15           82.7%
+
+    rounds agreeing  20/24   95% CI [64%, 93%]     <- the honest unit
+
+**The raw channel invents one teammate per frame and the promoted one is
+unbiased.** Count agreement is NOT position correctness: one real ally plus one
+phantom scores exact.
+
+**TWO HYPOTHESES OF MINE DIED, and both looked good on one frame:**
+
+* **`detail` (Laplacian variance, borrowed from `roster.py`) FAILS.** On one
+  rendered frame it read 6698/3850 for real icons against 1534 for a false
+  positive; at n=3916 it is monotonically WORSE at every floor. n=1 per class
+  was not evidence;
+* **the bearing CARRY is worthless at 500 ms.** Median error 29 degrees, which
+  looks usable -- **p90 163 degrees against a null of 160**. One time in ten a
+  carried bearing points the opposite way. The two-aggregate convention paid
+  for itself on the spot: the median alone would have said it works.
+
+**OPEN, and it is the first thing to do:** that carry was measured at 2 Hz, so
+the smallest visible gap is ~500 ms, and the shipped minimap reader runs at
+15 Hz (67 ms). **The regime that matters is unmeasured.** A 15 Hz pass over six
+minutes is scanned as `--tag .hz15`; run `--interp` against it. Until then
+`Tracker.bearings()` REFUSES a carried bearing, which under-claims on purpose.
+
+**Two things confirmed by eye before any of it was built**, both worth knowing:
+
+* **ally cones ARE drawn.** At 4:59 on `a06f04a0059f` self is at bottom-mid, the
+  lone living ally is at B, and a lit wedge fans down from the ALLY, splitting
+  at the doorways. The premise holds;
+* **the brightness LIFT cannot be read directly** -- thresholding it returns
+  almost entirely wall outlines, which reproduces the warning already in
+  `minimap_cone`'s docstring. The cone must be computed from a fitted bearing;
+  the drawn lift is corroboration only, and only away from wall edges.
+
+**The leading false positive is unfixed and is the standing one**: green scenery
+tinting the SEMI-TRANSPARENT widget into the ally hue band. The rendered
+instance beat the real ally on all three gates (cov 0.50/0.31, lobe 0.82/0.43),
+so tightening them cannot separate it.
+
+**Standing asks of the recorder:** unchanged -- more teleport-agent clips for
+`TELEPORT_PX`, and the equip-hold-cast protocol.
 
 ## The north star for this channel (recorded 2026-09-06)
 

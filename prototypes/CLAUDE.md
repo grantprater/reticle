@@ -157,6 +157,128 @@ Three things this needs kept straight:
   better than the minimap's, and for the local player's own casts it is
   complete, since his own abilities are never out of range.
 
+### THE COLLECTIVE TEAM VIEWCONE EXISTS (2026-09-06)
+
+The gate on the enemy half of the entity model -- four of the doc's SS11
+invariants are written in terms of the observable area, and until now it did
+not exist. `reticle/cone.py`, `minimap.ally_icons`, `track.Tracker`, and
+`overlay.py`'s minimap layer. Numbers and method: `prototypes/ally_cone.py`.
+
+**Two things confirmed by RENDERING before anything was built, and the second
+saved a wrong approach:**
+
+* **ally cones ARE drawn.** `a06f04a0059f` at 4:59, self at bottom-mid, the
+  lone living ally at B: a lit wedge fans down from the ALLY, splitting into
+  fingers at the doorways, with self nowhere near it. The premise of the whole
+  piece, and it had never been checked;
+* **the brightness LIFT cannot be thresholded.** `lift > 25` over the static
+  map returns almost entirely WALL OUTLINES -- registration and anti-aliasing,
+  not cones. This reproduces the warning already in `minimap_cone`'s docstring
+  from the other direction. So the cone must be COMPUTED from a fitted bearing;
+  the drawn lift is corroboration only, and only measured away from wall edges.
+
+**The ally channel could not feed a cone, and the roster proves it for free.**
+`l1/minimap` stores blobs: at 32:45 every teammate is dead (four blue X marks)
+and it records `n_allies = 4`; at 4:59 exactly one is alive and it records 4.
+A living teammate is ALWAYS drawn on the widget -- the widget shows what your
+team knows and your team always knows where it is -- so
+
+    ally icons on the widget  ==  alive_ally - 1
+
+is an exact identity, checkable on every sampled frame by an independent reader
+on a different part of the screen. Over 3302 in-round frames:
+
+    gate                        exact   mean residual   |residual|<=1
+    raw blobs (= ally_rings)    50.5%       +0.99           73.1%
+    cov>=.25 inner<=.25         53.6%       -0.09           83.1%
+    + facing required           53.0%       -0.15           82.7%
+
+    rounds agreeing  20/24  95% CI [64%, 93%]   <- rounds, not frames
+
+**The raw channel invents one teammate per frame; the promoted one is
+unbiased.** And the FACING is nearly free -- requiring it costs 0.6 points --
+which is the structural point: **the test for "is this a teammate" and the
+measurement of "where is it looking" are the same computation.** The ally
+channel and the cone channel were never two problems.
+
+Read the limit with the number: **count agreement is not position
+correctness.** One real ally plus one phantom scores exact.
+
+**TWO HYPOTHESES DIED HERE, both mine, both plausible on one frame:**
+
+* **`detail` -- Laplacian variance of the icon interior -- FAILS.** Borrowed
+  from `roster.py`, where it separates a drawn portrait from an empty slot at
+  60 of 60, and on the first frame rendered it read 6698 and 3850 for two real
+  icons against 1534 for a false positive. At n=3916 it is monotonically WORSE
+  at every floor (-0.55 bias at 2000 against -0.15 at 0): it kills real icons.
+  **n=1 per class was not evidence and this is exactly what it was worth**;
+* **the leading false positive beats every gate.** It is green scenery tinting
+  the SEMI-TRANSPARENT widget into the ally hue band -- the standing failure
+  of this whole widget, arriving on a new channel. The rendered instance scored
+  cov 0.50 / inner 0.00 / lobe 0.82 against the real ally's 0.31 / 0.03 / 0.43.
+  It is not on the dilated fringe and not off the slab: it sits on genuine
+  undilated FLOOR, so a distance-to-void rule does not reach it either.
+  **Unfixed. Do not try to tighten cov/inner/lobe against it.**
+
+`ALLY_COV_MIN = 0.25`, not the enemy ring's 0.30: a different key, a filled
+teardrop surround rather than a 1-2 px rim, fragmenting differently.
+
+### A CARRIED BEARING IS WORTHLESS AT 500 ms -- and the median hides it
+
+The origin-event model says a bad frame is a missing OBSERVATION rather than a
+missing entity, so a track whose lobe fit refused should keep its last bearing.
+Measured on SELF, the one bearing with a ground truth (its fit answers on ~90%
+of frames), as |facing(t+g) - facing(t)| over its own series:
+
+    carry (ms)      n   median      p90   <30deg   <56deg
+       350-750   3715      29d     163d      50%      59%
+      750-1500   3710      42d     160d      43%      55%
+     1500-3000   3711      55d     161d      37%      51%
+
+    NULL, a bearing from a random other moment:  median 83d  p90 160d
+
+**The p90 IS the null at every gap.** One time in ten a carried bearing points
+the opposite way, and 56 degrees is the cone half-angle -- past it the carried
+cone and the true cone share no axis at all. **The median (29d) says it works
+and the median is wrong**, which is the aggregate convention paying for itself
+the day it was written down.
+
+So `Tracker.bearings()` refuses a carried bearing by default. That is the
+under-claiming rule: an observable area that is too LARGE silently discards
+real enemy observations, one that is too small only fails to fire.
+
+**OPEN, and it is the first thing to run:** this is 2 Hz, so the smallest
+visible gap is ~500 ms, and the shipped minimap reader runs at **15 Hz
+(67 ms)**. A player can turn 180 degrees in half a second and probably cannot
+in a sixteenth of one, so the useful regime is very likely below what this pass
+can see. `ally_cone.py --scan --hz 15 --minutes 6 --tag .hz15` then `--interp`.
+
+### Promotions, and what `doctor` caught the moment one moved
+
+`floor_mask` forked for ten days by promotion-by-copy, so all three of these
+moved by DELETION plus re-export:
+
+    minimap_cone.cone_mask     -> reticle/cone.py       (raycast, vectorised)
+    minimap_ring_fit.fit_ring  -> reticle/minimap.py    (+ _facing, _lobe)
+    minimap_geometry's ids     -> reticle/minimap.py    (VOID..PLANT)
+
+Vectorising was not optional: 2.74 ms/cone against the loop's 37.40, which is
+6.3 min against 1.4 h for a 39-minute session at 15 Hz with five icons.
+`cone.py --bench <session>` re-checks the equivalence on a real geometry npz
+and reports 0 disagreeing pixels.
+
+**`self_mask` was a THREE-way fork** -- byte-identical in `minimap_self_check`
+and `self_agent`, and inline a third time in `self_rings`. `doctor` could not
+see it while every copy lived in prototypes/, since it matches names ACROSS the
+two trees. Promoting one copy is what made the other two visible, which is a
+reason to promote early rather than a cost of doing so.
+
+One trap for whoever runs the enemy eval next: `minimap_icon_eval`'s DEFAULT is
+`--finder seal`, the hole test, documented to collapse at 4:2:0 -- and
+`a06f04a0059f` is tagged `chroma:420`, so the default prints **0.0% recall** and
+looks exactly like a regression. Pass `--finder ring` for the shipped point
+(86.3% / 48.1%).
+
 ### The vision cone: origin, facing, raycast -- started 2026-09-02
 
 `prototypes/minimap_cone.py`. the spec, from watching cones deliberately
