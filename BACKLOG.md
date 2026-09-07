@@ -434,6 +434,80 @@ stop depending on `classify()` at all.
 rot 270, scale 0.2264** against its own derived mask, so the good geometry
 exists for that clip even though nothing loads it yet.
 
+## CORROBORATING CHANNELS: motion predicts sound, and sound indexes the video
+
+**the player, 2026-09-06:** *player icons moving at running speed should be making
+footstep sounds. The self player icon with the audio radius around same thing
+(it takes a bit to leave after making no noise but roughly). Basically just
+using corroborating signals as we have been to increase accuracy and
+potentially also efficiency/search density.*
+
+**Two distinct claims. The second is the more valuable and is untested; the
+first was tested the same day and comes back PARTIAL.**
+
+### Claim 1: running implies footsteps. Measured, 2 of 3 clips confirm.
+
+Self-track speed against audio RMS, with every ability window excluded -- the
+measured sound-event span aligned to a tray cast, not a fixed guard. A first
+attempt used a 3 s guard and leaked the 4.4 s ult into the still class.
+
+    session        class   n    median rms   silent
+    e78e75b2d191   still  115      0.85      75.7%
+      (omen)       walk   134      2.36      33.6%
+                   run     67      2.95      16.4%
+    ccff4a11ff5a   still  149     10.11      43.0%
+      (chamber)    walk   348      9.84       4.9%
+                   run    124     11.58       0.8%
+    b9558488a607   still  662      1.86      52.4%     <- INVERTED
+      (omen, new)  walk   168      0.69      76.8%
+                   run     56      0.46      80.4%
+
+On the two older clips the effect is strong and monotonic in the predicted
+direction -- silence falls from 76% to 16% and from 43% to 1% as the track
+speeds up. **On the new spaced clip it inverts**, and the likeliest reason is
+already recorded in `prototypes/CLAUDE.md`: **only RUNNING makes noise; walking
+and crouching draw nothing**. That clip's protocol had the player holding position
+and repositioning gently, so its "run" class (n=56) is probably teleport steps
+and tracker jitter rather than running. A hypothesis, not a finding.
+
+**Two statistics that found NOTHING on a full match** (`c40d950031bb`, 16 min),
+recorded so they are not retried as stated:
+
+* **broadband RMS: run/still ratio 1.04x.** A real match is saturated with
+  gunfire, abilities and teammates; the player's own footsteps are nowhere near
+  the loudest thing in it;
+* **step-rate cadence -- the share of envelope power at 1.5-4.5 Hz in a
+  150-1200 Hz band: 0.92x**, slightly the WRONG way. Periodicity looked like the
+  obvious rescue for energy failing, and it is not one at that band and window.
+
+**THE ARBITER ALREADY EXISTS AND IS BETTER THAN EITHER: THE AUDIO RING.** The
+game draws it only while running -- binary, measured at radius 94-95 px, with
+every non-running frame scoring exactly 0.00 lift. So the right experiment is
+not speed-vs-audio at all; it is **ring-vs-speed-vs-audio**, where the ring is
+ground truth for "is he audible" drawn on screen by the game itself. That also
+settles the walk/run ambiguity that probably explains the inverted clip, and it
+needs no labels. the parenthetical -- *it takes a bit to leave after making
+no noise* -- is a lag to calibrate, not an obstacle.
+
+### Claim 2: audio as a cheap INDEX over the video. Untested, and the bigger win.
+
+**Decoding audio is orders of magnitude cheaper than decoding frames.** A whole
+match's audio loads in seconds where `cmd_scan` at 15 Hz is minutes, and
+`CLAUDE.md`'s cost rule already says a cheap pass should decide where the
+expensive pass looks. Audio is the cheapest full-coverage pass available and
+nothing uses it that way.
+
+**The standing caution applies and must not be skipped:** *gate on OPPORTUNITY,
+not on outcome.* `CLAUDE.md`'s sampling section records why -- gating dense
+sampling on kills would make the model only ever see duels that drew a killfeed
+entry. An audio gate is less exposed than a kill gate, because the events wanted
+here ARE acoustic, but a silent ability is exactly the class it would miss and
+that class is known to be large.
+
+**Trigger: after the reference cuts exist.** An index needs something to index
+ON, and a matched filter against the cut references is that. Until then a gate
+would be an energy threshold, which is what `audio_probe` already killed.
+
 ## THE AUDIO CHANNEL: build it next, and it splits into two unequal halves
 
 **the player, 2026-09-06:** *Teleports can be very short range or even faked though,
