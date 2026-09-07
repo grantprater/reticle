@@ -245,8 +245,11 @@ median lobe (0.65 against 0.58) and slightly lower coverage (0.46 against
 0.50). A flip is a confident answer, so no threshold on the existing features
 removes it.
 
-**Read every cone number with this.** The observable area is built out of these
-bearings, so about a sixth of the cones in it point backwards, and every SS11
+**GATED as of the same day -- see the section above for the diagnosis and the
+fix.** What follows is the measurement of the raw per-frame bearing, which is
+still what `fit_ring` returns and what any caller not going through
+`track.Tracker` will get. The observable area built from RAW bearings has about
+a sixth of its cones pointing backwards, and every SS11
 invariant written in terms of that area inherits the error. The area is drawable
 and measurable; it is not yet trustworthy as a gate.
 
@@ -271,6 +274,88 @@ NOT A FIX YET. Temporal consensus defined the labels here so it cannot also be
 the evidence, which is the seeding mistake in another costume. The next step is
 a bearing resolved from BOTH the track's own history and this independent
 lit-fraction test.
+
+### THE FLIP, DIAGNOSED AND GATED -- and the mechanism I predicted was wrong
+
+**The cause is NOT fragmentation, which is what I predicted at 0.55 and what
+this directory's existing note implies.** Rendering six flipped icons at 8x
+settled it in one look: the self key is a **thick, nearly complete annulus**,
+not a broken ring, and in most frames there is no visually separable triangle
+at all. `_facing` measures how far the key reaches PAST the fitted radius, and
+on a thick annulus that is the annulus thickness *in every direction* -- so the
+argmax is decided by wherever the fitted centre happens to sit.
+
+Measured, flip frames against stable ones:
+
+    fitted centre moved since the previous frame   3.2 px vs 1.0  (p90 8.5 vs 5.0)
+    reach-profile contrast, 1 - opposite/max       0.61 vs 1.00
+    rival lobe at least 90 deg away, / max         0.69 vs 0.46
+
+**A good frame has ONE lobe and literally zero reach opposite it (contrast
+1.00). A flip frame has two comparable opposed lobes**, and the fit picks
+between them by centre jitter. That is why `cov` and `lobe` cannot see it: both
+are large in both cases.
+
+**THE FIX IS A WINDOW PLUS A REFUSAL, and the refusal is the part that works.**
+`track.Track.resolved_facing` returns a circular mean over ~200 ms plus the
+RESULTANT LENGTH (1.0 when the window agrees, 0.0 when opposed);
+`Tracker.bearings()` refuses below 0.5. With n agreeing and m opposed the
+resultant is exactly (n-m)/(n+m), so in a five-sample window one flip is
+outvoted (0.6) and two are refused (0.2) -- asserted in `--self-test`.
+
+**Do not quote the smoothing figure as the result.** A circular mean takes the
+>150-degree mode from 16.1% to 1.2%, and that measurement is partly CIRCULAR:
+smoothing a series necessarily shrinks its own frame-to-frame difference. The
+independent check is the direction the player MOVED, which comes from the ring
+centre rather than the lobe, over 453 intervals of >=15 px in 0.53 s:
+
+    series                    aligned <45deg   opposed >135deg    gap
+    raw bearing                    45.3%            28.5%        +16.8
+    smoothed +/-2                  41.7%            24.5%        +17.2
+    smoothed, resultant >= 0.5     47.1%            23.9%        +23.2
+
+Smoothing alone moves the gap 0.4 points; the gate moves it 6.4. Neither column
+is an accuracy -- strafing and backpedalling are real -- so the GAP is the
+signal, and this is an improvement rather than a solution.
+
+**ALLY BEARINGS ARE BETTER THAN SELF, correcting an assumption I made twice.**
+Same statistic, consecutive frames at 15 Hz, nearest fit within 6 px:
+
+    ally   <10deg 65.6%   >150deg  7.2%   p90 136d
+    self   <10deg 47.0%   >150deg 16.1%   p90 162d
+
+So the collective cone is not limited by the ally half. What IS weak there is
+IDENTITY: 862 tracks over 4266 frames, 27% lasting a single observation, and
+the overlay shows 12 tracks alive for 6 icons. That churn is the next thing to
+fix in this channel, not the bearing.
+
+**Two routes tried that did NOT work, recorded so they are not retried blind:**
+
+* **the centroid-offset estimator is not independent.** The plan was to use
+  `key centroid - fitted centre` as a second opinion, on the strength of this
+  directory's own note that the triangle drags the centroid. It is taken
+  relative to the SAME fitted centre, so when the centre is wrong both are
+  wrong together. Predicted at 0.6; the premise failed before the number was
+  measured;
+* **camera pan could not be turned into a scale.** Phase correlation on the
+  main view is an independent measurement of yaw in principle, and it would
+  also have measured the FOV (103 predicts 13.33 px/deg, 112 predicts 11.30).
+  The instrument is fine -- synthetic shifts of 13/40/124/300 px recover
+  exactly -- but on real frames it reports |dx| ~0.55 full px per frame at a
+  phase-correlation response of 0.978, i.e. a CONFIDENT lock onto something
+  static. `minimap_self_check._world_grey` crops y 0.20-0.75, which includes
+  the WEAPON MODEL, and the weapon does not move in frame. Tightening the crop
+  moved r from -0.12 to -0.31 (sign-consistent at last) without fixing the
+  magnitude, which stayed ~10x too small. Unresolved; the fitted FOV came out
+  178 degrees, which is the tell that the scale means nothing.
+
+**Prediction scoring, 5 logged before looking: 1 right, 3 wrong, 1
+couldn't-tell at a mean stated confidence of 0.54.** Both MECHANISM-level
+claims were wrong and the one VALUE-level claim that resolved was right, which
+is the pattern `judgement.py` already records -- the claims that cost most are
+the ones I am most overconfident about. Rendering the image killed the wrong
+mechanism in a single look, after three analysis scripts had been written on
+its assumption.
 
 ### A CARRIED BEARING IS WORTHLESS AT 500 ms -- and the median hides it
 

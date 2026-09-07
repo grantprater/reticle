@@ -61,24 +61,34 @@ in the self bearing is bimodal -- 47% under 10 degrees and a **second mode at
 67 ms to 3 s, which is what rules out rotation. `cov` and `lobe` cannot see it;
 the flipped population scores a HIGHER median lobe.
 
-So **the observable area is drawable, measurable, and not yet trustworthy as a
-gate** -- about a sixth of the cones in it point backwards. Do not wire the
-interior-appearance invariant to it until this is fixed.
-`prototypes/cone_flip.py` has the numbers and a half-fix: the game DRAWS the
-cone, so comparing the lit fraction inside cone(fit) against cone(fit+180)
-separates 80% to 48% against temporal consensus. Asymmetric -- it endorses a
-good bearing and declines to endorse a bad one.
+**GATED, not solved.** `Track.resolved_facing` aggregates the bearing over
+~200 ms and returns the RESULTANT LENGTH with it; `Tracker.bearings()` refuses
+below 0.5, so an ambiguous window casts no cone. Validated against evidence the
+bearing cannot see -- the direction the player MOVED, from the ring centre
+rather than the lobe: the alignment gap goes +16.8 -> +23.2 points, median error
+69d -> 50d. **The smoothing alone is worth 0.4 points and the GATE is worth
+6.4**, so do not credit the circular mean; that figure (16.1% -> 1.2%) is partly
+circular anyway, since smoothing shrinks its own difference metric.
+
+The diagnosis corrected the note that preceded it: the cause is NOT ring
+fragmentation but a thick, nearly complete annulus whose "reach past r" is
+uniform, so the argmax follows centre jitter. Flip frames have TWO opposed
+lobes (contrast 0.61 against a stable 1.00).
+
+**And ally bearings are BETTER than self** (>150deg 7.2% vs 16.1%), correcting
+an assumption made twice. The weak part of the ally channel is IDENTITY: 862
+tracks over 4266 frames, 27% lasting one observation.
 
 **NEXT, in order:**
 
-1. **resolve the bearing from BOTH the track's history and the lit-fraction
-   test.** Temporal consensus defined the labels in `cone_flip.py` so it cannot
-   also be the evidence there, but in production the two are independent and
-   both cheap;
-2. re-measure `ally_icons` after that -- the -0.15 residual is a COUNT and says
-   nothing about bearings;
-3. only then wire the interior-appearance invariant, which is what the whole
-   area is for.
+1. **ally identity churn** -- 12 live tracks for 6 icons in the overlay. The
+   bearing is no longer the binding constraint; this is;
+2. re-measure `ally_icons` against the roster with gated bearings -- the -0.15
+   residual is a COUNT and says nothing about bearings;
+3. then wire the interior-appearance invariant, which is what the area is for;
+4. `CONE_HALF_ANGLE_DEG` is now 51.5 (103 full) on a reported fixed FOV that
+   sits inside this repo's own measured 50-65 band. Confirming it independently
+   is still open -- the camera-pan route failed on a weapon-model lock.
 
 **TWO HYPOTHESES OF MINE DIED, and both looked good on one frame:**
 
