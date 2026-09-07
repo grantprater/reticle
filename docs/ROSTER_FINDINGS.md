@@ -239,3 +239,22 @@ old rule refused and was silently skipped. Verified by hand on `587c15b07779` at
 transition from a wiped team to a full one is an independent read on where a
 round really starts, and it needs no decode.
 
+## Regression check: the numbers on record come back
+
+`prototypes/roster_alive.py --stored`, the label-free cross-channel check, run
+against the re-scanned tables:
+
+| | on record | now |
+|---|---|---|
+| `587c15b07779` probes agreeing | 100/113 (88%) | **100/113 (88%)** |
+| `587c15b07779` slot-reads answered | 233/240 | **233/240** |
+| `c40d950031bb` probes agreeing | 43/48 | **43/45** |
+| starts-at-5, both sessions | -- | 40/40 and 14/14 |
+| increases / over-five, both | -- | 0 / 0 |
+
+**The one number that moved is the c40d DENOMINATOR, and it moved the right
+way**: same 43 agreements, three fewer probes, because the reader now refuses
+where it previously guessed. `roster.py` already recorded that this session's
+five misses were all the undrawn defect, and this is that population leaving the
+sample rather than being answered wrongly. Nothing became less accurate.
+
