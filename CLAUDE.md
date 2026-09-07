@@ -109,7 +109,7 @@ knowledge as it was originally given -- lives in a separate private repository:
 
     ~/reticle-notes/
         DOMAIN.md    the game/domain knowledge, with attribution and dates
-        GRANT.md     quotes, decisions, standing preferences
+        QUOTES.md    quotes, decisions, standing preferences
         archive/     the four docs verbatim as they stood at the split
 
 **Read it when picking up domain work.** `prototypes/CLAUDE.md` calls that
