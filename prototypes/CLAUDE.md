@@ -275,6 +275,94 @@ the evidence, which is the seeding mistake in another costume. The next step is
 a bearing resolved from BOTH the track's own history and this independent
 lit-fraction test.
 
+### THE WIDGET IS LAYERS, AND THEY HAVE TO BE SOLVED TOGETHER (2026-09-06)
+
+**Recorded after three corrections in a row, all from the recorder, all right,
+and the third is an architectural one:**
+
+> it does not seem like we're actually comparing it to the wiki map, because
+> for example viewcone is showing up just because of the contrast between the
+> highground on A site [...] Also the viewcone is not detected near the audio
+> radius, which is also white. That's also why I said these need to be detected
+> together. The aggregate, they all depend on each other.
+
+**All three are confirmed by measurement, and the first two were my errors.**
+
+**1. The wiki art was described and then not used.** `cone_lit.py` reads the
+DERIVED `labels` and the per-session two-state arrays; nothing in it touches
+`reference/maps/`. The art was fitted on 2026-09-05 and then left there.
+
+**2. TERRAIN SHADE READS AS ILLUMINATION, and the art is what says so.** The
+art draws the floor in several distinct greys -- 118 over 68% of it, then 133,
+139, 145, 148 -- where the derived `labels` collapses every one of them into a
+flat `FLOOR`. An overhang is drawn a different shade from the floor beside it,
+and a 148-against-118 step is 30 grey levels where the whole lit/unlit
+separation is 54. A classifier blind to the shade cannot tell one from the
+other.
+
+Measured over 105 frames, splitting pixels by how OFTEN they are called lit --
+a real cone lights a pixel sometimes, a static feature always:
+
+    population                  median art grey   on the main floor shade
+    sometimes lit (20-50%)            118                 90.2%
+    always lit (>85%)                 124                 47.7%
+    all usable                        118                 71.5%
+
+    always-lit share BY art shade:
+      main floor (118)                8.2%
+      one step lighter               22.0%
+      two or more steps lighter      23.3%
+
+**Three times the artefact rate exactly where the art says the terrain
+changes**, and the sometimes-lit population -- the real cones -- is 90% on the
+main shade. 12.6% of "usable" pixels were being called lit in over 85% of
+frames, which is not a cone by construction.
+
+**3. THE AUDIO RING IS BAKED INTO THE STATIC MAP.** Visible by eye in the
+derived median as a large circle. So the reference used to detect illumination
+already contains one of the annotations it is meant to separate out, and
+"subtract the ring afterwards" cannot fix a reference that was built with it in.
+
+**And the derived floor mask is not the map.** The art's alpha against
+`labels == FLOOR|PLANT`: **75.6% IoU**. A quarter of the area disagrees.
+
+WHAT FOLLOWS: EXPLAIN THE FRAME, DO NOT CLASSIFY THE PIXEL
+------------------------------------------------------------
+Everything drawn on this widget writes to the same pixels -- terrain shade,
+the lit cone, the audio ring, player icons, X marks, pings, ability glyphs --
+so a per-pixel test for any ONE of them is answering a question the pixel
+cannot answer alone. That is the recorder's point and it is the same reframe
+this directory already records from the other end (*stop classifying blobs,
+explain the frame*), and `widget_objects.py`'s opening question (*is there a
+way to structure the detection so that it all happens at once*).
+
+The shape it implies, in dependency order:
+
+    BASE      the wiki art, warped by the per-map transform, giving the exact
+              footprint and the terrain SHADE per pixel. Art grey -> observed
+              grey is an affine (gain, offset) fitted per frame on pixels
+              currently explained by nothing else, which is what absorbs the
+              encode and the semi-transparent backdrop -- the job the docstring
+              in "The static map does TWO jobs" says art cannot do, done as a
+              fitted transform rather than by substitution
+    ANNOTS    layers with KNOWN geometry, subtracted rather than detected: the
+              audio ring (an annulus at a measured 94-95 px round the self
+              icon, drawn only while running), the icons themselves, X marks
+    LIGHT     what remains: the union of the team's cones
+    BEARINGS  fitted to that residual per icon, rather than read off a 2-4 px
+              teardrop -- which is where the 180-degree flip came from
+
+**The ordering is the content.** Each layer's residual is the next layer's
+input, and every layer above LIGHT has geometry we already know, so none of
+them needs a detector -- they need to be SUBTRACTED. The bearing is the only
+thing actually being estimated, and it is estimated from a large region rather
+than a handful of rim pixels.
+
+Two things this does NOT fix and they should not be forgotten: the art gives no
+photometry on its own (hence the fitted affine), and the light is the UNION of
+five cones, so it gives the collective observable area directly but never says
+WHICH teammate sees a pixel. Attribution still needs per-icon bearings.
+
 ### THE FLIP, DIAGNOSED AND GATED -- and the mechanism I predicted was wrong
 
 **The cause is NOT fragmentation, which is what I predicted at 0.55 and what
