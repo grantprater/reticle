@@ -526,4 +526,216 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
   <code>doctor</code> and the two-state residual worth having.</p>
 </section>
 
+<section>
+  <h2><span class="marker">§11</span> The invariants that fall out of §10</h2>
+
+  <p>An origin drawn from a closed set is not a notation; it is a constraint, and
+  a constraint refuses things. These are the refusals it licenses. Each is
+  stated with what would falsify it, because an invariant that cannot be broken
+  is not doing work.</p>
+
+  <h3>Observation invariants — the enemy half</h3>
+
+  <ul>
+    <li><strong>An enemy cannot originate in the INTERIOR of the observable
+    area.</strong> If the team can see a region continuously, an enemy arriving in
+    it must have crossed the boundary, so a first observation strictly inside
+    the observable area is suspect. <strong>Whether it can be DISCARDED depends on
+    two further readings, and the result is a decision table rather than a rule
+    with an exception:</strong>
+
+    <table>
+      <tr><th>agent</th><th>within audio radius</th><th>teleport sound</th><th>verdict</th></tr>
+      <tr><td>non-teleport</td><td>—</td><td>—</td><td><strong>DISCARD</strong>, certain</td></tr>
+      <tr><td>teleport-capable</td><td>yes</td><td>absent</td><td><strong>DISCARD</strong>, certain</td></tr>
+      <tr><td>teleport-capable</td><td>yes</td><td>present</td><td><strong>KEEP</strong> — corroborated</td></tr>
+      <tr><td>teleport-capable</td><td>no</td><td>unobservable</td><td>UNDECIDED — retain, flagged</td></tr>
+    </table>
+
+    <p>Only the last row is uncertain, and it is honestly uncertain rather than
+    quietly wrong — which is the standing position on this channel. Note what the
+    table does: <strong>the audio channel closes the teleport exception, but only
+    inside the audio radius</strong>, so a minimap invariant now depends on a
+    sound. That is the first hard cross-channel dependency in the model, and it
+    is the argument for the audio work being structural rather than a
+    convenience.</p>
+
+    <p><strong>A cheap per-match shortcut sits above the whole table:</strong> the
+    enemy lineup is readable from the scoreboard, so if NO enemy is one of the
+    five teleport-capable agents, every interior appearance is discardable
+    outright and no identity read is needed at all. Agent identity per icon is
+    83.5% held-out; lineup membership is exact.</p>
+
+    <p>Two further legitimate violations remain, independent of teleports: a
+    <strong>reveal</strong>, which paints an enemy the team cannot see, and an
+    <strong>occluder</strong> — which is why the observable area must be the
+    RAYCAST cone and not the angular wedge. A wedge would make this fire
+    constantly and be correctly abandoned.</p></li>
+
+    <li><strong>The dual: an enemy cannot VANISH in the interior either</strong>,
+    without a death or an occluder. What it does instead is exactly §10's last
+    origin — the entity ends and a last-known-position marker is born.</li>
+
+    <li><strong>A last-known-position marker cannot move</strong>, because its
+    origin is the loss of knowledge and knowledge does not update without an
+    observation. `track.py` already refuses translation for it; §10 says
+    <em>why</em> rather than that it was measured.</li>
+  </ul>
+
+  <h3>Causal invariants — the ability half</h3>
+
+  <ul>
+    <li><strong>Origin precedes appearance.</strong> An ability entity appearing
+    with no cast in a bounded preceding window is unexplained; a cast with no
+    entity is either a no-icon ability or a miss. The window is the projectile
+    flight time and is per-ability, not a constant.</li>
+
+    <li><strong>Equip precedes cast.</strong> Two events, now both readable —
+    the tray submenu and the self-only equip sound on one side, the tray drop and
+    the cast sound on the other. Their ORDER is an invariant and their INTERVAL
+    is the hold time, which nothing currently measures.</li>
+
+    <li><strong>A cast implies a living caster.</strong> The roster's alive counts
+    are per-frame state, so an ability origin attributed to a dead agent is a
+    contradiction rather than a low-confidence row.</li>
+
+    <li><strong>Casts cannot exceed charges.</strong> The tray states the charges
+    and the reference states the ultimate's cost in points. More cast-origins
+    than the agent could have paid for is a contradiction — and it is the
+    invariant that would have caught the partial-bar false positive already on
+    record.</li>
+
+    <li><strong>Utility does not survive a round boundary</strong>, so an entity
+    alive at a round's first frame has the round start as its origin and no
+    other. A placement origin before the round began is a contradiction.</li>
+  </ul>
+
+  <h3>Counting and identity invariants</h3>
+
+  <ul>
+    <li><strong>An interval has exactly ONE origin.</strong> Detections sharing an
+    origin are one entity — which is fragmentation solved by definition rather
+    than by a grouping threshold. Nine tracks with one origin are one object.</li>
+
+    <li><strong>Live enemy entities ≤ enemies alive.</strong> The roster bounds
+    the count directly, and the bound is per-frame.</li>
+
+    <li><strong>Deaths bound X marks.</strong> Two-sided for teammates, ONE-SIDED
+    for enemies — an observed enemy mark implies a death, an absent one implies
+    nothing. That asymmetry is already recorded and §10 explains it: an enemy
+    mark's origin is an observation, and observation is not guaranteed.</li>
+
+    <li><strong>The local player is always observable.</strong> The player's own
+    icon is drawn whenever the widget is. So a frame with the widget drawn and no
+    self icon is a DETECTION FAILURE, never an absence — the one entity in the
+    model whose non-appearance carries no information about the world.</li>
+  </ul>
+
+  <h3>Why this list is the argument for the collective viewcone</h3>
+
+  <p>Every enemy-half invariant above is stated in terms of the OBSERVABLE AREA,
+  and the observable area does not exist yet. Only the local player's cone is
+  fitted; ally cones are unread; a third cone (a turret's placement preview) is
+  known to exist and is currently a false-positive class. <strong>So the
+  collective viewcone is not one more detector — it is the term that four of
+  these invariants are written in</strong>, and until it exists they are prose.
+  That is what makes it the highest-value target rather than merely the next
+  one.</p>
+
+  <p>Note also what it costs to get wrong in the other direction: an observable
+  area that is too LARGE turns legitimate appearances into discarded reads, which
+  is a silent recall loss of exactly the kind this project keeps paying for.
+  Build it to under-claim, and measure it against the one ground truth already
+  available — the local player's own cone, whose magnitude is validated against
+  camera pan.</p>
+</section>
+
+<section>
+  <h2><span class="marker">§12</span> The interior-appearance decision tree — a DRAFT to be corrected</h2>
+
+  <p>§11's first invariant is not a rule with exceptions; it is a tree. This is a
+  first enumeration of it, written to be corrected rather than adopted. <strong>Each
+  branch carries how observable it actually is</strong>, because a tree whose
+  branches cannot be evaluated is a diagram, not a filter.</p>
+
+  <pre>
+an enemy icon is first observed STRICTLY INSIDE the observable area
+│
+├─ 1. is it at an OCCLUDER boundary?                    KEEP
+│       observability: FREE, if the area is the raycast cone. This branch
+│       exists only because a wedge would get it wrong.
+│
+├─ 2. is it explained by a REVEAL?                      KEEP
+│       (Sova dart, Fade haunt, KAY/O knife, Brimstone stim-adjacent kit)
+│       observability: POOR. An ally's cast is not in our tray, so this is
+│       knowable only from the ally's own ability icon or from audio.
+│       The weakest branch in the tree.
+│
+├─ 3. is ANY enemy teleport-capable this match?
+│       └─ no                                           DISCARD, certain
+│       observability: EXACT. The lineup is read from the scoreboard, and
+│       this branch needs no per-icon identity at all. Check it FIRST.
+│
+├─ 4. is THIS icon a teleport-capable agent?
+│       └─ no                                           DISCARD, certain
+│       observability: 83.5% held-out (composition matching), and only when
+│       the icon is readable at all.
+│
+├─ 5. does that agent have a teleport CHARGE left?
+│       └─ no                                           DISCARD, certain
+│       observability: SPLITS THREE WAYS — see below. One-sided in every
+│       case: observed casts give a LOWER bound on spend, so "definitely
+│       out" is establishable and "has one" is only ever the default.
+│
+└─ 6. is the appearance within the player's AUDIO RADIUS?
+        ├─ yes ─ teleport sound at that time?
+        │          ├─ yes                               KEEP, corroborated
+        │          └─ no                                DISCARD, certain
+        └─ no                                           UNDECIDED, retain flagged
+        observability: the radius is measured (94-95 px) but it is
+        AUDIBILITY OUTWARD; that the hearing radius matches is assumed,
+        not established.
+  </pre>
+
+  <h3>Branch 5 splits by ability KIND, and only one third of it is strong</h3>
+
+  <table>
+    <tr><th>ability</th><th>kind</th><th>charges</th><th>can it be exhausted?</th></tr>
+    <tr><td>Omen — Shrouded Step (C)</td><td>Basic, 100cr</td><td>2</td>
+        <td><strong>YES, countable.</strong> Purchased, no in-round recharge, so
+        two observed casts exhaust it</td></tr>
+    <tr><td>Veto — Crosscut (C)</td><td>Basic, 200cr</td><td>2</td>
+        <td><strong>YES, countable</strong>, same argument</td></tr>
+    <tr><td>Chamber — Rendezvous (E)</td><td>Signature</td><td>1</td>
+        <td>WEAK — it recharges, and the anchor can be picked up and
+        redeployed, so exhaustion is temporary and needs a cooldown model</td></tr>
+    <tr><td>Yoru — GATECRASH (E)</td><td>Signature (cost 150 in the
+        reference — <em>flagged as suspect</em>)</td><td>2</td>
+        <td>WEAK, same reason. The reference lists it as Signature <em>and</em>
+        priced, which is contradictory and wants checking</td></tr>
+    <tr><td>Omen — From the Shadows (X)</td><td>Ultimate, 7 points</td><td>—</td>
+        <td><strong>POSSIBLY THE STRONGEST.</strong> Ultimate readiness is shown
+        on the scoreboard, which is already read; and this ult announces itself
+        by turning the minimap a fuzzy black, which
+        <code>minimap_temporal</code> already detects</td></tr>
+  </table>
+
+  <p><strong>So branch 5 is strong exactly where the ability is PURCHASED</strong>
+  (Omen C, Veto C: a hard budget of two, no recharge) and weak where it is a
+  signature ability. That was not obvious before the reference was read, and it
+  means the branch should be implemented per-ability rather than as one rule.</p>
+
+  <p><strong>Two things in this tree are inference and should be checked by
+  someone who plays:</strong> that a signature teleport's recharge makes
+  exhaustion unusable in practice; and that Omen's ultimate blackout is a
+  reliable enough tell to serve as its own corroboration. The reference's
+  Yoru row is internally contradictory and is a third.</p>
+
+  <p><strong>Ordering matters for cost, not just for correctness.</strong> Branch 3
+  is exact, free, and per-match — it can discard every interior appearance in a
+  match without a single identity read. Branch 4 costs an identity read at 83.5%.
+  Branch 6 costs an audio pass. Evaluate in that order and most matches never
+  reach the expensive branches.</p>
+</section>
+
 </div>

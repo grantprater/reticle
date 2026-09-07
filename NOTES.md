@@ -11,6 +11,45 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## PICKING UP -- 2026-09-06, end of session
+
+**The entity model gained its missing structure, and that is what to read
+first.** `docs/minimap-entity-model.html` SS10-SS12, new today:
+
+* **SS10 -- every interval has an ORIGIN EVENT** from a closed set (round start,
+  ability equip, cast, ping, player death, or an enemy leaving the collective
+  viewcone). The shift is birth OBSERVED -> birth EXPLAINED, and it makes a bad
+  frame a missing OBSERVATION rather than a missing ENTITY;
+* **SS11 -- the invariants that fall out**, each with its falsifier;
+* **SS12 -- the interior-appearance DECISION TREE, a draft to be corrected.**
+  It is written to be argued with, and three of its branches are flagged as
+  inference rather than fact.
+
+**NEXT, agreed: the COLLECTIVE TEAM VIEWCONE.** Not one more detector -- it is
+the term four of SS11's invariants are written in, so until it exists they are
+prose. Only the local player's cone is fitted; ally cones are unread. Entry in
+`BACKLOG.md` with the argument, the three legitimate violations, and the
+under-claim warning.
+
+**What landed today, in one line each:**
+
+* `fit_ring` on the self key: FALSIFIED, 9/26 against 10/26. Masked NCC too
+  (8/26). The crossing is the finding -- geometry is worth -1 under a histogram
+  and +8 under NCC. The two descriptors are complementary (union 13/26);
+* `filter_track` takes a motion class, and now a SPAN-conditional one. Default
+  path byte-identical on 93,553 points;
+* **`track.TELEPORT_PX` (200 px) is far too high** -- measured teleports run
+  38-324 px, so `walker_teleport` refuses three of the four real teleports it
+  exists to admit. NOT refitted: n=8 on 4 solo clips;
+* the audio channel opened. **The tray and the audio agree to within one 50 ms
+  bin on 6 casts of 6**; six reference WAVs cut; running is never silent
+  (0 of 176 windows, non-overlapping intervals);
+* the repo was de-attributed and its history rewritten -- see `CLAUDE.md`.
+
+**Standing asks of the recorder:** more teleport-agent clips to give
+`TELEPORT_PX` an n; and the recording protocol that made today work -- stand
+still while casting, pause between casts, equip-hold-cast.
+
 ## The north star for this channel (recorded 2026-09-06)
 
 > a system that can annotate the vods, highlight the abilities, players,

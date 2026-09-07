@@ -85,6 +85,56 @@ origin in the set is either a missing origin type or a false detection, and the
 model is obliged to say which. An unexplained entity becomes a FLAG rather than
 a silent row.
 
+### THE INVARIANTS THAT FALL OUT OF THE ORIGIN MODEL -- doc §11
+
+An origin from a closed set is a CONSTRAINT, and a constraint refuses things.
+Full list with falsifiers in `docs/minimap-entity-model.html` §11, and the
+interior-appearance case is enumerated as a DECISION TREE in §12 -- a draft
+written to be corrected, with each branch carrying how observable it really
+is. The ones to know before touching this directory:
+
+* **an enemy cannot ORIGINATE in the interior of the observable area.** A first
+  observation strictly inside it is suspect, and whether it can be DISCARDED is
+  a decision table, not a rule with an exception:
+
+        non-teleport agent                          DISCARD, certain
+        teleport agent, in audio radius, no sound    DISCARD, certain
+        teleport agent, in audio radius, sound       KEEP -- corroborated
+        teleport agent, outside audio radius         UNDECIDED, retain flagged
+
+  Only the last row is uncertain, and honestly so. **The audio channel closes
+  the teleport exception inside the audio radius**, which makes this the first
+  hard cross-channel dependency in the model. A per-match shortcut sits above
+  it: the enemy lineup is readable from the scoreboard, so if NO enemy is one
+  of the five teleport agents, every interior appearance is discardable with no
+  identity read at all. A reveal and an occluder remain as separate legitimate
+  violations -- the occluder being why the area must be the RAYCAST cone.
+  **A fourth certain-discard case: an agent with no teleport CHARGE left.** It
+  is strong only where the ability is PURCHASED -- Omen C and Veto C are Basic,
+  two charges, no in-round recharge, so two observed casts exhaust them -- and
+  weak for the signature ones (Chamber E, Yoru E) which recharge. Omen's ULT
+  teleport may be the strongest of all: ultimate readiness shows on the
+  scoreboard, and the ult announces itself by turning the minimap fuzzy black,
+  which `minimap_temporal` already detects. One-sided in every case: observed
+  casts bound the spend from BELOW, so "definitely out" is establishable and
+  "has one left" is only ever the default;
+* **the dual**: an enemy cannot VANISH in the interior either, without a death.
+  What happens instead IS the last origin -- the entity ends and a last-known
+  marker is born;
+* **an interval has exactly ONE origin**, so detections sharing an origin are
+  one entity. Fragmentation dissolves by definition rather than by a grouping
+  threshold;
+* **the local player is always observable.** Widget drawn and no self icon is a
+  DETECTION FAILURE, never an absence -- the one entity whose non-appearance
+  carries no information;
+* **a cast implies a living caster, and casts cannot exceed charges.** Both are
+  already-stored state (roster alive counts; tray charges and the reference's
+  ultimate cost).
+
+**Every enemy-half invariant is written in terms of the OBSERVABLE AREA, which
+does not exist yet.** That is the argument for building the collective viewcone
+next, and it is in `BACKLOG.md`.
+
 ### AUDIO AS A FIRST-PASS GATE, scoped to the audio radius
 
 **Recorded 2026-09-06.** Audio decodes orders of magnitude faster than video, so

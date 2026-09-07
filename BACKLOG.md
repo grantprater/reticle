@@ -434,6 +434,63 @@ stop depending on `classify()` at all.
 rot 270, scale 0.2264** against its own derived mask, so the good geometry
 exists for that clip even though nothing loads it yet.
 
+## THE COLLECTIVE TEAM VIEWCONE -- the agreed next target (2026-09-06)
+
+**The observable area: the union of what the team can currently see.** Agreed as
+the highest-value next piece, and the reason is structural rather than a ranking
+of detectors: **four of the entity model's §11 invariants are written in terms
+of it, and until it exists they are prose.**
+
+The one that pays first, and it is cheap: **an enemy cannot originate in the
+INTERIOR of the observable area.** An enemy appearing mid-cone in a single frame
+is suspect, and the discard is CERTAIN in two of four cases:
+
+    non-teleport agent                          DISCARD, certain
+    teleport agent, in audio radius, no sound    DISCARD, certain
+    teleport agent, in audio radius, sound       KEEP -- corroborated
+    teleport agent, outside audio radius         UNDECIDED, retain flagged
+
+A free precision gain over a channel whose precision has been the binding
+constraint all along, and it needs no new label. **The audio channel closes the
+teleport exception inside the audio radius**, so this is the first hard
+cross-channel dependency in the model. Above the table sits a per-match
+shortcut: the enemy lineup is readable from the scoreboard, so if no enemy is
+one of the five teleport agents, every interior appearance is discardable with
+no identity read at all.
+
+**What exists, and what does not:**
+
+    self cone      `minimap_cone.self_cone()` -- fitted, raycast, ~89-92% of
+                   frames answer, magnitude validated against camera pan
+    ally cones     NOTHING. Ally rings are per-frame candidates with no
+                   identity, and no cone is fitted to any of them
+    third cones    a turret's placement preview is a cone, is currently a
+                   false-positive class, and is drawn by the local player
+
+**It must be the RAYCAST cone, not the angular wedge.** An enemy stepping out
+from behind an occluder is a legitimate interior appearance, and a wedge cannot
+represent that -- so a wedge would make the invariant fire constantly and it
+would rightly be abandoned. `minimap_cone` already raycasts and already splits
+into fingers through a doorway, which is the behaviour this needs.
+
+**Three legitimate violations of the interior invariant, all checkable:**
+
+* **a teleport** -- legal for Omen, Chamber, Veto, Waylay, Yoru only, and the
+  ENEMY LINEUP IS READABLE from the scoreboard, so the exception set is known
+  per match rather than assumed;
+* **a reveal** -- Sova, Fade and others paint an enemy the team cannot see;
+* **an occluder** -- handled by the raycast, per above.
+
+**Build it to UNDER-CLAIM.** An observable area that is too large turns
+legitimate appearances into discarded reads, which is a silent recall loss of
+the kind this project keeps paying for. The one ground truth available is the
+local player's own cone.
+
+**Trigger: next. It is also what `self_cone`'s parked hypotheses need** -- the
+cone-termination and local-thinness ideas were shelved on a 4-of-50 yield figure
+later corrected to ~89%, and both want more cone instances than one player
+supplies.
+
 ## CORROBORATING CHANNELS: motion predicts sound, and sound indexes the video
 
 **Recorded 2026-09-06: :** *player icons moving at running speed should be making
