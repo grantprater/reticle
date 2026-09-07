@@ -290,8 +290,9 @@ areas.* Both are in the art, both were checked by rendering the art BEFORE
 anything was baked, and only the second is a level:
 
     FLOOR   terrain on a rung. Ascent's ladder is 118 122 133 136 139 145 --
-            five rungs of high ground, and painted, +4 is the raised strip up
-            mid and +5 the two plateaus
+            five rungs of high ground. Painted, they are contiguous regions in
+            sensible places: +4 one long strip down the map's centre, +5 two
+            plateaus, +2 the small squares where boxes stand
     SHADOW  terrain DARKER than the base. Ascent has EXACTLY ONE region, 4643 px
             in one component, greys 94..114 as a GRADIENT rather than a level,
             along one edge of a bomb site. Haven has one, Abyss a small one,

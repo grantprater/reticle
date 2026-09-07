@@ -56,9 +56,11 @@ have carried only the second:
         lotus   118 133 145                  abyss   118 133 138
 
   Five rungs of high ground on Ascent, and they are the lighter grey. Painted
-  (`map_shade.py paint ascent`) the +4 rung is the long raised strip up mid and
-  the +5 is the two large plateaus, which is what says the ladder is elevation
-  rather than a histogram artefact;
+  (`map_shade.py paint ascent`) the rungs are CONTIGUOUS REGIONS in sensible
+  places -- +4 is one long strip running the length of the map's centre, +5 is
+  two large plateaus, +2 is the scatter of small squares where boxes stand --
+  which is what says the ladder is elevation and not a histogram artefact. The
+  callouts are not named here because nobody has checked them;
 * **SHADOW** -- terrain DARKER than the base. **Ascent has exactly one region**,
   4643 px in a single component against a next-largest of 622, and its greys run
   94..114 as a GRADIENT rather than a level. It sits along one edge of a bomb
