@@ -43,6 +43,18 @@ the area the game itself draws:
     300 s          24.1%           33%        77%
     1200 s         18.2%           31%        79%
 
+**SUPERSEDED THE SAME DAY -- read `prototypes/cone_terrain.py` before quoting
+any of the numbers below.** The lit mask this scored against is itself
+substantially artefact: 12.6% of the pixels it calls lit are lit in over 85% of
+frames, which cannot be a cone, and they concentrate on the TERRAIN SHADES the
+wiki art distinguishes and the derived `labels` does not (8.2% always-lit on the
+main floor shade against 22-23% one or two steps lighter). The audio ring is
+also baked into the static reference used here. So both sides of the comparison
+below are unreliable and the precision figure in particular should not be
+quoted. The QUALITATIVE conclusion survives -- recall is high, precision is
+low, the reconstruction over-claims -- because the artefact inflates the lit
+mask and therefore flatters precision rather than depressing it.
+
 **Recall is good and precision is not.** The reconstruction finds most of what
 the game lights, and then claims roughly three times as much. That is the
 OVER-claiming direction -- the one that silently discards real enemy

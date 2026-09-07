@@ -13,114 +13,70 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## PICKING UP -- 2026-09-06, the collective team viewcone
 
-**The observable area exists, and `reticle overlay` draws it.** That was the
-agreed next target (`BACKLOG.md`) and the gate on the enemy half of the entity
-model, since four of the doc's SS11 invariants are written in terms of it.
+**The observable area is built, drawn and measured, and the session ended on a
+DESIGN CORRECTION that supersedes how it is computed. Read this section's last
+part before extending anything.**
 
-**Read `prototypes/ally_cone.py` first** -- it is where the numbers are, and
-where two of my own hypotheses died.
+**What shipped and is solid:**
 
-**What shipped, in one line each:**
+* `reticle/cone.py` -- the raycast, promoted out of `minimap_cone`, vectorised
+  (2.74 ms/cone against 37.40, exact agreement with the loop on a real map).
+  `passable` and `visible` split, fixing a real under-claim bug;
+* `fit_ring` promoted to `reticle/minimap.py`, byte-identical
+  (`minimap_icon_eval --finder ring`: 86.3% / 48.1% either side), and its
+  circle search vectorised 8.7x, again exactly equivalent;
+* `minimap.ally_icons` -- a blob becomes an icon by ring coverage, a non-key
+  interior AND a facing lobe. Scored against the ROSTER, which is a label-free
+  ground truth (`n_icons == alive_ally - 1`): raw ally blobs carry a **+0.99**
+  residual, one phantom teammate per frame; promoted icons carry **-0.15**,
+  **20 of 24 rounds agreeing, 95% CI [64%, 93%]**;
+* `track.Tracker` -- Hungarian identity, motion law as an inadmissible cost,
+  plus `resolved_facing`: a windowed circular mean with a RESULTANT gate;
+* `overlay.py` draws the minimap channel -- icons, bearings, per-icon cones,
+  the aggregate. AMBER is a refused bearing.
 
-* `reticle/cone.py` -- the raycast, promoted out of `minimap_cone` and
-  VECTORISED (2.74 ms/cone against 37.40, exact agreement with the loop on a
-  real map). `passable` and `visible` are now separate, which fixes a real
-  under-claim bug: a low box was passed through AND lit;
-* `fit_ring` promoted to `reticle/minimap.py`, byte-identical results
-  (`minimap_icon_eval --finder ring`: 86.3% / 48.1% either side of the move);
-* `minimap.ally_icons` -- a blob is promoted to an icon by ring coverage, a
-  non-key interior, and a FACING LOBE. **The lobe gate is the whole idea: the
-  test for "is this a teammate" and the measurement of "where is it looking"
-  are one computation**, which is why the ally channel and the cone channel
-  were one problem;
-* `track.Tracker` -- Hungarian identity for allies, motion law as an
-  inadmissible cost. All four teammates share one teal, so identity can never
-  come from colour here;
-* `overlay.py` draws the minimap channel: icons, bearings, per-icon cones and
-  the aggregate. AMBER = a refused bearing, the same meaning it carries on a
-  killfeed entry.
+**THE THREE FINDINGS, in the order they matter:**
 
-**The result, against the ROSTER -- a label-free ground truth that costs
-nothing, because a living teammate is always drawn:**
-
-    gate                        exact   mean residual   |residual|<=1
-    raw blobs (= ally_rings)    50.5%       +0.99           73.1%
-    promoted icons + facing     53.0%       -0.15           82.7%
-
-    rounds agreeing  20/24   95% CI [64%, 93%]     <- the honest unit
-
-**The raw channel invents one teammate per frame and the promoted one is
-unbiased.** Count agreement is NOT position correctness: one real ally plus one
-phantom scores exact.
-
-**THE RESULT TO READ FIRST, because it qualifies every other number here: THE
-FITTED BEARING FLIPS 180 DEGREES ON 16% OF FRAMES.** Found by accident, while
-asking what a carried bearing is worth. At 15 Hz the consecutive-frame change
-in the self bearing is bimodal -- 47% under 10 degrees and a **second mode at
-150-180 degrees holding 16.1%** -- and the p90 is FLAT at ~160 degrees from
-67 ms to 3 s, which is what rules out rotation. `cov` and `lobe` cannot see it;
-the flipped population scores a HIGHER median lobe.
-
-**GATED, not solved.** `Track.resolved_facing` aggregates the bearing over
-~200 ms and returns the RESULTANT LENGTH with it; `Tracker.bearings()` refuses
-below 0.5, so an ambiguous window casts no cone. Validated against evidence the
-bearing cannot see -- the direction the player MOVED, from the ring centre
-rather than the lobe: the alignment gap goes +16.8 -> +23.2 points, median error
-69d -> 50d. **The smoothing alone is worth 0.4 points and the GATE is worth
-6.4**, so do not credit the circular mean; that figure (16.1% -> 1.2%) is partly
-circular anyway, since smoothing shrinks its own difference metric.
-
-The diagnosis corrected the note that preceded it: the cause is NOT ring
-fragmentation but a thick, nearly complete annulus whose "reach past r" is
-uniform, so the argmax follows centre jitter. Flip frames have TWO opposed
-lobes (contrast 0.61 against a stable 1.00).
-
-**And ally bearings are BETTER than self** (>150deg 7.2% vs 16.1%), correcting
-an assumption made twice. The weak part of the ally channel is IDENTITY: 862
-tracks over 4266 frames, 27% lasting one observation.
+1. **THE WIDGET MUST BE SOLVED AS LAYERS** (`prototypes/cone_terrain.py`, and
+   the section of that name in `prototypes/CLAUDE.md`). Terrain shade reads as
+   illumination at 3x, the audio ring is baked into the static reference, and
+   the derived floor mask agrees with the wiki art's exact alpha at only 75.6%
+   IoU. Per-pixel tests for one layer ask a question the pixel cannot answer
+   alone. **This is where the next session starts;**
+2. **the reconstruction OVER-claims about 3x** against the area the game draws
+   (`cone_lit.py`). Recall is high, precision is low. That dwarfs the 13% of
+   area the ambiguity gate gives back, which was the wrong thing to optimise;
+3. **the raw per-frame bearing FLIPS 180 degrees on 16% of frames**
+   (`cone_flip.py`), from a thick annulus whose "reach past r" is uniform, so
+   the argmax follows centre jitter. Gated, not solved -- and ally bearings
+   turn out BETTER than self (7.2% against 16.1%).
 
 **NEXT, in order:**
 
-1. **ally identity churn** -- 12 live tracks for 6 icons in the overlay. The
-   bearing is no longer the binding constraint; this is;
-2. re-measure `ally_icons` against the roster with gated bearings -- the -0.15
-   residual is a COUNT and says nothing about bearings;
-3. then wire the interior-appearance invariant, which is what the area is for;
-4. `CONE_HALF_ANGLE_DEG` is now 51.5 (103 full) on a reported fixed FOV that
-   sits inside this repo's own measured 50-65 band. Confirming it independently
-   is still open -- the camera-pan route failed on a weapon-model lock.
+1. **the BASE + ANNOTATIONS layer.** Warp the art (the transform is already
+   fitted and stored in `reference/fits/`), fit an affine art-grey -> observed
+   per frame, and SUBTRACT the known-geometry annotations -- audio ring, icons,
+   X marks -- rather than detecting them. The residual is the light. This kills
+   the terrain artefact and gives a clean region to fit bearings to;
+2. **ally IDENTITY, which is coupled to it** -- icons are one of the subtracted
+   layers. 862 tracks over 4266 frames, 27% lasting a single observation, 12
+   live tracks for 6 icons in the overlay. This is now the binding constraint,
+   not the bearing;
+3. re-measure `ally_icons` against the roster afterwards -- the -0.15 residual
+   is a COUNT and says nothing about bearings;
+4. then the interior-appearance invariant, which is what the area is for.
 
-**TWO HYPOTHESES OF MINE DIED, and both looked good on one frame:**
+**OPEN QUESTION FOR THE RECORDER, cheap for them and expensive to derive:** the
+drawn cone FADES with distance (lit share 51% at 0-20 px falling smoothly to
+13% at 100 px, no cliff, over 407 cones). Does the cone have a visible edge at
+some range, or does it just dim out? If it ends, an unbounded raycast is wrong;
+if it fades, the lit mask is a conservative floor rather than an outline.
+Picking wrong makes the area wrong in opposite directions.
 
-* **`detail` (Laplacian variance, borrowed from `roster.py`) FAILS.** On one
-  rendered frame it read 6698/3850 for real icons against 1534 for a false
-  positive; at n=3916 it is monotonically WORSE at every floor. n=1 per class
-  was not evidence;
-* **the bearing CARRY is worthless at 500 ms.** Median error 29 degrees, which
-  looks usable -- **p90 163 degrees against a null of 160**. One time in ten a
-  carried bearing points the opposite way. The two-aggregate convention paid
-  for itself on the spot: the median alone would have said it works.
-
-**ANSWERED at 15 Hz, and the carry is not what is broken.** The p90 is 162
-degrees at a 67 ms gap and 160 at 3 s -- flat, so raising the rate does not
-help. The tail is the 180-degree FLIP above, not the player turning.
-`Tracker.bearings()` still refuses a carried bearing, which under-claims on
-purpose.
-
-**Two things confirmed by eye before any of it was built**, both worth knowing:
-
-* **ally cones ARE drawn.** At 4:59 on `a06f04a0059f` self is at bottom-mid, the
-  lone living ally is at B, and a lit wedge fans down from the ALLY, splitting
-  at the doorways. The premise holds;
-* **the brightness LIFT cannot be read directly** -- thresholding it returns
-  almost entirely wall outlines, which reproduces the warning already in
-  `minimap_cone`'s docstring. The cone must be computed from a fitted bearing;
-  the drawn lift is corroboration only, and only away from wall edges.
-
-**The leading false positive is unfixed and is the standing one**: green scenery
-tinting the SEMI-TRANSPARENT widget into the ally hue band. The rendered
-instance beat the real ally on all three gates (cov 0.50/0.31, lobe 0.82/0.43),
-so tightening them cannot separate it.
+**`CONE_HALF_ANGLE_DEG` is now 51.5 (103 full)**, from a reported fixed FOV of
+103 that sits inside this repo's own measured 50-65 band. Provenance is a web
+search and the docstring says so; an attempt to confirm it from camera pan
+failed on a weapon-model lock in `minimap_self_check._world_grey`.
 
 **Standing asks of the recorder:** unchanged -- more teleport-agent clips for
 `TELEPORT_PX`, and the equip-hold-cast protocol.

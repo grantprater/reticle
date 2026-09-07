@@ -444,6 +444,13 @@ blob is an icon when it has coverage, a non-key interior AND a facing lobe),
 **+0.99** residual -- one phantom teammate per frame -- and the promoted icons
 carry **-0.15**, 20 of 24 rounds agreeing, 95% CI [64%, 93%].
 
+**SUPERSEDED IN PART, same day:** how the area is COMPUTED is now in
+question. Terrain shade reads as illumination at 3x, the audio ring is baked
+into the static reference, and the reconstruction over-claims ~3x against the
+area the game itself draws. The widget has to be solved as LAYERS -- see
+`prototypes/CLAUDE.md` "THE WIDGET IS LAYERS" and `cone_terrain.py`. The entry
+below still ranks the work correctly; only the method changed.
+
 What is NOT done, in the order this entry's own argument puts it:
 
 * **the interior-appearance invariant is not wired to anything.** The area
