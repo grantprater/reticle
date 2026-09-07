@@ -53,6 +53,33 @@ nothing, because a living teammate is always drawn:**
 unbiased.** Count agreement is NOT position correctness: one real ally plus one
 phantom scores exact.
 
+**THE RESULT TO READ FIRST, because it qualifies every other number here: THE
+FITTED BEARING FLIPS 180 DEGREES ON 16% OF FRAMES.** Found by accident, while
+asking what a carried bearing is worth. At 15 Hz the consecutive-frame change
+in the self bearing is bimodal -- 47% under 10 degrees and a **second mode at
+150-180 degrees holding 16.1%** -- and the p90 is FLAT at ~160 degrees from
+67 ms to 3 s, which is what rules out rotation. `cov` and `lobe` cannot see it;
+the flipped population scores a HIGHER median lobe.
+
+So **the observable area is drawable, measurable, and not yet trustworthy as a
+gate** -- about a sixth of the cones in it point backwards. Do not wire the
+interior-appearance invariant to it until this is fixed.
+`prototypes/cone_flip.py` has the numbers and a half-fix: the game DRAWS the
+cone, so comparing the lit fraction inside cone(fit) against cone(fit+180)
+separates 80% to 48% against temporal consensus. Asymmetric -- it endorses a
+good bearing and declines to endorse a bad one.
+
+**NEXT, in order:**
+
+1. **resolve the bearing from BOTH the track's history and the lit-fraction
+   test.** Temporal consensus defined the labels in `cone_flip.py` so it cannot
+   also be the evidence there, but in production the two are independent and
+   both cheap;
+2. re-measure `ally_icons` after that -- the -0.15 residual is a COUNT and says
+   nothing about bearings;
+3. only then wire the interior-appearance invariant, which is what the whole
+   area is for.
+
 **TWO HYPOTHESES OF MINE DIED, and both looked good on one frame:**
 
 * **`detail` (Laplacian variance, borrowed from `roster.py`) FAILS.** On one
@@ -64,11 +91,11 @@ phantom scores exact.
   carried bearing points the opposite way. The two-aggregate convention paid
   for itself on the spot: the median alone would have said it works.
 
-**OPEN, and it is the first thing to do:** that carry was measured at 2 Hz, so
-the smallest visible gap is ~500 ms, and the shipped minimap reader runs at
-15 Hz (67 ms). **The regime that matters is unmeasured.** A 15 Hz pass over six
-minutes is scanned as `--tag .hz15`; run `--interp` against it. Until then
-`Tracker.bearings()` REFUSES a carried bearing, which under-claims on purpose.
+**ANSWERED at 15 Hz, and the carry is not what is broken.** The p90 is 162
+degrees at a 67 ms gap and 160 at 3 s -- flat, so raising the rate does not
+help. The tail is the 180-degree FLIP above, not the player turning.
+`Tracker.bearings()` still refuses a carried bearing, which under-claims on
+purpose.
 
 **Two things confirmed by eye before any of it was built**, both worth knowing:
 
