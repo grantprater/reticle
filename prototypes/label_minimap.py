@@ -12,7 +12,7 @@ Controls
                       mark, a Reyna blind, a warning ping. These are the
                       confounders the finder has to reject, and marking them
                       is what turns "it fired" into "it fired on what". NOT a
-                      Cypher cam -- corrected 2026-09-02, the player: "Cypher cams
+                      Cypher cam -- corrected 2026-09-02, "Cypher cams
                       are not red." A cam is colour-free; see prototypes/CLAUDE.md.
     right click       undo the last mark
     SPACE or D        save and advance
@@ -77,7 +77,7 @@ a pool containing only enemy-present frames could not test it.
 
 A wider window is NOT better here, and the first version got it wrong. At
 300-1400 ms most frames landed before the enemy had come into view at all --
-the player, after labelling: the enemy is often only in view 400 ms or less before
+after labelling: the enemy is often only in view 400 ms or less before
 the kill. Frames like that are `N` for a reason that has nothing to do with the
 minimap, and counting them made the icon look absent when the enemy was.
 """

@@ -28,7 +28,7 @@ the player knows what is drawn on the screen; the detector only knows what it fo
 `label_dynamic.py` was launched six times in one session because ping, area
 ability and spawn barrier each surfaced mid-run and needed a new key. Ask first:
 *what things can actually appear here?* One question would have saved five
-restarts, each costing him a detection wait.
+restarts, each costing the player a detection wait.
 
 Then decide the population you sample from, and check it is the one you mean.
 That same pass drew uniformly over `active` spans — and `segment` calls the buy

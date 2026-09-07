@@ -35,7 +35,7 @@ No attempt is made here to tell those apart algorithmically: `label_ability.py`
 already has the correction path for it (`0 = not actually an ability`), and
 sorting the two apart by eye costs the player nothing on a clip this short. That
 split -- I propose positions, the player confirms/rejects and names -- is exactly
-what he asked for.
+what the player asked for.
 
 Tracking, not per-frame sampling
 ----------------------------------
@@ -90,7 +90,7 @@ tool was built ("the player icon sitting there the whole time... No
 attempt is made here to tell those apart algorithmically") and it sat
 unaddressed until the player, reading a rendered comparison of real vs false
 candidates, named the pattern by eye: several false positives had no
-trapwire in the crop AT ALL, just his own icon. `device_glyph`/`host_span`
+trapwire in the crop AT ALL, just the icon. `device_glyph`/`host_span`
 are GENERIC shape/size guesses that turned out not to transfer between
 object classes; this instead reuses `reticle.minimap.self_rings` --
 already-shipped, already-validated code for a DIFFERENT job (self-position
@@ -122,7 +122,7 @@ the highest-value repair on the board.
 track keeps the series of distances from its OWN current position to the
 nearest ring. Measuring from the current position rather than the birth
 position is the point: a candidate that IS the player's icon stays glued to it
-as he moves, while a real placed device falls behind him.
+as the player moves, while a real placed device falls behind the player.
 
 **`self_icon_dist` is the MEDIAN over the track, not the min, and that
 overturns what NOTES proposed.** NOTES said take the min; measured against

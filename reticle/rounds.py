@@ -31,7 +31,7 @@ Free from what is already stored:
   events across fourteen sessions;
 * **first blood** -- `kf_entry_mask` records *every* entry, not just the
   player's, so the earliest entry of a round is that round's first blood. If it
-  is also the player's kill he took it; if it is his death he was traded out
+  is also the player's kill the player took it; if it is the death the player was traded out
   first. No new extractor and no name reading;
 * **which side of the scoreline is the player's** -- `PLAYER_SIDE`, structural
   since 2026-08-27. The top HUD band is COLOURED BY TEAM (green ally left, red
@@ -52,14 +52,14 @@ OCR drop can start the run before the plant -- enough to SPLIT a round into
 phases, not to time one. And `plant_t_ms` is therefore a phase marker, not an
 event timestamp; do not cut a clip on it.
 
-The plant is a **phase boundary**, not just a fact (the player). Pre-plant and
+The plant is a **phase boundary**, not just a fact (recorded). Pre-plant and
 post-plant are different games -- attackers switch to holding, defenders must
 retake -- so a round splits into two phases, and the *state at the transition*
 (players alive each side, whether the player is alive, time left) is a covariate
 for everything that follows it. That is the shape the next version wants, and it
 is another reason `spike_planted` has to become reliable before it is used.
 
-**Audio is the way to sharpen it, and it is still untouched.** the player, 2026-08-27:
+**Audio is the way to sharpen it, and it is still untouched.** Recorded 2026-08-27: :
 *the spike beeping speeds up at standard intervals, so that's the main way
 players tell how much time is left in postplant.* That makes audio not merely a
 cheaper plant flag but **a post-plant CLOCK** -- and post-plant is the one window
@@ -67,7 +67,7 @@ where the pixels have no digits at all, by construction. The exact-boundary
 alternative is a red-fraction test on the scoreline centre, which is trivial but
 costs a `hud` re-run over every capture.
 
-**A round ends exactly three ways** (the player): team wipe, spike defused, spike
+**A round ends exactly three ways** (recorded): team wipe, spike defused, spike
 detonated -- plus time expiring with no plant, which the defenders take. And the
 plant changes the rule rather than adding to it: **once the spike is down the
 defenders must defuse or they lose, however many attackers they kill.** Wiping
@@ -256,7 +256,7 @@ def infer_player_side(rounds: list[dict]) -> tuple[str | None, float]:
     `side_inferred` / `side_agrees` and never lets it override.
 
     Nothing on screen says it -- the scoreline is left and right, not us and
-    them -- but the player trades better in rounds his team wins, so his kills
+    them -- but the player trades better in rounds the team wins, so the kills
     minus deaths separates the two outcomes. Returns ("left"|"right",
     separation) as the gap in mean differential.
 

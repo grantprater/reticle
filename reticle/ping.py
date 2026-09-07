@@ -1,7 +1,7 @@
 r"""Pings on the minimap: what one is, and how to find it while something else decodes.
 
 Detection lives here rather than in `prototypes/ping_scan.py` for the reason
-the player gave when he found the prototype opening its own video: *why is the
+the player gave when the player found the prototype opening its own video: *why is the
 corpus rescan not including pings?* Because it took a VIDEO PATH and not a
 session, so it could only ever be another full decode -- the exact problem
 `reticle/passes.py` was built the same afternoon to solve, applied to every

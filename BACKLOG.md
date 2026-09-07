@@ -84,7 +84,7 @@ Alternatively any session that is scanning that capture for another reason.
 
 ## A small-widget painting, to score the length scaling
 
-**Tabled 2026-09-06 by the player: *I don't plan on having small widget sessions be
+**Tabled 2026-09-06 by *I don't plan on having small widget sessions be
 a concern for a while.*** Correct call — sixteen small-widget sessions are
 ingested and none has been read.
 
@@ -180,7 +180,7 @@ Two ways in, and they are complementary rather than alternatives:
 * **a tag at ingest.** Costs the player one word per capture and is exact;
 * **derive it.** `minimap_portrait.bootstrap` already names the ENEMY lineup
   from scoreboard art by composition matching (83.5% held-out, five agents).
-  The same machinery pointed at the ally side names his own, with no new
+  The same machinery pointed at the ally side names the, with no new
   labelling -- and the roster gives a per-frame alive check on it for free.
 
 **Trigger: the next capture, for the tag; the next time the ally roster is
@@ -355,7 +355,7 @@ it in general; and slot X still draws pips, so ultimates need the audio half.
 
 ## Superseded discussion of the cast/jump combination
 
-**the player, 2026-09-06, and he notes he has raised it before:** *a teleport
+**Recorded 2026-09-06, and the player notes the player has raised it before:** *a teleport
 activated on the hotbar (or in audio once that's built) should be triggering an
 expected agent teleport.* `NOTES.md` has carried "causal -- what is on screen
 is CAUSED by events the pipeline already tracks" as a goal; this is the first
@@ -397,11 +397,11 @@ only version of this that spends the permissiveness where the evidence is.
 
 ## Promote the WIKI MAP into `minimap_geometry`, which still bakes its own
 
-**the player, 2026-09-06, catching me reaching for the derived path on a fresh
+**Recorded 2026-09-06, catching me reaching for the derived path on a fresh
 clip:** *why are we still baking the map? I thought we were using the minimap
 wiki reference which is higher accuracy anyway?*
 
-**He is right, and it is a promotion gap rather than an open question.**
+**The player is right, and it is a promotion gap rather than an open question.**
 `prototypes/wiki_map.py` is built and validated -- the official art's ALPHA
 CHANNEL is an exact floor mask, fitted by a similarity transform whose rotation
 lands on an exact multiple of 90:
@@ -436,7 +436,7 @@ exists for that clip even though nothing loads it yet.
 
 ## CORROBORATING CHANNELS: motion predicts sound, and sound indexes the video
 
-**the player, 2026-09-06:** *player icons moving at running speed should be making
+**Recorded 2026-09-06: :** *player icons moving at running speed should be making
 footstep sounds. The self player icon with the audio radius around same thing
 (it takes a bit to leave after making no noise but roughly). Basically just
 using corroborating signals as we have been to increase accuracy and
@@ -484,7 +484,7 @@ recorded so they are not retried as stated:
 game draws it only while running -- binary, measured at radius 94-95 px, with
 every non-running frame scoring exactly 0.00 lift. So the right experiment is
 not speed-vs-audio at all; it is **ring-vs-speed-vs-audio**, where the ring is
-ground truth for "is he audible" drawn on screen by the game itself. That also
+ground truth for "is the player audible" drawn on screen by the game itself. That also
 settles the walk/run ambiguity that probably explains the inverted clip, and it
 needs no labels. the parenthetical -- *it takes a bit to leave after making
 no noise* -- is a lag to calibrate, not an obstacle.
@@ -507,7 +507,7 @@ entry.
 out of audio range.* I had written that "a silent ability is exactly the class
 an audio gate would miss, and that class is known to be large" -- **conflating
 two different classes**. What is known to be large is the set of abilities with
-NO MINIMAP ICON (his own note: *grenades, flashes, molotovs are the most
+NO MINIMAP ICON (the note: *grenades, flashes, molotovs are the most
 common*). That is a fact about the widget, not about sound, and I carried it
 across without noticing.
 
@@ -517,7 +517,7 @@ where the minimap structurally does not, and the failure mode is ATTENUATION --
 a continuous, distance-dependent quantity -- rather than absence. Attenuation is
 modellable and absence is not.
 
-**And for the LOCAL PLAYER it is not a failure mode at all**: his own casts are
+**And for the LOCAL PLAYER it is not a failure mode at all**: the casts are
 never out of range. So an audio index over the player's own abilities has no
 silent-class blind spot whatsoever, which is exactly the half of the event log
 the tray and the submenu also cover. The out-of-range caveat applies only to
@@ -529,7 +529,7 @@ would be an energy threshold, which is what `audio_probe` already killed.
 
 ## THE AUDIO CHANNEL: build it next, and it splits into two unequal halves
 
-**the player, 2026-09-06:** *Teleports can be very short range or even faked though,
+**Recorded 2026-09-06: :** *Teleports can be very short range or even faked though,
 so this may simply require the audio channel. I think we build that next. Is
 ability audio recoverable from the agent clips or do I need to do no sound but
 the ability clips?*
@@ -546,7 +546,7 @@ distinctive, one per agent per side: the ideal matched-filter target, and a
 closed set of the same shape as the digit templates and the agent-name bitmaps,
 both of which worked.
 
-**CORRECTED, by the player, 2026-09-06: the tray DOES read slot X.** This entry
+**CORRECTED, by Recorded 2026-09-06: : the tray DOES read slot X.** This entry
 first said *"slot X draws pips, not a bar, so `ability_hud` sees no drop for an
 ultimate in 7 of 7 clips"* -- which is `prototypes/CLAUDE.md`'s note from
 before the **2026-09-05 fix**, and `ability_hud.casts`'s own docstring already
@@ -569,7 +569,7 @@ round, and the tray's ult read is explicitly *not observable in every clip*
 (`6bb88dba5d2c` and `2ba870ccbd50` keep a full X bar through a labelled ult).
 Two independent readings of the same event is the point.
 
-**THE REFINEMENT, and it is directly implementable from stored data:** the
+**A REFINEMENT FROM THE DOMAIN NOTES, directly implementable from stored data:** the
 ult fill *"might need to be divided by the number of pips in the ult, which is
 a known quantity per-agent"*. It is -- `ability_reference` carries it as the
 ultimate's `cost` field, **7, 8 or 9 points, present on 28 of 29 agents**
@@ -633,12 +633,12 @@ matched filter or NMF activation would not.
 
 **That version is impossible and unnecessary.** Map ambience is always present,
 and HRTF is on -- `audio_probe` already records that the reference should be
-cut from footage recorded the way he actually plays, so his own clips are the
+cut from footage recorded the way the player actually plays, so the clips are the
 RIGHT source rather than a compromised one.
 
-**The contaminant is his own footsteps -- but HOW MUCH is NOT ESTABLISHED, and
+**The contaminant is the footsteps -- but HOW MUCH is NOT ESTABLISHED, and
 the first attempt to measure it was my own aggregate error.** Over 27 demo
-clips and 119 casts, asking whether the self track says he was still in the
+clips and 119 casts, asking whether the self track says the player was still in the
 +/-0.5 s around each cast:
 
     still by MAX speed over the window       8/119   ( 7%)
@@ -647,7 +647,7 @@ clips and 119 casts, asking whether the self track says he was still in the
 **A sevenfold swing from the choice of aggregate, which means the proxy does
 not answer the question.** A max over fifteen frames is tripped by one jittery
 ring fit, so it reads "moving" on a stationary player; a median passes a window
-he moved through briefly. This is `self_icon_dist`'s min-versus-median lesson
+the player moved through briefly. This is `self_icon_dist`'s min-versus-median lesson
 arriving again in a new file -- *once a whole window is sampled, the aggregate
 IS the measurement* -- and the 7% figure should not be quoted.
 
@@ -681,7 +681,7 @@ recorded stay usable as test data even where they are not usable as reference.
 
 ## Analysis-by-synthesis: hypothesise an event, render it, fit the residual
 
-**the player, 2026-09-06, closing the session:** *for audio, especially for
+**Recorded 2026-09-06, closing the session:** *for audio, especially for
 overlapping audio, a technique that I'm not sure exists could be -> guess an
 event -> try to fit the sound that event would make into the audio. I think
 this could also be used for icons, and is sort of a part of what I meant by

@@ -177,7 +177,7 @@ LOBE_MIN_FRAC = 0.22
 def _facing(red, cx, cy, r):
     """Bearing of the facing triangle, or None if no real lobe stands out.
 
-    the player, correcting an earlier claim of mine that a placed ability never
+    correcting an earlier claim of mine that a placed ability never
     turns: **a Cypher cam rotates.** It is a perfect circle that never
     translates, and it is the only other moving icon on the widget -- its
     rotation is shown by the camera glyph turning INSIDE the ring, with no lobe

@@ -2,7 +2,7 @@
 
     .\\.venv\\Scripts\\python.exe prototypes\\roster_names_scan.py [--out sheet.png]
 
-the player, 2026-09-02, correctly pushed back on eyeballing minimap-style portraits
+Recorded 2026-09-02, correctly pushed back on eyeballing minimap-style portraits
 to find a session with an ally Cypher: this repo's own history says **read the
 names, never the portraits** (NOTES.md, 2026-08-27) -- the Tab scoreboard
 prints the agent name as literal text on a second grey line, a closed
@@ -29,7 +29,7 @@ Two consequences, and the second is the expensive one:
 * an open board is NOT enough -- `is_roster_panel()` gates on the ally rows actually
   carrying a second text line, or the sheet fills with Tab openings
   that cannot answer the question;
-* **the player opens Esc far less often than Tab.** He is asked to open Tab once a
+* **the player opens Esc far less often than Tab.** The player is asked to open Tab once a
   round; nothing has ever asked for the social panel. So this read may simply
   be unavailable on a given match. That is a capture-side fact to add to the
   checklist, not a detector to improve.

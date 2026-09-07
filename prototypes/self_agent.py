@@ -55,7 +55,7 @@ rim, so it covers more of the portrait it is being asked about.
 Validation, and why the demo corpus is the right place
 --------------------------------------------------------
 The 28 one-agent-per-clip demo sessions carry the agent in their INGEST TAGS,
-placed there by the player when he recorded them and long before this question
+placed there by the player when the player recorded them and long before this question
 existed. That is ground truth of the strongest kind available here -- a label
 from a different population than the thing being scored, recorded for another
 purpose. `--demo-corpus` scores every one of them.

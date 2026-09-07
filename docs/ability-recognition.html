@@ -195,7 +195,7 @@ a:focus-visible, :focus-visible { outline:2px solid var(--measured); outline-off
 
   <div class="correction">
     <div class="label">Superseded — “slot X never drops” was a defect in the reader</div>
-    <p>the player: <em>for ult the tray cast should be the pips going hollow.</em> Rendered and then measured, slot X goes <strong>909 teal pixels → 0 between 28.0s and 28.5s</strong> against a first Hunter's Fury label at <strong>28.2s</strong> — the pips desaturate along with the bar, so the existing teal mask reads them with no new geometry. Two bugs hid it: <code>casts()</code> looped <code>range(3)</code>, and <code>drawn()</code> refused the frame because after the ult <em>every</em> slot is empty, which it read as “tray not rendered”.</p>
+    <p><em>for ult the tray cast should be the pips going hollow.</em> Rendered and then measured, slot X goes <strong>909 teal pixels → 0 between 28.0s and 28.5s</strong> against a first Hunter's Fury label at <strong>28.2s</strong> — the pips desaturate along with the bar, so the existing teal mask reads them with no new geometry. Two bugs hid it: <code>casts()</code> looped <code>range(3)</code>, and <code>drawn()</code> refused the frame because after the ult <em>every</em> slot is empty, which it read as “tray not rendered”.</p>
     <p>Where an ult is still unmatched the cause is the <strong>recording</strong>: Brimstone's clip had infinite abilities on, and <strong>Viper's Pit is sustained</strong> — the bar holds full while the pit is up and releases when it ends, landing the drop at 44.0s against labels at 36.9–42.6s.</p>
   </div>
 </section>
@@ -220,7 +220,7 @@ a:focus-visible, :focus-visible { outline:2px solid var(--measured); outline-off
   <h2><span class="marker">§5</span> The extending entity, and why a cast is 1:N</h2>
   <div class="finding">
     <div class="label">Measured — abilities animate, and the animation traces the deployment vector</div>
-    <p>the player: <em>abilities have animations — quite a few extend along a line or region.</em> So a wall's fragments are not one object that grew; they are the animation tracing the orientation, sharing a bearing from the origin with distance increasing over time. Viper's Toxic Screen: the onset rule split its window into <strong>5 objects</strong>; the extending signature returns <strong>one entity at +9.7°, from 3 fragments, origin (243,367)</strong>, and rejects the two candidates at −96° and −61°.</p>
+    <p><em>abilities have animations — quite a few extend along a line or region.</em> So a wall's fragments are not one object that grew; they are the animation tracing the orientation, sharing a bearing from the origin with distance increasing over time. Viper's Toxic Screen: the onset rule split its window into <strong>5 objects</strong>; the extending signature returns <strong>one entity at +9.7°, from 3 fragments, origin (243,367)</strong>, and rejects the two candidates at −96° and −61°.</p>
     <p>Independently checked on Sova's ult: the fitted bearings explain their labels to within <strong>1.5–2.2°</strong>.</p>
   </div>
 

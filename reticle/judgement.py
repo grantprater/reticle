@@ -159,7 +159,7 @@ def change_point(outcomes: list[int], min_side: int = MIN_SIDE):
 # stake: what it costs to be wrong, which is not the same as how often you are
 # --------------------------------------------------------------------------
 #
-# the player: predicting a file's word count has a different salience to predicting
+# predicting a file's word count has a different salience to predicting
 # whether your ontology was correct. It does, and the first attempt to show it
 # ran the WRONG TEST -- accuracy by level, which found nothing (value 0.55,
 # ontology 0.67) because accuracy was never the point. Stake is what it costs to

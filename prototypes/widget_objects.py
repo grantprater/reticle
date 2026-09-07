@@ -3,7 +3,7 @@ r"""One segmentation of the widget per frame, grouped into OBJECTS, not blobs.
     .\.venv\Scripts\python.exe prototypes\widget_objects.py <session> --against-pings
     .\.venv\Scripts\python.exe prototypes\widget_objects.py <session> --free
 
-the player, 2026-09-05, on the ping detector's 26% precision:
+Recorded 2026-09-05, on the ping detector's 26% precision:
 
 > Is there a way to structure the detection so that it all happens at once? An
 > example is tightly clustered or overlapping icons. If there were a way to
@@ -76,7 +76,7 @@ answer has to come from constraints rather than from appearance.
 
 BOTH CHANNELS, 2026-09-06 -- and the fusion has a consequence
 --------------------------------------------------------------
-the player, asked which population a grouping labelling pass should cover, chose
+asked which population a grouping labelling pass should cover, chose
 **both channels in one segmentation**, and `--free` is that:
 `minimap_dynamic.dynamic_mask` (extracted from `detect` that day so there is
 one definition of "differs from the static map") is OR-ed with the saturated
@@ -100,7 +100,7 @@ icon that casts it, so a pixel-level OR merges icon and cone into one object
 and every per-object feature then measures the pair.
 
 **That is not a defect in the fusion, it is the structure -- and the
-ontology already says how to label it.** Asked what counts as one object he
+ontology already says how to label it.** Asked what counts as one object the player
 chose *physical thing, but annotations are separate*: the device is an object
 and its radius ring is an annotation OF it. A viewcone is the same shape of
 thing for an ally icon. So the cone must not be a fragment of the ally and must

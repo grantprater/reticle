@@ -34,7 +34,7 @@ correlation is written:
   SPECTROGRAMS instead;
 * **the player plays with HRTF on.** That is a filter, so a reference recorded with
   it off would correlate worse against normal play. The reference bank should be
-  cut from footage recorded the way he actually plays, and an HRTF-off pass is
+  cut from footage recorded the way the player actually plays, and an HRTF-off pass is
   only worth asking for if BEARING estimation becomes a goal -- which is the one
   thing HRTF genuinely complicates.
 

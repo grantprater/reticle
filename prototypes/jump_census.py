@@ -48,7 +48,7 @@ destroying real positions and no downstream number knows.
 records which agent the player played. So the model cannot be applied to real data
 today, and the gap is one ingest tag plus a read that already half exists --
 `minimap_portrait.bootstrap` names the enemy lineup from scoreboard art, and
-the same machinery over the ally side would name his own.
+the same machinery over the ally side would name the.
 
 What this file therefore reports
 --------------------------------

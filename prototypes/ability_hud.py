@@ -52,7 +52,7 @@ near zero the frame is refused and the reading is `None`, never "no charges".
 
 SUPERSEDED -- the paragraph below is wrong for the 2026-09-03 sitting
 ----------------------------------------------------------------------
-**the player, 2026-09-05: `infinite-abilities` was toggled ON to charge the ult and
+**Recorded 2026-09-05: : `infinite-abilities` was toggled ON to charge the ult and
 then OFF again.** So the tag on those five manifests is misleading and the
 clips spend charges normally -- `ability_cast.py` reads 17 clean casts across
 them. `prototypes/CLAUDE.md` already recorded the tray reading cleanly on seven
@@ -208,7 +208,7 @@ def casts(ts, counts, clean=None):
     """Charge drops: (t, slot, from_fill, to_fill, suspect), skipping unusable frames.
 
     **Slot 3 IS read, corrected 2026-09-05.** This loop ran `range(3)` on the
-    belief that the ultimate's pips could not be read as a fill. the player: *for ult
+    belief that the ultimate's pips could not be read as a fill. *for ult
     the tray cast should be the pips going hollow* -- and rendered, that is what
     happens, except the pips do not merely hollow, they DESATURATE from teal to
     grey along with the bar beneath them. So the existing teal mask reads them

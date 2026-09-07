@@ -37,7 +37,7 @@ the screen nor the minimap, yet their position is inferable from the flash.
 **Detection and target-validity are different questions, and only the first is
 being labelled here.** A dismissed Reyna is visible, outlined, and invulnerable.
 A Yoru clone is outlined and looks exactly like a player. Omen mid-teleport,
-Jett dashing, Chamber on his TP -- Valorant has dozens of agent states where an
+Jett dashing, Chamber on the TP -- Valorant has dozens of agent states where an
 outlined player-shaped thing is not a normal target, and enumerating them as
 label classes does not scale past a few agents.
 

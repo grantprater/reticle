@@ -11,7 +11,7 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## The north star for this channel (the player, 2026-09-06)
+## The north star for this channel (recorded 2026-09-06)
 
 > a system that can annotate the vods, highlight the abilities, players,
 > viewcones, pings, and any other icons as they evolve throughout a match
@@ -37,13 +37,13 @@ and no failure mode. That validates the tray reader as much as the audio.
 **The second teleport cast has FIVE SECONDS OF DIGITAL SILENCE in front of it**
 -- every bin at the 0.0002 noise floor against a cast peak of 21.1. A reference
 cut with nothing to be confused with, which is what no amount of filtering
-recovers from a clip where he was running.
+recovers from a clip where the player was running.
 
 **The equip sound is visible**, and it is the claim arriving independently:
 two events at 3.65-4.80 s and 13.90-15.05 s, **duration 1.15 s to the bin and
-peak 9.2 / 9.4**, one before each of the two teleport casts -- and he equipped
+peak 9.2 / 9.4**, one before each of the two teleport casts -- and the player equipped
 exactly twice. Other slots are weaker and not claimed; the first E cast has
-nothing before it at all, so coverage stays unverified exactly as he hedged it.
+nothing before it at all, so coverage stays unverified exactly as the player hedged it.
 
 **NEXT on this thread:** cut the references (the ult voicelines already exist,
 56 of them, all decoding), then a matched filter, then NMF with a fixed
@@ -61,7 +61,7 @@ reason and the trigger that would un-defer it.
 
 * **`floor_mask` was forked for ten days** and is reconciled (`18b0912`).
   78.8% / 77.9% IoU at 100% recall against the paintings, up from
-  57.8% / 74.0%. **A SITE IS FLOOR** -- his correction, mid-fix, and it caught a
+  57.8% / 74.0%. **A SITE IS FLOOR** -- the correction, mid-fix, and it caught a
   real defect: 9.6% of stored self positions sit inside one;
 * **`reticle doctor`** -- the repo's half of `status`. Six structural checks,
   and it found a manifest contradiction nobody was looking for
@@ -131,7 +131,7 @@ two-part teleport (Yoru, Chamber, Waylay) drops on PLACEMENT and jumps on
 traversal, so no fixed window catches it in general.
 
 *Superseded framing, kept for the argument:* **item 2, cast events select the class** -- and the numbers above are the
-argument for it rather than a per-session agent. the player: *a teleport activated
+argument for it rather than a per-session agent. *a teleport activated
 on the hotbar (or in audio) should be triggering an expected agent teleport.* A
 session-wide class gives up the slack everywhere to buy jumps in a few places;
 a cast selects the class **on a window**, spending the permissiveness only
@@ -174,7 +174,7 @@ class has to come from somewhere else -- the ingest tag on the demo corpus, or
 a `--agent` argument -- or item 1 ships the parameter with today's `walker`
 default and nothing opts in yet, which is what its own text proposes.
 
-**the direction for the channel, in his words:** *identity-based
+**the direction for the channel, in the words:** *identity-based
 identification of entities with their temporal evolution, subject to the
 invariants of their specific identity.* That is design doc §6 now.
 
@@ -183,7 +183,7 @@ unchanged and still the plan for that thread.**
 
 **NEXT: the causal, temporal, aggregated entity model.** the goal for the
 next session, and every piece it needs now exists in some form. The shape,
-from his own framing:
+from the framing:
 
 * **aggregated** -- one segmentation of the widget per frame, fragments grouped
   into OBJECTS (`prototypes/widget_objects.py`), instead of five detectors
@@ -232,7 +232,7 @@ from his own framing:
 
 * `587c15b07779` ingested -- Lotus, 31:04, `valorant-16x9-bigmap`. Killfeed
   19/14; `board` reads 19/13, first divergence 0:15:50. **Not in `KNOWN_KD`
-  and must not be added until the player confirms it off his match history** --
+  and must not be added until the player confirms it off the match history** --
   `board` is a third extractor over the same pixels, not an external source;
 * **the plant is detected positively off the spike graphic**
   (`prototypes/plant_spike.py`), 210/369 rounds (57%) against the null-clock
@@ -433,8 +433,8 @@ twice. `review_candidates.py` gates it.
 
 **THE PING CLIP IS RECORDED AND IT FALSIFIED THE REASON FOR ASKING FOR IT.**
 `2026-09-05 17-39-40.mp4` (65 s, four types) and `2026-09-05 17-57-24.mp4`
-(on-my-mark). the player, on watching it back: *they did not seem to radially
-emanate*. Measured at 60 Hz and he is right --
+(on-my-mark). on watching it back: *they did not seem to radially
+emanate*. Measured at 60 Hz and the player is right --
 
     7.133 s   nothing
     7.150 s   the diamond is ALREADY AT FULL SIZE
@@ -474,7 +474,7 @@ it has to be shape against the opaque slab.
 
 **QUEUED CAPTURE (SUPERSEDED, kept for the reasoning): a PING clip.** *I want to record a ping
 minimap session where I just spam ping for a minute or so.* Same shape as the
-one-agent-per-clip demo corpus and the same reason it works -- he knows what he
+one-agent-per-clip demo corpus and the same reason it works -- the player knows what the player
 did, so the labels are free and exact.
 
 It is worth more than a confounder clip. Pings are named in the endstate
@@ -525,10 +525,10 @@ the whole widget was rotated 180 degrees.
    **100 degrees** against the player's measured ~112 -- from the reference
    text, not a measurement, so do not reuse `CONE_HALF_ANGLE_DEG` for it.
 6. **A per-ability distance-from-player prior**, to break the position ties this
-   module currently refuses. the player: only Omen's smoke and ultimate are truly
+   module currently refuses. only Omen's smoke and ultimate are truly
    global, so the shipped self track constrains every other ability. Measured
    medians span 21 px (Viper's Pit) to 180 px (Toxic Screen) and the ordering
-   matches his families -- but n is 1-3 placements per ability, and the
+   matches the families -- but n is 1-3 placements per ability, and the
    reference's `Deployment Type` is a different axis. See `ability_cast.py`.
 7. **Represent an ability as ORIGIN + an OPTIONAL DEPLOYMENT VECTOR + a
    TRAJECTORY DRIVER.** the player proposed origin+vector, then withdrew it the same

@@ -1,6 +1,6 @@
 r"""Decide on a WINDOW, not on the frame that happened to be sampled.
 
-the player, 2026-09-06:
+Recorded 2026-09-06: :
 
 > we're only detecting things that show up on the 2hz schedule, but only things
 > that we actually detect. Is there a way to improve accuracy by looking at

@@ -10,7 +10,7 @@ labels on the second map, and the second map has none, so the step begins with
 250 more questions for the player.
 
 This asks a cheaper question first: **can the second map be read at all, by me,
-before his time is spent?** And unlike `glance_cams.py`, the controls here are
+before the time is spent?** And unlike `glance_cams.py`, the controls here are
 strong. They come from the 251 `minimap_dynamic` rows on the fit session --
 the SAME detector, the SAME channel, the SAME question ("what is this
 colour-free blob"), differing only in map. That is close to a ceiling test

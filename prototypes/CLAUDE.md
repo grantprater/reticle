@@ -78,7 +78,7 @@ holds, 27% of labelled positives are invisible to the interval test at their
 own pixel, but a more permissive reference lifts the noise as much as the
 signal.
 
-**Two open hypotheses from the player, 2026-09-02, neither tested successfully
+**Two open hypotheses from Recorded 2026-09-02, neither tested successfully
 yet -- recorded so they aren't re-guessed blind next time:**
 
 * **Cone TERMINATION proximity.** Several false-positive ability candidates
@@ -156,7 +156,7 @@ against the 164 hand labels on `a06f04a0059f`, pre-kill pool:
     + persistence len>=3               76.7% / 70.0%    uniform P 19.2%
     + motion (disp>=3 or rot>=15)      72.6% / 74.6%    uniform P 29.4%
 
-The seal test died because **the ring is a teardrop, not an annulus** (the player):
+The seal test died because **the ring is a teardrop, not an annulus** (recorded):
 7.3 px thick at the triangle and **1.1-2.0 px over most of the rest**. Closure
 is topological, needs every pixel of that thin arc, and one break loses it --
 which is exactly what half-resolution chroma does. Fitting the circle that best
@@ -419,7 +419,7 @@ myself with numbers:
    pixels and then outside that a row of grey.* It is `floor_mask`'s deliberate
    9 px dilation, added so a red ring OVERHANGING the slab edge is still
    scored; `LINE_GUARD` missed it by exactly one pixel;
-2. **cutting the whole fringe was wrong** and he called it before the numbers
+2. **cutting the whole fringe was wrong** and the player called it before the numbers
    did: *those are on a map border, but not outside it.* Ten of the eleven
    hand-marked centres it lost were 1-3 px from an interior BOX EDGE;
 3. **the bomb sites were 93% VOID.** `floor_mask` is `sat < 20` and the paint is
@@ -437,8 +437,8 @@ myself with numbers:
    grey on the bottom edge, plain white on the top -- so no symmetric guard
    fits them anyway.
 
-**Then he painted the mask** and it replaced all of it. Scored against his
-painting, on a mask he made without ever pressing `m` to see mine:
+**Then the player painted the mask** and it replaced all of it. Scored against the
+painting, on a mask the player made without ever pressing `m` to see mine:
 
     slab + sites, no guard              IoU 91.3%   241 of 254 marks reachable
     slab + sites, border guard 1px      IoU 89.4%   227
@@ -446,7 +446,7 @@ painting, on a mask he made without ever pressing `m` to see mine:
     + the floor mask's dilation ring    IoU 76.4%   220
     the painting (ceiling)      IoU  100%   227
 
-He kept 0.0% of the holes, 0.0% of the exterior and 7.3% of the overhang ring.
+The player kept 0.0% of the holes, 0.0% of the exterior and 7.3% of the overhang ring.
 **The question was never which transparency is tolerable**, which is what four
 of my five patches had been about. Everything they added -- an exterior flood
 fill, a fringe scoped to it, a hole rule, a pocket rule, a per-region threshold
@@ -485,7 +485,7 @@ transferred unseeded as well: three zones found on Lotus, A B and C, 100%
 searchable, on the first map with a site count different from the one it was
 built against.
 
-**the player then withdrew the straight-line observation, and he was right to.**
+**the player then withdrew the straight-line observation, and the player was right to.**
 *I think my assertion was wrong, there is at least one line that looks like it's
 supposed to be curved.* Fitting `approxPolyDP` to the searchable boundary:
 
@@ -493,7 +493,7 @@ supposed to be curved.* Fitting `approxPolyDP` to the searchable boundary:
     Lotus   eps=2px   81.7% orthogonal   3.3% at 45deg   15.0% neither
 
 Ascent IS 96% axis-aligned, which is why the claim felt true -- it was true of
-the map he was looking at. Lotus is not, and its 15% does not shrink when the
+the map the player was looking at. Lotus is not, and its 15% does not shrink when the
 tolerance doubles (14.6% -> 15.0%), which is the signature of a genuine curve: a
 curve is merely re-approximated by a looser epsilon where a straight edge
 collapses into fewer segments. So **do not snap the mask boundary to straight
@@ -521,7 +521,7 @@ teardrop is ever fitted.
 
 ### The static map does TWO jobs, and only one of them wants a derived image
 
-the player, 2026-09-05: *the valorant wiki had minimap images, probably better than
+Recorded 2026-09-05: : *the valorant wiki had minimap images, probably better than
 our derived ones.* Right, and separating WHY exposes a conflation this
 directory has been carrying since `static_map` was written.
 
@@ -593,7 +593,7 @@ so none of it appears in any earlier measurement. What the pixels say:
 
 ### Ability icons: what the player sees, and what it implies
 
-Corrections he made to two guesses of mine, both worth keeping because both
+Corrections the player made to two guesses of mine, both worth keeping because both
 were plausible and both were wrong:
 
 * the `other_red` clusters I presented as candidate classes are **scenes, not
@@ -611,9 +611,9 @@ were plausible and both were wrong:
 Named so far: the yellow triangle with a ringed glyph is the **dropped spike**.
 The rest of the pool is dominated by X death marks.
 
-**How team gets attributed, which is the design's load-bearing idea.** the player:
+**How team gets attributed, which is the design's load-bearing idea.**
 an ability's team is inferred from WHOSE ability it is -- most abilities belong
-to exactly one agent -- or from the teammate it originated with. He is not sure
+to exactly one agent -- or from the teammate it originated with. The player is not sure
 whether a small team indicator exists. That does not matter, because the
 scoreboard already gives the full ten-agent lineup: **ability -> agent is nearly
 1:1 and agent -> team is known**, so classifying the glyph attributes the team
@@ -625,7 +625,7 @@ depends on, doing a second job.
 ### The ability class list has a SHAPE, and the player named it (2026-09-03)
 
 Asked where to go after generic shape features kept failing, the player gave the
-taxonomy the template bank should be built on. His words:
+taxonomy the template bank should be built on. The words:
 
 > There are essentially two categories of abilities: icons and regions, each
 > with sub-categories depending on duration/lifetime and whether they have
@@ -669,7 +669,7 @@ failed across surfaces and **composition** matching transferred at 83.5%
 held-out, because it threw away the layout that was not invariant. Look for the
 part that survives the mode before building a bank of modes.
 
-### The audio ring: an information boundary drawn on the widget (the player, 2026-09-03)
+### The audio ring: an information boundary drawn on the widget (recorded 2026-09-03)
 
 > There's another sort of "region", the audio range around the player, which is
 > represented by sort of a white circular shadow in a fixed radius around the
@@ -697,7 +697,7 @@ it looks like. Three separate uses, in increasing order of value:
   the pipeline can compute per frame, and it bears directly on whether a peek or
   a rotate was justified.
 
-**2026-09-05, the player: THE AUDIO RADIUS IS ONLY DRAWN WHILE YOU ARE MAKING
+**2026-09-05, THE AUDIO RADIUS IS ONLY DRAWN WHILE YOU ARE MAKING
 STEPS.** *The audio radius seems to only be visible while you're making steps.*
 
 That reverses the ring's status twice over and neither reading is obvious from
@@ -705,7 +705,7 @@ a crop:
 
 * **as a confounder it is cheaper than assumed.** It is not a permanent
   annotation to be subtracted, it is intermittent -- so a candidate at the
-  player's own radius is only contaminated on the frames where he was moving
+  player's own radius is only contaminated on the frames where the player was moving
   audibly, and the ring's ABSENCE across a still window is not a detection
   failure to be chased;
 * **as a signal it is worth far more than assumed, because it is a
@@ -715,7 +715,7 @@ a crop:
   Silent movement is the whole content of "was that peek telegraphed", and it
   needs no new ROI -- the ring is already in the widget.
 
-**ANSWERED the same day, by the player, with the clip (`2026-09-05 18-44-09.mp4`):
+**ANSWERED the same day, by with the clip (`2026-09-05 18-44-09.mp4`):
 ONLY RUNNING MAKES NOISE AND ACTIVATES THE VISIBLE AUDIO RADIUS.** Walking and
 crouching draw nothing.
 
@@ -776,9 +776,9 @@ Unmeasured so far: the radius itself, in minimap pixels and in metres. The
 region pass is the cheapest way to get it -- paint the circle once or twice and
 read it off, rather than deriving it.
 
-**2026-09-04, mid-labelling, the player: ABILITIES DRAW RADIUS RINGS TOO, and they
+**2026-09-04, mid-labelling, ABILITIES DRAW RADIUS RINGS TOO, and they
 look like the audio ring.** Killjoy candidates 8-10 of `dae6f33f3f48` are the
-*active radius* of her devices, and his verdict on how to label them:
+*active radius* of her devices, and the verdict on how to label them:
 
 > visually [they] are very similar to the audio radius around the player. But it
 > wouldn't be entirely accurate to call that an ability
@@ -826,7 +826,7 @@ automatic extraction of this fact produces a wrong third class.
 
 ### EVERY ABILITY HAS AN EQUIP SOUND AND A CAST SOUND, AND EQUIP IS SELF-ONLY
 
-**the player, 2026-09-06:** *there is a separate equip and cast sound for each
+**Recorded 2026-09-06: :** *there is a separate equip and cast sound for each
 ability. Not positive there is one for literally every ability but I would
 guess there is. The equip sound is only for the self agent.*
 
@@ -863,7 +863,7 @@ ability".** Treat coverage as unknown per ability until measured, and remember
 the demo corpus can only establish it for abilities the player could cast solo --
 the kill-gated and ally-gated kits are UNTESTED here, same as for the icons.
 
-### THE ABILITY SUBMENU AND ITS ON-HOVER PROMPTS (the player, 2026-09-06)
+### THE ABILITY SUBMENU AND ITS ON-HOVER PROMPTS (recorded 2026-09-06)
 
 > When pulling out the ability there is basically a submenu above it with
 > icons. For yoru e as an example there is a left click icon and a track
@@ -893,12 +893,12 @@ Four reasons it is worth more than another SFX:
 * **it is self-documenting.** the point -- the domain knowledge could
   be inferred FROM it. A submenu enumerating left-click, right-click and F for
   one ability is the game listing that ability's modes, which is exactly the
-  `modes` axis of his taxonomy that this file has been filling in by asking
-  him. Reading it turns a per-agent interview into a per-clip measurement;
+  `modes` axis of the taxonomy that this file has been filling in by asking
+  the player. Reading it turns a per-agent interview into a per-clip measurement;
 * **it is LOCAL-PLAYER ONLY**, like the drone HUD overlay -- a limit, not a
   defect, and the same half of the event log.
 
-Two cautions before building it. **On-hover means it is conditional on where he
+Two cautions before building it. **On-hover means it is conditional on where the player
 is pointing**, so its absence is no evidence -- the same one-sided rule as the
 enemy X mark and the missing tray drop. And an *available* prompt is not a
 *taken* action: `F fake` appearing says the fake was OFFERED, and only the
@@ -924,7 +924,7 @@ a closed set -- and it means the fake/real distinction may be readable from the
 HUD without audio at all. The caution above still applies unchanged: the prompt
 says the fake was OFFERED, not taken.
 
-### Abilities have PLACEMENT MODES, and only for your own agent (the player, 2026-09-04)
+### Abilities have PLACEMENT MODES, and only for your own agent (recorded 2026-09-04)
 
 > quite a few abilities have different colors/modes while being placed, so that's
 > sort of a modal thing. It would only apply to the player's current agent
@@ -948,7 +948,7 @@ a technique once.
   property that let host span and top-hat peak be applied to 154 existing rows
   for free. `ability_hud.py` has the tray geometry already, though it currently
   reads charge FILL rather than equipped state, so this is an addition to a
-  working reader rather than a new surface. **Do not ask the player to label a mode he
+  working reader rather than a new surface. **Do not ask the player to label a mode the player
   can only guess at when the HUD states it outright.**
 
 **The first one found is a CONE, and that breaks an assumption.** the player, naming
@@ -994,7 +994,7 @@ the player recorded a sitting of controlled clips on **Ascent**, one agent each,
 an alt account with every agent unlocked, custom game, infinite abilities ON.
 Ingested `valorant-16x9-bigmap`, tagged `ability-demo,<agent>`. This is the
 template-bank ground truth the candidate-anchored label store structurally
-cannot give: the player knows what he cast, so the labels are free and exact.
+cannot give: the player knows what the player cast, so the labels are free and exact.
 
 **Check every clip with `prototypes/clip_preflight.py` BEFORE ingesting.** The
 first take of the sitting was recorded with minimap orientation left on
@@ -1023,7 +1023,7 @@ class is known to be large", and that class is the no-icon class in a different
 costume. If every ability makes a sound, audio has FULL coverage where the
 minimap structurally does not, the failure mode is attenuation rather than
 absence -- a modellable, distance-dependent quantity -- and for the LOCAL
-PLAYER'S OWN CASTS there is no failure mode at all, since his own abilities are
+PLAYER'S OWN CASTS there is no failure mode at all, since the abilities are
 never out of range.
 
 **THE NEGATIVE CLASS IS LARGE, and the player named its shape (2026-09-03):**
@@ -1064,8 +1064,8 @@ pixels:
 * **every ability cast** makes absence informative. An agent's kit is a known
   closed set, so "cast four, found two icons" is direct evidence that the other
   two draw nothing -- the negative class becomes free rather than needing its
-  own labelling pass. **But it is every ability he CAN cast, and that is the
-  whole caveat.** the player, correcting the sentence above: Clove needs a KILL for
+  own labelling pass. **But it is every ability the player CAN cast, and that is the
+  whole caveat.** correcting the sentence above: Clove needs a KILL for
   two abilities and a DEATH for her ultimate; Reyna's need kills as well. So a
   missing icon has TWO possible causes -- the ability draws nothing, or it was
   never castable solo -- and they are not separable from the footage. Treat
@@ -1115,7 +1115,7 @@ Note also that the gate is not always "needs a kill": Sage's is an ally state,
 and an ally who has taken damage is unobtainable in a solo custom game for a
 different reason than a kill is. Do not encode this as one flag.
 
-**And there are TWO kinds of gate, which must not be collapsed.** the player, with
+**And there are TWO kinds of gate, which must not be collapsed.** with
 the Skye clip: her ultimate *requires enemies to be alive to track*. That is
 not "cannot cast" -- the ult goes off and the seekers exist. It is **cast but
 UNREPRESENTATIVE**: with nothing to track, a seeker will not travel the way it
@@ -1137,7 +1137,7 @@ solo-cast seeker would poison the number that currently works best.
 
 **Corrected immediately, and the correction is the useful part.** The first
 version of this note extended the caution to "any moving icon cast with no
-target". the player, on the Sova clip: *Sova drone is controlled by the player, I
+target". on the Sova clip: *Sova drone is controlled by the player, I
 flew it around* -- and then, unprompted, *same with fade dogs* and *and skye
 dog and birds*. So PILOTED utility is the norm and autonomous seeking is the
 exception:
@@ -1184,7 +1184,7 @@ The `2ba870ccbd50` symptom was LARGE, LONG-LIVED false positives, so identical
 mean area is the reassuring number and the rate difference is small. Read the
 direction carefully rather than as a cost: the contaminated build proposes
 FEWER because the parked cone is baked into it as map structure, so
-`searchable()` masks out exactly the region he was placing abilities in. Fewer
+`searchable()` masks out exactly the region the player was placing abilities in. Fewer
 candidates there is a recall loss disguised as a precision win.
 
 **A donor's lighting reference IS transferable between recordings, measured.**
@@ -1213,7 +1213,7 @@ arrays are cluster centres computed from different frame counts by different
 runs, so they differ for reasons that have nothing to do with the recordings.
 Compare the RAW medians when the question is about the recordings.
 
-### Tejo's kit, and a SECOND vision cone on the widget (the player, 2026-09-03)
+### Tejo's kit, and a SECOND vision cone on the widget (recorded 2026-09-03)
 
 Asked what the pale wedge in `c0b63335e635` at t=28350 ms is:
 
@@ -1227,7 +1227,7 @@ Asked what the pale wedge in `c0b63335e635` at t=28350 ms is:
 Four consequences, and the first is the important one:
 
 * **IT IS AN OVERLAY THAT OVERLAPS THE MINIMAP, AND MUST NOT BE READ AS
-  MINIMAP CONTENT.** the player, correcting a first reading of it as the ability's
+  MINIMAP CONTENT.** correcting a first reading of it as the ability's
   "minimap presence": *well it's an overlay, it just overlaps the minimap* ...
   *but it shouldn't be interpreted as being on the minimap.* Confirmed by
   rendering the whole frame with the ROI outlined -- the wedge sits inside the
@@ -1258,8 +1258,8 @@ Four consequences, and the first is the important one:
     one -- the same shape as the digit templates and the twenty-five agent-name
     bitmaps, both of which worked;
   * **it is the LOCAL player only.** An ally's or enemy's active ability draws
-    nothing on the HUD, so this channel is about his own actions. That is a
-    limit, not a defect: his own casts are the half of the event log that feeds
+    nothing on the HUD, so this channel is about the actions. That is a
+    limit, not a defect: the casts are the half of the event log that feeds
     the self track and the duel context around it.
 
   Treat it as: recognise the overlay, emit "<ability> active from t0 to t1",
@@ -1306,12 +1306,12 @@ one large pale wedge appears and the blob detector proposes pieces of its edge.
 That is the icon-vs-region split in the taxonomy, arriving as a measurement:
 an icon detector run over a region returns the region's fragments.
 
-**the player identified that wedge as his DRONE's HUD -- his C ability -- so those
+**the player identified that wedge as the DRONE's HUD -- the C ability -- so those
 seven fragments are a TRUE POSITIVE**, and the failure is representation
 rather than detection. See the Tejo section above.
 
 **Grouping on (shared onset, adjacency) is the cheap fix and it belongs before
-the labeller.** Asking the player about seven fragments of one object spends his
+the labeller.** Asking the player about seven fragments of one object spends the
 time seven times for one answer, and it also breaks the arithmetic -- a
 per-candidate precision figure counts one real object as seven.
 
@@ -1338,7 +1338,7 @@ scan's output, not only the crops it proposes.
 
 ### `self_icon_dist` is NULL for a SAMPLING reason, not a detection one
 
-the player, on the ranked corpus: *I thought we had template matching for player
+on the ranked corpus: *I thought we had template matching for player
 minimap icons working?* Worth answering precisely, because the answer is a bug.
 
 **What exists.** `minimap_portrait` does composition matching (83.5% held-out,
@@ -1387,7 +1387,7 @@ on it:
 > a lot of those examples are still essentially fragments of viewcone or tiny
 > cracks in the minimap
 
-**But he also said, of the other end of the same gallery:**
+**But the player also said, of the other end of the same gallery:**
 
 > all the weakest examples shown are either literally only player icons or very
 > close to player icons
@@ -1415,7 +1415,7 @@ Two consequences for the next attempt:
   the "ground truth from the same population" rule again, and the ranking
   inherited it.
 
-**The two surviving false-positive classes, in the words, and both are
+**The two surviving false-positive classes, as originally framed, and both are
 things we can already MODEL:**
 
 * **viewcone fragments** -- the cone clipping a corner, already the known
@@ -1450,7 +1450,7 @@ filtered after the fact by a feature that hopes to correlate with them.
 
 ### The untried temporal space, and why it is the right direction
 
-the player, 2026-09-03: *what other temporal techniques do we have that we haven't
+Recorded 2026-09-03: : *what other temporal techniques do we have that we haven't
 tried yet? I think that's the direction probably next, along with audio.*
 
 **The inventory first, because it makes the gap obvious. Every temporal feature
@@ -1477,7 +1477,7 @@ computable.
   answers on 89% of frames. **Distinct from `ability_cone.py`**, which used the
   cone as a per-pixel reference LEVEL and did not beat the plain interval
   residual -- this is correlation of APPEARANCE with COVERAGE over time;
-* **position vs the SELF TRACK** -- anything player-anchored moves with him:
+* **position vs the SELF TRACK** -- anything player-anchored moves with the player:
   the drone HUD overlay, the audio ring, Vyse's ultimate. Correlating a
   candidate's position series against the shipped self track marks those
   DERIVABLE rather than detectable, and it kills the overlay class that all
@@ -1723,7 +1723,7 @@ error surfaced as an `IndexError` on an empty array several functions away, and
 it abandoned 26 good clips on the way. `MediaUnreadable` is now raised at the
 cause and skipped per session with a tally at the end.
 
-### Ability icons ANIMATE, and ultimates have fixed voicelines (the player, 2026-09-03)
+### Ability icons ANIMATE, and ultimates have fixed voicelines (recorded 2026-09-03)
 
 > A fair number of the abilities, especially ultimates, essentially have minimap
 > icon animations, so that's something we probably need to deal with temporally.
@@ -1772,7 +1772,7 @@ Enemy ultimate voicelines are audible to the enemy team in-game, so this may
 also reach events on the other side. Unconfirmed -- ask the player rather than
 assume.
 
-### Uncertainty is ACCEPTABLE, and that ranks everything above (the player, 2026-09-03)
+### Uncertainty is ACCEPTABLE, and that ranks everything above (recorded 2026-09-03)
 
 Said after a run of notes here each treating an open question as a blocker:
 
@@ -1810,13 +1810,13 @@ disguises itself as a confident number is the thing this repo keeps paying for.
 
 the description:
 
-    C   a DECOY CLONE that looks like him and moves in a straight line; when
+    C   a DECOY CLONE that looks like the player and moves in a straight line; when
         shot it becomes a flash
     Q   a bounceable FLASH
     E   a TELEPORT marker, either stationary or travelling in a straight line;
-        activating it teleports him to its location
+        activating it teleports the player to its location
     X   invulnerable and INVISIBLE for the duration; nearby enemies see blue at
-        the screen edge and hear a noise. He can teleport during it
+        the screen edge and hear a noise. The player can teleport during it
 
 **The decoy is the most consequential thing in this sitting after the teleports,
 and it is a HYPOTHESIS, not a finding.** If a decoy renders on the minimap as a
@@ -1836,18 +1836,18 @@ straight line. That would break things this repo currently treats as solid:
 
 **What is NOT known and must not be assumed:** whether the decoy appears on the
 minimap at all, and whether it appears to Yoru's own team the same way it
-appears to enemies. This capture is the screen with Yoru on his own
+appears to enemies. This capture is the screen with Yoru on the
 side, so it can only answer the friendly case. The enemy case needs a different
 capture and cannot be got from this corpus.
 
-**THE PLAYER, 2026-09-06: YORU CAN FAKE THE TELEPORT OR TAKE IT, AND FAKING MAKES
-THE NOISE.** He demonstrated both in `5a63cc4fecfc`. This is a domain fact
+**DOMAIN NOTE, 2026-09-06: YORU CAN FAKE THE TELEPORT OR TAKE IT, AND FAKING MAKES
+THE NOISE.** The player demonstrated both in `5a63cc4fecfc`. This is a domain fact
 nothing in the capture states and it is the sharpest argument yet for the audio
 channel, because it makes audio and the position track answer DIFFERENT halves
 of one question:
 
-    teleport sound + a jump      he TOOK it
-    teleport sound + no jump     he FAKED it -- a deliberate deception, and an
+    teleport sound + a jump      the player TOOK it
+    teleport sound + no jump     the player FAKED it -- a deliberate deception, and an
                                  EVENT worth logging, not a detection failure
     no sound + a jump            not this ability; or the track is wrong
 
@@ -1873,11 +1873,11 @@ a session with a Yoru, and record the answer here either way -- a confirmed
 question permanently.
 
 **The ultimate raises the mirror question: does an INVISIBLE Yoru still draw on
-his own team's minimap?** Almost certainly yes for allies, but "almost
+the team's minimap?** Almost certainly yes for allies, but "almost
 certainly" is how the cam-is-red mistake happened twice. It is checkable in the
 same clip.
 
-### Waylay's kit, and a HUD element nothing has read (the player, 2026-09-03)
+### Waylay's kit, and a HUD element nothing has read (recorded 2026-09-03)
 
     C   a GRENADE causing movement and weapon slow on impact
     Q   a toggleable DASH or double dash; the first can go UPWARD
@@ -1904,14 +1904,14 @@ Three things to take from it beyond the teleport, which is filed above:
   effects and the X is explicitly an AREA, so it is the more likely of the two
   to draw something.
 
-### Ability DESCRIPTIONS are worth more than more clips (the player, 2026-09-03)
+### Ability DESCRIPTIONS are worth more than more clips (recorded 2026-09-03)
 
-the player, sending the Vyse clip: *I should have given ability descriptions.* He
-should have, and the first one he gave proves it -- a paragraph of his prose
+sending the Vyse clip: *I should have given ability descriptions.* The player
+should have, and the first one the player gave proves it -- a paragraph of the prose
 constrains the class list harder than a minute of footage, because it says what
 an object IS rather than what it looked like once.
 
-**Vyse, in his words, and what each part implies:**
+**Vyse, in the words, and what each part implies:**
 
     C   a charged deployable VINES that, when activated, form a CIRCLE that
         damages enemies in it who move
@@ -1945,14 +1945,14 @@ Four things fall out, and three of them are new to this document:
   as a lifetime.
 
 **Ask for these for every agent.** Free prose is the right form -- the player
-describes, this file classifies; he should not be asked to fill in a taxonomy.
+describes, this file classifies; the player should not be asked to fill in a taxonomy.
 At 27 demo sessions against 4 labelled ability classes, the corpus is no longer
 the bottleneck: knowing what the objects ARE is. A description also says what
 to LOOK for in a clip, which turns a scan of it from open-ended into a check.
 
 ### TELEPORTS: player icons move discontinuously, and nothing here knows it
 
-the player, 2026-09-03, with the Veto clip: *One of his abilities is a teleport. Two
+Recorded 2026-09-03, with the Veto clip: *One of the abilities is a teleport. Two
 of omen's abilities are teleports, and one of chamber's.*
 
     veto      one ability
@@ -1985,7 +1985,7 @@ Three consequences, in order of how soon they bite:
 
 * **the current 5.0%/3.3%/3.8% figures are probably clean**, because the player
   played Phoenix on Ascent and neither of the other two lineups is known to
-  have had him on a teleport agent -- but that is an assumption nobody checked,
+  have had the player on a teleport agent -- but that is an assumption nobody checked,
   and it is checkable from the roster once the lineup read works;
 * **ally identity across frames -- the next step on this thread -- must
   tolerate discontinuity.** The planned rule is nearest-to-previous per slot,
@@ -2035,8 +2035,8 @@ looks like at 15 Hz before choosing.
   a confident bearing from noise.
 
   **RESOLVED 2026-09-02, with real reference footage.** the player recorded two
-  controlled clips placing his own Cypher kit (`eb10db50b1fb`, one cam plus
-  the rest of his util; `d95cfad5693a`, several cams, deliberately "going
+  controlled clips placing the Cypher kit (`eb10db50b1fb`, one cam plus
+  the rest of the util; `d95cfad5693a`, several cams, deliberately "going
   inside" each to trigger the view). Confirmed against them, measured, not
   guessed:
 
@@ -2048,7 +2048,7 @@ looks like at 15 Hz before choosing.
     caution-tape X for the trapwire). Three distinct such glyphs appear
     together in `eb10db50b1fb`, matching three placed devices.
   * **A NEW mechanic, found while confirming the above: the icon changes
-    colour while the player is actively viewing through it.** the player: *"I noticed
+    colour while the player is actively viewing through it.** *"I noticed
     the cam icon turned blue when I was in it."* Measured directly off
     `d95cfad5693a` (region-restricted HSV sample, not a whole-frame scan --
     the minimap's transparent-void scenery bleed makes an unrestricted colour
@@ -2094,7 +2094,7 @@ looks like at 15 Hz before choosing.
   example list and `glance_cams.py`'s docstring are both corrected/flagged.
   **Do not build a cam-finding tool against the red mask.**
 * **ENEMY DEATHS LEAVE MARKS TOO, but they are NOT always visible the way ally
-  marks are.** the player, 2026-09-05, asked directly because `xmark_eval` matches
+  marks are.** Recorded 2026-09-05, asked directly because `xmark_eval` matches
   only teammate deaths to the blue X and this file also lists red X marks as a
   confounder class.
 
@@ -2150,7 +2150,7 @@ looks like at 15 Hz before choosing.
 * **The local player's icon draws ON TOP of an enemy's** when they overlap.
   Deprioritised on the call: only at extreme short range, where the screen
   detector has a large unambiguous blob anyway. It IS in the agent-label set --
-  the player flagged one Jett icon mostly covered by his own in a close-range duel --
+  the player flagged one Jett icon mostly covered by the in a close-range duel --
   so identification sees the case even though detection was allowed to skip it.
 * **An ally Breach ultimate draws a big RED BAR across the minimap**, and it
   occludes icons: the player hit one covering the top of a question-mark icon while
@@ -2210,7 +2210,7 @@ sides. The 4.5 s clock jump at 0:00:03 is pre-match. Both were confirmed
 `valorant-16x9-bigmap` before ingest by measuring the floor slab -- it reaches
 x 452 / 458 against the old widget's 346.
 
-**Ground truth is now corroborated.** the player read his whole match history on
+**Ground truth is now corroborated.** the player read the whole match history on
 2026-08-25 and every K/D already transcribed off the end screens agreed, so
 `KNOWN_KD` has two independent sources behind it. Two sessions gained ground
 truth for the first time and both were fully out-of-sample — never scored, never
@@ -2265,7 +2265,7 @@ five entries that are read correctly and simply not counted:
 
 * `ff636d173b07` +4 deaths. All 24 tracked deaths read correctly, and exactly
   four carry the **Phoenix ult mark** — 13:21, 20:00, 29:13, 38:20. 24 − 4 = 20,
-  the recorded figure. the deaths inside his ult.
+  the recorded figure. the deaths inside the ult.
 * `bfad2778a372` +1 kill, the same rule from the other side: a kill on an
   *enemy* Phoenix inside Run It Back. 19/15 confirmed off the end screen.
 

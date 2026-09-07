@@ -277,11 +277,11 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
     <p>The prototype's mask is a near-strict <em>subset</em> of the shipped one — it adds 0.01% on Ascent and 0.11% on Lotus, and none of that lands inside the painting. So the whole question is what the shipped mask adds on top, and on Ascent that extra 15.2% of the widget is <strong>90.1% outside the painting</strong>. It is the semi-transparent void, which is the single documented cause of reading non-minimap content as icons. Shipped scores 100% recall on both sessions because a superset of the answer trivially contains the answer; IoU is the column that means anything, and it is 74.8 against 57.8.</p>
   </div>
 
-  <p>Two honest caveats, because this changes stored numbers. First, the painting is the <em>searchable</em> area and <code>floor_mask</code> is the <em>opaque slab</em> — related targets, not identical ones, and the verdict on his first painting was <em>that's not even close to pixel perfect … but that's the gist.</em> Second, I could not reproduce the prototype docstring's claim that <code>sat &lt; 60</code> "took 83% of the ROI". It takes 51.5%. That number is itself stale, which is the disease rather than a second opinion.</p>
+  <p>Two honest caveats, because this changes stored numbers. First, the painting is the <em>searchable</em> area and <code>floor_mask</code> is the <em>opaque slab</em> — related targets, not identical ones, and the verdict on the first painting was <em>that's not even close to pixel perfect … but that's the gist.</em> Second, I could not reproduce the prototype docstring's claim that <code>sat &lt; 60</code> "took 83% of the ROI". It takes 51.5%. That number is itself stale, which is the disease rather than a second opinion.</p>
 
   <div class="correction">
     <div class="label">And the prototype mask has its own defect, now localised</div>
-    <p>The 5.1% of Ascent it loses is not scattered edge pixels — it is <strong>two blobs, 2355 px and 1059 px</strong>, plus three on Lotus. Sweeping <code>BRIDGE</code> from 25 to 60 moves recall 94.9% → 95.3% and then costs precision, so these are not rooms cut off by a narrow gap. They fail <code>sat &lt; 20 &amp; val &gt; 100</code> outright. Render those two blobs and ask the player what they are; that is a one-minute question for him and an afternoon of derivation for anyone else. It is the same shape as the Boathouse finding that produced <code>BRIDGE</code> in the first place.</p>
+    <p>The 5.1% of Ascent it loses is not scattered edge pixels — it is <strong>two blobs, 2355 px and 1059 px</strong>, plus three on Lotus. Sweeping <code>BRIDGE</code> from 25 to 60 moves recall 94.9% → 95.3% and then costs precision, so these are not rooms cut off by a narrow gap. They fail <code>sat &lt; 20 &amp; val &gt; 100</code> outright. Render those two blobs and ask the player what they are; that is a one-minute question for the player and an afternoon of derivation for anyone else. It is the same shape as the Boathouse finding that produced <code>BRIDGE</code> in the first place.</p>
   </div>
 </section>
 
@@ -459,7 +459,7 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
 
   <p>Nothing in the current design streams. The static map is a per-pixel median over ~120 seeks spread across the session; spans come from segmenting the whole file; every minimap detector depends on the median existing first. If real-time means live-while-playing, the median becomes an incremental warm-up estimate and the first round is read with a worse map than the last — a real, permanent accuracy cost that should be chosen deliberately rather than discovered in month three. If it means offline-but-fast, then throughput is a metric to record and nothing structural changes.</p>
 
-  <p><span class="chip hazard">ask, do not derive</span> This is a question, not a finding. It is on this page because it is the highest-leverage sentence the player could say in the next session, and because the project's own convention says to ask him on the first failure rather than the fifth.</p>
+  <p><span class="chip hazard">ask, do not derive</span> This is a question, not a finding. It is on this page because it is the highest-leverage sentence the player could say in the next session, and because the project's own convention says to ask the player on the first failure rather than the fifth.</p>
 </section>
 
 <section>

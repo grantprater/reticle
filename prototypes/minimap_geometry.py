@@ -37,7 +37,7 @@ geometry at all:
 
 the palette, which is what this reads
 -----------------------------------------
-He named these off footage, and had never noticed the elevated shade before:
+The player named these off footage, and had never noticed the elevated shade before:
 
 * standard grey -- the floor;
 * **lighter grey -- a VIEWCONE**, which is what your team can currently see.
@@ -69,7 +69,7 @@ Measured, both maps
 (`plantable` read 0.09% / 0.10% before 2026-08-26, when the hue test was fitted
 to the saturated core of the paint and found 3% of each zone.)
 
-The holes are real -- the player: the map simply has them. An earlier version of
+The holes are real -- the map simply has them. An earlier version of
 this file put them at 33.9% and 33.3%, from taking the floor's CONVEX HULL as
 the footprint; on a deeply concave floor plan the gaps between the map's arms
 fall inside the hull and count as interior. I took the two maps agreeing to
@@ -343,7 +343,7 @@ def classify(med):
     white = (v >= WHITE_V) & (s < WHITE_S)
     plant = (h >= PLANT_H[0]) & (h <= PLANT_H[1]) & (s > PLANT_S) & (v > PLANT_V)
     # Close and keep only the large components, then fill what they enclose:
-    # the player, on what is inside a zone -- the site letters are a very dark grey,
+    # on what is inside a zone -- the site letters are a very dark grey,
     # almost black, always against the yellow. They are opaque map like the
     # paint around them, and they are holes in the hue mask, so filling the
     # zone is what keeps A, B (and C, on a three-site map) searchable.

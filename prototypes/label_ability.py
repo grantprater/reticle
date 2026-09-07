@@ -48,7 +48,7 @@ category rather than forking it, so `N` also doubles as "jump to a category
 that isn't in the visible nine".
 
 Every category carries an EXPLICIT agent, separate from the ability name, per
-the player: identity is per-ability, "with an inheritance relationship to their
+identity is per-ability, "with an inheritance relationship to their
 agent". `agent=""` is allowed and means "not attributable to one agent" -- the
 one deliberate case is below.
 

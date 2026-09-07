@@ -2,7 +2,7 @@
 
     .\\.venv\\Scripts\\python.exe prototypes\\minimap_icon_scan.py <video> [--n 600] [--sheet out.png]
 
-The shape being matched, from the player: **a red-circled player icon with a red
+The shape being matched, from **a red-circled player icon with a red
 triangle showing their facing.** Both halves matter and they fail differently.
 
 * The **ring** is what separates an enemy from a red X death marker -- measured

@@ -22,7 +22,7 @@ sitting 93% in VOID, the enclosed void pockets `exterior` cannot reach, and the
 drop shadow under a border -- white, then light grey, then darker grey on the
 BOTTOM edge and plain white on the top, so no symmetric guard can fit it. Each
 fix was right and each was found by eye, after I had already convinced myself
-with numbers. The pattern is clear enough to act on: **he can see the map and
+with numbers. The pattern is clear enough to act on: **the player can see the map and
 the derivation cannot.**
 
 So this asks for the mask directly rather than inferring it a defect at a time.

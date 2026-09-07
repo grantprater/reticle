@@ -47,7 +47,7 @@ against 2-10 for everything else -- and the two Shrouded Step casts come out at
 ability twice. A built-in replicate, for free.
 
 **THE EQUIP SOUND IS VISIBLE, and it is the claim arriving independently.**
-He said (2026-09-06) that every ability has a separate equip and cast sound and
+The player said (2026-09-06) that every ability has a separate equip and cast sound and
 that the equip is self-only. Two events in this clip are near-identical to each
 other and to nothing else:
 
@@ -55,7 +55,7 @@ other and to nothing else:
     13.90 - 15.05 s dur 1.15   peak 9.4     -7.10 s before the second C cast
 
 Same duration to the bin, same peak to 2%, one before each of the two teleport
-casts, and he equipped exactly twice. Candidates for the other slots are weaker
+casts, and the player equipped exactly twice. Candidates for the other slots are weaker
 and are NOT claimed: X has a 0.55 s / 16.9 event at -1.95 s, the second E a
 0.45 s / 10.5 at -3.90 s, and **the first E cast has NOTHING before it** back
 to 40 s. So either that equip is silent, or E was already up -- which is the
@@ -67,7 +67,7 @@ WHAT THE PROTOCOL BOUGHT, stated so the next recording keeps it
 (every 50 ms bin at the 0.0002 noise floor, against a cast peak of 21.1). That
 is a reference cut with zero contamination -- not a good signal-to-noise ratio,
 an absence of anything to be confused with. No amount of filtering recovers
-that from a clip where he was running.
+that from a clip where the player was running.
 
 So the earlier worry, that the corpus might need re-recording because the
 player is moving, was aimed at the right problem with the wrong instrument (see

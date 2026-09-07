@@ -2,7 +2,7 @@ r"""Window refinement on the ping detector: decide on the EDGES, not the run.
 
     .\.venv\Scripts\python.exe prototypes\ping_edge_eval.py
 
-the player, 2026-09-06: *we're only detecting things that show up on the 2hz
+Recorded 2026-09-06: : *we're only detecting things that show up on the 2hz
 schedule... is there a way to improve accuracy by looking at somewhat nearby
 frames?* This is that, applied to the place with a measured failure rate.
 
@@ -43,7 +43,7 @@ the mechanism pays, and a shipped threshold still wants the.
 """
 
 import sys
-sys.path.insert(0, r"C:\Users\user\reticle")
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
 
 import numpy as np
 from reticle.store import Store

@@ -101,7 +101,7 @@ and the mistakes each of the five labellers here made once. It is a skill rather
 than a section because it is a PROCEDURE with a clear trigger — but a skill only
 loads when invoked, so the three lessons above stay stated here in full.
 
-## Attribution in commits -- a STANDING RULE from the player (2026-09-06)
+## Attribution in commits -- a STANDING RULE from recorded 2026-09-06
 
 **Never put a Claude session URL in a commit message, a file, or anything else
 in this repo.** `Co-Authored-By: Claude <...>` is fine and wanted; the
@@ -215,7 +215,7 @@ beside ours, so the first divergent row names a window of a minute or two rather
 than a whole match. On `96aa1ae9b96f` it agreed exactly across 21 consecutive
 openings before the first miss.
 
-Ask the player to open the scoreboard once a round when recording; it costs him
+Ask the player to open the scoreboard once a round when recording; it costs the player
 nothing and it is worth more than any invariant.
 
 ## Wallbangs are a finding, not just a parsing problem
@@ -229,7 +229,7 @@ lands, rather than only stepping over it.
 
 ## What this is for (decided 2026-08-25)
 
-### The endstate, in the words (2026-08-26)
+### The endstate, as originally framed (2026-08-26)
 
 Asked directly, at the end of the minimap labelling session:
 
@@ -240,7 +240,7 @@ Asked directly, at the end of the minimap labelling session:
 > rounds as events, using the win probability model discussed, and including
 > shooting error and ability to surface clips denoting notable patterns.
 
-### The NORTH STAR for the entity channel (the player, 2026-09-06)
+### The NORTH STAR for the entity channel (recorded 2026-09-06)
 
 Asked for a visually checkable proof of work for this portion of the pipeline:
 
@@ -293,7 +293,7 @@ document has been circling:
 * **duels and rounds are the unit**, not frames or detections. That is what the
   L2 event log has to emit, and it is the join point for the win probability
   model;
-* **shooting error comes from the in-game UI, not from us.** the player, asked
+* **shooting error comes from the in-game UI, not from us.** asked
   directly: *I was thinking we derive shooting error but it is probably better
   to use the in-game UI element. I think we have enough confirming signals that
   the reduced accuracy in killfeed reading is acceptable, but we can see.* That
@@ -306,14 +306,14 @@ document has been circling:
   readout out of the top right is still strictly better than either choice if
   the game allows it;
 * **surfacing clips needs a SECOND, higher-fidelity pass.** A pattern the model
-  finds is only useful if it comes back as footage, and the player: *the clips likely
+  finds is only useful if it comes back as footage, and *the clips likely
   need a higher fidelity pass to get the exact bounds.* So the event log's
   timestamp locates a clip; it does not define it. Detection can stay cheap and
   sampled, with an expensive pass run only over the handful of moments that are
   actually going to be cut. That is a two-stage design, and it means precision
   of event TIMING is not a constraint on the main extractors -- a useful thing
   to know before anyone raises a sample rate to chase it;
-* **whether any of this can be a pure streaming algorithm is open.** the player: *if
+* **whether any of this can be a pure streaming algorithm is open.** *if
   we want to try to do this with a pure streaming algorithm for efficiency I
   actually don't even know if it's possible.* Nor do I, and the honest answer
   has parts. Per-frame reads (killfeed, HUD, minimap detection) stream fine. Two
@@ -408,7 +408,7 @@ That gives two failure modes, and the second is the one worth telling a player:
   * dA/ds large, moving slow   — slow-rolling into an angle you were always
                                  going to lose
 
-**Counting exposed angles is the other half, and it is conditional.** the player:
+**Counting exposed angles is the other half, and it is conditional.**
 wide-swinging when you reasonably expect one enemy is not a bad play, so a raw
 count is not a verdict. Worse, peeking is driven by *priors* — where enemies
 commonly are, which shifts with rank and a lot with map geometry. The
@@ -765,9 +765,9 @@ one `metrics.record()` at the end is the whole cost.
   game, `bfad2778a372` has an enemy Phoenix, and both are now fully explained by
   the same rule, stated below. Do not tune the extractor against either.
 
-  The rule, from the player: **Sage and Clove revive after a real death and that
+  The rule, from **Sage and Clove revive after a real death and that
   death counts; Phoenix and Kayo grant the second life before the fact — Run It
-  Back ends in a self-kill or a real kill and then returns him, Kayo can be
+  Back ends in a self-kill or a real kill and then returns the player, Kayo can be
   downed and either finished or picked back up — and those never counted.** It
   applies to the kill side as well as the death side.
 - **Thin tracks are the leading indicator.** An entry seen in <=4 of a possible
@@ -982,7 +982,7 @@ in the second half of each, and both second halves are dominated by **guesses at
 constants** rather than predictions about what running existing code will do.
 
 **Stake: what it costs to be wrong, which is not what accuracy measures.**
-the player: predicting a file's word count has a different salience to predicting
+predicting a file's word count has a different salience to predicting
 whether your ontology was correct. The first attempt to show that ran the wrong
 test -- accuracy by level -- and found nothing, because cost was not in the log
 at all. That absence was the gap. With cost recorded, over 33 backfilled rows:
@@ -1092,13 +1092,13 @@ gets sharper with n and says which domains to trust. First read, retrospective:
 structural claims about code fair; claims about what a rendered image contains,
 5 of 5 wrong at a mean stated confidence of 0.85.
 
-**Ask the player before deriving, when he can just look.** The searchable mask was
+**Ask the player before deriving, when the player can just look.** The searchable mask was
 derived and re-derived five times on 2026-08-26, each attempt measured and
-plausible and wrong, and he named the defect by eye every time in seconds.
+plausible and wrong, and the player named the defect by eye every time in seconds.
 `paint_map.py` settled it in one pass and the result transferred to a second map
 at 92.8% IoU. The project's own history says the same thing more quietly: every
 stage that works was preceded by a labelling pass. **On the FIRST failure of a
-perceptual question, build the tool that asks him** -- not the fifth.
+perceptual question, build the tool that asks the player** -- not the fifth.
 
 **In vision work, look at the image before measuring it.** Rendering the
 offending candidate took one tool call and settled what three analysis scripts
@@ -1113,7 +1113,7 @@ garbage from detector bugs (self-derived geometry baking a persistent device
 into its own "empty floor" reference; a cross-session `--geometry-from`
 donor's pixel-value mismatch fragmenting the viewcone into fake icon-sized
 blobs), and the player spent real time clicking through it before either was
-caught. His question, verbatim: *this has already happened multiple times,
+caught. The question, verbatim: *this has already happened multiple times,
 how can you note this so you don't keep repeating it.* Prose had already
 answered that question twice and been ignored both times under time pressure,
 which is why `review_candidates.py` exists now — see the table above.
@@ -1134,7 +1134,7 @@ match. Without it, widening the plant test grew a third "bomb site" on Split --
 the two maps in use were fine. **Rebuild every session's geometry whenever
 `minimap_geometry.py` changes.**
 
-**A new reader joins the PASS. the player, 2026-09-05, and it is an architectural
+**A new reader joins the PASS. Recorded 2026-09-05, and it is an architectural
 rule rather than an optimisation:**
 
 > it not being a reader raises an architectural question. The reason we're
@@ -1219,7 +1219,7 @@ and it fails the same silent way: a plausible number of the right type.
 
     self_icon_dist      min over a track vs MEDIAN      3 of 5 real trapwires
                         kept vs 5 of 5. Min stopped meaning "is the player
-                        here" and started meaning "was he EVER here"
+                        here" and started meaning "was the player EVER here"
     "cast made while     max over a window vs MEDIAN     8/119 (7%) vs 28/41
     standing still"      (68%). A sevenfold swing, and the 7% was quoted to
                          the player before it was checked
@@ -1229,7 +1229,7 @@ and it fails the same silent way: a plausible number of the right type.
                          every jittery step was classified as RUNNING
 
 **The tell is that an extreme-value aggregate answers a different question than
-the one asked.** "Was he still" is about the typical value in a window; a max
+the one asked.** "Was the player still" is about the typical value in a window; a max
 answers "did anything in this window look like motion", which one bad frame
 satisfies. Ask which question the aggregate actually answers before quoting it.
 
@@ -1438,7 +1438,7 @@ decision, it belongs in the docstring.
   Nothing had regressed. The control had simply been copied from the wrong row
   of the table and could not be checked without knowing which row.
 - **Keep "Picking up" in `NOTES.md` current, and keep it SHORT. Standing
-  instruction from the player (2026-08-26): do this unprompted.** It is the first
+  instruction from recorded 2026-08-26: do this unprompted.** It is the first
   thing read when picking work back up and it decays fastest, so a stale one
   actively misleads. Detail does
   NOT belong there -- it belongs in the prototype docstring next to the code it

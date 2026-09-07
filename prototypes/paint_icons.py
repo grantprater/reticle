@@ -25,7 +25,7 @@ Controls
 
 Why this exists, and why it beats the pass we already have
 ------------------------------------------------------------
-the proposal, 2026-09-03, and he is right about the reason. Every ability
+the proposal, 2026-09-03, and the player is right about the reason. Every ability
 label in the store is **candidate-anchored**: `label_ability.py` only ever asks
 about positions some detector already proposed. Two things follow, and both have
 bitten already:
@@ -126,7 +126,7 @@ R0 = 7
 #: calls its worst false positives "true negatives" and flatters every number.
 #: the player raised this; it was a gap in the class list I should have asked about.
 #:
-#: `world:audio_ring` is his too, and it is new to this repo: **a white circular
+#: `world:audio_ring` is the too, and it is new to this repo: **a white circular
 #: shadow at a FIXED radius around the player, showing how far events can be
 #: heard -- and the same circle is the spike's detonation radius.** Player-
 #: anchored and fixed-size, so once its radius is measured it is derivable

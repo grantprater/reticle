@@ -53,7 +53,7 @@ KF_SIG_TOL = 6
 # off the end screens as each capture was ingested, then checked in full against
 # the match history on 2026-08-25.
 KNOWN_KD = {
-    # In play order, with the map. the player read the whole run off his match
+    # In play order, with the map. the player read the whole run off the match
     # history on 2026-08-25 and every one of these agreed with what had already
     # been transcribed off the end screens -- so this table now has two
     # independent sources behind it, which is worth more than either alone.
@@ -77,7 +77,7 @@ KNOWN_KD = {
     #   `board` agrees at all ~50 openings, ending 18/14 at 39:27, and the
     #   killfeed also holds exactly 18 by then. Two more follow before the match
     #   ends -- both "Me (Vandal) BiGDonut101", eight seconds apart, with the
-    #   victim taking a kill in between because Run It Back returned him. The
+    #   victim taking a kill in between because Run It Back returned the player. The
     #   first carries the Phoenix ult mark.
     "bfad2778a372": (19, 15),   # 14-45-35  Split
     # Ingested long before it had a K/D, so it was never scored and never used

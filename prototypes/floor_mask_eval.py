@@ -19,7 +19,7 @@ notices unless something is measuring.
 What the referee is, and what it is not
 ---------------------------------------
 the `labels/map_mask/<sid>.png`, painted 2026-08-26 with `paint_map.py`.
-Both are `compared_against_derived: false`, i.e. UNSEEDED -- he painted the map,
+Both are `compared_against_derived: false`, i.e. UNSEEDED -- the player painted the map,
 not a correction to a derived mask -- which is the condition that makes them
 usable at all. Seeding is the mistake this repo has recorded three times.
 
@@ -61,8 +61,8 @@ fails `sat < 20` by construction. It is `minimap_geometry`'s PLANT class, and
     floor_mask | PLANT   Ascent recall 100.0%   Lotus 100.0%
 
 That is the row callers actually run on, and it is why `--render` exists but
-did not end in a question for the player: the render localised the loss to five
-blobs, and the blobs' own saturation named them without costing him a minute.
+did not end in a question for the render localised the loss to five
+blobs, and the blobs' own saturation named them without costing the player a minute.
 **Look at the image before measuring it, then measure it before asking.**
 
 The control is the painting's own metadata
@@ -177,11 +177,11 @@ RENDER_MIN_AREA = 200
 def render_misses(sid, med, truth, mask, scale=2):
     """What the kept mask LOSES off the painting, as one labelled image.
 
-    This exists because the answer is his and not derivable. The Boathouse --
+    This exists because the answer is the and not derivable. The Boathouse --
     a real room rendered entirely void by a largest-component rule -- was named
     by eye in seconds after three analysis scripts had not found it, and the
     convention that came out of that is *on the FIRST failure of a perceptual
-    question, build the tool that asks him*.
+    question, build the tool that asks the player*.
 
     So this draws the question rather than a verdict: the widget as it actually
     looks, the painted area outlined, and each lost component ringed with its

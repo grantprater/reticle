@@ -322,7 +322,7 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
 
 <section>
   <h2><span class="marker">§4</span> Existence is a set of intervals</h2>
-  <p>The natural assumption is that an ability is placed, lives, and dies. the player, on Viper: <strong>she has a resource bar, so she can put her smoke and screen up and down throughout the round — and pick the smoke up and redeploy it.</strong> Vyse's flash flower was already recorded with the same property.</p>
+  <p>The natural assumption is that an ability is placed, lives, and dies. on Viper: <strong>she has a resource bar, so she can put her smoke and screen up and down throughout the round — and pick the smoke up and redeploy it.</strong> Vyse's flash flower was already recorded with the same property.</p>
   <p>So three things that look like defects are correct behaviour:</p>
   <ul>
     <li><strong>a device disappearing does not mean it was destroyed.</strong> It may be down, or picked up;</li>
@@ -351,7 +351,7 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
 
 <section>
   <h2><span class="marker">§6</span> The drivers are tracking constraints</h2>
-  <p>the player, 2026-09-06, stating the direction this is headed:</p>
+  <p>Recorded 2026-09-06, stating the direction this is headed:</p>
   <p><em>“identity-based identification of entities with their temporal evolution, subject to the invariants of their specific identity (most agents cannot teleport or dash, certain abilities have certain durations, movement characteristics, etc.)”</em></p>
   <p>That is what §3's driver column is <em>for</em>, and the document did not say so. A driver is not a description of how a thing behaves — it is the <strong>law that thing's track has to obey</strong>. Identity comes first; the identity carries a set of invariants; the invariants constrain what the next frame may contain.</p>
 
@@ -387,7 +387,7 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
 
   <div class="finding">
     <div class="label">Transient overlap is what makes this tractable — measured 2026-09-06</div>
-    <p>the player: <em>for truly overlapping icons, in the vast majority of cases there was probably an instant where they were not overlapping.</em> Tested on 587c15b07779 over ±3 s windows: the extent of the object at an event's position varies by a median factor of <strong>4.75</strong> (range 1.60–51.62), <strong>9 of 10</strong> events exceed 3×, and a median <strong>12%</strong> of sampled frames offer a clean look. Rendered, two ally icons are one object at onset and two objects 0.3 s later.</p>
+    <p><em>for truly overlapping icons, in the vast majority of cases there was probably an instant where they were not overlapping.</em> Tested on 587c15b07779 over ±3 s windows: the extent of the object at an event's position varies by a median factor of <strong>4.75</strong> (range 1.60–51.62), <strong>9 of 10</strong> events exceed 3×, and a median <strong>12%</strong> of sampled frames offer a clean look. Rendered, two ally icons are one object at onset and two objects 0.3 s later.</p>
     <p>This is a third source of separation after appearance and constraints — and <code>widget_objects.py</code> had already measured that appearance gives nothing, since no per-object shape feature separates a ping from an ally at any grouping distance. <strong>So the tracker is not an optimisation of the grouping pass, it is a precondition for it.</strong></p>
   </div>
 

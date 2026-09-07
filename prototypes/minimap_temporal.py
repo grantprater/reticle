@@ -101,7 +101,7 @@ def motion(track, per_frame):
 
     * **translation** rejects almost everything, including the cam, because the
       cam never moves -- but it has exactly ONE known counterexample.
-      **the player, 2026-08-27: an OMEN SMOKE TRANSLATES while it deploys.** Dark
+      **Recorded 2026-08-27: : an OMEN SMOKE TRANSLATES while it deploys.** Dark
       Cover is the only smoke in the game that travels from Omen to its placed
       location, so mid-deploy it is a moving non-player icon. Viper's orb is
       throwable but draws no icon in flight, so it is not a second case.

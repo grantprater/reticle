@@ -10,7 +10,7 @@ the minimap itself -- which means every session needs its own hand-labelled
 gallery before it can identify anything. That does not scale, and it is the
 only reason identification is not already a shipped stage.
 
-the player: **the minimap icon is a circular CROP of the agent's art, at a
+**the minimap icon is a circular CROP of the agent's art, at a
 consistent size and scale**, and the Tab scoreboard holds that art in the same
 orientation. If that is true then ONE crop -- a centre and a radius, in units
 of scoreboard row height -- converts any agent's scoreboard portrait into a

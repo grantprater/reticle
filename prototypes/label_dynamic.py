@@ -9,7 +9,7 @@ Controls
     3   the SPIKE (dropped or planted)
     4   a PLAYER icon -- enemy, ally or self; the colour is already recorded
     5   a QUESTION MARK -- an enemy last seen here
-    6   a PING -- the player, on candidate 1 of the first real run: *sort of like a
+    6   a PING -- on candidate 1 of the first real run: *sort of like a
         pond ripple, white and bluish*. Concentric expanding rings, so it is
         ANIMATED and cannot fail to light up a difference channel, and its
         fragments are thin arcs -- a second reason not to pre-filter on aspect.
@@ -20,7 +20,7 @@ Controls
         pool at all
     8   an AREA ability -- a smoke, a wall, an ultimate's footprint. The test
         is not which ability it is, it is whether the ringed thing is a
-        discrete drawn ICON or a piece of a large soft REGION. the player, on a
+        discrete drawn ICON or a piece of a large soft REGION. on a
         smoke: *it looks like it's pointing to the portion of the smoke in the
         doorway* -- which is what the size gate does to one. A smoke or an ult
         blows AREA_MAX (1200) and SPAN_MAX (40) outright, so what reaches this
@@ -30,7 +30,7 @@ Controls
         against the 278 it keeps, median span 68 px and max 252. Keeping this
         separate from `1` matters because merging them would train a shape
         classifier on glyphs and on arbitrary doorway-shaped offcuts at once
-    9   a SPAWN BARRIER -- the player: *those represent the map borders for each side
+    9   a SPAWN BARRIER -- *those represent the map borders for each side
         pre-round/buy phase*, ally green and enemy red. Added at 242/250 of the
         first run, so the first pass has them under `7`. **Now a self-check:**
         sampling is live-play only as of 2026-08-27, and a barrier is a BUY
@@ -217,7 +217,7 @@ def split_pools(cands, rng, n_uniform):
     An ONSET fixes the duration bias properly: every object has exactly one
     birth however long it lives, so onset-sampling weights a ping and a sensor
     equally. It also catches the only moment some things are visible as a
-    discrete icon at all -- the player, on a deploying Omen smoke.
+    discrete icon at all -- on a deploying Omen smoke.
 
     **But selecting for uniqueness biases the sample**, and a biased label set
     cannot estimate a RATE. That is the trap this project already walked into

@@ -152,7 +152,7 @@ FLOOR_S_MAX, FLOOR_V_MIN = 20, 100
 #: on these and adds the letter fill, which is a LABELLING concern; walkability
 #: is this.
 #:
-#: **A site is FLOOR.** the player, 2026-09-06, on a version of `floor_mask` that had
+#: **A site is FLOOR.** Recorded 2026-09-06, on a version of `floor_mask` that had
 #: just started excluding them: *why would floor mask exclude bomb sites? Those
 #: are part of the floor.* Exactly right, and it names the error: the tint is
 #: PAINT ON the floor, a rendering property, not a different surface. Measured
@@ -335,7 +335,7 @@ def widget_drawn(crop: np.ndarray, sgray: np.ndarray, floor: np.ndarray,
     * **the M KEY**, found by the player 2026-09-05 and recorded on purpose. Opening
       the full-size map takes the widget away the same way -- and unlike the
       death screen this is PLAYER-INITIATED and can happen at any moment in a
-      round, as often as he presses it.
+      round, as often as the player presses it.
 
     The test is scale-free rather than a fitted magnitude: correlate the crop
     against the static map over the floor mask. When the widget is drawn the

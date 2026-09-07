@@ -20,7 +20,7 @@ drawn along the bottom as the key, in slot order, and they are what the number
 keys refer to -- so there is no need to know the agent names to label, only to
 match a face to a face. The `--names` are for the file.
 
-**The mined strip is MIRRORED** and the icons are not (the player: the enemy side of
+**The mined strip is MIRRORED** and the icons are not (the enemy side of
 the roster flips the art so the teams face each other; the minimap and the Tab
 scoreboard hold one orientation always). The key is flipped back before it is
 drawn here, so what is on screen is comparable by eye.

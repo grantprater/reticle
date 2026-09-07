@@ -1,4 +1,4 @@
-"""Score the colour-free channel against the labels, and the mask against his painting.
+"""Score the colour-free channel against the labels, and the mask against the painting.
 
     .\\.venv\\Scripts\\python.exe prototypes\\dynamic_eval.py <session> [<session>...]
     .\\.venv\\Scripts\\python.exe prototypes\\dynamic_eval.py --mask <session>...
@@ -14,7 +14,7 @@ The two features it measures are not recorded by `minimap_dynamic.detect`, and
 that is the finding rather than an oversight:
 
 * **host span** -- the span of the RAW difference region a blob belongs to,
-  BEFORE the top-hat. the player, on candidate 149 of the first labelling run: *part
+  BEFORE the top-hat. on candidate 149 of the first labelling run: *part
   of the vision cone barely clipping a corner and producing something that
   vaguely could look like an icon.* The top-hat is what shatters a viewcone into
   corner-clips, so it destroys the only evidence that a clip is part of

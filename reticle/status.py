@@ -19,7 +19,7 @@ the mistake.
 
 What stays prose, deliberately
 ------------------------------
-**Handoff INTENT** -- "next session do X, because Y". the framing, and he is
+**Handoff INTENT** -- "next session do X, because Y". the framing, and the player is
 right that it is a special case: it is a decision rather than a fact, nothing in
 the store implies it, and regenerating it would be inventing it. Roughly 2-3 KB
 of the 20 KB "Picking up" section is really this; the rest is derivable and

@@ -4,7 +4,7 @@ r"""Fit the official map art to the in-game minimap widget, and score it.
     .\.venv\Scripts\python.exe prototypes\wiki_map.py fit <session> --map ascent
     .\.venv\Scripts\python.exe prototypes\wiki_map.py fit <session> --map ascent --against painted
 
-the player, 2026-09-05: *the valorant wiki had minimap images, probably better than
+Recorded 2026-09-05: : *the valorant wiki had minimap images, probably better than
 our derived ones.* They are, and the reason is not resolution -- it is that the
 derived static map is being asked to do two jobs and can only do one.
 
@@ -43,7 +43,7 @@ for Lotus), not because the maps do.
 
 **The rotation is per-map and the player can just read it off**, which is far
 cheaper than the search that found it -- the derivation is minutes per map, and
-he can look at a picture. Ask, do not derive; the search stays here as the
+the player can look at a picture. Ask, do not derive; the search stays here as the
 check on the answer rather than the source of it.
 
 It beats the derived rule on both maps, by 1.4 and 0.9 points. Do not oversell
@@ -67,7 +67,7 @@ them, and no external render can say that. The two stop being one array.
 
 What the art encodes, and the two hopes for it
 --------------------------------------------------
-the player, on why he raised it: *what I'm hoping this fixes the tiny holes in the
+on why the player raised it: *what I'm hoping this fixes the tiny holes in the
 map firing off misreads, and makes the boxes easier to identify.* Measured:
 
 **The alpha channel is exactly binary.** 0.0% of Ascent's and Split's pixels
@@ -91,10 +91,10 @@ only non-grey. **So boxes and elevation come free as a lookup**, where
 `minimap_geometry`'s box/wall split is described in this file as "already known
 to be poor" -- the second hope, answered.
 
-**His first hope was RIGHT and my first check of it was aimed at the wrong
+**The first hope was RIGHT and my first check of it was aimed at the wrong
 quantity.** I counted interior holes -- Ascent 8, Lotus 13, Split 10, mostly
 large -- concluded "the cracks are not holes", and reported that as a
-correction to him. the player, immediately: *I'm not entirely sure that's accurate.
+correction to the player. the player, immediately: *I'm not entirely sure that's accurate.
 There were misreads of non-minimap content as icons.*
 
 That is the mechanism, and it makes the hole COUNT beside the point. A hole or
@@ -168,12 +168,12 @@ ALPHA_MIN = 40
 
 #: How far the wiki's art is rotated from what the game draws, per map.
 #:
-#: **THE, 2026-09-05, read off the maps directly -- not fitted.** The search
+#: **READ OFF THE MAPS DIRECTLY, 2026-09-05 -- not fitted.** The search
 #: in `fit()` recovers 270 for Ascent and 0 for Lotus unprompted, which is what
 #: makes this table checkable, but it is minutes per map to derive and seconds
-#: for him to look at. Ask, do not derive.
+#: for the player to look at. Ask, do not derive.
 #:
-#: His reading of the split, which is the part no measurement would have given:
+#: The reading of the split, which is the part no measurement would have given:
 #: *all of the maps either kept the rotation the same or did the same rotation
 #: as ascent ... seems like basically based on the geometry of the maps.* So
 #: there are exactly TWO values and the choice follows the map's shape -- a

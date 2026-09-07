@@ -3,7 +3,7 @@ r"""A CAST licenses a JUMP: the tray and the position track as each other's cont
     .\.venv\Scripts\python.exe prototypes\cast_motion.py <session> [--hz 15] [--window 3]
     .\.venv\Scripts\python.exe prototypes\cast_motion.py --teleport-corpus
 
-the player, 2026-09-06, noting he had raised it before: *a teleport activated on the
+Recorded 2026-09-06, noting the player had raised it before: *a teleport activated on the
 hotbar (or in audio once that's built) should be triggering an expected agent
 teleport.*
 
@@ -101,7 +101,7 @@ to a value that admits them is the degenerate-crop mistake in a new costume.
 **Two limits this run establishes about the tray as the licence source:**
 
 * **a two-part teleport drops on PLACEMENT, not on traversal.** Yoru's two
-  GATECRASH casts are followed by 4.6 and 6.3 px -- he placed the gate and did
+  GATECRASH casts are followed by 4.6 and 6.3 px -- the player placed the gate and did
   not travel within 3 s. Chamber's Rendezvous, also two-part, DID show its
   323.8 px, so the window happened to catch the recall. The tray times the
   first half of a two-part ability and the jump belongs to the second, and no

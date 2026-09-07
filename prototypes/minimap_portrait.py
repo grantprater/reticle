@@ -98,7 +98,7 @@ against 93.0% for exemplars mined from the minimap itself. Both roster numbers
 are optimistic upper bounds -- the crop was fitted to the answers -- so the
 in-domain gallery is what ships today.
 
-**the player, on why mirrored won by 11 points, and it is not what I first wrote:**
+**on why mirrored won by 11 points, and it is not what I first wrote:**
 the mirroring is a property of the ENEMY SIDE OF THE ROSTER, which flips the
 art so the two teams face each other. It is not a property of the minimap.
 *The Tab scoreboard and the minimap hold every agent in the same orientation,
@@ -177,7 +177,7 @@ STORE = Path.home() / "reticle-store"
 # right about the ally side and describes this same packing.)
 #
 # The enemy side draws its art MIRRORED, so the two teams face each other
-# (the player). Anything comparing this surface against the minimap or the Tab
+# (recorded). Anything comparing this surface against the minimap or the Tab
 # scoreboard has to flip it first; those two share one orientation.
 ROSTER_ENEMY_X0, ROSTER_PITCH = 1175, 65.75
 ROSTER_Y0, ROSTER_H = 30, 40
@@ -436,7 +436,7 @@ def classify_composition(hq, sources):
 # ---------------------------------------------------------------------------
 # The Tab scoreboard: ten portraits, unmirrored, dead players included.
 #
-# the player: the scoreboard and the minimap hold every agent in ONE orientation,
+# the scoreboard and the minimap hold every agent in ONE orientation,
 # where the enemy side of the top roster is mirrored. Confirmed on the pixels
 # -- Killjoy's yellow jacket sits bottom-LEFT on both surfaces and bottom-right
 # on the roster. So this, not the roster, is the surface a cross-surface

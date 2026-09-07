@@ -1,6 +1,6 @@
 """WRONG PREMISE, kept for the `enemy`/`question-mark` sub-question only.
 
-**Cypher cams are NOT red** (the player, 2026-09-02, after a Lotus sheet from this
+**Cypher cams are NOT red** (Recorded 2026-09-02, after a Lotus sheet from this
 script came back with two guessed "cam" answers on ordinary red confounders:
 "none of those frames included cypher cams that I recall. Cypher cams are not
 red."). This script samples exclusively from `labels/minimap/<session>.jsonl`,
@@ -30,7 +30,7 @@ attempt at something already stuck.
 Where the controls come from, and what they do and do not prove
 --------------------------------------------------------------
 the `labels/minimap/<session>.jsonl` holds 79 `enemy` and 31 `question`
-marks alongside the 144 `other_red` ones, all placed by him, all placed BEFORE
+marks alongside the 144 `other_red` ones, all placed by the player, all placed BEFORE
 this question was asked. They are planted here as controls.
 
 Be honest about what that buys. Controls drawn from a different population

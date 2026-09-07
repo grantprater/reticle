@@ -156,7 +156,7 @@ about reading pixels:
   inside Run It Back. `board` agrees at all ~50 openings and the killfeed holds
   exactly 18 by the last one at 39:27; the two that follow are both "Me (Vandal)
   BiGDonut101" eight seconds apart, the victim taking a kill in between because
-  the ult returned him, and the first carries the mark. the player confirmed 19/15.
+  the ult returned the player, and the first carries the mark. the player confirmed 19/15.
 
   So five of the six remaining events have one cause, and it is *visible in the
   killfeed itself*. That is what makes reading the mark worth doing: one

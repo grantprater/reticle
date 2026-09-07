@@ -2,7 +2,7 @@ r"""Is an overlap TRANSIENT? the claim, tested before anything is built on it.
 
     .\.venv\Scripts\python.exe prototypes\overlap_temporal.py <session> [--n 8]
 
-the player, 2026-09-06:
+Recorded 2026-09-06: :
 
 > For truly overlapping icons, in the vast majority of cases there was probably
 > an instant where they were not overlapping. This is how we can get a

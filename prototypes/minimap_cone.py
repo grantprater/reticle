@@ -169,7 +169,7 @@ def cone_mask(labels, floor, cx, cy, facing_deg, half_angle_deg=CONE_HALF_ANGLE_
 
     Plain 2D raycasting per the spec -- no reflection, each ray stops at
     the first non-floor pixel. `pass_boxedge` skips `BOXEDGE`-labelled pixels
-    rather than stopping there (the player: boxes are not illuminated), which is
+    rather than stopping there (boxes are not illuminated), which is
     coded but not yet independently confirmed -- see the module docstring.
     """
     h, w = floor.shape

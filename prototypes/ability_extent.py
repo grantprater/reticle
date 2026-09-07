@@ -18,7 +18,7 @@ Measured over the 12 multi-candidate cast windows in `ability_cast`:
     objects under (onset, distance)   49
     objects under (origin, bearing)   30
 
-**The one case with independent ground truth comes out right.** the player, on
+**The one case with independent ground truth comes out right.** on
 Viper's Toxic Screen: *it's a long straight line.* Its window holds 5
 candidates, which the onset rule splits into 5 objects and this rule resolves
 into **+10 deg x3** -- the three collinear fragments at (243,367), (283,375),
@@ -42,7 +42,7 @@ in `ability_cast` at the same time.
 import json, math, sys
 from pathlib import Path
 
-sys.path.insert(0, r"C:/Users/user/reticle/prototypes")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ability_cast as ac
 
 BEARING_TOL = 15.0   # degrees

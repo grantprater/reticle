@@ -4,7 +4,7 @@
 
 Why this exists
 ---------------
-the player, mid-pass: *the vast majority of abilities caught in this are stationary
+mid-pass: *the vast majority of abilities caught in this are stationary
 deployed abilities ... ideally the search would be for unique ability icons.*
 Positional dedup cannot deliver that, because five Sonic Sensors at five places
 are five positions showing one glyph.

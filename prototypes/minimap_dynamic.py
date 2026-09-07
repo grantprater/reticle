@@ -183,8 +183,8 @@ def searchable(labels, guard_px=LINE_GUARD, guard_boxedges=False, static=None,
     Pass `static` and the answer is one line: **the opaque slab, plus the bomb
     sites.** That is not a simplification of the rule below, it replaces it, and
     it came from asking the player to paint the mask by hand (`paint_map.py`) after
-    he had caught five separate defects in the derived one by eye. Scored
-    against his painting:
+    the player had caught five separate defects in the derived one by eye. Scored
+    against the painting:
 
         slab + sites, no guard              IoU 91.3%   241 of 254 marks
         slab + sites, border guard 1px      IoU 89.4%   227
@@ -194,7 +194,7 @@ def searchable(labels, guard_px=LINE_GUARD, guard_boxedges=False, static=None,
 
     Everything the derived version had accumulated -- an exterior flood fill, a
     dilation fringe scoped to it, a hole rule, a pocket rule, a per-region
-    threshold -- was machinery for deciding which SEE-THROUGH areas to keep. He
+    threshold -- was machinery for deciding which SEE-THROUGH areas to keep. The player
     kept none of them: 0.0% of the holes, 0.0% of the exterior, 7.3% of the
     overhang ring. The question was never which transparency is tolerable.
 
@@ -242,7 +242,7 @@ def art_mask(sid, session_map=None):
     """The OFFICIAL map art's footprint, fitted to this session's widget.
 
     The best of the three searchable sources, and the only one that needs
-    neither a per-session median nor the time. Scored against his own
+    neither a per-session median nor the time. Scored against the
     independent paintings, on the same ground truth the derived rule was scored
     against:
 
@@ -250,7 +250,7 @@ def art_mask(sid, session_map=None):
         Ascent   92.7%      91.3%
         Lotus    93.7%      92.8%
 
-    **Why it matters more than a point of IoU, in the words:** *there were
+    **Why it matters more than a point of IoU, as originally framed:** *there were
     misreads of non-minimap content as icons.* A crack or hole in the map is a
     place where the widget is TRANSPARENT, so what shows through is the live
     world -- moving and high-contrast, exactly what a blob detector fires on.
@@ -276,10 +276,10 @@ def art_mask(sid, session_map=None):
 
 
 def painted_mask(sid):
-    """the hand-painted searchable mask for a session, if he has made one.
+    """the hand-painted searchable mask for a session, if the player has made one.
 
     Ground truth where it exists, but NOT automatically better than the derived
-    rule: his own words on the first one were *that's not even close to pixel
+    rule: the words on the first one were *that's not even close to pixel
     perfect ... but that's the gist*, and it reaches 227 of 254 hand-marked
     centres where the rule it produced reaches 241. Use it to score a rule, not
     to run detection.
@@ -361,7 +361,7 @@ def detect(crop, static_gray, ok_area, diff_min=DIFF_MIN, tophat=True, static_gr
     passes through real INTERMEDIATE brightness on the way between its two
     resting states, and `min(|g-lo|, |g-hi|)` can still exceed `diff_min` at
     the midpoint even though the value is entirely explained by an
-    interpolation between two legitimate colours -- "muddy", his word, against
+    interpolation between two legitimate colours -- "muddy", the word, against
     a real icon's "stark" contrast. Measured on the two flagged false
     positives: both sat strictly inside `[lo, hi]` (148 in [93,189], 142 in
     [96,201]). Checked against every confirmed-real detection before shipping:
@@ -378,7 +378,7 @@ def detect(crop, static_gray, ok_area, diff_min=DIFF_MIN, tophat=True, static_gr
     marker measured BGR(72,76,205), HSV saturation 165, at a moment its
     grayscale luminance (114) happened to sit almost exactly on this pixel's
     known unlit reference (117, diff 3) -- invisible to brightness differencing
-    at any threshold. the player: several abilities TINT the widget rather than
+    at any threshold. several abilities TINT the widget rather than
     fully overwrite it -- Brimstone's ult orange, Skye's heal a green circular
     area, Breach's ult a reddish bar -- so this needs a real trigger, not a
     special case for one ability. Geometry (floor, lines) is reliably
@@ -498,7 +498,7 @@ def load_noise(sid):
 
 
 def labelled_frames(sid):
-    """the minimap marks, keyed by time. Red things only -- that is all he
+    """the minimap marks, keyed by time. Red things only -- that is all the player
     was asked to mark, so allies must never be scored as false positives."""
     rows = {}
     for line in (STORE / "labels" / "minimap" / f"{sid}.jsonl").read_text(

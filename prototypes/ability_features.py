@@ -134,7 +134,7 @@ SERIES_LABELS = STORE / "series-labels"
 
 # --- positive GROUPS -------------------------------------------------------
 # Not every positive is the same kind of thing, and fitting one combiner across
-# them averages geometries that do not belong together (the player, 2026-09-05):
+# them averages geometries that do not belong together (recorded 2026-09-05):
 #
 #   ring   `radius_ring` is the radius circle a DEPLOYED device draws -- only
 #          some kits have one (Killjoy, Chamber, Veto). The ring is NOT the

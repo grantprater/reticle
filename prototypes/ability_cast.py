@@ -38,7 +38,7 @@ predicts anything. Two questions, both answerable from data already in hand
     2. What fraction of labelled positives does the tray explain at all?
 
 **CORRECTED 2026-09-05: ults ARE readable from the tray, and "slot X never
-drops" was a defect in the READER, not a property of the widget.** the player: *for
+drops" was a defect in the READER, not a property of the widget.** *for
 ult the tray cast should be the pips going hollow*. Rendered and then measured
 on `02cf738b1c8f`, slot X's teal count goes **909 -> 0 between 28.0s and 28.5s**,
 and Sova's first Hunter's Fury label is at **28.2s**. The pips and the bar both
@@ -74,13 +74,13 @@ the minimap BEFORE the cast time, sometimes for many seconds.
 cast of its own ability. Measured: 5th percentile -2.2s, median +2.9s, 95th
 +11.0s.
 
-**Read neither tail as a detector property -- the player, correcting both:**
+**Read neither tail as a detector property -- correcting both:**
 
 * **the negative tail is PLACEMENT HOLD TIME, and it is unbounded.** A player
   can hold a placeable for an entire round, so no percentile of it is a real
   limit; the observed -4.1s is a fact about how long the player happened to hold,
   not about the ability. **Only the ~1-2s before the commit carries positional
-  information** -- earlier than that the preview is wherever he was walking.
+  information** -- earlier than that the preview is wherever the player was walking.
   So the search window opens ~2s before the cast and no further. A LONG hold is
   not noise to widen a window for, it is its own signal: hesitation, or a player
   repositioning a placement, which is a behavioural event rather than a
@@ -91,9 +91,9 @@ cast of its own ability. Measured: 5th percentile -2.2s, median +2.9s, 95th
 
 WHERE an ability appears is ability-dependent, and the player anchors it
 ------------------------------------------------------------------------------
-the player, 2026-09-05, on the position problem above: some abilities deploy
+Recorded 2026-09-05, on the position problem above: some abilities deploy
 globally, some have a deployment RADIUS around the player, and some spawn a
-fixed distance from him -- *though maybe not fixed in the 2d minimap
+fixed distance from the player -- *though maybe not fixed in the 2d minimap
 projection, not sure*. Then, narrowing it himself: **Omen's smoke and ultimate
 are the only truly GLOBAL abilities in the game.**
 
@@ -176,7 +176,7 @@ EVENTS = STORE / "events" / "ability"
 #: appeared", and every second of extra window adds candidates that were
 #: never the answer: measured, widening from +/-2s to +15s left the number
 #: of CORRECT picks unchanged at 3 and turned 5 scoreable events into 11.
-#: Before the cast, the player: only the ~1-2s prior to the commit carries
+#: Before the cast, only the ~1-2s prior to the commit carries
 #: positional information -- earlier than that a held placeable's preview
 #: is wherever the player happened to be walking.
 POS_PRE, POS_POST = 2.0, 2.0
@@ -329,7 +329,7 @@ def extending_entities(gs):
     the ability timer is active"*. Treating a second qualifying group as
     ambiguity threw away a real entity.
 
-    **The count is variable and UP TO three, not three.** the player: *Sova ult does
+    **The count is variable and UP TO three, not three.** *Sova ult does
     not have to have exactly 3 entities. Can be fired 0-3 times within the time
     window.* So finding three in one clip is what that cast did, never a spec to
     validate against -- and an event carrying fewer is not evidence of a miss.
@@ -538,7 +538,7 @@ def emit(sid, pre=POS_PRE, post=POS_POST, step_s=0.5):
 
     The event is the deliverable and the position is enrichment. A cast time
     carries an agent, a slot and an ability with no minimap evidence at all, and
-    that is already a usable event -- the player, on this exact channel: *ship partial
+    that is already a usable event -- on this exact channel: *ship partial
     identification. Detect > localise > classify, and emit what is known at each
     level rather than waiting.* An ability that draws nothing on the widget
     (a flash before a peek, say) still produces a real event here, and those are
@@ -585,7 +585,7 @@ def emit(sid, pre=POS_PRE, post=POS_POST, step_s=0.5):
 
     ORIGIN PLUS AN OPTIONAL DEPLOYMENT VECTOR, and one named exception
     ------------------------------------------------------------------------
-    the player, 2026-09-05, and it dissolves the point-vs-region problem rather than
+    Recorded 2026-09-05, and it dissolves the point-vs-region problem rather than
     working around it: **every ability except Phoenix's wall can be described by
     an ORIGIN POINT and a DEPLOYMENT VECTOR (orientation).** Phoenix's Blaze is
     steered while it extends, so it is genuinely freeform -- *though often it's
@@ -599,7 +599,7 @@ def emit(sid, pre=POS_PRE, post=POS_POST, step_s=0.5):
     of measurement.
 
     **The vector is OPTIONAL, and its absence is a fact about the ability rather
-    than a failed fit.** the player: *standard smokes are rotation-invariant.* So a
+    than a failed fit.** *standard smokes are rotation-invariant.* So a
     smoke has an origin and no orientation at all -- not a degenerate one, none
     -- and that is knowable from the ability before any pixel is read. The
     distinction is load-bearing because the two nulls mean opposite things:
@@ -630,7 +630,7 @@ def emit(sid, pre=POS_PRE, post=POS_POST, step_s=0.5):
 
     CORRECTED SAME DAY: a POSE IS NOT ENOUGH, and the driver is the point
     ------------------------------------------------------------------------
-    the player, withdrawing his own claim within the hour: *deployment position and
+    the player, withdrawing the claim within the hour: *deployment position and
     orientation are not sufficient to fully describe ability icons/animations on
     the minimap.* Objects change state AFTER deployment, and what matters is not
     that they move but **what drives the motion**:

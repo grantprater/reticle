@@ -4,7 +4,7 @@
 
 Why the radius cannot be a constant
 -------------------------------------
-the player, 2026-09-03: **the minimap has a zoom slider**, so the rendered size of
+Recorded 2026-09-03: : **the minimap has a zoom slider**, so the rendered size of
 everything on the widget is a per-session setting, not a property of the game.
 `ability_disc.py` currently hard-codes `BH_K = 27`, `AREA_MIN/MAX = 40/900` and
 `paint_icons.R0 = 7`, all eyeballed on one session -- which is CLAUDE.md's
@@ -12,7 +12,7 @@ standing rule ("never test an absolute level against this HUD") arriving as a
 size rather than a brightness. A detector tuned to one zoom setting silently
 mis-sizes its kernel on any other, and the failure looks like a bad threshold.
 
-His second point is the useful half: **the SCALE varies, the RATIO should not.**
+The second point is the useful half: **the SCALE varies, the RATIO should not.**
 So the fix is not a better constant but a per-session calibration, and the
 question this file answers is what to calibrate against.
 

@@ -11,7 +11,7 @@ nobody had actually looked at first. Twice they were badly wrong (a
 self-derived-geometry bug made real devices invisible and flagged the
 player's own icon instead; a cross-session geometry borrow introduced pixel
 mismatch that fragmented the viewcone into fake icon-sized blobs), and the player
-caught both by spending his own time clicking through garbage. See
+caught both by spending the time clicking through garbage. See
 `prototypes/CLAUDE.md`, "verify before spending the time".
 
 Writing "I ran the scanner" is not the same claim as "I looked at what it

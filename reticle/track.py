@@ -2,7 +2,7 @@ r"""Identity-conditional tracking: what a track is ALLOWED to do next.
 
     python -m reticle.track --self-test
 
-the player, 2026-09-06, giving the direction for the minimap entity model:
+Recorded 2026-09-06, giving the direction for the minimap entity model:
 
 > identity-based identification of entities with their temporal evolution,
 > subject to the invariants of their specific identity (most agents cannot

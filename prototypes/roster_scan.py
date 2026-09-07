@@ -2,7 +2,7 @@
 
     .\\.venv\\Scripts\\python.exe prototypes\\roster_scan.py [--out sheet.png]
 
-the player, 2026-09-02, asked whether any session has an ALLY Cypher (his own cams
+Recorded 2026-09-02, asked whether any session has an ALLY Cypher (the cams
 would need no reveal mechanic, and are "likely set up in the pre-round") --
 nothing has ever identified agents on the ally side of the roster, only the
 enemy side (needed for icon identification). Rather than build that pipeline,

@@ -11,7 +11,7 @@ tracking are not. Nothing above that exists — no event proposal, no VLM.
 ## Setup
 
 ```
-cd C:\Users\user\reticle
+cd path	oeticle
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
