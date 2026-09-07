@@ -13,6 +13,35 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## PICKING UP -- 2026-09-06, the collective team viewcone
 
+### DO THIS FIRST. Nothing else, until it is done.
+
+**Extract the wiki art's terrain SHADE into the geometry npz.** Additive only --
+add a `shade` array beside `labels` and change NO existing consumer.
+
+    for each session:  load reference/maps/<map>.png and reference/fits/<sid>.npz
+                       warp the art with the stored (rot, scale, dx, dy)
+                       quantise the art's floor greys into shade classes
+                       write `shade` into <sid>.npz next to `labels`
+
+**Why it is first:** the derived `labels` collapses every terrain grey into one
+flat `FLOOR`, and that is measured to cause 3x the false-"lit" rate wherever the
+art says the shade changes (8.2% on the main floor shade against 22-23% one or
+two steps lighter -- `prototypes/cone_terrain.py`). Every cone number in this
+session is limited by it. It is the base layer the whole layered design needs.
+
+**Why ADDITIVE and nothing more:** `floor_mask` feeds the shipped self-position
+track, which is validated by two independent ground truths (`xmark_eval`,
+`chokepoint_eval`). Switching its geometry source invalidates both and moves
+stored numbers, so that is a re-validation job with its own session. Writing a
+new array touches none of it.
+
+**Licensing: DECIDED, do not re-open.** the recorder, asked directly, is content
+to take level geometry from the wiki art. Keep the PNGs where they already are
+-- fetched into the store, outside the repo, never committed (verified: no PNG
+has ever been added in this repo's history) -- so the artwork stays a
+BUILD-TIME input and what ships is a derived geometry array.
+
+
 **The observable area is built, drawn and measured, and the session ended on a
 DESIGN CORRECTION that supersedes how it is computed. Read this section's last
 part before extending anything.**
