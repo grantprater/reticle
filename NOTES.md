@@ -98,20 +98,28 @@ roster.** The revive-mark reader -- CLAUDE.md's candidate next step #2 -- is now
 the highest-value addition on evidence rather than argument: it resolves 3 of
 the 7 windows outright, on top of the K/D divergences it was already wanted for.
 
-**STARTED 2026-09-07, geometry located, detector NOT built.** The badge is a
-white CIRCULAR ARC and it **straddles the victim-plate boundary** -- extracting
-the weapon-icon-to-victim-name gap gets only a sliver of it, so a crop keyed to
-`EntryView.wx1 .. victim_run[0]` is the wrong window and that was the assumption
-this started from. The headshot crosshair is the common occupant of that gap and
-appears on marked entries too, so the question is *is there an arc*, not *which
-mark is this*. Measured on three confirmed positives and four negatives; full
-crops and the next step in `docs/ROSTER_FINDINGS.md`.
+**BUILT AND VALIDATED 2026-09-07 -- `prototypes/revive_mark.py`.** The badge
+straddles the victim-plate boundary, so the crop is centred on `victim_run[0]`
+and a circle is fitted there. **Coverage of that circle does not separate** -- a
+headshot crosshair is four bars around a point, scores 0.64, and beat two real
+badges; circles were also fitted to the letters of `Jett` and `Vyse`. The
+statistic that works is CONTINUITY, the longest unbroken run of white along the
+circumference: 0.359-0.453 for the badge against 0.125-0.219 for everything
+else, with nothing in between.
 
-**It stops at three positives deliberately.** `ff636d173b07` is the session to
-add before fitting anything: CLAUDE.md records four hand-verified Phoenix ult
-marks there and its K/D is +4 deaths against `KNOWN_KD` for exactly that reason,
-which makes seven positives with an independent count to score against. Then fit
-a circle rather than threshold one -- `minimap.fit_ring` is the precedent.
+**Held out properly.** The gate `run >= 0.29` is the midpoint of
+`587c15b07779`'s gap and was written down before `ff636d173b07` was scored.
+Scoring all 24 of that session's counted death tracks: **exactly 4 clear it, at
+801.0 / 1200.5 / 1753.0 / 2300.0s**, matching the four hand-recorded Phoenix
+marks (13:21, 20:00, 29:13, 38:20), and 24 - 4 = 20 is exactly `KNOWN_KD`'s
+death count. The count, the timestamps and the scoreboard agree and none was
+available to the gate.
+
+**Not promoted, and the limits are why:** seven positives, one agent, two
+sessions. Kayo is untested; so is the enemy side, and `bfad2778a372` (+1 KILL
+for the same rule) is the obvious next check because it tests the badge on the
+other plate colour. Wiring it into `killfeed.py` means a `HUD_VERSION` bump and
+a re-read of all 18 sessions -- worth doing, and a decision rather than a task.
 
 `reticle audit` is `audit-0.3.0` and now reports killfeed health from stored L1:
 counted tracks that never formed a divider (61 corpus-wide) and tracks lasting

@@ -555,3 +555,58 @@ the standing rule is *fit a shape, do not repair one*.
 marks there at 13:21, 20:00, 29:13 and 38:20, verified by hand, and its K/D is
 +4 deaths against `checks.KNOWN_KD` for exactly that reason. That is seven
 positives across two sessions with an independent count to score against.
+
+---
+
+# 2026-09-07: the revive-mark reader WORKS, validated against the scoreboard
+
+`prototypes/revive_mark.py`. Phoenix's Run It Back and Kayo's stabilise grant
+the second life BEFORE the fact, so the death is a real killfeed entry that the
+scoreboard never counts and that produces no roster change -- which is why three
+of the seven unresolved audit windows are this and nothing else.
+
+## The discriminator is CONTINUITY, not coverage
+
+The badge straddles the victim-plate boundary, so the crop is centred on
+`victim_run[0]` and is one band-height either side. A circle is then FITTED
+there, per the standing rule *fit a shape, do not repair one*.
+
+**Scoring that circle by coverage FAILED, and the failure is instructive:**
+
+| | coverage | longest run |
+|---|---:|---:|
+| badge (7) | 0.45-0.69 | **0.359-0.453** |
+| plain headshot crosshair | 0.64 | 0.125 |
+| letters of a victim name | 0.28-0.34 | 0.17-0.22 |
+
+A crosshair is four bars arranged around a point -- a circle sampled at four
+places -- so it scores like a ring on coverage, and at 1018.5s it scored HIGHER
+than two real badges. Circles were also fitted to the letters of `Jett`, `Vyse`
+and `Me`. What differs is that the badge is one unbroken arc and everything else
+is short runs with gaps, so the statistic is the longest circular run of white
+along the fitted circumference. It separates with nothing in between.
+
+## Held out against a count nobody computed for this
+
+`ff636d173b07` was held out. `CLAUDE.md` records it at +4 deaths against
+`checks.KNOWN_KD`, all 24 tracked deaths read correctly, four carrying the badge
+at 13:21, 20:00, 29:13 and 38:20 -- found by hand off a contact sheet weeks ago.
+
+**The gate `run >= 0.29` is the midpoint of the DEVELOPMENT session's gap and
+was written down before the held-out session was scored.** Then every one of the
+24 counted death tracks was scored:
+
+    clearing the gate      4 of 24
+    at                     801.0s  1200.5s  1753.0s  2300.0s
+    hand-recorded          13:21   20:00    29:13    38:20
+    24 - 4 = 20            exactly KNOWN_KD's death count for the session
+
+The count, the timestamps and the scoreboard agree, and none was available to
+the gate.
+
+**Limits, because seven is seven:** one agent (Phoenix), two sessions. Kayo is
+untested and so is the enemy-side case -- `bfad2778a372` is +1 KILL for the same
+rule and is the obvious next check, since it would test the badge on the other
+plate colour. 20 of the 22 negatives are one session's ordinary death entries.
+Nothing is wired into `killfeed.py`: this is a measured prototype, and promoting
+it means a `HUD_VERSION` bump and a re-read of every session.
