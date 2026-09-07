@@ -466,6 +466,32 @@ def sample_frames(session, n, roi):
     return frames, man
 
 
+
+def reattach_shade(session: str) -> None:
+    """Put the art's terrain levels back after this file rewrites the npz.
+
+    **This exists because the alternative is a standing chore, and a standing
+    chore is a thing somebody has to be asked about twice.** `map_shade.py`
+    writes `shade`/`shade_kind`/`shade_step`/`shade_purity` beside `labels`,
+    and every write in this file replaces the npz wholesale -- so a rebuild
+    silently drops them and the next session reads a geometry that lost half
+    its content with nothing saying so.
+
+    It costs nothing to do here: the arrays are a COPY of
+    `reference/shade/<map>__<profile>.npz`, which is permanent and already
+    built, so this is a file read rather than a fit. It is best-effort and
+    never fatal -- a map with no art, or an untagged session, simply gets no
+    shade, which is the same state it was in before.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import map_shade
+        map_shade.write_shade(session, quiet=True)
+    except Exception as e:                       # noqa: BLE001 -- never fatal
+        print(f"  NOTE: could not re-attach the shade ({type(e).__name__}: {e})"
+              f" -- run: map_shade.py build {session}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("session")
@@ -540,6 +566,7 @@ def main() -> int:
                             built_by=z["built_by"], **extra)
         summarise(z["labels"], f"{args.session}  (borrowed wholesale from "
                                 f"{args.geometry_from}, {', '.join(man.get('tags', []))})")
+        reattach_shade(args.session)
         print(f"  wrote {out}  (entirely {args.geometry_from}'s geometry -- "
               f"nothing derived from this session's own frames)")
         if args.sheet:
@@ -579,6 +606,7 @@ def main() -> int:
                         lo_gray=lo_gray, hi_gray=hi_gray,
                         sd_lo=sd_lo, sd_hi=sd_hi,
                         built_by=np.array(source_stamp()))
+    reattach_shade(args.session)
     print(f"  wrote {out}  (stamp {source_stamp()[:8]})")
     if args.sheet:
         cv2.imwrite(args.sheet, render(med, lab))

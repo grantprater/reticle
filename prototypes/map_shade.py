@@ -1,5 +1,6 @@
 r"""The wiki art's terrain LEVELS, warped into widget pixels and stored.
 
+    .\.venv\Scripts\python.exe prototypes\map_shade.py maps
     .\.venv\Scripts\python.exe prototypes\map_shade.py levels ascent
     .\.venv\Scripts\python.exe prototypes\map_shade.py paint ascent --out a.png
     .\.venv\Scripts\python.exe prototypes\map_shade.py build --all
@@ -34,12 +35,58 @@ with no table; `shade_step` is the same fact as an ORDINAL, so a consumer can
 say "one step up" without knowing the base is 118. They answer different
 questions and both are one byte.
 
-**A GEOMETRY REBUILD DROPS THESE ARRAYS**, because `minimap_geometry.py` writes
-the npz from scratch and knows nothing about them. That is the price of writing
-into somebody else's artefact and it is paid by re-running `build --all`, which
-is idempotent and takes about two minutes for the whole store. It is stated here
-rather than defended against because 35 of 36 npz are already flagged stale by
-`doctor` -- the next rebuild is coming, and it must be followed by this.
+WHAT IS PERMANENT AND WHAT IS PER-SESSION. ANSWERED 2026-09-07, DO NOT RE-ASK
+-----------------------------------------------------------------------------
+Asked directly -- *once the geometry is built it is permanent and does not have
+to be rebuilt for each session, correct?* **Yes for the geometry. No for the
+photometry, and they were in one file, which is what made the question worth
+asking.** This directory's own "The static map does TWO jobs" says the same
+thing from the other end:
+
+    PERMANENT, and now stored as such
+      reference/shade/<map>.npz              the art quantised into classes.
+                                             Map only. No session, no profile,
+                                             no capture -- computable for a map
+                                             nobody has ever recorded
+      reference/shade/<map>__<profile>.npz   the same, warped into widget
+                                             pixels. Map and profile only
+
+    PER-CAPTURE, and unavoidably so
+      static, lo_gray, hi_gray, sd_lo/sd_hi  what THESE pixels look like with
+                                             nothing on them. The widget is
+                                             semi-transparent over live world,
+                                             so no external render can say it
+
+So a session's `shade*` arrays are a **CACHE FILL**, not a derivation:
+`build` copies the (map, profile) reference in, and only does real work the
+first time a pair is ever placed. The whole store is 13 s, and 4 of the 35 npz
+did any work at all.
+
+**And a geometry rebuild no longer drops them.** `minimap_geometry.reattach_shade`
+runs after BOTH of its write paths and both were tested, which is stated
+precisely because the first version of this paragraph was written after testing
+only one: the BORROW path on `02cf738b1c8f` (`--geometry-from`, no decode), and
+then the DERIVE path on `587c15b07779` (a full 180-frame median, 33 s), reading
+the keys back each time. That was a standing chore in the first version of this
+file, and a standing chore is how a question gets asked twice.
+
+**`reticle doctor` now reports it** -- `check_shade`, beside `check_geometry`:
+a stale `shade_built_by` and a missing shade are separate WARNs, because the
+first is refilled in seconds and the second usually wants a `map:` tag.
+
+**THE SCALE IS A PER-PROFILE CONSTANT; THE OFFSET IS NOT.** Normalising each
+fitted scale to a 2048 px art render, over three different maps:
+
+    ascent  bigmap  0.2246        lotus   bigmap  0.2248 / 0.2240
+    split   bigmap  0.2238        ascent  16x9    0.1421
+
+A 0.4% spread -- one step of the refine search -- across maps whose art ships at
+two different resolutions. The game draws every map at the same metres per
+widget pixel, so a map's scale needs no capture. **The four-parameter PLACEMENT
+still does**: the canvas centres of the three bigmap fits sit 13 px apart, so
+the map is not centred on a fixed widget point and the offset cannot be
+predicted. `maps` prints which pairs are placed and which are waiting for their
+first capture.
 
 SIX CLASSES, AND THE ART EARNS EVERY ONE
 ----------------------------------------
@@ -175,6 +222,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -421,6 +469,75 @@ def fit_of(sid: str, map_name: str):
                      float(z["dy"]), float(z["iou"]), float(z["ncc"])], np.float32)
 
 
+REF = STORE / "reference" / "shade"
+
+
+def profile_of(sid: str) -> str | None:
+    """The capture profile, which with the map is what the warp depends on."""
+    m = STORE / "manifests" / f"{sid}.json"
+    if not m.is_file():
+        return None
+    return json.loads(m.read_text(encoding="utf-8")).get("source_profile")
+
+
+def art_reference(map_name: str, rebuild=False):
+    """The art-space class map for one map. **Permanent, and map-only.**
+
+    No session, no profile, no capture: this is the wiki art quantised, and it
+    changes only when the art or this file does. It is the expensive and the
+    judgement-laden half -- every rung, ramp, shadow and line decision lives
+    here -- and it is computable for a map nobody has ever recorded.
+    """
+    p = REF / f"{map_name}.npz"
+    if p.is_file() and not rebuild:
+        # Read EAGERLY and close. `np.load` on an npz is lazy and keeps the
+        # file open, and on Windows an open handle refuses the atomic replace
+        # below -- so a stale reference could never be rewritten in place.
+        with np.load(p) as z:
+            if str(z["built_by"]) == stamp():
+                return (z["kind"], z["shade"], z["step"], z["ladder"],
+                        int(z["base"]))
+    kind, shade, step, ladder, base = art_classes(map_name)
+    REF.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(p.stem + ".tmp.npz")
+    np.savez_compressed(tmp, kind=kind, shade=shade, step=step, ladder=ladder,
+                        base=base, built_by=np.array(stamp()))
+    tmp.replace(p)
+    return kind, shade, step, ladder, base
+
+
+def widget_reference(map_name: str, profile: str, fit=None, shape=None,
+                     rebuild=False):
+    """The same classes warped into widget pixels for one (map, PROFILE).
+
+    **Also permanent**, and it is the artefact a session copies rather than
+    computes. The map does not move inside the widget and the widget does not
+    move inside the frame, so this depends on nothing a session contributes --
+    which is why 29 npz sharing one `static` all produced byte-identical
+    output, and why Lotus's two INDEPENDENT statics landed within one search
+    step of each other.
+
+    Returns None when it does not exist and no `fit` was supplied to make it:
+    the four placement parameters are the ONE thing that needs a capture. The
+    scale does not (see `SCALE_PER_PROFILE`), but the offset does.
+    """
+    p = REF / f"{map_name}__{profile}.npz"
+    if p.is_file() and not rebuild:
+        with np.load(p) as z:                    # eagerly -- see `art_reference`
+            if str(z["built_by"]) == stamp():
+                return (z["shade"], z["kind"], z["step"], z["purity"], z["fit"])
+    if fit is None or shape is None:
+        return None
+    arrays = shade_arrays(map_name, fit, tuple(shape))
+    REF.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(p.stem + ".tmp.npz")
+    np.savez_compressed(tmp, shade=arrays[0], kind=arrays[1], step=arrays[2],
+                        purity=arrays[3], fit=np.asarray(fit, np.float32),
+                        built_by=np.array(stamp()))
+    tmp.replace(p)
+    return arrays + (np.asarray(fit, np.float32),)
+
+
 def statics(sids):
     """Group sessions by the bytes of their `static`, since the fit is of that.
 
@@ -436,17 +553,39 @@ def statics(sids):
     return groups
 
 
-def write_shade(sid: str, map_name: str, arrays=None, quiet=False):
-    """Add the shade arrays to one session's geometry npz, in place."""
+def write_shade(sid: str, map_name: str = None, quiet=False, refit=False):
+    """Copy the (map, profile) reference into one session's geometry npz.
+
+    **This is a CACHE FILL, not a derivation.** The reference is the artefact;
+    the npz gets a copy so existing loaders reach it with no new file to open.
+    A session only ever does real work when its (map, profile) has never been
+    placed -- once, ever, per pair -- and then it writes the reference for
+    every session that follows.
+    """
     p = STORE / "geometry" / f"{sid}.npz"
-    z = dict(np.load(p, allow_pickle=False))
-    if arrays is None:
+    if not p.is_file():
+        return None
+    map_name = map_name or WM.map_of(sid)
+    prof = profile_of(sid)
+    if not map_name or not prof or not (WM.ART / f"{map_name}.png").is_file():
+        return None
+    with np.load(p, allow_pickle=False) as _z:
+        z = dict(_z)
+    ref = widget_reference(map_name, prof, rebuild=refit)
+    how = "cached"
+    if ref is None or refit:
         fit = fit_of(sid, map_name)
         if fit is None:
-            print(f"  {sid}  no fit -- skipped")
+            print(f"  {sid}  no fit and no reference -- skipped")
             return None
-        arrays = shade_arrays(map_name, fit, z["labels"].shape) + (fit,)
-    shade, kind, step, purity, fit = arrays
+        ref = widget_reference(map_name, prof, fit=fit,
+                               shape=z["labels"].shape, rebuild=True)
+        how = "PLACED"
+    shade, kind, step, purity, fit = ref
+    if kind.shape != z["labels"].shape:
+        print(f"  {sid}  reference is {kind.shape}, this npz is "
+              f"{z['labels'].shape} -- refusing")
+        return None
     z.update(shade=shade, shade_kind=kind, shade_step=step, shade_purity=purity,
              shade_fit=fit, shade_map=np.array(map_name),
              shade_built_by=np.array(stamp()))
@@ -454,9 +593,10 @@ def write_shade(sid: str, map_name: str, arrays=None, quiet=False):
     np.savez_compressed(tmp, **z)
     tmp.replace(p)
     if not quiet:
-        print(f"  {sid}  {map_name:8s} shade on {float((kind > 0).mean()) * 100:5.1f}% "
-              f"of the widget, fit IoU {fit[4]:.3f} NCC {fit[5]:.3f}")
-    return arrays
+        print(f"  {sid}  {map_name:8s} {prof:22s} {how:6s} "
+              f"shade on {float((kind > 0).mean()) * 100:5.1f}%  "
+              f"IoU {fit[4]:.3f} NCC {fit[5]:.3f}")
+    return ref
 
 
 PAINT = {FLOOR: None, RAMP: (255, 0, 255), SHADOW: (255, 0, 0),
@@ -481,6 +621,9 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     lv = sub.add_parser("levels", help="the ladder the art states")
     lv.add_argument("maps", nargs="+")
+    mp = sub.add_parser("maps", help="the PERMANENT per-map references")
+    mp.add_argument("maps", nargs="*")
+    mp.add_argument("--rebuild", action="store_true")
     pt = sub.add_parser("paint", help="render the classes, at art resolution")
     pt.add_argument("map")
     pt.add_argument("--out", required=True)
@@ -489,6 +632,9 @@ def main(argv=None) -> int:
     bd.add_argument("sessions", nargs="*")
     bd.add_argument("--map", default=None)
     bd.add_argument("--all", action="store_true")
+    bd.add_argument("--refit", action="store_true",
+                    help="re-derive the placement instead of using the "
+                         "(map, profile) reference")
     ck = sub.add_parser("check", help="score the shade against what we had")
     ck.add_argument("sessions", nargs="*")
     ck.add_argument("--all", action="store_true")
@@ -513,6 +659,24 @@ def main(argv=None) -> int:
                     print(f"      step {s:+d}  grey {rng:9s}"
                           f"{ms.sum() / tot * 100:6.2f}%"
                           + ("   <- base" if k == FLOOR and s == 0 else ""))
+        return 0
+
+    if a.cmd == "maps":
+        names = a.maps or sorted(p.stem for p in WM.ART.glob("*.png"))
+        placed = {}
+        for f in REF.glob("*__*.npz"):
+            m, prof = f.stem.split("__", 1)
+            placed.setdefault(m, []).append(prof)
+        for m in names:
+            kind, _sh, step, ladder, base = art_reference(m, rebuild=a.rebuild)
+            tot = int((kind > 0).sum())
+            bits = "  ".join(
+                f"{KIND_NAME[k]} {(kind == k).sum() / tot * 100:.1f}%"
+                for k in (FLOOR, RAMP, SHADOW, LINE, SITE) if (kind == k).any())
+            where = ", ".join(sorted(placed.get(m, []))) or "NOT PLACED -- needs one capture"
+            print(f"{m:8s} base {base}  ladder {list(map(int, ladder))}")
+            print(f"         {bits}")
+            print(f"         {where}")
         return 0
 
     if a.cmd == "paint":
@@ -549,20 +713,9 @@ def main(argv=None) -> int:
                 for sid in group:
                     todo.setdefault(sid, next(iter(known)))
         done = 0
-        for _h, group in statics(todo).items():
-            first = group[0]
-            arrays = write_shade(first, todo[first])
-            done += arrays is not None
-            for sid in group[1:]:
-                if todo[sid] != todo[first]:
-                    print(f"  {sid}  tagged {todo[sid]} but shares {first}'s "
-                          f"{todo[first]} static -- SKIPPED, its `labels` are "
-                          f"already the donor's")
-                    continue
-                if arrays is not None:
-                    write_shade(sid, todo[first], arrays=arrays)
-                    done += 1
-        print(f"{done} written")
+        for sid in sorted(todo):
+            done += write_shade(sid, todo[sid], refit=a.refit) is not None
+        print(f"{done} of {len(sids)} geometry npz carry the shade")
         for sid in (s for s in sids if s not in todo):
             m = WM.map_of(sid)
             print(f"  {sid}  no shade -- "

@@ -295,10 +295,68 @@ def check_donor(store: Path) -> list[tuple[str, str]]:
     return out
 
 
+
+def check_shade(store: Path) -> list[tuple[str, str]]:
+    """Geometry npz whose art-derived terrain levels are missing or stale.
+
+    The sibling of `check_geometry`, and it exists for the same reason one
+    level down: `shade`/`shade_kind`/`shade_step` are a COPY of
+    `reference/shade/<map>__<profile>.npz`, so a copy can fall behind its
+    source and nothing in the arrays says so. Refilling is seconds --
+    `prototypes/map_shade.py build --all` -- which is why this is a WARN and
+    not an ERROR: it is a cache, not a derivation.
+
+    An npz with no shade at all is reported separately, because the usual
+    cause is not staleness but a session with no `map:` tag, and the fix is a
+    tag rather than a rebuild.
+    """
+    d = store / "geometry"
+    if not d.is_dir():
+        return []
+    try:
+        import sys
+        sys.path.insert(0, str(ROOT / "prototypes"))
+        sys.path.insert(0, str(ROOT))
+        import io, contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            import map_shade
+        want = map_shade.stamp()
+    except Exception as e:                                  # pragma: no cover
+        return [(WARN, f"cannot compute the shade stamp ({type(e).__name__}) "
+                       f"-- staleness unchecked")]
+    import numpy as np
+    stale, absent = [], []
+    for p in sorted(d.glob("*.npz")):
+        try:
+            with np.load(p, allow_pickle=False) as z:
+                if "shade" not in z.files:
+                    absent.append(p.stem)
+                    continue
+                got = str(z["shade_built_by"])
+        except Exception:
+            got = "unreadable"
+        if got != want:
+            stale.append(p.stem)
+    out = []
+    if stale:
+        out.append((WARN, f"{len(stale)} geometry npz carry a STALE shade "
+                          f"(shade_built_by != current) -- refill with "
+                          f"prototypes/map_shade.py build --all. "
+                          f"{', '.join(stale[:6])}"
+                          f"{' ...' if len(stale) > 6 else ''}"))
+    if absent:
+        out.append((WARN, f"{len(absent)} geometry npz have NO shade -- usually "
+                          f"a session with no `map:` tag, or a map whose art is "
+                          f"not fetched. {', '.join(absent[:6])}"
+                          f"{' ...' if len(absent) > 6 else ''}"))
+    return out
+
+
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("ORPHAN", check_orphan),
               ("GEOMETRY", lambda: check_geometry(store)),
+              ("SHADE", lambda: check_shade(store)),
               ("DONOR", lambda: check_donor(store)),
               ("MANIFEST", lambda: check_manifest(store)))
     out = []
