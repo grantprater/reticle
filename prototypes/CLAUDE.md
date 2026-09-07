@@ -1014,6 +1014,18 @@ recoverable from the footage:
   below): a demo clip is the worst place to read cast times and the best place
   to read artwork. Do not try to get both from one clip.
 
+**IT IS A NEGATIVE CLASS FOR THE MINIMAP ONLY -- NOT FOR AUDIO. the player,
+2026-09-06:** *I don't believe there are silent abilities at all, only abilities
+out of audio range.* So everything below describes what the WIDGET does not
+draw, and it must not be carried across to sound, which a later session did
+exactly once: an audio-gating caution was written on the strength of "the silent
+class is known to be large", and that class is the no-icon class in a different
+costume. If every ability makes a sound, audio has FULL coverage where the
+minimap structurally does not, the failure mode is attenuation rather than
+absence -- a modellable, distance-dependent quantity -- and for the LOCAL
+PLAYER'S OWN CASTS there is no failure mode at all, since his own abilities are
+never out of range.
+
 **THE NEGATIVE CLASS IS LARGE, and the player named its shape (2026-09-03):**
 
 > There are actually quite a few abilities with no icons. Grenades, flashes,

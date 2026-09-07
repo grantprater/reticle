@@ -500,9 +500,28 @@ nothing uses it that way.
 **The standing caution applies and must not be skipped:** *gate on OPPORTUNITY,
 not on outcome.* `CLAUDE.md`'s sampling section records why -- gating dense
 sampling on kills would make the model only ever see duels that drew a killfeed
-entry. An audio gate is less exposed than a kill gate, because the events wanted
-here ARE acoustic, but a silent ability is exactly the class it would miss and
-that class is known to be large.
+entry.
+
+**But the specific blind spot I named for it does not exist. the player,
+2026-09-06:** *I don't believe there are silent abilities at all, only abilities
+out of audio range.* I had written that "a silent ability is exactly the class
+an audio gate would miss, and that class is known to be large" -- **conflating
+two different classes**. What is known to be large is the set of abilities with
+NO MINIMAP ICON (his own note: *grenades, flashes, molotovs are the most
+common*). That is a fact about the widget, not about sound, and I carried it
+across without noticing.
+
+**The consequence is large and it favours audio over the minimap.** If every
+ability makes a sound, the audio channel has FULL coverage of the ability class
+where the minimap structurally does not, and the failure mode is ATTENUATION --
+a continuous, distance-dependent quantity -- rather than absence. Attenuation is
+modellable and absence is not.
+
+**And for the LOCAL PLAYER it is not a failure mode at all**: his own casts are
+never out of range. So an audio index over the player's own abilities has no
+silent-class blind spot whatsoever, which is exactly the half of the event log
+the tray and the submenu also cover. The out-of-range caveat applies only to
+other players, where it becomes a RANGE ESTIMATE rather than a miss.
 
 **Trigger: after the reference cuts exist.** An index needs something to index
 ON, and a matched filter against the cut references is that. Until then a gate

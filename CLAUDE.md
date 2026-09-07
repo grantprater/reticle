@@ -1196,6 +1196,35 @@ Three things that make it findable:
   the convention there -- a feature wanting a local window derives it from
   `t_ms` and still respects the decoded bounds -- is the general answer.
 
+**THE AGGREGATE IS THE MEASUREMENT. Choosing max where median belongs has now
+inverted three separate results, twice in one session (2026-09-06).** This is
+the sibling of *align the window to the question* above -- that one is about
+WHICH SAMPLES go into a number, this one is about HOW THEY ARE REDUCED to one --
+and it fails the same silent way: a plausible number of the right type.
+
+    self_icon_dist      min over a track vs MEDIAN      3 of 5 real trapwires
+                        kept vs 5 of 5. Min stopped meaning "is the player
+                        here" and started meaning "was he EVER here"
+    "cast made while     max over a window vs MEDIAN     8/119 (7%) vs 28/41
+    standing still"      (68%). A sevenfold swing, and the 7% was quoted to
+                         the player before it was checked
+    motion class from    per-STEP speed vs a windowed    inverted the result
+    the self track       MEDIAN                          outright: tracker
+                         jitter spikes to 80-724 px/s against RUN_PX 45, so
+                         every jittery step was classified as RUNNING
+
+**The tell is that an extreme-value aggregate answers a different question than
+the one asked.** "Was he still" is about the typical value in a window; a max
+answers "did anything in this window look like motion", which one bad frame
+satisfies. Ask which question the aggregate actually answers before quoting it.
+
+**The cheap enforcement, since prose here has a poor record: report TWO
+aggregates whenever a per-sample quantity is reduced over a window, and say
+which one the claim rests on.** All three failures above were visible the
+instant both were printed side by side, and in each case that cost one extra
+column. A single-aggregate figure derived from a noisy per-sample series should
+be treated as unverified until its sibling has been looked at.
+
 **A promoted function is DELETED from its prototype and re-exported, never
 copied.** Promotion has happened twice and took two different shapes, and only
 one of them is safe. `ping_scan` was done right: detection moved to
