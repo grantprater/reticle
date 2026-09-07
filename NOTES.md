@@ -23,6 +23,31 @@ own copy of the logic, and it draws **no minimap entity at all** yet. Extending
 it to the minimap channel -- tracks, not per-frame detections, every channel in
 one frame -- is the concrete form of this.
 
+## RUNNING IS NEVER SILENT: 0 of 176 windows (2026-09-06)
+
+The corroboration claim -- a player icon moving at running speed should be
+making footstep sounds -- measured over all 28 ability-demo clips. Motion class
+from the MEDIAN speed over a 1 s window, ability spans excluded:
+
+    class    windows  clips   silent          95% CI
+    still        601     28    35.4%   [31.7%, 39.3%]
+    walk         995     28     6.3%   [ 5.0%,  8.0%]
+    run          176     22     0.0%   [ 0.0%,  2.1%]
+
+**The intervals do not overlap**, so the separation is established rather than
+suggestive, and the ordering is monotonic. Running produced sound in every one
+of 176 windows across 22 clips.
+
+Two statistics that found NOTHING on a full match, recorded so they are not
+retried: broadband RMS (run/still 1.04x) and step-rate cadence at 1.5-4.5 Hz
+(0.92x, slightly the wrong way). A match is saturated; the demo clips are where
+this question is answerable.
+
+**The earlier PARTIAL result was an aggregate artefact, not a real conflict.**
+Classifying on PER-STEP speed let tracker jitter -- which spikes to 80-724 px/s
+against `RUN_PX` 45 -- read as running. See the aggregate convention in
+`CLAUDE.md`; this was its third instance in one session.
+
 ## The audio channel opened, and the tray CONFIRMS it (2026-09-06)
 
 the player recorded `b9558488a607` (Omen, 83 s, Ascent) to a deliberate protocol --

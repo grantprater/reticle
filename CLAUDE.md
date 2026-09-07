@@ -101,6 +101,28 @@ and the mistakes each of the five labellers here made once. It is a skill rather
 than a section because it is a PROCEDURE with a clear trigger — but a skill only
 loads when invoked, so the three lessons above stay stated here in full.
 
+## Where the domain notes live -- OUTSIDE this repo (2026-09-06)
+
+**This repository is public and carries facts and measurements only.** The
+attributed half -- direct quotes, decisions, personal detail, and the domain
+knowledge as it was originally given -- lives in a separate private repository:
+
+    ~/reticle-notes/
+        DOMAIN.md    the game/domain knowledge, with attribution and dates
+        GRANT.md     quotes, decisions, standing preferences
+        archive/     the four docs verbatim as they stood at the split
+
+**Read it when picking up domain work.** `prototypes/CLAUDE.md` calls that
+material *the single least replaceable thing in this repo* -- not recoverable
+from the pixels, not derivable from the code -- and moving it out did not make
+it less load-bearing, only easier to forget.
+
+**What stayed here is the FACT; what moved is the ATTRIBUTION.** "Yoru's fake
+teleport plays the sound without the displacement" is a property of the game and
+belongs here. Who said it, when, and in what words belongs there. When adding a
+domain fact learned in conversation, write the fact here and the attribution
+there -- do not reintroduce quotes into this tree.
+
 ## Attribution in commits -- a STANDING RULE from recorded 2026-09-06
 
 **Never put a Claude session URL in a commit message, a file, or anything else
