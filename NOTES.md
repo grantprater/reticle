@@ -11,36 +11,104 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-07, event/review foundation
+## PICKING UP -- 2026-09-07, the plan is reconciled with the backlog
 
-The broad review and execution record are in `docs/IMPLEMENTATION_PLAN.md`.
-`reticle coach` now builds a reproducible event/review bundle from stored L1:
-543 player kill/death observations across 18 HUD sessions. Two now have saved
-roster tables; probability evaluation abstains (26 eligible rounds). Default output:
-`~/reticle-store/analysis/coaching/`; start with `report.json` and `review.md`.
-14 behavioral tests pass. Round persistence now retains phase timing and source
-versions; ambiguous session prefixes refuse. Existing detector outputs are untouched.
+`docs/IMPLEMENTATION_PLAN.md` is the broad review and the execution record.
+`BACKLOG.md` is the deferred queue. They were written independently and now
+agree; what follows is what the reconciliation actually changed, then what is
+live.
 
-`scan --only roster` fills coverage without triggering minimap/HUD work.
-`audit` localizes cross-channel discrepancies without labels. The second saved
-roster reproduces the earlier seek evaluation exactly (100/113 probes). Its new
-delta audit has six unresolved disagreement windows. Its count increase is now
-explained: at 1483.0s two portraits remain visible but the gap-based reader
-briefly counts one. Feature values and the next experiment are in
-`docs/ROSTER_FINDINGS.md`; no threshold was tuned to this example. Audit v0.2
-also rejects missing HUD coverage, preventing false agreement across gaps;
-timestamps are in `~/reticle-store/analysis/reconciliation.json`. On the first
-session, opposing window discrepancies cancel: roster drops at 700.5s while the
-stored killfeed entry remains absent through 702.5s. Check onset timing first.
+**Verified before reconciling, not taken on the plan's word:** 14 tests pass,
+`doctor` reports the 5 findings and 1 error the plan claims, and
+`analysis/reconciliation.json` holds the window counts it quotes (587c15b07779:
+115 agree / 9 unreadable / 6 disagree / 1 increase over 131 windows;
+c40d950031bb: 58 / 0 / 2 / 0 plus 1 timing-ambiguous and one adjacent
+cancellation).
 
-Next for coaching: fix the roster split ambiguity against independent cases,
-inspect the remaining localized windows, then reconcile round/POV gates.
-Do not blindly require two score reads: that drops two final-round outcomes.
-The killfeed adapter does not yet consume entity tracks or emit compound episodes;
-the plan now specifies its integration with the existing minimap entity model.
-For minimap work, the
-layer handoff below still applies; `doctor` still reports 35/36 stale geometry
-caches. No new minimap accuracy claims or corpus rebuilds were made in this pass.
+**Four backlog entries moved.** The 587c15b07779 scan CLOSED -- its trigger
+fired, `scan --only roster` did it without the minimap rebuild it used to
+depend on, and that decoupling is the reconciliation's one structural win.
+"Two unwired modules" is now one: `roster.py` wired itself as predicted, and
+`doctor` agrees. The minimap re-validation entry gained the two constraints the
+plan carried and it did not -- the rebuild destroys shade unless `map_shade
+build --all` rides it, and `2ba870ccbd50`'s profile must be settled before it
+is rebuilt on a possibly-wrong crop. The prototypes-deletion entry has a
+trigger that CANNOT FIRE: `doctor` now finds five orphans and not one of them
+is in the enemy-teacher cluster the entry names.
+
+**The plan's four remaining milestones are now backlog entries with triggers**
+("The coaching milestones this file had no entry for"). Prose in a plan is not
+a queue. Stated there too: the plan is silent on the audio channel, the
+viewcone, the wiki map and analysis-by-synthesis, and silence is not
+deprecation.
+
+### The live queue, in order
+
+**1. The roster reader -- WORKED, and it ends on a decision for the player.**
+The roster is the AUDITOR of the killfeed (`roster.py` is explicit that the
+direction must not reverse), so a roster defect corrupts the only label-free
+validity signal the project has.
+
+*Shipped:* `l1/roster` now stores the DETAIL VECTORS the count is adjudicated
+from (`roster-0.2.0`), with the split rule on its own stamp
+(`ROSTER_SPLIT_VERSION`). A split-rule experiment is now a re-derivation over
+stored data instead of a 127 s re-read; `prototypes/roster_split_eval.py` is
+that experiment and it reproduces every stored count exactly. Both sessions
+re-scanned, counts unchanged.
+
+*Measured:* the ratio split rule is right on the frame that motivated it and
+moves **six cells in 11,306**. The only audit movement is the held-out window
+itself, so the corpus does not establish it. Not shipped.
+
+*Found, by rendering:* a WIPED team reads `None` rather than `0` -- the
+documented `(0,0)` defect from the other side, and it costs the audit its most
+informative windows, because a wipe is a round outcome. Also a non-uniform fade
+reading as a confident partial count, which is confined to outside rounds
+(0.0-0.1% of in-round rows). Everything is in `docs/ROSTER_FINDINGS.md` with the
+frames; the wipe case is pinned by a test so a fix has to change it on purpose.
+
+**THE DECISION: `alive_from_detail` must separate `drawn and empty` (answer 0)
+from `not drawn` (refuse), and the obvious separator FAILED.** Cross-slot spread
+does not distinguish them at corpus scale. `roster.py`'s two candidate fixes are
+still the two candidates -- a `widget_drawn`-style gate, or bounding the reader
+to rounds -- and the second is circular while round boundaries are the thing the
+roster is meant to check. This wants the player's call, not another sweep.
+
+**2. The six unresolved windows** on 587c15b07779 -- 207.5-217.5, 314.5-324.5,
+773-783, 1009.5-1019.5, 1375-1385, 1464-1474s -- plus c40d950031bb's two. Cheap
+once (1) lands, because the answer to "did the rule change this window?" is then
+a stored-data question.
+
+**3. Round and POV gates.** 111 of 543 coaching events sit near an uncertain
+round boundary; that is 20% and the largest quality number the first milestone
+produced. Do not require two score reads: it drops two final-round outcomes.
+
+Two free instruments for this arrived from the roster work, both from stored
+data: `round_bounds` starts a round at a score increment, which lands in the buy
+phase where the bar is not drawn -- so the roster's own readable/unreadable
+boundary is an independent read on where a round really starts. And a repeated
+BYTE-IDENTICAL detail vector is a frozen frame, i.e. a static post-round screen,
+detectable with no threshold (587c15b07779 holds one for eleven samples from
+164.0s).
+
+Everything after that is in `BACKLOG.md`. The minimap channel is a separate
+thread and its handoff is below, unchanged: `doctor` still reports 35/36 stale
+geometry caches, and no minimap number should be quoted until they are rebuilt.
+
+### What `reticle coach` and `reticle audit` are
+
+`coach` builds a reproducible event/review bundle from stored L1 only: 543
+player kill/death observations across 18 HUD sessions, source and code hashes on
+every run. Default output `~/reticle-store/analysis/coaching/`; start with
+`report.json` and `review.md`. Probability evaluation ABSTAINS -- 26 eligible
+rounds from two sessions -- and that is a reportable result, not a gap to paper
+over. `audit` localizes cross-channel disagreements without labels; v0.2 refuses
+windows where HUD coverage is missing, so a gap can no longer read as agreement.
+`scan --only roster` fills roster coverage in ~127s per session without
+touching minimap or geometry.
+
+Nobody has read `review.md` yet. It is one window per round chosen
+chronologically -- source pointers for inspection, not a sample of anything.
 
 ## Minimap handoff -- 2026-09-07, the BASE layer is built
 

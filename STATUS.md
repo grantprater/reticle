@@ -4,10 +4,11 @@
 computed cannot disagree with the code. Handoff INTENT is not here --
 that is a decision, not a fact, and stays in CLAUDE.md by hand.*
 
-49 sessions ingested, 369 rounds derived.
+50 sessions ingested, 369 rounds derived.
 L1 hud: 18 at `hud-0.11.0`; code is at `hud-0.11.0`
-L1 minimap: 3 at `minimap-0.1.0`, 1 at `minimap-0.2.0`; code is at `minimap-0.2.0` -- **3 STALE**, re-read with `reticle scan`
+L1 minimap: 3 at `minimap-0.1.0`, 1 at `minimap-0.2.0`, 1 at `minimap-0.3.0`; code is at `minimap-0.3.0` -- **4 STALE**, re-read with `reticle scan`
 L1 ping: 1 at `ping-0.1.0`; code is at `ping-0.1.0`
+L1 roster: 2 at `roster-0.2.0`; code is at `roster-0.2.0`
 12 of 17 exact against `checks.KNOWN_KD`.
 Plants: 183/369 rounds (50%).
 
@@ -60,7 +61,8 @@ Plants: 183/369 rounds (50%).
 | 64d0fb783be2 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
 | b588ea1a6dd5 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
 | 5a63cc4fecfc | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 587c15b07779 | lotus | 31 | 20 | 12-8 | 13/20 | 19/14 | -- | -- | - | -- |
+| 587c15b07779 | lotus | 31 | 20 | 12-8 | 13/20 | 19/14 | -- | -- | y | -- |
+| b9558488a607 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
 | 28f53bfddbbe | ascent | 0 | -- | -- | -- | -- | -- | -- | y | -- |
 
-No HUD L1 (never `reticle hud`): 0f08b3dc3777, 2ba870ccbd50, eb10db50b1fb, d95cfad5693a, 79a706a7ce4c, c0b63335e635, 6bb88dba5d2c, c7674c699ad0, a7ce88bf341c, ccff4a11ff5a, 5abe77b9953f, fc9ec5c86a26, 2f4ef4e8da23, 5a50d1374a84, ff19748eea8c, 463ebce3a625, dae6f33f3f48, ad6b67cdf91d, f1cf160b213d, e78e75b2d191, 481336df9adb, d7213e35f40a, af09094c0729, 33db0d21fa32, 6ab7a9e99235, 02cf738b1c8f, f9703a4b5a47, 64d0fb783be2, b588ea1a6dd5, 5a63cc4fecfc, 28f53bfddbbe
+No HUD L1 (never `reticle hud`): 0f08b3dc3777, 2ba870ccbd50, eb10db50b1fb, d95cfad5693a, 79a706a7ce4c, c0b63335e635, 6bb88dba5d2c, c7674c699ad0, a7ce88bf341c, ccff4a11ff5a, 5abe77b9953f, fc9ec5c86a26, 2f4ef4e8da23, 5a50d1374a84, ff19748eea8c, 463ebce3a625, dae6f33f3f48, ad6b67cdf91d, f1cf160b213d, e78e75b2d191, 481336df9adb, d7213e35f40a, af09094c0729, 33db0d21fa32, 6ab7a9e99235, 02cf738b1c8f, f9703a4b5a47, 64d0fb783be2, b588ea1a6dd5, 5a63cc4fecfc, b9558488a607, 28f53bfddbbe

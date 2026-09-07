@@ -190,6 +190,14 @@ def check_orphan() -> list[tuple[str, str]]:
     indistinguishable from one abandoned a fortnight ago, and only a person
     knows which. The value is the LIST, reviewed occasionally -- an entry that
     appears twice running is the one to delete.
+
+    **`BACKLOG.md` is EXCLUDED, and it is the whole reason this check nearly
+    stopped working (2026-09-07).** Being named makes a prototype look alive, so
+    writing the dead list into the backlog silenced the check outright -- five
+    orphans to none, in one commit, with no code changed. That is a loop: the
+    backlog entry's own stated trigger is *`doctor`'s ORPHAN check listing them
+    twice in a row*, and satisfying the entry's format destroyed its trigger.
+    Being on the deletion backlog is evidence a prototype is DEAD, not alive.
     """
     protos = sorted(p.stem for p in (ROOT / "prototypes").glob("*.py"))
     text = []
@@ -199,7 +207,7 @@ def check_orphan() -> list[tuple[str, str]]:
     docs = "".join(
         p.read_text(encoding="utf-8", errors="replace")
         for p in list(ROOT.glob("*.md")) + list((ROOT / "prototypes").glob("*.md"))
-        if p.is_file())
+        if p.is_file() and p.name != "BACKLOG.md")
     dead = []
     for name in protos:
         if name in docs:

@@ -24,8 +24,9 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, ROSTER_VERSION, ROUND_VERSION,
-                      SCHEMA_VERSION, SEGMENTER_VERSION)
+from .roster import N_SLOTS
+from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, ROSTER_VERSION,
+                      ROSTER_SPLIT_VERSION, ROUND_VERSION, SCHEMA_VERSION, SEGMENTER_VERSION)
 
 DEFAULT_STORE = Path.home() / "reticle-store"
 
@@ -370,6 +371,12 @@ class Store:
         here is a measurement that refused, and the RATE of refusal is the
         first thing anyone auditing the killfeed against this needs to know.
         Guessing a count would silently corrupt the audit it exists to provide.
+
+        `detail_ally` / `detail_enemy` are the five-float EVIDENCE each count
+        was adjudicated from, NULL where the ROI is absent. They are stored so
+        that a change to the split rule is a re-derivation over this table
+        rather than a re-read of the video -- see `ROSTER_SPLIT_VERSION`. A
+        stored count with no stored evidence is an answer nobody can check.
         """
         if not rows:
             raise SystemExit("no frames were read -- nothing to write")
@@ -380,6 +387,10 @@ class Store:
             "t_ms": pa.array(col("t_ms"), type=pa.float64()),
             "alive_ally": pa.array(col("alive_ally"), type=pa.int8()),
             "alive_enemy": pa.array(col("alive_enemy"), type=pa.int8()),
+            "detail_ally": pa.array(col("detail_ally"),
+                                    type=pa.list_(pa.float32(), N_SLOTS)),
+            "detail_enemy": pa.array(col("detail_enemy"),
+                                     type=pa.list_(pa.float32(), N_SLOTS)),
             "session_id": pa.array([fingerprint.session_id] * n, type=pa.string()),
             "content_key": pa.array([fingerprint.content_key] * n, type=pa.string()),
             "source_profile": pa.array([profile_name] * n, type=pa.string()),
@@ -389,6 +400,7 @@ class Store:
         table = pa.table(arrays).replace_schema_metadata(
             {
                 "roster_version": ROSTER_VERSION,
+                "roster_split_version": ROSTER_SPLIT_VERSION,
                 "schema_version": str(SCHEMA_VERSION),
                 "session_id": fingerprint.session_id,
                 "content_key": fingerprint.content_key,

@@ -27,11 +27,23 @@ Ordered by consequence, not by age.
 argument are in `reticle/minimap.py`'s docstring and
 `prototypes/floor_mask_eval.py`.
 
+**Reconciled 2026-09-07 against `docs/IMPLEMENTATION_PLAN.md`.** The plan
+reaches the same three jobs from the other end and adds two constraints this
+entry did not carry, both now folded in below: the rebuild DESTROYS the shade
+arrays unless it restores them in the same operation, and `2ba870ccbd50`'s
+profile must be settled before it is rebuilt on a crop that may be wrong.
+
 Three jobs, in order, and the second depends on the first:
 
-1. **rebuild all 34 geometry npz.** `floor_mask` moved, so `classify()` moves
-   and every `built_by` stamp is stale. This is the stamp convention working,
-   not a surprise;
+1. **rebuild all 34 geometry npz, restoring shade in the SAME operation.**
+   `floor_mask` moved, so `classify()` moves and every `built_by` stamp is
+   stale. This is the stamp convention working, not a surprise. But
+   `minimap_geometry.py` writes each npz from scratch and drops the six shade
+   classes `map_shade.py` put there, so `map_shade.py build --all` is part of
+   the rebuild rather than a follow-up -- and `79a706a7ce4c` still needs a
+   `map:` tag or it stays the one npz with no shade. Settle
+   `2ba870ccbd50`'s tag/profile contradiction (entry below) FIRST: rebuilding
+   it on the wrong crop produces a confident npz about the wrong pixels;
 2. **re-read `l1/minimap`.** The stored track was built on the old gate, which
    admitted 13.7% of the widget on Ascent that is **100.0% outside the
    painting** — a region holding 878 stored self positions and ~8,400 ally
@@ -57,17 +69,23 @@ Preview measured on the OLD stored track, so not the re-validation:
 Better median, p95 and max on four fewer scored deaths: the signature of
 removing phantoms rather than of a better detector.
 
-## Scan `587c15b07779` and open its 13 cross-channel disagreements
+## ~~Scan `587c15b07779` and open its 13 cross-channel disagreements~~ DONE 2026-09-07
 
-**Updated 2026-09-07: the roster scan is DONE.** `scan --only roster` removes
-the former dependency on an unrelated minimap rebuild. Its 3730 stored rows
-reproduce the original 100/113 probe check exactly. `reticle audit` now compares
-actual count changes over aligned intervals and localizes six disagreement
-windows plus one count increase; the two sampling definitions are not directly
-comparable. Inspect those timestamps in `analysis/reconciliation.json` next.
-The deferral rationale below is historical; no new full scan is needed.
+**The trigger fired and the entry closes.** `scan --only roster` removed the
+dependency on an unrelated minimap rebuild -- that is the reconciliation's one
+structural win, because it decouples roster coverage from the expensive minimap
+re-read the entry above still owes. 3730 stored rows reproduce the original
+100/113 probe check exactly. `reticle audit` compares actual count changes over
+aligned intervals: **115 agree, 9 unreadable, 6 disagree, 1 count increase**
+over 131 windows. The 88%/13 figure and this one are different sampling
+definitions and are not directly comparable, so the "13" never resolves as 13.
 
-**Tabled 2026-09-06 by the player.** `NOTES.md` has called these *the audit signal
+**One of the seven is diagnosed and it is a reader defect, not a killfeed
+miss** -- `docs/ROSTER_FINDINGS.md`, 1483.0s. The remaining six windows are
+live work, not deferred work, and live in `NOTES.md`. Nothing here is left to
+un-defer.
+
+**Historical -- tabled 2026-09-06 by the player.** `NOTES.md` has called these *the audit signal
 and nobody has looked at them* since they were measured -- 100/113 probes agree
 (88%), leaving 13.
 
@@ -89,6 +107,59 @@ Run it as `reticle scan 587c15b07779`, then `prototypes/roster_alive.py
 **Trigger: the roster's undrawn defect being fixed** -- open these against a
 reader that refuses instead of guessing, or the 13 will be re-diagnosed twice.
 Alternatively any session that is scanning that capture for another reason.
+
+## The coaching milestones this file had no entry for
+
+**Added 2026-09-07 by reconciliation.** `docs/IMPLEMENTATION_PLAN.md` executed
+its first milestone and left four more in prose, with acceptance gates and no
+triggers. Prose in a plan is not a backlog: the plan cannot say *what would make
+this worth doing next*, because it was written before the first milestone's
+results existed. These are those four, with the trigger each is actually
+waiting on. The plan stays the argument; this is the queue.
+
+The gate they all sit behind is in `NOTES.md` and is live, not deferred: the
+roster split rule and the round/POV gate. Everything here is downstream of it.
+
+* **Round-boundary reconciliation against clock, phase and scoreboard.**
+  `rounds._plant` infers planting from FUTURE missing-clock runs, which cannot
+  be a prediction-time feature, and score increments locate round ends late.
+  111 of 543 coaching events are flagged near an uncertain boundary -- that is
+  20% of the corpus, and it is the largest single quality number the first
+  milestone produced. The two-score-read guard is already rejected and stays
+  diagnostic: it drops two final-round outcomes.
+  **Trigger: it has fired.** This is the next thing after the roster gate.
+
+* **No-kill and no-contact episodes** -- the plan's *multiple-direction
+  contact* and *multiple-route exposure*. Both need entity IDs, direction
+  separation and the minimap's occluder geometry, so both are downstream of the
+  minimap re-validation at the top of this file AND of ally identity.
+  **Trigger: the killfeed adapter linking events to entity IDs.** Until then
+  the retained no-contact denominator is the only part that can be built, and
+  it can be built without them.
+
+* **Statistical progression under frozen definitions** -- economy, phase, side,
+  map, agent with shrinkage; chronological rather than ingest-order evaluation;
+  leave-session-out demoted to a diagnostic.
+  **Trigger: enough eligible rounds that abstention stops being the result.**
+  26 today from two sessions. `scan --only roster` is the cheap way to add
+  them, at ~127s per session with no minimap work -- but the plan's standing
+  instruction is *do not launch a broad re-scan merely to satisfy the model's
+  minimum sample count*, so the gate must be validated first or the extra
+  rounds inherit the defect.
+
+* **Correction history, and rebuilding only dependent artifacts.** Every event
+  needs a correction key; corrections must not silently overwrite the
+  observation that was corrected.
+  **Trigger: the first time a human disagrees with a stored event.** Nobody has
+  reviewed `review.md` yet, so this has no evidence to store and building it now
+  would be building for an imagined workflow.
+
+**What the plan does NOT supersede, stated because a fresh plan reads as
+total:** the audio channel, the corroborating-channels argument,
+analysis-by-synthesis, the collective viewcone and the wiki-map promotion all
+sit below in this file and are untouched by it. The plan is about one thread --
+events, review and the state model. It is silent on the others, and silence is
+not deprecation.
 
 ## A small-widget painting, to score the length scaling
 
@@ -139,16 +210,45 @@ once it is clear which are pending and which are dead. `git` is the archive.
 of the seven (`roster_alive`, `roster_scan`, `roster_names_scan`) are days old
 and pending item 03, not dead.
 
-## Two modules in `reticle/` that no CLI command reaches
+**Re-measured 2026-09-07, and writing the answer here BROKE THE CHECK.** The
+ORPHAN test skips any prototype named in any root `.md`, and this file is a root
+`.md` -- so listing the dead modules in this entry took `doctor` from five
+orphans to **zero**, in one commit, with no code touched. The entry's own stated
+trigger is *`doctor`'s ORPHAN check listing them twice in a row*, so satisfying
+the entry's format destroyed its trigger. `BACKLOG.md` is now excluded from that
+check (`reticle/doctor.py`), on the argument that being on the DELETION backlog
+is evidence a prototype is dead rather than alive.
 
-`reticle/refine.py` is imported only by `prototypes/ping_edge_eval.py`;
-`reticle/roster.py`'s `RosterReader` appears zero times in `cli.py`. Both were
-promoted before being wired, which makes "is it in `reticle/`?" stop meaning
-"is it in the pipeline?".
+**With that fixed `doctor` reports EIGHT**, not the seven on record and not the
+five it briefly showed: `ability_combiner`, `glance_dynamic`, `label_enemies`,
+`minimap_anchor`, `overlap_temporal`, `roster_names_scan`, `roster_scan`,
+`weapon_icon_scan`. Three of those were being masked by this file all along, so
+the seven was never right either.
 
-**Trigger: `roster.py` is item 03 and closes itself.** `refine.py` has no
-scheduled caller, so it needs a decision rather than a task — wire it into the
-ping reader, or move it back to `prototypes/`.
+**But note what the list still does NOT contain: five of the six enemy-teacher
+modules this entry names as the genuinely-dead part.** They are named by
+something else, so `doctor`'s ORPHAN check is not the trigger for deleting
+*them* and never will be. `docs/IMPLEMENTATION_PLAN.md` independently concludes
+"no broad rewrite or deletion of prototypes is necessary", which agrees.
+
+**So the trigger is wrong for the item it is attached to.** Either re-aim the
+entry at the eight `doctor` actually finds, or accept that the enemy-teacher
+cluster needs a judgement call rather than a check. Do not let it sit as an
+item whose trigger cannot fire.
+
+## One module in `reticle/` that no CLI command reaches
+
+**Half closed 2026-09-07.** `roster.py`'s `RosterReader` is now reached by
+`cli.py` through the shared pass and `scan --only roster`; `doctor` confirms it
+by no longer listing it. That was the predicted self-closing half.
+
+`reticle/refine.py` remains imported only by `prototypes/ping_edge_eval.py`.
+It was promoted before being wired, which makes "is it in `reticle/`?" stop
+meaning "is it in the pipeline?".
+
+**Trigger: none -- it needs a DECISION rather than a task.** Wire it into the
+ping reader, or move it back to `prototypes/`. It has been `doctor`'s standing
+UNWIRED finding for long enough that leaving it is now a choice.
 
 ## `2ba870ccbd50` is tagged small-widget and was ingested as bigmap
 
@@ -170,6 +270,11 @@ frame, and `doctor` deliberately does not guess.
 **Trigger: any attempt to use that session, or to close the unexplained
 `--geometry-from` note.** Cheap to settle -- `reticle probe 2ba870ccbd50` and
 look at the widget.
+
+**Promoted 2026-09-07 to a PREREQUISITE of the geometry rebuild.** It is one of
+the 35 stale npz, so the rebuild will touch it whether or not anyone decides
+about it, and rebuilding it on a possibly-wrong crop launders the contradiction
+into a fresh `built_by` stamp. Settle it in the same session as the rebuild.
 
 ## Record which agent the player played, per session
 

@@ -56,9 +56,15 @@ MINIMAP_VERSION = "minimap-0.3.0"
 # key -- nothing skips a ping read on a version match, because pings ride a
 # pass that was going to happen anyway and cost no decode of their own.
 PING_VERSION = "ping-0.1.0"
-# Stage 02 roster alive counts, read off the two HUD roster bars. Bump when
-# `ART_FRAC`, `DETAIL_FLOOR` or the split rule in `roster.alive_from_detail`
-# changes -- that needs pixels, so it re-decodes.
+# Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
+# per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
+# ROI geometry changes -- those need pixels, so they re-decode.
+#
+# 0.2.0 (2026-09-07) added `detail_ally` / `detail_enemy`: the ten floats the
+# count is adjudicated from. Before it, the table held only the count, so
+# changing the split rule meant re-reading the video of a session already read
+# -- which is why `docs/ROSTER_FINDINGS.md`'s experiment could not be run from
+# storage. Now it can.
 #
 # **Its own table and its own stamp, rather than two more columns on
 # `l1/hud`.** They are read from the same frames in the same pass, so fusing
@@ -68,4 +74,13 @@ PING_VERSION = "ping-0.1.0"
 # new when nothing about the roster moved. That is exactly the comparability
 # fault `metrics.py` splits deps from context to avoid: a version that moves
 # for reasons unrelated to the number it stamps is not a version, it is noise.
-ROSTER_VERSION = "roster-0.1.0"
+ROSTER_VERSION = "roster-0.2.0"
+# The split rule that turns those detail vectors into a count. It is a SEPARATE
+# stamp because it is a pure function of stored data: changing it re-derives,
+# it does not re-decode, and `Store.has_roster` deliberately does not consult
+# it. Same argument as splitting the roster off `l1/hud` -- a version that
+# moves for reasons unrelated to the number it stamps is noise -- applied one
+# level down, to the observation/adjudication boundary rather than the
+# channel boundary. Bump when `DETAIL_FLOOR` or `roster.alive_from_detail`
+# changes.
+ROSTER_SPLIT_VERSION = "roster-split-0.1.0"

@@ -90,12 +90,44 @@ widget, or bounding the reader to rounds rather than the whole capture. Both
 need a second session. Until then `(0, 0)` is the marker: it cannot happen
 inside a round, so treat it as not-in-round rather than as a count, and
 `reticle scan` prints the rate for exactly that reason.
+
+**Both sessions now exist, and they show the defect has a MIRROR that matters
+more (2026-09-07).** A drawn-but-empty bar -- a team that has actually been
+wiped -- sits at 2-8 detail, which vetoes every occupied split and then loses
+`n = 0` to the `-1.0` sentinel, so it reads `None`. Only a near-black bar
+reaches 0. So the two answers are swapped from what this section describes: an
+UNDRAWN bar reads 0, and a WIPED team reads `None`. The audit loses its most
+informative windows that way, since a wipe is a round outcome.
+
+The two candidate fixes are unchanged and the choice is still open. What is new
+is that the obvious separator has been tried and FAILED: cross-slot spread does
+not distinguish the two at corpus scale (`docs/ROSTER_FINDINGS.md`).
+
+WHAT IS STORED: the EVIDENCE, not just the answer
+---------------------------------------------------
+`roster-0.2.0` writes `detail_ally` / `detail_enemy` beside the counts, so any
+change to `alive_from_detail` is a re-derivation over `l1/roster` rather than a
+re-read of the video. `ROSTER_SPLIT_VERSION` stamps the rule; `ROSTER_VERSION`
+stamps the pixels, and `Store.has_roster` keys only on the latter.
+`prototypes/roster_split_eval.py` is what that buys: it scores candidate rules
+against each other, and against the killfeed audit, at no decode cost.
 """
 
-# A second, visually confirmed defect is localized in docs/ROSTER_FINDINGS.md:
-# 587c15b07779 at 1483s has two portraits but returns one. The largest absolute
-# detail gap falls BETWEEN the portraits as empty-slot background detail rises.
-# Both real portraits clear DETAIL_FLOOR, so changing that floor is not the fix.
+# Three further defects are localized in docs/ROSTER_FINDINGS.md, all confirmed
+# by rendering the source frames, none patched:
+#
+#   1483s on 587c15b07779   two portraits, returns one. The largest ABSOLUTE
+#       detail gap falls between the portraits as empty-slot background detail
+#       rises. Both clear DETAIL_FLOOR, so the floor is not the fix. A ratio
+#       gap fixes it and moves five other cells in the whole corpus, so the
+#       corpus cannot say whether it is right;
+#   158s on 587c15b07779    all five enemies DEAD, bar drawn, returns None.
+#       See the note above: the floor exists to resolve this case and only
+#       reaches n=0 on a near-black bar. Pinned by a test;
+#   962s on c40d950031bb    five portraits visible under a wipe transition that
+#       dims the bar unevenly, returns one. No split over per-slot detail can
+#       answer a non-uniform fade; the reader has to refuse. Confined to
+#       outside rounds on this corpus (0.0-0.1% of in-round rows).
 
 from __future__ import annotations
 
@@ -169,18 +201,32 @@ def alive_from_detail(detail: list[float], pack_right: bool) -> int | None:
     return best
 
 
-def alive_counts(frame: np.ndarray, profile: Profile, w: int, h: int):
-    """(allies, enemies) alive, each None when unreadable."""
+def slot_details(frame: np.ndarray, profile: Profile, w: int, h: int):
+    """(ally, enemy) per-slot detail vectors, each None where the ROI is absent.
+
+    **This is the OBSERVATION; the count is the ADJUDICATION.** Splitting them
+    is what lets a split rule be re-evaluated from stored data instead of from
+    video: ten floats per frame answer every question `alive_from_detail` can
+    be asked, and re-deriving a count from them costs no decode at all. The
+    original table stored only the count, so `docs/ROSTER_FINDINGS.md`'s "next
+    experiment" needed a 127-second re-read of a session already read.
+    """
     ra, re = roster_rois(profile, w, h)
     out = []
-    for roi, pack_right in ((ra, True), (re, False)):
+    for roi in (ra, re):
         if roi is None:
             out.append(None)
             continue
         x0, y0, x1, y1 = roi
-        out.append(alive_from_detail(slot_detail(frame[y0:y1, x0:x1]),
-                                     pack_right))
+        out.append(slot_detail(frame[y0:y1, x0:x1]))
     return out[0], out[1]
+
+
+def alive_counts(frame: np.ndarray, profile: Profile, w: int, h: int):
+    """(allies, enemies) alive, each None when unreadable."""
+    da, de = slot_details(frame, profile, w, h)
+    return (None if da is None else alive_from_detail(da, True),
+            None if de is None else alive_from_detail(de, False))
 
 
 class RosterReader:
@@ -198,9 +244,15 @@ class RosterReader:
         self.rows: list[dict] = []
 
     def feed(self, smp) -> None:
-        a, e = alive_counts(smp.frame, self.profile, self.w, self.h)
-        self.rows.append({"frame_idx": smp.frame_idx, "t_ms": smp.t_ms,
-                          "alive_ally": a, "alive_enemy": e})
+        # Read the detail ONCE and adjudicate from it, rather than calling
+        # `alive_counts` and recomputing the Laplacian to store the evidence.
+        da, de = slot_details(smp.frame, self.profile, self.w, self.h)
+        self.rows.append({
+            "frame_idx": smp.frame_idx, "t_ms": smp.t_ms,
+            "alive_ally": None if da is None else alive_from_detail(da, True),
+            "alive_enemy": None if de is None else alive_from_detail(de, False),
+            "detail_ally": da, "detail_enemy": de,
+        })
 
     def finish(self):
         return self.rows

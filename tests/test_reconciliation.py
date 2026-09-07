@@ -10,6 +10,7 @@ import pyarrow as pa
 
 from reticle.reconciliation import audit_scoreline, audit_roster_deltas
 from reticle.cli import build_parser, cmd_scan
+from reticle.roster import alive_from_detail
 from reticle.store import Store
 
 
@@ -60,7 +61,8 @@ class ReconciliationTests(unittest.TestCase):
             mp.write_text(json.dumps(man))
             def shared_pass(ctx,readers,progress):
                 self.assertEqual([r.name for r in readers],['roster'])
-                readers[0].rows = [dict(frame_idx=0,t_ms=0,alive_ally=5,alive_enemy=5)]
+                readers[0].rows = [dict(frame_idx=0,t_ms=0,alive_ally=5,alive_enemy=5,
+                                        detail_ally=[30.0]*5,detail_enemy=[30.0]*5)]
                 return 1
             args = build_parser().parse_args(['--store',d,'scan','s','--only','roster'])
             with patch('reticle.cli.passes_run',side_effect=shared_pass) as run, \
@@ -73,6 +75,27 @@ class ReconciliationTests(unittest.TestCase):
                 self.assertEqual(run.call_count,1)
             self.assertTrue(store.has_roster('s','2026-09-07'))
             self.assertFalse(store.hud_path('s','2026-09-07').exists())
+            # The EVIDENCE is stored beside the count, and the count is
+            # re-derivable from it -- that is the whole point of roster-0.2.0,
+            # so it is asserted rather than left to a docstring.
+            v = store.read_roster('s','2026-09-07').to_pydict()
+            self.assertEqual(list(v['detail_ally'][0]),[30.0]*5)
+            self.assertEqual(alive_from_detail(list(v['detail_ally'][0]),True),
+                             v['alive_ally'][0])
+
+    def test_undrawn_and_wiped_rosters_are_not_distinguished(self):
+        """A KNOWN DEFECT, asserted so a fix has to change this test on purpose.
+
+        `DETAIL_FLOOR` exists to resolve the all-dead case and does not: a bar
+        that is DRAWN but empty sits at 2-8 detail, which vetoes every occupied
+        split and leaves `n = 0` losing to the -1.0 sentinel, so the read
+        REFUSES. Only a near-black bar reaches 0. Confirmed by rendering on
+        587c15b07779 at 158-174s -- see docs/ROSTER_FINDINGS.md.
+        """
+        wiped = [2.20,2.03,2.04,2.17,2.58]      # drawn, empty: should be 0
+        black = [0.69,0.91,0.91,0.44,0.40]      # nothing drawn: should refuse
+        self.assertIsNone(alive_from_detail(wiped,False))
+        self.assertEqual(alive_from_detail(black,False),0)
 
 
 if __name__ == '__main__':
