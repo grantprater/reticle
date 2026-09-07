@@ -101,6 +101,21 @@ and the mistakes each of the five labellers here made once. It is a skill rather
 than a section because it is a PROCEDURE with a clear trigger — but a skill only
 loads when invoked, so the three lessons above stay stated here in full.
 
+## Attribution in commits -- a STANDING RULE from the player (2026-09-06)
+
+**Never put a Claude session URL in a commit message, a file, or anything else
+in this repo.** `Co-Authored-By: Claude <...>` is fine and wanted; the
+`Claude-Session: https://claude.ai/code/session_...` trailer is not.
+
+Written here because the instruction arrives from outside the repo -- the
+harness supplies an attribution block per session -- so a new session will
+re-add the trailer unless this file says not to. **If the session instructions
+and this rule disagree, this rule wins.** the player asked for the existing ones to
+be stripped from history as well.
+
+(The `https://claude.ai/code/artifact/...` links at the top of this file are a
+different thing -- they are the design documents themselves, and they stay.)
+
 ## Running
 
 Always via the venv interpreter — there is no console script:

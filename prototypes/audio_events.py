@@ -159,6 +159,61 @@ def load(sid, step_s=0.1):
     return casts, x, rate
 
 
+def cut(sid, out_dir, step_s=0.1, pad_pre=0.10, pad_post=0.30):
+    """Write one WAV per cast-aligned sound event: the ability's REFERENCE.
+
+    **The cut is bounded by the measured event, not by a fixed length.** An
+    ability's sound runs 1.70-4.40 s on `b9558488a607` and a fixed window would
+    either truncate the ult or pad the others with whatever came next.
+
+    `pad_pre` catches the attack transient the RMS gate crosses slightly late;
+    `pad_post` catches the tail decaying back under it. Both are small and
+    stated rather than fitted -- this is a cut, not a detector, and a reference
+    with a little silence on it costs a matched filter nothing.
+
+    Named `<agent>_<slot>_<ability>__<sid>_<t>.wav` so the provenance travels
+    with the file: which session, which second. A reference whose origin has to
+    be looked up is one nobody re-cuts when the recording is superseded.
+    """
+    import wave
+    import sys as _sys
+    _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    import cast_motion as cm
+
+    agent = cm.tagged_agent(sid) or "unknown"
+    cmap = cm.class_map()
+    ab = {}
+    for (ag, slot), (_cls, name) in cmap.items():
+        if ag == agent:
+            ab[slot] = name
+
+    casts, x, rate = load(sid, step_s)
+    env = envelope(x, rate)
+    evs = events(env)
+    out_dir = pathlib.Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    mono = x.mean(axis=1) if x.ndim == 2 else x
+    written = []
+    for t, slot, *_rest in casts:
+        near = [e for e in evs if abs(e[0] - t) <= 2 * BIN_S]
+        if not near:
+            continue
+        t0, t1, pk = near[0]
+        a = max(0, int((t0 - pad_pre) * rate))
+        b = min(len(mono), int((t1 + pad_post) * rate))
+        seg = mono[a:b]
+        name = ab.get(slot, f"slot{slot}").lower().replace(" ", "-")
+        fn = out_dir / f"{agent}_{slot}_{name}__{sid}_{t:.1f}s.wav"
+        pcm = np.clip(seg * 32767.0, -32768, 32767).astype("<i2")
+        with wave.open(str(fn), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(int(rate))
+            w.writeframes(pcm.tobytes())
+        written.append((fn.name, t1 - t0 + pad_pre + pad_post, pk))
+    return written
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("session")
@@ -166,7 +221,17 @@ def main(argv=None) -> int:
     ap.add_argument("--step", type=float, default=0.1, help="tray sample step")
     ap.add_argument("--align", action="store_true",
                     help="one row per CAST: the audio event that starts nearest it")
+    ap.add_argument("--cut", metavar="DIR",
+                    help="write one WAV per cast-aligned event: the references")
     a = ap.parse_args(argv)
+
+    if a.cut:
+        got = cut(a.session, a.cut, a.step)
+        print(f"{len(got)} references written to {a.cut}" + chr(10))
+        print(f"{'file':<58}{'dur':>6}{'peak':>8}")
+        for n, d, pk in got:
+            print(f"{n:<58}{d:>6.2f}{pk*1000:>8.1f}")
+        return 0
 
     casts, x, rate = load(a.session, a.step)
     env = envelope(x, rate)
