@@ -59,10 +59,24 @@ Scoring every one of the 24 counted death tracks on the held-out session:
     24 - 4 = 20, which is exactly `KNOWN_KD`'s death count for the session
 
 So the count, the timestamps and the scoreboard all agree, and none of them was
-available to the gate. Read the limits with it: **7 positives on 2 sessions and
-one agent.** Kayo is untested, the enemy-side case (`bfad2778a372`, +1 kill) is
-untested, and 20 of the 22 negatives come from the held-out session's own death
-tracks, so the negative class is one session's worth of ordinary entries.
+available to the gate.
+
+THE ENEMY SIDE, held out separately (2026-09-07)
+--------------------------------------------------
+`bfad2778a372` is +1 KILL against `KNOWN_KD` -- the same rule from the other
+side, an ENEMY Phoenix dying inside Run It Back. It tests the badge against the
+other plate colour, which is a different background rather than merely more
+entries, and it was scored with the gate unchanged:
+
+    kill tracks clearing the gate       1 of 20   at 2394.0s
+    20 - 1 = 19, which is exactly `KNOWN_KD`'s kill count for the session
+
+`--side kill` runs it. Three sessions now reconcile to the scoreboard exactly,
+on both plate colours, with one gate fixed on the first of them.
+
+Read the limits with it: **8 positives, 3 sessions, and the agent is Phoenix
+every time.** Kayo's stabilise is still untested and is the remaining gap in the
+class; the negatives are ordinary entries from these three sessions only.
 
 WHY COVERAGE FAILED AND CONTINUITY WORKED -- do not retry the first
 --------------------------------------------------------------------
@@ -207,7 +221,7 @@ def entry_marks(frame, roi, w, h, profile_name):
     return out
 
 
-def _scan(sid, st, cap, roi, w, h, profile_name) -> int:
+def _scan(sid, st, cap, roi, w, h, profile_name, side="death") -> int:
     """Score every counted death track IN ITS OWN SLOT, and reconcile.
 
     **The slot restriction is the whole correctness of this.** `entry_marks`
@@ -223,8 +237,9 @@ def _scan(sid, st, cap, roi, w, h, profile_name) -> int:
         print(f"{sid}: no l1/hud -- run `reticle hud` first")
         return 1
     hud = pq.read_table(hp[0]).to_pydict()
-    tracks = [e for e in track_entries(hud["t_ms"], hud["kf_death_mask"],
-                                       hud.get("kf_death_wx")) if e["counted"]]
+    mask, wx = f"kf_{side}_mask", f"kf_{side}_wx"
+    tracks = [e for e in track_entries(hud["t_ms"], hud[mask], hud.get(wx))
+              if e["counted"]]
     hits = []
     for e in tracks:
         best = 0.0
@@ -240,13 +255,14 @@ def _scan(sid, st, cap, roi, w, h, profile_name) -> int:
               f"{'   BADGE' if best >= RUN_MIN else ''}")
         if best >= RUN_MIN:
             hits.append(e["t_first"] / 1000)
-    print(f"\n{len(hits)} of {len(tracks)} counted death tracks clear "
+    print(f"\n{len(hits)} of {len(tracks)} counted {side} tracks clear "
           f"run >= {RUN_MIN}")
     known = KNOWN_KD.get(sid)
     if known:
+        truth = known[0] if side == "kill" else known[1]
         print(f"  {len(tracks)} - {len(hits)} = {len(tracks) - len(hits)}"
-              f"   KNOWN_KD deaths = {known[1]}"
-              f"   {'AGREE' if len(tracks) - len(hits) == known[1] else 'DISAGREE'}")
+              f"   KNOWN_KD {side}s = {truth}"
+              f"   {'AGREE' if len(tracks) - len(hits) == truth else 'DISAGREE'}")
     else:
         print(f"  no KNOWN_KD entry for {sid} -- count not reconcilable")
     return 0
@@ -257,6 +273,10 @@ def main(argv=None) -> int:
     ap.add_argument("session")
     ap.add_argument("--at", help="comma-separated seconds to probe")
     ap.add_argument("--sheet", help="write a contact sheet here")
+    # The badge is drawn on the VICTIM plate, so the kill side tests it against
+    # the other plate colour -- a different background, not just more entries.
+    ap.add_argument("--side", choices=("death", "kill"), default="death",
+                    help="which tracks to scan (default death)")
     a = ap.parse_args(argv)
 
     st = Store()
@@ -267,7 +287,7 @@ def main(argv=None) -> int:
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     roi = killfeed_roi(prof)
     if not a.at:
-        return _scan(a.session, st, cap, roi, w, h, prof.name)
+        return _scan(a.session, st, cap, roi, w, h, prof.name, a.side)
     times = [float(x) for x in a.at.split(",")]
     panels = []
     for t in times:

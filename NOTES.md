@@ -11,205 +11,56 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-07, the plan is reconciled with the backlog
+## PICKING UP -- 2026-09-07, the revive mark reconciles three sessions
 
-`docs/IMPLEMENTATION_PLAN.md` is the broad review and the execution record.
-`BACKLOG.md` is the deferred queue. They were written independently and now
-agree; what follows is what the reconciliation actually changed, then what is
-live.
+`prototypes/revive_mark.py` reads the second-life badge (Phoenix Run It Back,
+Kayo stabilise) off a killfeed entry. Score the CONTINUITY of a fitted circle,
+never its coverage: a headshot crosshair is four bars round a point, which is a
+circle sampled at four places, and it beats two real badges on coverage. Longest
+unbroken run separates 0.359-0.453 against 0.125-0.219 with nothing between.
 
-**Verified before reconciling, not taken on the plan's word:** 14 tests pass,
-`doctor` reports the 5 findings and 1 error the plan claims, and
-`analysis/reconciliation.json` holds the window counts it quotes (587c15b07779:
-115 agree / 9 unreadable / 6 disagree / 1 increase over 131 windows;
-c40d950031bb: 58 / 0 / 2 / 0 plus 1 timing-ambiguous and one adjacent
-cancellation).
+`RUN_MIN = 0.29` was fixed on `587c15b07779` and written down before anything
+else was scored. Three sessions then reconcile to the scoreboard EXACTLY, with
+that gate unchanged and both plate colours covered:
 
-**Four backlog entries moved.** The 587c15b07779 scan CLOSED -- its trigger
-fired, `scan --only roster` did it without the minimap rebuild it used to
-depend on, and that decoupling is the reconciliation's one structural win.
-"Two unwired modules" is now one: `roster.py` wired itself as predicted, and
-`doctor` agrees. The minimap re-validation entry gained the two constraints the
-plan carried and it did not -- the rebuild destroys shade unless `map_shade
-build --all` rides it, and `2ba870ccbd50`'s profile must be settled before it
-is rebuilt on a possibly-wrong crop. The prototypes-deletion entry has a
-trigger that CANNOT FIRE: `doctor` now finds five orphans and not one of them
-is in the enemy-teacher cluster the entry names.
+    ff636d173b07  --side death   4 of 24   24 - 4 = 20 = KNOWN_KD deaths
+    bfad2778a372  --side kill    1 of 20   20 - 1 = 19 = KNOWN_KD kills
 
-**The plan's four remaining milestones are now backlog entries with triggers**
-("The coaching milestones this file had no entry for"). Prose in a plan is not
-a queue. Stated there too: the plan is silent on the audio channel, the
-viewcone, the wiki map and analysis-by-synthesis, and silence is not
-deprecation.
+The four death timestamps match marks found by hand off a contact sheet long
+before the reader existed. **8 positives, 3 sessions, and the agent is Phoenix
+every time** -- Kayo is the remaining gap in the class.
 
-### The live queue, in order
+**Scan in the module's own slot, not the frame's maximum.** `entry_marks`
+returns every entry on screen and other players' entries carry badges too; an
+ally kill at 524.8s on `ff636d173b07` scores 0.453, higher than three of the
+four real ones. Frame-maximum finds 5 of 24 and breaks the reconciliation.
 
-**1. The roster reader -- WORKED, and it ends on a decision for the player.**
-The roster is the AUDITOR of the killfeed (`roster.py` is explicit that the
-direction must not reverse), so a roster defect corrupts the only label-free
-validity signal the project has.
+### THE DECISION WAITING: promote it into `killfeed.py`?
 
-*Shipped:* `l1/roster` now stores the DETAIL VECTORS the count is adjudicated
-from (`roster-0.2.0`), with the split rule on its own stamp
-(`ROSTER_SPLIT_VERSION`). A split-rule experiment is now a re-derivation over
-stored data instead of a 127 s re-read; `prototypes/roster_split_eval.py` is
-that experiment and it reproduces every stored count exactly. Both sessions
-re-scanned, counts unchanged.
+That means a `HUD_VERSION` bump and re-reading all 18 sessions. The evidence is
+now three independent reconciliations rather than one, which is what was missing
+when this was last deferred -- but it is still one agent. `CLAUDE.md` has wanted
+this since 2026-08-25 and the position on it is settled: **tag the events, do
+not drop them**, because a duel lost inside Run It Back is still a duel lost.
 
-*Measured:* the ratio split rule is right on the frame that motivated it and
-moves **six cells in 11,306**. The only audit movement is the held-out window
-itself, so the corpus does not establish it. Not shipped.
+### Everything else from this session
 
-*Found, by rendering:* a WIPED team reads `None` rather than `0` -- the
-documented `(0,0)` defect from the other side, and it costs the audit its most
-informative windows, because a wipe is a round outcome. Also a non-uniform fade
-reading as a confident partial count, which is confined to outside rounds
-(0.0-0.1% of in-round rows). Everything is in `docs/ROSTER_FINDINGS.md` with the
-frames; the wipe case is pinned by a test so a fix has to change it on purpose.
+Round starts moved to the clock reset (`round-0.2.0`) -- median 28.0s over 275
+rounds, where the roster predicted 28.0s from 26. Rounds are no longer
+contiguous; the 7.5s gap is the post-round period, and every consumer was
+checked empirically (0 events mis-attributed, 504 attributed + 39 unresolved =
+543). Audit disagreements 6 -> 4 and 2 -> 0. `STATUS.md` byte-identical.
 
-*Decided by the player and SHIPPED, `roster-split-0.2.0`:* the split is a ratio,
-and an empty bar is resolved by the SCORELINE rather than by how dark it is --
-score read means the HUD is drawn, so a dim bar is a WIPE and answers 0; no
-score answers nothing. `roster.resolve()` does the as-of join at adjudication
-time, because `scan --only roster` runs no HUD reader; `audit` and `coach` both
-call it. Both sessions re-scanned.
+The roster reader is done: ratio split plus a HUD gate on the empty bar
+(`roster-split-0.2.0`), and `l1/roster` stores the detail vectors so a rule
+change re-derives instead of re-decoding. All ten unresolved audit windows are
+diagnosed and NOT ONE is a roster error -- three are Run It Back, three are
+killfeed tracker defects, two are onset straddling a window boundary.
 
-Measured: `587c15b07779` audit agree 115 -> **116**, unreadable 9 -> **7**,
-ambiguous `(0,0)` rows 8 -> **0** (187 -> 5 on `c40d950031bb`). `coach` is
-unchanged at 26 rounds and still abstains -- terminal states were never
-eligible, so this buys AUDIT coverage, not model coverage.
-
-**The one remaining count increase MOVED, and that is the handoff.** It was the
-confirmed 1483.0s split defect; it is now 167.5-177.5s, where the enemy bar
-correctly reads 0 from 158s and 5 at 176s. That is not a roster error -- it is
-`round_bounds` putting the boundary at the score increment instead of at the
-round's real end. The audit has stopped flagging the roster and started flagging
-round timing, which is item 3 below.
-
-**2. DONE 2026-09-07 -- every unresolved window is diagnosed, and NOT ONE is a
-roster error.** All seven on 587c15b07779 and all three on c40d950031bb were
-inspected by rendering the killfeed. Three are the documented **Run It Back**
-divergence (the local player is Phoenix on that session), three are killfeed
-tracker defects, and two are an onset landing across a window boundary. Full
-table in `docs/ROSTER_FINDINGS.md`.
-
-**The consequence is a re-ranking: the work is in the KILLFEED, not the
-roster.** The revive-mark reader -- CLAUDE.md's candidate next step #2 -- is now
-the highest-value addition on evidence rather than argument: it resolves 3 of
-the 7 windows outright, on top of the K/D divergences it was already wanted for.
-
-**BUILT AND VALIDATED 2026-09-07 -- `prototypes/revive_mark.py`.** The badge
-straddles the victim-plate boundary, so the crop is centred on `victim_run[0]`
-and a circle is fitted there. **Coverage of that circle does not separate** -- a
-headshot crosshair is four bars around a point, scores 0.64, and beat two real
-badges; circles were also fitted to the letters of `Jett` and `Vyse`. The
-statistic that works is CONTINUITY, the longest unbroken run of white along the
-circumference: 0.359-0.453 for the badge against 0.125-0.219 for everything
-else, with nothing in between.
-
-**Held out properly.** The gate `run >= 0.29` is the midpoint of
-`587c15b07779`'s gap and was written down before `ff636d173b07` was scored.
-Scoring all 24 of that session's counted death tracks: **exactly 4 clear it, at
-801.0 / 1200.5 / 1753.0 / 2300.0s**, matching the four hand-recorded Phoenix
-marks (13:21, 20:00, 29:13, 38:20), and 24 - 4 = 20 is exactly `KNOWN_KD`'s
-death count. The count, the timestamps and the scoreboard agree and none was
-available to the gate.
-
-**Not promoted, and the limits are why:** seven positives, one agent, two
-sessions. Kayo is untested; so is the enemy side, and `bfad2778a372` (+1 KILL
-for the same rule) is the obvious next check because it tests the badge on the
-other plate colour. Wiring it into `killfeed.py` means a `HUD_VERSION` bump and
-a re-read of all 18 sessions -- worth doing, and a decision rather than a task.
-
-`reticle audit` is `audit-0.3.0` and now reports killfeed health from stored L1:
-counted tracks that never formed a divider (61 corpus-wide) and tracks lasting
-far past the ~4.5s entry lifetime (83, only 6 of them explained by a frozen
-frame). **CLAUDE.md's "there are now none anywhere" about long tracks is false
--- there are 154 over 12 samples.**
-
-**3. Round and POV gates.** 111 of 543 coaching events sit near an uncertain
-round boundary; that is 20% and the largest quality number the first milestone
-produced. Do not require two score reads: it drops two final-round outcomes.
-
-The frozen-frame instrument was built (`reconciliation.frozen_runs`, no
-threshold: every HUD column equal sample to sample) and **MEASURED NOT TO WORK
-for this**: only 8% of derived round starts fall inside a run of >= 5s, and the
-median run sits 25s from the nearest one. It stays because it separates a merged
-killfeed track from an entry held on a paused screen, and because 2.8% of
-derived in-round time is a frame that never changed -- a coaching-state
-eligibility question. Do not retry it as a boundary detector.
-
-Also measured and negative: **the killfeed is not systematically late.** Over
-182 in-round roster drops matched to their nearest onset the lag is median
-+0.00s, p90 +0.50s, and 98% fall inside the audit's existing +/-1.0s. The 2.5s
-case on c40d950031bb is a 2% tail. Do not widen `ENTRY_ALIGNMENT_MS`.
-
-**MEASURED 2026-09-07, and the defect is now quantified corpus-wide.** Two
-independent channels agree that `round_bounds` starts a round ~6s before the
-PREVIOUS round's clock expires, and that the real round begins ~7s after that:
-
-    clock at the derived round start   median 6.0s over 281 rounds, all 18
-                                       sessions; median is 6.0s on 17 of them
-                                       and 5.0s on the 18th. 95% under 15s,
-                                       i.e. the previous round's last seconds
-    roster, 26 rounds on the two sessions that have one:
-      wipe onset - derived round END        median +0.0s
-      both teams back to 5 - derived END    median +7.0s (p10 +4.5, p90 +7.5)
-      clock when both teams are back to 5   median 28.0s -- the buy phase
-
-The round END is well placed; the START is wrong, and contiguity makes those the
-same instant. The score updates when the round is DECIDED, not when the clock
-runs out. This is the single explanation for the `opens-at-5` collapse, the
-167.5-177.5s count increase, and a large share of the 111 boundary-flagged
-coaching events.
-
-**DONE 2026-09-07 -- the player took it, and `round-0.2.0` ships it.** The start
-is the first upward clock JUMP after the score increment; the END did not move,
-so rounds are no longer contiguous and the gap between them is the post-round
-period. Stored rounds carry `start_source`, so one built the old way cannot read
-as current. All rounds rebuilt, `coach` and `audit` re-run.
-
-It lands where the roster predicted, on six times the rounds: **clock median
-28.0s at the new start (p10 25.0, p90 29.0) over 275 rounds on 18 sessions**,
-92% inside a buy phase, gap median 7.5s. 22% of rounds fall back to the old
-start because their buy-phase clock was unreadable, and they are labelled.
-
-`STATUS.md` is byte-identical -- every K/D against `KNOWN_KD`, 369 rounds,
-183/369 plants -- which is the check that mattered: a start-side change must not
-touch numbers derived from session-level tracks. Coaching eligibility is also
-unchanged (329/107 states, 26 rounds, still abstaining); the rejection
-bookkeeping moved honestly, `clock_or_phase_unknown` falling by exactly the
-amount `round_boundary_or_unresolved` rose. **`round_boundary_uncertain` events
-fell 111 -> 79**, with `round_unresolved` rising 7 -> 39: the same 118 events,
-39 of them now definite rather than uncertain.
-
-The audit moved as predicted -- disagreements 6 -> 4 and 2 -> **0**, both
-boundary-straddling windows resolved, the three Run It Back windows and two
-tracker defects correctly untouched. **The 167.5-177.5s count increase
-resolved.** The one that remains is a different window, 690.5-700.5s, previously
-hidden inside an unreadable one: rendered, it is a genuine **Sage/Clove revive**
-(one portrait, then two, then one) that the reader tracks correctly at every
-step. A real event exposed, not a regression. Full numbers in
-`docs/ROSTER_FINDINGS.md`.
-
-Everything after that is in `BACKLOG.md`. The minimap channel is a separate
-thread and its handoff is below, unchanged: `doctor` still reports 35/36 stale
-geometry caches, and no minimap number should be quoted until they are rebuilt.
-
-### What `reticle coach` and `reticle audit` are
-
-`coach` builds a reproducible event/review bundle from stored L1 only: 543
-player kill/death observations across 18 HUD sessions, source and code hashes on
-every run. Default output `~/reticle-store/analysis/coaching/`; start with
-`report.json` and `review.md`. Probability evaluation ABSTAINS -- 26 eligible
-rounds from two sessions -- and that is a reportable result, not a gap to paper
-over. `audit` localizes cross-channel disagreements without labels; v0.2 refuses
-windows where HUD coverage is missing, so a gap can no longer read as agreement.
-`scan --only roster` fills roster coverage in ~127s per session without
-touching minimap or geometry.
-
-Nobody has read `review.md` yet. It is one window per round chosen
-chronologically -- source pointers for inspection, not a sample of anything.
+Failed, recorded so they are not retried: `over_long` is not a merge detector;
+frozen runs do not localize round boundaries; the killfeed is not systematically
+late (median +0.00s over 182 matched drops -- do not widen `ENTRY_ALIGNMENT_MS`);
+cross-slot spread does not separate an undrawn roster from a wiped one.
 
 ## Minimap handoff -- 2026-09-07, the BASE layer is built
 
