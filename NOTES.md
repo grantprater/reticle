@@ -23,6 +23,27 @@ own copy of the logic, and it draws **no minimap entity at all** yet. Extending
 it to the minimap channel -- tracks, not per-frame detections, every channel in
 one frame -- is the concrete form of this.
 
+## THE ORIGIN-EVENT MODEL is now §10 of the entity doc (2026-09-06)
+
+**An entity's existence interval begins at an ORIGIN EVENT from a closed set:**
+round start, ability equip, ability cast, ping, player death, or -- for an
+enemy-owned entity -- the moment it left the COLLECTIVE TEAM VIEWCONE.
+
+It is the largest omission the design doc had: §4 said existence is a set of
+intervals and never said where one STARTS. The shift is from birth OBSERVED
+(first detection, a property of the detector) to birth EXPLAINED (a property of
+the world), and it makes a bad frame a missing OBSERVATION rather than a missing
+ENTITY -- which is the structural fix for momentary blips, needing no detector
+improvement at all.
+
+**Five of the six origins already have readers. The sixth does not, and it is
+now the highest-leverage missing piece in the minimap directory:** only the
+local player's viewcone is fitted, ally cones are unread, and the enemy half of
+the model cannot be built without the collective cone. An enemy entity's origin
+is an OBSERVATION event -- a question mark is born when knowledge is lost.
+
+Full argument in `docs/minimap-entity-model.html` §10 and `prototypes/CLAUDE.md`.
+
 ## RUNNING IS NEVER SILENT: 0 of 176 windows (2026-09-06)
 
 The corroboration claim -- a player icon moving at running speed should be

@@ -322,6 +322,7 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
 
 <section>
   <h2><span class="marker">§4</span> Existence is a set of intervals</h2>
+  <p class="note"><strong>Revised by §10:</strong> this section says existence is a set of intervals but never says where an interval <em>starts</em>. Each one begins at an origin event from a closed set.</p>
   <p>The natural assumption is that an ability is placed, lives, and dies. on Viper: <strong>she has a resource bar, so she can put her smoke and screen up and down throughout the round — and pick the smoke up and redeploy it.</strong> Vyse's flash flower was already recorded with the same property.</p>
   <p>So three things that look like defects are correct behaviour:</p>
   <ul>
@@ -447,6 +448,82 @@ a:focus-visible, :focus-visible { outline: 2px solid var(--measured); outline-of
     <li><strong>type the frame</strong>, so a screen-space overlay can never receive a world position. This is a correctness bug with a known cause and no fix;</li>
     <li><strong>leave the rest as prose</strong> until a §8 row makes it pay. An ontology built ahead of its evidence is the failure this document opened by quoting.</li>
   </ul>
+</section>
+
+<section>
+  <h2><span class="marker">§10</span> Every interval has an ORIGIN EVENT</h2>
+
+  <p>§4 says existence is a set of intervals. It does not say where an interval
+  <em>starts</em>, and that omission is the largest one in this document. The
+  correction, 2026-09-06: <strong>an entity's interval begins at an origin event
+  drawn from a closed set</strong>, and the set is small.</p>
+
+  <ul>
+    <li>the beginning of the round;</li>
+    <li>an ability <strong>equip</strong>;</li>
+    <li>an ability <strong>cast</strong>;</li>
+    <li>a <strong>ping</strong>;</li>
+    <li>a <strong>player death</strong>;</li>
+    <li>and, for an entity owned by the enemy team, <strong>the moment it left
+    the collective team viewcone</strong>.</li>
+  </ul>
+
+  <p><strong>The shift is from birth OBSERVED to birth EXPLAINED</strong>, and the
+  repository has already paid for the difference several times over. Everywhere
+  "birth" appears in the code it means <em>first detection</em>: the
+  <code>self_icon_dist</code> defect took its one measurement at the birth frame
+  and inherited that frame's failures on 58% of rows; <code>audio_probe</code>
+  records that "a row's <code>t_ms</code> need not be a birth" because real
+  objects fragment into up to nine tracks. A first detection is a property of
+  the detector. An origin event is a property of the world.</p>
+
+  <p><strong>The payoff is that a bad frame stops being a missing entity and
+  becomes a missing observation.</strong> If an entity is known to have been born
+  at <em>t0</em> from a known cause, and its class says what it may do
+  (§6), then a frame in which the glyph cannot be read is interpolated over
+  rather than treated as an absence. That is the fix for the momentary blip, and
+  it is structural rather than a threshold: no detector improvement is required
+  for it, only a lifecycle to hang the gap on.</p>
+
+  <p><strong>Each member of the set is already readable, with one exception.</strong>
+  Round start comes from <code>rounds.py</code>; a cast from the ability tray,
+  now corroborated by audio to within one 50&nbsp;ms bin on six casts of six; an
+  equip from the tray submenu and its own self-only sound; a ping from
+  <code>reticle/ping.py</code>; a death from the killfeed and the roster alive
+  counts. <strong>The exception is the collective viewcone</strong> — only the
+  local player's cone is fitted, ally cones are unread, and a third cone
+  (a turret's placement preview) is already known to exist. That is the one
+  origin type with no reader at all, and it gates the enemy half of the model.</p>
+
+  <p><strong>The last member is the conceptually deepest, because it is not a game
+  event.</strong> An enemy entity's origin can be an <em>observation</em> event —
+  the instant the team stopped seeing it. That is this widget's governing rule,
+  <em>the minimap shows what your team knows</em>, expressed as an entity origin:
+  a question mark is <em>born</em> when knowledge is lost, not when anything
+  happened in the world. It follows that the enemy half of the model cannot be
+  built without the viewcone, and that an enemy entity's interval is a statement
+  about the team's information rather than about the map.</p>
+
+  <p><strong>What it fixes, concretely:</strong> fragmentation, since nine tracks
+  sharing one origin are one entity; the lifetime features, since
+  <code>n_observations</code> and <code>duration_ms</code> currently read one
+  entity's on/off cycles as several short-lived objects (§4); and the
+  <code>filter_track</code> hard break, since a refused step inside a known
+  lifecycle is a dropped observation rather than the end of a run.</p>
+
+  <p><strong>Two ways it can fail, both already familiar here.</strong> A wrong
+  origin produces a confidently wrong lifecycle — this repository's signature
+  failure in a new costume, and the same caution that attaches to
+  analysis-by-synthesis. And origin events are themselves detected, so their
+  errors propagate into everything hung on them; the defence is corroboration,
+  which is now demonstrably available, the tray and the audio having agreed on
+  every cast in a controlled clip.</p>
+
+  <p><strong>The closed set is a CLAIM, and that is a feature.</strong> An entity
+  observed with no origin in the set is either a missing origin type or a false
+  detection, and the model is obliged to say which. An unexplained entity
+  becomes a flag rather than a silent row — which is the same move that made
+  <code>doctor</code> and the two-state residual worth having.</p>
 </section>
 
 </div>

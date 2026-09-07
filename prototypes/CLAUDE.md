@@ -17,6 +17,96 @@ part of the teardrop, the site letters are dark grey on the yellow. If any of it
 is ever contradicted by measurement, correct it in place and say so; do not
 delete it.
 
+### EVERY ENTITY HAS AN ORIGIN EVENT -- the structure the model was missing
+
+**Recorded 2026-09-06, and it is now §10 of the entity model doc.** The design
+doc's §4 says existence is a set of INTERVALS. It never said where an interval
+STARTS, and that is the largest omission in it. The correction:
+
+    an entity's interval begins at an ORIGIN EVENT, from a CLOSED SET:
+      the start of the round
+      an ability EQUIP
+      an ability CAST
+      a PING
+      a player DEATH
+      for an ENEMY-owned entity: the moment it left the COLLECTIVE TEAM VIEWCONE
+
+**The shift is from birth OBSERVED to birth EXPLAINED, and this directory has
+paid for the difference repeatedly.** Everywhere "birth" appears in this code it
+means FIRST DETECTION: `self_icon_dist` took its one measurement at the birth
+frame and inherited that frame's failures on 58% of rows; `audio_probe` records
+that *a row's `t_ms` need not be a birth* because real objects fragment into up
+to nine tracks. **A first detection is a property of the detector; an origin
+event is a property of the world.**
+
+**The payoff is that a bad frame stops being a missing ENTITY and becomes a
+missing OBSERVATION.** Given a known origin and a class that says what the
+entity may do, an unreadable frame is interpolated over rather than read as an
+absence. That is the fix for the momentary blip and it needs no detector
+improvement at all -- only a lifecycle to hang the gap on.
+
+**Five of the six origins are already readable. One is not:**
+
+    round start   `rounds.py`
+    cast          the tray, corroborated by audio to within one 50 ms bin on
+                  6 casts of 6 (`audio_events.py --align`)
+    equip         the tray SUBMENU and its own self-only sound
+    ping          `reticle/ping.py`
+    death         the killfeed, and the roster alive counts
+    out of cone   NOTHING. Only the local player's cone is fitted; ally cones
+                  are unread, and a third cone (a turret placement preview)
+                  is already known to exist
+
+**So the collective viewcone is the gate on the enemy half of the model**, and
+it is the single highest-leverage missing reader in this directory.
+
+**The last origin is the conceptually deepest, because it is not a game event
+at all.** An enemy entity's origin can be an OBSERVATION event -- the instant
+the team stopped seeing it. That is this widget's governing rule (*the minimap
+shows what your team knows*) restated as an entity origin: **a question mark is
+BORN when knowledge is lost**, not when anything happened in the world. An enemy
+interval is therefore a statement about the team's information, not about the
+map.
+
+**What it fixes concretely:** fragmentation (nine tracks sharing one origin are
+one entity); the lifetime features, which currently read one entity's on/off
+cycles as several short-lived objects; and `filter_track`'s hard break, since a
+refused step inside a known lifecycle is a dropped observation rather than the
+end of a run.
+
+**Two failure modes, both familiar.** A wrong origin produces a confidently
+wrong lifecycle -- this repo's signature failure in a new costume, and the same
+caution that attaches to analysis-by-synthesis. And origin events are themselves
+detected, so their errors propagate into everything hung on them; the defence is
+corroboration, which is now demonstrably available.
+
+**The closed set is a CLAIM, and that is a feature.** An entity observed with no
+origin in the set is either a missing origin type or a false detection, and the
+model is obliged to say which. An unexplained entity becomes a FLAG rather than
+a silent row.
+
+### AUDIO AS A FIRST-PASS GATE, scoped to the audio radius
+
+**Recorded 2026-09-06.** Audio decodes orders of magnitude faster than video, so
+it can be the cheap pass that decides where the expensive one looks -- and the
+scope is stated rather than assumed: **events within the player's audio radius**.
+
+Three things this needs kept straight:
+
+* **the ring on the widget is AUDIBILITY OUTWARD, not hearing inward.** It is
+  drawn only while the player is running and marks the radius at which THEY are
+  audible to others, measured at 94-95 px. Whether the radius at which they HEAR
+  is the same number is a separate fact and is NOT established here;
+* **out-of-range events are missed by construction**, so the gate raises sample
+  density near audible events rather than excluding elsewhere. Used to exclude,
+  it would be gating on outcome -- the trap CLAUDE.md's sampling section already
+  records;
+* **there are no silent abilities, only abilities out of range** (2026-09-06).
+  The large no-sound class does not exist; the large NO-ICON class does, and the
+  two were conflated once already. So audio's coverage of the ability class is
+  better than the minimap's, and for the local player's own casts it is
+  complete, since his own abilities are never out of range.
+
 ### The vision cone: origin, facing, raycast -- started 2026-09-02
 
 `prototypes/minimap_cone.py`. the spec, from watching cones deliberately
