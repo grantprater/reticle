@@ -92,6 +92,11 @@ inside a round, so treat it as not-in-round rather than as a count, and
 `reticle scan` prints the rate for exactly that reason.
 """
 
+# A second, visually confirmed defect is localized in docs/ROSTER_FINDINGS.md:
+# 587c15b07779 at 1483s has two portraits but returns one. The largest absolute
+# detail gap falls BETWEEN the portraits as empty-slot background detail rises.
+# Both real portraits clear DETAIL_FLOOR, so changing that floor is not the fix.
+
 from __future__ import annotations
 
 import cv2

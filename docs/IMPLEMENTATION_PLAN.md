@@ -273,3 +273,18 @@ transient score handling, first confirmation time, and a roster-only integration
 test proving the shared pass does not initialize HUD/minimap or require spans.
 The next work is targeted inspection/reconciliation of these windows, not a
 blanket labeling campaign or a replacement for the minimap entity model.
+
+### Final targeted inspection
+
+The second session's reported count increase is now a confirmed reader defect:
+two portraits stay visible while the output changes 2 -> 1 -> 2. The largest
+absolute detail gap switches from the true occupied/empty boundary to the gap
+between the portraits when empty-slot scenery changes. Both portraits remain
+above the floor. Exact frames, feature vectors and the next validation experiment
+are saved in `docs/ROSTER_FINDINGS.md`; the classifier was not tuned on this one
+sequence. Six other discrepancy windows remain explicitly unresolved.
+
+Fixed an independent audit correctness gap: both channels must cover a comparison
+window. Missing/null HUD observations now prevent a false agreement even when
+the roster endpoints happen to match. Audit version is 0.2.0; all 14 tests pass,
+and the full-corpus audit counts are unchanged under this stronger check.

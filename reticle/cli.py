@@ -1584,7 +1584,7 @@ def cmd_audit(args) -> int:
         roster = pq.ParquetFile(rp).read() if rp.is_file() else None
         score, counts = audit_scoreline(hud), audit_roster_deltas(hud,roster)
         reports.append(dict(session_id=sid, scoreline=score, roster=counts,
-                            audit_version='audit-0.1.0',
+                            audit_version='audit-0.2.0',
                             hud_metadata={k.decode():v.decode() for k,v in (hud.schema.metadata or {}).items()},
                             roster_metadata={k.decode():v.decode() for k,v in
                                              ((roster.schema.metadata or {}) if roster is not None else {}).items()},

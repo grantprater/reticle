@@ -35,6 +35,10 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(r['counts']['agree'], 4)
         self.assertEqual(r['windows'][0]['roster_drop'], 1)
         self.assertEqual(r['windows'][0]['observed_start'], (4,4))
+        # Missing killfeed coverage must not be interpreted as no deaths.
+        sparse = h.filter(pa.array([not 14000 <= x <= 18000 for x in t]))
+        self.assertEqual(audit_roster_deltas(sparse,v)['windows'][0]['status'],
+                         'hud_gap_or_unreadable')
         data = v.to_pydict()
         data['alive_ally'][40] = None
         self.assertEqual(audit_roster_deltas(h,pa.table(data))['windows'][0]['status'],

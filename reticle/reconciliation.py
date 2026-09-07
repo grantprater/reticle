@@ -94,8 +94,20 @@ def audit_roster_deltas(hud, roster):
             if i < 0 or j <= i or a-rt[i] > ROSTER_JOIN_MS or z-rt[j] > ROSTER_JOIN_MS:
                 reason = 'missing_endpoints'
             else:
+                # Equal counts do not corroborate a killfeed that was never
+                # sampled here. Both channels must cover the same interval.
+                ht = h['t_ms']
+                u, w = bisect_right(ht, rt[i])-1, bisect_left(ht, rt[j])
+                hud_covered = (u >= 0 and w < len(ht)
+                               and rt[i]-ht[u] <= ROSTER_JOIN_MS
+                               and ht[w]-rt[j] <= ROSTER_JOIN_MS
+                               and all(y-x <= ROSTER_JOIN_MS
+                                       for x,y in zip(ht[u:w],ht[u+1:w+1]))
+                               and all(x is not None for x in h['kf_entry_mask'][u:w+1]))
                 rows = list(zip(v['alive_ally'][i:j+1], v['alive_enemy'][i:j+1]))
-                if any(x is None or y is None for x,y in rows):
+                if not hud_covered:
+                    reason = 'hud_gap_or_unreadable'
+                elif any(x is None or y is None for x,y in rows):
                     reason = 'unreadable_roster'
                 elif any(x == 0 and y == 0 for x,y in rows):
                     reason = 'zero_zero_ambiguous'

@@ -24,12 +24,17 @@ versions; ambiguous session prefixes refuse. Existing detector outputs are untou
 `scan --only roster` fills coverage without triggering minimap/HUD work.
 `audit` localizes cross-channel discrepancies without labels. The second saved
 roster reproduces the earlier seek evaluation exactly (100/113 probes). Its new
-delta audit has six disagreement windows and one count increase to explain;
+delta audit has six unresolved disagreement windows. Its count increase is now
+explained: at 1483.0s two portraits remain visible but the gap-based reader
+briefly counts one. Feature values and the next experiment are in
+`docs/ROSTER_FINDINGS.md`; no threshold was tuned to this example. Audit v0.2
+also rejects missing HUD coverage, preventing false agreement across gaps;
 timestamps are in `~/reticle-store/analysis/reconciliation.json`. On the first
 session, opposing window discrepancies cancel: roster drops at 700.5s while the
 stored killfeed entry remains absent through 702.5s. Check onset timing first.
 
-Next for coaching: inspect the localized windows, then reconcile round/POV gates.
+Next for coaching: fix the roster split ambiguity against independent cases,
+inspect the remaining localized windows, then reconcile round/POV gates.
 Do not blindly require two score reads: that drops two final-round outcomes.
 The killfeed adapter does not yet consume entity tracks or emit compound episodes;
 the plan now specifies its integration with the existing minimap entity model.
