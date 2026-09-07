@@ -181,3 +181,61 @@ half:** rows whose brightest slot falls between `DETAIL_FLOOR` and `2x` it are
 0.0-0.1% of in-round rows on both sessions, so the confidently-wrong population
 is essentially all outside rounds. The refusal band (nothing clears the floor)
 is 2.7-9.6% of in-round rows and is dominated by the wipe case above.
+
+---
+
+# 2026-09-07, shipped: the ratio split and the HUD gate
+
+Both decided by the player after the measurements above. `roster-split-0.2.0`.
+
+**The split is a ratio** (`reticle.roster.alive_from_detail`), shipped on the
+mechanism rather than on the corpus, which could not separate the two rules.
+Cheap and reversible: its own version stamp, and the stored detail re-derives
+either answer. `prototypes/roster_split_eval.py` now compares the shipped rule
+against the one it replaced.
+
+**An empty bar is resolved by the SCORELINE, not by how dark it is.** If
+`l1/hud` read a score at that instant the HUD is drawn, so a dim roster bar
+means the team is WIPED and the answer is 0; with no score the answer is
+nothing. `roster.resolve()` does the as-of join and never borrows a future row.
+It lives at adjudication time rather than in `RosterReader` because
+`scan --only roster` runs no HUD reader, so the stored columns are the ungated
+answer by construction and `audit` / `coach` both call `resolve()`.
+
+## What it moved, measured
+
+| `587c15b07779` audit | before | after |
+|---|---:|---:|
+| agree | 115 | **116** |
+| unreadable roster | 9 | **7** |
+| disagreement | 6 | 6 |
+| count increase | 1 | 1 |
+| ambiguous `(0,0)` rows | 8 | **0** |
+
+`c40d950031bb` is unchanged at 58 / 2 / 1, with its `(0,0)` rows falling 187 to
+5. `coach` is unchanged at 26 eligible rounds and still abstains -- terminal
+states are excluded from eligibility either way, so this buys audit coverage
+rather than model coverage, exactly as expected.
+
+**The remaining count increase MOVED, and that is the result worth reading.** It
+was 1474-1484s -- the confirmed split defect, now fixed. It is now
+**167.5-177.5s**: the enemy bar reads 0 from 158s (wiped, score 1->2) and 5 at
+176s, a real 0->5 step that only looks like an increase because `round_bounds`
+puts the boundary at the score increment rather than at the round's actual end.
+The audit has stopped flagging a roster error and started flagging a
+round-boundary error, which is the instrument doing its job.
+
+## Two metrics in the eval are CONFOUNDED and must not be read as rule quality
+
+`opens-at-5` falls from 21/38 to 4/38 and `increases` rises from 20 to 39. Both
+are `round_bounds` showing through: a derived round starts at the score
+increment, which is the instant the PREVIOUS round ended, usually with a wipe --
+so the correct count there is 0, and the gate now ANSWERS those rows where the
+old rule refused and was silently skipped. Verified by hand on `587c15b07779` at
+255.0s (allies all dim ~3.0, four enemies crisp at 21-30, score stepping 2-0 to
+2-1) and at 1315.5s (same shape, 10-4 to 10-5). Both are genuine wipes.
+
+**The corollary is a free instrument for the round-boundary work:** the roster's
+transition from a wiped team to a full one is an independent read on where a
+round really starts, and it needs no decode.
+

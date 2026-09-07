@@ -18,6 +18,7 @@ import pyarrow.parquet as pq
 
 from .checks import track_entries
 from .rounds import build_rounds
+from .roster import resolve as roster_resolve
 from .version import COACH_VERSION, HUD_VERSION, ROSTER_VERSION, ROUND_VERSION
 
 MAX_STATE_GAP_MS = 1500
@@ -57,6 +58,11 @@ def observed_states(hud, roster, rounds, session_id):
     h, v = _coach_columns(hud), _coach_columns(roster)
     if not v:
         return [], {"missing_roster": len(h["t_ms"])}
+    # Same adjudication the audit uses. Terminal states are excluded below
+    # either way, so this changes coverage rather than any eligible state --
+    # but the two must not disagree about what the roster said.
+    v = dict(v)
+    v["alive_ally"], v["alive_enemy"] = roster_resolve(hud, roster)
     result, rejected = [], Counter(round_boundary_or_unresolved=len(h["t_ms"]))
     rt = v["t_ms"]
     for r in rounds[1:]:

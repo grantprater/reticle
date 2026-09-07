@@ -67,12 +67,24 @@ reading as a confident partial count, which is confined to outside rounds
 (0.0-0.1% of in-round rows). Everything is in `docs/ROSTER_FINDINGS.md` with the
 frames; the wipe case is pinned by a test so a fix has to change it on purpose.
 
-**THE DECISION: `alive_from_detail` must separate `drawn and empty` (answer 0)
-from `not drawn` (refuse), and the obvious separator FAILED.** Cross-slot spread
-does not distinguish them at corpus scale. `roster.py`'s two candidate fixes are
-still the two candidates -- a `widget_drawn`-style gate, or bounding the reader
-to rounds -- and the second is circular while round boundaries are the thing the
-roster is meant to check. This wants the player's call, not another sweep.
+*Decided by the player and SHIPPED, `roster-split-0.2.0`:* the split is a ratio,
+and an empty bar is resolved by the SCORELINE rather than by how dark it is --
+score read means the HUD is drawn, so a dim bar is a WIPE and answers 0; no
+score answers nothing. `roster.resolve()` does the as-of join at adjudication
+time, because `scan --only roster` runs no HUD reader; `audit` and `coach` both
+call it. Both sessions re-scanned.
+
+Measured: `587c15b07779` audit agree 115 -> **116**, unreadable 9 -> **7**,
+ambiguous `(0,0)` rows 8 -> **0** (187 -> 5 on `c40d950031bb`). `coach` is
+unchanged at 26 rounds and still abstains -- terminal states were never
+eligible, so this buys AUDIT coverage, not model coverage.
+
+**The one remaining count increase MOVED, and that is the handoff.** It was the
+confirmed 1483.0s split defect; it is now 167.5-177.5s, where the enemy bar
+correctly reads 0 from 158s and 5 at 176s. That is not a roster error -- it is
+`round_bounds` putting the boundary at the score increment instead of at the
+round's real end. The audit has stopped flagging the roster and started flagging
+round timing, which is item 3 below.
 
 **2. The six unresolved windows** on 587c15b07779 -- 207.5-217.5, 314.5-324.5,
 773-783, 1009.5-1019.5, 1375-1385, 1464-1474s -- plus c40d950031bb's two. Cheap

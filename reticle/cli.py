@@ -942,14 +942,19 @@ def cmd_scan(args) -> int:
         five = sum(1 for r in rp.rows if r["alive_ally"] == 5 and r["alive_enemy"] == 5)
         over = sum(1 for r in rp.rows
                    if (r["alive_ally"] or 0) > 5 or (r["alive_enemy"] or 0) > 5)
-        # `(0,0)` is ambiguous: an absent roster and genuine zero counts are
-        # not distinguished by this reader. In particular, a post-plant round
-        # does not necessarily end when the attacking team is wiped.
-        # It is printed because it is a KNOWN DEFECT rather than a count: an
-        # undrawn bar reads as 0 instead of refusing (see roster.py). The rate
-        # is the size of the population this table cannot speak for.
+        # An empty bar is DRAWN AND EMPTY (the team is wiped) or NOT DRAWN, and
+        # per-slot detail cannot separate them -- so this reader refuses, and
+        # `roster.resolve()` answers it later from the scoreline, which is not
+        # available in a roster-only pass. What is printed is therefore the size
+        # of the population this table defers rather than a defect rate, and
+        # `(0,0)` no longer occurs here at all (roster-split-0.2.0).
         zero = sum(1 for r in rp.rows
                    if r["alive_ally"] == 0 and r["alive_enemy"] == 0)
+        defer = sum(1 for r in rp.rows
+                    if r["alive_ally"] is None or r["alive_enemy"] is None)
+        if defer:
+            print(f"           {defer} rows defer to the HUD gate "
+                  f"({defer / n * 100:.1f}%) -- `reticle audit` resolves them")
         print(f"roster     {n} rows -> {out}")
         print(f"           answered {both}/{n} ({both / n * 100:.1f}%), "
               f"5v5 on {five} ({five / n * 100:.1f}%)")

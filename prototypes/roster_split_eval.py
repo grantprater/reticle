@@ -13,7 +13,9 @@ WHERE EACH RULE CAME FROM, because the order matters
 `absolute` is the shipped rule: choose the split maximising `min(occupied) -
 max(empty)`, subject to `DETAIL_FLOOR`.
 
-`ratio` maximises `min(occupied) / max(empty)` instead. **The argument for it
+`ratio` maximises `min(occupied) / max(empty)` instead, and is now SHIPPED as
+`reticle.roster.alive_from_detail` -- so re-running this compares the current
+reader against the rule it replaced. **The argument for it
 is the compositing mechanism `roster.py` already documents, not the failing
 frame.** The bar is a semi-transparent tinted panel, so scenery behind it
 arrives dimmed and blurred by a roughly constant transmittance while the
@@ -38,6 +40,15 @@ observed defect as a fresh confirmation of it:
                  Increases are REPORTED, never penalised -- Sage and Clove
                  revive. Weakly independent: bounds, and a rule that can only
                  emit 0..5 passes the `<= 5` half for free.
+                 **`opens-at-5` and `increases` are CONFOUNDED by round
+                 boundaries and must not be read as rule quality.**
+                 `round_bounds` starts a round at the score increment, which is
+                 the instant the PREVIOUS round ended -- usually with a wipe --
+                 so the correct count there is 0, not 5. Gating the empty bar
+                 takes `opens-at-5` from 21/38 to 4/38 by ANSWERING those rows
+                 correctly where the old rule refused and was skipped. Verified
+                 by hand at 255.0s and 1315.5s on `587c15b07779`: allies all
+                 dim, four enemies crisp, score stepping to the enemy.
     audit        `reconciliation.audit_roster_deltas` against the killfeed,
                  re-run with each rule's counts. INDEPENDENT: a different
                  channel, read by different code, from different pixels.
@@ -59,7 +70,8 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from reticle.reconciliation import audit_roster_deltas, round_bounds   # noqa: E402
-from reticle.roster import DETAIL_FLOOR, N_SLOTS                       # noqa: E402
+from reticle.roster import (DETAIL_FLOOR, N_SLOTS,                     # noqa: E402
+                            alive_from_detail)
 from reticle.store import Store                                        # noqa: E402
 
 #: An excursion shorter than this cannot be a death and a revive.
@@ -78,8 +90,8 @@ def _splits(detail, pack_right):
         yield n, occ, emp
 
 
-def split_absolute(detail, pack_right):
-    """The shipped rule -- widest ABSOLUTE gap. `reticle.roster` verbatim."""
+def split_absolute(detail, pack_right, hud_drawn=None):
+    """The rule this replaced -- widest ABSOLUTE gap, as it stood at 0.1.0."""
     best, best_gap = None, -1.0
     for n, occ, emp in _splits(detail, pack_right):
         if not occ:
@@ -93,55 +105,48 @@ def split_absolute(detail, pack_right):
     return best
 
 
-def split_ratio(detail, pack_right):
-    """Widest RATIO gap among the splits that place at least one portrait.
-
-    **`n = 0` is NOT a candidate on this scale, and the first version of this
-    function got that wrong in an instructive way.** Scoring the empty split as
-    `DETAIL_FLOOR / max(detail)` puts it on the same axis as the others, and
-    because that quantity is always positive it always beat the sentinel -- so
-    the rule never refused, answering 100% of rows and converting 519 honest
-    refusals into confident zeros. It looked like better coverage and was the
-    known undrawn defect made louder.
-
-    So the empty case keeps the shipped rule's behaviour exactly rather than
-    being restated: if no split clears `DETAIL_FLOOR`, the bar is either
-    undrawn or the team is wiped, and the answer is `0` only for a bar with
-    essentially no detail anywhere and `None` otherwise. Only the choice
-    BETWEEN portraits moves to the ratio scale, which is the only place the
-    compositing argument applies. `n = 5` has no empty slot to divide by and
-    scores its dimmest portrait against the floor.
-
-    **The sentinel is 1.0, and that is the second thing this got wrong.** At
-    0.0 any positive ratio wins, which is vacuous -- it admitted splits scoring
-    0.42, meaning the dimmest OCCUPIED slot was dimmer than the brightest EMPTY
-    one. Eleven rows on `587c15b07779` read like that
-    (`[7.34 31.09 7.32 37.00 13.04]`): bright slots that are not a contiguous
-    run anchored at the inner edge, so the packing premise does not hold and
-    the shipped rule is right to refuse. 1.0 is the exact ratio analogue of the
-    absolute rule requiring a positive gap.
-    """
-    best, best_gap = None, 1.0
-    for n, occ, emp in _splits(detail, pack_right):
-        if not occ:
-            continue
-        gap = min(occ) / max(max(emp), 1e-6) if emp else min(occ) / DETAIL_FLOOR
-        if gap > best_gap:
-            best, best_gap = n, gap
-    if best is None:
-        return 0 if max(detail) < 1.0 else None
-    return best
+# `split_ratio` is SHIPPED and lives in `reticle.roster.alive_from_detail`
+# (roster-split-0.2.0). It is imported here rather than kept as a second copy:
+# promotion is deletion plus re-export, and `floor_mask` forked for ten days the
+# other way. `split_absolute` stays because nothing in `reticle/` implements it
+# any more -- it is the historical baseline this comparison is against.
+def split_ratio(detail, pack_right, hud_drawn=None):
+    """The SHIPPED rule. See `reticle.roster.alive_from_detail`."""
+    return alive_from_detail(detail, pack_right, hud_drawn)
 
 
 RULES = {"absolute": split_absolute, "ratio": split_ratio}
 
 
-def derive(v, rule):
-    """Re-adjudicate both teams' counts from the stored detail vectors."""
+def derive(v, rule, gate=None):
+    """Re-adjudicate both teams' counts from the stored detail vectors.
+
+    `gate` is the per-row `hud_drawn` answer, applied to BOTH rules so refusal
+    counts stay comparable -- without it the shipped rule looks like it lost 189
+    answers on `c40d950031bb`, when what happened is that its zeros moved from
+    "the bar is dark" to "the scoreline says the HUD is there".
+    """
     f = RULES[rule]
-    ally = [None if d is None else f(list(d), True) for d in v["detail_ally"]]
-    enemy = [None if d is None else f(list(d), False) for d in v["detail_enemy"]]
-    return ally, enemy
+    g = gate or [None] * len(v["t_ms"])
+    def one(col, pack):
+        return [None if d is None else f(list(d), pack, g[i])
+                for i, d in enumerate(v[col])]
+    return one("detail_ally", True), one("detail_enemy", False)
+
+
+def hud_gate(h, t, join_ms=1000.0):
+    """Per roster row: did the SCORELINE read at the nearest earlier HUD sample."""
+    from bisect import bisect_right
+    if not h:
+        return None
+    drawn = [l is not None and r is not None
+             for l, r in zip(h["score_left"], h["score_right"])]
+    out = []
+    for x in t:
+        i = bisect_right(h["t_ms"], x) - 1
+        out.append(drawn[i] if 0 <= i < len(drawn) and x - h["t_ms"][i] <= join_ms
+                   else None)
+    return out
 
 
 def excursions(t, counts, bounds):
@@ -215,8 +220,9 @@ def main(argv=None) -> int:
 
         print(f"\n=== {sid}  {len(t)} rows, {len(bounds)} rounds"
               f"{f', {n_held} rows held out' if n_held else ''} ===")
+        gate = hud_gate(h, t)
         for name in RULES:
-            ally, enemy = derive(v, name)
+            ally, enemy = derive(v, name, gate)
             ka = [ally[i] for i in keep]
             ke = [enemy[i] for i in keep]
             answered = sum(x is not None and y is not None for x, y in zip(ka, ke))
@@ -227,11 +233,17 @@ def main(argv=None) -> int:
                      + sum(x != y for x, y in zip(enemy, v["alive_enemy"])))
             print(f"  {name:9s} answered {answered}/{len(keep)} "
                   f"({answered / len(keep) * 100:.1f}%)  0/0 {zero}  "
-                  f"excursions {len(exc)}  opens-at-5 {inv['opens_at_5']}/{inv['rounds']}  "
-                  f"increases {inv['increases']}  over-5 {inv['over_5']}  "
+                  f"excursions {len(exc)}  [confounded: opens-at-5 "
+                  f"{inv['opens_at_5']}/{inv['rounds']}  increases "
+                  f"{inv['increases']}]  over-5 {inv['over_5']}  "
                   f"cells moved {moved}")
             if hud is not None:
-                cols = {k: table.column(k) for k in table.column_names}
+                # DROP the detail columns: `audit_roster_deltas` re-adjudicates
+                # from them with the shipped rule, so leaving them in would make
+                # every row of this table report the same audit -- answering a
+                # different question than the one being asked.
+                cols = {k: table.column(k) for k in table.column_names
+                        if not k.startswith("detail_")}
                 cols["alive_ally"] = pa.array(ally, type=pa.int8())
                 cols["alive_enemy"] = pa.array(enemy, type=pa.int8())
                 c = audit_roster_deltas(hud, pa.table(cols))["counts"]

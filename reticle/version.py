@@ -83,4 +83,12 @@ ROSTER_VERSION = "roster-0.2.0"
 # level down, to the observation/adjudication boundary rather than the
 # channel boundary. Bump when `DETAIL_FLOOR` or `roster.alive_from_detail`
 # changes.
-ROSTER_SPLIT_VERSION = "roster-split-0.1.0"
+#
+# 0.2.0 (2026-09-07) is two changes with one cause -- both replace an ABSOLUTE
+# test on a composited HUD, which is the mistake CLAUDE.md records as never once
+# having been the right answer here. The split is now a RATIO between the
+# dimmest occupied and brightest empty slot; and "nothing is crisp" is resolved
+# by whether the SCORELINE reads on that frame rather than by how dark the bar
+# is, so a wiped team answers 0 and an absent HUD refuses. `roster.resolve()`
+# does the second, over stored data, because `scan --only roster` runs no HUD.
+ROSTER_SPLIT_VERSION = "roster-split-0.2.0"

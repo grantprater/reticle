@@ -8,6 +8,7 @@ from bisect import bisect_left, bisect_right
 from collections import Counter
 
 from .checks import track_entries
+from .roster import resolve
 from .rounds import round_bounds
 
 SCORE_CONFIRM_GAP_MS = 3000
@@ -72,7 +73,11 @@ def audit_roster_deltas(hud, roster):
     """
     if roster is None:
         return dict(status='missing_roster', windows=[], counts={})
-    h, v = hud.to_pydict(), roster.to_pydict()
+    h, v = hud.to_pydict(), dict(roster.to_pydict())
+    # Adjudicate from the stored detail with the HUD gate, rather than trusting
+    # the ungated counts the reader had to store: a WIPED team reads None
+    # without it, and a wipe is exactly the window this audit most wants.
+    v['alive_ally'], v['alive_enemy'] = resolve(hud, roster)
     rt = v['t_ms']
     rounds = round_bounds(h['t_ms'], h['score_left'], h['score_right'])
     entry_times = [e['t_first'] for e in track_entries(

@@ -172,33 +172,106 @@ def slot_detail(crop: np.ndarray) -> list[float]:
     return out
 
 
-def alive_from_detail(detail: list[float], pack_right: bool) -> int | None:
+def alive_from_detail(detail: list[float], pack_right: bool,
+                      hud_drawn: bool | None = None) -> int | None:
     """How many are alive, given the run is anchored at the scoreline edge.
 
-    Returns None when the frame cannot be read -- the roster is covered, or the
-    split is ambiguous -- rather than guessing a count. A guessed alive count
-    is worse than none: it would silently corrupt the killfeed audit this
-    exists to provide.
+    Returns None when the frame cannot be read -- the roster is covered, the
+    split is ambiguous, or nothing is crisp and nothing says whether the HUD is
+    drawn -- rather than guessing a count. A guessed alive count is worse than
+    none: it would silently corrupt the killfeed audit this exists to provide.
+
+    THE SPLIT IS A RATIO, NOT A DIFFERENCE (roster-split-0.2.0, 2026-09-07)
+    ------------------------------------------------------------------------
+    The bar is a tinted semi-transparent panel, so scenery behind it arrives
+    dimmed and blurred by roughly constant transmittance while the portrait is
+    crisp art composited on top. Both populations therefore SCALE with how
+    detailed the scene behind the bar is, and a boundary between two
+    multiplicative populations is a ratio. The shipped difference rule put the
+    widest ABSOLUTE gap between two portraits when empty-slot scenery brightened
+    (587c15b07779 at 1483.0s: 14.70 beat the correct split's 13.05).
+
+    **Read the evidence for this honestly: it is a MECHANISM argument, not a
+    measurement.** Over 11,306 team-cell reads on two sessions the two rules
+    differ on six, and the only movement in the independent killfeed audit is
+    the held-out window that motivated the change. It is shipped because it is
+    principled, cheap and reversible -- it has its own version stamp and the
+    stored detail vectors re-derive either answer -- not because the corpus
+    established it. `prototypes/roster_split_eval.py` re-runs the comparison.
+
+    The sentinel is 1.0, the exact analogue of the old rule requiring a positive
+    gap: a split whose dimmest OCCUPIED slot is dimmer than its brightest EMPTY
+    one is not a boundary. Eleven rows read `[7.34 31.09 7.32 37.00 13.04]` --
+    bright slots that are not a contiguous run anchored at the inner edge, so
+    the packing premise fails and refusing is right.
+
+    `hud_drawn` RESOLVES "nobody is crisp"
+    ----------------------------------------
+    When no split clears `DETAIL_FLOOR` the bar is either DRAWN AND EMPTY (the
+    team is wiped: answer 0) or NOT DRAWN (answer nothing). Per-slot detail
+    cannot tell those apart -- cross-slot spread was tried and fails at corpus
+    scale (`docs/ROSTER_FINDINGS.md`) -- so the answer comes from a different
+    channel: if the SCORELINE reads on that frame the HUD is drawn, and a dim
+    roster bar means wiped. `l1/hud` is sampled from the same frames at the same
+    rate, so this costs no pixels and no decode; `resolve()` does the join.
+
+    `None` means unknown and REFUSES, which is why the reader stores the ungated
+    answer and consumers call `resolve()`. Before this, a wiped team read `None`
+    and only a near-black bar reached 0 -- the exact inverse of what the
+    docstring above describes, and it cost the audit its most informative
+    windows, since a wipe is a round outcome.
     """
     if not detail or len(detail) != N_SLOTS:
         return None
     # Occupied slots run inward from the scoreline: allies pack right, enemies
     # pack left. Order the slots so index 0 is always the innermost.
     seq = list(reversed(detail)) if pack_right else list(detail)
-    best, best_gap = None, -1.0
-    for n in range(0, N_SLOTS + 1):
+    best, best_gap = None, 1.0
+    for n in range(1, N_SLOTS + 1):
         occ, emp = seq[:n], seq[n:]
-        if occ and min(occ) < DETAIL_FLOOR:
+        if min(occ) < DETAIL_FLOOR:
             continue                      # would call a blurred slot occupied
-        gap = ((min(occ) if occ else float("inf"))
-               - (max(emp) if emp else float("-inf")))
-        if not occ:
-            gap = -max(emp) if emp else 0.0
-        elif not emp:
-            gap = min(occ)
+        # `n == 5` has no empty slot to divide by; score its dimmest portrait
+        # against the floor, which is the quantity the difference rule compared
+        # there too.
+        gap = min(occ) / max(max(emp), 1e-6) if emp else min(occ) / DETAIL_FLOOR
         if gap > best_gap:
             best, best_gap = n, gap
+    if best is None:
+        return 0 if hud_drawn else None
     return best
+
+
+def resolve(hud, roster, join_ms: float = 1000.0):
+    """(ally, enemy) counts per roster row, with the empty bar resolved by HUD.
+
+    An as-of join, never forward: each roster row takes the nearest EARLIER HUD
+    sample within `join_ms` and asks whether the scoreline read there. No HUD
+    row in range leaves `hud_drawn` unknown, and an unknown refuses.
+
+    This is an ADJUDICATION over stored data, which is why it lives here rather
+    than in `RosterReader`: `scan --only roster` deliberately runs no HUD
+    reader, so the gate is not available at read time and the stored columns are
+    the ungated answer by construction.
+    """
+    from bisect import bisect_right
+    v = roster.to_pydict() if hasattr(roster, "to_pydict") else roster
+    if "detail_ally" not in v:            # written before roster-0.2.0
+        return list(v["alive_ally"]), list(v["alive_enemy"])
+    h = (hud.to_pydict() if hasattr(hud, "to_pydict") else hud) or {}
+    ht = h.get("t_ms") or []
+    drawn = [l is not None and r is not None
+             for l, r in zip(h.get("score_left") or [], h.get("score_right") or [])]
+    out = ([], [])
+    for k, t in enumerate(v["t_ms"]):
+        i = bisect_right(ht, t) - 1
+        g = drawn[i] if 0 <= i < len(drawn) and t - ht[i] <= join_ms else None
+        for side, (col, pack) in enumerate((("detail_ally", True),
+                                            ("detail_enemy", False))):
+            d = v[col][k]
+            out[side].append(None if d is None
+                             else alive_from_detail(list(d), pack, g))
+    return out
 
 
 def slot_details(frame: np.ndarray, profile: Profile, w: int, h: int):

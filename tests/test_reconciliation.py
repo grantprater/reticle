@@ -10,7 +10,7 @@ import pyarrow as pa
 
 from reticle.reconciliation import audit_scoreline, audit_roster_deltas
 from reticle.cli import build_parser, cmd_scan
-from reticle.roster import alive_from_detail
+from reticle.roster import alive_from_detail, resolve
 from reticle.store import Store
 
 
@@ -83,19 +83,44 @@ class ReconciliationTests(unittest.TestCase):
             self.assertEqual(alive_from_detail(list(v['detail_ally'][0]),True),
                              v['alive_ally'][0])
 
-    def test_undrawn_and_wiped_rosters_are_not_distinguished(self):
-        """A KNOWN DEFECT, asserted so a fix has to change this test on purpose.
+    def test_empty_bar_is_resolved_by_the_hud_and_never_guessed(self):
+        """Which of `wiped` and `no HUD` an empty bar is comes from the SCORELINE.
 
-        `DETAIL_FLOOR` exists to resolve the all-dead case and does not: a bar
-        that is DRAWN but empty sits at 2-8 detail, which vetoes every occupied
-        split and leaves `n = 0` losing to the -1.0 sentinel, so the read
-        REFUSES. Only a near-black bar reaches 0. Confirmed by rendering on
-        587c15b07779 at 158-174s -- see docs/ROSTER_FINDINGS.md.
+        Per-slot detail cannot separate them -- these two vectors are both dim
+        and the darker one is the DRAWN case on real footage. The frames are
+        587c15b07779 at 158s (wiped, scoreline reads) and c40d950031bb at 967s
+        (capture ending, scoreline null); see docs/ROSTER_FINDINGS.md.
         """
-        wiped = [2.20,2.03,2.04,2.17,2.58]      # drawn, empty: should be 0
-        black = [0.69,0.91,0.91,0.44,0.40]      # nothing drawn: should refuse
-        self.assertIsNone(alive_from_detail(wiped,False))
-        self.assertEqual(alive_from_detail(black,False),0)
+        wiped = [2.20,2.03,2.04,2.17,2.58]
+        black = [0.69,0.91,0.91,0.44,0.40]
+        for d in (wiped, black):
+            self.assertEqual(alive_from_detail(d,False,True), 0)   # HUD drawn
+            self.assertIsNone(alive_from_detail(d,False,False))    # HUD absent
+            self.assertIsNone(alive_from_detail(d,False))          # unknown
+
+    def test_split_is_scale_free_and_refuses_an_unpacked_bar(self):
+        """The ratio rule, and the sentinel that keeps it from over-answering."""
+        # 587c15b07779 1483.0s: two portraits, the widest ABSOLUTE gap says one.
+        self.assertEqual(alive_from_detail([7.92,9.67,6.73,22.71,37.42],True), 2)
+        # Doubling the whole vector cannot change how many are drawn.
+        self.assertEqual(alive_from_detail([15.84,19.34,13.46,45.42,74.84],True), 2)
+        # Bright slots that are not a contiguous run from the inner edge: the
+        # packing premise fails, so refuse rather than pick the least-bad split.
+        self.assertIsNone(alive_from_detail([7.34,31.09,7.32,37.00,13.04],True))
+        self.assertEqual(alive_from_detail([30.0]*5,True), 5)
+
+    def test_resolve_never_borrows_a_future_hud_row(self):
+        """The gate is an as-of join, and out-of-range leaves it unknown."""
+        roster = pa.table(dict(t_ms=[0.0,5000.0,10000.0],
+                               alive_ally=[None]*3, alive_enemy=[None]*3,
+                               detail_ally=[[2.0]*5]*3, detail_enemy=[[2.0]*5]*3))
+        hud = pa.table(dict(t_ms=[4800.0], score_left=[1], score_right=[0]))
+        ally, enemy = resolve(hud, roster)
+        # t=0 precedes the only HUD row, t=10000 is 5.2s past it: both unknown.
+        self.assertEqual(ally, [None, 0, None])
+        self.assertEqual(enemy, [None, 0, None])
+        blank = pa.table(dict(t_ms=[4800.0], score_left=[None], score_right=[None]))
+        self.assertEqual(resolve(blank, roster)[0], [None, None, None])
 
 
 if __name__ == '__main__':
