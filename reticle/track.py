@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 #: Top speed of a real track, widget px/s. `minimap.RUN_PX`, measured rather
 #: than derived -- every filtered track sits under it and every misdetection
@@ -294,11 +294,57 @@ class Track:
     n_obs: int = 1
     missed: int = 0
     born_t_ms: float = 0.0
+    #: Recent measured bearings, `(t_ms, deg)`, newest last. The window is what
+    #: makes a bearing usable at all -- see `resolved_facing`.
+    history: list = field(default_factory=list)
 
     def facing_age_ms(self, t_ms: float) -> float | None:
         if self.facing is None or self.facing_t_ms is None:
             return None
         return t_ms - self.facing_t_ms
+
+    def resolved_facing(self, window_ms: float = 200.0):
+        """`(deg, resultant)` over the recent window, or `(None, 0.0)`.
+
+        **The per-frame bearing is not usable on its own and this is measured.**
+        At 15 Hz the change between CONSECUTIVE self bearings is bimodal: 47%
+        under 10 degrees and a second mode at 150-180 degrees holding 16.1%.
+        Nobody turns 180 degrees in 67 ms one time in six, so that mode is the
+        fit choosing between two opposed lobes rather than the player turning
+        (`prototypes/cone_flip.py`).
+
+        The circular mean over a short window collapses it -- 16.1% to 1.2% at
+        +/-2 samples -- but that measurement is partly circular, because
+        smoothing a series necessarily shrinks its own frame-to-frame
+        difference. **`resultant` is the part that is not**: the length of the
+        mean resultant vector, 1.0 when every bearing in the window agrees and
+        0.0 when they are opposed. A per-window ambiguity signal needing no
+        neighbour comparison and no ground truth.
+
+        Checked against evidence the bearing cannot see -- the direction the
+        player MOVED, which comes from the ring centre rather than the lobe --
+        over 453 intervals of at least 15 px in 0.53 s:
+
+            series                    aligned <45deg   opposed >135deg   gap
+            raw bearing                    45.3%            28.5%       +16.8
+            smoothed +/-2                  41.7%            24.5%       +17.2
+            smoothed, resultant >= 0.5     47.1%            23.9%       +23.2
+
+        So the smoothing alone is worth almost nothing and **the gate is where
+        the win is**. Neither column is an accuracy -- strafing and
+        backpedalling are real -- so the GAP between them is the signal.
+        """
+        import math
+
+        if not self.history:
+            return None, 0.0
+        t_now = self.history[-1][0]
+        w = [d for tm, d in self.history if t_now - tm <= window_ms]
+        if not w:
+            return None, 0.0
+        sx = sum(math.cos(math.radians(d)) for d in w) / len(w)
+        sy = sum(math.sin(math.radians(d)) for d in w) / len(w)
+        return math.degrees(math.atan2(sy, sx)), math.hypot(sx, sy)
 
 
 class Tracker:
@@ -321,11 +367,18 @@ class Tracker:
     """
 
     def __init__(self, motion: str = "walker", scale: float = 1.0,
-                 max_missed: int = 3, max_facing_age_ms: float = 500.0):
+                 max_missed: int = 3, max_facing_age_ms: float = 500.0,
+                 bearing_window_ms: float = 200.0, min_resultant: float = 0.5):
         self.motion = CLASSES[motion]
         self.scale = scale
         self.max_missed = max_missed
         self.max_facing_age_ms = max_facing_age_ms
+        #: The window `resolved_facing` aggregates over, and the ambiguity gate
+        #: below which no bearing is offered at all. 0.5 keeps 69% of frames
+        #: and takes the movement-alignment gap from +16.8 to +23.2 points --
+        #: see `Track.resolved_facing`. Refusing under-claims, which is the rule.
+        self.bearing_window_ms = bearing_window_ms
+        self.min_resultant = min_resultant
         self.tracks: list[Track] = []
         self._next = 0
 
@@ -360,6 +413,9 @@ class Tracker:
                 tr.missed = 0
                 if d.get("facing") is not None:
                     tr.facing, tr.facing_t_ms = d["facing"], t_ms
+                    tr.history.append((t_ms, float(d["facing"])))
+                    tr.history[:] = [h for h in tr.history
+                                     if t_ms - h[0] <= self.bearing_window_ms]
                 taken.add(j)
 
         for tr in alive:
@@ -370,10 +426,13 @@ class Tracker:
             if j in taken:
                 continue
             self._next += 1
-            alive.append(Track(tid=self._next, x=d["cx"], y=d["cy"], t_ms=t_ms,
-                               facing=d.get("facing"),
-                               facing_t_ms=t_ms if d.get("facing") is not None else None,
-                               born_t_ms=t_ms))
+            alive.append(Track(
+                tid=self._next, x=d["cx"], y=d["cy"], t_ms=t_ms,
+                facing=d.get("facing"),
+                facing_t_ms=t_ms if d.get("facing") is not None else None,
+                born_t_ms=t_ms,
+                history=([(t_ms, float(d["facing"]))]
+                         if d.get("facing") is not None else [])))
 
         self.tracks = [t for t in alive if t.missed <= self.max_missed]
         return list(self.tracks)
@@ -381,23 +440,33 @@ class Tracker:
     def bearings(self, t_ms: float, allow_interpolated: bool = False):
         """`(x, y, facing_or_None, interpolated)` per track, for the cone.
 
-        **The default REFUSES a carried-forward bearing**, and that is the
-        under-claiming rule rather than caution for its own sake: every
-        enemy-half invariant has the form *an enemy cannot originate inside
-        the observable area*, so an area that is too large silently discards
-        real observations while one that is too small only fails to fire.
-        Pass `allow_interpolated=True` to measure what the carry is worth --
-        never to widen the area without measuring it first.
+        The bearing is `Track.resolved_facing` -- a windowed circular mean,
+        REFUSED below `min_resultant` -- not the last per-frame fit, because
+        the per-frame fit flips 180 degrees on 16% of frames and no threshold
+        on `cov` or `lobe` can see it (a flip scores a HIGHER median lobe).
+
+        **A carried bearing is still refused by default.** The error of
+        carrying one forward has a p90 of ~160 degrees against a null of 160 at
+        EVERY gap from 67 ms to 3 s -- flat, so it is not the player turning
+        and raising the sample rate does not help. `allow_interpolated=True`
+        exists to measure what the carry is worth, never to widen the
+        observable area before that measurement exists: an area that is too
+        large silently discards real enemy observations, while one that is too
+        small only fails to fire.
         """
         out = []
         for tr in self.tracks:
+            deg, res = tr.resolved_facing(self.bearing_window_ms)
+            fresh = (tr.facing_t_ms is not None
+                     and abs(t_ms - tr.facing_t_ms) <= 1e-9)
+            if deg is not None and res >= self.min_resultant and fresh:
+                out.append((tr.x, tr.y, deg, False))
+                continue
             age = tr.facing_age_ms(t_ms)
-            fresh = age is not None and age <= 1e-9
-            usable = age is not None and age <= self.max_facing_age_ms
-            if fresh:
-                out.append((tr.x, tr.y, tr.facing, False))
-            elif usable and allow_interpolated:
-                out.append((tr.x, tr.y, tr.facing, True))
+            if (allow_interpolated and deg is not None
+                    and res >= self.min_resultant
+                    and age is not None and age <= self.max_facing_age_ms):
+                out.append((tr.x, tr.y, deg, True))
             else:
                 out.append((tr.x, tr.y, None, False))
         return out
@@ -567,6 +636,51 @@ def _self_test() -> int:
     for t_ms in (100.0, 200.0, 300.0):
         tk5.step(t_ms, [])
     check("a track missed past max_missed is dropped", len(tk5.tracks), 0)
+
+    # ---- the ambiguity gate: the fix for the 180-degree flip --------------
+    tk6 = Tracker("walker", scale=1.0, bearing_window_ms=300.0, min_resultant=0.5)
+    for k, deg in enumerate((40.0, 44.0, 42.0, 41.0)):
+        tk6.step(k * 67.0, [{"cx": k * 0.5, "cy": 0.0, "facing": deg}])
+    deg, res = tk6.tracks[0].resolved_facing(300.0)
+    check("an agreeing window resolves near its members", 38 < deg < 46, True)
+    check("and its resultant is near 1", res > 0.99, True)
+    check("so a bearing is offered", tk6.bearings(3 * 67.0)[0][2] is not None, True)
+
+    #   the flip case: bearings alternating 180 degrees apart. The circular
+    #   MEAN of opposed vectors is meaningless, and `resultant` is what says so.
+    tk7 = Tracker("walker", scale=1.0, bearing_window_ms=300.0, min_resultant=0.5)
+    for k, deg in enumerate((0.0, 180.0, 0.0, 180.0)):
+        tk7.step(k * 67.0, [{"cx": k * 0.5, "cy": 0.0, "facing": deg}])
+    _d, res7 = tk7.tracks[0].resolved_facing(300.0)
+    check("opposed bearings give a near-zero resultant", res7 < 0.2, True)
+    check("so NO bearing is offered -- the refusal is the fix",
+          tk7.bearings(3 * 67.0)[0][2], None)
+
+    #   ONE flip in a five-sample window is outvoted; TWO are refused. The
+    #   arithmetic is exact and worth asserting, because it is what the default
+    #   window and gate buy: with n agreeing and m opposed the resultant is
+    #   (n - m) / (n + m), so 4-vs-1 gives 0.6 and 3-vs-2 gives 0.2.
+    def five(degs, thr=0.5):
+        tk = Tracker("walker", scale=1.0, bearing_window_ms=400.0,
+                     min_resultant=thr)
+        for k, deg in enumerate(degs):
+            tk.step(k * 67.0, [{"cx": k * 0.5, "cy": 0.0, "facing": deg}])
+        return tk, tk.tracks[0].resolved_facing(400.0)
+
+    tk8, (d8, r8) = five((90.0, 92.0, -88.0, 91.0, 90.0))
+    check("one flip in five is outvoted", 80 < d8 < 100, True)
+    check("and the window still clears the gate", round(r8, 2), 0.6)
+    check("so a bearing is still offered",
+          tk8.bearings(4 * 67.0)[0][2] is not None, True)
+
+    tk10, (_d10, r10) = five((90.0, -88.0, 91.0, -90.0, 90.0))
+    check("two flips in five is refused", round(r10, 2), 0.2)
+    check("and no bearing is offered", tk10.bearings(4 * 67.0)[0][2], None)
+
+    #   the gate is a real gate: raise it and the tolerated window is refused.
+    tk9, _ = five((90.0, 92.0, -88.0, 91.0, 90.0), thr=0.95)
+    check("a stricter gate refuses even one flip",
+          tk9.bearings(4 * 67.0)[0][2], None)
 
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1

@@ -61,6 +61,7 @@ import cv2
 from . import cone as cone_mod
 from .killfeed import ME_MATCH_MIN, analyse_killfeed, killfeed_roi
 from .minimap import ally_icons, self_icons, widget_drawn
+from .track import Tracker
 from .ocr import crop_gray, read_bottom_hud, read_scoreline, scoreline_roi
 from .profiles import Profile
 
@@ -108,6 +109,13 @@ class OverlayContext:
     mm_floor: np.ndarray | None = None
     mm_passable: np.ndarray | None = None
     mm_sgray: np.ndarray | None = None  # the static map, for `widget_drawn`
+
+    #: One tracker per key. They hold state ACROSS frames, which is what makes
+    #: a bearing usable at all -- the per-frame fit flips 180 degrees on 16% of
+    #: frames and `Tracker` refuses an ambiguous window rather than guessing.
+    #: This is also why the overlay must be driven in time order.
+    mm_track_self: object = None
+    mm_track_ally: object = None
 
     @property
     def has_minimap(self) -> bool:
@@ -170,7 +178,7 @@ def draw(frame: np.ndarray, t_ms: float, frame_idx: int, ctx: OverlayContext) ->
     if occl:
         lines.append("occluded: " + ", ".join(occl))
     if ctx.has_minimap:
-        lines.append(_draw_minimap(img, frame, ctx))
+        lines.append(_draw_minimap(img, frame, t_ms, ctx))
     _panel(img, 8, 8, 470, 20 + 18 * len(lines))
     for i, line in enumerate(lines):
         _text(img, line, (18, 30 + 18 * i), INK, 0.46)
@@ -228,7 +236,7 @@ def draw(frame: np.ndarray, t_ms: float, frame_idx: int, ctx: OverlayContext) ->
     return img
 
 
-def _draw_minimap(img, frame, ctx) -> str:
+def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     """The minimap channel: icons, bearings, and the collective viewcone.
 
     Returns a one-line summary for the HUD panel. Draws nothing and returns a
@@ -250,9 +258,25 @@ def _draw_minimap(img, frame, ctx) -> str:
     selves = sorted(self_icons(crop, ctx.mm_floor, require_facing=False),
                     key=lambda d: -d["cov"])[:1]
 
+    # **Bearings come from the TRACKS, not from this frame's fit.** The
+    # per-frame fit flips 180 degrees on 16% of frames and neither `cov` nor
+    # `lobe` can see it, so a windowed circular mean with an ambiguity gate is
+    # what the cone is cast from. A track that refuses draws amber and casts
+    # nothing -- see `track.Track.resolved_facing`.
+    if ctx.mm_track_self is None:
+        ctx.mm_track_self = Tracker("walker")
+        ctx.mm_track_ally = Tracker("walker")
+    ctx.mm_track_self.step(t_ms, selves)
+    ctx.mm_track_ally.step(t_ms, allies)
+    resolved = (ctx.mm_track_ally.bearings(t_ms)
+                + ctx.mm_track_self.bearings(t_ms))
+
+    # Three-tuples ONLY. `resolved` carries a fourth element (`interpolated`)
+    # and `observable`'s fourth is a per-icon HALF-ANGLE -- passing the tuple
+    # straight through made every cone `half=False`, i.e. zero width, and the
+    # observable area collapsed to 0.4% of the floor. Caught by rendering it.
     agg, per = cone_mod.observable(
-        ctx.mm_passable,
-        [(d["cx"], d["cy"], d["facing"]) for d in allies + selves],
+        ctx.mm_passable, [(bx, by, deg) for bx, by, deg, _ in resolved],
         visible=ctx.mm_floor)
 
     # The observable area, tinted over the widget in place.
@@ -263,26 +287,31 @@ def _draw_minimap(img, frame, ctx) -> str:
         m = agg[..., None]
         sub[:] = np.where(m, cv2.addWeighted(sub, 0.68, tint, 0.32, 0), sub)
 
+    by_pos = {(round(bx), round(by)): deg for bx, by, deg, _ in resolved}
     for d, base in [(d, ALLY) for d in allies] + [(d, SELF) for d in selves]:
         cx, cy = int(round(d["cx"])), int(round(d["cy"]))
         c = (x0 + cx, y0 + cy)
-        refused = d["facing"] is None
-        colour = AMBER if refused else base
+        deg = by_pos.get((round(d["cx"]), round(d["cy"])))
+        colour = AMBER if deg is None else base
         cv2.circle(img, c, d["r"], colour, 1)
-        if refused:
-            # No arrow, because there is no bearing -- and no cone was cast.
+        if deg is None:
+            # No arrow, because the track refused a bearing -- either the fit
+            # gave none, or the window was ambiguous. No cone was cast either.
             _text(img, "?", (c[0] + d["r"] + 2, c[1] - d["r"]), AMBER, 0.42)
         else:
-            th = np.radians(d["facing"])
+            th = np.radians(deg)
             tip = (int(c[0] + 2.2 * d["r"] * np.cos(th)),
                    int(c[1] + 2.2 * d["r"] * np.sin(th)))
             cv2.arrowedLine(img, c, tip, colour, 2, tipLength=0.32)
 
     cov = cone_mod.coverage(agg, ctx.mm_floor)
-    n_ref = sum(1 for d in allies + selves if d["facing"] is None)
+    # Report TRACKS separately from ICONS. They are not the same count -- a
+    # track that was missed this frame is still alive and still has no bearing,
+    # so folding the two together reads as "more icons refused than exist".
+    n_cone = sum(1 for _bx, _by, deg, _i in resolved if deg is not None)
     return (f"minimap  self {len(selves)}  allies {len(allies)}"
-            + (f"  ({n_ref} bearing refused)" if n_ref else "")
-            + f"  observable {cov * 100:.1f}% of floor")
+            f"  cones {n_cone}/{len(resolved)} tracks"
+            f"  observable {cov * 100:.1f}% of floor")
 
 
 def _hms(ms: float) -> str:

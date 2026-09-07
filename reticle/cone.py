@@ -59,12 +59,31 @@ import sys
 
 import numpy as np
 
-#: Half-angle of a player's cone, degrees. Measured over 23 open-space samples
-#: on ONE Ascent clip (`prototypes/minimap_cone.py` carries the method and the
-#: exclusions). ~112 degrees full. A WORKING DEFAULT, not a constant: a second
-#: map has not confirmed it, and the one deployable with a published figure --
-#: Killjoy's turret, 100 degrees full -- is already known to differ.
-CONE_HALF_ANGLE_DEG = 56.0
+#: Half-angle of a player's cone, degrees. **51.5, i.e. 103 degrees full.**
+#:
+#: This repo measured the cone directly over 23 open-space samples on one
+#: Ascent clip and got a half-angle of **50-65 degrees** across a run of seven
+#: consecutive samples (`prototypes/minimap_cone.py` has the method and the
+#: stated exclusions); 56 was the midpoint of that range.
+#:
+#: Valorant's field of view is reported to be FIXED AT 103 DEGREES, and 103/2 =
+#: 51.5 sits inside the measured band, near its low end. Three reasons to
+#: prefer it over the midpoint: a round engine constant is a better estimate
+#: than the centre of a noisy interval; it is consistent with the direct
+#: measurement rather than in tension with it; and it is NARROWER, so it
+#: under-claims -- which is this module's standing rule, because an observable
+#: area that is too large silently discards real enemy observations.
+#:
+#: **Provenance is a web search, not a measurement here, and that is stated
+#: rather than hidden.** An attempt to confirm it independently -- fitting
+#: pixels-per-degree from camera pan, where 103 predicts 13.33 px/deg and 112
+#: predicts 11.30 -- FAILED for an unrelated reason and settled nothing; see
+#: `prototypes/cone_flip.py`. Treat 103 as the better-supported hypothesis, not
+#: as established.
+#:
+#: Not universal to every cone on the widget: Killjoy's turret is 100 degrees
+#: full from the ability reference, so a deployable takes its own value.
+CONE_HALF_ANGLE_DEG = 51.5
 
 #: Rays per cone. 240 over ~112 degrees is a ray every 0.47 degrees, which at
 #: the widget's ~230 px half-diagonal is under 2 px of arc at the far edge --
@@ -177,6 +196,16 @@ def observable(passable: np.ndarray, icons, *,
     for icon in icons:
         cx, cy, deg = icon[0], icon[1], icon[2]
         half = icon[3] if len(icon) > 3 else half_angle_deg
+        # `track.Tracker.bearings()` returns (x, y, deg, INTERPOLATED) and this
+        # function's fourth element is a HALF-ANGLE, so the two APIs collide in
+        # a way nothing catches: `half=False` is a legal number and casts a
+        # zero-width cone. It happened on the day both were written, and the
+        # symptom was an observable area of 0.4% rather than an exception.
+        if isinstance(half, bool):
+            raise TypeError(
+                "observable() got a bool as an icon's half-angle -- this is "
+                "almost certainly track.Tracker.bearings()'s `interpolated` "
+                "flag. Pass (cx, cy, facing) triples.")
         if deg is None:
             per_icon.append(np.zeros(passable.shape, dtype=bool))
             continue
@@ -279,6 +308,13 @@ def _self_test() -> int:
     wide, _ = observable(p4, [(20, 20, 0.0, 56.0)])
     narrow, _ = observable(p4, [(20, 20, 0.0, 10.0)])
     check("a narrower emitter sees less", int(narrow.sum()) < int(wide.sum()), True)
+    # A bool where the half-angle goes is refused, not silently cast at zero.
+    try:
+        observable(p4, [(20, 20, 0.0, False)])
+        raised = False
+    except TypeError:
+        raised = True
+    check("a bool half-angle raises rather than casting nothing", raised, True)
 
     # -- both window reductions, and the ordering between them.
     u, held = reduce_window([per[0], per[1]])
