@@ -84,9 +84,12 @@ def _resolve_session(store: Store, session: str | None) -> dict:
             return sessions[0]
         ids = ", ".join(s["session_id"] for s in sessions)
         raise SystemExit(f"store holds {len(sessions)} sessions; name one of: {ids}")
-    for s in sessions:
-        if s["session_id"].startswith(session):
-            return s
+    matches = [s for s in sessions if s["session_id"].startswith(session)]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise SystemExit(f"ambiguous session prefix {session!r}: "
+                         + ", ".join(s["session_id"] for s in matches))
     raise SystemExit(f"no session matching {session!r} in {store.root}")
 
 
@@ -1562,6 +1565,30 @@ def cmd_rounds(args) -> int:
     return 0
 
 
+def cmd_coach(args) -> int:
+    """Build player events and an honest probability-readiness report from L1."""
+    from .coaching import run_coaching
+
+    store = Store(args.store)
+    sessions = ([_resolve_session(store, args.session)] if args.session
+                else store.sessions())
+    out = Path(args.out) if args.out else store.root / "analysis" / "coaching"
+    if args.session and not args.out:
+        out = out / sessions[0]["session_id"]
+    report = run_coaching(store, sessions, out)
+    print(f"{report['n_events']} player events; {report['n_rounds']} eligible rounds "
+          f"in {report['n_sessions']} sessions")
+    print(f"probability evaluation: {report['status']}")
+    if report['status'] == 'insufficient_data':
+        print("Need at least 3 sessions with current HUD/roster and 30 training rounds "
+              "with both outcomes per held-out fold.")
+    else:
+        print(f"held-out Brier: {report['brier']:.4f}; "
+              f"training-base-rate Brier: {report['baseline_brier']:.4f}")
+    print(f"events, states, predictions, review index and audit: {out}")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     """Structural checks on the REPO, the half `status` does not cover.
 
@@ -1805,6 +1832,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--min-margin", type=float, default=0.05)
     s.add_argument("--out", default=None)
     s.set_defaults(func=cmd_overlay)
+
+    s = sub.add_parser("coach", help="derive player events, review windows and held-out state estimates")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--out", help="output bundle directory (default: store/analysis/coaching)")
+    s.set_defaults(func=cmd_coach)
 
     s = sub.add_parser("rounds", help="stage 05: derive rounds and score win rates")
     s.add_argument("session", nargs="?")

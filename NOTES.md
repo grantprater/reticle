@@ -11,7 +11,22 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-07, the BASE layer is built
+## PICKING UP -- 2026-09-07, event/review foundation
+
+The broad review and execution record are in `docs/IMPLEMENTATION_PLAN.md`.
+`reticle coach` now builds a reproducible event/review bundle from stored L1:
+543 player kill/death observations across 18 HUD sessions. Only one has roster;
+probability evaluation correctly abstains (7 eligible rounds). Default output:
+`~/reticle-store/analysis/coaching/`; start with `report.json` and `review.md`.
+11 behavioral tests pass. Round persistence now retains phase timing and source
+versions; ambiguous session prefixes refuse. Existing detector outputs are untouched.
+
+Next for coaching: validate roster presence and round/POV gates on multiple
+sessions, then populate roster through the shared pass. For minimap work, the
+layer handoff below still applies; `doctor` still reports 35/36 stale geometry
+caches. No new minimap accuracy claims or corpus rebuilds were made in this pass.
+
+## Minimap handoff -- 2026-09-07, the BASE layer is built
 
 ### DONE 2026-09-07: the art's terrain LEVELS are in the geometry npz.
 
@@ -44,7 +59,7 @@ no PNG has ever been committed here. What this repo produces and ships is
 `reference/shade/<map>.npz` -- class indices per pixel -- which is the
 measurement, not the render.
 
-### DO THIS FIRST. Nothing else, until it is done.
+### Next within the minimap channel (after cache revalidation)
 
 **The ANNOTS layer: subtract the audio ring and the icons, then fit bearings to
 the residual.** BASE now exists, so this is the next layer down the list in

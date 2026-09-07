@@ -24,7 +24,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, ROSTER_VERSION,
+from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, ROSTER_VERSION, ROUND_VERSION,
                       SCHEMA_VERSION, SEGMENTER_VERSION)
 
 DEFAULT_STORE = Path.home() / "reticle-store"
@@ -486,6 +486,10 @@ class Store:
 
     def write_rounds(self, rounds: list[dict], session_id: str, date: str) -> Path:
         n = len(rounds)
+        hud_path = self.hud_path(session_id, date)
+        hud_meta = (pq.read_schema(hud_path).metadata or {}) if hud_path.is_file() else {}
+        source_version = hud_meta.get(b"hud_version", b"").decode() or None
+        content_key = hud_meta.get(b"content_key", b"").decode() or None
         col = lambda k, ty: pa.array([r.get(k) for r in rounds], type=ty)
         table = pa.table({
             "round_no": col("round_no", pa.int16()),
@@ -503,9 +507,21 @@ class Store:
             "multikill": col("multikill", pa.int16()),
             "first_event": col("first_event", pa.string()),
             "spike_planted": col("spike_planted", pa.bool_()),
+            "plant_t_ms": col("plant_t_ms", pa.float64()),
+            "post_plant_ms": col("post_plant_ms", pa.float64()),
+            "side_inferred": col("side_inferred", pa.string()),
+            "side_separation": col("side_separation", pa.float64()),
+            "side_agrees": col("side_agrees", pa.bool_()),
+            "map": col("map", pa.string()),
+            "round_version": pa.array([ROUND_VERSION] * n, type=pa.string()),
+            "hud_version": pa.array([source_version] * n, type=pa.string()),
+            "content_key": pa.array([content_key] * n, type=pa.string()),
             "session_id": pa.array([session_id] * n, type=pa.string()),
             "schema_version": pa.array([SCHEMA_VERSION] * n, type=pa.int32()),
         }).replace_schema_metadata({"session_id": session_id,
+                                    "round_version": ROUND_VERSION,
+                                    "hud_version": source_version or "unknown",
+                                    "content_key": content_key or "unknown",
                                     "schema_version": str(SCHEMA_VERSION)})
         path = self.rounds_path(session_id, date)
         path.parent.mkdir(parents=True, exist_ok=True)

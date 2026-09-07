@@ -179,11 +179,11 @@ Stage numbers are the design doc's §3 stages, not release versions.
 | 00 Ingest | fingerprint → profile, manifest, no media copied | **done** (`probe`, `ingest`) |
 | 01 Gate/segment | frame state → bounded play spans | **rule-based baseline** — `off`/`idle`/`active`, not the doc's trained buy/in-round/post-round/menu/spectate classifier. No labelled data yet. |
 | 02 Deterministic extractors | HUD, killfeed, minimap, main-view | **partial** — see below |
-| 03 Event proposal | fuse stage-02 into typed candidates | not started |
+| 03 Event proposal | fuse stage-02 into typed candidates | partial: `coach` persists player kill/death observations and review windows; broader engagement fusion remains open |
 | 04 VLM adjudication | ambiguous band only | not started |
 | 05 Reconcile | source priority + label-free invariants | invariants only (`checks.py`, `verify`). The scoreboard is now readable and outranks killfeed inference, but nothing reconciles the two yet. |
-| 06 Metrics | pure versioned functions | not started |
-| 07 Narrate/query | not started |
+| 06 Metrics | pure versioned functions | exploratory `coach` state baseline with session holdouts; real-data probability evaluation currently lacks roster coverage |
+| 07 Narrate/query | footage review | `coach` writes a linked review index; no automated coaching narrative |
 | 08 Correction loop | not started |
 
 ### Stage 02 detail
@@ -362,9 +362,11 @@ Instead: estimate P(win | round state) and value every event by how much it
 moved that probability. State is small -- `(alive_us, alive_them, phase,
 coarse_time, side, score_diff)`. The reasons this wins:
 
-* a round passes through eight to ten states, so 262 rounds give ~2000
-  state-transition observations rather than 242 outcomes;
-* WPA is continuous, so effects resolve with far less data than a win/loss bit;
+* a round passes through multiple states, which provides temporal context, but
+  these observations share an outcome and are not independent samples. Weight
+  rounds equally and keep whole sessions out of training during evaluation;
+* WPA is continuous but inherits model error. It does not guarantee greater
+  statistical power or measure the causal effect of a player's decision;
 * conditioning is automatic. "Win% on first blood" stops being its own question
   and becomes the average WPA of the first kill, already conditioned on state.
   A 5v1 peek and a 5v5 peek are never averaged together, which is exactly
@@ -372,7 +374,8 @@ coarse_time, side, score_diff)`. The reasons this wins:
 * it handles the post-plant rule change natively, because phase is in the state.
 
 **Co-equal goal: film retrieval.** The largest |WPA| events *are* the list of
-moments that decided a session, so this falls out for free -- and it is the
+  moments worth reviewing under the model, rather than proof of what decided
+  a session -- and it is the
 delivery mechanism for everything else. Nobody changes behaviour from a
 coefficient table; people change behaviour after watching themselves throw a
 4v2. Highest value per unit of effort in the whole project.

@@ -1,12 +1,43 @@
-# Reticle — ingestion
+# Reticle — VOD analysis
 
 Stages 00–02 of the pipeline in the design doc: fingerprint a capture, decode it
 into L1 primitives, gate it into spans, read the scoreline off the HUD, and
 write the whole thing to a Parquet event store you can query with DuckDB.
 
-Stage 02 is partial. The scoreline extractor (round clock, both team scores) is
-built; ammo, HP, credits, killfeed template matching and minimap position
-tracking are not. Nothing above that exists — no event proposal, no VLM.
+Stage 02 includes scoreline, ammo, HP/shield, attributed killfeed, roster and
+minimap readers. Coverage and validation vary; use `status` and `doctor` rather
+than assuming every session is current. Credits and reliable POV/phase detection
+remain missing. The coaching layer now extracts player kill/death observations
+from stored reads and evaluates an exploratory state-probability baseline when
+enough independent sessions are available.
+
+The review and prioritized roadmap are in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+
+## Event repository and review queue
+
+```
+.\.venv\Scripts\python.exe -m reticle coach
+.\.venv\Scripts\python.exe -m reticle coach c40d950031bb
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+`coach` uses existing L1 only; it does not decode footage. The default bundle is
+`~/reticle-store/analysis/coaching/` (a session subdirectory when selecting one):
+
+- `events.jsonl`: deduplicated player kill/death observations, round association,
+  quality flags, source hashes, and coarse review windows.
+- `states.jsonl`: eligible contemporaneous roster/clock observations.
+- `predictions.jsonl`: held-out-session landmark predictions, when supported.
+- `report.json`: input/code fingerprints, exclusions, evaluation and limitations.
+- `review.md`: one linked source window per observed round for manual review.
+
+The model needs at least three eligible sessions, and at least 30 training rounds
+with both outcomes in each fold. These are minimum execution gates, not proof of
+adequate data. It excludes stale inputs, unconfirmed/terminal roster states,
+missing clocks and uncertain boundaries. It uses no inferred plant timestamp,
+economy, side or POV. Estimates are exploratory; state changes are not causal
+effects or player credit. When coverage is insufficient, probabilities stay null
+and events remain available for review. Clips are not yet exported/refined.
 
 ## Setup
 
