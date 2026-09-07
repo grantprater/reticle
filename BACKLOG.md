@@ -59,6 +59,14 @@ removing phantoms rather than of a better detector.
 
 ## Scan `587c15b07779` and open its 13 cross-channel disagreements
 
+**Updated 2026-09-07: the roster scan is DONE.** `scan --only roster` removes
+the former dependency on an unrelated minimap rebuild. Its 3730 stored rows
+reproduce the original 100/113 probe check exactly. `reticle audit` now compares
+actual count changes over aligned intervals and localizes six disagreement
+windows plus one count increase; the two sampling definitions are not directly
+comparable. Inspect those timestamps in `analysis/reconciliation.json` next.
+The deferral rationale below is historical; no new full scan is needed.
+
 **Tabled 2026-09-06 by the player.** `NOTES.md` has called these *the audit signal
 and nobody has looked at them* since they were measured -- 100/113 probes agree
 (88%), leaving 13.

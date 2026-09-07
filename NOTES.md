@@ -15,14 +15,25 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 The broad review and execution record are in `docs/IMPLEMENTATION_PLAN.md`.
 `reticle coach` now builds a reproducible event/review bundle from stored L1:
-543 player kill/death observations across 18 HUD sessions. Only one has roster;
-probability evaluation correctly abstains (7 eligible rounds). Default output:
+543 player kill/death observations across 18 HUD sessions. Two now have saved
+roster tables; probability evaluation abstains (26 eligible rounds). Default output:
 `~/reticle-store/analysis/coaching/`; start with `report.json` and `review.md`.
-11 behavioral tests pass. Round persistence now retains phase timing and source
+14 behavioral tests pass. Round persistence now retains phase timing and source
 versions; ambiguous session prefixes refuse. Existing detector outputs are untouched.
 
-Next for coaching: validate roster presence and round/POV gates on multiple
-sessions, then populate roster through the shared pass. For minimap work, the
+`scan --only roster` fills coverage without triggering minimap/HUD work.
+`audit` localizes cross-channel discrepancies without labels. The second saved
+roster reproduces the earlier seek evaluation exactly (100/113 probes). Its new
+delta audit has six disagreement windows and one count increase to explain;
+timestamps are in `~/reticle-store/analysis/reconciliation.json`. On the first
+session, opposing window discrepancies cancel: roster drops at 700.5s while the
+stored killfeed entry remains absent through 702.5s. Check onset timing first.
+
+Next for coaching: inspect the localized windows, then reconcile round/POV gates.
+Do not blindly require two score reads: that drops two final-round outcomes.
+The killfeed adapter does not yet consume entity tracks or emit compound episodes;
+the plan now specifies its integration with the existing minimap entity model.
+For minimap work, the
 layer handoff below still applies; `doctor` still reports 35/36 stale geometry
 caches. No new minimap accuracy claims or corpus rebuilds were made in this pass.
 
@@ -396,8 +407,10 @@ from the framing:
   audit off L1 with no decode and reproduces the seek path EXACTLY (43/48,
   14/16, identical histogram) -- the end-to-end check on the wiring;
 * **The cross-channel audit found its first defect, and it is in the ROSTER.**
-  All five misses on `c40d950031bb` have ONE cause: an undrawn roster reads as
-  `0`, not as unreadable. 9.6% of stored rows are `(0,0)` and every one is
+  Three cross-channel misses and the two failed start-at-five checks on
+  `c40d950031bb` have one cause: an undrawn roster reads as `0`, not as unreadable.
+  The earlier wording incorrectly called these all five cross-channel misses;
+  two `+1` cross-channel discrepancies also exist. 9.6% of stored rows are `(0,0)` and every one is
   outside a round (0:08-1:53 pre-match, 16:06-16:09 after). Round 0's window
   starts in that prologue, so its first three probes are the three `-10`s and
   its two teams are the two `starts at 5` failures. **Not patched on one
@@ -406,9 +419,10 @@ from the framing:
   `minimap.widget_drawn` does) or bounding the reader to rounds. Full note in
   `roster.py`. Direction still holds and must not silently reverse: this
   calibrates the roster; afterwards the killfeed is the audited channel;
-* **587c15b07779's 13 disagreements remain unopened** -- it needs a scan, and
-  every session now also wants a minimap re-read, which is TABLED in
-  `BACKLOG.md`;
+* **587c15b07779 now has a roster scan** -- 3730 rows, obtained with
+  `scan --only roster` without minimap recomputation. The old 100/113 probe
+  result reproduces exactly from storage. The interval-delta audit localizes
+  six disagreement windows and one count increase; see the picking-up section;
 * **READY: window refinement.** `reticle/refine.py`. On the ping detector it
   takes precision 26% -> 42% at NO recall cost, killing every world, xmark and
   bar false positive (`prototypes/ping_edge_eval.py`);

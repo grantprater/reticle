@@ -18,6 +18,8 @@ The review and prioritized roadmap are in [docs/IMPLEMENTATION_PLAN.md](docs/IMP
 ```
 .\.venv\Scripts\python.exe -m reticle coach
 .\.venv\Scripts\python.exe -m reticle coach c40d950031bb
+.\.venv\Scripts\python.exe -m reticle audit
+.\.venv\Scripts\python.exe -m reticle scan 587c15b07779 --only roster
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
@@ -38,6 +40,17 @@ missing clocks and uncertain boundaries. It uses no inferred plant timestamp,
 economy, side or POV. Estimates are exploratory; state changes are not causal
 effects or player credit. When coverage is insufficient, probabilities stay null
 and events remain available for review. Clips are not yet exported/refined.
+
+`audit` compares score transitions and roster changes with killfeed observations
+from stored data, reporting exact disagreement windows without changing rounds.
+Agreement is channel consistency, not measured detector accuracy. `scan --only
+roster` fills missing saved roster coverage through the existing shared pass,
+without constructing minimap geometry or rereading current HUD data. It does
+decode the source video. Multiple readers can be selected after `--only`.
+
+The current event adapter contains killfeed observations only. It does not yet
+consume the minimap entity model or emit compound contact/exposure episodes;
+their intended integration is specified in the implementation plan.
 
 ## Setup
 

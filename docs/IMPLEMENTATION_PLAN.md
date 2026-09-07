@@ -12,6 +12,61 @@ quality. It should not wait for a perfect minimap, or prescribe changes from
 an unvalidated probability model. Mindset is a player annotation, not a label
 that pixels or a loss streak establish.
 
+### Relationship to the minimap entity model (clarified 2026-09-07)
+
+`coach` currently adapts only attributed killfeed tracks. Its two-read inclusion
+rule comes from the existing killfeed tracker; it is not a general event ontology.
+The observed first timestamp is when the detector first answered, not necessarily
+when the underlying action happened. This distinction now has a concrete example:
+on `c40d950031bb` the roster drops at 700.5s while `kf_entry_mask` remains zero
+through 702.5s, despite a visible death entry at 702s. A delayed observation must
+not become the inferred origin of an entity by definition.
+
+The architecture continues `docs/minimap-entity-model.html`, rather than replacing
+it. Keep these levels distinct and linked:
+
+1. Observation records: source channel, observed timestamp/interval, raw read,
+   quality/refusal, source frame coordinates and producer version.
+2. Entity lifecycle events: event identity, participants/entity IDs, inferred
+   occurrence interval, observation references, origin/termination relation,
+   corroboration and unresolved alternatives. The existing origin model supplies
+   round start, equip, cast, ping, death and loss of collective visibility.
+3. Compound episodes: a versioned rule over overlapping lifecycle events and
+   geometric relations, with member IDs, interval, context and eligibility flags.
+   They do not create new independent outcome samples.
+
+Two priority episode definitions, still unimplemented:
+
+- **Multiple-direction contact:** observable evidence of opponents/contact from
+  distinct directions in an overlapping interval. Establish direction separation,
+  visibility/contact timing and identity continuity before interpreting it. The
+  VOD does not establish off-screen enemy intent or that an enemy actively peeked
+  rather than the player moving into their line of sight.
+- **Multiple-route exposure:** the player enters a region with sightlines to
+  multiple distinct potential approach regions, even if no enemy is detected and
+  no duel occurs. Account for the entity model's known occluders, information and
+  missing geometry. A geometric opportunity is not an observed crossfire or a
+  verdict that the decision was bad. Retain the no-contact denominator.
+
+The killfeed adapter will supply evidence for lifecycle reconciliation. It does
+not yet link events to entity IDs or consume minimap tracks/abilities. Do not
+claim compound-event support until those dependencies and rule definitions are
+implemented and evaluated. No parallel replacement entity taxonomy is needed.
+
+### Validation without a new labeling campaign
+
+Use independently read score, clock, roster, killfeed and scoreboard signals to
+localize disagreements, then inspect only the offending windows. Comparison
+windows must share actual timestamps and an observed starting count; a probe at
+20% of a round cannot assume 5v5. Report stable agreement, timing ambiguity,
+unreadability and unexplained count increases separately. Revives and temporary
+lives prevent unconditional monotonicity/death-count constraints.
+
+Do not call an algorithm's output bounds independent evidence: a split that can
+only emit 0-5 automatically passes a <=5 check. Nor does cross-channel agreement
+prove absolute accuracy. Reserve held-out visual checks for remaining ambiguous
+cases and for measuring precision/recall, rather than request blanket relabeling.
+
 ## Findings from the repository
 
 - Strong foundations: separated raw pointers and derived tables, shared decode
@@ -183,3 +238,38 @@ samples of all opportunities. No-kill engagement coverage, ability integration,
 correction workflows, minimap repair and actual coaching conclusions remain the
 subsequent milestones above. No thresholds were tuned against this corpus and no
 new claims about detector accuracy were made.
+
+### Follow-up: label-free validation and persisted coverage
+
+Reproduced both existing roster checks: `c40d950031bb` 43/48 probes from storage,
+`587c15b07779` 100/113 by video seeks. The latter reader answers 233/240 team
+count requests at the selected probes. These are consistency/coverage results,
+not a new held-out estimate of absolute accuracy.
+
+Added `reticle scan SESSION --only roster` through the shared pass. It bypasses
+unneeded geometry, spans and HUD initialization; normal scans retain their prior
+default readers. Persisted 3730 roster rows for `587c15b07779` in one 126.9s pass.
+The stored version reproduces the seek-based audit exactly. Coverage is now two
+sessions and 26 eligible coaching rounds; model evaluation still abstains.
+
+Added `reticle audit`: nonoverlapping interval comparisons from observed starting
+counts, timing ambiguity, missing reads, count-increase flags, adjacent residual
+cancellation, and a diagnostic comparison of raw vs repeated-read score changes.
+Reports live in `~/reticle-store/analysis/reconciliation.json`.
+
+- First roster: 58 agreeing windows, one timing-ambiguous window, two disagreement
+  windows whose residuals cancel over their union. Four source frames inspected;
+  roster changes are consistent with the visible death, while saved killfeed
+  onset is late. No roster threshold was changed to fit the other channel.
+- Second roster: 115 agreeing windows, nine unreadable windows, six disagreement
+  windows, one unexplained increase. All are timestamped for targeted inspection.
+- Requiring two nearby score reads changes 369 raw boundaries to 367 supported
+  boundaries and shifts four others later. The two omitted outcomes are final
+  score steps; therefore this heuristic stays diagnostic. It is not a justified
+  replacement for round-boundary inference.
+
+14 tests pass, including actual non-5v5 baselines, null/increase refusal,
+transient score handling, first confirmation time, and a roster-only integration
+test proving the shared pass does not initialize HUD/minimap or require spans.
+The next work is targeted inspection/reconciliation of these windows, not a
+blanket labeling campaign or a replacement for the minimap entity model.

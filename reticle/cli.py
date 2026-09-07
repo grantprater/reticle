@@ -834,23 +834,23 @@ def cmd_scan(args) -> int:
             f"source media has moved: {media}\n"
             "the manifest records where it was at ingest time"
         )
-    spans = _active_spans(store, sid, date)
+    channels = set(args.only or ('hud', 'minimap', 'ping', 'roster'))
+    spans = _active_spans(store, sid, date) if channels & {'minimap', 'ping'} else []
     fps = float(src["fps"])
 
-    want_hud = args.force or not store.has_hud(sid, date)
-    want_mm = args.force or not store.has_minimap(sid, date)
+    want_hud = 'hud' in channels and (args.force or not store.has_hud(sid, date))
+    want_mm = 'minimap' in channels and (args.force or not store.has_minimap(sid, date))
     # Pings are events rather than a versioned table, but the cache key is the
     # VERSION, not the file's existence. Keying on existence made `PING_VERSION`
     # a stamp nothing read: bumping it re-read nothing, and a store could hold
     # pings at three definitions with no way to say which sessions were stale --
     # which is the one job version.py says a stamp exists to do.
-    want_ping = args.ping and (args.force
+    want_ping = 'ping' in channels and args.ping and (args.force
                                or store.events_version("ping", sid) != PING_VERSION)
-    want_roster = args.roster and (args.force or not store.has_roster(sid, date))
+    want_roster = 'roster' in channels and args.roster and (args.force or not store.has_roster(sid, date))
     if not (want_hud or want_mm or want_ping or want_roster):
-        print(f"cache hit  session {sid} has HUD at {HUD_VERSION}, minimap at "
-              f"{MINIMAP_VERSION}, pings at {PING_VERSION}, roster at "
-              f"{ROSTER_VERSION}; --force to re-read")
+        print(f"cache hit  session {sid}: requested channels are current or disabled; "
+              "--force to re-read")
         return 0
 
     print(f"session    {sid}  ({src['filename']})")
@@ -942,8 +942,9 @@ def cmd_scan(args) -> int:
         five = sum(1 for r in rp.rows if r["alive_ally"] == 5 and r["alive_enemy"] == 5)
         over = sum(1 for r in rp.rows
                    if (r["alive_ally"] or 0) > 5 or (r["alive_enemy"] or 0) > 5)
-        # `(0,0)` cannot happen inside a round -- a round ends when one team
-        # is wiped, so both being empty means the roster is not drawn at all.
+        # `(0,0)` is ambiguous: an absent roster and genuine zero counts are
+        # not distinguished by this reader. In particular, a post-plant round
+        # does not necessarily end when the attacking team is wiped.
         # It is printed because it is a KNOWN DEFECT rather than a count: an
         # undrawn bar reads as 0 instead of refusing (see roster.py). The rate
         # is the size of the population this table cannot speak for.
@@ -954,7 +955,7 @@ def cmd_scan(args) -> int:
               f"5v5 on {five} ({five / n * 100:.1f}%)")
         if zero:
             print(f"           {zero} rows read 0/0 ({zero / n * 100:.1f}%) "
-                  f"-- not-in-round, not a count; see roster.py")
+                  f"-- ambiguous roster absence/zero counts; see roster.py")
         # `over` is a HARD invariant -- a team cannot field six -- so it is
         # printed even when zero. A count above five is not a bad reading to
         # weigh, it is proof the split rule is wrong, and a reader that only
@@ -1565,6 +1566,39 @@ def cmd_rounds(args) -> int:
     return 0
 
 
+def cmd_audit(args) -> int:
+    """Localize score/roster disagreements without decoding or human labels."""
+    import json
+    import pyarrow.parquet as pq
+    from .reconciliation import audit_scoreline, audit_roster_deltas
+
+    store = Store(args.store)
+    sessions = ([_resolve_session(store, args.session)] if args.session else store.sessions())
+    reports = []
+    for man in sessions:
+        sid, date = man['session_id'], _date_of(man)
+        hp, rp = store.hud_path(sid,date), store.roster_path(sid,date)
+        if not hp.is_file():
+            continue
+        hud = pq.ParquetFile(hp).read()
+        roster = pq.ParquetFile(rp).read() if rp.is_file() else None
+        score, counts = audit_scoreline(hud), audit_roster_deltas(hud,roster)
+        reports.append(dict(session_id=sid, scoreline=score, roster=counts,
+                            audit_version='audit-0.1.0',
+                            hud_metadata={k.decode():v.decode() for k,v in (hud.schema.metadata or {}).items()},
+                            roster_metadata={k.decode():v.decode() for k,v in
+                                             ((roster.schema.metadata or {}) if roster is not None else {}).items()},
+                            roster_current=store.has_roster(sid,date)))
+        print(f"{sid}: score boundaries {score['raw_boundaries']} raw / "
+              f"{score['confirmed_boundaries']} confirmed; roster {counts['counts']}")
+    target = Path(args.out) if args.out else store.root / 'analysis' / (
+        f"reconciliation-{sessions[0]['session_id']}.json" if args.session else 'reconciliation.json')
+    target.parent.mkdir(parents=True,exist_ok=True)
+    target.write_text(json.dumps(reports,indent=2),encoding='utf-8')
+    print(f"diagnostic report: {target}")
+    return 0
+
+
 def cmd_coach(args) -> int:
     """Build player events and an honest probability-readiness report from L1."""
     from .coaching import run_coaching
@@ -1767,6 +1801,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(ping=True)
     # Same argument as --no-ping: it rides the HUD's own frames, so skipping it
     # saves one Laplacian per frame and nothing else.
+    s.add_argument("--only", nargs="+", choices=("hud", "minimap", "ping", "roster"),
+                   help="run only these readers through the shared pass; roster-only needs no minimap geometry")
     s.add_argument("--no-roster", dest="roster", action="store_false",
                    help="skip the roster alive-count reader (it rides this pass free)")
     s.set_defaults(roster=True)
@@ -1832,6 +1868,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--min-margin", type=float, default=0.05)
     s.add_argument("--out", default=None)
     s.set_defaults(func=cmd_overlay)
+
+    s = sub.add_parser("audit", help="localize roster/scoreline disagreements from stored data")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--out", help="diagnostic JSON path")
+    s.set_defaults(func=cmd_audit)
 
     s = sub.add_parser("coach", help="derive player events, review windows and held-out state estimates")
     s.add_argument("session", nargs="?")
