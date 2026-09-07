@@ -123,8 +123,33 @@ Also measured and negative: **the killfeed is not systematically late.** Over
 +0.00s, p90 +0.50s, and 98% fall inside the audit's existing +/-1.0s. The 2.5s
 case on c40d950031bb is a 2% tail. Do not widen `ENTRY_ALIGNMENT_MS`.
 
-So the roster's wipe->full transition is still the untried lead for round
-boundaries, and it is the next thing to build.
+**MEASURED 2026-09-07, and the defect is now quantified corpus-wide.** Two
+independent channels agree that `round_bounds` starts a round ~6s before the
+PREVIOUS round's clock expires, and that the real round begins ~7s after that:
+
+    clock at the derived round start   median 6.0s over 281 rounds, all 18
+                                       sessions; median is 6.0s on 17 of them
+                                       and 5.0s on the 18th. 95% under 15s,
+                                       i.e. the previous round's last seconds
+    roster, 26 rounds on the two sessions that have one:
+      wipe onset - derived round END        median +0.0s
+      both teams back to 5 - derived END    median +7.0s (p10 +4.5, p90 +7.5)
+      clock when both teams are back to 5   median 28.0s -- the buy phase
+
+The round END is well placed; the START is wrong, and contiguity makes those the
+same instant. The score updates when the round is DECIDED, not when the clock
+runs out. This is the single explanation for the `opens-at-5` collapse, the
+167.5-177.5s count increase, and a large share of the 111 boundary-flagged
+coaching events.
+
+**THE FIX IS THE PLAYER'S CALL, and it is not taken.** Locate the round start at
+the CLOCK RESET (the clock jumping to ~30s) rather than at the score increment.
+That signal is in `l1/hud` on all 18 sessions, needs no roster and no decode --
+so unlike the roster instrument it generalises immediately. But it changes the
+round DEFINITION: it moves every stored round, needs a `ROUND_VERSION` bump, and
+shifts every coaching event, eligible state and audit window built on them. That
+is a comparability decision rather than a measurement. Evidence is in
+`docs/ROSTER_FINDINGS.md`.
 
 Everything after that is in `BACKLOG.md`. The minimap channel is a separate
 thread and its handoff is below, unchanged: `doctor` still reports 35/36 stale

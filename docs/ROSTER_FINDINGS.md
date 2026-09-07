@@ -353,3 +353,63 @@ matched to its nearest killfeed onset, one lag per death in a multi-death step:
 So the 2.5s case is a 2% tail, not an offset, and **`ENTRY_ALIGNMENT_MS` should
 not be widened** -- doing so would buy the two boundary-straddling windows and
 loosen every other comparison for nothing.
+
+---
+
+# 2026-09-07: the round-boundary defect, quantified on all 18 sessions
+
+`round_bounds` locates a round start at the SCORE INCREMENT. Measured against
+two independent channels, that instant is **~6 seconds before the previous
+round's clock expires**, and the new round does not begin for another ~7s.
+
+## Channel 1: the clock. 281 rounds, all 18 sessions, no roster needed
+
+The clock read at each derived round start:
+
+    pooled n=281   median 6.0s   p10 5.0   p25 6.0   p75 6.0   p90 6.0
+    median is 6.0s on 17 of the 18 sessions, and 5.0s on the eighteenth
+
+    under 15s -- the PREVIOUS round's dying seconds:  267/281  (95%)
+    25-31s    -- an actual buy phase:                   7/281  ( 2%)
+
+A distribution that tight across eighteen independently recorded sessions is a
+structural offset, not noise. **A round does not begin with six seconds on the
+clock.** The score updates the moment the round is DECIDED -- the wipe -- rather
+than when the clock runs out, and `round_bounds` inherits that instant.
+
+## Channel 2: the roster. 26 rounds on the two sessions that have one
+
+    rounds whose end is marked by a wipe            26/26 (100%)
+    wipe onset  -  derived round END      median  +0.0s  (p10 -7.0, p90 +5.0)
+    both teams back to 5  -  derived END  median  +7.0s  (p10 +4.5, p90 +7.5)
+    clock when both teams are back to 5   median  28.0s  (p90 29.0)
+
+**The round END is well placed; it is the START that is wrong**, and because
+`round_bounds` makes rounds contiguous these are the same instant. The roster
+returns to 5 at clock ~28-30s, which is the top of Valorant's 30s buy phase.
+
+So the first ~7 seconds of every derived round is post-round time, and the two
+channels agree on it from different pixels: clock 6.0s at the derived start,
+clock 28.0s and both rosters full 7.0s later.
+
+## What this explains, that was previously separate
+
+* **`opens-at-5` collapsing to 4/38** when the empty-bar gate shipped. At the
+  derived round start the previous round's wipe is still on screen, so 0 is the
+  correct count and the old rule was refusing it;
+* **the count-increase flag at 167.5-177.5s** -- a real 0 -> 5 step across the
+  true boundary, reported as an anomaly inside one derived round;
+* **111 of 543 coaching events flagged near an uncertain boundary**, the largest
+  quality number the first coaching milestone produced.
+
+## The fix is available and it is NOT taken here
+
+The round start should be located at the **clock RESET** -- the clock jumping up
+to ~30s -- rather than at the score increment. That signal is in `l1/hud` on all
+18 sessions and needs no roster and no decode, so unlike the roster instrument
+it generalises to the whole corpus immediately.
+
+**It is left for the player because it changes the round DEFINITION.** It moves
+every stored round, needs a `ROUND_VERSION` bump, and shifts every coaching
+event, eligible state and audit window derived from them. That is a call about
+comparability, not a measurement, and this page is the evidence for making it.
