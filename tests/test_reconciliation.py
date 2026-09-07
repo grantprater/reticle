@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 import pyarrow as pa
 
-from reticle.reconciliation import audit_scoreline, audit_roster_deltas
+from reticle.reconciliation import (audit_scoreline, audit_roster_deltas,
+                                    frozen_runs, killfeed_health)
 from reticle.cli import build_parser, cmd_scan
 from reticle.roster import alive_from_detail, resolve
 from reticle.store import Store
@@ -47,6 +48,73 @@ class ReconciliationTests(unittest.TestCase):
         data['alive_ally'][40] = 5
         self.assertEqual(audit_roster_deltas(h,pa.table(data))['windows'][0]['status'],
                          'count_increase_requires_explanation')
+
+    def _hud(self, n=60, hz=2.0, freeze=None, mask=None):
+        """A HUD table; `freeze` is a (lo,hi) sample range held identical."""
+        t = [i * (1000.0 / hz) for i in range(n)]
+        cols = dict(t_ms=t, clock_ms=[90000 - i * 500 for i in range(n)],
+                    score_left=[1] * n, score_right=[0] * n,
+                    hp=[100] * n, shield=[50] * n, ammo_mag=[25] * n,
+                    ammo_reserve=[75] * n,
+                    confidence=[0.9 + i * 1e-4 for i in range(n)],
+                    n_glyphs=[6] * n,
+                    kf_entry_mask=list(mask) if mask else [0] * n)
+        if freeze:
+            lo, hi = freeze
+            for k in cols:
+                if k == 't_ms':
+                    continue
+                for i in range(lo + 1, hi + 1):
+                    cols[k][i] = cols[k][lo]
+        return pa.table(cols)
+
+    def test_lifetime_refuses_when_there_are_too_few_tracks(self):
+        """A median over one track describes that track; it is not a bound."""
+        n = 60
+        mask = [0] * n
+        for i in range(8, 50):
+            mask[i] = 1
+        kf = killfeed_health(self._hud(n=n, mask=mask))
+        self.assertEqual(kf['counted'], 1)
+        self.assertEqual(kf['over_long'], 'unknown_too_few_tracks')
+
+    def test_frozen_runs_need_no_threshold_and_ignore_short_stalls(self):
+        """Equality is the whole test; only the duration floor is a choice."""
+        self.assertEqual(frozen_runs(self._hud()), [])          # clock ticking
+        r = frozen_runs(self._hud(freeze=(10, 40)))             # 15s frozen
+        self.assertEqual(len(r), 1)
+        self.assertEqual((r[0]['start_ms'], r[0]['end_ms']), (5000.0, 20000.0))
+        # A 2s stall is what an unreadable clock alone looks like: not a freeze.
+        self.assertEqual(frozen_runs(self._hud(freeze=(10, 14))), [])
+
+    def test_over_long_track_on_a_frozen_frame_is_marked_not_counted_as_a_merge(self):
+        """The corpus maximum is a frozen frame, not a merge -- see the docstring.
+
+        One entry held on screen through a freeze looks exactly like several
+        entries merged, and treating the two as one population was tried and is
+        wrong. `inside_frozen_frame` is what separates them.
+        """
+        # Six ordinary entries of 10 samples, spaced past KF_TRACK_GAP_MS so
+        # they stay distinct, plus one lasting 21s -- far over that lifetime.
+        n = 200
+        mask = [0] * n
+        for k in range(6):
+            for i in range(60 + k * 16, 60 + k * 16 + 10):
+                mask[i] = 1
+        for i in range(8, 50):
+            mask[i] = 1
+        hud = self._hud(n=n, freeze=(12, 46), mask=mask)
+        kf = killfeed_health(hud)
+        self.assertEqual(kf['counted'], 7)
+        self.assertEqual(kf['median_samples'], 10)
+        self.assertEqual(len(kf['over_long']), 1)
+        self.assertTrue(kf['over_long'][0]['inside_frozen_frame'])
+        self.assertEqual(kf['over_long_inside_frozen'], 1)
+        # The same track with the frame moving is NOT explained away.
+        moving = killfeed_health(self._hud(n=n, mask=mask))
+        self.assertEqual(len(moving['over_long']), 1)
+        self.assertFalse(moving['over_long'][0]['inside_frozen_frame'])
+        self.assertEqual(moving['over_long_inside_frozen'], 0)
 
     def test_roster_only_scan_uses_shared_pass_without_geometry_or_hud(self):
         with tempfile.TemporaryDirectory() as d:

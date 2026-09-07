@@ -258,3 +258,98 @@ where it previously guessed. `roster.py` already recorded that this session's
 five misses were all the undrawn defect, and this is that population leaving the
 sample rather than being answered wrongly. Nothing became less accurate.
 
+---
+
+# 2026-09-07, later still: every unresolved window, diagnosed by rendering
+
+All seven unresolved windows on `587c15b07779` and all three on
+`c40d950031bb` were inspected by rendering the killfeed ROI at 1.3-1.6x
+INTER_NEAREST. **NOT ONE IS A ROSTER ERROR.** That is the headline: it
+vindicates the reader shipped earlier today and moves the work to the killfeed.
+
+| window | res | what the pixels show |
+|---|---:|---|
+| 207.5-217.5 | -1 | `Vyse [sniper] (+) Phoenix` at 209.5s -- **Run It Back mark** |
+| 314.5-324.5 | +1 | six deaths, six entries; the sixth (`Fade -> Omen`) appears only at ~325.0s, after the window closed |
+| 773.0-783.0 | +1 | `Phoenix (x) Fade` visible at 781.0s, **swallowed by the track that began at 775.5s** (19 samples) |
+| 949.5-959.5 | -1 | `Omen [sniper] (+) Me` at 950.0s -- **Run It Back mark**, on the local player |
+| 1009.5-1019.5 | -1 | **two** entries on screen at 1018.0s, three tracks reported; the extra has the minimum 2 samples |
+| 1375.0-1385.0 | -1 | `Fade [rifle] (+) Phoenix` at 1377.5s -- **Run It Back mark** |
+| 1464.0-1474.0 | -1 | no killfeed at all from 1472.0s: warm wall and teal scenery. Two isolated detections 1.5s apart, no divider on either, linked into one counted track |
+| c40d 690.5/700.5 | +1/-1 | the known adjacent pair; onset lag, cancels over the union |
+| c40d 494.0-504.0 | -1 | an onset landing exactly on the window boundary |
+
+**Three of the seven are the documented Run It Back divergence.** CLAUDE.md
+already records that Phoenix and Kayo grant the second life BEFORE the fact, so
+the death is a real killfeed entry that produces no roster change by design.
+The local player is Phoenix on this session (`Omen (+) Me` at 951.0s), which is
+why three appear in one match. The audit does not model it, so it reports them
+as detector disagreements.
+
+**This makes the revive-mark reader the highest-value killfeed addition, and it
+is now evidenced rather than argued.** CLAUDE.md lists it as candidate next step
+#2 for the K/D divergences; it additionally resolves 3 of the 7 unresolved audit
+windows on the only session with a full roster. The marks all sit in one place
+-- right of the weapon icon -- and detecting *a* badge needs no icon list.
+
+## Two tracker defects, each confirmed once, now reported by `reticle audit`
+
+`audit-0.3.0` adds a `killfeed` section from stored L1 and no decode:
+
+    no_divider   a COUNTED track no observation of which ever showed a name
+                 either side of the weapon icon.  61 of 2859 corpus-wide.
+    over_long    a counted track lasting far beyond the entry lifetime.
+                 83 corpus-wide, 6 of them explained by a frozen frame.
+
+**The entry lifetime is a hard constant and that is what makes `over_long`
+readable at all**: median 10 samples and 4.5s on every one of 18 sessions,
+pooled p95 13. Against it, 154 counted tracks exceed 12 samples and 83 exceed
+16, to a maximum of 38.
+
+**CLAUDE.md's claim that long tracks are gone is FALSE.** It reads *"the divider
+ended that and there are now none anywhere, so one appearing again is a signal
+that something upstream broke"*. There are 154.
+
+## FAILED: `over_long` is not a merge detector
+
+The hypothesis was that every over-long track is two entries merged. It was
+formed on `587c15b07779` 775.5s, where it is CORRECT -- 19 samples over 10s,
+swallowing a visible `Phoenix -> Fade` entry.
+
+**The first independent test refuted it.** The corpus maximum -- `59c70f1ef720`,
+2197.0-2215.5s, 38 samples -- is a SINGLE genuine entry (`Jett -> Ryzen PK` and
+`Jett -> JustLifin`, unchanged across five rendered frames 18.5s apart) on a
+FROZEN frame. Every stored HUD column there is identical from 2198.0 to 2214.0s,
+`confidence` included. Generalising from the one confirmed case would have
+turned 154 tracks into a fabricated defect rate.
+
+So the two populations overlap and are separated by `frozen_runs`, which is why
+`inside_frozen_frame` exists. 77 of the 83 over-long tracks are not explained by
+a freeze; that is a CANDIDATE population, not a defect rate -- one is confirmed.
+
+## FAILED: frozen runs do not localize round boundaries
+
+A frozen frame is detectable from stored L1 with no threshold: every column
+equal sample to sample, `confidence` being the load-bearing one since it is a
+continuous float. 1240 runs and 4645s across the corpus at a 3-sample floor;
+161 runs at a 5s floor.
+
+They are **not** a round-boundary instrument, which was the reason for measuring
+them. Only **8% (30/369)** of derived round starts fall inside a run of >= 5s,
+and the median run sits **25s** from the nearest start (p25 8.5s, p75 71s).
+What they do say is that **2.8% of derived in-round time is a frame that never
+changed** -- an eligibility question for coaching states, not a timing one.
+
+## FAILED: the killfeed is not systematically late
+
+`ROSTER_FINDINGS` records one late onset (`c40d950031bb`, roster drop 700.5s,
+entry 703.0s) and already warned against shifting all events by a fixed offset.
+Measured properly over both roster sessions -- every in-round roster drop
+matched to its nearest killfeed onset, one lag per death in a multi-death step:
+
+    n = 182   median +0.00s   mean +0.05s   p90 +0.50s   p95 +0.50s   max +3.00s
+    within the audit's +/-1.0s ENTRY_ALIGNMENT_MS:  178/182 (98%)
+
+So the 2.5s case is a 2% tail, not an offset, and **`ENTRY_ALIGNMENT_MS` should
+not be widened** -- doing so would buy the two boundary-straddling windows and
+loosen every other comparison for nothing.

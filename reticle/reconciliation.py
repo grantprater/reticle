@@ -150,3 +150,130 @@ def audit_roster_deltas(hud, roster):
                                       reason='adjacent_residuals_cancel_check_onset_timing'))
     return dict(status='consistency_audit_not_accuracy', counts=dict(counts),
                 windows=windows, adjacent_cancellations=cancellations)
+
+#: Below this many counted tracks the median entry lifetime is a description of
+#: one entry rather than a measurement, so `over_long` refuses to answer.
+MIN_TRACKS_FOR_LIFETIME = 5
+#: Consecutive HUD samples closer than this may belong to one frozen run.
+FREEZE_GAP_MS = 1500
+#: A frozen run shorter than this is not evidence of anything -- the clock
+#: ticks once a second, so ~1.5 s of identical reads happens whenever the clock
+#: is briefly unreadable. 5 s is past every ordinary cause measured.
+FREEZE_MIN_MS = 5000
+#: Columns whose simultaneous equality means the FRAME did not change.
+#: `confidence` is the load-bearing one: it is a continuous float from the glyph
+#: match, so bit-equality across many samples is not a coincidence.
+FREEZE_COLS = ('clock_ms', 'score_left', 'score_right', 'hp', 'shield',
+               'ammo_mag', 'ammo_reserve', 'confidence', 'n_glyphs',
+               'kf_entry_mask')
+
+
+def frozen_runs(hud, min_ms: float = FREEZE_MIN_MS):
+    """Intervals where every stored HUD column is identical sample to sample.
+
+    A round-end screen, a death screen and a paused capture all read this way,
+    and NOTHING in the pipeline currently marks them -- so they are counted as
+    ordinary play. Detected with no threshold at all beyond a duration floor:
+    either the reads are equal or they are not.
+
+    **Do not read this as a round-boundary detector; it was measured and it is
+    not one.** Over 18 sessions only 8% of derived round starts fall inside a
+    run of >= 5 s, and the median run sits 25 s from the nearest one. What it
+    does say is that 2.8% of derived in-round time is a frame that never
+    changed, which is a coaching-state eligibility question rather than a
+    timing one.
+    """
+    h = hud.to_pydict() if hasattr(hud, 'to_pydict') else hud
+    t = h['t_ms']
+    key = list(zip(*[h[c] for c in FREEZE_COLS]))
+    out, i = [], 0
+    while i < len(key):
+        j = i
+        while (j + 1 < len(key) and key[j + 1] == key[i]
+               and t[j + 1] - t[j] <= FREEZE_GAP_MS):
+            j += 1
+        if t[j] - t[i] >= min_ms:
+            out.append(dict(start_ms=t[i], end_ms=t[j], samples=j - i + 1))
+        i = j + 1
+    return out
+
+
+def killfeed_health(hud):
+    """Diagnostics on the entry TRACKER, from stored L1 and nothing else.
+
+    Every unresolved window in `analysis/reconciliation.json` was inspected by
+    rendering on 2026-09-07 and NOT ONE was a roster error. Three were the
+    documented Run It Back divergence, three were tracker defects and one was a
+    late onset. These are the two tracker signatures that were confirmed by eye,
+    reported so the next session does not re-diagnose them:
+
+        no_divider    a COUNTED track no observation of which ever showed a
+                      name either side of the weapon icon. Confirmed spurious
+                      once (587c15b07779 1472.5-1474.0s: two isolated scenery
+                      detections 1.5 s apart, linked across a gap of no
+                      detections at all). 61 of 2859 counted tracks corpus-wide.
+                      NOT proof: an occluded killer name looks the same.
+        over_long     a counted track lasting far beyond the entry lifetime.
+                      That lifetime is a hard constant -- median 10 samples and
+                      4.5 s on every one of 18 sessions -- and CLAUDE.md records
+                      long tracks as eliminated by the divider test, which is
+                      FALSE: 154 counted tracks exceed 12 samples and 83 exceed
+                      16, to a maximum of 38.
+
+    **`over_long` is NOT a merge detector, and assuming it was is a mistake
+    already made here.** One over-long track was confirmed to be a real merge
+    (587c15b07779 775.5s, 19 samples, swallowing a visible `Phoenix -> Fade`
+    entry at 781.0s). The very next one tested -- the corpus maximum, 38 samples
+    on 59c70f1ef720 at 2197-2215s -- is a single genuine entry on a FROZEN
+    frame, and every HUD column there is identical for 17 s. So the two
+    populations overlap and `frozen_runs` is what separates them; neither count
+    is a defect rate on its own.
+    """
+    h = hud.to_pydict() if hasattr(hud, 'to_pydict') else hud
+    ev = [e for e in track_entries(h['t_ms'], h['kf_entry_mask'],
+                                   h.get('kf_entry_wx')) if e['counted']]
+    if not ev:
+        return dict(counted=0)
+    obs = sorted(e['n_obs'] for e in ev)
+    med = obs[len(obs) // 2]
+    frozen = frozen_runs(hud)
+    # The lifetime is measured from the session's OWN tracks, so it needs
+    # enough of them to be a median rather than a description of one entry.
+    # Below this, say so instead of reporting a bound as a finding.
+    if len(ev) < MIN_TRACKS_FOR_LIFETIME:
+        return dict(counted=len(ev), median_samples=med,
+                    over_long='unknown_too_few_tracks',
+                    no_divider=[dict(t_first=e['t_first'], t_last=e['t_last'],
+                                     n_obs=e['n_obs'], slot=e['slot'])
+                                for e in ev if e['sig'] is None],
+                    frozen_runs=len(frozen),
+                    frozen_seconds=round(sum(f['end_ms'] - f['start_ms']
+                                             for f in frozen) / 1000.0, 1))
+    def in_freeze(e):
+        """Was MOST of this track's life a frame that never changed?
+
+        Overlap, not containment: a track brackets the freeze it sits in,
+        because the entry is detected on the last moving frame before and the
+        first after. The corpus's longest track (59c70f1ef720, 2197.0-2215.5s)
+        overhangs its frozen run at both ends by one sample and strict
+        containment scored it 0.
+        """
+        span = e['t_last'] - e['t_first']
+        if span <= 0:
+            return False
+        cover = sum(max(0.0, min(e['t_last'], f['end_ms'])
+                        - max(e['t_first'], f['start_ms'])) for f in frozen)
+        return cover / span >= 0.5
+    long_ = [e for e in ev if e['n_obs'] > med + 6]
+    return dict(
+        counted=len(ev), median_samples=med,
+        no_divider=[dict(t_first=e['t_first'], t_last=e['t_last'],
+                         n_obs=e['n_obs'], slot=e['slot'])
+                    for e in ev if e['sig'] is None],
+        over_long=[dict(t_first=e['t_first'], t_last=e['t_last'],
+                        n_obs=e['n_obs'], inside_frozen_frame=in_freeze(e))
+                   for e in long_],
+        over_long_inside_frozen=sum(in_freeze(e) for e in long_),
+        frozen_runs=len(frozen),
+        frozen_seconds=round(sum(f['end_ms'] - f['start_ms']
+                                 for f in frozen) / 1000.0, 1))

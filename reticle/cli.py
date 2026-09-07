@@ -1575,7 +1575,8 @@ def cmd_audit(args) -> int:
     """Localize score/roster disagreements without decoding or human labels."""
     import json
     import pyarrow.parquet as pq
-    from .reconciliation import audit_scoreline, audit_roster_deltas
+    from .reconciliation import (audit_scoreline, audit_roster_deltas,
+                                 killfeed_health)
 
     store = Store(args.store)
     sessions = ([_resolve_session(store, args.session)] if args.session else store.sessions())
@@ -1588,14 +1589,21 @@ def cmd_audit(args) -> int:
         hud = pq.ParquetFile(hp).read()
         roster = pq.ParquetFile(rp).read() if rp.is_file() else None
         score, counts = audit_scoreline(hud), audit_roster_deltas(hud,roster)
+        kf = killfeed_health(hud)
         reports.append(dict(session_id=sid, scoreline=score, roster=counts,
-                            audit_version='audit-0.2.0',
+                            killfeed=kf,
+                            audit_version='audit-0.3.0',
                             hud_metadata={k.decode():v.decode() for k,v in (hud.schema.metadata or {}).items()},
                             roster_metadata={k.decode():v.decode() for k,v in
                                              ((roster.schema.metadata or {}) if roster is not None else {}).items()},
                             roster_current=store.has_roster(sid,date)))
         print(f"{sid}: score boundaries {score['raw_boundaries']} raw / "
               f"{score['confirmed_boundaries']} confirmed; roster {counts['counts']}")
+        print(f"           killfeed {kf.get('counted',0)} counted, "
+              f"{len(kf.get('no_divider',[]))} never formed a divider, "
+              f"{len(kf.get('over_long',[]))} over-long "
+              f"({kf.get('over_long_inside_frozen',0)} on a frozen frame); "
+              f"{kf.get('frozen_seconds',0)}s frozen")
     target = Path(args.out) if args.out else store.root / 'analysis' / (
         f"reconciliation-{sessions[0]['session_id']}.json" if args.session else 'reconciliation.json')
     target.parent.mkdir(parents=True,exist_ok=True)

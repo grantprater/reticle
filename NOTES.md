@@ -86,22 +86,45 @@ correctly reads 0 from 158s and 5 at 176s. That is not a roster error -- it is
 round's real end. The audit has stopped flagging the roster and started flagging
 round timing, which is item 3 below.
 
-**2. The six unresolved windows** on 587c15b07779 -- 207.5-217.5, 314.5-324.5,
-773-783, 1009.5-1019.5, 1375-1385, 1464-1474s -- plus c40d950031bb's two. Cheap
-once (1) lands, because the answer to "did the rule change this window?" is then
-a stored-data question.
+**2. DONE 2026-09-07 -- every unresolved window is diagnosed, and NOT ONE is a
+roster error.** All seven on 587c15b07779 and all three on c40d950031bb were
+inspected by rendering the killfeed. Three are the documented **Run It Back**
+divergence (the local player is Phoenix on that session), three are killfeed
+tracker defects, and two are an onset landing across a window boundary. Full
+table in `docs/ROSTER_FINDINGS.md`.
+
+**The consequence is a re-ranking: the work is in the KILLFEED, not the
+roster.** And the revive-mark reader -- CLAUDE.md's candidate next step #2 -- is
+now the highest-value addition on evidence rather than argument: it resolves 3
+of the 7 windows outright, on top of the K/D divergences it was already wanted
+for. The marks all sit right of the weapon icon and detecting *a* badge needs no
+icon list.
+
+`reticle audit` is `audit-0.3.0` and now reports killfeed health from stored L1:
+counted tracks that never formed a divider (61 corpus-wide) and tracks lasting
+far past the ~4.5s entry lifetime (83, only 6 of them explained by a frozen
+frame). **CLAUDE.md's "there are now none anywhere" about long tracks is false
+-- there are 154 over 12 samples.**
 
 **3. Round and POV gates.** 111 of 543 coaching events sit near an uncertain
 round boundary; that is 20% and the largest quality number the first milestone
 produced. Do not require two score reads: it drops two final-round outcomes.
 
-Two free instruments for this arrived from the roster work, both from stored
-data: `round_bounds` starts a round at a score increment, which lands in the buy
-phase where the bar is not drawn -- so the roster's own readable/unreadable
-boundary is an independent read on where a round really starts. And a repeated
-BYTE-IDENTICAL detail vector is a frozen frame, i.e. a static post-round screen,
-detectable with no threshold (587c15b07779 holds one for eleven samples from
-164.0s).
+The frozen-frame instrument was built (`reconciliation.frozen_runs`, no
+threshold: every HUD column equal sample to sample) and **MEASURED NOT TO WORK
+for this**: only 8% of derived round starts fall inside a run of >= 5s, and the
+median run sits 25s from the nearest one. It stays because it separates a merged
+killfeed track from an entry held on a paused screen, and because 2.8% of
+derived in-round time is a frame that never changed -- a coaching-state
+eligibility question. Do not retry it as a boundary detector.
+
+Also measured and negative: **the killfeed is not systematically late.** Over
+182 in-round roster drops matched to their nearest onset the lag is median
++0.00s, p90 +0.50s, and 98% fall inside the audit's existing +/-1.0s. The 2.5s
+case on c40d950031bb is a 2% tail. Do not widen `ENTRY_ALIGNMENT_MS`.
+
+So the roster's wipe->full transition is still the untried lead for round
+boundaries, and it is the next thing to build.
 
 Everything after that is in `BACKLOG.md`. The minimap channel is a separate
 thread and its handoff is below, unchanged: `doctor` still reports 35/36 stale
