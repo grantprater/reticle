@@ -355,11 +355,21 @@ a barrier detector must measure the bar on its own colour rather than on this.
 once per map and side rather than detected per session -- they are in the same
 place every round, they are drawn in team colour so they key as ally on every
 map, and they exist only during the buy phase. Baked, a keyed blob at a barrier
-anchor during the buy phase is explained instead of quarantined. One further
-use worth testing, and it is free: a barrier is a landmark at a KNOWN map
-position appearing at a KNOWN phase, so it is a per-round check that the stored
-geometry is still aligned -- the kind of independent check nothing currently
-has.
+anchor during the buy phase is explained instead of quarantined. The player has
+also already made the point that a barrier is a PHASE LANDMARK -- a known
+position appearing at a known phase -- so it can check that the stored geometry
+is still aligned, per round, for free. That is his, not a suggestion from here.
+
+**And barriers were not an unknown: `minimap.py` has named them since it was
+written.** Lines 734-739 list three confirmed false-positive classes -- "the
+teal SPAWN BARRIERS drawn across doorways in buy phase, the blue X marks a
+teammate death leaves, and green scenery reaching the key through the
+semi-transparent widget" -- and this session rediscovered all three from
+pixels: the scenery one became the slab-support rule, the barrier one became a
+110-observation quarantine I asked the player to identify, and the death X
+marks are the untested third. **The fixes are new; the identifications were
+not.** Read the owning module's own recorded failure classes before treating a
+detection as unexplained.
 
 ### The timestamps these were answered from
 

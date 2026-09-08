@@ -373,12 +373,16 @@ Measured anchors on `96aa1ae9b96f` (331 px widget), from components keyed in
 the detector must measure the bar on its own colour. And the set is per map AND
 per side: this is the ATTACK set.
 
-Two things it buys. A keyed blob at a barrier anchor during the buy phase stops
-being an unexplained appearance, which removes a phantom class from every map
-rather than one window. And a barrier is a landmark at a known position
-appearing at a known phase, so it is a free per-round check that the stored
-geometry is still aligned -- worth testing, nothing has an independent check
-like that today.
+Two things it buys, and the player has raised both. A keyed blob at a barrier
+anchor during the buy phase stops being an unexplained appearance, which
+removes a phantom class from every map rather than one window. And a barrier is
+a PHASE LANDMARK -- a known position at a known phase -- so it is a free
+per-round check that the stored geometry is still aligned.
+
+**Note this class was never unknown.** `minimap.py` 734-739 has listed the buy
+phase's teal spawn barriers as a confirmed false-positive class since it was
+written, alongside the death X marks and scenery through the semi-transparent
+widget. What is missing is the map state, not the identification.
 
 **Trigger: the next map-state pass.** It belongs with the geometry npz, keyed
 `<map>__<profile>` like everything else, not per session.
