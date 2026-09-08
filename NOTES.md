@@ -11,7 +11,115 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-08, entity lifetimes and evidence-based teleports
+## PICKING UP -- 2026-09-08, two full rounds rendered end to end
+
+**Both rounds are on disk and both are complete**, which is the deliverable
+`docs/FULL_ROUND_LIFETIMES.md` was written for; that document now carries the
+results and the exact reproduction commands, so read it before this.
+
+    ~/reticle-store/notes/lotus-round15-20260908    100.5 s, 6030/6030 frames
+    ~/reticle-store/notes/sunset-round6-20260908     79.0 s, 4740/4740 frames
+
+Both at 10 Hz detection over 60 Hz video with source audio, 0 ms stalled, each
+with `observations.jsonl`, `lifetimes.json`, `coverage.json`, `provenance.json`
+and a `review.html` that passes `tests/review_harness.cjs`.
+
+### What holds for a whole round, and what does not
+
+**The three classes with an independent witness hold; nothing else does.**
+
+    self       one entity for the entire round, on BOTH maps
+    barrier    every observation in buy phase, none in live or post-plant
+               (1,950 on Lotus, 2,625 on Sunset) -- the phase rule separates
+               completely, and this is the payoff of naming the glyph
+    spike      Lotus: 239 of 240 observations post-plant, the odd one at the
+               boundary. Sunset: ONE observation in a round with no plant, so
+               the HUD flag has a 1-in-790 false positive
+
+Against that, 1,228 entity hypotheses for the Lotus round and 1,691 for the
+shorter Sunset one. 1,082 of Lotus's are `object?`/`outline?` -- unresolved
+classes rather than wrong answers -- and 492 of those are seen exactly once.
+Four allies over 100 s arrive as 81 hypotheses.
+
+### THE DEFECT TO FIX FIRST: the motion law goes vacuous at 14.6 s
+
+A long-gap re-acquisition is admitted on APPEARANCE similarity whenever the
+motion law does not refuse it. The walker class is 45 px/s and the widget
+diagonal is 658 px, so past
+
+    dt = 658 / 45 = 14.6 s
+
+`admits` returns True for every position on the map and a colour histogram at
+0.85 is the whole gate. Counting accepted continuations across a gap over a
+second:
+
+    lotus R15     7 links,  0 past 14.6 s   longest gap  9.7 s
+    sunset R6    64 links, 31 past 14.6 s   longest gap 76.9 s
+
+61 of Sunset's 64 are ENEMIES, which is where it bites: an enemy icon is drawn
+only while revealed, so its observations are sparse by nature and the appearance
+branch is reached constantly. `E0026` is three observations spanning 77.0 s
+across one 76.9 s gap -- an icon at round start and an icon at round end, called
+the same enemy. `docs/FULL_ROUND_LIFETIMES.md` forbids exactly this:
+*reacquisition must be unique under the motion law or an independent identity
+witness*.
+
+**Lotus alone would have said this was fine.** Render the second round.
+
+The bound is DERIVED (`diagonal / max_px_s`), not tuned, so the fix does not
+need a threshold search -- it needs a decision about what happens past it:
+refuse, or keep the link and say out loud that appearance is carrying it alone.
+Measure against both rounds; `python -m reticle.round_lifetimes DIR --out X`
+replays the whole adjudication from stored observations in 50 s without
+decoding a frame, and reproduces `lifetimes.json` byte for byte.
+
+### Then: the roster gate is limited by the SELF icon, not by the roster
+
+Capacity is `alive_ally - 1` because the roster counts the player, so it needs
+an observed self. 18-21% of ally observations get `roster_unknown` for want of
+one:
+
+    lotus   2,333 slot_available / 527 roster_unknown / 73 count_conflict
+    sunset  1,534 slot_available / 397 roster_unknown / 19 count_conflict
+
+The self icon is absent in 212 of 1005 Lotus samples over 59 runs, the widget
+DRAWN in all but 7 of them, and 79% self coverage repeats almost exactly on
+Sunset (79.4% vs 78.9%) -- so this is the widget, not the detector. The longest
+run (1446.1-1449.3 s) is the source drawing no agent icons at all at round
+start; the pixels show it directly. **The cross-reference is available and not
+built**: the roster already knows whether the player is alive, which separates
+"the widget is not drawing me" from "I am spectating", and `has_self` cannot
+tell those apart today.
+
+### Also measured, not fixed
+
+* **the candidate-parent set never expires** for ally/enemy entities with an
+  appearance vector. It grows 0 -> 166 over the Lotus round while the set seen
+  within the last second stays at 30-50; 61% of the 1.86 M candidate pairs are
+  against entities not seen for over a second, and the render decelerates 4x
+  from the first block of frames to the last;
+* **the review pages are too long to ask for** -- 2,457 and 3,055 candidates,
+  three per entity. The 660 `object?` entities would dominate a player pass.
+  Sample the population before spending anyone's time on it;
+* **`floor_mask_eval reticle.minimap a06f04a0059f` is BROKEN** at the fourth
+  decimal (iou 0.7882 -> 0.788) with its `impl` fingerprint unmoved. The run is
+  2026-09-07T21:58, which is when geometry was re-keyed per (map, profile) --
+  so the likely cause is that the eval's deps do not include the geometry npz
+  it reads. That would make it a MISSING DEPENDENCY rather than an unversioned
+  edit, and the check is behaving correctly. Not confirmed.
+
+### Housekeeping done this session
+
+`reticle/screen.py` was promoted carrying byte-identical copies of
+`hud_mask`, `find_boxes` and `_runs` from `prototypes/enemy_features.py`;
+doctor called it, the copies are gone, and `enemy_detect_eval` still returns
+TP 42 / FN 4 / FP 60 with `enemy_equiv_check` identical on every frame.
+`reticle metrics` no longer raises `KeyError: 'index'`, and no longer announces
+an uncorrected regime change. `round_lifetimes.main` no longer assumes widget
+scale 1.0. `AGENTS.md` is an untracked byte-identical copy of `CLAUDE.md` --
+left alone, but it will drift.
+
+## Superseded today -- 2026-09-08, entity lifetimes and evidence-based teleports
 
 **A teleport is now licensed by CORROBORATION, not by distance.**
 `track.Corroboration` + `corroborates_teleport` is the one rule -- the icon AND
@@ -138,7 +246,7 @@ page cannot show which is which and a page of pure refusals cannot be answered
 "nothing" all the way down. `tools/minimap_sequence_review.py --candidates`
 takes that selection; the page is
 `~/reticle-store/notes/ascent-quarantine-review.html`, 76 questions, and it
-passes `tests/minimap_review_harness.cjs`. Answering it would give a
+passes `tests/review_harness.cjs`. Answering it would give a
 false-refusal rate and a missed-phantom rate rather than a derivation.
 
 **What is still not scored.** Lotus has no quarantines and Ascent now has
@@ -454,14 +562,13 @@ change to `cmd_scan`'s shared pass rather than to each reader, and it wants
 measuring before it ships -- a roster row inside a stall is not wrong about the
 picture, only about the world.
 
-### Next session: full-round lifecycle for every observable entity
+### Next session, as it was framed before the rounds were rendered
 
-The player's framing, and it is the right one: **lifecycle tracking makes sense
-round start -> round end**, not on 2-7 s windows. Capture stalls are a
-missing-data class to work around rather than a defect to fix -- a long one
-loses real information and the channel must say so rather than interpolate
-through it. Start from the roster gate above, and get the two ability glyphs
-named before treating them as phantoms.
+The player's framing, and it was the right one: **lifecycle tracking makes
+sense round start -> round end**, not on 2-7 s windows. Capture stalls are a
+missing-data class to work around rather than a defect to fix. DONE -- both
+rounds above are rendered, and 21 of the 22 complete rounds across the two
+recordings have no stalled capture at all, so the stall constraint never bound.
 
 ### Earlier increment
 
