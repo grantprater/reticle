@@ -190,8 +190,27 @@ Post-plant the round clock is replaced by the spike timer and is unreadable in
 every one of the 541 frames, exactly as the player said -- so the pixel delta
 stays as the fallback and every row records WHICH witness the answer rests on.
 A ticking clock refutes a stall whatever the pixels look like, and that is what
-removed 15 single-frame false positives from the death window. The freeze the
-player put at 7:03-7:06 is really 421.0-427.4, 6.4 s.
+removed 15 single-frame false positives from the death window.
+
+**Both stalls are longer than the windows above, which were CLIPPING them.**
+Rescanned at 5 Hz over 390-430 and 695-725:
+
+    stall     video               length   state during it
+    first     407.2 - 427.6 s     20.4 s   BUY PHASE, clock stuck at 0:14
+    second    706.8 - 712.8 s      6.0 s   post-plant, no clock at all
+
+So a window chosen around a stall has to be wider than the stall or the figure
+is a lower bound. Say which it is when quoting one.
+
+**NO TIME IS LOST, and I nearly reported that it was.** The clock resumes at
+1:32 of the next round, which looked like a whole round had passed unrecorded.
+Looking at the frames settles it: 0:14 is the BUY PHASE timer (the "BUY PHASE"
+banner is on screen, knife out, combat report open), so 14 s of buy plus 8 s
+into a 1:40 round is ~22 s of real time against ~20.4 s of video. The score is
+1-2 on both sides of it, so no round completed. **The picture is stale; the
+timeline is not.** The inference that ~45 s had vanished came from assuming
+0:14 was a round timer, and the unchanged score was the clue that said
+otherwise.
 
 **The self icon is now chosen by the TRACK, not by one frame's coverage.** The
 overlay took the highest-`cov` self candidate per frame, before the tracker saw
