@@ -24,6 +24,69 @@ Both at 10 Hz detection over 60 Hz video with source audio, 0 ms stalled, each
 with `observations.jsonl`, `lifetimes.json`, `coverage.json`, `provenance.json`
 and a `review.html` that passes `tests/review_harness.cjs`.
 
+### Identity rides every scan now: `reticle/lineup.py`
+
+The player's spec, and it is right on all three counts: *"default to getting
+roster for identity and wire it in for events. Every scan that's not just
+testing one specific thing. Every time. It doesn't even need scoreboard, just
+the top bar, and continue checking on different, spaced frames until we have
+high enough confidence."*
+
+**The top bar needs no Tab press and is drawn every frame**, so `LineupReader`
+joins the shared pass at 0.1 Hz and costs no decode of its own. On by default;
+`--only` narrows a scan to one thing and is left alone, `--no-lineup` opts out.
+Output is `~/reticle-store/lineups/<session>.json`.
+
+**Composition against OFFICIAL ART -- no session mining, no labels.**
+`reference/assets/agents` holds 29 agents x 3 surfaces (`agent_icon`,
+`killfeed_portrait`, `minimap_portrait`); the three are independent drawings of
+one thing so their intersection scores are summed. A histogram is layout-free,
+which is also why the enemy bar being mirrored costs nothing.
+
+**The MARGIN is the confidence, and it separates completely.** Lotus
+`7010b3d62460`, 90 spaced frames, ground truth from the buy menu (Phoenix,
+Cypher, Chamber, Sage, Brimstone):
+
+    slot 1  Sage      margin 0.132   correct
+    slot 2  Phoenix   margin 0.109   correct
+    slot 4  Cypher    margin 0.109   correct
+    slot 0  --        margin 0.035   REFUSED (best guess Sova; truth Chamber,
+                                     which is the runner-up)
+    slot 3  --        margin 0.031   REFUSED (best guess Raze; truth Brimstone)
+
+Three named, all three right; two refused, and they are exactly the two that
+would have been wrong. `MARGIN_MIN` is PROVISIONAL -- one lineup, five slots --
+so every verdict carries its margin and keeps its best guess beside the refusal.
+
+Two constraints do real work: the five slots are five DIFFERENT agents, so the
+verdict is an assignment rather than five arg-maxes (`track.assign`, the same
+solver the tracker uses on icons); and scores accumulate rather than votes,
+because an argmax per frame throws away the closeness that is the only thing
+here that knows whether the answer is worth having.
+
+**Sunset corroborates from a direction the reader cannot see.** It names Neon
+(0.153) and Jett (0.131) on the ally side, and the player -- watching the same
+round before any of this existed -- called out *"neon's vision cone"* and *"the
+ally kay/o knife"*. `KAY_O` is the reader's best guess for ally slot 4 at 0.068,
+a hair under the cut. The enemy side names nothing at all: every slot is under
+the margin, so it says so rather than inventing five agents.
+
+**`agent:ability` is a lookup, not a matcher.** `reference/abilities.json` has
+29 agents and every ability's slot key, so a known agent turns the HUD tray
+into `phoenix:blaze`, `phoenix:hot hands`, `phoenix:curveball`,
+`phoenix:run it back` -- the same lowercase form
+`labels/ability_categories.json` already uses by hand. The Lotus tray reads
+Blaze / Hot Hands / Curveball and the ult banner reads "Run it Back", so the
+TRAY is a second, independent witness to the player's own agent, and it needs
+no portrait matching at all. Not yet wired into the overlay's naming.
+
+**What I got wrong before measuring.** I said there was no identity witness and
+that `agent:ability` was blocked. Both false: `minimap_portrait` scores 83.5%
+held-out / 88.6% leave-one-out over five agents, the 28 `ability-demo` sessions
+each carry their agent as a manifest tag, `casts/` holds their C/Q/E/X events,
+and the round pipeline was already computing `composition()` per icon and
+throwing the matching step away. It was never a capability gap, only wiring.
+
 ### ONE support surface, because the mask was a per-call-site accident
 
 The player: *"Shouldn't all the detectors be using slab?"* Yes, and the split

@@ -41,6 +41,7 @@ from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_
 from .overlay import OverlayContext, draw
 from .passes import SessionContext, run as passes_run
 from .ping import LIFETIME_S, PingReader
+from .lineup import LineupReader
 from .roster import RosterReader
 from . import stalls
 from .ocr import (GLYPH_H, GLYPH_W, Templates, cluster_glyphs, crop_gray,
@@ -741,6 +742,11 @@ def cmd_scan(args) -> int:
             "the manifest records where it was at ingest time"
         )
     channels = set(args.only or ('hud', 'minimap', 'ping', 'roster'))
+    # IDENTITY RIDES EVERY SCAN. The top bar is drawn on every frame, so naming
+    # the ten agents costs no decode of its own -- it joins the pass at 0.1 Hz.
+    # A scan narrowed with `--only` is testing one specific thing and is left
+    # alone; anything else reads the lineup unless `--no-lineup` says not to.
+    want_lineup = args.lineup and not args.only
     spans = _active_spans(store, sid, date) if channels & {'minimap', 'ping'} else []
     fps = float(src["fps"])
 
@@ -797,7 +803,8 @@ def cmd_scan(args) -> int:
     rp = (RosterReader(profile, ctx.wh, hz=args.hz, spans=None)
           if want_roster else None)
 
-    readers = [r for r in (hp, mp, pp, rp) if r is not None]
+    lp = (LineupReader(profile, ctx.wh, store.root) if want_lineup else None)
+    readers = [r for r in (hp, mp, pp, rp, lp) if r is not None]
 
     t0 = time.perf_counter()
     last = [t0]
@@ -838,6 +845,21 @@ def cmd_scan(args) -> int:
               f"({mp.n_absent / len(mp.rows) * 100:.1f}%)")
         print(f"           self raw {got}/{len(mp.rows)} "
               f"({got / len(mp.rows) * 100:.1f}%)")
+    if lp is not None:
+        import json
+        result = lp.finish()[0]
+        out = store.root / "lineups" / f"{sid}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps({**result, "session": sid}, indent=2),
+                       encoding="utf-8")
+        named = {side: [r["agent"] for r in rows if r["agent"]]
+                 for side, rows in result["sides"].items()}
+        print(f"lineup     {result['frames']} frames -> {out}")
+        for side in ("ally", "enemy"):
+            got = named[side]
+            print(f"           {side} {len(got)}/5 named"
+                  + (f": {', '.join(got)}" if got else
+                     " -- no slot separated from its runner-up"))
     if rp is not None:
         if not rp.rows:
             raise SystemExit("decoded zero frames -- is the file readable?")
@@ -1873,6 +1895,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(ping=True)
     # Same argument as --no-ping: it rides the HUD's own frames, so skipping it
     # saves one Laplacian per frame and nothing else.
+    s.add_argument("--no-lineup", dest="lineup", action="store_false",
+                   help="skip naming the ten agents from the top bar; it "
+                        "otherwise rides every unnarrowed scan for free")
     s.add_argument("--only", nargs="+", choices=("hud", "minimap", "ping", "roster"),
                    help="run only these readers through the shared pass; roster-only needs no minimap geometry")
     s.add_argument("--no-roster", dest="roster", action="store_false",
