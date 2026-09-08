@@ -498,103 +498,13 @@ KER  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (K, K))
 CKER = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (CK, CK*2))
 
 
-def hud_mask(h, w):
-    m = np.ones((h, w), bool)
-    m[:120, :] = False; m[h-190:, :] = False       # top and bottom HUD bands
-    m[:360, :360] = False                          # minimap
-    m[60:360, w-520:] = False                      # killfeed
-    # The player's own weapon: red-rimmed like everything else and in frame
-    # constantly. Persistence cannot find it (the model bobs and sways), so this
-    # is a measured region -- 21% of false positives, 0 of 47 labels. Measured
-    # right-handed; a left-handed view model is the same region mirrored.
-    if HANDED == "right":
-        m[int(h*WEAP[1]):, int(w*WEAP[0]):] = False
-    else:
-        m[int(h*WEAP[1]):, :int(w*(1.0 - WEAP[0]))] = False
-    # Bottom-left corner HUD. Corner, not mid-screen, which is what makes a
-    # positional mask defensible here where it was not for the combat report.
-    m[int(0.75*h):, :int(0.09*w)] = False
-    return m
-
-
-def _runs(b):
-    if not b.any(): return []
-    idx = np.flatnonzero(np.diff(np.concatenate(([0], b.view(np.int8), [0]))))
-    return list(zip(idx[::2], idx[1::2]))
-
-
-def find_boxes(fr):
-    """UI boxes, from the one thing a box has and scenery does not: several
-    horizontal rules of the same width at the same x."""
-    h, w = fr.shape[:2]
-    g = cv2.resize(cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY), (w//SCALE, h//SCALE),
-                   interpolation=cv2.INTER_AREA)
-    hot = np.abs(cv2.Sobel(g, cv2.CV_16S, 0, 1, ksize=3)) > GRAD
-    cand = [(y, a, b)
-            for y in range(120//SCALE, min((h-190)//SCALE, hot.shape[0]))
-            for a, b in _runs(hot[y]) if (b-a)*SCALE >= MINRUN]
-    boxes, used = [], [False]*len(cand)
-    for i, (y, a, b) in enumerate(cand):
-        if used[i]: continue
-        grp = [(y, a, b)]; used[i] = True
-        for j in range(i+1, len(cand)):
-            if not used[j] and abs(cand[j][1]-a) <= TOL and abs(cand[j][2]-b) <= TOL:
-                grp.append(cand[j]); used[j] = True
-        ys = sorted({z[0] for z in grp})
-        if len(ys) >= MINROWS and (ys[-1]-ys[0]) >= MINSPAN:
-            x0 = min(z[1] for z in grp)*SCALE; x1 = max(z[2] for z in grp)*SCALE
-            boxes.append((max(0, x0-PAD), max(0, ys[0]*SCALE-PAD),
-                          min(w, x1+PAD), min(h, ys[-1]*SCALE+PAD)))
-    return boxes
-
-
-def detect(fr):
-    h, w = fr.shape[:2]
-    lab = cv2.cvtColor(fr, cv2.COLOR_BGR2LAB)
-    a = lab[:, :, 1].astype(np.int16)              # red-green opponent axis
-    top = cv2.morphologyEx(lab[:, :, 1], cv2.MORPH_TOPHAT, KER)
-    hsv = cv2.cvtColor(fr, cv2.COLOR_BGR2HSV)
-    hu, sa = hsv[:, :, 0].astype(np.int16), hsv[:, :, 1].astype(np.int16)
-    # Relative test (is this a thin rim) AND absolute (is it the colour at all).
-    # Neither substitutes for the other: top-hat alone fires on a grey line
-    # beside cyan, and an absolute floor alone fires on any terracotta wall.
-    keep = ((top > THR)
-            & ((hu < HUE_ORANGE) | (hu > HUE_MAGENTA))
-            & (sa > SAT) & (a > AST)
-            & hud_mask(h, w))
-    for bx in find_boxes(fr):
-        keep[bx[1]:bx[3], bx[0]:bx[2]] = False
-    # Join the rim into ONE region before measuring it: it is broken by the body,
-    # by limbs and by occlusion. A human is taller than wide, so the kernel is.
-    m = cv2.morphologyEx(keep.astype(np.uint8), cv2.MORPH_CLOSE, CKER)
-    n, lbl, st, _cen = cv2.connectedComponentsWithStats(m, 8)
-    out = []
-    for i in range(1, n):
-        x, y, bw, bh, ar = st[i]
-        if ar < AREA or bh < HMIN: continue
-        # Fragmentation, measured on the RAW rim inside this component -- the
-        # closing above deliberately destroys the very structure this reads, so
-        # it must come from `keep`, not from `m`.
-        raw_i = (keep & (lbl == i))[y:y+bh, x:x+bw].astype(np.uint8)
-        a_raw = int(raw_i.sum())
-        if a_raw >= 10:
-            fn_, _fl, fst, _fc = cv2.connectedComponentsWithStats(raw_i, 8)
-            top1 = (fst[1:, 4].max()/a_raw) if fn_ > 1 else 1.0
-            if top1 > TOP1: continue
-        # Shape tests only where the shape exists. A sliver of an enemy has no
-        # interior to be hollow, and demanding one filters out precisely the
-        # detections that matter most.
-        big = bw >= 14 and bh >= 30
-        if big and not (AR[0] <= bh/max(bw, 1) <= AR[1]): continue
-        ix0, iy0 = x + bw//4, y + bh//4
-        ix1, iy1 = x + bw - bw//4, y + bh - bh//4
-        if bw >= 14 and bh >= 24 and ix1 > ix0 and iy1 > iy0:
-            inner = top[iy0:iy1, ix0:ix1]
-            # the interior must be LESS red than the rim: a model sits inside an
-            # outline, so the middle is the agent, not more outline
-            if inner.size and float((inner > THR).mean()) > 0.45: continue
-        out.append((x, y, bw, bh, ar))
-    return out
+# One implementation: retain the evaluator's historical CLI parameter sweep.
+from reticle import screen as _screen
+for _name in ("THR", "K", "AREA", "HMIN", "CK", "AR", "HUE_MAGENTA",
+              "HUE_ORANGE", "SAT", "AST", "WEAP", "HANDED", "SCALE", "GRAD",
+              "TOL", "PAD", "MINRUN", "MINROWS", "MINSPAN", "TOP1", "KER", "CKER"):
+    setattr(_screen, _name, globals()[_name])
+from reticle.screen import hud_mask, _runs, find_boxes, detect
 
 
 def body_box(px, py):
