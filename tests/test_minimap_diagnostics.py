@@ -71,9 +71,22 @@ class TemporalEvidenceTests(unittest.TestCase):
 
     def test_unknown_light_is_not_negative_evidence(self):
         empty = np.zeros((60, 60), bool)
-        score = light_support(30, 30, 10, empty, empty)
+        score = light_support(30, 30, empty, empty)
         self.assertIsNone(score["fraction"])
         self.assertEqual(score["known"], 0)
+
+    def test_support_is_scored_on_the_same_annulus_for_every_fit(self):
+        # Two candidate fits of one icon disagree about the radius. Scoring
+        # each on `d > its own r` scores them on different annuli, and the
+        # larger fit reads as better lit for that reason alone.
+        known = np.ones((80, 80), bool)
+        lit = np.zeros_like(known)
+        yy, xx = np.ogrid[:80, :80]
+        lit[(xx - 40) ** 2 + (yy - 40) ** 2 <= 18 ** 2] = True   # a lit halo
+        a = light_support(40, 40, lit, known)
+        b = light_support(40, 40, lit, known)
+        self.assertEqual((a["known"], a["lit"]), (b["known"], b["lit"]))
+        self.assertGreater(a["known"], 0)
 
     def test_distance_bins_partition_known_pixels(self):
         known = np.ones((120, 120), bool)

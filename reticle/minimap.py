@@ -435,6 +435,15 @@ def widget_drawn(crop: np.ndarray, sgray: np.ndarray, floor: np.ndarray,
 #
 # This is per-widget-size and must be re-measured if the player changes the slider.
 R_MIN, R_MAX = 8, 13
+#: Two same-role fits closer than this are two fits of ONE icon, not two
+#: icons: the widget cannot draw two of them overlapping and leave two rings
+#: to find. `2 * R_MIN` is the smallest diameter this detector will fit, and
+#: it lands in a measured empty gap -- over the 2 s Ascent window every
+#: same-frame ally pair is either 8.1-9.1 px apart (four of them, and all four
+#: are the same signature: one r=8 fit of area ~100 beside one r=12-13 fit of
+#: area ~20) or at least 45 px apart (77 of them). Nothing at all sits between
+#: 10 and 45 px, so the threshold is not being placed on a slope.
+MIN_ICON_SEPARATION_PX = 2 * R_MIN
 # How far the true centre may sit from the blob's centroid. The triangle drags
 # the centroid toward itself by several pixels, which is the same effect that
 # reported the facing 180 degrees out before it was measured from the hole.

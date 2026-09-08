@@ -31,11 +31,11 @@ same two 2 s 60 Hz windows:
 
     window  metric                  before   after
     ascent  self track keys           13       1     (icon detected in 120/120)
-    ascent  ally track keys           43      20
+    ascent  ally track keys           43      14
     ascent  quarantined obs           55      51
     lotus   self track keys           10       1
-    lotus   ally track keys           11       4
-    lotus   relocation rows, 1 event   6       3
+    lotus   ally track keys           11       2
+    lotus   relocation rows, 1 event   6       2
 
 Three assumptions were the cause and all three are gone:
 
@@ -53,6 +53,19 @@ Three assumptions were the cause and all three are gone:
   missing observation treated as a missing entity, in the module that exists
   to catch that. It now suspends, and elapsed time alone expires.
 
+A fourth was the ally half, and it is a RESOLUTION limit rather than a motion
+one: the widget draws an icon about `2*R_MIN` across, so two same-role fits
+closer than that are two fits of ONE icon and cannot be two entities. The
+Ascent ally arrives as a stable r=8 fit of area ~100 and a second r=12-13 fit
+of area ~20 about 8 px away, alternating frame to frame, and the tracker was
+minting an identity for each. `Tracker.resolve` collapses the same-frame pair
+(keeping the higher `cov`, the detector's own goodness measure) and the birth
+path defers to an unobserved track inside the limit, which is how the
+alternation actually arrives -- one fit at a time. **The measured separation
+gap is what licenses it**: over the Ascent window every same-frame ally pair is
+either 8.1-9.1 px apart (four, all that same signature) or at least 45 px (77),
+with nothing at all between 10 and 45.
+
 Also deduplicated: `track.association_tolerance` is one definition where there
 were three, and the lifecycle's continuation ceiling (`RUN_PX*dt + sqrt(2)`,
 2.2 px at 60 Hz against the tracker's 4.8) was quarantining observations the
@@ -60,35 +73,52 @@ tracker had already associated. `tools/minimap_sequence_summary.py` now replays
 the whole chain -- tracker and lifecycle -- at three error terms and reports
 forced breaks; the throwaway prototype that did this is deleted.
 
-96 tests, `--self-test` PASS, doctor 2 findings / 0 errors.
+**Cone availability FALLS on Lotus allies, 92/92 to 76/92, and that is the
+point.** `resolved_facing` refuses a bearing whose window is ambiguous, and a
+one-sample window has a resultant of 1.0 by construction -- so fragmentation
+was bypassing the ambiguity gate rather than passing it. After the merge the
+16 refusals are concentrated in one track: the post-teleport destination fits,
+which are exactly where the fit is worst. Under-claiming is the rule.
 
-### FIRST THING NEXT SESSION: the Ascent ally churn is a DETECTOR question
+`minimap_diagnostics.light_support` was also not comparable between fits: it
+excluded `d <= r`, the fit's OWN radius, so two candidate fits of one icon were
+scored on different annuli and the one that fitted a larger circle counted less
+of its own dark surroundings. It excludes `R_MAX` now. That artefact was worth
+0.13 of adjacent-lit fraction in the direction that would have promoted the
+weaker fit.
 
-20 ally ids in 2 s is still wrong, and it is **not** an association-law
-failure -- widening the gate further does not fix it and would be tuning the
-wrong channel. The raw detections at ~(138,132) alternate between two fit modes
-of what is almost certainly one icon:
+97 tests, `--self-test` PASS, doctor 2 findings / 0 errors.
 
-    strong   (141,133) r 8-10   cov 0.40-0.52   area 100-135   n=82
-    weak     (134,130) r 11-13  cov 0.25-0.31   area 10-20     n=93
+### FIRST THING NEXT SESSION: score the ascent quarantines
 
-The weak mode is a big circle whose circumference is a quarter covered by ~20
-px of colour, it repeats byte-identically for 20 consecutive frames, and the
-tracker keeps both alive and hands the single detection to whichever is nearer
--- so the ids alternate 1-2-1-2 rather than fragmenting. Deciding which mode is
-the icon is the next question, and it is a second-channel question.
+The 51 remaining Ascent quarantines (37 with unlit reads) are still unscored,
+because the downloaded player answers have not been located. The lifecycle gate
+stays opt-in until they are, and no precision claim should be made from them.
 
-**A caution for whoever picks that up.** Adjacent-lit fraction looks like it
-favours the WEAK mode (median 0.228 vs 0.094, and only 3% fully unlit against
-41%). Do not read that as evidence: `minimap_diagnostics.light_support`
-excludes the disc `d <= r` and keeps `d <= 26*scale`, so a fit with a larger
-radius samples a different annulus. The comparison is confounded by exactly
-the quantity that separates the two modes. Measure it on a matched annulus
-before concluding anything.
+**What the light already says about them, restricted properly.** Pooling by fit
+mode is misleading -- it mixes two locations. Split by place instead:
 
-Not done, and still the gate on the ascent quarantines: the 51 remaining
-(37 with unlit reads) are still unscored, because the downloaded player answers
-have not been located. The lifecycle gate stays opt-in until they are.
+    contested spot (~138,131)   strong n=37  median lit 0.279  zero-lit 0.00
+                                weak   n=87  median lit 0.228  zero-lit 0.00
+    elsewhere                   strong n=45  median lit 0.000  zero-lit 0.76
+                                weak   n= 6  median lit 0.008  zero-lit 0.50
+
+So the light does NOT separate the two fit modes of the real ally -- both sit
+in lit floor, which is why the resolution limit rather than a light gate is
+what fixed the churn. What it does separate is the 51 detections ELSEWHERE,
+three quarters of which have no lit pixel beside them at all. By this repo's
+own rule those are not allies, and they are what the quarantine is catching.
+Scoring them against player answers is the next measurement, not a new gate.
+
+Two risks the new rules carry, both worth a look when a longer window exists:
+
+* the birth path defers to an unobserved track within `2*R_MIN`, so an entity
+  that genuinely appears within 16 px of where a different one was seen inside
+  the 500 ms budget inherits that identity. Nothing in these windows does;
+* `MIN_ICON_SEPARATION_PX` rests on a gap measured on ONE window. Two allies
+  standing together would sit in it. The refusal is the safe direction (one
+  identity where there are two, rather than a phantom), but say so when
+  quoting an ally count.
 
 ### Earlier increment
 

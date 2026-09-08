@@ -7,17 +7,33 @@ from __future__ import annotations
 
 import numpy as np
 
-DIAGNOSTICS_VERSION = "minimap-diagnostics-0.2.0"
+from .minimap import R_MAX
+
+DIAGNOSTICS_VERSION = "minimap-diagnostics-0.3.0"
+
+#: Outer edge of the annulus support is counted over, widget px at scale 1.0.
+SUPPORT_OUTER_PX = 26.0
 
 
-def light_support(x, y, radius, lit, known, scale=1.0):
-    """Count adjacent known floor, excluding the icon's opaque interior."""
+def light_support(x, y, lit, known, scale=1.0):
+    """Count adjacent known floor, excluding the icon's opaque interior.
+
+    **The inner edge is the detector's radius BOUND, not the fit's own
+    radius**, and the difference decides arguments. Two candidate fits of the
+    same icon can disagree about the radius by 4 px, and scoring each on
+    `d > r` scores them on different annuli -- so the one that fitted a larger
+    circle counts less of its own dark surroundings and reads as better lit.
+    In the Ascent window that artefact alone separates two fit modes by 0.13 of
+    adjacent-lit fraction, in the direction that would have promoted the weaker
+    fit. `R_MAX` bounds every icon this detector can find, so excluding it
+    excludes the interior for all of them and the numbers compare.
+    """
     if lit is None or known is None:
         return {"lit": None, "known": None, "fraction": None,
                 "reason": "lighting unavailable"}
     yy, xx = np.ogrid[:lit.shape[0], :lit.shape[1]]
     d2 = (xx - x) ** 2 + (yy - y) ** 2
-    region = known & (d2 > radius ** 2) & (d2 <= (26 * scale) ** 2)
+    region = known & (d2 > (R_MAX * scale) ** 2) & (d2 <= (SUPPORT_OUTER_PX * scale) ** 2)
     n = int(region.sum())
     k = int((region & lit).sum())
     return {"lit": k, "known": n, "fraction": k / n if n else None,

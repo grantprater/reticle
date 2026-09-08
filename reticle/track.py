@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 #: Top speed of a real track, widget px/s. `minimap.RUN_PX`, measured rather
 #: than derived -- every filtered track sits under it and every misdetection
 #: blew far past it. Imported rather than restated so there is one definition.
-from .minimap import RUN_PX
+from .minimap import MIN_ICON_SEPARATION_PX, RUN_PX
 
 #: Ping lifetimes, seconds. `ping.LIFETIME_S`, exact to 0.1 s at a 10 Hz
 #: sample. Imported for the same reason.
@@ -545,9 +545,14 @@ class Tracker:
                  max_facing_age_ms: float = 500.0,
                  bearing_window_ms: float = 200.0, min_resultant: float = 0.5,
                  max_gap_ms: float = 500.0,
-                 position_error_px: float = FIT_ERR_PX):
+                 position_error_px: float = FIT_ERR_PX,
+                 min_separation_px: float = MIN_ICON_SEPARATION_PX):
         self.motion = CLASSES[motion]
         self.scale = scale
+        #: Below this, two same-frame detections are two fits of one icon --
+        #: see `resolve`. 0 disables it, for a caller whose detections are
+        #: known to be one per entity already.
+        self.min_separation_px = min_separation_px
         if max_gap_ms <= 0:
             raise ValueError("max_gap_ms must be positive")
         #: A track expires on ELAPSED TIME and nothing else. It used to expire
@@ -576,6 +581,8 @@ class Tracker:
         self.min_resultant = min_resultant
         self.tracks: list[Track] = []
         self._next = 0
+        #: Detections `resolve` collapsed in the last `step`. A diagnostic.
+        self.merged = 0
 
     def step(self, t_ms: float, dets: list[dict]) -> list[Track]:
         """Feed one frame's detections; returns the tracks alive after it.
@@ -591,6 +598,7 @@ class Tracker:
                                       and t_ms <= self._last_t_ms):
             raise ValueError("tracker timestamps must be finite and strictly increasing")
         self._last_t_ms = t_ms
+        dets, self.merged = self.resolve(dets)
         alive = [t for t in self.tracks if t_ms - t.t_ms <= self.max_gap_ms]
         cost: list[list[float]] = []
         for tr in alive:
@@ -630,6 +638,29 @@ class Tracker:
         for j, d in enumerate(dets):
             if j in taken:
                 continue
+            # **The resolution limit overrides the motion law here.** A
+            # detection this close to a track the widget did not draw a second
+            # icon beside is the SAME icon, refit -- the motion law says a
+            # walker cannot cross 8 px in 17 ms and it is right, but nothing
+            # crossed: the fit moved. Minting an identity instead is what made
+            # one Ascent ally alternate between two of them. Only an
+            # unobserved track is eligible, so this never steals a detection
+            # from an entity that has one of its own this frame.
+            limit = self.min_separation_px * self.scale
+            near = [t for t in alive if t.t_ms != t_ms
+                    and ((d["cx"] - t.x) ** 2 + (d["cy"] - t.y) ** 2) ** 0.5 <= limit]
+            if limit and near:
+                tr = min(near, key=lambda t: (d["cx"] - t.x) ** 2 + (d["cy"] - t.y) ** 2)
+                tr.x, tr.y, tr.t_ms = d["cx"], d["cy"], t_ms
+                tr.r = d.get("r", tr.r)
+                tr.n_obs += 1
+                tr.missed = 0
+                if d.get("facing") is not None:
+                    tr.facing, tr.facing_t_ms = d["facing"], t_ms
+                    tr.history.append((t_ms, float(d["facing"])))
+                    tr.history[:] = [h for h in tr.history
+                                     if t_ms - h[0] <= self.bearing_window_ms]
+                continue
             self._next += 1
             alive.append(Track(
                 tid=self._next, x=d["cx"], y=d["cy"], t_ms=t_ms, r=d.get("r"),
@@ -645,6 +676,40 @@ class Tracker:
         # longer decides anything.
         self.tracks = alive
         return list(self.tracks)
+
+    def resolve(self, dets: list[dict]) -> tuple[list[dict], int]:
+        """Collapse same-frame fits too close to be two icons. `(kept, dropped)`.
+
+        **This is not a detector threshold, it is a resolution limit.** The
+        widget draws an icon about `2*R_MIN` across, so two of them whose
+        centres are closer than that overlap -- and an overlapped pair does not
+        leave two rings to fit, it leaves one blob that the arc search can sit
+        two circles on. The Ascent window shows exactly that: a stable r=8 fit
+        of area ~100 with a second r=12-13 fit of area ~20 about 8 px away,
+        alternating frame to frame, which made the tracker keep two identities
+        alive and hand the single detection to whichever was nearer -- ids
+        alternating 1-2-1-2 for one ally.
+
+        The measured separation gap is what licenses the limit rather than a
+        preference: 8.1-9.1 px or >= 45 px, nothing between. See
+        `minimap.MIN_ICON_SEPARATION_PX`.
+
+        **The fit kept is the one with the higher `cov`**, the detector's own
+        statement of how much of the circle it actually found -- not the
+        larger area, and not the first in the list. Nothing is deleted: the raw
+        detections are stored separately by the diagnostics sidecar, and this
+        decides identity only.
+        """
+        if not self.min_separation_px or len(dets) < 2:
+            return list(dets), 0
+        limit = self.min_separation_px * self.scale
+        kept: list[dict] = []
+        for d in sorted(dets, key=lambda d: -(d.get("cov") or 0.0)):
+            if any(((d["cx"] - k["cx"]) ** 2 + (d["cy"] - k["cy"]) ** 2) ** 0.5 <= limit
+                   for k in kept):
+                continue
+            kept.append(d)
+        return kept, len(dets) - len(kept)
 
     def tolerance(self, track: "Track", det: dict) -> float:
         """This tracker's `association_tolerance` for one track/detection pair."""
@@ -796,7 +861,7 @@ def _self_test() -> int:
 
     # `minimap.filter_track` taking a class. Imported here rather than at the
     # top because `minimap` is what this module imports RUN_PX from.
-    from .minimap import RUN_PX as _RP, filter_track
+    from .minimap import MIN_ICON_SEPARATION_PX, RUN_PX as _RP, filter_track
 
     step = 100.0                       # 10 Hz
     walk = _RP * 0.1 * 0.5             # comfortably inside one step
@@ -864,12 +929,14 @@ def _self_test() -> int:
     # ---- Tracker: identity across frames, and the bearing carry ----------
     tk = Tracker("walker", scale=1.0, max_facing_age_ms=500.0)
     #   two allies approaching each other, then crossing. Greedy swaps them.
+    #   They start further apart than `MIN_ICON_SEPARATION_PX`, because closer
+    #   than that the widget draws one overlapping blob -- see `resolve`.
     tk.step(0.0, [{"cx": 0.0, "cy": 0.0, "facing": 0.0},
-                  {"cx": 10.0, "cy": 0.0, "facing": 180.0}])
+                  {"cx": 40.0, "cy": 0.0, "facing": 180.0}])
     ids0 = sorted(t.tid for t in tk.tracks)
     check("two detections make two tracks", len(ids0), 2)
-    tk.step(100.0, [{"cx": 3.0, "cy": 0.0, "facing": 0.0},
-                    {"cx": 7.0, "cy": 0.0, "facing": 180.0}])
+    tk.step(100.0, [{"cx": 4.0, "cy": 0.0, "facing": 0.0},
+                    {"cx": 36.0, "cy": 0.0, "facing": 180.0}])
     check("and they keep their ids through the approach",
           sorted(t.tid for t in tk.tracks), ids0)
     #   the one that started at 0 is now the one further right.
@@ -923,8 +990,39 @@ def _self_test() -> int:
     tk5.step(400.0, [])
     check("past the elapsed budget it is dropped", len(tk5.tracks), 0)
 
+    # ---- two fits of one icon are not two icons -------------------------
+    # The Ascent signature: a stable r=8 fit of area ~100 with a second
+    # r=12-13 fit of area ~20 about 8 px away. Two identities used to be minted
+    # and the single detection handed to whichever was nearer, so the ids
+    # alternated for one ally.
+    tkr = Tracker("walker", scale=1.0)
+    pair = [{"cx": 141.0, "cy": 133.0, "r": 8, "cov": 0.46, "facing": 0.0},
+            {"cx": 134.0, "cy": 130.0, "r": 12, "cov": 0.27, "facing": 0.0}]
+    kept, dropped = tkr.resolve(pair)
+    check("8 px apart is ONE icon", (len(kept), dropped), (1, 1))
+    check("...and the fit kept is the one with the higher cov",
+          (kept[0]["cx"], kept[0]["r"]), (141.0, 8))
+    check("45 px apart is two", len(tkr.resolve(
+        [pair[0], dict(pair[1], cx=186.0, cy=133.0)])[0]), 2)
+    tkr.step(0.0, pair)
+    tkr.step(16.7, [pair[1], pair[0]])         # the fits swap order
+    check("so one ally does not alternate between two identities",
+          len(tkr.tracks), 1)
+    check("and the merge is reported rather than silent", tkr.merged, 1)
+    #   ...and the alternation that arrives ONE FIT AT A TIME, which is how it
+    #   actually arrives: the two modes are rarely detected in the same frame.
+    tka = Tracker("walker", scale=1.0)
+    tka.step(0.0, [pair[0]])
+    for k in range(1, 8):
+        tka.step(k * 16.7, [pair[k % 2]])
+    check("an alternating fit is one identity, not two", len(tka.tracks), 1)
+    check("...and a fit 45 px away is still a second one",
+          len(tka.step(8 * 16.7, [pair[0], dict(pair[1], cx=186.0, cy=133.0)])), 2)
+
     # The radius the fit reported bounds how far its centre may have slid.
-    tk8 = Tracker("walker", scale=1.0, position_error_px=0.0)
+    # `min_separation_px=0` isolates the tolerance: inside the resolution limit
+    # the rule above would absorb these steps whatever the tolerance said.
+    tk8 = Tracker("walker", scale=1.0, position_error_px=0.0, min_separation_px=0)
     tk8.step(0.0, [{"cx": 0.0, "cy": 0.0, "r": 8, "facing": None}])
     first = tk8.tracks[0].tid
     check("a 4 px step at 60 Hz is not a walk",
@@ -932,7 +1030,7 @@ def _self_test() -> int:
     check("...and with no radius disagreement it breaks the track",
           tk8.step(16.7, [{"cx": 4.0, "cy": 0.0, "r": 8, "facing": None}])[-1].tid != first,
           True)
-    tk9 = Tracker("walker", scale=1.0, position_error_px=0.0)
+    tk9 = Tracker("walker", scale=1.0, position_error_px=0.0, min_separation_px=0)
     tk9.step(0.0, [{"cx": 0.0, "cy": 0.0, "r": 8, "facing": None}])
     check("...while a fit that also moved its radius by 4 px keeps it",
           tk9.step(16.7, [{"cx": 4.0, "cy": 0.0, "r": 12, "facing": None}])[0].tid,

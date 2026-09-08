@@ -159,15 +159,30 @@ which is derived rather than fitted. Track expiry is elapsed time only; the
 frames-missed count made the budget depend on the sample rate. A widget that is
 not drawn suspends the lifecycle rather than wiping identity.
 
+A separate limit closes the ally half, and it is about RESOLUTION rather than
+motion: the widget draws an icon about `2*R_MIN` across, so two same-role fits
+closer than that are two fits of one icon. `Tracker.resolve` collapses the
+same-frame pair, keeping the higher `cov`, and the birth path defers to an
+unobserved track inside the limit -- which is how the alternation arrives, one
+fit at a time. Every same-frame ally pair in the Ascent window is either
+8.1-9.1 px apart or at least 45 px, with nothing between 10 and 45, so the
+limit sits in a measured gap. `light_support` now excludes `R_MAX` rather than
+each fit's own radius, so two candidates are scored on the same annulus.
+
 Re-running the real command on the same two windows: Ascent self track keys
 13 -> 1 (the icon is detected in all 120 frames, so anything above 1 is a
-defect), ally 43 -> 20, quarantines 55 -> 51; Lotus self 10 -> 1, ally 11 -> 4,
-and the six repeated relocation rows for one event fall to three. 96 tests.
+defect), ally 43 -> 14, quarantines 55 -> 51; Lotus self 10 -> 1, ally 11 -> 2,
+and the six repeated relocation rows for one event fall to two. 97 tests.
 
-**The remaining Ascent ally churn is a detector question, not a tracking one**,
-and widening the gate further is the wrong move: the raw detections alternate
-between a strong fit (r 8-10, cov 0.40-0.52, area 100-135) and a weak one
-(r 11-13, cov 0.25-0.31, area 10-20) about 7 px away. Adjacent-lit fraction
-appears to favour the weak mode, but `light_support` excludes `d <= r`, so the
-two modes are scored on different annuli and the comparison is confounded by
-the radius. Match the annulus before concluding.
+**Cone availability falls on Lotus allies, 92/92 to 76/92, and that is the
+gate working**: a one-sample window has a resultant of 1.0 by construction, so
+fragmented tracks were bypassing `resolved_facing`'s ambiguity refusal rather
+than passing it. The 16 refusals concentrate in the post-teleport destination
+fits.
+
+Two limits to carry forward. The birth deferral means an entity appearing
+within `2*R_MIN` of where a different one was seen, inside the gap budget,
+inherits that identity; and the separation gap is measured on one window, so
+two allies standing together would sit inside it. Both fail toward one
+identity rather than a phantom, which is the safe direction, but an ally count
+quoted from this channel should say so.

@@ -321,8 +321,7 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
             fresh = tr.t_ms == t_ms
             det = next((d for d in detections if d["cx"] == tr.x
                         and d["cy"] == tr.y), None) if fresh else None
-            support = light_support(tr.x, tr.y, det["r"] if det else 10 * scale,
-                                    lit, known, scale) if fresh else None
+            support = light_support(tr.x, tr.y, lit, known, scale) if fresh else None
             age = t_ms - tr.t_ms
             label = f"{role[0].upper()}{tr.tid}"
             if not fresh:
