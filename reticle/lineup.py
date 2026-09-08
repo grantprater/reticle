@@ -113,6 +113,11 @@ class Lineup:
         # not detected again here.
         self.self_scores = np.zeros(len(self.names))
         self.self_n = 0
+        # A THIRD witness, and the only one that names the player's agent
+        # outright rather than by elimination.
+        self.tray_votes: dict[str, int] = {}
+        self.tray_frames = 0
+        self._glyphs = None
 
     def add(self, frame: np.ndarray, profile, w: int, h: int) -> bool:
         rois = dict(zip(("ally", "enemy"), roster_rois(profile, w, h)))
@@ -150,6 +155,23 @@ class Lineup:
                                        for g in self.gal[n])
         self.self_n += 1
 
+    def add_tray(self, frame, store, margin_min: float = MARGIN_MIN) -> None:
+        """Vote from the player's own ability tray, when it is readable."""
+        if self._glyphs is None:
+            self._glyphs = load_glyph_gallery(store)
+        agent, _, margin = tray_vote(frame, self._glyphs)
+        self.tray_frames += 1
+        if agent and margin >= margin_min:
+            self.tray_votes[agent] = self.tray_votes.get(agent, 0) + 1
+
+    def tray_verdict(self):
+        """`(agent, votes, total_votes)` -- the tray's own answer, unmixed."""
+        if not self.tray_votes:
+            return None, 0, 0
+        total = sum(self.tray_votes.values())
+        agent = max(self.tray_votes, key=self.tray_votes.get)
+        return agent, self.tray_votes[agent], total
+
     def player(self, side: str = "ally", margin_min: float = MARGIN_MIN) -> dict:
         """Which slot the player is, from the top bar AND the self icon.
 
@@ -164,17 +186,53 @@ class Lineup:
         different questions and pooling them would let a confident answer to
         one paper over silence on the other. Disagreement is kept.
         """
-        if not self.self_n:
-            return {"slot": None, "agent": None, "reason": "no self icon seen",
+        tray_agent, tray_votes, tray_total = self.tray_verdict()
+        if not self.self_n and not tray_agent:
+            return {"slot": None, "agent": None,
+                    "reason": "no self icon and no readable tray",
                     "witnesses": {}}
+        rows_all = self.verdict(side, margin_min=0.0)
+        gated_all = self.verdict(side, margin_min=margin_min)
+        # THE TRAY FIRST when it has spoken: it names the agent outright, where
+        # the self icon only ranks the five the top bar proposes. If that agent
+        # is on the team, the slot holding it is the player and no elimination
+        # is needed.
+        if tray_agent:
+            hit = next((r for r in rows_all if r["agent"] == tray_agent), None)
+            if hit is not None:
+                return {
+                    "slot": hit["slot"], "agent": tray_agent,
+                    "margin": None, "self_frames": self.self_n,
+                    "decided_by": "ability_tray",
+                    "witnesses": {
+                        "tray": {"agent": tray_agent,
+                                 "votes": f"{tray_votes}/{tray_total}",
+                                 "frames_offered": self.tray_frames},
+                        "top_bar": {"agent": gated_all[hit["slot"]]["agent"],
+                                    "margin": gated_all[hit["slot"]]["margin"]},
+                    },
+                    # ABSTAINED is not DISAGREED. The top bar refusing a slot
+                    # for want of margin says nothing against the tray, and
+                    # collapsing the two into a boolean would report a conflict
+                    # where there is only silence.
+                    "agree": ("agrees" if gated_all[hit["slot"]]["agent"] == tray_agent
+                              else "abstained" if gated_all[hit["slot"]]["agent"] is None
+                              else "DISAGREES"),
+                    "reason": None,
+                }
+        if not self.self_n:
+            return {"slot": None, "agent": None,
+                    "reason": f"tray says {tray_agent}, which no {side} slot "
+                              f"proposes, and there is no self icon",
+                    "witnesses": {"tray": {"agent": tray_agent}}}
         s = self.self_scores / self.self_n
         by_name = {n: float(s[j]) for j, n in enumerate(self.names)}
-        rows = self.verdict(side, margin_min=0.0)      # ungated: candidates only
+        rows = rows_all                                # ungated: candidates only
         ranked = sorted(((by_name.get(r["agent"], 0.0), r) for r in rows),
                         key=lambda t: -t[0])
         best, runner = ranked[0], ranked[1] if len(ranked) > 1 else (0.0, None)
         margin = best[0] - runner[0]
-        gated = self.verdict(side, margin_min=margin_min)
+        gated = gated_all
         top_bar_named = gated[best[1]["slot"]]["agent"]
         ok = margin >= margin_min
         return {
@@ -182,6 +240,7 @@ class Lineup:
             "agent": best[1]["agent"] if ok else None,
             "margin": round(margin, 4),
             "self_frames": self.self_n,
+            "decided_by": "self_icon_among_top_bar_candidates",
             "witnesses": {
                 "top_bar": {"agent": top_bar_named,
                             "margin": gated[best[1]["slot"]]["margin"]},
@@ -190,8 +249,8 @@ class Lineup:
                                   by_name, key=lambda n: -by_name[n]).index(
                                       best[1]["agent"])},
             },
-            "agree": top_bar_named is not None
-                     and top_bar_named == best[1]["agent"],
+            "agree": ("agrees" if top_bar_named == best[1]["agent"]
+                      else "abstained" if top_bar_named is None else "DISAGREES"),
             "reason": None if ok else
                       f"margin {margin:.3f} below {margin_min} across the "
                       f"{side} slots",
@@ -246,16 +305,24 @@ class LineupReader:
         self.name, self.hz, self.spans = name, hz, spans
         self.profile = profile
         self.w, self.h = wh
+        self.store = store
         self.state = Lineup(load_gallery(store))
 
     def feed(self, smp) -> None:
         self.state.add(smp.frame, self.profile, self.w, self.h)
+        # The same frame carries the player's own tray. Reading it here costs
+        # nothing extra and is the one witness that names the agent outright.
+        self.state.add_tray(smp.frame, self.store)
 
     def finish(self):
+        agent, votes, total = self.state.tray_verdict()
         return [{"version": LINEUP_VERSION, "frames": self.state.frames,
                  "margin_min": MARGIN_MIN,
                  "sides": {side: self.state.verdict(side)
-                           for side in ("ally", "enemy")}}]
+                           for side in ("ally", "enemy")},
+                 "tray": {"agent": agent, "votes": votes, "total": total,
+                          "frames_offered": self.state.tray_frames},
+                 "player": self.state.player("ally")}]
 
 
 def read_session(session: str, store, frames: int = 90, cap=None):
@@ -282,6 +349,7 @@ def read_session(session: str, store, frames: int = 90, cap=None):
             ok, fr = cap.read()
             if ok:
                 state.add(fr, profile, src["width"], src["height"])
+                state.add_tray(fr, store)
     finally:
         if own:
             cap.release()
@@ -304,7 +372,17 @@ def main(argv=None):
     store = Store().root
     state = read_session(args.session, store, args.frames)
     rows = {side: state.verdict(side) for side in ("ally", "enemy")}
+    player = state.player("ally")
+    agent, votes, total = state.tray_verdict()
     print(f"{args.session}: {state.frames} frames sampled")
+    print(f"  tray   {agent or '--'} ({votes}/{total} votes over "
+          f"{state.tray_frames} frames offered)")
+    print(f"  PLAYER {player.get('agent') or '--'}"
+          + (f", ally slot {player['slot']}" if player.get("slot") is not None else "")
+          + f"   decided by {player.get('decided_by', '--')}"
+          + (f"   [top bar agrees: {player.get('agree')}]"
+             if player.get("witnesses", {}).get("top_bar") else "")
+          + (f"   ({player['reason']})" if player.get("reason") else ""))
     for side in ("ally", "enemy"):
         named = sum(1 for r in rows[side] if r["agent"])
         print(f"  {side} ({named}/{N_SLOTS} named)")
@@ -323,13 +401,15 @@ def main(argv=None):
                                    "session": args.session,
                                    "frames": state.frames,
                                    "margin_min": MARGIN_MIN,
-                                   "sides": rows}, indent=2), encoding="utf-8")
+                                   "sides": rows,
+                                   "tray": {"agent": agent, "votes": votes,
+                                            "total": total,
+                                            "frames_offered": state.tray_frames},
+                                   "player": player}, indent=2), encoding="utf-8")
         print(f"  wrote {out}")
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
 
 
 #: Asset filenames cannot hold "/", so the art is `KAY_O` where the reference
@@ -365,3 +445,115 @@ def ability_label(agent: str, key: str, store) -> str | None:
         return None
     name = abilities_for(agent, store).get(key)
     return f"{agent.lower()}:{name.lower()}" if name else None
+
+
+# ---------------------------------------------------------------------------
+# The ability tray: the player's own four glyphs, and the strongest witness of
+# the three -- large, unoccluded, and drawn every frame the HUD is up.
+# ---------------------------------------------------------------------------
+
+#: A glyph is a symbol with background around it, so a mask that fills most of
+#: its cell has stopped being a glyph. This is STRUCTURE, not a cut fitted to an
+#: answer, and it is the whole difference between the witness working and lying:
+#: an absolute brightness threshold floods when the world behind the HUD is
+#: bright, and on Lotus's sandy buy phase it filled 79-97% of every cell and
+#: named the wrong agent at a margin that would have cleared any gate. With the
+#: fill gate the same sessions vote 22/22 correct and refuse the rest.
+GLYPH_FILL = (0.04, 0.45)
+
+#: Tray cell, in source pixels. `prototypes/ability_hud` owns the geometry.
+TRAY_TOP, TRAY_BOTTOM, TRAY_HALF_W = 974, 1031, 30
+
+
+def _binary_shape(mask, size=48):
+    ys, xs = np.where(mask)
+    if not len(xs):
+        return None
+    crop = mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1].astype(np.uint8) * 255
+    return cv2.resize(crop, (size, size),
+                      interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+
+
+def load_glyph_gallery(store) -> dict[str, dict[str, np.ndarray]]:
+    """`{agent: {slot key: shape}}` from the official ability art."""
+    import json
+    root = Path(store)
+    ref = json.loads((root / "reference" / "abilities.json")
+                     .read_text(encoding="utf-8"))["agents"]
+    art = root / "reference" / "assets" / "abilities"
+    asset = {v: k for k, v in ASSET_TO_AGENT.items()}
+    out: dict[str, dict[str, np.ndarray]] = {}
+    for agent, entry in ref.items():
+        stem = asset.get(agent, agent)
+        per = {}
+        for ab in entry.get("abilities", []):
+            key, slot = ab.get("key"), ab.get("slot")
+            if not key or not slot:
+                continue
+            im = cv2.imread(str(art / f"{stem}_{slot}.png"), cv2.IMREAD_UNCHANGED)
+            if im is None:
+                continue
+            m = ((im[:, :, 3] > 96) if im.shape[2] == 4
+                 else (cv2.cvtColor(im, cv2.COLOR_BGR2GRAY) > 96))
+            shape = _binary_shape(m)
+            if shape is not None:
+                per[key] = shape
+        if per:
+            out[agent] = per
+    return out
+
+
+def tray_shapes(frame: np.ndarray) -> dict[str, np.ndarray]:
+    """The player's tray glyphs this frame, or fewer when the mask is unusable.
+
+    Refusing a cell is the point: a flooded mask still produces a confident
+    nearest neighbour, and confidence computed from garbage is worse than
+    silence.
+    """
+    import sys
+    root = Path(__file__).resolve().parent.parent
+    if str(root / "prototypes") not in sys.path:
+        sys.path.insert(0, str(root / "prototypes"))
+    from ability_hud import SLOT_X0, SLOT_DX, SLOT_KEYS
+    cell = (TRAY_BOTTOM - TRAY_TOP) * 2 * TRAY_HALF_W
+    out = {}
+    for i, key in enumerate(SLOT_KEYS):
+        cx = SLOT_X0 + SLOT_DX * i
+        patch = frame[TRAY_TOP:TRAY_BOTTOM, cx - TRAY_HALF_W:cx + TRAY_HALF_W]
+        if patch.size == 0:
+            continue
+        mask = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY) > 170
+        if not GLYPH_FILL[0] <= mask.sum() / cell <= GLYPH_FILL[1]:
+            continue
+        shape = _binary_shape(mask)
+        if shape is not None:
+            out[key] = shape
+    return out
+
+
+def tray_vote(frame: np.ndarray, glyphs: dict[str, dict[str, np.ndarray]],
+              min_slots: int = 2):
+    """`(agent, score, margin)` from this frame's tray, or `(None, 0, 0)`.
+
+    One slot is not an identification -- several agents share a circle -- so a
+    frame offering fewer than `min_slots` readable glyphs abstains.
+    """
+    shapes = tray_shapes(frame)
+    if len(shapes) < min_slots:
+        return None, 0.0, 0.0
+    scored = {}
+    for agent, per in glyphs.items():
+        common = [k for k in shapes if k in per]
+        if not common:
+            continue
+        scored[agent] = sum(
+            float(np.minimum(shapes[k], per[k]).sum()
+                  / (np.maximum(shapes[k], per[k]).sum() + 1e-6))
+            for k in common) / len(common)
+    if len(scored) < 2:
+        return None, 0.0, 0.0
+    order = sorted(scored, key=lambda a: -scored[a])
+    return order[0], scored[order[0]], scored[order[0]] - scored[order[1]]
+
+if __name__ == "__main__":
+    raise SystemExit(main())

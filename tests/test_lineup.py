@@ -101,13 +101,13 @@ class PlayerCorroborationTests(unittest.TestCase):
         got = st.player("ally")
         self.assertEqual(got["slot"], 3)
         self.assertEqual(got["agent"], "Phoenix")
-        self.assertTrue(got["agree"])
+        self.assertEqual(got["agree"], "agrees")
         self.assertEqual(got["witnesses"]["self_icon"]["agent"], "Sova")
 
     def test_no_self_icon_names_nobody(self):
         got = self.build().player("ally")
         self.assertIsNone(got["slot"])
-        self.assertEqual(got["reason"], "no self icon seen")
+        self.assertEqual(got["reason"], "no self icon and no readable tray")
 
     def test_a_flat_self_witness_refuses_rather_than_picking_slot_zero(self):
         st = self.build()
@@ -124,8 +124,68 @@ class PlayerCorroborationTests(unittest.TestCase):
         # Make the top bar unsure about the slot the self icon lands on.
         st.scores["ally"][3] = [0, 0, 0, 0.50, 0.49, 0]
         got = st.player("ally")
-        self.assertFalse(got["agree"])
+        # The top bar could not separate that slot; that is silence, not
+        # a contradiction, and the two must not read the same.
+        self.assertEqual(got["agree"], "abstained")
         self.assertIsNone(got["witnesses"]["top_bar"]["agent"])
+
+
+class TrayWitnessTests(unittest.TestCase):
+    """The tray names the agent outright, so it decides when it has spoken."""
+
+    def build(self):
+        gal = {n: [np.zeros(4, np.float32)] for n in
+               ("Astra", "Breach", "Cypher", "Phoenix", "Sage", "Sova")}
+        st = lineup.Lineup(gal)
+        st.frames = 1
+        rows = np.zeros((5, 6))
+        for i, j in enumerate((0, 1, 2, 3, 4)):
+            rows[i, j] = 0.9
+            rows[i, (j + 1) % 6] = 0.1
+        st.scores["ally"] = rows
+        return st
+
+    def test_the_tray_decides_and_needs_no_self_icon(self):
+        st = self.build()
+        st.tray_votes = {"Phoenix": 9}
+        st.tray_frames = 12
+        got = st.player("ally")
+        self.assertEqual(got["agent"], "Phoenix")
+        self.assertEqual(got["slot"], 3)
+        self.assertEqual(got["decided_by"], "ability_tray")
+        self.assertEqual(got["self_frames"], 0)
+
+    def test_a_tray_agent_nobody_on_the_team_has_is_refused_not_forced(self):
+        st = self.build()
+        st.tray_votes = {"Sova": 9}       # slot 5 does not exist; five slots only
+        st.tray_frames = 12
+        st.scores["ally"][:, 5] = 0.0     # no slot proposes Sova
+        got = st.player("ally")
+        self.assertIsNone(got["slot"])
+        self.assertIn("no ally slot proposes", got["reason"])
+
+    def test_the_self_icon_still_decides_when_the_tray_is_silent(self):
+        st = self.build()
+        st.self_n = 1
+        st.self_scores = np.array([0.1, 0.1, 0.1, 0.8, 0.1, 0.2])
+        got = st.player("ally")
+        self.assertEqual(got["decided_by"],
+                         "self_icon_among_top_bar_candidates")
+        self.assertEqual(got["agent"], "Phoenix")
+
+    def test_a_glyph_mask_that_fills_its_cell_is_refused(self):
+        # The failure that made this witness lie: a flooded mask still has a
+        # nearest neighbour, and its margin looks healthy.
+        frame = np.full((1080, 1920, 3), 255, np.uint8)     # everything bright
+        self.assertEqual(lineup.tray_shapes(frame), {})
+        dark = np.zeros((1080, 1920, 3), np.uint8)
+        self.assertEqual(lineup.tray_shapes(dark), {})
+
+    def test_one_readable_slot_is_not_an_identification(self):
+        glyphs = {"A": {"C": np.ones((48, 48), np.float32)},
+                  "B": {"C": np.zeros((48, 48), np.float32)}}
+        frame = np.zeros((1080, 1920, 3), np.uint8)
+        self.assertEqual(lineup.tray_vote(frame, glyphs)[0], None)
 
 
 class SlotCropTests(unittest.TestCase):

@@ -42,7 +42,8 @@ from plant_spike import centre_box, spike_cover, COVER_MIN
 from minimap_portrait import composition
 from ability_hud import slot_counts, SLOT_X0, SLOT_DX, SLOT_KEYS
 
-VERSION = "full-round-0.6.0"
+VERSION = "full-round-0.7.0"
+CONE_TINT = (235,180,80)          # the observable area, as `overlay.py` draws it
 PALETTE = {"self":(90,235,250), "ally":(170,240,100), "enemy":(95,90,255),
            "barrier":(255,210,90), "object":(245,140,225),
            "outline":(90,170,255), "hud_ability":(240,190,130),
@@ -126,6 +127,7 @@ class RoundReader:
         # real bars arrived as 57 entities. Render once to calibrate, bake with
         # `python -m reticle.barriers`, render again to observe.
         self.anchors=barriers.load(manifest["session_id"],store.root)
+        self.cone_mask=None
 
     def barrier_candidates(self,crop,t_ms):
         """Phase-conditioned persistent straight bars, retained as candidates.
@@ -175,6 +177,52 @@ class RoundReader:
         # bakes FROM. What it does not do any more is speak.
         self.barriers=out
         return []
+
+    def cone_checks(self,team,agg,per,lit):
+        """Two crosschecks between the drawn LIGHT and the icons we found.
+
+        FIRST DRAFT. Both directions are recorded per frame and neither gates
+        anything yet -- the point is to get the residual on disk so it can be
+        scored before it is trusted.
+
+        **Residual light: lit floor no known cone explains.** The widget draws
+        an ally's cone whether or not this pipeline found that ally, so lit
+        floor outside every cone we cast is evidence of an emitter we are
+        MISSING -- which is the one signal that could speak to ally
+        fragmentation, because a fragmented ally leaves its light behind. The
+        largest residual component's centroid is reported as a position HINT,
+        not a detection: a cone's apex is at its narrow end and a centroid is
+        not an apex, so this bounds where to look rather than saying where it is.
+
+        **Unlit cone: an icon whose cone lands on dark floor.** The converse,
+        and the cheaper one. `resolve_lobe` already picks the better of two
+        lobes, but it never asks whether the WINNER is any good -- a phantom
+        icon has no light on either side and still gets a bearing. `lit_share`
+        near zero says the icon is claiming a view nothing corroborates.
+        """
+        if lit is None or agg is None:
+            return None
+        floor_lit=lit & self.floor
+        residual=floor_lit & ~agg
+        out={"lit_floor_px":int(floor_lit.sum()),
+             "residual_px":int(residual.sum()),
+             "residual_frac":float(residual.sum())/max(int(floor_lit.sum()),1),
+             "per_emitter":[]}
+        for o,m in zip(team,per):
+            a=int(m.sum())
+            out["per_emitter"].append({
+                "name_hint":o["kind"],"x":round(o["x"],1),"y":round(o["y"],1),
+                "cone_px":a,
+                "lit_share":round(float((m & lit).sum())/a,4) if a else None})
+        n,lab,stats,cent=cv2.connectedComponentsWithStats(
+            residual.astype(np.uint8),8)
+        blobs=sorted(((int(stats[k,4]),k) for k in range(1,n)),reverse=True)[:3]
+        out["residual_blobs"]=[{"area":a,
+                                "centroid":[round(float(cent[k][0]),1),
+                                            round(float(cent[k][1]),1)],
+                                "note":"position HINT: a centroid is not a cone apex"}
+                               for a,k in blobs if a>=40]
+        return out
 
     def supported(self,x,y):
         """Does a detection at (x, y) touch the opaque slab at all.
@@ -264,6 +312,21 @@ class RoundReader:
                     bearing=tracker.bearings(t_ms,tracks=[tr])[0][2]
                     r=round(tr.r or 10)
                     agent_obs.append(observation(family,"self / observer" if family=="self" else "ally agent?",tr.x,tr.y,(round(tr.x)-r,round(tr.y)-r,2*r,2*r),kind="you" if family=="self" else "ally",r=r,facing=bearing,detector_track_id=tr.tid,evidence=["icon_ring"],confidence="observed_icon" if family=="self" else "candidate"))
+            # THE VIEWCONE, restored to the round pipeline. The 2 s diagnostic
+            # renders had it and the full-round ones lost it, so the two rounds
+            # rendered so far carry no observable area at all. `per_icon` is
+            # kept because the aggregate cannot say WHICH teammate saw a pixel.
+            team=[o for o in agent_obs if o["family"] in ("self","ally")]
+            agg,per=cone.observable(self.passable,
+                        [(o["x"],o["y"],o.get("facing")) for o in team],
+                        visible=self.floor)
+            self.cone_mask=agg
+            base["viewcone"]={"coverage":cone.coverage(agg,self.floor),
+                              "emitters":len(team),
+                              "with_bearing":sum(1 for o in team if o.get("facing") is not None)}
+            for o,m in zip(team,per):
+                o["cone_px"]=int(m.sum())
+            base["cone_checks"]=self.cone_checks(team,agg,per,lit)
             # The enemy ring reads the DILATED floor while ally/self read the
             # opaque slab, and that asymmetry is most of this channel: over the
             # round 39.2% of enemy detections have no slab support against 4.2%
@@ -377,7 +440,16 @@ def draw_review(frame,sample,rows,reader,t_ms,start_ms):
     x0,y0,x1,y1=reader.box
     zoom=600/(x1-x0)
     ch=round((y1-y0)*zoom)
-    panel=cv2.resize(frame[y0:y1,x0:x1],(600,ch),interpolation=cv2.INTER_NEAREST)
+    src=frame[y0:y1,x0:x1]
+    # The observable area, tinted under the boxes. It is the collective cone of
+    # every ally we found with a bearing, so a HOLE in it is as informative as
+    # the area: it is built to under-claim, and a teammate we missed leaves
+    # their light outside it (`cone_checks.residual_frac`).
+    if reader.cone_mask is not None and reader.cone_mask.any():
+        src=src.copy()
+        m=reader.cone_mask
+        src[m]=(0.62*src[m]+0.38*np.array(CONE_TINT,np.float32)).astype(np.uint8)
+    panel=cv2.resize(src,(600,ch),interpolation=cv2.INTER_NEAREST)
     age=t_ms-sample["t_ms"]
     for o in rows:
         col=PALETTE.get(o["family"],(220,220,220))
@@ -415,13 +487,22 @@ def draw_review(frame,sample,rows,reader,t_ms,start_ms):
     ink(canvas,f"Roster {roster.get('alive_ally','?')} vs {roster.get('alive_enemy','?')} | ? = unresolved class",(w+22,yy+22),scale=.46)
     ink(canvas,"Names are round-scoped hypotheses, fixed at birth; ~ = alternatives",(w+22,yy+44),scale=.43)
     ink(canvas,"Boxes between samples show the last observation",(w+22,yy+65),scale=.43)
+    vc=sample.get("viewcone") or {}
+    cc=sample.get("cone_checks") or {}
+    if vc:
+        ink(canvas,f"observable {vc['coverage']*100:.1f}% of floor from "
+                   f"{vc['with_bearing']}/{vc['emitters']} emitters",
+            (w+22,yy+86),CONE_TINT,.46)
+    if cc:
+        ink(canvas,f"light no cone explains: {cc['residual_frac']*100:.0f}% "
+                   f"of lit floor",(w+22,yy+106),CONE_TINT,.44)
     important=sorted(rows,key=lambda o: ({"barrier":0,"spike":0,"object":1,"outline":1,"self":2,"ally":3}.get(o["family"],4),o["entity_id"]))
-    for i,o in enumerate(important[:10]):
+    for i,o in enumerate(important[:9]):
         label=f"{o.get('name') or o['entity_id'].split(':')[-1]:<16}{o['label']}"
         if o.get("acquisition")=="roster_count_conflict": label+=" [roster conflict]"
-        ink(canvas,label,(w+22,yy+91+i*21),PALETTE.get(o["family"],(220,220,220)),.43)
-    if len(important)>10:
-        ink(canvas,f"+ {len(important)-10} observations in sidecar",(w+22,yy+303),scale=.4)
+        ink(canvas,label,(w+22,yy+132+i*21),PALETTE.get(o["family"],(220,220,220)),.43)
+    if len(important)>9:
+        ink(canvas,f"+ {len(important)-9} observations in sidecar",(w+22,yy+325),scale=.4)
     return canvas
 
 

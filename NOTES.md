@@ -24,6 +24,64 @@ Both at 10 Hz detection over 60 Hz video with source audio, 0 ms stalled, each
 with `observations.jsonl`, `lifetimes.json`, `coverage.json`, `provenance.json`
 and a `review.html` that passes `tests/review_harness.cjs`.
 
+### The viewcone is back in the round pipeline, with two crosschecks
+
+The 2 s diagnostic renders had an observable-area channel and the full-round
+ones never did, so both rounds rendered so far carried no cone at all.
+`cone.observable` now runs over the tracked bearings each sample; the aggregate
+is tinted under the boxes, per-icon masks are kept (the aggregate cannot say
+WHICH teammate saw a pixel), and coverage is printed in the panel. Measured over
+45 s of Sunset R6, 435 samples:
+
+    observable coverage   median 5.6% of floor, max 12.0%
+    emitters with a bearing   median 4 of 4
+
+**First draft of both crosschecks, and neither gates anything yet.**
+
+*Residual light -- lit floor no cone of ours explains.* The widget draws an
+ally's cone whether or not this pipeline found that ally, so light outside
+every cone we cast is evidence of an emitter we are MISSING, which is the one
+signal that speaks to ally fragmentation: a fragmented ally leaves its light
+behind. **Median 41% of lit floor is unexplained** (min 7%, max 100%). That is
+not 41% missing allies -- the lit mask also carries ability light and widget
+shading -- which is exactly why it is recorded and not gated. The largest
+unexplained blob is reported as a position HINT with that word in the row: a
+cone's apex is at its narrow end and a centroid is not an apex. It is already
+behaving like a signal rather than noise -- at t=36 s and t=42 s the same
+region near (151, 234) carries a blob growing 783 -> 1000 px.
+
+*Unlit cone -- an icon claiming a view nothing corroborates.* `resolve_lobe`
+picks the better of two lobes and never asks whether the winner is any good, so
+a phantom icon still gets a bearing. **189 of 1,631 per-emitter cones (11.6%)
+land on floor that is under 10% lit.**
+
+### The ability tray is safe now, and it is the strongest identity witness
+
+The failure was never the ultimate slot: the tray crops held ~2,700 bright
+pixels per cell on Lotus against ~540 on Sunset, because `g > 170` is an
+absolute cut and Lotus's buy phase is a bright sandy courtyard. Adding a
+saturation term does not help -- pale sand is bright AND unsaturated.
+
+**The gate that works is structural rather than fitted: a glyph is a symbol
+with background around it, so a mask filling most of its cell has stopped being
+a glyph.** `GLYPH_FILL` refuses outside 4-45% of the cell. Over spaced frames
+in both sessions:
+
+    LOTUS    16 frames, 12 passed the fill gate, 12 voted Phoenix, 0 wrong
+    SUNSET   13 frames, 11 passed,               10 voted Clove,   0 wrong
+
+22 of 22 correct, and the frames the gate refuses are refused rather than
+guessed. The witness that was confidently wrong at margin 0.136 is now the one
+that decides:
+
+    LOTUS    PLAYER Phoenix, ally slot 2   by the tray; top bar AGREES
+    SUNSET   PLAYER Clove,   ally slot 1   by the tray; top bar ABSTAINED
+
+**Abstained is not disagreed.** The top bar refusing a slot for want of margin
+says nothing against the tray, and collapsing the two into a boolean would
+report a conflict where there is only silence -- so `agree` is
+`agrees` / `abstained` / `DISAGREES`.
+
 ### The player is named by TWO weak witnesses, neither of which is enough
 
 The player listed the witnesses and the point of listing them: *"I realize it's
