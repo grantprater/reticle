@@ -31,7 +31,7 @@ from .decode import sample_frames, sample_multi, sample_spans
 from .checks import KNOWN_KD, check_hud, player_events, track_entries
 from .rounds import build_rounds, summarise
 from .scoreboard import read_scoreboard
-from . import cone, geometry
+from . import cone, geometry, lighting
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
@@ -1309,7 +1309,7 @@ def cmd_overlay(args) -> int:
     # is the one class a ray passes through without lighting. Without labels
     # the area is simply the conservative one, so a missing npz degrades the
     # picture rather than stopping it.
-    mm_box = mm_floor = mm_passable = mm_sgray = None
+    mm_box = mm_floor = mm_passable = mm_sgray = mm_light = None
     if not args.no_minimap:
         med = store.read_static_map(sid)
         if med is None:
@@ -1330,7 +1330,16 @@ def cmd_overlay(args) -> int:
                 if "labels" in z.files and z["labels"].shape == mm_floor.shape:
                     mm_passable = cone.passable_from(z["labels"], mm_floor)
                     print("minimap    geometry labels loaded "
-                          "(rays pass low boxes without lighting them)")
+                          "(a box stops a ray and is not lit)")
+                    # The lighting reference rides along with the labels: it is
+                    # the same npz and the same key. Without it the bearing is
+                    # whatever the ring fit said, lobe ambiguity and all.
+                    mm_light = lighting.reference(z)
+                    print("minimap    lighting reference loaded, lobes resolved "
+                          f"against the drawn light ({lighting.LIGHTING_VERSION})"
+                          if mm_light is not None else
+                          "minimap    geometry predates the two-state reference "
+                          "-- bearings keep their lobe ambiguity")
                 else:
                     print("minimap    geometry present but unusable -- "
                           "floor only, which under-claims")
@@ -1341,7 +1350,8 @@ def cmd_overlay(args) -> int:
                          kf_mask=kf_mask, min_confidence=args.min_confidence,
                          min_margin=args.min_margin, spans=spans,
                          mm_box=mm_box, mm_floor=mm_floor,
-                         mm_passable=mm_passable, mm_sgray=mm_sgray)
+                         mm_passable=mm_passable, mm_sgray=mm_sgray,
+                         mm_light=mm_light)
 
     out = Path(args.out) if args.out else Path.cwd() / f"overlay_{sid}_{int(t_from)}ms.mp4"
     out.parent.mkdir(parents=True, exist_ok=True)
