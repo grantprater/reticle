@@ -11,7 +11,22 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-07, the viewcone channel, end to end
+## PICKING UP -- 2026-09-08, contiguous minimap diagnostics
+
+Plan and acceptance gates: `docs/MINIMAP_DETECTION_PLAN.md`. Native 60 Hz,
+two-second Ascent/Lotus renders now carry track IDs, observation-gap ages,
+adjacent-light evidence and distance-binned cone disagreement in a versioned
+JSONL sidecar (`overlay --minimap-diagnostics`). Missing widgets advance the
+trackers; elapsed gaps expire them; integer-center quantization has an explicit
+association uncertainty. 83 tests pass; doctor remains 2 findings / 0 errors.
+Raw-data replay cuts self ID births 25->13 and 21->10 in those windows; this is
+less fragmentation, not accuracy. Phantom allies and fit jitter remain visible.
+`tools/minimap_sequence_review.py` builds unseeded offline player review pages;
+the generated scripts parse, but no browser connection was available for UI QA.
+No light-rejection gate or ability attribution was promoted. Start from the
+reviewed failures and the plan, not by increasing motion tolerance.
+
+## Previous handoff -- 2026-09-07, the viewcone channel, end to end
 
 `doctor` 2 findings / 0 errors, 76 tests. Five commits today and they are one
 thread: the entity channel was reading the wrong things, and every fix came

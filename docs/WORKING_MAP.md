@@ -36,6 +36,9 @@ the linked source is authoritative for detail.
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
 | Visual debugging | `overlay.py`, `glance.py`, `refine.py` |
 
+Contiguous minimap correction and review: [MINIMAP_DETECTION_PLAN.md](MINIMAP_DETECTION_PLAN.md),
+`tools/minimap_sequence_summary.py`, and `tools/minimap_sequence_review.py`.
+
 Module names above are relative to `reticle/` unless a directory is shown.
 Minimap work also requires `prototypes/CLAUDE.md` and the domain notes kept
 outside this public repository. Do not recreate attribution or private quotes

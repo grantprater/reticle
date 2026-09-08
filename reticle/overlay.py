@@ -42,12 +42,9 @@ where there is visibly no icon is the other: the ally key fires on green
 scenery through the semi-transparent widget, which is a measured false-positive
 class (`prototypes/ally_cone.py`), and a video is where you see how often.
 
-Per-frame detections, NOT tracks, and that is a stated gap. "As they evolve"
-means the overlay should render tracks -- an entity that flickers or swaps
-identity is visible instantly in a video and nearly invisible in an aggregate.
-Identity across frames does not exist for allies yet; when it does it belongs
-here, and until then a flickering ring is an honest picture of what the
-channel actually knows.
+Track IDs are temporal association IDs, not agent identities. Missing positions
+are shown as carried with an age; they do not cast cones. Adjacent-light scores
+and distance-binned overlap are consistency diagnostics, not ground truth.
 """
 
 from __future__ import annotations
@@ -61,7 +58,8 @@ import cv2
 from . import cone as cone_mod
 from . import lighting
 from .killfeed import ME_MATCH_MIN, analyse_killfeed, killfeed_roi
-from .minimap import ally_icons, self_icons, widget_drawn
+from .minimap import ally_icons, self_icons, widget_drawn, widget_scale
+from .minimap_diagnostics import DIAGNOSTICS_VERSION, light_support, distance_agreement
 from .track import Tracker
 from .ocr import crop_gray, read_bottom_hud, read_scoreline, scoreline_roi
 from .profiles import Profile
@@ -118,6 +116,7 @@ class OverlayContext:
     #: This is also why the overlay must be driven in time order.
     mm_track_self: object = None
     mm_track_ally: object = None
+    mm_diagnostic: object = None
 
     @property
     def has_minimap(self) -> bool:
@@ -249,7 +248,17 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     x0, y0, x1, y1 = ctx.mm_box
     crop = frame[y0:y1, x0:x1]
 
+    if ctx.mm_track_self is None:
+        scale = widget_scale(x1 - x0)
+        ctx.mm_track_self = Tracker("walker", scale=scale, position_error_px=np.sqrt(0.5))
+        ctx.mm_track_ally = Tracker("walker", scale=scale, position_error_px=np.sqrt(0.5))
+
     if not widget_drawn(crop, ctx.mm_sgray, ctx.mm_floor):
+        ctx.mm_track_self.step(t_ms, [])
+        ctx.mm_track_ally.step(t_ms, [])
+        ctx.mm_diagnostic = {"version": DIAGNOSTICS_VERSION, "t_ms": t_ms,
+                             "widget": "not_drawn", "observations": [],
+                             "reason": "widget unavailable"}
         cv2.rectangle(img, (x0, y0), (x1, y1), MAGENTA, 2)
         _text(img, "minimap: WIDGET NOT DRAWN", (x0 + 6, y0 + 18), MAGENTA, 0.5)
         return "minimap  no widget (death screen, or the M key)"
@@ -259,6 +268,7 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     allies = ally_icons(crop, ctx.mm_floor, require_facing=False)
     selves = sorted(self_icons(crop, ctx.mm_floor, require_facing=False),
                     key=lambda d: -d["cov"])[:1]
+    raw_allies, raw_selves = [dict(d) for d in allies], [dict(d) for d in selves]
 
     # CROSS-REFERENCE BEFORE THE TRACKER SEES IT. The ring fit cannot tell its
     # two opposed lobes apart, but the drawn light can, so the lobe is settled
@@ -279,9 +289,6 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     # `lobe` can see it, so a windowed circular mean with an ambiguity gate is
     # what the cone is cast from. A track that refuses draws amber and casts
     # nothing -- see `track.Track.resolved_facing`.
-    if ctx.mm_track_self is None:
-        ctx.mm_track_self = Tracker("walker")
-        ctx.mm_track_ally = Tracker("walker")
     ctx.mm_track_self.step(t_ms, selves)
     ctx.mm_track_ally.step(t_ms, allies)
     resolved = (ctx.mm_track_ally.bearings(t_ms)
@@ -304,6 +311,38 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
         sub[:] = np.where(m, cv2.addWeighted(sub, 0.68, tint, 0.32, 0), sub)
 
     by_pos = {(round(bx), round(by)): deg for bx, by, deg, _ in resolved}
+    observations = []
+    scale = widget_scale(x1 - x0)
+    known = ctx.mm_light.known if ctx.mm_light is not None else None
+    for role, tracker, detections in (("ally", ctx.mm_track_ally, allies),
+                                       ("self", ctx.mm_track_self, selves)):
+        for tr in tracker.tracks:
+            fresh = tr.t_ms == t_ms
+            det = next((d for d in detections if d["cx"] == tr.x
+                        and d["cy"] == tr.y), None) if fresh else None
+            support = light_support(tr.x, tr.y, det["r"] if det else 10 * scale,
+                                    lit, known, scale) if fresh else None
+            age = t_ms - tr.t_ms
+            label = f"{role[0].upper()}{tr.tid}"
+            if not fresh:
+                label += f" gap {age:.0f}ms"
+                cv2.circle(img, (x0 + round(tr.x), y0 + round(tr.y)),
+                           max(2, round(10 * scale)), AMBER, 1)
+            elif support["fraction"] is not None:
+                label += f" L{support['fraction']:.2f}"
+            _text(img, label, (x0 + round(tr.x) + 12, y0 + round(tr.y) + 14),
+                  AMBER if not fresh else (ALLY if role == "ally" else SELF), 0.36)
+            observations.append({"role": role, "track_id": tr.tid,
+                                 "x": tr.x, "y": tr.y, "observed_t_ms": tr.t_ms,
+                                 "position_state": "observed" if fresh else "carried",
+                                 "gap_ms": age, "light_support": support,
+                                 "facing": by_pos.get((round(tr.x), round(tr.y)))})
+    ctx.mm_diagnostic = {
+        "version": DIAGNOSTICS_VERSION, "t_ms": t_ms, "widget": "drawn",
+        "observations": observations,
+        "raw_allies": raw_allies, "raw_self": raw_selves,
+        "distance_agreement": distance_agreement(
+            agg, lit, known, [(x, y) for x, y, deg, _ in resolved if deg is not None], scale)}
     for d, base in [(d, ALLY) for d in allies] + [(d, SELF) for d in selves]:
         cx, cy = int(round(d["cx"])), int(round(d["cy"]))
         c = (x0 + cx, y0 + cy)

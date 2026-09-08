@@ -1355,6 +1355,33 @@ def cmd_overlay(args) -> int:
 
     out = Path(args.out) if args.out else Path.cwd() / f"overlay_{sid}_{int(t_from)}ms.mp4"
     out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        raise SystemExit(f"refusing to overwrite evidence: {out}")
+    diagnostic_file = None
+    if args.minimap_diagnostics:
+        import hashlib
+        import json
+        from .track import TRACK_VERSION
+        from .minimap_diagnostics import DIAGNOSTICS_VERSION
+        diagnostic_path = out.with_suffix(".minimap.jsonl")
+        diagnostic_file = diagnostic_path.open("x", encoding="utf-8")
+        producers = ("cli.py", "minimap.py", "track.py", "cone.py", "lighting.py",
+                     "overlay.py", "minimap_diagnostics.py")
+        metadata = {"type": "provenance", "version": DIAGNOSTICS_VERSION,
+                    "track_version": TRACK_VERSION, "session": sid,
+                    "source": manifest["source"], "hz": args.hz,
+                    "widget_width": mm_box[2] - mm_box[0] if mm_box else None,
+                    "profile": profile.name, "output_fps": args.fps or args.hz,
+                    "from_ms": t_from, "to_ms": t_to,
+                    "producer_sha256": {name: hashlib.sha256(
+                        (Path(__file__).parent / name).read_bytes()).hexdigest()
+                        for name in producers}}
+        geo_path = geometry.path_of(sid, args.store)
+        metadata["geometry_sha256"] = (hashlib.sha256(geo_path.read_bytes()).hexdigest()
+                                       if geo_path and geo_path.is_file() else None)
+        metadata["static_sha256"] = (hashlib.sha256(mm_sgray.tobytes()).hexdigest()
+                                     if mm_sgray is not None else None)
+        diagnostic_file.write(json.dumps(metadata) + "\n")
     scale = args.scale
     size = (int(w * scale), int(h * scale))
     writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"mp4v"),
@@ -1363,16 +1390,30 @@ def cmd_overlay(args) -> int:
         raise SystemExit(f"could not open {out} for writing")
 
     cap = cv2.VideoCapture(str(media))
+    next_frame = int(round(t_from / 1000.0 * fps))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, next_frame)
     step_ms = 1000.0 / args.hz
     written = skipped = 0
     t0 = time.perf_counter()
     try:
         t = t_from
         while t < t_to:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t / 1000.0 * fps)))
+            target_frame = int(round(t / 1000.0 * fps))
+            if target_frame < next_frame:
+                t += step_ms
+                continue
+            while next_frame < target_frame:
+                if not cap.grab():
+                    break
+                next_frame += 1
             ok, frame = cap.read()
             if not ok:
                 break
+            frame_idx = next_frame
+            next_frame += 1
+            observed_t = float(cap.get(cv2.CAP_PROP_POS_MSEC))
+            if observed_t <= 0 and frame_idx > 0:
+                observed_t = frame_idx / fps * 1000.0
             if args.entries_only and kf_roi is not None:
                 # Skip frames with an empty feed: for debugging attribution, the
                 # frames without an entry are the ones with nothing to look at.
@@ -1380,7 +1421,13 @@ def cmd_overlay(args) -> int:
                     t += step_ms
                     skipped += 1
                     continue
-            canvas = draw(frame, t, int(round(t / 1000.0 * fps)), ctx)
+            canvas = draw(frame, observed_t, frame_idx, ctx)
+            if diagnostic_file is not None:
+                row = ctx.mm_diagnostic or {"t_ms": t, "widget": "unavailable",
+                                            "reason": "geometry unavailable"}
+                row["frame_idx"] = frame_idx
+                diagnostic_file.write(json.dumps(row, default=lambda v: v.item(),
+                                                 allow_nan=False) + "\n")
             if scale != 1.0:
                 canvas = cv2.resize(canvas, size, interpolation=cv2.INTER_AREA)
             writer.write(canvas)
@@ -1392,6 +1439,8 @@ def cmd_overlay(args) -> int:
     finally:
         writer.release()
         cap.release()
+        if diagnostic_file is not None:
+            diagnostic_file.close()
     sys.stdout.write("\r" + " " * 60 + "\r")
 
     dt = time.perf_counter() - t0
@@ -1851,6 +1900,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-minimap", action="store_true",
                    help="skip the minimap channel (icons, bearings, the "
                         "collective viewcone) -- it needs a static map")
+    s.add_argument("--minimap-diagnostics", action="store_true",
+                   help="write versioned per-frame track/light evidence beside the video")
     s.add_argument("--entries-only", action="store_true",
                    help="only render frames whose killfeed holds an entry")
     s.add_argument("--min-confidence", type=float, default=0.82)

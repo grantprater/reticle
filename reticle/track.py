@@ -55,6 +55,8 @@ from .minimap import RUN_PX
 #: sample. Imported for the same reason.
 from .ping import LIFETIME_S
 
+TRACK_VERSION = "track-0.2.0"
+
 #: A dash is continuous motion that nonetheless clears the walk ceiling over a
 #: sample interval. Jett, Neon and Waylay's Q. **This is a bound, not a
 #: measurement**, and `prototypes/jump_census.py` has since shown it cannot be
@@ -368,10 +370,21 @@ class Tracker:
 
     def __init__(self, motion: str = "walker", scale: float = 1.0,
                  max_missed: int = 3, max_facing_age_ms: float = 500.0,
-                 bearing_window_ms: float = 200.0, min_resultant: float = 0.5):
+                 bearing_window_ms: float = 200.0, min_resultant: float = 0.5,
+                 max_gap_ms: float = 500.0, position_error_px: float = 0.0):
         self.motion = CLASSES[motion]
         self.scale = scale
         self.max_missed = max_missed
+        if max_gap_ms <= 0:
+            raise ValueError("max_gap_ms must be positive")
+        self.max_gap_ms = max_gap_ms
+        # Per-observation error radius. Integer-pixel centers have at least
+        # sqrt(0.5) px quantization error; two endpoints contribute twice this.
+        # This widens association only, never changes stored coordinates/speeds.
+        if position_error_px < 0:
+            raise ValueError("position_error_px must be nonnegative")
+        self.position_error_px = position_error_px
+        self._last_t_ms = None
         self.max_facing_age_ms = max_facing_age_ms
         #: The window `resolved_facing` aggregates over, and the ambiguity gate
         #: below which no bearing is offered at all. 0.5 keeps 69% of frames
@@ -391,7 +404,13 @@ class Tracker:
         model applied to one attribute (*a bad frame is a missing OBSERVATION,
         not a missing ENTITY*).
         """
-        alive = [t for t in self.tracks if t.missed <= self.max_missed]
+        import math
+        if not math.isfinite(t_ms) or (self._last_t_ms is not None
+                                      and t_ms <= self._last_t_ms):
+            raise ValueError("tracker timestamps must be finite and strictly increasing")
+        self._last_t_ms = t_ms
+        alive = [t for t in self.tracks if t.missed <= self.max_missed
+                 and t_ms - t.t_ms <= self.max_gap_ms]
         cost: list[list[float]] = []
         for tr in alive:
             dt = (t_ms - tr.t_ms) / 1000.0
@@ -399,6 +418,9 @@ class Tracker:
             for d in dets:
                 dist = float(((d["cx"] - tr.x) ** 2 + (d["cy"] - tr.y) ** 2) ** 0.5)
                 ok, _why = admits(self.motion, dist, dt, self.scale)
+                if not ok and self.position_error_px:
+                    ok, _why = admits(self.motion, max(0.0, dist - 2 * self.position_error_px),
+                                      dt, self.scale)
                 row.append(dist if ok else float("inf"))
             cost.append(row)
 
