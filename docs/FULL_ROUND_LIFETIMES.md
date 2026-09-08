@@ -159,3 +159,61 @@ entity at scale 1.0 and two at 0.7118.
 (first/middle/last of every entity), and it passes `tests/review_harness.cjs`.
 A player pass needs a sampled population -- the 660 `object?` entities would
 dominate it -- so the page is not worth a player's time in this form.
+
+### Sunset round 6 -- 79.0 s, 4740/4740 frames, 0 ms stalled
+
+    python prototypes/full_round_entities.py a1a995e6b19b --round 6 \
+        --out ~/reticle-store/notes/sunset-round6-20260908
+
+790 samples, the widget drawn in 774, no plant in this round. The three
+witnessed classes behave the same way on a second map: **the self icon is one
+entity for the whole 76.8 s it is drawn, and all 2,625 barrier observations
+fall in buy phase with none in live.** The self is observed in 79.4% of samples
+against Lotus's 78.9% -- close enough that this looks like a property of the
+widget rather than of a round.
+
+One spike observation, in a round with no plant: a single-frame `SPIKE planted
+(HUD)` read out of 790 samples. One false positive, not a class failure, but it
+is the HUD flag the spike gating leans on.
+
+**Rendering the second round is what found the defect, and Lotus alone would
+not have.** The association law admits a long-gap re-acquisition on APPEARANCE
+similarity when the motion law does not refuse it -- but the walker class is
+45 px/s, so over a 658 px widget diagonal it stops being able to refuse
+anything at
+
+    dt = 658 px / 45 px per s = 14.6 s
+
+Past that, `admits` returns True for every position on the map and a colour
+histogram at 0.85 is the entire gate. Measured over the two rounds, counting
+accepted continuations that cross a gap of more than a second:
+
+    lotus R15     7 links,  0 past 14.6 s   longest gap  9.7 s
+    sunset R6    64 links, 31 past 14.6 s   longest gap 76.9 s
+
+61 of Sunset's 64 are enemies, which is where it hurts most: an enemy icon is
+drawn only while revealed, so its observations are naturally sparse and the
+appearance branch is reached constantly. `E0026` is three observations spanning
+77.0 s with one 76.9 s gap -- an icon at the start of the round and an icon at
+the end, declared the same enemy. That is the thing this document's own rule
+forbids: *reacquisition must be unique under the motion law or an independent
+identity witness*, and at 77 s neither holds.
+
+**The bound is derivable rather than tuned**, which is the reason to state it
+before choosing a fix: past `diagonal / max_px_s` the motion law is not a
+constraint, so the branch should either refuse, or say out loud that appearance
+is carrying the link alone. Not changed here -- it is the association law, and
+it wants measuring against both rounds as controls, which the replay entry
+point now makes cheap.
+
+**Cost, separately.** The candidate-parent set never expires for ally/enemy
+entities that have an appearance vector, so it grows all round -- 0 to 166 on
+Lotus while the set seen within the last second stays at 30-50. 61% of the
+1.86 M candidate pairs evaluated are against entities not seen for over a
+second, and the render decelerates 4x from first block to last.
+
+**Sunset fragments harder than Lotus** -- 1,691 entities in 79 s against 1,228
+in 100.5 s -- and the growth is in the unresolved classes and in enemies:
+835 `object?`, 248 `outline?`, 219 `ally_outline?`, 231 `enemy` (99 seen once),
+86 `ally`, 57 `barrier`. Its review page is 3,055 candidates, which is again
+too many to ask a player for.
