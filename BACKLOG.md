@@ -21,6 +21,51 @@ Ordered by consequence, not by age.
 
 ---
 
+## Reject ally icons that have no light beside them
+
+**Measured 2026-09-07, rendered and inspected, deliberately NOT wired.** An ally
+lights the ground around itself, so an icon with no lit pixels within 26 px is
+a spawn barrier or a death X -- the two false-positive classes `minimap.py`
+already names, and the reason `l1/minimap` records `n_allies = 4` at a moment
+when all four teammates are dead. It rejects 24.5% of detected icons on Ascent
+and 15.8% on Lotus, and the rejections do land on featureless floor marks while
+portrait-bearing icons are kept.
+
+**Two reasons it is not a gate yet.** In a frame with almost no lit area every
+icon rejects -- visible on a Lotus ability-screen frame where the only surviving
+icon scored 0.11 -- so it needs a light-budget guard. And the test should be
+persistent rather than per-frame: a barrier does not move and an ally does, so
+"unlit beside it for N consecutive frames while the team has light elsewhere" is
+the honest form, which needs the tracker rather than a single frame.
+
+**Trigger: any work that consumes `n_allies` or the ally channel as a count**,
+because that is where the phantoms cost something. Scoring it wants the ROSTER,
+which is the label-free precedent that took the ally residual from +0.99 to
+-0.15 -- and neither painted session has an `l1/roster` table today, so a
+`scan --only roster` on `a06f04a0059f` is the cheap unblock.
+
+## Guess the emitters the aggregate lost, as an ensemble fit
+
+**Measured 2026-09-07 leave-one-out: a good DIRECTION estimator, a poor bearing
+one.** Hide an icon that was actually detected, and recover its bearing from
+residual light alone -- the light no other cone explains:
+
+    median error   within 30deg   within 60deg   opposed >150deg
+    ascent  39.2deg     42.2%          65.9%           3.0%
+    lotus   48.8deg     39.7%          54.5%           5.3%
+    random  90   deg     16.7%          33.3%          16.7%
+
+Two and a half times better than chance at 30 degrees, and it almost never
+points backwards. But a 40-49 degree median error is large against a 103 degree
+cone, so it can place a coarse cone for a track with NO detection and must not
+refine one that has a detection. That is the same shape as `cone.resolve_lobe`:
+the binary choice is reliable, the continuous estimate is not.
+
+**Trigger: tracks that persist through a detection gap.** The value is a
+teammate the ally channel dropped for a few frames, not a better bearing for one
+it can see. Validate leave-one-out, never by explained lit area, which is
+circular. See `reticle/cone.py` and the memory note on ensemble guessing.
+
 ## Minimap re-validation after the `floor_mask` reconciliation
 
 **Tabled 2026-09-06 by the player.** The commit is `18b0912`; the numbers and the

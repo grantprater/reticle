@@ -11,7 +11,74 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-07, geometry is keyed per (MAP, PROFILE)
+## PICKING UP -- 2026-09-07, the viewcone channel, end to end
+
+`doctor` 2 findings / 0 errors, 76 tests. Five commits today and they are one
+thread: the entity channel was reading the wrong things, and every fix came
+from a SECOND CHANNEL rather than from tuning the one that was wrong. That
+reflex is now a global constraint in `CLAUDE.md` -- read it before touching a
+detector.
+
+**What was wrong, in the order it was found.** Geometry was keyed per session,
+36 npz holding 5 geometries; it is now `<map>__<profile>`, 11 keys over 50
+sessions. `classify` carried an unscaled copy of the site test and labelled ZERO
+of two Lotus bomb sites. `two_state_gray` was fitting "the widget was drawn"
+instead of "an ally can see this", because blacked-out transition frames went
+into the fit -- a third of Lotus read permanently lit. Rays passed through boxes,
+which the recorder corrected: sight terminates at walls AND boxes. The bearing's
+180-degree lobe was never resolved. And 17-29% of solid floor could never be lit
+at all, because the fit demanded each pixel be OBSERVED unlit.
+
+**Where it stands, measured on the two painted maps:**
+
+    always-lit artefact      33.7% -> 0.0-0.4%      (a pixel lit every frame)
+    known floor              71-83% -> 99-100%
+    bearing flip rate        12.4% -> 4.9%          (independent validator)
+    cone precision           15.9% -> 41-45%
+    cone over-claim          4.4x -> ~1.5x
+
+The flip rate is the honest number. Precision and recall are scored against the
+lit mask, which is a second DETECTOR and not ground truth, and since the bearing
+is now chosen using that mask they are partly circular. Say so when quoting them.
+
+### Live, in priority order
+
+1. **Icon rejection by adjacent light is measured but NOT wired.** An ally lights
+   the ground around itself, so an icon with no lit pixels beside it is a spawn
+   barrier or a death X -- the two classes `minimap.py` already lists. Rejects
+   24.5% of Ascent icons and 15.8% of Lotus's. Rendered and inspected: the
+   rejections do land on featureless floor marks while portrait-bearing icons
+   are kept. **It has a failure regime** -- in a frame with almost no light,
+   every icon rejects -- so it needs a light-budget guard and probably a
+   persistence test (a barrier does not move; an ally does) before it gates
+   anything.
+2. **Guessing the emitters the aggregate lost.** Leave-one-out: hide a detected
+   icon and recover its bearing from residual light alone. Median error 39.2 deg
+   on Ascent, 48.8 on Lotus, against 90 for a random bearing; 42.2% within 30
+   deg against 16.7%; and only 3.0-5.3% opposed. **So it is a good DIRECTION
+   estimator and a poor bearing one** -- consistent with `resolve_lobe`, where
+   the binary choice works and the continuous estimate does not. Use it to place
+   a coarse cone for a track with no detection, not to refine one that has it.
+3. Unverified hypotheses from the recorder, each cheap and each worth a look
+   before building anything: a white teleport ring near an icon suppressing its
+   detection the way the audio ring does; the buy-phase weapon panel drawn OVER
+   the minimap ROI (visible on Lotus, and neither of today's two failure modes);
+   ability zones such as sonic sensors shading a region that then reads as lit.
+4. The mechanical doors still read permanently lit -- 188 px on Ascent, ~360 on
+   Lotus -- and are the last known instance of "an object whose resting state is
+   the bright one inverts the two-state fit".
+
+### Superseded today, do not re-derive
+
+`--geometry-from`, `--two-state-from`, `tools/rebuild_geometry.py`, doctor's
+DONOR check, and the inline plant test in `classify` are all deleted. The
+base-shade restriction `NOTES.md` predicted would fix the always-lit artefact
+was measured and makes it WORSE (32.8% -> 35.6%); it held only on the session it
+was measured on. Fitting an affine on the art's rendered grey to predict the
+unlit level also fails, held out, at MAE 8.1-10.4 against a constant's 5.3-9.8 --
+the art's terrain CLASS works, its grey value does not.
+
+## Superseded -- 2026-09-07, geometry is keyed per (MAP, PROFILE)
 
 `doctor` is 2 findings / 0 errors, down from 4 / 1. The stale-geometry error --
 the blocker every minimap number sat behind, and the one the last two handoffs
