@@ -130,6 +130,17 @@ it takes `MIN_ICON_SEPARATION_PX` and keeps the best-covered fit. `Tracker`
 keeps the TEMPORAL half, which the detector cannot see because it never sees
 two frames.
 
+**A spot-check page is built and waiting, and it is optional.** The claim above
+is my own measurement, so `prototypes/quarantine_sample.py` drew the population
+a player pass would need to turn it into a scored number -- all 51 quarantined
+observations plus 25 position-deduplicated eligible controls, shuffled, so the
+page cannot show which is which and a page of pure refusals cannot be answered
+"nothing" all the way down. `tools/minimap_sequence_review.py --candidates`
+takes that selection; the page is
+`~/reticle-store/notes/ascent-quarantine-review.html`, 76 questions, and it
+passes `tests/minimap_review_harness.cjs`. Answering it would give a
+false-refusal rate and a missed-phantom rate rather than a derivation.
+
 **What is still not scored.** Lotus has no quarantines and Ascent now has
 none, so there is nothing in these two windows for a player pass to adjudicate.
 That is not the same as the channel being right: these are 2 s windows on two

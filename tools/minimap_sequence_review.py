@@ -2,6 +2,13 @@
 
 Usage: .venv/Scripts/python.exe tools/minimap_sequence_review.py VIDEO.mp4
 No labels are seeded. Downloaded answers can be imported to resume the page.
+
+`--candidates FILE.jsonl` reviews a SUBSET, one `{"t_ms","x","y"}` per line,
+in the file's own order. The selection is made outside this tool and copied
+into the page's provenance, because which population is being asked about
+decides what the answers mean and the page has to be able to say. Nothing here
+knows why a candidate was chosen -- and must not, or the page would be able to
+show it.
 """
 import argparse
 import base64
@@ -9,7 +16,7 @@ import json
 from pathlib import Path
 
 
-def build(video, output=None):
+def build(video, output=None, selection=None):
     sidecar = video.with_suffix(".minimap.jsonl")
     rows = [json.loads(line) for line in sidecar.read_text(encoding="utf-8").splitlines()]
     provenance, frames = rows[0], rows[1:]
@@ -20,6 +27,17 @@ def build(video, output=None):
                 candidates.append({"frame": frame_index, "t_ms": row["t_ms"],
                                    "x": obs["x"], "y": obs["y"],
                                    "track_id": obs["track_id"], "role": obs["role"]})
+    if selection is not None:
+        wanted = [json.loads(line) for line in
+                  selection.read_text(encoding="utf-8").splitlines() if line.strip()]
+        by_key = {(c["t_ms"], c["x"], c["y"]): c for c in candidates}
+        missing = [w for w in wanted if (w["t_ms"], w["x"], w["y"]) not in by_key]
+        if missing:
+            raise SystemExit(f"{len(missing)} selected candidates are not in "
+                             f"{sidecar.name}; first is {missing[0]}")
+        candidates = [by_key[(w["t_ms"], w["x"], w["y"])] for w in wanted]
+        provenance = dict(provenance, candidate_selection=selection.name,
+                          candidate_count=len(candidates))
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from reticle.profiles import get_profile
@@ -129,5 +147,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("video", type=Path)
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--candidates", type=Path,
+                        help="JSONL subset to review, one {t_ms,x,y} per line")
     args = parser.parse_args()
-    build(args.video.resolve(), args.out)
+    build(args.video.resolve(), args.out, args.candidates)
