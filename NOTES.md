@@ -89,36 +89,57 @@ weaker fit.
 
 97 tests, `--self-test` PASS, doctor 2 findings / 0 errors.
 
-### FIRST THING NEXT SESSION: score the ascent quarantines
+### The quarantines: all 51 were the world showing through the widget
 
-The 51 remaining Ascent quarantines (37 with unlit reads) are still unscored,
-because the downloaded player answers have not been located. The lifecycle gate
-stays opt-in until they are, and no precision claim should be made from them.
+**Scored without a labelling pass, because the answer turned out to be
+derivable and a review page would have spent player time confirming it.**
 
-**What the light already says about them, restricted properly.** Pooling by fit
-mode is misleading -- it mixes two locations. Split by place instead:
+`floor_mask` dilates the slab by 9 px so an icon at the map's edge is not
+clipped, and that margin lies over the SEE-THROUGH part of the widget. On
+Ascent the game world behind it is a green glass wall, which keys as ally
+teal -- the ally mask holds 7,855 px at 299.6 s against 153 a second earlier,
+and every quarantined blob sits in the margin. Measured over both windows and
+both roles, counting detections with at least one keyed pixel on the opaque
+slab:
 
-    contested spot (~138,131)   strong n=37  median lit 0.279  zero-lit 0.00
-                                weak   n=87  median lit 0.228  zero-lit 0.00
-    elsewhere                   strong n=45  median lit 0.000  zero-lit 0.76
-                                weak   n= 6  median lit 0.008  zero-lit 0.50
+    real (adjudicated eligible)    452 / 452
+    the quarantined burst            0 /  51
 
-So the light does NOT separate the two fit modes of the real ally -- both sit
-in lit floor, which is why the resolution limit rather than a light gate is
-what fixed the churn. What it does separate is the 51 detections ELSEWHERE,
-three quarters of which have no lit pixel beside them at all. By this repo's
-own rule those are not allies, and they are what the quarantine is catching.
-Scoring them against player answers is the next measurement, not a new gate.
+A total separation, and the rule is *any* support at all rather than a
+threshold. `minimap.icons` now takes `support` (the undilated slab, from
+`minimap.slab_mask`) and drops a component that never touches it.
 
-Two risks the new rules carry, both worth a look when a longer window exists:
+    window  metric                  before   after
+    ascent  raw ally detections      175     120     (the 55 phantoms, gone)
+    ascent  self track keys           13       1
+    ascent  ally track keys           43       1
+    ascent  quarantined obs           55       0
+    ascent  bearings resolved     112+170  120+120
+    lotus   everything            unchanged         (no phantoms there)
 
-* the birth path defers to an unobserved track within `2*R_MIN`, so an entity
-  that genuinely appears within 16 px of where a different one was seen inside
-  the 500 ms budget inherits that identity. Nothing in these windows does;
-* `MIN_ICON_SEPARATION_PX` rests on a gap measured on ONE window. Two allies
-  standing together would sit in it. The refusal is the safe direction (one
-  identity where there are two, rather than a phantom), but say so when
-  quoting an ally count.
+So the Ascent window is now one self and one ally, each a single entity
+continuous across all 120 frames, with a bearing on every observation and no
+quarantine at all. **50 of the 55 phantoms were casting viewcones**, which is
+why the observable area falls from 8.3% to 5.3% of the floor at 299.8 s: the
+channel was claiming area from the void.
+
+The same-frame duplicate rule now lives ONLY in `minimap.icons`, where the
+fits are produced. It was already there at 8 px -- under the 8.1-9.1 px the
+duplicate pairs actually sit at, which is why every one leaked through -- so
+it takes `MIN_ICON_SEPARATION_PX` and keeps the best-covered fit. `Tracker`
+keeps the TEMPORAL half, which the detector cannot see because it never sees
+two frames.
+
+**What is still not scored.** Lotus has no quarantines and Ascent now has
+none, so there is nothing in these two windows for a player pass to adjudicate.
+That is not the same as the channel being right: these are 2 s windows on two
+maps, the separation above is measured on the JPEG review previews rather than
+the decoded frames (the effect is gross enough that this cannot explain it,
+but a promotable figure should be recomputed on source pixels), and the
+lifecycle gate has still never been scored against a case where it refuses
+something real. The next window to render is one with a MAP GLANCE or a death
+in it -- the widget-absent path is now a suspension rather than a wipe and
+that change has not met real data.
 
 ### Earlier increment
 

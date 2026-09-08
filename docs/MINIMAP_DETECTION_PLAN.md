@@ -186,3 +186,31 @@ inherits that identity; and the separation gap is measured on one window, so
 two allies standing together would sit inside it. Both fail toward one
 identity rather than a phantom, which is the safe direction, but an ally count
 quoted from this channel should say so.
+
+## Follow-up: the quarantines were the void, and needed no labelling pass
+
+The 51 Ascent quarantines are all the game world showing through the widget.
+`floor_mask` dilates the slab by 9 px so an edge icon is not clipped, and that
+margin lies over the see-through part; on Ascent the world behind it is a green
+glass wall that keys as ally teal. Counting detections with at least one keyed
+pixel on the OPAQUE slab, over both windows and both roles: 452/452 of the
+adjudicated-eligible ones, 0/51 of the quarantined burst. `minimap.icons` takes
+a `support` mask (`minimap.slab_mask`) and drops a component that never touches
+it -- the rule is *any* support, not a threshold, and it is the standing
+constraint that the search happens inside the opaque structure.
+
+Ascent, real command: raw ally detections 175 -> 120, self track keys 13 -> 1,
+ally 43 -> 1, quarantined 55 -> 0, bearings resolved 112+170 -> 120+120. The
+window is now one self and one ally, each continuous across all 120 frames.
+Lotus is unchanged, which is the control: the rule costs nothing where there
+was nothing wrong. 50 of the 55 phantoms had been casting viewcones, so the
+observable area at 299.8 s falls from 8.3% to 5.3% of the floor -- area that
+was being claimed from the void.
+
+**A player pass was not run because there was nothing left to adjudicate**, and
+that is a statement about these two windows rather than about the channel. The
+separation was measured on the JPEG review previews; recompute it on source
+pixels before quoting it as a detector figure. The acceptance gates still want
+a window with a map glance, a death, or a buy panel in it: the widget-absent
+path is a suspension rather than an identity wipe now, and that has not met
+real data.

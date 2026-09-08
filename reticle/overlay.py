@@ -107,6 +107,10 @@ class OverlayContext:
     # caller without them passes `floor` twice and gets the conservative area.
     mm_box: tuple | None = None        # the widget ROI in frame pixels
     mm_floor: np.ndarray | None = None
+    #: The opaque slab with no overhang margin. A blob supported only by the
+    #: margin is the world showing through the widget, not an icon -- see
+    #: `minimap.icons`. None keeps the pre-2026-09-08 behaviour.
+    mm_slab: np.ndarray | None = None
     mm_passable: np.ndarray | None = None
     mm_sgray: np.ndarray | None = None  # the static map, for `widget_drawn`
     mm_light: object = None            # `lighting.Lighting`, or None
@@ -274,8 +278,10 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
 
     # `require_facing=False` so a refused bearing is still DRAWN, in amber.
     # Dropping it would hide the gap, and the gap is what limits the area.
-    allies = ally_icons(crop, ctx.mm_floor, require_facing=False)
-    selves = sorted(self_icons(crop, ctx.mm_floor, require_facing=False),
+    allies = ally_icons(crop, ctx.mm_floor, require_facing=False,
+                        support=ctx.mm_slab)
+    selves = sorted(self_icons(crop, ctx.mm_floor, require_facing=False,
+                               support=ctx.mm_slab),
                     key=lambda d: -d["cov"])[:1]
     raw_allies, raw_selves = [dict(d) for d in allies], [dict(d) for d in selves]
 

@@ -549,9 +549,11 @@ class Tracker:
                  min_separation_px: float = MIN_ICON_SEPARATION_PX):
         self.motion = CLASSES[motion]
         self.scale = scale
-        #: Below this, two same-frame detections are two fits of one icon --
-        #: see `resolve`. 0 disables it, for a caller whose detections are
-        #: known to be one per entity already.
+        #: The widget cannot draw two icons closer than this, so a detection
+        #: this near an unobserved track is that track's icon refit rather than
+        #: a new entity -- see `step`. The SAME-FRAME half of this rule lives
+        #: in `minimap.icons`, where the fits are produced; here it is the
+        #: temporal half, which the detector cannot see. 0 disables it.
         self.min_separation_px = min_separation_px
         if max_gap_ms <= 0:
             raise ValueError("max_gap_ms must be positive")
@@ -581,8 +583,6 @@ class Tracker:
         self.min_resultant = min_resultant
         self.tracks: list[Track] = []
         self._next = 0
-        #: Detections `resolve` collapsed in the last `step`. A diagnostic.
-        self.merged = 0
 
     def step(self, t_ms: float, dets: list[dict]) -> list[Track]:
         """Feed one frame's detections; returns the tracks alive after it.
@@ -598,7 +598,6 @@ class Tracker:
                                       and t_ms <= self._last_t_ms):
             raise ValueError("tracker timestamps must be finite and strictly increasing")
         self._last_t_ms = t_ms
-        dets, self.merged = self.resolve(dets)
         alive = [t for t in self.tracks if t_ms - t.t_ms <= self.max_gap_ms]
         cost: list[list[float]] = []
         for tr in alive:
@@ -676,40 +675,6 @@ class Tracker:
         # longer decides anything.
         self.tracks = alive
         return list(self.tracks)
-
-    def resolve(self, dets: list[dict]) -> tuple[list[dict], int]:
-        """Collapse same-frame fits too close to be two icons. `(kept, dropped)`.
-
-        **This is not a detector threshold, it is a resolution limit.** The
-        widget draws an icon about `2*R_MIN` across, so two of them whose
-        centres are closer than that overlap -- and an overlapped pair does not
-        leave two rings to fit, it leaves one blob that the arc search can sit
-        two circles on. The Ascent window shows exactly that: a stable r=8 fit
-        of area ~100 with a second r=12-13 fit of area ~20 about 8 px away,
-        alternating frame to frame, which made the tracker keep two identities
-        alive and hand the single detection to whichever was nearer -- ids
-        alternating 1-2-1-2 for one ally.
-
-        The measured separation gap is what licenses the limit rather than a
-        preference: 8.1-9.1 px or >= 45 px, nothing between. See
-        `minimap.MIN_ICON_SEPARATION_PX`.
-
-        **The fit kept is the one with the higher `cov`**, the detector's own
-        statement of how much of the circle it actually found -- not the
-        larger area, and not the first in the list. Nothing is deleted: the raw
-        detections are stored separately by the diagnostics sidecar, and this
-        decides identity only.
-        """
-        if not self.min_separation_px or len(dets) < 2:
-            return list(dets), 0
-        limit = self.min_separation_px * self.scale
-        kept: list[dict] = []
-        for d in sorted(dets, key=lambda d: -(d.get("cov") or 0.0)):
-            if any(((d["cx"] - k["cx"]) ** 2 + (d["cy"] - k["cy"]) ** 2) ** 0.5 <= limit
-                   for k in kept):
-                continue
-            kept.append(d)
-        return kept, len(dets) - len(kept)
 
     def tolerance(self, track: "Track", det: dict) -> float:
         """This tracker's `association_tolerance` for one track/detection pair."""
@@ -990,27 +955,12 @@ def _self_test() -> int:
     tk5.step(400.0, [])
     check("past the elapsed budget it is dropped", len(tk5.tracks), 0)
 
-    # ---- two fits of one icon are not two icons -------------------------
-    # The Ascent signature: a stable r=8 fit of area ~100 with a second
-    # r=12-13 fit of area ~20 about 8 px away. Two identities used to be minted
-    # and the single detection handed to whichever was nearer, so the ids
-    # alternated for one ally.
-    tkr = Tracker("walker", scale=1.0)
+    # ---- two fits of one icon are not two entities ----------------------
+    # The Ascent signature: a stable r=8 fit with a second r=12-13 fit about
+    # 8 px away, arriving ONE AT A TIME on alternating frames -- which is the
+    # half `minimap.icons` cannot see, because it never sees two frames.
     pair = [{"cx": 141.0, "cy": 133.0, "r": 8, "cov": 0.46, "facing": 0.0},
             {"cx": 134.0, "cy": 130.0, "r": 12, "cov": 0.27, "facing": 0.0}]
-    kept, dropped = tkr.resolve(pair)
-    check("8 px apart is ONE icon", (len(kept), dropped), (1, 1))
-    check("...and the fit kept is the one with the higher cov",
-          (kept[0]["cx"], kept[0]["r"]), (141.0, 8))
-    check("45 px apart is two", len(tkr.resolve(
-        [pair[0], dict(pair[1], cx=186.0, cy=133.0)])[0]), 2)
-    tkr.step(0.0, pair)
-    tkr.step(16.7, [pair[1], pair[0]])         # the fits swap order
-    check("so one ally does not alternate between two identities",
-          len(tkr.tracks), 1)
-    check("and the merge is reported rather than silent", tkr.merged, 1)
-    #   ...and the alternation that arrives ONE FIT AT A TIME, which is how it
-    #   actually arrives: the two modes are rarely detected in the same frame.
     tka = Tracker("walker", scale=1.0)
     tka.step(0.0, [pair[0]])
     for k in range(1, 8):

@@ -88,6 +88,29 @@ class TemporalEvidenceTests(unittest.TestCase):
         self.assertEqual((a["known"], a["lit"]), (b["known"], b["lit"]))
         self.assertGreater(a["known"], 0)
 
+    def test_a_blob_supported_only_by_the_margin_is_not_an_icon(self):
+        # `floor` arrives dilated so an icon at the slab's edge is not clipped,
+        # and that margin lies over the see-through part of the widget. On
+        # Ascent the world behind it is a green glass wall that keys as ally
+        # teal: 7,855 keyed px at 299.6s against 153 a second earlier.
+        from reticle.minimap import icons
+        crop = np.zeros((80, 80, 3), np.uint8)
+        crop[:] = (60, 60, 60)
+        slab = np.zeros((80, 80), bool)
+        slab[10:40, 10:40] = True
+        floor = np.zeros((80, 80), bool)
+        floor[5:75, 5:75] = True            # the dilated version, generously
+        mask = np.zeros((80, 80), bool)
+        yy, xx = np.ogrid[:80, :80]
+        ring = ((xx - 60) ** 2 + (yy - 60) ** 2 <= 10 ** 2) &                ((xx - 60) ** 2 + (yy - 60) ** 2 >= 6 ** 2)
+        mask[ring] = True                    # entirely in the margin
+        kw = dict(cov_min=0.0, inner_max=1.0, require_facing=False)
+        self.assertTrue(icons(mask, crop, floor, **kw))
+        self.assertEqual(icons(mask, crop, floor, support=slab, **kw), [])
+        # ...and one that touches the slab survives the same rule.
+        on = ((xx - 25) ** 2 + (yy - 25) ** 2 <= 10 ** 2) &              ((xx - 25) ** 2 + (yy - 25) ** 2 >= 6 ** 2)
+        self.assertTrue(icons(on, crop, floor, support=slab, **kw))
+
     def test_distance_bins_partition_known_pixels(self):
         known = np.ones((120, 120), bool)
         lit = np.zeros_like(known)

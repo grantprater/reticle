@@ -35,7 +35,7 @@ from . import cone, geometry, lighting
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
-from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px,
+from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px, slab_mask,
                       widget_scale,
                       pick_self, self_rings, static_map, widget_drawn)
 from .overlay import OverlayContext, draw
@@ -1309,7 +1309,7 @@ def cmd_overlay(args) -> int:
     # is the one class a ray passes through without lighting. Without labels
     # the area is simply the conservative one, so a missing npz degrades the
     # picture rather than stopping it.
-    mm_box = mm_floor = mm_passable = mm_sgray = mm_light = None
+    mm_box = mm_floor = mm_passable = mm_sgray = mm_light = mm_slab = None
     if not args.no_minimap:
         med = store.read_static_map(sid)
         if med is None:
@@ -1322,6 +1322,7 @@ def cmd_overlay(args) -> int:
         else:
             mm_box = minimap_roi_px(profile, w, h)
             mm_floor = floor_mask(med)
+            mm_slab = slab_mask(med)
             mm_sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
             mm_passable = mm_floor
             geo = geometry.path_of(sid, args.store)
@@ -1349,7 +1350,7 @@ def cmd_overlay(args) -> int:
     ctx = OverlayContext(profile=profile, templates=templates, width=w, height=h,
                          kf_mask=kf_mask, min_confidence=args.min_confidence,
                          min_margin=args.min_margin, spans=spans,
-                         mm_box=mm_box, mm_floor=mm_floor,
+                         mm_box=mm_box, mm_floor=mm_floor, mm_slab=mm_slab,
                          mm_passable=mm_passable, mm_sgray=mm_sgray,
                          mm_light=mm_light)
     ctx.mm_apply_lifecycle = args.minimap_lifecycle

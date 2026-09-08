@@ -779,7 +779,8 @@ ALLY_INNER_MAX = 0.25
 
 def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
           cov_min: float = ALLY_COV_MIN, inner_max: float = ALLY_INNER_MAX,
-          require_facing: bool = True, min_area: int | None = None) -> list[dict]:
+          require_facing: bool = True, min_area: int | None = None,
+          support: np.ndarray | None = None) -> list[dict]:
     """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
 
     Returns a dict per icon: `cx`, `cy`, `r`, `cov`, `inner`, `facing` (degrees
@@ -791,6 +792,24 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     refused, which is what the interpolation pass needs: a lobe the fit could
     not read is a missing OBSERVATION, not a missing entity, and dropping the
     row entirely would hide the gap from whatever fills it in.
+
+    **`support` is the OPAQUE SLAB, and a blob that never touches it is not an
+    icon.** `floor` arrives dilated -- 9 px, so an icon at the slab's edge is
+    not clipped -- and that margin lies over the see-through part of the
+    widget, where the game world behind it shows through. On Ascent the world
+    is a green glass wall, which keys as ally teal: at 299.6 s the ally mask
+    holds 7,855 px against 153 a second earlier, and the extra blobs sit
+    entirely in the margin. Measured over both contiguous windows, both roles:
+
+        detections with at least one keyed pixel on the slab
+          real (adjudicated eligible)    452 / 452
+          the quarantined burst            0 /  51
+
+    A total separation, and not a threshold -- the rule is *any* support at
+    all, which is the repo's standing constraint that the search happens
+    inside the opaque structure. Left out, this is the documented cause of
+    reading non-minimap content as icons; `floor_mask`'s own docstring names
+    the margin as 90.1% outside the painting on this map.
     """
     sc = widget_scale(crop.shape[1])
     r_min, r_max = max(3, int(round(R_MIN * sc))), max(4, int(round(R_MAX * sc)))
@@ -800,10 +819,13 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     m = cv2.morphologyEx(keyed.astype(np.uint8), cv2.MORPH_CLOSE,
                          np.ones((_odd(3 * sc), _odd(3 * sc)), np.uint8))
-    n, _lbl, st, cen = cv2.connectedComponentsWithStats(m, 8)
-    out: list[dict] = []
+    n, lbl, st, cen = cv2.connectedComponentsWithStats(m, 8)
+    supported = None if support is None else set(np.unique(lbl[(m > 0) & support]))
+    found: list[dict] = []
     for i in range(1, n):
         if st[i, 4] < min_area:
+            continue
+        if supported is not None and i not in supported:
             continue
         f = fit_ring(keyed, grey, cen[i][0], cen[i][1], r_min, r_max)
         if f is None:
@@ -812,22 +834,39 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
             continue
         if require_facing and f["facing"] is None:
             continue
-        # Two fragments of one broken surround fit the SAME circle. Dedupe by
-        # centre or a fragmented icon counts as several teammates, which would
-        # break the roster count constraint in the flattering direction.
-        if any(np.hypot(f["cx"] - o["cx"], f["cy"] - o["cy"]) < 8 * sc
-               for o in out):
+        found.append({"cx": float(f["cx"]), "cy": float(f["cy"]), "r": int(f["r"]),
+                      "cov": float(f["cov"]), "inner": float(f["inner_red"]),
+                      "facing": f["facing"], "lobe": float(f["lobe"]),
+                      "area": int(st[i, 4])})
+    # Fragments of one broken surround fit the SAME icon, and the widget cannot
+    # draw two icons closer than one across -- so anything inside
+    # `MIN_ICON_SEPARATION_PX` is one of them, and the fit KEPT is the one with
+    # the best arc coverage rather than whichever component came first. This
+    # rule was here at 8 px, which is under the 8.1-9.1 px the duplicate pairs
+    # actually sit at, so every one of them leaked through as a second
+    # teammate; the constant is shared now rather than restated.
+    out: list[dict] = []
+    for f in sorted(found, key=lambda d: -d["cov"]):
+        if any(np.hypot(f["cx"] - o["cx"], f["cy"] - o["cy"])
+               < MIN_ICON_SEPARATION_PX * sc for o in out):
             continue
-        out.append({"cx": float(f["cx"]), "cy": float(f["cy"]), "r": int(f["r"]),
-                    "cov": float(f["cov"]), "inner": float(f["inner_red"]),
-                    "facing": f["facing"], "lobe": float(f["lobe"]),
-                    "area": int(st[i, 4])})
+        out.append(f)
     return out
 
 
 def ally_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
     """Teammate icons, each carrying its own bearing. See `icons`."""
     return icons(ally_mask(crop), crop, floor, **kw)
+
+
+def slab_mask(med: np.ndarray) -> np.ndarray:
+    """The opaque slab with no overhang margin -- `icons`' `support`.
+
+    Named rather than written as `floor_mask(med, dilate=1)` at each call site,
+    because what it means (*the structure a detection must be supported by*) is
+    not obvious from the argument.
+    """
+    return floor_mask(med, dilate=1)
 
 
 def self_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
