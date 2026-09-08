@@ -32,7 +32,27 @@ TOP1 = 0.90
 KER = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (K, K))
 CKER = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (CK, CK*2))
 
-def hud_mask(h, w):
+def _opt(cfg, name, default):
+    """One operating-point field, from a caller's cfg or this module's default.
+
+    The two callers parameterise differently and both are legitimate: the
+    evaluator's CLI sweep REBINDS the module constants (so the default has to be
+    read at call time, not bound at def time), while the feature core passes a
+    frozen `Cfg` it may hold several of at once. Reading through here is what
+    lets one implementation serve both instead of two copies drifting apart.
+    """
+    return default if cfg is None else getattr(cfg, name)
+
+
+def hud_mask(h, w, cfg=None):
+    """Regions excluded by measurement, not by guess.
+
+    Every rectangle here was measured at zero recall cost against the hand
+    labels. The combat report is deliberately NOT among them -- it moves, and
+    the region it occupies is where an enemy peeking your right side appears,
+    so it is found structurally by `find_boxes` instead.
+    """
+    weap, handed = _opt(cfg, "weap", WEAP), _opt(cfg, "handed", HANDED)
     m = np.ones((h, w), bool)
     m[:120, :] = False; m[h-190:, :] = False       # top and bottom HUD bands
     m[:360, :360] = False                          # minimap
@@ -40,11 +60,12 @@ def hud_mask(h, w):
     # The player's own weapon: red-rimmed like everything else and in frame
     # constantly. Persistence cannot find it (the model bobs and sways), so this
     # is a measured region -- 21% of false positives, 0 of 47 labels. Measured
-    # right-handed; a left-handed view model is the same region mirrored.
-    if HANDED == "right":
-        m[int(h*WEAP[1]):, int(w*WEAP[0]):] = False
+    # right-handed; a left-handed view model is the same region mirrored, and
+    # getting it wrong fails in BOTH directions at once, silently.
+    if handed == "right":
+        m[int(h*weap[1]):, int(w*weap[0]):] = False
     else:
-        m[int(h*WEAP[1]):, :int(w*(1.0 - WEAP[0]))] = False
+        m[int(h*weap[1]):, :int(w*(1.0 - weap[0]))] = False
     # Bottom-left corner HUD. Corner, not mid-screen, which is what makes a
     # positional mask defensible here where it was not for the combat report.
     m[int(0.75*h):, :int(0.09*w)] = False
@@ -57,32 +78,42 @@ def _runs(b):
     return list(zip(idx[::2], idx[1::2]))
 
 
-def find_boxes(fr):
+def find_boxes(fr, cfg=None):
     """UI boxes, from the one thing a box has and scenery does not: several
-    horizontal rules of the same width at the same x."""
+    horizontal rules of the same width at the same x.
+
+    Grouped by shared x-span, NOT by y-proximity: the longest run in one row and
+    the longest in the next are frequently different structures, so a median
+    over y-neighbours describes no real rectangle. `minrun` is the whole
+    ballgame -- 380 masks furniture, 300 masks the game.
+    """
+    scale, grad = _opt(cfg, "scale", SCALE), _opt(cfg, "grad", GRAD)
+    tol, pad = _opt(cfg, "tol", TOL), _opt(cfg, "pad", PAD)
+    minrun = _opt(cfg, "minrun", MINRUN)
+    minrows, minspan = _opt(cfg, "minrows", MINROWS), _opt(cfg, "minspan", MINSPAN)
     h, w = fr.shape[:2]
-    g = cv2.resize(cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY), (w//SCALE, h//SCALE),
+    g = cv2.resize(cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY), (w//scale, h//scale),
                    interpolation=cv2.INTER_AREA)
-    hot = np.abs(cv2.Sobel(g, cv2.CV_16S, 0, 1, ksize=3)) > GRAD
+    hot = np.abs(cv2.Sobel(g, cv2.CV_16S, 0, 1, ksize=3)) > grad
     cand = [(y, a, b)
-            for y in range(120//SCALE, min((h-190)//SCALE, hot.shape[0]))
-            for a, b in _runs(hot[y]) if (b-a)*SCALE >= MINRUN]
+            for y in range(120//scale, min((h-190)//scale, hot.shape[0]))
+            for a, b in _runs(hot[y]) if (b-a)*scale >= minrun]
     boxes, used = [], [False]*len(cand)
     for i, (y, a, b) in enumerate(cand):
         if used[i]: continue
         grp = [(y, a, b)]; used[i] = True
         for j in range(i+1, len(cand)):
-            if not used[j] and abs(cand[j][1]-a) <= TOL and abs(cand[j][2]-b) <= TOL:
+            if not used[j] and abs(cand[j][1]-a) <= tol and abs(cand[j][2]-b) <= tol:
                 grp.append(cand[j]); used[j] = True
         ys = sorted({z[0] for z in grp})
-        if len(ys) >= MINROWS and (ys[-1]-ys[0]) >= MINSPAN:
-            x0 = min(z[1] for z in grp)*SCALE; x1 = max(z[2] for z in grp)*SCALE
-            boxes.append((max(0, x0-PAD), max(0, ys[0]*SCALE-PAD),
-                          min(w, x1+PAD), min(h, ys[-1]*SCALE+PAD)))
+        if len(ys) >= minrows and (ys[-1]-ys[0]) >= minspan:
+            x0 = min(z[1] for z in grp)*scale; x1 = max(z[2] for z in grp)*scale
+            boxes.append((max(0, x0-pad), max(0, ys[0]*scale-pad),
+                          min(w, x1+pad), min(h, ys[-1]*scale+pad)))
     return boxes
 
 
-def detect(fr, *, minimap_box=None):
+def outline_candidates(fr, *, minimap_box=None):
     h, w = fr.shape[:2]
     lab = cv2.cvtColor(fr, cv2.COLOR_BGR2LAB)
     a = lab[:, :, 1].astype(np.int16)              # red-green opponent axis
@@ -132,5 +163,22 @@ def detect(fr, *, minimap_box=None):
             if inner.size and float((inner > THR).mean()) > 0.45: continue
         out.append((x, y, bw, bh, ar))
     return out
+
+
+def main(argv=None):
+    """Inspect screen outline candidates in a source image."""
+    import argparse
+    import json
+    parser=argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument('image')
+    args=parser.parse_args(argv)
+    frame=cv2.imread(args.image)
+    if frame is None:
+        raise SystemExit('could not read source image')
+    print(json.dumps([list(map(int,b)) for b in outline_candidates(frame)]))
+
+
+if __name__ == "__main__":
+    main()
 
 

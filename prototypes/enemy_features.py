@@ -46,10 +46,19 @@ because half the frames were sampled just before a kill; a position prior scores
 well on that corpus and is wrong, and exposure analysis needs peripheral enemies
 most of all.
 """
+import sys
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 import cv2
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# ONE implementation of the HUD mask and the UI-box finder, re-exported rather
+# than copied: they were byte-identical here and in `reticle/screen.py`, which
+# is the fault `doctor`'s DUPLICATE check is named for. Both take the same
+# optional operating point, so `rim_mask` below still passes its `cfg`.
+from reticle.screen import _runs, find_boxes, hud_mask    # noqa: E402,F401
 
 
 @dataclass(frozen=True)
@@ -102,76 +111,6 @@ def _kernels(cfg):
 
 
 _SEAL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21))
-
-
-def hud_mask(h, w, cfg=SHIPPED):
-    """Regions excluded by measurement, not by guess.
-
-    Every rectangle here was measured at zero recall cost against the hand
-    labels. The combat report is deliberately NOT among them -- it moves, and
-    the region it occupies is where an enemy peeking your right side appears,
-    so it is found structurally by `find_boxes` instead.
-    """
-    m = np.ones((h, w), bool)
-    m[:120, :] = False
-    m[h - 190:, :] = False                         # top and bottom HUD bands
-    m[:360, :360] = False                          # minimap
-    m[60:360, w - 520:] = False                    # killfeed
-    # The player's own weapon: red-rimmed and in frame constantly. Persistence
-    # cannot find it (the model bobs and sways, so no pixel responds often
-    # enough), so this is a measured region -- 21% of false positives, 0 of 47
-    # labels. Left-handed is the same region mirrored, and getting it wrong
-    # fails in BOTH directions at once, silently.
-    if cfg.handed == "right":
-        m[int(h * cfg.weap[1]):, int(w * cfg.weap[0]):] = False
-    else:
-        m[int(h * cfg.weap[1]):, :int(w * (1.0 - cfg.weap[0]))] = False
-    # Bottom-left corner HUD. A corner, not mid-screen, which is what makes a
-    # positional mask defensible here where it was not for the combat report.
-    m[int(0.75 * h):, :int(0.09 * w)] = False
-    return m
-
-
-def _runs(b):
-    if not b.any():
-        return []
-    idx = np.flatnonzero(np.diff(np.concatenate(([0], b.view(np.int8), [0]))))
-    return list(zip(idx[::2], idx[1::2]))
-
-
-def find_boxes(fr, cfg=SHIPPED):
-    """UI boxes, from the one thing a box has and scenery does not: several
-    horizontal rules of the same width at the same x.
-
-    Grouped by shared x-span, NOT by y-proximity: the longest run in one row and
-    the longest in the next are frequently different structures, so a median
-    over y-neighbours describes no real rectangle. `minrun` is the whole
-    ballgame -- 380 masks furniture, 300 masks the game.
-    """
-    h, w = fr.shape[:2]
-    g = cv2.resize(cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY),
-                   (w // cfg.scale, h // cfg.scale), interpolation=cv2.INTER_AREA)
-    hot = np.abs(cv2.Sobel(g, cv2.CV_16S, 0, 1, ksize=3)) > cfg.grad
-    cand = [(y, a, b)
-            for y in range(120 // cfg.scale, min((h - 190) // cfg.scale, hot.shape[0]))
-            for a, b in _runs(hot[y]) if (b - a) * cfg.scale >= cfg.minrun]
-    boxes, used = [], [False] * len(cand)
-    for i, (y, a, b) in enumerate(cand):
-        if used[i]:
-            continue
-        grp = [(y, a, b)]
-        used[i] = True
-        for j in range(i + 1, len(cand)):
-            if not used[j] and abs(cand[j][1] - a) <= cfg.tol and abs(cand[j][2] - b) <= cfg.tol:
-                grp.append(cand[j])
-                used[j] = True
-        ys = sorted({z[0] for z in grp})
-        if len(ys) >= cfg.minrows and (ys[-1] - ys[0]) >= cfg.minspan:
-            x0 = min(z[1] for z in grp) * cfg.scale
-            x1 = max(z[2] for z in grp) * cfg.scale
-            boxes.append((max(0, x0 - cfg.pad), max(0, ys[0] * cfg.scale - cfg.pad),
-                          min(w, x1 + cfg.pad), min(h, ys[-1] * cfg.scale + cfg.pad)))
-    return boxes
 
 
 def _hue_axis(hu_vals):

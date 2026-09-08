@@ -42,7 +42,7 @@ from plant_spike import centre_box, spike_cover, COVER_MIN
 from minimap_portrait import composition
 from ability_hud import slot_counts, SLOT_X0, SLOT_DX, SLOT_KEYS
 
-VERSION = "full-round-0.1.0"
+VERSION = "full-round-0.2.0"
 PALETTE = {"self":(90,235,250), "ally":(170,240,100), "enemy":(95,90,255),
            "barrier":(255,210,90), "object":(245,140,225),
            "outline":(90,170,255), "hud_ability":(240,190,130),
@@ -250,7 +250,7 @@ class RoundReader:
                 base["observations"].append(observation("hud_ability",f"ability {key}",cx,1002,(cx-30,974,60,57),"hud",evidence=["tray_glyph_region"],confidence="HUD_region_not_cast"))
         # The existing screen reader masks HUD and the actual enlarged minimap.
         # No named identity or shootability is inferred from a coloured outline.
-        outlines=screen.detect(frame,minimap_box=self.box)
+        outlines=screen.outline_candidates(frame,minimap_box=self.box)
         enemies=[o for o in agent_obs if o["family"]=="enemy"]
         for x,y,w,h,area in outlines:
             base["observations"].append(observation("outline","enemy outline?",x+w/2,y+h/2,(x,y,w,h),"world",area=area,evidence=["screen_outline"],hypotheses=["enemy","revealed","corpse","deployable","scenery"]))
@@ -387,6 +387,9 @@ def main(argv=None):
     metadata={"type":"provenance","version":VERSION,"lifetime_version":ROUND_LIFETIME_VERSION,
               "source":m["source"],"session":args.session,"round":selected,
               "from_ms":start,"to_ms":end,"detection_hz":args.hz,"video_fps":fps,
+              # The association law is in widget pixels: an export that does not
+              # state its scale cannot be replayed without deriving it again.
+              "widget_scale":reader.scale,"widget_px":reader.box[2]-reader.box[0],
               "full_round":args.seconds is None,"geometry_sha256":hashlib.sha256(reader.geo_path.read_bytes()).hexdigest(),
               "producer_sha256":{str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in producers}}
     (out/"provenance.json").write_text(json.dumps(metadata,indent=2),encoding="utf-8")

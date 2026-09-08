@@ -1,5 +1,9 @@
+import json
+import tempfile
 import unittest
-from reticle.round_lifetimes import RoundLifetimes
+from pathlib import Path
+
+from reticle.round_lifetimes import RoundLifetimes, replay_scale
 
 
 def detection(x=10,family="ally",view="minimap"):
@@ -49,6 +53,36 @@ class RoundLifetimeTests(unittest.TestCase):
         self.assertNotEqual(a['entity_id'],b['entity_id'])
         with self.assertRaises(ValueError):
             RoundLifetimes('R3',0).step(100,[dict(detection(),observed_t_ms=0)])
+
+
+class ReplayScaleTests(unittest.TestCase):
+    """An export replayed at the wrong widget scale is a silent wrong answer."""
+
+    def test_scale_changes_which_observations_are_one_entity(self):
+        # 8 widget px in 100 ms: inside the walker ceiling on a 465 px widget,
+        # outside it on a 331 px one. Replaying either at the other's scale is
+        # not a rounding difference, it is a different set of entities.
+        ids = []
+        for scale in (1.0, 0.7118):
+            life = RoundLifetimes('R1', 0, scale)
+            first = life.step(0, [detection(10)])[0]
+            ids.append(first['entity_id'] == life.step(100, [detection(18)])[0]['entity_id'])
+        self.assertEqual(ids, [True, False])
+
+    def test_stated_scale_is_read_not_derived(self):
+        self.assertEqual(replay_scale({'widget_scale': 0.7118, 'session': 'nope'}),
+                         (0.7118, 'provenance'))
+
+    def test_missing_scale_is_derived_from_the_manifest_not_assumed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'manifests').mkdir()
+            (root / 'manifests' / 'abc.json').write_text(json.dumps(
+                {'source_profile': 'valorant-16x9',
+                 'source': {'width': 1920, 'height': 1080}}), encoding='utf-8')
+            scale, source = replay_scale({'session': 'abc'}, store_root=root)
+        self.assertEqual(source, 'derived from manifest')
+        self.assertAlmostEqual(scale, 0.7118, places=4)
 
 
 if __name__ == '__main__':

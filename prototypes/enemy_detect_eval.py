@@ -504,7 +504,8 @@ for _name in ("THR", "K", "AREA", "HMIN", "CK", "AR", "HUE_MAGENTA",
               "HUE_ORANGE", "SAT", "AST", "WEAP", "HANDED", "SCALE", "GRAD",
               "TOL", "PAD", "MINRUN", "MINROWS", "MINSPAN", "TOP1", "KER", "CKER"):
     setattr(_screen, _name, globals()[_name])
-from reticle.screen import hud_mask, _runs, find_boxes, detect
+from reticle.screen import (hud_mask, _runs, find_boxes,
+                            outline_candidates as detect)
 
 
 def body_box(px, py):

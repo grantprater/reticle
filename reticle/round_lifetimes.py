@@ -126,3 +126,54 @@ class RoundLifetimes:
                  "end_ms":None, "right_censored_at_ms":end_ms,
                  "end_reason":"last observation does not establish destruction/death"}
                 for e in self.entities.values()]
+
+
+def replay_scale(meta, store_root=None):
+    """The widget scale an export was adjudicated at.
+
+    The association law is in WIDGET pixels, so replaying a 331 px capture at
+    the 465 px scale silently returns a different set of entities. Exports made
+    after `full-round-0.2.0` state it; older ones do not, and the answer is
+    then DERIVED from the session's stored manifest and profile rather than
+    assumed -- `scale=1.0` is right for every big-widget capture and wrong for
+    every small one, which is the shape of a silent failure.
+    """
+    if "widget_scale" in meta:
+        return float(meta["widget_scale"]), "provenance"
+    from .minimap import minimap_roi_px, widget_scale
+    from .profiles import get_profile
+    from .store import Store
+    import json
+    root = Store().root if store_root is None else store_root
+    manifest = json.loads((root / "manifests" / f"{meta['session']}.json")
+                          .read_text(encoding="utf-8"))
+    source = manifest["source"]
+    box = minimap_roi_px(get_profile(manifest["source_profile"]),
+                         source["width"], source["height"])
+    return widget_scale(box[2] - box[0]), "derived from manifest"
+
+
+def main(argv=None):
+    """Replay association from stored observations, without decoding video."""
+    import argparse
+    import json
+    from pathlib import Path
+    parser=argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument('directory',type=Path)
+    parser.add_argument('--out',type=Path,required=True)
+    args=parser.parse_args(argv)
+    meta=json.loads((args.directory/'provenance.json').read_text(encoding='utf-8'))
+    scale,source=replay_scale(meta)
+    state=RoundLifetimes(f"{meta['session']}:R{meta['round']['round_no']}",
+                         meta['from_ms'],scale)
+    for line in (args.directory/'observations.jsonl').read_text(encoding='utf-8').splitlines():
+        row=json.loads(line)
+        state.step(row['t_ms'],row['observations'],source_state=row['source_state'],roster=row.get('roster'))
+    with args.out.open('x',encoding='utf-8') as f:
+        json.dump(state.finish(meta['to_ms']),f,indent=2)
+    print(f"{len(state.entities)} entity hypotheses replayed without decoding, "
+          f"at widget scale {scale:.4f} ({source})")
+
+
+if __name__ == "__main__":
+    main()

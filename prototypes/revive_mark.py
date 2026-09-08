@@ -140,7 +140,7 @@ def white_mask(bgr: np.ndarray) -> np.ndarray:
     return ((hsv[:, :, 2] >= WHITE_V_MIN) & (hsv[:, :, 1] <= WHITE_S_MAX))
 
 
-def _runs(hit) -> int:
+def _longest_circular_run(hit) -> int:
     """Longest circular run of consecutive True samples."""
     n = len(hit)
     if hit.all():
@@ -188,7 +188,7 @@ def fit_arc(mask, cx0):
             if ok.sum() < N_THETA:      # the whole circle must be in the crop
                 continue
             hit = mask[ys, xs]
-            run = _runs(hit) / float(N_THETA)
+            run = _longest_circular_run(hit) / float(N_THETA)
             if run > best[1]:
                 best = (float(hit.mean()), run, float(cx), float(r))
     return best

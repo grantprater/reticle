@@ -203,7 +203,7 @@ def auc(pos, neg) -> float:
     return float((rp - len(pos) * (len(pos) + 1) / 2) / (len(pos) * len(neg)))
 
 
-def _runs(b):
+def _run_stats(b):
     """(number of contiguous True runs, longest run) over a boolean series."""
     if not b.any():
         return 0, 0
@@ -253,7 +253,7 @@ def features(sid):
         else:
             f["life_frac"] = 0.0
             f["persist"] = 0.0
-        n_runs, longest = _runs(det)
+        n_runs, longest = _run_stats(det)
         f["n_runs"] = float(n_runs)
         f["longest_run"] = float(longest) / len(det)
 
