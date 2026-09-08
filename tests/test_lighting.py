@@ -105,3 +105,57 @@ class ResolveLobe(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnlitFill(unittest.TestCase):
+    """A pixel never observed unlit still has an unlit level -- from its class."""
+
+    def _z(self, w=200, h=200):
+        z = _z(w, h)
+        kind = np.ones((h, w), np.int16)            # all FLOOR
+        step = np.zeros((h, w), np.int16)
+        step[:, 100:] = 2                           # a raised platform
+        # the platform never presented two states: lo == hi there
+        z["lo_gray"] = z["lo_gray"].copy(); z["hi_gray"] = z["hi_gray"].copy()
+        z["lo_gray"][:, 100:] = 150.0
+        z["hi_gray"][:, 100:] = 150.0
+        z["shade_kind"], z["shade_step"] = kind, step
+        z["files"] = z["files"] + ("shade_kind", "shade_step")
+        return z
+
+    def test_a_class_with_no_measured_pixel_stays_unknown(self):
+        z = self._z()
+        ref = lighting.reference(z)
+        # step 2 has no measured pixel anywhere, so nothing can be inferred.
+        # Rows 0-19 are VOID in the fixture, so only solid rows are asserted on.
+        self.assertTrue(ref.unknown[20:, 100:].all())
+        self.assertFalse(ref.unknown[20:, :100].any())
+
+    def test_a_class_with_measured_pixels_fills_the_rest(self):
+        z = self._z()
+        z["lo_gray"][20:40, 100:] = 100.0           # a strip of the platform IS measured
+        z["hi_gray"][20:40, 100:] = 160.0
+        ref = lighting.reference(z)
+        self.assertEqual(ref.unknown.sum(), 0)
+        self.assertGreater(ref.known.sum(), ref.usable.sum())
+
+    def test_the_fill_never_overwrites_a_measurement(self):
+        z = self._z()
+        before = np.asarray(z["lo_gray"]).copy()
+        z["lo_gray"][20:40, 100:] = 100.0
+        z["hi_gray"][20:40, 100:] = 160.0
+        before = np.asarray(z["lo_gray"]).copy()
+        ref = lighting.reference(z)
+        self.assertTrue(np.allclose(ref.lo[ref.usable], before[ref.usable]))
+
+    def test_interior_holes_are_closed_but_the_mask_stays_inside_known(self):
+        z = self._z()
+        z["lo_gray"][20:40, 100:] = 100.0
+        z["hi_gray"][20:40, 100:] = 160.0
+        ref = lighting.reference(z)
+        crop = np.full((200, 200, 3), 100, np.uint8)
+        crop[40:120, 20:90] = 165                   # a solid lit region...
+        crop[70:72, 50:52] = 100                    # ...with a 2 px hole in it
+        lit = lighting.lit_mask(crop, ref)
+        self.assertTrue(lit[70:72, 50:52].all())    # closed
+        self.assertFalse((lit & ~ref.known).any())  # never claims outside known
