@@ -318,6 +318,74 @@ SURVIVING separation being exactly 11.4 px is an artefact of the rule, not
 evidence that real allies sit there; genuine pairs live in the 11.4-20 px band
 (312 of them in the death window alone) and they survive.
 
+### QUEUED: two glyph questions for the player, with their timestamps
+
+Both are in `96aa1ae9b96f` (Haven). Bounded by decoding the ally key at the
+positions, so the ranges are measured rather than estimated:
+
+* **the large team-coloured CIRCLE** -- 262.8 to ~265.5 s (4:22.8-4:25.5),
+  clearest at 263.5 s. Centred near B, radius ~55 widget px, alive ~2.7 s, and
+  it appears within ~0.7 s of the ally death at 262.2 s. *What ability is it?*
+* **the stationary team-coloured CAPSULE** -- first keyed at 221.5 s (3:41.5),
+  gone by 252 s (4:12), so ~30 s alive. Widget (78,228), in a corridor, zero
+  pixel movement the whole time, and it spans the buy menu. Clearest at 226 s.
+  *What ability is it?*
+
+Neither is a phantom: both are real drawn objects the ally key catches and the
+entity model has a class for (`static`). Naming them is one word each and turns
+two standing quarantines into explained origins.
+
+### The stall class propagates through `l1/primitives`, not through an emitter
+
+The player, on the architecture: *"The stall class should propagate to
+everything. I'm not entirely sure architecturally how to handle that. If we're
+doing it purely sequentially maybe a timestamped event emitter, though there is
+almost certainly a better way."*
+
+**There is, and most of it is already built.** A stall is a property of the
+SOURCE FRAME, not of any channel, and `l1/primitives` already stores a
+whole-frame `motion` column per frame at 5 Hz for all 50 sessions -- computed
+once on the shared decode pass, versioned, and recomputable without touching
+video, which is the standing rule an emitter would break (an emitted fact
+exists only during the run, so a later analysis over stored data cannot see
+it).
+
+`motion == 0.0` is the stall signature and it separates cleanly:
+
+    window                       motion median   p90      min
+    stall 1 (407-428)               0.0000    0.0000       --
+    stall 2 post-plant (706-713)    0.0000    0.0923       --
+    death window (259-266)          0.0861    0.1059    0.0100
+    100 s of ordinary play          0.0836    0.1416    0.0001
+    buy menu open (221-227)         0.0288    0.1687    0.0001
+
+Zero-motion runs come in ~3.6 s pieces separated by one non-zero row -- almost
+certainly the encoder's keyframe interval refreshing a frozen picture -- so the
+span rule must MERGE runs separated by under a second. With that, the whole
+corpus maps in about a second of compute:
+
+    session         stalled   longest      session        stalled   longest
+    3694746e4e54      9.2%     71.4 s      bfad2778a372     2.9%     27.8 s
+    96aa1ae9b96f      5.1%     26.2 s      59c70f1ef720     2.0%     23.4 s
+    587c15b07779      4.3%     31.8 s      bdfdcf009dba     1.4%     16.0 s
+    ...                                    a06f04a0059f     0.7%      9.2 s
+
+**12.3 minutes of stalled capture across the corpus**, and in `96aa1ae9b96f`
+five multi-second episodes at 6:47, 8:19, 9:44, 11:47 and 18:14 -- the player
+knew about two of them. Short ability-demo clips read 4-17% and should be
+treated as suspect rather than stalled: a static practice-range scene can
+genuinely repeat a thumbnail, and 2 s is a large fraction of a 40 s clip.
+
+**The shape of the work, then, is the one `segment` already has**: a derived,
+versioned span rule over stored primitives, recomputed on demand, that every
+consumer JOINS against and each interprets for itself -- a reader records no
+observation, a tracker ages without observing, a metric drops the frames from
+its denominator. The shared layer states the fact; it does not decide the
+response. **And today's minimap-local staleness check is then superseded** --
+it measures one ROI on the decode path, where the frame-level column measures
+the whole picture for free. Delete it when the span rule lands rather than
+leaving two definitions.
+
 ### Next session: full-round lifecycle for every observable entity
 
 The player's framing, and it is the right one: **lifecycle tracking makes sense
