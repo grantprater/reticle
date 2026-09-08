@@ -24,6 +24,63 @@ Both at 10 Hz detection over 60 Hz video with source audio, 0 ms stalled, each
 with `observations.jsonl`, `lifetimes.json`, `coverage.json`, `provenance.json`
 and a `review.html` that passes `tests/review_harness.cjs`.
 
+### ONE support surface, because the mask was a per-call-site accident
+
+The player: *"Shouldn't all the detectors be using slab?"* Yes, and the split
+was not a decision anyone made -- it was whatever each call site happened to
+pass. Measured over Sunset R6, off-slab rate by what the channel was handed:
+
+    handed the SLAB     discs 0.8%      dynamic 0.2%
+    handed the FLOOR    enemy 39.2%     raw pings 16.8%   (846 of 5024)
+
+The floor is the slab dilated by 9 px and the margin is **20% of the floor
+area**, so the floor-fed channels leak at about the margin's own size -- which
+is what pure artefact looks like. `RoundReader.support` is now the one rule:
+SEARCH on the floor so an icon at the map's edge is not clipped, REQUIRE
+support on the slab, ANY support rather than a fraction. Refusals are kept per
+channel in `off_support` instead of vanishing.
+
+**And fixing barriers recovered 354 real allies, which is the argument for an
+orchestrator in one number.** `on_bar` suppresses an agent fit sitting on a
+barrier -- reasonable, and with 21 spurious bar positions in the calibration
+set it was deleting true detections:
+
+    first 45 s      raw ally fits   suppressed as "on a barrier"   emitted
+    before              1875                 627                    1248
+    after               1872                 273                    1599
+
+The ally detector did not change at all. A false positive in one channel was
+silently destroying true positives in another, and no amount of looking at the
+ally channel would have found it.
+
+    channel      before   after         (first 45 s of Sunset R6)
+    enemy           783     449    -43%, 324 refusals now counted
+    barrier        2625    1668    anchored to 8 baked bars
+    ally           1248    1599    +351, recovered from false barriers
+    self            335     335    unchanged; it already had support
+
+### The orchestrator: the cross-references exist, nothing OWNS them
+
+The player asked for a unifying layer. The reason he is right is that the
+cross-referencing this repo keeps insisting on is already here and is scattered
+across four files with no shared shape:
+
+    on_bar()                     a closure inside the prototype's read()
+    distance dedupe to agents    the same function, three separate spellings
+    MIN_ICON_SEPARATION_PX       inside minimap.icons
+    temporal dedupe              inside track.Tracker
+    roster capacity              inside RoundLifetimes.step
+    stall gating                 the top of read()
+    support                      six call sites until today
+    simultaneous_enemy_evidence  appended to cross_view and never read
+
+Each is right on its own and none can see the others, which is how a barrier
+false positive got to delete an ally for a whole round without leaving a trace.
+The shape to move to: channels emit typed CLAIMS rather than observations;
+one layer holds the shared surfaces, applies adjudication rules that are DATA
+rather than `if` statements, records which rule fired, and keeps every refusal.
+`read()` becomes a driver. Not started.
+
 ### `barrier 57` was the CALIBRATION speaking, and the cut law is now a check
 
 **The converged anchor set was always right.** `barrier_candidates` accumulates

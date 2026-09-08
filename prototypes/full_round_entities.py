@@ -42,7 +42,7 @@ from plant_spike import centre_box, spike_cover, COVER_MIN
 from minimap_portrait import composition
 from ability_hud import slot_counts, SLOT_X0, SLOT_DX, SLOT_KEYS
 
-VERSION = "full-round-0.5.0"
+VERSION = "full-round-0.6.0"
 PALETTE = {"self":(90,235,250), "ally":(170,240,100), "enemy":(95,90,255),
            "barrier":(255,210,90), "object":(245,140,225),
            "outline":(90,170,255), "hud_ability":(240,190,130),
@@ -100,6 +100,15 @@ class RoundReader:
             self.hi=z["hi_gray"].copy()
             self.floor=floor_mask(self.med)
             self.slab=slab_mask(self.med)
+            # SEARCH on the floor, which is the slab dilated by 9 px so an icon
+            # at the map's edge is not clipped -- but REQUIRE support on the
+            # slab, the opaque part. The margin is 20% of the floor and it lies
+            # over the see-through widget, so a channel handed `floor` alone
+            # leaks at roughly the margin's own area: measured over Sunset R6,
+            # enemy 39.2% and raw pings 16.8% with no slab support, against
+            # 0.8% for discs and 0.2% for dynamic, which are handed the slab.
+            # That was a per-call-site decision and this is the one rule.
+            self.support=self.slab
             self.passable=cone.passable_from(z["labels"],self.floor)
         self.gray=cv2.cvtColor(self.med,cv2.COLOR_BGR2GRAY).astype(float)
         if self.gray.shape != (self.box[3]-self.box[1],self.box[2]-self.box[0]):
@@ -129,7 +138,7 @@ class RoundReader:
             return []
         hsv=cv2.cvtColor(crop,cv2.COLOR_BGR2HSV)
         hu,sa,va=cv2.split(hsv)
-        keyed=(((hu>65)&(hu<100))|((hu<10)|(hu>165)))&(sa>85)&(va>90)&self.floor
+        keyed=(((hu>65)&(hu<100))|((hu<10)|(hu>165)))&(sa>85)&(va>90)&self.support
         self.barrier_counts += keyed.astype(np.uint16)
         self.buy_samples += 1
         # With the map baked there is nothing to calibrate: the bar's position
@@ -167,6 +176,17 @@ class RoundReader:
         self.barriers=out
         return []
 
+    def supported(self,x,y):
+        """Does a detection at (x, y) touch the opaque slab at all.
+
+        ANY support, not a fraction -- settled when the quarantined Ascent
+        burst turned out to be the world showing through the widget's margin,
+        and 452/452 real detections had support against 0/51 phantoms.
+        """
+        ix,iy=int(round(x)),int(round(y))
+        return bool(self.support[iy,ix]) if (0<=iy<self.support.shape[0]
+                    and 0<=ix<self.support.shape[1]) else False
+
     def barrier_candidates_calibration(self,keyed):
         """Keep deriving the anchor set even when a baked one is in use.
 
@@ -191,7 +211,10 @@ class RoundReader:
 
     def read(self,frame,t_ms):
         base={"type":"sample","t_ms":t_ms,"source_state":"fresh",
-              "widget":"unknown","observations":[],"cross_view":[]}
+              "widget":"unknown","observations":[],"cross_view":[],
+              # Refusals are kept per channel, never silently dropped: a gate
+              # nobody can count is a gate nobody can score.
+              "off_support":{"enemy":[],"ping":[]}}
         if stalls.stalled_at(self.freeze,t_ms):
             base.update(source_state="stale",widget="stale",roster=None)
             return base
@@ -220,8 +243,8 @@ class RoundReader:
             base["observations"].extend(bars)
             def on_bar(d):
                 return any(abs(d["cx"]-b["x"]) <= b["box"][2]/2+4 and abs(d["cy"]-b["y"]) <= b["box"][3]/2+4 for b in bars)
-            allies=ally_icons(crop,self.floor,require_facing=False,support=self.slab)
-            selves=self_icons(crop,self.floor,require_facing=False,support=self.slab)
+            allies=ally_icons(crop,self.floor,require_facing=False,support=self.support)
+            selves=self_icons(crop,self.floor,require_facing=False,support=self.support)
             base["raw_allies"],base["raw_self"]=allies,selves
             rejected=[d for d in allies if on_bar(d)]
             base["barrier_conflicts"]=rejected
@@ -249,13 +272,10 @@ class RoundReader:
             # 50% of the knife burst and 74% of the grenade burst are OFF the
             # slab entirely, against a 29% baseline. Same rule as `ally_icons`:
             # ANY support at all, not a fraction.
-            base["enemy_no_slab"]=[]
             for d in enemy_rings(crop,self.floor):
                 if is_icon(d) and not on_bar(d):
-                    cy,cx=int(round(d["cy"])),int(round(d["cx"]))
-                    inside=(0<=cy<self.slab.shape[0] and 0<=cx<self.slab.shape[1])
-                    if not (inside and self.slab[cy,cx]):
-                        base["enemy_no_slab"].append(d)
+                    if not self.supported(d["cx"],d["cy"]):
+                        base["off_support"]["enemy"].append([d["cx"],d["cy"]])
                         continue
                     r=int(d["r"])
                     agent_obs.append(observation("enemy","enemy agent?",d["cx"],d["cy"],(int(d["cx"])-r,int(d["cy"])-r,2*r,2*r),kind="enemy",r=r,evidence=["red_portrait_ring"],confidence="candidate"))
@@ -267,9 +287,14 @@ class RoundReader:
                     o["appearance"]=composition(patch).tolist()
             # Keep all competing detector claims in raw evidence. Display one
             # object with alternatives rather than identical overlapping boxes.
-            ping=sightings(crop,self.floor)
-            discs=find_discs(cv2.cvtColor(crop,cv2.COLOR_BGR2GRAY),self.slab)
-            dynamic=dynamic_objects(crop,self.lo,self.slab,static_gray2=self.hi)
+            # Same rule, same reason: 846 of 5024 raw sightings over this
+            # round sit in the margin, which is the see-through widget.
+            ping=[]
+            for q in sightings(crop,self.floor):
+                (ping if self.supported(q[0],q[1])
+                 else base["off_support"]["ping"]).append(q)
+            discs=find_discs(cv2.cvtColor(crop,cv2.COLOR_BGR2GRAY),self.support)
+            dynamic=dynamic_objects(crop,self.lo,self.support,static_gray2=self.hi)
             base["raw_pings"],base["raw_discs"],base["raw_dynamic"]=ping,discs,dynamic
             # A dark icon disc is an independent reader, not merely a feature
             # on the bright dynamic blobs; using it only as a join lost glyphs.
