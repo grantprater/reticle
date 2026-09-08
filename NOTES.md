@@ -423,15 +423,36 @@ knew about two of them. Short ability-demo clips read 4-17% and should be
 treated as suspect rather than stalled: a static practice-range scene can
 genuinely repeat a thumbnail, and 2 s is a large fraction of a 40 s clip.
 
-**The shape of the work, then, is the one `segment` already has**: a derived,
-versioned span rule over stored primitives, recomputed on demand, that every
-consumer JOINS against and each interprets for itself -- a reader records no
-observation, a tracker ages without observing, a metric drops the frames from
-its denominator. The shared layer states the fact; it does not decide the
-response. **And today's minimap-local staleness check is then superseded** --
-it measures one ROI on the decode path, where the frame-level column measures
-the whole picture for free. Delete it when the span rule lands rather than
-leaving two definitions.
+**BUILT, 2026-09-08 (`reticle/stalls.py`, `stalls-0.1.0`).** It has the shape
+`segment` already has: a derived, versioned span rule over stored primitives,
+recomputed on demand, that every consumer JOINS against and each interprets for
+itself -- a reader records no observation, a tracker ages without observing, a
+metric drops the frames from its denominator. The shared layer states the fact;
+it does not decide the response. `for_session` returns None when a session has
+no primitives, which is UNKNOWN rather than "no stalls", and the diagnostic
+records which of the two it is.
+
+**The minimap-local check it supersedes is DELETED**, not left beside it:
+`STALE_DELTA`, `source_delta`, `stale_source` and the round-clock witness are
+gone, along with the overlay's per-frame luma compare and clock bookkeeping.
+That machinery measured one ROI on the decode path to answer a question a
+stored whole-frame column answers for every channel at once. The overlay now
+looks the timestamp up in the spans. Verified on the real command over
+405-430 s: the stale stretch is 406.8-427.5 s, matching the 407.2-427.6 the
+deleted per-frame check measured, at zero per-frame cost.
+
+`doctor` carries a STALL check so the load is visible at every pickup rather
+than only inside a render -- 4 sessions over 2%, worst `3694746e4e54` at 9.2%
+with a single 71 s stall. Captures under five minutes are skipped: the
+ability-demo clips are a static practice range where a motionless scene
+genuinely repeats a thumbnail, they all report 4-17%, and left in they were 26
+of 36 findings.
+
+**Not yet joined: the other readers.** `hud`, `roster` and `ping` still record
+observations during a stall. They read at decode time, so wiring them is a
+change to `cmd_scan`'s shared pass rather than to each reader, and it wants
+measuring before it ships -- a roster row inside a stall is not wrong about the
+picture, only about the world.
 
 ### Next session: full-round lifecycle for every observable entity
 

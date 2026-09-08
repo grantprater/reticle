@@ -42,6 +42,7 @@ from .overlay import OverlayContext, draw
 from .passes import SessionContext, run as passes_run
 from .ping import LIFETIME_S, PingReader
 from .roster import RosterReader
+from . import stalls
 from .ocr import (GLYPH_H, GLYPH_W, Templates, cluster_glyphs, crop_gray,
                   read_bottom_hud, read_scoreline, scoreline_roi, segment_glyphs)
 from .primitives import PrimitiveExtractor
@@ -1354,6 +1355,18 @@ def cmd_overlay(args) -> int:
                          mm_passable=mm_passable, mm_sgray=mm_sgray,
                          mm_light=mm_light)
     ctx.mm_apply_lifecycle = args.minimap_lifecycle
+    # Capture stalls are a property of the SOURCE, read once from stored
+    # primitives rather than measured per frame here -- see `stalls`. None
+    # means the session has no primitives table, which is unknown rather than
+    # "no stalls", and the diagnostic records which of the two it is.
+    ctx.mm_stalls = stalls.for_session(store, sid, _date_of(manifest))
+    if ctx.mm_stalls is None:
+        print("stalls     no l1/primitives for this session -- capture stalls "
+              "UNKNOWN; run `reticle ingest`/`segment` to fill them in")
+    elif ctx.mm_stalls:
+        print(f"stalls     {len(ctx.mm_stalls)} capture stall(s), "
+              f"{stalls.total_ms(ctx.mm_stalls) / 1000:.1f}s "
+              f"({stalls.STALL_VERSION}) -- those frames read as stale")
 
     if args.minimap_events:
         import json

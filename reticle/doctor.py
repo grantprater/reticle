@@ -351,13 +351,60 @@ def check_shade(store: Path) -> list[tuple[str, str]]:
     return out
 
 
+def check_stalls(store: Path) -> list[tuple[str, str]]:
+    """Sessions holding a lot of CAPTURE STALL -- frozen source, time passing.
+
+    A finding rather than an error: a stall is the recording's fault and no
+    code change fixes one after the fact. What it must not do is stay
+    invisible, because a stalled stretch is the most confident-looking data a
+    session has -- every reader reads the same frozen picture and reports a
+    world it is no longer observing. Surfacing it at pickup is what stops a
+    measurement being quoted over frames nothing was watching.
+
+    Recomputed from `l1/primitives` (`stalls`), so it costs no decode. The
+    threshold is deliberately loose: the point is the LIST and the worst
+    offender, not a pass/fail.
+
+    **Captures under five minutes are skipped, and the reason is not tidiness.**
+    The ability-demo clips are 20-90 s of a static practice range, where a
+    genuinely motionless scene repeats a thumbnail and the rule cannot tell
+    that from a stall -- every one of them reports 4-17%. Left in, they were 26
+    of 36 findings and drowned the five real matches. The shortest match is 16
+    minutes and the longest clip is 1.4, so the cut sits in an empty gap.
+    """
+    from . import stalls as _stalls
+    from .store import Store
+    st = Store(store)
+    out = []
+    for man in st.sessions():
+        sid = man["session_id"]
+        date = str(man.get("ingested_at", ""))[:10] or None
+        if date is None:
+            continue
+        found = _stalls.for_session(st, sid, date)
+        if not found:
+            continue
+        table = st.read_primitives(sid, date)
+        duration = float(table["t_ms"][-1]) if len(table["t_ms"]) else 0.0
+        total = _stalls.total_ms(found)
+        if duration < 300_000 or total / duration < 0.02:
+            continue
+        worst = max(s["t_end_ms"] - s["t_start_ms"] for s in found)
+        out.append(("finding",
+                    f"{sid} is {100 * total / duration:.1f}% stalled capture "
+                    f"({total / 1000:.0f}s over {len(found)} stalls, longest "
+                    f"{worst / 1000:.0f}s) -- those frames are not observations"))
+    return sorted(out, key=lambda r: r[1])
+
+
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("ORPHAN", check_orphan),
               ("GEOMETRY", lambda: check_geometry(store)),
               ("SHADE", lambda: check_shade(store)),
               ("COVERAGE", lambda: check_coverage(store)),
-              ("MANIFEST", lambda: check_manifest(store)))
+              ("MANIFEST", lambda: check_manifest(store)),
+              ("STALL", lambda: check_stalls(store)))
     out = []
     for name, fn in checks:
         for sev, msg in fn():

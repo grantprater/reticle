@@ -88,42 +88,46 @@ class TemporalEvidenceTests(unittest.TestCase):
         self.assertEqual((a["known"], a["lit"]), (b["known"], b["lit"]))
         self.assertGreater(a["known"], 0)
 
-    def test_a_frozen_source_is_not_an_observation(self):
+    def test_a_stalled_source_is_not_an_observation(self):
         # A capture stall reads the same positions every frame, so every track
         # holds and the channel reports a world it is not observing -- the most
-        # confident-looking tracking in a session. `haven 421-428` is 6.4 s of
-        # it. Treated like an absent widget, but recorded as its own state.
+        # confident-looking data in a session. The FACT comes from the shared
+        # spans, not from a measurement made here.
         tracker = Tracker()
         tracker.step(0, [detection()])
         ctx = SimpleNamespace(mm_box=(0, 0, 50, 50), mm_sgray=np.zeros((50, 50)),
                               mm_floor=np.ones((50, 50), bool), mm_slab=None,
                               mm_track_self=tracker, mm_track_ally=Tracker(),
-                              mm_prev_luma=None, mm_light=None, mm_lifecycle=None,
+                              mm_light=None, mm_lifecycle=None,
                               mm_passable=np.ones((50, 50), bool),
-                              mm_origin_events=(), mm_apply_lifecycle=False)
+                              mm_origin_events=(), mm_apply_lifecycle=False,
+                              mm_stalls=[{"t_start_ms": 150, "t_end_ms": 400,
+                                          "samples": 2}])
         frame = np.zeros((50, 50, 3), np.uint8)
         frame[10:20, 10:20] = 200
         with patch("reticle.overlay.widget_drawn", return_value=True):
-            _draw_minimap(frame.copy(), frame, 100, ctx)     # first: no previous
-            self.assertIsNone(ctx.mm_diagnostic["source_delta"])
-            _draw_minimap(frame.copy(), frame, 200, ctx)     # identical source
+            _draw_minimap(frame.copy(), frame, 100, ctx)     # before the stall
+            self.assertEqual(ctx.mm_diagnostic["widget"], "drawn")
+            _draw_minimap(frame.copy(), frame, 200, ctx)     # inside it
         self.assertEqual(ctx.mm_diagnostic["widget"], "stale")
-        self.assertEqual(ctx.mm_diagnostic["source_delta"], 0.0)
-        self.assertEqual(ctx.mm_diagnostic["stale_evidence"], "pixels only, no clock")
+        self.assertTrue(ctx.mm_diagnostic["stalls_known"])
         self.assertEqual(ctx.mm_diagnostic["observations"], [])
 
-    def test_a_ticking_clock_refutes_a_stall_whatever_the_pixels_say(self):
-        # The player's point: the clock is the better witness. Post-plant it is
-        # replaced by the spike timer, so the pixel delta stays as the fallback
-        # and the record says which witness the answer rests on.
-        from reticle.minimap_diagnostics import stale_source
-        self.assertEqual(stale_source(0.0, None, None), (True, "pixels only, no clock"))
-        self.assertEqual(stale_source(0.0, 54000, 200.0), (False, "clock advancing"))
-        self.assertEqual(stale_source(0.0, 54000, 4000.0),
-                         (True, "clock held and pixels static"))
-        self.assertEqual(stale_source(9.0, 54000, 4000.0),
-                         (False, "clock held, pixels moving"))
-        self.assertEqual(stale_source(None, None, None), (False, "no previous frame"))
+    def test_a_session_without_primitives_is_unknown_not_unstalled(self):
+        tracker = Tracker()
+        ctx = SimpleNamespace(mm_box=(0, 0, 50, 50), mm_sgray=np.zeros((50, 50)),
+                              mm_floor=np.ones((50, 50), bool), mm_slab=None,
+                              mm_track_self=tracker, mm_track_ally=Tracker(),
+                              mm_light=None, mm_lifecycle=None,
+                              mm_passable=np.ones((50, 50), bool),
+                              mm_origin_events=(), mm_apply_lifecycle=False,
+                              mm_stalls=None)
+        frame = np.zeros((50, 50, 3), np.uint8)
+        frame[10:20, 10:20] = 200
+        with patch("reticle.overlay.widget_drawn", return_value=True):
+            _draw_minimap(frame.copy(), frame, 200, ctx)
+        self.assertEqual(ctx.mm_diagnostic["widget"], "drawn")
+        self.assertFalse(ctx.mm_diagnostic["stalls_known"])
 
     def test_the_track_picks_the_self_icon_not_this_frame_s_coverage(self):
         # The Haven death window: two self-coloured candidates 35-45 px apart,

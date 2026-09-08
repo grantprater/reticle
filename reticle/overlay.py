@@ -59,8 +59,8 @@ from . import cone as cone_mod
 from . import lighting
 from .killfeed import ME_MATCH_MIN, analyse_killfeed, killfeed_roi
 from .minimap import ally_icons, self_icons, widget_drawn, widget_scale
-from .minimap_diagnostics import (DIAGNOSTICS_VERSION, light_support,
-                                  distance_agreement, source_delta, stale_source)
+from .minimap_diagnostics import DIAGNOSTICS_VERSION, light_support, distance_agreement
+from .stalls import STALL_VERSION, stalled_at
 from .minimap_lifecycle import Lifecycle, LIFECYCLE_VERSION
 from .track import Tracker
 from .ocr import crop_gray, read_bottom_hud, read_scoreline, scoreline_roi
@@ -114,12 +114,10 @@ class OverlayContext:
     mm_slab: np.ndarray | None = None
     mm_passable: np.ndarray | None = None
     mm_sgray: np.ndarray | None = None  # the static map, for `widget_drawn`
-    #: The previous frame's minimap luma, for `minimap_diagnostics.source_delta`.
-    mm_prev_luma: np.ndarray | None = None
-    #: The last round-clock reading and when it last CHANGED. The clock is the
-    #: better witness that the capture is advancing -- see `stale_source`.
-    mm_clock_ms: int | None = None
-    mm_clock_changed_t_ms: float | None = None
+    #: This session's capture-stall spans from `stalls.for_session`, or None
+    #: when the session has no primitives table -- which is UNKNOWN rather than
+    #: "no stalls", and the diagnostic says which.
+    mm_stalls: list | None = None
     mm_light: object = None            # `lighting.Lighting`, or None
 
     #: One tracker per key. They hold state ACROSS frames, which is what makes
@@ -194,7 +192,7 @@ def draw(frame: np.ndarray, t_ms: float, frame_idx: int, ctx: OverlayContext) ->
     if occl:
         lines.append("occluded: " + ", ".join(occl))
     if ctx.has_minimap:
-        lines.append(_draw_minimap(img, frame, t_ms, ctx, sr.clock_ms))
+        lines.append(_draw_minimap(img, frame, t_ms, ctx))
     _panel(img, 8, 8, 470, 20 + 18 * len(lines))
     for i, line in enumerate(lines):
         _text(img, line, (18, 30 + 18 * i), INK, 0.46)
@@ -252,7 +250,7 @@ def draw(frame: np.ndarray, t_ms: float, frame_idx: int, ctx: OverlayContext) ->
     return img
 
 
-def _draw_minimap(img, frame, t_ms: float, ctx, clock_ms: int | None = None) -> str:
+def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     """The minimap channel: icons, bearings, and the collective viewcone.
 
     Returns a one-line summary for the HUD panel. Draws nothing and returns a
@@ -272,47 +270,43 @@ def _draw_minimap(img, frame, t_ms: float, ctx, clock_ms: int | None = None) -> 
     if getattr(ctx, "mm_lifecycle", None) is None:
         ctx.mm_lifecycle = Lifecycle(scale=widget_scale(x1 - x0))
 
-    luma = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    delta = source_delta(luma, getattr(ctx, "mm_prev_luma", None))
-    ctx.mm_prev_luma = luma
-    # The clock is read from the scoreline, not from here; this only remembers
-    # when it last CHANGED, which is what says how long it has been held.
-    if clock_ms is not None and clock_ms != getattr(ctx, "mm_clock_ms", None):
-        # The FIRST reading is not a change -- it is the first observation, and
-        # counting it as one says "the clock just ticked" at every window start,
-        # which cost the first 1.5 s of the Haven stall.
-        if getattr(ctx, "mm_clock_ms", None) is not None:
-            ctx.mm_clock_changed_t_ms = t_ms
-        ctx.mm_clock_ms = clock_ms
-    held = (None if getattr(ctx, "mm_clock_changed_t_ms", None) is None
-            else t_ms - ctx.mm_clock_changed_t_ms)
+    # **The stall fact is not measured here.** It is a property of the source
+    # frame, it is already in `l1/primitives` for every session, and every
+    # channel joins the same spans -- see `stalls`. This used to be a per-frame
+    # luma delta on the minimap crop plus a round-clock witness, which measured
+    # one ROI to answer a question a stored whole-frame column answers for all
+    # of them at once.
+    known_stalls = getattr(ctx, "mm_stalls", None)
+    stale = stalled_at(known_stalls, t_ms)
     # **A frozen source is not an observation, and it used to look like a
     # perfect one.** Treated exactly like an absent widget -- the trackers age,
     # nothing is read -- but recorded as its own state, because "the recording
     # stalled" and "the player opened the map" are different facts about the
-    # same silence. See `minimap_diagnostics.STALE_DELTA`.
+    # same silence. See `stalls`.
     # Order matters: an ABSENT widget is asked about first, because a static
     # overlay covering the minimap -- the buy panel is one, for seconds at a
     # time -- is also unchanging, and "the widget is not there" is the more
     # specific fact. Stale means the widget IS drawn and is not advancing.
     drawn = widget_drawn(crop, ctx.mm_sgray, ctx.mm_floor)
-    is_stale, evidence = stale_source(delta, clock_ms, held)
-    stale = drawn and is_stale
+    # An ABSENT widget is the more specific fact, so it is reported first: a
+    # static overlay covering the minimap -- the buy panel, for seconds at a
+    # time -- is unchanging without the capture having stalled.
+    stale = stale and drawn
     if stale or not drawn:
         ctx.mm_track_self.step(t_ms, [])
         ctx.mm_track_ally.step(t_ms, [])
         ctx.mm_diagnostic = {"version": DIAGNOSTICS_VERSION, "t_ms": t_ms,
                              "widget": "stale" if stale else "not_drawn",
-                             "observations": [], "source_delta": delta,
-                             "clock_ms": clock_ms, "clock_held_ms": held,
-                             "stale_evidence": evidence,
-                             "reason": (f"source not advancing ({evidence})" if stale
-                                        else "widget unavailable")}
+                             "observations": [],
+                             "stall_version": STALL_VERSION,
+                             "stalls_known": known_stalls is not None,
+                             "reason": ("source not advancing (l1/primitives motion)"
+                                        if stale else "widget unavailable")}
         ctx.mm_lifecycle.step(ctx.mm_diagnostic)
         cv2.rectangle(img, (x0, y0), (x1, y1), MAGENTA, 2)
         label = ("minimap: SOURCE STALE" if stale else "minimap: WIDGET NOT DRAWN")
         _text(img, label, (x0 + 6, y0 + 18), MAGENTA, 0.5)
-        return (f"minimap  SOURCE STALLED -- {evidence}, not a reading"
+        return ("minimap  SOURCE STALLED -- a capture stall, not a reading"
                 if stale else "minimap  no widget (death screen, or the M key)")
 
     # `require_facing=False` so a refused bearing is still DRAWN, in amber.
@@ -390,8 +384,8 @@ def _draw_minimap(img, frame, t_ms: float, ctx, clock_ms: int | None = None) -> 
                                  "facing": by_pos.get((round(tr.x), round(tr.y)))})
     ctx.mm_diagnostic = {
         "version": DIAGNOSTICS_VERSION, "t_ms": t_ms, "widget": "drawn",
-        "source_delta": delta, "clock_ms": clock_ms, "clock_held_ms": held,
-        "stale_evidence": evidence, "observations": observations,
+        "stall_version": STALL_VERSION,
+        "stalls_known": known_stalls is not None, "observations": observations,
         "raw_allies": raw_allies, "raw_self": raw_selves,
         "light_budget": {"lit": int(lit.sum()) if lit is not None else None,
                          "known": int(known.sum()) if known is not None else None},
