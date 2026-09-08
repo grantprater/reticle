@@ -198,6 +198,15 @@ def check_orphan() -> list[tuple[str, str]]:
     backlog entry's own stated trigger is *`doctor`'s ORPHAN check listing them
     twice in a row*, and satisfying the entry's format destroyed its trigger.
     Being on the deletion backlog is evidence a prototype is DEAD, not alive.
+
+    `docs/` IS scanned (2026-09-08), and that is the opposite case: it is the
+    documentation directory -- `docs/WORKING_MAP.md` is the routing entry point
+    this repo tells every session to start from -- so a design doc naming a
+    prototype is evidence it is alive, the same as a module importing it. The
+    check read only the root and `prototypes/`, which made "named by no doc"
+    mean something narrower than it says. Changed while it altered NOTHING:
+    none of the nine current orphans appear in `docs/` either, so this cannot
+    be a quiet way to clear the list.
     """
     protos = sorted(p.stem for p in (ROOT / "prototypes").glob("*.py"))
     text = []
@@ -206,7 +215,8 @@ def check_orphan() -> list[tuple[str, str]]:
             text.append((f.stem, f.read_text(encoding="utf-8", errors="replace")))
     docs = "".join(
         p.read_text(encoding="utf-8", errors="replace")
-        for p in list(ROOT.glob("*.md")) + list((ROOT / "prototypes").glob("*.md"))
+        for p in (list(ROOT.glob("*.md")) + list((ROOT / "prototypes").glob("*.md"))
+                  + list((ROOT / "docs").glob("*.md")))
         if p.is_file() and p.name != "BACKLOG.md")
     dead = []
     for name in protos:

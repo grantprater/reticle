@@ -392,8 +392,16 @@ def report(rows=None, tool=None, log_path=None, verbose=False) -> str:
             except ImportError:
                 change_point = None
             cp = change_point(hist) if change_point else None
-            if cp:
-                lines.append(f"    controls: regime change at #{cp['index']}")
+            # `change_point` returns its BEST split whether or not the split is
+            # real; `changed` is the Bonferroni-corrected verdict. Reporting the
+            # dict's truthiness announced a regime for every control history of
+            # ten -- which is the manufactured regime its own docstring warns
+            # about -- and did it through a key (`index`) that does not exist,
+            # so `reticle metrics` raised KeyError instead.
+            if cp and cp["changed"]:
+                lines.append(f"    controls: regime change at #{cp['k']} "
+                             f"({cp['before']:.0%} -> {cp['after']:.0%}, "
+                             f"corrected p={cp['p']:.3f})")
     return "\n".join(lines)
 
 
@@ -502,6 +510,31 @@ def _self_test() -> int:
     d = diff(rows=load(tmp))[0]
     check("a CI never softens BROKEN", d["verdict"], BROKEN_CMP)
     check("BROKEN carries no established flag", d["established"], {})
+
+    # ---- report() over a long control history -----------------------------
+    # `report` was never exercised here, and the one branch no short log
+    # reaches -- a control history of ten, which is what wakes `change_point`
+    # -- raised KeyError in the shipped `reticle metrics`. A rendering path
+    # that only runs on real data is a path with no test.
+    tmp.unlink(missing_ok=True)
+    base3 = dict(tool="cp", part="", session="s", log_path=tmp)
+    for i in range(14):
+        held = i >= 7          # a real regime, so the corrected p can fire
+        record(values={"tp": 1}, deps={"v": "1"}, context={"n": 1},
+               controls=[{"name": "known", "expected": 1,
+                          "observed": 1 if held else 0}], **base3)
+    hist = control_history(load(tmp), key(load(tmp)[-1]))
+    check("control history is long enough to test", len(hist), 14)
+    text = report(rows=load(tmp), tool="cp")
+    check("report renders a long control history", isinstance(text, str), True)
+    check("a real regime is reported", "regime change at #7" in text, True)
+    # And a history with no regime must stay silent rather than manufacture one.
+    tmp.unlink(missing_ok=True)
+    for _ in range(14):
+        record(values={"tp": 1}, deps={"v": "1"}, context={"n": 1},
+               controls=[{"name": "known", "expected": 1, "observed": 1}], **base3)
+    check("no regime, no claim", "regime change" in report(rows=load(tmp), tool="cp"),
+          False)
 
     tmp.unlink(missing_ok=True)
     print("PASS" if ok else "FAIL")
