@@ -31,11 +31,11 @@ from .decode import sample_frames, sample_multi, sample_spans
 from .checks import KNOWN_KD, check_hud, player_events, track_entries
 from .rounds import build_rounds, summarise
 from .scoreboard import read_scoreboard
-from . import geometry
+from . import cone, geometry
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
-from .minimap import (BOXEDGE, MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px,
+from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px,
                       widget_scale,
                       pick_self, self_rings, static_map, widget_drawn)
 from .overlay import OverlayContext, draw
@@ -1328,7 +1328,7 @@ def cmd_overlay(args) -> int:
             if geo is not None and geo.is_file():
                 z = np.load(geo)
                 if "labels" in z.files and z["labels"].shape == mm_floor.shape:
-                    mm_passable = mm_floor | (z["labels"] == BOXEDGE)
+                    mm_passable = cone.passable_from(z["labels"], mm_floor)
                     print("minimap    geometry labels loaded "
                           "(rays pass low boxes without lighting them)")
                 else:

@@ -19,10 +19,27 @@ Two changes were made in the move, and both are corrections
 `(labels, floor)` and skipped `BOXEDGE` pixels so a ray would pass a low box
 -- but it then marked that pixel lit anyway, while the stated domain fact is
 that the cone *does not illuminate boxes*. Passing through and being seen are
-different questions, so they are different arguments. Splitting them also cuts
-the dependency on `minimap_geometry`'s per-session npz: a caller with labels
-composes `passable = floor | (labels == BOXEDGE)`, `visible = floor`, and a
-caller without them passes `floor` alone and gets the conservative answer.
+different questions, so they are different arguments.
+
+**A BOX STOPS THE RAY. Corrected 2026-09-07 by the recorder, who plays the
+game: sight terminates at walls AND at boxes, it does not pass them.** The
+composition here was `floor | (labels == BOXEDGE)`, which is a no-op --
+`BOXEDGE` is already inside `floor_mask`, so boxes were passable *and* lit,
+which is neither the old intent nor the truth. Whether to terminate the ray or
+to cull the lit pixel afterwards is an implementation choice; terminating is
+free, because `raycast` already stops at the first impassable pixel and does
+not mark it.
+
+Measured over ~48 frames on each painted map, against the two-state lit mask,
+changing only this:
+
+    occluder                 ascent prec / over-claim   lotus prec / over-claim
+    floor | BOXEDGE (was)        15.9%   4.36x              19.8%   3.27x
+    floor & ~BOXEDGE (is)        33.5%   1.27x              35.4%   1.60x
+
+Recall falls with it, 67% to 43% on Ascent, and that is NOT yet understood --
+`BOXEDGE` is a 1-2 px line and may be sealing doorways it should not. Use
+`passable_from`, so there is one composition rather than one per caller.
 
 **It is vectorised, and that was not optional.** The loop version is ~10^5
 Python iterations per cone; five icons at 15 Hz over a 39-minute session is
@@ -89,6 +106,18 @@ CONE_HALF_ANGLE_DEG = 51.5
 #: the widget's ~230 px half-diagonal is under 2 px of arc at the far edge --
 #: fine enough that a doorway cannot fall between two rays.
 N_RAYS = 240
+
+
+def passable_from(labels: np.ndarray, floor: np.ndarray) -> np.ndarray:
+    """The grid a ray may travel through: the floor, minus the boxes.
+
+    One definition, because two callers composing this by hand is how the
+    `floor_mask` fork started. `visible` stays `floor`: a box stops sight and
+    is not itself lit, which `raycast` gives for free by not marking the pixel
+    it dies on.
+    """
+    from .minimap import BOXEDGE
+    return floor & ~(labels == BOXEDGE)
 
 
 def raycast(passable: np.ndarray, cx: float, cy: float, facing_deg: float,
@@ -351,12 +380,12 @@ def _bench(session: str) -> int:
     import time
 
     from . import geometry
-    from .minimap import BOXEDGE, floor_mask
+    from .minimap import floor_mask
 
     z = np.load(geometry.require(session))
     labels, med = z["labels"], z["static"]
     floor = floor_mask(med)
-    passable = floor | (labels == BOXEDGE)
+    passable = passable_from(labels, floor)
     ys, xs = np.where(floor)
     rng = np.random.default_rng(7)
     idx = rng.choice(len(ys), 12, replace=False)
