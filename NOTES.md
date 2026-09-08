@@ -24,6 +24,60 @@ Both at 10 Hz detection over 60 Hz video with source audio, 0 ms stalled, each
 with `observations.jsonl`, `lifetimes.json`, `coverage.json`, `provenance.json`
 and a `review.html` that passes `tests/review_harness.cjs`.
 
+### The player is named by TWO weak witnesses, neither of which is enough
+
+The player listed the witnesses and the point of listing them: *"I realize it's
+a tangle of mutually reinforcing factors, but that's kind of the point."*
+
+**Do not redetect the self icon.** It is already `you`/E0001, one entity for a
+whole round, and its `composition()` is already stored on every observation for
+association -- so the identity witness is free and `Lineup.add_self` takes the
+VECTOR, not a crop.
+
+    LOTUS, truth slot 2 / Phoenix
+      top bar    slot 2 = Phoenix, margin 0.109      accepted, but says
+                                                    nothing about WHO is me
+      self icon  Phoenix ranked 2nd of 29, margin 0.045   REFUSED alone
+      joined     among the five the top bar proposes, Phoenix wins by 0.098
+                 -> slot 2, correct
+
+    SUNSET     -> slot 1, Clove, margin 0.186
+
+**The scores are not pooled.** The top bar answers *who is on the team* and the
+self icon answers *which of them is holding the camera*; summing them would let
+a confident answer to one paper over silence on the other. `Lineup.player`
+keeps both verdicts and an `agree` flag.
+
+Clove is confirmed from two further directions: the buy-phase tray glyphs are
+butterflies with a butterfly-and-heart ultimate, which is Clove's iconography
+and matches `Pick-me-up / Meddle / Ruse / Not Dead Yet`; and the player is
+OVERHEALED in that round, which is Clove's own effect. Lotus's Phoenix is
+likewise confirmed by the tray reading Blaze / Hot Hands / Curveball with a
+"Run it Back" ult banner.
+
+### The tray glyph is a REAL witness and it is not safe yet
+
+`reference/assets/abilities` holds 118 official glyphs as `<Agent>_<Slot>.png`,
+and the tray is the player's own, large and unoccluded. Matching the four
+glyphs as binary shapes:
+
+    SUNSET   Clove     IoU 0.860  margin 0.523   CORRECT
+    LOTUS    Sage      IoU 0.603  margin 0.136   WRONG (truth Phoenix, not in
+                                                 the top five)
+
+**It is not the ultimate slot** -- dropping X changes neither answer. It is the
+MASK: the tray crops hold ~2,700 bright pixels per slot on Lotus against ~540
+on Sunset, because Lotus's buy phase is a bright sandy scene and `g > 170` is
+an absolute cut that floods when the world behind the HUD is bright. The glyph
+detector is a brightness threshold, which is the failure class this repo
+already pays for repeatedly.
+
+**The margin was healthy and the input was garbage**, and 0.136 would clear the
+0.07 gate -- so a confidence number is worthless without a precondition on the
+input that produced it. Gate on mask quality (the tray plate is a known dark
+region; a top-hat or local contrast would not care what is behind it) BEFORE
+this witness is allowed to vote. Not built, and not wired into the overlay.
+
 ### Identity rides every scan now: `reticle/lineup.py`
 
 The player's spec, and it is right on all three counts: *"default to getting

@@ -108,6 +108,11 @@ class Lineup:
         self.scores = {"ally": np.zeros((N_SLOTS, len(self.names))),
                        "enemy": np.zeros((N_SLOTS, len(self.names)))}
         self.frames = 0
+        # A SECOND witness, and a different surface: the portrait inside the
+        # self icon. Fed from wherever self icons are already found -- it is
+        # not detected again here.
+        self.self_scores = np.zeros(len(self.names))
+        self.self_n = 0
 
     def add(self, frame: np.ndarray, profile, w: int, h: int) -> bool:
         rois = dict(zip(("ally", "enemy"), roster_rois(profile, w, h)))
@@ -128,6 +133,69 @@ class Lineup:
         return seen
 
     _composition = staticmethod(_composition)
+
+    def add_self(self, appearance) -> None:
+        """One more look at the player's own icon, as a composition histogram.
+
+        Takes the vector rather than the crop because the round pipeline has
+        already computed it for association -- `composition()` of the icon
+        interior is the same feature this needs, and computing it twice would
+        be paying for one thing at two call sites.
+        """
+        hq = np.asarray(appearance, dtype=np.float32)
+        if not hq.size:
+            return
+        for j, n in enumerate(self.names):
+            self.self_scores[j] += sum(float(np.minimum(hq, g).sum())
+                                       for g in self.gal[n])
+        self.self_n += 1
+
+    def player(self, side: str = "ally", margin_min: float = MARGIN_MIN) -> dict:
+        """Which slot the player is, from the top bar AND the self icon.
+
+        **Neither witness is confident alone and together they are**, which is
+        the whole argument for corroborating rather than picking a best
+        detector. On Lotus the self icon ranks Phoenix 2nd of 29 at a margin of
+        0.045 -- refused on its own -- but the top bar proposes only five
+        candidates, and among those five Phoenix wins by 0.098.
+
+        The scores are NOT summed. The top bar decides WHO is on the team and
+        the self icon decides WHICH of them is holding the camera; they answer
+        different questions and pooling them would let a confident answer to
+        one paper over silence on the other. Disagreement is kept.
+        """
+        if not self.self_n:
+            return {"slot": None, "agent": None, "reason": "no self icon seen",
+                    "witnesses": {}}
+        s = self.self_scores / self.self_n
+        by_name = {n: float(s[j]) for j, n in enumerate(self.names)}
+        rows = self.verdict(side, margin_min=0.0)      # ungated: candidates only
+        ranked = sorted(((by_name.get(r["agent"], 0.0), r) for r in rows),
+                        key=lambda t: -t[0])
+        best, runner = ranked[0], ranked[1] if len(ranked) > 1 else (0.0, None)
+        margin = best[0] - runner[0]
+        gated = self.verdict(side, margin_min=margin_min)
+        top_bar_named = gated[best[1]["slot"]]["agent"]
+        ok = margin >= margin_min
+        return {
+            "slot": best[1]["slot"] if ok else None,
+            "agent": best[1]["agent"] if ok else None,
+            "margin": round(margin, 4),
+            "self_frames": self.self_n,
+            "witnesses": {
+                "top_bar": {"agent": top_bar_named,
+                            "margin": gated[best[1]["slot"]]["margin"]},
+                "self_icon": {"agent": max(by_name, key=by_name.get),
+                              "rank_of_pick": 1 + sorted(
+                                  by_name, key=lambda n: -by_name[n]).index(
+                                      best[1]["agent"])},
+            },
+            "agree": top_bar_named is not None
+                     and top_bar_named == best[1]["agent"],
+            "reason": None if ok else
+                      f"margin {margin:.3f} below {margin_min} across the "
+                      f"{side} slots",
+        }
 
     def verdict(self, side: str, margin_min: float = MARGIN_MIN) -> list[dict]:
         """One row per slot: the agent, its margin, and whether to believe it.

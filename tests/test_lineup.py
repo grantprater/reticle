@@ -75,6 +75,59 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(len({r["agent"] for r in out}), 5)
 
 
+class PlayerCorroborationTests(unittest.TestCase):
+    """Two witnesses that answer DIFFERENT questions, kept apart on purpose."""
+
+    def build(self):
+        gal = {n: [np.zeros(4, np.float32)] for n in
+               ("Astra", "Breach", "Cypher", "Phoenix", "Sage", "Sova")}
+        st = lineup.Lineup(gal)
+        st.frames = 1
+        rows = np.zeros((5, 6))
+        rows[0] = [0.9, 0.1, 0, 0, 0, 0]        # Astra
+        rows[1] = [0, 0.9, 0.1, 0, 0, 0]        # Breach
+        rows[2] = [0, 0, 0.9, 0.1, 0, 0]        # Cypher
+        rows[3] = [0, 0, 0, 0.9, 0.1, 0]        # Phoenix
+        rows[4] = [0, 0, 0, 0, 0.9, 0.1]        # Sage
+        st.scores["ally"] = rows
+        return st
+
+    def test_the_self_icon_picks_which_of_the_five_is_the_player(self):
+        st = self.build()
+        st.self_n = 1
+        # The self icon likes Phoenix best AMONG the five on the team, even
+        # though it is not the global maximum -- Sova is, and Sova is not here.
+        st.self_scores = np.array([0.2, 0.1, 0.1, 0.8, 0.1, 0.95])
+        got = st.player("ally")
+        self.assertEqual(got["slot"], 3)
+        self.assertEqual(got["agent"], "Phoenix")
+        self.assertTrue(got["agree"])
+        self.assertEqual(got["witnesses"]["self_icon"]["agent"], "Sova")
+
+    def test_no_self_icon_names_nobody(self):
+        got = self.build().player("ally")
+        self.assertIsNone(got["slot"])
+        self.assertEqual(got["reason"], "no self icon seen")
+
+    def test_a_flat_self_witness_refuses_rather_than_picking_slot_zero(self):
+        st = self.build()
+        st.self_n = 1
+        st.self_scores = np.full(6, 0.5)
+        got = st.player("ally")
+        self.assertIsNone(got["slot"])
+        self.assertIn("below", got["reason"])
+
+    def test_disagreement_is_recorded_not_hidden(self):
+        st = self.build()
+        st.self_n = 1
+        st.self_scores = np.array([0.2, 0.1, 0.1, 0.8, 0.1, 0.95])
+        # Make the top bar unsure about the slot the self icon lands on.
+        st.scores["ally"][3] = [0, 0, 0, 0.50, 0.49, 0]
+        got = st.player("ally")
+        self.assertFalse(got["agree"])
+        self.assertIsNone(got["witnesses"]["top_bar"]["agent"])
+
+
 class SlotCropTests(unittest.TestCase):
     def test_the_bar_splits_into_five_and_an_empty_bar_into_none(self):
         self.assertEqual(len(lineup.slot_crops(np.zeros((40, 100, 3), np.uint8))), 5)
