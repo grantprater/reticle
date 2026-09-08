@@ -88,6 +88,58 @@ class TemporalEvidenceTests(unittest.TestCase):
         self.assertEqual((a["known"], a["lit"]), (b["known"], b["lit"]))
         self.assertGreater(a["known"], 0)
 
+    def test_a_frozen_source_is_not_an_observation(self):
+        # A capture stall reads the same positions every frame, so every track
+        # holds and the channel reports a world it is not observing -- the most
+        # confident-looking tracking in a session. `haven 421-428` is 6.4 s of
+        # it. Treated like an absent widget, but recorded as its own state.
+        tracker = Tracker()
+        tracker.step(0, [detection()])
+        ctx = SimpleNamespace(mm_box=(0, 0, 50, 50), mm_sgray=np.zeros((50, 50)),
+                              mm_floor=np.ones((50, 50), bool), mm_slab=None,
+                              mm_track_self=tracker, mm_track_ally=Tracker(),
+                              mm_prev_luma=None, mm_light=None, mm_lifecycle=None,
+                              mm_passable=np.ones((50, 50), bool),
+                              mm_origin_events=(), mm_apply_lifecycle=False)
+        frame = np.zeros((50, 50, 3), np.uint8)
+        frame[10:20, 10:20] = 200
+        with patch("reticle.overlay.widget_drawn", return_value=True):
+            _draw_minimap(frame.copy(), frame, 100, ctx)     # first: no previous
+            self.assertIsNone(ctx.mm_diagnostic["source_delta"])
+            _draw_minimap(frame.copy(), frame, 200, ctx)     # identical source
+        self.assertEqual(ctx.mm_diagnostic["widget"], "stale")
+        self.assertEqual(ctx.mm_diagnostic["source_delta"], 0.0)
+        self.assertEqual(ctx.mm_diagnostic["stale_evidence"], "pixels only, no clock")
+        self.assertEqual(ctx.mm_diagnostic["observations"], [])
+
+    def test_a_ticking_clock_refutes_a_stall_whatever_the_pixels_say(self):
+        # The player's point: the clock is the better witness. Post-plant it is
+        # replaced by the spike timer, so the pixel delta stays as the fallback
+        # and the record says which witness the answer rests on.
+        from reticle.minimap_diagnostics import stale_source
+        self.assertEqual(stale_source(0.0, None, None), (True, "pixels only, no clock"))
+        self.assertEqual(stale_source(0.0, 54000, 200.0), (False, "clock advancing"))
+        self.assertEqual(stale_source(0.0, 54000, 4000.0),
+                         (True, "clock held and pixels static"))
+        self.assertEqual(stale_source(9.0, 54000, 4000.0),
+                         (False, "clock held, pixels moving"))
+        self.assertEqual(stale_source(None, None, None), (False, "no previous frame"))
+
+    def test_the_track_picks_the_self_icon_not_this_frame_s_coverage(self):
+        # The Haven death window: two self-coloured candidates 35-45 px apart,
+        # alternating frame to frame, both at the 0.25 coverage floor. Taking
+        # the better-covered one per frame moved the player across the map and
+        # back seven times in three seconds.
+        tracker = Tracker(scale=1.0)
+        real = {"cx": 155.0, "cy": 206.0, "r": 6, "cov": 0.28, "facing": 0.0}
+        blob = {"cx": 118.0, "cy": 217.0, "r": 6, "cov": 0.99, "facing": 0.0}
+        for i in range(6):
+            tracker.step(i * 1000 / 60, [real])
+        tracker.step(6 * 1000 / 60, [real, blob])
+        self.assertEqual((tracker.principal().x, tracker.principal().y),
+                         (real["cx"], real["cy"]))
+        self.assertEqual(len(tracker.tracks), 2)   # the other is kept, not deleted
+
     def test_a_blob_supported_only_by_the_margin_is_not_an_icon(self):
         # `floor` arrives dilated so an icon at the slab's edge is not clipped,
         # and that margin lies over the see-through part of the widget. On

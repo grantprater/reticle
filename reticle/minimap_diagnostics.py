@@ -14,6 +14,66 @@ DIAGNOSTICS_VERSION = "minimap-diagnostics-0.3.0"
 #: Outer edge of the annulus support is counted over, widget px at scale 1.0.
 SUPPORT_OUTER_PX = 26.0
 
+#: Mean absolute luma difference between consecutive minimap crops, below
+#: which the SOURCE is not advancing and the frame carries no new observation.
+#:
+#: **A frozen recording is the most confident-looking tracking in a session**,
+#: and nothing was distinguishing it: the detector reads the same positions
+#: every frame, every track holds, and the channel reports a world it is not
+#: observing. `CLAUDE.md` already requires stale input to stay distinguishable
+#: from a real reading; this is the missing half.
+#:
+#: Measured over five rendered windows, mean |luma difference| per frame pair:
+#:
+#:     window                   p05     median    p95    pairs under 0.10
+#:     haven 421-428 (frozen)  0.000    0.052    0.722     383 / 419
+#:     haven 259-266           0.334    3.130   13.305       2 / 419
+#:     ascent 298-300          0.773    7.835   21.722       0 / 119
+#:     lotus 298-300           0.276    1.244    6.380       0 / 119
+#:
+#: Inside the stall itself nothing exceeds 0.061, and the lowest 5th percentile
+#: of live play is 0.276, so 0.15 sits in an empty gap. It is not zero because
+#: a lossy codec re-encodes a static scene slightly differently each frame --
+#: the luma of the first 2.5 s IS pixel-identical, and the rest is that noise.
+#: The measured delta is stored per frame so this can be re-cut without
+#: decoding again.
+STALE_DELTA = 0.15
+
+#: How long the round clock must hold, in ms, before its stillness is evidence
+#: of a stall rather than of the second not having ticked yet. The clock has
+#: 1 s resolution, so it can REFUTE a stall instantly -- a clock that advanced
+#: proves the source did -- but can only corroborate one over a longer hold.
+CLOCK_HELD_MS = 1500.0
+
+
+def stale_source(delta, clock_ms, clock_held_ms):
+    """Is the source not advancing? `(stale, evidence)`; evidence names the witness.
+
+    **The clock is asked first, and it is the better witness**, which the
+    player named: a round clock that ticks proves the capture advanced, whatever
+    the pixels look like, and one held across seconds while the picture does not
+    change is a stall rather than a quiet moment. It is not always there --
+    post-plant the round clock is replaced by the spike timer, and the player
+    reports a stall at 11:46-11:51 in exactly that state -- so the pixel delta
+    stays as the fallback and the answer says which witness it rests on.
+    """
+    if delta is None:
+        return (False, "no previous frame")
+    quiet = delta < STALE_DELTA
+    if clock_ms is None:
+        return (quiet, "pixels only, no clock")
+    if clock_held_ms is not None and clock_held_ms < CLOCK_HELD_MS:
+        # The clock moved recently, so the capture was advancing recently.
+        return (False, "clock advancing")
+    return (quiet, "clock held and pixels static" if quiet else "clock held, pixels moving")
+
+
+def source_delta(crop, previous):
+    """Mean |luma difference| against the previous crop, or None if there is none."""
+    if previous is None or crop.shape != previous.shape:
+        return None
+    return float(np.abs(crop.astype(np.int16) - previous.astype(np.int16)).mean())
+
 
 def light_support(x, y, lit, known, scale=1.0):
     """Count adjacent known floor, excluding the icon's opaque interior.

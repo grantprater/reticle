@@ -681,7 +681,33 @@ class Tracker:
         return association_tolerance(self.scale, self.position_error_px,
                                      track.r, det.get("r"))
 
-    def bearings(self, t_ms: float, allow_interpolated: bool = False):
+    def principal(self) -> "Track | None":
+        """The best-supported track, for a role the game draws AT MOST ONE of.
+
+        The self icon is the case: there is exactly one, so two live tracks are
+        one real icon and one mistake, and which is which is a question about
+        evidence rather than about this frame. `n_obs` is that evidence.
+
+        **What this replaces is a per-frame choice made on `cov` alone.** The
+        overlay used to take the highest-coverage self candidate each frame,
+        before the tracker saw any of them, so a self-coloured blob that scored
+        better for one frame moved the player across the map and back: in the
+        Haven death window the reported self position alternated between two
+        points 35-45 px apart, seven times in three seconds, on candidates
+        whose `cov` sat at the 0.25 floor. The track already knows which one
+        cannot have happened -- asking it is cheaper and more honest than
+        tuning a coverage threshold.
+
+        Ties (a fresh window, where every track has one observation) fall to
+        the most recently observed, then to the oldest id, so the choice is
+        deterministic rather than dictionary order.
+        """
+        if not self.tracks:
+            return None
+        return max(self.tracks, key=lambda t: (t.n_obs, t.t_ms, -t.tid))
+
+    def bearings(self, t_ms: float, allow_interpolated: bool = False,
+                 tracks: "list[Track] | None" = None):
         """`(x, y, facing_or_None, interpolated)` per track, for the cone.
 
         The bearing is `Track.resolved_facing` -- a windowed circular mean,
@@ -699,7 +725,7 @@ class Tracker:
         small only fails to fire.
         """
         out = []
-        for tr in self.tracks:
+        for tr in (self.tracks if tracks is None else tracks):
             deg, res = tr.resolved_facing(self.bearing_window_ms)
             fresh = (tr.facing_t_ms is not None
                      and abs(t_ms - tr.facing_t_ms) <= 1e-9)

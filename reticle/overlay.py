@@ -59,7 +59,8 @@ from . import cone as cone_mod
 from . import lighting
 from .killfeed import ME_MATCH_MIN, analyse_killfeed, killfeed_roi
 from .minimap import ally_icons, self_icons, widget_drawn, widget_scale
-from .minimap_diagnostics import DIAGNOSTICS_VERSION, light_support, distance_agreement
+from .minimap_diagnostics import (DIAGNOSTICS_VERSION, light_support,
+                                  distance_agreement, source_delta, stale_source)
 from .minimap_lifecycle import Lifecycle, LIFECYCLE_VERSION
 from .track import Tracker
 from .ocr import crop_gray, read_bottom_hud, read_scoreline, scoreline_roi
@@ -113,6 +114,12 @@ class OverlayContext:
     mm_slab: np.ndarray | None = None
     mm_passable: np.ndarray | None = None
     mm_sgray: np.ndarray | None = None  # the static map, for `widget_drawn`
+    #: The previous frame's minimap luma, for `minimap_diagnostics.source_delta`.
+    mm_prev_luma: np.ndarray | None = None
+    #: The last round-clock reading and when it last CHANGED. The clock is the
+    #: better witness that the capture is advancing -- see `stale_source`.
+    mm_clock_ms: int | None = None
+    mm_clock_changed_t_ms: float | None = None
     mm_light: object = None            # `lighting.Lighting`, or None
 
     #: One tracker per key. They hold state ACROSS frames, which is what makes
@@ -187,7 +194,7 @@ def draw(frame: np.ndarray, t_ms: float, frame_idx: int, ctx: OverlayContext) ->
     if occl:
         lines.append("occluded: " + ", ".join(occl))
     if ctx.has_minimap:
-        lines.append(_draw_minimap(img, frame, t_ms, ctx))
+        lines.append(_draw_minimap(img, frame, t_ms, ctx, sr.clock_ms))
     _panel(img, 8, 8, 470, 20 + 18 * len(lines))
     for i, line in enumerate(lines):
         _text(img, line, (18, 30 + 18 * i), INK, 0.46)
@@ -245,7 +252,7 @@ def draw(frame: np.ndarray, t_ms: float, frame_idx: int, ctx: OverlayContext) ->
     return img
 
 
-def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
+def _draw_minimap(img, frame, t_ms: float, ctx, clock_ms: int | None = None) -> str:
     """The minimap channel: icons, bearings, and the collective viewcone.
 
     Returns a one-line summary for the HUD panel. Draws nothing and returns a
@@ -265,24 +272,59 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     if getattr(ctx, "mm_lifecycle", None) is None:
         ctx.mm_lifecycle = Lifecycle(scale=widget_scale(x1 - x0))
 
-    if not widget_drawn(crop, ctx.mm_sgray, ctx.mm_floor):
+    luma = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    delta = source_delta(luma, getattr(ctx, "mm_prev_luma", None))
+    ctx.mm_prev_luma = luma
+    # The clock is read from the scoreline, not from here; this only remembers
+    # when it last CHANGED, which is what says how long it has been held.
+    if clock_ms is not None and clock_ms != getattr(ctx, "mm_clock_ms", None):
+        # The FIRST reading is not a change -- it is the first observation, and
+        # counting it as one says "the clock just ticked" at every window start,
+        # which cost the first 1.5 s of the Haven stall.
+        if getattr(ctx, "mm_clock_ms", None) is not None:
+            ctx.mm_clock_changed_t_ms = t_ms
+        ctx.mm_clock_ms = clock_ms
+    held = (None if getattr(ctx, "mm_clock_changed_t_ms", None) is None
+            else t_ms - ctx.mm_clock_changed_t_ms)
+    # **A frozen source is not an observation, and it used to look like a
+    # perfect one.** Treated exactly like an absent widget -- the trackers age,
+    # nothing is read -- but recorded as its own state, because "the recording
+    # stalled" and "the player opened the map" are different facts about the
+    # same silence. See `minimap_diagnostics.STALE_DELTA`.
+    # Order matters: an ABSENT widget is asked about first, because a static
+    # overlay covering the minimap -- the buy panel is one, for seconds at a
+    # time -- is also unchanging, and "the widget is not there" is the more
+    # specific fact. Stale means the widget IS drawn and is not advancing.
+    drawn = widget_drawn(crop, ctx.mm_sgray, ctx.mm_floor)
+    is_stale, evidence = stale_source(delta, clock_ms, held)
+    stale = drawn and is_stale
+    if stale or not drawn:
         ctx.mm_track_self.step(t_ms, [])
         ctx.mm_track_ally.step(t_ms, [])
         ctx.mm_diagnostic = {"version": DIAGNOSTICS_VERSION, "t_ms": t_ms,
-                             "widget": "not_drawn", "observations": [],
-                             "reason": "widget unavailable"}
+                             "widget": "stale" if stale else "not_drawn",
+                             "observations": [], "source_delta": delta,
+                             "clock_ms": clock_ms, "clock_held_ms": held,
+                             "stale_evidence": evidence,
+                             "reason": (f"source not advancing ({evidence})" if stale
+                                        else "widget unavailable")}
         ctx.mm_lifecycle.step(ctx.mm_diagnostic)
         cv2.rectangle(img, (x0, y0), (x1, y1), MAGENTA, 2)
-        _text(img, "minimap: WIDGET NOT DRAWN", (x0 + 6, y0 + 18), MAGENTA, 0.5)
-        return "minimap  no widget (death screen, or the M key)"
+        label = ("minimap: SOURCE STALE" if stale else "minimap: WIDGET NOT DRAWN")
+        _text(img, label, (x0 + 6, y0 + 18), MAGENTA, 0.5)
+        return (f"minimap  SOURCE STALLED -- {evidence}, not a reading"
+                if stale else "minimap  no widget (death screen, or the M key)")
 
     # `require_facing=False` so a refused bearing is still DRAWN, in amber.
     # Dropping it would hide the gap, and the gap is what limits the area.
     allies = ally_icons(crop, ctx.mm_floor, require_facing=False,
                         support=ctx.mm_slab)
-    selves = sorted(self_icons(crop, ctx.mm_floor, require_facing=False,
-                               support=ctx.mm_slab),
-                    key=lambda d: -d["cov"])[:1]
+    # **Every self candidate goes to the tracker, and the TRACK decides.** The
+    # game draws one self icon, and this used to take the best-`cov` candidate
+    # per frame -- a choice made before the tracker saw any of them, on one
+    # frame's evidence. See `track.Tracker.principal`.
+    selves = self_icons(crop, ctx.mm_floor, require_facing=False,
+                        support=ctx.mm_slab)
     raw_allies, raw_selves = [dict(d) for d in allies], [dict(d) for d in selves]
 
     # CROSS-REFERENCE BEFORE THE TRACKER SEES IT. The ring fit cannot tell its
@@ -306,8 +348,10 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     # nothing -- see `track.Track.resolved_facing`.
     ctx.mm_track_self.step(t_ms, selves)
     ctx.mm_track_ally.step(t_ms, allies)
+    principal = ctx.mm_track_self.principal()
+    self_tracks = [principal] if principal is not None else []
     resolved = (ctx.mm_track_ally.bearings(t_ms)
-                + ctx.mm_track_self.bearings(t_ms))
+                + ctx.mm_track_self.bearings(t_ms, tracks=self_tracks))
 
     # Three-tuples ONLY. `resolved` carries a fourth element (`interpolated`)
     # and `observable`'s fourth is a per-icon HALF-ANGLE -- passing the tuple
@@ -321,9 +365,9 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     observations = []
     scale = widget_scale(x1 - x0)
     known = ctx.mm_light.known if ctx.mm_light is not None else None
-    for role, tracker, detections in (("ally", ctx.mm_track_ally, allies),
-                                       ("self", ctx.mm_track_self, selves)):
-        for tr in tracker.tracks:
+    for role, tracks, detections in (("ally", ctx.mm_track_ally.tracks, allies),
+                                     ("self", self_tracks, selves)):
+        for tr in tracks:
             fresh = tr.t_ms == t_ms
             det = next((d for d in detections if d["cx"] == tr.x
                         and d["cy"] == tr.y), None) if fresh else None
@@ -346,7 +390,8 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
                                  "facing": by_pos.get((round(tr.x), round(tr.y)))})
     ctx.mm_diagnostic = {
         "version": DIAGNOSTICS_VERSION, "t_ms": t_ms, "widget": "drawn",
-        "observations": observations,
+        "source_delta": delta, "clock_ms": clock_ms, "clock_held_ms": held,
+        "stale_evidence": evidence, "observations": observations,
         "raw_allies": raw_allies, "raw_self": raw_selves,
         "light_budget": {"lit": int(lit.sum()) if lit is not None else None,
                          "known": int(known.sum()) if known is not None else None},
@@ -357,7 +402,7 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     ctx.mm_diagnostic["adjudication"] = adjudicated
     eligible = {row["observation_key"] for row in adjudicated if row["eligible"]}
     tracked = ([("ally", tr) for tr in ctx.mm_track_ally.tracks]
-               + [("self", tr) for tr in ctx.mm_track_self.tracks])
+               + [("self", tr) for tr in self_tracks])
     adjudicated_resolved = [(x, y, deg if f"{role}:{tr.tid}" in eligible else None, carried)
                 for (role, tr), (x, y, deg, carried) in zip(tracked, resolved)]
     adjudicated_agg, _ = cone_mod.observable(ctx.mm_passable,
@@ -373,7 +418,9 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
         tint[:] = CONE
         sub[:] = np.where(agg[..., None], cv2.addWeighted(sub, 0.68, tint, 0.32, 0), sub)
     by_pos = {(round(x), round(y)): deg for x, y, deg, _ in resolved}
-    for d, base in [(d, ALLY) for d in allies] + [(d, SELF) for d in selves]:
+    chosen = None if principal is None else (round(principal.x), round(principal.y))
+    drawn_selves = [d for d in selves if (round(d["cx"]), round(d["cy"])) == chosen]
+    for d, base in [(d, ALLY) for d in allies] + [(d, SELF) for d in drawn_selves]:
         cx, cy = int(round(d["cx"])), int(round(d["cy"]))
         c = (x0 + cx, y0 + cy)
         deg = by_pos.get((round(d["cx"]), round(d["cy"])))
@@ -394,7 +441,7 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     # track that was missed this frame is still alive and still has no bearing,
     # so folding the two together reads as "more icons refused than exist".
     n_cone = sum(1 for _bx, _by, deg, _i in resolved if deg is not None)
-    return (f"minimap  self {len(selves)}  allies {len(allies)}"
+    return (f"minimap  self {len(drawn_selves)}/{len(selves)}  allies {len(allies)}"
             f"  cones {n_cone}/{len(resolved)} tracks"
             f"  observable {cov * 100:.1f}% of floor")
 

@@ -152,6 +152,84 @@ something real. The next window to render is one with a MAP GLANCE or a death
 in it -- the widget-absent path is now a suspension rather than a wipe and
 that change has not met real data.
 
+### The player-supplied Haven windows, and a capture stall the channel could not see
+
+**The player named four windows in `96aa1ae9b96f` (Haven, and the SMALL 331 px
+widget -- everything before this was measured at 465 px, scale 1.0):**
+
+    3:43-3:44   the buy menu open
+    4:21-4:23   a death
+    7:03-7:06   the game frozen -- "may be me alt-tabbed or a recording issue"
+    11:46-11:51 a second freeze, POST-PLANT, "there is still fragmented audio"
+
+**The buy menu is the case the suspension path was built for, and it passes.**
+The widget is genuinely absent for 2.97 s (222.38-225.35). Elapsed time expires
+the anchors at 500 ms, so the return is a censored boundary and not a burst of
+births, and everything after it is a continuation. No change was needed.
+
+**A FROZEN CAPTURE was reporting the most confident tracking in the session.**
+Every track holds, every position repeats, nothing is refused -- the channel
+was describing a world it had stopped observing. `CLAUDE.md` already requires
+stale input to stay distinguishable from a real reading; this was the missing
+half. `minimap_diagnostics.stale_source` decides it and the frame is treated
+exactly like an absent widget, recorded as its own `widget: "stale"` state.
+
+**The player supplied the better witness: THE CLOCK.** *"Clock will work to
+detect capture stalls where the clock exists. Post-plant it is harder."* Both
+halves are now measured, and both are true:
+
+    window            clock readable   stall found            evidence
+    haven 421-428        420/420       421.02-427.42 (6.40s)  clock held AND
+                                                              pixels static
+    haven 704-713          0/541       706.47-708.65 (2.18s)  pixels only
+                                       708.68-712.72 (4.03s)
+    haven 259-266        414/420       none                   clock refutes
+    ascent 298-300 (control) 36/120    none                   unchanged
+
+Post-plant the round clock is replaced by the spike timer and is unreadable in
+every one of the 541 frames, exactly as the player said -- so the pixel delta
+stays as the fallback and every row records WHICH witness the answer rests on.
+A ticking clock refutes a stall whatever the pixels look like, and that is what
+removed 15 single-frame false positives from the death window. The freeze the
+player put at 7:03-7:06 is really 421.0-427.4, 6.4 s.
+
+**The self icon is now chosen by the TRACK, not by one frame's coverage.** The
+overlay took the highest-`cov` self candidate per frame, before the tracker saw
+any of them; in the death window that moved the reported player position
+between two points 35-45 px apart seven times in three seconds, on candidates
+whose `cov` sat at the 0.25 floor. `track.Tracker.principal` picks the
+best-supported track and the rejected candidate is kept rather than deleted.
+Impossible self steps 11 -> 4 (death) and 2 -> 0 (frozen); self track keys
+3 -> 1 in both. `minimap.pick_self` already did the nearest-to-previous version
+of this and the overlay had never called it.
+
+**What the Haven windows expose and did NOT fix, in the order worth attacking:**
+
+* **the detector's own acquisition looks like births.** A window opens, the
+  detector finds allies over the next ~0.4 s, and each arrival is an
+  `unexplained_appearance` -- the lifecycle's boundary is a single moment while
+  acquisition is spread over time. This is most of the 116-154 quarantines in
+  the Haven windows. **The roster is the cross-reference** (`ally_icons` scored
+  against it is the precedent in `CLAUDE.md`): an appearance is explained when
+  a live teammate is unaccounted for. This session has no `l1/roster` table;
+  that is the blocker, not the rule;
+* **a large team-coloured ability circle keys as ally.** In the death window a
+  teal ring spanning much of the map produces icon fits on its arc. `area`,
+  `cov`, `inner` and `r` all overlap with real icons, so no detector feature
+  separates them -- the entity model's `static`/`settles` classes exist for
+  this and nothing produces them;
+* **a stationary ally-coloured object** at (78,228) is quarantined for 101
+  consecutive observations, before AND after the buy menu. Zero movement over
+  1.67 s is not a player;
+* **once quarantined, always quarantined**, by design (*a repeated candidate
+  cannot corroborate itself*). Correct, but it means a real ally acquired late
+  in a window is lost for the whole window. The roster fixes this too;
+* `ambiguous_continuation` fired for the first time (8 rows, death window) --
+  two parents inside the ceiling. Not yet looked at.
+
+101 tests, `--self-test` PASS, doctor 2 findings / 0 errors. The Ascent control
+is unchanged through all of it: 1 self, 1 ally, 0 quarantined.
+
 ### Earlier increment
 
 Plan and acceptance gates: `docs/MINIMAP_DETECTION_PLAN.md`. Native 60 Hz,
