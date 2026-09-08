@@ -273,6 +273,28 @@ handoff. Use task-local source and checks for small agent assignments. The next
 review milestone is human usefulness assessment and actual disagreements;
 correction history, refined clips and compound/no-contact episodes remain open.
 
+### Bounded native-rate evidence -- 2026-09-07
+
+`reticle refine SESSION --review-id ID` previews a stored review selection.
+Repeat the ID option to merge overlapping/touching intervals before any decode;
+`--execute` feeds native-rate frames to the existing HUD reader. The default
+duration/frame budgets are 30 seconds and 2000 frames, with explicit refusal on
+overrun. Decoder pre-roll is filtered, interval ends are exclusive, source frame
+indices are preserved, and captures close on failure or early consumer exit.
+
+The command checks current producer/input hashes before planning and the sampled
+media identity before execution. Missing killfeed calibration refuses rather than
+launching whole-capture setup. Separate dense evidence records source provenance,
+reader/template/mask hashes, review membership and per-window actual coverage;
+it neither replaces L1 nor infers event onset. This wires the formerly orphaned
+refinement primitive without introducing a second HUD detector.
+
+Validation: 41 tests pass. A real 14-second window produced 840 native observations;
+an intentional one-frame budget overrun refused and preserved the old artifact.
+`doctor` drops UNWIRED, leaving four existing findings and the stale-geometry
+error. Refined clips, lifecycle reconciliation and human review usefulness remain
+open; this milestone provides their bounded evidence acquisition path.
+
 ### Follow-up: label-free validation and persisted coverage
 
 Reproduced both existing roster checks: `c40d950031bb` 43/48 probes from storage,

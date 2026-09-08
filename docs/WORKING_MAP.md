@@ -29,6 +29,7 @@ the linked source is authoritative for detail.
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
+| Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
 | Visual debugging | `overlay.py`, `glance.py`, `refine.py` |
 
 Module names above are relative to `reticle/` unless a directory is shown.
@@ -44,6 +45,7 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle doctor
 .\.venv\Scripts\python.exe -m reticle status
 .\.venv\Scripts\python.exe -m reticle audit
+.\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
 ```
 
@@ -51,6 +53,9 @@ For stored-data changes, prefer `segment`, `audit`, `coach`, or `sql`
 as appropriate. `segment`/`audit` reuse stored L1; `hud`,
 `scan`, `board`, and `overlay` need source pixels. Run a targeted test file
 first, then the full suite when the change crosses module boundaries.
+`refine` previews stored windows; `--execute` reads only their merged intervals
+and writes separate dense evidence. It requires current provenance and a cached
+killfeed mask. Repeat `--review-id` to combine windows; limits refuse, not truncate.
 
 ## Rules that protect comparability
 

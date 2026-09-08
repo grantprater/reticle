@@ -1637,6 +1637,66 @@ def cmd_coach(args) -> int:
     return 0
 
 
+def cmd_refine(args) -> int:
+    """Preview or densely read explicitly selected review windows."""
+    import hashlib
+    import json
+    from .refine import iter_windows
+    from .refinement import plan_refinement, save_refinement
+    from .fingerprint import content_key
+    from .profiles import template_key
+
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    bundle = Path(args.bundle) if args.bundle else store.root / "analysis" / "coaching"
+    if args.max_frames <= 0:
+        raise SystemExit("--max-frames must be positive")
+    try:
+        plan = plan_refinement(store, manifest, bundle, args.review_id, args.max_seconds)
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        raise SystemExit(str(exc)) from exc
+    print(f"{len(plan['review_ids'])} review windows -> {len(plan['spans_ms'])} merged intervals; "
+          f"{plan['seconds']:.3f}s at native rate (limit {args.max_frames} frames)")
+    for a, z in plan['spans_ms']:
+        print(f"  {a/1000:.3f}-{z/1000:.3f}s")
+    if not args.execute:
+        print("Preview only. Pass --execute to decode these intervals into separate HUD evidence.")
+        return 0
+    media = Path(plan['source_path'])
+    if not media.is_file():
+        raise SystemExit(f"source media has moved: {media}")
+    if content_key(media) != manifest['source'].get('content_key'):
+        raise SystemExit("source identity changed; refinement requires the original capture")
+    profile = get_profile(manifest['source_profile'])
+    if killfeed_roi(profile) is not None and store.read_kf_mask(manifest['session_id']) is None:
+        raise SystemExit("cached killfeed mask is missing; run hud first (refine will not calibrate across the capture)")
+    reader = _HudPass(store, manifest, profile,
+                      argparse.Namespace(min_confidence=0.82, min_margin=0.05, hz=0))
+    assets = [Templates.path_for(profile.name),
+              Path(__file__).with_name('templates') / f'{template_key(profile.name)}-killfeed.npz',
+              store.kf_mask_path(manifest['session_id'])]
+    plan['reader_configuration'] = dict(hud_version=HUD_VERSION, min_confidence=0.82,
+                                        min_margin=0.05, max_frames=args.max_frames,
+                                        assets_sha256={str(p): hashlib.sha256(p.read_bytes()).hexdigest()
+                                                       for p in assets if p.is_file()})
+    t0 = time.perf_counter()
+    samples = iter_windows(str(media), plan['spans_ms'], args.max_frames)
+    try:
+        for sample in samples:
+            reader.feed(sample)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    finally:
+        samples.close()
+    if not reader.rows:
+        raise SystemExit("no frames decoded; no refinement artifact written")
+    key = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()[:20]
+    out = Path(args.out) if args.out else store.root / "analysis" / "refinement" / manifest['session_id'] / f"{key}.json"
+    save_refinement(out, plan, reader.rows)
+    print(f"{len(reader.rows)} dense HUD observations in {time.perf_counter()-t0:.2f}s: {out}")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     """Structural checks on the REPO, the half `status` does not cover.
 
@@ -1892,6 +1952,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("session", nargs="?")
     s.add_argument("--out", help="output bundle directory (default: store/analysis/coaching)")
     s.set_defaults(func=cmd_coach)
+
+    s = sub.add_parser("refine", help="preview or densely read selected coaching review windows")
+    s.add_argument("session")
+    s.add_argument("--review-id", action="append", required=True, help="review ID; repeat to merge windows")
+    s.add_argument("--bundle", help="coaching bundle directory")
+    s.add_argument("--execute", action="store_true", help="decode source pixels after validating the plan")
+    s.add_argument("--max-seconds", type=float, default=30.0, help="maximum total merged duration (default: 30)")
+    s.add_argument("--max-frames", type=int, default=2000, help="hard native-frame limit; exceeding it refuses")
+    s.add_argument("--out", help="dense evidence JSON path")
+    s.set_defaults(func=cmd_refine)
 
     s = sub.add_parser("rounds", help="stage 05: derive rounds and score win rates")
     s.add_argument("session", nargs="?")

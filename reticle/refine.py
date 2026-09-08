@@ -56,6 +56,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import cv2
+import math
+from .decode import Sample
 
 
 @dataclass
@@ -71,35 +73,90 @@ class Window:
     value: list
 
 
+def merge_windows(spans_ms):
+    """Validate and union overlapping/touching half-open source intervals."""
+    spans = []
+    for span in spans_ms:
+        if len(span) != 2:
+            raise ValueError("window must have start and end")
+        a, b = map(float, span)
+        if not math.isfinite(a) or not math.isfinite(b) or a < 0 or b <= a:
+            raise ValueError("window bounds must be finite, nonnegative, and increasing")
+        spans.append((a, b))
+    out = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
+def iter_windows(path, spans_ms, max_frames=2000):
+    """Native frames from merged intervals; one open and one seek per interval.
+
+    The total frame guard raises rather than returning a successful partial
+    measurement. Consumers that stop early must close the generator.
+    """
+    if isinstance(max_frames, bool) or not isinstance(max_frames, int) or max_frames <= 0:
+        raise ValueError("max_frames must be a positive integer")
+    spans = merge_windows(spans_ms)
+    if not spans:
+        return
+    cap = cv2.VideoCapture(str(path))
+    try:
+        if not cap.isOpened():
+            raise SystemExit(f"could not open {path}")
+        total = 0
+        for start, end in spans:
+            if not cap.set(cv2.CAP_PROP_POS_MSEC, start):
+                raise ValueError("decoder could not seek to requested window")
+            previous = None
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                t = float(cap.get(cv2.CAP_PROP_POS_MSEC))
+                if not (t == t and abs(t) != float('inf')):
+                    raise ValueError("decoder returned invalid timestamp")
+                if previous is not None and t <= previous:
+                    raise ValueError("decoder timestamps must increase")
+                previous = t
+                if t < start:
+                    continue
+                if t >= end:
+                    break
+                total += 1
+                if total > max_frames:
+                    raise ValueError("window exceeds max_frames")
+                idx = cap.get(cv2.CAP_PROP_POS_FRAMES) - 1
+                if not math.isfinite(float(idx)) or idx < 0 or float(idx) != int(idx):
+                    raise ValueError("decoder returned invalid frame index")
+                yield Sample(int(idx), t, frame)
+    finally:
+        cap.release()
+
+
 def read_window(path: str, t0_ms: float, t1_ms: float, probe,
                 fps: float = 60.0, max_frames: int = 2000) -> Window:
-    """Run `probe(frame)` over every frame in [t0, t1]. ONE forward decode.
+    """Run `probe(frame)` over every frame in [t0, t1). ONE forward decode.
 
     Seeks once to the start -- coarse, which is all a window boundary needs --
     then decodes forward. `max_frames` is a guard rather than a parameter to
     tune: a window that wants thousands of frames is not a window, and silently
     reading one would put this back in the cost class it exists to avoid.
+    `fps` remains accepted for callers; timestamps and frames are native.
     """
-    cap = cv2.VideoCapture(str(path))
-    if not cap.isOpened():
-        raise SystemExit(f"could not open {path}")
-    ts: list[float] = []
-    vals: list = []
+    ts, vals = [], []
+    if t1_ms <= 0 or t1_ms <= t0_ms:
+        return Window(ts, vals)
+    samples = iter_windows(path, [(max(0.0, t0_ms), t1_ms)], max_frames)
     try:
-        cap.set(cv2.CAP_PROP_POS_MSEC, float(max(0.0, t0_ms)))
-        n = 0
-        while n < max_frames:
-            ok, fr = cap.read()
-            if not ok:
-                break
-            t = float(cap.get(cv2.CAP_PROP_POS_MSEC))
-            if t > t1_ms:
-                break
-            ts.append(t)
-            vals.append(probe(fr))
-            n += 1
+        for sample in samples:
+            ts.append(sample.t_ms)
+            vals.append(probe(sample.frame))
     finally:
-        cap.release()
+        samples.close()
     return Window(ts, vals)
 
 

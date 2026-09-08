@@ -241,7 +241,13 @@ entry at the eight `doctor` actually finds, or accept that the enemy-teacher
 cluster needs a judgement call rather than a check. Do not let it sit as an
 item whose trigger cannot fire.
 
-## One module in `reticle/` that no CLI command reaches
+## ~~One module in `reticle/` that no CLI command reaches~~ DONE 2026-09-07
+
+`reticle refine` now reaches `refine.py` through the coaching review queue.
+Selected overlapping windows share a bounded native-rate decode and the shipped
+HUD reader; output remains separate evidence. `doctor` no longer reports UNWIRED.
+This closes the module-placement decision, not ping-edge adjudication: the latter
+still needs its detector-specific evidence before it can enter the ping reader.
 
 **Half closed 2026-09-07.** `roster.py`'s `RosterReader` is now reached by
 `cli.py` through the shared pass and `scan --only roster`; `doctor` confirms it

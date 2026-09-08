@@ -11,7 +11,23 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-07, ordinary controls join the review queue
+## PICKING UP -- 2026-09-07, bounded dense evidence from the review queue
+
+`reticle refine SESSION --review-id ID` previews selected review intervals;
+`--execute` reads them at native rate with the shipped HUD reader. Overlapping
+windows merge before decoding. Dense observations, review references, actual
+coverage, source identity and reader hashes go to `analysis/refinement/`, never
+over L1 or existing coaching events. Stale provenance, missing mask calibration
+and exceeded duration/frame limits refuse. No full-capture calibration is hidden
+in this command.
+
+Validated on review `ea445110508b26f12d4e`: 14 seconds -> 840 native observations.
+The frame-budget failure preserves a previous artifact. 41 tests pass; `doctor`
+is down to four existing findings / one stale-geometry error (UNWIRED closed).
+Next: inspect dense evidence in disputed windows before defining onset refinement
+or promoting the revive mark. This command supplies observations, not adjudication.
+
+### Ordinary controls in the review queue
 
 `reticle coach` now writes `review.jsonl` and a linked `review.md`: one
 chronological event per resolved round plus one ordinary eligible-state control
