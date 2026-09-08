@@ -24,7 +24,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "prototypes"))
-from reticle import cone, geometry, lighting, screen, stalls
+from reticle import barriers, cone, geometry, lighting, screen, stalls
 from reticle.minimap import (ally_icons, self_icons, floor_mask, slab_mask,
                              minimap_roi_px, widget_drawn, widget_scale, ally_mask)
 from reticle.ocr import Templates, read_scoreline, crop_gray, scoreline_roi
@@ -42,7 +42,7 @@ from plant_spike import centre_box, spike_cover, COVER_MIN
 from minimap_portrait import composition
 from ability_hud import slot_counts, SLOT_X0, SLOT_DX, SLOT_KEYS
 
-VERSION = "full-round-0.3.0"
+VERSION = "full-round-0.5.0"
 PALETTE = {"self":(90,235,250), "ally":(170,240,100), "enemy":(95,90,255),
            "barrier":(255,210,90), "object":(245,140,225),
            "outline":(90,170,255), "hud_ability":(240,190,130),
@@ -110,6 +110,13 @@ class RoundReader:
         self.barrier_counts=np.zeros(self.gray.shape,np.uint16)
         self.buy_samples=0
         self.barriers=[]
+        # Baked map state if this map has any. A round on an unbaked map is a
+        # CALIBRATION round and reports no barriers, because the running 75%
+        # rule cannot refuse anything until the buy phase has run: at sample
+        # five a blob needs four hits to score 80%, which is how a handful of
+        # real bars arrived as 57 entities. Render once to calibrate, bake with
+        # `python -m reticle.barriers`, render again to observe.
+        self.anchors=barriers.load(manifest["session_id"],store.root)
 
     def barrier_candidates(self,crop,t_ms):
         """Phase-conditioned persistent straight bars, retained as candidates.
@@ -125,6 +132,23 @@ class RoundReader:
         keyed=(((hu>65)&(hu<100))|((hu<10)|(hu>165)))&(sa>85)&(va>90)&self.floor
         self.barrier_counts += keyed.astype(np.uint16)
         self.buy_samples += 1
+        # With the map baked there is nothing to calibrate: the bar's position
+        # is known, so the only question a frame answers is whether it is DRAWN.
+        # ANY keyed pixel inside the anchor, not a fraction of it -- the same
+        # rule the slab-support gate settled on, and for the same reason: the
+        # key catches part of a bar and which part varies.
+        if self.anchors:
+            drawn=[]
+            for i,a in enumerate(self.anchors["anchors"],1):
+                x,y,w,h=a["box"]
+                if not keyed[y:y+h,x:x+w].any():
+                    continue
+                drawn.append(observation("barrier","spawn barrier",a["x"],a["y"],
+                             (x,y,w,h),kind="barrier",anchor=i,
+                             evidence=["buy_phase","baked_map_anchor","team_colour_drawn"],
+                             confidence="anchored"))
+            self.barrier_candidates_calibration(keyed)
+            return drawn
         if self.buy_samples < 5:
             return []
         stable=(self.barrier_counts >= self.buy_samples*.75).astype(np.uint8)
@@ -138,8 +162,32 @@ class RoundReader:
             out.append(observation("barrier","spawn barrier?",cx,cy,(x,y,w,h),kind="barrier",
                          evidence=["buy_phase","persistent_straight_team_colour"],
                          confidence="candidate",calibration_samples=self.buy_samples))
+        # The calibration always runs, because it is what `reticle.barriers`
+        # bakes FROM. What it does not do any more is speak.
         self.barriers=out
-        return out
+        return []
+
+    def barrier_candidates_calibration(self,keyed):
+        """Keep deriving the anchor set even when a baked one is in use.
+
+        A map's bars do not change, but the SET can still be incomplete -- the
+        cut law says Lotus is missing one -- so a session that reads baked
+        anchors must still produce the evidence a better bake would come from.
+        """
+        if self.buy_samples < 5:
+            return
+        stable=(self.barrier_counts >= self.buy_samples*.75).astype(np.uint8)
+        n,lab,stats,centres=cv2.connectedComponentsWithStats(stable,8)
+        out=[]
+        for k in range(1,n):
+            x,y,w,h,area=map(int,stats[k])
+            if area < 12 or max(w,h)<7 or max(w,h)>130 or max(w,h)/max(1,min(w,h))<2.0 or area/(w*h)<.6:
+                continue
+            cx,cy=centres[k]
+            out.append(observation("barrier","spawn barrier?",cx,cy,(x,y,w,h),kind="barrier",
+                         evidence=["buy_phase","persistent_straight_team_colour"],
+                         confidence="candidate",calibration_samples=self.buy_samples))
+        self.barriers=out
 
     def read(self,frame,t_ms):
         base={"type":"sample","t_ms":t_ms,"source_state":"fresh",
@@ -193,8 +241,22 @@ class RoundReader:
                     bearing=tracker.bearings(t_ms,tracks=[tr])[0][2]
                     r=round(tr.r or 10)
                     agent_obs.append(observation(family,"self / observer" if family=="self" else "ally agent?",tr.x,tr.y,(round(tr.x)-r,round(tr.y)-r,2*r,2*r),kind="you" if family=="self" else "ally",r=r,facing=bearing,detector_track_id=tr.tid,evidence=["icon_ring"],confidence="observed_icon" if family=="self" else "candidate"))
+            # The enemy ring reads the DILATED floor while ally/self read the
+            # opaque slab, and that asymmetry is most of this channel: over the
+            # round 39.2% of enemy detections have no slab support against 4.2%
+            # of ally, 1.1% of self and 0.9% of object. The player watched three
+            # ability casts throw red markers "all at the map border" -- and
+            # 50% of the knife burst and 74% of the grenade burst are OFF the
+            # slab entirely, against a 29% baseline. Same rule as `ally_icons`:
+            # ANY support at all, not a fraction.
+            base["enemy_no_slab"]=[]
             for d in enemy_rings(crop,self.floor):
                 if is_icon(d) and not on_bar(d):
+                    cy,cx=int(round(d["cy"])),int(round(d["cx"]))
+                    inside=(0<=cy<self.slab.shape[0] and 0<=cx<self.slab.shape[1])
+                    if not (inside and self.slab[cy,cx]):
+                        base["enemy_no_slab"].append(d)
+                        continue
                     r=int(d["r"])
                     agent_obs.append(observation("enemy","enemy agent?",d["cx"],d["cy"],(int(d["cx"])-r,int(d["cy"])-r,2*r,2*r),kind="enemy",r=r,evidence=["red_portrait_ring"],confidence="candidate"))
             base["observations"].extend(agent_obs)

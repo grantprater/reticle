@@ -24,6 +24,132 @@ Both at 10 Hz detection over 60 Hz video with source audio, 0 ms stalled, each
 with `observations.jsonl`, `lifetimes.json`, `coverage.json`, `provenance.json`
 and a `review.html` that passes `tests/review_harness.cjs`.
 
+### `barrier 57` was the CALIBRATION speaking, and the cut law is now a check
+
+**The converged anchor set was always right.** `barrier_candidates` accumulates
+a per-pixel count over buy phase and keeps components present in >= 75% of
+samples -- and by the end of buy it has 8 clean bars on Sunset and 6 on Lotus.
+The 57 entities come from EMITTING while that rule still has no power: it
+starts at `buy_samples >= 5`, where a blob present in four samples scores 80%.
+Clustering Sunset's 57 by position:
+
+    9 positions   180-305 observations each, spanning the whole buy phase
+                  boxes 25x8, 8x18, 27x6, 8x28, 28x8 ...   the real bars
+   21 positions   1-53 observations, all dead by 2-8 s
+                  boxes 2x10, 2x8, 3x8, 2x7 ...            slivers of map art
+
+Six of the nine real bars are already ONE entity for the whole buy phase, so
+this was never an association failure. **Measured end to end: `barrier 57`
+became `barrier 8`** -- one entity per baked anchor, each observed 274-278
+times across the whole 27.7 s buy phase, in a re-render. `reticle/barriers.py` bakes the anchors
+as map state keyed like geometry (`<map>__<profile>.json`), the reader emits a
+barrier only where a keyed component sits within `ANCHOR_PX` of a baked anchor,
+and a round on an unbaked map reports NO barriers and says so -- render once to
+calibrate, `python -m reticle.barriers SESSION ROUND_DIR --write`, render again
+to observe.
+
+**The player's law is the validator, and it failed a map on its first run.**
+Barriers sit over chokepoints and *in aggregate separate the map into ally,
+neutral and enemy territory*, so the test is whether painting the set onto
+`cone.passable_from` cuts the floor. Growing each bar to its blocking extent
+(the team-colour key catches the middle of a bar, not its ends):
+
+    grow px      SUNSET, 8 bars                LOTUS, 6 bars
+       0         94% one region                92% one region
+       4         46% / 43%                     90% one region
+       6         45% / 35% / 7%                89% one region
+      12         44% / 33% / 6%                84% one region
+
+**Sunset separates and Lotus does not**, at any growth -- so Lotus is MISSING a
+barrier, which is a claim no per-blob score can make and no threshold on this
+round could have found. The tool reports the contradiction rather than guessing
+which bar is absent.
+
+### The KAY/O hypothesis: CONFIRMED, in a channel I first looked past
+
+The player saw ability casts followed by hallucinations, with the enemy (red)
+KAY/O knife producing more than the ally (white) one. First measurement said no
+burst at all -- but it counted `object`/`outline`/`ally_outline`, and the
+proposed mechanism is the ENEMY colour key. Counting `enemy` detections per
+sample, live-phase median 0.2, sd 1.3:
+
+    t=31  enemy KAY/O knife, RED ring     6.2 / sample   +4.5 sd
+    t=37  ally  KAY/O knife, white        2.6 / sample   +1.8 sd
+    t=43  enemy KAY/O grenade             5.0 / sample   +3.6 sd
+    t=44                                  4.7 / sample   +3.4 sd
+    everything else in the round          ~0
+
+So the bursts are real, they are large, and **the red/white asymmetry runs
+exactly as predicted** -- the enemy-keyed cast produces about 2.4x the ally
+one. The enemy grenade spikes too, which is the same three observations the
+player flagged as `enemy outline?` with no enemy on screen.
+
+**The ARC half is refuted and the player had already seen why.** If the ring
+were producing fits along its circumference the radii would pile at one value;
+they spread from 20 to 340 px. His correction: the markers were *"quite a ways
+away from the actual ability radius"* and *"all at the map border"*. They are,
+and the border is the MAP's, not the crop's -- 0% of either knife burst is
+within 12 px of the crop edge, but measured against the opaque slab:
+
+    window                     n    off the slab   within 3 px of the map edge
+    t=31 enemy knife          72      50%                56%
+    t=37 ally knife           28      25%                43%
+    t=43 enemy grenade       101      74%                81%
+    all other live samples   124      29%                38%
+
+**So the burst is the map's edge, and one existing rule already rejects it.**
+`ally_icons` and `self_icons` take `support=self.slab`; `enemy_rings` was
+reading the DILATED floor. Over the whole round that asymmetry is most of the
+channel:
+
+    enemy   892 observations   39.2% have no slab support
+    ally   1950                 4.2%
+    self    627                 1.1%
+    object 4908                 0.9%
+
+The enemy ring now takes the same gate -- ANY support, not a fraction -- and
+the refusals are kept in `enemy_no_slab` rather than dropped. What is still
+unexplained is the TIMING: why a cast is when the border lights up. The player
+notes Chamber's ultimate voiceline lands at 0:30 too, and that is a second
+candidate this round cannot separate from the knife.
+
+**Also his, and not yet used:** the ally KAY/O reveal writes a HUD item BELOW
+the minimap -- dagger icon plus who was revealed, Omen in this case. That is a
+named reveal with a named TARGET, in a fixed HUD region, which is a stronger
+witness than anything the widget carries. The crop is 465 wide by 485 tall, so
+the ROI already extends past the widget; whether that strip is inside it has
+not been checked.
+
+### Doors are a static class, and they are NOT vision-gated
+
+Lotus has two mechanical doors and both are in round 15, currently misfiled as
+`ability icon?`:
+
+    E0581  C-side door   200 observations, 52.5-73.0 s, max drift 0.3 px
+    E0788                 84 observations, 61.6-70.0 s, max drift 11.7 px
+
+E0581 is one contiguous run of 199 continuations at a fixed pixel -- the
+tracking is already right, only the class is wrong. The player's mechanics:
+**the icon is drawn only while the door is IN USE**, it is accompanied by a
+distinctive sound within audio range, and *it does not matter whether an ally
+can see the door*. That last part is what makes it valuable: a door is a
+GLOBAL event witness, unlike almost everything else on the widget, so it is
+evidence about the enemy team that needs no line of sight -- and it has an
+audio channel to corroborate against.
+
+### Correction: do not raycast the Sova dart on the minimap
+
+Recorded earlier as "the drawn circle is the bound, not the answer, and
+`cone.raycast` over the passable geometry already does the line-of-sight
+computation". The player has refused the second half: the dart sticks to walls
+and ceilings, **and the minimap does not carry height**, so a 2D raycast from
+the dart's ground projection is not the scan. What can be said confidently is
+only *where the dart landed* and *which enemies were scanned*; height might be
+recovered from lineups, from which enemies were revealed, or by seeing it.
+**So the revealed set is the OBSERVABLE and the dart is what it is evidence
+about, not the other way round.** KAY/O's knife is the easier case and the
+opposite one -- its radius passes through walls, so it needs no ray at all.
+
 ### THE PLAYER WATCHED BOTH ROUNDS, and named 21 entities
 
 Recorded as adjudications, not prose:
