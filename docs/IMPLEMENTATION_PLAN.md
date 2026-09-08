@@ -3,6 +3,11 @@
 Date: 2026-09-07. Status: first implementation milestone completed and validated;
 detector and coaching expansion milestones remain open.
 
+Latest bounded increment: ordinary review controls and round-bounded review
+windows are implemented; see the final execution entry. Historical findings and
+first-milestone counts below describe their original run; `NOTES.md` is the live
+handoff and `BACKLOG.md` holds deferred-work triggers.
+
 ## Product direction
 
 Deliver a traceable coaching loop: observation -> event -> contextual estimate
@@ -238,6 +243,35 @@ samples of all opportunities. No-kill engagement coverage, ability integration,
 correction workflows, minimap repair and actual coaching conclusions remain the
 subsequent milestones above. No thresholds were tuned against this corpus and no
 new claims about detector accuracy were made.
+
+### Review controls and context routing -- 2026-09-07
+
+`coach` now persists `review.jsonl` alongside the linked Markdown queue. Pure
+selection in `reticle/review.py` keeps one chronological event per resolved round
+and one lower-median unique eligible-state timestamp per eligible round. Selection
+ignores outcome, probability and event proximity. Controls explicitly list event
+onsets in their window; they can contain contact and are not a no-contact label,
+representative sample or independent outcome observation.
+
+Each window carries a review ID, selection reason, source pointer and independent
+`review-0.1.0` stamp. Bounds are intersected with round and source intervals;
+unresolved or invalid anchors refuse. Event rows reference original event IDs.
+Changing presentation/selection no longer requires editing event extraction.
+The coaching provenance now includes `roster.py` and its adjudication stamp,
+which previously could change eligible states without appearing in the code hash.
+
+Validation against the stored corpus: 342 windows (316 event, 26 control), 543
+observations preserved apart from added provenance, states and predictions
+byte-identical to the baseline. Model status remains `insufficient_data` with 26
+eligible rounds across two sessions. All 30 tests pass, including interval edges,
+gaps, source truncation, overlap, deterministic selection, input immutability and
+outcome independence. No decoding or L1 changes. `doctor` retains its existing
+five findings and one stale-geometry error.
+
+`docs/WORKING_MAP.md` is a task-routing index linked from `CLAUDE.md`, not another
+handoff. Use task-local source and checks for small agent assignments. The next
+review milestone is human usefulness assessment and actual disagreements;
+correction history, refined clips and compound/no-contact episodes remain open.
 
 ### Follow-up: label-free validation and persisted coverage
 

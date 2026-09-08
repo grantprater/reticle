@@ -1632,7 +1632,8 @@ def cmd_coach(args) -> int:
     else:
         print(f"held-out Brier: {report['brier']:.4f}; "
               f"training-base-rate Brier: {report['baseline_brier']:.4f}")
-    print(f"events, states, predictions, review index and audit: {out}")
+    print(f"{report['n_review_windows']} review windows; "
+          f"events, states, predictions, review index and audit: {out}")
     return 0
 
 

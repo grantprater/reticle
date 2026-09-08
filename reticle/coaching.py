@@ -19,7 +19,9 @@ import pyarrow.parquet as pq
 from .checks import track_entries
 from .rounds import build_rounds
 from .roster import resolve as roster_resolve
-from .version import COACH_VERSION, HUD_VERSION, ROSTER_VERSION, ROUND_VERSION
+from .review import REVIEW_VERSION, select_review_windows, render_review
+from .version import (COACH_VERSION, HUD_VERSION, ROSTER_VERSION,
+                      ROSTER_SPLIT_VERSION, ROUND_VERSION)
 
 MAX_STATE_GAP_MS = 1500
 EVENT_WINDOW_MS = 3000
@@ -274,6 +276,7 @@ def run_coaching(store, manifests, out):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     events, states, inputs, skipped, audits = [], [], [], [], []
+    review_contexts = {}
     content_seen = set()
     for man in manifests:
         sid, date = man["session_id"], man["ingested_at"][:10]
@@ -295,6 +298,9 @@ def run_coaching(store, manifests, out):
             continue
         content_seen.add(key)
         rounds = build_rounds(hud)
+        review_contexts[sid] = dict(source_path=man["source"].get("path"),
+                                    duration_ms=man["source"].get("duration_ms"),
+                                    rounds=rounds)
         source = dict(session_id=sid, hud_sha256=_coach_digest(hp),
                       manifest_sha256=_coach_digest(store.manifest_path(sid)),
                       hud_version=HUD_VERSION, round_version=ROUND_VERSION)
@@ -314,6 +320,7 @@ def run_coaching(store, manifests, out):
             if identity_matches and rm.get(b"roster_version", b"").decode() == ROSTER_VERSION:
                 roster, roster_status = candidate, "current"
                 source["roster_version"] = ROSTER_VERSION
+                source["roster_split_version"] = ROSTER_SPLIT_VERSION
         ss, rejected = observed_states(hud, roster, rounds, sid)
         for e in es:
             e["provenance"] = source
@@ -324,17 +331,20 @@ def run_coaching(store, manifests, out):
                            states=len(ss), roster=roster_status, rejected=rejected))
     report, models, predictions = evaluate_states(states)
     attach_event_estimates(events, states, models)
+    review = select_review_windows(events, states, review_contexts)
     # Fingerprint code as well as explicit versions: an unbumped edit is visible.
     code = {name: _coach_digest(Path(__file__).with_name(name)) for name in
-            ("coaching.py", "rounds.py", "checks.py", "version.py")}
+            ("coaching.py", "review.py", "rounds.py", "roster.py", "checks.py", "version.py")}
     report.update(coach_version=COACH_VERSION, inputs=inputs, code_sha256=code,
+                  review_version=REVIEW_VERSION, n_review_windows=len(review),
                   sessions=audits, skipped=skipped, n_events=len(events),
                   limits=["Pre-plant clock-observed states only; phase gate is provisional.",
                           "Round boundaries and killfeed observations remain imperfect.",
                           "No economy, attack/defence, POV or match-group metadata.",
                           "Session holdouts are retrospective, not prospective validation.",
                           "State deltas are not causal effects or player credit."])
-    for name, rows in (("events", events), ("states", states), ("predictions", predictions)):
+    for name, rows in (("events", events), ("states", states), ("predictions", predictions),
+                       ("review", review)):
         target = out / f"{name}.jsonl"
         temporary = target.with_suffix(".tmp")
         temporary.write_text("".join(json.dumps(r, sort_keys=True, allow_nan=False) + "\n"
@@ -344,23 +354,5 @@ def run_coaching(store, manifests, out):
     temporary = target.with_suffix(".tmp")
     temporary.write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False), encoding="utf-8")
     temporary.replace(target)
-    # A diverse review index: at most one event per round, chronological, rather
-    # than selecting outcome extremes that would bias the first visual audit.
-    lines = ["# Reticle review queue", "", f"Probability evaluation: {report['status']}.", "",
-             "These are review windows around sampled killfeed observations. Bounds need refinement.",
-             "Open the source and seek to the listed time; no clips have been exported.", "",
-             "| Session | Round | Event | Review window (seconds) | Source |",
-             "|---|---:|---|---|---|"]
-    used = set()
-    for e in events:
-        unit = (e["session_id"], e["round_no"])
-        if unit in used or e["round_no"] is None:
-            continue
-        used.add(unit)
-        source = (e["source_path"] or "unavailable").replace("|", "\\|")
-        if e["source_path"]:
-            source = f"[Open video](<{source.replace(chr(92), '/')}>)"
-        lines.append(f"| {e['session_id']} | {e['round_no']} | {e['kind']} | "
-                     f"{e['clip_start_ms']/1000:.1f}-{e['clip_end_ms']/1000:.1f} | {source} |")
-    (out / "review.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (out / "review.md").write_text(render_review(review, report["status"]), encoding="utf-8")
     return report

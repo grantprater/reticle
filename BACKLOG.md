@@ -136,6 +136,11 @@ roster split rule and the round/POV gate. Everything here is downstream of it.
   **Trigger: the killfeed adapter linking events to entity IDs.** Until then
   the retained no-contact denominator is the only part that can be built, and
   it can be built without them.
+  **Review progress 2026-09-07:** `reticle/review.py` now retains one ordinary
+  eligible-state control per round, selected independently of observed events
+  and outcomes. This is a review comparison sample, not a verified no-contact
+  denominator: roster/clock gating still limits coverage and controls may contain
+  contact. Entity and geometry dependencies remain open.
 
 * **Statistical progression under frozen definitions** -- economy, phase, side,
   map, agent with shrinkage; chronological rather than ingest-order evaluation;

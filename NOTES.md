@@ -11,7 +11,22 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-07, the revive mark reconciles three sessions
+## PICKING UP -- 2026-09-07, ordinary controls join the review queue
+
+`reticle coach` now writes `review.jsonl` and a linked `review.md`: one
+chronological event per resolved round plus one ordinary eligible-state control
+per eligible round. Windows stop at round/source boundaries; controls can overlap
+observed events and are NOT verified no-contact examples. The selection rule and
+its own stamp live in `reticle/review.py`, separately from inference.
+
+Stored-corpus validation: 342 windows (316 event, 26 control); all 543 event
+observations and eligible states preserved. Probability evaluation still abstains.
+30 tests pass. No media decode or L1 changes. Next: review these windows for
+usefulness; correction history still waits for an actual human disagreement.
+`docs/WORKING_MAP.md` routes new tasks to code and checks without repeating results.
+The revive promotion decision and minimap revalidation below remain open.
+
+## Revive mark handoff -- 2026-09-07, three sessions reconcile
 
 `prototypes/revive_mark.py` reads the second-life badge (Phoenix Run It Back,
 Kayo stabilise) off a killfeed entry. Score the CONTINUITY of a fitted circle,

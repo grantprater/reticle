@@ -29,6 +29,10 @@ Section references in docstrings (`SS3`, `SS7`) mean §3, §7 of that doc.
 
 ## Contents
 
+For task-specific code and validation entry points, start with
+[`docs/WORKING_MAP.md`](docs/WORKING_MAP.md). It routes to the authorities below
+without repeating detector results or live handoff state.
+
 Detector state and the minimap live in **`prototypes/CLAUDE.md`**, which
 loads when a session touches that directory.
 
