@@ -39,6 +39,14 @@ failure, not a guessed answer.
   never seed label files. Invoke the `labelling-pass` skill before labelling.
 - Never use stored-data bounds or a model's own output as independent evidence.
   Keep unresolved and no-contact opportunities so coverage is not biased.
+- **CROSS-REFERENCE BEFORE TUNING.** When a detection is wrong, first ask what
+  other channel already observes the same event, and gate one on the other.
+  Tuning a threshold, mask or morphology on the channel that produced the error
+  is the second resort, not the first. An ally icon with no lit pixels beside
+  it is not an ally; a bearing that disagrees with the light beside the icon is
+  the flipped one. The precedent is `ally_icons` scored against the roster:
+  +0.99 phantom teammates per frame became -0.15 with no change to the
+  detector. Agreement is consistency, not accuracy -- store the disagreements.
 - Measure a known baseline before structural edits, then rerun the real command
   and confirm a known result. A parse check alone is not verification.
 - Before a perceptual experiment, state falsifiable predictions and log them in

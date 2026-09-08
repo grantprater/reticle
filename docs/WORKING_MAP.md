@@ -81,6 +81,8 @@ killfeed mask. Repeat `--review-id` to combine windows; limits refuse, not trunc
   terminal state must remain distinguishable from a real zero.
 - Record evidence and disagreements before promoting an inference. Agreement
   between channels is consistency, not proof of detector accuracy.
+- Fix a bad detection by cross-referencing another channel before tuning the
+  one that produced it; see the global constraint in the root `CLAUDE.md`.
 - Stored timestamps are observation times. A delayed detector answer must not
   silently become the event's inferred origin.
 - Never use stored-data bounds or a model's own output as independent evidence;
