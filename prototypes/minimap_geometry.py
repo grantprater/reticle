@@ -151,11 +151,10 @@ WHITE_V, WHITE_S = 170, 60
 # zones it finds are within 10% of the loosest setting's.
 # PROMOTED 2026-09-06 to `reticle/minimap.py` as SITE_*, because `floor_mask`
 # needs the same rule -- a site is FLOOR, so the slab gate alone was dropping
-# ground the position reader is read on. Aliased here rather than re-declared:
-# two copies of a threshold is exactly the fork that made `floor_mask` diverge
-# for ten days. The values are unchanged, so `classify()` returns what it did.
-PLANT_H, PLANT_S, PLANT_V = mm.SITE_H, mm.SITE_S, mm.SITE_V
-PLANT_MIN_AREA = mm.SITE_MIN_AREA
+# ground the position reader is read on. **The TEST followed them on
+# 2026-09-07**: aliasing the thresholds while keeping a second copy of the loop
+# around them is a fork with the numbers hidden, and it drifted within the day
+# -- see `classify()`. `classify` now calls `mm.site_mask` and declares nothing.
 # How far to look either side of a white pixel when asking whether the grey cuts
 # off. Lines are 1-2 px, so this has to clear the line itself and land on what
 # is beyond it.
@@ -349,34 +348,21 @@ def classify(med):
     out[~floor & ~exterior] = HOLE
 
     white = (v >= WHITE_V) & (s < WHITE_S)
-    plant = (h >= PLANT_H[0]) & (h <= PLANT_H[1]) & (s > PLANT_S) & (v > PLANT_V)
-    # Close and keep only the large components, then fill what they enclose:
-    # on what is inside a zone -- the site letters are a very dark grey,
-    # almost black, always against the yellow. They are opaque map like the
-    # paint around them, and they are holes in the hue mask, so filling the
-    # zone is what keeps A, B (and C, on a three-site map) searchable.
+    # The yellow plantable zones, from the ONE implementation of that test.
     #
-    # A component must also TOUCH THE FLOOR, which is not a formality: widening
-    # the hue caught the agent HUD in the top-right corner as a third "site",
-    # 34x68 over the churning void at a temporal SD of 42.5, and it alone
-    # produced 102 of the 116 colour-free blobs the three zones contributed.
-    # The two real sites gave 9 and 5, at SD 13.8 and 17.8. Same corner and the
-    # same fix as `minimap_icons.floor_mask`, which drops that HUD by taking the
-    # largest component: a bomb site is part of the map, so it adjoins the map.
-    near_floor = cv2.dilate(fl8, np.ones((5, 5), np.uint8)) > 0
-    pz = cv2.morphologyEx(plant.astype(np.uint8), cv2.MORPH_CLOSE,
-                          np.ones((15, 15), np.uint8))
-    nz, zl, zst, _ = cv2.connectedComponentsWithStats(pz, 8)
-    plant = np.zeros_like(plant)
-    for i in range(1, nz):
-        comp = (zl == i)
-        if zst[i, 4] < PLANT_MIN_AREA or not (comp & near_floor).any():
-            continue
-        c8 = comp.astype(np.uint8)
-        ff = c8.copy()
-        m2 = np.zeros((ff.shape[0] + 2, ff.shape[1] + 2), np.uint8)
-        cv2.floodFill(ff, m2, (0, 0), 1)
-        plant |= comp | (ff == 0)                   # the paint, plus its letter
+    # This was an inline copy until 2026-09-07 and the copy had drifted: it
+    # imported `SITE_MIN_AREA` but applied it unscaled, where `site_mask`
+    # scales by the widget's AREA. On the 331 px widget that is 500 px against
+    # 253, and Lotus's B and C sites are 407 and 369 px -- so this file labelled
+    # ZERO of two real bomb sites on `lotus__valorant-16x9` while the shipped
+    # function, on the same static, kept all three. The close and dilate
+    # kernels had drifted the same way, 15 and 5 fixed against `_odd(5 * scale)`.
+    # The letter-fill that used to live here moved into `site_mask` with it.
+    #
+    # A fork that agrees on the widget it was written for is the failure this
+    # repo has now paid for twice, and `doctor`'s DUPLICATE check cannot see
+    # this one: an inline copy shares no NAME with what it copies.
+    plant = mm.site_mask(med, floor)
 
     # the test -- does the grey cut off? -- asked against the EXTERIOR the
     # flood fill already found, rather than by probing for floor on both sides.
@@ -552,7 +538,43 @@ def build_key(gkey: str, n: int = 180, source: str | None = None,
     if not frames:
         print(f"{gkey}: no frames decoded from {src_sid}")
         return 1
-    med = static_map(frames)
+
+    # DROP THE FRAMES WITH NO WIDGET BEFORE FITTING ANYTHING, and do it in two
+    # passes because the test needs a static map to compare against.
+    #
+    # **This is the defect that made the whole viewcone channel meaningless on
+    # one map, and it is in the fit rather than in any detector.** Round
+    # transitions, buy-phase fades and death screens black the widget out, and
+    # an even sample over a 37-minute match lands on some: measured 2026-09-07,
+    # 16 of 180 on `5822b6646448` and 6 of 180 on `a06f04a0059f`. Their floor
+    # grey is 61 against 118-123 when the widget is drawn.
+    #
+    # `static_map` is a per-pixel MEDIAN and shrugs that off. `two_state_gray`
+    # cannot: it splits each pixel's samples at the LARGEST GAP, and a 58-level
+    # gap between blacked-out frames and normal ones is the largest gap there
+    # is. So `lo_gray` became *widget absent* and `hi_gray` became *widget
+    # present*, and every ordinary frame then read as `hi` -- which the two-
+    # state reader calls LIT. On Lotus that made 33.7% of the usable floor
+    # permanently "an ally can see this", including the entire enemy half.
+    # The signature is a giveaway once you know it: sd_hi 1.7 against sd_lo 9.9,
+    # a tight bright cluster against a broad dark one.
+    #
+    # `widget_drawn` already existed and answers exactly this question. The fit
+    # simply never asked it.
+    med = static_map(frames)                      # robust to the outliers
+    floor0 = floor_mask(med)
+    sg0 = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    drawn = [f for f in frames if mm.widget_drawn(f, sg0, floor0)]
+    if len(drawn) < max(30, len(frames) // 4):
+        print(f"{gkey}: only {len(drawn)} of {len(frames)} frames have the widget "
+              f"drawn -- refusing rather than fitting a lighting reference on "
+              f"blacked-out frames")
+        return 1
+    if len(drawn) < len(frames):
+        print(f"  dropped {len(frames) - len(drawn)} of {len(frames)} frames with "
+              f"no widget drawn before fitting")
+    frames = drawn
+    med = static_map(frames)                      # again, on clean frames only
     lab = classify(med)
     others = [s for s in G.sessions_for(gkey, STORE) if s != src_sid]
     summarise(lab, f"{gkey}  (from {src_sid}, {len(frames)} frames"

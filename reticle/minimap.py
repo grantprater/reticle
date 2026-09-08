@@ -287,6 +287,17 @@ def site_mask(med: np.ndarray, slab: np.ndarray) -> np.ndarray:
     in the corner becoming a third bomb site. That failure is on record -- a
     first widening of the hue test grew one out of 10921 px of brown void on
     Split, and nothing noticed because the npz was stale.
+
+    **A kept component is FILLED, so the site letter comes with the paint.**
+    The A/B/C glyphs are a near-black grey drawn on the tint, so they are holes
+    in the hue mask and a hole in the middle of a bomb site is not a thing the
+    map has. This lived in `minimap_geometry.classify` until 2026-09-07, beside
+    a second copy of everything else here -- see the note on the scaling below
+    for what that fork cost. Moving it changes nothing for `floor_mask`, which
+    is the caller that could have been surprised: measured on three keys, the
+    fill recovers 404, 131 and 0 px and **every one of them is already in the
+    slab**, because a dark glyph on painted ground is desaturated enough to
+    pass the slab test on its own.
     """
     hsv = cv2.cvtColor(med, cv2.COLOR_BGR2HSV)
     h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
@@ -299,11 +310,26 @@ def site_mask(med: np.ndarray, slab: np.ndarray) -> np.ndarray:
     n, lbl, st, _ = cv2.connectedComponentsWithStats(tint, 8)
     out = np.zeros(tint.shape, bool)
     # Area is in PIXELS, so it scales with the widget's AREA, not its length.
+    #
+    # **The scaling is the whole reason this function has one home.** An
+    # unscaled copy of this loop lived in `minimap_geometry.classify` and
+    # imported `SITE_MIN_AREA` without the `scale * scale`, so on the 331 px
+    # widget it demanded 500 px where this demands 253. Lotus has the smallest
+    # bomb sites in the store -- B and C measure 407 and 369 px there -- so
+    # `lotus__valorant-16x9` labelled ZERO of two sites while this function,
+    # run on the same static, kept all three. It scored 35.4% against the art
+    # where every other key scored 72-88%, and nothing downstream noticed,
+    # because an unlabelled site reads as ordinary floor rather than as an
+    # error. Found 2026-09-07 by scoring every key at once.
     min_area = SITE_MIN_AREA * scale * scale
     for i in range(1, n):
         comp = lbl == i
-        if st[i, 4] >= min_area and (comp & near).any():
-            out |= comp
+        if st[i, 4] < min_area or not (comp & near).any():
+            continue
+        ff = comp.astype(np.uint8)
+        m2 = np.zeros((ff.shape[0] + 2, ff.shape[1] + 2), np.uint8)
+        cv2.floodFill(ff, m2, (0, 0), 1)
+        out |= comp | (ff == 0)                  # the paint, plus its letter
     return out
 
 
