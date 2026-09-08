@@ -354,6 +354,58 @@ corrected in place. And the npz that was quoted at it all along was a donated
 copy of `a06f04a0059f`'s geometry, which said nothing about this session -- the
 measurement had to come from the video. Nothing left to un-defer.
 
+## Bake the BUY-PHASE BARRIERS into the map state, per map and side
+
+**Named 2026-09-08 after a barrier spent 110 observations quarantined as an
+unexplained ally.** The buy-phase spawn barriers are drawn in TEAM COLOUR, so
+they key as ally on every map, in every round, for the whole buy phase -- and
+they are static map furniture: the same doorways every round. Haven attack has
+four, of varying widths: the doorway to C main, the doorway to mid/doors, the
+doorway to "true mid", and the widest at the entrance to A site.
+
+Measured anchors on `96aa1ae9b96f` (331 px widget), from components keyed in
+>= 30% of 29 samples across 222-250 s:
+
+    C main               ( 82, 230)     mid / doors     (138, 233)
+    "true mid"           (177, 226)     A entrance    (185-209, 231)
+
+**Those are anchors, not extents** -- the ally key catches part of each bar, so
+the detector must measure the bar on its own colour. And the set is per map AND
+per side: this is the ATTACK set.
+
+Two things it buys. A keyed blob at a barrier anchor during the buy phase stops
+being an unexplained appearance, which removes a phantom class from every map
+rather than one window. And a barrier is a landmark at a known position
+appearing at a known phase, so it is a free per-round check that the stored
+geometry is still aligned -- worth testing, nothing has an independent check
+like that today.
+
+**Trigger: the next map-state pass.** It belongs with the geometry npz, keyed
+`<map>__<profile>` like everything else, not per session.
+
+## A RECON DART PULSE is a legal origin for an enemy appearance
+
+**Named 2026-09-08, from the circle that was producing phantom allies.** The
+scan radius is drawn in team colour and the ally key catches its arc, which the
+ring fit turns into a legal icon -- but the useful half is that
+`LEGAL_ORIGINS["enemy"]` already lists `reveal`, and a dart pulse is exactly
+one. An enemy icon appearing at a pulse is an EXPLAINED origin.
+
+Three properties decide the model and none of them is the drawn circle:
+
+* **two pulses per dart**, so it is two discrete reveal events, not a window;
+* **it reveals only what the pulse can SEE from the dart** at that instant --
+  a line-of-sight computation from the dart's position, which `cone.raycast`
+  over the passable/box geometry already does. The circle is the bound;
+* **the dart has variable verticality**, sticking to walls and ceilings, so the
+  circle is a projection of a scan originating off the floor plane. **The drawn
+  radius is not ground coverage** and must not be used as the revealed set.
+
+**Trigger: the enemy channel needing an origin for a reveal.** Until then the
+circle's arc is a known phantom source; do not try to reject it on shape --
+elongation is 7.12 median against 2.18 for real icons but 31% of real icons
+also clear 3.0, which is the aspect-ratio trap this repo already paid for.
+
 ## Record which agent the player played, per session
 
 **The binding input for the identity-conditional tracker, and it is not in the

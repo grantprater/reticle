@@ -318,22 +318,59 @@ SURVIVING separation being exactly 11.4 px is an artefact of the rule, not
 evidence that real allies sit there; genuine pairs live in the 11.4-20 px band
 (312 of them in the death window alone) and they survive.
 
-### QUEUED: two glyph questions for the player, with their timestamps
+### ANSWERED: both glyphs are real objects, and both are structural work
 
-Both are in `96aa1ae9b96f` (Haven). Bounded by decoding the ally key at the
-positions, so the ranges are measured rather than estimated:
+**1. The circle is SOVA'S RECON DART scan radius.** It is not an entity that
+moves and it is not an ally -- and it is a REVEAL SOURCE, which is the part
+that matters here: `LEGAL_ORIGINS["enemy"]` already lists `reveal`, so an enemy
+icon appearing at a dart pulse is an EXPLAINED origin rather than an
+unexplained appearance. Three properties decide how it must be modelled:
 
-* **the large team-coloured CIRCLE** -- 262.8 to ~265.5 s (4:22.8-4:25.5),
-  clearest at 263.5 s. Centred near B, radius ~55 widget px, alive ~2.7 s, and
-  it appears within ~0.7 s of the ally death at 262.2 s. *What ability is it?*
-* **the stationary team-coloured CAPSULE** -- first keyed at 221.5 s (3:41.5),
-  gone by 252 s (4:12), so ~30 s alive. Widget (78,228), in a corridor, zero
-  pixel movement the whole time, and it spans the buy menu. Clearest at 226 s.
-  *What ability is it?*
+* **two pulses per dart**, so it is two discrete reveal events, not a window;
+* **it reveals only what the pulse can SEE from the dart at that instant** --
+  so the revealed set is a line-of-sight computation from the dart's position,
+  which `cone.raycast` over the passable/box geometry already does. The drawn
+  circle is the bound, not the answer;
+* **the dart has variable verticality** -- it sticks to walls and ceilings --
+  so the circle on a 2D minimap is a projection of a scan whose origin is off
+  the floor plane. **Do not treat the drawn radius as ground coverage.**
 
-Neither is a phantom: both are real drawn objects the ally key catches and the
-entity model has a class for (`static`). Naming them is one word each and turns
-two standing quarantines into explained origins.
+**2. The capsule is an ALLY BARRIER (the buy-phase spawn barrier).** Haven
+attack has FOUR, of varying widths: left to right, the doorway to C main, the
+doorway to mid/doors, the doorway to "true mid", and the widest at the entrance
+to A site. That matches what the buy phase shows -- keyed components persisting
+across >= 30% of 29 samples from 222-250 s, in one horizontal band, with the
+rightmost by far the widest:
+
+    barrier            widget centre    keyed bbox
+    C main                 ( 82, 230)      4 x 8
+    mid / doors            (138, 233)      6 x 2
+    "true mid"             (177, 226)      4 x 4
+    A entrance (widest)  (185-209, 231)   ~24 x 4   (two fragments of one bar)
+
+These are anchors, not extents: the ally key catches only part of each bar, so
+a barrier detector must measure the bar on its own colour rather than on this.
+
+**Barriers are STATIC MAP FURNITURE, so they belong in the map state**, baked
+once per map and side rather than detected per session -- they are in the same
+place every round, they are drawn in team colour so they key as ally on every
+map, and they exist only during the buy phase. Baked, a keyed blob at a barrier
+anchor during the buy phase is explained instead of quarantined. One further
+use worth testing, and it is free: a barrier is a landmark at a KNOWN map
+position appearing at a KNOWN phase, so it is a per-round check that the stored
+geometry is still aligned -- the kind of independent check nothing currently
+has.
+
+### The timestamps these were answered from
+
+Both are in `96aa1ae9b96f` (Haven), bounded by decoding the ally key at the
+positions rather than estimated:
+
+* **recon dart circle** -- 262.8 to ~265.5 s (4:22.8-4:25.5), clearest at
+  263.5 s; centred near B, radius ~55 widget px, alive ~2.7 s, appearing within
+  ~0.7 s of the ally death at 262.2 s;
+* **ally barrier** -- first keyed at 221.5 s (3:41.5), gone by 252 s (4:12), so
+  it lives the buy phase; widget (82,230), zero pixel movement throughout.
 
 ### The stall class propagates through `l1/primitives`, not through an emitter
 
