@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from reticle.round_lifetimes import RoundLifetimes, replay_scale
+from reticle.round_lifetimes import RoundLifetimes, readable_kind, replay_scale
 
 
 def detection(x=10,family="ally",view="minimap"):
@@ -53,6 +53,43 @@ class RoundLifetimeTests(unittest.TestCase):
         self.assertNotEqual(a['entity_id'],b['entity_id'])
         with self.assertRaises(ValueError):
             RoundLifetimes('R3',0).step(100,[dict(detection(),observed_t_ms=0)])
+
+
+class NameTests(unittest.TestCase):
+    """The name is the fragmentation test, so it must be legible and fixed."""
+
+    def test_families_get_english_names_and_the_self_gets_no_number(self):
+        life = RoundLifetimes('R1', 0)
+        rows = life.step(0, [detection(10, 'self'), detection(40), detection(80),
+                             detection(200, 'enemy')])
+        self.assertEqual([r['name'] for r in rows],
+                         ['you', 'ally 1', 'ally 2', 'enemy 1'])
+
+    def test_a_rebirth_is_visible_in_the_name(self):
+        # The point of the whole scheme: a fifth ally in a 5v5 is wrong on the
+        # face of the frame, where `E0119` is just another serial number.
+        life = RoundLifetimes('R1', 0)
+        life.step(0, [detection(10), detection(40)])
+        born = life.step(5000, [detection(400)])[0]
+        self.assertEqual(born['name'], 'ally 3')
+        self.assertEqual(born['state'], 'first_observed')
+
+    def test_a_reader_may_name_the_kind_and_the_name_survives_a_class_change(self):
+        life = RoundLifetimes('R1', 0)
+        first = life.step(0, [dict(detection(10, 'object'), kind='ping:danger')])[0]
+        self.assertEqual(first['name'], 'ping:danger 1')
+        again = life.step(100, [dict(detection(11, 'object'), kind='?',
+                                     label='object?')])[0]
+        self.assertEqual(again['entity_id'], first['entity_id'])
+        self.assertEqual(again['name'], 'ping:danger 1')      # fixed at birth
+        self.assertEqual(life.entities[again['entity_id']]['class_history'],
+                         ['object', 'object?'])               # the class moved
+
+    def test_an_unnamed_observation_still_gets_a_readable_kind(self):
+        self.assertEqual(readable_kind({'family': 'ally_outline'}), 'ally shape?')
+        self.assertEqual(readable_kind({'family': 'object'}), '?')
+        self.assertEqual(readable_kind({'family': 'object', 'kind': 'ability?'}),
+                         'ability?')
 
 
 class ReplayScaleTests(unittest.TestCase):

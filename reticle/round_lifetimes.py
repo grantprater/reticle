@@ -11,7 +11,22 @@ from __future__ import annotations
 import math
 from .track import CLASSES, admits, association_tolerance, assign
 
-ROUND_LIFETIME_VERSION = "round-lifetimes-0.1.0"
+ROUND_LIFETIME_VERSION = "round-lifetimes-0.2.0"
+
+#: Readable kind per family, when a reader does not supply a better one.
+#: A raw `E0303 object?` says nothing a person can check against the frame.
+NAME_KIND = {"self": "you", "ally": "ally", "enemy": "enemy",
+             "barrier": "barrier", "spike": "spike", "object": "?",
+             "outline": "outline?", "ally_outline": "ally shape?",
+             "hud_ability": "tray"}
+
+#: Kinds that are one thing or a fixed slot, so a number would be noise.
+UNNUMBERED = ("you", "tray")
+
+
+def readable_kind(obs):
+    """What to call this observation in English. Readers may override."""
+    return obs.get("kind") or NAME_KIND.get(obs["family"], obs["family"])
 
 
 class RoundLifetimes:
@@ -20,6 +35,7 @@ class RoundLifetimes:
         self.entities = {}
         self.last_t = None
         self.next_id = 1
+        self.name_counts = {}
 
     def step(self, t_ms, observations, *, source_state="fresh", roster=None):
         if not math.isfinite(t_ms) or (self.last_t is not None and t_ms <= self.last_t):
@@ -87,7 +103,19 @@ class RoundLifetimes:
             else:
                 eid = f"{self.round_id}:E{self.next_id:04d}"
                 self.next_id += 1
-                ent = {"id":eid, "view":obs["view"], "family":obs["family"],
+                # The name is fixed AT BIRTH and never revised, because its job
+                # is to make a re-birth visible: a fifth `ally` in a 5v5, or a
+                # `? 600`, is wrong on the face of the frame in a way that
+                # `E0303 object?` is not. The class can still change under it,
+                # and `class_history` keeps that.
+                kind = readable_kind(obs)
+                if kind.startswith(UNNUMBERED):
+                    name = kind
+                else:
+                    self.name_counts[kind] = self.name_counts.get(kind, 0) + 1
+                    name = f"{kind} {self.name_counts[kind]}"
+                ent = {"id":eid, "name":name, "kind":kind,
+                       "view":obs["view"], "family":obs["family"],
                        "first_seen_ms":t_ms, "origin_ms":None,
                        "origin_reason":"origin not independently observed",
                        "observations":0, "gaps":0, "max_gap_ms":0,
@@ -115,7 +143,8 @@ class RoundLifetimes:
                     accepted_allies += 1
                 else:
                     acquisition = "roster_count_conflict"
-            output.append({**obs, "entity_id":ent["id"], "state":state,
+            output.append({**obs, "entity_id":ent["id"], "name":ent["name"],
+                           "state":state,
                            "alternatives":parents if not unique else [],
                            "acquisition":acquisition, "origin_ms":ent["origin_ms"],
                            "first_seen_ms":ent["first_seen_ms"]})

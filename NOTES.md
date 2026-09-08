@@ -24,6 +24,94 @@ Both at 10 Hz detection over 60 Hz video with source audio, 0 ms stalled, each
 with `observations.jsonl`, `lifetimes.json`, `coverage.json`, `provenance.json`
 and a `review.html` that passes `tests/review_harness.cjs`.
 
+### THE PLAYER WATCHED BOTH ROUNDS, and named 21 entities
+
+Recorded as adjudications, not prose:
+`~/reticle-store/labels/round-entities/player-review-20260908.jsonl` -- entity
+id, the class the detector gave it, the class he gave it, and its video
+timestamps. Every id he named resolves and every timestamp matches. This is a
+labelling pass he did for free and it is worth more than the renders.
+
+**The CRACK class is real, it is MAP ART, and it is derivable without labels.**
+He named cracks -- holes, walls, pillars, corners drawn into the minimap art --
+as the thing the object channel keeps finding. The stored geometry median has
+every entity removed by construction, so anything a detector finds in IT is
+furniture. Run the ability-disc reader on Lotus's median:
+
+    5 dark discs in the entity-free map median
+    E0075  0.0 px   E0224  0.5 px   E0079  0.5 px      <- he named all five
+    E0280  4.0 px   E0290  4.5 px
+
+All five, and nothing else. E0303 (a shadow off Chamber's pillar) and E0291 (a
+lit pillar on C) are correctly absent -- they are dynamic. **So cracks bake per
+map exactly as barriers do**, and the median is the source: no player pass, no
+threshold. Sunset's median has ZERO discs, so its objects are a different
+mechanism entirely.
+
+**Two flagged detections are off the opaque slab and one rule already rejects
+them.** `slab_mask` is the gate `minimap.icons` uses for ally/self; the ENEMY,
+BARRIER and dynamic-object channels never got it.
+
+    E0136  barrier `spawn barrier?`   0/31 observations on slab   -- a WALL crack
+    E0277  enemy   `enemy agent?`     3/12 observations on slab   -- off the map
+
+Do not generalise it further: every Lotus crack sits squarely ON the slab, so
+slab support fixes these two and no others. (Measured after claiming otherwise
+from a three-point sample.)
+
+**Spawn barriers have a geometric law and it is checkable.** His words: barriers
+*"will always be over choke points of various sizes and taken in aggregate will
+separate the map into ally, neutral, and enemy territory."* That is a cut of the
+passable graph, and `cone.passable_from` already builds that graph -- so a
+barrier hypothesis SET can be tested for whether it partitions the map into
+three regions, and E0136 (a wall crack, not on a chokepoint) fails a test that
+no per-blob threshold could have. Nothing built.
+
+**KAY/O's knife (E) is a reveal source and it is NOT the recon dart.** The red
+ring is the enemy's and marks a detection radius that **goes through walls**;
+the ally's knife draws the same shape in white. So unlike Sova's dart -- whose
+drawn circle bounds a LINE-OF-SIGHT computation -- the knife's revealed set is
+the radius itself, and `cone.raycast` is the wrong model for it. Both are
+`LEGAL_ORIGINS["enemy"]` reveals.
+
+**A big ring makes fits all along its arc, and that is the burst.** He saw the
+enemy knife cast at A produce hallucinations around A and then around B, and
+had no hypothesis. This repo already has one: the Haven recon-dart circle did
+exactly this (*"a teal ring spanning much of the map produces icon fits on its
+arc"*), which is why the bursts land far from the cast. It also predicts the
+asymmetry he noticed -- the RED ring shares the enemy key and the white ally
+knife does not, so the red one should produce more. Untested, and it is the
+cheapest of these to test.
+
+**Most abilities cannot be cast in buy phase.** A short list can; the rest
+cannot. So an `ability?` inside buy phase is refutable by the phase alone, the
+same rule that made barriers separate cleanly. The exception list has to come
+from the wiki, and is not in the repo.
+
+**Also named, not yet modelled:** buy-phase-only ally markers above teammates'
+heads cross the world view and produce silhouette hallucinations (0:09 Sunset);
+an enemy KAY/O grenade produces first-person `enemy outline?` with no enemy
+present (E1155-57, all single-observation); Neon's vision cone in a doorway
+produces objects (E1001, E1017); a lit box produces one (E1340); and the B Lobby
+HUD element ABOVE the minimap is inside the read region (E0844 at y=16).
+
+### Names are English now, because the ids were hiding the re-births
+
+`round-lifetimes-0.2.0`. Every entity gets a round-scoped name fixed AT BIRTH --
+`you`, `ally 1`, `enemy 3`, `barrier 2`, `ping:danger 1`, `ability?`, `?`,
+`outline?`, `ally shape?`, `tray C` -- and the overlay draws that instead of
+`E0303`. The ordinal is the point: **`ally 7` in a 5v5 is wrong on the face of
+the frame**, where a serial number is not, so the name is the fragmentation
+test rather than a caption. The class can still move underneath it and
+`class_history` keeps that.
+
+`ping:type` cost nothing: `ping.classify` already named every ping and the name
+was being dropped into `hypotheses` while the frame read `ping?`.
+
+Still not derivable, so not claimed: the AGENT. There is no identity witness --
+`minimap_portrait.composition` is an appearance histogram, not a name -- so
+`ally 3` is the honest form and `agent:ability` waits for one.
+
 ### What holds for a whole round, and what does not
 
 **The three classes with an independent witness hold; nothing else does.**

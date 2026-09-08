@@ -42,7 +42,7 @@ from plant_spike import centre_box, spike_cover, COVER_MIN
 from minimap_portrait import composition
 from ability_hud import slot_counts, SLOT_X0, SLOT_DX, SLOT_KEYS
 
-VERSION = "full-round-0.2.0"
+VERSION = "full-round-0.3.0"
 PALETTE = {"self":(90,235,250), "ally":(170,240,100), "enemy":(95,90,255),
            "barrier":(255,210,90), "object":(245,140,225),
            "outline":(90,170,255), "hud_ability":(240,190,130),
@@ -135,7 +135,7 @@ class RoundReader:
             if area < 12 or max(w,h)<7 or max(w,h)>130 or max(w,h)/max(1,min(w,h))<2.0 or area/(w*h)<.6:
                 continue
             cx,cy=centres[k]
-            out.append(observation("barrier","spawn barrier?",cx,cy,(x,y,w,h),
+            out.append(observation("barrier","spawn barrier?",cx,cy,(x,y,w,h),kind="barrier",
                          evidence=["buy_phase","persistent_straight_team_colour"],
                          confidence="candidate",calibration_samples=self.buy_samples))
         self.barriers=out
@@ -161,7 +161,7 @@ class RoundReader:
         base["hud"]["planted"]=planted
         if planted:
             x0,y0,x1,y1=centre_box(scorebox)
-            base["observations"].append(observation("spike","SPIKE planted (HUD)",(x0+x1)/2,(y0+y1)/2,(x0,y0,x1-x0,y1-y0),"hud",evidence=["spike_graphic","clock_replaced"]))
+            base["observations"].append(observation("spike","SPIKE planted (HUD)",(x0+x1)/2,(y0+y1)/2,(x0,y0,x1-x0,y1-y0),"hud",kind="spike",evidence=["spike_graphic","clock_replaced"]))
         x0,y0,x1,y1=self.box
         crop=frame[y0:y1,x0:x1]
         drawn=widget_drawn(crop,self.gray,self.floor)
@@ -192,11 +192,11 @@ class RoundReader:
                     tracker=self.self_track if family=="self" else self.ally_track
                     bearing=tracker.bearings(t_ms,tracks=[tr])[0][2]
                     r=round(tr.r or 10)
-                    agent_obs.append(observation(family,"self / observer" if family=="self" else "ally agent?",tr.x,tr.y,(round(tr.x)-r,round(tr.y)-r,2*r,2*r),r=r,facing=bearing,detector_track_id=tr.tid,evidence=["icon_ring"],confidence="observed_icon" if family=="self" else "candidate"))
+                    agent_obs.append(observation(family,"self / observer" if family=="self" else "ally agent?",tr.x,tr.y,(round(tr.x)-r,round(tr.y)-r,2*r,2*r),kind="you" if family=="self" else "ally",r=r,facing=bearing,detector_track_id=tr.tid,evidence=["icon_ring"],confidence="observed_icon" if family=="self" else "candidate"))
             for d in enemy_rings(crop,self.floor):
                 if is_icon(d) and not on_bar(d):
                     r=int(d["r"])
-                    agent_obs.append(observation("enemy","enemy agent?",d["cx"],d["cy"],(int(d["cx"])-r,int(d["cy"])-r,2*r,2*r),r=r,evidence=["red_portrait_ring"],confidence="candidate"))
+                    agent_obs.append(observation("enemy","enemy agent?",d["cx"],d["cy"],(int(d["cx"])-r,int(d["cy"])-r,2*r,2*r),kind="enemy",r=r,evidence=["red_portrait_ring"],confidence="candidate"))
             base["observations"].extend(agent_obs)
             for o in agent_obs:
                 cx,cy,r=round(o["x"]),round(o["y"]),max(3,round(o["r"]*.55))
@@ -215,7 +215,7 @@ class RoundReader:
                 if any(math.hypot(x-a["x"],y-a["y"]) < a.get("r",10)+3 for a in agent_obs) or on_bar({"cx":x,"cy":y}):
                     continue
                 r=max(5,min(18,round(math.sqrt(area/math.pi))))
-                base["observations"].append(observation("object","ability icon?",x,y,(round(x)-r,round(y)-r,2*r,2*r),hypotheses=["ability_icon","map_detail"],evidence=["dark_disc"],confidence="candidate"))
+                base["observations"].append(observation("object","ability icon?",x,y,(round(x)-r,round(y)-r,2*r,2*r),kind="ability?",hypotheses=["ability_icon","map_detail"],evidence=["dark_disc"],confidence="candidate"))
             for d in dynamic:
                 x,y=d["xy"]
                 if any(math.hypot(x-a["x"],y-a["y"]) < a.get("r",10)+3 for a in agent_obs):
@@ -227,14 +227,19 @@ class RoundReader:
                 ps=[p for p in ping if math.hypot(x-p[0],y-p[1])<8]
                 ds=[p for p in discs if math.hypot(x-p[0],y-p[1])<10]
                 hypotheses=["dynamic_object"]
-                label="object?"
+                label="object?"; kind="?"
                 if ds:
                     hypotheses.append("ability_icon")
-                    label="ability icon?"
+                    label="ability icon?"; kind="ability?"
                 if ps:
-                    hypotheses.append("ping:"+str(ping_class(ps[0][2])))
+                    # `classify` names the ping and the name was being thrown
+                    # away: every ping read `ping?` on the frame while the type
+                    # sat in `hypotheses`. An unclassified hue stays `ping?`.
+                    named=ping_class(ps[0][2])
+                    hypotheses.append("ping:"+str(named))
                     label="ping / icon?" if ds else "ping?"
-                base["observations"].append(observation("object",label,x,y,d["box"],colour=d["colour"],hypotheses=hypotheses,evidence=["dynamic_mask"],confidence="unresolved"))
+                    kind="ping:"+named if named else "ping?"
+                base["observations"].append(observation("object",label,x,y,d["box"],kind=kind,colour=d["colour"],hypotheses=hypotheses,evidence=["dynamic_mask"],confidence="unresolved"))
             # The four actual ability-glyph regions, only with visible tray art.
         else:
             self.self_track.step(t_ms,[])
@@ -247,13 +252,13 @@ class RoundReader:
             gray=cv2.cvtColor(patch,cv2.COLOR_BGR2GRAY)
             bright=int((gray>210).sum())
             if bright>60 and max(tray_counts)>100 and ra is not None:
-                base["observations"].append(observation("hud_ability",f"ability {key}",cx,1002,(cx-30,974,60,57),"hud",evidence=["tray_glyph_region"],confidence="HUD_region_not_cast"))
+                base["observations"].append(observation("hud_ability",f"ability {key}",cx,1002,(cx-30,974,60,57),"hud",kind=f"tray {key}",evidence=["tray_glyph_region"],confidence="HUD_region_not_cast"))
         # The existing screen reader masks HUD and the actual enlarged minimap.
         # No named identity or shootability is inferred from a coloured outline.
         outlines=screen.outline_candidates(frame,minimap_box=self.box)
         enemies=[o for o in agent_obs if o["family"]=="enemy"]
         for x,y,w,h,area in outlines:
-            base["observations"].append(observation("outline","enemy outline?",x+w/2,y+h/2,(x,y,w,h),"world",area=area,evidence=["screen_outline"],hypotheses=["enemy","revealed","corpse","deployable","scenery"]))
+            base["observations"].append(observation("outline","enemy outline?",x+w/2,y+h/2,(x,y,w,h),"world",kind="outline?",area=area,evidence=["screen_outline"],hypotheses=["enemy","revealed","corpse","deployable","scenery"]))
         if outlines and enemies:
             base["cross_view"].append({"kind":"simultaneous_enemy_evidence","world_count":len(outlines),"minimap_count":len(enemies),"identity_link":None,"reason":"co-occurrence supports presence, not one-to-one identity"})
         # Flat team-coloured silhouettes are independently drawn through walls.
@@ -267,7 +272,7 @@ class RoundReader:
             x,y,w,h,area=map(int,stats[k])
             if 160<=area<=25000 and h>=24 and 1.1<=h/max(1,w)<=5 and area/(w*h)>.2:
                 cx,cy=centres[k]
-                base["observations"].append(observation("ally_outline","ally silhouette?",cx,cy,(x,y,w,h),"world",hypotheses=["ally_silhouette","scenery"],evidence=["team_colour_silhouette"],confidence="candidate"))
+                base["observations"].append(observation("ally_outline","ally silhouette?",cx,cy,(x,y,w,h),"world",kind="ally shape?",hypotheses=["ally_silhouette","scenery"],evidence=["team_colour_silhouette"],confidence="candidate"))
         for o in base["observations"]:
             o["observed_t_ms"]=t_ms
         return base
@@ -292,17 +297,20 @@ def draw_review(frame,sample,rows,reader,t_ms,start_ms):
         if o.get("acquisition")=="roster_count_conflict":
             col=(100,110,240)
         x,y,bw,bh=o["box"]
-        short=o["entity_id"].split(":")[-1]
-        label=short+" "+o["label"]
+        # The NAME, not the id. `ally 7` in a 5v5 is a visible bug; `E0303` is
+        # a serial number, and reading a round through serial numbers is what
+        # hid the re-births. The id stays in the sidecar files.
+        short=o.get("name") or o["entity_id"].split(":")[-1]
+        label=short
         if o["state"]=="ambiguous_continuation":
-            label+=" ~ID"
+            label+=" ~"
         if o["view"]=="minimap":
             cv2.rectangle(canvas,(x0+x,y0+y),(x0+x+bw,y0+y+bh),col,1)
             ink(canvas,short,(max(0,x0+x),max(12,y0+y-3)),col,.32)
             px,py=round(x*zoom),round(y*zoom)
             cv2.rectangle(panel,(px,py),(round((x+bw)*zoom),round((y+bh)*zoom)),col,1)
             # Short labels above each box; verbose class lives in the panel list.
-            ink(panel,short,(max(0,min(540,px)),max(12,py-3)),col,.38)
+            ink(panel,label,(max(0,min(520,px)),max(12,py-3)),col,.38)
             facing=o.get("facing")
             if facing is not None and age < 1:
                 c=(round(o["x"]*zoom),round(o["y"]*zoom))
@@ -318,11 +326,11 @@ def draw_review(frame,sample,rows,reader,t_ms,start_ms):
     ink(canvas,f"{sample['widget']} | detection age {age:.0f} ms",(w+22,yy),scale=.49)
     roster=sample.get("roster") or {}
     ink(canvas,f"Roster {roster.get('alive_ally','?')} vs {roster.get('alive_enemy','?')} | ? = unresolved class",(w+22,yy+22),scale=.46)
-    ink(canvas,"IDs are association hypotheses; ~ID = alternatives",(w+22,yy+44),scale=.43)
+    ink(canvas,"Names are round-scoped hypotheses, fixed at birth; ~ = alternatives",(w+22,yy+44),scale=.43)
     ink(canvas,"Boxes between samples show the last observation",(w+22,yy+65),scale=.43)
     important=sorted(rows,key=lambda o: ({"barrier":0,"spike":0,"object":1,"outline":1,"self":2,"ally":3}.get(o["family"],4),o["entity_id"]))
     for i,o in enumerate(important[:10]):
-        label=o["entity_id"].split(":")[-1]+"  "+o["label"]
+        label=f"{o.get('name') or o['entity_id'].split(':')[-1]:<16}{o['label']}"
         if o.get("acquisition")=="roster_count_conflict": label+=" [roster conflict]"
         ink(canvas,label,(w+22,yy+91+i*21),PALETTE.get(o["family"],(220,220,220)),.43)
     if len(important)>10:
