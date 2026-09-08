@@ -71,3 +71,91 @@ perceptual approach fails, expose its source evidence for player review rather
 than tuning blindly. A full-duration render is not proof of exhaustive recognition.
 
 Implementation results and exact reproduction commands will be appended here.
+
+---
+
+## Implementation results, 2026-09-08
+
+Reproduction, in order. `prototypes/full_round_entities.py` is the renderer,
+`reticle/round_lifetimes.py` the association law, `tools/round_entity_review.py`
+the offline player page.
+
+    python prototypes/full_round_entities.py --select 7010b3d62460 a1a995e6b19b \
+        --out ~/reticle-store/notes/full-round-selection-20260908.json
+    python prototypes/full_round_entities.py 7010b3d62460 --round 15 \
+        --out ~/reticle-store/notes/lotus-round15-20260908
+    python tools/round_entity_review.py ~/reticle-store/notes/lotus-round15-20260908
+    node tests/review_harness.cjs ~/reticle-store/notes/lotus-round15-20260908/review.html
+    python -m reticle.round_lifetimes ~/reticle-store/notes/lotus-round15-20260908 \
+        --out /tmp/replay.json          # reproduces lifetimes.json, no decode
+
+**Selection.** 22 complete rounds across the two recordings, 21 of them with no
+stalled capture at all, so the deliverable's "choose a round without detected
+stalls if possible" was not a constraint. Ranked by stall, then player kills,
+then plant: Lotus round 15 (3 kills, a plant) and Sunset round 6 (3 kills, no
+plant) are the top two, and both are rendered.
+
+### Lotus round 15 -- 100.5 s, 6030/6030 frames, 0 ms stalled
+
+Detection at 10 Hz over 60 Hz video with source audio; every rendered frame
+keeps its source timestamp and the age of the observation drawn on it. 1005
+samples, the widget drawn in 994. 20,689 adjudicated observations:
+
+    continuation             18,530   89.6%
+    ambiguous_continuation      940    4.5%
+    first_observed            1,219    5.9%
+
+**Three classes hold across the whole round, and they are the ones with an
+independent witness.**
+
+    self       1 entity, all 100.5 s, 793 observations, one id start to end
+    spike      1 entity; 239 of its 240 observations post-plant, 1 at the
+               boundary -- the HUD plant flag and the minimap glyph agree
+    barrier   12 entities, 1,950 observations, ALL of them in buy phase:
+               0 in live, 0 post-plant. The phase rule separates completely.
+
+**The rest is fragmentation, and it is concentrated in the unresolved classes.**
+1,228 entity hypotheses for one round:
+
+    object     660   median 3 observations, 0.4 s      222 seen exactly once
+    ally_outline 239 median 1                          133 seen exactly once
+    outline    183   median 1                          137 seen exactly once
+    ally        81   median 4; the longest lives 63.1 s over 627 observations
+    enemy       43   median 2; the longest 2.4 s -- but an enemy is only DRAWN
+                     while revealed, so short lives here are expected
+    hud_ability  8   median 82
+    barrier     12 · self 1 · spike 1
+
+Four allies over 100 s arriving as 81 hypotheses is the number to attack, and
+1,082 of the 1,228 are `object?`/`outline?` -- explicitly unresolved classes,
+not wrong answers. 492 of those are single observations.
+
+**The limiter on the roster gate is the SELF icon, not the roster.** Capacity is
+`alive_ally - 1` because the roster counts the player, so it needs an observed
+self. Over 2,933 ally observations:
+
+    roster_slot_available_not_identity   2,333   79.5%
+    roster_unknown                         527   18.0%
+    roster_count_conflict                   73    2.5%
+
+The 527 are the samples with no self icon: 212 of 1005 samples, over 59 runs,
+the widget drawn in all but 7 of them. 129 of those samples are in buy phase,
+and the longest run (1446.1-1449.3 s, 3.2 s) is the SOURCE, not the detector --
+the widget at round start draws no agent icons at all, which the pixels show
+directly. So the refusal is correct and the cross-reference is still available:
+the roster already says whether the player is alive, which separates "the
+widget is not drawing me" from "I am spectating", and that is what the
+`has_self` test currently cannot tell apart. Not built.
+
+**The replay is exact.** `python -m reticle.round_lifetimes` over the stored
+`observations.jsonl` reproduces all 1,228 entities byte for byte in 50 s
+without decoding a frame -- so the adjudication can be re-run against a changed
+law at no video cost. It reads the widget scale from provenance
+(`full-round-0.2.0`) or derives it from the session manifest, and never assumes
+it: the association law is in widget pixels, and an 8 px step in 100 ms is one
+entity at scale 1.0 and two at 0.7118.
+
+**The review page is built and is too long to ask for.** 2,457 candidates
+(first/middle/last of every entity), and it passes `tests/review_harness.cjs`.
+A player pass needs a sampled population -- the 660 `object?` entities would
+dominate it -- so the page is not worth a player's time in this form.
