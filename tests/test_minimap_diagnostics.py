@@ -14,11 +14,21 @@ def detection(x=20):
 
 
 class TemporalEvidenceTests(unittest.TestCase):
-    def test_elapsed_gap_expires_even_without_missing_steps(self):
-        tracker = Tracker(max_missed=100)
+    def test_elapsed_gap_expires_the_track(self):
+        # Elapsed time is the ONLY expiry. It used to share the job with a
+        # frames-missed count, which made the real budget depend on the sample
+        # rate: three missed frames is 50 ms at 60 Hz and 200 ms at 15 Hz.
+        tracker = Tracker()
         first = tracker.step(0, [detection()])[0].tid
         second = tracker.step(501, [detection()])[0].tid
         self.assertNotEqual(first, second)
+
+    def test_a_long_blink_inside_the_budget_keeps_the_identity(self):
+        tracker = Tracker()
+        first = tracker.step(0, [detection()])[0].tid
+        for i in range(1, 20):                       # 317 ms of 60 Hz misses
+            tracker.step(i * 1000 / 60, [])
+        self.assertEqual(tracker.step(334, [detection(21)])[0].tid, first)
 
     def test_short_gap_retains_id_but_not_fresh_bearing(self):
         tracker = Tracker()
@@ -30,7 +40,7 @@ class TemporalEvidenceTests(unittest.TestCase):
     def test_integer_centers_do_not_fragment_subpixel_motion(self):
         # 30 px/s is below RUN_PX, but rasterization produces 60 px/s steps
         # at 60Hz. Test an independently specified continuous trajectory.
-        tracker = Tracker(position_error_px=np.sqrt(0.5))
+        tracker = Tracker(position_error_px=np.sqrt(0.5))   # the old floor
         ids = []
         for i in range(60):
             rows = tracker.step(i * 1000 / 60, [detection(round(20 + i * 0.5))])

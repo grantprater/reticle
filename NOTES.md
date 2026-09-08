@@ -11,24 +11,84 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-08, contiguous minimap diagnostics
+## PICKING UP -- 2026-09-08, entity lifetimes and evidence-based teleports
 
-Follow-up: `minimap_lifecycle.py` now adjudicates births/continuations over
-stored observations. `overlay --minimap-lifecycle` opts into excluding
-unexplained appearances from cones while retaining raw candidates. The Ascent
-window quarantines 55 observations, 37 with unlit reads; these are NOT scored
-false positives, because the downloaded player answers have not been located.
-The player identified a short Omen teleport in Lotus. Source frames confirm
-the icon/cone relocation around 299.217-299.317s (~52px), below the old generic
-200px teleport bound. An external player-supported origin event links the
-destination observations back to `ally:1`; audio identity is player testimony,
-not automated recognition. Repeated relocation rows reference ONE event.
-New diagnostic exports include clean source minimap previews; new review pages
-default to those, with debug overlays opt-in. Orange carried rings and black
-text outlines were overlay marks, not detector input. Existing Lotus review
-was not modified. 92 tests pass; old/new review answer exports pass an in-memory
-JavaScript harness. Next: locate/import completed answers and score quarantines
-before enabling the lifecycle gate by default. User requested wrap-up here.
+**A teleport is now licensed by CORROBORATION, not by distance.**
+`track.Corroboration` + `corroborates_teleport` is the one rule -- the icon AND
+the viewcone must have relocated, tied to a predecessor entity by audio or an
+observed destination, with source refs -- and `admits(..., evidence=)` admits
+any distance above the walk ceiling when it holds. `TELEPORT_PX` survives only
+as the no-event fallback and every step it admits now returns
+`TELEPORT_ASSUMED` so the assumption is countable. The reviewed ~52 px Lotus
+relocation is refused on distance and admitted on evidence, asserted in
+`--self-test`; `minimap.filter_track` takes the evidence per span
+(`[(t0, t1, class, corroboration), ...]`) and still never interpolates across
+a jump. `minimap_lifecycle` no longer keeps its own copy of the rule.
+
+**Lifetime tracking: the self entity is now ONE id where it was thirteen.**
+Measured by re-running the real `overlay --minimap-diagnostics` command on the
+same two 2 s 60 Hz windows:
+
+    window  metric                  before   after
+    ascent  self track keys           13       1     (icon detected in 120/120)
+    ascent  ally track keys           43      20
+    ascent  quarantined obs           55      51
+    lotus   self track keys           10       1
+    lotus   ally track keys           11       4
+    lotus   relocation rows, 1 event   6       3
+
+Three assumptions were the cause and all three are gone:
+
+* **the association tolerance was integer quantization** (`sqrt(0.5)`), which
+  is a floor on the icon fit's centre error rather than a measurement of it.
+  `track.FIT_ERR_PX` is 2.0 px, measured from FORCED CORRESPONDENCES -- the
+  self icon is detected exactly once in every frame of both windows, so
+  consecutive detections are the same entity by construction and no labels are
+  needed. Every value from 2.0 to 10.0 holds the self track at one id, so it is
+  a plateau and not a fit; the ceiling is icon separation (~20 px);
+* **`max_missed=3` expired tracks in FRAMES**, so the real budget was 50 ms at
+  60 Hz against the 500 ms `max_gap_ms` says. Two constants for one law. The
+  frame count is deleted, not raised;
+* **the lifecycle wiped identity whenever the widget was not drawn** -- a
+  missing observation treated as a missing entity, in the module that exists
+  to catch that. It now suspends, and elapsed time alone expires.
+
+Also deduplicated: `track.association_tolerance` is one definition where there
+were three, and the lifecycle's continuation ceiling (`RUN_PX*dt + sqrt(2)`,
+2.2 px at 60 Hz against the tracker's 4.8) was quarantining observations the
+tracker had already associated. `tools/minimap_sequence_summary.py` now replays
+the whole chain -- tracker and lifecycle -- at three error terms and reports
+forced breaks; the throwaway prototype that did this is deleted.
+
+96 tests, `--self-test` PASS, doctor 2 findings / 0 errors.
+
+### FIRST THING NEXT SESSION: the Ascent ally churn is a DETECTOR question
+
+20 ally ids in 2 s is still wrong, and it is **not** an association-law
+failure -- widening the gate further does not fix it and would be tuning the
+wrong channel. The raw detections at ~(138,132) alternate between two fit modes
+of what is almost certainly one icon:
+
+    strong   (141,133) r 8-10   cov 0.40-0.52   area 100-135   n=82
+    weak     (134,130) r 11-13  cov 0.25-0.31   area 10-20     n=93
+
+The weak mode is a big circle whose circumference is a quarter covered by ~20
+px of colour, it repeats byte-identically for 20 consecutive frames, and the
+tracker keeps both alive and hands the single detection to whichever is nearer
+-- so the ids alternate 1-2-1-2 rather than fragmenting. Deciding which mode is
+the icon is the next question, and it is a second-channel question.
+
+**A caution for whoever picks that up.** Adjacent-lit fraction looks like it
+favours the WEAK mode (median 0.228 vs 0.094, and only 3% fully unlit against
+41%). Do not read that as evidence: `minimap_diagnostics.light_support`
+excludes the disc `d <= r` and keeps `d <= 26*scale`, so a fit with a larger
+radius samples a different annulus. The comparison is confounded by exactly
+the quantity that separates the two modes. Measure it on a matched annulus
+before concluding anything.
+
+Not done, and still the gate on the ascent quarantines: the 51 remaining
+(37 with unlit reads) are still unscored, because the downloaded player answers
+have not been located. The lifecycle gate stays opt-in until they are.
 
 ### Earlier increment
 

@@ -4,14 +4,30 @@ An unexplained appearance is quarantined from the inferred entity channel, not
 deleted from observations. A lighting contradiction does not establish which
 detector failed. Pings may originate in darkness; an existing entity may persist
 there. A corroborated teleport is a relocation, never a new player birth.
+
+**A missing observation is not a missing entity**, and that applies to this
+module's own inputs: an absent widget suspends adjudication rather than ending
+every lifetime, and only elapsed time past the gap budget makes a boundary.
+The motion law and the teleport rule are `track`'s -- restating either here is
+how they drifted apart the first time.
 """
 from __future__ import annotations
 
 import math
 
-from .minimap import RUN_PX
+from .track import CLASSES, Corroboration, admits, association_tolerance, corroborates_teleport
 
-LIFECYCLE_VERSION = "minimap-lifecycle-0.1.0"
+LIFECYCLE_VERSION = "minimap-lifecycle-0.2.0"
+
+#: What each role may do between two observations, as a `track.CLASSES` key.
+#: The motion law is not restated here -- `track.admits` owns it, and the two
+#: had already drifted: this module's continuation ceiling was `RUN_PX*dt +
+#: sqrt(2)`, which at 60 Hz is 2.2 px against the tracker's 4.8, so it
+#: quarantined appearances the tracker had already associated and called them
+#: unexplained.
+ROLE_MOTION = {"ally": "walker", "self": "walker", "enemy": "walker",
+               "ping": "static", "ability": "static", "death_mark": "static",
+               "last_known": "static"}
 LEGAL_ORIGINS = {
     "ping": {"ping"}, "ability": {"cast", "equip"},
     "ally": {"round_start", "revive"}, "self": {"round_start", "revive"},
@@ -53,14 +69,10 @@ def matching_events(obs, t_ms, events):
         if math.hypot(obs["x"] - event["x"], obs["y"] - event["y"]) > event["radius_px"]:
             continue
         if event["kind"] == "teleport":
-            # Audio alone also describes fake teleports. Require the relocated
-            # icon AND relocated viewcone, plus source/destination corroboration.
-            channels = set(event.get("channels", []))
-            if not {"icon", "viewcone"}.issubset(channels):
-                continue
-            if not channels.intersection({"audio", "destination"}):
-                continue
-            if not event.get("predecessor"):
+            # One rule, in `track.corroborates_teleport`: audio alone also
+            # describes a FAKE teleport, so the icon and the viewcone must both
+            # have relocated and something must tie that to a predecessor.
+            if not corroborates_teleport(Corroboration.of(event))[0]:
                 continue
         elif event["kind"] not in LEGAL_ORIGINS.get(obs["role"], set()):
             continue
@@ -82,21 +94,34 @@ class Lifecycle:
         self.known = {}
         self.anchors = []
 
+    def _expire(self, t_ms):
+        """Drop anchors older than the gap budget; a boundary is what remains.
+
+        Continuity ends on ELAPSED TIME and nothing else -- the same law
+        `track.Tracker` expires on, and the same budget.
+        """
+        self.anchors = [a for a in self.anchors if t_ms - a["t_ms"] <= self.max_gap_ms]
+        live = {a["entity_id"] for a in self.anchors}
+        self.known = {k: v for k, v in self.known.items() if v["entity_id"] in live}
+        if not self.anchors:
+            self.boundary = True
+
     def step(self, frame, events=()):
         t_ms = frame["t_ms"]
         if not math.isfinite(t_ms) or (self.last_t is not None and t_ms <= self.last_t):
             raise ValueError("lifecycle timestamps must be finite and increasing")
-        if self.last_t is not None and t_ms - self.last_t > self.max_gap_ms:
-            self.boundary = True
-            self.known.clear()
-            self.anchors.clear()
         self.last_t = t_ms
         if frame["widget"] != "drawn":
-            self.boundary = True
-            self.known.clear()
-            self.anchors.clear()
+            # **A missing widget is a missing OBSERVATION, not a missing
+            # entity.** The death screen and the M key remove the widget for
+            # 5% of a session's frames, and wiping identity on each of them
+            # made every reappearance a fresh birth -- the fault this module
+            # exists to catch, committed by this module. The tracker already
+            # carries its tracks across the same frames; now so does this.
+            # Elapsed time still expires them, below.
+            self._expire(t_ms)
             return []
-        self.anchors = [a for a in self.anchors if t_ms - a["t_ms"] <= self.max_gap_ms]
+        self._expire(t_ms)
         output, additions, used_events = [], [], set()
         for obs in frame.get("observations", []):
             if obs["position_state"] != "observed":
@@ -105,15 +130,17 @@ class Lifecycle:
             light = light_state(obs, frame.get("light_budget"))
             matches = matching_events(obs, t_ms, events)
             parents = set()
+            # Static entities cannot acquire walking motion by association;
+            # the class per role says so, and `track.admits` applies it.
+            motion = CLASSES[ROLE_MOTION.get(obs["role"], "static")]
             for anchor in self.anchors:
                 if anchor["role"] != obs["role"]:
                     continue
                 dt = (t_ms - anchor["t_ms"]) / 1000
-                ceiling = RUN_PX * self.scale * dt + math.sqrt(2)
-                # Static entities cannot acquire walking motion by association.
-                if obs["role"] in {"ping", "ability", "death_mark", "last_known"}:
-                    ceiling = math.sqrt(2)
-                if math.hypot(obs["x"] - anchor["x"], obs["y"] - anchor["y"]) <= ceiling:
+                dist = math.hypot(obs["x"] - anchor["x"], obs["y"] - anchor["y"])
+                slack = association_tolerance(self.scale, r_a=obs.get("r"),
+                                              r_b=anchor.get("r"))
+                if admits(motion, max(0.0, dist - slack), dt, self.scale)[0]:
                     parents.add(anchor["entity_id"])
             accepted_event = next((e for e in matches if e["id"] not in used_events
                                    and (e["kind"] != "teleport"
@@ -148,6 +175,7 @@ class Lifecycle:
                 if state == "unexplained_appearance":
                     state = "unlit_unexplained_appearance"
             row = {"observation_key": key, "t_ms": t_ms, "x": obs["x"], "y": obs["y"],
+                   "r": obs.get("r"),
                    "role": obs["role"], "entity_id": entity, "state": state,
                    "eligible": eligible, "light_state": light, "conflict": conflict,
                    "alternatives": sorted(parents), "origin_event_id": event_id,

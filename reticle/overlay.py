@@ -254,8 +254,10 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
 
     if ctx.mm_track_self is None:
         scale = widget_scale(x1 - x0)
-        ctx.mm_track_self = Tracker("walker", scale=scale, position_error_px=np.sqrt(0.5))
-        ctx.mm_track_ally = Tracker("walker", scale=scale, position_error_px=np.sqrt(0.5))
+        # The error term is `track.FIT_ERR_PX` and is not restated here: it is
+        # a measured property of the icon fit, not an overlay preference.
+        ctx.mm_track_self = Tracker("walker", scale=scale)
+        ctx.mm_track_ally = Tracker("walker", scale=scale)
     if getattr(ctx, "mm_lifecycle", None) is None:
         ctx.mm_lifecycle = Lifecycle(scale=widget_scale(x1 - x0))
 
@@ -332,7 +334,8 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
             _text(img, label, (x0 + round(tr.x) + 12, y0 + round(tr.y) + 14),
                   AMBER if not fresh else (ALLY if role == "ally" else SELF), 0.36)
             observations.append({"role": role, "track_id": tr.tid,
-                                 "x": tr.x, "y": tr.y, "observed_t_ms": tr.t_ms,
+                                 "x": tr.x, "y": tr.y, "r": tr.r,
+                                 "observed_t_ms": tr.t_ms,
                                  "position_state": "observed" if fresh else "carried",
                                  "gap_ms": age, "light_support": support,
                                  "facing": by_pos.get((round(tr.x), round(tr.y)))})

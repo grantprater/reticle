@@ -79,12 +79,46 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(row["eligible"])
         self.assertEqual(row["conflict"], "origin_vs_lighting")
 
-    def test_blackout_does_not_prove_new_birth(self):
+    def test_a_missing_widget_suspends_identity_rather_than_ending_it(self):
+        # The M key and the death screen take the widget away for 5% of a
+        # session's frames. Wiping identity on each of them turned every
+        # reappearance into a birth -- so the absence is a missing OBSERVATION,
+        # and continuity stays testable across it while the gap budget lasts.
+        lifecycle = Lifecycle()
+        lifecycle.step(frame(0, [obs()]))
+        lifecycle.step(frame(100, [], False))
+        row = lifecycle.step(frame(200, [obs(1, 12)]))[0]
+        self.assertEqual(row["state"], "continuation")
+        self.assertEqual(row["entity_id"], "ally:1")
+
+    def test_an_absence_does_not_excuse_an_appearance_it_cannot_explain(self):
+        # ...and the other half: within the budget the walk allowance still has
+        # to reach. 200 px in 200 ms is not a walk, so this is quarantined
+        # rather than excused as a censored boundary.
         lifecycle = Lifecycle()
         lifecycle.step(frame(0, [obs()]))
         lifecycle.step(frame(100, [], False))
         row = lifecycle.step(frame(200, [obs(2, 200)]))[0]
+        self.assertEqual(row["state"], "unexplained_appearance")
+        self.assertFalse(row["eligible"])
+
+    def test_an_absence_past_the_budget_is_a_censored_boundary(self):
+        lifecycle = Lifecycle()
+        lifecycle.step(frame(0, [obs()]))
+        lifecycle.step(frame(600, [], False))
+        row = lifecycle.step(frame(700, [obs(2, 200)]))[0]
         self.assertEqual(row["state"], "left_censored")
+        self.assertTrue(row["eligible"])
+
+    def test_the_fit_error_does_not_fragment_a_standing_entity(self):
+        # The measured centre error of an icon fit is +/-2 px per observation
+        # (`track.FIT_ERR_PX`); the ceiling this module used to apply was
+        # sqrt(2) for the pair, so a standing player's own fit jitter read as
+        # an unexplained appearance.
+        lifecycle = Lifecycle()
+        lifecycle.step(frame(0, [obs()]))
+        row = lifecycle.step(frame(17, [obs(1, 13)]))[0]
+        self.assertEqual(row["state"], "continuation")
 
     def test_no_light_budget_is_unknown_not_unlit(self):
         f = frame(0, [obs(lit=0)])

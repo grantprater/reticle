@@ -137,3 +137,37 @@ New diagnostic sidecars contain clean minimap crops from the shared decode;
 new review pages show them by default and can reveal debug overlays explicitly.
 The existing Lotus page and player answers were not changed. 92 Python tests
 and in-memory old/new review export checks pass.
+
+## Follow-up: entity lifetimes, and a teleport licensed by evidence
+
+`track.Corroboration` / `corroborates_teleport` is the single rule for a legal
+discontinuity, shared by the tracker and the lifecycle: the icon AND the
+viewcone must have relocated, tied to a predecessor entity by audio or an
+observed destination, with source references. `admits(..., evidence=)` then
+admits any distance above the walk ceiling, and `TELEPORT_PX` is demoted to the
+no-event fallback, reporting `TELEPORT_ASSUMED` for every step it admits. The
+reviewed ~52 px Lotus relocation is refused on distance and admitted on
+evidence. Distance was the wrong axis: measured teleports are 4.6-65 px and
+refused phantoms sit at the same distances.
+
+Association is now bounded by a MEASURED error rather than by integer
+quantization. `track.FIT_ERR_PX` (2.0 px) comes from forced correspondences --
+the self icon is detected exactly once in every frame of both windows, so
+consecutive detections are the same entity with no labelling -- and
+`association_tolerance` adds `|dr|` for the fit's own radius disagreement,
+which is derived rather than fitted. Track expiry is elapsed time only; the
+frames-missed count made the budget depend on the sample rate. A widget that is
+not drawn suspends the lifecycle rather than wiping identity.
+
+Re-running the real command on the same two windows: Ascent self track keys
+13 -> 1 (the icon is detected in all 120 frames, so anything above 1 is a
+defect), ally 43 -> 20, quarantines 55 -> 51; Lotus self 10 -> 1, ally 11 -> 4,
+and the six repeated relocation rows for one event fall to three. 96 tests.
+
+**The remaining Ascent ally churn is a detector question, not a tracking one**,
+and widening the gate further is the wrong move: the raw detections alternate
+between a strong fit (r 8-10, cov 0.40-0.52, area 100-135) and a weak one
+(r 11-13, cov 0.25-0.31, area 10-20) about 7 px away. Adjacent-lit fraction
+appears to favour the weak mode, but `light_support` excludes `d <= r`, so the
+two modes are scored on different annuli and the comparison is confounded by
+the radius. Match the annulus before concluding.

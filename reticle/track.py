@@ -55,7 +55,7 @@ from .minimap import RUN_PX
 #: sample. Imported for the same reason.
 from .ping import LIFETIME_S
 
-TRACK_VERSION = "track-0.2.0"
+TRACK_VERSION = "track-0.3.0"
 
 #: A dash is continuous motion that nonetheless clears the walk ceiling over a
 #: sample interval. Jett, Neon and Waylay's Q. **This is a bound, not a
@@ -79,7 +79,50 @@ DASH_PX_S = RUN_PX * 4.0
 #: Beyond this, no continuous motion explains the step at any speed, so the
 #: only remaining legal explanations are a teleport or a detection fault. The
 #: widget is ~465 px across, so half of it in one sample is not walking.
+#:
+#: **This is a bound on the impossible and it is NOT a teleport detector.**
+#: `prototypes/cast_motion.py` measured the largest step in the 3 s after each
+#: teleport cast, agent taken from the ingest tag:
+#:
+#:     yoru GATECRASH 4.6 / 6.3 px | omen Shrouded Step 38.5 / 40.1
+#:     veto Crosscut 65.0 / 6.8    | chamber Rendezvous 323.8
+#:     median 38.5 px, 1 of 8 reaching TELEPORT_PX
+#:
+#: and the player-reviewed Lotus Omen relocation is ~52 px. So a real teleport
+#: is usually SHORT, and a rule of "far enough to be a teleport" refuses the
+#: events it exists to admit while admitting phantoms, which sit at exactly
+#: these distances too (`jump_census.py`: 54.7% of refused steps are at
+#: "teleport distance"). Distance cannot separate the two and no re-fit of
+#: this number will change that -- **corroboration can**, which is what
+#: `Corroboration` below is for. This constant survives only as the fallback
+#: for a caller with no event channel, and every step it admits is reported
+#: `TELEPORT_ASSUMED` so the assumption is countable rather than invisible.
 TELEPORT_PX = 200.0
+
+#: Per-observation centre error of an icon fit, widget px at scale 1.0.
+#:
+#: **Measured from FORCED CORRESPONDENCES**, which need no tracker and no
+#: labels: in the 2 s 60 Hz Ascent and Lotus windows the self icon is detected
+#: in every one of the 120 frames, exactly once, so consecutive detections are
+#: the same entity by construction. Physical motion can contribute at most
+#: `RUN_PX * 1/60 = 0.75 px` at that rate, so the rest of each step is fit
+#: error, whatever the player was doing:
+#:
+#:     residual after the walk allowance, 238 self pairs over the two maps
+#:     p50 0.25 / -0.75   p90 1.49 / 2.08   p99 2.86 / 3.25   max 3.25 / 3.72
+#:
+#: An independent measurement agrees on the magnitude: `prototypes/CLAUDE.md`
+#: recorded the fitted centre moving 1.0 px per frame on stable frames and 3.2
+#: on flip frames (p90 5.0 and 8.5) at 15 Hz -- taken to diagnose the bearing
+#: flip, with nothing to do with association.
+#:
+#: 2.0 px is not knife-edge: every value from 2.0 to 10.0 holds the self track
+#: at ONE id across both windows, and the ceiling is icon separation -- two
+#: icons closer than ~2r = 20 px are not separately detectable anyway, so 2e
+#: spends 4 of a 20 px budget. Below 2.0 the track fragments: at the old
+#: sqrt(0.5) (quantization only, which is a floor rather than a measurement)
+#: the same 120 frames became 13 and 10 ids.
+FIT_ERR_PX = 2.0
 
 
 @dataclass(frozen=True)
@@ -149,9 +192,77 @@ for _k, _s in LIFETIME_S.items():
 #: `DASH_PX_S` is a bound rather than a measurement -- see its note.
 WEAK = "weak"
 
+#: A step admitted only by `TELEPORT_PX`, with no event corroborating it.
+#: Reported separately for the same reason as `WEAK`, and it is the weaker of
+#: the two: the distance rule is known to refuse most real teleports and to
+#: admit phantoms at the same distances. Count these; do not trust them.
+TELEPORT_ASSUMED = "teleport_assumed"
+
+#: What a corroborated teleport needs, and why each half is required.
+#:
+#: **Audio alone describes a FAKE teleport** -- Yoru's whole ability is the
+#: sound without the traversal -- so a cast or a sound is a licence to look,
+#: never a finding. The icon must actually be somewhere else AND the viewcone
+#: must have gone with it; a relocated icon whose cone stayed put is an
+#: association error, not a player.
+TELEPORT_RELOCATION = frozenset({"icon", "viewcone"})
+#: ...and one channel that ties the relocation to THIS entity rather than to
+#: some entity having moved: the sound (identity by testimony) or an observed
+#: source/destination link.
+TELEPORT_LINK = frozenset({"audio", "destination"})
+
+
+@dataclass(frozen=True)
+class Corroboration:
+    """The evidence licensing ONE discontinuity, from channels outside motion.
+
+    This is the thing `TELEPORT_PX` was standing in for, and the substitution
+    is the point: *how far did it jump* is not evidence about whether a jump
+    happened, because real teleports are short and phantoms are long. *What
+    else saw it* is.
+
+    `channels` names the channels that observed the relocation. `predecessor`
+    is the entity the destination continues -- required, because a teleport is
+    a RELOCATION of a known entity and a jump with no origin is a birth, which
+    is a different claim needing different evidence (`minimap_lifecycle`).
+    `refs` carries the source evidence; a corroboration with none is inert.
+    """
+
+    channels: frozenset[str] = frozenset()
+    predecessor: str | None = None
+    refs: tuple = ()
+
+    @classmethod
+    def of(cls, event: dict) -> "Corroboration":
+        """Read one stored origin event. Absent fields stay absent, not false."""
+        return cls(frozenset(event.get("channels") or ()),
+                   event.get("predecessor"),
+                   tuple(event.get("evidence_refs") or ()))
+
+
+def corroborates_teleport(ev: Corroboration) -> tuple[bool, str]:
+    """Does this evidence license a relocation? `(ok, why)`, why names the gap.
+
+    One rule, in one place, so the tracker's admissibility and the lifecycle's
+    origin adjudication cannot drift apart -- they were separately written and
+    the second is what the first should have been asking all along.
+    """
+    if not ev.refs:
+        return (False, "no source evidence")
+    if ev.predecessor is None:
+        return (False, "no predecessor entity: a jump with no origin is a birth")
+    missing = TELEPORT_RELOCATION - ev.channels
+    if missing:
+        return (False, "relocation unobserved: " + ", ".join(sorted(missing)))
+    if not (ev.channels & TELEPORT_LINK):
+        return (False, "relocation not linked to this entity: "
+                       "needs " + " or ".join(sorted(TELEPORT_LINK)))
+    return (True, "teleport corroborated by " + ", ".join(sorted(ev.channels)))
+
 
 def admits(motion: Motion, dist_px: float, dt_s: float, scale: float = 1.0,
-           age_s: float | None = None) -> tuple[bool, str]:
+           age_s: float | None = None,
+           evidence: "Corroboration | None" = None) -> tuple[bool, str]:
     """May an entity of this class have moved `dist_px` in `dt_s`?
 
     Returns `(ok, why)`. `why` names the rule that decided, so a rejection can
@@ -160,6 +271,14 @@ def admits(motion: Motion, dist_px: float, dt_s: float, scale: float = 1.0,
 
     `scale` is the widget scale, because every distance here is in WIDGET
     pixels and the widget has two sizes.
+
+    **`evidence` is how a discontinuity gets licensed.** Pass the corroboration
+    for a relocation at this step and any distance above the walk ceiling is
+    admissible -- `TELEPORT_PX` is not consulted at all, which is the whole
+    change: the measured teleports are 4.6 to 65 px and the reviewed Lotus one
+    is ~52, so the distance rule was refusing them. With no evidence the
+    fallback still admits a jump past `TELEPORT_PX`, marked `TELEPORT_ASSUMED`
+    so a caller can count what rests on the assumption and refuse it.
     """
     if dt_s <= 0:
         return (dist_px == 0, "zero interval")
@@ -175,12 +294,62 @@ def admits(motion: Motion, dist_px: float, dt_s: float, scale: float = 1.0,
         return (True, "within walking distance")
     if motion.may_dash and dist_px <= DASH_PX_S * scale * dt_s:
         return (True, WEAK)
+    if motion.may_teleport and evidence is not None:
+        ok, why = corroborates_teleport(evidence)
+        if ok:
+            return (True, why)
+        # Insufficient evidence is not a veto -- the distance fallback below
+        # still gets its say -- but the gap in it is what gets reported.
+        if dist_px < TELEPORT_PX * scale:
+            return (False, why)
     if motion.may_teleport and dist_px >= TELEPORT_PX * scale:
-        # A teleport is a real jump and this is the class that is allowed one.
-        return (True, "teleport")
+        return (True, TELEPORT_ASSUMED)
     if motion.may_teleport:
         return (False, "too far to walk, too near to be a teleport")
     return (False, f"exceeds {motion.max_px_s:g} px/s")
+
+
+def association_tolerance(scale: float = 1.0,
+                          position_error_px: float = FIT_ERR_PX,
+                          r_a: float | None = None,
+                          r_b: float | None = None) -> float:
+    """How far two centres may differ WITHOUT the entity having moved.
+
+    Detector error, not motion -- so it is added to whatever `admits` allows
+    rather than folded into a speed. Two terms, and neither is a knob:
+
+    * `2 * position_error_px * scale` -- the fit's own centre error at both
+      endpoints, measured (`FIT_ERR_PX`);
+    * `|r_a - r_b| * scale` -- **derived, not fitted.** An arc fit places the
+      centre at `p + r*n` for an arc point `p` and its inward normal, so two
+      fits that share an arc point and disagree about the radius by dr
+      necessarily disagree about the centre by dr. The detector is reporting
+      its own uncertainty here and it is free.
+
+    It shows in the data. Over the forced pairs in the Ascent window the
+    largest step by radius disagreement is 2.0 px at dr=0, 5.4 at dr=2 and
+    9.2 at dr=4 -- the icon is not accelerating, the fit is sliding.
+
+    One definition, because there were three: this, the tracker's own
+    subtraction, and `minimap_lifecycle`'s `sqrt(2)` continuation ceiling,
+    which disagreed by a factor of three and quarantined observations the
+    tracker had already associated.
+    """
+    slack = 2.0 * position_error_px * scale
+    if r_a is not None and r_b is not None:
+        slack += abs(float(r_a) - float(r_b)) * scale
+    return slack
+
+
+def is_teleport(why: str) -> bool:
+    """Did `admits` decide by a discontinuity rule? Corroborated or assumed.
+
+    A caller needs this to know it must NOT interpolate across the step -- a
+    legal discontinuity has no route through it to draw. The two reasons are
+    kept apart in the string because they are not equally trustworthy, and
+    joined here because the no-interpolation consequence is the same.
+    """
+    return why == TELEPORT_ASSUMED or why.startswith("teleport corroborated")
 
 
 def explain(dist_px: float, dt_s: float, scale: float = 1.0) -> dict[str, str]:
@@ -296,6 +465,10 @@ class Track:
     n_obs: int = 1
     missed: int = 0
     born_t_ms: float = 0.0
+    #: The radius the icon fit last reported, or None if it did not report one.
+    #: Carried because it bounds how far the CENTRE can have moved without the
+    #: icon having moved -- see `Tracker.tolerance`.
+    r: float | None = None
     #: Recent measured bearings, `(t_ms, deg)`, newest last. The window is what
     #: makes a bearing usable at all -- see `resolved_facing`.
     history: list = field(default_factory=list)
@@ -369,17 +542,26 @@ class Tracker:
     """
 
     def __init__(self, motion: str = "walker", scale: float = 1.0,
-                 max_missed: int = 3, max_facing_age_ms: float = 500.0,
+                 max_facing_age_ms: float = 500.0,
                  bearing_window_ms: float = 200.0, min_resultant: float = 0.5,
-                 max_gap_ms: float = 500.0, position_error_px: float = 0.0):
+                 max_gap_ms: float = 500.0,
+                 position_error_px: float = FIT_ERR_PX):
         self.motion = CLASSES[motion]
         self.scale = scale
-        self.max_missed = max_missed
         if max_gap_ms <= 0:
             raise ValueError("max_gap_ms must be positive")
+        #: A track expires on ELAPSED TIME and nothing else. It used to expire
+        #: on a frame count as well (`max_missed=3`), and that is the same
+        #: quantity in a unit that depends on the sample rate: at the 60 Hz the
+        #: contiguous windows are rendered at, three missed frames is 50 ms, so
+        #: the 500 ms budget written here was never the one being applied. The
+        #: frame count is gone rather than raised -- two constants for one law
+        #: is how they disagree.
         self.max_gap_ms = max_gap_ms
-        # Per-observation error radius. Integer-pixel centers have at least
-        # sqrt(0.5) px quantization error; two endpoints contribute twice this.
+        # Per-observation centre error. `FIT_ERR_PX` is measured from forced
+        # correspondences; the old default (sqrt(0.5), integer quantization)
+        # was a floor on it rather than a measurement of it, and cost 12 of 13
+        # self ids on a window where the icon was never once missed.
         # This widens association only, never changes stored coordinates/speeds.
         if position_error_px < 0:
             raise ValueError("position_error_px must be nonnegative")
@@ -409,17 +591,17 @@ class Tracker:
                                       and t_ms <= self._last_t_ms):
             raise ValueError("tracker timestamps must be finite and strictly increasing")
         self._last_t_ms = t_ms
-        alive = [t for t in self.tracks if t.missed <= self.max_missed
-                 and t_ms - t.t_ms <= self.max_gap_ms]
+        alive = [t for t in self.tracks if t_ms - t.t_ms <= self.max_gap_ms]
         cost: list[list[float]] = []
         for tr in alive:
             dt = (t_ms - tr.t_ms) / 1000.0
             row = []
             for d in dets:
                 dist = float(((d["cx"] - tr.x) ** 2 + (d["cy"] - tr.y) ** 2) ** 0.5)
+                slack = self.tolerance(tr, d)
                 ok, _why = admits(self.motion, dist, dt, self.scale)
-                if not ok and self.position_error_px:
-                    ok, _why = admits(self.motion, max(0.0, dist - 2 * self.position_error_px),
+                if not ok and slack:
+                    ok, _why = admits(self.motion, max(0.0, dist - slack),
                                       dt, self.scale)
                 row.append(dist if ok else float("inf"))
             cost.append(row)
@@ -431,6 +613,7 @@ class Tracker:
                     continue
                 tr, d = alive[i], dets[j]
                 tr.x, tr.y, tr.t_ms = d["cx"], d["cy"], t_ms
+                tr.r = d.get("r", tr.r)
                 tr.n_obs += 1
                 tr.missed = 0
                 if d.get("facing") is not None:
@@ -449,15 +632,24 @@ class Tracker:
                 continue
             self._next += 1
             alive.append(Track(
-                tid=self._next, x=d["cx"], y=d["cy"], t_ms=t_ms,
+                tid=self._next, x=d["cx"], y=d["cy"], t_ms=t_ms, r=d.get("r"),
                 facing=d.get("facing"),
                 facing_t_ms=t_ms if d.get("facing") is not None else None,
                 born_t_ms=t_ms,
                 history=([(t_ms, float(d["facing"]))]
                          if d.get("facing") is not None else [])))
 
-        self.tracks = [t for t in alive if t.missed <= self.max_missed]
+        # Everything in `alive` passed the elapsed-gap test at the top of this
+        # step and nothing has aged since, so there is no second sweep here.
+        # `missed` is still counted -- it is a useful diagnostic -- but it no
+        # longer decides anything.
+        self.tracks = alive
         return list(self.tracks)
+
+    def tolerance(self, track: "Track", det: dict) -> float:
+        """This tracker's `association_tolerance` for one track/detection pair."""
+        return association_tolerance(self.scale, self.position_error_px,
+                                     track.r, det.get("r"))
 
     def bearings(self, t_ms: float, allow_interpolated: bool = False):
         """`(x, y, facing_or_None, interpolated)` per track, for the cone.
@@ -518,13 +710,56 @@ def _self_test() -> int:
     check("cam admits jitter", admits(C, 1.0, 1.0)[0], True)
     check("cam refuses a real move", admits(C, 8.0, 1.0)[0], False)
 
-    # A teleport is legal for the class that has one, and ONLY as a jump: an
-    # in-between distance is still refused, which is the whole care here.
+    # A teleport is legal for the class that has one. With no evidence the
+    # only rule left is the distance bound, and it is reported as an
+    # assumption rather than as a finding.
     T = CLASSES["walker_teleport"]
-    check("teleport agent admits a big jump", admits(T, 300, 0.2)[0], True)
+    check("an uncorroborated jump is ADMITTED BUT MARKED",
+          admits(T, 300, 0.2), (True, TELEPORT_ASSUMED))
     check("teleport agent still refuses a mid-range step",
           admits(T, 90, 0.2)[0], False)
     check("non-teleport agent refuses that jump", admits(W, 300, 0.2)[0], False)
+
+    # ---- evidence, not distance -----------------------------------------
+    # The reviewed Lotus Omen relocation: ~52 px, which the distance rule
+    # refuses ("too far to walk, too near to be a teleport") and which the
+    # corroboration admits. This is the case the change exists for.
+    lotus = Corroboration(frozenset({"icon", "viewcone", "audio", "destination"}),
+                          predecessor="ally:1", refs=("source frames 299.217-299.317s",))
+    check("52 px is refused on distance alone", admits(T, 52, 0.0167)[0], False)
+    check("...and admitted when four channels corroborate it",
+          admits(T, 52, 0.0167, evidence=lotus)[0], True)
+    check("...naming the channels rather than a threshold",
+          admits(T, 52, 0.0167, evidence=lotus)[1].startswith("teleport corroborated"), True)
+    # A 4.6 px Yoru GATECRASH is inside the walk ceiling and needs no exception.
+    check("a short teleport never reaches the rule at all",
+          admits(T, 2.0, 0.2)[1], "within walking distance")
+
+    # Each half of the rule is load-bearing, and each refusal says which.
+    check("audio alone is a FAKE teleport, not a relocation",
+          corroborates_teleport(Corroboration(frozenset({"audio"}),
+                                              "ally:1", ("ref",)))[0], False)
+    check("an icon that moved without its cone is an association error",
+          corroborates_teleport(Corroboration(frozenset({"icon", "audio"}),
+                                              "ally:1", ("ref",)))[0], False)
+    check("a relocation nothing ties to an entity is not one",
+          corroborates_teleport(Corroboration(frozenset({"icon", "viewcone"}),
+                                              "ally:1", ("ref",)))[0], False)
+    check("a jump with no origin is a BIRTH, which is a different claim",
+          corroborates_teleport(Corroboration(
+              frozenset({"icon", "viewcone", "audio"}), None, ("ref",)))[1],
+          "no predecessor entity: a jump with no origin is a birth")
+    check("evidence with no source reference is inert",
+          corroborates_teleport(Corroboration(
+              frozenset({"icon", "viewcone", "audio"}), "ally:1", ()))[0], False)
+    # Insufficient evidence does not veto the fallback -- it reports the gap.
+    thin = Corroboration(frozenset({"icon"}), "ally:1", ("ref",))
+    check("thin evidence still leaves the distance fallback its say",
+          admits(T, 300, 0.2, evidence=thin), (True, TELEPORT_ASSUMED))
+    check("...and below the bound the gap is what gets reported",
+          admits(T, 52, 0.0167, evidence=thin)[1].startswith("relocation unobserved"), True)
+    check("a non-teleporting class is not licensed by any evidence",
+          admits(W, 52, 0.0167, evidence=lotus)[0], False)
 
     # A dash is admitted, but WEAKLY, because DASH_PX_S is a bound.
     D = CLASSES["walker_dash"]
@@ -602,6 +837,26 @@ def _self_test() -> int:
     check("an empty span list is the default gate",
           len(filter_track(jump, step, motion=[])), 2)
 
+    # ---- the short teleport, end to end --------------------------------
+    # The Lotus shape: ~52 px at 60 Hz, which every distance rule refuses.
+    # A span alone does not save it; the span PLUS the corroboration does.
+    short = [(0.0, 0.0, 0.0), (16.7, 0.0, 0.0), (33.4, 52.0, 0.0), (50.1, 52.0, 0.0)]
+    check("a class alone still loses a 52 px relocation",
+          len(filter_track(short, 16.7, motion="walker_teleport")), 2)
+    check("...and the corroborated span keeps it whole",
+          len(filter_track(short, 16.7,
+                           motion=[(0.0, 100.0, "walker_teleport", lotus)])), 4)
+    check("...without inventing a route through it",
+          [round(x, 1) for _t, x, _y in
+           filter_track(short, 16.7,
+                        motion=[(0.0, 100.0, "walker_teleport", lotus)])],
+          [0.0, 0.0, 52.0, 52.0])
+    # A stored origin event is accepted where a Corroboration is.
+    check("a stored event row is read as evidence",
+          len(filter_track(short, 16.7, motion=[(0.0, 100.0, "walker_teleport", {
+              "channels": ["icon", "viewcone", "audio"], "predecessor": "ally:1",
+              "evidence_refs": ["source frames"]})])), 4)
+
     # The default path is untouched by any of this.
     check("default still interpolates a walkable gap",
           len(filter_track([(0.0, 0.0, 0.0), (500.0, walk, 0.0)], step)) > 2, True)
@@ -652,12 +907,36 @@ def _self_test() -> int:
     check("and the carry expires past max_facing_age_ms",
           tk4.bearings(1000.0, allow_interpolated=True)[0][2], None)
 
-    # A track that is missed for too long is dropped.
-    tk5 = Tracker("walker", scale=1.0, max_missed=1)
+    # A track is dropped on ELAPSED TIME, and only on that. The frame count
+    # this used to also expire on made the real budget depend on the sample
+    # rate -- three missed frames is 50 ms at 60 Hz and 200 ms at 15 Hz -- so
+    # the same track survived a blink at one rate and not at the other.
+    tk5 = Tracker("walker", scale=1.0, max_gap_ms=250.0)
     tk5.step(0.0, [{"cx": 0.0, "cy": 0.0, "facing": 0.0}])
-    for t_ms in (100.0, 200.0, 300.0):
+    for t_ms in (16.7, 33.4, 50.1, 66.8, 83.5, 100.2):
         tk5.step(t_ms, [])
-    check("a track missed past max_missed is dropped", len(tk5.tracks), 0)
+    check("six missed frames inside the budget do not drop it",
+          len(tk5.tracks), 1)
+    check("...and the track is still associable when the icon returns",
+          tk5.step(117.0, [{"cx": 2.0, "cy": 0.0, "facing": 0.0}])[0].tid,
+          tk5.tracks[0].tid)
+    tk5.step(400.0, [])
+    check("past the elapsed budget it is dropped", len(tk5.tracks), 0)
+
+    # The radius the fit reported bounds how far its centre may have slid.
+    tk8 = Tracker("walker", scale=1.0, position_error_px=0.0)
+    tk8.step(0.0, [{"cx": 0.0, "cy": 0.0, "r": 8, "facing": None}])
+    first = tk8.tracks[0].tid
+    check("a 4 px step at 60 Hz is not a walk",
+          admits(W, 4.0, 1 / 60.0)[0], False)
+    check("...and with no radius disagreement it breaks the track",
+          tk8.step(16.7, [{"cx": 4.0, "cy": 0.0, "r": 8, "facing": None}])[-1].tid != first,
+          True)
+    tk9 = Tracker("walker", scale=1.0, position_error_px=0.0)
+    tk9.step(0.0, [{"cx": 0.0, "cy": 0.0, "r": 8, "facing": None}])
+    check("...while a fit that also moved its radius by 4 px keeps it",
+          tk9.step(16.7, [{"cx": 4.0, "cy": 0.0, "r": 12, "facing": None}])[0].tid,
+          tk9.tracks[0].tid)
 
     # ---- the ambiguity gate: the fix for the 180-degree flip --------------
     tk6 = Tracker("walker", scale=1.0, bearing_window_ms=300.0, min_resultant=0.5)

@@ -865,6 +865,18 @@ def filter_track(found: list[tuple[float, float, float]],
         "walker_teleport"           `track.admits` for the WHOLE track
         [(t0, t1, "walker_teleport"), ...]   that class inside each span in
                                     ms, the default gate everywhere else
+        [(t0, t1, "walker_teleport", corroboration), ...]   the same, with the
+                                    evidence licensing a discontinuity inside
+                                    that span -- a `track.Corroboration`, or a
+                                    stored origin event dict
+
+    **The fourth element is what makes a real teleport survive.** Without it a
+    jump is only admitted past `track.TELEPORT_PX`, and the measured teleports
+    are 4.6-65 px, so the branch almost never fires on the events it is for
+    (`prototypes/cast_motion.py`, and the reviewed ~52 px Lotus relocation).
+    A cast selects the CLASS; the corroboration -- icon and viewcone relocated,
+    tied to a predecessor by audio or an observed destination -- is what
+    licenses the jump itself.
 
     The third is the one to reach for, and the measurement says why. Applying a
     class to a whole session is net **+835 observations and NEGATIVE on three
@@ -934,25 +946,39 @@ def filter_track(found: list[tuple[float, float, float]],
     # Deferred: `track` imports RUN_PX from here, so a module-level import
     # would be circular. Nothing is imported at all on the default path.
     mot, spans = None, None
+    evidence = None
     if motion is not None:
         from . import track as _track
+
+        def _ev(e):
+            # A stored event row is a dict; anything else is already a
+            # `track.Corroboration`. Keyed on the dict rather than on the
+            # class because `python -m reticle.track --self-test` runs this
+            # module's `track` and its own `__main__` copy side by side.
+            return _track.Corroboration.of(e) if isinstance(e, dict) else e
+
         if isinstance(motion, (list, tuple)):
-            spans = [(float(a), float(b),
-                      c if isinstance(c, _track.Motion) else _track.CLASSES[c])
-                     for a, b, c in motion]
+            spans = [(float(s[0]), float(s[1]),
+                      s[2] if isinstance(s[2], _track.Motion) else _track.CLASSES[s[2]],
+                      _ev(s[3] if len(s) > 3 else None))
+                     for s in motion]
         elif isinstance(motion, _track.Motion):
             mot = motion
         else:
             mot = _track.CLASSES[motion]
 
     def law(t_ms):
-        """The class governing a step arriving at `t_ms`, or None for the gate."""
+        """The class and evidence governing a step arriving at `t_ms`.
+
+        `(None, None)` means no class was selected here, so the fixed gate
+        applies.
+        """
         if spans is None:
-            return mot
-        for t0, t1, m in spans:
+            return mot, evidence
+        for t0, t1, m, ev in spans:
             if t0 <= t_ms <= t1:
-                return m
-        return None
+                return m, ev
+        return None, None
 
     keep: list = []
     jumps: set[int] = set()          # keep[i] -> keep[i+1] is a legal teleport
@@ -960,16 +986,16 @@ def filter_track(found: list[tuple[float, float, float]],
         if keep:
             dt = (p[0] - keep[-1][0]) / 1000.0
             dist = float(np.hypot(p[1] - keep[-1][1], p[2] - keep[-1][2]))
-            m = law(p[0])
+            m, ev = law(p[0])
             if m is None:
                 if dt > 0 and dist / dt > RUN_PX * scale * 1.6:
                     continue
             else:
                 from . import track as _track
-                ok, why = _track.admits(m, dist, dt, scale)
+                ok, why = _track.admits(m, dist, dt, scale, evidence=ev)
                 if not ok:
                     continue
-                if why == "teleport":
+                if _track.is_teleport(why):
                     jumps.add(len(keep) - 1)
         keep.append(p)
     out = []

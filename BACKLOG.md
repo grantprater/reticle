@@ -536,13 +536,33 @@ refuses them too. Every short teleport lives in that dead zone, and that is
 also why item 1's session-wide `walker_teleport` was only +835: the teleport
 branch almost never fires on a real teleport.
 
-**NEXT, and do not skip the middle step:** `TELEPORT_PX` wants re-measuring,
-and n=8 casts on 4 solo clips is not enough to refit it on -- a constant fitted
-to the 8 observations that must pass is the degenerate-crop mistake again. The
-cheap way to get n is more teleport-agent clips, which cost the player a few minutes
-each. Two limits the run also established: a two-part teleport (Yoru, Chamber,
-Waylay) drops on PLACEMENT and jumps on traversal, so no fixed window catches
-it in general; and slot X still draws pips, so ultimates need the audio half.
+**RESOLVED 2026-09-08, and not by re-measuring the constant.** The entry above
+said `TELEPORT_PX` wants re-measuring and that n=8 is not enough to refit it
+on. That was right about the n and wrong about the target: **no value of a
+distance threshold separates a teleport from a phantom**, because the real
+teleports are 4.6-65 px and 54.7% of the steps `filter_track` refuses sit at
+"teleport distance" too (`jump_census.py`). The two populations overlap, so the
+axis is wrong rather than the number on it.
+
+So distance is no longer asked. `track.Corroboration` and
+`corroborates_teleport` license a discontinuity from OTHER CHANNELS -- the icon
+and the viewcone both relocated, tied to a predecessor entity by audio or an
+observed destination -- and `admits(..., evidence=)` then admits any distance
+above the walk ceiling. `TELEPORT_PX` stays as the fallback for a caller with
+no event channel and reports `TELEPORT_ASSUMED` for everything it admits, so
+what rests on it is countable. `filter_track` takes the evidence per span:
+`[(t0_ms, t1_ms, class, corroboration), ...]`.
+
+The two limits the run established are unaffected and still stand: a two-part
+teleport (Yoru, Chamber, Waylay) drops on PLACEMENT and jumps on traversal, so
+no fixed window catches it in general; and slot X still draws pips, so
+ultimates need the audio half.
+
+**What this still needs is the event stream, not the rule.** One corroborated
+event exists -- the player-reviewed Lotus Omen relocation -- and it was
+assembled by hand. A cast on the tray plus a relocated cone is derivable
+today; the audio half and the destination link are not. Until they are, the
+corroborated path fires only where a human supplied the event.
 
 ## Superseded discussion of the cast/jump combination
 
