@@ -50,6 +50,9 @@ from .store import DEFAULT_STORE, Store
 from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
                       ROSTER_VERSION,
                       SEGMENTER_VERSION)
+from .hud_reader import HudReader
+
+_HudPass = HudReader
 
 
 def _fmt_ms(ms: float) -> str:
@@ -436,105 +439,6 @@ class _FP:
     def __init__(self, src: dict, session_id: str):
         self.session_id = session_id
         self.content_key = src["content_key"]
-
-
-class _HudPass:
-    """Stage 02 HUD, as an object a decode loop can feed one frame at a time.
-
-    Exists so `hud` and `scan` cannot drift apart. The rule this repo keeps for
-    `overlay` -- a second implementation that can disagree with the extractor is
-    worse than none -- applies with more force here, because these two write the
-    SAME L1 table and a divergence would be invisible until a number moved.
-    Setup is in `__init__` and the per-frame work is in `feed`; neither command
-    has a copy of either.
-    """
-
-    def __init__(self, store, manifest, profile, args):
-        import cv2
-
-        self.src = manifest["source"]
-        self.profile = profile
-        self.w, self.h = int(self.src["width"]), int(self.src["height"])
-        self.templates = Templates.load(profile.name)
-        self.roi = scoreline_roi(profile)
-        self.kf_roi = killfeed_roi(profile)
-        self.min_conf = args.min_confidence
-        self.min_margin = args.min_margin
-        self.rows: list[dict] = []
-        # Declared for `passes.Reader`: which frames this reader wants.
-        self.name = "hud"
-        self.hz = args.hz
-        self.spans = None          # the HUD is read over the whole capture
-
-        # Which optional HUD readouts are switched on is a per-player choice, so
-        # the killfeed's occluding mask is measured from THIS capture. It costs
-        # 40 seeks over the whole file -- 6.9 s on a 16 minute session, measured
-        # -- and it is a per-session constant, so it is cached in the store and
-        # paid once rather than once per stage and once per probe.
-        self.kf_mask = None
-        if self.kf_roi is not None:
-            self.kf_mask = store.read_kf_mask(manifest["session_id"])
-            if self.kf_mask is None:
-                cap = cv2.VideoCapture(str(Path(self.src["path"])))
-                cal = []
-                try:
-                    step = max(1, int((self.src["duration_ms"] or 0) / 40))
-                    for ms in range(0, int(self.src["duration_ms"] or 0), step):
-                        cap.set(cv2.CAP_PROP_POS_MSEC, ms)
-                        ok, fr = cap.read()
-                        if ok:
-                            cal.append(fr)
-                finally:
-                    cap.release()
-                if cal:
-                    self.kf_mask = overlay_mask(cal, self.kf_roi, self.w, self.h)
-                    store.write_kf_mask(manifest["session_id"], self.kf_mask)
-                    print(f"killfeed   overlay mask from {len(cal)} frames, "
-                          f"{(~self.kf_mask).mean() * 100:.1f}% of the ROI masked out")
-            else:
-                print(f"killfeed   overlay mask cached, "
-                      f"{(~self.kf_mask).mean() * 100:.1f}% of the ROI masked out")
-
-    def feed(self, smp) -> None:
-        w, h = self.w, self.h
-        r = read_scoreline(crop_gray(smp.frame, self.roi, w, h), self.templates,
-                           self.min_conf, self.min_margin)
-        b = read_bottom_hud(smp.frame, self.profile, self.templates, w, h,
-                            self.min_conf, self.min_margin)
-        kf = (read_killfeed(smp.frame, self.kf_roi, w, h, self.kf_mask,
-                            self.profile.name)
-              if self.kf_roi is not None else KillfeedRead(0, (), False, False))
-        self.rows.append({
-            "frame_idx": smp.frame_idx,
-            "t_ms": smp.t_ms,
-            "clock_ms": r.clock_ms,
-            "score_left": r.score_left,
-            "score_right": r.score_right,
-            "hp": b.hp,
-            "shield": b.shield,
-            "ammo_mag": b.ammo_mag,
-            "ammo_reserve": b.ammo_reserve,
-            "kf_entries": kf.entries,
-            "kf_player_kill": kf.player_kill,
-            "kf_player_death": kf.player_death,
-            "kf_entry_mask": kf.entry_mask,
-            "kf_kill_mask": kf.kill_mask,
-            "kf_death_mask": kf.death_mask,
-            "kf_unattributed": kf.unattributed,
-            "kf_unparsed": kf.unparsed,
-            "kf_unparsed_reason": kf.unparsed_reason,
-            "clock_reason": r.clock_reason,
-            "score_left_reason": r.score_left_reason,
-            "score_right_reason": r.score_right_reason,
-            "kf_ally_mask": kf.ally_mask,
-            "kf_enemy_mask": kf.enemy_mask,
-            "kf_entry_wx": kf.entry_dividers,
-            "kf_kill_wx": kf.kill_dividers,
-            "kf_death_wx": kf.death_dividers,
-            "confidence": r.confidence,
-            "bottom_confidence": b.confidence,
-            "n_glyphs": r.n_glyphs,
-        })
 
 
 class _MinimapPass:

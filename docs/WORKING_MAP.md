@@ -11,9 +11,12 @@ the linked source is authoritative for detail.
 3. Read [NOTES.md](../NOTES.md) for the live handoff, then the relevant
    [BACKLOG.md](../BACKLOG.md) heading before choosing a task; the backlog is
    the queue and records superseded arguments.
-4. Read the relevant section of root `CLAUDE.md`; it is the index for design
-   documents, operating rules, pipeline state, and known defects.
-5. Run `.\.venv\Scripts\python.exe -m reticle doctor` and inspect status
+4. Read the eager root [`CLAUDE.md`](../CLAUDE.md), then the relevant section
+   of [`PROJECT_GUIDE.md`](../PROJECT_GUIDE.md); the guide retains the full
+   design documents, operating rules, pipeline state, and known defects.
+5. Read [ARCHITECTURE_PLAN.md](ARCHITECTURE_PLAN.md) for architecture direction
+   and acceptance boundaries.
+6. Run `.\.venv\Scripts\python.exe -m reticle doctor` and inspect status
    with `.\.venv\Scripts\python.exe -m reticle status`.
 
 ## Module routing

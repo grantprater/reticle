@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "id": "hud-reader",
+      "objective": "Keep HUD extraction reusable without changing detector rows or calibration behavior.",
+      "files": ["reticle/hud_reader.py", "reticle/cli.py", "tests/test_hud_reader.py"],
+      "reads": ["CLAUDE.md", "reticle/hud_reader.py", "reticle/passes.py", "docs/ARCHITECTURE_PLAN.md#A2"],
+      "acceptance": [["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_hud_reader.py", "-q"]],
+      "evidence": ["Cached initialization never opens VideoCapture; exact row comparison preserves nulls, flags, dividers, source timestamps and frame indices.", "For structural changes compare the 840-row fixed refinement window with its recorded baseline; unit checks alone do not establish corpus equivalence."]
+    },
+    {
+      "id": "artifact-dependencies",
+      "objective": "Keep artifact writers and stale-input validators on the same explicit dependency declaration.",
+      "files": ["reticle/artifacts.py", "reticle/coaching.py", "reticle/refinement.py", "tests/test_artifacts.py", "tests/test_refinement.py"],
+      "reads": ["CLAUDE.md", "reticle/artifacts.py", "docs/ARCHITECTURE_PLAN.md#A3"],
+      "acceptance": [["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_artifacts.py", "-q"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_refinement.py", "-q"]],
+      "evidence": ["Missing/extra/changed hashes refuse; documentation changes affect no registered producer; parent changes propagate to dependents.", "Whole-file dependencies are conservative; affected artifacts are candidates, not an automatic rebuild."]
+    },
+    {
+      "id": "architecture-regression",
+      "objective": "Validate an architecture change before recording its results in the plan and handoff.",
+      "files": ["docs/ARCHITECTURE_PLAN.md", "docs/WORKING_MAP.md", "NOTES.md"],
+      "reads": ["CLAUDE.md", "docs/ARCHITECTURE_PLAN.md", "docs/tasks.json"],
+      "acceptance": [["{python}", "-m", "unittest", "discover", "-s", "tests", "-q"], ["git", "diff", "--check"]],
+      "evidence": ["All behavioral checks pass. Inspect doctor separately: stale geometry is a pre-existing blocker, not a waived regression.", "Record actual corpus comparisons separately. Logged elapsed time is check execution time, not total agent labor; tokens and corrections stay null unless measured."]
+    }
+  ]
+}

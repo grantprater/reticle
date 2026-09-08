@@ -11,7 +11,29 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-07, bounded dense evidence from the review queue
+## PICKING UP -- 2026-09-07, architecture steps A1-A4 landed
+
+`docs/ARCHITECTURE_PLAN.md` is the execution plan; its status table now carries
+the evidence. A1 split the eager `CLAUDE.md` (71 lines) from `PROJECT_GUIDE.md`,
+which retains the former 1523-line guide verbatim. A2 moved `_HudPass` into
+`reticle/hud_reader.py` with a CLI alias. A3 put artifact producers and stale-input
+checks on one declaration in `reticle/artifacts.py`. A4 added `tools/task_check.py`
+and `docs/tasks.json`: a work packet names its reads, owned files, acceptance
+argument arrays and evidence, and the runner appends a result to the external
+`notes/development.jsonl`.
+
+Acceptance rerun at pickup, not inherited: 50 tests pass (41 at baseline), all
+three contracts pass, `git diff --check` is clean, and the fixed 14s review
+`ea445110508b26f12d4e` re-emits its 840 native rows byte-identical -- only the
+producer hash moved. `doctor` is unchanged at four findings / one stale-geometry
+error, which is the pre-existing blocker rather than a new regression.
+
+A5 is partial: the runner has the fields to compare delegation cost, but no
+attempt is logged with a model yet, so no default model is justified. A6 is
+untouched and stays gated on real invalidation examples. Next is still the domain
+work below -- inspect dense evidence in disputed windows -- not more architecture.
+
+## Bounded dense evidence from the review queue -- 2026-09-07
 
 `reticle refine SESSION --review-id ID` previews selected review intervals;
 `--execute` reads them at native rate with the shipped HUD reader. Overlapping

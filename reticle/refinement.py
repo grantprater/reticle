@@ -13,20 +13,16 @@ This validates the window transport, not detector accuracy or refined onset.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from pathlib import Path
 
 from .refine import merge_windows
+from .artifacts import file_digest, producer_fingerprint, changed_producers
 from .review import REVIEW_VERSION
 from .version import COACH_VERSION
 
 REFINEMENT_VERSION = "refinement-0.1.0"
-
-
-def _refinement_digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def plan_refinement(store, manifest, bundle, review_ids, max_seconds=30.0):
@@ -38,10 +34,9 @@ def plan_refinement(store, manifest, bundle, review_ids, max_seconds=30.0):
     if (report.get("review_version") != REVIEW_VERSION
             or report.get("coach_version") != COACH_VERSION):
         raise ValueError("stale review definition; rerun coach")
-    expected_code = ("coaching.py", "review.py", "rounds.py", "roster.py", "checks.py", "version.py")
-    for name in expected_code:
-        if report.get("code_sha256", {}).get(name) != _refinement_digest(Path(__file__).with_name(name)):
-            raise ValueError(f"stale review producer {name}; rerun coach")
+    changed = changed_producers("coaching", report.get("code_sha256", {}))
+    if changed:
+        raise ValueError(f"stale review producer {', '.join(changed)}; rerun coach")
     sid, date = manifest["session_id"], manifest["ingested_at"][:10]
     inputs = [r for r in report.get("inputs", []) if r.get("session_id") == sid]
     if len(inputs) != 1:
@@ -49,10 +44,10 @@ def plan_refinement(store, manifest, bundle, review_ids, max_seconds=30.0):
     source = inputs[0]
     for field, path in (("manifest_sha256", store.manifest_path(sid)),
                         ("hud_sha256", store.hud_path(sid, date))):
-        if not path.is_file() or source.get(field) != _refinement_digest(path):
+        if not path.is_file() or source.get(field) != file_digest(path):
             raise ValueError(f"stale review input {field}; rerun coach")
     roster = store.roster_path(sid, date)
-    actual_roster = _refinement_digest(roster) if roster.is_file() else None
+    actual_roster = file_digest(roster) if roster.is_file() else None
     if source.get("roster_sha256") != actual_roster:
         raise ValueError("stale review roster; rerun coach")
     rows = [json.loads(line) for line in (bundle / "review.jsonl").read_text(encoding="utf-8").splitlines()
@@ -81,9 +76,8 @@ def plan_refinement(store, manifest, bundle, review_ids, max_seconds=30.0):
     return dict(refinement_version=REFINEMENT_VERSION, session_id=sid,
                 review_ids=sorted(requested), spans_ms=spans, seconds=seconds,
                 source_path=manifest["source"]["path"], provenance=source,
-                review_sha256=_refinement_digest(bundle / "review.jsonl"),
-                producer_sha256={name: _refinement_digest(Path(__file__).with_name(name))
-                                 for name in ("refinement.py", "refine.py", "cli.py", "ocr.py", "killfeed.py", "profiles.py", "version.py")},
+                review_sha256=file_digest(bundle / "review.jsonl"),
+                producer_sha256=producer_fingerprint("refinement"),
                 windows=sorted(selected, key=lambda r: (r["t_ms"], r["review_id"])))
 
 

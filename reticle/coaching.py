@@ -17,6 +17,7 @@ import numpy as np
 import pyarrow.parquet as pq
 
 from .checks import track_entries
+from .artifacts import file_digest, producer_fingerprint
 from .rounds import build_rounds
 from .roster import resolve as roster_resolve
 from .review import REVIEW_VERSION, select_review_windows, render_review
@@ -29,14 +30,6 @@ LANDMARK_MS = 10000
 MIN_TRAIN_ROUNDS = 30
 MIN_TRAIN_SESSIONS = 2
 RIDGE = 1.0
-
-
-def _coach_digest(path):
-    h = hashlib.sha256()
-    with Path(path).open("rb") as f:
-        for block in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(block)
-    return h.hexdigest()
 
 
 def _coach_columns(table):
@@ -301,8 +294,8 @@ def run_coaching(store, manifests, out):
         review_contexts[sid] = dict(source_path=man["source"].get("path"),
                                     duration_ms=man["source"].get("duration_ms"),
                                     rounds=rounds)
-        source = dict(session_id=sid, hud_sha256=_coach_digest(hp),
-                      manifest_sha256=_coach_digest(store.manifest_path(sid)),
+        source = dict(session_id=sid, hud_sha256=file_digest(hp),
+                      manifest_sha256=file_digest(store.manifest_path(sid)),
                       hud_version=HUD_VERSION, round_version=ROUND_VERSION)
         es = player_observations(hud, rounds, man)
         rp = store.roster_path(sid, date)
@@ -310,7 +303,7 @@ def run_coaching(store, manifests, out):
         roster_status = "missing"
         if rp.is_file():
             candidate = pq.ParquetFile(rp).read()
-            source["roster_sha256"] = _coach_digest(rp)
+            source["roster_sha256"] = file_digest(rp)
             roster_status = "stale"
             rm = candidate.schema.metadata or {}
             identity_matches = (rm.get(b"session_id") == metadata.get(b"session_id")
@@ -333,8 +326,7 @@ def run_coaching(store, manifests, out):
     attach_event_estimates(events, states, models)
     review = select_review_windows(events, states, review_contexts)
     # Fingerprint code as well as explicit versions: an unbumped edit is visible.
-    code = {name: _coach_digest(Path(__file__).with_name(name)) for name in
-            ("coaching.py", "review.py", "rounds.py", "roster.py", "checks.py", "version.py")}
+    code = producer_fingerprint("coaching")
     report.update(coach_version=COACH_VERSION, inputs=inputs, code_sha256=code,
                   review_version=REVIEW_VERSION, n_review_windows=len(review),
                   sessions=audits, skipped=skipped, n_events=len(events),

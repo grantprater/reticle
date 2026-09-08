@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from reticle.refinement import plan_refinement, save_refinement
+from reticle.artifacts import producer_fingerprint
 from reticle.review import REVIEW_VERSION
 from reticle.version import COACH_VERSION
 
@@ -43,7 +44,7 @@ class RefinementTests(unittest.TestCase):
             if isinstance(value, dict): p.write_text(json.dumps(value), encoding="utf-8")
             else: p.write_bytes(value)
         bundle = root / "bundle"; bundle.mkdir(exist_ok=True)
-        code = {n: _digest(Path("reticle") / n) for n in ("coaching.py", "review.py", "rounds.py", "roster.py", "checks.py", "version.py")}
+        code = producer_fingerprint("coaching")
         report = {"review_version": REVIEW_VERSION, "coach_version": COACH_VERSION,
                   "code_sha256": code, "inputs": [{"session_id": sid,
                   "manifest_sha256": _digest(store.manifest_path(sid)), "hud_sha256": _digest(store.hud_path(sid, "2026-09-07")),
