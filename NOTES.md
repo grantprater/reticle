@@ -41,7 +41,39 @@ The flip rate is the honest number. Precision and recall are scored against the
 lit mask, which is a second DETECTOR and not ground truth, and since the bearing
 is now chosen using that mask they are partly circular. Say so when quoting them.
 
-### Live, in priority order
+### FIRST THING NEXT SESSION: the over-claim number disagrees with the picture
+
+**The recorder, looking at the rendered cones: it does not read as over-claiming
+by 50%, if anything it under-claims.** That is a direct contradiction of the
+`over-claim ~1.5x` figure quoted above and it is the next thing to settle,
+because one of the two is wrong and both are being used to steer the work.
+
+The rendered grids support the objection: per-frame the ratio of raycast area to
+lit area was 1.25, 1.49 and 3.6 on Ascent and **0.55**, 1.04 and 1.54 on Lotus.
+One of six is under half. So the summary statistic is hiding a wide spread.
+
+Four candidates, cheapest first, and they are not exclusive:
+
+* **the statistic is a median of per-frame ratios**, which is not what an eye
+  reads off three chosen frames -- report the distribution, not the median;
+* **the grids predate the unlit fill** (`a908fd2` landed after they were drawn),
+  and the fill grew `lit` substantially. Re-render before comparing anything;
+* **the error is SPATIAL, not uniform.** The raycast is unbounded in range, so
+  it claims thin slivers far down corridors -- little visual weight, real pixel
+  count -- while missing near-field area around the icon. That would read as
+  under-claiming to a viewer and over-claiming to a pixel count at the same
+  time, with no contradiction;
+* the frames chosen for the grids were selected for enemies and abilities, which
+  is not the sample the statistic was computed over.
+
+**The measurement that separates them: decompose precision, recall and the area
+ratio BY DISTANCE from the emitter.** If over-claim concentrates past ~60 px
+while recall is lost inside 20 px, the third candidate is it -- and that lands
+directly on the standing open question of whether the drawn cone has a visible
+edge at some range or simply dims out (lit share 51% at 0-20 px falling to 13%
+at 100 px, over 407 cones). An unbounded raycast is the wrong model if it ends.
+
+### Then, in priority order
 
 1. **Icon rejection by adjacent light is measured but NOT wired.** An ally lights
    the ground around itself, so an icon with no lit pixels beside it is a spawn
