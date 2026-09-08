@@ -46,7 +46,8 @@ def build(video, output=None):
     if len(previews) != len(frames):
         raise ValueError("video and evidence frame counts differ")
     data = {"candidates": candidates, "provenance": provenance, "box": box,
-            "previews": previews}
+            "previews": previews,
+            "clean_previews": [r.get("review_preview") for r in frames]}
     output = output or video.with_suffix(".review.html")
     payload = json.dumps(data).replace("<", "\\u003c")
     with output.open("x", encoding="utf-8") as f:
@@ -60,7 +61,8 @@ button,input{font:inherit;margin:4px;padding:7px}canvas{width:min(100%,960px);di
 .muted{color:#b1bed0}video{display:none}#question{font-weight:bold}</style>
 <h1>Minimap sequence review</h1>
 <p>Classify the ringed candidate. Track IDs are hypotheses. Watch nearby frames before answering.</p>
-<p class="muted">This view includes detector annotations. Answers record that comparison. Nothing is pre-labelled.</p>
+<p class="muted" id="viewnote"></p>
+<label><input id="debug" type="checkbox"> Show detector overlay</label>
 <label>Your name <input id="by" placeholder="Required before answering"></label>
 <label>Resume answers <input id="resume" type="file" accept=".jsonl"></label>
 <div id="question"></div><canvas id="canvas" width="960" height="540"></canvas>
@@ -73,6 +75,8 @@ button,input{font:inherit;margin:4px;padding:7px}canvas{width:min(100%,960px);di
 const data=__DATA__, cs=data.candidates, canvas=document.querySelector('#canvas'),
 ctx=canvas.getContext('2d'), status=document.querySelector('#status');
 const images=data.previews.map(src=>{let image=new Image();image.src=src;return image});
+const cleanImages=data.clean_previews.map(src=>{if(!src)return null;let image=new Image();image.src=src;return image});
+let compared=false;
 let playbackFrame=0,timer=null;
 const video={readyState:2,paused:true,duration:(images.length-1)/data.provenance.output_fps,
 get currentTime(){return playbackFrame/data.provenance.output_fps},
@@ -83,22 +87,31 @@ const classes={'0':'nothing','1':'ally','2':'self','3':'enemy','4':'ability','5'
 let index=0, answers=[], dirty=false;
 function key(c){return [data.provenance.session,c.t_ms,c.x,c.y].join('|')}
 function show(){if(!cs.length){status.textContent='No candidates in this sequence.';return}
+compared=false;
 video.pause();video.currentTime=cs[index].frame/data.provenance.output_fps;
 document.querySelector('#question').textContent=`Candidate ${index+1}/${cs.length}, source ${(cs[index].t_ms/1000).toFixed(3)}s: what is the ringed thing?`;
 status.textContent=answers.some(a=>a.key===key(cs[index]))?'Answered (a new answer appends a correction).':'Unanswered';draw()}
-function draw(){if(images[playbackFrame]?.complete){ctx.drawImage(images[playbackFrame],0,0,960,540);let c=cs[index];
-if(c){let sx=960/data.provenance.source.width,sy=540/data.provenance.source.height;
-ctx.strokeStyle='#ff44ec';ctx.lineWidth=3;ctx.beginPath();ctx.arc((data.box[0]+c.x)*sx,(data.box[1]+c.y)*sy,14,0,Math.PI*2);ctx.stroke()}}
+function draw(){
+ctx.clearRect(0,0,960,540);ctx.fillStyle='#161b24';ctx.fillRect(0,0,960,540);
+const debug=document.querySelector('#debug').checked||!cleanImages[playbackFrame];
+const im=debug?images[playbackFrame]:cleanImages[playbackFrame];
+document.querySelector('#viewnote').textContent=debug?'Detector overlay shown: orange gap rings and black text outlines are debug marks.':'Clean source minimap: only the pink review target is added.';
+if(!im?.complete||!im.naturalWidth){if(im)im.onload=draw;return}
+let c=cs[index],sx,sy,ox=0,oy=0;
+if(debug){ctx.drawImage(im,0,0,960,540);sx=960/data.provenance.source.width;sy=540/data.provenance.source.height;ox=data.box[0];oy=data.box[1];compared=true}
+else{ctx.drawImage(im,0,0,540,540);sx=540/(data.box[2]-data.box[0]);sy=540/(data.box[3]-data.box[1]);ctx.fillStyle='#eef2f8';ctx.font='18px system-ui';ctx.fillText('Clean source pixels',565,35)}
+if(c&&playbackFrame===c.frame){ctx.strokeStyle='#ff44ec';ctx.lineWidth=2;ctx.beginPath();ctx.arc((ox+c.x)*sx,(oy+c.y)*sy,14,0,Math.PI*2);ctx.stroke()}
 }
 function advance(delta){index=Math.max(0,Math.min(cs.length-1,index+delta));show()}
 function answer(value){let by=document.querySelector('#by').value.trim();if(!by){status.textContent='Enter your name first.';return}if(!cs.length)return;
 let c=cs[index];answers.push({key:key(c),session:data.provenance.session,t_ms:c.t_ms,x:c.x,y:c.y,answer:value,by,
-compared_against_derived:true,answered_at:new Date().toISOString()});dirty=true;advance(1)}
+compared_against_derived:compared,answered_at:new Date().toISOString()});dirty=true;advance(1)}
 function save(){const blob=new Blob([answers.map(a=>JSON.stringify(a)).join('\n')+(answers.length?'\n':'')],{type:'application/x-ndjson'});
 const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=data.provenance.session+'.minimap_sequence.jsonl';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);dirty=false;
 status.textContent='Answers downloaded. Keep the file and import it here to resume.'}
 for(let [k,v] of Object.entries(classes)){let b=document.createElement('button');b.textContent=k.toUpperCase()+': '+v.replaceAll('_',' ');b.onclick=()=>answer(v);document.querySelector('#classes').append(b)}
 document.querySelector('#back').onclick=()=>advance(-1);document.querySelector('#advance').onclick=()=>advance(1);document.querySelector('#save').onclick=save;
+document.querySelector('#debug').onchange=draw;
 document.querySelector('#play').onclick=()=>{if(video.paused){video.play();draw()}else video.pause()};
 document.querySelector('#previous').onclick=()=>{video.pause();video.currentTime=Math.max(0,video.currentTime-1/data.provenance.output_fps)};
 document.querySelector('#next').onclick=()=>{video.pause();video.currentTime=Math.min(video.duration,video.currentTime+1/data.provenance.output_fps)};

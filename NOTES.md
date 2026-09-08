@@ -13,6 +13,25 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## PICKING UP -- 2026-09-08, contiguous minimap diagnostics
 
+Follow-up: `minimap_lifecycle.py` now adjudicates births/continuations over
+stored observations. `overlay --minimap-lifecycle` opts into excluding
+unexplained appearances from cones while retaining raw candidates. The Ascent
+window quarantines 55 observations, 37 with unlit reads; these are NOT scored
+false positives, because the downloaded player answers have not been located.
+The player identified a short Omen teleport in Lotus. Source frames confirm
+the icon/cone relocation around 299.217-299.317s (~52px), below the old generic
+200px teleport bound. An external player-supported origin event links the
+destination observations back to `ally:1`; audio identity is player testimony,
+not automated recognition. Repeated relocation rows reference ONE event.
+New diagnostic exports include clean source minimap previews; new review pages
+default to those, with debug overlays opt-in. Orange carried rings and black
+text outlines were overlay marks, not detector input. Existing Lotus review
+was not modified. 92 tests pass; old/new review answer exports pass an in-memory
+JavaScript harness. Next: locate/import completed answers and score quarantines
+before enabling the lifecycle gate by default. User requested wrap-up here.
+
+### Earlier increment
+
 Plan and acceptance gates: `docs/MINIMAP_DETECTION_PLAN.md`. Native 60 Hz,
 two-second Ascent/Lotus renders now carry track IDs, observation-gap ages,
 adjacent-light evidence and distance-binned cone disagreement in a versioned

@@ -1352,6 +1352,14 @@ def cmd_overlay(args) -> int:
                          mm_box=mm_box, mm_floor=mm_floor,
                          mm_passable=mm_passable, mm_sgray=mm_sgray,
                          mm_light=mm_light)
+    ctx.mm_apply_lifecycle = args.minimap_lifecycle
+
+    if args.minimap_events:
+        import json
+        with Path(args.minimap_events).open(encoding="utf-8") as events_file:
+            ctx.mm_origin_events = tuple(json.loads(line) for line in events_file if line.strip())
+        if any(event.get("session") != sid for event in ctx.mm_origin_events):
+            raise SystemExit("minimap origin events belong to another session")
 
     out = Path(args.out) if args.out else Path.cwd() / f"overlay_{sid}_{int(t_from)}ms.mp4"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -1365,13 +1373,14 @@ def cmd_overlay(args) -> int:
         from .minimap_diagnostics import DIAGNOSTICS_VERSION
         diagnostic_path = out.with_suffix(".minimap.jsonl")
         diagnostic_file = diagnostic_path.open("x", encoding="utf-8")
-        producers = ("cli.py", "minimap.py", "track.py", "cone.py", "lighting.py",
+        producers = ("cli.py", "minimap.py", "track.py", "cone.py", "lighting.py", "minimap_lifecycle.py",
                      "overlay.py", "minimap_diagnostics.py")
         metadata = {"type": "provenance", "version": DIAGNOSTICS_VERSION,
                     "track_version": TRACK_VERSION, "session": sid,
                     "source": manifest["source"], "hz": args.hz,
                     "widget_width": mm_box[2] - mm_box[0] if mm_box else None,
                     "profile": profile.name, "output_fps": args.fps or args.hz,
+                    "apply_lifecycle": args.minimap_lifecycle,
                     "from_ms": t_from, "to_ms": t_to,
                     "producer_sha256": {name: hashlib.sha256(
                         (Path(__file__).parent / name).read_bytes()).hexdigest()
@@ -1381,6 +1390,7 @@ def cmd_overlay(args) -> int:
                                        if geo_path and geo_path.is_file() else None)
         metadata["static_sha256"] = (hashlib.sha256(mm_sgray.tobytes()).hexdigest()
                                      if mm_sgray is not None else None)
+        metadata["origin_events"] = ctx.mm_origin_events
         diagnostic_file.write(json.dumps(metadata) + "\n")
     scale = args.scale
     size = (int(w * scale), int(h * scale))
@@ -1423,9 +1433,19 @@ def cmd_overlay(args) -> int:
                     continue
             canvas = draw(frame, observed_t, frame_idx, ctx)
             if diagnostic_file is not None:
+                import base64
                 row = ctx.mm_diagnostic or {"t_ms": t, "widget": "unavailable",
                                             "reason": "geometry unavailable"}
                 row["frame_idx"] = frame_idx
+                # Source-derived review crop, captured BEFORE any annotations.
+                # Shares this decode; it is not a second detector or media copy.
+                if mm_box is not None:
+                    x0, y0, x1, y1 = mm_box
+                    ok_preview, preview = cv2.imencode(".jpg", frame[y0:y1, x0:x1],
+                                                       [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    if not ok_preview:
+                        raise RuntimeError("could not encode clean minimap preview")
+                    row["review_preview"] = "data:image/jpeg;base64," + base64.b64encode(preview).decode("ascii")
                 diagnostic_file.write(json.dumps(row, default=lambda v: v.item(),
                                                  allow_nan=False) + "\n")
             if scale != 1.0:
@@ -1902,6 +1922,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "collective viewcone) -- it needs a static map")
     s.add_argument("--minimap-diagnostics", action="store_true",
                    help="write versioned per-frame track/light evidence beside the video")
+    s.add_argument("--minimap-events", help="JSONL of corroborated spatial origin/relocation events")
+    s.add_argument("--minimap-lifecycle", action="store_true",
+                   help="exclude unexplained appearances from inferred cones; preserve raw candidates")
     s.add_argument("--entries-only", action="store_true",
                    help="only render frames whose killfeed holds an entry")
     s.add_argument("--min-confidence", type=float, default=0.82)

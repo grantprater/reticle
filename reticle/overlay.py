@@ -60,6 +60,7 @@ from . import lighting
 from .killfeed import ME_MATCH_MIN, analyse_killfeed, killfeed_roi
 from .minimap import ally_icons, self_icons, widget_drawn, widget_scale
 from .minimap_diagnostics import DIAGNOSTICS_VERSION, light_support, distance_agreement
+from .minimap_lifecycle import Lifecycle, LIFECYCLE_VERSION
 from .track import Tracker
 from .ocr import crop_gray, read_bottom_hud, read_scoreline, scoreline_roi
 from .profiles import Profile
@@ -117,6 +118,9 @@ class OverlayContext:
     mm_track_self: object = None
     mm_track_ally: object = None
     mm_diagnostic: object = None
+    mm_lifecycle: object = None
+    mm_origin_events: object = ()
+    mm_apply_lifecycle: bool = False
 
     @property
     def has_minimap(self) -> bool:
@@ -252,6 +256,8 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
         scale = widget_scale(x1 - x0)
         ctx.mm_track_self = Tracker("walker", scale=scale, position_error_px=np.sqrt(0.5))
         ctx.mm_track_ally = Tracker("walker", scale=scale, position_error_px=np.sqrt(0.5))
+    if getattr(ctx, "mm_lifecycle", None) is None:
+        ctx.mm_lifecycle = Lifecycle(scale=widget_scale(x1 - x0))
 
     if not widget_drawn(crop, ctx.mm_sgray, ctx.mm_floor):
         ctx.mm_track_self.step(t_ms, [])
@@ -259,6 +265,7 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
         ctx.mm_diagnostic = {"version": DIAGNOSTICS_VERSION, "t_ms": t_ms,
                              "widget": "not_drawn", "observations": [],
                              "reason": "widget unavailable"}
+        ctx.mm_lifecycle.step(ctx.mm_diagnostic)
         cv2.rectangle(img, (x0, y0), (x1, y1), MAGENTA, 2)
         _text(img, "minimap: WIDGET NOT DRAWN", (x0 + 6, y0 + 18), MAGENTA, 0.5)
         return "minimap  no widget (death screen, or the M key)"
@@ -302,14 +309,6 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
         ctx.mm_passable, [(bx, by, deg) for bx, by, deg, _ in resolved],
         visible=ctx.mm_floor)
 
-    # The observable area, tinted over the widget in place.
-    if agg.any():
-        sub = img[y0:y1, x0:x1]
-        tint = np.empty_like(sub)
-        tint[:] = CONE
-        m = agg[..., None]
-        sub[:] = np.where(m, cv2.addWeighted(sub, 0.68, tint, 0.32, 0), sub)
-
     by_pos = {(round(bx), round(by)): deg for bx, by, deg, _ in resolved}
     observations = []
     scale = widget_scale(x1 - x0)
@@ -341,8 +340,31 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
         "version": DIAGNOSTICS_VERSION, "t_ms": t_ms, "widget": "drawn",
         "observations": observations,
         "raw_allies": raw_allies, "raw_self": raw_selves,
+        "light_budget": {"lit": int(lit.sum()) if lit is not None else None,
+                         "known": int(known.sum()) if known is not None else None},
         "distance_agreement": distance_agreement(
             agg, lit, known, [(x, y) for x, y, deg, _ in resolved if deg is not None], scale)}
+    adjudicated = ctx.mm_lifecycle.step(ctx.mm_diagnostic, ctx.mm_origin_events)
+    ctx.mm_diagnostic["lifecycle_version"] = LIFECYCLE_VERSION
+    ctx.mm_diagnostic["adjudication"] = adjudicated
+    eligible = {row["observation_key"] for row in adjudicated if row["eligible"]}
+    tracked = ([("ally", tr) for tr in ctx.mm_track_ally.tracks]
+               + [("self", tr) for tr in ctx.mm_track_self.tracks])
+    adjudicated_resolved = [(x, y, deg if f"{role}:{tr.tid}" in eligible else None, carried)
+                for (role, tr), (x, y, deg, carried) in zip(tracked, resolved)]
+    adjudicated_agg, _ = cone_mod.observable(ctx.mm_passable,
+                                 [(x, y, deg) for x, y, deg, _ in adjudicated_resolved],
+                                 visible=ctx.mm_floor)
+    ctx.mm_diagnostic["adjudicated_distance_agreement"] = distance_agreement(
+        adjudicated_agg, lit, known, [(x, y) for x, y, deg, _ in adjudicated_resolved if deg is not None], scale)
+    if ctx.mm_apply_lifecycle:
+        agg, resolved = adjudicated_agg, adjudicated_resolved
+    if agg.any():
+        sub = img[y0:y1, x0:x1]
+        tint = np.empty_like(sub)
+        tint[:] = CONE
+        sub[:] = np.where(agg[..., None], cv2.addWeighted(sub, 0.68, tint, 0.32, 0), sub)
+    by_pos = {(round(x), round(y)): deg for x, y, deg, _ in resolved}
     for d, base in [(d, ALLY) for d in allies] + [(d, SELF) for d in selves]:
         cx, cy = int(round(d["cx"])), int(round(d["cy"]))
         c = (x0 + cx, y0 + cy)

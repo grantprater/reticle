@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-DIAGNOSTICS_VERSION = "minimap-diagnostics-0.1.0"
+DIAGNOSTICS_VERSION = "minimap-diagnostics-0.2.0"
 
 
 def light_support(x, y, radius, lit, known, scale=1.0):

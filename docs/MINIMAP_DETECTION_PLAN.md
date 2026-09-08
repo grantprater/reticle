@@ -111,3 +111,29 @@ silently losing true stationary allies or low-light frames. Every promotion
 gets a separate version, source evidence, real-command replay and sequence
 render. The current increment fixes temporal mechanics and exposes failures;
 it does not claim solved ability attribution or reliable full-match identities.
+
+## Follow-up: birth constraints and the reviewed Lotus teleport
+
+`reticle/minimap_lifecycle.py` now implements causal origin/continuity
+adjudication. `--minimap-lifecycle` enables the gate in the overlay; default
+rendering retains the ungated comparison. Missing origin evidence quarantines
+inferences, never deletes raw observations. Window starts/blackouts are censored
+boundaries, not proven births. Established entities may persist in unlit space;
+a genuine non-ping origin there is a lighting contradiction. A repeated
+quarantined candidate cannot corroborate itself by persistence alone.
+
+`--minimap-events FILE.jsonl` accepts spatially linked, corroborated legal events
+with separate occurrence and evidence-availability times. Teleport support
+requires icon and viewcone evidence plus audio or destination corroboration;
+audio alone cannot license relocation. The demonstrated Lotus Omen relocation
+is ~52px around 299.217-299.317s. A player-supported event preserves the original
+entity ID despite fragmented destination fits. This is a real-source integration
+check with supplied identity/audio evidence, not automatic Omen recognition.
+
+The two-second Ascent replay quarantines 55 observations (37 with unlit reads).
+These are candidate failures, not measured precision: completed player answer
+exports were not yet available. Keep the gate opt-in until those are scored.
+New diagnostic sidecars contain clean minimap crops from the shared decode;
+new review pages show them by default and can reveal debug overlays explicitly.
+The existing Lotus page and player answers were not changed. 92 Python tests
+and in-memory old/new review export checks pass.
