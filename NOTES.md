@@ -249,6 +249,84 @@ of this and the overlay had never called it.
 101 tests, `--self-test` PASS, doctor 2 findings / 0 errors. The Ascent control
 is unchanged through all of it: 1 self, 1 ally, 0 quarantined.
 
+### `l1/roster` exists now, and it already explains the Haven death window
+
+    reticle scan 96aa1ae9b96f --only roster
+
+3375 rows at 2 Hz over the whole capture, 122 s. **Answered 2892/3375 (85.7%),
+5v5 on 1498 (44.4%), and 483 rows (14.3%) defer to the HUD gate** -- that is
+COVERAGE, not accuracy; the deferred rows are unanswered, not wrong, and
+`reticle audit` resolves them.
+
+**It named the death immediately.** `alive_ally` goes 5 -> 4 at 262.5 s, so the
+player's "4:21-4:23 has a death" is an ALLY dying at ~262.2, not the player --
+which is why that window never lost its widget and why the ally detections
+jump at 262.8.
+
+**What it will do to the quarantines, measured but NOT wired in** (the roster
+counts the player, so the expected icon count is `alive_ally - 1`):
+
+    window          quarantined allies while a slot is FREE   while FULLY accounted
+    haven-death                  154                                   0
+    haven-buy                    110                                   4
+    haven-postplant                4                                  26
+    haven-frozen                   0                                   0
+
+Both directions are useful and they are different claims. Where a slot is free
+the appearance is PERMITTED, which is what kills the "detector acquisition
+looks like a birth" false quarantine. Where the roster is fully accounted for
+-- 157 of the post-plant frames -- an extra ally detection is a phantom by
+count, which is a positive rejection rather than a refusal. **Permission is not
+identification**: a free slot licenses one more ally, it does not say which
+detection is the ally, and the arc-fragment phantom below sits in a frame with
+a free slot too.
+
+Note the roster reader is itself STALE through a capture stall -- it reports
+5v5 confidently across all 20.4 s of frozen picture. The stall class touches
+every channel and only the minimap channel currently knows about it.
+
+### The three residual errors, looked at
+
+**1. A large team-coloured CIRCLE, and the ally key catches its arc.** It
+appears within ~0.7 s of the ally death, centred near B, and persists for
+seconds. Only 156 px of the whole widget key as ally at 263.5 s and 22 of them
+are far from any icon -- a thin arc fragment -- and the ring fit sits a legal
+circle on it at (161,173). **Shape is suggestive and does not separate it:**
+component elongation is 7.12 median for quarantined against 2.18 for eligible,
+but 31% of REAL icons are also >= 3.0. That is the aspect-ratio trap this repo
+already paid for once (*0 of 55 hand-marked icons have aspect >= 2.0* would
+have deleted Sage walls and ping ripples). Do not ship an elongation gate.
+**Ask the player what the circle is** -- one word names the ability and the
+`static` class already exists for it.
+
+**2. A stationary team-coloured CAPSULE** at (78,228), in a corridor, 110
+observations from 221.63 to 227.0 with zero pixel movement, spanning the buy
+menu. Absent at 221.2 and present after. Also an ability glyph, also unnamed,
+same question.
+
+**3. `ambiguous_continuation` is the crowded-cluster case and it is working.**
+All 8 rows are one shape: a new track id appears at (115-125, 183-194) with
+`alternatives ['ally:1','ally:2']`, in a cluster where four allies sit 12-13 px
+apart. The lifecycle refuses to guess which entity it continues, which is
+right; the cause upstream is the tracker minting a new id inside the cluster.
+
+**A correction to a worry recorded earlier today.** `MIN_ICON_SEPARATION_PX` is
+NOT merging real allies on Haven. With the dedupe disabled there are 257
+same-frame ally pairs under the 11.4 px limit and they are 1-3 px apart with
+`|dr|` of 0-1 -- the same icon fitted twice, not two teammates. The smallest
+SURVIVING separation being exactly 11.4 px is an artefact of the rule, not
+evidence that real allies sit there; genuine pairs live in the 11.4-20 px band
+(312 of them in the death window alone) and they survive.
+
+### Next session: full-round lifecycle for every observable entity
+
+The player's framing, and it is the right one: **lifecycle tracking makes sense
+round start -> round end**, not on 2-7 s windows. Capture stalls are a
+missing-data class to work around rather than a defect to fix -- a long one
+loses real information and the channel must say so rather than interpolate
+through it. Start from the roster gate above, and get the two ability glyphs
+named before treating them as phantoms.
+
 ### Earlier increment
 
 Plan and acceptance gates: `docs/MINIMAP_DETECTION_PLAN.md`. Native 60 Hz,
