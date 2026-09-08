@@ -349,15 +349,11 @@ def _bench(session: str) -> int:
     accumulate covers thousands of steps rather than dying at step three.
     """
     import time
-    from pathlib import Path
 
+    from . import geometry
     from .minimap import BOXEDGE, floor_mask
 
-    p = Path.home() / "reticle-store" / "geometry" / f"{session}.npz"
-    if not p.is_file():
-        raise SystemExit(f"no geometry for {session} -- "
-                         f"run prototypes/minimap_geometry.py first")
-    z = np.load(p)
+    z = np.load(geometry.require(session))
     labels, med = z["labels"], z["static"]
     floor = floor_mask(med)
     passable = floor | (labels == BOXEDGE)

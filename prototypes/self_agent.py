@@ -225,6 +225,7 @@ with contextlib.redirect_stdout(io.StringIO()):
                                            template_set)
     import minimap_ring_fit as rf
 from reticle.decode import sample_at                              # noqa: E402
+from reticle import geometry as _G                                  # noqa: E402
 from reticle.minimap import (SELF_B_UNDER_G, SELF_G_MIN,          # noqa: E402
                              SELF_R_MIN, floor_mask, minimap_roi_px,
                              self_rings, widget_scale)
@@ -500,8 +501,8 @@ def vote(sid: str, n: int, sources: dict, gen: dict | None = None,
 
     # Floor from the session's own geometry static -- every session with
     # geometry has one, where `masks/<sid>.static.npy` exists for only a few.
-    g = STORE / "geometry" / f"{sid}.npz"
-    if not g.is_file():
+    g = _G.path_of(sid, STORE)
+    if g is None or not g.is_file():
         return {"error": "no geometry"}
     floor = floor_mask(np.load(g, allow_pickle=True)["static"])
 

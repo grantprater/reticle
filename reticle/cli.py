@@ -31,6 +31,7 @@ from .decode import sample_frames, sample_multi, sample_spans
 from .checks import KNOWN_KD, check_hud, player_events, track_entries
 from .rounds import build_rounds, summarise
 from .scoreboard import read_scoreboard
+from . import geometry
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
@@ -1312,19 +1313,19 @@ def cmd_overlay(args) -> int:
     if not args.no_minimap:
         med = store.read_static_map(sid)
         if med is None:
-            geo = Path(args.store) / "geometry" / f"{sid}.npz"
-            if geo.is_file():
+            geo = geometry.path_of(sid, args.store)
+            if geo is not None and geo.is_file():
                 med = np.load(geo)["static"]
         if med is None:
-            print("minimap    no static map and no geometry -- "
-                  "run `reticle minimap` or minimap_geometry.py to draw the cone")
+            print("minimap    no static map and no geometry -- run `reticle "
+                  "minimap`, or minimap_geometry.py for this session's map")
         else:
             mm_box = minimap_roi_px(profile, w, h)
             mm_floor = floor_mask(med)
             mm_sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
             mm_passable = mm_floor
-            geo = Path(args.store) / "geometry" / f"{sid}.npz"
-            if geo.is_file():
+            geo = geometry.path_of(sid, args.store)
+            if geo is not None and geo.is_file():
                 z = np.load(geo)
                 if "labels" in z.files and z["labels"].shape == mm_floor.shape:
                     mm_passable = mm_floor | (z["labels"] == BOXEDGE)

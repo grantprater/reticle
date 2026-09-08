@@ -51,24 +51,26 @@ thing from the other end:
       reference/shade/<map>__<profile>.npz   the same, warped into widget
                                              pixels. Map and profile only
 
-    PER-CAPTURE, and unavoidably so
+    FROM A CAPTURE, and unavoidably so -- one per (map, profile), built from
+    that key's reference recording
       static, lo_gray, hi_gray, sd_lo/sd_hi  what THESE pixels look like with
                                              nothing on them. The widget is
                                              semi-transparent over live world,
                                              so no external render can say it
 
-So a session's `shade*` arrays are a **CACHE FILL**, not a derivation:
-`build` copies the (map, profile) reference in, and only does real work the
-first time a pair is ever placed. The whole store is 13 s, and 4 of the 35 npz
-did any work at all.
+So a key's `shade*` arrays are a **CACHE FILL**, not a derivation: `build`
+copies the (map, profile) reference in, and only does real work the first time
+a pair is ever placed. Measured over 35 per-session npz it was 13 s with 4 of
+them doing any work at all; now that the geometry is keyed the same way, "once
+per pair" and "once per npz" are the same sentence.
 
 **And a geometry rebuild no longer drops them.** `minimap_geometry.reattach_shade`
-runs after BOTH of its write paths and both were tested, which is stated
-precisely because the first version of this paragraph was written after testing
-only one: the BORROW path on `02cf738b1c8f` (`--geometry-from`, no decode), and
-then the DERIVE path on `587c15b07779` (a full 180-frame median, 33 s), reading
-the keys back each time. That was a standing chore in the first version of this
-file, and a standing chore is how a question gets asked twice.
+runs after its write and says so out loud when a rebuild loses shade that was
+there. It once had two write paths -- a decode and a `--geometry-from` borrow --
+and the first version of this paragraph was written after testing only one of
+them, which is why the sentence is this specific. Keying geometry per
+(map, profile) removed the borrow entirely: there is one write path now, and
+`minimap_geometry.py --all` verifies shade coverage after it runs.
 
 **`reticle doctor` now reports it** -- `check_shade`, beside `check_geometry`:
 a stale `shade_built_by` and a missing shade are separate WARNs, because the
@@ -203,13 +205,14 @@ share, which is what says whether a pixel is interior (one class) or a boundary
 
 THE FIT IS A PER-(MAP, PROFILE) CONSTANT, TO WITHIN THE SEARCH'S OWN STEP
 -------------------------------------------------------------------------
-Measured 2026-09-07 over every session with art. Ascent's 29 npz share ONE
-static median -- they borrow from a single donor -- so their agreeing is not
-evidence. Lotus has two INDEPENDENT statics and they land at scale 0.4495 and
-0.4479, dy -62 and -61: one step apart in every parameter, where the refine
-searches scale in 0.4% steps and offset in 2 px. That is the strongest form the
-claim can take on this corpus, and it is why this file warps once per STATIC
-rather than once per session.
+Measured 2026-09-07 over every session with art, while geometry was still
+stored per session. Ascent's 29 npz shared ONE static median -- they borrowed
+from a single donor -- so their agreeing was not evidence. Lotus had two
+INDEPENDENT statics and they landed at scale 0.4495 and 0.4479, dy -62 and -61:
+one step apart in every parameter, where the refine searches scale in 0.4% steps
+and offset in 2 px. That is the strongest form the claim can take on this
+corpus, and the store now takes it as its shape: geometry and fit are both
+keyed `<map>__<profile>`, so warping once per key IS warping once per npz.
 
 **Two stored fits were STALE and both were worse than the code's own answer.**
 `a06f04a0059f` was cached on 2026-09-05 at IoU 79.9% / NCC 0.530 and recomputes
@@ -232,6 +235,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import wiki_map as WM                                             # noqa: E402
+from reticle import geometry as G                                 # noqa: E402
 from reticle import minimap as M                                  # noqa: E402
 
 STORE = WM.STORE
@@ -460,24 +464,16 @@ def shade_arrays(map_name: str, fit, shape):
     return o_shade, o_kind, o_step, purity
 
 
-def fit_of(sid: str, map_name: str):
+def fit_of(gkey: str):
     """The stored (rot, scale, dx, dy, iou, ncc), fitting it if need be."""
-    if WM.fit_for_session(sid, map_name) is None:
+    if WM.fit_for_key(gkey) is None:
         return None
-    z = np.load(STORE / "reference" / "fits" / f"{sid}.npz")
+    z = np.load(G.fit_path(gkey, STORE))
     return np.array([float(z["rot"]), float(z["scale"]), float(z["dx"]),
                      float(z["dy"]), float(z["iou"]), float(z["ncc"])], np.float32)
 
 
 REF = STORE / "reference" / "shade"
-
-
-def profile_of(sid: str) -> str | None:
-    """The capture profile, which with the map is what the warp depends on."""
-    m = STORE / "manifests" / f"{sid}.json"
-    if not m.is_file():
-        return None
-    return json.loads(m.read_text(encoding="utf-8")).get("source_profile")
 
 
 def art_reference(map_name: str, rebuild=False):
@@ -513,9 +509,8 @@ def widget_reference(map_name: str, profile: str, fit=None, shape=None,
     **Also permanent**, and it is the artefact a session copies rather than
     computes. The map does not move inside the widget and the widget does not
     move inside the frame, so this depends on nothing a session contributes --
-    which is why 29 npz sharing one `static` all produced byte-identical
-    output, and why Lotus's two INDEPENDENT statics landed within one search
-    step of each other.
+    which is the measurement `reticle/geometry.py` acts on, and why Lotus's two
+    INDEPENDENT statics landed within one search step of each other.
 
     Returns None when it does not exist and no `fit` was supplied to make it:
     the four placement parameters are the ONE thing that needs a capture. The
@@ -538,52 +533,39 @@ def widget_reference(map_name: str, profile: str, fit=None, shape=None,
     return arrays + (np.asarray(fit, np.float32),)
 
 
-def statics(sids):
-    """Group sessions by the bytes of their `static`, since the fit is of that.
-
-    29 of the 36 geometry npz carry one identical `static` -- they borrowed it
-    wholesale from a single donor -- and the shade belongs to the ARRAY, not to
-    the session pointing at it.
-    """
-    groups: dict[str, list[str]] = {}
-    for sid in sids:
-        z = np.load(STORE / "geometry" / f"{sid}.npz")
-        groups.setdefault(hashlib.md5(z["static"].tobytes()).hexdigest(),
-                          []).append(sid)
-    return groups
-
-
-def write_shade(sid: str, map_name: str = None, quiet=False, refit=False):
-    """Copy the (map, profile) reference into one session's geometry npz.
+def write_shade(gkey: str, quiet=False, refit=False):
+    """Copy the (map, profile) reference into that key's geometry npz.
 
     **This is a CACHE FILL, not a derivation.** The reference is the artefact;
     the npz gets a copy so existing loaders reach it with no new file to open.
-    A session only ever does real work when its (map, profile) has never been
-    placed -- once, ever, per pair -- and then it writes the reference for
-    every session that follows.
+    Real work happens once, ever, per key -- and since 2026-09-07 the key IS
+    the geometry's key, so "once per (map, profile)" is a fact about the store
+    rather than a claim about how often it is called.
     """
-    p = STORE / "geometry" / f"{sid}.npz"
+    p = G.path(gkey, STORE)
     if not p.is_file():
         return None
-    map_name = map_name or WM.map_of(sid)
-    prof = profile_of(sid)
-    if not map_name or not prof or not (WM.ART / f"{map_name}.png").is_file():
+    try:
+        map_name, prof = G.parse(gkey)
+    except ValueError:
+        return None
+    if not (WM.ART / f"{map_name}.png").is_file():
         return None
     with np.load(p, allow_pickle=False) as _z:
         z = dict(_z)
     ref = widget_reference(map_name, prof, rebuild=refit)
     how = "cached"
     if ref is None or refit:
-        fit = fit_of(sid, map_name)
+        fit = fit_of(gkey)
         if fit is None:
-            print(f"  {sid}  no fit and no reference -- skipped")
+            print(f"  {gkey}  no fit and no reference -- skipped")
             return None
         ref = widget_reference(map_name, prof, fit=fit,
                                shape=z["labels"].shape, rebuild=True)
         how = "PLACED"
     shade, kind, step, purity, fit = ref
     if kind.shape != z["labels"].shape:
-        print(f"  {sid}  reference is {kind.shape}, this npz is "
+        print(f"  {gkey}  reference is {kind.shape}, this npz is "
               f"{z['labels'].shape} -- refusing")
         return None
     z.update(shade=shade, shade_kind=kind, shade_step=step, shade_purity=purity,
@@ -593,7 +575,7 @@ def write_shade(sid: str, map_name: str = None, quiet=False, refit=False):
     np.savez_compressed(tmp, **z)
     tmp.replace(p)
     if not quiet:
-        print(f"  {sid}  {map_name:8s} {prof:22s} {how:6s} "
+        print(f"  {gkey:32s} {how:6s} "
               f"shade on {float((kind > 0).mean()) * 100:5.1f}%  "
               f"IoU {fit[4]:.3f} NCC {fit[5]:.3f}")
     return ref
@@ -629,14 +611,13 @@ def main(argv=None) -> int:
     pt.add_argument("--out", required=True)
     pt.add_argument("--width", type=int, default=900)
     bd = sub.add_parser("build", help="write shade into the geometry npz")
-    bd.add_argument("sessions", nargs="*")
-    bd.add_argument("--map", default=None)
+    bd.add_argument("keys", nargs="*", help="geometry keys, `<map>__<profile>`")
     bd.add_argument("--all", action="store_true")
     bd.add_argument("--refit", action="store_true",
                     help="re-derive the placement instead of using the "
                          "(map, profile) reference")
     ck = sub.add_parser("check", help="score the shade against what we had")
-    ck.add_argument("sessions", nargs="*")
+    ck.add_argument("keys", nargs="*", help="geometry keys, `<map>__<profile>`")
     ck.add_argument("--all", action="store_true")
     ck.add_argument("--dump", default=None)
     a = ap.parse_args(argv)
@@ -693,37 +674,28 @@ def main(argv=None) -> int:
               f"white LINE, olive SITE")
         return 0
 
-    sids = a.sessions
+    keys = a.keys
     if a.all:
-        sids = sorted(p.stem for p in (STORE / "geometry").glob("*.npz"))
+        keys = sorted(p.stem for p in (STORE / "geometry").glob("*.npz"))
 
     if a.cmd == "build":
-        tagged = {}
-        for sid in sids:
-            m = a.map or WM.map_of(sid)
-            if m and (WM.ART / f"{m}.png").is_file():
-                tagged[sid] = m
-        # A borrowed static IS the donor's geometry, so an untagged session
-        # sharing one takes the donor's map -- the shade describes the ARRAY,
-        # and this claims nothing about which map that session was played on.
-        todo = dict(tagged)
-        for _h, group in statics(sids).items():
-            known = {tagged[s] for s in group if s in tagged}
-            if len(known) == 1:
-                for sid in group:
-                    todo.setdefault(sid, next(iter(known)))
         done = 0
-        for sid in sorted(todo):
-            done += write_shade(sid, todo[sid], refit=a.refit) is not None
-        print(f"{done} of {len(sids)} geometry npz carry the shade")
-        for sid in (s for s in sids if s not in todo):
-            m = WM.map_of(sid)
-            print(f"  {sid}  no shade -- "
-                  + ("map not tagged" if not m else f"no art for {m}"))
+        for k in keys:
+            done += write_shade(k, refit=a.refit) is not None
+        print(f"{done} of {len(keys)} geometry npz carry the shade")
+        for k in keys:
+            if not G.path(k, STORE).is_file():
+                print(f"  {k}  no shade -- no geometry built for this key")
+                continue
+            with np.load(G.path(k, STORE), allow_pickle=False) as z:
+                if "shade" in z.files:
+                    continue
+            m = G.parse(k)[0]
+            print(f"  {k}  no shade -- no art fetched for {m}")
         return 0
 
-    for sid in sids:
-        z = np.load(STORE / "geometry" / f"{sid}.npz")
+    for sid in keys:
+        z = np.load(G.path(sid, STORE))
         if "shade" not in z.files:
             continue
         kind, step, purity, lab = (z["shade_kind"], z["shade_step"],

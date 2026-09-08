@@ -133,6 +133,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle import metrics                                       # noqa: E402
+from reticle import geometry as _G                                  # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
 from reticle import minimap as mm                                 # noqa: E402
 from ability_eval import label_rows, collapse, _sha, STORE        # noqa: E402
@@ -167,7 +168,7 @@ def features_at(sid, rows, use_cone=False):
     prof = get_profile(man["source_profile"])
     W, H = int(src["width"]), int(src["height"])
     mx0, my0, mx1, my1 = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
-    z = np.load(STORE / "geometry" / f"{sid}.npz")
+    z = np.load(_G.require(sid, STORE))
     lo, hi = z["lo_gray"].astype(np.int16), z["hi_gray"].astype(np.int16)
     labels, static = z["labels"], z["static"]
     floor = floor_mask(static, dilate=1)

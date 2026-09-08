@@ -148,6 +148,7 @@ with contextlib.redirect_stdout(io.StringIO()):
     import ability_reference as aref
 from reticle import track                                          # noqa: E402
 from reticle.decode import sample_at                               # noqa: E402
+from reticle import geometry as _G                                  # noqa: E402
 from reticle.minimap import (RUN_PX, filter_track, floor_mask,     # noqa: E402
                              minimap_roi_px, pick_self, self_rings,
                              widget_scale)
@@ -212,8 +213,8 @@ def self_track(sid: str, hz: float):
     prof = get_profile(man["source_profile"])
     x0, y0, x1, y1 = minimap_roi_px(prof, int(src["width"]), int(src["height"]))
     sc = widget_scale(x1 - x0)
-    g = STORE / "geometry" / f"{sid}.npz"
-    if not g.is_file():
+    g = _G.path_of(sid, STORE)
+    if g is None or not g.is_file():
         return None, None, None
     floor = floor_mask(np.load(g, allow_pickle=True)["static"])
 

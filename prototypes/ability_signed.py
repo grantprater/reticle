@@ -140,6 +140,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle import metrics                                       # noqa: E402
+from reticle import geometry as _G                                  # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
 from ability_eval import (join, label_rows, gate, collapse,       # noqa: E402
                           _sha, STORE)
@@ -166,7 +167,7 @@ def signed_at(sid, rows):
     prof = get_profile(man["source_profile"])
     W, H = int(src["width"]), int(src["height"])
     mx0, my0, mx1, my1 = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
-    z = np.load(STORE / "geometry" / f"{sid}.npz")
+    z = np.load(_G.require(sid, STORE))
     lo = z["lo_gray"].astype(np.int16)
     hi = z["hi_gray"].astype(np.int16)
     cap = cv2.VideoCapture(src["path"])

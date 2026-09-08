@@ -8,8 +8,8 @@ Cypher-cam writeup. This only cleans the OUTPUT of a scan so the player is not
 asked to label the same two false-positive classes over and over; it does not
 change what any other session's candidates look like, and it should stop
 being needed once the real fixes (exclude the player's own colour from the
-saturation trigger; root-cause the geometry `--geometry-from` pixel-mismatch
-drift) land.
+saturation trigger; root-cause the brightness drift between a clip's own
+footage and the geometry it reads) land.
 
 Two filters, both verified by eye against the actual crops before writing
 this, not assumed from the field values alone:
@@ -21,7 +21,9 @@ this, not assumed from the field values alone:
    `LINE_COLOURS` (the border/box-edge palette) AND `aspect` above
    `LINE_ASPECT_MIN` is a wall/box-edge line mis-flagged as dynamic by a
    brightness/gamma mismatch between this session's footage and the
-   `--geometry-from` donor -- confirmed by eye: every colour=red/green
+   recording its map geometry was built from (a donated npz at the time this
+   was measured; the key's reference session since) -- confirmed by eye:
+   every colour=red/green
    candidate at aspect >= 2.0 in `eb10db50b1fb` rendered as a thin coloured
    bar across a doorway, never a circular icon. This does NOT catch every
    artifact (a colour=none, aspect<1.8 false positive still slipped through
@@ -41,6 +43,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from reticle import minimap as mm                                  # noqa: E402
+from reticle import geometry as _G                                  # noqa: E402
 
 STORE = Path.home() / "reticle-store"
 SELF_PX = 12
@@ -60,7 +63,7 @@ def main() -> int:
 
     man = json.loads((STORE / "manifests" / f"{sid}.json").read_text())
     src = man["source"]
-    geo = np.load(STORE / "geometry" / f"{sid}.npz", allow_pickle=True)
+    geo = np.load(_G.require(sid, STORE), allow_pickle=True)
     floor = mm.floor_mask(geo["static"])
 
     cap = cv2.VideoCapture(src["path"])

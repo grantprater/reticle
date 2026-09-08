@@ -170,6 +170,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from reticle.profiles import get_profile                              # noqa: E402
 from reticle import minimap as mm                                     # noqa: E402
+from reticle import geometry as _G                                  # noqa: E402
 import minimap_dynamic as md                                          # noqa: E402
 import minimap_cone as mc                                             # noqa: E402
 from minimap_icons import floor_mask                                  # noqa: E402
@@ -261,7 +262,7 @@ def series(sid, from_labels=False, step=1, use_cone=True, cone_every=CONE_EVERY,
     W, H = int(src["width"]), int(src["height"])
     mx0, my0, mx1, my1 = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
 
-    z = np.load(STORE / "geometry" / f"{sid}.npz")
+    z = np.load(_G.require(sid, STORE))
     labels, static = z["labels"], z["static"]
     if "lo_gray" not in z.files:
         raise SystemExit(f"{sid}: geometry has no two-state reference -- rebuild it")

@@ -95,6 +95,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
+from reticle import geometry as G
 from reticle.profiles import get_profile                          # noqa: E402
 from reticle import metrics                                       # noqa: E402
 from reticle import minimap as mm                                 # noqa: E402
@@ -223,10 +224,15 @@ def two_state_gray(gray_stack, trim=0.05, band=48):
       spread in one observation) and is a division hazard, so anything using
       these as a divisor must floor them. It must NOT be read as "this pixel is
       perfectly quiet";
-    * they are only as good as the frames they were built from, and for a demo
-      clip that is a DIFFERENT session's frames via `--two-state-from` /
-      `--geometry-from`. That is correct -- the lighting model is a property of
-      the map, not the match -- and it means the noise scale is the donor's.
+    * they are only as good as the frames they were built from, and for every
+      session sharing a key that is the reference session's frames rather than
+      its own. That is correct -- the lighting model is a property of the map,
+      not the match, measured at mean |d| 2.3-3.7 grey levels between different
+      accounts, days and encodes -- and it means the noise scale is the
+      reference recording's. Do NOT read the stored `lo_gray`/`hi_gray` of two
+      builds as a measure of that transferability: they are cluster centres
+      from different frame counts in different runs and differ three times as
+      much for reasons that have nothing to do with the recordings.
 
     Chunked over row bands rather than vectorised over the whole widget
     -------------------------------------------------------------------
@@ -467,151 +473,154 @@ def sample_frames(session, n, roi):
 
 
 
-def reattach_shade(session: str) -> None:
+def had_shade(out: Path) -> bool:
+    """Did the npz about to be overwritten already carry the art's shade?
+
+    Read this BEFORE the write. `reattach_shade` runs after, so by then the
+    arrays it is meant to protect are already gone and their absence is
+    indistinguishable from never having had them.
+    """
+    if not out.is_file():
+        return False
+    try:
+        with np.load(out, allow_pickle=False) as z:
+            return "shade" in z.files
+    except Exception:                            # noqa: BLE001 -- never fatal
+        return False
+
+
+def reattach_shade(gkey: str, before: bool = False) -> None:
     """Put the art's terrain levels back after this file rewrites the npz.
 
     **This exists because the alternative is a standing chore, and a standing
     chore is a thing somebody has to be asked about twice.** `map_shade.py`
     writes `shade`/`shade_kind`/`shade_step`/`shade_purity` beside `labels`,
     and every write in this file replaces the npz wholesale -- so a rebuild
-    silently drops them and the next session reads a geometry that lost half
-    its content with nothing saying so.
+    silently drops them and the next read gets a geometry that lost half its
+    content with nothing saying so.
 
     It costs nothing to do here: the arrays are a COPY of
     `reference/shade/<map>__<profile>.npz`, which is permanent and already
-    built, so this is a file read rather than a fit. It is best-effort and
-    never fatal -- a map with no art, or an untagged session, simply gets no
-    shade, which is the same state it was in before.
+    built, so this is a file read rather than a fit.
     """
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import map_shade
-        map_shade.write_shade(session, quiet=True)
+        got = map_shade.write_shade(gkey, quiet=True)
     except Exception as e:                       # noqa: BLE001 -- never fatal
         print(f"  NOTE: could not re-attach the shade ({type(e).__name__}: {e})"
-              f" -- run: map_shade.py build {session}")
+              f" -- run: map_shade.py build {gkey}")
+        return
+    # `write_shade` returns None WITHOUT raising when the art for this map is
+    # not fetched -- so the best-effort path above cannot see the case that
+    # actually costs something. Measured 2026-09-07, under the old per-session
+    # layout: a rebuild dropped shade two npz already had and `doctor`'s SHADE
+    # finding went 1 -> 3 with nothing in the rebuild output saying so. Losing
+    # arrays that were there is a different event from never having had them,
+    # and only this one deserves a line.
+    if got is None and before:
+        print(f"  LOST THE SHADE: {gkey} carried the art's terrain levels and no "
+              f"longer does -- `map_shade.write_shade` declined, usually a map "
+              f"whose art is not fetched. Then run: map_shade.py build {gkey}")
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("session")
-    ap.add_argument("--n", type=int, default=180, help="frames to median over")
-    ap.add_argument("--sheet")
-    ap.add_argument("--two-state-from",
-                    help="build the lo/hi lighting reference from a DIFFERENT, "
-                         "longer session on the same map/profile instead of this "
-                         "one's own frames. Use this for a short controlled clip: "
-                         "the two-state split assumes real content is a small "
-                         "minority of the sampling window, which a demo clip "
-                         "built around one deliberate event violates by design "
-                         "-- a 2.4s ability in a 37s clip is ~9%% of the window, "
-                         "not negligible. The lighting model is a property of "
-                         "the MAP, not the match, so any full match on the same "
-                         "map/profile is a valid, uncontaminated source.")
-    ap.add_argument("--two-state-n", type=int, default=400,
-                    help="frames to sample from the two-state reference source")
-    ap.add_argument("--geometry-from",
-                    help="borrow the ENTIRE geometry -- floor plan, walls, bomb "
-                         "sites, and the lighting reference -- from a different, "
-                         "already-built session on the same map/profile, rather "
-                         "than deriving any of it from this session's own frames. "
-                         "Supersedes --two-state-from. Use this for a short "
-                         "controlled clip: the floor plan and bomb sites are a "
-                         "property of the MAP, not the recording, and deriving "
-                         "them from a clip built around one deliberate event "
-                         "risks the same contamination as --two-state-from, "
-                         "just hitting classify() instead of the lighting "
-                         "reference. Measured 2026-08-27: Brimstone's orange "
-                         "ultimate overlay bled into a few of the 180 sampled "
-                         "frames and the plant-zone hue test misfired, labelling "
-                         "a strip of VOID a 'bomb site' right next to it.")
-    args = ap.parse_args()
+def build_key(gkey: str, n: int = 180, source: str | None = None,
+          sheet: str | None = None) -> int:
+    """Build one (map, profile) geometry from its reference session's frames.
 
-    man = json.loads((STORE / "manifests" / f"{args.session}.json").read_text())
+    `source` overrides the reference session, which is the longest recording on
+    that key. Nothing else in this file writes an npz: there is one geometry per
+    key and one way to make it, so a short clip can no longer hold a private
+    answer about a map it shares with a 39-minute match.
+    """
+    src_sid = source or G.reference_session(gkey, STORE)
+    if not src_sid:
+        print(f"{gkey}: no ingested session reads this key -- nothing to build from")
+        return 1
+    if G.key_of(src_sid, STORE) != gkey:
+        print(f"{gkey}: {src_sid} reads {G.key_of(src_sid, STORE)}, not this key "
+              f"-- refusing, the ROI would not line up")
+        return 1
+
+    man = json.loads((STORE / "manifests" / f"{src_sid}.json").read_text())
     src = man["source"]
     prof = get_profile(man["source_profile"])
     W, H = int(src["width"]), int(src["height"])
-    roi = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
-    x0, y0, x1, y1 = roi
+    x0, y0, x1, y1 = next(r for r in prof.rois if r.name == "minimap").pixels(W, H)
 
-    if args.geometry_from:
-        ref_man = json.loads((STORE / "manifests" / f"{args.geometry_from}.json").read_text())
-        if ref_man["source_profile"] != man["source_profile"]:
-            print(f"  WARNING: --geometry-from {args.geometry_from} uses profile "
-                  f"{ref_man['source_profile']!r}, this session uses "
-                  f"{man['source_profile']!r} -- the ROI will not line up, refusing")
-            return 1
-        ref_path = STORE / "geometry" / f"{args.geometry_from}.npz"
-        if not ref_path.is_file():
-            print(f"no geometry for {args.geometry_from} -- build it first")
-            return 1
-        z = np.load(ref_path)
-        if "lo_gray" not in z.files:
-            print(f"{args.geometry_from}'s geometry predates the two-state "
-                  f"reference -- rebuild it first")
-            return 1
-        out = STORE / "geometry" / f"{args.session}.npz"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        # sd_lo/sd_hi ride along with lo/hi -- they describe the SAME two
-        # states from the SAME donor frames, so a borrow that took the lighting
-        # reference without its noise scale would hand out a divisor measured
-        # against different states than the levels it divides.
-        extra = {k: z[k] for k in ("sd_lo", "sd_hi") if k in z.files}
-        if not extra:
-            print(f"  NOTE: {args.geometry_from}'s geometry predates the "
-                  f"per-state SD map -- rebuild it to get sd_lo/sd_hi here too")
-        np.savez_compressed(out, labels=z["labels"], static=z["static"],
-                            roi=np.array([x0, y0, x1, y1]),
-                            lo_gray=z["lo_gray"], hi_gray=z["hi_gray"],
-                            built_by=z["built_by"], **extra)
-        summarise(z["labels"], f"{args.session}  (borrowed wholesale from "
-                                f"{args.geometry_from}, {', '.join(man.get('tags', []))})")
-        reattach_shade(args.session)
-        print(f"  wrote {out}  (entirely {args.geometry_from}'s geometry -- "
-              f"nothing derived from this session's own frames)")
-        if args.sheet:
-            cv2.imwrite(args.sheet, render(z["static"], z["labels"]))
-            print(f"  wrote {args.sheet}")
-        return 0
-
-    frames, _ = sample_frames(args.session, args.n, roi)
+    frames, _ = sample_frames(src_sid, n, (x0, y0, x1, y1))
     if not frames:
-        print("no frames decoded")
+        print(f"{gkey}: no frames decoded from {src_sid}")
         return 1
     med = static_map(frames)
     lab = classify(med)
-    summarise(lab, f"{args.session}  ({', '.join(man.get('tags', []))})")
+    others = [s for s in G.sessions_for(gkey, STORE) if s != src_sid]
+    summarise(lab, f"{gkey}  (from {src_sid}, {len(frames)} frames"
+                   f"{f'; read by {len(others)} other session(s)' if others else ''})")
 
-    if args.two_state_from:
-        ref_man = json.loads((STORE / "manifests" / f"{args.two_state_from}.json").read_text())
-        if ref_man["source_profile"] != man["source_profile"]:
-            print(f"  WARNING: --two-state-from {args.two_state_from} uses profile "
-                  f"{ref_man['source_profile']!r}, this session uses "
-                  f"{man['source_profile']!r} -- the ROI will not line up, refusing")
-            return 1
-        ref_frames, _ = sample_frames(args.two_state_from, args.two_state_n, roi)
-        if not ref_frames:
-            print(f"no frames decoded from --two-state-from {args.two_state_from}")
-            return 1
-        print(f"  two-state reference: {len(ref_frames)} frames from "
-              f"{args.two_state_from} (not this session's own footage)")
-        gray_stack = np.stack([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in ref_frames])
-    else:
-        gray_stack = np.stack([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames])
+    gray_stack = np.stack([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames])
     lo_gray, hi_gray, sd_lo, sd_hi = two_state_gray(gray_stack)
 
-    out = STORE / "geometry" / f"{args.session}.npz"
+    out = G.path(gkey, STORE)
     out.parent.mkdir(parents=True, exist_ok=True)
+    was_shaded = had_shade(out)
     np.savez_compressed(out, labels=lab, static=med, roi=np.array([x0, y0, x1, y1]),
                         lo_gray=lo_gray, hi_gray=hi_gray,
                         sd_lo=sd_lo, sd_hi=sd_hi,
+                        built_from=np.array(src_sid),
                         built_by=np.array(source_stamp()))
-    reattach_shade(args.session)
+    reattach_shade(gkey, was_shaded)
     print(f"  wrote {out}  (stamp {source_stamp()[:8]})")
-    if args.sheet:
-        cv2.imwrite(args.sheet, render(med, lab))
-        print(f"  wrote {args.sheet}")
+    if sheet:
+        cv2.imwrite(sheet, render(med, lab))
+        print(f"  wrote {sheet}")
     return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(
+        description="Build the static map geometry for a (map, profile) key.")
+    ap.add_argument("key", nargs="?",
+                    help="a geometry key, `<map>__<profile>`; or a session id, "
+                         "which is resolved to the key that session reads")
+    ap.add_argument("--all", action="store_true",
+                    help="rebuild every key at least one ingested session reads")
+    ap.add_argument("--n", type=int, default=180, help="frames to median over")
+    ap.add_argument("--from", dest="source", default=None,
+                    help="build from THIS session rather than the longest "
+                         "recording on the key. The default is deliberate -- "
+                         "the static map is a per-pixel median, so a short clip "
+                         "built around one deliberate cast bakes the cast in.")
+    ap.add_argument("--sheet")
+    args = ap.parse_args(argv)
+
+    if args.all:
+        if args.key or args.source or args.sheet:
+            print("--all takes no key, --from or --sheet")
+            return 2
+        keys = G.keys_in_store(STORE)
+        loose = G.untagged(STORE)
+        print(f"{len(keys)} geometry key(s) from "
+              f"{len(list((STORE / 'manifests').glob('*.json')))} sessions")
+        if loose:
+            print(f"  {len(loose)} session(s) resolve to NO key and will read no "
+                  f"geometry -- tag them `map:<name>`: {', '.join(loose)}")
+        rc = 0
+        for k in keys:
+            rc |= build_key(k, args.n)
+        return rc
+
+    if not args.key:
+        print("give a key (`<map>__<profile>`), a session id, or --all")
+        return 2
+    gkey = args.key if G.SEP in args.key else G.key_of(args.key, STORE)
+    if gkey is None:
+        print(f"{args.key} has no `map:` tag, so it reads no geometry -- tag it, "
+              f"or name a key directly")
+        return 1
+    if gkey != args.key:
+        print(f"{args.key} reads {gkey}")
+    return build_key(gkey, args.n, args.source, args.sheet)
 
 
 if __name__ == "__main__":

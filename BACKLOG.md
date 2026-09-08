@@ -27,28 +27,24 @@ Ordered by consequence, not by age.
 argument are in `reticle/minimap.py`'s docstring and
 `prototypes/floor_mask_eval.py`.
 
-**Reconciled 2026-09-07 against `docs/IMPLEMENTATION_PLAN.md`.** The plan
-reaches the same three jobs from the other end and adds two constraints this
-entry did not carry, both now folded in below: the rebuild DESTROYS the shade
-arrays unless it restores them in the same operation, and `2ba870ccbd50`'s
-profile must be settled before it is rebuilt on a crop that may be wrong.
+**Job 1 is DONE 2026-09-07, and it changed shape while being done.** The
+rebuild was framed as 34-36 decodes; the store's own numbers said it was 5,
+because 36 session npz held 5 distinct geometries. Geometry is now keyed
+`<map>__<profile>` (`reticle/geometry.py`), 11 keys covering 50 sessions,
+rebuilt in 5m40s by `minimap_geometry.py --all`, which re-attaches shade in the
+same write. The two constraints this entry carried are both gone rather than
+satisfied: shade cannot be dropped silently any more, and `2ba870ccbd50`'s
+tag/profile contradiction is settled (its own frames are Ascent at scale 1.00 --
+the tag was wrong, the ingest right). `doctor` is 2 findings / 0 errors.
 
-Three jobs, in order, and the second depends on the first:
+Two jobs remain, and the second depends on the first:
 
-1. **rebuild all 34 geometry npz, restoring shade in the SAME operation.**
-   `floor_mask` moved, so `classify()` moves and every `built_by` stamp is
-   stale. This is the stamp convention working, not a surprise. But
-   `minimap_geometry.py` writes each npz from scratch and drops the six shade
-   classes `map_shade.py` put there, so `map_shade.py build --all` is part of
-   the rebuild rather than a follow-up -- and `79a706a7ce4c` still needs a
-   `map:` tag or it stays the one npz with no shade. Settle
-   `2ba870ccbd50`'s tag/profile contradiction (entry below) FIRST: rebuilding
-   it on the wrong crop produces a confident npz about the wrong pixels;
-2. **re-read `l1/minimap`.** The stored track was built on the old gate, which
+1. **re-read `l1/minimap`.** The stored track was built on the old gate, which
    admitted 13.7% of the widget on Ascent that is **100.0% outside the
    painting** — a region holding 878 stored self positions and ~8,400 ally
-   candidates, all phantoms;
-3. **re-run `xmark_eval`, and treat `chokepoint_eval` as incomparable.** Its
+   candidates, all phantoms. **This is now the whole of the re-validation and
+   nothing blocks it;**
+2. **re-run `xmark_eval`, and treat `chokepoint_eval` as incomparable.** Its
    chokepoints are the distance-transform ridge OF `floor_mask`, so its ground
    truth moved with the thing under test — 31 chokepoints before, 14 after.
    Separation ratio is identical at 2.8x, which is all it can say.
@@ -68,6 +64,34 @@ Preview measured on the OLD stored track, so not the re-validation:
 
 Better median, p95 and max on four fewer scored deaths: the signature of
 removing phantoms rather than of a better detector.
+
+## `lotus__valorant-16x9` finds 41% of the plant zones it should
+
+**Found 2026-09-07 by coverage that did not exist the day before.** Keying
+geometry per (map, profile) built five keys no session had ever had geometry
+for, and scoring each against the wiki art put one far off the line:
+
+    SITE vs derived PLANT      lotus bigmap  87.4%   split bigmap  87.9%
+                               ascent bigmap 87.5%   split 16x9    85.0%
+                               ascent 16x9   84.4%   sunset 16x9   76.4%
+                               haven 16x9    74.8%   abyss 16x9    72.4%
+                               lotus 16x9    35.4%   <- 732 px derived, 1793 art
+
+Small-widget keys score lower across the board, which is expected -- the plant
+tint test in `classify()` was tuned on the large widget, and `floor_mask`'s
+lengths scale with the widget while the colour tests do not. **`lotus` at
+`valorant-16x9` is not on that gradient**, so it is a different failure, and a
+plant zone that is not labelled is a bomb site the occlusion grid calls
+ordinary floor.
+
+Not chased here, deliberately: one session reads that key
+(`bdfdcf009dba`), no minimap work is queued on Lotus 16x9, and the number was
+produced by an alignment check rather than by anything downstream noticing.
+
+**Trigger: the first minimap read on a `valorant-16x9` Lotus session, or any
+change to the plant tint test.** The second is the sharper one -- whoever
+touches that test should score all nine keys, not the one they are looking at,
+because that is how this was found. `map_shade.py check --all` is the command.
 
 ## ~~Scan `587c15b07779` and open its 13 cross-channel disagreements~~ DONE 2026-09-07
 
@@ -181,6 +205,12 @@ adds nothing — but **no small-widget painting exists**, so it is unscored.
 `prototypes\paint_map.py 9acf02f98283` closes it, and `floor_mask_eval.py`
 already scores whatever it finds with no changes.
 
+**Related, added 2026-09-07:** the small-widget keys now exist and are scored
+against the wiki art, which is a second, label-free way at the same question --
+and one of them is badly wrong. See *`lotus__valorant-16x9` finds 41% of the
+plant zones it should* above. A painting would say whether the rest of the
+gradient (72-85% against the bigmap keys' 87%) is the mask or the art fit.
+
 ## Correct §1 of the published reconciliation plan
 
 `docs/reconciliation-pass.html` —
@@ -261,31 +291,23 @@ meaning "is it in the pipeline?".
 ping reader, or move it back to `prototypes/`. It has been `doctor`'s standing
 UNWIRED finding for long enough that leaving it is now a choice.
 
-## `2ba870ccbd50` is tagged small-widget and was ingested as bigmap
+## ~~`2ba870ccbd50` is tagged small-widget and was ingested as bigmap~~ ANSWERED 2026-09-07
 
-Found by `reticle doctor`'s MANIFEST check on its first run, 2026-09-06, and
-nobody was looking for it. The session is already on record twice -- a standing
-*never re-scan* hazard in this file's ancestor and in `NOTES.md`, and a geometry
-failure `prototypes/CLAUDE.md` describes as **unexplained**: "it fixed
-contamination on `2ba870ccbd50` but introduced large false positives from a
-pixel-value mismatch between recordings that was never root caused."
+**The tag was wrong; the ingest was right.** Found by `reticle doctor`'s
+MANIFEST check on its first run, 2026-09-06, and nobody was looking for it. The
+entry said it needed *one look at a frame*, and that is what settled it: against
+the stored statics at every scale from 0.55 to 1.05, its own frames fit Ascent
+at **scale 1.00** -- corr 0.686 and 0.691 against the two Ascent geometries,
+0.071 against Split, 0.050 against Lotus. Retagged
+`ability-demo brimstone map:ascent minimap:large`, asserting only what was
+measured.
 
-A wrong-profile ingest is a candidate explanation for exactly that. The profile
-sets the minimap ROI and every constant in `minimap.py` is in widget pixels, so
-the crop would be wrong and everything downstream would return confident answers
-about the wrong pixels.
-
-**Not diagnosed.** Which of the tag and the profile is wrong needs one look at a
-frame, and `doctor` deliberately does not guess.
-
-**Trigger: any attempt to use that session, or to close the unexplained
-`--geometry-from` note.** Cheap to settle -- `reticle probe 2ba870ccbd50` and
-look at the widget.
-
-**Promoted 2026-09-07 to a PREREQUISITE of the geometry rebuild.** It is one of
-the 35 stale npz, so the rebuild will touch it whether or not anyone decides
-about it, and rebuilding it on a possibly-wrong crop launders the contradiction
-into a fresh `built_by` stamp. Settle it in the same session as the rebuild.
+Two things follow. `prototypes/CLAUDE.md` reasoned about the unexplained
+borrowing failure from *a different map and profile*; it is the same map and the
+same profile, so a wrong crop is not a candidate explanation and that note is
+corrected in place. And the npz that was quoted at it all along was a donated
+copy of `a06f04a0059f`'s geometry, which said nothing about this session -- the
+measurement had to come from the video. Nothing left to un-defer.
 
 ## Record which agent the player played, per session
 

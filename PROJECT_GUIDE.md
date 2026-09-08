@@ -71,9 +71,10 @@ enemy and portrait detectors, the colour-free channel's numbers, and **the
 domain notes on the minimap, which are not recoverable from the pixels or the
 code** — the single least replaceable thing in this repo.
 
-    minimap_geometry.py   the static map, classified. Run once per session; every
-                          other minimap module loads its npz. STAMPED: rebuild
-                          every session's geometry when this file changes
+    minimap_geometry.py   the static map, classified. ONE npz per
+                          (map, profile) -- see `reticle/geometry.py` for the
+                          key; every other minimap module resolves through it.
+                          STAMPED: `--all` rebuilds every key when this changes
     minimap_icons.py      floor_mask (the opaque slab) and the red mask
     minimap_ring_fit.py   the SHIPPED enemy finder, 80.8% / 54.6%. Fits a CIRCLE
     minimap_dynamic.py    the colour-free channel — ability glyphs a red mask
@@ -157,7 +158,7 @@ Prototypes are run directly, not through `-m`. The minimap ones, in the order a
 new session needs them:
 
 ```
-prototypes\minimap_geometry.py <session>            # once per session; writes the npz
+prototypes\minimap_geometry.py --all               # once per (map, profile); writes the npz
 prototypes\paint_map.py       <session>            # the player paints the searchable mask
 prototypes\label_dynamic.py   <session> --colour none   # the player answers 250 candidates
 prototypes\dynamic_eval.py    <session> [--mask]   # scores both of the above
@@ -1165,9 +1166,9 @@ the player recorded two controlled Cypher clips; `scan_ability_clip.py` was run 
 a labelling GUI launched straight off its output TWICE without anyone
 rendering a single candidate first. Both times the candidates were mostly
 garbage from detector bugs (self-derived geometry baking a persistent device
-into its own "empty floor" reference; a cross-session `--geometry-from`
-donor's pixel-value mismatch fragmenting the viewcone into fake icon-sized
-blobs), and the player spent real time clicking through it before either was
+into its own "empty floor" reference; a shared static map's pixel-value
+mismatch against the clip's own footage fragmenting the viewcone into fake
+icon-sized blobs), and the player spent real time clicking through it before either was
 caught. The question, verbatim: *this has already happened multiple times,
 how can you note this so you don't keep repeating it.* Prose had already
 answered that question twice and been ignored both times under time pressure,
@@ -1186,8 +1187,10 @@ conclusion with full confidence.
 writes `built_by`, a hash of itself, and `load_geometry` warns when it does not
 match. Without it, widening the plant test grew a third "bomb site" on Split --
 10921 px of brown void -- and nothing noticed, because that npz was stale and
-the two maps in use were fine. **Rebuild every session's geometry whenever
-`minimap_geometry.py` changes.**
+the two maps in use were fine. **Run `minimap_geometry.py --all` whenever that
+file changes.** Keying geometry per (map, profile) is what made that
+affordable: it is 11 builds rather than one per session, and 5 minutes end to
+end, so the stamp stops being a thing people defer.
 
 **A new reader joins the PASS. Recorded 2026-09-05, and it is an architectural
 rule rather than an optimisation:**
@@ -1339,8 +1342,9 @@ floor.* The tint is paint ON the floor. A rendering property is not a
 different surface, and the old threshold's real fault was catching the sites
 and the void with one number.
 
-**All 34 geometry npz are STALE** -- `floor_mask` moved, so `classify()` moves.
-Rebuild before trusting any minimap number.
+**Rebuilt 2026-09-07, and the store is now keyed per (map, profile).** The 36
+session npz held 5 distinct geometries; there are 11 keys today, covering 50
+sessions where 36 had one. `doctor` is 2 findings / 0 errors.
 
 **It is checkable rather than remembered -- `reticle doctor`, added
 2026-09-06.** The grep this line used to recommend is kept below because the
@@ -1354,11 +1358,14 @@ is what `doctor` does, with a small allowlist for genuinely local helpers
 (`load`, `render`, `summarise`) that has to be edited to grow.
 
 `doctor` is the repo's half of `status`: `status` says what is in the store,
-`doctor` says what shape the codebase is in. Five checks, each a fault that has
+`doctor` says what shape the codebase is in. Seven checks, each a fault that has
 actually happened here -- a name defined in both trees (ERROR), a `reticle/`
 module no CLI command reaches, a prototype named by no code and no doc, a
-geometry npz whose `built_by` is stale (ERROR), a donor shared across widget
-sizes, and a manifest whose tags contradict its profile. Only an ERROR fails
+geometry npz whose `built_by` is stale (ERROR), a shade that is stale or absent,
+a session that reaches no geometry or a key nothing has built, and a manifest
+whose tags contradict its profile. (The sixth used to be a donor shared across widget sizes; the
+(map, profile) key makes that unrepresentable, so the check was replaced rather
+than kept passing.) Only an ERROR fails
 the command; a checker that fails on everything gets ignored.
 
 Run it when picking work UP. It is deliberately not a git hook: a hook fires

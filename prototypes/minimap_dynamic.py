@@ -238,7 +238,7 @@ def searchable(labels, guard_px=LINE_GUARD, guard_boxedges=False, static=None,
     return (labels != VOID) & ~lines
 
 
-def art_mask(sid, session_map=None):
+def art_mask(sid):
     """The OFFICIAL map art's footprint, fitted to this session's widget.
 
     The best of the three searchable sources, and the only one that needs
@@ -270,9 +270,11 @@ def art_mask(sid, session_map=None):
     """
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from wiki_map import art_alpha, fit_for_session
+    from wiki_map import fit_for_key
 
-    return fit_for_session(sid, session_map)
+    from reticle import geometry as _G
+    gkey = _G.key_of(sid, STORE)
+    return None if gkey is None else fit_for_key(gkey)
 
 
 def painted_mask(sid):
@@ -409,9 +411,7 @@ def detect(crop, static_gray, ok_area, diff_min=DIFF_MIN, tophat=True, static_gr
 
 
 def load_geometry(sid):
-    p = STORE / "geometry" / f"{sid}.npz"
-    if not p.is_file():
-        raise SystemExit(f"no geometry for {sid} -- run minimap_geometry.py first")
+    p = _G.require(sid, STORE)
     z = np.load(p)
     # Warn rather than refuse: a stale npz is usually still usable, and stopping
     # the world mid-analysis is worse than saying so. See `source_stamp`.
@@ -432,8 +432,8 @@ def load_two_state(sid):
     `dynamic_eval.py`'s mask scoring -- keeps working unchanged; only the
     callers of `detect()` that want the fix need to ask for this too.
     """
-    p = STORE / "geometry" / f"{sid}.npz"
-    if not p.is_file():
+    p = _G.path_of(sid, STORE)
+    if p is None or not p.is_file():
         return None, None
     z = np.load(p)
     if "lo_gray" not in z.files:
@@ -488,8 +488,8 @@ def load_noise(sid):
     Different measurement, not a contradiction -- do not read one against the
     other.
     """
-    p = STORE / "geometry" / f"{sid}.npz"
-    if not p.is_file():
+    p = _G.path_of(sid, STORE)
+    if p is None or not p.is_file():
         return None, None
     z = np.load(p)
     if "sd_lo" not in z.files:

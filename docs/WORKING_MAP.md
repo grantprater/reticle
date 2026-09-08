@@ -30,6 +30,7 @@ the linked source is authoritative for detail.
 | HUD, killfeed, roster | `ocr.py`, `killfeed.py`, `roster.py` |
 | Rounds and phase boundaries | `rounds.py`, `scoreboard.py` |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py` |
+| Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
@@ -50,7 +51,13 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle audit
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
+.\.venv\Scripts\python.exe prototypes\minimap_geometry.py --all
 ```
+
+Geometry is one npz per `<map>__<profile>`, never per session: resolve every
+path through `reticle/geometry.py` rather than joining a session id onto
+`store/geometry/`. A session with no `map:` tag reaches no geometry, and
+`doctor`'s COVERAGE check reports it.
 
 For stored-data changes, prefer `segment`, `audit`, `coach`, or `sql`
 as appropriate. `segment`/`audit` reuse stored L1; `hud`,

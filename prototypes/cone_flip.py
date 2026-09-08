@@ -77,6 +77,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from reticle.profiles import PROFILES
 from reticle import minimap as M
+from reticle import geometry as _G                                  # noqa: E402
 from reticle import cone as C
 from ally_cone import _load, _ang_diff
 
@@ -84,7 +85,7 @@ SID = "a06f04a0059f"
 man = json.load(open(next((pathlib.Path.home()/"reticle-store"/"manifests").rglob(f"*{SID}*.json"))))
 src = man["source"]; prof = PROFILES[man["source_profile"]]
 box = M.minimap_roi_px(prof, int(src["width"]), int(src["height"]))
-z = np.load(pathlib.Path.home()/"reticle-store"/"geometry"/f"{SID}.npz")
+z = np.load(_G.require(SID))
 med, labels = z["static"], z["labels"]
 floor = M.floor_mask(med)
 passable = floor | (labels == M.BOXEDGE)

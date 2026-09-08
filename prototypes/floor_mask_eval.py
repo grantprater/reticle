@@ -87,6 +87,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle import metrics                                       # noqa: E402
+from reticle import geometry as _G                                  # noqa: E402
 from reticle import minimap as mm                                 # noqa: E402
 
 STORE = Path.home() / "reticle-store"
@@ -116,8 +117,8 @@ def painting(sid):
 
 def geometry_static(sid):
     """The session's cached median widget. `static` is what floor_mask reads."""
-    p = STORE / "geometry" / f"{sid}.npz"
-    if not p.is_file():
+    p = _G.path_of(sid, STORE)
+    if p is None or not p.is_file():
         return None
     return np.load(p, allow_pickle=True)["static"]
 
@@ -265,7 +266,7 @@ def main() -> int:
                     "truth_source": meta.get("by", "human")}]
 
         _with_plant.__defaults__[0]["labels"] = np.load(
-            STORE / "geometry" / f"{sid}.npz", allow_pickle=True)["labels"]
+            _G.require(sid, STORE), allow_pickle=True)["labels"]
         for name, fn in impls.items():
             s = score(fn(med), truth)
             print(f"{sid:>14} {name:>26} {100 * s['area']:6.1f}% "

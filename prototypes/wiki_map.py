@@ -155,6 +155,7 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from reticle import geometry as G                                 # noqa: E402
 from reticle.minimap import floor_mask                            # noqa: E402
 
 STORE = Path.home() / "reticle-store"
@@ -347,31 +348,30 @@ def refine_ncc(map_name, med_gray, rot, scale, dx, dy, span=10):
     return best
 
 
-def map_of(sid: str) -> str | None:
-    """The session's map, from its manifest tags. Already recorded at ingest."""
-    m = STORE / "manifests" / f"{sid}.json"
-    if not m.is_file():
-        return None
-    tags = json.loads(m.read_text(encoding="utf-8")).get("tags", [])
-    return next((t.split(":", 1)[1] for t in tags if t.startswith("map:")), None)
+# The session's map, from its manifest tags. One implementation, in shipped
+# code, so a prototype and the pipeline cannot drift on what map a session is.
+map_of = G.map_of
 
 
-def fit_for_session(sid: str, map_name: str | None = None):
-    """The art's footprint in this session's widget pixels, or None.
+def fit_for_key(gkey: str):
+    """The art's footprint in this key's widget pixels, or None.
 
-    **Cached per session**, because the fit is a search and the answer is a
-    constant: three numbers that depend on the map and the widget geometry,
-    neither of which moves within a session. Without the cache this would be
-    minutes on every call, which is how a good mask becomes a mask nobody uses.
+    **Cached per (map, profile)**, the same key as the geometry it is fitted
+    against, because the fit is a search and the answer is a constant: three
+    numbers that depend on the map and the widget geometry, neither of which
+    moves within a session OR between two sessions of the same map at the same
+    profile. It was cached per session until 2026-09-07 and paid for that with
+    36 cache entries where 11 do.
 
-    Returns None -- never raises -- when the map is unknown, the art is not
-    fetched, or the session has no geometry to fit against. Callers keep their
+    Returns None -- never raises -- when the key is malformed, the art is not
+    fetched, or the key has no geometry to fit against. Callers keep their
     existing fallback; this is an upgrade path, not a dependency.
     """
-    map_name = map_name or map_of(sid)
-    if not map_name:
+    try:
+        map_name, _profile = G.parse(gkey)
+    except ValueError:
         return None
-    cache = STORE / "reference" / "fits" / f"{sid}.npz"
+    cache = G.fit_path(gkey, STORE)
     if cache.is_file():
         z = np.load(cache)
         return _place(_warp(art_alpha(map_name), float(z["rot"]), float(z["scale"])),
@@ -380,7 +380,7 @@ def fit_for_session(sid: str, map_name: str | None = None):
         alpha = art_alpha(map_name)
     except SystemExit:
         return None
-    g = STORE / "geometry" / f"{sid}.npz"
+    g = G.path(gkey, STORE)
     if not g.is_file():
         return None
     z = np.load(g)
@@ -411,8 +411,7 @@ def main(argv=None) -> int:
     f = sub.add_parser("fetch")
     f.add_argument("maps", nargs="+")
     g = sub.add_parser("fit")
-    g.add_argument("session")
-    g.add_argument("--map", required=True)
+    g.add_argument("key", help="a geometry key, `<map>__<profile>`")
     g.add_argument("--against", choices=("derived", "painted"), default="derived",
                    help="derived floor_mask (any session) or the painting")
     g.add_argument("--fine", action="store_true",
@@ -426,15 +425,17 @@ def main(argv=None) -> int:
         fetch(a.maps)
         return 0
 
+    a.map, _profile = G.parse(a.key)
     alpha = art_alpha(a.map)
     if a.against == "painted":
-        p = STORE / "labels" / "map_mask" / f"{a.session}.png"
+        ref_sid = G.reference_session(a.key, STORE)
+        p = STORE / "labels" / "map_mask" / f"{ref_sid}.png"
         if not p.is_file():
-            raise SystemExit(f"no painted mask for {a.session}")
+            raise SystemExit(f"no painted mask for {a.key} ({ref_sid})")
         target = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) > 127
         what = "the painting"
     else:
-        z = np.load(STORE / "geometry" / f"{a.session}.npz")
+        z = np.load(G.path(a.key, STORE))
         m = cv2.erode(floor_mask(z["static"]).astype(np.uint8),
                       np.ones((9, 9), np.uint8)) > 0
         # `floor_mask` also catches the widget rim and the corner HUD; the map

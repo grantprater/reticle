@@ -15,14 +15,18 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from reticle.profiles import PROFILES
 from reticle import minimap as M
+from reticle import geometry as _G                                  # noqa: E402
 import wiki_map as WM
 
 SID = "a06f04a0059f"
-CACHE = pathlib.Path.cwd() / "freq_cache.npz"
+# In the STORE, not the CWD. Running this from the repo root dropped a 1.8 MB
+# untracked npz beside the source, one `git add -A` away from being committed.
+CACHE = pathlib.Path.home() / "reticle-store" / "analysis" / f"cone_terrain_{SID}.npz"
+CACHE.parent.mkdir(parents=True, exist_ok=True)
 man = json.load(open(next((pathlib.Path.home()/"reticle-store"/"manifests").rglob(f"*{SID}*.json"))))
 src = man["source"]; prof = PROFILES[man["source_profile"]]
 box = M.minimap_roi_px(prof, int(src["width"]), int(src["height"]))
-z = np.load(pathlib.Path.home()/"reticle-store"/"geometry"/f"{SID}.npz")
+z = np.load(_G.require(SID))
 lab = z["labels"]
 lo, hi = z["lo_gray"].astype(np.float64), z["hi_gray"].astype(np.float64)
 sl = np.maximum(z["sd_lo"].astype(np.float64), 0.5)
@@ -35,7 +39,7 @@ usable = solid & (sep > 4.0) & (hi - lo > 6.0)
 H, W = floor.shape
 fps = float(src["fps"])
 
-f = np.load(pathlib.Path.home()/"reticle-store"/"reference"/"fits"/f"{SID}.npz")
+f = np.load(_G.fit_path_of(SID))
 rot, scale, dx, dy = float(f["rot"]), float(f["scale"]), int(f["dx"]), int(f["dy"])
 grey_art, alpha = WM.art_grey("ascent")
 

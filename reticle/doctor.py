@@ -256,52 +256,44 @@ def check_geometry(store: Path) -> list[tuple[str, str]]:
         return []
     return [(ERROR, f"{len(stale)} of {len(list(d.glob('*.npz')))} geometry npz "
                     f"are STALE (built_by != current) -- rebuild with "
-                    f"prototypes/minimap_geometry.py before trusting a minimap "
-                    f"number. {', '.join(stale[:6])}"
+                    f"prototypes/minimap_geometry.py --all before trusting a "
+                    f"minimap number. {', '.join(stale[:6])}"
                     f"{' ...' if len(stale) > 6 else ''}")]
 
 
-def check_donor(store: Path) -> list[tuple[str, str]]:
-    """Sessions sharing one static map across DIFFERENT widget sizes.
+def check_coverage(store: Path) -> list[tuple[str, str]]:
+    """Sessions that reach no geometry, and keys nothing has built.
 
-    Borrowing a donor's geometry is deliberate and measured -- a different
-    account, day and encode still put the same map pixel within ~3 grey levels.
-    Borrowing ACROSS widget sizes is not: every constant in `minimap.py` is in
-    widget pixels, so a small-widget session wearing a large-widget donor's
-    median is wrong in a way nothing downstream reports.
+    **This replaced `check_donor` on 2026-09-07, and the replacement is the
+    point.** That check hunted for sessions sharing one static map across
+    DIFFERENT widget sizes -- a real defect, because every constant in
+    `minimap.py` is in widget pixels, and one a per-session store could always
+    produce. Keying geometry `<map>__<profile>` makes it unrepresentable: a
+    session reads the npz for its own profile or it reads nothing. A check that
+    cannot fail is worse than no check, so it is gone rather than kept passing.
+
+    What the new key CAN get wrong is coverage, in two directions: a session
+    with no `map:` tag resolves to no key at all, and a key several sessions
+    read may simply have never been built.
     """
-    d, man = store / "geometry", store / "manifests"
-    if not (d.is_dir() and man.is_dir()):
+    from . import geometry as G
+    if not (store / "manifests").is_dir():
         return []
-    import hashlib
-    import numpy as np
-    groups: dict[str, list[str]] = collections.defaultdict(list)
-    for p in sorted(d.glob("*.npz")):
-        try:
-            s = np.load(p, allow_pickle=True)["static"]
-        except Exception:
-            continue
-        groups[hashlib.md5(np.ascontiguousarray(s)).hexdigest()].append(p.stem)
     out = []
-    for _, sids in groups.items():
-        if len(sids) < 2:
-            continue
-        profiles = {}
-        for sid in sids:
-            f = man / f"{sid}.json"
-            if f.is_file():
-                m = json.loads(f.read_text(encoding="utf-8"))
-                profiles[sid] = m.get("source_profile", "?")
-        if len(set(profiles.values())) > 1:
-            odd = collections.Counter(profiles.values())
-            minority = odd.most_common()[-1][0]
-            who = [s for s, pr in profiles.items() if pr == minority]
-            out.append((WARN, f"{', '.join(who)} ({minority}) share a static map "
-                              f"with {len(sids) - len(who)} sessions on "
-                              f"{odd.most_common()[0][0]} -- widget sizes differ, "
-                              f"so every widget-pixel constant is off"))
+    loose = G.untagged(store)
+    if loose:
+        out.append((WARN, f"{len(loose)} session(s) have no `map:` tag, so they "
+                          f"reach NO geometry -- tag them: {', '.join(loose[:6])}"
+                          f"{' ...' if len(loose) > 6 else ''}"))
+    missing = [(k, len(G.sessions_for(k, store))) for k in G.keys_in_store(store)
+               if not G.path(k, store).is_file()]
+    if missing:
+        out.append((WARN, f"{len(missing)} geometry key(s) that sessions read are "
+                          f"NOT BUILT -- run prototypes/minimap_geometry.py: "
+                          + ", ".join(f"{k} ({n} session(s))"
+                                      for k, n in missing[:4])
+                          + (" ..." if len(missing) > 4 else "")))
     return out
-
 
 
 def check_shade(store: Path) -> list[tuple[str, str]]:
@@ -314,9 +306,9 @@ def check_shade(store: Path) -> list[tuple[str, str]]:
     `prototypes/map_shade.py build --all` -- which is why this is a WARN and
     not an ERROR: it is a cache, not a derivation.
 
-    An npz with no shade at all is reported separately, because the usual
-    cause is not staleness but a session with no `map:` tag, and the fix is a
-    tag rather than a rebuild.
+    An npz with no shade at all is reported separately, because the cause is
+    not staleness but a map whose art has never been fetched, and the fix is
+    `wiki_map.py fetch` rather than a rebuild.
     """
     d = store / "geometry"
     if not d.is_dir():
@@ -353,9 +345,8 @@ def check_shade(store: Path) -> list[tuple[str, str]]:
                           f"{', '.join(stale[:6])}"
                           f"{' ...' if len(stale) > 6 else ''}"))
     if absent:
-        out.append((WARN, f"{len(absent)} geometry npz have NO shade -- usually "
-                          f"a session with no `map:` tag, or a map whose art is "
-                          f"not fetched. {', '.join(absent[:6])}"
+        out.append((WARN, f"{len(absent)} geometry npz have NO shade -- the "
+                          f"map's art is not fetched. {', '.join(absent[:6])}"
                           f"{' ...' if len(absent) > 6 else ''}"))
     return out
 
@@ -365,7 +356,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("ORPHAN", check_orphan),
               ("GEOMETRY", lambda: check_geometry(store)),
               ("SHADE", lambda: check_shade(store)),
-              ("DONOR", lambda: check_donor(store)),
+              ("COVERAGE", lambda: check_coverage(store)),
               ("MANIFEST", lambda: check_manifest(store)))
     out = []
     for name, fn in checks:

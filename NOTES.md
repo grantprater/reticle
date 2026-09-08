@@ -11,7 +11,123 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-07, architecture steps A1-A4 landed
+## PICKING UP -- 2026-09-07, geometry is keyed per (MAP, PROFILE)
+
+`doctor` is 2 findings / 0 errors, down from 4 / 1. The stale-geometry error --
+the blocker every minimap number sat behind, and the one the last two handoffs
+inherited -- is closed, and the layout that kept re-creating it is gone. 60
+tests pass (50 before). The next thing in the minimap channel is job 2 of the
+re-validation, re-reading `l1/minimap`; nothing there is blocked any more.
+
+**The store had 36 geometry npz holding 5 distinct geometries.** Twenty-nine
+were one 39-minute Ascent match copied to twenty-eight ability-demo clips by a
+`--geometry-from` flag, because a 37s clip built around one deliberate cast
+cannot median its own static map without baking the cast in. That number is the
+whole argument: geometry is a property of the LEVEL and the widget it is drawn
+in, not of the recording.
+
+    store/geometry/<map>__<profile>.npz      11 keys, covering 50 sessions
+    store/reference/fits/<map>__<profile>.npz  the art fit, same key, same reason
+
+`reticle/geometry.py` owns the key and every path that used to be built by hand
+from a session id. `minimap_geometry.py --all` rebuilds every key from its
+reference session -- the longest recording on that key -- in 5m40s, and
+re-attaches shade on each write. `--geometry-from` and `--two-state-from` are
+deleted, not deprecated: sharing IS the key now, so there is one write path and
+nothing to choose wrongly. `tools/rebuild_geometry.py`, written earlier the same
+day to order the donations, went with them.
+
+**Three defects the old key could produce and this one cannot.** The copy was
+invisible (a donated npz recorded nothing about its donor, so the relation
+survived only as a byte-identical `static`). A rebuild looked like 36 decodes
+when it was 5, so it was deferred, so the stamp stayed stale. And one map could
+hold different answers per session with nothing comparing them -- the two Lotus
+recordings disagreed on 0.35% of pixels and their stored lighting references by
+24 grey levels, which `prototypes/CLAUDE.md` had already measured as an artefact
+of different frame counts in different runs rather than of the recordings.
+`doctor`'s DONOR check went too, replaced by COVERAGE: a donor shared across
+widget sizes is now unrepresentable, and a check that cannot fail is worse than
+no check.
+
+**Verified, not assumed:**
+
+* `floor_mask_eval` reproduces **78.8% / 77.9% IoU at 100% recall** against the
+  two paintings -- the number recorded in `reticle/minimap.py:223`, read through
+  the new resolver off freshly rebuilt per-key geometry;
+* `cone.py --bench` still reports **0 disagreeing pixels**, 2.56 ms/cone;
+* `STATUS.md`'s K/D, rounds and plant columns are unchanged; the only movement
+  is the `geo` column, `-` to `y` for **18 sessions** that now reach geometry
+  because their map has it;
+* SITE against derived PLANT holds at **87.5% / 87.4% / 87.9%** on the three
+  bigmap keys, against 87.4-87.9% before the rebuild;
+* 60 tests, including `tests/test_geometry.py` on the key itself.
+
+### What the new coverage exposed, which is the point of having it
+
+Five keys now exist that never had geometry: abyss, haven, lotus and split at
+`valorant-16x9`, and summit. Scoring them against the art immediately found one
+outlier:
+
+    ascent__valorant-16x9-bigmap   SITE vs PLANT  87.5%
+    split__valorant-16x9-bigmap                   87.9%
+    lotus__valorant-16x9-bigmap                   87.4%
+    split__valorant-16x9                          85.0%
+    ascent__valorant-16x9                         84.4%
+    sunset__valorant-16x9                         76.4%
+    haven__valorant-16x9                          74.8%
+    abyss__valorant-16x9                          72.4%
+    lotus__valorant-16x9                          35.4%   <- 732 px derived
+                                                             against 1793 art
+
+**`lotus__valorant-16x9` finds 41% of the plant zones it should.** Small-widget
+keys score lower across the board (the plant tint test was tuned at bigmap), but
+this one is not on that gradient -- it is a different failure. Nothing has been
+changed to chase it; it is written into `BACKLOG.md` with what would make it
+worth doing. Two summit keys carry no shade at all because `summit.png` has
+never been fetched, which is `doctor`'s remaining SHADE finding.
+
+### Three things settled on the way, each of which was an open question
+
+**`2ba870ccbd50` is Ascent on the LARGE widget: the tag was wrong, the ingest
+was right.** Measured off its own frames, not its npz -- the npz was a donated
+copy and said nothing about the session. Against the stored statics at every
+scale from 0.55 to 1.05 the best fit is Ascent at **scale 1.00** (corr
+0.686/0.691 against the two Ascent geometries, 0.071 Split, 0.050 Lotus).
+Retagged `ability-demo brimstone map:ascent minimap:large`; only what was
+measured went in, so `outline:red` and `custom-game` were not invented. This
+also corrects `prototypes/CLAUDE.md`, which reasoned about the unexplained
+borrowing failure from *a different map and profile* -- it is the same map and
+the same profile, so a wrong crop is no longer a candidate explanation.
+
+**`79a706a7ce4c` is Ascent too** (its own static correlates 0.949 with Ascent
+and 0.102 with Split), which closed the one npz with no shade. It was also the
+one short clip still deriving geometry from its own 44 seconds, and the diff
+against the shared version shows why that is not allowed: **its static had
+Cypher's placed camera and trapwires baked in as map structure**, and its
+classifier put 347 px of "plantable" in the void beside A site. Labels differed
+by only 1.14% of pixels, so no aggregate was ever going to show this; a rendered
+diff showed it in seconds. Two more untagged Ascent clips (`d95cfad5693a`,
+`eb10db50b1fb`) were identified the same way and tagged.
+
+**A rebuild could silently drop the shade.** `map_shade.write_shade` declines
+without raising when it cannot place a map, and `reattach_shade` was best-effort
+over exceptions only -- so a rebuild dropped shade two npz already had and
+`doctor`'s SHADE finding went 1 -> 3 with nothing in the output saying so. The
+npz is now checked for shade BEFORE it is overwritten, and losing arrays that
+were there prints a line: a different event from never having had them.
+
+### Where the old numbers moved, measured against a pre-change snapshot
+
+Taken while the per-session layout still stood, so it is a real before/after:
+27 donated copies moved 0.08pp of border to box edge (they carried an older
+build of the donor's labels), one split key 0.12pp, and **the three
+`valorant-16x9` sessions moved floor -1.80pp to void +0.93 and hole +0.87.**
+`BACKLOG.md` predicted exactly that in advance -- *the lengths in `floor_mask`
+now scale with the widget, which moves three small-widget sessions and no large
+one* -- and this was the first time that prediction had been run. The direction
+is conservative: the mask admits less of the semi-transparent void.
+
+## Superseded -- 2026-09-07, architecture steps A1-A4 landed
 
 `docs/ARCHITECTURE_PLAN.md` is the execution plan; its status table now carries
 the evidence. A1 split the eager `CLAUDE.md` (71 lines) from `PROJECT_GUIDE.md`,
@@ -119,7 +235,10 @@ cross-slot spread does not separate an undrawn roster from a wiped one.
 
 ### DONE 2026-09-07: the art's terrain LEVELS are in the geometry npz.
 
-`prototypes/map_shade.py`, additive, **35 of 36 npz**. Six classes rather than a
+`prototypes/map_shade.py`, additive, **9 of the 11 (map, profile) keys** --
+35 of 36 session npz when it was measured, the same coverage under the layout
+that replaced them; the two exceptions are the summit keys, whose art has never
+been fetched. Six classes rather than a
 level table -- FLOOR (a per-map ladder), RAMP, SHADOW, LINE, SITE, VOID -- plus
 `shade_step`, `shade_purity` and the fit used. Full argument and every figure in
 that module's docstring and in `prototypes/CLAUDE.md` under "THE BASE LAYER IS
@@ -128,9 +247,10 @@ BUILT". The three that matter here:
 * **51.9% of every always-lit pixel is off the base shade**, and the artefact
   rate climbs monotonically with the rung (8.1% at base, 35.8% at +5) while the
   real cones fall away with it (7.7% sometimes-lit at base, 0.1% at +5);
-* **SITE against the derived `PLANT` labels is 87.4-87.9% IoU** on four
-  independent statics across three maps -- an alignment check the alpha fit
-  cannot give;
+* **SITE against the derived `PLANT` labels is 87.4-87.9% IoU** on the three
+  bigmap keys -- an alignment check the alpha fit cannot give. It held across
+  the re-key. The five small-widget keys score 35-85% and are a live defect,
+  not a result: see `BACKLOG.md`;
 * **two stored fits were stale and worse than the code's own answer**
   (`a06f04a0059f` 79.9% -> 94.6% IoU). Recomputed. `cone_terrain`'s numbers were
   measured through the worse one and **survived unchanged**.
@@ -148,7 +268,7 @@ no PNG has ever been committed here. What this repo produces and ships is
 `reference/shade/<map>.npz` -- class indices per pixel -- which is the
 measurement, not the render.
 
-### Next within the minimap channel (after cache revalidation)
+### Next within the minimap channel (the cache is revalidated)
 
 **The ANNOTS layer: subtract the audio ring and the icons, then fit bearings to
 the residual.** BASE now exists, so this is the next layer down the list in
@@ -168,14 +288,16 @@ of the usable area and carries 90% of the real cone pixels, so it is both the
 biggest and the cleanest population. And `shade_kind == LINE` should be excluded
 from every lit test outright: it is 21.4% always-lit and it is not terrain.
 
-**One tag would finish the coverage:** `79a706a7ce4c` has its own static and no
-`map:` tag, so it is the only geometry npz with no shade. It is the third Cypher
-demo clip; if it is Ascent, tagging it costs nothing and
-`map_shade.py build 79a706a7ce4c --map ascent` does the rest.
+**DONE 2026-09-07: every key with art carries shade.** `79a706a7ce4c` measured
+as Ascent, tagged, and then dissolved as a question entirely -- it reads
+`ascent__valorant-16x9-bigmap` like every other Ascent bigmap session, because
+geometry is no longer per session. Only `summit` is uncovered, and the fix is
+`wiki_map.py fetch summit` rather than anything about a session.
 
-**And re-run `map_shade.py build --all` after any geometry rebuild** --
-`minimap_geometry.py` writes the npz from scratch and will drop these arrays.
-`doctor` says 35 of 36 are stale, so that rebuild is coming.
+**The `map_shade.py build --all` follow-up is no longer a follow-up.**
+`minimap_geometry.py` re-attaches shade on every write and says so out loud when
+a rebuild loses shade that was there. `--all` verifies coverage after it runs
+rather than leaving it to whoever remembers.
 
 
 **The observable area is built, drawn and measured, and the session ended on a

@@ -36,6 +36,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import geometry
 from .checks import KNOWN_KD, player_events
 from .store import DEFAULT_STORE, Store
 from .version import HUD_VERSION, MINIMAP_VERSION, PING_VERSION, ROSTER_VERSION
@@ -45,6 +46,17 @@ LABEL_KINDS = ("minimap", "minimap_dynamic", "minimap_agent", "enemies", "map_ma
 
 def _date_of(man: dict) -> str:
     return (man.get("ingested_at") or "")[:10]
+
+
+def _has_geometry(sid: str, root) -> bool:
+    """Does this session reach a BUILT geometry npz?
+
+    Two ways to answer no and the column shows one `-` for both: the session
+    has no `map:` tag, or its `<map>__<profile>` key has never been built.
+    `doctor`'s COVERAGE check is what separates them.
+    """
+    p = geometry.path_of(sid, root)
+    return p is not None and p.is_file()
 
 
 def _map_of(man: dict) -> str:
@@ -150,7 +162,7 @@ def collect(store: Store) -> dict:
             "primitives": store.primitives_path(sid, date).is_file(),
             "spans": store.spans_path(sid, date).is_file(),
             "rounds": store.rounds_path(sid, date).is_file(),
-            "geometry": (root / "geometry" / f"{sid}.npz").is_file(),
+            "geometry": _has_geometry(sid, root),
             "known": KNOWN_KD.get(sid),
             "labels": dict(label_rows.get(sid, {})),
         }

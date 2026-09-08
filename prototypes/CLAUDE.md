@@ -565,7 +565,8 @@ moved by DELETION plus re-export:
 Vectorising was not optional: 2.74 ms/cone against the loop's 37.40, which is
 6.3 min against 1.4 h for a 39-minute session at 15 Hz with five icons.
 `cone.py --bench <session>` re-checks the equivalence on a real geometry npz
-and reports 0 disagreeing pixels.
+and reports 0 disagreeing pixels -- rerun 2026-09-07 on the per-key store,
+still 0, at 2.56 ms/cone against the loop's 29.65.
 
 **`self_mask` was a THREE-way fork** -- byte-identical in `minimap_self_check`
 and `self_agent`, and inline a third time in `self_rings`. `doctor` could not
@@ -1733,14 +1734,20 @@ classified `box edge` in the clip where the match says `floor`. That is the
 own icon and vision cone, stationary long enough to survive the median and be
 baked in as map structure. Smaller blobs are the callout text along the top
 edge. The capture-side fix is to KEEP MOVING while placing; the post-hoc fix is
-to borrow the full match's geometry, for which see the next note.
+to read the full match's geometry, for which see the next note.
 
-**Borrowing measured, not assumed.** `--geometry-from a06f04a0059f` against
-the clip's own `--two-state-from` build, `ability_disc.find_discs` over 40
-frames of `c0b63335e635`:
+**SETTLED STRUCTURALLY 2026-09-07.** Geometry is keyed `<map>__<profile>` and
+built from the longest recording on that key, so a demo clip no longer has an
+own-geometry option to choose wrongly -- it reads the match's, because they are
+the same map at the same widget size. What follows is the measurement that
+argued for it, taken while the choice still existed.
 
-    geometry-from     1.00 candidates/frame   mean area 93.9
-    two-state-from    0.78 candidates/frame   mean area 94.4
+**Borrowing measured, not assumed.** A donated `a06f04a0059f` geometry against
+the clip's own build, `ability_disc.find_discs` over 40 frames of
+`c0b63335e635`:
+
+    borrowed          1.00 candidates/frame   mean area 93.9
+    own               0.78 candidates/frame   mean area 94.4
 
 The `2ba870ccbd50` symptom was LARGE, LONG-LIVED false positives, so identical
 mean area is the reassuring number and the rate difference is small. Read the
@@ -1750,7 +1757,7 @@ FEWER because the parked cone is baked into it as map structure, so
 candidates there is a recall loss disguised as a precision win.
 
 **A donor's lighting reference IS transferable between recordings, measured.**
-NOTES has `--geometry-from` down as unresolved -- it fixed contamination on
+NOTES had borrowing down as unresolved -- it fixed contamination on
 `2ba870ccbd50` but introduced large false positives from a pixel-value mismatch
 between recordings that was never root caused. Tested directly here, medianing
 the raw widget from each recording and comparing gray on the 73061 pixels the
@@ -1765,8 +1772,13 @@ different day and a different encode still put the same map pixel at nearly the
 same value, and the `2ba870ccbd50` failure was NOT a general property of
 borrowing across recordings. **Do not read this as a clearance for that
 session** -- it says the mechanism blamed there is absent HERE, on Ascent, on
-these clips; `2ba870ccbd50` is a different map and profile and remains
-unexplained.
+these clips. **`2ba870ccbd50` is NOT a different map or profile -- corrected
+2026-09-07.** It was tagged `small-widget`, which is where that belief came
+from, and the tag was simply wrong: its own frames match Ascent at scale 1.00
+(corr 0.686/0.691 against the two Ascent geometries, 0.071 Split, 0.050 Lotus),
+which is the large widget its ingest profile already said it was. So a wrong
+crop is not a candidate explanation for that failure, and it remains
+unexplained on narrower grounds than before.
 
 Caution on how this was measured, because it nearly went the other way: the
 same comparison run on the two sessions' STORED `lo_gray`/`hi_gray` gives mean
@@ -1853,8 +1865,9 @@ Four consequences, and the first is the important one:
 
 ### First scan of the demo corpus: candidates are not events (2026-09-03)
 
-26 clips rebuilt with `--geometry-from a06f04a0059f` (which removes the parked
-vision cone the clips' own medians bake in) and scanned with
+26 clips rebuilt against `a06f04a0059f`'s geometry (which removes the parked
+vision cone the clips' own medians bake in; since 2026-09-07 that is simply the
+Ascent bigmap key they all read) and scanned with
 `scan_ability_clip.py`. First numbers, and the shape of the problem:
 
     c0b63335e635 tejo    45 candidates -> 28 events   4 fragmented into >=3
