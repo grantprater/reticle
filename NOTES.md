@@ -11,7 +11,109 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-08, identity, barriers, and the cone restored
+## PICKING UP -- 2026-09-08 evening, the widget's own furniture was the map
+
+The session's goal was **full-round visual labelling and bounding, clearly
+correct**. Four defects were found by measuring the shipped round rather than
+by reading code, and all four are fixed, committed and re-rendered. Entity
+hypotheses for Sunset R6 fell **1,671 -> 1,551** with no agent, ping or ability
+on real map lost, and the two channels that were most visibly wrong -- the
+location-name banner and the buy-phase enemies -- are gone entirely.
+
+### The artefact to look at
+
+    ~/reticle-store/notes/sunset-round6-final-20260908
+
+79.0 s, 4740/4740 frames, 0 ms stalled, `lighting-0.3.0`,
+`round-lifetimes-0.4.0`, `full-round-0.10.0`. The three earlier directories
+from today (`-reconciled-`, `-clean-`, `-gated-`) are the A/B steps and can be
+deleted; each isolates one fix.
+
+**The `lighting-0.3.0` gap named in the previous handoff is closed.** The
+re-run produced `sunset-round6-lighting03-20260908` with the version stamped in
+`provenance.json`, and the entity set was byte-identical at 1,671 -- so the
+monotonic lit read changes the cone evidence and not the detections. Re-measured
+under it, with unknown pixels no longer counted as dark, **the median
+unexplained lit floor is 52.0%, not the 41% recorded under `lighting-0.2.0`**.
+The residual got worse when it was measured honestly. `unknown_px` is 64,891
+against 4.25 M comparable, so unknown is not what moved it.
+
+### What was wrong, and what the cross-reference was each time
+
+**1. The location-name banner was FLOOR.** `floor_mask`'s BRIDGE rule
+re-attaches any component within 25 widget px of the map body, and Sunset draws
+`B Market` 9 px above it. 57 entity hypotheses over 1,410 observations sat on
+the words, as `ability? 307` and `enemy 68`. The channel the brightness test
+does not read was already in the npz -- **map structure is what does not
+change** -- so a bridged component is now admitted only when its median `sd_lo`
+is inside the body's own 95th percentile. Over the twelve baked geometries the
+separation is clean: every real component 0.00-0.87 of the body's p95, the two
+offenders at 2.90 (Split's widget rim) and 7.46 (the banner). Ascent's 1,362 px
+component -- the Boathouse shape this bridge exists for -- is kept, which a
+convex-hull rule would have thrown away. Rendered and inspected on three maps.
+`floor_mask_eval` unmoved: Ascent 78.8%, Lotus 77.9%, recall 100%.
+
+**2. Two thirds of the enemy channel was impossible.** While the spawn barriers
+are drawn nobody has line of sight, so the widget cannot show an enemy. The
+barrier channel is observed per frame and now gates the enemy channel: enemy
+observations **531 -> 159**, enemy entities **152 -> 73**, and the 158
+observations after `live_start` are unchanged, which was the falsifier. The two
+channels agree about the boundary without being told -- barriers +1.5s..+29.2s,
+`live_start` +29.5s, zero barrier samples after it.
+
+**3. `Tracker.principal` held a track that had stopped being observed.** It
+ranked on lifetime `n_obs`, which answers *which track has the best record*
+rather than *where is the icon now*, so 56 of 774 drawn samples had a self icon
+detected AND tracked with no box drawn. It is now sticky and refuses. Coverage
+81.0% -> 72.6%, and that is the right direction: the worst step between
+consecutive reported self positions goes 312.2 px -> 13.9 px and the count over
+20 px goes 6 -> 0. 38 of its 77 gaps are one sample, which the renderer covers
+by holding the last box. Ordering on freshness alone reaches 88.2% and puts the
+p95 step at 20.1 px, which is the flip-flop `principal` exists to stop.
+
+**4. The roster conflict named an arbitrary victim.** The flag went to whichever
+ally the observation list reached fifth. Ally observations now fill the roster's
+slots ranked by the strength of the correspondence claim, so the mark lands on
+the weakest one in the frame; the flagged ally is a resolved continuation in 31
+samples now against 69 before, with counts unchanged.
+
+Also: the sidecar panel listed the six STATIC barriers for the whole buy phase
+and never printed self, ally or enemy, out of 16.4 rows per sample. Fixed, and
+the same order now decides which label keeps its baseline in a crowd.
+
+### THE NEXT THREAD: four allies are still 85 hypotheses
+
+Unchanged by any of this, and now the largest wrong number left. The roster
+disagrees with the ally count in 58% of drawn samples -- over-count in 136,
+under-count in 314 -- and 68 of the 85 ally births happen while a roster slot
+was FREE, so the roster gate is not what is holding it back: the tracker loses
+an ally and re-acquires it as a new entity.
+
+**Do not expect the light to solve it.** Measured today over the 103 samples
+carrying a roster conflict, the flagged ally's `lit_share` ran a median 0.707
+against 0.761 for the accepted ones. Light separates a phantom from a real
+icon; it does not rank four real icons against five. The residual-light idea in
+the previous handoff is still worth trying for a MISSING emitter, but this
+measurement says it will not arbitrate an extra one.
+
+### Measured, not shipped: the close skirt inflates the slab
+
+`floor_mask` closes by 5 px before taking its component, and the component is
+read off the CLOSED mask -- so the slab carries a ~2 px skirt of pixels that
+never passed the colour test. `CLAUDE.md` warns against exactly this (*fit a
+shape rather than repairing it with a closing radius*). Intersecting the
+component back with the raw mask shrinks the slab by 0.4-5.2% per map and
+leaves the 9 px `floor` **unchanged on every one of the twelve**, so it touches
+only the support gate and `floor_mask_eval` cannot see it.
+
+It is not shipped because the impact is real and unresolved: of the Sunset R6
+observations whose centre sits in the skirt and nowhere else, **10.1% of self
+and 21.4% of enemy** would lose support, against 1.0% of ally. `supported()`
+tests a single centre pixel, so a hole under an icon costs the whole detection.
+Either widen `supported` to the icon's extent first, or measure which of those
+57 self observations are real. That order matters.
+
+## Superseded today -- 2026-09-08, identity, barriers, and the cone restored
 
 ### THE DECISION WAITING: context-free events, or a concurrent model
 
@@ -54,6 +156,82 @@ is explained by no cone we cast, 11.6% of cones land on unlit floor, and four
 allies still arrive as 81 entity hypotheses in one round. The two are probably
 one problem: a fragmented ally leaves its light behind, so the residual is
 where the missing emitter is. Start from `cone_checks` in the round exports.
+
+### THE LAST HOUR, 19:57-20:07 -- and the one thing it did not reach
+
+Written after the fact: this work landed after the section above was written,
+and it is **uncommitted**. `git status` shows six modified files and three new
+ones; 156 tests pass under `.venv/Scripts/python.exe -m unittest discover -s
+tests` (there is no pytest in that venv).
+
+**The patchiness had a decision-boundary cause, and it is fixed.**
+`lighting.lit_mask` classified nearest-state in noise units, `|g-hi|/sd_hi <
+|g-lo|/sd_lo`. When the two sigmas differ that test has a SECOND crossing above
+the lit reference: a pixel brighter than `hi` can be called dark. It is now the
+noise-weighted crossing between the states, `(hi*sd_lo + lo*sd_hi)/(sd_lo +
+sd_hi)`, with brightness monotonic above it -- identical behaviour between `lo`
+and `hi`, no reversal outside. `LIGHTING_VERSION` is `lighting-0.3.0`.
+
+Measured, not assumed: on Sunset R6 offsets +36 and +55 the inspected
+central/B-lane patches held **239 and 548** pixels that were above `hi` and
+classified dark, **all of them measured-reference pixels, none terrain-filled**
+(`sunset-light-patchiness-20260908/above-hi-dark.json`, with the per-stratum
+counts in `report.json`; `sd_hi` there runs 0.5-0.6 against `sd_lo` 3.3-6.8,
+which is exactly the sigma asymmetry that opens the second crossing). The
+morphological open/close then enlarged the resulting holes -- `report.json`
+records `open_removed` 4433 of `raw` 10022 at +36 -- so the filters were
+amplifying the defect, not creating it.
+
+**This is a CONSISTENCY improvement, not a visual-accuracy claim.** It removes
+a reversal that provably existed; it does not establish that the mask now
+matches what the map draws. Bright foreground overlays still contaminate the
+read, so cone/light agreement stays a crosscheck rather than truth. Neon and
+Clove windows were where the reversal was found, and residual patchiness there
+has NOT been shown to be gone.
+
+**THE GAP: the shipped full-round output predates the fix.**
+`sunset-round6-reconciled-20260908/` is complete (4740 of 4740 frames, 0 stalled
+ms, `complete_round_rendered: true`, 1671 entities) but its `provenance.json`
+stamps **`lighting-0.2.0`** -- the run started 20:01 and imported the module
+before the 20:05 edit. The re-run that was to fix this,
+
+    .\.venv\Scripts\python.exe prototypes\full_round_entities.py a1a995e6b19b \
+      --round 6 --out ...\notes\sunset-round6-lighting03-20260908
+
+**never produced its output directory.** That is the first thing to redo, and
+until it exists no full-round artefact demonstrates `lighting-0.3.0`. Verify by
+grepping the new `provenance.json` for the version stamp, not by eye
+`[[verify-visual-claims-by-measurement]]`.
+
+**Three other changes rode along, all narrowing rather than adding.**
+
+* `cone.compare_evidence(mask, lit, known)` partitions a cone into unknown and
+  comparable pixels, then comparable into lit and unlit. `resolve_lobe` takes
+  an optional `known`: only classified pixels score a lobe, a lobe with no
+  comparable pixels cannot win, and a detection with neither lobe comparable is
+  returned unchanged. Omitting `known` preserves the old whole-cone behaviour,
+  so nothing silently reinterprets. **Unknown is not dark** -- that conflation
+  was the quiet way the residual-light number could have been inflated.
+* `round_lifetimes` 0.2.0 -> **0.3.0**: `known_kind` treats only an explicit,
+  unqualified reader kind as a constraint (`object?` constrains nothing);
+  static association now measures against a stored `anchor_observation` rather
+  than step to step, so per-step fit noise cannot accumulate into translation;
+  and appearance-only links expire on a width-based horizon (`sqrt(2) *
+  REF_WIDGET_W / walker.max_px_s`) because appearance is not an independent
+  identity witness.
+* `prototypes/cone_reconcile.py` is new: samples given round offsets, warms
+  trackers one second per window, and writes source/lighting/geometric/
+  disagreement panels plus machine-readable counts. It makes no accuracy claim
+  and refuses a non-new output directory.
+
+**Emitter recovery is untouched and is still the thread with the most in it.**
+The residual/missing-ally fixed point described above is unchanged by any of
+this -- except that its inputs are now cleaner in two ways worth re-measuring
+before trusting the old numbers: the median 41% unexplained lit floor and the
+11.6% of cones on unlit floor were both computed under `lighting-0.2.0` AND
+under a whole-cone comparison that counted unknown pixels as dark. **Re-measure
+both before hypothesising an emitter from them** `[[seek-independent-
+corroborating-channels]]`.
 
 
 

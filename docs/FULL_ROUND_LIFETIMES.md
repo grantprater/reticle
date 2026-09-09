@@ -217,3 +217,45 @@ in 100.5 s -- and the growth is in the unresolved classes and in enemies:
 835 `object?`, 248 `outline?`, 219 `ally_outline?`, 231 `enemy` (99 seen once),
 86 `ally`, 57 `barrier`. Its review page is 3,055 candidates, which is again
 too many to ask a player for.
+
+### Sunset round 6 again, 2026-09-08 evening -- 1,671 -> 1,551 entities
+
+    python prototypes/full_round_entities.py a1a995e6b19b --round 6 \
+        --out ~/reticle-store/notes/sunset-round6-final-20260908
+
+Same round, same 4740/4740 frames and 0 ms stalled, under `lighting-0.3.0`,
+`round-lifetimes-0.4.0` and `full-round-0.10.0`. Four separate renders isolate
+the four fixes, and the table is what each one costs and buys:
+
+    render         entities   enemy ent   enemy obs   self obs   banner ent
+    reconciled       1,671         166         531        627           57
+    + stability      1,628         152         482        562            0
+    + barrier gate   1,551          73         159        562            0
+
+**Three of the four are the same shape: a channel that already knew.** The map's
+own stability said the location-name banner is not structure; the barrier
+channel said no enemy can be drawn yet; the tracker's own motion law said which
+self candidate is reachable. None of them is a threshold on the channel that
+produced the error, which is the rule in `CLAUDE.md`, and each is measured in
+the module that owns it -- `minimap.floor_mask`, `full_round_entities.read`,
+`track.Tracker.principal`.
+
+**Refusals are now reported.** `coverage.json` carries a `refusals` block
+counted from the stored samples, so the gates can be scored rather than
+believed: `enemy_barrier_phase` 474, `enemy_no_slab_support` 128,
+`ping_no_slab_support` 763.
+
+**The self icon is now REFUSED rather than guessed.** Coverage falls from 81.0%
+to 72.6% of drawn samples, and the worst step between consecutive reported
+positions falls from 312.2 px to 13.9 px with nothing over 20 px. 38 of the 77
+gaps are a single sample, which the renderer covers by holding the last box.
+Six positions the player could not have walked to are gone.
+
+**What the numbers say is left.** 1,551 entities for a round with ten agents:
+503 `?`, 355 `ability?`, 248 `outline?`, 219 `ally shape?`, 85 `ally`, 73
+`enemy`. The unresolved classes are 76% of it and they are explicitly
+unresolved rather than wrong. **The 85 allies are the wrong number**, and the
+roster is not what is holding them back -- 68 of the 85 births happen while a
+roster slot is free. The obvious cross-reference has been measured and does not
+work: over the 103 samples carrying a roster conflict the flagged ally's
+`lit_share` ran a median 0.707 against 0.761 for the accepted ones.
