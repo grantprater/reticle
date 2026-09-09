@@ -1,6 +1,6 @@
 # Pipeline architecture review and revised delivery gates
 
-2026-09-09. Status: design revision, not implemented runtime behavior.
+2026-09-09. Status: implementation in progress through the P3 foundation.
 This review governs the next pipeline increments; the development-workflow
 history remains in [ARCHITECTURE_PLAN.md](ARCHITECTURE_PLAN.md). The detailed
 resolver contract remains in [ADJUDICATION_DESIGN.md](ADJUDICATION_DESIGN.md).
@@ -251,7 +251,7 @@ cost savings are **not** claimed by this documentation change.
 
 ## Implementation record
 
-2026-09-09, P0 foundations and P1/P2 vertical slices:
+2026-09-09, P0 foundations and P1/P2 vertical slices, plus P3 planning foundation:
 
 - `0865d94` makes sampling coverage explicit: `None` is unrestricted, `[]`
   performs no work, malformed requests refuse before opening media, and reader
@@ -278,9 +278,24 @@ cost savings are **not** claimed by this documentation change.
   bound. This is a behavior/regression check on the stored observations. The
   source export predates the official-art geometry rebuild, so it is not a new
   visual-accuracy baseline; rerender before perceptual acceptance.
+- `805c138` adds an accuracy-constrained acquisition planner and shared-reader
+  executor. Each request declares alternatives, property, regime, selection lane,
+  coverage, timing tolerance, allowed tiers, reason and budget. The planner picks
+  the least temporal rate meeting that tolerance and refuses unsupported work or
+  budget exhaustion instead of silently lowering fidelity. Execution deduplicates
+  reader/frame work across routes and reports actual observed coverage.
+- `26e4c48` exposes that contract as the stored-data-only
+  `reticle acquisition-plan SPEC.json` command. The JSON round trip and CLI are
+  tested. Capability validation rejects reduced spatial tiers because no such tier
+  has yet passed held-out accuracy validation; all executable tiers currently retain
+  native source/ROI pixels.
 
 P0 still needs broader migration of mutable L1/current-only artifacts and a
 machine-readable cross-channel capability matrix. P2 still needs fresh-geometry
 visual review and independently attributed later evidence on real overlap cases.
-Proceed next to P3's adaptive request planner without treating either open item
-as silently complete.
+P3 still needs a real reader capability declaration, frozen reference-fidelity
+windows/tolerances, and a same-window accuracy/cost comparison before it is
+accepted. The current official-art geometry is authoritative and has no doctor
+staleness error; only the stored P2 replay artifact predates its rebuild. Do not
+proceed to P4/P5 or claim adaptive savings, spatial adaptation, or ability
+recognition as completed behavior.

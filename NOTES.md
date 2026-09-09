@@ -11,28 +11,37 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-09, pipeline architecture review
+## PICKING UP -- 2026-09-09, pipeline architecture implementation through P3 foundation
 
 Read [docs/PIPELINE_REVIEW.md](docs/PIPELINE_REVIEW.md) for the current P0-P5
-sequence and error taxonomy. This is a plan revision, not runtime fixes.
-Baseline rerun: 251 tests pass; doctor 6 findings / 0 errors; status 4 stale
-minimap datasets. Synthetic probes confirm empty span requests scan everything
-and phase segmentation bridges an unobserved nine-second gap. P0 closes coverage
-and persistence contracts; P1 separates appearance/state and integrates phases
-into the gallery; P2 proves overlap identity histories; P3 validates adaptive
-temporal/spatial fidelity. Existing ability work below remains relevant within
-those gates. Historical source measurements still require current-provenance replay.
+sequence and error taxonomy. Verified handoff: 271 tests pass; `doctor` has six
+findings and zero errors; `status` has four stale **minimap L1 datasets**. Those
+four are detector tables, not geometry caches. Current official-art geometry is
+authoritative and `doctor` reports no stale-geometry error. The old Sunset replay
+used for the P2 behavior check merely predates that rebuild; rerender derived
+observations before using it for visual/geometric acceptance.
 
-Implementation has started in that order. Commits through `eba192d` close the
-first sampling contract, separate appearance/state, publish immutable phase and
-gallery revisions, and condition the gallery on appearance. Bright-only Deadlock
+Implementation has started in that order. Commits `0865d94` through `26e4c48`
+close the first sampling contract, separate appearance/state, publish immutable
+phase and gallery revisions, condition the gallery on appearance, retain bounded
+identity histories through overlap, and add an executable acquisition-planning
+contract. Bright-only Deadlock
 identity reaches 0.6053/0.5833 balanced across the two held-out directions but
 does not beat shuffled labels; dim-only is not evaluable at the minimum per-class
-coverage. P2's overlap slice retains connected histories, composite membership,
-later-evidence revisions and search completeness. Its stored Sunset replay is a
-behavior check only because that export predates the official-art geometry
-rebuild. Continue with P3; do not claim ability recognition or fresh visual P2
-acceptance from these results.
+coverage. `reticle acquisition-plan SPEC.json` chooses the cheapest declared
+temporal tier meeting each request tolerance, distinguishes opportunity from
+conflict selection, refuses unsupported/budget-limited requests, and produces a
+shared-decode route plan without opening media. `execute_plan` drives registered
+readers over those routes and records actual frame coverage.
+
+P3 is a foundation, not accepted adaptive performance. Next, declare the first
+real reader/property capability, freeze source-reviewed reference-fidelity
+windows and tolerances, then compare recall/timing/identity and measured cost on
+the same windows. Reduced spatial tiers are deliberately rejected until separately
+validated. P0 still needs the cross-channel capability matrix and broader artifact
+migration; P2 still needs fresh-geometry visual review plus independently
+attributed later evidence. Do not proceed to P4 semantics or P5 coaching as if
+those gates were complete, and do not claim ability recognition from these results.
 
 ## PICKING UP -- 2026-09-09, the ability line A-F, and what it actually says
 
