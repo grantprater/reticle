@@ -11,6 +11,18 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## PICKING UP -- 2026-09-09, pipeline architecture review
+
+Read [docs/PIPELINE_REVIEW.md](docs/PIPELINE_REVIEW.md) for the current P0-P5
+sequence and error taxonomy. This is a plan revision, not runtime fixes.
+Baseline rerun: 251 tests pass; doctor 6 findings / 0 errors; status 4 stale
+minimap datasets. Synthetic probes confirm empty span requests scan everything
+and phase segmentation bridges an unobserved nine-second gap. P0 closes coverage
+and persistence contracts; P1 separates appearance/state and integrates phases
+into the gallery; P2 proves overlap identity histories; P3 validates adaptive
+temporal/spatial fidelity. Existing ability work below remains relevant within
+those gates. Historical source measurements still require current-provenance replay.
+
 ## PICKING UP -- 2026-09-09, the ability line A-F, and what it actually says
 
 Six commands, all stored-data-only: `ability-coverage`, `ability-timeline`,

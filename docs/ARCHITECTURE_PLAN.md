@@ -1,5 +1,17 @@
 # Architecture and development efficiency
 
+## Current pipeline direction -- 2026-09-09
+
+[PIPELINE_REVIEW.md](PIPELINE_REVIEW.md) is the current critique and revised
+pipeline sequence for semantics, adaptive fidelity, error classification and
+extension boundaries. Its P0-P5 gates govern new pipeline work; A1-A6 below
+remain the development-workflow history, not evidence of a complete state model.
+Implement the existing [adjudication design](ADJUDICATION_DESIGN.md) incrementally.
+First close observation/coverage contracts, then phase semantics and identity
+continuity, then validate adaptive observation against reference fidelity.
+Immutable observation revisions and dependent rebuilds are now concrete pipeline
+requirements; they are no longer contingent only on the A6 experiment trigger.
+
 Owner: repository maintainers. Started 2026-09-07. This is an execution plan;
 `IMPLEMENTATION_PLAN.md` remains the product plan, `BACKLOG.md` the deferred queue,
 and `NOTES.md` the short live handoff. Update the status table when evidence lands.

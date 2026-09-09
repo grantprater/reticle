@@ -4,6 +4,11 @@ Date: 2026-09-09. Status: proposed design; no runtime behavior changed.
 
 ## Objective
 
+Implementation sequencing and concrete contract defects are updated in
+[PIPELINE_REVIEW.md](PIPELINE_REVIEW.md). Use its P0-P5 gates together with this
+resolver design. In particular, distinguish measured appearance from operational
+state and require actual coverage before treating sparse support as an interval.
+
 Recover the most accurate defensible account of a recorded match from all available
 observations. Resolve identity, state, transitions and uncertainty jointly across
 time. Accuracy takes precedence over compute cost. Measure accuracy together with

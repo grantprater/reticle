@@ -21,6 +21,10 @@ the linked source is authoritative for detail.
 
 ## Module routing
 
+Current cross-pipeline review and delivery gates:
+[PIPELINE_REVIEW.md](PIPELINE_REVIEW.md). It distinguishes implemented foundations
+from proposed semantics, acquisition policy and acceptance requirements.
+
 | Need | Read / change first |
 |---|---|
 | CLI wiring and session selection | `reticle/cli.py`, `reticle/__main__.py` |

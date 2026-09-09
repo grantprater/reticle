@@ -10,6 +10,12 @@ handoff and `BACKLOG.md` holds deferred-work triggers.
 
 ## Product direction
 
+Pipeline sequencing update, 2026-09-09:
+[PIPELINE_REVIEW.md](PIPELINE_REVIEW.md) defines P0-P5 gates for coverage contracts,
+appearance/state separation, identity continuity and adaptive observation before
+broader downstream migration. Historical implementation results below remain
+dated evidence; proposed semantic families are not shipped detector capabilities.
+
 Deliver a traceable coaching loop: observation -> event -> contextual estimate
 -> supporting and contradicting footage -> player/coach review -> correction.
 The first useful release should retrieve reviewable moments and expose data
