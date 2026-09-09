@@ -53,6 +53,17 @@ not that this device's OWNER did, because survivors pack in the roster bar so a
 slot is not an identity. Getting to per-agent death needs ally-side portrait
 identification, which is the next step if this is worth sharpening.
 
+**`reticle ability-phases` is the model the design only named.** An entity holds
+PHASES; a transition between them carries candidate causes from a closed set and
+is flagged when none has evidence. A phase change never creates a second entity
+and a lifetime spans every phase -- both asserted by tests, because both were
+wrong in the pipeline before it. First run: 142 entities, 81 transform, 174
+transitions, 14 resolved by a supporting ally death, 160 unexplained.
+
+**Still owed: milestone C's grouping does not consume the phases yet**, so it can
+still split one transforming entity in two. Joining them is the next structural
+step, and it is what the player was actually asking for.
+
 **A second deactivation cause is reversible**: Killjoy's devices deactivate when
 she leaves their radius. So dimming is not an ending, and a dim device with no
 death nearby is that signature. Walls and barriers persist through owner death

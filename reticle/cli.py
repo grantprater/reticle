@@ -19,6 +19,7 @@
     reticle ability-entities                  build alternative ability entity hypotheses
     reticle ability-gallery                   appearance galleries + held-out identity scores
     reticle ability-capture                   targeted capture queue for demonstrated gaps
+    reticle ability-phases                    entity phases and their transition causes
     reticle status  [--write]                 generated pipeline status -> STATUS.md
     reticle sql     "SELECT ..."              DuckDB over the store
 """
@@ -1818,6 +1819,20 @@ def cmd_ability_capture(args) -> int:
     return 0
 
 
+def cmd_ability_phases(args) -> int:
+    """Segment deployed entities into phases and offer causes for each change."""
+    from .ability_phases import run
+
+    bundle, target = run(args.store, args.out)
+    s = bundle["manifest"]["summary"]
+    print(f"{s['entities']} entities, {s['entities_with_a_transition']} of which transform; "
+          f"{s['transitions']} transitions {s['by_direction']}")
+    print(f"{s['resolved']} resolved by a cause, {s['unexplained']} unexplained "
+          f"(a flag, not a silent row)")
+    print(f"ability phases: {target}")
+    return 0
+
+
 def cmd_refine(args) -> int:
     """Preview or densely read explicitly selected review windows."""
     import hashlib
@@ -2177,6 +2192,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="append one executed take, then rebuild; claims are checked against "
                         "independent evidence rather than believed")
     s.set_defaults(func=cmd_ability_capture)
+
+    s = sub.add_parser("ability-phases", help="entity phases and their transition causes")
+    s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-phases)")
+    s.set_defaults(func=cmd_ability_phases)
 
     s = sub.add_parser("refine", help="preview or densely read selected coaching review windows")
     s.add_argument("session")

@@ -11,7 +11,7 @@ reversible one.
 That is a cross-channel prediction, and both channels are already stored, so it
 needs no detector work:
 
-    the killfeed says when an ally died      `l1/hud`, via checks.track_entries
+    the killfeed says when an ally died      reticle.ability_phases.ally_deaths
     the widget says when a device is dim     patch contrast at a labelled device
 
 CLAUDE.md's rule is to cross-reference before tuning, and to STORE THE
@@ -47,7 +47,9 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reticle import geometry as _G                                   # noqa: E402
-from reticle.checks import track_entries                             # noqa: E402
+# Imported under a private alias, never redefined here: `doctor` matches names
+# ACROSS the two trees, and a re-export shim still counts as a fork.
+from reticle.ability_phases import ally_deaths as _ally_deaths       # noqa: E402
 from reticle.profiles import get_profile                             # noqa: E402
 from reticle.store import DEFAULT_STORE                              # noqa: E402
 
@@ -60,31 +62,6 @@ DIM_CONTRAST_MAX = 203.0
 #: from the prediction rather than counted as failures of it.
 PERSISTS_THROUGH_DEATH = ("barrier mesh", "toxic screen", "cyber cage",
                           "blade storm", "wall", "barrier")
-
-
-def ally_deaths(session: str) -> list[float]:
-    """Distinct ally killfeed entries, as first-seen times.
-
-    Uses the shipped tracker rather than a rising edge on the mask: an entry
-    persists for seconds and two entries can occupy one slot in turn, which is
-    exactly what `track_entries` and the divider column exist to separate.
-    """
-    import duckdb
-
-    con = duckdb.connect()
-    rows = con.execute(
-        "select t_ms, kf_ally_mask, kf_entry_wx from read_parquet(?) "
-        "where session = ? order by t_ms",
-        [str(STORE / "l1" / "hud" / "**" / "*.parquet").replace("\\", "/"), session],
-    ).fetchall()
-    con.close()
-    if not rows:
-        return []
-    times = [r[0] for r in rows]
-    masks = [r[1] or 0 for r in rows]
-    dividers = [r[2] for r in rows]
-    return sorted(a["t_first"] for a in track_entries(times, masks, dividers)
-                  if a["counted"])
 
 
 def named_labels(session: str) -> list[dict]:
@@ -134,7 +111,7 @@ def since_previous(t: float, events: list[float]) -> float | None:
 
 
 def report(session: str, rng: np.random.Generator) -> dict:
-    deaths = ally_deaths(session)
+    deaths = _ally_deaths(STORE, session)
     labels = measure_contrast(session, named_labels(session))
     devices = [r for r in labels
                if not any(w in r["ability_id"] for w in PERSISTS_THROUGH_DEATH)]

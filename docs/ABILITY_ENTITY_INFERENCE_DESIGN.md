@@ -586,6 +586,62 @@ properties and explicit gaps, plus the smallest justified capture queue. It is
 not a populated table of guessed parameters or a claim that all solo behavior
 transfers to a live match.
 
+## Entity phases: an ability transforms, and stays itself
+
+Added 2026-09-09, after the player read a dim Deadlock sensor off the labelling pass:
+*this is a phase shift of the ability conditioned on other game state. The
+ability does not move, it transforms. This is a general pattern that I had hoped
+to capture and thought we already had.*
+
+It was not captured. This document said "phase transitions" once, in section 4,
+as one associating cue among several. `ability_timeline` carries unresolved
+transition alternatives for the CAST. The gallery's `pre/onset/early/sustained`
+are time bins relative to an observation and its own limits say they are not
+lifecycle phases. Nothing modelled a deployed entity changing state and
+remaining one entity, and two consequences were live in the pipeline:
+
+* onset-and-distance grouping keys on a fresh appearance, so a device that dims
+  reads as a NEW object at the same place;
+* an interval that stops when the bright pixels stop reports a destruction that
+  did not happen. That is a third termination story, and the capture matrix
+  offers only expiry and destruction.
+
+`reticle ability-phases` implements it from stored series alone. An entity holds
+an ordered list of phases; a phase is an interval plus an appearance mode; a
+transition between consecutive phases carries candidate causes from a closed
+set, and is flagged when none of them has evidence:
+
+    owner_death            an ally died near the transition   killfeed
+    owner_left_radius      REVERSIBLE -- Killjoy, maybe Chamber   needs owner track
+    owner_returned_radius  the reverse of it
+    triggered_activation   Vyse's vines becoming a circle
+    destroyed / expired    endings, with and without a cause
+
+That mirrors the ORIGIN EVENT model in `prototypes/CLAUDE.md`: a birth comes
+from a closed set, so an unexplained birth is a flag rather than a silent row.
+A transition is the same claim applied to the middle of a life. Two rules are
+structural and asserted by tests -- a phase change never creates a second
+entity, and a lifetime spans every phase rather than ending at a boundary.
+
+First run over the 142 named entities that carry a series trace: 81 transform,
+174 transitions split 90 live-to-dim and 84 dim-to-live, 14 resolved by a
+supporting ally death and **160 unexplained**. The unexplained majority is the
+honest state rather than a defect: the dim-to-live direction has no cause this
+corpus can currently supply, because the radius test needs an owner track that
+does not exist for a non-local player, and that cause is listed as `unavailable`
+with its reason rather than omitted.
+
+Segmentation had one defect worth recording, caught by reading the first real
+output: absorbing a sub-threshold flicker left the runs either side of it
+adjacent and in the same mode, and appending regardless turned one steady sensor
+into four phases and reported `live->live` as a transition. A transition between
+two runs of one mode is not a transition, and a test now asserts it cannot recur.
+
+**Still owed: grouping does not consume this yet.** Milestone C continues to
+group on onset and distance, so it can still split one transforming entity in
+two. The phase records exist beside it rather than inside it, and joining them
+is the next structural step.
+
 ## Sources and mechanics policy
 
 Repository findings above come from the current manifests/assets and the owning
