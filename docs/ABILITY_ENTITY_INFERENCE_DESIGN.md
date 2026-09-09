@@ -1,7 +1,7 @@
 # Ability entities: inference and minimal capture design
 
-Date: 2026-09-09. Status: design; extraction, annotation and new capture have not
-been run for this document. Extends [ADJUDICATION_DESIGN.md](ADJUDICATION_DESIGN.md).
+Date: 2026-09-09. Status: milestone A implemented; annotation and new capture have
+not been run for this document. Extends [ADJUDICATION_DESIGN.md](ADJUDICATION_DESIGN.md).
 
 ## Outcome
 
@@ -406,6 +406,26 @@ short effects, objects present at capture start, or valid objects near the owner
 | D | Appearance/audio galleries and conditional parameter fitting | Gains over current baselines on held-out uses, no self-training evaluation |
 | E | Ordinary-match validation and targeted capture queue | Each requested second addresses a named missing discriminator |
 | F | Execute accepted capture cards through existing ingest/review flow | Immediate success check, independent evidence, partial failures retained |
+
+### Execution record
+
+Milestone A landed as `reticle ability-coverage`. It is stored-data-only and
+writes a source-hashed bundle under `analysis/ability-coverage`: definitions,
+demo sessions, source windows, property coverage, conflicts and a manifest.
+It preserves legacy label coordinates and does not modify source evidence.
+
+First real run on 2026-09-09: 121 definitions across 29 agents, 28 tagged demos
+(1,199.0 seconds), 197 property-linked source windows, 1,210 coverage rows and
+zero reference/slot or named-label conflicts. The source windows comprise 24
+cached tray-cast candidates and 173 human ability labels. Eighteen abilities have
+human-supported identity and observation coverage (36 property rows); another 65
+property rows have weak tray-cast support. The remaining 1,109 are explicitly
+`not_exercised`, not negative conclusions. All 52 manifests are hashed because
+the demo set and tag-derived agent identities depend on that inventory.
+
+These are coverage counts, not accuracy measurements. The historical 119-drop
+census is larger than the 24 current cached windows; milestone B must recompute or
+materialize use timelines without treating the historical prose as evidence.
 
 Measure use identity/owner precision and recall, unknown coverage, grouping
 over-merges and splits, entity false positives/misses per use, phase and termination

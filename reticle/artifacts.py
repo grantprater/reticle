@@ -21,6 +21,11 @@ class ArtifactSpec:
 
 
 ARTIFACTS = {
+    "ability_coverage": ArtifactSpec(
+        ("ability_coverage.py", "artifacts.py", "store.py"),
+        inputs=("manifest", "ability_reference", "ability_labels",
+                "ability_candidates", "ability_series", "ability_casts",
+                "ability_audio_assets")),
     "coaching": ArtifactSpec(
         ("artifacts.py", "coaching.py", "review.py", "rounds.py", "roster.py", "checks.py", "version.py"),
         inputs=("manifest", "hud", "roster")),

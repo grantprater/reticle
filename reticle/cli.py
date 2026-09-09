@@ -14,6 +14,7 @@
     reticle kd      [SESSION]                 running K/D per round, to check against the scoreboard
     reticle board   [SESSION]                 read the Tab scoreboard and score our K/D against it
     reticle economy FACTS.json                apply explicit facts to the credit ledger
+    reticle ability-coverage                  inventory ability evidence without decoding
     reticle status  [--write]                 generated pipeline status -> STATUS.md
     reticle sql     "SELECT ..."              DuckDB over the store
 """
@@ -1719,6 +1720,20 @@ def cmd_economy(args) -> int:
     return 0
 
 
+def cmd_ability_coverage(args) -> int:
+    """Index ability evidence and property coverage without decoding media."""
+    from .ability_coverage import run
+
+    bundle = run(args.store, args.out)
+    summary = bundle["manifest"]["summary"]
+    target = Path(args.out) if args.out else Path(args.store) / "analysis" / "ability-coverage"
+    print(f"{summary['definitions']} abilities; {summary['demo_sessions']} demo sessions; "
+          f"{summary['source_windows']} source windows")
+    print(f"coverage {summary['coverage_statuses']}; conflicts {summary['conflicts']}")
+    print(f"ability coverage: {target}")
+    return 0
+
+
 def cmd_refine(args) -> int:
     """Preview or densely read explicitly selected review windows."""
     import hashlib
@@ -2051,6 +2066,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("facts", help="JSON file containing teams and ordered operations")
     s.add_argument("--out", help="write the ledger JSON here (default: stdout)")
     s.set_defaults(func=cmd_economy)
+
+    s = sub.add_parser("ability-coverage", help="inventory existing ability evidence without decoding")
+    s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-coverage)")
+    s.set_defaults(func=cmd_ability_coverage)
 
     s = sub.add_parser("refine", help="preview or densely read selected coaching review windows")
     s.add_argument("session")

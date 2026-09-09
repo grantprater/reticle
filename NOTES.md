@@ -15,9 +15,11 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` extends this with ability identity,
 parent/child objects, phases, property inference and conditional capture cards.
-Inventory: 28 tagged demos (~20 minutes); six Omen SFX cuts already exist. First
-build property-level coverage from existing sources; no new capture is requested
-until a specific missing discriminator is established. Design only.
+Milestone A is now `reticle ability-coverage`: 121 definitions, 28 tagged demos,
+197 source windows, and zero reference/slot or named-label conflicts. It found 24
+current cached tray-cast windows versus the 119-drop historical census, so next
+materialize milestone B's use timelines from source rather than quoting that prose.
+No new capture is requested until a specific missing discriminator is established.
 
 `docs/ADJUDICATION_DESIGN.md` specifies match-wide evidence fusion, persistent
 identity/life state, competing overlap histories, conditional invariants,
