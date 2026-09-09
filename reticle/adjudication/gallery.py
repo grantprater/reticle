@@ -29,6 +29,7 @@ from pathlib import Path
 import numpy as np
 
 from .ability import _components, _labels
+from ..revisions import publish_revision
 
 
 ABILITY_GALLERY_VERSION = "ability-gallery-0.1.0"
@@ -426,13 +427,14 @@ def build_gallery_bundle(root: str | Path) -> dict:
 
 def write_gallery(bundle: dict, out: str | Path) -> Path:
     out = Path(out)
-    out.mkdir(parents=True, exist_ok=True)
+    files = {}
     for name in ("coverage", "gallery", "parameters", "evaluation", "excluded"):
-        (out / f"{name}.jsonl").write_text(
-            "".join(json.dumps(row, sort_keys=True) + "\n" for row in bundle[name]),
-            encoding="utf-8")
-    (out / "manifest.json").write_text(
-        json.dumps(bundle["manifest"], indent=2, sort_keys=True), encoding="utf-8")
+        files[f"{name}.jsonl"] = "".join(
+            json.dumps(row, sort_keys=True) + "\n" for row in bundle[name])
+    publish_revision(
+        out, artifact="ability_gallery", producer_version=ABILITY_GALLERY_VERSION,
+        files=files, manifest=bundle["manifest"],
+    )
     return out
 
 

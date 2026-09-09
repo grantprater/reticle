@@ -9,6 +9,7 @@ from .adjudication.ability import _components, _labels
 from .adjudication.phases import (ABILITY_PHASE_VERSION, TRANSITION_CAUSES,
                                   entity_phases, summarise)
 from .store import DEFAULT_STORE
+from .revisions import publish_revision
 
 
 def ally_deaths(root, session: str) -> list[float]:
@@ -65,11 +66,12 @@ def run(root=DEFAULT_STORE, out=None):
         "phases": rows,
     }
     target = Path(out) if out else root / "analysis" / "ability-phases"
-    target.mkdir(parents=True, exist_ok=True)
-    (target / "phases.jsonl").write_text(
-        "".join(json.dumps(r, sort_keys=True) + "\n" for r in rows), encoding="utf-8")
-    (target / "manifest.json").write_text(
-        json.dumps(bundle["manifest"], indent=2, sort_keys=True), encoding="utf-8")
+    publish_revision(
+        target, artifact="ability_phases", producer_version=ABILITY_PHASE_VERSION,
+        files={"phases.jsonl": "".join(
+            json.dumps(r, sort_keys=True) + "\n" for r in rows)},
+        manifest=bundle["manifest"],
+    )
     return bundle, target
 
 
