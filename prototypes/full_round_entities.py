@@ -35,7 +35,12 @@ from reticle.round_lifetimes import RoundLifetimes, ROUND_LIFETIME_VERSION
 from reticle.store import Store
 from reticle.track import Tracker
 from reticle.ping import sightings, classify as ping_class
+from minimap_icons import red_mask                                 # noqa: E402
 from minimap_ring_fit import find as enemy_rings, is_icon
+#: `minimap_ring_fit.find`'s own default. Named here because `ring_supported`
+#: must score the SAME red the fit was made from -- two saturation cuts for one
+#: question is how a gate ends up judging pixels its detector never saw.
+RING_SAT_MIN=100
 from minimap_dynamic import detect as dynamic_objects
 from ability_disc import find_discs
 from plant_spike import centre_box, spike_cover, COVER_MIN
@@ -260,10 +265,50 @@ class RoundReader:
         ANY support, not a fraction -- settled when the quarantined Ascent
         burst turned out to be the world showing through the widget's margin,
         and 452/452 real detections had support against 0/51 phantoms.
+
+        **This asks about a POINT, so only give it a point a detector actually
+        read.** A ring fit's centre is not one: see `ring_supported`.
         """
         ix,iy=int(round(x)),int(round(y))
         return bool(self.support[iy,ix]) if (0<=iy<self.support.shape[0]
                     and 0<=ix<self.support.shape[1]) else False
+
+    def ring_supported(self,red,d,frac_min=.5):
+        """Is the ring's OWN red drawn on the map, or on the world behind it?
+
+        **A fitted centre is the model's output, not evidence** -- and the
+        enemy channel was gating on exactly that. An arc fits its centre at
+        `p + r*n`, so red lying in the widget's transparent surround places a
+        centre 3-9 px INSIDE the slab, and the point test passes for a ring
+        with no pixel on the map at all. Measured over Sunset R6: 28 of 42
+        detections in the two worst bursts had a centre on the slab and ZERO
+        ring red on it.
+
+        The player asked whether a KAY/O knife was changing pixels somewhere
+        unseen. It is not an ability at all -- he turned to face Sunset's
+        red-brick architecture, and the widget is semi-transparent. `red_mask`
+        went from 613 px to 40,851 px between +30.0s and +31.2s and **the
+        count ON the slab did not move: 90 -> 114**. Everything new was the
+        wall behind the map.
+
+        So the test is the same rule as `supported`, applied to the pixels a
+        detector actually read. Over the round's 1,303 ring fits the answer is
+        bimodal with an empty middle -- 676 in 0.0-0.1, 482 in 0.9-1.0, 29 in
+        all of 0.1-0.5 -- so `frac_min` is a statement rather than a fit: most
+        of an icon's ring is drawn on the map its agent stands on.
+        """
+        h,w=self.support.shape
+        cx,cy,r=d["cx"],d["cy"],d["r"]
+        lo_y,hi_y=max(0,int(cy-r-3)),min(h,int(cy+r+4))
+        lo_x,hi_x=max(0,int(cx-r-3)),min(w,int(cx+r+4))
+        if lo_y>=hi_y or lo_x>=hi_x:
+            return False,0,0
+        yy,xx=np.mgrid[lo_y:hi_y,lo_x:hi_x]
+        d2=(xx-cx)**2+(yy-cy)**2
+        ring=(d2>=(r-2.5)**2)&(d2<=(r+2.5)**2)&red[lo_y:hi_y,lo_x:hi_x]
+        total=int(ring.sum())
+        on=int((ring&self.support[lo_y:hi_y,lo_x:hi_x]).sum())
+        return (total>0 and on/total >= frac_min),on,total
 
     def barrier_candidates_calibration(self,keyed):
         """Keep deriving the anchor set even when a baked one is in use.
@@ -391,13 +436,15 @@ class RoundReader:
             # two channels agree about where the window ends without being told:
             # barriers are observed +1.5s to +29.2s and the round's independently
             # derived `live_start` is +29.5s, with ZERO barrier samples after it.
+            red=red_mask(crop,RING_SAT_MIN)
             for d in enemy_rings(crop,self.floor):
                 if is_icon(d) and not on_bar(d):
                     if bars:
                         base["refused"]["enemy_barrier_phase"].append([d["cx"],d["cy"]])
                         continue
-                    if not self.supported(d["cx"],d["cy"]):
-                        base["off_support"]["enemy"].append([d["cx"],d["cy"]])
+                    ok,on,total=self.ring_supported(red,d)
+                    if not ok:
+                        base["off_support"]["enemy"].append([d["cx"],d["cy"],on,total])
                         continue
                     r=int(d["r"])
                     agent_obs.append(observation("enemy","enemy agent?",d["cx"],d["cy"],(int(d["cx"])-r,int(d["cy"])-r,2*r,2*r),kind="enemy",r=r,evidence=["red_portrait_ring"],confidence="candidate"))
