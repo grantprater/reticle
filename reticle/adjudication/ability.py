@@ -25,6 +25,7 @@ ONSET_MS = 300.0
 DIST_PX = 60.0
 BEARING_TOL_DEG = 15.0
 ORPHAN_GAP_MS = 3000.0
+ORPHAN_DIST_PX = 120.0
 
 # Versioned domain hypotheses already recorded by the entity model.  These are
 # candidate factors until the recording patch and source evidence validate them.
@@ -208,11 +209,26 @@ def _mean_bearing(group: list[dict]) -> float | None:
 
 
 def _time_clusters(rows: list[dict], gap_ms: float = ORPHAN_GAP_MS) -> list[list[dict]]:
-    """Consecutive components separated by less than ``gap_ms`` share a clip."""
+    """Components that could plausibly be one object share a clip.
+
+    Time alone is not enough. Two components a human has given DIFFERENT ability
+    names cannot be one entity -- the label already settles it -- and two objects
+    on opposite sides of the map are not one either. Grouping them anyway
+    produces a question with no true answer, which is what the first real pass
+    hit on its first screen.
+    """
     clusters = []
     for row in sorted(rows, key=lambda r: (r["observed_t_ms"], r["component_id"])):
-        if clusters and row["observed_t_ms"] - clusters[-1][-1]["observed_t_ms"] <= gap_ms:
-            clusters[-1].append(row)
+        for cluster in clusters:
+            last = cluster[-1]
+            named = {c["label_ability_id"] for c in cluster if c["label_ability_id"]}
+            mine = row["label_ability_id"]
+            if named and mine and mine not in named:
+                continue
+            if (row["observed_t_ms"] - last["observed_t_ms"] <= gap_ms
+                    and _distance(row, last) <= ORPHAN_DIST_PX):
+                cluster.append(row)
+                break
         else:
             clusters.append([row])
     return clusters

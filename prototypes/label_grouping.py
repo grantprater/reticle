@@ -55,13 +55,20 @@ CLUTTER_KEYS = {
     "i": "player_or_spike_icon",
     "o": "other",          # escape hatch: never force a real thing into a class
 }
-STRIP = 5          # frames across the window
+# An orphan window has no use claim beside it, so "it was already there" is a
+# real answer rather than a missing observation.
+ORPHAN_EXTRA = {"e": "present_before_this_window"}
+STRIP = 6          # frames across the window
+PRE_MS = 9000.0    # history before the label: it marks when it was SEEN
+POST_MS = 4000.0
 CROP = 34          # half-width of the magnified crop, in ROI pixels
 TILE_ZOOM = 3      # magnification of each strip tile
 PANEL_H = 690      # keeps the whole window inside a 1080p screen
-HELP = ("ONE key per ringed component. 1-5 = group id, SAME digit means SAME entity | "
-        "v viewcone  c crack  p ping  i icon  o other | u unsure | n nothing drawn | "
-        "click=mark a missed component | a back | q save+quit")
+_IS = "IS the ability: 1-5 group id (same digit = same entity)"
+_NOT = "NOT the ability: v viewcone  c crack  p ping  i icon  o other  n nothing there"
+_END = "u unsure | click = mark a component we missed | a back | q save+quit"
+HELP_GROUP = f"{_IS} | {_NOT} | {_END}"
+HELP_ORPHAN = (f"{_IS}, or e = already there before this strip | {_NOT} | {_END}")
 
 
 def roi_for(root: Path, sid: str) -> tuple[int, int, int, int]:
@@ -102,10 +109,17 @@ def ranked_windows(root: Path, session: str | None) -> list[dict]:
 
 
 def _strip_times(window: dict, component: dict | None) -> list[float]:
-    lo, hi = float(window["clip_start_ms"]), float(window["clip_end_ms"])
-    if component is not None:
-        lo = min(lo, component["observed_t_ms"] - 1500.0)
-        hi = max(hi, component["observed_end_ms"] + 1500.0)
+    """Centre the strip on the component being ASKED, weighted to its past.
+
+    A human label records when the labeller saw the thing, not when it arrived,
+    so the evidence that decides "was this here earlier and has it gone" lies
+    before the label rather than after it.
+    """
+    if component is None:
+        lo, hi = float(window["clip_start_ms"]), float(window["clip_end_ms"])
+    else:
+        lo = max(0.0, component["observed_t_ms"] - PRE_MS)
+        hi = max(component["observed_end_ms"] + POST_MS, lo + 1000.0)
     return [lo + (hi - lo) * i / (STRIP - 1) for i in range(STRIP)]
 
 
@@ -271,7 +285,6 @@ def main() -> int:
     status.pack(fill="x")
     helpbar = tk.Label(tkroot, anchor="w", font=("Consolas", 9), fg="#888")
     helpbar.pack(fill="x")
-    helpbar.config(text=HELP)
 
     def show():
         window, cid = queue[state["i"]]
@@ -290,13 +303,17 @@ def main() -> int:
         handles["img"] = state["img"]
 
         n = len(window["component_ids"])
+        orphan = not window.get("use_claim_id")
+        helpbar.config(text=HELP_ORPHAN if orphan else HELP_GROUP)
         if not cid:
             shape = "NO COMPONENT: did this use draw anything on the minimap? n = nothing"
-        elif n == 1:
-            shape = "ONE component: is the ringed thing this ability (press 1) or clutter?"
         else:
-            shape = (f"component {window['component_ids'].index(cid) + 1} of {n}: "
-                     f"same digit as another = SAME entity")
+            where = (f"component {window['component_ids'].index(cid) + 1} of {n}"
+                     if n > 1 else "the ringed thing")
+            named = window.get("ability_id") or (window.get("named_abilities") or [None])[0]
+            claim = ("no use was claimed nearby" if orphan else "a use was claimed nearby")
+            shape = (f"{where}: is it {named or 'an ability'}?  ({claim}; "
+                     f"press 1 if yes, or say what it is instead)")
         given = [f"{answers_short(state['answers'], c)}"
                  for c in window["component_ids"] if c in state["answers"]]
         sofar = ("  already: " + " ".join(given)) if given else ""
@@ -360,8 +377,10 @@ def main() -> int:
         tkroot.bind(key, lambda e, d=digit: answer_group(d))
     for key, name in CLUTTER_KEYS.items():
         tkroot.bind(key, lambda e, n=name: answer_clutter(n))
+    for key, name in ORPHAN_EXTRA.items():
+        tkroot.bind(key, lambda e, n=name: answer_clutter(n))
     tkroot.bind("u", lambda e: advance(+1, lambda: write("unsure", unsure=True)))
-    tkroot.bind("n", lambda e: advance(+1, lambda: write("nothing_drawn")))
+    tkroot.bind("n", lambda e: advance(+1, lambda: write("nothing_there")))
     tkroot.bind("<space>", lambda e: advance(+1, lambda: write("marked_missing_only")))
     tkroot.bind("a", lambda e: advance(-1, write=False))
     tkroot.bind("q", lambda e: finish())
