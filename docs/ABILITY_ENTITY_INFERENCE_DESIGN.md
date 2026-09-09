@@ -427,6 +427,23 @@ These are coverage counts, not accuracy measurements. The historical 119-drop
 census is larger than the 24 current cached windows; milestone B must recompute or
 materialize use timelines without treating the historical prose as evidence.
 
+Milestone B landed as `reticle ability-timeline --materialize`. The materializer
+uses the existing tray reader and writes reader-hash-keyed caches; ordinary timeline
+rebuilds then read stored evidence only. Each drop becomes a bounded use claim with
+unresolved commit/activation/mode-transition/end semantics, source roots, suspect
+state, temporal label candidates and available audio references. Equivalent rows
+from old and current reader caches collapse into one game-event candidate while
+retaining both evidence roots; different interpretations remain separate conflicts.
+
+First real run on all 28 demos: 127 distinct use claims across 27 sessions, 94
+clean and 33 suspect, split C=33, Q=33, E=35, X=26, with zero conflicting cache
+interpretations. The Brimstone demo produced no tray claim; absence remains
+uninformative. Normalized agent tags also fixed `kayo` failing to reach catalogue
+identity `KAY/O`. Source-linked audio cuts match four claims and remain reference
+availability rather than independent recognition. The current reader result
+supersedes the historical 119-drop prose for inventory purposes; it is still a
+candidate count, not source-reviewed use accuracy.
+
 Measure use identity/owner precision and recall, unknown coverage, grouping
 over-merges and splits, entity false positives/misses per use, phase and termination
 accuracy, timing interval coverage/width, and geometric error at supported units.

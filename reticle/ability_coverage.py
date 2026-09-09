@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -47,8 +48,13 @@ def _digest(path: Path) -> str:
     return h.hexdigest()
 
 
+def _agent_token(value: str) -> str:
+    """Canonical comparison form for manifest tags such as `kayo` / `KAY/O`."""
+    return re.sub(r"[^a-z0-9]", "", value.casefold())
+
+
 def _agent_tag(manifest: dict, known: dict[str, str]) -> str | None:
-    tags = {str(tag).casefold() for tag in manifest.get("tags", [])}
+    tags = {_agent_token(str(tag)) for tag in manifest.get("tags", [])}
     found = [canonical for folded, canonical in known.items() if folded in tags]
     return found[0] if len(found) == 1 else None
 
@@ -104,7 +110,7 @@ def _cast_rows(root: Path, definitions: list[dict]) -> tuple[list[dict], list[di
     by_agent_key = {(r["agent"].casefold(), (r.get("key") or "").upper()): r
                     for r in definitions if r.get("key")}
     manifests = {}
-    known = {r["agent"].casefold(): r["agent"] for r in definitions}
+    known = {_agent_token(r["agent"]): r["agent"] for r in definitions}
     for path in sorted((root / "manifests").glob("*.json")):
         manifests[path.stem] = _json(path)
 
@@ -192,7 +198,7 @@ def build_inventory(root: str | Path) -> dict:
         raise FileNotFoundError(f"missing ability reference: {ref_path}")
     reference = _json(ref_path)
     definitions = _definition_rows(reference)
-    known_agents = {r["agent"].casefold(): r["agent"] for r in definitions}
+    known_agents = {_agent_token(r["agent"]): r["agent"] for r in definitions}
 
     sessions = []
     manifests = {}

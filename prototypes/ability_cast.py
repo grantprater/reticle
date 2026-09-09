@@ -152,6 +152,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -399,10 +400,11 @@ def agent_of(sid) -> str | None:
     """The session's agent, from the manifest tags matched to the reference."""
     man = json.loads((STORE / "manifests" / f"{sid}.json").read_text())
     ref = json.loads((STORE / "reference" / "abilities.json").read_text())["agents"]
-    low = {a.lower(): a for a in ref}
+    token = lambda value: re.sub(r"[^a-z0-9]", "", value.lower())
+    low = {token(a): a for a in ref}
     for t in man.get("tags", []):
-        if t.lower() in low:
-            return low[t.lower()]
+        if token(t) in low:
+            return low[token(t)]
     return None
 
 

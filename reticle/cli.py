@@ -15,6 +15,7 @@
     reticle board   [SESSION]                 read the Tab scoreboard and score our K/D against it
     reticle economy FACTS.json                apply explicit facts to the credit ledger
     reticle ability-coverage                  inventory ability evidence without decoding
+    reticle ability-timeline                  build bounded ability-use claims
     reticle status  [--write]                 generated pipeline status -> STATUS.md
     reticle sql     "SELECT ..."              DuckDB over the store
 """
@@ -1734,6 +1735,23 @@ def cmd_ability_coverage(args) -> int:
     return 0
 
 
+def cmd_ability_timeline(args) -> int:
+    """Build bounded ability-use claims, optionally materializing tray reads."""
+    from .ability_timeline import run
+
+    bundle, materialized = run(args.store, args.out, materialize=args.materialize,
+                               step_s=args.step)
+    if materialized:
+        print(f"materialized {materialized['candidates']} candidates across "
+              f"{len(materialized['sessions'])} demos")
+    summary = bundle["manifest"]["summary"]
+    target = Path(args.out) if args.out else Path(args.store) / "analysis" / "ability-timeline"
+    print(f"{summary['use_claims']} use claims across {summary['sessions_with_claims']} sessions; "
+          f"{summary['suspect_candidates']} suspect; {summary['conflicts']} conflicts")
+    print(f"ability timeline: {target}")
+    return 0
+
+
 def cmd_refine(args) -> int:
     """Preview or densely read explicitly selected review windows."""
     import hashlib
@@ -2070,6 +2088,14 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("ability-coverage", help="inventory existing ability evidence without decoding")
     s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-coverage)")
     s.set_defaults(func=cmd_ability_coverage)
+
+    s = sub.add_parser("ability-timeline", help="build bounded ability-use claims")
+    s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-timeline)")
+    s.add_argument("--materialize", action="store_true",
+                   help="read every demo tray before building the stored timeline")
+    s.add_argument("--step", type=float, default=0.5,
+                   help="tray sampling interval for --materialize (default 0.5s)")
+    s.set_defaults(func=cmd_ability_timeline)
 
     s = sub.add_parser("refine", help="preview or densely read selected coaching review windows")
     s.add_argument("session")

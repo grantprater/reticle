@@ -72,6 +72,17 @@ class AbilityCoverageTests(unittest.TestCase):
                          (second / "coverage.jsonl").read_bytes())
         self.assertEqual(before, (self.root / "labels/ability/demo.jsonl").read_bytes())
 
+    def test_punctuation_free_manifest_tag_matches_catalogue_agent(self):
+        reference = json.loads((self.root / "reference/abilities.json").read_text())
+        reference["agents"]["KAY/O"] = {"abilities": [
+            {"name": "ZERO/point", "slot": "Ability2", "key": "E"}]}
+        (self.root / "reference/abilities.json").write_text(json.dumps(reference))
+        manifest = json.loads((self.root / "manifests/demo.json").read_text())
+        manifest["tags"] = ["ability-demo", "kayo"]
+        (self.root / "manifests/demo.json").write_text(json.dumps(manifest))
+        got = build_inventory(self.root)
+        self.assertEqual(got["sessions"][0]["agent"], "KAY/O")
+
 
 if __name__ == "__main__":
     unittest.main()
