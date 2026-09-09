@@ -58,6 +58,12 @@ CLUTTER_KEYS = {
 # An orphan window has no use claim beside it, so "it was already there" is a
 # real answer rather than a missing observation.
 ORPHAN_EXTRA = {"e": "present_before_this_window"}
+
+# `d` records an APPEARANCE, not a cause. A deployed device dims when it
+# deactivates -- the player named owner death as one reason -- so dimness is a
+# state the same object passes through, orthogonal to which object it is. It
+# toggles rather than answering, so identity and state stay separate fields.
+DIM_KEY = "d"
 # Offsets from the labelled instant. Zero is mandatory and is the whole point:
 # an Omen smoke in flight is present for under two seconds, so an evenly spaced
 # strip misses it entirely and shows the player bare ground at the one moment the
@@ -69,7 +75,8 @@ TILE_ZOOM = 3      # magnification of each strip tile
 PANEL_H = 690      # keeps the whole window inside a 1080p screen
 _IS = "IS the ability: 1-5 group id (same digit = same entity)"
 _NOT = "NOT the ability: v viewcone  c crack  p ping  i icon  o other  n nothing there"
-_END = "u unsure | click = mark a component we missed | a back | q save+quit"
+_END = ("d = DIM/deactivated (toggle, then answer) | u unsure | "
+        "click = mark a component we missed | a back | q save+quit")
 HELP_GROUP = f"{_IS} | {_NOT} | {_END}"
 HELP_ORPHAN = (f"{_IS}, or e = already there before this strip | {_NOT} | {_END}")
 
@@ -283,7 +290,8 @@ def main() -> int:
     clips = Clips(root_store)
 
     handles: dict[str, object] = {}
-    state = {"i": 0, "img": None, "missing": [], "written": 0, "answers": {}}
+    state = {"i": 0, "img": None, "missing": [], "written": 0, "answers": {},
+             "dim": False}
 
     tkroot = tk.Tk()
     tkroot.title("reticle - which components are one entity")
@@ -330,7 +338,8 @@ def main() -> int:
             f"{window.get('ability_id') or window.get('named_abilities') or '?'}  "
             f"{window['clip_start_ms'] / 1000:.1f}-{window['clip_end_ms'] / 1000:.1f}s"
             f"   written {state['written']}\n"
-            f"{shape}{sofar}"))
+            f"{shape}{sofar}"
+            + ("   [DIM]" if state["dim"] else "")))
 
     def write(answer: str, group: int | None = None, unsure: bool = False):
         window, cid = queue[state["i"]]
@@ -343,6 +352,7 @@ def main() -> int:
             "answer": answer,
             "group": group,
             "unsure": unsure,
+            "dim": bool(state["dim"]),
             "missing_marks": [
                 {"x": round((mx - state["roi"][0]) / state["roi"][1], 1),
                  "y": round(my / state["roi"][1], 1)}
@@ -363,6 +373,7 @@ def main() -> int:
         if write and write_row is not None:
             write_row()
         state["missing"] = []
+        state["dim"] = False
         state["i"] += step
         if state["i"] >= len(queue):
             finish()
@@ -387,6 +398,7 @@ def main() -> int:
         tkroot.bind(key, lambda e, n=name: answer_clutter(n))
     for key, name in ORPHAN_EXTRA.items():
         tkroot.bind(key, lambda e, n=name: answer_clutter(n))
+    tkroot.bind(DIM_KEY, lambda e: (state.__setitem__("dim", not state["dim"]), show()))
     tkroot.bind("u", lambda e: advance(+1, lambda: write("unsure", unsure=True)))
     tkroot.bind("n", lambda e: advance(+1, lambda: write("nothing_there")))
     tkroot.bind("<space>", lambda e: advance(+1, lambda: write("marked_missing_only")))

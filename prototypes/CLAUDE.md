@@ -1551,6 +1551,58 @@ ability's run count UP, not down. So either previews are rare in the labelled
 set, or they are being detected as separate candidates rather than one track.
 Worth checking against the new labels before trusting either reading.
 
+### A DEPLOYED DEVICE DIMS WHEN IT DEACTIVATES, and owner death is one cause
+
+**Recorded 2026-09-09, from the player mid-labelling:** *18/30 shows basically a
+deactivated sonic sensor. The image is much dimmer. In this case it was
+deactivated because the ally deadlock died.* And, immediately after: *there were
+other deactivated examples before.*
+
+**This is a THIRD termination story and neither of the two already modelled.**
+`docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` offers expiry against destruction. A
+deactivated device is neither: the object is still drawn, still where it was
+placed, and has merely stopped being live. Anything that reads its lifetime as
+ending when the bright pixels go will report a destruction that did not happen.
+
+**MEASURED THE SAME DAY, and the class is bimodal with an EMPTY GAP.** Patch
+contrast at each of the 71 labelled `deadlock:sonic sensor` positions, taken at
+the label's own instant in the ROI crop the readers use:
+
+    mode              n     contrast range   median
+    low  (dim)       24        122-175        137
+    high (live)      47        231-241        237
+
+    largest gap in the sorted values: 56 grey levels, with NOTHING in it
+    present in both matches -- 19 of 48 and 5 of 23
+
+`deadlock:barrier mesh` over the same measurement is unimodal and tight
+(223-238, no label below residual 40), so this is a property of the device
+class rather than of the labelling or the capture.
+
+**It is a candidate explanation for milestone D's null result, and the mechanism
+is one this directory has already paid for.** A gallery fits one median centroid
+per class; a third of the sensor class sits 100 grey levels from the rest, so
+the centroid represents neither mode. That is exactly why a single template per
+agent scored 70.4% against a gallery's 88.6% -- *averaging over that is a blur
+that matches nobody* -- arriving on a new channel. The design's own instruction
+covers it and was not followed because nobody knew this state existed: *do not
+average over incompatible identities or DEPLOYMENT PHASES.*
+
+**The cross-channel prediction is sharp, and both directions are useful.** Owner
+death is already read twice over -- the killfeed, and the roster alive counts --
+so a device dimming should be PREDICTABLE from a death already in the log, and a
+device seen to dim with no death should be a different deactivation cause worth
+finding. That is the CROSS-REFERENCE rule with a new pair of channels, and it
+needs no detector work: both sides are stored.
+
+**Stated as observation, not as cause.** The contrast split is measured; that
+every low-contrast label is a deactivated device is NOT established. Occlusion
+and a partially covered icon would look similar. `prototypes/label_grouping.py`
+carries a `d` key that records DIM as an appearance flag alongside the identity
+answer, deliberately kept as two fields, and that is what will settle whether
+the low mode is deactivation or something else. Rows already answered can be
+revisited with `--redo`; the file is append-only and the last row for a key wins.
+
 ### The one-agent-per-clip demo corpus, recorded 2026-09-03
 
 the player recorded a sitting of controlled clips on **Ascent**, one agent each, on

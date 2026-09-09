@@ -26,6 +26,26 @@ because that is where the only held-out contrast lives. Keys: `1`-`5` group
 (same digit = same entity), `v` viewcone, `c` crack, `p` ping, `i` icon,
 `o` other, `u` unsure, `n` nothing drawn, click marks a missed component.
 
+**A DEPLOYED DEVICE DIMS WHEN IT DEACTIVATES** -- the player named an ally
+Deadlock's death as one cause, and said there had been earlier examples. Measured
+at once: the 71 labelled `deadlock:sonic sensor` positions split into two
+appearance modes with a 56-grey-level gap containing NOTHING -- 24 dim
+(contrast 122-175) against 47 live (231-241), in both matches. `barrier mesh` is
+unimodal over the same measurement.
+
+**That is a candidate explanation for milestone D's null result.** A gallery fits
+one median centroid per class, and a third of the sensor class sits 100 grey
+levels from the rest, so the centroid represents neither mode. The design already
+says not to average over deployment phases; nobody knew this phase existed. The
+next real step on D is to condition the gallery on activation state and re-run
+the held-out evaluation -- do NOT quote the 0.5749/0.4646 figures as a property
+of temporal shape until that is done.
+
+Owner death is already read by the killfeed and by the roster alive counts, so
+dimming should be predictable from a death already in the log, and a dimming with
+no death is a different cause worth finding. Both sides are stored; this needs no
+detector work.
+
 **The coordinate convention is VERIFIED, not assumed.** Label and candidate
 x/y are ROI-RELATIVE, indexing the crop the session's PROFILE defines, and every
 row's stored `roi` matches its profile exactly with no out-of-bounds value. The
