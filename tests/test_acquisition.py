@@ -1,10 +1,17 @@
 import unittest
 from unittest.mock import patch
+from contextlib import redirect_stdout
+from io import StringIO
+import json
+import tempfile
+from pathlib import Path
 
 import numpy as np
 
 from reticle.acquisition import (DEFAULT_TIERS, EvidenceRequest, ReaderCapability,
-                                 SamplingTier, execute_plan, plan_requests)
+                                 SamplingTier, execute_plan, plan_requests,
+                                 plan_spec, write_plan)
+from reticle.cli import main
 
 
 CAPABILITIES = {"events": ReaderCapability(
@@ -79,6 +86,33 @@ class PlanningTests(unittest.TestCase):
             ("sparse",), "test distinction")
         with self.assertRaisesRegex(ValueError, "alternatives"):
             plan_requests([no_alternatives], CAPABILITIES, 60.0)
+
+    def test_json_contract_plans_without_media_and_can_be_persisted(self):
+        spec = {
+            "nominal_fps": 60.0,
+            "max_frames": 100,
+            "capabilities": [{
+                "reader": "events", "properties": ["stable_state"],
+                "tiers": [{"name": "sparse", "hz": 2.0}],
+            }],
+            "requests": [{
+                "request_id": "stable", "reader": "events",
+                "property": "stable_state", "alternatives": ["same", "changed"],
+                "spans_ms": [[0, 1000]], "max_sample_gap_ms": 500,
+                "allowed_tiers": ["sparse"], "reason": "audit stable state",
+                "selection": "opportunity",
+            }],
+        }
+        self.assertEqual(plan_spec(spec)["routes"][0]["hz"], 2.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            source, target = Path(tmp) / "spec.json", Path(tmp) / "plan.json"
+            source.write_text(json.dumps(spec), encoding="utf-8")
+            plan = write_plan(source, target)
+            self.assertEqual(json.loads(target.read_text(encoding="utf-8")), plan)
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(main(["acquisition-plan", str(source)]), 0)
+            self.assertEqual(json.loads(stdout.getvalue()), plan)
 
     def test_execution_shares_retrievals_and_reports_actual_coverage(self):
         plan = plan_requests([

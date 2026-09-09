@@ -20,6 +20,7 @@
     reticle ability-gallery                   appearance galleries + held-out identity scores
     reticle ability-capture                   targeted capture queue for demonstrated gaps
     reticle ability-phases                    entity phases and their transition causes
+    reticle acquisition-plan SPEC.json        validate and plan evidence sampling
     reticle status  [--write]                 generated pipeline status -> STATUS.md
     reticle sql     "SELECT ..."              DuckDB over the store
 """
@@ -1893,6 +1894,19 @@ def cmd_refine(args) -> int:
     return 0
 
 
+def cmd_acquisition_plan(args) -> int:
+    """Validate a machine-readable evidence contract without opening media."""
+    import json
+    from .acquisition import write_plan
+
+    try:
+        plan = write_plan(args.spec, args.out)
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(plan, sort_keys=True, indent=2, allow_nan=False))
+    return 0
+
+
 def cmd_doctor(args) -> int:
     """Structural checks on the REPO, the half `status` does not cover.
 
@@ -2206,6 +2220,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-frames", type=int, default=2000, help="hard native-frame limit; exceeding it refuses")
     s.add_argument("--out", help="dense evidence JSON path")
     s.set_defaults(func=cmd_refine)
+
+    s = sub.add_parser("acquisition-plan",
+                       help="validate and plan a JSON evidence-sampling contract")
+    s.add_argument("spec", help="JSON file containing capabilities and evidence requests")
+    s.add_argument("--out", help="also write the resulting plan JSON here")
+    s.set_defaults(func=cmd_acquisition_plan)
 
     s = sub.add_parser("rounds", help="stage 05: derive rounds and score win rates")
     s.add_argument("session", nargs="?")

@@ -65,6 +65,7 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle ability-gallery
 .\.venv\Scripts\python.exe -m reticle ability-capture
 .\.venv\Scripts\python.exe -m reticle ability-phases
+.\.venv\Scripts\python.exe -m reticle acquisition-plan REQUESTS.json
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
 .\.venv\Scripts\python.exe prototypes\minimap_geometry.py --all

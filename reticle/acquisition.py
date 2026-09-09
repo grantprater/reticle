@@ -8,6 +8,7 @@ Plans refuse unsupported tolerances and budgets instead of degrading silently.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import json
 import math
 from pathlib import Path
 
@@ -104,7 +105,8 @@ def plan_requests(requests: list[EvidenceRequest],
                   capabilities: dict[str, ReaderCapability], nominal_fps: float,
                   max_frames: int | None = None) -> dict:
     """Choose the cheapest tier satisfying each request, then merge routes."""
-    if not math.isfinite(nominal_fps) or nominal_fps <= 0:
+    if (isinstance(nominal_fps, bool) or not isinstance(nominal_fps, (int, float))
+            or not math.isfinite(nominal_fps) or nominal_fps <= 0):
         raise ValueError("nominal_fps must be finite and positive")
     if max_frames is not None and (isinstance(max_frames, bool)
                                    or not isinstance(max_frames, int)
@@ -194,6 +196,57 @@ def plan_requests(requests: list[EvidenceRequest],
             "Meeting a sample-gap tolerance does not establish detector recall.",
         ],
     }
+
+
+def plan_spec(spec: dict) -> dict:
+    """Parse the public JSON planning contract and return an executable plan."""
+    if not isinstance(spec, dict):
+        raise ValueError("acquisition spec must be a JSON object")
+    raw_capabilities = spec.get("capabilities")
+    raw_requests = spec.get("requests")
+    if not isinstance(raw_capabilities, list) or not isinstance(raw_requests, list):
+        raise ValueError("capabilities and requests must be JSON arrays")
+    capabilities = {}
+    try:
+        for raw in raw_capabilities:
+            tiers = tuple(SamplingTier(**tier) for tier in raw["tiers"])
+            capability = ReaderCapability(
+                reader=raw["reader"], properties=tuple(raw["properties"]),
+                tiers=tiers, regimes=tuple(raw.get("regimes", ("standard",))),
+                negative_evidence=raw.get(
+                    "negative_evidence", "requires recorded readable coverage"),
+            )
+            if capability.reader in capabilities:
+                raise ValueError(f"duplicate capability: {capability.reader}")
+            capabilities[capability.reader] = capability
+        requests = [EvidenceRequest(
+            request_id=raw["request_id"], reader=raw["reader"],
+            property=raw["property"], alternatives=tuple(raw["alternatives"]),
+            spans_ms=tuple(tuple(span) for span in raw["spans_ms"]),
+            max_sample_gap_ms=raw["max_sample_gap_ms"],
+            allowed_tiers=tuple(raw["allowed_tiers"]), reason=raw["reason"],
+            regime=raw.get("regime", "standard"),
+            selection=raw.get("selection", "conflict"),
+        ) for raw in raw_requests]
+        plan = plan_requests(requests, capabilities, spec["nominal_fps"],
+                             spec.get("max_frames"))
+        # The public contract is JSON, so do not leak Python tuple semantics to
+        # callers or produce an in-memory plan that differs from its persisted form.
+        return json.loads(json.dumps(plan, allow_nan=False))
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"invalid acquisition spec: {exc}") from exc
+
+
+def write_plan(spec_path: str | Path, out: str | Path | None = None) -> dict:
+    """Read a JSON contract, plan without media access, and optionally persist it."""
+    spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
+    plan = plan_spec(spec)
+    if out is not None:
+        target = Path(out)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(plan, sort_keys=True, indent=2,
+                                     allow_nan=False), encoding="utf-8")
+    return plan
 
 
 def execute_plan(ctx, plan: dict, readers: dict[str, object], progress=None) -> dict:
