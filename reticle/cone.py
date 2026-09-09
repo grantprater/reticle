@@ -469,7 +469,7 @@ def _bench(session: str) -> int:
 
     z = np.load(geometry.require(session))
     labels, med = z["labels"], z["static"]
-    floor = floor_mask(med)
+    floor = floor_mask(med, sd=z["sd_lo"])
     passable = passable_from(labels, floor)
     ys, xs = np.where(floor)
     rng = np.random.default_rng(7)

@@ -120,6 +120,31 @@ def require(session: str, store: str | Path = DEFAULT_STORE) -> Path:
     return p
 
 
+def stability(session: str, store: str | Path = DEFAULT_STORE,
+              shape: tuple[int, int] | None = None):
+    """This session's per-pixel `sd_lo`, for `minimap.floor_mask`'s `sd`.
+
+    The stability map lives in the geometry npz and the static map is cached
+    per session, so a caller holding only `store.read_static_map` cannot reach
+    it without this. Returns `None` -- meaning *no stability channel*, not
+    *stable* -- for a session with no map tag, no built geometry, or a
+    geometry whose widget differs in size from the caller's static map. Any of
+    those keeps `floor_mask`'s pure-`med` behaviour rather than guessing.
+    """
+    import numpy as np
+
+    p = path_of(session, store)
+    if p is None or not p.is_file():
+        return None
+    with np.load(p) as z:
+        if "sd_lo" not in z.files:
+            return None
+        sd = z["sd_lo"].copy()
+    if shape is not None and tuple(sd.shape) != tuple(shape):
+        return None
+    return sd
+
+
 def fit_path(k: str, store: str | Path = DEFAULT_STORE) -> Path:
     """The cached art-to-widget fit for a key.
 

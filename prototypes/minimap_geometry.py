@@ -320,13 +320,19 @@ def source_stamp():
     ).hexdigest()
 
 
-def classify(med):
-    """Label every pixel of a static minimap into the geometry classes."""
+def classify(med, sd=None):
+    """Label every pixel of a static minimap into the geometry classes.
+
+    `sd` is the two-state `sd_lo` for these same frames and it reaches
+    `floor_mask` unchanged: the labels and the mask must agree about what the
+    map IS, or the npz ships a `labels` that calls the location-name banner
+    FLOOR while every reader of `static` calls it void.
+    """
     hsv = cv2.cvtColor(med, cv2.COLOR_BGR2HSV)
     h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
     out = np.full(med.shape[:2], VOID, np.uint8)
 
-    floor = floor_mask(med)
+    floor = floor_mask(med, sd=sd)
     out[floor] = FLOOR
 
     # The footprint: what the floor ENCLOSES, found by flooding the exterior
@@ -575,13 +581,16 @@ def build_key(gkey: str, n: int = 180, source: str | None = None,
               f"no widget drawn before fitting")
     frames = drawn
     med = static_map(frames)                      # again, on clean frames only
-    lab = classify(med)
+    # The two-state fit runs BEFORE `classify` because `sd_lo` is what tells
+    # the bridge rule a room from the widget's own furniture -- see
+    # `minimap.floor_mask`. Labelling first shipped an npz whose `labels`
+    # disagreed with its own `static` about the location-name banner.
+    gray_stack = np.stack([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames])
+    lo_gray, hi_gray, sd_lo, sd_hi = two_state_gray(gray_stack)
+    lab = classify(med, sd=sd_lo)
     others = [s for s in G.sessions_for(gkey, STORE) if s != src_sid]
     summarise(lab, f"{gkey}  (from {src_sid}, {len(frames)} frames"
                    f"{f'; read by {len(others)} other session(s)' if others else ''})")
-
-    gray_stack = np.stack([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames])
-    lo_gray, hi_gray, sd_lo, sd_hi = two_state_gray(gray_stack)
 
     out = G.path(gkey, STORE)
     out.parent.mkdir(parents=True, exist_ok=True)

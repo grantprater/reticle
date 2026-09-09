@@ -150,9 +150,13 @@ class SessionContext:
         return med
 
     def floor(self) -> np.ndarray:
+        from . import geometry
         from .minimap import floor_mask
 
-        return floor_mask(self.static_map())
+        med = self.static_map()
+        return floor_mask(med, sd=geometry.stability(self.session_id,
+                                                     self.store.root,
+                                                     med.shape[:2]))
 
     def sgray(self) -> np.ndarray:
         import cv2

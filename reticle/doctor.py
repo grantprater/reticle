@@ -361,6 +361,50 @@ def check_shade(store: Path) -> list[tuple[str, str]]:
     return out
 
 
+def check_furniture(store: Path) -> list[tuple[str, str]]:
+    """Baked geometry whose floor mask still swallows widget furniture.
+
+    `floor_mask`'s BRIDGE rule re-attaches anything within 25 widget px of the
+    map body, and proximity cannot tell a room from the widget's own drawing.
+    On Sunset the location-name banner sits 9 px above the body, so the words
+    `B Market` were map -- **57 entity hypotheses over 1410 observations** in
+    one 79 s round, as persistent `ability?` and `enemy` boxes.
+
+    The gate is `sd`, and `sd` is optional, so this reports what each baked
+    geometry looks like WITH it against without. A finding here is not a stale
+    cache to refill: it names the maps where a caller that omits `sd` still
+    reports furniture as map, so the omission stays visible rather than
+    quietly keeping the defect. It clears only when a geometry has no
+    furniture to drop.
+    """
+    d = store / "geometry"
+    if not d.is_dir():
+        return []
+    import numpy as np
+
+    from .minimap import floor_mask
+    hits = []
+    for p in sorted(d.glob("*.npz")):
+        try:
+            with np.load(p, allow_pickle=False) as z:
+                if "sd_lo" not in z.files or "static" not in z.files:
+                    continue
+                med, sd = z["static"].copy(), z["sd_lo"].copy()
+        except Exception:                                   # pragma: no cover
+            continue
+        lost = int((floor_mask(med) & ~floor_mask(med, sd=sd)).sum())
+        if lost:
+            hits.append((lost, p.stem))
+    if not hits:
+        return []
+    hits.sort(reverse=True)
+    return [(WARN, f"{len(hits)} geometry admit widget furniture as floor "
+                   f"unless `sd` is passed -- a caller on the pure-`med` path "
+                   f"reads it as map. "
+                   + ", ".join(f"{k} {n}px" for n, k in hits[:6])
+                   + (" ..." if len(hits) > 6 else ""))]
+
+
 def check_stalls(store: Path) -> list[tuple[str, str]]:
     """Sessions holding a lot of CAPTURE STALL -- frozen source, time passing.
 
@@ -414,6 +458,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("SHADE", lambda: check_shade(store)),
               ("COVERAGE", lambda: check_coverage(store)),
               ("MANIFEST", lambda: check_manifest(store)),
+              ("FURNITURE", lambda: check_furniture(store)),
               ("STALL", lambda: check_stalls(store)))
     out = []
     for name, fn in checks:

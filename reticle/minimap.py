@@ -183,9 +183,15 @@ SITE_MIN_AREA = 500
 #: and the next jumps to 31 px and is a 5 px speck. 25 sits in that gap.
 #: A LENGTH, so it scales with the widget.
 BRIDGE = 25
+#: Which percentile of the map body's own `sd_lo` a bridged component must sit
+#: inside to be map. Not fitted: the body is the reference for what a stable
+#: pixel looks like, and 95 leaves the body's own noisiest twentieth out of the
+#: comparison. See `floor_mask` for the twelve-geometry separation it rests on.
+STABLE_PCT = 95
 
 
-def floor_mask(med: np.ndarray, dilate: float = 9) -> np.ndarray:
+def floor_mask(med: np.ndarray, dilate: float = 9,
+               sd: np.ndarray | None = None) -> np.ndarray:
     """The opaque walkable slab. Everything else is see-through and churns.
 
     **Reconciled 2026-09-06.** This function existed twice with different
@@ -243,6 +249,40 @@ def floor_mask(med: np.ndarray, dilate: float = 9) -> np.ndarray:
     radius was measured before that. **`dilate=1` means no dilation at all**
     and several ability callers rely on it, so it is preserved exactly rather
     than rounded up to the minimum odd kernel.
+
+    **`sd` is the geometry npz's `sd_lo`, and it decides what BRIDGE may
+    re-attach.** The bridge is a proximity rule, and proximity cannot tell a
+    room from the widget's own furniture: the location-name banner is drawn
+    9 px above Sunset's map body, so 25 px of dilation swallowed it and the
+    round pipeline reported the text as map. Measured on
+    `sunset__valorant-16x9-bigmap`, that island was **57 entity hypotheses
+    over 1410 observations** in one 79 s round -- persistent `ability? 307`
+    and `enemy 68` boxes sitting on the words `B Market`.
+
+    The channel that already knows is the one the brightness test does not
+    read: **map structure is what does not change.** A bridged component is
+    admitted only when its median `sd_lo` is inside the body's own 95th
+    percentile, so the reference is the map rather than a fitted number. Over
+    the twelve baked geometries the two are cleanly separated -- every real
+    component sits at 0.00-0.87 of the body's p95 and the two offenders at
+    2.90 (Split's rim) and 7.46 (Sunset's banner):
+
+        component                                   median sd_lo / body p95
+        ascent bigmap (42,129,29,47)   1362 px       0.00   room, kept
+        abyss (21,255,45,48)             94 px       0.42   island, kept
+        summit crop75 (243,403,16,13)    79 px       0.87   kept
+        split 16x9 (200,49,124,280)     485 px       2.90   REFUSED
+        sunset bigmap (193,8,81,14)     486 px       7.46   REFUSED, the banner
+
+    Ascent's 1362 px component is the check that matters: it is the shape of
+    the Boathouse this bridge exists for, and a stability gate keeps it while
+    a convex-hull rule -- the other threshold-free candidate measured here --
+    threw it away.
+
+    **Omitting `sd` keeps the pure-`med` behaviour exactly**, because most
+    callers hold a static map and no variability map. `doctor`'s BANNER check
+    scores every baked geometry both ways, so a call site that could pass it
+    and does not stays visible instead of quietly keeping the defect.
     """
     scale = widget_scale(med.shape[1])
     hsv = cv2.cvtColor(med, cv2.COLOR_BGR2HSV)
@@ -261,9 +301,14 @@ def floor_mask(med: np.ndarray, dilate: float = 9) -> np.ndarray:
     big = (lbl == big_id).astype(np.uint8)
     b = _odd(BRIDGE * scale)
     near = cv2.dilate(big, np.ones((b, b), np.uint8)) > 0
+    ceiling = (float(np.percentile(sd[lbl == big_id], STABLE_PCT))
+               if sd is not None else None)
     for i in range(1, n):
-        if i != big_id and (lbl == i)[near].any():
-            big[lbl == i] = 1
+        if i == big_id or not (lbl == i)[near].any():
+            continue
+        if ceiling is not None and float(np.median(sd[lbl == i])) > ceiling:
+            continue                              # near the map, but not OF it
+        big[lbl == i] = 1
     # The sites are floor too, and they join BEFORE the dilation so a site's
     # edge gets the same overhang margin the slab's does.
     big |= site_mask(med, big > 0).astype(np.uint8)
@@ -859,14 +904,16 @@ def ally_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
     return icons(ally_mask(crop), crop, floor, **kw)
 
 
-def slab_mask(med: np.ndarray) -> np.ndarray:
+def slab_mask(med: np.ndarray, sd: np.ndarray | None = None) -> np.ndarray:
     """The opaque slab with no overhang margin -- `icons`' `support`.
 
     Named rather than written as `floor_mask(med, dilate=1)` at each call site,
     because what it means (*the structure a detection must be supported by*) is
-    not obvious from the argument.
+    not obvious from the argument. `sd` carries through for the same reason it
+    exists there: this is the mask a detection must be SUPPORTED by, so widget
+    furniture inside it is licence for a phantom, not merely extra area.
     """
-    return floor_mask(med, dilate=1)
+    return floor_mask(med, dilate=1, sd=sd)
 
 
 def self_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:

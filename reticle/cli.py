@@ -463,7 +463,8 @@ class _MinimapPass:
             store.write_static_map(sid, med)
         else:
             print("static     map cached")
-        self.floor = floor_mask(med)
+        self.floor = floor_mask(med, sd=geometry.stability(sid, store.root,
+                                                           med.shape[:2]))
         # The reference the widget test correlates against. See `widget_drawn`.
         self.sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
         # Declared for `passes.Reader`.
@@ -1344,8 +1345,9 @@ def cmd_overlay(args) -> int:
                   "minimap`, or minimap_geometry.py for this session's map")
         else:
             mm_box = minimap_roi_px(profile, w, h)
-            mm_floor = floor_mask(med)
-            mm_slab = slab_mask(med)
+            mm_sd = geometry.stability(sid, args.store, med.shape[:2])
+            mm_floor = floor_mask(med, sd=mm_sd)
+            mm_slab = slab_mask(med, sd=mm_sd)
             mm_sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
             mm_passable = mm_floor
             geo = geometry.path_of(sid, args.store)
