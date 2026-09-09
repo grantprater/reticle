@@ -313,6 +313,7 @@ def source_stamp():
     return hashlib.sha256(
         Path(__file__).read_bytes()
         + metrics.fingerprint(mm.floor_mask, mm.site_mask, mm.median_widget,
+                              mm.art_floor, classify_art,
                               site_h=mm.SITE_H, site_s=mm.SITE_S,
                               site_v=mm.SITE_V, site_area=mm.SITE_MIN_AREA,
                               floor_s=mm.FLOOR_S_MAX, floor_v=mm.FLOOR_V_MIN,
@@ -320,8 +321,70 @@ def source_stamp():
     ).hexdigest()
 
 
+#: The art must place at least this well before its LABELS are trusted, and it
+#: is `reticle.geometry.MIN_ART_FIT` -- one number for one question, because a
+#: mask from the art and labels from the median would disagree about the map.
+ART_FIT_MIN = 0.80
+
+
+def classify_art(kind):
+    """The geometry classes straight from the ART. Prefer this to `classify`.
+
+    `BACKLOG.md`, 2026-09-06: *"the npz keeps its capture median and swaps
+    only its LABELS."* The mask half of that promotion landed as
+    `minimap.art_floor`; this is the labels half, and until it existed every
+    reader of `labels` -- `cone.passable_from` most of all -- was still on a
+    classification derived from gameplay frames while the mask beside it came
+    from the published art. The player caught exactly that: *"Is the passable
+    mask computed from the derived map per session? Everything that was
+    reliant on geometry should have been recomputed. Automatically."*
+
+    `map_shade` gives six art classes and this is the whole mapping:
+
+        art VOID                     -> VOID, or HOLE where the floor encloses it
+        art FLOOR / RAMP / SHADOW    -> FLOOR   (a ramp and a shadow are ground)
+        art SITE                     -> PLANT   (a site is painted FLOOR)
+        art LINE, void on one side   -> BORDER  (the map's outer boundary)
+        art LINE, playable both sides-> BOXEDGE (an interior wall; stops a ray)
+
+    The BORDER/BOXEDGE split is the same topological test `classify` used and
+    for the same reason -- what matters is whether the VOID is adjacent, not
+    whether floor is nearby -- but it now runs on a boundary that is STATED by
+    the art's alpha rather than thresholded out of a median, so the 13 px
+    dilation that existed to reach back across `floor_mask`'s own 9 px growth
+    is not needed and is not applied.
+    """
+    from map_shade import FLOOR as A_FLOOR, LINE as A_LINE, RAMP as A_RAMP
+    from map_shade import SHADOW as A_SHADOW, SITE as A_SITE
+
+    out = np.full(kind.shape, VOID, np.uint8)
+    ground = np.isin(kind, (A_FLOOR, A_RAMP, A_SHADOW, A_SITE))
+    out[ground] = FLOOR
+    out[kind == A_SITE] = PLANT
+
+    # What the map ENCLOSES: flood the exterior inward from the frame edge, so
+    # a hole is non-ground the flood cannot reach. No shape assumption.
+    on = (kind > 0).astype(np.uint8)
+    ff = on.copy()
+    mask = np.zeros((ff.shape[0] + 2, ff.shape[1] + 2), np.uint8)
+    cv2.floodFill(ff, mask, (0, 0), 1)
+    exterior = (ff == 1) & (kind == 0)
+    out[(kind == 0) & ~exterior] = HOLE
+
+    line = kind == A_LINE
+    touches_void = cv2.dilate(exterior.astype(np.uint8),
+                              np.ones((3, 3), np.uint8)) > 0
+    out[line & touches_void] = BORDER
+    out[line & ~touches_void] = BOXEDGE
+    return out
+
+
 def classify(med, sd=None):
     """Label every pixel of a static minimap into the geometry classes.
+
+    **The DERIVED fallback.** `classify_art` is the answer whenever the map's
+    art has been fetched and places well; this runs only for a key that has
+    neither, and `build_key` records which was used.
 
     `sd` is the two-state `sd_lo` for these same frames and it reaches
     `floor_mask` unchanged: the labels and the mask must agree about what the
@@ -587,7 +650,24 @@ def build_key(gkey: str, n: int = 180, source: str | None = None,
     # disagreed with its own `static` about the location-name banner.
     gray_stack = np.stack([cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames])
     lo_gray, hi_gray, sd_lo, sd_hi = two_state_gray(gray_stack)
-    lab = classify(med, sd=sd_lo)
+    # GEOMETRY FROM THE ART when it is fetched and places well; the capture
+    # median only when it is not. `label_source` goes into the npz so a reader
+    # never has to guess which it got.
+    art = None
+    shade_path = SHADE_DIR / f"{gkey}.npz" if "SHADE_DIR" in globals() else None
+    prev = G.path(gkey, STORE)
+    if prev.is_file():
+        with np.load(prev) as pz:
+            if "shade_kind" in pz.files and "shade_fit" in pz.files:
+                if float(pz["shade_fit"][4]) >= ART_FIT_MIN and                         tuple(pz["shade_kind"].shape) == med.shape[:2]:
+                    art = pz["shade_kind"].copy()
+    if art is not None:
+        lab = classify_art(art)
+        label_source = "art"
+    else:
+        lab = classify(med, sd=sd_lo)
+        label_source = "derived"
+    print(f"  labels from {label_source.upper()}")
     others = [s for s in G.sessions_for(gkey, STORE) if s != src_sid]
     summarise(lab, f"{gkey}  (from {src_sid}, {len(frames)} frames"
                    f"{f'; read by {len(others)} other session(s)' if others else ''})")
@@ -599,6 +679,7 @@ def build_key(gkey: str, n: int = 180, source: str | None = None,
                         lo_gray=lo_gray, hi_gray=hi_gray,
                         sd_lo=sd_lo, sd_hi=sd_hi,
                         built_from=np.array(src_sid),
+                        label_source=np.array(label_source),
                         built_by=np.array(source_stamp()))
     reattach_shade(gkey, was_shaded)
     print(f"  wrote {out}  (stamp {source_stamp()[:8]})")

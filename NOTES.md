@@ -11,7 +11,121 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-08 evening, the widget's own furniture was the map
+## PICKING UP -- 2026-09-08 late, geometry comes from the ART now
+
+**Read this first: every measured number in the section below it was taken on
+the DERIVED map geometry and none of them reproduce.** The twelve geometries
+were rebuilt from the official art at the end of this session, so the round
+exports in `~/reticle-store/notes/sunset-round6-*` are all against stale
+geometry. Re-render before quoting anything from them.
+
+### The promotion that should have happened weeks ago
+
+`BACKLOG.md`'s "Promote the WIKI MAP into `minimap_geometry`" was settled on
+2026-09-06 with the trigger *"the next time a session's geometry is built"*.
+That trigger fired on 2026-09-08 -- all twelve were rebuilt -- and was walked
+past, and the session then spent hours patching the derived rule's false
+positives one at a time. Scored on the same painted referee:
+
+    session                 area   recall    prec     IoU
+    Ascent  derived        37.8%   100.0%   78.8%   78.8%
+            ART            30.4%    97.2%   95.2%   92.7%
+    Lotus   derived        40.1%   100.0%   77.9%   77.9%
+            ART            32.8%    99.4%   94.7%   94.2%
+
+`derived & ART` = ART and `derived | ART` = derived, so the derived rule's
+extra ~7% of the widget was almost all false positive: the location banner,
+the widget rim, the close skirt, the barrier doorways.
+
+**Both halves are done.** `minimap.art_floor` is the mask;
+`minimap_geometry.classify_art` is the labels, mapping the six art classes to
+the six geometry classes, so `cone.passable_from` no longer reads a
+classification derived from gameplay frames. 10 of 12 keys are on ART;
+`summit__valorant-16x9` stays derived because its art places at IoU 0.663
+against 0.888-0.954 for the rest (`geometry.MIN_ART_FIT`). Every npz records
+`label_source`, and every round export records `floor_source`.
+
+**The stamp now covers the art path**, which is what was actually broken: it
+fingerprinted `floor_mask` only, so the first art change did not mark anything
+stale and nothing recomputed. `art_floor` and `classify_art` are in it now, so
+touching either makes all twelve npz stale as a `doctor` ERROR.
+
+**`tools/guard_geometry.py` + `.claude/settings.json`** assert the wiring on
+every Write/Edit and at Stop. The player's reason for wanting it is on record
+and is fair: a convention in prose did not hold. Verified both ways -- passes
+on the tree, exits 2 on a tree with the promotion removed. NOTE: it needs
+`/hooks` opened once, or a restart, before the watcher picks it up.
+
+### The barrier cut law, honed by the player, and where it stands
+
+*"The ally portion includes the ally spawn, which is either the top or bottom
+of the map depending on attacking/defending (attackers are bottom on these
+non-rotating maps). The ally portion is entirely separated from the neutral
+portion, which in turn is entirely separated from the enemy portion, which
+includes the enemy spawn."*
+
+That is `barriers.territories` and `barriers.chain`: exactly THREE regions in
+a PATH, with per-bar attribution of which pair each bar separates. The old
+test was `len(regions) >= 2`, which a wrong set passes easily.
+`barriers.reachable` excludes the two ~1,170 px pockets Sunset's floor already
+has before any bar is painted -- counting those as territories made a correct
+nine-bar set read as five.
+
+**Sunset has NINE spawn barriers, not the six that are baked**, and the player
+said so outright. Two were missed by the persistence rule (0.75 is above the
+knee; 8 are stable across 0.25-0.60) and **one is DIAGONAL at -41.6 degrees**,
+missed because the shape filter measured straightness in an axis-aligned
+bounding box: axis aspect 1.17, rotated aspect 2.76, right in the range of the
+other eight. Use `cv2.minAreaRect` or `barriers.axis_of`, never `w/h`.
+
+**They are NOT baked, deliberately.** The nine do not satisfy the chain law on
+the art geometry, and `barriers.seal` says why -- a bar spans its doorway, so
+the closure is an extension along the bar's own axis until it meets
+impassable ground, needing no growth constant:
+
+    bar 0 (233,186)   WALL@7   OPEN@40   <-- does not span its opening
+    bars 1-7                   sealed at both ends within 0-6 px
+    bar 8 (150,352)   diagonal, not measured on the right axis
+
+So the flood is not leaking around bars 1/3/7 -- the player's first guess, and
+the measurement says they each seal. It is getting through bar 0. Next session:
+measure bar 8 on its PCA axis, work out whether bar 0 is a fragment of a longer
+bar or not a spawn barrier at all, then bake and re-render. **Do not reach for
+a growth constant to make the count come out at three.**
+
+### Everything else from this session, in one place
+
+* **The enemy channel was gating on a FITTED CENTRE.** An arc fits its centre
+  at `p + r*n`, so red in the widget's transparent surround places a centre
+  3-9 px inside the slab. It is not an ability: the player turned to face
+  Sunset's brick architecture and `red_mask` went 613 -> 40,851 px while the
+  count ON the slab held at 90 -> 114. `ring_supported` scores the ring's own
+  pixels; enemy entities 166 -> 15 over the session, and the two bursts the
+  player reported at 0:30 and 0:37 went to zero.
+* **The barrier channel gates the enemy channel** while the bars are drawn:
+  531 -> 159 observations, 158 after `live_start` unchanged.
+* **`Tracker.principal` held a stale track** -- 56 of 774 samples had a self
+  icon detected and no box drawn. Sticky and refusing now: 81.0% -> 72.6%
+  reported, worst step 312 px -> 13.9 px, nothing over 20.
+* **`round-lifetimes-0.5.0`**, appearance is comparative. The old `>= 0.85`
+  absolute bar sat above the signal (same ally 0.708 median, different allies
+  0.213, and they overlap), so it never fired. Ranked against the alternatives
+  it agrees with position-truth on 97.9% of 1,748 unambiguous pairs.
+* **The doorway phantoms are the barrier doorways** -- objects with >=30
+  observations are 16x enriched within 8 px of one -- and the cause is
+  photometric, not geometric: `sd_hi` at those pixels is 8.3-23.6 against a
+  whole-slab median of 0.75, because the barrier is drawn there every buy
+  phase and the two-state fit merges two states into one. **Not fixed.** The
+  clean answer is to fit the reference on live-phase frames only.
+* **Still 85 allies for 4.** The comparative appearance gate helps a little
+  (85 -> 75 at the shipped margin) and is not the whole answer.
+* **The player's conservation idea, not yet built:** N icons enter an overlap,
+  N leave, unless a death or round end accounts for one. It needs no new
+  architecture -- the temporal model is already there -- what is missing is
+  merge/split bookkeeping inside it. It would have caught the self being lost
+  under a KAY/O icon at 0:44 and re-emerging as `ability? 308`.
+
+## Superseded -- 2026-09-08 evening, the widget furniture patches
 
 The session's goal was **full-round visual labelling and bounding, clearly
 correct**. Four defects were found by measuring the shipped round rather than
