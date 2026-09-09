@@ -264,6 +264,7 @@ def build_entities(root: str | Path) -> dict:
                 continue
             status = "supported" if named == use.get("ability_id") else "candidate"
             parents.append({"use_claim_id": use["use_claim_id"], "status": status,
+                            "use_claim_status": use.get("status"),
                             "reason": ("matching_human_component_identity" if status == "supported"
                                        else "temporal_compatibility")})
             compatible_by_use[use["use_claim_id"]].append(component)
@@ -381,8 +382,15 @@ def build_entities(root: str | Path) -> dict:
         "human_named_components": sum(c["label_state"] == "named" for c in components),
         "human_clutter_components": sum(c["label_state"] == "clutter" for c in components),
         "component_parent_edges": sum(len(r["possible_parents"]) for r in component_claims),
-        "supported_parent_edges": sum(sum(p["status"] == "supported" for p in r["possible_parents"])
-                                      for r in component_claims),
+        # A human name matching a claim the reader itself flagged is not the same
+        # evidence as one matching a clean claim, and the gate number must not
+        # quietly pool them.
+        "supported_parent_edges": sum(
+            sum(p["status"] == "supported" and p.get("use_claim_status") != "suspect"
+                for p in r["possible_parents"]) for r in component_claims),
+        "supported_parent_edges_on_suspect_claims": sum(
+            sum(p["status"] == "supported" and p.get("use_claim_status") == "suspect"
+                for p in r["possible_parents"]) for r in component_claims),
         "entity_hypotheses": len(hypotheses), "property_claims": len(properties),
         "review_windows": len(review),
         "grouping_methods": dict(sorted(Counter(h["grouping_method"] for h in hypotheses).items())),

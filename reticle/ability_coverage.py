@@ -53,6 +53,20 @@ def _agent_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", value.casefold())
 
 
+def _perspective(session_ids: list[str], manifests: dict[str, dict]) -> str:
+    """Whose view the sources for this ability are.
+
+    A spectator clip shows another player's HUD and minimap, so calling it
+    `local_player` would assert the wrong owner for every use claim derived from
+    it.  With no demo source at all there is nothing to assert either way.
+    """
+    if not session_ids:
+        return "unknown_no_demo_source"
+    seen = {"spectator" if "spectator" in (manifests.get(sid, {}).get("tags") or [])
+            else "local_player" for sid in session_ids}
+    return seen.pop() if len(seen) == 1 else "mixed"
+
+
 def _agent_tag(manifest: dict, known: dict[str, str]) -> str | None:
     tags = {_agent_token(str(tag)) for tag in manifest.get("tags", [])}
     found = [canonical for folded, canonical in known.items() if folded in tags]
@@ -286,7 +300,8 @@ def build_inventory(root: str | Path) -> dict:
                 "key": definition.get("key"),
                 "mode": definition["mode"],
                 "property_group": prop,
-                "perspective": "local_player",
+                "perspective": _perspective(
+                    demos_by_agent.get(definition["agent"], []), manifests),
                 "capture_regime": "ability_demo",
                 "status": status,
                 "status_reason": reason,
