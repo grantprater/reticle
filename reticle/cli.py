@@ -17,6 +17,8 @@
     reticle ability-coverage                  inventory ability evidence without decoding
     reticle ability-timeline                  build bounded ability-use claims
     reticle ability-entities                  build alternative ability entity hypotheses
+    reticle ability-gallery                   appearance galleries + held-out identity scores
+    reticle ability-capture                   targeted capture queue for demonstrated gaps
     reticle status  [--write]                 generated pipeline status -> STATUS.md
     reticle sql     "SELECT ..."              DuckDB over the store
 """
@@ -1767,6 +1769,55 @@ def cmd_ability_entities(args) -> int:
     return 0
 
 
+def cmd_ability_gallery(args) -> int:
+    """Build phase galleries and score identity on held-out sessions."""
+    from .ability_gallery import run
+
+    bundle, target = run(args.store, args.out)
+    summary = bundle["manifest"]["summary"]
+    print(f"{summary['named_examples']} named examples ({summary['examples_with_trace']} with a "
+          f"series trace) over {summary['abilities']} abilities; {summary['gallery_rows']} gallery rows")
+    for row in bundle["evaluation"]:
+        scores = ", ".join(
+            f"{name} {value['balanced_accuracy']}" if value["balanced_accuracy"] is not None
+            else f"{name} n/a" for name, value in sorted(row["scores"].items()))
+        print(f"  test {row['test_session']} ({row['agent']}, n={row['n_test']}): {scores}")
+    print(f"{summary['scored_contrasts']} scored contrasts, "
+          f"{summary['excluded_contrasts']} excluded for want of a held-out split")
+    print(f"ability gallery: {target}")
+    return 0
+
+
+def cmd_ability_capture(args) -> int:
+    """Rank review work and issue capture cards for demonstrated gaps only."""
+    import json as _json
+
+    from .ability_capture import run
+    from .adjudication.capture import record_take
+
+    if args.record_take:
+        take = _json.loads(Path(args.record_take).read_text(encoding="utf-8"))
+        row = record_take(args.store, take["take_id"], take.get("session_id"),
+                          take["outcomes"], take.get("operator_note", ""))
+        print(f"recorded take {row['take_id']} with {len(row['claims'])} claim(s); "
+              f"a claim is not a result -- rerun to see what the store can corroborate")
+
+    bundle, target = run(args.store, args.out)
+    summary = bundle["manifest"]["summary"]
+    print(f"{summary['review_items']} review items at zero recorded seconds; "
+          f"{summary['deferred_requests']} deferred requests")
+    print(f"{summary['capture_cards']} capture cards in {summary['capture_batches']} takes, "
+          f"{summary['requested_recorded_s']:.0f}s recorded")
+    for card in bundle["cards"]:
+        print(f"  {card['rank']}. {card['ability_id']} ({card['cost']['recorded_s']:.0f}s) "
+              f"-- {card['named_missing_discriminator']}")
+    for verdict in bundle["takes"]:
+        print(f"  take {verdict['take_id']} {verdict['capture_request_id']}: "
+              f"{verdict['verdict']} -- {verdict['reason']}")
+    print(f"ability capture queue: {target}")
+    return 0
+
+
 def cmd_refine(args) -> int:
     """Preview or densely read explicitly selected review windows."""
     import hashlib
@@ -2115,6 +2166,17 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("ability-entities", help="build alternative ability entity hypotheses")
     s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-entities)")
     s.set_defaults(func=cmd_ability_entities)
+
+    s = sub.add_parser("ability-gallery", help="appearance galleries and held-out identity scores")
+    s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-gallery)")
+    s.set_defaults(func=cmd_ability_gallery)
+
+    s = sub.add_parser("ability-capture", help="targeted capture queue for demonstrated gaps")
+    s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-capture)")
+    s.add_argument("--record-take", metavar="TAKE.json",
+                   help="append one executed take, then rebuild; claims are checked against "
+                        "independent evidence rather than believed")
+    s.set_defaults(func=cmd_ability_capture)
 
     s = sub.add_parser("refine", help="preview or densely read selected coaching review windows")
     s.add_argument("session")

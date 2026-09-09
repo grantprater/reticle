@@ -33,6 +33,15 @@ ARTIFACTS = {
         ("ability_entities.py", "adjudication/ability.py", "ability_timeline.py",
          "ability_coverage.py", "artifacts.py", "store.py"),
         parents=("ability_timeline",), inputs=("ability_candidates", "ability_labels")),
+    "ability_gallery": ArtifactSpec(
+        ("ability_gallery.py", "adjudication/gallery.py", "adjudication/ability.py",
+         "artifacts.py", "store.py"),
+        parents=("ability_entities",),
+        inputs=("ability_candidates", "ability_labels", "ability_series",
+                "ability_audio_assets")),
+    "ability_capture": ArtifactSpec(
+        ("ability_capture.py", "adjudication/capture.py", "artifacts.py", "store.py"),
+        parents=("ability_gallery",), inputs=("manifest",)),
     "coaching": ArtifactSpec(
         ("artifacts.py", "coaching.py", "review.py", "rounds.py", "roster.py", "checks.py", "version.py"),
         inputs=("manifest", "hud", "roster")),
