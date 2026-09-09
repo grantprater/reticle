@@ -24,7 +24,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "prototypes"))
-from reticle import barriers, cone, geometry, lighting, screen, stalls
+from reticle import barriers, cone, geometry, lighting, lineup, screen, stalls
 from reticle.minimap import (ally_icons, self_icons, floor_mask, slab_mask,
                              minimap_roi_px, widget_drawn, widget_scale, ally_mask)
 from reticle.ocr import Templates, read_scoreline, crop_gray, scoreline_roi
@@ -42,7 +42,7 @@ from plant_spike import centre_box, spike_cover, COVER_MIN
 from minimap_portrait import composition
 from ability_hud import slot_counts, SLOT_X0, SLOT_DX, SLOT_KEYS
 
-VERSION = "full-round-0.7.0"
+VERSION = "full-round-0.8.0"
 CONE_TINT = (235,180,80)          # the observable area, as `overlay.py` draws it
 PALETTE = {"self":(90,235,250), "ally":(170,240,100), "enemy":(95,90,255),
            "barrier":(255,210,90), "object":(245,140,225),
@@ -93,6 +93,7 @@ class RoundReader:
         self.profile=get_profile(manifest["source_profile"])
         self.templates=Templates.load(self.profile.name)
         self.box=minimap_roi_px(self.profile,self.w,self.h)
+        self.store_root=store.root
         self.geo_path=geometry.require(manifest["session_id"],store.root)
         with np.load(self.geo_path) as z:
             self.med=z["static"].copy()
@@ -128,6 +129,15 @@ class RoundReader:
         # `python -m reticle.barriers`, render again to observe.
         self.anchors=barriers.load(manifest["session_id"],store.root)
         self.cone_mask=None
+        # Identity, if this session has been read. The player's own agent is
+        # the only one established -- the tray names it outright and the top
+        # bar corroborates -- so it is the only one used. Ally ICONS are not
+        # named: knowing WHO is on the team is not knowing which icon is which,
+        # and `ally 3` stays honest until a per-icon witness exists.
+        self.lineup=lineup.load_lineup(manifest["session_id"],store.root)
+        self.player_agent=(self.lineup or {}).get("player",{}).get("agent")
+        self.abilities=(lineup.abilities_for(self.player_agent,store.root)
+                        if self.player_agent else {})
 
     def barrier_candidates(self,crop,t_ms):
         """Phase-conditioned persistent straight bars, retained as candidates.
@@ -311,7 +321,7 @@ class RoundReader:
                     tracker=self.self_track if family=="self" else self.ally_track
                     bearing=tracker.bearings(t_ms,tracks=[tr])[0][2]
                     r=round(tr.r or 10)
-                    agent_obs.append(observation(family,"self / observer" if family=="self" else "ally agent?",tr.x,tr.y,(round(tr.x)-r,round(tr.y)-r,2*r,2*r),kind="you" if family=="self" else "ally",r=r,facing=bearing,detector_track_id=tr.tid,evidence=["icon_ring"],confidence="observed_icon" if family=="self" else "candidate"))
+                    agent_obs.append(observation(family,"self / observer" if family=="self" else "ally agent?",tr.x,tr.y,(round(tr.x)-r,round(tr.y)-r,2*r,2*r),kind=(self.player_agent.lower() if family=="self" and self.player_agent else "you") if family=="self" else "ally",r=r,facing=bearing,detector_track_id=tr.tid,evidence=["icon_ring"],confidence="observed_icon" if family=="self" else "candidate"))
             # THE VIEWCONE, restored to the round pipeline. The 2 s diagnostic
             # renders had it and the full-round ones lost it, so the two rounds
             # rendered so far carry no observable area at all. `per_icon` is
@@ -402,7 +412,7 @@ class RoundReader:
             gray=cv2.cvtColor(patch,cv2.COLOR_BGR2GRAY)
             bright=int((gray>210).sum())
             if bright>60 and max(tray_counts)>100 and ra is not None:
-                base["observations"].append(observation("hud_ability",f"ability {key}",cx,1002,(cx-30,974,60,57),"hud",kind=f"tray {key}",evidence=["tray_glyph_region"],confidence="HUD_region_not_cast"))
+                base["observations"].append(observation("hud_ability",lineup.ability_label(self.player_agent,key,self.store_root) or f"ability {key}",cx,1002,(cx-30,974,60,57),"hud",kind=lineup.ability_label(self.player_agent,key,self.store_root) or f"tray {key}",evidence=["tray_glyph_region"],confidence="HUD_region_not_cast"))
         # The existing screen reader masks HUD and the actual enlarged minimap.
         # No named identity or shootability is inferred from a coloured outline.
         outlines=screen.outline_candidates(frame,minimap_box=self.box)
@@ -487,6 +497,11 @@ def draw_review(frame,sample,rows,reader,t_ms,start_ms):
     ink(canvas,f"Roster {roster.get('alive_ally','?')} vs {roster.get('alive_enemy','?')} | ? = unresolved class",(w+22,yy+22),scale=.46)
     ink(canvas,"Names are round-scoped hypotheses, fixed at birth; ~ = alternatives",(w+22,yy+44),scale=.43)
     ink(canvas,"Boxes between samples show the last observation",(w+22,yy+65),scale=.43)
+    if reader.player_agent:
+        team=", ".join(r["agent"] for r in (reader.lineup or {}).get("sides",{})
+                       .get("ally",[]) if r.get("agent")) or "not separated"
+        ink(canvas,f"you are {reader.player_agent} | team read: {team}",
+            (w+22,yy+126),(150,220,250),.44)
     vc=sample.get("viewcone") or {}
     cc=sample.get("cone_checks") or {}
     if vc:
@@ -500,9 +515,9 @@ def draw_review(frame,sample,rows,reader,t_ms,start_ms):
     for i,o in enumerate(important[:9]):
         label=f"{o.get('name') or o['entity_id'].split(':')[-1]:<16}{o['label']}"
         if o.get("acquisition")=="roster_count_conflict": label+=" [roster conflict]"
-        ink(canvas,label,(w+22,yy+132+i*21),PALETTE.get(o["family"],(220,220,220)),.43)
+        ink(canvas,label,(w+22,yy+152+i*21),PALETTE.get(o["family"],(220,220,220)),.43)
     if len(important)>9:
-        ink(canvas,f"+ {len(important)-9} observations in sidecar",(w+22,yy+325),scale=.4)
+        ink(canvas,f"+ {len(important)-9} observations in sidecar",(w+22,yy+345),scale=.4)
     return canvas
 
 

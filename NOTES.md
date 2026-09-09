@@ -11,7 +11,16 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-08, two full rounds rendered end to end
+## PICKING UP -- 2026-09-08, identity, barriers, and the cone restored
+
+**NEXT SESSION: the light cones and the allies.** That is the thread with the
+most left in it -- the residual-light crosscheck says a median 41% of lit floor
+is explained by no cone we cast, 11.6% of cones land on unlit floor, and four
+allies still arrive as 81 entity hypotheses in one round. The two are probably
+one problem: a fragmented ally leaves its light behind, so the residual is
+where the missing emitter is. Start from `cone_checks` in the round exports.
+
+
 
 **Both rounds are on disk and both are complete**, which is the deliverable
 `docs/FULL_ROUND_LIFETIMES.md` was written for; that document now carries the
@@ -23,6 +32,59 @@ results and the exact reproduction commands, so read it before this.
 Both at 10 Hz detection over 60 Hz video with source audio, 0 ms stalled, each
 with `observations.jsonl`, `lifetimes.json`, `coverage.json`, `provenance.json`
 and a `review.html` that passes `tests/review_harness.cjs`.
+
+### THE ROSTER BAR PACKS, and that was corrupting the lineup
+
+Found while testing the death witness, and it is the most consequential thing
+in this increment. `roster.alive_from_detail` reads the living as *a contiguous
+run anchored at the scoreline edge* -- so a dead player is DROPPED and the
+survivors shift. Slot 2 is a different agent before and after a death, and
+accumulating per fixed index across a match quietly averages several agents
+into one cell.
+
+`Lineup.add` now accumulates a side only while that side is FULLY ALIVE, which
+is the only state in which an index is an identity, and is the common one --
+it holds at the start of every round. `lineup-0.2.0`:
+
+    LOTUS    3/5 named before and after, but every correct margin sharpened
+             Sage 0.132 -> 0.144, Phoenix 0.109 -> 0.138, Cypher 0.120 -> 0.138
+    SUNSET   2/5 named -> 5/5 NAMED
+             Sage 0.082, Clove 0.119, Neon 0.244, Jett 0.178, KAY_O 0.104
+
+Sunset's five corroborate the player from outside the system: he named Neon's
+vision cone and an ally KAY/O knife in that round before any of this existed,
+and both are on the roster it reads. Lotus's two refusals are unchanged --
+Chamber and Brimstone still do not separate from Sova and Raze on colour
+composition at portrait size, and they are refused rather than guessed.
+
+### The death witness: mechanism CLEAN, and it answers the wrong question
+
+`l1/hud` carries the player's `hp` and `l1/roster` carries per-slot detail, so
+this needed no decode. The signal is unambiguous -- at one Sunset death the
+dying slot goes 31.7 -> 3.3 while its neighbours hold at 25 and 37:
+
+    -0.5s  alive=3    3.4   4.4  |31.7|  24.7  38.5
+    +0.0s  alive=2    3.3   3.2  | 3.3|  25.7  37.0
+
+**And voting it over 46 Lotus deaths and 36 Sunset deaths names the wrong slot
+both times, near-flat.** The reason is the packing above: at a death the bar is
+by definition NOT full, so the index that dims is the player's position among
+the currently-living, not their canonical slot. The witness is real; it needs
+the packing state carried alongside it, which means tracking death order. Not
+built, and it should not be used until it is -- a witness that answers a
+different question than the one asked is worse than no witness.
+
+### Named in the overlay
+
+`full_round_entities` reads `lineups/<session>.json`: the self icon is drawn as
+the agent (`phoenix`, `clove`) and the HUD tray as `phoenix:blaze`,
+`clove:not dead yet` -- the same lowercase `agent:ability` form
+`labels/ability_categories.json` uses by hand. The panel prints who the player
+is and the team as read.
+
+**Ally ICONS are deliberately not named.** Knowing who is on the team is not
+knowing which icon is which, and there is no per-icon witness yet, so `ally 3`
+stays what it is.
 
 ### The viewcone is back in the round pipeline, with two crosschecks
 

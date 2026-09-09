@@ -37,10 +37,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .roster import ART_FRAC, N_SLOTS, roster_rois
+from .roster import ART_FRAC, N_SLOTS, alive_counts, roster_rois
 from .track import assign
 
-LINEUP_VERSION = "lineup-0.1.0"
+LINEUP_VERSION = "lineup-0.2.0"
 
 #: The three official renderings of an agent. They are independent drawings of
 #: one thing, so their scores are summed rather than chosen between.
@@ -62,6 +62,13 @@ def _composition(bgr, mask=None):
         sys.path.insert(0, str(root / "prototypes"))
     from minimap_portrait import composition
     return composition(bgr, mask)
+
+
+def load_lineup(session: str, store) -> dict | None:
+    """The stored lineup verdict for a session, or None when never read."""
+    import json
+    f = Path(store) / "lineups" / f"{session}.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.is_file() else None
 
 
 def load_gallery(store) -> dict[str, list[np.ndarray]]:
@@ -120,10 +127,21 @@ class Lineup:
         self._glyphs = None
 
     def add(self, frame: np.ndarray, profile, w: int, h: int) -> bool:
+        """Accumulate one frame, but ONLY from a side that is fully alive.
+
+        **The bar packs.** `roster.alive_from_detail` reads the living as a
+        contiguous run anchored at the scoreline edge, which means a dead
+        player is dropped and the survivors SHIFT -- so slot 2 is a different
+        agent before and after a death, and accumulating per fixed index across
+        a match silently averages several agents into one cell. Five alive is
+        the only state in which the index is an identity, and it is the common
+        one: it holds at the start of every round.
+        """
         rois = dict(zip(("ally", "enemy"), roster_rois(profile, w, h)))
+        alive = dict(zip(("ally", "enemy"), alive_counts(frame, profile, w, h)))
         seen = False
         for side, roi in rois.items():
-            if roi is None:
+            if roi is None or alive.get(side) != N_SLOTS:
                 continue
             x0, y0, x1, y1 = roi
             for i, sub in enumerate(slot_crops(frame[y0:y1, x0:x1])):
