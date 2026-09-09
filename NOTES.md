@@ -11,6 +11,16 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## PICKING UP -- 2026-09-09, full adjudication design
+
+`docs/ADJUDICATION_DESIGN.md` specifies match-wide evidence fusion, persistent
+identity/life state, competing overlap histories, conditional invariants,
+retrospective revisions, evidence acquisition and acceptance gates. Design only;
+runtime behavior is unchanged. Start with evidence contracts, then overlap
+conservation joined to roster/killfeed/scoreboard. Pickup `doctor`: six findings,
+zero errors; `status`: four stale minimap artifacts. Rebuild only affected inputs
+before establishing the implementation baseline.
+
 ## PICKING UP -- 2026-09-09, scoreboard credits are observations
 
 `scan` now stores versioned, context-free scoreboard row observations: K/D/A,
