@@ -13,6 +13,41 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## PICKING UP -- 2026-09-08, identity, barriers, and the cone restored
 
+### THE DECISION WAITING: context-free events, or a concurrent model
+
+The player's framing, and it is not to be settled yet: *"If we think we can
+have detectors emit context-free events that can be disambiguated and
+aggregated by the orchestrator that's great. If it would make more sense or
+even be required to have more of a back and forth concurrent model, awaiting
+other detector events then maybe that might make more sense... we can continue
+on the road of attempting to emit context-free events, but keep that in mind."*
+
+**What this session's couplings actually looked like.** Every cross-detector
+dependency that arose was ONE-DIRECTIONAL and resolvable by ordering, not by
+negotiation:
+
+    lit mask      -> bearing            `cone.resolve_lobe`
+    roster count  -> ally acquisition   `RoundLifetimes.step`
+    roster alive  -> lineup slot        only accumulate a full bar
+    barrier set   -> agent icons        `on_bar`
+    all cones     -> residual light     an aggregate, so it is the orchestrator's
+
+So a topological order plus context-free emission covers everything built so
+far. **The strongest evidence for that road is `on_bar`:** it was the one live
+coupling that looked like it needed the barrier channel's per-frame output, and
+baking barriers into MAP STATE removed the coupling entirely rather than
+formalising it. A dependency that can be hoisted into state stops being a
+dependency.
+
+**The test for when the other fork is required** is whether any channel's
+output feeds back into a channel it consumes. Today none does. The first place
+it plausibly could is exactly what is queued next: use residual light to
+hypothesise a missing ally, and that hypothesised ally casts a cone, which
+changes the residual that proposed it. That is a fixed point, not an ordering,
+and `[[reticle-ensemble-guessing]]`'s leave-one-out validation is already that
+shape. **If the ally/light work needs to iterate to convergence, that is the
+signal to switch; until then context-free emission is not a compromise.**
+
 **NEXT SESSION: the light cones and the allies.** That is the thread with the
 most left in it -- the residual-light crosscheck says a median 41% of lit floor
 is explained by no cone we cast, 11.6% of cones land on unlit floor, and four
