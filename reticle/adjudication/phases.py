@@ -54,13 +54,17 @@ from pathlib import Path
 
 import numpy as np
 
-ABILITY_PHASE_VERSION = "ability-phases-0.1.0"
+ABILITY_PHASE_VERSION = "ability-phases-0.2.0"
 
 #: The empty gap measured on 2026-09-09 between the two appearance modes of the
 #: 71 labelled sonic sensors: 24 at contrast 122-175, 47 at 231-241.
 DIM_CONTRAST_MAX = 203.0
 #: A phase has to persist to be a phase rather than a flicker or an occlusion.
 MIN_PHASE_MS = 700.0
+#: A missing interval is not evidence that an appearance continued.  Three
+#: ordinary sample periods tolerates timestamp jitter without bridging a real
+#: hole in the trace.
+MAX_SAMPLE_GAP_PERIODS = 3.0
 #: How near a candidate cause must sit to be offered for a transition at all.
 CAUSE_WINDOW_MS = 12000.0
 
@@ -77,8 +81,10 @@ TRANSITION_CAUSES = (
 #: candidate and is not confirmed.
 REVERSIBLE = ("owner_left_radius", "owner_returned_radius")
 #: The player: the only deployed abilities that do NOT deactivate on owner death.
-PERSISTS_THROUGH_OWNER_DEATH = ("barrier mesh", "toxic screen", "cyber cage",
-                                "wall", "barrier")
+PERSISTS_THROUGH_OWNER_DEATH = frozenset({
+    "deadlock:barrier mesh", "viper:toxic screen", "cypher:cyber cage",
+    "sage:barrier orb",
+})
 
 
 def load_series(root: Path, session: str):
@@ -99,47 +105,72 @@ def load_series(root: Path, session: str):
 
 def segment(times: np.ndarray, contrast: np.ndarray,
             split: float = DIM_CONTRAST_MAX,
-            min_ms: float = MIN_PHASE_MS) -> list[dict]:
-    """Runs of one appearance mode, with flickers absorbed into their neighbour.
+            min_ms: float = MIN_PHASE_MS,
+            max_gap_ms: float | None = None) -> list[dict]:
+    """Contiguous support for measured appearance, never operational state.
 
-    A single frame on the far side of the split is an occlusion or a dropped
-    read, not a state the object entered, so a run shorter than ``min_ms`` is
-    merged rather than emitted. Merging INTO the previous run keeps the phase
-    count honest: inventing a phase per flicker would make every entity look
-    like it transforms constantly.
+    Bright/dim are photometric candidates.  A short run is retained as transient
+    evidence on its neighbour; it is not promoted to a durable appearance and
+    is not erased.  A sampling hole starts a new support interval even when both
+    sides look alike.  Nothing here asserts active/inactive, existence through a
+    hole, or a causal game transition.
     """
+    times = np.asarray(times, float)
+    contrast = np.asarray(contrast, float)
+    if times.size != contrast.size:
+        raise ValueError("times and contrast must have equal length")
     if times.size == 0:
         return []
-    modes = np.where(contrast > split, "live", "dim")
-    runs = []
+    if (not np.isfinite(times).all() or not np.isfinite(contrast).all()
+            or np.any(np.diff(times) <= 0)):
+        raise ValueError("phase evidence needs finite, strictly increasing timestamps")
+    diffs = np.diff(times)
+    ordinary_period = float(np.median(diffs)) if diffs.size else 0.0
+    if max_gap_ms is None:
+        max_gap_ms = ordinary_period * MAX_SAMPLE_GAP_PERIODS
+    if not np.isfinite(max_gap_ms) or max_gap_ms < 0:
+        raise ValueError("max_gap_ms must be finite and nonnegative")
+
+    appearances = np.where(contrast > split, "bright", "dim")
+    raw = []
     start = 0
-    for i in range(1, len(modes) + 1):
-        if i == len(modes) or modes[i] != modes[start]:
-            runs.append({"mode": str(modes[start]),
-                         "from_ms": float(times[start]),
-                         "to_ms": float(times[i - 1]),
-                         "samples": int(i - start)})
+    for i in range(1, len(appearances) + 1):
+        gap = i < len(appearances) and times[i] - times[i - 1] > max_gap_ms
+        change = i == len(appearances) or appearances[i] != appearances[start]
+        if change or gap:
+            raw.append({"appearance": str(appearances[start]),
+                        "from_ms": float(times[start]),
+                        "to_ms": float(times[i - 1]),
+                        "samples": int(i - start),
+                        "coverage_break_before_ms": (None if start == 0 else
+                            float(times[start] - times[start - 1])
+                            if times[start] - times[start - 1] > max_gap_ms else None)})
             start = i
     merged: list[dict] = []
-    for run in runs:
+    for run in raw:
         short = run["to_ms"] - run["from_ms"] < min_ms
-        if merged and (short or run["mode"] == merged[-1]["mode"]):
-            # Absorbing a flicker leaves the runs either side of it adjacent and
-            # in the SAME mode. Appending regardless is what turned one steady
-            # object into four phases and reported live->live as a transition.
+        separated = run["coverage_break_before_ms"] is not None
+        if (merged and not separated
+                and run["appearance"] == merged[-1]["appearance"]):
             merged[-1]["to_ms"] = run["to_ms"]
             merged[-1]["samples"] += run["samples"]
-            if short:
-                merged[-1]["absorbed_flickers"] = merged[-1].get("absorbed_flickers", 0) + 1
+        elif merged and short and not separated:
+            evidence = {**run, "status": "transient_unresolved"}
+            merged[-1].setdefault("transient_evidence", []).append(evidence)
+            merged[-1]["to_ms"] = run["to_ms"]
+            merged[-1]["samples"] += run["samples"]
+            merged[-1]["absorbed_transients"] = merged[-1].get("absorbed_transients", 0) + 1
         elif short:
-            continue
+            merged.append({**run, "status": "transient_unresolved",
+                           "operational_state": "unknown"})
         else:
-            merged.append(dict(run))
+            merged.append({**run, "status": "stable_appearance",
+                           "operational_state": "unknown"})
     return merged
 
 
 def candidate_causes(transition_ms: float, ability_id: str | None,
-                     from_mode: str, to_mode: str,
+                     from_appearance: str, to_appearance: str,
                      deaths: list[float]) -> list[dict]:
     """Causes the evidence can currently offer, each with what supports it.
 
@@ -150,32 +181,33 @@ def candidate_causes(transition_ms: float, ability_id: str | None,
     it cannot explain.
     """
     out = []
-    persists = bool(ability_id) and any(w in ability_id for w in PERSISTS_THROUGH_OWNER_DEATH)
-    if to_mode == "dim" and not persists:
+    persists = ability_id in PERSISTS_THROUGH_OWNER_DEATH
+    if to_appearance == "dim" and not persists:
         prior = [d for d in deaths if 0 <= transition_ms - d <= CAUSE_WINDOW_MS]
         out.append({
             "cause": "owner_death",
-            "status": "supported" if prior else "unsupported",
-            "evidence": ({"nearest_ally_death_ms": round(transition_ms - max(prior), 1)}
+            "status": "conditional" if prior else "unsupported",
+            "evidence": ({"nearby_ally_death_ms": round(transition_ms - max(prior), 1)}
                          if prior else None),
             "limit": ("the killfeed says an ALLY died, not that this device's OWNER "
-                      "died: survivors pack in the roster bar so a slot is not an "
-                      "identity"),
+                      "died; owner identity is a required unresolved prerequisite"),
+            "prerequisites": {"owner_identity": "unknown",
+                              "ability_rule_applicable": "unknown"},
         })
-    if to_mode == "dim" and persists:
+    if to_appearance == "dim" and persists:
         out.append({
             "cause": "owner_death", "status": "excluded",
             "evidence": None,
             "limit": f"{ability_id} persists through its owner's death",
         })
-    direction = "owner_left_radius" if to_mode == "dim" else "owner_returned_radius"
+    direction = "owner_left_radius" if to_appearance == "dim" else "owner_returned_radius"
     out.append({
         "cause": direction, "status": "unavailable",
         "evidence": None,
         "limit": ("no owner track exists for a non-local player, so the radius "
                   "test cannot be run; reversible, so it is a live alternative"),
     })
-    if to_mode == "live" and from_mode == "dim":
+    if to_appearance == "bright" and from_appearance == "dim":
         out.append({
             "cause": "triggered_activation", "status": "candidate",
             "evidence": None,
@@ -202,17 +234,23 @@ def entity_phases(root: str | Path, session: str, components: list[dict],
         times = series["t_ms"][lo:hi]
         contrast = (np.asarray(series["g_max"][row][lo:hi], float)
                     - np.asarray(series["g_min"][row][lo:hi], float))
-        phases = segment(times, contrast)
-        if not phases:
+        appearances = segment(times, contrast)
+        if not appearances:
             continue
         transitions = []
-        for before, after in zip(phases, phases[1:]):
+        for before, after in zip(appearances, appearances[1:]):
+            if after["coverage_break_before_ms"] is not None:
+                continue
             at = after["from_ms"]
             causes = candidate_causes(at, component.get("label_ability_id"),
-                                      before["mode"], after["mode"], deaths)
+                                      before["appearance"], after["appearance"], deaths)
             supported = [c for c in causes if c["status"] == "supported"]
             transitions.append({
-                "at_ms": at, "from_mode": before["mode"], "to_mode": after["mode"],
+                "at_ms": at,
+                "from_appearance": before["appearance"],
+                "to_appearance": after["appearance"],
+                "operational_state_before": "unknown",
+                "operational_state_after": "unknown",
                 "causes": causes,
                 "resolved": bool(supported) and len(supported) == 1,
                 "unexplained": not supported,
@@ -223,14 +261,19 @@ def entity_phases(root: str | Path, session: str, components: list[dict],
             "ability_id": component.get("label_ability_id"),
             "x": component["x"], "y": component["y"],
             "observed_window_ms": [float(times[0]), float(times[-1])],
-            "phases": phases,
+            "appearance_segments": appearances,
+            "coverage_gaps": [{"from_ms": before["to_ms"],
+                               "to_ms": after["from_ms"],
+                               "duration_ms": after["coverage_break_before_ms"]}
+                              for before, after in zip(appearances, appearances[1:])
+                              if after["coverage_break_before_ms"] is not None],
             "transitions": transitions,
             # The two structural rules, carried on the row so a consumer cannot
             # quietly reintroduce either.
             "entity_count": 1,
-            "lifetime_ms": [phases[0]["from_ms"], phases[-1]["to_ms"]],
-            "lifetime_note": ("an interval spanning every phase: a transition is not "
-                              "an ending, and a dim phase may be reversible"),
+            "observed_support_ms": [[p["from_ms"], p["to_ms"]] for p in appearances],
+            "existence_interval_ms": None,
+            "existence_status": "unresolved_from_appearance",
             "terminal": False,
         })
     return out
@@ -243,9 +286,9 @@ def summarise(rows: list[dict]) -> dict:
         "entities_with_a_transition": sum(1 for r in rows if r["transitions"]),
         "transitions": len(transitions),
         "by_direction": dict(sorted(Counter(
-            f"{t['from_mode']}->{t['to_mode']}" for t in transitions).items())),
+            f"{t['from_appearance']}->{t['to_appearance']}" for t in transitions).items())),
         "resolved": sum(1 for t in transitions if t["resolved"]),
         "unexplained": sum(1 for t in transitions if t["unexplained"]),
         "phases_per_entity": dict(sorted(Counter(
-            len(r["phases"]) for r in rows).items())),
+            len(r["appearance_segments"]) for r in rows).items())),
     }

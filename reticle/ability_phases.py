@@ -48,13 +48,13 @@ def run(root=DEFAULT_STORE, out=None):
         rows += entity_phases(root, session, group, deaths)
     bundle = {
         "manifest": {
-            "schema_version": 1, "producer_version": ABILITY_PHASE_VERSION,
+            "schema_version": 2, "producer_version": ABILITY_PHASE_VERSION,
             "store_root": str(root), "summary": summarise(rows),
             "ally_death_events": deaths_seen,
             "transition_causes": list(TRANSITION_CAUSES),
             "limits": [
-                "An entity TRANSFORMS: a phase change is not a new entity and not an end.",
-                "A lifetime spans every phase; only a terminal phase ends one.",
+                "Bright/dim are measured appearance candidates, not active/inactive states.",
+                "Appearance support does not establish existence through a coverage gap.",
                 "A cause is never asserted. An unexplained transition is a flag.",
                 "owner_death rests on an ALLY killfeed entry, not on the device's own "
                 "owner: survivors pack in the roster bar, so a slot is not an identity.",
