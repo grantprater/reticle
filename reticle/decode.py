@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+import math
 
 import cv2
 import numpy as np
@@ -24,6 +25,38 @@ class Sample:
     frame_idx: int
     t_ms: float
     frame: np.ndarray  # BGR, full resolution
+
+
+def _sampling_step(target_hz: float) -> float:
+    """Validated time between requested samples.
+
+    A zero/negative/NaN rate used to mean "retrieve every frame" as an
+    accidental consequence of the implementation.  That is not a useful
+    sampling contract: callers must request a real rate, and native-rate
+    windows use ``refine.iter_windows``.
+    """
+    if isinstance(target_hz, bool) or not isinstance(target_hz, (int, float)):
+        raise ValueError("target_hz must be a finite positive number")
+    target_hz = float(target_hz)
+    if not math.isfinite(target_hz) or target_hz <= 0:
+        raise ValueError("target_hz must be a finite positive number")
+    return 1000.0 / target_hz
+
+
+def _sampling_spans(spans_ms):
+    """Validate and sort closed sampling spans; preserve empty as no work."""
+    if spans_ms is None:
+        return None
+    spans = []
+    for span in spans_ms:
+        if len(span) != 2:
+            raise ValueError("sampling span must have start and end")
+        start, end = map(float, span)
+        if (not math.isfinite(start) or not math.isfinite(end)
+                or start < 0 or end < start):
+            raise ValueError("sampling spans must be finite, nonnegative, and increasing")
+        spans.append((start, end))
+    return sorted(spans)
 
 
 def sample_frames(
@@ -38,12 +71,13 @@ def sample_frames(
     back to a stride of 1 and simply decode everything, which is slow but
     correct rather than silently sampling at the wrong rate.
     """
+    _sampling_step(target_hz)
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise SystemExit(f"could not open {path}")
 
     stride = 1
-    if nominal_fps > 0 and target_hz > 0:
+    if nominal_fps > 0:
         stride = max(1, int(round(nominal_fps / target_hz)))
 
     emitted = 0
@@ -139,14 +173,17 @@ def sample_spans(path: str, spans_ms: list[tuple[float, float]], target_hz: floa
     span's first frame is never held hostage by the stride phase of the one
     before it.
     """
+    spans = _sampling_spans(spans_ms)
+    step_ms = _sampling_step(target_hz)
+    if not spans:
+        return
+
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise SystemExit(f"could not open {path}")
 
-    spans = sorted(spans_ms)
-    step_ms = 1000.0 / target_hz if target_hz > 0 else 0.0
     si = 0
-    next_t = spans[0][0] if spans else None
+    next_t = spans[0][0]
     idx = 0
     try:
         while si < len(spans):
@@ -220,22 +257,28 @@ def sample_multi(
     decoder. A gap between spans resets that reader's phase so a span's first
     frame is never held hostage by the stride of the one before it.
     """
-    cap = cv2.VideoCapture(path)
-    if not cap.isOpened():
-        raise SystemExit(f"could not open {path}")
-
     state = {}
     for name, (hz, spans) in requests.items():
+        checked_spans = _sampling_spans(spans)
         state[name] = {
-            "step": 1000.0 / hz if hz > 0 else 0.0,
-            "spans": sorted(spans) if spans else None,
+            "step": _sampling_step(hz),
+            "spans": checked_spans,
             "si": 0,
             "next_t": None,
         }
+    # ``None`` means unrestricted.  An empty list means this reader has no
+    # requested coverage; it must not silently become a full-capture scan.
+    state = {name: st for name, st in state.items() if st["spans"] != []}
+    if not state:
+        return
+
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        raise SystemExit(f"could not open {path}")
     # The last moment anyone is interested in: past it there is nothing to do.
     ends = []
     for st in state.values():
-        ends.append(st["spans"][-1][1] if st["spans"] else float("inf"))
+        ends.append(st["spans"][-1][1] if st["spans"] is not None else float("inf"))
     stop_after = max(ends) if ends else float("inf")
 
     idx = 0

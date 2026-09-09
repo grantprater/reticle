@@ -173,6 +173,10 @@ def run(ctx: SessionContext, readers: list, progress=None) -> int:
     """
     from .decode import sample_multi
 
+    names = [r.name for r in readers]
+    if len(names) != len(set(names)):
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        raise ValueError(f"reader names must be unique: {', '.join(duplicates)}")
     req = {r.name: (r.hz, r.spans) for r in readers}
     by_name = {r.name: r for r in readers}
     n = 0
