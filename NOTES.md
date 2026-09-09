@@ -26,6 +26,23 @@ because that is where the only held-out contrast lives. Keys: `1`-`5` group
 (same digit = same entity), `v` viewcone, `c` crack, `p` ping, `i` icon,
 `o` other, `u` unsure, `n` nothing drawn, click marks a missed component.
 
+**The coordinate convention is VERIFIED, not assumed.** Label and candidate
+x/y are ROI-RELATIVE, indexing the crop the session's PROFILE defines, and every
+row's stored `roi` matches its profile exactly with no out-of-bounds value. The
+decisive test is the two-state residual at the labelled pixel: pooled median
+98.5 under roi-relative against 6.3 under absolute, over 114 named labels, six
+of seven sessions individually. `02cf738b1c8f` is the exception at 47.2 against
+51.0 -- ten of its thirteen labels are `sova:hunter's fury`, a dim extended
+region rather than a bright icon, so that session does not discriminate. Not a
+frame mismatch; unresolved as a measurement.
+
+**A labelled object can live for under two seconds.** The Omen dark cover at
+`5822b6646448` (83,258) scores residual 138.0 at its own timestamp and about 1.0
+two seconds either side -- it is the smoke IN FLIGHT, the one smoke that
+translates from Omen to where it lands. An evenly spaced filmstrip misses it
+entirely and shows bare ground at the one instant the object is certain to be
+there. The strip now always samples the labelled instant and captions it.
+
 Two bugs were found by RENDERING the composite before handing it over, and both
 would have produced confident wrong answers: a label's `x`/`y` index the minimap
 CROP rather than the frame, and the ROI comes from the session's PROFILE, not

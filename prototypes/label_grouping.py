@@ -58,9 +58,12 @@ CLUTTER_KEYS = {
 # An orphan window has no use claim beside it, so "it was already there" is a
 # real answer rather than a missing observation.
 ORPHAN_EXTRA = {"e": "present_before_this_window"}
-STRIP = 6          # frames across the window
-PRE_MS = 9000.0    # history before the label: it marks when it was SEEN
-POST_MS = 4000.0
+# Offsets from the labelled instant. Zero is mandatory and is the whole point:
+# an Omen smoke in flight is present for under two seconds, so an evenly spaced
+# strip misses it entirely and shows the player bare ground at the one moment the
+# object is certain to be there. History is weighted before the label because a
+# label marks when the labeller SAW the thing, not when it arrived.
+STRIP_OFFSETS_MS = (-8000.0, -3000.0, -800.0, 0.0, 1200.0, 4000.0)
 CROP = 34          # half-width of the magnified crop, in ROI pixels
 TILE_ZOOM = 3      # magnification of each strip tile
 PANEL_H = 690      # keeps the whole window inside a 1080p screen
@@ -117,10 +120,10 @@ def _strip_times(window: dict, component: dict | None) -> list[float]:
     """
     if component is None:
         lo, hi = float(window["clip_start_ms"]), float(window["clip_end_ms"])
-    else:
-        lo = max(0.0, component["observed_t_ms"] - PRE_MS)
-        hi = max(component["observed_end_ms"] + POST_MS, lo + 1000.0)
-    return [lo + (hi - lo) * i / (STRIP - 1) for i in range(STRIP)]
+        n = len(STRIP_OFFSETS_MS)
+        return [lo + (hi - lo) * i / (n - 1) for i in range(n)]
+    t = float(component["observed_t_ms"])
+    return [max(0.0, t + d) for d in STRIP_OFFSETS_MS]
 
 
 class Clips:
@@ -210,8 +213,13 @@ def compose(window: dict, cid: str | None, components: dict, clips: Clips,
         if component is not None:
             cv2.circle(tile, ((cx - x0) * TILE_ZOOM, (cy - y0) * TILE_ZOOM),
                        20, (60, 230, 255), 2)
-        cv2.putText(tile, f"{t / 1000:.1f}s", (6, 18), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.45, (230, 230, 230), 1, cv2.LINE_AA)
+        at_label = (component is not None
+                    and abs(t - float(component["observed_t_ms"])) < 1.0)
+        caption = f"{t / 1000:.1f}s  <-- LABELLED" if at_label else f"{t / 1000:.1f}s"
+        cv2.putText(tile, caption, (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                    (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(tile, caption, (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                    (60, 255, 255) if at_label else (230, 230, 230), 1, cv2.LINE_AA)
         tiles.append(tile)
     strip = np.hstack(tiles) if tiles else np.zeros((40, 40, 3), np.uint8)
 
