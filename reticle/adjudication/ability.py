@@ -18,6 +18,7 @@ from ..ability_timeline import build_timeline
 
 ABILITY_ENTITY_VERSION = "ability-entities-0.1.0"
 ONSET_GROUP_VERSION = "ability-onset-group-0.1.0"
+PERSISTENCE_GROUP_VERSION = "ability-persistence-group-0.1.0"
 BEARING_GROUP_VERSION = "ability-bearing-group-0.1.0"
 PARENT_PRE_MS = 2000.0
 PARENT_POST_MS = 6000.0
@@ -26,6 +27,10 @@ DIST_PX = 60.0
 BEARING_TOL_DEG = 15.0
 ORPHAN_GAP_MS = 3000.0
 ORPHAN_DIST_PX = 120.0
+#: "The same place" for an object that does not translate. Tight on purpose: a
+#: second device deployed nearby is a different entity, and only a placed
+#: ability qualifies at all.
+PERSIST_DIST_PX = 12.0
 
 # Versioned domain hypotheses already recorded by the entity model.  These are
 # candidate factors until the recording patch and source evidence validate them.
@@ -162,6 +167,28 @@ def onset_groups(rows: list[dict]) -> list[list[dict]]:
         for group in groups:
             if (abs(group[0]["observed_t_ms"] - row["observed_t_ms"]) <= ONSET_MS
                     and any(_distance(row, member) <= DIST_PX for member in group)):
+                group.append(row)
+                break
+        else:
+            groups.append([row])
+    return groups
+
+
+def persistence_groups(rows: list[dict]) -> list[list[dict]]:
+    """Observations at one position are one entity, however far apart in time.
+
+    A placed ability does not translate, so re-observing a thing where a thing
+    already was is the same thing in a later phase -- not a second deployment
+    and not a rebirth. Onset grouping cannot say this: it needs a shared onset
+    within 300 ms, which a transformation twenty seconds later does not have.
+
+    Transitively linked, so a slow drift across several observations stays one
+    group rather than breaking at whichever pair first exceeds the radius.
+    """
+    groups: list[list[dict]] = []
+    for row in sorted(rows, key=lambda r: (r["observed_t_ms"], r["component_id"])):
+        for group in groups:
+            if any(_distance(row, member) <= PERSIST_DIST_PX for member in group):
                 group.append(row)
                 break
         else:
@@ -324,6 +351,12 @@ def build_entities(root: str | Path) -> dict:
         rule = PARAMETER_RULES.get(use.get("ability_id"))
         if rule and rule["extent"] == "extending":
             methods.append(("bearing", BEARING_GROUP_VERSION, bearing_groups(candidates)))
+        # A piloted object translates for its whole life, so position
+        # persistence would collapse a flight path into a point. Every other
+        # deployed thing holds still, which is what makes the alternative sound.
+        if not (rule and rule["origin_driver"] == "piloted"):
+            methods.append(("position_persistence", PERSISTENCE_GROUP_VERSION,
+                            persistence_groups(candidates)))
         seen_groups = set()
         for method, version, groups in methods:
             for group in groups:
@@ -345,6 +378,9 @@ def build_entities(root: str | Path) -> dict:
                     "grouping_resolved": len(group) == 1,
                     "grouping_limit": (None if len(group) == 1 else
                                        "component identity does not prove common physical entity"),
+                    "treats_appearance_change_as": (
+                        "a later PHASE of one entity" if method == "position_persistence"
+                        else "a separate observation, which splits a transforming entity"),
                 })
                 properties.extend(_properties(use, group, f"entity:{hid}", method, rule))
         if len(candidates) != 1 or not supported:
@@ -421,6 +457,8 @@ def build_entities(root: str | Path) -> dict:
                 "Human component identity does not prove multi-component grouping.",
                 "Parent windows are candidate-generation bounds, not ability lifetime laws.",
                 "Parameter rules require patch and source validation before becoming hard constraints.",
+                "Onset grouping splits an entity that transforms; position persistence keeps "
+                "it whole. Both are offered, and they disagree exactly where it matters.",
             ],
         },
         "component_claims": component_claims,

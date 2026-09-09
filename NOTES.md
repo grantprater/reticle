@@ -11,150 +11,59 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-09, milestones A-F, and the grouping pass is the next move
+## PICKING UP -- 2026-09-09, the ability line A-F, and what it actually says
 
-`reticle ability-gallery` and `reticle ability-capture` land D, E and F.
-**Milestone D's gate FAILS and that is the finding**: phase-binned temporal
-shape does not separate `deadlock:sonic sensor` from `deadlock:barrier mesh`
-across the two matches -- 0.5749 balanced at permutation p=0.3085 one way,
-0.4646 at p=0.6368 the other, below the shuffled median. Per-class recall flips
-with the direction of the split, so what it tracks is a session offset.
+Six commands, all stored-data-only: `ability-coverage`, `ability-timeline`,
+`ability-entities`, `ability-gallery`, `ability-phases`, `ability-capture`.
+251 tests, `doctor` 6 findings 0 errors.
 
-**Run `prototypes/label_grouping.py` next.** It is the pass that answers the 286
-review windows milestone C queues and nothing could touch, ranked Deadlock-first
-because that is where the only held-out contrast lives. Keys: `1`-`5` group
-(same digit = same entity), `v` viewcone, `c` crack, `p` ping, `i` icon,
-`o` other, `u` unsure, `n` nothing drawn, click marks a missed component.
+**Milestone D's gate FAILS and that is the result.** Phase-binned temporal shape
+does not separate `deadlock:sonic sensor` from `deadlock:barrier mesh` across the
+two matches: 0.5749 balanced at permutation p=0.3085 one way, 0.4646 at p=0.6368
+the other, below the shuffled median. Per-class recall flips with the direction
+of the split, so what it tracks is a session offset.
 
-**A DEPLOYED DEVICE DIMS WHEN IT DEACTIVATES** -- the player named an ally
-Deadlock's death as one cause, and said there had been earlier examples. Measured
-at once: the 71 labelled `deadlock:sonic sensor` positions split into two
-appearance modes with a 56-grey-level gap containing NOTHING -- 24 dim
-(contrast 122-175) against 47 live (231-241), in both matches. `barrier mesh` is
-unimodal over the same measurement.
+**Do not quote those figures as a property of temporal shape.** The sensor class
+is BIMODAL -- 24 labelled positions at contrast 122-175 against 47 at 231-241,
+with a 56-level gap holding nothing -- because a deployed device DIMS when it
+deactivates. A single median centroid represents neither mode. Conditioning the
+gallery on activation state and re-running is the next real step on D.
 
-**That is a candidate explanation for milestone D's null result.** A gallery fits
-one median centroid per class, and a third of the sensor class sits 100 grey
-levels from the rest, so the centroid represents neither mode. The design already
-says not to average over deployment phases; nobody knew this phase existed. The
-next real step on D is to condition the gallery on activation state and re-run
-the held-out evaluation -- do NOT quote the 0.5749/0.4646 figures as a property
-of temporal shape until that is done.
+### Do this next, in order
 
-**The cross-reference is BUILT and it corroborates the rule.**
-`prototypes/device_deactivation.py` joins ally killfeed entries to device
-contrast. Dim devices sit closer to a preceding ally death than live ones: 13.4s
-gap p=0.0385 on `a06f04a0059f`, 24.8s p=0.023 on `5822b6646448`, pooled 17.5s
-**p=0.002** over 73 devices. Dim falls below the random-time null, live sits
-above it, in both matches. No dim device lacked a prior ally death.
+1. **Condition the gallery on phase and re-run D.** `ability-phases` already
+   segments every traced entity; the gallery does not consume it.
+2. **Run `prototypes/label_grouping.py`** -- 1,381 queued questions, Deadlock
+   first. `d` toggles DIM, `1`-`5` group (same digit = same entity), `e` = was
+   already there. Append-only and resumable; `--redo` revisits.
+3. **Per-agent death**, to sharpen the deactivation cross-reference from "an ally
+   died" to "the OWNER died". Needs ally-side portrait identification; the
+   scoreboard portraits are already mined for both matches.
 
-It is correlational and weaker than the claim: the killfeed says an ALLY died,
-not that this device's OWNER did, because survivors pack in the roster bar so a
-slot is not an identity. Getting to per-agent death needs ally-side portrait
-identification, which is the next step if this is worth sharpening.
+### What the corpus will not support, and why
 
-**`reticle ability-phases` is the model the design only named.** An entity holds
-PHASES; a transition between them carries candidate causes from a closed set and
-is flagged when none has evidence. A phase change never creates a second entity
-and a lifetime spans every phase -- both asserted by tests, because both were
-wrong in the pipeline before it. First run: 142 entities, 81 transform, 174
-transitions, 14 resolved by a supporting ally death, 160 unexplained.
+Exactly ONE held-out contrast exists. Every ability but Deadlock's pair appears
+in a single session, so a leave-one-session-out split has nothing to train on.
+Detector appearance features and held-out evaluability are DISJOINT: scalar
+features live only in the demo sessions, and the two real matches that support a
+split have no candidate file at all. That is structural, not a tuning problem.
 
-**Still owed: milestone C's grouping does not consume the phases yet**, so it can
-still split one transforming entity in two. Joining them is the next structural
-step, and it is what the player was actually asking for.
+The capture queue asks for **8 cards, 120 recorded seconds**, each naming its own
+discriminator, beside 749 review items that ask for no recording.
 
-**A second deactivation cause is reversible**: Killjoy's devices deactivate when
-she leaves their radius. So dimming is not an ending, and a dim device with no
-death nearby is that signature. Walls and barriers persist through owner death
-and are excluded from the rule rather than counted against it.
+### Load-bearing facts found this session
 
-**The coordinate convention is VERIFIED, not assumed.** Label and candidate
-x/y are ROI-RELATIVE, indexing the crop the session's PROFILE defines, and every
-row's stored `roi` matches its profile exactly with no out-of-bounds value. The
-decisive test is the two-state residual at the labelled pixel: pooled median
-98.5 under roi-relative against 6.3 under absolute, over 114 named labels, six
-of seven sessions individually. `02cf738b1c8f` is the exception at 47.2 against
-51.0 -- ten of its thirteen labels are `sova:hunter's fury`, a dim extended
-region rather than a bright icon, so that session does not discriminate. Not a
-frame mismatch; unresolved as a measurement.
-
-**A labelled object can live for under two seconds.** The Omen dark cover at
-`5822b6646448` (83,258) scores residual 138.0 at its own timestamp and about 1.0
-two seconds either side -- it is the smoke IN FLIGHT, the one smoke that
-translates from Omen to where it lands. An evenly spaced filmstrip misses it
-entirely and shows bare ground at the one instant the object is certain to be
-there. The strip now always samples the labelled instant and captions it.
-
-Two bugs were found by RENDERING the composite before handing it over, and both
-would have produced confident wrong answers: a label's `x`/`y` index the minimap
-CROP rather than the frame, and the ROI comes from the session's PROFILE, not
-from the `roi` field on the label row. The two profiles differ -- 15..480 for
-the enlarged widget against 15..346 -- so a hardcoded ROI is wrong for both.
-Pinned by `tests/test_label_grouping.py`.
-
-Three manifest tags were corrected (`79a706a7ce4c`, `d95cfad5693a`,
-`eb10db50b1fb` are Cypher ability demos, and SPECTATOR recordings), with the
-evidence in `notes/manifest-corrections.jsonl`. That recovered coverage --
-demos 28 to 31, `not_exercised` 1109 to 785 -- but not the use channel: every
-claim those sessions produce arrives in a whole-tray group of four at a
-transition wipe. **Do not read those as casts.** The gate now counts 9 clean
-supported parent edges and reports the 15 resting on suspect claims separately.
-
-The capture queue asks for **8 cards and 120 recorded seconds**, each naming its
-own discriminator, beside 749 review items that ask for no recording at all.
-
-## PICKING UP -- 2026-09-09, milestone C and two evidence gaps
-
-`reticle ability-entities` is milestone C: component claims, competing entity
-groupings, property claims and a review queue, all from stored evidence. First
-real run is 1,410 components against 127 use claims, 21 human-supported parent
-edges, 806 hypotheses and 279 review windows. Every multi-component group stays
-`grouping_resolved: false`; naming a component does not prove two components are
-one entity.
-
-**Two gaps found by cross-referencing labels against the use channel, and the
-next session should act on the first one.**
-
-1. Five sessions carry named ability labels that the timeline cannot parent.
-   `a06f04a0059f` (53) and `5822b6646448` (35) are real matches with Deadlock,
-   Omen and Reyna labels and **no ability candidate file at all**; those 88
-   labels had been dropped silently by the exact-coordinate join and are now
-   components with `origin: human_label`.
-2. `79a706a7ce4c`, `d95cfad5693a` and `eb10db50b1fb` are Cypher demos that were
-   never tagged `ability-demo`, so no use claim can exist for their 19 named
-   labels. **Fixing those three manifest tags is the cheapest real gain
-   available** -- it is milestone A's inventory, not a detector change, and it
-   should be done deliberately rather than folded into a C rerun.
-
-129 of 150 human-named components still have no supported parent, so the C gate
-is not passed. Orphans now say why: 130 `no_use_claims_in_session`, 289
-`outside_parent_window` (nearest same-ability delta stored, so the window width
-stays an answerable question rather than a tuned constant), 4
-`only_contradicted_parents`. Do not widen `PARENT_PRE_MS`/`PARENT_POST_MS` to
-make the number look better; only one component was a genuine boundary miss.
-
-`review_viper.png` in the bundle directory is a hand rendering from the previous
-session, not a produced artifact.
-
-## PICKING UP -- 2026-09-09, full adjudication design
-
-`docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` extends this with ability identity,
-parent/child objects, phases, property inference and conditional capture cards.
-Milestones A/B are now `reticle ability-coverage` and `reticle ability-timeline`.
-The full demo pass produced 127 distinct use claims across 27 sessions: 94 clean,
-33 suspect, zero cache conflicts. Brimstone produced no tray claim; absence stays
-uninformative. `kayo` now resolves to catalogue `KAY/O`. Next is entity grouping
-and property factors over these claims. No new capture is requested until a
-specific missing discriminator is established.
-
-`docs/ADJUDICATION_DESIGN.md` specifies match-wide evidence fusion, persistent
-identity/life state, competing overlap histories, conditional invariants,
-retrospective revisions, evidence acquisition and acceptance gates. Design only;
-runtime behavior is unchanged. Start with evidence contracts, then overlap
-conservation joined to roster/killfeed/scoreboard. Pickup `doctor`: six findings,
-zero errors; `status`: four stale minimap artifacts. Rebuild only affected inputs
-before establishing the implementation baseline.
+* label x/y are ROI-RELATIVE, indexing the crop the session's PROFILE defines --
+  verified by residual, 98.5 against 6.3 over 114 labels;
+* a labelled object can live under two seconds (an Omen smoke IN FLIGHT), so a
+  filmstrip must sample the labelled instant, not an even spread;
+* a whole-tray simultaneous drop is a transition wipe, not four casts. All twelve
+  in the spectator Cypher sessions are artifacts, already flagged suspect;
+* a device dims when it deactivates. Dim devices sit closer to a preceding ally
+  death than live ones: pooled 17.5s gap, **p=0.002**, n=73;
+* an entity TRANSFORMS. `ability-phases` models it; grouping now offers
+  `position_persistence` beside onset proximity, and they disagree on 39 of 105
+  use claims -- exactly the transforming case.
 
 ## PICKING UP -- 2026-09-09, scoreboard credits are observations
 

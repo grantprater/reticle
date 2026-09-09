@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from reticle.adjudication.ability import bearing_groups, build_entities, onset_groups
+from reticle.adjudication.ability import (bearing_groups, build_entities,
+                                          onset_groups, persistence_groups)
 
 
 class GroupingUnitTests(unittest.TestCase):
@@ -23,6 +24,42 @@ class GroupingUnitTests(unittest.TestCase):
         got = bearing_groups(list(reversed(rows)))
         member_sets = {frozenset(r["component_id"] for r in group) for group in got}
         self.assertIn(frozenset(("o", "a", "b")), member_sets)
+
+
+class PersistenceGroupTests(unittest.TestCase):
+    """An ability transforms and stays itself, so grouping must offer that."""
+
+    def component(self, ident, t, x, y):
+        return {"component_id": ident, "observed_t_ms": t, "x": x, "y": y}
+
+    def test_one_position_across_a_long_gap_is_one_entity(self):
+        rows = [self.component("live", 1000, 40, 40),
+                self.component("dim", 21000, 41, 40)]
+        got = persistence_groups(rows)
+        self.assertEqual(len(got), 1)
+        self.assertEqual({r["component_id"] for r in got[0]}, {"live", "dim"})
+
+    def test_onset_grouping_splits_exactly_that_case(self):
+        """The disagreement is the point: onset needs a shared onset within
+        300 ms, which a transformation twenty seconds later does not have."""
+        rows = [self.component("live", 1000, 40, 40),
+                self.component("dim", 21000, 41, 40)]
+        self.assertEqual(len(onset_groups(rows)), 2)
+        self.assertEqual(len(persistence_groups(rows)), 1)
+
+    def test_a_device_placed_elsewhere_stays_a_separate_entity(self):
+        rows = [self.component("a", 1000, 40, 40),
+                self.component("b", 1200, 200, 200)]
+        self.assertEqual(len(persistence_groups(rows)), 2)
+
+    def test_grouping_is_order_stable(self):
+        rows = [self.component("a", 1000, 40, 40),
+                self.component("b", 9000, 44, 41),
+                self.component("c", 5000, 300, 40)]
+        for order in (rows, list(reversed(rows))):
+            got = [sorted(r["component_id"] for r in g)
+                   for g in persistence_groups(order)]
+            self.assertEqual(sorted(got), [["a", "b"], ["c"]])
 
 
 class EntityBundleTests(unittest.TestCase):
