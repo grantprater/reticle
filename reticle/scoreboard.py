@@ -37,6 +37,7 @@ import numpy as np
 import cv2
 
 from .ocr import Templates, _raw_components, normalise
+from .version import SCOREBOARD_VERSION
 
 # Slab colours. The table is semi-transparent, so these are far weaker than the
 # killfeed's plates and the value floor has to sit low.
@@ -67,6 +68,12 @@ D_MAX_W, D_MIN_AREA = 14, 10
 # K, D and A cell centres as a fraction of table width, with a half-width.
 KDA_X = (0.490, 0.542, 0.594)
 KDA_HALF = 0.024
+# Credits render as ``<currency mark> N,NNN``. The mark and comma fall outside
+# the digit envelope below, so the existing digit templates read the value.
+# These fractions were measured after inspecting fully expanded 1080p boards
+# at 542s and 1568s of session 7010b3d62460.
+CREDITS_X = 0.880
+CREDITS_HALF = 0.035
 # The local player's row is outlined in a 2 px pale yellow-green line, measured
 # at BGR (188, 243, 214). Blue is *high* in absolute terms, so the test that
 # separates it from the slab is blue sitting well below green, not blue being
@@ -90,6 +97,11 @@ class Row:
     deaths: int | None
     assists: int | None
     is_player: bool           # the row the game outlines as yours
+    credits: int | None = None
+    credits_reason: str | None = None
+    credits_confidence: float | None = None
+    credits_margin: float | None = None
+    credits_candidate: int | None = None
 
     @property
     def complete(self) -> bool:
@@ -120,7 +132,7 @@ def _slabs(frame: np.ndarray):
     return green, red
 
 
-def _block(mask: np.ndarray) -> tuple[int, int] | None:
+def _block(mask: np.ndarray, merge_gap: int = BLOCK_GAP) -> tuple[int, int] | None:
     """The tallest run of frame rows that are slab across a table's width."""
     counts = mask.sum(axis=1)
     on = counts > MIN_TABLE_W
@@ -134,10 +146,12 @@ def _block(mask: np.ndarray) -> tuple[int, int] | None:
             j += 1
         runs.append([i, j])
         i = j
-    # Join runs the player's tinted row split apart.
+    # Join runs the player's tinted row split apart. Only the ally block can
+    # contain that row. On the enemy colour, merging nearby runs can swallow
+    # the red round-history marks between the teams and shift all five rows.
     merged: list[list[int]] = []
     for run in runs:
-        if merged and run[0] - merged[-1][1] <= BLOCK_GAP:
+        if merged and run[0] - merged[-1][1] <= merge_gap:
             merged[-1][1] = run[1]
         else:
             merged.append(run)
@@ -157,16 +171,19 @@ def _split(block: tuple[int, int]) -> list[tuple[int, int]]:
             for k in range(TEAM_ROWS)]
 
 
-def _read_cell(gray: np.ndarray, templates: Templates,
-               min_conf: float, min_margin: float) -> int | None:
-    """One K/D/A cell, read against this table's own digit envelope."""
+def _read_cell_detail(gray: np.ndarray, templates: Templates,
+                      min_conf: float, min_margin: float,
+                      maximum: int) -> tuple[int | None, str | None,
+                                              float | None, float | None,
+                                              int | None]:
+    """One numeric cell plus the reason an answer was refused."""
     binary, raw = _raw_components(gray)
     keep = []
     for x, y, w, h, area in raw:
         if D_MIN_H <= h <= D_MAX_H and w <= D_MAX_W and area >= D_MIN_AREA:
             keep.append((x, y, w, h))
     if not keep:
-        return None
+        return None, "no_digits", None, None, None
     keep.sort(key=lambda c: c[0])
     text, worst, margin = "", 1.0, 1.0
     for x, y, w, h in keep:
@@ -177,10 +194,20 @@ def _read_cell(gray: np.ndarray, templates: Templates,
         worst = min(worst, conf)
         margin = min(margin, mar)
     if not text.isdigit() or worst < min_conf or margin < min_margin:
-        return None
+        reason = ("not_a_number" if not text.isdigit() else
+                  "low_confidence" if worst < min_conf else "low_margin")
+        candidate = int(text) if text.isdigit() else None
+        return None, reason, worst, margin, candidate
     value = int(text)
-    # Nobody finishes a match with three digits of anything on this table.
-    return value if 0 <= value <= 99 else None
+    if not 0 <= value <= maximum:
+        return None, "out_of_range", worst, margin, value
+    return value, None, worst, margin, value
+
+
+def _read_cell(gray: np.ndarray, templates: Templates,
+               min_conf: float, min_margin: float) -> int | None:
+    """One K/D/A cell, read against this table's own digit envelope."""
+    return _read_cell_detail(gray, templates, min_conf, min_margin, 99)[0]
 
 
 def read_scoreboard(
@@ -192,11 +219,18 @@ def read_scoreboard(
     """Read every row's K/D/A, and say which row is the local player's."""
     H, W = frame.shape[:2]
     green, red = _slabs(frame)
-    ally, enemy = _block(green), _block(red)
+    ally, enemy = _block(green), _block(red, merge_gap=0)
     if ally is None or enemy is None:
         return ScoreboardRead(False)
     if enemy[0] < ally[0]:            # ally block always sits above the enemy one
         return ScoreboardRead(False)
+    # The red match-history strip can be connected to the enemy slab by its
+    # own marks, so even an unmerged red run may begin too high. Both teams use
+    # the same five-row geometry in one animation state; anchor the enemy rows
+    # at the bottom of the red slab and take their height from the ally block.
+    team_h = ally[1] - ally[0]
+    if enemy[1] - enemy[0] != team_h:
+        enemy = (enemy[1] - team_h, enemy[1])
 
     # Table edges from the ally block's own dense columns, which are cleaner
     # than a whole-frame profile that also catches the team bars up top.
@@ -233,7 +267,121 @@ def read_scoreboard(
                 continue
             vals.append(_read_cell(cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY),
                                    templates, min_confidence, min_margin))
+        cx = x0 + int(CREDITS_X * tw)
+        hw = max(10, int(CREDITS_HALF * tw))
+        credit_cell = frame[a + 2:z - 2, cx - hw:cx + hw]
+        if credit_cell.size:
+            credit, credit_reason, credit_conf, credit_margin, credit_candidate = _read_cell_detail(
+                cv2.cvtColor(credit_cell, cv2.COLOR_BGR2GRAY), templates,
+                min_confidence, min_margin, 9000)
+            if credit_candidate is not None and credit_candidate % 50:
+                credit, credit_reason = None, "not_credit_increment"
+        else:
+            credit, credit_reason, credit_conf, credit_margin, credit_candidate = (
+                None, "empty_cell", None, None, None)
         rows.append(Row(team=team, y0=int(a), y1=int(z),
                         kills=vals[0], deaths=vals[1], assists=vals[2],
-                        is_player=outlined(a) and outlined(z)))
+                        is_player=outlined(a) and outlined(z), credits=credit,
+                        credits_reason=credit_reason,
+                        credits_confidence=credit_conf,
+                        credits_margin=credit_margin,
+                        credits_candidate=credit_candidate))
     return ScoreboardRead(True, tuple(rows), x0, x1)
+
+
+def portrait_observations(frame: np.ndarray, board: ScoreboardRead) -> list[dict]:
+    """Context-free colour evidence for each scoreboard portrait.
+
+    The detector emits the descriptor and source box, never an agent identity.
+    Cross-channel identity belongs to reconciliation.
+    """
+    if not board.open_ or not board.rows:
+        return []
+    row_h = board.rows[0].y1 - board.rows[0].y0
+    width = max(4, int(round(row_h * 0.79)))
+    lo = max(0, board.x0 - 2 * row_h)
+    hi = min(frame.shape[1], board.x0 + 3 * row_h)
+    if hi - lo < width + 4:
+        return []
+    profile = np.zeros(hi - lo, np.float32)
+    for row in board.rows:
+        band = cv2.cvtColor(frame[row.y0 + 1:row.y1 - 1, lo:hi], cv2.COLOR_BGR2GRAY)
+        profile += np.abs(cv2.Sobel(
+            band.astype(np.float32), cv2.CV_32F, 0, 1, ksize=3)).mean(0)
+    profile /= max(1, len(board.rows))
+    profile = np.convolve(profile, np.ones(3) / 3, "same")
+    start = max(0, board.x0 - lo + int(0.6 * width))
+    stop = min(len(profile), board.x0 + 2 * row_h - lo)
+    if stop - start < 6:
+        return []
+    gap = start + int(np.argmin(profile[start:stop]))
+    x0 = max(lo, lo + gap - width)
+    result = []
+    for index, row in enumerate(board.rows):
+        art = frame[row.y0:row.y1, x0:x0 + width]
+        if art.shape[0] <= 4 or art.shape[1] <= 4:
+            continue
+        gray = cv2.cvtColor(art, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        detail = float(np.abs(cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)).mean())
+        hsv = cv2.cvtColor(art, cv2.COLOR_BGR2HSV)
+        hb = (hsv[:, :, 0].astype(int) * 10 // 180).clip(0, 9)
+        sb = (hsv[:, :, 1].astype(int) * 3 // 256).clip(0, 2)
+        vb = (hsv[:, :, 2].astype(int) * 3 // 256).clip(0, 2)
+        hist = np.bincount(((hb * 3 + sb) * 3 + vb).ravel(),
+                           minlength=90).astype(np.float32)
+        hist /= max(1.0, float(hist.sum()))
+        result.append({"display_row": index, "portrait_x0": x0,
+                       "portrait_y0": row.y0, "portrait_x1": x0 + width,
+                       "portrait_y1": row.y1, "portrait_detail": detail,
+                       "portrait_composition": hist.tolist()})
+    return result
+
+
+class ScoreboardReader:
+    """Sparse context-free scoreboard observations for a shared decode pass."""
+
+    def __init__(self, profile_name: str, hz: float = 2.0, spans=None,
+                 min_confidence: float = 0.80, min_margin: float = 0.04):
+        self.name, self.hz, self.spans = "scoreboard", hz, spans
+        self.templates = Templates.load(profile_name)
+        self.min_confidence, self.min_margin = min_confidence, min_margin
+        self.frames_offered = 0
+        self.frames_open = 0
+        self.rows: list[dict] = []
+
+    def feed(self, sample) -> None:
+        self.frames_offered += 1
+        board = read_scoreboard(sample.frame, self.templates,
+                                self.min_confidence, self.min_margin)
+        if not board.open_:
+            return
+        self.frames_open += 1
+        portraits = {r["display_row"]: r for r in portrait_observations(sample.frame, board)}
+        for index, row in enumerate(board.rows):
+            self.rows.append({
+                "frame_idx": int(sample.frame_idx), "t_ms": float(sample.t_ms),
+                "display_row": index, "team": row.team,
+                "row_y0": row.y0, "row_y1": row.y1,
+                "table_x0": board.x0, "table_x1": board.x1,
+                "kills": row.kills, "deaths": row.deaths, "assists": row.assists,
+                "is_player": row.is_player, "credits": row.credits,
+                "credits_candidate": row.credits_candidate,
+                "credits_reason": row.credits_reason,
+                "credits_confidence": row.credits_confidence,
+                "credits_margin": row.credits_margin,
+                **portraits.get(index, {
+                    "portrait_x0": None, "portrait_y0": None,
+                    "portrait_x1": None, "portrait_y1": None,
+                    "portrait_detail": None, "portrait_composition": None,
+                }),
+            })
+
+    def events(self, session_id: str) -> list[dict]:
+        common = {"session_id": session_id, "scoreboard_version": SCOREBOARD_VERSION,
+                  "source": "scoreboard"}
+        coverage = {**common, "kind": "coverage", "frames_offered": self.frames_offered,
+                    "frames_open": self.frames_open}
+        return [coverage] + [{**common, "kind": "row_observation",
+                              "observation_key":
+                                  f"{session_id}:{r['frame_idx']}:{r['display_row']}",
+                              **r} for r in self.rows]

@@ -11,6 +11,22 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## PICKING UP -- 2026-09-09, scoreboard credits are observations
+
+`scan` now stores versioned, context-free scoreboard row observations: K/D/A,
+credit OCR evidence, local-row highlight, source boxes, and portrait composition.
+`audit` adjudicates repeated credit candidates and preserves conflicts. On
+`7010b3d62460`, 4,500 observations produced 203 resolved credit states and 512
+candidate disagreements. The two inspected source frames recovered all 20 credit
+values before the strict confidence gate.
+
+Do not attach identity in `ScoreboardReader`. The architecture is `reader ->
+detector -> adjudicator`; display slots can move, and the top roster compacts
+after deaths. The next economy step is to make lineup, minimap, and killfeed
+portrait channels emit keyed identity claims, then let reconciliation associate
+them with scoreboard observations. Automatic ledger derivation waits for that
+stable player link.
+
 ## PICKING UP -- 2026-09-08 late, geometry comes from the ART now
 
 **Read this first: every measured number in the section below it was taken on

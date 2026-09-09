@@ -23,6 +23,9 @@ COACH_VERSION = "coach-0.1.0"
 # Pure credit-ledger rules and interval semantics. This does not stamp a credit
 # detector: no such observation channel exists yet.
 ECONOMY_VERSION = "economy-0.1.0"
+# Context-free Tab-scoreboard row observations: K/D/A, credits, highlight,
+# geometry and portrait composition. Identity is adjudicated downstream.
+SCOREBOARD_VERSION = "scoreboard-0.1.0"
 EXTRACTOR_VERSION = "l1-0.1.0"
 SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the

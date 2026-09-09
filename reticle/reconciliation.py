@@ -15,6 +15,88 @@ SCORE_CONFIRM_GAP_MS = 3000
 ROSTER_JOIN_MS = 1000
 ENTRY_ALIGNMENT_MS = 1000
 AUDIT_WINDOW_MS = 10000
+SCOREBOARD_OPENING_GAP_MS = 3000
+SCOREBOARD_CREDIT_ADJUDICATION_VERSION = "scoreboard-credit-adjudication-0.1.0"
+
+
+def adjudicate_scoreboard_credits(observations, identity_claims=None,
+                                  opening_gap_ms=SCOREBOARD_OPENING_GAP_MS):
+    """Fuse repeated credit reads and independent identity claims.
+
+    Scoreboard observations remain context-free detector output. Identity claims
+    are supplied by their owning channels as ``{observation_key: [claims...]}``,
+    where a claim names ``channel`` and ``player_id``. Disagreement is retained
+    here and never settled inside a detector. The scoreboard's local-row outline
+    contributes its own independent identity claim.
+    """
+    identity_claims = identity_claims or {}
+    rows = sorted((r for r in observations if r.get("kind") == "row_observation"),
+                  key=lambda r: (r["t_ms"], r["display_row"]))
+    openings, current, last_t = [], [], None
+    for row in rows:
+        if last_t is None or row["t_ms"] - last_t <= opening_gap_ms:
+            current.append(row)
+        else:
+            openings.append(current)
+            current = [row]
+        last_t = row["t_ms"]
+    if current:
+        openings.append(current)
+
+    out = []
+    for opening_no, opening in enumerate(openings):
+        groups = {}
+        for row in opening:
+            groups.setdefault((row["team"], row["display_row"]), []).append(row)
+        for (team, display_row), seen in sorted(groups.items()):
+            candidates = [r.get("credits_candidate") for r in seen
+                          if r.get("credits_candidate") is not None]
+            accepted = [r.get("credits") for r in seen if r.get("credits") is not None]
+            counts = Counter(candidates)
+            common = counts.most_common()
+            credit = None
+            if common and len(common) == 1 and (common[0][1] >= 2 or accepted):
+                credit = common[0][0]
+                credit_status = ("repeated_consensus" if common[0][1] >= 2
+                                 else "single_strict_read")
+            elif not common:
+                credit_status = "no_candidate"
+            else:
+                credit_status = "candidate_disagreement"
+
+            claims = []
+            for row in seen:
+                key = row["observation_key"]
+                claims.extend({**claim, "observation_key": key}
+                              for claim in identity_claims.get(key, []))
+                if row.get("is_player"):
+                    claims.append({"channel": "scoreboard_highlight",
+                                   "player_id": "local_player",
+                                   "observation_key": key})
+            by_channel = {}
+            for claim in claims:
+                by_channel.setdefault(claim["channel"], set()).add(claim["player_id"])
+            conflicting_channel = any(len(values) > 1 for values in by_channel.values())
+            choices = {value for values in by_channel.values() for value in values}
+            if conflicting_channel or len(choices) > 1:
+                player_id, identity_status = None, "disagreement"
+            elif len(choices) == 1:
+                player_id, identity_status = next(iter(choices)), "resolved"
+            else:
+                player_id, identity_status = None, "no_identity_claim"
+
+            out.append({
+                "opening_no": opening_no, "t_start_ms": seen[0]["t_ms"],
+                "t_end_ms": seen[-1]["t_ms"], "team": team,
+                "display_row": display_row, "credits": credit,
+                "credit_status": credit_status,
+                "credit_candidates": dict(sorted(counts.items())),
+                "player_id": player_id, "identity_status": identity_status,
+                "identity_claims": claims,
+                "source_observation_keys": [r["observation_key"] for r in seen],
+                "adjudication_version": SCOREBOARD_CREDIT_ADJUDICATION_VERSION,
+            })
+    return out
 
 
 def confirmed_score_runs(t, left, right):

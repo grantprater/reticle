@@ -1,7 +1,8 @@
 # Economy and prediction layer
 
-Date: 2026-09-09. Status: economy accounting core and explicit-fact CLI
-implemented; automatic observation, store derivation and prediction integration
+Date: 2026-09-09. Status: economy accounting core, explicit-fact CLI, stored
+scoreboard credit observations, and first-pass credit adjudication implemented;
+identity claim production, automatic ledger derivation, and prediction integration
 remain proposed.
 
 Extends [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md), the existing
@@ -39,9 +40,11 @@ to an observation. Stage 02 remains deterministic and model-free.
   not evidence that a richer model can currently be trained.
 - `reticle/economy.py` now implements the pure ruleset, interval balances,
   spending, resets, settlement, survival eligibility and balance reconciliation.
-  It deliberately has no video reader or automatic stored-match derivation yet:
-  Reticle has no stable ten-player credit observation channel to supply either
-  without guessing. The `reticle economy FACTS.json` command applies ordered,
+  It deliberately has no automatic stored-match derivation yet. The scoreboard
+  detector now emits context-free per-row credit evidence, source geometry and
+  portrait descriptors. The adjudicator can promote repeated agreeing reads, but
+  a stable player link still requires independent identity claims. The
+  `reticle economy FACTS.json` command applies ordered,
   explicit facts and emits a reviewable ledger. `tests/test_economy.py` is the
   executable contract for this slice.
 
@@ -116,6 +119,14 @@ the retained set is exhaustive.
 
 When evidence conflicts, retain the ledger and the observation with a residual
 and explanation request. Do not invent a purchase to force reconciliation.
+
+The production flow is `reader -> detector -> adjudicator`. A scoreboard display
+row is an observation coordinate, not an identity: rows can reorder between Tab
+openings, and the always-visible top roster compacts after deaths. Scoreboard,
+top-bar lineup, minimap icons, killfeed portraits, and the local-row highlight
+must emit separate claims. The adjudicator records their provenance, resolves
+only compatible claims, and preserves disagreement for review. No detector may
+use another detector's conclusion to rewrite its own event.
 
 Outputs for prediction: current resources by player and team, distribution of
 credits across players, known/possible retained items, and replacement-cost or

@@ -198,7 +198,7 @@ belongs to no round rather than to the wrong one. Every stored round carries
 | 02 Deterministic extractors | HUD, killfeed, minimap, main-view | **partial** — see below |
 | 03 Event proposal | fuse stage-02 into typed candidates | partial: `coach` persists player kill/death observations and review windows; broader engagement fusion remains open |
 | 04 VLM adjudication | ambiguous band only | not started |
-| 05 Reconcile | source priority + label-free invariants | invariants only (`checks.py`, `verify`). The scoreboard is now readable and outranks killfeed inference, but nothing reconciles the two yet. |
+| 05 Reconcile | source priority + label-free invariants | `reconciliation.py` preserves detector evidence and disagreements. Scoreboard credit candidates are promoted only by repeated agreement or a strict read; identity claims remain channel-attributed and unresolved on disagreement. Broader entity reconciliation remains partial. |
 | 06 Metrics | pure versioned functions | exploratory `coach` state baseline with session holdouts; real-data probability evaluation currently lacks roster coverage |
 | 07 Narrate/query | footage review | `coach` writes a linked review index; no automated coaching narrative |
 | 08 Correction loop | not started |
@@ -209,12 +209,17 @@ Built and populating in the store: round clock, both team scores, HP, shield,
 ammo (mag + reserve), killfeed **entry count**, and killfeed **player
 attribution** (kill/death, with the stack positions needed to count entries).
 
-Built but not stored: the **Tab scoreboard** (`scoreboard.py`) — all ten rows'
-K/D/A and which row is the local player's. `reticle board` reads it live off the
-video; nothing writes it to L1 yet, which is the obvious next step if it starts
-getting used for more than checking.
+Built and stored as context-free events: the **Tab scoreboard** (`scoreboard.py`)
+— all ten display rows' K/D/A, local-row highlight, credit OCR evidence, source
+geometry, and portrait composition descriptors. `scan` writes these observations
+to `events/scoreboard`; it does not assign a player or agent. `audit` adjudicates
+repeated credit reads and accepts separately supplied, channel-attributed identity
+claims. Display-row indices are local to an opening and are never treated as stable
+identity because the top roster compacts when an agent dies.
 
-Not built: **credits**, **main-view detection**, **combat report**.
+Not built: **main-view detection**, **combat report**. Cross-channel identity
+claim production from roster portraits, minimap icons, and killfeed portraits is
+still incomplete in the production pipeline.
 
 **Minimap position tracking (self) is built and wired in as of 2026-09-02**:
 `reticle minimap <session>` writes `l1/minimap` at 15 Hz over active spans —
@@ -247,12 +252,13 @@ reticle kd    <session>          running K/D per round, from the killfeed
 reticle board <session>          read every Tab scoreboard and score us against it
 ```
 
-`board` is the stronger of the two: it reads all ten rows of the scoreboard and
-identifies the local player's row by the yellow outline the game draws round it
-(no name reading — see `scoreboard.py`). Per opening it prints the board's K/D
-beside ours, so the first divergent row names a window of a minute or two rather
-than a whole match. On `96aa1ae9b96f` it agreed exactly across 21 consecutive
-openings before the first miss.
+`board` reads all ten rows of the scoreboard, including credits, and detects the
+local player's row from the yellow outline (no name reading — see
+`scoreboard.py`). Per opening it prints the board's K/D beside ours, so the first
+divergent row names a window of a minute or two rather than a whole match. On
+`96aa1ae9b96f` it agreed exactly across 21 consecutive openings before the first
+miss. The stored path keeps detector output context-free; identity fusion belongs
+to `audit`/`reconciliation.py`.
 
 Ask the player to open the scoreboard once a round when recording; it costs the player
 nothing and it is worth more than any invariant.

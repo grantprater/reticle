@@ -31,7 +31,7 @@ import numpy as np
 from .decode import sample_frames, sample_multi, sample_spans
 from .checks import KNOWN_KD, check_hud, player_events, track_entries
 from .rounds import build_rounds, summarise
-from .scoreboard import read_scoreboard
+from .scoreboard import ScoreboardReader, read_scoreboard
 from . import cone, geometry, lighting
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
@@ -52,8 +52,7 @@ from .profiles import DEFAULT_PROFILE, MinimapMode, get_profile
 from .segment import HUD_CHROME_ROIS, STATES, SegmentConfig, classify, segment
 from .store import DEFAULT_STORE, Store
 from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
-                      ROSTER_VERSION,
-                      SEGMENTER_VERSION)
+                      ROSTER_VERSION, SCOREBOARD_VERSION, SEGMENTER_VERSION)
 from .hud_reader import HudReader
 
 _HudPass = HudReader
@@ -743,7 +742,7 @@ def cmd_scan(args) -> int:
             f"source media has moved: {media}\n"
             "the manifest records where it was at ingest time"
         )
-    channels = set(args.only or ('hud', 'minimap', 'ping', 'roster'))
+    channels = set(args.only or ('hud', 'minimap', 'ping', 'roster', 'scoreboard'))
     # IDENTITY RIDES EVERY SCAN. The top bar is drawn on every frame, so naming
     # the ten agents costs no decode of its own -- it joins the pass at 0.1 Hz.
     # A scan narrowed with `--only` is testing one specific thing and is left
@@ -762,7 +761,10 @@ def cmd_scan(args) -> int:
     want_ping = 'ping' in channels and args.ping and (args.force
                                or store.events_version("ping", sid) != PING_VERSION)
     want_roster = 'roster' in channels and args.roster and (args.force or not store.has_roster(sid, date))
-    if not (want_hud or want_mm or want_ping or want_roster):
+    want_scoreboard = ('scoreboard' in channels and args.scoreboard and
+                       (args.force or store.events_version("scoreboard", sid)
+                        != SCOREBOARD_VERSION))
+    if not (want_hud or want_mm or want_ping or want_roster or want_scoreboard):
         print(f"cache hit  session {sid}: requested channels are current or disabled; "
               "--force to re-read")
         return 0
@@ -774,7 +776,8 @@ def cmd_scan(args) -> int:
         + ([f"minimap {args.minimap_hz:g} Hz, {len(spans)} active spans "
             f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)"] if want_mm else [])
         + ([f"ping {args.ping_hz:g} Hz, active spans"] if want_ping else [])
-        + ([f"roster {args.hz:g} Hz, whole capture"] if want_roster else [])))
+        + ([f"roster {args.hz:g} Hz, whole capture"] if want_roster else [])
+        + ([f"scoreboard {args.hz:g} Hz, whole capture"] if want_scoreboard else [])))
 
     hp = _HudPass(store, manifest, profile, args) if want_hud else None
     mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
@@ -804,9 +807,13 @@ def cmd_scan(args) -> int:
     # that was happening anyway.
     rp = (RosterReader(profile, ctx.wh, hz=args.hz, spans=None)
           if want_roster else None)
+    sp = (ScoreboardReader(profile.name, hz=args.hz, spans=None,
+                           min_confidence=args.min_confidence,
+                           min_margin=args.min_margin)
+          if want_scoreboard else None)
 
     lp = (LineupReader(profile, ctx.wh, store.root) if want_lineup else None)
-    readers = [r for r in (hp, mp, pp, rp, lp) if r is not None]
+    readers = [r for r in (hp, mp, pp, rp, sp, lp) if r is not None]
 
     t0 = time.perf_counter()
     last = [t0]
@@ -916,6 +923,12 @@ def cmd_scan(args) -> int:
         print(f"           {len(pp.unconfirmed)} unconfirmed (observation "
               f"stopped), {len(pp.rejected)} refused on lifetime, "
               f"{pp.n_absent} frames widget-absent")
+    if sp is not None:
+        out = store.write_events("scoreboard", sid, sp.events(sid))
+        accepted = sum(r["credits"] is not None for r in sp.rows)
+        candidates = sum(r["credits_candidate"] is not None for r in sp.rows)
+        print(f"scoreboard {sp.frames_open}/{sp.frames_offered} frames open, "
+              f"{accepted}/{candidates} credit candidates gated -> {out}")
     print(f"one pass   {n_dec} frames retrieved in {dt:.1f}s")
     print(f"\nnext: reticle verify {sid}")
     return 0
@@ -1142,7 +1155,7 @@ def cmd_board(args) -> int:
             openings.append([(t, sb)])
 
     print(f"openings   {len(openings)} ({len(reads)} frames read)\n")
-    print("   at        board K/D/A    ours K/D    delta     rows")
+    print("   at        board K/D/A   credits   ours K/D    delta     rows")
     worst = None
     for grp in openings:
         # the frame of this opening with the most rows fully read
@@ -1151,7 +1164,9 @@ def cmd_board(args) -> int:
         got = sum(1 for r in sb.rows if r.complete)
         cell = f"{pl.kills}/{pl.deaths}/{pl.assists}"
         if tracked is None:
-            print(f"  {_fmt_hms(t):>8s}  {cell:>12s}    {'-':>8s}    {'-':>6s}   {got}/10")
+            credit = f"{pl.credits:,}" if pl.credits is not None else "--"
+            print(f"  {_fmt_hms(t):>8s}  {cell:>12s}  {credit:>8s}    "
+                  f"{'-':>8s}    {'-':>6s}   {got}/10")
             continue
         ok = sum(1 for x in tracked[0] if x <= t)
         od = sum(1 for x in tracked[1] if x <= t)
@@ -1159,15 +1174,17 @@ def cmd_board(args) -> int:
         flag = "" if (dk == 0 and dd == 0) else "  <-"
         if worst is None and (dk or dd):
             worst = t
-        print(f"  {_fmt_hms(t):>8s}  {cell:>12s}    {ok:2d} / {od:2d}   "
+        credit = f"{pl.credits:,}" if pl.credits is not None else "--"
+        print(f"  {_fmt_hms(t):>8s}  {cell:>12s}  {credit:>8s}    {ok:2d} / {od:2d}   "
               f"{dk:+d} / {dd:+d}   {got}/10{flag}")
 
     last = max(openings[-1], key=lambda p: sum(1 for r in p[1].rows if r.complete))[1]
     print("\nfull board at the last opening:")
     for r in last.rows:
         who = "  <- you" if r.is_player else ""
+        credit = str(r.credits) if r.credits is not None else f"-- ({r.credits_reason})"
         print(f"   {r.team:5s}  {str(r.kills):>3s} / {str(r.deaths):>3s} / "
-              f"{str(r.assists):>3s}{who}")
+              f"{str(r.assists):>3s}   {credit:>20s} creds{who}")
     if tracked is not None and worst is not None:
         print(f"\nfirst divergence at {_fmt_hms(worst)} -- the error is in or before that round")
     elif tracked is not None:
@@ -1595,11 +1612,11 @@ def cmd_rounds(args) -> int:
 
 
 def cmd_audit(args) -> int:
-    """Localize score/roster disagreements without decoding or human labels."""
+    """Adjudicate stored independent observations without decoding."""
     import json
     import pyarrow.parquet as pq
-    from .reconciliation import (audit_scoreline, audit_roster_deltas,
-                                 killfeed_health)
+    from .reconciliation import (adjudicate_scoreboard_credits, audit_scoreline,
+                                 audit_roster_deltas, killfeed_health)
 
     store = Store(args.store)
     sessions = ([_resolve_session(store, args.session)] if args.session else store.sessions())
@@ -1613,9 +1630,24 @@ def cmd_audit(args) -> int:
         roster = pq.ParquetFile(rp).read() if rp.is_file() else None
         score, counts = audit_scoreline(hud), audit_roster_deltas(hud,roster)
         kf = killfeed_health(hud)
+        scoreboard_observations = store.read_events('scoreboard', sid)
+        scoreboard = adjudicate_scoreboard_credits(scoreboard_observations)
+        scoreboard_summary = {
+            'observations': sum(r.get('kind') == 'row_observation'
+                                for r in scoreboard_observations),
+            'rows_adjudicated': len(scoreboard),
+            'credits_resolved': sum(r['credits'] is not None for r in scoreboard),
+            'identities_resolved': sum(r['player_id'] is not None for r in scoreboard),
+            'credit_disagreements': sum(r['credit_status'] == 'candidate_disagreement'
+                                        for r in scoreboard),
+            'identity_disagreements': sum(r['identity_status'] == 'disagreement'
+                                          for r in scoreboard),
+        }
         reports.append(dict(session_id=sid, scoreline=score, roster=counts,
                             killfeed=kf,
-                            audit_version='audit-0.3.0',
+                            scoreboard_credits=scoreboard,
+                            scoreboard_summary=scoreboard_summary,
+                            audit_version='audit-0.4.0',
                             hud_metadata={k.decode():v.decode() for k,v in (hud.schema.metadata or {}).items()},
                             roster_metadata={k.decode():v.decode() for k,v in
                                              ((roster.schema.metadata or {}) if roster is not None else {}).items()},
@@ -1627,6 +1659,11 @@ def cmd_audit(args) -> int:
               f"{len(kf.get('over_long',[]))} over-long "
               f"({kf.get('over_long_inside_frozen',0)} on a frozen frame); "
               f"{kf.get('frozen_seconds',0)}s frozen")
+        print(f"           scoreboard credits {scoreboard_summary['credits_resolved']}/"
+              f"{scoreboard_summary['rows_adjudicated']} adjudicated rows; "
+              f"{scoreboard_summary['credit_disagreements']} candidate disagreements; "
+              f"identities {scoreboard_summary['identities_resolved']} resolved / "
+              f"{scoreboard_summary['identity_disagreements']} disagreements")
     target = Path(args.out) if args.out else store.root / 'analysis' / (
         f"reconciliation-{sessions[0]['session_id']}.json" if args.session else 'reconciliation.json')
     target.parent.mkdir(parents=True,exist_ok=True)
@@ -1923,11 +1960,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-lineup", dest="lineup", action="store_false",
                    help="skip naming the ten agents from the top bar; it "
                         "otherwise rides every unnarrowed scan for free")
-    s.add_argument("--only", nargs="+", choices=("hud", "minimap", "ping", "roster"),
+    s.add_argument("--only", nargs="+",
+                   choices=("hud", "minimap", "ping", "roster", "scoreboard"),
                    help="run only these readers through the shared pass; roster-only needs no minimap geometry")
     s.add_argument("--no-roster", dest="roster", action="store_false",
                    help="skip the roster alive-count reader (it rides this pass free)")
     s.set_defaults(roster=True)
+    s.add_argument("--no-scoreboard", dest="scoreboard", action="store_false",
+                   help="skip context-free Tab-scoreboard rows and credit observations")
+    s.set_defaults(scoreboard=True)
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_scan)
 
