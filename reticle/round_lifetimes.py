@@ -12,7 +12,7 @@ import math
 from .track import CLASSES, admits, association_tolerance, assign
 from .minimap import REF_WIDGET_W
 
-ROUND_LIFETIME_VERSION = "round-lifetimes-0.4.0"
+ROUND_LIFETIME_VERSION = "round-lifetimes-0.5.0"
 
 #: Readable kind per family, when a reader does not supply a better one.
 #: A raw `E0303 object?` says nothing a person can check against the frame.
@@ -23,6 +23,26 @@ NAME_KIND = {"self": "you", "ally": "ally", "enemy": "enemy",
 
 #: Kinds that are one thing or a fixed slot, so a number would be noise.
 UNNUMBERED = ("you", "tray")
+
+#: How far the best appearance match must beat the runner-up before it may
+#: re-acquire an agent across a gap. **A margin, because an absolute bar
+#: cannot work here and the old `>= 0.85` was above the signal itself.**
+#: Measured on Sunset R6's 2,304 stored ally appearance vectors:
+#:
+#:     same ally, 0.1 s apart      median 0.708   p05 0.478
+#:     different allies, one frame median 0.213   p95 0.556
+#:
+#: The two overlap, so no threshold on the score separates them -- but ranked
+#: against the alternatives in the frame, appearance picks the same icon
+#: position-truth does in **97.9% of 1,748 unambiguous pairs**, with a margin
+#: of 0.383 when right against 0.037 when wrong. At 0.15 that keeps 91.9% of
+#: the correct links and admits 2.7% of the wrong ones.
+APPEARANCE_MARGIN = 0.15
+
+
+def _intersect(a, b):
+    """Histogram intersection, the score `composition` vectors are compared by."""
+    return sum(min(x, y) for x, y in zip(a, b))
 
 
 def readable_kind(obs):
@@ -62,8 +82,24 @@ class RoundLifetimes:
                  if t_ms-e["last_seen_ms"] <= 1000 or e["family"] == "self"
                  or (e["family"] in {"ally","enemy"} and e.get("appearance")
                      and t_ms-e["last_seen_ms"] < self.appearance_gap_s*1000)]
+        # **Appearance is scored COMPARATIVELY, once per observation.** It is a
+        # ranking witness, not a measurement: the question it can answer is
+        # *which of these entities is this icon*, never *is this icon that
+        # entity*. Ranking it here also keeps it out of the per-pair loop.
+        best = {}
+        for i, obs in enumerate(observations):
+            if obs["family"] not in {"ally", "enemy"} or not obs.get("appearance"):
+                continue
+            scored = sorted(
+                ((_intersect(obs["appearance"], e["appearance"]), e["id"])
+                 for e in prior
+                 if e["family"] == obs["family"] and e["view"] == obs["view"]
+                 and e.get("appearance")), reverse=True)
+            if scored:
+                runner = scored[1][0] if len(scored) > 1 else 0.0
+                best[i] = (scored[0][1], scored[0][0] - runner)
         costs, candidates = [], []
-        for obs in observations:
+        for i, obs in enumerate(observations):
             row, parents = [], []
             for ent in prior:
                 old = ent["last_observation"]
@@ -87,12 +123,14 @@ class RoundLifetimes:
                     slack = association_tolerance(self.scale,
                                 r_a=obs.get("r"), r_b=old.get("r"))
                     allowed = dt <= budget and admits(motion, max(0,d-slack),dt,self.scale)[0]
-                    if moving and not allowed and obs.get("appearance") and ent.get("appearance"):
-                        similarity=sum(min(a,b) for a,b in zip(obs["appearance"],ent["appearance"]))
+                    if moving and not allowed and i in best:
                         # Provisional appearance re-acquisition; never a named
                         # identity claim. Alternatives remain in the output.
+                        winner, margin = best[i]
                         informative = motion.max_px_s*self.scale*dt + slack < math.sqrt(2)*REF_WIDGET_W*self.scale
-                        allowed=informative and similarity >= .85 and admits(motion,max(0,d-slack),dt,self.scale)[0]
+                        allowed = (informative and ent["id"] == winner
+                                   and margin >= APPEARANCE_MARGIN
+                                   and admits(motion,max(0,d-slack),dt,self.scale)[0])
                     if not moving and allowed:
                         # Per-step fit noise must not accumulate into translation.
                         # This is the existing static association hypothesis,

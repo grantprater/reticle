@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/c/Users/grant/reticle/.venv/Scripts/python.exe /c/Users/grant/reticle/tools/guard_geometry.py --hook",
+            "timeout": 60,
+            "statusMessage": "Checking the art-derived geometry path"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/c/Users/grant/reticle/.venv/Scripts/python.exe /c/Users/grant/reticle/tools/guard_geometry.py >/dev/null 2>&1 || echo '{\"systemMessage\": \"GEOMETRY GUARD FAILED: the art-derived map path is broken. Run .venv/Scripts/python.exe tools/guard_geometry.py in ~/reticle to see what.\"}'",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

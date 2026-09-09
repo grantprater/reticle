@@ -904,6 +904,49 @@ def ally_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
     return icons(ally_mask(crop), crop, floor, **kw)
 
 
+def art_floor(shade_kind: np.ndarray, dilate: float = 1) -> np.ndarray:
+    """The map's own footprint, from the OFFICIAL ART. Prefer this to `floor_mask`.
+
+    `prototypes/map_shade.py` warps the published minimap art into the widget's
+    pixels and stores the result in the geometry npz, so `shade_kind > 0` is the
+    map's drawn footprint with no fitting at read time. The art's alpha channel
+    is exactly binary, so the boundary is STATED rather than thresholded.
+
+    **Scored on the same painted referee `floor_mask` is arbitrated against**
+    (`prototypes/floor_mask_eval.py`, both unseeded paintings):
+
+        session                 area   recall    prec     IoU
+        Ascent  derived        37.8%   100.0%   78.8%   78.8%
+                ART            30.4%    97.2%   95.2%   92.7%
+        Lotus   derived        40.1%   100.0%   77.9%   77.9%
+                ART            32.8%    99.4%   94.7%   94.2%
+
+    `derived & ART` reproduces ART and `derived | ART` reproduces derived, so
+    the derived rule's extra ~7% of the widget is almost all false positive --
+    the location-name banner, the widget's circular rim, the 5 px close skirt
+    and the churn at barrier doorways, each of which had to be found and
+    patched separately while the exact answer sat unused in the same file.
+
+    **This is the SUPPORT mask.** `dilate` defaults to 1 (no dilation) because
+    the art boundary needs no overhang: the reason `floor_mask` grew by 9 px
+    was to cover a boundary it could not place. A caller wanting the SEARCH
+    area still dilates, so an icon centred at the map's edge is not clipped --
+    and at `dilate=9` the art scores 79.6% / 78.3%, i.e. the search area does
+    not move. What moves is the test a detection must PASS.
+
+    The promotion is `BACKLOG.md`'s, recorded 2026-09-06: geometry comes from
+    the art, photometry (`static`, `lo_gray`, `hi_gray`, `sd_lo`, `sd_hi`)
+    cannot, because the widget is semi-transparent over live world and the
+    whole point of those is to difference against these pixels.
+    """
+    m = (shade_kind > 0).astype(np.uint8)
+    d = int(round(dilate))
+    if d > 1:
+        d = _odd(d)
+        m = cv2.dilate(m, np.ones((d, d), np.uint8))
+    return m > 0
+
+
 def slab_mask(med: np.ndarray, sd: np.ndarray | None = None) -> np.ndarray:
     """The opaque slab with no overhang margin -- `icons`' `support`.
 

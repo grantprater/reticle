@@ -40,6 +40,14 @@ from .store import DEFAULT_STORE
 
 SEP = "__"
 
+#: How well the art must PLACE before its footprint is preferred to the derived
+#: rule. A cut in an empty band, not a fit: over the twelve baked geometries
+#: eleven place at IoU 0.888-0.954 and one, `summit__valorant-16x9-crop75`,
+#: places at 0.663. A badly placed exact boundary is worse than a roughly
+#: placed approximate one, so that key keeps the derived rule and `doctor`
+#: says so.
+MIN_ART_FIT = 0.80
+
 
 def key(map_name: str, profile: str) -> str:
     """The geometry key for a (map, profile) pair."""
@@ -143,6 +151,33 @@ def stability(session: str, store: str | Path = DEFAULT_STORE,
     if shape is not None and tuple(sd.shape) != tuple(shape):
         return None
     return sd
+
+
+def footprint(session: str, store: str | Path = DEFAULT_STORE,
+              dilate: float = 1, shape: tuple[int, int] | None = None):
+    """The ART footprint for this session's map, or `None` if it has none.
+
+    `None` means *this map's art has not been fetched* -- run
+    `prototypes/wiki_map.py fetch <map>` then `prototypes/map_shade.py build`
+    -- and a caller must then fall back to `minimap.floor_mask` and SAY SO in
+    its provenance. It never means "no floor": a silent fallback is how the
+    derived rule stayed in the pipeline after it was superseded.
+    """
+    import numpy as np
+
+    from .minimap import art_floor
+    p = path_of(session, store)
+    if p is None or not p.is_file():
+        return None
+    with np.load(p) as z:
+        if "shade_kind" not in z.files:
+            return None
+        if "shade_fit" in z.files and float(z["shade_fit"][4]) < MIN_ART_FIT:
+            return None
+        kind = z["shade_kind"].copy()
+    if shape is not None and tuple(kind.shape) != tuple(shape):
+        return None
+    return art_floor(kind, dilate)
 
 
 def fit_path(k: str, store: str | Path = DEFAULT_STORE) -> Path:

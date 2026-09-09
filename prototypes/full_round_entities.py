@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "prototypes"))
 from reticle import barriers, cone, geometry, lighting, lineup, screen, stalls
-from reticle.minimap import (ally_icons, self_icons, floor_mask, slab_mask,
+from reticle.minimap import (ally_icons, self_icons, floor_mask, slab_mask, art_floor,
                              minimap_roi_px, widget_drawn, widget_scale, ally_mask)
 from reticle.ocr import Templates, read_scoreline, crop_gray, scoreline_roi
 from reticle.roster import alive_counts
@@ -112,11 +112,24 @@ class RoundReader:
             self.light=lighting.reference(z)
             self.lo=z["lo_gray"].copy()
             self.hi=z["hi_gray"].copy()
-            # `sd_lo` is what keeps the location-name banner out of the map:
-            # it is drawn 9 px above Sunset's body and BRIDGE swallowed it.
             self.sd=z["sd_lo"].copy()
-            self.floor=floor_mask(self.med,sd=self.sd)
-            self.slab=slab_mask(self.med,sd=self.sd)
+            # GEOMETRY COMES FROM THE ART, photometry from this capture.
+            # `shade_kind` is the published minimap warped into these widget
+            # pixels, so the footprint is stated rather than thresholded: it
+            # scores 92.7% / 94.2% IoU against the two painted referees where
+            # the derived rule scores 78.8% / 77.9%, and the difference is the
+            # banner, the widget rim and the doorway churn. `floor_source` is
+            # recorded in provenance because a silent fallback to the derived
+            # rule is how it stayed in the pipeline after it was superseded.
+            art=z["shade_kind"].copy() if "shade_kind" in z.files else None
+            if art is not None and art.shape==self.med.shape[:2]:
+                self.floor_source="art"
+                self.slab=art_floor(art,dilate=1)
+                self.floor=art_floor(art,dilate=9)
+            else:
+                self.floor_source="derived (no art for this map -- fetch it)"
+                self.floor=floor_mask(self.med,sd=self.sd)
+                self.slab=slab_mask(self.med,sd=self.sd)
             # SEARCH on the floor, which is the slab dilated by 9 px so an icon
             # at the map's edge is not clipped -- but REQUIRE support on the
             # slab, the opaque part. The margin is 20% of the floor and it lies
@@ -721,6 +734,7 @@ def main(argv=None):
               # state its scale cannot be replayed without deriving it again.
               "widget_scale":reader.scale,"widget_px":reader.box[2]-reader.box[0],
               "minimap_box":list(reader.box),"cone_check_version":CONE_CHECK_VERSION,
+              "floor_source":reader.floor_source,
               "lighting_version":lighting.LIGHTING_VERSION,
               "full_round":args.seconds is None,"geometry_sha256":hashlib.sha256(reader.geo_path.read_bytes()).hexdigest(),
               "producer_sha256":{str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in producers}}
