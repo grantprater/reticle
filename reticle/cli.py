@@ -13,6 +13,7 @@
     reticle overlay [SESSION]                 render detections onto the video
     reticle kd      [SESSION]                 running K/D per round, to check against the scoreboard
     reticle board   [SESSION]                 read the Tab scoreboard and score our K/D against it
+    reticle economy FACTS.json                apply explicit facts to the credit ledger
     reticle status  [--write]                 generated pipeline status -> STATUS.md
     reticle sql     "SELECT ..."              DuckDB over the store
 """
@@ -1659,6 +1660,28 @@ def cmd_coach(args) -> int:
     return 0
 
 
+def cmd_economy(args) -> int:
+    """Apply an explicit fact document; does not read or infer from video."""
+    import json
+    from .economy import run_document
+
+    source = Path(args.facts)
+    try:
+        document = json.loads(source.read_text(encoding="utf-8"))
+        result = run_document(document)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise SystemExit(f"economy refused {source}: {exc}") from exc
+    rendered = json.dumps(result, indent=2, sort_keys=True, allow_nan=False)
+    if args.out:
+        target = Path(args.out)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(rendered + "\n", encoding="utf-8")
+        print(f"{len(result['transactions'])} transactions; economy ledger: {target}")
+    else:
+        print(rendered)
+    return 0
+
+
 def cmd_refine(args) -> int:
     """Preview or densely read explicitly selected review windows."""
     import hashlib
@@ -1982,6 +2005,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("session", nargs="?")
     s.add_argument("--out", help="output bundle directory (default: store/analysis/coaching)")
     s.set_defaults(func=cmd_coach)
+
+    s = sub.add_parser("economy", help="apply an explicit JSON fact stream to the credit ledger")
+    s.add_argument("facts", help="JSON file containing teams and ordered operations")
+    s.add_argument("--out", help="write the ledger JSON here (default: stdout)")
+    s.set_defaults(func=cmd_economy)
 
     s = sub.add_parser("refine", help="preview or densely read selected coaching review windows")
     s.add_argument("session")

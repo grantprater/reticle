@@ -6,12 +6,27 @@ write the whole thing to a Parquet event store you can query with DuckDB.
 
 Stage 02 includes scoreline, ammo, HP/shield, attributed killfeed, roster and
 minimap readers. Coverage and validation vary; use `status` and `doctor` rather
-than assuming every session is current. Credits and reliable POV/phase detection
-remain missing. The coaching layer now extracts player kill/death observations
+than assuming every session is current. The pure economy ledger is implemented,
+but credit observations and reliable POV/phase detection remain missing. The
+coaching layer now extracts player kill/death observations
 from stored reads and evaluates an exploratory state-probability baseline when
 enough independent sessions are available.
 
 The review and prioritized roadmap are in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+
+The first economy slice accepts explicit adjudicated facts and writes or prints
+a versioned ledger; it does not decode footage or infer missing purchases:
+
+```
+.\.venv\Scripts\python.exe -m reticle economy facts.json --out ledger.json
+```
+
+The input has `teams` (two mappings of stable player IDs) and ordered
+`operations`. Supported operation kinds are `reset`, `spend`,
+`balance_observation`, and `round`; a round explicitly supplies winner,
+attacking team, plant/detonation state, every player's kill count, and every
+losing player's survival state. Counts may be `[minimum, maximum]` and uncertain
+booleans are `null`. See `tests/test_economy.py` for an executable example.
 
 ## Event repository and review queue
 

@@ -33,6 +33,7 @@ the linked source is authoritative for detail.
 | Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
+| Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
 | Visual debugging | `overlay.py`, `glance.py`, `refine.py` |
 

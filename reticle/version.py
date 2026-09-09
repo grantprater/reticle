@@ -20,6 +20,9 @@ SCHEMA_VERSION = 1
 # read as current. See `rounds.round_bounds` and `docs/ROSTER_FINDINGS.md`.
 ROUND_VERSION = "round-0.2.0"
 COACH_VERSION = "coach-0.1.0"
+# Pure credit-ledger rules and interval semantics. This does not stamp a credit
+# detector: no such observation channel exists yet.
+ECONOMY_VERSION = "economy-0.1.0"
 EXTRACTOR_VERSION = "l1-0.1.0"
 SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the
