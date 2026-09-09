@@ -42,7 +42,8 @@ from plant_spike import centre_box, spike_cover, COVER_MIN
 from minimap_portrait import composition
 from ability_hud import slot_counts, SLOT_X0, SLOT_DX, SLOT_KEYS
 
-VERSION = "full-round-0.8.0"
+VERSION = "full-round-0.10.0"
+CONE_CHECK_VERSION = "cone-checks-0.2.0"
 CONE_TINT = (235,180,80)          # the observable area, as `overlay.py` draws it
 PALETTE = {"self":(90,235,250), "ally":(170,240,100), "enemy":(95,90,255),
            "barrier":(255,210,90), "object":(245,140,225),
@@ -56,6 +57,12 @@ def serial(value):
     if isinstance(value, np.ndarray):
         return value.tolist()
     raise TypeError(type(value).__name__)
+
+
+def mask_runs(mask):
+    """Lossless true runs [start, length] in row-major observation coordinates."""
+    edges=np.flatnonzero(np.diff(np.r_[False,mask.ravel(),False].astype(np.int8)))
+    return [[int(a),int(b-a)] for a,b in zip(edges[::2],edges[1::2])]
 
 
 def round_candidates(store, sid):
@@ -100,8 +107,11 @@ class RoundReader:
             self.light=lighting.reference(z)
             self.lo=z["lo_gray"].copy()
             self.hi=z["hi_gray"].copy()
-            self.floor=floor_mask(self.med)
-            self.slab=slab_mask(self.med)
+            # `sd_lo` is what keeps the location-name banner out of the map:
+            # it is drawn 9 px above Sunset's body and BRIDGE swallowed it.
+            self.sd=z["sd_lo"].copy()
+            self.floor=floor_mask(self.med,sd=self.sd)
+            self.slab=slab_mask(self.med,sd=self.sd)
             # SEARCH on the floor, which is the slab dilated by 9 px so an icon
             # at the map's edge is not clipped -- but REQUIRE support on the
             # slab, the opaque part. The margin is 20% of the floor and it lies
@@ -129,6 +139,7 @@ class RoundReader:
         # `python -m reticle.barriers`, render again to observe.
         self.anchors=barriers.load(manifest["session_id"],store.root)
         self.cone_mask=None
+        self.lit_mask=None
         # Identity, if this session has been read. The player's own agent is
         # the only one established -- the tray names it outright and the top
         # bar corroborates -- so it is the only one used. Ally ICONS are not
@@ -212,18 +223,27 @@ class RoundReader:
         """
         if lit is None or agg is None:
             return None
-        floor_lit=lit & self.floor
+        known=self.light.known & self.floor
+        floor_lit=lit & known
         residual=floor_lit & ~agg
-        out={"lit_floor_px":int(floor_lit.sum()),
+        out={"version":CONE_CHECK_VERSION,
+             "comparison":"lighting consistency, not accuracy",
+             "known_floor_px":int(known.sum()),
+             "lit_floor_px":int(floor_lit.sum()),
              "residual_px":int(residual.sum()),
-             "residual_frac":float(residual.sum())/max(int(floor_lit.sum()),1),
+             "residual_frac":float(residual.sum())/int(floor_lit.sum()) if floor_lit.any() else None,
+             "aggregate":cone.compare_evidence(agg,lit,known),
              "per_emitter":[]}
         for o,m in zip(team,per):
-            a=int(m.sum())
+            ix,iy=round(o["x"]),round(o["y"])
+            origin_ok=bool(self.passable[iy,ix])
             out["per_emitter"].append({
                 "name_hint":o["kind"],"x":round(o["x"],1),"y":round(o["y"],1),
-                "cone_px":a,
-                "lit_share":round(float((m & lit).sum())/a,4) if a else None})
+                "detector_track_id":o.get("detector_track_id"),
+                "origin_passable":origin_ok,
+                "bearing_state":o.get("bearing_state"),
+                "refusal":"bearing_unavailable" if o.get("facing") is None else "origin_impassable" if not origin_ok else None,
+                **cone.compare_evidence(m,lit,known)})
         n,lab,stats,cent=cv2.connectedComponentsWithStats(
             residual.astype(np.uint8),8)
         blobs=sorted(((int(stats[k,4]),k) for k in range(1,n)),reverse=True)[:3]
@@ -268,11 +288,19 @@ class RoundReader:
         self.barriers=out
 
     def read(self,frame,t_ms):
+        # Masks describe this observation only, including unreadable samples.
+        self.cone_mask=None
+        self.lit_mask=None
         base={"type":"sample","t_ms":t_ms,"source_state":"fresh",
               "widget":"unknown","observations":[],"cross_view":[],
               # Refusals are kept per channel, never silently dropped: a gate
               # nobody can count is a gate nobody can score.
-              "off_support":{"enemy":[],"ping":[]}}
+              # Refusals are kept BY REASON, not merged: `no_slab_support` is
+              # a claim about where a blob sat and `barrier_phase` is a claim
+              # about what the round was doing, and collapsing them would make
+              # both uncountable.
+              "off_support":{"enemy":[],"ping":[]},
+              "refused":{"enemy_barrier_phase":[]}}
         if stalls.stalled_at(self.freeze,t_ms):
             base.update(source_state="stale",widget="stale",roster=None)
             return base
@@ -309,8 +337,14 @@ class RoundReader:
             allies=[d for d in allies if not on_bar(d)]
             lit=lighting.lit_mask(crop,self.light) if self.light is not None else None
             if lit is not None:
-                allies=cone.resolve_lobe(self.passable,lit,allies,visible=self.floor)
-                selves=cone.resolve_lobe(self.passable,lit,selves,visible=self.floor)
+                allies=cone.resolve_lobe(self.passable,lit,allies,visible=self.floor,known=self.light.known)
+                selves=cone.resolve_lobe(self.passable,lit,selves,visible=self.floor,known=self.light.known)
+                self.lit_mask=lit
+                base["lighting"]={"version":lighting.LIGHTING_VERSION,
+                    "state":"observed","shape":list(lit.shape),
+                    "lit_px":int(lit.sum()),"known_px":int(self.light.known.sum()),
+                    "mask_runs":mask_runs(lit),
+                    "meaning":"drawn light; ability light and foreground contamination possible; emitter attribution unresolved"}
             self.self_track.step(t_ms,selves)
             self.ally_track.step(t_ms,allies)
             principal=self.self_track.principal()
@@ -322,6 +356,8 @@ class RoundReader:
                     bearing=tracker.bearings(t_ms,tracks=[tr])[0][2]
                     r=round(tr.r or 10)
                     agent_obs.append(observation(family,"self / observer" if family=="self" else "ally agent?",tr.x,tr.y,(round(tr.x)-r,round(tr.y)-r,2*r,2*r),kind=(self.player_agent.lower() if family=="self" and self.player_agent else "you") if family=="self" else "ally",r=r,facing=bearing,detector_track_id=tr.tid,evidence=["icon_ring"],confidence="observed_icon" if family=="self" else "candidate"))
+                    agent_obs[-1].update(bearing_state="fresh" if bearing is not None else "no_fresh_measurement" if tr.facing_t_ms != t_ms else "temporal_disagreement",
+                                        measured_facing=tr.facing if tr.facing_t_ms == t_ms else None)
             # THE VIEWCONE, restored to the round pipeline. The 2 s diagnostic
             # renders had it and the full-round ones lost it, so the two rounds
             # rendered so far carry no observable area at all. `per_icon` is
@@ -345,8 +381,21 @@ class RoundReader:
             # 50% of the knife burst and 74% of the grenade burst are OFF the
             # slab entirely, against a 29% baseline. Same rule as `ally_icons`:
             # ANY support at all, not a fraction.
+            # THE SPAWN BARRIERS SAY THE ROUND HAS NOT GONE LIVE, and while
+            # they are drawn the widget cannot be showing an enemy: both teams
+            # are behind their own bars and nobody has line of sight. This is
+            # the barrier channel gating the enemy channel, not a threshold on
+            # the enemy detector -- measured over Sunset R6, **359 of 531 enemy
+            # detections (67.6%) land while barriers are drawn**, and 83 of the
+            # round's 166 enemy entities live entirely inside that window. The
+            # two channels agree about where the window ends without being told:
+            # barriers are observed +1.5s to +29.2s and the round's independently
+            # derived `live_start` is +29.5s, with ZERO barrier samples after it.
             for d in enemy_rings(crop,self.floor):
                 if is_icon(d) and not on_bar(d):
+                    if bars:
+                        base["refused"]["enemy_barrier_phase"].append([d["cx"],d["cy"]])
+                        continue
                     if not self.supported(d["cx"],d["cy"]):
                         base["off_support"]["enemy"].append([d["cx"],d["cy"]])
                         continue
@@ -438,6 +487,36 @@ class RoundReader:
         return base
 
 
+#: Where a row sits in the sidecar list, most informative first. It used to be
+#: `{"barrier":0,"spike":0,"object":1,...}` ascending, so the six STATIC spawn
+#: barriers took six of the nine slots for the whole buy phase and the self,
+#: ally and enemy rows -- the ones a person checks a frame against -- were
+#: sorted last and never printed. Measured on Sunset R6: 16.4 rows per sample,
+#: so what the list omits is most of them.
+PANEL_ORDER={"self":0,"enemy":1,"ally":2,"spike":3,"object":4,
+             "ally_outline":5,"outline":6,"hud_ability":7,"barrier":8}
+
+
+def place(taken,x,y,w,h,limit,step=11,tries=4):
+    """A free spot for a label near `(x, y)`, or the original if none is free.
+
+    Crowds are exactly where the overlay has to stay readable, and exactly
+    where two boxes want the same 12 px of text baseline. This nudges DOWN,
+    never sideways, so a label stays over its own box; and it gives up rather
+    than dropping the label, because an unreadable name is a smaller lie than
+    a missing one.
+    """
+    for k in range(tries):
+        yy=y+k*step
+        box=(x,yy-h,x+w,yy)
+        if all(box[2]<=t[0] or t[2]<=box[0] or box[3]<=t[1] or t[3]<=box[1]
+               for t in taken) and yy<limit:
+            taken.append(box)
+            return yy
+    taken.append((x,y-h,x+w,y))
+    return y
+
+
 def ink(img,text,xy,colour=(235,235,235),scale=.45):
     cv2.putText(img,text,xy,cv2.FONT_HERSHEY_SIMPLEX,scale,(10,12,15),3,cv2.LINE_AA)
     cv2.putText(img,text,xy,cv2.FONT_HERSHEY_SIMPLEX,scale,colour,1,cv2.LINE_AA)
@@ -451,16 +530,22 @@ def draw_review(frame,sample,rows,reader,t_ms,start_ms):
     zoom=600/(x1-x0)
     ch=round((y1-y0)*zoom)
     src=frame[y0:y1,x0:x1]
-    # The observable area, tinted under the boxes. It is the collective cone of
-    # every ally we found with a bearing, so a HOLE in it is as informative as
-    # the area: it is built to under-claim, and a teammate we missed leaves
-    # their light outside it (`cone_checks.residual_frac`).
-    if reader.cone_mask is not None and reader.cone_mask.any():
+    # Draw the observed light even when no emitter bearing was recovered.
+    # Geometric visibility remains a separate prediction with a thin outline.
+    if reader.lit_mask is not None and reader.lit_mask.any():
         src=src.copy()
-        m=reader.cone_mask
-        src[m]=(0.62*src[m]+0.38*np.array(CONE_TINT,np.float32)).astype(np.uint8)
+        m=reader.lit_mask
+        src[m]=(0.72*src[m]+0.28*np.array((110,245,135),np.float32)).astype(np.uint8)
+    if reader.cone_mask is not None:
+        src=src.copy()
+        contours,_=cv2.findContours(reader.cone_mask.astype(np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(src,contours,-1,CONE_TINT,1)
     panel=cv2.resize(src,(600,ch),interpolation=cv2.INTER_NEAREST)
     age=t_ms-sample["t_ms"]
+    # Draw the informative families FIRST so that, when labels compete for the
+    # same baseline, an agent keeps its own spot and a transient blob moves.
+    rows=sorted(rows,key=lambda o:(PANEL_ORDER.get(o["family"],9),o["entity_id"]))
+    taken_canvas,taken_panel=[],[]
     for o in rows:
         col=PALETTE.get(o["family"],(220,220,220))
         if o.get("acquisition")=="roster_count_conflict":
@@ -475,13 +560,19 @@ def draw_review(frame,sample,rows,reader,t_ms,start_ms):
             label+=" ~"
         if o["view"]=="minimap":
             cv2.rectangle(canvas,(x0+x,y0+y),(x0+x+bw,y0+y+bh),col,1)
-            ink(canvas,short,(max(0,x0+x),max(12,y0+y-3)),col,.32)
+            cx_=max(0,x0+x)
+            cy_=place(taken_canvas,cx_,max(12,y0+y-3),
+                      round(7*len(short)*.32/.45),9,y0+(y1-y0))
+            ink(canvas,short,(cx_,cy_),col,.32)
             px,py=round(x*zoom),round(y*zoom)
             cv2.rectangle(panel,(px,py),(round((x+bw)*zoom),round((y+bh)*zoom)),col,1)
             # Short labels above each box; verbose class lives in the panel list.
-            ink(panel,label,(max(0,min(520,px)),max(12,py-3)),col,.38)
+            lx=max(0,min(520,px))
+            ly=place(taken_panel,lx,max(12,py-3),
+                     round(9*len(label)*.38/.45),11,ch)
+            ink(panel,label,(lx,ly),col,.38)
             facing=o.get("facing")
-            if facing is not None and age < 1:
+            if facing is not None:
                 c=(round(o["x"]*zoom),round(o["y"]*zoom))
                 th=math.radians(facing)
                 cv2.arrowedLine(panel,c,(round(c[0]+25*math.cos(th)),round(c[1]+25*math.sin(th))),col,1)
@@ -505,13 +596,13 @@ def draw_review(frame,sample,rows,reader,t_ms,start_ms):
     vc=sample.get("viewcone") or {}
     cc=sample.get("cone_checks") or {}
     if vc:
-        ink(canvas,f"observable {vc['coverage']*100:.1f}% of floor from "
+        ink(canvas,f"geometric cone {vc['coverage']*100:.1f}% of search floor; "
                    f"{vc['with_bearing']}/{vc['emitters']} emitters",
             (w+22,yy+86),CONE_TINT,.46)
     if cc:
-        ink(canvas,f"light no cone explains: {cc['residual_frac']*100:.0f}% "
-                   f"of lit floor",(w+22,yy+106),CONE_TINT,.44)
-    important=sorted(rows,key=lambda o: ({"barrier":0,"spike":0,"object":1,"outline":1,"self":2,"ally":3}.get(o["family"],4),o["entity_id"]))
+        residual="unreadable" if cc['residual_frac'] is None else f"{cc['residual_frac']*100:.0f}% unexplained light"
+        ink(canvas,f"Green: observed light | blue edge: prediction | {residual}",(w+22,yy+106),(110,245,135),.36)
+    important=rows                                # already in PANEL_ORDER
     for i,o in enumerate(important[:9]):
         label=f"{o.get('name') or o['entity_id'].split(':')[-1]:<16}{o['label']}"
         if o.get("acquisition")=="roster_count_conflict": label+=" [roster conflict]"
@@ -574,13 +665,16 @@ def main(argv=None):
                ROOT/"prototypes/minimap_dynamic.py",ROOT/"prototypes/minimap_ring_fit.py",
                ROOT/"prototypes/ability_disc.py",ROOT/"prototypes/plant_spike.py",
                ROOT/"reticle/ping.py",ROOT/"reticle/cone.py",ROOT/"reticle/lighting.py",
-               ROOT/"reticle/ocr.py",ROOT/"reticle/stalls.py",ROOT/"reticle/rounds.py"]
+               ROOT/"reticle/ocr.py",ROOT/"reticle/stalls.py",ROOT/"reticle/rounds.py",
+               ROOT/"reticle/barriers.py",ROOT/"reticle/lineup.py",ROOT/"prototypes/ability_hud.py"]
     metadata={"type":"provenance","version":VERSION,"lifetime_version":ROUND_LIFETIME_VERSION,
               "source":m["source"],"session":args.session,"round":selected,
               "from_ms":start,"to_ms":end,"detection_hz":args.hz,"video_fps":fps,
               # The association law is in widget pixels: an export that does not
               # state its scale cannot be replayed without deriving it again.
               "widget_scale":reader.scale,"widget_px":reader.box[2]-reader.box[0],
+              "minimap_box":list(reader.box),"cone_check_version":CONE_CHECK_VERSION,
+              "lighting_version":lighting.LIGHTING_VERSION,
               "full_round":args.seconds is None,"geometry_sha256":hashlib.sha256(reader.geo_path.read_bytes()).hexdigest(),
               "producer_sha256":{str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in producers}}
     (out/"provenance.json").write_text(json.dumps(metadata,indent=2),encoding="utf-8")
@@ -625,6 +719,29 @@ def main(argv=None):
             "observation_counts":counts,"entity_count":len(entities),
             "stalled_ms":selected["stalled_ms"],"complete_round_rendered":args.seconds is None and written==last-first,
             "limitations":["Anonymous IDs remain association hypotheses, especially across crowds and gaps.","Ability and ping classification is provisional; dropped spike, death marks and last-known marks may remain generic objects.","First-person boxes are outline candidates, not established living enemies; no first-person ally/body/ability detector is claimed.","Simultaneous cross-view evidence supports presence but does not identify a specific agent."]}
+    samples=[json.loads(line) for line in (out/"observations.jsonl").read_text().splitlines()]
+    # What each gate REFUSED, alongside what was kept. A gate nobody can count
+    # is a gate nobody can score, and these are the numbers the next change to
+    # either channel has to beat.
+    refusals=Counter()
+    for row in samples:
+        for reason,pts in (row.get("refused") or {}).items():
+            refusals[reason]+=len(pts)
+        for chan,pts in (row.get("off_support") or {}).items():
+            refusals[f"{chan}_no_slab_support"]+=len(pts)
+    report["refusals"]=dict(refusals)
+    checks=[row.get("cone_checks") for row in samples]
+    checks=[c for c in checks if c]
+    emitters=[e for c in checks for e in c["per_emitter"]]
+    report["cone_consistency"]={"version":CONE_CHECK_VERSION,
+        "samples":len(checks),"emitters":len(emitters),
+        "refusals":dict(Counter(e.get("refusal") or "cast" for e in emitters)),
+        "comparable_px":sum(e["comparable_px"] for e in emitters),
+        "unknown_px":sum(e["unknown_px"] for e in emitters),
+        "unlit_px":sum(e["unlit_px"] for e in emitters),
+        "low_light_share_emitters":sum(e["lit_share"] is not None and e["lit_share"]<.1 for e in emitters),
+        "median_unexplained_light":float(np.median([c["residual_frac"] for c in checks if c["residual_frac"] is not None])) if any(c["residual_frac"] is not None for c in checks) else None,
+        "meaning":"cross-channel disagreements, not false-positive or recall measurements"}
     (out/"coverage.json").write_text(json.dumps(report,indent=2,default=serial),encoding="utf-8")
     (out/"barrier-candidates.json").write_text(json.dumps(reader.barriers,indent=2,default=serial),encoding="utf-8")
     print(json.dumps(report,indent=2,default=serial))

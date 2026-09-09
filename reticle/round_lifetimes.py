@@ -12,7 +12,7 @@ import math
 from .track import CLASSES, admits, association_tolerance, assign
 from .minimap import REF_WIDGET_W
 
-ROUND_LIFETIME_VERSION = "round-lifetimes-0.3.0"
+ROUND_LIFETIME_VERSION = "round-lifetimes-0.4.0"
 
 #: Readable kind per family, when a reader does not supply a better one.
 #: A raw `E0303 object?` says nothing a person can check against the frame.
@@ -111,11 +111,12 @@ class RoundLifetimes:
             costs.append(row)
         assignments = assign(costs)
         output = []
-        accepted_allies = 0
         alive = None if roster is None else roster.get("alive_ally")
         # Only subtract an observed self. Spectated/absent self is unknown.
         has_self = any(o["family"] == "self" for o in observations)
         capacity = None if alive is None or not has_self else max(0,alive-1)
+        accepted_allies = self._fill_roster(observations, assignments, prior,
+                                            candidates, capacity)
         for i, obs in enumerate(observations):
             j = assignments[i]
             parents = candidates[i]
@@ -167,9 +168,8 @@ class RoundLifetimes:
             if obs["family"] == "ally":
                 if capacity is None:
                     acquisition = "roster_unknown"
-                elif accepted_allies < capacity:
+                elif i in accepted_allies:
                     acquisition = "roster_slot_available_not_identity"
-                    accepted_allies += 1
                 else:
                     acquisition = "roster_count_conflict"
             output.append({**obs, "entity_id":ent["id"], "name":ent["name"],
@@ -178,6 +178,53 @@ class RoundLifetimes:
                            "acquisition":acquisition, "origin_ms":ent["origin_ms"],
                            "first_seen_ms":ent["first_seen_ms"]})
         return output
+
+    def _fill_roster(self, observations, assignments, prior, candidates,
+                     capacity):
+        """Which ally observations the roster has room for, WEAKEST LAST.
+
+        The count is the whole of what the roster licenses -- it says how many
+        teammates are alive, never which icon is which -- so when more ally
+        icons are read than there are living teammates, something must carry
+        the conflict. Which one is not arbitrary, and it used to be: the flag
+        went to whichever ally the observation list reached fifth, so the box
+        the overlay painted as suspect was chosen by iteration order.
+
+        Ranked by the strength of the CORRESPONDENCE CLAIM, which is the only
+        evidence in scope here: a resolved continuation of an established
+        entity outranks an ambiguous one, which outranks an icon seen for the
+        first time; ties go to the entity with more observations behind it,
+        then to the older id so a replay is deterministic. It does not refuse
+        anything and it does not touch identity -- an overflowing ally is
+        still emitted, still named, still counted, and now the mark lands on
+        the weakest claim in the frame.
+
+        The obvious cross-reference does NOT work and that is worth writing
+        down: over the 103 Sunset R6 samples carrying a conflict, the flagged
+        ally's `lit_share` ran a median 0.707 against 0.761 for the accepted
+        ones, so the light beside an icon does not separate the extra
+        teammate. It separates a phantom from a real icon; it does not rank
+        four real icons against five.
+        """
+        if capacity is None:
+            return set()
+        ranked = []
+        for i, obs in enumerate(observations):
+            if obs["family"] != "ally":
+                continue
+            j = assignments[i]
+            parents = candidates[i]
+            if j >= 0:
+                ent = prior[j]
+                unique = len(parents) == 1 and sum(
+                    ent["id"] in ps for ps in candidates) == 1
+                rank = 0 if unique else 1
+                seen = ent["observations"]
+            else:
+                rank, seen = 2, 0
+            ranked.append((rank, -seen, i))
+        ranked.sort()
+        return {i for _, _, i in ranked[:capacity]}
 
     def finish(self, end_ms):
         return [{**{k:v for k,v in e.items() if k != "last_observation"},
