@@ -59,8 +59,9 @@ STRIP = 5          # frames across the window
 CROP = 34          # half-width of the magnified crop, in ROI pixels
 TILE_ZOOM = 3      # magnification of each strip tile
 PANEL_H = 690      # keeps the whole window inside a 1080p screen
-HELP = ("1-5 same digit = same entity | v viewcone  c crack  p ping  i icon  "
-        "o other | u unsure | n nothing drawn | click=missing | a back | q quit")
+HELP = ("ONE key per ringed component. 1-5 = group id, SAME digit means SAME entity | "
+        "v viewcone  c crack  p ping  i icon  o other | u unsure | n nothing drawn | "
+        "click=mark a missed component | a back | q save+quit")
 
 
 def roi_for(root: Path, sid: str) -> tuple[int, int, int, int]:
@@ -132,7 +133,8 @@ class Clips:
 
 
 def compose(window: dict, cid: str | None, components: dict, clips: Clips,
-            scale: float = 1.6, missing: list | None = None):
+            scale: float = 1.6, missing: list | None = None,
+            answers: dict | None = None):
     """The panel the player answers from.
 
     The minimap panel rings every component in the window and highlights the one
@@ -153,13 +155,26 @@ def compose(window: dict, cid: str | None, components: dict, clips: Clips,
     panel = cv2.resize(mid.copy(), None, fx=scale, fy=scale,
                        interpolation=cv2.INTER_NEAREST)
     members = [components[c] for c in window["component_ids"] if c in components]
-    for n, m in enumerate(members, 1):
+    answers = answers or {}
+    for m in members:
         px, py = int(float(m["x"]) * scale), int(float(m["y"]) * scale)
         current = m["component_id"] == cid
-        colour = (60, 230, 255) if current else (120, 120, 120)
-        cv2.circle(panel, (px, py), 13, colour, 2 if current else 1)
-        cv2.putText(panel, str(n), (px + 15, py - 6), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.45, colour, 1, cv2.LINE_AA)
+        given = answers.get(m["component_id"])
+        if current:
+            colour, mark, thick, rad = (0, 200, 255), "?", 3, 16
+        elif given is None:
+            colour, mark, thick, rad = (150, 150, 150), "", 1, 12
+        elif given.get("group"):
+            colour, mark, thick, rad = (80, 255, 80), str(given["group"]), 2, 13
+        else:
+            colour, mark, thick, rad = (255, 150, 150), given["answer"][:1].upper(), 2, 13
+        cv2.circle(panel, (px, py), rad, colour, thick)
+        if mark:
+            org = (px + rad + 3, py - rad + 4)
+            cv2.putText(panel, mark, org, cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                        (0, 0, 0), 4, cv2.LINE_AA)
+            cv2.putText(panel, mark, org, cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                        colour, 2, cv2.LINE_AA)
     for (mx, my) in (missing or []):
         cv2.drawMarker(panel, (int(mx * scale), int(my * scale)), (80, 255, 120),
                        cv2.MARKER_CROSS, 18, 2)
@@ -192,6 +207,11 @@ def compose(window: dict, cid: str | None, components: dict, clips: Clips,
     out[:panel.shape[0], left:left + panel.shape[1]] = panel
     out[panel.shape[0] + 8:, :strip.shape[1]] = strip
     return out, panel.shape[0], (left, scale)
+
+
+def answers_short(answers: dict, cid: str) -> str:
+    given = answers[cid]
+    return str(given["group"]) if given.get("group") else given["answer"][:5]
 
 
 def build_queue(root: Path, session: str | None, redo: bool, limit: int,
@@ -241,7 +261,7 @@ def main() -> int:
     clips = Clips(root_store)
 
     handles: dict[str, object] = {}
-    state = {"i": 0, "img": None, "missing": [], "written": 0}
+    state = {"i": 0, "img": None, "missing": [], "written": 0, "answers": {}}
 
     tkroot = tk.Tk()
     tkroot.title("reticle - which components are one entity")
@@ -256,7 +276,8 @@ def main() -> int:
     def show():
         window, cid = queue[state["i"]]
         view, panel_h, roi = compose(window, cid, components, clips,
-                                     missing=state["missing"])
+                                     missing=state["missing"],
+                                     answers=state["answers"])
         state["panel_h"], state["roi"] = panel_h, roi
         if view is None:
             advance(+1, write=False)
@@ -269,14 +290,22 @@ def main() -> int:
         handles["img"] = state["img"]
 
         n = len(window["component_ids"])
-        shape = ("NO COMPONENT -- did this use draw anything?" if not cid
-                 else f"one component -- ability or clutter?" if n == 1
-                 else f"component {window['component_ids'].index(cid) + 1} of {n} -- same entity?")
+        if not cid:
+            shape = "NO COMPONENT: did this use draw anything on the minimap? n = nothing"
+        elif n == 1:
+            shape = "ONE component: is the ringed thing this ability (press 1) or clutter?"
+        else:
+            shape = (f"component {window['component_ids'].index(cid) + 1} of {n}: "
+                     f"same digit as another = SAME entity")
+        given = [f"{answers_short(state['answers'], c)}"
+                 for c in window["component_ids"] if c in state["answers"]]
+        sofar = ("  already: " + " ".join(given)) if given else ""
         status.config(text=(
             f"[{state['i'] + 1}/{len(queue)}] {window['session_id']} "
             f"{window.get('ability_id') or window.get('named_abilities') or '?'}  "
-            f"{window['clip_start_ms'] / 1000:.1f}-{window['clip_end_ms'] / 1000:.1f}s\n"
-            f"{shape}   written {state['written']}"))
+            f"{window['clip_start_ms'] / 1000:.1f}-{window['clip_end_ms'] / 1000:.1f}s"
+            f"   written {state['written']}\n"
+            f"{shape}{sofar}"))
 
     def write(answer: str, group: int | None = None, unsure: bool = False):
         window, cid = queue[state["i"]]
@@ -298,6 +327,8 @@ def main() -> int:
         if component is not None:
             row.update({"t_ms": component["observed_t_ms"],
                         "x": component["x"], "y": component["y"]})
+        if cid:
+            state["answers"][cid] = {"answer": answer, "group": group}
         path = out_dir / f"{window['session_id']}.jsonl"
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
