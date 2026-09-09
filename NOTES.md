@@ -11,6 +11,39 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## PICKING UP -- 2026-09-09, milestones A-F, and the grouping pass is the next move
+
+`reticle ability-gallery` and `reticle ability-capture` land D, E and F.
+**Milestone D's gate FAILS and that is the finding**: phase-binned temporal
+shape does not separate `deadlock:sonic sensor` from `deadlock:barrier mesh`
+across the two matches -- 0.5749 balanced at permutation p=0.3085 one way,
+0.4646 at p=0.6368 the other, below the shuffled median. Per-class recall flips
+with the direction of the split, so what it tracks is a session offset.
+
+**Run `prototypes/label_grouping.py` next.** It is the pass that answers the 286
+review windows milestone C queues and nothing could touch, ranked Deadlock-first
+because that is where the only held-out contrast lives. Keys: `1`-`5` group
+(same digit = same entity), `v` viewcone, `c` crack, `p` ping, `i` icon,
+`o` other, `u` unsure, `n` nothing drawn, click marks a missed component.
+
+Two bugs were found by RENDERING the composite before handing it over, and both
+would have produced confident wrong answers: a label's `x`/`y` index the minimap
+CROP rather than the frame, and the ROI comes from the session's PROFILE, not
+from the `roi` field on the label row. The two profiles differ -- 15..480 for
+the enlarged widget against 15..346 -- so a hardcoded ROI is wrong for both.
+Pinned by `tests/test_label_grouping.py`.
+
+Three manifest tags were corrected (`79a706a7ce4c`, `d95cfad5693a`,
+`eb10db50b1fb` are Cypher ability demos, and SPECTATOR recordings), with the
+evidence in `notes/manifest-corrections.jsonl`. That recovered coverage --
+demos 28 to 31, `not_exercised` 1109 to 785 -- but not the use channel: every
+claim those sessions produce arrives in a whole-tray group of four at a
+transition wipe. **Do not read those as casts.** The gate now counts 9 clean
+supported parent edges and reports the 15 resting on suspect claims separately.
+
+The capture queue asks for **8 cards and 120 recorded seconds**, each naming its
+own discriminator, beside 749 review items that ask for no recording at all.
+
 ## PICKING UP -- 2026-09-09, milestone C and two evidence gaps
 
 `reticle ability-entities` is milestone C: component claims, competing entity

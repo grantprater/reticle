@@ -63,6 +63,8 @@ def build_timeline(root: str | Path) -> dict:
     source_hashes = {r["path"]: r["sha256"]
                      for r in inventory["manifest"]["source_files"]}
     audio = _audio_references(root)
+    spectated = {row["session_id"] for row in inventory["sessions"]
+                 if "spectator" in (row.get("tags") or [])}
     labels_by_ability = defaultdict(list)
     for row in inventory["source_windows"]:
         if row["source_kind"] == "human_ability_label" and row.get("ability_id"):
@@ -97,7 +99,11 @@ def build_timeline(root: str | Path) -> dict:
             "ability_id": row.get("ability_id"),
             "ability": row.get("ability"),
             "slot": row.get("key"),
-            "owner": "local_player" if row.get("agent") else None,
+            # A spectator clip reads the OBSERVED player's tray, so the caster is
+            # whoever the camera is on, not whoever is holding the mouse.
+            "owner": (None if not row.get("agent")
+                      else "observed_player" if row["session_id"] in spectated
+                      else "local_player"),
             "observed_t_ms": t_ms,
             "available_t_ms": t_ms,
             "occurrence_interval_ms": [occurrence_start, t_ms],
