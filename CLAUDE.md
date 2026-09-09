@@ -20,6 +20,20 @@ Prediction/logging and coaching are downstream of observations. When a
 perceptual question cannot be derived, ask the player and record the first
 failure, not a guessed answer.
 
+## How to write
+
+Strunk, and it governs replies, docstrings, commit messages and `NOTES.md`
+alike:
+
+- Omit needless words.
+- Use the active voice.
+- Put statements in positive form.
+- Use concrete language.
+
+The active voice is the load-bearing one here. "The geometry rebuilt under me"
+hid an error that "I rebuilt the geometry while my own experiment was reading
+it" states plainly, and the player had to ask what the sentence meant.
+
 ## Global constraints
 
 - Stage 02 is deterministic; no model. Threshold, geometry, normalization,
