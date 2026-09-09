@@ -16,6 +16,7 @@
     reticle economy FACTS.json                apply explicit facts to the credit ledger
     reticle ability-coverage                  inventory ability evidence without decoding
     reticle ability-timeline                  build bounded ability-use claims
+    reticle ability-entities                  build alternative ability entity hypotheses
     reticle status  [--write]                 generated pipeline status -> STATUS.md
     reticle sql     "SELECT ..."              DuckDB over the store
 """
@@ -1752,6 +1753,20 @@ def cmd_ability_timeline(args) -> int:
     return 0
 
 
+def cmd_ability_entities(args) -> int:
+    """Build alternative ability component, entity, and property hypotheses."""
+    from .ability_entities import run
+
+    bundle, target = run(args.store, args.out)
+    summary = bundle["manifest"]["summary"]
+    print(f"{summary['components']} components; {summary['component_parent_edges']} parent edges; "
+          f"{summary['entity_hypotheses']} entity hypotheses")
+    print(f"{summary['supported_parent_edges']} supported parent edges; "
+          f"{summary['review_windows']} unresolved review windows")
+    print(f"ability entities: {target}")
+    return 0
+
+
 def cmd_refine(args) -> int:
     """Preview or densely read explicitly selected review windows."""
     import hashlib
@@ -2096,6 +2111,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--step", type=float, default=0.5,
                    help="tray sampling interval for --materialize (default 0.5s)")
     s.set_defaults(func=cmd_ability_timeline)
+
+    s = sub.add_parser("ability-entities", help="build alternative ability entity hypotheses")
+    s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-entities)")
+    s.set_defaults(func=cmd_ability_entities)
 
     s = sub.add_parser("refine", help="preview or densely read selected coaching review windows")
     s.add_argument("session")

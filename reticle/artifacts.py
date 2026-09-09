@@ -29,6 +29,10 @@ ARTIFACTS = {
     "ability_timeline": ArtifactSpec(
         ("ability_timeline.py", "ability_coverage.py", "artifacts.py", "store.py"),
         parents=("ability_coverage",), inputs=("ability_casts", "ability_audio_assets")),
+    "ability_entities": ArtifactSpec(
+        ("ability_entities.py", "adjudication/ability.py", "ability_timeline.py",
+         "ability_coverage.py", "artifacts.py", "store.py"),
+        parents=("ability_timeline",), inputs=("ability_candidates", "ability_labels")),
     "coaching": ArtifactSpec(
         ("artifacts.py", "coaching.py", "review.py", "rounds.py", "roster.py", "checks.py", "version.py"),
         inputs=("manifest", "hud", "roster")),

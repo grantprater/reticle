@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from reticle.ability_timeline import build_timeline, write_timeline
+from reticle.ability_timeline import _step_ms, build_timeline, write_timeline
 
 
 class AbilityTimelineTests(unittest.TestCase):
@@ -59,6 +59,9 @@ class AbilityTimelineTests(unittest.TestCase):
         self.assertEqual(len(got["use_claims"]), 1)
         self.assertEqual(len(got["use_claims"][0]["source_evidence"]), 2)
         self.assertEqual(got["manifest"]["summary"]["equivalent_cache_rows_collapsed"], 1)
+
+    def test_numeric_reader_hash_is_not_part_of_sampling_step(self):
+        self.assertEqual(_step_ms("casts/demo.step0.5.84229831.json"), 500.0)
 
 
 if __name__ == "__main__":

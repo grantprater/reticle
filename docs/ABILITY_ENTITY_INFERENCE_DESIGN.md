@@ -1,6 +1,6 @@
 # Ability entities: inference and minimal capture design
 
-Date: 2026-09-09. Status: milestone A implemented; annotation and new capture have
+Date: 2026-09-09. Status: milestones A-C implemented; annotation and new capture have
 not been run for this document. Extends [ADJUDICATION_DESIGN.md](ADJUDICATION_DESIGN.md).
 
 ## Outcome
@@ -443,6 +443,46 @@ identity `KAY/O`. Source-linked audio cuts match four claims and remain referenc
 availability rather than independent recognition. The current reader result
 supersedes the historical 119-drop prose for inventory purposes; it is still a
 candidate count, not source-reviewed use accuracy.
+
+Milestone C landed as `reticle ability-entities`. It reads stored evidence only and
+writes `component_claims`, `entity_hypotheses`, `properties` and `review` beside the
+timeline it consumes. Grouping offers competing alternatives -- a null hypothesis that
+the use has no observed minimap child, onset/distance groups, and bearing groups for
+abilities the parameter rules call extending -- and every multi-component group carries
+`grouping_resolved: false`. Human component identity supports a parent edge; it never
+promotes a group, because naming a component does not prove two components are one
+physical entity.
+
+First real run: 1,410 components against 127 use claims, 939 candidate parent edges of
+which 21 are human-supported, 806 entity hypotheses (127 null, 672 onset, 7 bearing),
+3,007 property claims and 279 unresolved review windows. The parameter rules are written
+as `domain_hypothesis_needs_patch_validation` and are not fitted values.
+
+Cross-referencing the human label channel against the use channel found two gaps, and
+neither is repaired by widening the parent window. First, 146 of 449 ability labels never
+joined a detector candidate on the exact source coordinate, so milestone C had been
+dropping them silently; 88 of the named ones are the Deadlock, Omen and Reyna labels in
+the two real matches `a06f04a0059f` and `5822b6646448`, which have no candidate file at
+all. A label the detector never reproduced is still a human observation, so labels now
+become components in their own right with `origin: human_label`; the exact-key join is
+kept rather than loosened, so detector corroboration stays distinguishable from a label
+standing alone. Second, `79a706a7ce4c`, `d95cfad5693a` and `eb10db50b1fb` carry 19 named
+Cypher labels but are not tagged `ability-demo`, so the timeline never reads them and no
+use claim can exist. That is milestone A's inventory to correct; milestone C only reports
+it as `no_use_claims_in_session`.
+
+An unparented component therefore records why: 130 `no_use_claims_in_session`, 289
+`outside_parent_window` with the nearest same-ability delta stored so the width question
+stays answerable from data, and 4 `only_contradicted_parents`. A component a human called
+clutter is answered rather than orphaned, which removed 59 components from a queue they
+did not belong in. Orphan clusters raise their own review windows -- 155 of the 279 -- so
+the queue is not biased toward the sessions where the tray already fired.
+
+129 of the 150 human-named components still have no supported parent. That is the gate
+measurement for milestone C and it is not yet passed: the reviewed full-use windows
+needed for correct parent/child and phase relations are queued, not answered. `.step`
+parsing also treated the reader hash in `demo.step0.5.84229831.json` as part of the
+sampling interval; that is fixed and covered by a test.
 
 Measure use identity/owner precision and recall, unknown coverage, grouping
 over-merges and splits, entity false positives/misses per use, phase and termination

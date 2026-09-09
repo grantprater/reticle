@@ -57,6 +57,7 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle audit
 .\.venv\Scripts\python.exe -m reticle ability-coverage
 .\.venv\Scripts\python.exe -m reticle ability-timeline
+.\.venv\Scripts\python.exe -m reticle ability-entities
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
 .\.venv\Scripts\python.exe prototypes\minimap_geometry.py --all

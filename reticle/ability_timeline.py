@@ -20,7 +20,7 @@ from .store import DEFAULT_STORE
 
 
 ABILITY_TIMELINE_VERSION = "ability-timeline-0.1.0"
-_STEP = re.compile(r"\.step([0-9.]+)\.")
+_STEP = re.compile(r"\.step(\d+(?:\.\d+)?)\.")
 TRANSITION_ALTERNATIVES = ("commit", "activation", "mode_transition", "end")
 
 

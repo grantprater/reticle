@@ -11,6 +11,39 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## PICKING UP -- 2026-09-09, milestone C and two evidence gaps
+
+`reticle ability-entities` is milestone C: component claims, competing entity
+groupings, property claims and a review queue, all from stored evidence. First
+real run is 1,410 components against 127 use claims, 21 human-supported parent
+edges, 806 hypotheses and 279 review windows. Every multi-component group stays
+`grouping_resolved: false`; naming a component does not prove two components are
+one entity.
+
+**Two gaps found by cross-referencing labels against the use channel, and the
+next session should act on the first one.**
+
+1. Five sessions carry named ability labels that the timeline cannot parent.
+   `a06f04a0059f` (53) and `5822b6646448` (35) are real matches with Deadlock,
+   Omen and Reyna labels and **no ability candidate file at all**; those 88
+   labels had been dropped silently by the exact-coordinate join and are now
+   components with `origin: human_label`.
+2. `79a706a7ce4c`, `d95cfad5693a` and `eb10db50b1fb` are Cypher demos that were
+   never tagged `ability-demo`, so no use claim can exist for their 19 named
+   labels. **Fixing those three manifest tags is the cheapest real gain
+   available** -- it is milestone A's inventory, not a detector change, and it
+   should be done deliberately rather than folded into a C rerun.
+
+129 of 150 human-named components still have no supported parent, so the C gate
+is not passed. Orphans now say why: 130 `no_use_claims_in_session`, 289
+`outside_parent_window` (nearest same-ability delta stored, so the window width
+stays an answerable question rather than a tuned constant), 4
+`only_contradicted_parents`. Do not widen `PARENT_PRE_MS`/`PARENT_POST_MS` to
+make the number look better; only one component was a genuine boundary miss.
+
+`review_viper.png` in the bundle directory is a hand rendering from the previous
+session, not a produced artifact.
+
 ## PICKING UP -- 2026-09-09, full adjudication design
 
 `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` extends this with ability identity,
