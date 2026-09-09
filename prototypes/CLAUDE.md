@@ -1595,6 +1595,39 @@ device seen to dim with no death should be a different deactivation cause worth
 finding. That is the CROSS-REFERENCE rule with a new pair of channels, and it
 needs no detector work: both sides are stored.
 
+**CORROBORATED ON AN INDEPENDENT CHANNEL the same day, and it needed no detector
+work at all.** `prototypes/device_deactivation.py` joins two things already
+stored -- ally killfeed entries from `l1/hud` through `checks.track_entries`, and
+patch contrast at each labelled device -- and asks whether dim devices sit closer
+in time to a preceding ally death than live ones do:
+
+    session          devices  dim   median since ally death        gap      p
+                                     dim      live     null
+    a06f04a0059f        48     19   14.2s    27.6s    22.9s      13.4s   0.0385
+    5822b6646448        25      5    7.7s    32.6s    25.2s      24.8s   0.023
+    POOLED              73     24                                17.5s   0.002
+
+Both matches independently, and in the predicted direction: dim devices fall
+BELOW the random-time null and live devices sit ABOVE it. No dim device lacked a
+prior ally death, and none was more than 60 s after one. The permutation shuffles
+which devices are called dim, so the session, the death times and both group
+sizes are held fixed and only the association moves.
+
+**Read the limit with the number, because it is weaker than the claim.** The
+killfeed says an ALLY died, not that this device's OWNER died -- survivors pack
+toward the scoreline so a roster slot is not an identity, and no per-agent death
+time is stored for these sessions. This corroborates the rule; it does not prove
+it. `deadlock:barrier mesh` is excluded as the stated exception rather than
+counted as a failure of a rule that never claimed it.
+
+**A SECOND deactivation cause, and it is reversible.** The player: *some abilities
+like killjoy's deactivate when she's out of their activation radius.* So
+deactivation is not a terminal state and not always explained by a death -- a
+device can dim and come back. Anything that treats dimming as an ending is wrong
+for Killjoy, and a dim device with no death nearby is the signature to look for.
+Chamber is the other candidate; the player is unsure about Skye's flashes and calls
+that a small edge case.
+
 **Stated as observation, not as cause.** The contrast split is measured; that
 every low-contrast label is a deactivated device is NOT established. Occlusion
 and a partially covered icon would look similar. `prototypes/label_grouping.py`

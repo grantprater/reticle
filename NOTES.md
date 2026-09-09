@@ -41,10 +41,22 @@ next real step on D is to condition the gallery on activation state and re-run
 the held-out evaluation -- do NOT quote the 0.5749/0.4646 figures as a property
 of temporal shape until that is done.
 
-Owner death is already read by the killfeed and by the roster alive counts, so
-dimming should be predictable from a death already in the log, and a dimming with
-no death is a different cause worth finding. Both sides are stored; this needs no
-detector work.
+**The cross-reference is BUILT and it corroborates the rule.**
+`prototypes/device_deactivation.py` joins ally killfeed entries to device
+contrast. Dim devices sit closer to a preceding ally death than live ones: 13.4s
+gap p=0.0385 on `a06f04a0059f`, 24.8s p=0.023 on `5822b6646448`, pooled 17.5s
+**p=0.002** over 73 devices. Dim falls below the random-time null, live sits
+above it, in both matches. No dim device lacked a prior ally death.
+
+It is correlational and weaker than the claim: the killfeed says an ALLY died,
+not that this device's OWNER did, because survivors pack in the roster bar so a
+slot is not an identity. Getting to per-agent death needs ally-side portrait
+identification, which is the next step if this is worth sharpening.
+
+**A second deactivation cause is reversible**: Killjoy's devices deactivate when
+she leaves their radius. So dimming is not an ending, and a dim device with no
+death nearby is that signature. Walls and barriers persist through owner death
+and are excluded from the rule rather than counted against it.
 
 **The coordinate convention is VERIFIED, not assumed.** Label and candidate
 x/y are ROI-RELATIVE, indexing the crop the session's PROFILE defines, and every
