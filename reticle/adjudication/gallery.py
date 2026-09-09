@@ -59,7 +59,16 @@ def load_series(root: Path, sid: str):
 
 
 def _summary(values: np.ndarray) -> dict:
-    """Median and spread.  A mean over a lit/unlit trace is neither state."""
+    """Median and spread.  A mean over a lit/unlit trace is neither state.
+
+    Non-finite samples are dropped rather than folded in.  ``self_d`` is NaN on
+    frames where the self track did not fit, and that is absence of evidence:
+    the fit fails when the widget is occluded, which is exactly when candidates
+    are born, so folding it in would bias in the worst available direction.  A
+    phase with nothing finite left yields no feature at all, so the shared-feature
+    intersection drops it instead of imputing one.
+    """
+    values = values[np.isfinite(values)]
     if values.size == 0:
         return {}
     return {"median": float(np.median(values)), "iqr": float(
@@ -272,8 +281,12 @@ def evaluate(examples: list[dict]) -> tuple[list[dict], list[dict]]:
             predicted = nearest_centroid(train, test, blocks)
             name = "+".join(blocks)
             if predicted is None:
-                scores[name] = {"balanced_accuracy": None, "accuracy": None,
-                                "features": 0, "unavailable": "no feature shared by every example"}
+                shared = shared_features(train + test, blocks)
+                scores[name] = {
+                    "balanced_accuracy": None, "accuracy": None,
+                    "features": len(shared),
+                    "unavailable": ("no feature shared by every example" if not shared
+                                    else "fewer than two classes to train on")}
                 continue
             observed = balanced_accuracy(truth, predicted)
             chance = permutation_ceiling(train, test, truth, blocks)

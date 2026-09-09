@@ -1,6 +1,6 @@
 # Ability entities: inference and minimal capture design
 
-Date: 2026-09-09. Status: milestones A-C implemented; annotation and new capture have
+Date: 2026-09-09. Status: milestones A-F implemented; annotation and new capture have
 not been run for this document. Extends [ADJUDICATION_DESIGN.md](ADJUDICATION_DESIGN.md).
 
 ## Outcome
@@ -483,6 +483,90 @@ measurement for milestone C and it is not yet passed: the reviewed full-use wind
 needed for correct parent/child and phase relations are queued, not answered. `.step`
 parsing also treated the reader hash in `demo.step0.5.84229831.json` as part of the
 sampling interval; that is fixed and covered by a test.
+
+Milestone D landed as `reticle ability-gallery`. Galleries are per `(ability_id, phase)`
+over `pre`/`onset`/`early`/`sustained` bins, never one average template per ability.
+Parameters are fitted conditioned on each identity alternative: origins across every
+member with their spread, bearings as a resultant vector with circular SD so that 350
+and 10 degrees do not average to 180, and lifetimes that reach the clip end marked
+right censored rather than reported as an expiry.
+
+Two rules decide what may be scored, and they matter more than the classifier. Training
+happens across sessions and testing within one, so a model cannot win by learning the map
+or the capture profile; and every class must also occur in a training session, so the
+reader is never scored against its own neighbouring frames. Under those rules the corpus
+admits exactly one contrast -- `deadlock:sonic sensor` against `deadlock:barrier mesh`,
+tested in each match in turn -- and the other ten are excluded with reasons recorded: 8
+for `fewer_than_two_classes_in_one_session` and 2 for `class_occurs_in_no_other_session`.
+
+The shuffled-label control had to change form. A 95th percentile is structurally 1.0 on a
+two-class split, because a shuffled fit collapses both centroids toward the pooled median
+and then scores perfectly whenever they happen to fall in the right order, which is about
+half the time. No observed score could ever clear it. The permutation p-value -- the
+fraction of shuffles reaching the observed score -- states the same caution without that
+degeneracy, and a test pins the degeneracy so it cannot come back.
+
+Balanced accuracy is the reported score. The majority prior reaches 0.9057 accuracy on
+`a06f04a0059f` and 0.7188 on `5822b6646448` while being useless; both sit at 0.5 balanced.
+
+The corpus turned out to be split so that appearance features and held-out evaluability
+are disjoint. Detector scalar summaries -- area, aspect, colour fraction -- exist only in
+the demo sessions, where every ability appears once and nothing can be held out. The two
+real matches that do support a held-out split have no ability candidate file at all, so
+they carry no scalar features. The scalar baseline this milestone was meant to beat
+therefore cannot be computed on the only contrast that exists, which falsified the
+prediction logged for it. Series traces reach those sessions because `--from-labels` keys
+on label coordinates and needs no candidate join; the two matches were decoded in a plus
+or minus ten second window per query for that reason.
+
+Audio remains a reference inventory and is not scored. All six source-linked cuts come
+from one session and no other session holds a labelled use of the same ability with
+decoded audio, so any score would be a template recognising its own training cast.
+
+**Milestone D's gate is not passed, and the negative result is the finding.** With
+series decoded for both matches, all 85 Deadlock components carry traces and 36 features
+survive the shared-feature intersection. Testing on `5822b6646448` scores 0.5749 balanced
+at permutation p=0.3085; testing on `a06f04a0059f` scores 0.4646, below the shuffled
+median, at p=0.6368. Neither clears chance. Per-class recall flips with the direction of
+the split -- 0.889/0.261 one way against 0.200/0.729 the other -- which is a classifier
+tracking a session offset rather than an ability, and is precisely what the controls
+exist to catch. Phase-binned temporal shape does not separate a Deadlock sensor from a
+Deadlock wall across two matches on this evidence.
+
+Two defects had to be fixed before that number meant anything, and both had been quietly
+producing a wrong answer. `self_d` is NaN wherever the self track did not fit, and a
+median over an array holding one NaN is NaN, so every trace feature was non-finite for
+some example and the whole block was refused with a message blaming a missing feature.
+Non-finite samples are now dropped as absence of evidence, matching what the series module
+already says about failed fits. The refusal message now distinguishes an empty
+intersection from too few classes, rather than asserting one reason for every refusal.
+
+Milestone E landed as `reticle ability-capture`. Its first draft issued 406 cards asking
+for 6,174 recorded seconds and 32 hours of total effort, which is the ability catalogue
+enumerated rather than a set of demonstrated gaps, and the design forbids exactly that.
+Three rules fixed it. A card is issued only where the corpus already holds a
+disagreement. A dispute that lives on footage already recorded is review work, because
+the design orders source review ahead of every request, and it escalates to a card only
+when a reviewer records that the source cannot settle it. An ability nobody has observed
+gets nothing at all, since absence of evidence is not a surviving alternative.
+
+What survives is 8 cards and 120 recorded seconds, beside 997 review items that ask for
+no recording whatsoever and 89 deferred requests that say why they are not being made.
+Every card names its own discriminator rather than a generic one: seven abilities appear
+in a single session so no session can be held out, while `cypher:trapwire` appears in
+three but shares a session with only one other labelled Cypher ability, which itself
+occurs nowhere else -- a different gap needing a different take.
+
+Milestone F landed as the take log and `--record-take`. A take is appended and never
+rewritten, and it never certifies itself: the operator's claimed success is checked
+against evidence the take could not assert into being. For a transfer card that evidence
+is whether the ability actually became held-out evaluable, which requires labelled uses in
+the newly ingested session. A claimed success with no ingested session stays `unverified`;
+one whose use was captured and labelled but still leaves the contrast unevaluable is
+`partial`; only the structural change earns `verified`. A batch that failed partway keeps
+its successful claims and records the failure reason, so only the failed step is redone.
+Exercised end to end with a deliberately unbacked claim, the flow refused it and returned
+`partial`, and the synthetic take was then removed rather than left in the store.
 
 Measure use identity/owner precision and recall, unknown coverage, grouping
 over-merges and splits, entity false positives/misses per use, phase and termination
