@@ -36,7 +36,7 @@ ARTIFACTS = {
     "ability_gallery": ArtifactSpec(
         ("ability_gallery.py", "adjudication/gallery.py", "adjudication/ability.py",
          "artifacts.py", "revisions.py", "store.py"),
-        parents=("ability_entities",),
+        parents=("ability_entities", "ability_phases"),
         inputs=("ability_candidates", "ability_labels", "ability_series",
                 "ability_audio_assets")),
     "ability_capture": ArtifactSpec(

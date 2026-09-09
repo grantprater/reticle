@@ -1,14 +1,19 @@
 import unittest
 
+import numpy as np
+
 from reticle.adjudication.gallery import (balanced_accuracy, eligible_contrasts,
                                           nearest_centroid, permutation_ceiling,
-                                          permutation_p, shared_features)
+                                          permutation_p, shared_features,
+                                          trace_features)
 
 
 def example(cid, sid, ability, **scalar):
     return {"component_id": cid, "session_id": sid, "ability_id": ability,
             "agent": ability.split(":")[0], "origin": "detector_candidate",
-            "scalar": scalar, "trace": {}, "has_trace": False}
+            "scalar": scalar, "trace": {}, "relative": {},
+            "appearance_bright": {}, "appearance_dim": {},
+            "has_trace": False}
 
 
 class ContrastEligibilityTests(unittest.TestCase):
@@ -63,6 +68,31 @@ class ScoringTests(unittest.TestCase):
         test = [example("t1", "s2", "x", area=1.05), example("t2", "s2", "y", area=9.05)]
         got = nearest_centroid(train, test, ("scalar",))
         self.assertEqual(got, ["x", "y"])
+
+    def test_trace_features_separate_relative_time_from_appearance(self):
+        series = {
+            "t_ms": np.array([0., 100., 200., 300.]),
+            "index": {(1, 2, 100.0): 0},
+            "arrays": {"g_mean": np.array([[10., 20., 80., 100.]])},
+        }
+        component = {"x": 1, "y": 2, "observed_t_ms": 100.0}
+        appearance = {"appearance_segments": [
+            {"appearance": "dim", "status": "stable_appearance",
+             "from_ms": 0., "to_ms": 100.},
+            {"appearance": "bright", "status": "stable_appearance",
+             "from_ms": 200., "to_ms": 300.},
+        ]}
+        got = trace_features(series, component, appearance)
+        self.assertEqual(got["appearance_dim.g_mean.median"], 15.0)
+        self.assertEqual(got["appearance_bright.g_mean.median"], 90.0)
+        self.assertTrue(any(key.startswith("relative_") for key in got))
+        self.assertFalse(any(key.startswith("pre.") for key in got))
+
+    def test_combined_evidence_does_not_treat_one_present_block_as_both(self):
+        row = example("a", "s1", "x", area=1.0)
+        row["relative"] = {"f": 1.0}
+        self.assertTrue(row["relative"])
+        self.assertFalse(all(row[block] for block in ("appearance_dim", "relative")))
 
 
 class PermutationControlTests(unittest.TestCase):
