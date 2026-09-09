@@ -12,7 +12,8 @@ import math
 from .track import CLASSES, admits, association_tolerance, assign
 from .minimap import REF_WIDGET_W
 
-ROUND_LIFETIME_VERSION = "round-lifetimes-0.5.0"
+ROUND_LIFETIME_VERSION = "round-lifetimes-0.6.0"
+MAX_ASSOCIATION_HISTORIES = 64
 
 #: Readable kind per family, when a reader does not supply a better one.
 #: A raw `E0303 object?` says nothing a person can check against the frame.
@@ -63,6 +64,10 @@ class RoundLifetimes:
         self.last_t = None
         self.next_id = 1
         self.name_counts = {}
+        self.next_observation = 1
+        self.next_component = 1
+        self.association_components = {}
+        self.association_revisions = []
         # Conservative width-based horizon, not the ROI's actual diagonal:
         # the reference crop is taller than wide (465 x 485). Using width on
         # both axes expires appearance-only links slightly before walking can
@@ -70,10 +75,15 @@ class RoundLifetimes:
         # Appearance is not an independent identity witness.
         self.appearance_gap_s = math.sqrt(2) * REF_WIDGET_W / CLASSES["walker"].max_px_s
 
-    def step(self, t_ms, observations, *, source_state="fresh", roster=None):
+    def step(self, t_ms, observations, *, source_state="fresh", roster=None,
+             association_evidence=()):
         if not math.isfinite(t_ms) or (self.last_t is not None and t_ms <= self.last_t):
             raise ValueError("timestamps must be finite and strictly increasing")
         self.last_t = t_ms
+        for claim in association_evidence:
+            self.resolve_association(
+                claim["observation_id"], claim["entity_id"],
+                claim.get("evidence_ref"), claim.get("available_t_ms", t_ms))
         if source_state != "fresh":
             return []
         if any(o.get("observed_t_ms", t_ms) != t_ms for o in observations):
@@ -110,11 +120,8 @@ class RoundLifetimes:
                     compatible = compatible and known_kind(obs) == ent["known_kind"]
                 d = math.hypot(obs["x"]-old["x"], obs["y"]-old["y"])
                 if obs["family"] == "self" and compatible:
-                    # The yellow observer icon is unique, not a named agent.
                     allowed = True
                 elif obs["view"] == "world":
-                    # Screen-space motion includes camera rotation. This is an
-                    # association limit, not the minimap's world motion law.
                     allowed = dt <= .3 and d <= max(30, old["box"][2]*.5)
                 else:
                     moving = obs["family"] in {"ally", "enemy"}
@@ -124,17 +131,12 @@ class RoundLifetimes:
                                 r_a=obs.get("r"), r_b=old.get("r"))
                     allowed = dt <= budget and admits(motion, max(0,d-slack),dt,self.scale)[0]
                     if moving and not allowed and i in best:
-                        # Provisional appearance re-acquisition; never a named
-                        # identity claim. Alternatives remain in the output.
                         winner, margin = best[i]
                         informative = motion.max_px_s*self.scale*dt + slack < math.sqrt(2)*REF_WIDGET_W*self.scale
                         allowed = (informative and ent["id"] == winner
                                    and margin >= APPEARANCE_MARGIN
                                    and admits(motion,max(0,d-slack),dt,self.scale)[0])
                     if not moving and allowed:
-                        # Per-step fit noise must not accumulate into translation.
-                        # This is the existing static association hypothesis,
-                        # including unresolved objects, not evidence of their class.
                         anchor = ent["anchor_observation"]
                         anchor_d = math.hypot(obs["x"]-anchor["x"], obs["y"]-anchor["y"])
                         anchor_slack = association_tolerance(self.scale,
@@ -155,6 +157,12 @@ class RoundLifetimes:
         capacity = None if alive is None or not has_self else max(0,alive-1)
         accepted_allies = self._fill_roster(observations, assignments, prior,
                                             candidates, capacity)
+        observation_ids = []
+        for _ in observations:
+            observation_ids.append(f"{self.round_id}:O{self.next_observation:06d}")
+            self.next_observation += 1
+        component_for = self._record_ambiguous_components(
+            observation_ids, assignments, prior, candidates)
         for i, obs in enumerate(observations):
             j = assignments[i]
             parents = candidates[i]
@@ -193,12 +201,16 @@ class RoundLifetimes:
                 ent["gaps"] += 1
             ent["max_gap_ms"] = max(ent["max_gap_ms"],gap)
             ent["last_seen_ms"] = t_ms
+            # The fast track remains a proposal used to generate the next
+            # candidates. The association component, not this field, is the
+            # authoritative identity account and can revise the proposal later.
             ent["last_observation"] = dict(obs)
-            if known_kind(obs):
-                ent["known_kind"] = known_kind(obs)
-            if obs.get("appearance"):
-                old_appearance=ent.get("appearance",obs["appearance"])
-                ent["appearance"]=[.9*a+.1*b for a,b in zip(old_appearance,obs["appearance"])]
+            if unique or j < 0:
+                if known_kind(obs):
+                    ent["known_kind"] = known_kind(obs)
+                if obs.get("appearance"):
+                    old_appearance=ent.get("appearance",obs["appearance"])
+                    ent["appearance"]=[.9*a+.1*b for a,b in zip(old_appearance,obs["appearance"])]
             ent["observations"] += 1
             if obs["label"] not in ent["class_history"]:
                 ent["class_history"].append(obs["label"])
@@ -211,11 +223,192 @@ class RoundLifetimes:
                 else:
                     acquisition = "roster_count_conflict"
             output.append({**obs, "entity_id":ent["id"], "name":ent["name"],
+                           "provisional_entity_id": ent["id"],
+                           "observation_id": observation_ids[i],
                            "state":state,
                            "alternatives":parents if not unique else [],
+                           "identity_status": ("resolved" if unique else
+                                               "ambiguous" if parents else "provisional"),
+                           "association_component_id": component_for.get(i),
                            "acquisition":acquisition, "origin_ms":ent["origin_ms"],
                            "first_seen_ms":ent["first_seen_ms"]})
         return output
+
+    def association_report(self):
+        """Serializable retained histories and later evidence revisions."""
+        all_components = list(self.association_components.values())
+        components = [c for c in all_components if not c.get("superseded_by")]
+        return {
+            "producer_version": ROUND_LIFETIME_VERSION,
+            "round_id": self.round_id,
+            "components": components,
+            "revisions": list(self.association_revisions),
+            "summary": {
+                "components": len(components),
+                "ambiguous": sum(c["status"] == "ambiguous" for c in components),
+                "resolved": sum(c["status"] == "resolved" for c in components),
+                "conflicted": sum(c["status"] == "conflicted" for c in components),
+                "incomplete_search": sum(not c["search_complete"] for c in components),
+                "retained_histories": sum(len(c["hypotheses"]) for c in components),
+                "superseded_components": sum(bool(c.get("superseded_by"))
+                                             for c in all_components),
+            },
+        }
+
+    def _record_ambiguous_components(self, observation_ids, assignments, prior,
+                                     candidates):
+        """Keep bounded one-to-one histories for each connected ambiguity."""
+        ambiguous = [i for i, parents in enumerate(candidates)
+                     if parents and not (assignments[i] >= 0 and len(parents) == 1
+                     and sum(prior[assignments[i]]["id"] in ps
+                             for ps in candidates) == 1)]
+        groups = []
+        remaining = set(ambiguous)
+        while remaining:
+            group, frontier = set(), {remaining.pop()}
+            while frontier:
+                i = frontier.pop()
+                group.add(i)
+                linked = {j for j in remaining
+                          if set(candidates[i]).intersection(candidates[j])}
+                remaining.difference_update(linked)
+                frontier.update(linked)
+            groups.append(sorted(group))
+
+        result = {}
+        for group in groups:
+            hypotheses = []
+            truncated = [False]
+
+            def visit(at, used, mapping):
+                if len(hypotheses) >= MAX_ASSOCIATION_HISTORIES:
+                    truncated[0] = True
+                    return
+                if at == len(group):
+                    hypotheses.append({"assignments": dict(mapping)})
+                    return
+                i = group[at]
+                for entity_id in sorted(candidates[i]):
+                    if entity_id in used:
+                        continue
+                    mapping[observation_ids[i]] = entity_id
+                    visit(at + 1, used | {entity_id}, mapping)
+                    mapping.pop(observation_ids[i])
+
+            visit(0, set(), {})
+            local_observations = [observation_ids[i] for i in group]
+            local_entities = sorted(set().union(*(set(candidates[i]) for i in group)))
+            local_membership = {
+                observation_ids[i]: ([[entity_id] for entity_id in sorted(candidates[i])]
+                                     + ([sorted(candidates[i])]
+                                        if len(candidates[i]) > 1 else []))
+                for i in group}
+            related = [c for c in self.association_components.values()
+                       if not c.get("superseded_by") and c["status"] in {"ambiguous", "partial"}
+                       and set(c["entity_ids"]).intersection(local_entities)]
+            if related:
+                related.sort(key=lambda c: c["component_id"])
+                component = related[0]
+                combined = [{"assignments": {}}]
+                combination_truncated = False
+                for source_hypotheses in ([c["hypotheses"] for c in related] + [hypotheses]):
+                    expanded = []
+                    for left in combined:
+                        for right in source_hypotheses:
+                            if len(expanded) >= MAX_ASSOCIATION_HISTORIES:
+                                combination_truncated = True
+                                break
+                            expanded.append({"assignments": {
+                                **left["assignments"], **right["assignments"]}})
+                        if combination_truncated:
+                            break
+                    combined = expanded
+                component["observation_ids"] = sorted(set().union(
+                    *(set(c["observation_ids"]) for c in related), local_observations))
+                component["entity_ids"] = sorted(set().union(
+                    *(set(c["entity_ids"]) for c in related), local_entities))
+                component["membership_alternatives"] = {
+                    **{key: value for c in related
+                       for key, value in c["membership_alternatives"].items()},
+                    **local_membership,
+                }
+                component["hypotheses"] = combined
+                component["search_complete"] = (
+                    all(c["search_complete"] for c in related)
+                    and not truncated[0] and not combination_truncated)
+                component["evidence"] = [item for c in related for item in c["evidence"]]
+                for old in related[1:]:
+                    old["superseded_by"] = component["component_id"]
+                    old["status"] = "superseded"
+                component_id = component["component_id"]
+            else:
+                component_id = f"{self.round_id}:A{self.next_component:04d}"
+                self.next_component += 1
+                component = {
+                    "component_id": component_id,
+                    "observation_ids": local_observations,
+                    "entity_ids": local_entities,
+                    "hypotheses": hypotheses,
+                    # A single rendered blob can contain several icons. Singleton
+                    # assignments are histories; set membership remains explicit.
+                    "membership_alternatives": local_membership,
+                    "search_complete": not truncated[0],
+                    "evidence": [],
+                }
+                self.association_components[component_id] = component
+            component["status"] = ("conflicted" if not component["hypotheses"] else
+                                   "resolved" if len(component["hypotheses"]) == 1
+                                   and component["search_complete"] else
+                                   "ambiguous" if component["search_complete"] else "partial")
+            for i in group:
+                result[i] = component_id
+        return result
+
+    def association_for(self, observation_id):
+        """Current projection for one observation across retained histories."""
+        components = [c for c in self.association_components.values()
+                      if not c.get("superseded_by")
+                      and observation_id in c["observation_ids"]]
+        if len(components) != 1:
+            return None
+        component = components[0]
+        choices = sorted({h["assignments"].get(observation_id)
+                          for h in component["hypotheses"]
+                          if h["assignments"].get(observation_id) is not None})
+        resolved = len(choices) == 1 and component["search_complete"]
+        return {"observation_id": observation_id,
+                "component_id": component["component_id"],
+                "status": ("conflicted" if not choices else
+                           "resolved" if resolved else
+                           "ambiguous" if component["search_complete"] else "partial"),
+                "entity_id": choices[0] if resolved else None,
+                "alternatives": choices,
+                "membership_alternatives": component["membership_alternatives"][observation_id],
+                "search_complete": component["search_complete"]}
+
+    def resolve_association(self, observation_id, entity_id, evidence_ref=None,
+                            available_t_ms=None):
+        """Apply later evidence without rewriting the original observation."""
+        projection = self.association_for(observation_id)
+        if projection is None:
+            raise ValueError(f"unknown ambiguous observation {observation_id}")
+        component = self.association_components[projection["component_id"]]
+        kept = [h for h in component["hypotheses"]
+                if h["assignments"].get(observation_id) == entity_id]
+        if not kept:
+            raise ValueError("association evidence conflicts with every retained history")
+        component["hypotheses"] = kept
+        component["status"] = ("resolved" if len(kept) == 1
+                               and component["search_complete"] else
+                               "ambiguous" if component["search_complete"] else "partial")
+        evidence = {"observation_id": observation_id, "entity_id": entity_id,
+                    "evidence_ref": evidence_ref,
+                    "available_t_ms": available_t_ms}
+        component["evidence"].append(evidence)
+        self.association_revisions.append({**evidence,
+                                           "component_id": component["component_id"],
+                                           "remaining_histories": len(kept)})
+        return self.association_for(observation_id)
 
     def _fill_roster(self, observations, assignments, prior, candidates,
                      capacity):
@@ -304,6 +497,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument('directory',type=Path)
     parser.add_argument('--out',type=Path,required=True)
+    parser.add_argument('--associations-out',type=Path)
     args=parser.parse_args(argv)
     meta=json.loads((args.directory/'provenance.json').read_text(encoding='utf-8'))
     scale,source=replay_scale(meta)
@@ -314,8 +508,15 @@ def main(argv=None):
         state.step(row['t_ms'],row['observations'],source_state=row['source_state'],roster=row.get('roster'))
     with args.out.open('x',encoding='utf-8') as f:
         json.dump(state.finish(meta['to_ms']),f,indent=2)
+    if args.associations_out:
+        with args.associations_out.open('x', encoding='utf-8') as f:
+            json.dump(state.association_report(), f, indent=2)
     print(f"{len(state.entities)} entity hypotheses replayed without decoding, "
           f"at widget scale {scale:.4f} ({source})")
+    if args.associations_out:
+        summary = state.association_report()["summary"]
+        print(f"{summary['components']} association components, "
+              f"{summary['retained_histories']} retained histories: {args.associations_out}")
 
 
 if __name__ == "__main__":

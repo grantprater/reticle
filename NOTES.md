@@ -23,6 +23,17 @@ into the gallery; P2 proves overlap identity histories; P3 validates adaptive
 temporal/spatial fidelity. Existing ability work below remains relevant within
 those gates. Historical source measurements still require current-provenance replay.
 
+Implementation has started in that order. Commits through `eba192d` close the
+first sampling contract, separate appearance/state, publish immutable phase and
+gallery revisions, and condition the gallery on appearance. Bright-only Deadlock
+identity reaches 0.6053/0.5833 balanced across the two held-out directions but
+does not beat shuffled labels; dim-only is not evaluable at the minimum per-class
+coverage. P2's overlap slice retains connected histories, composite membership,
+later-evidence revisions and search completeness. Its stored Sunset replay is a
+behavior check only because that export predates the official-art geometry
+rebuild. Continue with P3; do not claim ability recognition or fresh visual P2
+acceptance from these results.
+
 ## PICKING UP -- 2026-09-09, the ability line A-F, and what it actually says
 
 Six commands, all stored-data-only: `ability-coverage`, `ability-timeline`,

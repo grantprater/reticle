@@ -248,3 +248,39 @@ The diagnostic commands and all 251 existing tests were rerun for this review.
 The two synthetic probes above reproduce the empty-span and gap behaviors without
 opening media. Runtime fixes, new datasets, recognition improvements and adaptive
 cost savings are **not** claimed by this documentation change.
+
+## Implementation record
+
+2026-09-09, P0 foundations and P1/P2 vertical slices:
+
+- `0865d94` makes sampling coverage explicit: `None` is unrestricted, `[]`
+  performs no work, malformed requests refuse before opening media, and reader
+  names cannot collide silently.
+- `a9fc67e` separates bright/dim appearance from operational state, retains
+  transient evidence, breaks support at observation gaps, and makes a nearby
+  ally death conditional evidence until ownership is known.
+- `f8b334c` adds content-addressed immutable analysis runs with an atomic current
+  pointer. Ability phases and galleries publish canonical revisions while
+  retaining top-level compatibility views.
+- `eba192d` makes the gallery consume the phase artifact and scores relative
+  timing, bright appearance and dim appearance separately with coverage counts.
+  On the only held-out Deadlock contrast, bright-only balanced accuracy is
+  0.6053 and 0.5833 across directions, but neither clears its shuffled-label
+  control. Dim-only is not evaluable because one class/split has fewer than
+  three covered examples. P1 fixed the meaning and evaluation; it did not solve
+  ability recognition.
+- P2 now retains bounded one-to-one histories and composite membership through
+  connected overlap components. Ambiguous observations do not update identity
+  appearance; later evidence appends a revision and can resolve earlier
+  assignments. A stored-observation Sunset replay produced 1,548 entity
+  hypotheses and 98 current association components with 579 histories: 75
+  ambiguous, 15 conflicted, and eight explicitly incomplete at the 64-history
+  bound. This is a behavior/regression check on the stored observations. The
+  source export predates the official-art geometry rebuild, so it is not a new
+  visual-accuracy baseline; rerender before perceptual acceptance.
+
+P0 still needs broader migration of mutable L1/current-only artifacts and a
+machine-readable cross-channel capability matrix. P2 still needs fresh-geometry
+visual review and independently attributed later evidence on real overlap cases.
+Proceed next to P3's adaptive request planner without treating either open item
+as silently complete.

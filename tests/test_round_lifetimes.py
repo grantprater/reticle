@@ -48,6 +48,61 @@ class RoundLifetimeTests(unittest.TestCase):
         self.assertEqual(len({r['entity_id'] for r in rows}),2)
         self.assertEqual({r['entity_id'] for r in rows},{r['entity_id'] for r in first})
         self.assertTrue(all(r['state']=='ambiguous_continuation' for r in rows))
+        self.assertTrue(all(r['identity_status']=='ambiguous' for r in rows))
+
+    def test_later_evidence_resolves_both_sides_of_an_overlap_history(self):
+        life = RoundLifetimes("R1", 0)
+        first = life.step(0, [detection(10), detection(20)])
+        overlap = life.step(100, [detection(14), detection(16)])
+        component = life.association_components[overlap[0]["association_component_id"]]
+        self.assertEqual(len(component["hypotheses"]), 2)
+        # A later independently attributed portrait identifies the first
+        # ambiguous observation. One-to-one conservation resolves the other.
+        life.step(200, [], association_evidence=[{
+            "observation_id": overlap[0]["observation_id"],
+            "entity_id": first[0]["entity_id"],
+            "evidence_ref": "portrait:later",
+        }])
+        self.assertEqual(
+            life.association_for(overlap[0]["observation_id"])["entity_id"],
+            first[0]["entity_id"])
+        self.assertEqual(
+            life.association_for(overlap[1]["observation_id"])["entity_id"],
+            first[1]["entity_id"])
+        report = life.association_report()
+        self.assertEqual(report["summary"]["resolved"], 1)
+        self.assertEqual(report["summary"]["retained_histories"], 1)
+        self.assertEqual(report["revisions"][0]["evidence_ref"], "portrait:later")
+
+    def test_successive_ambiguous_steps_share_one_history_component(self):
+        life = RoundLifetimes("R1", 0)
+        life.step(0, [detection(10), detection(20)])
+        first = life.step(100, [detection(14), detection(16)])
+        second = life.step(200, [detection(14), detection(16)])
+        self.assertEqual(first[0]["association_component_id"],
+                         second[0]["association_component_id"])
+        self.assertEqual(life.association_report()["summary"]["components"], 1)
+
+    def test_one_blob_preserves_both_entering_lives_as_a_composite_alternative(self):
+        life = RoundLifetimes("R1", 0)
+        first = life.step(0, [detection(10), detection(20)])
+        blob = life.step(100, [detection(15)])[0]
+        projection = life.association_for(blob["observation_id"])
+        entering = sorted(r["entity_id"] for r in first)
+        self.assertIn(entering, projection["membership_alternatives"])
+        # The renderer lost multiplicity; the state model did not end a life.
+        split = life.step(200, [detection(12), detection(18)])
+        self.assertEqual(len(life.entities), 2)
+        self.assertEqual(set(entering), {r["entity_id"] for r in split})
+
+    def test_ambiguous_observation_does_not_contaminate_identity_appearance(self):
+        life = RoundLifetimes("R1", 0)
+        life.step(0, [dict(detection(10), appearance=[1., 0.]),
+                      dict(detection(20), appearance=[0., 1.])])
+        before = {eid: list(row["appearance"]) for eid, row in life.entities.items()}
+        life.step(100, [dict(detection(14), appearance=[.5, .5]),
+                        dict(detection(16), appearance=[.5, .5])])
+        self.assertEqual({eid: row["appearance"] for eid, row in life.entities.items()}, before)
 
     def test_stall_cannot_refresh_any_view(self):
         life=RoundLifetimes("R1",0)
