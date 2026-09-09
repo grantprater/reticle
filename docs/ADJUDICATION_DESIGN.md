@@ -19,6 +19,9 @@ Extend [the entity model](minimap-entity-model.html),
 [the economy design](ECONOMY_AND_PREDICTION_DESIGN.md).
 Keep the existing origin, bearing, extent and per-parameter driver representation.
 
+Ability-specific inference, property coverage and minimal supplemental recording
+are specified in [ABILITY_ENTITY_INFERENCE_DESIGN.md](ABILITY_ENTITY_INFERENCE_DESIGN.md).
+
 ## Current implementation and the gap
 
 Inspected `reconciliation.py`, `round_lifetimes.py`, `minimap_lifecycle.py`,

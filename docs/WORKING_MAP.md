@@ -33,6 +33,7 @@ the linked source is authoritative for detail.
 | Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |
+| Ability entity inference and minimal capture plan | `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |

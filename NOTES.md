@@ -13,6 +13,12 @@ Split out of `CLAUDE.md` on 2026-08-27.
 
 ## PICKING UP -- 2026-09-09, full adjudication design
 
+`docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` extends this with ability identity,
+parent/child objects, phases, property inference and conditional capture cards.
+Inventory: 28 tagged demos (~20 minutes); six Omen SFX cuts already exist. First
+build property-level coverage from existing sources; no new capture is requested
+until a specific missing discriminator is established. Design only.
+
 `docs/ADJUDICATION_DESIGN.md` specifies match-wide evidence fusion, persistent
 identity/life state, competing overlap histories, conditional invariants,
 retrospective revisions, evidence acquisition and acceptance gates. Design only;
