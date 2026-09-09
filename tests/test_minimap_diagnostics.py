@@ -144,6 +144,47 @@ class TemporalEvidenceTests(unittest.TestCase):
                          (real["cx"], real["cy"]))
         self.assertEqual(len(tracker.tracks), 2)   # the other is kept, not deleted
 
+    def test_a_principal_that_stopped_being_observed_does_not_hold_the_answer(self):
+        # 56 of 774 drawn samples on Sunset R6 had a self icon detected and
+        # tracked and NO box drawn, because the principal was ranked on
+        # lifetime n_obs and the track holding that record had gone stale.
+        tracker = Tracker(scale=1.0)
+        real = {"cx": 155.0, "cy": 206.0, "r": 6, "cov": 0.28, "facing": 0.0}
+        for i in range(12):
+            tracker.step(i * 100.0, [real])
+        moved = {**real, "cx": 156.0, "cy": 207.0}
+        got = tracker.step(1200.0, [moved])
+        self.assertTrue(any(t.t_ms == 1200.0 for t in got))
+        p = tracker.principal()
+        self.assertIsNotNone(p)
+        self.assertEqual((p.x, p.y), (moved["cx"], moved["cy"]))
+
+    def test_an_unreachable_candidate_is_refused_rather_than_reported(self):
+        # The shipped policy reported six steps the player could not have
+        # walked, the worst 312 px in 100 ms. A jump is not a position.
+        tracker = Tracker(scale=1.0)
+        real = {"cx": 155.0, "cy": 206.0, "r": 6, "cov": 0.28, "facing": 0.0}
+        for i in range(8):
+            tracker.step(i * 100.0, [real])
+        self.assertIsNotNone(tracker.principal())
+        far = {"cx": 420.0, "cy": 60.0, "r": 6, "cov": 0.25, "facing": 0.0}
+        tracker.step(800.0, [far])
+        self.assertIsNone(tracker.principal())
+
+    def test_the_first_answer_needs_no_previous_position(self):
+        tracker = Tracker(scale=1.0)
+        real = {"cx": 155.0, "cy": 206.0, "r": 6, "cov": 0.28, "facing": 0.0}
+        tracker.step(0.0, [real])
+        self.assertEqual(tracker.principal().x, real["cx"])
+
+    def test_no_observation_this_step_reports_nothing(self):
+        tracker = Tracker(scale=1.0)
+        real = {"cx": 155.0, "cy": 206.0, "r": 6, "cov": 0.28, "facing": 0.0}
+        for i in range(6):
+            tracker.step(i * 100.0, [real])
+        tracker.step(600.0, [])
+        self.assertIsNone(tracker.principal())
+
     def test_a_blob_supported_only_by_the_margin_is_not_an_icon(self):
         # `floor` arrives dilated so an icon at the slab's edge is not clipped,
         # and that margin lies over the see-through part of the widget. On
