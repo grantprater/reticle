@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import math
 from .track import CLASSES, admits, association_tolerance, assign
+from .minimap import REF_WIDGET_W
 
-ROUND_LIFETIME_VERSION = "round-lifetimes-0.2.0"
+ROUND_LIFETIME_VERSION = "round-lifetimes-0.3.0"
 
 #: Readable kind per family, when a reader does not supply a better one.
 #: A raw `E0303 object?` says nothing a person can check against the frame.
@@ -29,6 +30,12 @@ def readable_kind(obs):
     return obs.get("kind") or NAME_KIND.get(obs["family"], obs["family"])
 
 
+def known_kind(obs):
+    """Only an explicit, resolved reader kind constrains correspondence."""
+    kind = obs.get("kind")
+    return kind if kind and "?" not in kind else None
+
+
 class RoundLifetimes:
     def __init__(self, round_id, start_ms, scale=1.0):
         self.round_id, self.start_ms, self.scale = round_id, start_ms, scale
@@ -36,6 +43,12 @@ class RoundLifetimes:
         self.last_t = None
         self.next_id = 1
         self.name_counts = {}
+        # Conservative width-based horizon, not the ROI's actual diagonal:
+        # the reference crop is taller than wide (465 x 485). Using width on
+        # both axes expires appearance-only links slightly before walking can
+        # reach every point in that crop. Scale cancels against walking speed.
+        # Appearance is not an independent identity witness.
+        self.appearance_gap_s = math.sqrt(2) * REF_WIDGET_W / CLASSES["walker"].max_px_s
 
     def step(self, t_ms, observations, *, source_state="fresh", roster=None):
         if not math.isfinite(t_ms) or (self.last_t is not None and t_ms <= self.last_t):
@@ -47,7 +60,8 @@ class RoundLifetimes:
             raise ValueError("carried positions are not new observations")
         prior = [e for e in self.entities.values()
                  if t_ms-e["last_seen_ms"] <= 1000 or e["family"] == "self"
-                 or (e["family"] in {"ally","enemy"} and e.get("appearance"))]
+                 or (e["family"] in {"ally","enemy"} and e.get("appearance")
+                     and t_ms-e["last_seen_ms"] < self.appearance_gap_s*1000)]
         costs, candidates = [], []
         for obs in observations:
             row, parents = [], []
@@ -56,6 +70,8 @@ class RoundLifetimes:
                 dt = (t_ms - ent["last_seen_ms"]) / 1000
                 compatible = (obs["view"] == old["view"] and
                               obs["family"] == old["family"])
+                if known_kind(obs) and ent.get("known_kind"):
+                    compatible = compatible and known_kind(obs) == ent["known_kind"]
                 d = math.hypot(obs["x"]-old["x"], obs["y"]-old["y"])
                 if obs["family"] == "self" and compatible:
                     # The yellow observer icon is unique, not a named agent.
@@ -75,7 +91,17 @@ class RoundLifetimes:
                         similarity=sum(min(a,b) for a,b in zip(obs["appearance"],ent["appearance"]))
                         # Provisional appearance re-acquisition; never a named
                         # identity claim. Alternatives remain in the output.
-                        allowed=similarity >= .85 and admits(motion,max(0,d-slack),dt,self.scale)[0]
+                        informative = motion.max_px_s*self.scale*dt + slack < math.sqrt(2)*REF_WIDGET_W*self.scale
+                        allowed=informative and similarity >= .85 and admits(motion,max(0,d-slack),dt,self.scale)[0]
+                    if not moving and allowed:
+                        # Per-step fit noise must not accumulate into translation.
+                        # This is the existing static association hypothesis,
+                        # including unresolved objects, not evidence of their class.
+                        anchor = ent["anchor_observation"]
+                        anchor_d = math.hypot(obs["x"]-anchor["x"], obs["y"]-anchor["y"])
+                        anchor_slack = association_tolerance(self.scale,
+                            r_a=obs.get("r"), r_b=anchor.get("r"))
+                        allowed = admits(motion, max(0,anchor_d-anchor_slack),dt,self.scale)[0]
                 if compatible and allowed:
                     parents.append(ent["id"])
                     row.append(d)
@@ -120,6 +146,7 @@ class RoundLifetimes:
                        "origin_reason":"origin not independently observed",
                        "observations":0, "gaps":0, "max_gap_ms":0,
                        "class_history":[], "identity_status":"provisional"}
+                ent["anchor_observation"] = {k:obs[k] for k in ("x", "y", "r") if k in obs}
                 self.entities[eid] = ent
                 state = "ambiguous_continuation" if parents else "first_observed"
             gap = t_ms-ent.get("last_seen_ms",t_ms)
@@ -128,6 +155,8 @@ class RoundLifetimes:
             ent["max_gap_ms"] = max(ent["max_gap_ms"],gap)
             ent["last_seen_ms"] = t_ms
             ent["last_observation"] = dict(obs)
+            if known_kind(obs):
+                ent["known_kind"] = known_kind(obs)
             if obs.get("appearance"):
                 old_appearance=ent.get("appearance",obs["appearance"])
                 ent["appearance"]=[.9*a+.1*b for a,b in zip(old_appearance,obs["appearance"])]

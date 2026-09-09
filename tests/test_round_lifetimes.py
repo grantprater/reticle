@@ -11,6 +11,36 @@ def detection(x=10,family="ally",view="minimap"):
 
 
 class RoundLifetimeTests(unittest.TestCase):
+    def test_appearance_cannot_link_after_motion_covers_widget(self):
+        for scale in (1.0, 0.7118):
+            life = RoundLifetimes('R1', 0, scale)
+            first = life.step(0, [dict(detection(10, 'enemy'), appearance=[1.0])])[0]
+            after = life.step(77000, [dict(detection(400, 'enemy'), appearance=[1.0])])[0]
+            self.assertNotEqual(first['entity_id'], after['entity_id'])
+
+    def test_appearance_reacquires_while_motion_is_informative(self):
+        life = RoundLifetimes('R1', 0)
+        first = life.step(0, [dict(detection(), appearance=[1.0])])[0]
+        again = life.step(2000, [dict(detection(40), appearance=[1.0])])[0]
+        self.assertEqual(first['entity_id'], again['entity_id'])
+
+    def test_static_jitter_does_not_license_cumulative_drift(self):
+        life = RoundLifetimes('R1', 0)
+        first = life.step(0, [detection(10, 'barrier')])[0]
+        jitter = life.step(100, [detection(15, 'barrier')])[0]
+        drift = life.step(200, [detection(20, 'barrier')])[0]
+        self.assertEqual(first['entity_id'], jitter['entity_id'])
+        self.assertNotEqual(first['entity_id'], drift['entity_id'])
+        self.assertEqual(drift['x'], 20)  # Never snap observations to the anchor.
+
+    def test_known_kind_survives_unknown_but_refuses_conflicting_kind(self):
+        life = RoundLifetimes('R1', 0)
+        first = life.step(0, [dict(detection(family='object'), kind='ping:danger')])[0]
+        unknown = life.step(100, [dict(detection(family='object'), kind='?')])[0]
+        other = life.step(200, [dict(detection(family='object'), kind='ping:standard')])[0]
+        self.assertEqual(first['entity_id'], unknown['entity_id'])
+        self.assertNotEqual(first['entity_id'], other['entity_id'])
+
     def test_one_to_one_with_alternatives(self):
         life=RoundLifetimes("R1",0)
         first=life.step(0,[detection(10),detection(20)])

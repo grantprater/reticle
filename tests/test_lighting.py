@@ -23,6 +23,32 @@ def _z(w=465, h=485, span=60.0, sd=2.0):
             "files": ("labels", "lo_gray", "hi_gray", "sd_lo", "sd_hi")}
 
 
+class MonotonicLighting(unittest.TestCase):
+    def test_unequal_noise_preserves_between_state_boundary(self):
+        ref = lighting.reference(_z(w=41, h=41))
+        ref.lo[:] = 100.
+        ref.hi[:] = 180.
+        ref.sd_lo[:] = 5.
+        ref.sd_hi[:] = .5
+        # Uniform images isolate the classifier from spatial coherence.
+        for gray in range(100, 181):
+            crop = np.full((41, 41, 3), gray, np.uint8)
+            old = abs(gray - 180.) / .5 < abs(gray - 100.) / 5.
+            self.assertEqual(bool(lighting.lit_mask(crop, ref)[30, 20]), old)
+
+    def test_above_hi_cannot_reverse_to_dark(self):
+        ref = lighting.reference(_z(w=41, h=41))
+        ref.lo[:] = 118.
+        ref.hi[:] = 180.
+        ref.sd_lo[:] = 5.
+        ref.sd_hi[:] = .5
+        for gray in (180, 188, 220, 255):
+            crop = np.full((41, 41, 3), gray, np.uint8)
+            self.assertTrue(lighting.lit_mask(crop, ref)[30, 20])
+        ref.known[:] = False
+        self.assertFalse(lighting.lit_mask(crop, ref).any())
+
+
 class Reference(unittest.TestCase):
     def test_missing_arrays_return_none_rather_than_raise(self):
         self.assertIsNone(lighting.reference({"files": ("labels",)}))

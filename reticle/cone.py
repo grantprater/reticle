@@ -200,8 +200,26 @@ def _raycast_loop(passable, cx, cy, facing_deg,
     return mask
 
 
+def compare_evidence(mask: np.ndarray, lit: np.ndarray,
+                     known: np.ndarray) -> dict:
+    """Compare a cone with classified light; unknown pixels are not dark.
+
+    Counts partition the cone into unknown and comparable pixels, then the
+    comparable pixels into lit and unlit. Agreement is not ground truth.
+    """
+    comparable = mask & known
+    area = int(mask.sum())
+    observed = int(comparable.sum())
+    lit_px = int((comparable & lit).sum())
+    return {"cone_px": area, "comparable_px": observed,
+            "unknown_px": area - observed, "lit_px": lit_px,
+            "unlit_px": observed - lit_px,
+            "lit_share": lit_px / observed if observed else None}
+
+
 def resolve_lobe(passable: np.ndarray, lit: np.ndarray, dets, *,
                  visible: np.ndarray | None = None,
+                 known: np.ndarray | None = None,
                  half_angle_deg: float = CONE_HALF_ANGLE_DEG):
     """Settle each detection's 180-degree ambiguity against the drawn light.
 
@@ -211,6 +229,10 @@ def resolve_lobe(passable: np.ndarray, lit: np.ndarray, dets, *,
     consecutive self bearings differ by 150-180 degrees, and nobody turns
     around one frame in six. Nothing inside the ring fit can see which lobe is
     right. The LIGHT can: the cone is the thing the icon is pointing at.
+
+    With `known`, only classified pixels score a lobe. A lobe with no such
+    pixels cannot win; if neither is comparable, the detection is unchanged.
+    Omitting `known` preserves the historical whole-cone comparison.
 
     Returns a new list of detections, each with `facing` set to whichever of
     `deg` and `deg + 180` puts more of its cone on lit floor, plus `lobe_score`
@@ -244,10 +266,18 @@ def resolve_lobe(passable: np.ndarray, lit: np.ndarray, dets, *,
         for cand in (float(deg), (float(deg) + 180.0) % 360.0):
             m, _ = observable(passable, [(e["cx"], e["cy"], cand)],
                               visible=visible, half_angle_deg=half_angle_deg)
-            area = float(m.sum())
-            score = float((m & lit).sum()) / area if area else 0.0
+            if known is None:
+                area = float(m.sum())
+                score = float((m & lit).sum()) / area if area else 0.0
+            else:
+                score = compare_evidence(m, lit, known)["lit_share"]
+                if score is None:
+                    continue
             if score > best_score:
                 best, best_score = cand, score
+        if best_score < 0:
+            out.append(e)
+            continue
         e["lobe_flipped"] = best != deg
         e["lobe_score"] = best_score
         e["facing"] = best

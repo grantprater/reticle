@@ -58,7 +58,7 @@ CLOSE_PX = 5
 #: is trusted as that class's unlit level.
 GROUP_MIN_PX = 40
 
-LIGHTING_VERSION = "lighting-0.2.0"
+LIGHTING_VERSION = "lighting-0.3.0"
 
 
 @dataclass
@@ -160,12 +160,18 @@ def lit_mask(crop: np.ndarray, ref: Lighting) -> np.ndarray:
     """Which usable floor pixels this frame draws in the LIT state.
 
     `crop` is the widget ROI, BGR, at the geometry's own size. The per-pixel
-    decision is nearest-state in noise units; everything after it is spatial
-    coherence, because the per-pixel test has none and a cone does.
+    decision uses the noise-weighted crossing BETWEEN the two states, with
+    brightness monotonic above it. Absolute noise-normalized distances have
+    a second crossing outside that interval when sigmas differ: brighter than
+    the lit reference can incorrectly become dark. On Sunset R6 +36/+55,
+    inspected central/B-lane patches contained 239/548 such measured-reference
+    pixels (none terrain-filled). This retains the old decision between lo/hi
+    and removes that reversal; bright foreground overlays can still contaminate
+    the read, so agreement remains a crosscheck rather than truth.
     """
     g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float64)
-    lit = ref.known & (np.abs(g - ref.hi) / ref.sd_hi
-                       < np.abs(g - ref.lo) / ref.sd_lo)
+    crossing = (ref.hi * ref.sd_lo + ref.lo * ref.sd_hi) / (ref.sd_lo + ref.sd_hi)
+    lit = ref.known & (g > crossing)
     k = _odd(OPEN_PX * ref.scale)
     lit = cv2.morphologyEx(lit.astype(np.uint8), cv2.MORPH_OPEN,
                            np.ones((k, k), np.uint8))
