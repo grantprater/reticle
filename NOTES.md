@@ -11,7 +11,29 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-09, the killfeed half of P3 passes; the minimap needs icon MATCHING
+## PICKING UP -- 2026-09-09, Step 2 appearance is measured and withheld
+
+Step 1 is committed at `f0431b9`: fitted self icons moved frozen cross-rate
+agreement to 0.9917/0.9885/0.9849/0.9939 at 15/10/5/2 Hz, while eligible
+coverage remains about 71-73%. `MINIMAP_VERSION` is 0.5.0.
+
+Step 2 now has a reusable deterministic upright-interior descriptor and causal
+recent-template recovery in `prototypes/minimap_appearance.py`, its evaluator in
+`prototypes/minimap_self_appearance.py`, focused tests, and full results in
+`docs/MINIMAP_APPEARANCE_MATCHING.md`. The locked residual rule looked excellent
+at native rate (110/111 frozen answers within 3 px, 56.1% bracket coverage) but
+failed the actual tiers: precision was 80.0%/68.4%/12.5%/0-of-2 at 15/10/5/2 Hz.
+Wrong offsets remained above the score gate, so do not retune or wire this path.
+
+Next: evaluate appearance only at permissive current-frame ring-fit proposals,
+using a development interval and a predeclared gate before touching frozen data.
+This is the pending joint appearance/geometry comparison already required by the
+design. If it fails, close Step 2 and start Step 3 directional geometry. Frozen
+reports are in store notes as `self-appearance-step2-{frozen,tiers}.json`; every
+prediction and outcome is in `notes/predictions.jsonl`. No production reader or
+schema change is pending in this checkpoint.
+
+## Prior P3 context -- killfeed persistence and the Step 1 ring fit
 
 The two rules the last handoff asked for landed and both were measured before
 and after. `reticle fidelity-check` is the gate; the run is pinned at

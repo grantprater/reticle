@@ -1,7 +1,9 @@
 # Minimap appearance matching: design and implementation plan
 
-Date: 2026-09-09. Status: implementation started; Step 1 measured and shipped in
-the reader, Steps 2-6 remain proposed.
+Date: 2026-09-09. Status: Step 1 measured and shipped. Step 2's standalone
+appearance path is implemented and measured but withheld from the reader after
+failing real-tier transfer. Joint appearance/geometry remains the next Step 2
+candidate; Steps 3-6 remain proposed.
 
 Step 1 result: `minimap-0.5.0` feeds fitted `self_icons` to `pick_self`, accepts
 a supported centre with unknown bearing, requires opaque-slab support and has no
@@ -195,6 +197,45 @@ ability-reader increments governed by existing pipeline gates, not prerequisites
 for fixing self position. Inspect owning modules before deciding new filenames or
 schema migrations. Wire verified paths into actual readers; an isolated successful
 prototype is not completion.
+
+Step 2 source inspection uses `prototypes/minimap_self_appearance.py`. It renders
+native-rate accepted fits and refused frames bracketed by nearby fitted centres;
+its `--evaluate` mode compares the production descriptor's exposed luma channels
+on a development interval before the frozen run. It does not label or change the
+reader. Extend it rather than creating another one-off portrait experiment.
+
+The resulting `prototypes/minimap_appearance.py` uses an 11x11 upright interior,
+masks the self colour, exposes raw luma and the geometry background-midpoint
+residual, and uses masked normalized correlation. Its causal recovery state
+requires two consecutive, physically compatible ring fits to certify the newer
+descriptor. A recovery never becomes a descriptor source, and widget absence
+clears trust.
+
+The broad 64-exemplar gallery failed on development data: luma/residual/mean
+localized 69.34%/68.61%/70.07% of 137 bracketed refusals within 3 px, and its
+wrong offsets remained confident. A recent fitted descriptor was much stronger.
+The development-selected residual rule (score >=0.7325, contrast >=10) answered
+76/137 opportunities at 97.37%. On the frozen native-rate windows it answered
+111/198 at 99.10%, with 0.67 px median error.
+
+That apparent win did not survive the reader's real temporal tiers. At
+15/10/5/2 Hz the unchanged rule answered 20/45, 19/41, 8/16 and 2/13 available
+forced brackets, but only 80.00%, 68.42%, 12.50% and 0/2 answers were within
+3 px. Accepted wrong offsets still exceeded the fixed score threshold. The
+descriptor was validated between adjacent native frames; at tier-sized gaps its
+physical search disk expands while compositing and overlap change. Therefore the
+standalone matcher remains in `prototypes/` and is not wired into `_MinimapPass`;
+`MINIMAP_VERSION` remains 0.5.0.
+
+The next bounded experiment is the table's required joint-fit comparison. Expose
+the ring fitter's rejected centres as current-frame geometric proposals, score
+appearance only at those proposals, and predeclare the same positional precision
+budget on a development interval before a new frozen run. Do not tune the
+standalone score threshold: its false answers are already confidently above it.
+If permissive ring proposals do not restore precision and useful coverage, close
+Step 2 as a measured negative result and proceed to Step 3 directional geometry.
+Detailed predictions and outcomes are in the store's `notes/predictions.jsonl`;
+frozen artifacts are `notes/self-appearance-step2-{frozen,tiers}.json`.
 
 ### Evaluation contract
 
