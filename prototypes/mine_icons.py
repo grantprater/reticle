@@ -39,7 +39,8 @@ The four steps
 4. **Cluster, and relate.** Leader clustering on masked NCC. The clusters are
    the classes. Then test each pair of cluster medoids for the transformations
    the widget actually uses -- a 180-degree rotation above all -- so *the spike
-   inverts on pickup* comes out as a DISCOVERED relation between two clusters
+   inverts* [domain:minimap/spike-inversion] comes out as a DISCOVERED
+   relation between two clusters
    rather than a sentence someone had to supply.
 
 Why the loose proposer is correct here
@@ -56,7 +57,7 @@ What it cannot do
 ------------------
 It produces CLASSES, not names. A one-word name per cluster, or an anchoring
 event, is what turns a cluster into a thing -- see the plan's step 5. It also
-inherits the standing rule that two icons may be exactly coincident, so a
+inherits the standing rule [domain:minimap/coincident-icons], so a
 cluster of overlapping pairs is a real class and not a defect.
 
 Diagnostic only. It labels nothing and changes no reader.
@@ -127,27 +128,22 @@ def proposal_components(grey, lo, hi, slab, static):
     return components, foreign, lbl
 
 
-#: Opening element that cuts a NECK. A residual mask sees an icon as a ragged
-#: RING -- the mid-grey interior sits inside the lighting band, so the icon
-#: contributes edges and encloses a hole -- and a 1-2 px neck is what welds that
-#: ring to a viewcone, a trapwire line, a neighbouring icon, or bright map
-#: structure. Twelve of the fourteen misses in `proposal_audit.py` are one
-#: painted icon on one component too large for the band, so the area gate is
-#: rejecting the icon for its neighbour's extent. Three px is the smallest
-#: element that cuts a two px neck; it is a geometric floor, not a fit.
+#: Opening element that cuts a NECK. The channel exists because of
+#: [domain:minimap/icon-welding]: the area gate was rejecting an icon for its
+#: neighbour's extent. Three px is the smallest element that cuts a two px
+#: neck; it is a geometric floor, not a fit.
 NECK = 3
 
 #: Distance-transform floor for a CORE proposal, in reference px, scaled by the
 #: widget. An icon's filled disc has an inradius near the seven reference px the
 #: painter marks, so a floor of four admits any core eight px across and rejects
-#: wires and sheet edges. On the RAW mask this channel is worthless -- peak dt
-#: under a matched icon and under a missed one are the same 2-3 px, because a
-#: ring has no core. Fill the holes first.
+#: wires and sheet edges. On the RAW mask this channel is worthless, and
+#: [domain:minimap/icon-residual-is-a-ring] is why. Fill the holes first.
 CORE_REF = 4.0
 
 #: Non-max suppression radius between core proposals, in px. Two icons may be
-#: exactly coincident, so this bounds candidate volume rather than asserting
-#: that objects cannot touch.
+#: [domain:minimap/coincident-icons], so this bounds candidate volume rather
+#: than asserting that objects cannot touch.
 CORE_SPACING = 6
 
 
@@ -155,7 +151,8 @@ def fill_holes(mask):
     """Close the enclosed background of a residual mask.
 
     A background component touching no border is a hole, and an icon's mid-grey
-    interior is one. Filling turns the ring into the disc the icon actually is.
+    interior is one [domain:minimap/icon-residual-is-a-ring]. Filling turns the
+    ring into the disc the icon actually is.
     """
     inverse = (~mask).astype(np.uint8)
     # 4-connectivity for the BACKGROUND, and it is the whole trick: an

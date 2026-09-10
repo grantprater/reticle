@@ -1,5 +1,8 @@
 """The drawn viewcone, read off the widget: which floor pixels are LIT.
 
+This is the DRAWN light, and it is the channel the vision rule must be read
+through [domain:minimap/vision-gate] -- never a raycast over the geometry.
+
 The game shades the ground your team can currently see a step lighter. Every
 pixel of solid floor therefore has two resting values, and `minimap_geometry`
 already stores them per (map, profile) as `lo_gray`/`hi_gray` with their own

@@ -1,0 +1,12 @@
+# Round structure and the match clock. Schema: reticle/domain.py.
+
+[halftime-side-swap]
+claim = """
+The sides swap at halftime, so a team's identity is not its side and neither is
+constant across a match.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-09-02"
+use = "reticle/rounds.py owns the boundary; economy and belief read it, never re-derive it"
+phrases = ["halftime side swap", "side swaps at halftime"]

@@ -7,8 +7,9 @@ chokepoints (`chokepoint_eval.py`, against location-banner transitions) --
 both landed within ~1-1.5m of ground truth across Ascent, Lotus and Haven.
 See `prototypes/CLAUDE.md` for the full arc, including five rejected
 approaches: every content-based method drowned in the world moving behind the
-minimap's semi-transparent void. Masking to the opaque floor slab is the fix,
-and it is the whole reason this module exists in this shape.
+minimap's semi-transparent void [domain:minimap/transparency]. Masking to the
+opaque floor slab is the fix, and it is the whole reason this module exists in
+this shape.
 
 What is promoted and what is not
 ---------------------------------
@@ -475,8 +476,9 @@ def widget_drawn(crop: np.ndarray, sgray: np.ndarray, floor: np.ndarray,
 # --------------------------------------------------------------- ring fitting
 # Promoted from `prototypes/minimap_ring_fit.py` on 2026-09-06 by DELETION plus
 # re-export there, not by copy. It fits a circle to a fragmented colour ring by
-# CIRCUMFERENCE COVERAGE, which is what tolerates an arc broken by 4:2:0 chroma
-# or by another icon drawn over it, and it reads the facing triangle by how far
+# CIRCUMFERENCE COVERAGE [domain:minimap/fit-not-repair], which is what
+# tolerates an arc broken by chroma subsampling [domain:capture/chroma-420] or
+# by another icon drawn over it, and it reads the facing triangle by how far
 # colour reaches past that circle.
 #
 # It is here rather than in `cone.py` because it is icon geometry on this

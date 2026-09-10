@@ -83,6 +83,19 @@ it" states plainly, and the player had to ask what the sentence meant.
   Declining is legitimate -- a refuted result belongs in `prototypes/` -- but
   it costs a `"wire": "no"` with a `"wire_reason"` on that row. Silence is no
   longer an option.
+- **DOMAIN FACTS LIVE IN `domain/*.toml`, AND PROSE CITES THEM.** What is true
+  of VALORANT and its capture goes in one TOML table per fact with a `claim`,
+  a `kind`, a `known` provenance and a `since` date; everything else references
+  it by a bracketed `domain:` token naming the file and the fact, instead of
+  restating it. The tangle this replaces had
+  the minimap vision rule in five files and *semi-transparent over the void* in
+  twenty-four, each restatement free to drift, while facts the player supplied
+  once got no consumer and were lost. `doctor`'s DOMAIN check makes a citation
+  resolving to no fact an ERROR, and reports every fact nothing cites plus every
+  file that still restates one. `NOTES.md` and `BACKLOG.md` are exempt: they are
+  append-only records of what was known on a date. Read one with
+  `reticle domain [DOMAIN] [--id ID]`. Pipeline accuracy is NOT a domain fact --
+  outcomes belong in `notes/predictions.jsonl`.
 - Never put Claude session URLs in repository files or commit messages. Public
   files contain facts; attribution, quotes, and private domain notes stay out.
 

@@ -477,7 +477,7 @@ two rows below.
 
 | Evidence | Constraint on the belief | Status |
 |---|---|---|
-| Ally icon centres | **Exclude nothing, in principle and in measurement.** The widget cannot resolve two players who touch, and it draws one above another on a different level at the same point, so distinct icons may be exactly coincident. Read self-ally pairs come as close as 0.7 px | Measured 2026-09-09 and REFUTED. Their one use is as a drawn-witness, in `absent_instants` |
+| Ally icon centres | **Exclude nothing, in principle and in measurement.** The widget cannot resolve two players who touch, and it draws one above another on a different level at the same point, so distinct icons may be coincident [domain:minimap/coincident-icons]. Read self-ally pairs come as close as 0.7 px | Measured 2026-09-09 and REFUTED. Their one use is as a drawn-witness, in `absent_instants` |
 | Self-key fragments at a refusal | Bound the centre tightly even when the ring fit refuses: within 12 px on every one of 137 bracketed refusals | Measured; `minimap_self_appearance.py --joint` |
 | Viewcone and lighting | Independent check on icon role and bearing | Channels exist |
 

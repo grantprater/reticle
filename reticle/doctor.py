@@ -46,6 +46,8 @@ import json
 import re
 from pathlib import Path
 
+from reticle import domain
+
 ROOT = Path(__file__).resolve().parent.parent
 
 ERROR, WARN = "ERROR", "WARN"
@@ -603,13 +605,35 @@ def check_stalls(store: Path) -> list[tuple[str, str]]:
         out.append(("finding",
                     f"{sid} is {100 * total / duration:.1f}% stalled capture "
                     f"({total / 1000:.0f}s over {len(found)} stalls, longest "
-                    f"{worst / 1000:.0f}s) -- those frames are not observations"))
+                    f"{worst / 1000:.0f}s) -- those frames are not "
+                    f"observations [domain:capture/stalled-capture]"))
     return sorted(out, key=lambda r: r[1])
+
+
+def check_domain() -> list[tuple[str, str]]:
+    """The domain registry: schema, dangling citations, and unmigrated prose.
+
+    `domain/*.toml` holds what is true of the GAME, and `reticle/domain.py`
+    owns the schema and the `[domain:...]` citation form. Two faults this has
+    already had: the minimap vision rule stated five ways in five files, and a
+    fact the player supplied once that nothing ever read. So a citation
+    resolving to no fact is an ERROR -- it is a reference to something that
+    does not exist -- while a fact nothing cites, or prose that still restates
+    one, is a finding to work off rather than a wall to hit.
+    """
+    facts = domain.load()
+    if not facts:
+        return [("finding", "domain/ holds no facts -- the registry is the one "
+                            "place domain knowledge belongs; see reticle/domain.py")]
+    out = []
+    for level, message in domain.validate(facts):
+        out.append((ERROR if level == ERROR else "finding", message))
+    return out
 
 
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
-              ("ORPHAN", check_orphan),
+              ("ORPHAN", check_orphan), ("DOMAIN", check_domain),
               ("PROMOTE", lambda: check_promote(store)),
               ("SESSION_STATIC", lambda: check_session_static(store)),
               ("GEOMETRY", lambda: check_geometry(store)),

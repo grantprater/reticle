@@ -1,0 +1,110 @@
+# The minimap widget: what it draws, when, and what it looks like.
+# Schema and the citation form: reticle/domain.py.
+
+[vision-gate]
+claim = """
+Own-team icons are always drawn. Enemy-team entities are drawn only inside team
+vision, and a reveal shows PLAYERS ONLY -- not the spike, not abilities.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-10"
+use = "the DRAWN light in lighting.py, never the raycast"
+exceptions = "none for players: the gate is exceptionless"
+phrases = ["reveal shows players only", "a reveal shows PLAYERS ONLY"]
+
+[transparency]
+claim = """
+The widget is semi-transparent over the void, so the live world bleeds through
+wherever the map art is absent. Search inside the OPAQUE structure only.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-08-20"
+use = "slab_mask in reticle/minimap.py; every reader masks to the opaque floor slab"
+source = "the documented cause of reading scenery as icons"
+
+[fit-not-repair]
+claim = """
+Fit a shape rather than repairing one with a closing radius. A broken arc is
+evidence about coverage, and closing it destroys the evidence.
+"""
+kind = "constraint"
+known = "measured"
+since = "2026-08-28"
+use = "circumference coverage in reticle/minimap.py, which tolerates an arc broken by chroma"
+see = ["capture/chroma-420"]
+
+[coincident-icons]
+claim = """
+Two icons may be EXACTLY coincident, so no rule may assume they separate. The
+widget cannot resolve two players who touch, and it draws one above another on a
+different level at the same point.
+"""
+kind = "constraint"
+known = "measured"
+since = "2026-09-09"
+source = "read self-ally pairs come as close as 0.7 px"
+phrases = ["exactly coincident"]
+
+[spike-glyph]
+claim = """
+The spike glyph is a rounded equilateral triangle with a thin black outline, a
+black dot inside a BLACK CIRCLE, and three dots toward the corners.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-10"
+use = """
+that black circle is why a ring fit accepts the spike -- it really is a keyed
+annulus around a dark interior, so every 'fit the ring better' proposal is dead
+"""
+
+[spike-inversion]
+claim = """
+The spike glyph inverts on pickup: base down on the ground, base up when
+carried, in one frame, unboundedly many times a round.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-10"
+see = ["minimap/spike-glyph"]
+phrases = ["inverts on pickup"]
+
+[no-spike-channel]
+claim = """
+No channel reads the spike. It is therefore invisible to every test that gates
+on a read confuser, which is why a spike-shaped wrong accept survives one.
+"""
+kind = "constraint"
+known = "measured"
+since = "2026-09-10"
+source = "3 of 9 spike cases sit in the `clear` stratum of the self-fit labelling"
+see = ["minimap/spike-glyph"]
+
+[icon-residual-is-a-ring]
+claim = """
+In a lighting-band residual an icon is a ragged RING, not a disc: its mid-grey
+interior falls INSIDE the band and contributes nothing, so the icon supplies its
+edges and encloses a hole.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-10"
+source = "prototypes/proposal_audit.py, all 14 audited acquisition misses"
+use = """
+fill the enclosed holes before any distance transform; on the raw mask peak dt
+under a matched icon and a missed one are the same 2-3 px
+"""
+
+[icon-welding]
+claim = """
+An icon's residual is routinely WELDED through a 1-2 px neck to something with
+extent -- a viewcone, a trapwire line, a neighbouring icon, or bright map
+structure -- so an area gate rejects the icon for its neighbour's size.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-10"
+source = "12 of 14 audited misses; prototypes/proposal_audit.py"
+see = ["minimap/icon-residual-is-a-ring"]

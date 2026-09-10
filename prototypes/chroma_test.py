@@ -1,5 +1,7 @@
 """Does 4:2:0 chroma subsampling destroy the enemy rim?
 
+The measured answer is [domain:capture/chroma-420].
+
     .\\.venv\\Scripts\\python.exe prototypes\\chroma_test.py <lossless.avi> [--n 60]
 
 The hypothesis. The enemy outline is a 1-4 px rim whose whole signal is

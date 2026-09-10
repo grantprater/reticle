@@ -1,0 +1,39 @@
+# The capture and codec path. Facts about how the recording distorts the game,
+# not about the game. Schema and the citation form: reticle/domain.py.
+
+[chroma-420]
+claim = """
+Capture defaults to NV12 / 4:2:0, which stores chroma at HALF resolution in both
+axes. A thin coloured rim or a one px arc can therefore be destroyed by the
+codec before any reader sees it.
+"""
+kind = "codec"
+known = "measured"
+since = "2026-08-30"
+source = "prototypes/chroma_test.py"
+use = "prefer luma and coverage over a chroma threshold on any thin feature"
+
+[stalled-capture]
+claim = """
+A stalled capture repeats a frame. Those frames are not observations, and
+counting them as reads inflates every rate computed over time.
+"""
+kind = "codec"
+known = "measured"
+since = "2026-09-05"
+use = "doctor's STALL check reports the affected span per session"
+
+[session-pixels-are-not-the-map]
+claim = """
+A capture may determine only the minimap widget's dimensions, placement, and
+orientation. Base-map pixels, floor masks, lighting references, and detector
+backgrounds come exclusively from baked geometry keyed by (map, profile).
+"""
+kind = "constraint"
+known = "observed"
+since = "2026-09-10"
+use = """
+reticle/geometry.py resolves every path; doctor enforces the boundary, with
+prototypes/minimap_geometry.py and prototypes/clip_preflight.py the only
+exceptions
+"""

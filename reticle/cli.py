@@ -2103,6 +2103,27 @@ def cmd_doctor(args) -> int:
     return doctor_main(["--store", str(args.store)])
 
 
+def cmd_domain(args) -> int:
+    """The domain registry: what is true of the GAME, not of this pipeline.
+
+    One place, one TOML table per fact, cited by a bracketed `domain:` token
+    rather than restated. `--check` validates the schema and reports facts nothing cites;
+    `doctor`'s DOMAIN check runs the same validation.
+    """
+    from .domain import main as domain_main
+
+    argv = []
+    if args.domain:
+        argv.append(args.domain)
+    if args.id:
+        argv += ["--id", args.id]
+    if args.uncited:
+        argv.append("--uncited")
+    if args.check:
+        argv.append("--check")
+    return domain_main(argv)
+
+
 def cmd_status(args) -> int:
     """Status, computed from the store rather than written down.
 
@@ -2441,6 +2462,16 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("doctor", help="structural checks on the repo "
                        "(duplicates, unwired modules, stale geometry)")
     s.set_defaults(func=cmd_doctor)
+
+    s = sub.add_parser("domain", help="the domain registry -- what is true of "
+                       "VALORANT, cited rather than restated")
+    s.add_argument("domain", nargs="?", help="limit to one domain file")
+    s.add_argument("--id", help="limit to one fact id")
+    s.add_argument("--uncited", action="store_true",
+                   help="only facts nothing cites")
+    s.add_argument("--check", action="store_true",
+                   help="validate the registry and its citations")
+    s.set_defaults(func=cmd_domain)
 
     s = sub.add_parser("status", help="generated pipeline status "
                        "(the perishable half of CLAUDE.md, computed)")

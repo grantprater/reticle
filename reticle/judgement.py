@@ -33,7 +33,8 @@ Three questions, in increasing order of how hard they are to answer:
    went from 5% wrong to 40% wrong has had its assumptions lapse underneath it,
    and every expensive failure in this project has that shape: the death screen
    where `usable()` silently stopped applying, buy phase against live play, the
-   halftime side swap, 4:2:0 chroma. Each looked like ordinary noise until
+   the halftime swap [domain:rounds/halftime-side-swap], chroma subsampling
+   [domain:capture/chroma-420]. Each looked like ordinary noise until
    somebody looked. **Sample where the error rate CHANGES, not where it is
    high** -- a stable 30% teaches nothing new, a jump to 30% is a boundary.
 

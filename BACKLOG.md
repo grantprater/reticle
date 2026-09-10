@@ -444,6 +444,9 @@ and players stand on it constantly.
 
 ## The self reader ACCEPTS THE SPIKE ICON as the player
 
+The two domain facts this defect turns on are
+[domain:minimap/spike-glyph] and [domain:minimap/no-spike-channel].
+
 **Reviewed 2026-09-10 on annotated clips** (`prototypes/refusal_clip.py`, five
 refusal runs on `c40d950031bb`, one per length band). Three of the five show it:
 
@@ -868,6 +871,33 @@ analysis-by-synthesis, the collective viewcone and the wiki-map promotion all
 sit below in this file and are untouched by it. The plan is about one thread --
 events, review and the state model. It is silent on the others, and silence is
 not deprecation.
+
+## `map_shade.stamp()` hashes RAW BYTES, so a line ending flips it
+
+**Found 2026-09-10, after it had already lied.** `doctor` opened this session
+reporting *12 geometry npz carry a STALE shade*, and every one of them was
+current. `prototypes/wiki_map.py` sat in the working tree with LF endings --
+23070 bytes committed against 22591 normalised -- and `stamp()` hashes
+`map_shade.py` and `wiki_map.py` raw bytes, so the stamp read `bda1e17d...`
+while every baked artifact carried `d22d3190...`. Reverting the stray
+modification restored the match and the finding went away on its own.
+
+So on Windows with `core.autocrlf`, merely touching either source file
+invalidates twelve baked artifacts and invites a rebuild that changes nothing.
+That is the opposite of what a staleness check is for.
+
+**The fix is one line** -- hash normalised text rather than bytes:
+`p.read_text(encoding="utf-8").replace("
+", "
+").encode()`. It is NOT
+applied here because it changes the stamp value, which marks all 12 shades
+stale for real and forces `prototypes/map_shade.py build --all` to rewrite
+baked geometry. That rewrite is the player's call, not a side effect of a
+cleanup.
+
+**Trigger: the next deliberate shade rebuild.** Change `stamp()` in the same
+pass, so one rebuild pays for both. Until then, check `git status` before
+believing a SHADE finding.
 
 ## `ICON_AREA_REF` is wrong for the BIGMAP profile, and a06's paint cannot score acquisition
 

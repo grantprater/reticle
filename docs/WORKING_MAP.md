@@ -39,6 +39,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Current mining critique, minimal-label extraction design, and deterministic/YOLO comparison | [MINIMAP_MINING_REVIEW.md](MINIMAP_MINING_REVIEW.md) |
 | What else lives in a colour key | `prototypes/key_collision.py`, off existing label sheets, no decode |
 | Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py` |
+| What is true of the GAME, cited not restated | `domain/*.toml`, `reticle/domain.py`, `reticle domain` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |
 | Ability entity inference and minimal capture plan | `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` |
@@ -67,6 +68,7 @@ Always use the repository venv:
 ```powershell
 .\.venv\Scripts\python.exe -m reticle doctor
 .\.venv\Scripts\python.exe -m reticle status
+.\.venv\Scripts\python.exe -m reticle domain --check
 .\.venv\Scripts\python.exe -m reticle audit
 .\.venv\Scripts\python.exe -m reticle belief SESSION   # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-coverage

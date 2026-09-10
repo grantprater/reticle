@@ -147,7 +147,8 @@ G1 is designed against.
 - **The glyph is a rounded equilateral triangle with a very thin black
   outline**, holding a black dot at its centre inside a black circle, and three
   more black dots set toward the corners.
-- **It INVERTS on pickup.** On the ground the base sits at the BOTTOM and a
+- **It INVERTS** [domain:minimap/spike-inversion]. On the ground the base
+  sits at the BOTTOM and a
   corner points up; carried, the whole glyph is rotated 180 degrees and is
   slightly smaller. **The transition takes one frame.**
 - **A round may hold unboundedly many pickups and drops.** So the spike is ONE
@@ -318,7 +319,8 @@ The protocol, which G1 uses and every later G-step inherits:
    neighbour's cluster.
 4. **Relate the clusters automatically.** Test each pair for the
    transformations the widget actually uses -- a 180-degree rotation, a scale
-   change, a colour swap. *It inverts on pickup* is then a DISCOVERED relation
+   change, a colour swap. *It inverts* [domain:minimap/spike-inversion] is
+   then a DISCOVERED relation
    between two clusters rather than a sentence someone supplies.
 5. **Anchor clusters to independently timed events for their meaning.** The
    cluster that appears at a HUD-detected plant is the planted spike; the one

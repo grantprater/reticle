@@ -1,7 +1,7 @@
 """Where the static map geometry lives: one npz per (map, profile).
 
 Geometry is a property of the LEVEL and the widget it is drawn in, not of the
-recording. It was keyed by session until 2026-09-07, and the store's own numbers
+recording [domain:capture/session-pixels-are-not-the-map]. It was keyed by session until 2026-09-07, and the store's own numbers
 are what ended that: **36 session npz held 5 distinct geometries.** Twenty-nine
 were one 39-minute Ascent match copied to twenty-eight short ability-demo clips
 by a `--geometry-from` flag, because a 37s clip built around one deliberate cast

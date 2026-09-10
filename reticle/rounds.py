@@ -83,7 +83,8 @@ highest. Phase has to be a covariate, not a column.
 The outcome type is derivable once the plant is: a plant plus the 45 s running
 out is a detonation, a plant plus the round ending early is a defuse, and no
 plant at all is a wipe or the timer. Attack and defence are structurally
-different too, and the side swaps at halftime -- also not yet known.
+different too, and the sides swap [domain:rounds/halftime-side-swap] -- also
+not yet known.
 
 The other thing missing for phase analysis is **alive counts**, and those are
 closer than they look. Every killfeed entry is a death, and the victim's plate
