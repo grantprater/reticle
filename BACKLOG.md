@@ -379,8 +379,11 @@ read by no channel, so a dropped spike beside the player is a `clear` instant
 with a confuser in it. Ability icons, enemies and marks are invisible to the
 test for the same reason.
 
-**So the vicinity test has to be photometric, not channel-based**: is there any
-other drawn structure near the fit, whatever it is and whoever would name it.
+**So the vicinity test has to be photometric UNTIL THE CHANNELS EXIST.** It is
+properly a channel question -- is the spike there, is an ability there -- and
+the answer is unavailable only because those readers are not built. Photometry
+is the stand-in: is there any other drawn structure near the fit, whatever it
+is and whoever would name it.
 `prototypes/minimap_occlusion.py` already measures exactly that -- foreign
 content against the geometry's lighting band -- and it was built to refute the
 overlap story for REFUSALS. Here it would gate ACCEPTS, which is the use it is

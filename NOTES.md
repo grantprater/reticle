@@ -11,173 +11,62 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-09, the position belief channel exists
+## PICKING UP -- 2026-09-10, the self reader has an accuracy figure at last
 
-Step 2 closed as a measured negative (`136da29`); the detector work stopped
-there deliberately. **The next question turned out not to be detector
-precision.** A refused frame is not a hole in the pipeline -- the model is
-entitled to a belief -- and the adjudication layer was not supplying one.
+**The headline: 87.49% of the self reader's ACCEPTED positions are the player.**
+200 labelled fits on `c40d950031bb`, reweighted by stratum: 8.13% are a
+different object and 4.38% are two things the widget cannot separate. On the
+same session `fidelity-check` reports 0.9917 cross-rate agreement. That is
+consistency; this is accuracy; the gap is the standing rule made concrete, and
+everything built above the reader inherits it. Score with
+`prototypes/self_fit_eval.py [--features]`.
 
-`minimap.resolve_track` now answers every sampled instant with a `Fix`:
-`observed | interpolated | held | unresolved`, a physical radius (fit error
-plus how far a runner could have travelled since the evidence), and a reason
-when it refuses. `BELIEF_VERSION` is `belief-0.1.0`. `filter_track` is
-untouched and now shares `_admit`, verified identical over 401,797 points
-across all 20 stored sessions.
+`reticle/belief.py` (`belief-0.2.0`, `reticle belief SESSION`, stored data only)
+answers every sampled instant with a `Fix`: observed, interpolated, held or
+unresolved, a physical radius, a reason, and `rests_on`. It takes evidence as
+arguments -- `voids` from round bounds, `reachable` from the art floor. Nothing
+stores or reads a `Fix`. **It is built on contaminated anchors and stamps an
+observed fix at 2 px, which is false for one in eight.** Fix the reader first.
 
-    c40d950031bb    reader answered      75.0% of instants
-                    belief channel       89.6%   (17.4% interpolated, 3.7% held)
-                    unresolved           10.4%   (872 widget-absent, 244 stale)
-                    inferred radius      median 5.7 px, 92.3% within 25 px
+Measured and NOT shipped, all in `BACKLOG.md`:
 
-**Two defects came out of it, both in BACKLOG.md.** L1 writes the same NULL for
-a refused read and an absent widget, so `filter_track` treats every refusal as
-"nobody was looking" -- 2016 of 2676 unread instants on `c40d950031bb` plainly
-had the widget drawn, because the ally channel read icons there. The interim
-cross-reference is `absent_instants`; the fix is a stored `widget_drawn`
-column. Separately, 18 of 20 stored L1 datasets are still `minimap-0.4.0`, the
-pre-Step-1 permissive reader, so one re-decode should buy both.
+* arc coverage separates the wrong accepts and nothing else does -- the player
+  sits at 0.38 [0.28-0.56], every wrong class at 0.28-0.30. A gate at 0.35 cuts
+  wrong-object to 1.1% and costs 36% of correct positions;
+* gating only where a read ally is near leaks, because 3 of 9 spike cases sit
+  in the `clear` stratum: **no channel reads the spike**, so the confuser is
+  invisible to the confuser test. See *The bootstrapping floor* in
+  `docs/ADJUDICATION_DESIGN.md`;
+* the fit flips between the portrait and the CARRIED-SPIKE BADGE 3.2 px to its
+  bottom left -- confirmed with no labels, from a bimodal step distribution;
+* self fits land on yellow site paint at twice the ally rate. `site_mask`
+  already derives the zones from the static map;
+* a constant-velocity hold does not beat a stationary one, but the test is
+  scored against contaminated reads, so it is not settled.
 
-Also open: the `RUN_PX * 1.6` step gate drops 8.7% of the current reader's own
-answers (699 of 8025) and was calibrated against 0.4.0.
+Untested risk: arc coverage depends on bearing (61-67% of bearings 150-240 deg
+against 22-23% at 330-30), so raising the gate biases refusals by facing rather
+than losing at random. The facing angle was not kept in the feature cache.
 
-The target is now written down: *The position belief: a full accounting* in
-`docs/ADJUDICATION_DESIGN.md` names every channel that bears on the question,
-what it constrains, whether it is stored today, and what self identity
-withholds. It ends in a five-step order of work and the checks that would say
-the accounting is honestly implemented.
+Next, in the order that unblocks the most witnesses:
 
-Step 1 is done. `reticle/belief.py` owns the belief now, `belief-0.2.0`, and
-takes its evidence as arguments: `voids` (round boundaries today, deaths and
-wipes later) and `reachable` (the art floor, dilated by the fit error either
-side). `minimap` keeps the motion law and exports `admit_steps`/`crosses`, so
-the filtered track and the belief cannot disagree about what was admitted --
-`filter_track` verified identical over 457,798 rows across all 20 sessions.
-Every `Fix` now carries `rests_on`, the observation instants it was drawn from.
+1. a crude spike reader -- it is the largest confuser and the missing witness;
+2. photometric vicinity via `prototypes/minimap_occlusion.py`, gating ACCEPTS
+   rather than explaining refusals, as the stand-in until 1 lands;
+3. the raised gate PLUS the belief layer, measured end to end against these
+   same labels: observed accuracy up, observed coverage down, believed coverage
+   roughly held. Neither half is worth shipping alone;
+4. a `widget_drawn` column in L1, folded into the re-decode that rebuilds the
+   18 sessions still on `minimap-0.4.0`.
 
-    session          void gate        floor gate    believed
-    c40d950031bb     relabels 87      refuses 28    88.7% -> 88.5%
-    ff636d173b07     refuses 18       refuses 66    90.3% -> 90.0%
+Also closed this session: minimap appearance matching (Step 2), as a measured
+negative -- both the standalone and the joint appearance/geometry paths, and
+the overlap story that motivated them, refuted at 1.06x by
+`prototypes/minimap_occlusion.py`.
 
-**Both gates refuse, so coverage fell slightly and correctness rose.** Zero
-beliefs now rest on evidence across a round boundary, and zero sit off walkable
-floor.
-
-**A correction to the previous handoff:** it claimed 49 cross-boundary beliefs.
-That came from a metric that reconstructed which reads a belief used from its
-nearest neighbours, and it over-counted -- a held belief rests only on the read
-BEFORE it, so a boundary after it is irrelevant. Asking `rests_on` directly
-gives 0 on `c40d950031bb` and 18 on `ff636d173b07`.
-
-`reticle belief SESSION` recomputes it from stored data and opens no video;
-`doctor`'s UNWIRED check caught the module before it could sit unreachable.
-Nothing STORES a `Fix` -- the belief is recomputable, so keeping the raw reads
-lets a later change to the law or to the evidence replay without a re-decode.
-
-Step 2 closed as a measured negative and changed no code. Ally centres cannot
-exclude regions: `MIN_ICON_SEPARATION_PX` collapses fragments inside ONE colour
-key and never governed two, and read self-ally pairs come as close as 0.7 px,
-with 6.6%/2.9% inside the separation. Gating on it would refuse the reader's
-own correct positions.
-
-**Overlap does not explain the self-ring refusal, and that claim was mine.**
-The ally test gave only a 1.2x-1.6x lift, and it could see one occluder, so
-`prototypes/minimap_occlusion.py` re-ran it naming none: it counts pixels near
-the self position that leave the geometry's lighting band, covering enemies,
-ability entities, pings, the spike, markers and barriers without reading any of
-them. Refused instants carry 0.481 foreign content against 0.454 at read
-instants -- **1.06x against a predeclared 1.5x bar**, and 0.99x at the widest
-margin. Nothing is drawn over the icon when the ring refuses.
-
-**The median refusal is already solved, and the residue is long runs.** Per
-refusal-run length on `c40d950031bb`, after `absent_instants` unlocked
-interpolation (199 points before it, 1953 after):
-
-    band           runs  instants   interpolated  held  unresolved  answered
-    single frame    330       330            309     9          12     96.4%
-    short           223       622            567    19          36     94.2%
-    medium           66       583            333   151          99     83.0%
-    long             13       280              0   148         132     52.9%
-    very long         3       201              0    28         173     13.9%
-
-Long runs interpolate at zero by construction: past `GAP_MS` there is no
-admissible bracket and the hold expires at the same horizon. Sixteen runs carry
-481 instants, 305 of them unresolved. Every bracket-based measurement in this
-file samples the ISOLATED refusals, which are the ones that already work.
-
-`prototypes/refusal_clip.py` renders the seconds around a refusal with the
-reader's reading and the self colour key drawn on top, sampling one run per
-length band rather than taking the modal case. Five clips are in the store at
-`notes/refusal-clips/`.
-
-**They were reviewed 2026-09-10 and they moved the problem.** Three of five show
-the self fit landing on the SPIKE ICON, once drifting from the player through
-the spike onto a different player, once doing so in buy phase across a
-buy-menu widget absence. See the BACKLOG entry. This is upstream of everything
-here: `belief.resolve` treats an admitted read as evidence, and the refusal work
-above assumed the accepted reads were the player. Neither survives contaminated
-anchors, so the false-accept rate comes first.
-
-**The pass is FINISHED, and the headline is an accuracy figure this project
-has never had.** 200 accepted self fits, labelled, reweighted by stratum:
-**87.49% are the player, 8.13% are a different object, 4.38% are two things the
-widget cannot separate.** About one accepted position in eight is not the
-player, against `fidelity-check`'s 0.9917 agreement on the same session --
-consistency against accuracy, and the gap is the standing rule made concrete.
-Score it with `prototypes/self_fit_eval.py`.
-
-`belief.resolve` stamps an OBSERVED fix at radius `FIT_ERR_PX` = 2 px, which is
-false for those, and nothing above the reader can repair it. The wrong ones were
-9 spike, 3 nothing, 3 teammate; every ambiguous case was in the crowded
-stratum, which is 62.6% of all accepted fits.
-
-Two mechanisms came out of the player's own reading during the pass. Two better candidates came out
-of the player's own reading, both in `BACKLOG.md`:
-
-* the fit flips between the portrait and the CARRIED-SPIKE BADGE about 3.2 px
-  to its bottom left. Confirmed without labels: adjacent 3-20 px steps peak at
-  3.15x and 4.02x uniform in two directions 180 degrees apart, along the axis
-  the player named. A fit on the badge is still the player, so the labelling
-  pass records it as CORRECT -- the class question cannot see this defect;
-* the self key may be catching the YELLOW SITE PAINT, which is the same colour
-  family. Self fits land on site paint at twice the ally rate on both sessions.
-  This one has a channel already, `minimap.site_mask`, off the static map.
-
-**The labelling pass is running:**
-
-    .\.venv\Scripts\python.exe prototypes\label_self_fit.py c40d950031bb
-
-200 candidates in `<store>/labels/self_fit/c40d950031bb/`, stratified crowded
-vs clear and resumable. It answers one question: of the fits the reader
-ACCEPTED, how many are the player. Nothing downstream is worth trusting until
-it has a number.
-
-A constant-velocity hold was measured the same day and does not beat a
-stationary one -- but the test is scored against those same reads, and a falsely
-accepted spike does not move, which flatters the stationary hold. Fitting the
-velocity by least squares over a 500 ms baseline rather than differencing the
-endpoints changes it by hundredths of a pixel, so the jagged fit centres are
-NOT the limit -- the velocity simply does not persist over seconds. Inertia
-does beat a hold on `ff636d173b07` at 0.5-2 s and never on `c40d950031bb`,
-which is the session whose clips show the false accepts. Both results are in
-BACKLOG.md, and neither is settled.
-
-The standing candidate is already in `BACKLOG.md`, measured over five sessions:
-the self key survives only over the LOWER HALF of the rim, present on 61-67% of
-bearings 150-240 deg and 22-23% at 330-30. A screen-space dropout in the icon's
-own rendering predicts refusals with nothing over them. **The next test is
-bearing, not occlusion** -- compare the facing of the fit before a refusal
-against the facing distribution at read instants.
-
-Also corrected: two icons may be EXACTLY coincident. The widget cannot resolve
-players who touch, and one above another on a different level draws at the same
-point. So no rule may assume distinct icons separate -- recorded in `BACKLOG.md`
-in place of the earlier entry, which had read coincidence as a possible detector
-disagreement.
-
-Next is step 3: a `widget_drawn` column in L1, which needs a re-decode and
-should carry the 18 stale `minimap-0.4.0` sessions with it. `docs/ADJUDICATION_DESIGN.md`'s gap section is
-current. 345 tests pass; `doctor` has six findings and zero errors.
+350 tests pass; `doctor` has six findings and zero errors. Labels are in
+`<store>/labels/self_fit/`, clips in `<store>/notes/refusal-clips/`, and every
+prediction and outcome is in `notes/predictions.jsonl`.
 
 ## Prior P3 context -- killfeed persistence and the Step 1 ring fit
 

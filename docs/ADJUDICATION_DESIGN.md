@@ -508,6 +508,32 @@ widget absence, which is a proxy for the death screen and not the event. The
 backlog entry is *Record which agent the player played, per session*. Nothing
 downstream should model death until it lands.
 
+### The bootstrapping floor
+
+Cross-referencing is the standing rule, and it assumes there is another channel
+to reference. Measured on the self reader 2026-09-10: its accepted answers are
+the player 87.49% of the time, and the largest single confuser is the spike,
+which **no channel reads at all**. Gating the self channel on its neighbours
+therefore fails not because the idea is wrong but because the neighbours do not
+exist yet.
+
+That is the shape of the problem across this table. Each channel's accuracy is
+bounded by the channels available to check it, so no single one can be driven
+high on its own, and the accounting above reads as a list of independent
+improvements when it is closer to a system that has to come up together. The
+consequences worth holding:
+
+- **A channel's ceiling is set by its witnesses, not by its own detector.** More
+  effort on one reader in isolation buys less than the first version of a
+  missing neighbour.
+- **Photometry is the stand-in for a missing channel**, not the answer. Asking
+  whether anything is drawn nearby needs no reader; asking what it is does.
+- **Order the work by what unblocks the most witnesses**, not by which defect is
+  largest. A crude spike reader is worth more than a better self reader,
+  because the self channel cannot be checked without it.
+- **An accuracy figure from before a neighbour existed does not carry forward.**
+  Re-measure after each channel lands rather than assuming its gains persist.
+
 ### Rules the belief obeys whatever it consults
 
 - A belief is never evidence. It cannot seed a template, feed a detector's
