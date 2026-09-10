@@ -1,8 +1,43 @@
 # Minimap mining critique and revised design
 
-Date: 2026-09-10. Status: design review; no detector changes or new perceptual
-experiments. This review supersedes the mining interpretation and next-step
-sequence in `MINIMAP_APPEARANCE_MATCHING.md`, not its recorded measurements.
+Date: 2026-09-10. Status: proposal acquisition audit implemented, then its mixed
+background dependency invalidated; production and prototypes now use baked
+geometry exclusively. This review supersedes the mining interpretation and
+next-step sequence in `MINIMAP_APPEARANCE_MATCHING.md`, not its recorded history.
+
+## First implementation result: proposal acquisition is below floor
+
+`prototypes/proposal_audit.py` now evaluates the color-free residual proposer
+against existing exhaustive `ability_paint` frames. It uses one-to-one matching,
+reports painted regions separately, and distinguishes missing residual support,
+area rejection, fragmentation, and displaced/claimed centroids. It disables the
+miner's interval-frequency subtraction because selected evaluation frames are not
+an independent background sample.
+
+These figures are historical and invalid as a post-cleanup baseline: a06 used a
+retired per-session static while d95 used baked geometry. The implementation now
+uses baked map/profile geometry exclusively. It must be rerun before further
+proposal work; do not compare a new method against the mixed-source figures below.
+
+The pre-registered recall prediction was at least 80% per session. It failed:
+
+| Session | Frames / icons | Proposals | Recall | Precision | Misses |
+|---|---:|---:|---:|---:|---|
+| `a06f04a0059f` | 12 / 11 | 254 | 72.7% | 3.1% | 2 oversized components, 1 undersized support |
+| `d95cfad5693a` | 12 / 48 | 515 | 77.1% | 7.6% | 8 oversized components, 3 displaced/claimed centroids |
+
+All 14 false negatives overlap residual components; none lack residual support.
+Ten targets are fragmented. The result localizes the immediate failure: the
+lighting residual contains relevant pixels on this small set, while reducing each
+connected component to one area-gated centroid loses targets. Inspect those misses,
+then add a complementary decomposition/center channel over the same support and
+re-audit union recall before descriptor or clustering work.
+
+These labels have little class diversity: a06 contains nine Sonic Sensor and two
+Barrier Mesh marks; d95 repeats three Cypher devices and the self icon. Precision
+measures candidate volume here and is low enough to constrain any additional
+channel. The result refutes this proposer as the sole acquisition mechanism; it
+does not establish inventory-wide performance or select a replacement.
 
 ## Recommendation
 

@@ -362,13 +362,11 @@ document has been circling:
   we want to try to do this with a pure streaming algorithm for efficiency I
   actually don't even know if it's possible.* Nor do I, and the honest answer
   has parts. Per-frame reads (killfeed, HUD, minimap detection) stream fine. Two
-  things currently do not: the **static map** is a per-pixel median over ~180
-  frames spread across the session, and **`active` spans** come from segmenting
-  the whole file. Both look convertible -- a median over a warm-up window that
-  updates incrementally, and an online segmenter -- but neither has been tried,
-  and a warm-up means the first round of a VOD is read with a worse static map
-  than the last. Anything needing FUTURE context is the real obstacle, and the
-  round-phase detector is the first candidate.
+  things historically did not: the static map was a per-session median and
+  `active` spans came from segmenting the whole file. The first is now removed:
+  readers load baked `(map, profile)` geometry before streaming and session
+  pixels may only size/place the widget. `active` span derivation remains the
+  future-context obstacle, and the round-phase detector is the first candidate.
 
 Nothing here is scheduled. It is recorded so that the next person choosing
 between four plausible next steps can ask which one is on this path.
@@ -1223,11 +1221,10 @@ The shape that satisfies it: detection is a function over frames
 `Reader` accumulates frames from somebody else's pass and calls the same
 function. Verified both ways return 14 pings and the same four classes.
 
-One real constraint it surfaced, worth knowing before writing the next reader:
-**a reader needing a MEDIAN is two-phase**, because the median does not exist
-until the pass is over. That is affordable over a 65 s clip and is not over a
-match -- 650 crops is 440 MB -- so a long session uses the store's cached
-static map and a one-phase `feed`.
+One constraint is now an invariant: **a reader never builds a median**. It reads
+the baked `(map, profile)` reference and streams in one phase. Session pixels
+may measure widget dimensions/placement only; `doctor` rejects cache APIs and
+capture medians outside the geometry builder and dimension-only preflight.
 
 **ALIGN THE WINDOW TO THE QUESTION BEFORE READING ANYTHING OUT OF IT. This is
 now the most repeated mistake in this codebase -- FOUR times on 2026-09-06
@@ -1329,7 +1326,7 @@ written, and it said they had not.** `minimap_icons` gained `sat < 20`, a
 largest-component rule and `BRIDGE` on 2026-08-27; the promotion on 2026-09-02
 copied the *older* branch, so the shipped reader ran a gate the prototype had
 already measured and replaced five days earlier. Nine lines against sixty-one.
-Reconciled -- one `floor_mask`, one `median_widget`, one tint rule
+Reconciled -- one `floor_mask` and one tint rule
 (`SITE_*`, promoted out of `minimap_geometry.PLANT_*`), scored against the
 two paintings by `prototypes/floor_mask_eval.py`:
 

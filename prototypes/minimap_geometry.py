@@ -7,9 +7,9 @@ the proposal, and it earns its place twice over.
 **What it is.** The minimap widget is mostly unchanging: the floor plan, the
 holes in it, the white lines that bound them and the yellow plantable zones are
 the same in every frame of a match. A per-pixel median over sampled frames
-already removes every icon. This builder is the sole place that may derive
-those reference pixels, and it writes one artifact per ``(map, profile)`` for
-every matching session to reuse.
+already removes every icon -- that is how `minimap_icons.static_map` works --
+so the geometry is sitting there waiting to be read once per map and reused for
+the whole session.
 
 **Why it matters more than it looks.** Two things need it that are not about
 geometry at all:
@@ -99,7 +99,7 @@ from reticle import geometry as G
 from reticle.profiles import get_profile                          # noqa: E402
 from reticle import metrics                                       # noqa: E402
 from reticle import minimap as mm                                 # noqa: E402
-from minimap_icons import floor_mask                              # noqa: E402
+from minimap_icons import floor_mask, static_map                  # noqa: E402
 
 STORE = Path.home() / "reticle-store"
 
@@ -312,25 +312,13 @@ def source_stamp():
     """
     return hashlib.sha256(
         Path(__file__).read_bytes()
-        + metrics.fingerprint(mm.floor_mask, mm.site_mask, build_reference_median,
+        + metrics.fingerprint(mm.floor_mask, mm.site_mask, mm.median_widget,
                               mm.art_floor, classify_art,
                               site_h=mm.SITE_H, site_s=mm.SITE_S,
                               site_v=mm.SITE_V, site_area=mm.SITE_MIN_AREA,
                               floor_s=mm.FLOOR_S_MAX, floor_v=mm.FLOOR_V_MIN,
                               bridge=mm.BRIDGE).encode()
     ).hexdigest()
-
-
-def build_reference_median(frames):
-    """Builder-only map reference; never import this into a reader or eval.
-
-    Session pixels are allowed here only because this command creates the
-    shared, immutable ``(map, profile)`` artifact. Every consumer must read
-    that baked artifact; `doctor` rejects capture-median construction elsewhere.
-    """
-    if not frames:
-        raise ValueError("cannot build geometry from no frames")
-    return np.median(np.stack(frames), axis=0).astype(np.uint8)
 
 
 #: The art must place at least this well before its LABELS are trusted, and it
@@ -630,7 +618,7 @@ def build_key(gkey: str, n: int = 180, source: str | None = None,
     # 16 of 180 on `5822b6646448` and 6 of 180 on `a06f04a0059f`. Their floor
     # grey is 61 against 118-123 when the widget is drawn.
     #
-    # The builder median shrugs that off. `two_state_gray`
+    # `static_map` is a per-pixel MEDIAN and shrugs that off. `two_state_gray`
     # cannot: it splits each pixel's samples at the LARGEST GAP, and a 58-level
     # gap between blacked-out frames and normal ones is the largest gap there
     # is. So `lo_gray` became *widget absent* and `hi_gray` became *widget
@@ -642,7 +630,7 @@ def build_key(gkey: str, n: int = 180, source: str | None = None,
     #
     # `widget_drawn` already existed and answers exactly this question. The fit
     # simply never asked it.
-    med = build_reference_median(frames)          # robust to the outliers
+    med = static_map(frames)                      # robust to the outliers
     floor0 = floor_mask(med)
     sg0 = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
     drawn = [f for f in frames if mm.widget_drawn(f, sg0, floor0)]
@@ -655,7 +643,7 @@ def build_key(gkey: str, n: int = 180, source: str | None = None,
         print(f"  dropped {len(frames) - len(drawn)} of {len(frames)} frames with "
               f"no widget drawn before fitting")
     frames = drawn
-    med = build_reference_median(frames)          # again, on clean frames only
+    med = static_map(frames)                      # again, on clean frames only
     # The two-state fit runs BEFORE `classify` because `sd_lo` is what tells
     # the bridge rule a room from the widget's own furniture -- see
     # `minimap.floor_mask`. Labelling first shipped an npz whose `labels`

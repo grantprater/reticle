@@ -160,12 +160,6 @@ def main() -> int:
     cap = cv2.VideoCapture(str(path))
     tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = float(cap.get(cv2.CAP_PROP_FPS))
-    med = []
-    for i in np.linspace(0, tot - 1, 150).astype(int):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
-        ok, fr = cap.read()
-        if ok:
-            med.append(fr[y0:y1, x0:x1])
     if args.prekill:
         floor = floor_mask(geometry.reference_static(args.prekill, STORE))
     else:

@@ -40,7 +40,7 @@ from reticle.store import DEFAULT_STORE, Store                     # noqa: E402
 from mine_icons import (ICON_AREA_REF, MARGIN, proposal_components)  # noqa: E402
 from paint_icons import OUT_DIR, load_done                          # noqa: E402
 
-AUDIT_VERSION = "proposal-audit-0.1.0"
+AUDIT_VERSION = "proposal-audit-0.2.0"
 MATCH_SLACK_PX = 4.0
 
 

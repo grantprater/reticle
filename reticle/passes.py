@@ -18,10 +18,8 @@ the other half -- a reader is an object with a rate, a span filter and a
 nothing about what a reader does with a frame, and every reader here can still
 be driven by an ordinary loop -- which is what keeps `hud` and `minimap` honest
 as standalone commands. What it centralises is the SESSION CONTEXT: the
-manifest, the profile, the ROIs, and the two per-session constants that cost
-seeks to derive (the killfeed overlay mask, the minimap static map). Those were
-being rebuilt independently by five callers, which is the same duplication in a
-different costume.
+manifest, profile and ROIs; the per-session killfeed overlay mask; and access to
+immutable baked minimap geometry. Session frames never define the map.
 """
 
 from __future__ import annotations

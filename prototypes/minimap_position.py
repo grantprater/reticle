@@ -22,9 +22,9 @@ bounded. A step implying more than RUN_PX px/s is a misdetection whatever the
 blob looked like, and gaps shorter than GAP_MS interpolate cleanly. Filtering
 the trajectory is worth more than any amount of per-frame tuning.
 
-The static map falls out for free as a per-pixel median across the session --
-icons move, map furniture does not. That same image is the occlusion grid a
-visibility metric needs, so one extraction serves both.
+The reference and occlusion grid come from the baked `(map, profile)` geometry.
+This session supplies only its widget crop dimensions; it never supplies map
+pixels, floor, or photometry.
 
 Known limits
 ------------

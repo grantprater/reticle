@@ -55,7 +55,15 @@ from chroma_test import to_420                                 # noqa: E402
 # fifteen modules import it from here, and a second definition is how the fork
 # happened the first time. `BRIDGE` moved with it.
 #
-from reticle.minimap import BRIDGE, floor_mask                  # noqa: E402,F401
+# BUILDER-ONLY compatibility export. `minimap_geometry.py` is the sole allowed
+# caller; `doctor` rejects every other use so this cannot creep back into an
+# evaluation or reader.
+#
+# `static_map` is retained only as the geometry builder's compatibility alias
+# to the exact fingerprinted `median_widget`; ordinary prototypes no longer
+# call it.
+from reticle.minimap import (BRIDGE, floor_mask,                # noqa: E402,F401
+                             median_widget as static_map)
 from reticle import geometry                                    # noqa: E402
 
 # Measured off the enlarged widget on 2026-08-26: the enemy ring sits at hue

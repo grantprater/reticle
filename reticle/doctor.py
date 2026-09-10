@@ -61,11 +61,13 @@ ALLOWED_LOCAL = frozenset({
     "segment", "sample_frames", "_text",
 })
 
-# These are the only two places allowed to aggregate pixels from one capture.
-# The geometry builder creates the shared (map, profile) artifact; preflight
-# uses its median only to measure widget size/placement/orientation. Expanding
-# this list is a design decision, not a way to silence a finding.
+# These are the only sources allowed to implement/use capture aggregation.
+# `reticle/minimap.py` retains the exact helper fingerprinted by existing baked
+# artifacts; only the geometry builder may call it. Preflight uses its own
+# median only to measure widget size/placement/orientation. Expanding this list
+# is a design decision, not a way to silence a finding.
 CAPTURE_MEDIAN_ALLOWLIST = frozenset({
+    "reticle/minimap.py",
     "prototypes/clip_preflight.py",
     "prototypes/minimap_geometry.py",
 })
@@ -101,7 +103,7 @@ def check_session_static(store: Path, root: Path | None = None) -> list[tuple[st
                 name = (node.func.id if isinstance(node.func, ast.Name) else
                         node.func.attr if isinstance(node.func, ast.Attribute) else "")
                 if name in {"read_static_map", "write_static_map", "static_map",
-                            "median_widget"}:
+                            "median_widget"} and rel not in CAPTURE_MEDIAN_ALLOWLIST:
                     bad.add(name)
                 if name == "median" and any(
                         isinstance(child, ast.Call) and

@@ -133,6 +133,26 @@ def minimap_roi_px(profile: Profile, w: int, h: int) -> tuple[int, int, int, int
     return next(r for r in profile.rois if r.name == "minimap").pixels(w, h)
 
 
+# BUILDER-ONLY COMPATIBILITY HOOK. `minimap_geometry.source_stamp` fingerprints
+# this exact function, so deleting/moving it would invalidate all 12 baked maps.
+# No reader, eval, or ordinary prototype may call it; `doctor` enforces that.
+def median_widget(frames) -> np.ndarray:
+    """The widget with every icon removed, as a per-pixel median.
+
+    Icons move, map furniture does not. Split out of `static_map` on
+    2026-09-06: this half was the whole of `prototypes/minimap_icons.static_map`
+    for ten days, which is the same fork `floor_mask` had -- one name, two
+    definitions, in the two files that already disagreed about the slab.
+
+    The two callers differ only in where the frames come from. A clip takes
+    them directly, because a short lossless capture is never ingested and has
+    no spans; a session samples them off active spans below.
+    """
+    if len(frames) == 0:
+        raise SystemExit("no frames -- cannot build a static map")
+    return np.median(np.stack(frames), axis=0).astype(np.uint8)
+
+
 #: The slab gate. Measured on the enlarged widget 2026-08-26: the map slab is
 #: pure grey (S=0, V=118) and the scenery hazing through the transparent part
 #: sits at S 36-58, V 97-140. **Value cannot do this job** -- the background is

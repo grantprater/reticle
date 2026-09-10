@@ -1082,13 +1082,14 @@ interior test. The teardrop is why we got there -- it killed the closure test --
 and the thick triangle is read separately by rays as `facing` and `lobe`. No
 teardrop is ever fitted.
 
-### The static map does TWO jobs, and only one of them wants a derived image
+### Static map use is baked per (map, profile), never per session
 
 Recorded 2026-09-05: : *the valorant wiki had minimap images, probably better than
 our derived ones.* Right, and separating WHY exposes a conflation this
 directory has been carrying since `static_map` was written.
 
-The per-pixel median is used for two unrelated purposes:
+The historical per-session median was used for two unrelated purposes. That
+design is retired; this section records why, not an available fallback.
 
 **1. GEOMETRY -- what is floor, wall, hole, bomb site.** Derived, and the
 record here says derived badly. `minimap_geometry`'s box/wall split is
@@ -1096,7 +1097,7 @@ described in this file as "already known to be poor"; the bomb sites came out
 **93% VOID** until the classifier was rewritten round them; widening the plant
 test grew a third "bomb site" out of 10921 px of brown void on Split; and the
 searchable area was derived and re-derived FIVE times before the player painted it
-by hand, twice. It is also per-session by construction, so a parked vision cone
+by hand, twice. A per-session build also lets a parked vision cone
 bakes into it as map structure -- measured on `c0b63335e635`, a 2271 px blob at
 (215,183) classified `box edge` where the full match says `floor`.
 
@@ -1105,16 +1106,18 @@ root checklist already asks for: *geometry should be shared between sessions on
 the same map rather than re-derived per session*. The map is already known --
 manifests carry a `map:<name>` tag.
 
-**2. PHOTOMETRY -- what a pixel LOOKS LIKE in this capture with nothing on it.**
-Used by the two-state interval residual, by `widget_drawn`'s correlation, and
-by every ability diff. **This cannot come from a wiki image at any quality.**
-The widget is semi-transparent over live world, brightness moves with the
-capture and the encode, and the whole point is to difference against the actual
-values in these pixels. A clean external render is the wrong reference by
-construction, not merely a mismatched one.
+**2. PHOTOMETRY -- the baked capture-derived reference for this map/profile.**
+The shared geometry artifact carries `static`, `lo_gray`, `hi_gray`, and
+stability channels built from its designated reference recording. Every session
+on the key reads those arrays unchanged. A current session may not replace them
+to chase its own lighting or encode: doing so recreates a private map and lets
+persistent entities contaminate the reference. Only widget size and placement
+may be measured from current-session pixels.
 
-So the design is: **wiki art for geometry and labels, capture median for
-photometry**, and they stop being one array.
+So the design is: **wiki art for semantic geometry and one capture-derived,
+baked photometric reference per `(map, profile)`**. No reader or evaluation
+constructs a session median. `doctor` enforces the boundary; only the shared
+geometry builder and dimension/orientation-only `clip_preflight` are allowlisted.
 
 **What to check before building it, because it can fail cheaply.** The wiki's
 art may be a stylised top-down render rather than the same projection the game

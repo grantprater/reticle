@@ -11,7 +11,58 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-10, mining critique and revised comparison plan
+## PICKING UP -- 2026-09-10, per-session map state removed and guarded
+
+The invariant is now explicit and enforced: session pixels may measure only
+minimap widget dimensions/placement. Production readers and prototypes obtain
+base-map pixels, floor, lighting references, and detector backgrounds only from
+baked `(map, profile)` geometry. The retired `Store.read_static_map` /
+`write_static_map` API and runtime median builders are deleted. Bare-video
+prototypes require an explicit geometry key.
+
+`doctor` now fails on retired cache calls, runtime `static_map`/`median_widget`
+calls, `.static.npy` paths, or capture-median construction outside two named
+exceptions. `minimap_geometry.py` may derive pixels only to build the shared
+artifact; `clip_preflight.py` may median a capture only for widget dimensions,
+placement, and orientation. Twenty legacy `masks/*.static.npy` files remain
+untouched and are reported as ignored; deleting them is a separate destructive
+cleanup. Full suite: 367 tests pass.
+
+The proposal-audit figures immediately below are retained as history but are
+not a valid post-cleanup baseline: the a06 run used the retired session static.
+Rerun it only as part of a future mining task, with both sessions reading their
+baked geometry.
+
+## PRIOR -- 2026-09-10, proposal acquisition audited and below floor
+
+**The revised design's first measurement is complete.**
+`prototypes/proposal_audit.py` scores the colour-free residual proposer against
+the existing exhaustive, unseeded `ability_paint` frames with one-to-one matches
+and explicit miss reasons. It creates no labels and changes no reader. Focused
+tests cover assignment and failure attribution.
+
+The predeclared 80% acquisition floor failed on both sessions:
+
+    session          frames/icons  proposals   recall  precision  miss cause
+    a06f04a0059f       12 / 11        254       72.7%     3.1%    2 large, 1 small
+    d95cfad5693a       12 / 48        515       77.1%     7.6%    8 large, 3 displaced/claimed
+
+All 14 missed icons still overlap lighting-residual support; NONE are
+`no_residual_support`. Eight d95 targets and two a06 targets are fragmented.
+The residual channel therefore contains evidence in this limited set, but one
+area-gated centroid per connected component is not an adequate proposer. The
+d95 short demo read baked `ascent__valorant-16x9` geometry, but a06 read a
+retired per-session static. Do not compare or extend these figures as a current
+baseline.
+
+Next: inspect the missed support, then add a complementary decomposition/centre
+proposal over the existing residual mask and re-audit UNION recall. Do not change
+the descriptor or clustering yet. Treat precision as candidate volume: 3.1-7.6%
+is tolerable only for mining and must remain bounded. Validation diversity is
+small (a06: Sonic Sensor/Barrier Mesh; d95: repeated Cypher devices plus self),
+so neither session establishes general inventory recall.
+
+## PRIOR -- 2026-09-10, mining critique and revised comparison plan
 
 Read [MINIMAP_MINING_REVIEW.md](docs/MINIMAP_MINING_REVIEW.md) before the next
 mining change. It supersedes the interpretation and next-step list below, while

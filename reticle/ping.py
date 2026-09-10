@@ -155,11 +155,9 @@ each one is a way a clip-shaped detector fails at session length:
   timestamps actually OBSERVED (`_boundaries`) rather than named as the last
   one, and the clip end falls out of that as the trivial case;
 * **holding the frames does not scale.** The prototype accumulated every crop
-  and detected at the end, because the static map is a median and cannot exist
-  before the pass is over. At 10 Hz over 65 s that is 440 MB; over this match
-  it is 12 GB. The reader takes a floor mask it is GIVEN -- the store already
-  caches the static map per session -- so `feed` detects in place and holds
-  sightings, not pixels;
+  and detected at the end. At 10 Hz over 65 s that is 440 MB; over this match
+  it is 12 GB. The reader takes a floor mask from baked `(map, profile)`
+  geometry, so `feed` detects in place and holds sightings, not pixels;
 * **matching a sighting against every live group is quadratic.** 18 600 frames
   of a busy map build tens of thousands of groups, and the prototype's linear
   scan over all of them is billions of comparisons. `Grouper` indexes groups by
@@ -395,9 +393,8 @@ def resolve(grouper: Grouper, ts: list[float], hz: float):
 class PingReader:
     """`passes.Reader` that finds pings on frames somebody else decoded.
 
-    One-phase: it is handed the floor mask rather than deriving one, because
-    the static map it comes from is a median that cannot exist until the pass
-    is over -- and the store already has it cached per session. Give it
+    One-phase: it is handed the floor mask from baked `(map, profile)` geometry
+    rather than deriving one from this session. Give it
     `sgray` too and it refuses widget-absent frames the way `_MinimapPass`
     does; those frames hold ordinary world pixels, which is the population
     every colour test in this repo has eventually tripped over.
