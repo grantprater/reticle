@@ -197,12 +197,16 @@ How the gate is allowed to be used:
 - **Absence outside the light says nothing.** The gate cannot raise recall and
   must never be read as one, or coverage becomes biased by where the team was
   looking.
-- **It has an exception class, and the exception is already a backlog entry.**
-  A reveal ability shows an enemy without our team having sight of them -- *A
-  RECON DART PULSE is a legal origin for an enemy appearance*. So an unlit
-  enemy icon is a refusal OR a reveal, and the two are separated by the ability
-  channel, not by the light. Store the disagreement; do not delete the
-  detection.
+- **The exception is narrow, and it covers PLAYERS ONLY.** A reveal ability
+  shows an enemy without our team having sight of them -- *A RECON DART PULSE
+  is a legal origin for an enemy appearance* -- so an unlit enemy PLAYER icon is
+  a refusal or a reveal, separated by the ability channel rather than by the
+  light. Store the disagreement; do not delete the detection. **A reveal does
+  not show the spike, and does not show abilities** (domain, 2026-09-10). For
+  the enemy-side ground spike and for enemy ability entities the gate is
+  therefore EXCEPTIONLESS, which makes them the cleaner instrument of the two:
+  an unlit enemy-side spike is a false positive with no second reading, so it
+  can validate the drawn light in a way an enemy player icon cannot.
 - **`lighting.py` is not ground truth.** Its own docstring names the failure:
   any map object whose resting state is the bright one reads permanently lit,
   and the mechanical doors on Ascent and Lotus still do. Scoring a channel
@@ -250,25 +254,77 @@ written down wrong, the player corrected them, and **no measurement changed,
 because the classes were right.** Structure is inferable. A name is not, and a
 name is one word.
 
+**The proposer already exists and was thrown away.**
+`minimap_occlusion.foreign_fraction` asks, per pixel, whether the grey leaves
+the map's measured `[lo_gray, hi_gray]` lighting band -- *something is drawn
+here* -- naming no colour and no class. It then reduces that to a scalar and
+discards the mask. **The mask is the object proposer**, and the whole shape of
+the gap is in that one line: every prototype so far was built to answer one
+detector's question, so none of them ever enumerated objects.
+
+**Measured 2026-09-10 on four frames of `c40d950031bb`, inside the slab**, with
+`prototypes/object_proposals.py`:
+
+    frame                     foreign px   % of slab   components in the icon band
+    dropped spike + player       1560        5.50%              37
+    planted spike on B           1001        3.53%              11
+    carried badge + ally clump   1040        3.66%              13
+    spike, crowded               1156        4.07%              17
+
+at a 10.0 grey margin, with the icon band 5-203 px at scale 0.712. Rendered,
+the proposals cover the icon clumps and also pick up objects **no colour key
+would find at all**. The tail is larger than the five or six real icons on a
+frame, and much of it is map furniture -- which `doctor` already reports as a
+standing finding, and which is removable precisely because it is STATIC.
+
+**Why that tail is acceptable here, and would not be in a reader.** A detector
+needs per-frame precision. A miner needs RECURRENCE: artwork repeats across
+thousands of frames with a consistent appearance, and speckle does not, so the
+junk never forms a cluster. This is the one place in the pipeline where a loose
+proposer is the correct instrument, and it is why mining must not be built out
+of the readers.
+
 The protocol, which G1 uses and every later G-step inherits:
 
-1. **Residual against the static median.** The map is already stored per
-   session; anything not in it and inside the opaque slab is drawn content. No
-   colour key, so nothing is presumed about which class it belongs to.
-2. **Cluster the residual objects by appearance.** The clusters are the
-   classes. States separate here too, because a glyph that is smaller and
-   rotated does not land in its neighbour's cluster.
-3. **Relate the clusters automatically.** Test each pair for the
+1. **Propose objects from the foreign mask, inside the opaque slab only.**
+   Outside the slab the widget is see-through and the live world bleeds in,
+   which is the documented cause of reading scenery as icons; inside it, the
+   stored static map is a valid background. No colour key at any point.
+2. **Subtract what is always there.** Accumulate a per-pixel foreign RATE over
+   the session: a pixel foreign in most frames is furniture or a geometry
+   error, not an entity. This calibrates itself off the corpus rather than off
+   a hand-chosen threshold, and it is what removes the bulk of the tail above.
+3. **Describe and cluster.** `minimap_appearance.describe` already produces an
+   11x11 masked-luma descriptor with a contrast check, and
+   `appearance_similarity` already scores two of them; `minimap_portrait.py`
+   already clusters with them. The clusters are the classes. States separate
+   here too, because a glyph that is smaller and rotated does not land in its
+   neighbour's cluster.
+4. **Relate the clusters automatically.** Test each pair for the
    transformations the widget actually uses -- a 180-degree rotation, a scale
-   change, a colour swap. *It inverts on pickup* is a discovered relation
-   between two clusters, not a sentence someone has to supply.
-4. **Anchor clusters to independently timed events for their meaning.** The
+   change, a colour swap. *It inverts on pickup* is then a DISCOVERED relation
+   between two clusters rather than a sentence someone supplies.
+5. **Anchor clusters to independently timed events for their meaning.** The
    cluster that appears at a HUD-detected plant is the planted spike; the one
    that appears where a killfeed victim last stood is the dropped spike; the one
-   that rides a player icon is carried. This is the same forced-correspondence
-   rule this plan already states, and it names classes without a person.
-5. **Ask the player only what survives.** A one-word name for a cluster, or a
+   that rides a player icon is carried. This is the forced-correspondence rule
+   this plan already states, and it names classes without a person.
+6. **Ask the player only what survives.** A one-word name for a cluster, or a
    yes/no on a rule the pipeline has hypothesised. Never a description.
+
+Cost is bounded by sampling rather than by the pass: mining wants enough
+exemplars per class, not every frame, so it takes the event-anchored windows
+plus a spread of ordinary ones and rides the shared decode. Scoring it needs
+the exhaustively painted frames, which are the only labels in the store that
+make precision computable at all; 39 exist across two sessions today.
+
+Three failure modes to design against, all of them already recorded elsewhere
+in this repo: coincident objects, since two icons may sit 0.7 px apart and no
+rule may assume they separate; class imbalance, since a spike appears in every
+round and a rarely-used ability may have one instance in the corpus; and
+mining's own circularity, since a cluster built from detector-selected frames
+inherits that detector's blind spot -- which is why the proposer takes no
+colour key.
 
 **What genuinely does not come out of this, and why.** Game RULES are not
 appearance: *an enemy-team entity is drawn only inside our vision*, *the enemy

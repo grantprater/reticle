@@ -97,12 +97,23 @@ already worked on the harder case: `prototypes/minimap_portrait.py` clustered
 71 enemy icons on their interiors into 19 pure groups that merged into exactly
 the five agents on the roster plus a sixth for question marks, nothing tuned,
 and when the agent NAMES were written down wrong no measurement changed. So
-G1's step one is a mining pass -- residual against the static median, cluster,
-relate the clusters, anchor them to the plant instant and to killfeed deaths --
-and the spike is its test case, since its three states must fall into three
-clusters and two of them are a 180-degree rotation the pass should DISCOVER.
-What stays a question for the player is a one-word cluster name or a yes/no on
-a rule, never a description.
+G1's step one is a mining pass, and the proposer for it already exists and was
+thrown away: `minimap_occlusion.foreign_fraction` computes a per-pixel *is
+something drawn here* mask against the map's own lighting band, reduces it to a
+scalar and discards the mask. **Measured on four frames inside the slab, at a
+10.0 margin: 3.5-5.5% of slab pixels foreign, 11-37 components in the icon
+band**, covering the icon clumps and also objects no colour key would find.
+The tail is bigger than the real icon count and much of it is furniture, which
+is removable because it is STATIC -- accumulate a per-pixel foreign RATE and
+subtract what is always there. That tail is acceptable because a miner needs
+RECURRENCE rather than per-frame precision: artwork repeats with a consistent
+appearance and speckle does not. Then describe and cluster with
+`minimap_appearance.describe` and `minimap_portrait`'s clustering, relate the
+clusters by rotation and scale, and anchor them to the plant instant and to
+killfeed deaths. The spike is the test case: three states, three clusters, two
+of them a 180-degree rotation the pass should DISCOVER. What stays a question
+for the player is a one-word cluster name or a yes/no on a rule, never a
+description.
 
 **Reintroduce the vision gate on enemy-team entities.** An enemy-team entity is
 drawn only where our team can see it -- enemy icons and the enemy-side ground

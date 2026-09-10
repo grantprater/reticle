@@ -162,8 +162,14 @@ and must never touch ours: a missing own-team icon stays a detection failure
 rather than information. One consequence worth having: on the attacking half
 the spike's state is fully observable at every instant -- base-up beside a
 player is carried, base-down is on the ground, the planted glyph with the HUD
-graphic is planted. Open: whether a reveal that shows an enemy also shows a
-spike lying on the ground.
+graphic is planted.
+
+**A reveal shows PLAYERS ONLY** -- not the spike, not abilities (domain,
+2026-09-10). So the reveal exception applies to enemy player icons alone, and
+for the enemy-side ground spike and enemy ability entities the gate is
+EXCEPTIONLESS. That makes them the better instrument of the two: an unlit
+enemy-side spike is a false positive with no second reading, so it can validate
+the drawn light in a way an enemy player icon never can.
 
 ## Reject ally icons that have no light beside them
 
