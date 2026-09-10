@@ -48,9 +48,21 @@ Untested risk: arc coverage depends on bearing (61-67% of bearings 150-240 deg
 against 22-23% at 330-30), so raising the gate biases refusals by facing rather
 than losing at random. The facing angle was not kept in the feature cache.
 
+**The plan now covers every icon that can be taken for another**, not the self
+icon alone: *The occluder inventory* and *Icon-class order of work* in
+[docs/MINIMAP_APPEARANCE_MATCHING.md](docs/MINIMAP_APPEARANCE_MATCHING.md). It
+adds the glyph track G1-G5, running G1 before the numbered Step 3, and it opens
+on a measurement: **the spike is inside the SELF COLOUR KEY.** By the player's
+own labels, a 5 px disc at the accepted fit is 0.117 self-keyed at the ten
+spike positions against 0.062 at the 179 player ones -- and that is a lower
+bound, since the player is an annulus and the spike is filled.
+`prototypes/key_collision.py` measures it off the label sheets with no decode.
+
 Next, in the order that unblocks the most witnesses:
 
-1. a crude spike reader -- it is the largest confuser and the missing witness;
+1. a crude spike reader -- it is the largest confuser and the missing witness.
+   G1 in the plan above states the three states, what is already built and
+   unwired, and the four predictions to predeclare;
 2. photometric vicinity via `prototypes/minimap_occlusion.py`, gating ACCEPTS
    rather than explaining refusals, as the stand-in until 1 lands;
 3. the raised gate PLUS the belief layer, measured end to end against these

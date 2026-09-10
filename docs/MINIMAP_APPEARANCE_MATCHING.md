@@ -1,9 +1,18 @@
 # Minimap appearance matching: design and implementation plan
 
-Date: 2026-09-09. Status: Step 1 measured and shipped. Step 2 is CLOSED as a
-measured negative result: both its standalone and its joint appearance/geometry
-paths are implemented and measured, and neither is wired into the reader. Step 3
-directional geometry is next; Steps 4-6 remain proposed.
+Date: 2026-09-09, extended 2026-09-10 to every icon the widget draws. Status:
+Step 1 measured and shipped. Step 2 is CLOSED as a measured negative result:
+both its standalone and its joint appearance/geometry paths are implemented and
+measured, and neither is wired into the reader. Steps 4-6 remain proposed.
+
+**The 2026-09-10 extension changes what this plan is for.** It fitted ONE icon
+family and treated the rest of the widget as background, and the self reader's
+first accuracy figure says that is the wrong axis: 8.13% of its accepted
+positions are a different OBJECT, and the largest single confuser has no reader
+at all. Fitting the self icon better cannot answer *which yellow thing is
+this*. So the plan now carries an inventory of every icon that can be taken for
+another, a contract each of their readers must meet, and an order over them.
+The glyph track (G1-G5) runs before Step 3 and G1 is the spike.
 
 Step 1 result: `minimap-0.5.0` feeds fitted `self_icons` to `pick_self`, accepts
 a supported centre with unknown bearing, requires opaque-slab support and has no
@@ -20,7 +29,9 @@ sufficient coverage. Measurements live in the store's
 Recognize minimap portraits, glyphs, tinted regions and animations by fitting
 their appearance over the map. Estimate centre, geometry and bearing together
 where they share evidence, while preserving unknown identity, owner and phase.
-The immediate target is the self-ring fragmentation in `../NOTES.md`.
+The immediate target is the confuser inventory below: naming the other things
+the self key holds. The self-ring fragmentation that opened this plan is fixed
+and shipped in `minimap-0.5.0`.
 
 This extends [MINIMAP_DETECTION_PLAN.md](MINIMAP_DETECTION_PLAN.md) and implements
 the visual hypothesis-testing portion of
@@ -52,6 +63,186 @@ Stage 02 remains deterministic: geometry, signal processing and mined exemplars.
 - Region representations can cross walls, cover icons, and change family during
   deployment. A universal floor mask, circle fit or immutable representation
   family would exclude valid ability evidence.
+
+## The occluder inventory
+
+### `self_mask` is not a self key
+
+**Measured 2026-09-10, no decode, `prototypes/key_collision.py c40d950031bb`.**
+The self-fit label sheets are `INTER_NEAREST` x5 crops with no colour
+transform, so every fifth pixel is a source pixel and the player has already
+said what each position is. The share of a 5 px disc that `self_mask` keys,
+by the player's own answer:
+
+    answer            n     self key mean / med    ally key mean / med
+    local_player    179       0.074   0.062          0.007   0.000
+    spike            10       0.112   0.117          0.006   0.000
+    teammate          3       0.070   0.099          0.004   0.000
+    nothing           3       0.074   0.086          0.000   0.000
+    coincident        7       0.053   0.012          0.000   0.000
+
+**The spike fills the self key harder than the player does**, and this is a
+lower bound on the collision: the disc is centred on the accepted fit, the
+player's key is an annulus at r 6-9 px and the spike's is filled, so the
+geometry of the test favours the player. Shrinking the disc widens the gap the
+way an annulus predicts -- at r = 4 px the player's median falls to 0.000 and
+the spike's holds at 0.133 -- which is prediction 1 below, seen through the one
+band the annotation ring leaves clear. With the site paint already measured
+at 19.85% of self fits against 10.26% of ally fits, `self_mask` is a YELLOW
+key holding at least five things -- the player's ring, the dropped spike, the
+planted spike, the carried badge, and the plantable-site paint.
+
+That is the general shape, not a fact about yellow. A key is a colour; an icon
+is a colour plus a shape plus a motion law plus a lifetime, and every reader
+built so far has stopped at the colour. The inventory below lists what that
+leaves unresolved.
+
+The measurement was not predeclared in `notes/predictions.jsonl`. It re-reads
+stored labels and proposes no detection, so there was nothing to bias; the G1
+predictions below are predeclared, and they are perceptual.
+
+### Every icon the widget draws
+
+Families use `round_lifetimes.NAME_KIND`; the parameter triple is the entity
+model's `origin` / `bearing` / `extent`, as `ping.py` states it.
+
+| Icon | Key | Shape, parameters and evidence | Read today | Independent witnesses | Taken for |
+|---|---|---|---|---|---|
+| Local player | self (yellow) | Ring + upright portrait + facing lobe. moves / present / none | `minimap-0.5.0`, `self_icons` | roster alive, pings, killfeed (blocked on self identity) | -- |
+| Teammate | ally (teal) | Filled teardrop + portrait. moves / present / none | `ally_icons` | roster alive, chat spot lines | the player |
+| Enemy | enemy (red) | Ring. moves / present / none, drawn only while revealed | nothing in `reticle/`; `prototypes/enemy_detect_eval.py` and 300 labels | killfeed, chat spot lines, enemy roster alive | the player, a death mark |
+| **Dropped spike** | **self (measured)** | Filled chevron glyph, no ring, no portrait. **fixed / absent / none** | **nothing** | the carrier's death in the killfeed, at that player's last read position | **the player** |
+| **Carried-spike badge** | self; ally-carried unknown | Badge 3.2 px to the bottom left of the carrier's portrait (measured from a bimodal step distribution). **follows a player / absent / none** | nothing | it MOVES WITH a player icon, which a dropped spike never does | the player's own centre, by a fixed offset |
+| **Planted spike** | **self (measured)** | Compact glyph, dark core, on site paint. fixed / absent / none, plant to defuse or detonate | HUD only: `rounds.spike_planted`, and `prototypes/plant_spike.py` unwired | the HUD spike graphic replacing the clock; the site letter; the beep interval | the player |
+| Death mark | team colour (unknown) | X glyph. fixed / absent / none, short life (unmeasured) | nothing; `world:x_mark` in the paint bank | **the killfeed names owner and time** | the player, an enemy |
+| Last-known mark | team colour (unknown) | Question-mark glyph. fixed / absent / none, short life (unmeasured) | nothing; `world:question_mark` | that enemy's last read; chat spot lines | an enemy |
+| Ping | per type | Glyph, no growth phase. fixed / absent / none, **7.0 s or 10.0 s exactly** | `ping-0.1.0` | the player who placed it, at their position | an ability icon |
+| Ability icon | per agent | Disc or glyph. fixed / absent / none, per-ability life | `prototypes/ability_disc.py`; `ability` and `ability_paint` labels | killfeed ability icons (owner + time, on kills only), HUD ability tray charges | the player, a ping |
+| Ability region | per agent | Smoke, wall, mesh. fixed / absent / **extent** | Step 4, proposed | as above | background; it OCCLUDES rather than confuses |
+| Buy-phase barrier | barrier | Line. fixed / absent / extent, buy phase only | `store/barriers`, two maps | the round phase | background |
+| Audio ring | unknown | Ring; the spike's detonation radius | nothing; `world:audio_ring` | plant state | an ability region |
+| Site paint | **self (measured)** | Static map art, not an icon at all | `minimap.site_mask`, from the static map, no decode | it cannot move, and it is in the static median | **the player** |
+
+Rows in bold are the ones inside the self key, which is why the spike goes
+first. Map lettering and widget furniture are already excluded by the
+opaque-slab support rule in `icons`.
+
+### What each new reader must carry
+
+A reader joins this inventory when it does all five. The first four are the
+repo's standing rules applied to a class rather than to a channel; the fifth is
+what this plan adds.
+
+1. **Name its key, and what else is in it.** `key_collision.py` is the cheap
+   version wherever labels already exist.
+2. **Declare `origin` / `bearing` / `extent` and a lifetime**, in the entity
+   model's own vocabulary, before fitting anything. `ping.py` is the worked
+   example: its identity is a glyph and a constant lifetime, and that is what
+   made it cheap.
+3. **Name at least one independent witness, and store the disagreements.** The
+   witness column is the standing cross-reference rule made specific. A class
+   with no witness -- the dropped spike today -- is the argument for building
+   it first, not for skipping the requirement.
+4. **Be scored on exhaustively painted frames**, `prototypes/paint_icons.py`,
+   whose `WORLD` bank already holds `world:spike`, `world:x_mark`,
+   `world:question_mark` and `world:audio_ring`. Candidate-anchored labels
+   cannot measure precision, and they bias recall toward one detector's output.
+5. **Select no threshold on `c40d950031bb` or `ff636d173b07`.** Those carry the
+   frozen self-fit labels. Measuring on them is fine; choosing a cut from them
+   makes the test set the training set.
+
+### The draw order is unknown, and it is measurable
+
+`BACKLOG.md` records that neither the repo nor the player knows whether the
+widget has a priority between players, the spike, abilities and marks. It is
+not derivable from stored data, because nothing stores what was underneath --
+but it is derivable from the VIDEO, and the instants are already named. The
+seven `coincident` labels and the ten `spike` labels are the frames where two
+things share a place. Step over one at native rate; the surviving glyph says
+which draws on top.
+
+The answer is a constraint either way. If a player always draws over the spike,
+a fit that is a spike proves the player is elsewhere. If not, it proves
+nothing, and the co-located case stays ambiguous by construction -- which is
+what `8 = coincident` exists to record.
+
+## Icon-class order of work
+
+Ordered by witnesses unblocked, per the bootstrapping floor in
+[ADJUDICATION_DESIGN.md](ADJUDICATION_DESIGN.md), rather than by defect size.
+These interleave with the numbered steps below: **G1 runs before Step 3**,
+because Step 3's directional geometry is one more improvement to the self
+reader, and the self reader's ceiling is set by G1.
+
+| Step | Class | Why here | Promotion gate |
+|---|---|---|---|
+| G1 | The spike, all three states | The largest labelled confuser, inside the self key, with no witness anywhere | Stated below |
+| G2 | Death and last-known marks | The killfeed already names owner and time for a death mark, so the witness exists before the reader does | Presence and position against painted frames; every mark reconciled against a killfeed entry, or held as a disagreement |
+| G3 | Enemies | 300 labels and a prototype exist; it closes the last player-shaped confuser and feeds the roster and killfeed channels | Precision and recall on painted frames, not on the existing candidate-anchored labels |
+| G4 | Ability icons | Owner comes free on kills from the killfeed ability-icon channel; identity needs mined templates | Held-out casts; ambiguous ownership preserved rather than forced |
+| G5 | Regions and animations | The existing Steps 4-5 | As stated there |
+
+Re-measure the self reader's accuracy after each of G1-G3. An accuracy figure
+from before a neighbour existed does not carry forward.
+
+### G1: the spike
+
+**Three states, one glyph family, and they do not share evidence.** The state
+that is easy has a witness and is not the confuser; the state that is the
+confuser has no witness. Do not wire the easy half and call the entry closed.
+
+    state      confuses the self reader?   witness available
+    planted    yes, measured               yes: the HUD graphic, already built
+    dropped    yes, measured, and it is    none
+               where the self fit drifts
+    carried    no -- it IS the player,     yes: it moves with a player icon
+               offset by 3.2 px
+
+Built and not wired, to check before writing anything new:
+
+- `prototypes/plant_spike.py` detects the plant POSITIVELY off the HUD spike
+  graphic and bisects for its instant. `rounds.spike_planted` still infers a
+  plant from a run of unreadable clock.
+- `icons` already returns `inner`, the inner-disc fill fraction, and
+  `self_fit_eval.py --features` already caches it per labelled fit. Nothing
+  prints it and nothing uses it.
+- `paint_icons.py` carries `world:spike` in its bank, and no frame has used it.
+- `prototypes/refusal_clip.py` renders the annotated runs that found this.
+
+**An already-cached feature the shipped gate never binds on.** Recomputed from
+`notes/self-fit-features-c40d950031bb.json`:
+
+    answer            n   inner median [p10-p90]
+    local_player    178   0.000 [0.000-0.112]
+    spike             9   0.156 [0.018-0.244]
+
+The shipped `inner_max` is 0.25 and 100% of both classes pass it, so it refuses
+nothing. Every labelled spike also sits below `cov` 0.35, so as a REFUSAL
+`inner` is redundant with the arc-coverage gate already proposed: it catches no
+spike that coverage misses. Its value lies elsewhere -- `inner` and `cov` are
+uncorrelated on the player at r = 0.025, so a joint rule may refuse the same
+spikes while keeping more real positions than coverage can alone. **Choose no
+cut here.** These are the frozen labels; the cut is chosen on another session.
+
+Predeclare these in `notes/predictions.jsonl` before opening any video:
+
+1. The dropped spike glyph is FILLED where the player's icon is an annulus, so
+   its radial self-key profile peaks at the centre while the player's peaks at
+   r 6-9 px. Falsified if the two profiles overlap within their p10-p90 bands.
+   The label sheets cannot settle this: the annotation ring is drawn at
+   11 * scale px in a colour that keys as self, over the band in question.
+2. A dropped spike does not move. Over its life its fitted centre stays within
+   the fit's own error; the self icon's does not.
+3. The planted spike is co-located with the HUD plant window and a site zone,
+   so a minimap spike glyph outside a plant window is dropped or carried.
+4. The carried badge sits at a fixed offset from a player icon, and the offset
+   is the same for every carrier.
+
+Promotion gate: presence precision and recall on exhaustively painted frames
+over at least two sessions, with the spike state reported separately; position
+error at painted positions; the plant-window agreement in prediction 3 stored
+as a disagreement when it fails rather than resolved; and a re-measured
+self-reader accuracy on a session that is not `c40d950031bb`.
 
 ## Shared fitting framework
 
@@ -187,12 +378,14 @@ experiment was run as part of writing this document.
 | 0. Freeze evaluation inputs | Existing fidelity windows plus disjoint development and held-out sessions; existing source review tools | Independent labels/provenance, eligible-frame denominators, ring-refusal subset, baseline errors and runtime |
 | 1. Established 2026-09-09 | `reticle/minimap.py` and `pick_self` callers use `self_icons` without blob fallback; `fidelity-0.2.0` reports coverage | Consistency and refusal reproduced as recorded above; independent centre accuracy and coverage remain Step 2 gates |
 | 2. Closed 2026-09-09 | Measured in `prototypes/`; nothing wired. Appearance-only failed tier transfer, joint appearance/geometry failed coverage | Both required comparisons ran. Precision was recoverable; the answerable share of refusals was not, so no predeclared budget was met |
-| 3. Add directional geometry | Shared-centre angle search, then directional chamfer if needed; existing bearing/overlay path | Reviewed centre and bearing error, angular ambiguity, overlap and no-icon negatives; improvement beyond appearance-only baseline |
+| 3. Add directional geometry, AFTER G1 | Shared-centre angle search, then directional chamfer if needed; existing bearing/overlay path | Reviewed centre and bearing error, angular ambiguity, overlap and no-icon negatives; improvement beyond appearance-only baseline |
 | 4. Add region representation | Existing ability observation path, reliable background references and bounded tint/shape fits | Held-out static/expanding regions; geometry and presence accuracy; illumination/confuser tests; ambiguous ownership preserved |
 | 5. Add phase sequence matching | Existing appearance-state and lifecycle contracts; timestamped phase gallery | Phase/order errors, onset intervals, pulse grouping, missed-frame and occlusion cases; benefit over independent frame matching |
 | 6. Integrate and gate | Existing reader CLI, annotated overlay, capability/provenance checks | Real-command replay and visually checkable sequences; held-out transfer, acceptable runtime and no silently lost eligible observations |
 
-Steps 1-3 address the current P3 minimap defect first. Steps 4-5 are subsequent
+Steps 1-3 address the current P3 minimap defect first, and Step 3 now
+follows G1: the self reader is bounded by the confuser, not by its own
+bearing search. Steps 4-5 are subsequent
 ability-reader increments governed by existing pipeline gates, not prerequisites
 for fixing self position. Inspect owning modules before deciding new filenames or
 schema migrations. Wire verified paths into actual readers; an isolated successful

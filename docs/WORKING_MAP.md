@@ -35,7 +35,8 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Rounds and phase boundaries | `rounds.py`, `scoreboard.py` |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py` |
 | Position belief and its evidence | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
-| Proposed portrait, shape, region and animation matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
+| Which icon is which: the occluder inventory, the glyph track G1-G5, and portrait/shape/region/animation matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
+| What else lives in a colour key | `prototypes/key_collision.py`, off existing label sheets, no decode |
 | Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |

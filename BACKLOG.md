@@ -315,6 +315,40 @@ This is upstream of everything built on self position. `belief.resolve` treats
 an admitted read as evidence and cannot be right while the reads are wrong, and
 the leave-one-out motion test below is scored against these same reads.
 
+**THE SPIKE IS INSIDE THE SELF COLOUR KEY, measured 2026-09-10 with no decode.**
+`prototypes/key_collision.py` samples the label sheets, which are
+`INTER_NEAREST` x5 crops with no colour transform, so every fifth pixel is a
+source pixel and the player has already said what each position is. The share
+of a 5 px disc that `self_mask` keys, by answer:
+
+    answer            n     self key mean / med    ally key mean / med
+    local_player    179       0.074   0.062          0.007   0.000
+    spike            10       0.112   0.117          0.006   0.000
+    teammate          3       0.070   0.099          0.004   0.000
+    coincident        7       0.053   0.012          0.000   0.000
+
+The spike fills the key harder than the player, and this is a LOWER BOUND: the
+disc is centred on the accepted fit, the player's key is an annulus at r 6-9 px
+and the spike's is filled, so the test's geometry favours the player. With the
+site paint below, `self_mask` is a yellow key holding five things -- the ring,
+the dropped spike, the planted spike, the carried badge and the site paint. So
+no colour rule separates them and the reader must be a shape reader.
+
+**`inner` already separates the spike and nothing reads it.** `icons` returns
+the inner-disc fill fraction and `self_fit_eval.py --features` caches it, but
+nothing prints or uses it. From `notes/self-fit-features-c40d950031bb.json`,
+median [p10-p90]: the player 0.000 [0.000-0.112], the spike 0.156
+[0.018-0.244]. The shipped `inner_max` of 0.25 admits 100% of both, so it
+refuses nothing today. As a refusal it is redundant -- every labelled spike
+also sits below `cov` 0.35 -- but `inner` and `cov` are uncorrelated on the
+player at r = 0.025, so a joint rule may refuse the same spikes at a lower
+coverage gate and keep more real positions. **No cut may be chosen here**;
+these are the frozen labels.
+
+The reader itself is planned as G1 in *Icon-class order of work*,
+`docs/MINIMAP_APPEARANCE_MATCHING.md`, with the three spike states, what is
+already built and unwired, and four predictions to predeclare.
+
 **MEASURED 2026-09-10, 200 labelled accepted fits, reweighted by stratum:**
 
     stratum      n   share    player    wrong    ambiguous
