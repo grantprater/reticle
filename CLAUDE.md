@@ -74,6 +74,17 @@ it" states plainly, and the player had to ask what the sentence meant.
   `clip_preflight`, whose capture median is restricted to size/placement/orientation.
 - Never use stored-data bounds or a model's own output as independent evidence.
   Keep unresolved and no-contact opportunities so coverage is not biased.
+- **BEFORE CALLING ANYTHING A BLOCKER, READ THE FIELD THAT SAYS WHY IT REFUSED.
+  Not the count of refusals.** A count is a symptom and is trivially
+  computable; naming it the cause is a claim, and the reason is usually already
+  stored beside it. `lineup`'s refused slots each carry a `reason` -- *not
+  separated from Raze* -- which says PAIRWISE TIE and therefore says a
+  constraint might break it. Counting them instead gave *3 of 5 named*, which
+  read as a coverage fact and was an artifact of the margin being computed
+  before the assignment. Twelve of 79 refusals were ties already broken. The
+  provenance was perfect and the attribution was wrong, so no citation check
+  catches this: it is the aggregate hiding the mechanism, which this file
+  already warns about from the other end.
 - **CROSS-REFERENCE BEFORE TUNING.** When a detection is wrong, first ask what
   other channel already observes the same event, and gate one on the other.
   Tuning a threshold, mask or morphology on the channel that produced the error
