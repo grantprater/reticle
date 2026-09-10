@@ -36,6 +36,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py` |
 | Position belief and its evidence | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
 | Which icon is which: the occluder inventory, the glyph track G1-G5, and portrait/shape/region/animation matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
+| Current mining critique, minimal-label extraction design, and deterministic/YOLO comparison | [MINIMAP_MINING_REVIEW.md](MINIMAP_MINING_REVIEW.md) |
 | What else lives in a colour key | `prototypes/key_collision.py`, off existing label sheets, no decode |
 | Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |

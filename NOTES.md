@@ -11,7 +11,36 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-10 late, the mining pass exists and its clusters are not classes
+## PICKING UP -- 2026-09-10, mining critique and revised comparison plan
+
+Read [MINIMAP_MINING_REVIEW.md](docs/MINIMAP_MINING_REVIEW.md) before the next
+mining change. It supersedes the interpretation and next-step list below, while
+preserving the first-run measurements. Documentation only; no detector changes,
+new labels, or new perceptual experiment.
+
+The miner runs, but proposal recall and cluster purity remain unmeasured.
+Position spread separates neither classes nor origins: use position for instance
+association and appearance across instances for family discovery. The fixed
+portrait-interior descriptor omits outer glyph shape, color, and extent. Static
+occupancy can erase real persistent entities. Contrast should initially rank
+candidates with a retained low-contrast audit channel, not become a hard gate.
+
+Next: freeze evaluation sessions and annotation scope; audit proposal recall and
+centering; compare the current miner with full-glyph/tracklet-based deterministic
+mining and a fine-tuned YOLO challenger at stated labeling budgets. Learned Stage
+02 observations are a proposed architecture expansion, not an implemented change
+to the no-model rule. Select by held-out extraction accuracy, coverage, and human
+effort, not cluster count. Keep lifecycle inference and independent truth separate.
+
+Review-time diagnostics: `doctor` six findings, zero errors; all 20 stored minimap
+datasets stale against `minimap-0.6.0`. Pin producer versions and refresh required
+inputs before a future comparison. The review did not rescan them.
+
+## PRIOR -- 2026-09-10 late, first mining run (interpretation superseded)
+
+The measurements below are historical. Claims that the proposer is validated,
+that position spread establishes noise or origin, and the contrast/spread-first
+next-step sequence are superseded by the review linked above.
 
 **`prototypes/mine_icons.py` is the general instrument the appearance plan
 specified and never described.** Propose from the lighting-band residual inside

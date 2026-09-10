@@ -1,5 +1,14 @@
 # Minimap appearance matching: design and implementation plan
 
+**Mining design update, 2026-09-10:**
+[MINIMAP_MINING_REVIEW.md](MINIMAP_MINING_REVIEW.md) supersedes the mining
+interpretation and next-step sequence below. The first-run measurements remain
+valid as recorded, but proposal recall and cluster purity are unmeasured; position
+spread does not establish a class or origin. Audit acquisition and representation
+before contrast gating or clustering changes. The review proposes a common
+comparison of deterministic mining and fine-tuned YOLO; learned Stage 02 producers
+remain an architecture proposal, not a change to the current no-model constraint.
+
 Date: 2026-09-09, extended 2026-09-10 to every icon the widget draws. Status:
 Step 1 measured and shipped. Step 2 is CLOSED as a measured negative result:
 both its standalone and its joint appearance/geometry paths are implemented and
@@ -234,6 +243,13 @@ detector. It is the `ally_icons`-against-the-roster precedent again, on a class
 where the constraint is a rule rather than a correlation.
 
 ### Infer the inventory; do not be told it
+
+**Historical proposal and first-run interpretation:** read the
+[subsequent critique](MINIMAP_MINING_REVIEW.md) for the current design. In
+particular, "clusters are classes", "junk never forms a cluster", semantic
+assignment from event coincidence, and origin inference from position spread
+are unsupported assumptions, not acceptance criteria. The replacement sequence
+starts with an independent proposal-recall audit and preserves rare candidates.
 
 **The prose descriptions above are a stopgap and must not become the method.**
 Everything in them except the game rules is a property of pixels the capture
