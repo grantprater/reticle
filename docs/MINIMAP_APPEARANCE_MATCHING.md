@@ -326,6 +326,42 @@ mining's own circularity, since a cluster built from detector-selected frames
 inherits that detector's blind spot -- which is why the proposer takes no
 colour key.
 
+### A class-specific detector is not a step toward this
+
+**Recorded 2026-09-10 after spending a session's work in the wrong direction.**
+`prototypes/ability_disc.py` finds the dark disc that one visual family of
+ability icons is drawn on. It is a good detector -- sized from the session's own
+self icon it scores 100% recall at 100% precision on the painted Cypher frames
+-- and it is a detector PER FAMILY, which is the thing this pass exists so that
+nobody has to write. Improving its thresholds is work in the direction the pass
+replaces.
+
+The relationship to hold: **a class-specific detector is a candidate CHANNEL of
+the proposer, never the reader.** The black-hat is scale-selective, which the
+foreign-mask proposer is not, so it may earn a place as one of several proposal
+channels whose union is clustered. What it must not become is the ability
+reader, because then the next icon family needs its own detector and the one
+after that needs another.
+
+Two measured lessons from that detour, both worth more than the detour cost:
+
+- **Do not choose an operating point on labels that cannot score precision.**
+  On candidate-anchored labels only recall and stream size are honest. A peak
+  finder looked like a modest trade there -- 95.2% recall against the blob
+  finder's 90.5% -- and on the painted frames the same setting is 4.0%
+  precision with 872 false positives. The proxy was hiding the entire cost.
+- **The ridge was real and removing it bought nothing.** Local maxima are
+  monotonic in the response floor where the thresholded blobs are not, which
+  confirms merging past an area cap as the cause. Monotonic and far worse is
+  still worse. The demonstration stays in the prototype; the finder does not
+  change.
+
+Per-session sizing survives the detour and is the piece to carry forward:
+`paint_eval.calibrate` already derives icon size from the session's own self
+radius, and it lifts precision at equal recall. Whatever reader the mining pass
+produces needs it, because the zoom slider makes every reference-pixel constant
+a per-session guess.
+
 **What genuinely does not come out of this, and why.** Game RULES are not
 appearance: *an enemy-team entity is drawn only inside our vision*, *the enemy
 has no carried state*, *own-team icons are always visible*. Each is a claim

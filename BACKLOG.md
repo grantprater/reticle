@@ -101,8 +101,31 @@ the check listed, each now decided in `notes/predictions.jsonl`:
   at all. **Revisit when the labels grow**; `d95cfad5693a`'s 47
   reviewed-but-unanswered candidates are the cheapest source.
 * **`ability_scale`** -- measured, and folded into the entry below.
-* **`ability_disc`** -- the one that should ship. Blocked on two named things,
-  not on judgement.
+* **`ability_disc`** -- declined too, and for a better reason than the two
+  blockers first recorded here. It is a detector for ONE visual family, and the
+  mining pass in `docs/MINIMAP_APPEARANCE_MATCHING.md` exists so that a
+  detector per family is not needed. A class-specific detector is a candidate
+  CHANNEL of the general proposer -- the black-hat is scale-selective where the
+  foreign mask is not -- never the reader. See *A class-specific detector is
+  not a step toward this*.
+
+**The peak-finder detour, kept because both halves are worth having.** The
+prediction was pre-registered and HELD: local maxima are monotonic in the
+response floor at all four kernels where thresholded blobs ridge at three of
+them, confirming that merging past `AREA_MAX` is what makes recall
+non-monotonic. It bought nothing. Scored against the painted frames, where
+precision is real:
+
+    detector, abilities only        d95cfad5693a        a06f04a0059f
+    blobs, calibrated             100.0% / 100.0%     90.9% /  32.3%
+    peaks raw, floor 60           100.0% /   4.0%    100.0% /   1.7%
+    peaks smooth, floor 60         94.4% /  13.4%     72.7% /   4.4%
+
+recall / precision. **The candidate-anchored sweep could not have shown this**:
+there, only recall and stream size are honest, and peaks read as a modest trade
+at 95.2% recall against the blob finder's 90.5%. The painted frames turn that
+stream into 872 and 636 false positives. Do not choose an operating point on
+labels that cannot score precision.
 
 **THE SELF ICON IS A VALID PER-SESSION RULER; WIDGET WIDTH IS NOT.** The
 minimap has a zoom slider, so rendered size is a per-session setting. Measured

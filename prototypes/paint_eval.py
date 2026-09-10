@@ -81,7 +81,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from reticle import metrics                                       # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
 import minimap_dynamic as md                                      # noqa: E402
-from ability_disc import find_discs                               # noqa: E402
+from ability_disc import find_discs, find_discs_peaks             # noqa: E402
 from paint_icons import OUT_DIR, is_world, load_done                        # noqa: E402
 from ability_scale import calibrate                               # noqa: E402
 
@@ -203,6 +203,18 @@ def main() -> int:
         return [(d["xy"][0], d["xy"][1]) for d in
                 (md.detect(crop, sgray, ok, static_gray2=hi) or [])]
 
+    def peaks_cal(cal, smooth, floor):
+        """The peak finder, sized from this session's own self icon.
+
+        Precision is the axis that decides between these: on the
+        candidate-anchored labels only recall and stream size are honest, and
+        peaks buy recall with a stream four times larger. A painted frame makes
+        the fourth column real.
+        """
+        def f(crop, g, ok, sgray, hi):
+            return find_discs_peaks(g, ok, cal["bh_k"], floor, smooth=smooth)
+        return f
+
     for sid in args.sessions:
         print(f"\n=== {sid} ===  against exhaustively painted frames")
         print("   ALL painted icons as targets (a DISC detector's job):")
@@ -215,6 +227,11 @@ def main() -> int:
             print(f"   calibrated from self icon: self_r={cal['self_r']} -> "
                   f"icon_r={cal['icon_r']}, bh_k={cal['bh_k']}, area={cal['area']}")
             score(sid, disc_cal(cal), "ability_disc (calibrated)", abilities_only=True)
+            for floor in (60, 130):
+                score(sid, peaks_cal(cal, False, floor),
+                      f"peaks raw, floor {floor}", abilities_only=True)
+                score(sid, peaks_cal(cal, True, floor),
+                      f"peaks smooth, floor {floor}", abilities_only=True)
         score(sid, dynamic, "minimap_dynamic.detect", abilities_only=True)
         if got is None:
             print("   no exhaustive painted frames")

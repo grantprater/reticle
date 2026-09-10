@@ -154,6 +154,57 @@ def disc_response(gray, k=BH_K):
     return cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, se)
 
 
+#: Non-maximum suppression radius, as a fraction of the black-hat kernel. The
+#: kernel is chosen to exceed the icon, so the icon's radius is a fraction of
+#: it; two peaks closer than one icon radius are one icon.
+NMS_FRAC = 0.37
+
+
+def find_discs_peaks(gray, ok, k=BH_K, bh_min=BH_MIN, nms_frac=NMS_FRAC,
+                     smooth=True):
+    """Disc candidates as LOCAL MAXIMA of the response, not thresholded blobs.
+
+    **The shipped `find_discs` has a ridge rather than a plateau**: recall is
+    non-monotonic in `bh_min`, because lowering the floor grows the mask until
+    neighbouring responses MERGE, the component blows past `AREA_MAX`, and the
+    icon is discarded whole. Every gate downstream of a global cut inherits
+    that, which is why the prototype's own docstring prescribes this instead.
+
+    A peak is one point per local maximum, so a lower floor can admit more
+    peaks and can never destroy one that was already there. The merge mechanism
+    is removed by construction rather than tuned around, and neither the area
+    nor the circularity gate is needed: both existed to undo the damage the
+    global cut did.
+    """
+    resp = disc_response(gray, k)
+    # **Smooth at the OBJECT's scale before looking for maxima.** The black-hat
+    # does not return a filled disc -- `CIRC_MIN`'s comment records this -- it
+    # returns the icon's dark EDGE structure, so the raw response is a RING and
+    # its local maxima sit on that ring, up to one icon radius off centre. With
+    # `MATCH_PX` at 8 and an icon radius near 10, a peak on the ring misses the
+    # labelled centre entirely. Convolving with a kernel the size of the object
+    # is a matched filter: it turns the ring into a single central blob, so the
+    # maximum lands where the icon is. This is the object's own scale, not a
+    # fitted width.
+    r = max(1, int(round(k * nms_frac)))
+    if smooth:
+        resp = cv2.GaussianBlur(resp, (2 * r + 1, 2 * r + 1), r / 2.0)
+    se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+    peak = (resp >= cv2.dilate(resp, se)) & (resp > bh_min) & ok
+    ys, xs = np.nonzero(peak)
+    if not len(ys):
+        return []
+    order = np.argsort(-resp[ys, xs])
+    out, taken = [], []
+    for i in order:
+        y, x = int(ys[i]), int(xs[i])
+        if any((x - px) ** 2 + (y - py) ** 2 < r * r for px, py in taken):
+            continue
+        taken.append((x, y))
+        out.append((float(x), float(y), float(resp[y, x]), 0, 0.0))
+    return out
+
+
 def find_discs(gray, ok, k=BH_K, bh_min=BH_MIN, area=(AREA_MIN, AREA_MAX),
                circ_min=CIRC_MIN):
     """Disc candidates: (x, y, score, area, circularity)."""
@@ -216,7 +267,7 @@ def klass(r):
     return f"{(r['_agent'] or '?').lower()}:{(r['_ability'] or '?').lower()}"
 
 
-def evaluate(sessions, k=BH_K, bh_min=BH_MIN, quiet=False):
+def evaluate(sessions, k=BH_K, bh_min=BH_MIN, quiet=False, peaks=False):
     """Recall on icon objects, hits on negatives, and stream size per frame."""
     tp = fn = neg_hit = neg_tot = 0
     stream = md_stream = 0
@@ -232,7 +283,8 @@ def evaluate(sessions, k=BH_K, bh_min=BH_MIN, quiet=False):
             r["_sid"] = sid
         for t, crop, g, ok, sgray, lo, hi, rs in frame_iter(sid, rows):
             frames += 1
-            det = find_discs(g, ok, k, bh_min)
+            det = (find_discs_peaks(g, ok, k, bh_min) if peaks
+                   else find_discs(g, ok, k, bh_min))
             stream += len(det)
             md_stream += len(md.detect(crop, sgray, ok, static_gray2=hi) or [])
             for r in rs:
@@ -274,10 +326,27 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.sweep:
-        print("   kernel / contrast-floor sweep:")
+        # The sweep exists to expose the RIDGE, so it prints both finders side
+        # by side: the shipped one is non-monotonic in the floor and the peak
+        # one should not be. Monotonic here means recall never RISES as the
+        # floor rises -- a lower floor can only admit more peaks.
+        print("   kernel / contrast-floor sweep   (blobs = shipped, peaks = local maxima)")
         for k in (15, 21, 27, 41):
-            for bh in (100, 130, 160, 190):
-                evaluate(args.sessions, k, bh)
+            for how in ("blobs", "peaks"):
+                rec, cand, neg = [], [], []
+                for bh in (100, 130, 160, 190):
+                    got, _c, _m = evaluate(args.sessions, k, bh, quiet=True,
+                                           peaks=(how == "peaks"))
+                    n = got["tp"] + got["fn"]
+                    rec.append(100.0 * got["tp"] / max(1, n))
+                    neg.append(got["neg_hit"])
+                    cand.append(got["cand_per_frame"])
+                mono = all(a >= b - 1e-9 for a, b in zip(rec, rec[1:]))
+                print(f"   k={k:3d} {how:5s}  recall " +
+                      " ".join(f"{v:5.1f}%" for v in rec) +
+                      "   cand/frame " + " ".join(f"{v:5.1f}" for v in cand) +
+                      "   neg " + " ".join(f"{v:3d}" for v in neg) +
+                      ("   MONOTONIC" if mono else "   ridge"))
         return 0
 
     print(f"   disc detector, k={args.k}, blackhat floor {args.bh_min}:")
