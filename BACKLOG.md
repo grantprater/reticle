@@ -315,6 +315,30 @@ This is upstream of everything built on self position. `belief.resolve` treats
 an admitted read as evidence and cannot be right while the reads are wrong, and
 the leave-one-out motion test below is scored against these same reads.
 
+**MEASURED 2026-09-10, 200 labelled accepted fits, reweighted by stratum:**
+
+    stratum      n   share    player    wrong    ambiguous
+    crowded    100   62.6%     83.0%    10.0%      7.0%
+    clear      100   37.4%     95.0%     5.0%      0.0%
+    reweighted                 87.49%    8.13%     4.38%
+
+Wrong ones: 9 spike, 3 nothing, 3 teammate. Every ambiguous case was crowded.
+The wrong-object 95% interval is roughly 4.3-11.9% on n=200.
+
+**About one accepted self position in eight is not the player.** On the same
+session `fidelity-check` reports 0.9917 cross-rate agreement. That is
+consistency and this is accuracy, and the gap between them is the standing rule
+made concrete. It is the first accuracy figure this channel has had.
+
+`belief.resolve` stamps an OBSERVED fix with radius `FIT_ERR_PX` = 2 px, which
+is a false claim for those, and no work above the reader can repair it.
+
+**The class stamp never reached the writer** -- it was added to the docstring
+only -- so no row records which class list it was answered under. `spike`
+cannot be split into the carried badge and a dropped one, and site paint had no
+class for most of the run, so some site cases are inside `nothing` or `spike`.
+Fixed for the next pass; the first pass's provenance is simply lost.
+
 **Class list, from the player 2026-09-10.** What can be mistaken for the self
 icon: the spike, ability icons, and other players. Death marks and last-known
 markers are covered by players when both are present, so they are not the

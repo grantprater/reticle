@@ -29,8 +29,9 @@ teammate is the defect.
        of the self icon. Split from `4` because the two are different defects:
        a dropped spike is a second object the reader picks instead, while a
        carried badge is PART OF THE PLAYER'S ICON, so a fit on it is a fixed
-       offset rather than a wrong object. Rows written before this split carry
-       no `class_set` and cannot tell the two apart
+       offset rather than a wrong object. The FIRST PASS carries no
+       `class_set` at all: the stamp reached this docstring and not the
+       writer, so its `spike` rows cannot tell the two apart
     5  an ABILITY icon or area
     6  a DEATH MARK or a LAST-KNOWN marker
     S  the YELLOW SITE PAINT, or a piece of it -- the plantable zone, which is
@@ -220,7 +221,7 @@ def prepare(args, store: Store, sid: str) -> int:
     return 0
 
 
-def run(args, store: Store, sid: str) -> int:
+def ask(args, store: Store, sid: str) -> int:
     import base64
     import tkinter as tk
 
@@ -265,7 +266,8 @@ def run(args, store: Store, sid: str) -> int:
 
     def answer(name):
         c = todo[state["i"]]
-        handle.write(json.dumps({**c, "answer": name, "by": args.by}) + "\n")
+        handle.write(json.dumps({**c, "answer": name, "by": args.by,
+                                 "class_set": CLASS_SET}) + "\n")
         handle.flush()          # read the file as it fills
         state["i"] += 1
         show()
@@ -298,7 +300,7 @@ def main(argv=None) -> int:
     store = Store(args.store)
     if args.prepare:
         return prepare(args, store, args.session)
-    return run(args, store, args.session)
+    return ask(args, store, args.session)
 
 
 if __name__ == "__main__":

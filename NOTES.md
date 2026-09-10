@@ -118,9 +118,20 @@ here: `belief.resolve` treats an admitted read as evidence, and the refusal work
 above assumed the accepted reads were the player. Neither survives contaminated
 anchors, so the false-accept rate comes first.
 
-**The pass is running and has already moved the diagnosis twice.** At 36 of
-192 the tally is 30 `local_player`, 3 `coincident`, 1 `teammate`, 2 `nothing`
--- so a WRONG OBJECT is not the dominant defect. Two better candidates came out
+**The pass is FINISHED, and the headline is an accuracy figure this project
+has never had.** 200 accepted self fits, labelled, reweighted by stratum:
+**87.49% are the player, 8.13% are a different object, 4.38% are two things the
+widget cannot separate.** About one accepted position in eight is not the
+player, against `fidelity-check`'s 0.9917 agreement on the same session --
+consistency against accuracy, and the gap is the standing rule made concrete.
+Score it with `prototypes/self_fit_eval.py`.
+
+`belief.resolve` stamps an OBSERVED fix at radius `FIT_ERR_PX` = 2 px, which is
+false for those, and nothing above the reader can repair it. The wrong ones were
+9 spike, 3 nothing, 3 teammate; every ambiguous case was in the crowded
+stratum, which is 62.6% of all accepted fits.
+
+Two mechanisms came out of the player's own reading during the pass. Two better candidates came out
 of the player's own reading, both in `BACKLOG.md`:
 
 * the fit flips between the portrait and the CARRIED-SPIKE BADGE about 3.2 px
