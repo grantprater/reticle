@@ -190,18 +190,39 @@ def check_promote(store: Path) -> list[tuple[str, str]]:
     pats = {s: re.compile(rf"(?<!\w){re.escape(s)}(?!\w)") for s in stems}
     used: set[str] = set()
     for f in (ROOT / "reticle").glob("*.py"):
+        # This file names prototypes in its own prose and is the one module
+        # allowed to read both trees, so counting itself as a consumer would
+        # let the checker retire its own findings by describing them.
+        if f.name == "doctor.py":
+            continue
         text = f.read_text(encoding="utf-8", errors="replace")
         used |= {s for s, p in pats.items() if p.search(text)}
-    seen: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if not line.strip():
-            continue
+    # A decision retires the PROTOTYPE, not the row it was written on. The
+    # first version skipped only the declining row, so a `"wire": "no"` written
+    # today could not retire a mention from 2026-09-03 and the finding never
+    # cleared -- a check that cannot be satisfied is one people learn to skip.
+    # So take two passes: gather what has been declined, then report the rest.
+    lines = [l for l in path.read_text(encoding="utf-8", errors="replace").splitlines()
+             if l.strip()]
+    rows = []
+    declined: set[str] = set()
+    for line in lines:
         try:
             row = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if str(row.get("wire", "")).lower() == "no":
+        rows.append(row)
+        if str(row.get("wire", "")).lower() != "no":
             continue
+        # A `subject`, when given, is the ONLY thing that row declines. Scanning
+        # the whole row instead let a decline retire every prototype its reason
+        # happened to name -- declining `ability_scale` silently declined
+        # `ability_disc`, because the reason said the two must ship together.
+        target = str(row.get("subject") or
+                     " ".join(str(v) for v in row.values()))
+        declined |= {s for s, p in pats.items() if p.search(target)}
+    seen: dict[str, str] = {}
+    for row in rows:
         blob = " ".join(str(v) for v in row.values())
         # The ledger has carried several row shapes. Take whichever handle the
         # row actually has rather than printing a `?`, which tells a reader
@@ -209,7 +230,7 @@ def check_promote(store: Path) -> list[tuple[str, str]]:
         tag = next((str(row[k]) for k in ("experiment", "id", "when", "date", "ts")
                     if row.get(k)), "")
         for s, p in pats.items():
-            if s not in used and p.search(blob):
+            if s not in used and s not in declined and p.search(blob):
                 seen.setdefault(s, tag[:40])
     return [(WARN, f"`prototypes/{s}.py` is in the prediction ledger"
                    + (f" under `{tag}`" if tag else "") +

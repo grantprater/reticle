@@ -117,6 +117,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
+from reticle import geometry as _G                              # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
 import minimap_geometry as mg                                     # noqa: E402
 from minimap_geometry import BORDER, BOXEDGE, PLANT, VOID         # noqa: E402
@@ -272,7 +273,6 @@ def art_mask(sid):
     _sys.path.insert(0, str(Path(__file__).resolve().parent))
     from wiki_map import fit_for_key
 
-    from reticle import geometry as _G
     gkey = _G.key_of(sid, STORE)
     return None if gkey is None else fit_for_key(gkey)
 

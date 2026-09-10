@@ -49,6 +49,55 @@ class PromoteCheckTests(unittest.TestCase):
                                       "result": f"{stem}.py ran"}])
             self.assertEqual(doctor.check_promote(root), [])
 
+    def test_a_later_decision_retires_an_earlier_mention(self):
+        # The decision is about the PROTOTYPE, not about the row it sits on.
+        # Skipping only the declining row left a 2026-09-03 mention reported
+        # forever, and a finding that cannot be cleared is one people ignore.
+        stem = "minimap_occlusion"
+        with tempfile.TemporaryDirectory() as d:
+            root = _ledger(Path(d), [
+                {"experiment": "old", "result": f"{stem}.py ran"},
+                {"experiment": "triage", "wire": "no",
+                 "wire_reason": "refuted; diagnostic only",
+                 "subject": f"prototypes/{stem}.py"},
+            ])
+            self.assertEqual(
+                [m for _s, m in doctor.check_promote(root) if stem in m], [])
+
+    def test_pending_is_not_a_decline(self):
+        stem = "minimap_occlusion"
+        with tempfile.TemporaryDirectory() as d:
+            root = _ledger(Path(d), [{"wire": "pending",
+                                      "subject": f"prototypes/{stem}.py"}])
+            self.assertTrue(
+                [m for _s, m in doctor.check_promote(root) if stem in m])
+
+    def test_a_decline_does_not_retire_what_its_reason_mentions(self):
+        # Declining `ability_scale` silently declined `ability_disc`, because
+        # the reason said the two must ship together. A `subject` is the only
+        # thing a decline speaks for.
+        with tempfile.TemporaryDirectory() as d:
+            root = _ledger(Path(d), [
+                {"wire": "no", "subject": "prototypes/ability_scale.py",
+                 "wire_reason": "prerequisite of ability_disc; wire them together"},
+                {"experiment": "old", "result": "ability_disc.py ran"},
+            ])
+            found = [m for _s, m in doctor.check_promote(root)]
+            self.assertTrue([m for m in found if "ability_disc" in m])
+            self.assertEqual([m for m in found if "ability_scale" in m], [])
+
+    def test_the_checker_naming_a_prototype_is_not_using_it(self):
+        # doctor.py names prototypes in its own prose and reads both trees by
+        # design. Counting itself as a consumer would let it retire its own
+        # findings by describing them.
+        stem = "minimap_occlusion"
+        self.assertIn(stem, (doctor.ROOT / "reticle" / "doctor.py")
+                      .read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as d:
+            root = _ledger(Path(d), [{"result": f"{stem}.py ran"}])
+            self.assertTrue(
+                [m for _s, m in doctor.check_promote(root) if stem in m])
+
     def test_a_substring_is_not_a_match(self):
         with tempfile.TemporaryDirectory() as d:
             root = _ledger(Path(d), [{"result": "xminimap_occlusiony.py"}])

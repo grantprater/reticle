@@ -79,6 +79,70 @@ Persistence was the stronger rule and it landed on 2026-09-09 in
 entries span 4733-8017 ms and eleven wipe tracks span 0-667 ms -- classes that
 do not come close, needing no threshold fitted anywhere.
 
+## `reticle/` has NO ability detector, and the five prototypes are triaged
+
+**2026-09-10, prompted by `doctor`'s new PROMOTE check.** `ability_entities.py`
+is an adapter over `adjudication.ability`, which builds entity hypotheses from
+stored observations -- and nothing in the shipped tree produces a minimap
+ability observation from pixels. Every detector is in `prototypes/`. The five
+the check listed, each now decided in `notes/predictions.jsonl`:
+
+* **`ability_eval`** -- declined. A SCORER, not a reader; promoting an
+  evaluation harness would make *in `reticle/`* stop meaning *in the pipeline*.
+* **`ability_cone`** -- declined. Its hypothesis needed an absolute level and
+  failed for the reason `CLAUDE.md` gives about every absolute level here. Its
+  incidental finding, that seeding the cone from a fitted self ring lifts
+  availability from 4/50 to 89% pooled, is **already shipped in a better
+  form**: `overlay.py` seeds from `self_icons` and settles the lobe against the
+  drawn light. Nothing left to promote.
+* **`ability_signed`** -- declined FOR NOW. `dark >= 10` genuinely beats the
+  sign comparison on both axes (95.5%/43.8% against 81.8%/39.1%), but it is a
+  threshold fitted on 22 objects where the thing it replaces is not a threshold
+  at all. **Revisit when the labels grow**; `d95cfad5693a`'s 47
+  reviewed-but-unanswered candidates are the cheapest source.
+* **`ability_scale`** -- measured, and folded into the entry below.
+* **`ability_disc`** -- the one that should ship. Blocked on two named things,
+  not on judgement.
+
+**THE SELF ICON IS A VALID PER-SESSION RULER; WIDGET WIDTH IS NOT.** The
+minimap has a zoom slider, so rendered size is a per-session setting. Measured
+over two sessions whose icons differ in size by 1.667x:
+
+    session         widget    n   icon r   self r   icon/self
+    a06f04a0059f      465    11    10.00     5.47      1.828
+    d95cfad5693a      331    31     6.00     3.29      1.824
+    between-session ratio                              1.002
+
+The widget WIDTH ratio over the same pair is 1.405, so a constant scaled by
+`minimap.widget_scale` mis-sizes an ability icon by about 19% between them:
+predicted radius 7.12 against a measured 6.00, where the self-radius ruler
+predicts 6.01. **Radii here are black-hat half-max and are NOT `fit_ring`'s
+`r`** -- the ruler and the thing measured must share one definition, or the
+per-session constant this removes comes straight back.
+
+What `ability_disc` needs before it ships as the ability observation reader:
+
+1. **per-session sizing.** `BH_K = 27` and `AREA_MIN/MAX = 40/900` are eyeballed
+   on one session. Express them as multiples of the self radius above;
+2. **stop thresholding.** The operating point is a RIDGE, not a plateau: recall
+   is non-monotonic in `BH_MIN` because lowering the floor merges neighbouring
+   responses past `AREA_MAX` and the icon is discarded whole. `BH_MIN = 130` is
+   the level at which blobs happen not to merge on four sessions, and it will
+   not transfer on that basis. Take local maxima of the response at the disc
+   scale, or a watershed, instead of a global cut plus an area filter.
+
+Its measured recall is 85.7% (18/21) at 2.4 candidates per frame against
+`minimap_dynamic.detect`'s 6.8, and the black-hat response separates 3-4x at the
+labelled positions across every kernel from 15 to 81 -- so the primitive is
+sound independently of where the gates land. Precision is NOT measurable from
+that run and must not be quoted: the labels are candidate-anchored. The
+exhaustively painted frames are what make it measurable.
+
+**Fixed on the way in:** `prototypes/minimap_dynamic.py` imported
+`reticle.geometry as _G` INSIDE one function while three others referenced it,
+so `load_geometry` raised `NameError` and the whole ability line was dead. It
+had been dead long enough that nothing noticed.
+
 ## A killfeed ability icon says that ability was used, and by whom
 
 The divider on an ability kill is the ABILITY's icon, not a weapon's -- see

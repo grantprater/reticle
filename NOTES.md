@@ -142,7 +142,7 @@ negative -- both the standalone and the joint appearance/geometry paths, and
 the overlap story that motivated them, refuted at 1.06x by
 `prototypes/minimap_occlusion.py`.
 
-356 tests pass; `doctor` has eleven findings and zero errors -- five of them the new PROMOTE check, listing measured prototypes nothing in `reticle/` uses. Labels are in
+360 tests pass; `doctor` has seven findings and zero errors. The new PROMOTE check listed five measured-but-unwired prototypes and four are now decided in `notes/predictions.jsonl`; the survivor is `ability_disc`, which SHOULD ship and is blocked on two named things. See *`reticle/` has NO ability detector* in `BACKLOG.md`. Labels are in
 `<store>/labels/self_fit/`, clips in `<store>/notes/refusal-clips/`, and every
 prediction and outcome is in `notes/predictions.jsonl`.
 
