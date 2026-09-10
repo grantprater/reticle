@@ -118,7 +118,21 @@ here: `belief.resolve` treats an admitted read as evidence, and the refusal work
 above assumed the accepted reads were the player. Neither survives contaminated
 anchors, so the false-accept rate comes first.
 
-**The labelling pass is prepared and waiting on the player:**
+**The pass is running and has already moved the diagnosis twice.** At 36 of
+192 the tally is 30 `local_player`, 3 `coincident`, 1 `teammate`, 2 `nothing`
+-- so a WRONG OBJECT is not the dominant defect. Two better candidates came out
+of the player's own reading, both in `BACKLOG.md`:
+
+* the fit flips between the portrait and the CARRIED-SPIKE BADGE about 3.2 px
+  to its bottom left. Confirmed without labels: adjacent 3-20 px steps peak at
+  3.15x and 4.02x uniform in two directions 180 degrees apart, along the axis
+  the player named. A fit on the badge is still the player, so the labelling
+  pass records it as CORRECT -- the class question cannot see this defect;
+* the self key may be catching the YELLOW SITE PAINT, which is the same colour
+  family. Self fits land on site paint at twice the ally rate on both sessions.
+  This one has a channel already, `minimap.site_mask`, off the static map.
+
+**The labelling pass is running:**
 
     .\.venv\Scripts\python.exe prototypes\label_self_fit.py c40d950031bb
 

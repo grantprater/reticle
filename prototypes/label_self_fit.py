@@ -23,9 +23,22 @@ teammate is the defect.
     1  the LOCAL PLAYER -- you, the camera
     2  a TEAMMATE
     3  an ENEMY
-    4  the SPIKE -- dropped, carried or planted
+    4  the SPIKE ON THE GROUND -- dropped or planted, a separate object
+    9  the SPIKE CARRIED -- the badge that hangs off a player's own icon,
+       reported at candidate 17 of the first run as sitting to the BOTTOM LEFT
+       of the self icon. Split from `4` because the two are different defects:
+       a dropped spike is a second object the reader picks instead, while a
+       carried badge is PART OF THE PLAYER'S ICON, so a fit on it is a fixed
+       offset rather than a wrong object. Rows written before this split carry
+       no `class_set` and cannot tell the two apart
     5  an ABILITY icon or area
     6  a DEATH MARK or a LAST-KNOWN marker
+    S  the YELLOW SITE PAINT, or a piece of it -- the plantable zone, which is
+       drawn in the same yellow family as the self icon. Reported at candidate
+       29 of the first run, where the fit bounced between a portion of the site
+       and the self icon. Unlike the spike this one HAS a channel already:
+       `minimap.site_mask` derives it from the static median map, so it needs
+       no decode and cannot move
     8  TWO OR MORE things under the ring that cannot be separated -- the
        player standing on the spike, two portraits exactly stacked. Added at
        candidate 9 of the first run, when the player was on the spike at the
@@ -65,9 +78,13 @@ from reticle.profiles import get_profile  # noqa: E402
 from reticle.store import DEFAULT_STORE, Store  # noqa: E402
 
 KIND = "self_fit"
+#: Bumped when the question changes meaning. Set 2 split a carried spike badge
+#: from a dropped one; rows with no `class_set` predate it and answered both
+#: as `spike`.
+CLASS_SET = "self_fit-3"
 CLASSES = {"1": "local_player", "2": "teammate", "3": "enemy", "4": "spike",
            "5": "ability", "6": "mark", "7": "other", "0": "nothing",
-           "8": "coincident"}
+           "8": "coincident", "9": "spike_carried", "s": "site_paint"}
 RING = (70, 240, 250)
 CROWD_PX = 25.0
 
@@ -255,6 +272,7 @@ def run(args, store: Store, sid: str) -> int:
 
     for key, name in CLASSES.items():
         root.bind(key, lambda _e, n=name: answer(n))
+    root.bind("S", lambda _e: answer("site_paint"))
     root.bind("u", lambda _e: answer("unsure"))
     root.bind("U", lambda _e: answer("unsure"))
     root.bind("a", lambda _e: (state.update(i=max(0, state["i"] - 1)), show()))

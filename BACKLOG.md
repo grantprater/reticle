@@ -235,6 +235,60 @@ What this forbids: excluding regions from a position belief because another
 icon is there; treating coincidence as a detector disagreement; assuming an
 overlap resolves into distinct centres given a better fit.
 
+## The self fit flips between the PORTRAIT and the CARRIED-SPIKE BADGE
+
+**The player named it and the step distribution confirms it, with no labels.**
+Reported at candidate 17 of the first labelling pass: the spike glyph seen at
+the self icon is the badge shown while CARRYING the spike, sitting to the
+bottom left of the portrait -- not a separate dropped spike.
+
+Adjacent admitted reads, steps of 3-20 px, binned by direction (0 = +x,
+90 = DOWN the image):
+
+    bin        c40d950031bb   ff636d173b07
+    90-120        43            118          down and LEFT
+    270-300       75  peak      167  peak    up and RIGHT
+    uniform       24             42
+    peak vs uniform  3.15x        4.02x
+
+Two peaks 180 degrees apart at a tight magnitude -- median 3.2 px, p90 4.0 --
+is a fit flipping between two fixed points and back. The direction is the one
+the player named.
+
+**This is a different defect from a wrong object, and a worse one for the
+labelling pass.** A fit on the badge is still the player, so the pass records
+`local_player` and reads as CORRECT while the position is wrong by a fixed
+offset. Class questions cannot see it. What can: the bimodal step signature
+above, and a centre estimate that takes the portrait rather than the whole
+keyed blob.
+
+3.2 px at scale 0.712 is about 4.5 reference px, against an icon radius of
+8-13, so the badge sits within half a radius of the portrait -- which is why
+`MIN_ICON_SEPARATION_PX`, the step law and every distance gate are blind to it.
+
+## The self key may be catching the YELLOW SITE PAINT
+
+Reported at candidate 29 of the first labelling pass: the fit bounced between a
+portion of the yellow plantable zone and the yellow self icon. The self icon and
+the site paint are the same colour family.
+
+    accepted fits landing on site paint     c40d950031bb   ff636d173b07
+    site paint as a share of the slab           7.3%           4.8%
+    SELF fits on site paint                    19.85%          8.40%
+    ALLY fits on site paint                    10.26%          3.75%
+
+**Self lands on site paint at twice the ally rate on both sessions**, from a
+different colour key on the same widget. Not proof: the local player may
+genuinely spend more time on sites than a median teammate, and this is
+agreement reasoning rather than accuracy. But the disparity is consistent
+across two sessions and the mechanism is named by eye.
+
+**Unlike the spike, this one already has a channel.** `minimap.site_mask`
+derives the zones from the static median map, so it needs no decode, and a site
+cannot move. That makes it a usable cross-reference: a self fit supported only
+by site paint is suspect. Measure before gating -- the paint is walkable floor
+and players stand on it constantly.
+
 ## The self reader ACCEPTS THE SPIKE ICON as the player
 
 **Reviewed 2026-09-10 on annotated clips** (`prototypes/refusal_clip.py`, five
