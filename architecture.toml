@@ -1,0 +1,154 @@
+# The topological order of `reticle/`. DECLARED, never derived.
+#
+# A module may import from its own layer or any layer BELOW it. `doctor`'s
+# LAYER check verifies the code agrees; it does not compute this file, and it
+# does not accept a layering that has drifted -- an unplaced module, a phantom
+# one, and an exception that no longer applies are all reported.
+#
+# Why declared rather than derived. The derived depth-by-longest-path puts
+# `doctor`, `domain` and `decode` at the bottom beside `version`, because their
+# real dependencies happen to be deferred inside functions. That is an accident
+# of where imports sit, not a statement of design, and enforcing it would
+# freeze the accident. This file states intent, and the intent is the pipeline
+# spine `docs/WORKING_MAP.md` already names: raw observation -> adjudication ->
+# lifecycle event -> compound episode -> review.
+#
+# Schema and the checks: `reticle/architecture.py`.
+
+[layers]
+order = ["foundation", "source", "primitives", "readers", "orchestration",
+         "adjudication", "entities", "delivery"]
+
+[foundation]
+claim = "no siblings above the language and the store's own vocabulary"
+modules = ["version", "profiles", "fingerprint", "metrics", "judgement",
+           "domain", "architecture", "screen", "artifacts", "revisions",
+           "census"]
+
+[source]
+claim = "identity, decode, persistence, and the baked (map, profile) geometry"
+modules = ["decode", "store", "geometry"]
+
+[primitives]
+claim = "per-frame primitives and the spans built from them"
+modules = ["primitives", "segment", "stalls", "synth"]
+
+[readers]
+claim = "pixels in, one observation out; no reader knows another"
+modules = ["minimap", "ocr", "killfeed", "roster", "ping", "cone", "lighting",
+           "hud_reader", "scoreboard", "glance", "track", "economy"]
+
+[orchestration]
+claim = "shared decode passes, which dispatch to readers and own no reading"
+modules = ["passes"]
+
+[adjudication]
+claim = "pure over stored observations, with evidence and alternatives"
+modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
+           "refine", "minimap_diagnostics", "minimap_lifecycle",
+           "round_lifetimes", "lineup", "barriers", "acquisition",
+           "capabilities"]
+
+[entities]
+claim = "lifecycle events, compound episodes, review and coaching hypotheses"
+modules = ["ability_capture", "ability_coverage", "ability_entities",
+           "ability_gallery", "ability_phases", "ability_timeline",
+           "coaching", "review", "overlay", "status", "fidelity", "doctor"]
+
+[delivery]
+claim = "the command surface, and nothing else may import it"
+modules = ["cli", "__main__"]
+
+# ---------------------------------------------------------------------------
+# Upward edges, blessed one at a time with the reason. `kind` says whether the
+# import runs at IMPORT time or inside a function: an eager upward edge is a
+# real inversion of the layering, a deferred one is a runtime call upward. Both
+# are recorded, because a deferred import is how an inversion hides.
+#
+# An exception whose edge no longer exists is reported. That is the half that
+# keeps this file from rotting upward into permissiveness: a declaration only
+# ever verified can be satisfied by declaring everything.
+# ---------------------------------------------------------------------------
+
+[[exception]]
+from = "store"
+to = "roster"
+kind = "eager"
+imports = "N_SLOTS"
+reason = """
+A SCHEMA constant -- how many player slots a stored table has -- that happens
+to live in a reader. The store depends on the number, not on the reading. Move
+it to `version` or `foundation` and this edge goes away.
+"""
+
+[[exception]]
+from = "refinement"
+to = "review"
+kind = "eager"
+imports = "REVIEW_VERSION"
+reason = """
+A version stamp, for provenance, not behaviour. Same shape as the entry above:
+the stamp belongs lower than the module that owns it.
+"""
+
+[[exception]]
+from = "geometry"
+to = "minimap"
+kind = "deferred"
+imports = "art_floor"
+reason = """
+`footprint` warps the art footprint through `minimap.art_floor`. Geometry owns
+the artifact and minimap owns the shape of a floor, so the call is upward by
+one layer for one function. Deliberate.
+"""
+
+[[exception]]
+from = "decode"
+to = "refine"
+kind = "deferred"
+imports = "merge_windows"
+reason = """
+Dense refinement asks decode for intervals, and decode asks refine how to merge
+them. The merge rule is adjudication and belongs where it is.
+"""
+
+[[exception]]
+from = "fidelity"
+to = "cli"
+kind = "deferred"
+reason = """
+`fidelity-check` opens media through the command surface it is invoked from.
+The only edge here that points at `delivery`, and the reason it is tolerated is
+that fidelity is a harness rather than a stage.
+"""
+
+# ---------------------------------------------------------------------------
+# The tree direction. `reticle/` does not know `prototypes/` exists.
+# ---------------------------------------------------------------------------
+
+[trees]
+claim = """
+`reticle/` must not import `prototypes/`. A prototype may import `reticle`; the
+reverse makes a shipped module depend on something with no version stamp, no
+tests, and no promise to keep working.
+"""
+allow = ["doctor", "ability_timeline", "lineup"]
+allow_reason = """
+`doctor` is the auditor and is allowed to reach both trees -- a checker that can
+only see one side of a fork cannot see a fork. It mostly reads them as FILES,
+which no import rule can see or should; `check_shade` is the one place it
+genuinely imports, calling `map_shade.stamp()` after a `sys.path` insert, and
+that spelling is exactly why the check counts a bare import of a prototype
+module and not only a `prototypes.`-prefixed one.
+
+`ability_timeline` and `lineup` are NOT blessed on principle. Both reach into
+prototypes because the calibration still lives there, which is an unfinished
+promotion rather than a design, and NOTHING REPORTED EITHER until this check
+existed. `ability_timeline.materialize_demo_casts` drives `ability_cast` and
+`ability_hud` as readers. `lineup._composition` inserts the prototypes
+directory on `sys.path` and imports `minimap_portrait.composition`, and does the
+same again for `ability_hud`'s `SLOT_X0`/`SLOT_DX`/`SLOT_KEYS` -- the tray
+geometry. That second spelling is the one worth staring at: it reads like a
+stdlib import and is a shipped module depending on an unversioned prototype.
+Both are triaged in BACKLOG.md under the ability line.
+"""

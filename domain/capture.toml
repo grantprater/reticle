@@ -21,6 +21,10 @@ counting them as reads inflates every rate computed over time.
 kind = "codec"
 known = "measured"
 since = "2026-09-05"
+source = """
+reticle/stalls.py, which finds repeated frames; doctor's STALL check reports
+four affected sessions in the current store, from 2.9% to 9.2% of capture
+"""
 use = "doctor's STALL check reports the affected span per session"
 
 [session-pixels-are-not-the-map]

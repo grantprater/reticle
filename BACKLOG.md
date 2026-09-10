@@ -941,7 +941,7 @@ not either, because before the fix neither imported the other.
 an anecdote; two would say what the discriminating signal is, which a single case
 did not. `GREEN_H` and `N_THETA` are the two worth settling by hand meanwhile.
 
-## `map_shade.stamp()` hashes RAW BYTES, so a line ending flips it
+## ~~`map_shade.stamp()` hashes RAW BYTES, so a line ending flips it~~ DONE 2026-09-10
 
 **Found 2026-09-10, after it had already lied.** `doctor` opened this session
 reporting *12 geometry npz carry a STALE shade*, and every one of them was
@@ -955,16 +955,18 @@ So on Windows with `core.autocrlf`, merely touching either source file
 invalidates twelve baked artifacts and invites a rebuild that changes nothing.
 That is the opposite of what a staleness check is for.
 
-**The fix is one line** -- hash normalised text rather than bytes:
-`read_text()`, then `.replace(CRLF, LF).encode()`, before hashing. It is NOT
-applied here because it changes the stamp value, which marks all 12 shades
-stale for real and forces `prototypes/map_shade.py build --all` to rewrite
-baked geometry. That rewrite is the player's call, not a side effect of a
-cleanup.
+**FIXED on the player's authorisation, and widened past the line ending while
+the rebuild was being paid for anyway.** `stamp()` normalises line endings via
+`splitlines`/join, fingerprints `minimap.floor_mask` -- `wiki_map` builds the
+art-to-widget fit target from it, so the shipped slab rule is an input to every
+fit and could have moved with every npz reporting fresh -- and hashes the map's
+own art per map, since everything downstream is a warp of
+`reference/maps/<map>.png` and a re-fetch invalidated nothing. The last two are
+the FALSE FRESH direction, which lies rather than merely annoys.
 
-**Trigger: the next deliberate shade rebuild.** Change `stamp()` in the same
-pass, so one rebuild pays for both. Until then, check `git status` before
-believing a SHADE finding.
+All 12 npz rebuilt, value-identical: same shade coverage, same IoU and NCC to
+three places. `doctor.check_shade` now compares per map, deriving the map from
+the `<map>__<profile>` key.
 
 ## `ICON_AREA_REF` is wrong for the BIGMAP profile, and a06's paint cannot score acquisition
 

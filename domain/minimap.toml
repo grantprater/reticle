@@ -38,8 +38,13 @@ evidence about coverage, and closing it destroys the evidence.
 kind = "constraint"
 known = "measured"
 since = "2026-08-28"
-use = "circumference coverage in reticle/minimap.py, which tolerates an arc broken by chroma"
-see = ["capture/chroma-420"]
+source = """
+prototypes/minimap_ring_fit.py, promoted into reticle/minimap.py 2026-09-06 by
+deletion plus re-export: it fits a circle by CIRCUMFERENCE COVERAGE, and with
+the radius range open to 6 the fit collapsed to r=6 on nearly every chroma miss
+"""
+use = "circumference coverage in reticle/minimap.py, which tolerates a broken arc"
+depends_on = ["capture/chroma-420"]
 
 [coincident-icons]
 claim = """

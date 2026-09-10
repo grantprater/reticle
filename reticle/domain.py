@@ -75,7 +75,19 @@ KINDS = frozenset({
 KNOWN = frozenset({"player", "measured", "observed", "inferred"})
 
 REQUIRED = ("claim", "kind", "known", "since")
-OPTIONAL = ("use", "exceptions", "source", "see", "phrases", "supersedes")
+OPTIONAL = ("use", "exceptions", "source", "see", "phrases", "supersedes",
+            "depends_on")
+
+#: A fact whose `known` is one of these is GIVEN: someone told us, or we watched
+#: it happen. It rests on nothing, so it may not declare `depends_on` -- that is
+#: what stops an inference being laundered into a given by adding a provenance
+#: it does not have.
+GIVEN = frozenset({"player", "observed"})
+
+#: A fact whose `known` is one of these is DERIVED and must say what from:
+#: `inferred` from other FACTS, `measured` from a named SOURCE. An inference
+#: resting on nothing stated is the shape every guess in this repo took first.
+DERIVED = frozenset({"inferred", "measured"})
 
 #: Append-only records. They hold the argument as it stood on a date, so a fact
 #: restated inside them is HISTORY and rewriting it would be a lie about what
@@ -107,6 +119,7 @@ class Fact:
     exceptions: str = ""
     source: str = ""
     see: tuple[str, ...] = ()
+    depends_on: tuple[str, ...] = ()
     phrases: tuple[str, ...] = ()
     supersedes: str = ""
     unknown_keys: tuple[str, ...] = field(default=(), compare=False)
@@ -119,6 +132,29 @@ class Fact:
     @property
     def cite(self) -> str:
         return f"[domain:{self.key}]"
+
+
+def _cycles(graph: dict[str, list[str]]) -> list[list[str]]:
+    """Every dependency cycle, so no fact can rest on itself transitively."""
+    seen: set[str] = set()
+    stack: list[str] = []
+    out: list[list[str]] = []
+
+    def walk(node: str) -> None:
+        if node in stack:
+            out.append(stack[stack.index(node):] + [node])
+            return
+        if node in seen:
+            return
+        seen.add(node)
+        stack.append(node)
+        for onward in graph.get(node, ()):
+            walk(onward)
+        stack.pop()
+
+    for node in sorted(graph):
+        walk(node)
+    return out
 
 
 def _str_tuple(value) -> tuple[str, ...]:
@@ -148,6 +184,7 @@ def load(domain_dir: Path | None = None) -> dict[str, Fact]:
             missing = tuple(k for k in REQUIRED if not str(body.get(k, "")).strip())
             unknown = tuple(sorted(set(body) - set(REQUIRED) - set(OPTIONAL)))
             fact = Fact(
+                depends_on=_str_tuple(body.get("depends_on")),
                 domain=path.stem,
                 id=fact_id,
                 claim=str(body.get("claim", "")).strip(),
@@ -263,6 +300,26 @@ def validate(facts: dict[str, Fact],
             if reference not in facts:
                 out.append(("ERROR", f"{key} sees '{reference}', which is not a "
                                      f"registered fact"))
+        for reference in fact.depends_on:
+            if reference not in facts:
+                out.append(("ERROR", f"{key} depends on '{reference}', which is "
+                                     f"not a registered fact"))
+        if fact.known in GIVEN and fact.depends_on:
+            out.append(("ERROR", f"{key} is {fact.known}, which is GIVEN, and "
+                                 f"declares depends_on -- a fact someone told us "
+                                 f"or we watched happen rests on nothing. Make "
+                                 f"it inferred, or drop the dependency."))
+        if fact.known == "inferred" and not fact.depends_on:
+            out.append(("ERROR", f"{key} is inferred and names nothing it rests "
+                                 f"on -- add depends_on"))
+        if fact.known == "measured" and not fact.source:
+            out.append(("ERROR", f"{key} is measured and names no source -- add "
+                                 f"source, so the measurement can be found"))
+
+    for cycle in _cycles({key: [d for d in fact.depends_on if d in facts]
+                          for key, fact in facts.items()}):
+        out.append(("ERROR", "facts depend on each other in a cycle: "
+                             + " -> ".join(cycle)))
 
     cited = citations(base)
     for key, paths in sorted(cited.items()):
@@ -314,6 +371,7 @@ def render(facts: dict[str, Fact], domain: str | None = None,
                              ("EXCEPTIONS", fact.exceptions),
                              ("SOURCE", fact.source),
                              ("SUPERSEDES", fact.supersedes),
+                             ("RESTS ON", ", ".join(fact.depends_on)),
                              ("SEE", ", ".join(fact.see)),
                              ("CITED BY", ", ".join(users) or "NOTHING")):
             if value:

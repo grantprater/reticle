@@ -95,7 +95,23 @@ it" states plainly, and the player had to ask what the sentence meant.
   file that still restates one. `NOTES.md` and `BACKLOG.md` are exempt: they are
   append-only records of what was known on a date. Read one with
   `reticle domain [DOMAIN] [--id ID]`. Pipeline accuracy is NOT a domain fact --
-  outcomes belong in `notes/predictions.jsonl`.
+  outcomes belong in `notes/predictions.jsonl`. Facts carry a dependency graph
+  too: a GIVEN fact (`player`, `observed`) rests on nothing and may not declare
+  `depends_on`, an `inferred` one must name what it rests on, a `measured` one
+  must name a `source`, and the graph must be acyclic. That is what stops a
+  guess being laundered into a given.
+- **THE LAYERING IS DECLARED IN `architecture.toml`, AND VERIFIED, NEVER
+  DERIVED.** Eight layers over `reticle/`; a module may import its own layer or
+  any below it, and every upward edge is blessed one at a time with a reason
+  and whether it is eager or deferred. `doctor`'s LAYER check makes an
+  unblessed eager upward import an ERROR, reports deferred ones -- a deferred
+  import is how an inversion hides -- and reports a declaration that has gone
+  stale, which is what stops the file rotting upward into permissiveness. It is
+  declared because the DERIVED order is an accident: depth by longest path puts
+  `doctor`, `domain` and `decode` beside `version`, since their real
+  dependencies sit inside functions. `reticle/` must not import `prototypes/`,
+  including by `sys.path` insert plus a bare import, which is the spelling that
+  hid two real violations until this check existed.
 - Never put Claude session URLs in repository files or commit messages. Public
   files contain facts; attribution, quotes, and private domain notes stay out.
 

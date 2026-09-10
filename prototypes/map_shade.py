@@ -235,6 +235,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import wiki_map as WM                                             # noqa: E402
+from reticle.artifacts import file_digest                         # noqa: E402
 from reticle import geometry as G                                 # noqa: E402
 from reticle import minimap as M                                  # noqa: E402
 
@@ -291,11 +292,53 @@ BAND = 4
 COVER_MIN = 0.5
 
 
-def stamp() -> str:
-    """Hash of this file and the transform it borrows. See `source_stamp`."""
+def stamp(map_name: str | None = None) -> str:
+    """What made these arrays: this file, the transform it borrows, and the ART.
+
+    WIDENED 2026-09-10, after all three of its holes had shown themselves. The
+    original hashed the raw BYTES of this file and `wiki_map.py`, and nothing
+    else. Each fix below closes a hole that had already fired or was one edit
+    from firing, and `minimap_geometry.source_stamp` took the same widening on
+    2026-09-06 for the same reason.
+
+    **Line endings are normalised.** Raw bytes conflate *the warp changed* with
+    *the checkout changed*. `doctor` opened a session reporting twelve stale
+    shades that were all current, because `wiki_map.py` sat in the working tree
+    with LF endings -- 23070 bytes against 22591 -- and reverting that stray
+    file cleared it. A staleness check that cries wolf on a line ending trains
+    people to ignore it, which is worse than not having it.
+
+    **`floor_mask` is fingerprinted in.** `wiki_map` builds the art-to-widget
+    FIT TARGET from `minimap.floor_mask(static)`, eroded, so the shipped slab
+    rule is an input to every fit -- and it could have moved with every npz
+    still reporting fresh. `floor_mask` is precisely the function whose ten-day
+    fork this repo's auditor is named for. `metrics.fingerprint` hashes function
+    source, so this tracks behaviour and ignores unrelated edits in that module.
+
+    **The ART ITSELF is hashed, per map.** Everything downstream is a warp of
+    `reference/maps/<map>.png`. Re-fetch it and get different published art -- a
+    map update, a different render -- and every shade array is stale while a
+    code-only stamp swears it is current. That is the FALSE FRESH direction, and
+    it is the one that lies to you rather than merely annoying you.
+
+    `map_name` is optional so a caller that does not know the map still gets the
+    code-path half. Every caller in this file does know it, and passes it.
+    """
+    from reticle import metrics
+
     h = hashlib.sha256()
-    for p in (Path(__file__), Path(__file__).with_name("wiki_map.py")):
-        h.update(p.read_bytes())
+    for path in (Path(__file__), Path(__file__).with_name("wiki_map.py")):
+        # splitlines/join normalises CRLF, LF and CR alike, so a checkout that
+        # rewrites line endings no longer reports every baked artefact stale.
+        text = path.read_text(encoding="utf-8", errors="replace")
+        h.update("\n".join(text.splitlines()).encode("utf-8"))
+    h.update(metrics.fingerprint(M.floor_mask, bridge=M.BRIDGE,
+                                 floor_s=M.FLOOR_S_MAX,
+                                 floor_v=M.FLOOR_V_MIN).encode())
+    if map_name:
+        art = WM.ART / f"{map_name}.png"
+        h.update(f"art:{map_name}:".encode())
+        h.update((file_digest(art) if art.is_file() else "absent").encode())
     return h.hexdigest()
 
 
@@ -490,14 +533,14 @@ def art_reference(map_name: str, rebuild=False):
         # file open, and on Windows an open handle refuses the atomic replace
         # below -- so a stale reference could never be rewritten in place.
         with np.load(p) as z:
-            if str(z["built_by"]) == stamp():
+            if str(z["built_by"]) == stamp(map_name):
                 return (z["kind"], z["shade"], z["step"], z["ladder"],
                         int(z["base"]))
     kind, shade, step, ladder, base = art_classes(map_name)
     REF.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.stem + ".tmp.npz")
     np.savez_compressed(tmp, kind=kind, shade=shade, step=step, ladder=ladder,
-                        base=base, built_by=np.array(stamp()))
+                        base=base, built_by=np.array(stamp(map_name)))
     tmp.replace(p)
     return kind, shade, step, ladder, base
 
@@ -519,7 +562,7 @@ def widget_reference(map_name: str, profile: str, fit=None, shape=None,
     p = REF / f"{map_name}__{profile}.npz"
     if p.is_file() and not rebuild:
         with np.load(p) as z:                    # eagerly -- see `art_reference`
-            if str(z["built_by"]) == stamp():
+            if str(z["built_by"]) == stamp(map_name):
                 return (z["shade"], z["kind"], z["step"], z["purity"], z["fit"])
     if fit is None or shape is None:
         return None
@@ -528,7 +571,7 @@ def widget_reference(map_name: str, profile: str, fit=None, shape=None,
     tmp = p.with_name(p.stem + ".tmp.npz")
     np.savez_compressed(tmp, shade=arrays[0], kind=arrays[1], step=arrays[2],
                         purity=arrays[3], fit=np.asarray(fit, np.float32),
-                        built_by=np.array(stamp()))
+                        built_by=np.array(stamp(map_name)))
     tmp.replace(p)
     return arrays + (np.asarray(fit, np.float32),)
 
@@ -570,7 +613,7 @@ def write_shade(gkey: str, quiet=False, refit=False):
         return None
     z.update(shade=shade, shade_kind=kind, shade_step=step, shade_purity=purity,
              shade_fit=fit, shade_map=np.array(map_name),
-             shade_built_by=np.array(stamp()))
+             shade_built_by=np.array(stamp(map_name)))
     tmp = p.with_name(p.stem + ".tmp.npz")   # savez appends .npz otherwise
     np.savez_compressed(tmp, **z)
     tmp.replace(p)

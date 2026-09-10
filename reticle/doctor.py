@@ -46,7 +46,7 @@ import json
 import re
 from pathlib import Path
 
-from reticle import domain
+from reticle import architecture, domain
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -488,13 +488,18 @@ def check_shade(store: Path) -> list[tuple[str, str]]:
         import io, contextlib
         with contextlib.redirect_stdout(io.StringIO()):
             import map_shade
-        want = map_shade.stamp()
+        stamp_of = map_shade.stamp
+        stamp_of()                        # fail here rather than in the loop
     except Exception as e:                                  # pragma: no cover
         return [(WARN, f"cannot compute the shade stamp ({type(e).__name__}) "
                        f"-- staleness unchecked")]
     import numpy as np
     stale, absent = [], []
     for p in sorted(d.glob("*.npz")):
+        # The stamp is PER MAP since 2026-09-10: it hashes the art the shade was
+        # warped from, so a re-fetched map invalidates its own keys and nobody
+        # else's. The geometry key is `<map>__<profile>`, which names the map.
+        map_name = p.stem.split("__")[0]
         try:
             with np.load(p, allow_pickle=False) as z:
                 if "shade" not in z.files:
@@ -503,7 +508,7 @@ def check_shade(store: Path) -> list[tuple[str, str]]:
                 got = str(z["shade_built_by"])
         except Exception:
             got = "unreadable"
-        if got != want:
+        if got != stamp_of(map_name):
             stale.append(p.stem)
     out = []
     if stale:
@@ -631,9 +636,31 @@ def check_domain() -> list[tuple[str, str]]:
     return out
 
 
+def check_layer() -> list[tuple[str, str]]:
+    """The declared topological order of `reticle/`, verified against the code.
+
+    `architecture.toml` declares eight layers and blesses each upward edge with
+    a reason; `reticle/architecture.py` owns the schema and the checks. It is
+    DECLARED rather than derived because the derived order is an accident --
+    depth by longest path puts `doctor`, `domain` and `decode` beside `version`,
+    since their real dependencies are deferred inside functions.
+
+    It earned its place with two faults nobody had reported: `reticle/lineup.py`
+    and `reticle/ability_timeline.py` both import the prototypes tree, which
+    `check_duplicate`'s own docstring says cannot happen. `lineup` does it by
+    inserting the directory on `sys.path` and importing bare, which reads like
+    a stdlib import -- so the check counts that spelling too.
+    """
+    out = []
+    for level, message in architecture.verify():
+        out.append((ERROR if level == ERROR else "finding", message))
+    return out
+
+
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),
+              ("LAYER", check_layer),
               ("PROMOTE", lambda: check_promote(store)),
               ("SESSION_STATIC", lambda: check_session_static(store)),
               ("GEOMETRY", lambda: check_geometry(store)),
