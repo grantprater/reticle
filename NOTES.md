@@ -89,6 +89,27 @@ them. Refused instants carry 0.481 foreign content against 0.454 at read
 instants -- **1.06x against a predeclared 1.5x bar**, and 0.99x at the widest
 margin. Nothing is drawn over the icon when the ring refuses.
 
+**The median refusal is already solved, and the residue is long runs.** Per
+refusal-run length on `c40d950031bb`, after `absent_instants` unlocked
+interpolation (199 points before it, 1953 after):
+
+    band           runs  instants   interpolated  held  unresolved  answered
+    single frame    330       330            309     9          12     96.4%
+    short           223       622            567    19          36     94.2%
+    medium           66       583            333   151          99     83.0%
+    long             13       280              0   148         132     52.9%
+    very long         3       201              0    28         173     13.9%
+
+Long runs interpolate at zero by construction: past `GAP_MS` there is no
+admissible bracket and the hold expires at the same horizon. Sixteen runs carry
+481 instants, 305 of them unresolved. Every bracket-based measurement in this
+file samples the ISOLATED refusals, which are the ones that already work.
+
+`prototypes/refusal_clip.py` renders the seconds around a refusal with the
+reader's reading and the self colour key drawn on top, sampling one run per
+length band rather than taking the modal case. Five clips are in the store at
+`notes/refusal-clips/`, sent to the player 2026-09-10 and NOT yet reviewed.
+
 The standing candidate is already in `BACKLOG.md`, measured over five sessions:
 the self key survives only over the LOWER HALF of the rim, present on 61-67% of
 bearings 150-240 deg and 22-23% at 330-30. A screen-space dropout in the icon's
