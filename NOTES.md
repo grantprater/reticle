@@ -142,7 +142,7 @@ negative -- both the standalone and the joint appearance/geometry paths, and
 the overlap story that motivated them, refuted at 1.06x by
 `prototypes/minimap_occlusion.py`.
 
-350 tests pass; `doctor` has six findings and zero errors. Labels are in
+356 tests pass; `doctor` has eleven findings and zero errors -- five of them the new PROMOTE check, listing measured prototypes nothing in `reticle/` uses. Labels are in
 `<store>/labels/self_fit/`, clips in `<store>/notes/refusal-clips/`, and every
 prediction and outcome is in `notes/predictions.jsonl`.
 

@@ -43,6 +43,7 @@ import argparse
 import ast
 import collections
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -146,6 +147,75 @@ def check_unwired() -> list[tuple[str, str]]:
     return [(WARN, f"`reticle/{m}.py` is reachable from no CLI command and has "
                    f"no entry point -- wire it, or move it back to prototypes/")
             for m in orphan]
+
+
+def check_promote(store: Path) -> list[tuple[str, str]]:
+    """A prototype that was MEASURED and that nothing in `reticle/` uses.
+
+    **This exists because not-wiring was the silent default, and the two checks
+    above cannot see it.** `check_unwired` looks at modules already inside
+    `reticle/`, so a result that never got promoted is invisible to it.
+    `check_orphan` exempts a prototype for being NAMED in a document -- which
+    means writing up a measured result is precisely what makes it stop being
+    reported. Between them, the one state nobody was told about is the one that
+    keeps recurring: measured, written down, never wired.
+
+    The signal is `notes/predictions.jsonl`, the ledger every perceptual
+    experiment is pre-registered in. A prototype named there was part of a
+    recorded experiment; if no module in `reticle/` mentions it, that
+    experiment has not reached the pipeline. **It reports the experiment, not
+    the verdict** -- the ledger's rows are prose and this does not pretend to
+    read them, so a listed entry means "decide about this", not "ship this".
+
+    Keying on `kind == "outcome"` was tried first and reported NOTHING: of 22
+    outcome rows, none names a prototype file. The ledger records what was
+    measured, not what measured it. Narrowing to the rows that sound most
+    conclusive therefore produced an empty check, which is the failure mode
+    this whole check exists to attack.
+
+    **Silence requires a recorded decision.** A measured NEGATIVE should not be
+    wired -- `minimap_occlusion` refuted the overlap story and belongs exactly
+    where it is -- so an outcome row may carry `"wire": "no"` with a
+    `"wire_reason"`, and this skips it. That is the inversion the check is for:
+    leaving a result unwired now costs one field in the ledger, where before it
+    cost nothing at all.
+
+    A WARNING, never an error. The check knows an experiment ran; it cannot
+    know the result was good.
+    """
+    path = store / "notes" / "predictions.jsonl"
+    if not path.is_file():
+        return []
+    stems = {f.stem for f in (ROOT / "prototypes").glob("*.py")}
+    pats = {s: re.compile(rf"(?<!\w){re.escape(s)}(?!\w)") for s in stems}
+    used: set[str] = set()
+    for f in (ROOT / "reticle").glob("*.py"):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        used |= {s for s, p in pats.items() if p.search(text)}
+    seen: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if str(row.get("wire", "")).lower() == "no":
+            continue
+        blob = " ".join(str(v) for v in row.values())
+        # The ledger has carried several row shapes. Take whichever handle the
+        # row actually has rather than printing a `?`, which tells a reader
+        # nothing about which entry to go and read.
+        tag = next((str(row[k]) for k in ("experiment", "id", "when", "date", "ts")
+                    if row.get(k)), "")
+        for s, p in pats.items():
+            if s not in used and p.search(blob):
+                seen.setdefault(s, tag[:40])
+    return [(WARN, f"`prototypes/{s}.py` is in the prediction ledger"
+                   + (f" under `{tag}`" if tag else "") +
+                   " and no module in `reticle/` uses it -- wire it, or record "
+                   "`\"wire\": \"no\"` with a reason on that row")
+            for s, tag in sorted(seen.items())]
 
 
 def check_manifest(store: Path) -> list[tuple[str, str]]:
@@ -454,6 +524,7 @@ def check_stalls(store: Path) -> list[tuple[str, str]]:
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("ORPHAN", check_orphan),
+              ("PROMOTE", lambda: check_promote(store)),
               ("GEOMETRY", lambda: check_geometry(store)),
               ("SHADE", lambda: check_shade(store)),
               ("COVERAGE", lambda: check_coverage(store)),

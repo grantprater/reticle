@@ -912,6 +912,17 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
             continue
         found.append({"cx": float(f["cx"]), "cy": float(f["cy"]), "r": int(f["r"]),
                       "cov": float(f["cov"]), "inner": float(f["inner_red"]),
+                      # `inner_v` is the interior's GREY, where `inner` is the
+                      # interior's KEYED fraction, and the two answer different
+                      # questions. Both the player's icon and the spike glyph
+                      # are a keyed annulus around an un-keyed middle -- the
+                      # portrait for one, the spike's black circle for the
+                      # other -- so `inner` cannot tell them apart and does not
+                      # (0.000 against 0.156, both under a 0.25 gate). What
+                      # differs is what the middle LOOKS like. `fit_ring` has
+                      # always computed this and this function dropped it on
+                      # the floor, so no caller could ask.
+                      "inner_v": float(f["inner_v"]),
                       "facing": f["facing"], "lobe": float(f["lobe"]),
                       "area": int(st[i, 4])})
     # Fragments of one broken surround fit the SAME icon, and the widget cannot

@@ -129,6 +129,23 @@ class AbsenceEvidenceTests(unittest.TestCase):
         # all this rule can still call unobservable.
         self.assertEqual(absent_instants(rows), [100.0])
 
+    def test_the_stored_flag_beats_the_ally_proxy(self):
+        # minimap-0.6.0 records what the reader already knew. A refusal with
+        # the widget DRAWN and no teammate visible is the case the proxy gets
+        # wrong, and the flag gets right.
+        rows = [{"t_ms": 0.0, "self_x": None, "self_y": None, "n_allies": 0,
+                 "widget_drawn": True},
+                {"t_ms": 100.0, "self_x": None, "self_y": None, "n_allies": 2,
+                 "widget_drawn": False}]
+        self.assertEqual(absent_instants(rows), [100.0])
+
+    def test_a_missing_flag_is_unknown_not_false(self):
+        # A pre-0.6.0 row carries no column. Reading its absence as "the widget
+        # was not drawn" would call every refusal unobservable and silently
+        # empty the belief layer.
+        rows = [{"t_ms": 0.0, "self_x": None, "self_y": None, "n_allies": 3}]
+        self.assertEqual(absent_instants(rows), [])
+
 
 if __name__ == "__main__":
     unittest.main()

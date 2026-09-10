@@ -521,6 +521,12 @@ class _MinimapPass:
                 "frame_idx": smp.frame_idx, "t_ms": smp.t_ms,
                 "self_x": None, "self_y": None, "n_allies": 0,
                 "ally_x": [None] * MAX_ALLIES, "ally_y": [None] * MAX_ALLIES,
+                # The column that separates NOBODY WAS LOOKING from THE READER
+                # REFUSED. Both wrote the same NULL until minimap-0.6.0, so no
+                # stored row could say which, and `belief.resolve` had to treat
+                # them alike -- only the second is a detection failure, and
+                # only the first forbids a belief outright.
+                "widget_drawn": False,
             })
             return
         dt_ms = (self.step_ms if self.prev_t is None
@@ -548,6 +554,7 @@ class _MinimapPass:
             "n_allies": len(allies),
             "ally_x": ally_x,
             "ally_y": ally_y,
+            "widget_drawn": True,
         })
 
 

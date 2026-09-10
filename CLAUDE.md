@@ -68,6 +68,14 @@ it" states plainly, and the player had to ask what the sentence meant.
   On the first failed perceptual approach, build the tool that asks the player.
 - Commit whenever a result is verified, and keep the `Picking up` section of
   `NOTES.md` short and current.
+- **A measured result is WIRED or it is declined, in writing.** Leaving a
+  prototype measured and unpromoted was the silent default, and writing it up
+  made it look alive: `doctor`'s ORPHAN check exempts anything a document
+  names. `doctor`'s PROMOTE check now reads `notes/predictions.jsonl` and
+  reports every prototype named there that no module in `reticle/` uses.
+  Declining is legitimate -- a refuted result belongs in `prototypes/` -- but
+  it costs a `"wire": "no"` with a `"wire_reason"` on that row. Silence is no
+  longer an option.
 - Never put Claude session URLs in repository files or commit messages. Public
   files contain facts; attribution, quotes, and private domain notes stay out.
 

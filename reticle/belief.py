@@ -75,21 +75,32 @@ class Fix:
 def absent_instants(rows: list[dict]) -> list[float]:
     """The instants a stored L1 row cannot show the widget was drawn.
 
-    **L1 collapses a refusal and an absent widget into the same NULL**, which
-    the global constraint says must stay distinguishable: `cmd_minimap` writes
-    NULL positions both when `widget_drawn` is false and when the self fit is
-    refused, and stores no flag separating them. Until the reader carries the
-    flag, this cross-references the ALLY channel, which reads the same widget:
-    an ally icon read at that instant proves the widget was drawn, whatever the
-    self reader did.
+    **`minimap-0.6.0` answers this directly.** The reader refuses a frame on
+    exactly the widget test and now records the answer, so a row carrying
+    `widget_drawn` is authoritative: false means nobody was looking, true means
+    the reader looked and refused. Only the first forbids a belief; the second
+    is a detection failure and the layer may interpolate across it.
 
-    The rule is sufficient, not necessary -- a drawn widget with no visible
-    teammate still lands here -- so it OVER-reports absence and the belief
-    stays conservative where it cannot tell. On `c40d950031bb` it recovers
-    2016 of 2676 unread instants as plainly drawn.
+    **Older rows do not carry the column, and its absence is UNKNOWN rather
+    than false.** For those this falls back to the ally cross-reference, which
+    reads the same widget: an ally icon at that instant proves the widget was
+    drawn, whatever the self reader did. That rule is sufficient and not
+    necessary -- a drawn widget with no visible teammate still lands here -- so
+    it OVER-reports absence and keeps the belief conservative where it cannot
+    tell. On `c40d950031bb` it recovered 2016 of 2676 unread instants as
+    plainly drawn. The two paths are kept apart deliberately: mixing a measured
+    flag with a proxy would make a stale table look like a fresh one.
     """
-    return sorted(r["t_ms"] for r in rows
-                  if r.get("self_x") is None and not r.get("n_allies"))
+    out: list[float] = []
+    for r in rows:
+        if r.get("self_x") is not None:
+            continue
+        drawn = r.get("widget_drawn")
+        if drawn is None:                      # pre-0.6.0 row: use the proxy
+            drawn = bool(r.get("n_allies"))
+        if not drawn:
+            out.append(r["t_ms"])
+    return sorted(out)
 
 
 def round_voids(rounds: list[dict]) -> list[float]:

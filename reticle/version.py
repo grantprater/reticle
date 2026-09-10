@@ -95,7 +95,17 @@ HUD_VERSION = "hud-0.12.0"
 # rate, but only on the frames that follow a widget-absent stretch. Measured
 # over the frozen windows: 6.6% of native reads move, 0.9% at 15 Hz -- exactly
 # its ten widget-absent frames -- and none at all at 10, 5 or 2 Hz.
-MINIMAP_VERSION = "minimap-0.5.0"
+#
+# 0.6.0 adds `widget_drawn`. The reader has always KNOWN whether the widget was
+# on screen -- it refuses the frame on exactly that test -- and it threw the
+# answer away, writing the same NULL position for "nobody was looking" as for
+# "the fit refused". Those are different facts: only the second is a detection
+# failure, and only the first forbids a belief outright. `belief.resolve` had
+# to conflate them, and the interim workaround recovered 2016 of 2676 by
+# cross-referencing the ally channel. No detector changed, so positions are
+# byte-identical to 0.5.0; this bump exists because the TABLE gained a column,
+# and rows without it must read as unknown rather than as false.
+MINIMAP_VERSION = "minimap-0.6.0"
 # Minimap pings, emitted as EVENTS rather than per-frame rows. Bump when the
 # hue bands, the size gates or the lifetime gate change. Events are rewritten
 # whole per session, so this is a stamp for attribution rather than a cache

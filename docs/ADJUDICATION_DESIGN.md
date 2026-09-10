@@ -57,7 +57,7 @@ Inspected `reconciliation.py`, `round_lifetimes.py`, `minimap_lifecycle.py`,
   `c40d950031bb` (699 of 8025). The `RUN_PX * 1.6` gate was calibrated against
   `minimap-0.4.0`, so it is owed a re-measurement against the fitted reader.
 
-Pickup diagnostics: `doctor` reports six findings and zero errors; `status`
+Pickup diagnostics: `doctor` reports eleven findings and zero errors; `status`
 reports 52 sessions, 411 derived rounds and four stale minimap artifacts. These
 are inventory checks, not an adjudication accuracy baseline. Historical Sunset
 fragmentation counts in `NOTES.md` require current-provenance rerendering before

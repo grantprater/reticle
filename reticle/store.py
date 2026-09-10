@@ -446,6 +446,15 @@ class Store:
             "self_x": pa.array(col("self_x"), type=pa.float32()),
             "self_y": pa.array(col("self_y"), type=pa.float32()),
             "n_allies": pa.array(col("n_allies"), type=pa.int8()),
+            # Was the widget on screen at all. A NULL `self_x` means one of two
+            # different things -- the reader refused, or nobody was looking --
+            # and until `minimap-0.6.0` this table wrote the same NULL for
+            # both, so `belief.resolve` could not tell a detection failure from
+            # a scoreboard. Rows written by an older reader do not carry the
+            # column; a reader must treat its absence as UNKNOWN rather than
+            # as false.
+            "widget_drawn": pa.array([r.get("widget_drawn") for r in rows],
+                                     type=pa.bool_()),
         }
         for i in range(len(rows[0]["ally_x"])):
             arrays[f"ally{i}_x"] = pa.array([r["ally_x"][i] for r in rows], type=pa.float32())
