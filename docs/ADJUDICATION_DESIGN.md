@@ -477,7 +477,7 @@ two rows below.
 
 | Evidence | Constraint on the belief | Status |
 |---|---|---|
-| Ally icon centres | Two icons cannot sit closer than `MIN_ICON_SEPARATION_PX` (16 px at reference scale), so ally centres exclude regions -- and refusals happen inside clusters, so they also explain the miss | In the same L1 rows, already read, UNUSED |
+| Ally icon centres | **Exclude nothing.** The separation rule governs fragments within ONE colour key, not two; read self-ally pairs come as close as 0.7 px, and 6.6% sit inside the separation | Measured 2026-09-09 and REFUTED. Their one use is as a drawn-witness, in `absent_instants` |
 | Self-key fragments at a refusal | Bound the centre tightly even when the ring fit refuses: within 12 px on every one of 137 bracketed refusals | Measured; `minimap_self_appearance.py --joint` |
 | Viewcone and lighting | Independent check on icon role and bearing | Channels exist |
 
@@ -545,7 +545,26 @@ downstream should model death until it lands.
    refuse was already unresolved as stale, so it only renames the reason. That
    is the honest shape of a correctness gate -- it buys nothing where the
    layer was already silent.
-2. Ally centres as a discriminator inside clusters.
+2. ~~Ally centres as a discriminator inside clusters.~~ CLOSED, measured
+   negative. Two separate claims failed:
+
+   - **Exclusion is refuted.** Gating a belief on distance to an ally would
+     refuse 6.6% and 2.9% of the reader's own correct positions on the two
+     current sessions, and the closest read pair sits 0.7 px apart. There is
+     no separation to exploit, because `MIN_ICON_SEPARATION_PX` collapses
+     fragments inside one key and says nothing across two.
+   - **The overlap diagnosis is weaker than it was written.** Proximity to an
+     ally does lift refusal, but only by 1.2x-1.6x, and most refusals have no
+     ally near them at all:
+
+         session          nearest ally within 15 px
+                          self read        self refused
+         c40d950031bb     36.9%            43.9%
+         ff636d173b07     19.3%            30.2%
+
+     Worse, the refused column is measurable only on BRACKETED refusals --
+     the isolated ones. It says nothing about the long runs, which is exactly
+     where overlap was claimed to dominate.
 3. A `widget_drawn` column, folded into the re-decode that rebuilds the 18
    sessions still on `minimap-0.4.0`.
 4. Self identity, which unblocks death.

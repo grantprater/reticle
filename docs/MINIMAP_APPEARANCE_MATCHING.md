@@ -260,15 +260,19 @@ What caps it is availability, not scoring:
 The decisive number is the denominator. The joint path can answer 164 of 1594
 drawn refusals (10.29%) before any accuracy gate, so at its own perfect
 precision it moves eligible coverage about two points. Bracketed refusals are
-themselves only 137 of 1594 (8.60%): the refusal mass is LONG RUNS during
-portrait overlap, which neither a bracket nor a recent template reaches. A
+themselves only 137 of 1594 (8.60%): the refusal mass is LONG RUNS, which
+neither a bracket nor a recent template reaches. A
 recent-template channel is structurally the wrong instrument for it, however
 well it scores on the isolated refusals it can see.
 
 Step 2 therefore closes. The frozen windows were never opened for the joint
 rule, and `JOINT_RESIDUAL_SCORE_MIN` stays unselected so no threshold is chosen
 after the fact. Step 3 inherits the useful parts: `match_at`, the permissive
-proposal call, and the finding that overlap is the thing to model. Detailed
+proposal call, and the observation that portraits overlap where the ring
+refuses. **That last was inspected, not measured, and a later cross-reference
+cut it down**: ally proximity lifts refusal only 1.2x-1.6x, and most refusals
+have no ally within 15 px. See the ally row of the position-belief accounting
+in [ADJUDICATION_DESIGN.md](ADJUDICATION_DESIGN.md). Detailed
 predictions and outcomes are in the store's `notes/predictions.jsonl`; artifacts
 are `notes/self-appearance-step2-{frozen,tiers}.json` and
 `notes/self-appearance-step2-joint-dev{,-proposals}.{json,png}`.

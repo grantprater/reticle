@@ -74,7 +74,25 @@ gives 0 on `c40d950031bb` and 18 on `ff636d173b07`.
 Nothing STORES a `Fix` -- the belief is recomputable, so keeping the raw reads
 lets a later change to the law or to the evidence replay without a re-decode.
 
-Next is step 2: ally centres as a discriminator inside clusters. `docs/ADJUDICATION_DESIGN.md`'s gap section is
+Step 2 closed as a measured negative and changed no code. Ally centres cannot
+exclude regions: `MIN_ICON_SEPARATION_PX` collapses fragments inside ONE colour
+key and never governed two, and read self-ally pairs come as close as 0.7 px,
+with 6.6%/2.9% inside the separation. Gating on it would refuse the reader's
+own correct positions.
+
+**It also cut down a claim I had written into three documents.** Proximity to
+an ally lifts refusal only 1.2x-1.6x (within 15 px: 43.9% of bracketed refusals
+against 36.9% of reads, and 30.2% against 19.3%), and most refusals have no
+ally near them. The overlap story came from a contact sheet; the cross-
+reference the standing rule asks for is what cut it. Corrected in the
+appearance doc, the backlog and the accounting.
+
+Left unresolved and recorded in `BACKLOG.md`: 73 and 104 self-ally pairs sit
+closer than 5.7 px, closest 0.7 px -- either genuine stacking or one icon read
+by both keys.
+
+Next is step 3: a `widget_drawn` column in L1, which needs a re-decode and
+should carry the 18 stale `minimap-0.4.0` sessions with it. `docs/ADJUDICATION_DESIGN.md`'s gap section is
 current. 345 tests pass; `doctor` has six findings and zero errors.
 
 ## Prior P3 context -- killfeed persistence and the Step 1 ring fit

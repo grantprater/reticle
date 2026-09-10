@@ -170,8 +170,10 @@ modest gate -- and it did not matter, because of the denominator:
     ...that a recent template can answer at all            164   10.29%
     ...with a forced bracket, i.e. MEASURABLE at all       137    8.60%
 
-**Refusals arrive in long runs while the self portrait overlaps ally
-portraits**, and a recent template needs a recent fit. 85 of 137 opportunities
+**Refusals arrive in long runs**, and a recent template needs a recent fit.
+(The original entry said the runs were portrait overlap. Inspected, not
+measured -- and a 2026-09-09 cross-reference against the ally channel cut it
+to a 1.2x-1.6x lift, with most refusals carrying no ally within 15 px.) 85 of 137 opportunities
 had no trusted anchor; where one existed the path was nearly exhaustive, and the
 motion gate excluded none of the 51 correct proposals it saw. Ceiling misses are
 displaced fragments and never another icon -- 25 at 3-6 px, 26 at 6-12 px, none
@@ -214,6 +216,18 @@ counts positions the current reader refuses to claim.
 **Any model work reading those tables is reading the old detector.** Rebuild
 before using stored positions as an adjudication baseline, and fold in the
 `widget_drawn` column above so one re-decode buys both.
+
+## Self and ally icons are read as NEARLY COINCIDENT in a few hundred instants
+
+Measured 2026-09-09 while testing whether ally centres could exclude regions.
+At instants where the self reader answered, 73 self-ally pairs on
+`c40d950031bb` and 104 on `ff636d173b07` sit closer than 5.7 px -- about a
+third of an icon diameter -- and the closest pair is 0.7 px apart.
+
+Either players genuinely stack that tightly, or one drawn icon is being read by
+both colour keys. **The channels disagree and nothing records it.** Storing the
+disagreement is the standing rule; resolving it needs a look at those frames,
+not a threshold.
 
 ## Minimap re-validation after the `floor_mask` reconciliation
 
