@@ -46,7 +46,7 @@ import json
 import re
 from pathlib import Path
 
-from reticle import architecture, domain
+from reticle import architecture, domain, metrics, quoted
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -657,10 +657,32 @@ def check_layer() -> list[tuple[str, str]]:
     return out
 
 
+def check_quoted(store: Path) -> list[tuple[str, str]]:
+    """Numbers quoted in prose, against the run that produced them.
+
+    The last unenforced surface, and the one that rots fastest. `metrics`
+    already stores every run with its dependencies and refuses false
+    comparisons, and nothing linked the 15k lines of prose that QUOTE those
+    figures to any of them -- 132 recorded runs, zero citations, so a number
+    could be quoted, the code could move, and the prose would stay.
+
+    `reticle/quoted.py` owns the `[metric:...]` form. A citation to a series
+    with no recorded `pass` run is an ERROR; a quoted value disagreeing with
+    the latest one is a finding, because the honest fix is sometimes the prose
+    and sometimes the number. `NOTES.md` and `BACKLOG.md` are exempt as
+    append-only history, the same rule the DOMAIN check uses.
+    """
+    out = []
+    for level, message in quoted.verify(rows=metrics.load(store / "notes" / "metrics.jsonl")):
+        out.append((ERROR if level == ERROR else "finding", message))
+    return out
+
+
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),
               ("LAYER", check_layer),
+              ("QUOTED", lambda: check_quoted(store)),
               ("PROMOTE", lambda: check_promote(store)),
               ("SESSION_STATIC", lambda: check_session_static(store)),
               ("GEOMETRY", lambda: check_geometry(store)),

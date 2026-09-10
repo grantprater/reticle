@@ -119,12 +119,12 @@ Raising it to `(10, 500)` was pre-registered and confirmed on every clause:
 
 | | before | after |
 |---|---:|---:|
-| d95 `base` recall | 77.1% | **93.8%** |
-| d95 `base` precision | 7.6% | 9.1% |
+| d95 `base` recall | 77.1% | **93.8%** [metric:proposal_audit/acquisition@d95cfad5693a#recall=0.9375] |
+| d95 `base` precision | 7.6% | 9.1% [metric:proposal_audit/acquisition@d95cfad5693a#precision=0.0907] |
 | d95 candidates | 515 | 523 |
 | d95 fragmented targets | 8 | 3 |
-| a06 `base` recall | 72.7% | 72.7% |
-| union recall, d95 / a06 | 100% / 90.9% | 100% / 90.9% |
+| a06 `base` recall | 72.7% | 72.7% [metric:proposal_audit/acquisition@a06f04a0059f#recall=0.7273] |
+| union recall, d95 / a06 | 100% / 90.9% | 100% [metric:proposal_audit/acquisition@d95cfad5693a#union_recall=1.0] / 90.9% [metric:proposal_audit/acquisition@a06f04a0059f#union_recall=0.9091] |
 
 Seven of d95's eight `component_too_large` misses sat on components of 205-251
 px against a cap of 203. So the audited attribution was right, the cap really

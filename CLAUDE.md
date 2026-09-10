@@ -100,6 +100,16 @@ it" states plainly, and the player had to ask what the sentence meant.
   `depends_on`, an `inferred` one must name what it rests on, a `measured` one
   must name a `source`, and the graph must be acyclic. That is what stops a
   guess being laundered into a given.
+- **A NUMBER QUOTED IN PROSE CITES THE RUN THAT PRODUCED IT.** The form is a
+  bracketed `metric:` token carrying the series, the session and the VALUE, and
+  `doctor`'s QUOTED check compares it to the latest `pass` row. A citation to a
+  series with no recorded run is an ERROR; a quoted value that no longer matches
+  is a finding naming the file and both numbers, because the honest fix is
+  sometimes the prose and sometimes the number. This existed because `metrics`
+  stored 132 runs and nothing linked a single line of prose to any of them, so a
+  figure could be quoted, the code could move, and the prose would stay. Read
+  with `reticle/quoted.py`; `NOTES.md` and `BACKLOG.md` are exempt as
+  append-only history.
 - **THE LAYERING IS DECLARED IN `architecture.toml`, AND VERIFIED, NEVER
   DERIVED.** Eight layers over `reticle/`; a module may import its own layer or
   any below it, and every upward edge is blessed one at a time with a reason

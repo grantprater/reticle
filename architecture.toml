@@ -22,8 +22,8 @@ order = ["foundation", "source", "primitives", "readers", "orchestration",
 [foundation]
 claim = "no siblings above the language and the store's own vocabulary"
 modules = ["version", "profiles", "fingerprint", "metrics", "judgement",
-           "domain", "architecture", "screen", "artifacts", "revisions",
-           "census"]
+           "domain", "architecture", "quoted", "screen", "artifacts",
+           "revisions", "census"]
 
 [source]
 claim = "identity, decode, persistence, and the baked (map, profile) geometry"
