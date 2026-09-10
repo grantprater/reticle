@@ -61,6 +61,69 @@ ALLOWED_LOCAL = frozenset({
     "segment", "sample_frames", "_text",
 })
 
+# These are the only two places allowed to aggregate pixels from one capture.
+# The geometry builder creates the shared (map, profile) artifact; preflight
+# uses its median only to measure widget size/placement/orientation. Expanding
+# this list is a design decision, not a way to silence a finding.
+CAPTURE_MEDIAN_ALLOWLIST = frozenset({
+    "prototypes/clip_preflight.py",
+    "prototypes/minimap_geometry.py",
+})
+
+
+def check_session_static(store: Path, root: Path | None = None) -> list[tuple[str, str]]:
+    """Reject per-session base-map construction and retired cache access.
+
+    Session frames may determine only the minimap widget's dimensions and
+    placement. Base pixels, floor, lighting references and detector backgrounds
+    must come from baked ``(map, profile)`` geometry. This source check exists
+    because that boundary repeatedly crept back through convenience prototypes.
+    """
+    root = root or ROOT
+    out = []
+    for tree_name in ("reticle", "prototypes", "tools"):
+        tree_dir = root / tree_name
+        if not tree_dir.is_dir():
+            continue
+        for f in sorted(tree_dir.rglob("*.py")):
+            rel = f.relative_to(root).as_posix()
+            if rel == "reticle/doctor.py":
+                continue
+            source = f.read_text(encoding="utf-8", errors="replace")
+            try:
+                mod = ast.parse(source)
+            except SyntaxError:
+                continue
+            bad = set()
+            for node in ast.walk(mod):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = (node.func.id if isinstance(node.func, ast.Name) else
+                        node.func.attr if isinstance(node.func, ast.Attribute) else "")
+                if name in {"read_static_map", "write_static_map", "static_map",
+                            "median_widget"}:
+                    bad.add(name)
+                if name == "median" and any(
+                        isinstance(child, ast.Call) and
+                        ((isinstance(child.func, ast.Attribute) and child.func.attr == "stack") or
+                         (isinstance(child.func, ast.Name) and child.func.id == "stack"))
+                        for child in ast.walk(node)):
+                    if rel not in CAPTURE_MEDIAN_ALLOWLIST:
+                        bad.add("capture median")
+            if ".static.npy" in source:
+                bad.add("session .static.npy path")
+            if bad:
+                out.append((ERROR, f"{rel} uses {', '.join(sorted(bad))} -- "
+                            "session pixels may only size/place the widget; "
+                            "read baked (map, profile) geometry for every map value"))
+
+    legacy = sorted((store / "masks").glob("*.static.npy"))
+    if legacy:
+        out.append((WARN, f"{len(legacy)} retired per-session static-map cache "
+                    "file(s) remain under masks/. They are ignored by code; "
+                    "remove them only as a deliberate cleanup."))
+    return out
+
 
 def _defs(tree_name: str) -> dict[str, list[str]]:
     """Top-level function names per file in one tree."""
@@ -546,6 +609,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("ORPHAN", check_orphan),
               ("PROMOTE", lambda: check_promote(store)),
+              ("SESSION_STATIC", lambda: check_session_static(store)),
               ("GEOMETRY", lambda: check_geometry(store)),
               ("SHADE", lambda: check_shade(store)),
               ("COVERAGE", lambda: check_coverage(store)),

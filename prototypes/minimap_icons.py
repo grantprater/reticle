@@ -55,13 +55,8 @@ from chroma_test import to_420                                 # noqa: E402
 # fifteen modules import it from here, and a second definition is how the fork
 # happened the first time. `BRIDGE` moved with it.
 #
-# `static_map` was the same fork in the same two files, benign only because both
-# copies computed the identical median. It is `median_widget` there now -- the
-# shared core -- while `reticle.minimap.static_map` keeps the span-SAMPLING half
-# that a clip does not need. Aliased rather than renamed because eight modules
-# here call `static_map(frames)` and the name is right from their side.
-from reticle.minimap import (BRIDGE, floor_mask,                # noqa: E402,F401
-                             median_widget as static_map)
+from reticle.minimap import BRIDGE, floor_mask                  # noqa: E402,F401
+from reticle import geometry                                    # noqa: E402
 
 # Measured off the enlarged widget on 2026-08-26: the enemy ring sits at hue
 # 177, sat 152, val 197, and the X mark at hue 177, sat 156, val 196 -- the same
@@ -174,6 +169,8 @@ def summarise(label, per_frame):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
+    ap.add_argument("--geometry", required=True, metavar="MAP__PROFILE",
+                    help="baked geometry key; input video never supplies map pixels")
     ap.add_argument("--n", type=int, default=120)
     args = ap.parse_args()
 
@@ -196,7 +193,7 @@ def main() -> int:
         print("no frames read")
         return 1
 
-    floor = floor_mask(static_map(crops_lo))
+    floor = floor_mask(geometry.reference_for_key(args.geometry))
     print(f"{Path(args.video).name}: {len(crops_lo)} frames, ROI {ROI}")
     print(f"walkable floor {floor.mean()*100:.1f}% of the ROI")
     print("\nDoes the enemy ring seal on its own?  (no closing applied)")

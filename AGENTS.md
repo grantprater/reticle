@@ -37,6 +37,13 @@ failure, not a guessed answer.
 - The HUD and minimap are semi-transparent over the void. Search inside the
   opaque structure; fit a shape rather than repairing it with a closing radius;
   never seed label files. Invoke the `labelling-pass` skill before labelling.
+- **SESSION PIXELS DO NOT DEFINE THE MAP.** A capture may determine only the
+  minimap widget's dimensions and placement. Base-map pixels, floor masks,
+  lighting references, detector backgrounds, and all other static map values
+  come exclusively from baked geometry keyed by `(map, profile)`. Never add a
+  per-session static-map cache or capture median to a reader/prototype; `doctor`
+  enforces this. The only exceptions are the geometry builder itself and
+  `clip_preflight`, whose capture median is restricted to size/placement/orientation.
 - Never use stored-data bounds or a model's own output as independent evidence.
   Keep unresolved and no-contact opportunities so coverage is not biased.
 - **CROSS-REFERENCE BEFORE TUNING.** When a detection is wrong, first ask what

@@ -142,13 +142,29 @@ def reference_static(session: str, store: str | Path = DEFAULT_STORE):
         return z["static"].copy()
 
 
+def reference_for_key(k: str, store: str | Path = DEFAULT_STORE):
+    """Immutable base-map pixels for an explicit ``(map, profile)`` key.
+
+    This is the only supported reference for bare-video prototypes, which have
+    no session manifest from which to resolve a key.  Requiring the key keeps a
+    convenience script from quietly turning its input clip into map geometry.
+    """
+    import numpy as np
+
+    p = path(k, store)
+    if not p.is_file():
+        raise SystemExit(f"no geometry for {k} -- run "
+                         f"prototypes/minimap_geometry.py {k}")
+    with np.load(p, allow_pickle=False) as z:
+        return z["static"].copy()
+
+
 def stability(session: str, store: str | Path = DEFAULT_STORE,
               shape: tuple[int, int] | None = None):
     """This session's per-pixel `sd_lo`, for `minimap.floor_mask`'s `sd`.
 
-    The stability map lives in the geometry npz and the static map is cached
-    per session, so a caller holding only `store.read_static_map` cannot reach
-    it without this. Returns `None` -- meaning *no stability channel*, not
+    The stability map lives beside the baked reference in the geometry npz.
+    Returns `None` -- meaning *no stability channel*, not
     *stable* -- for a session with no map tag, no built geometry, or a
     geometry whose widget differs in size from the caller's static map. Any of
     those keeps `floor_mask`'s pure-`med` behaviour rather than guessing.

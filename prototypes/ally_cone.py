@@ -176,7 +176,7 @@ def scan_pass(args) -> int:
         spans = [(a, min(b, cap_ms)) for a, b in spans if a < cap_ms]
 
     ctx = passes.SessionContext(store=store, manifest=man, profile=prof, spans=spans)
-    med = ctx.static_map()
+    med = ctx.map_reference()
     ally = AllyIconReader(prof, wh, med, hz=args.hz, spans=spans)
     rost = RosterReader(prof, wh, hz=args.hz, spans=spans)
 

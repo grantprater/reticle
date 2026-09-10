@@ -69,7 +69,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 import minimap_ring_fit as rf                                      # noqa: E402
-from minimap_icons import floor_mask, static_map                   # noqa: E402
+from minimap_icons import floor_mask                               # noqa: E402
+from reticle import geometry                                      # noqa: E402
 from minimap_position import SELF_B_UNDER_G, SELF_G_MIN, SELF_R_MIN  # noqa: E402
 from reticle.profiles import get_profile                           # noqa: E402
 
@@ -126,13 +127,7 @@ def main() -> int:
 
     cap = cv2.VideoCapture(str(src["path"]))
     tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    med = []
-    for i in np.linspace(0, tot - 1, 150).astype(int):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
-        ok, fr = cap.read()
-        if ok:
-            med.append(fr[y0:y1, x0:x1])
-    floor = floor_mask(static_map(med))
+    floor = floor_mask(geometry.reference_static(args.session, STORE))
 
     t0 = parse_t(args.t0)
     step_f = max(1, int(round(fps / args.hz)))

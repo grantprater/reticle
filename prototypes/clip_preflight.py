@@ -28,7 +28,12 @@ What it checks, and how each one is decided rather than eyeballed:
                    landed there on this account) shows as line-work reaching
                    further left than the donor's.
 
-The median over sampled frames is what makes all three readable at all: the
+WARNING: this is the sole non-builder capture median allowlisted by `doctor`.
+It may be used only for widget dimensions, placement and orientation. It must
+never become a floor mask, lighting reference, detector background, or cached
+base map; those come only from baked ``(map, profile)`` geometry.
+
+The median over sampled frames is what makes all three checks readable at all: the
 widget is SEMI-TRANSPARENT over live scenery, so a single frame carries the
 world moving behind it. Same trick `minimap_geometry` uses.
 
@@ -64,6 +69,7 @@ ROT_MARGIN = 0.02      # ncc difference below this is "cannot tell"
 
 
 def median_corner(path: str, n: int = N):
+    """Capture median for widget geometry checks only; never map extraction."""
     cap = cv2.VideoCapture(str(path))
     tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     buf = []

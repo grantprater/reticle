@@ -73,7 +73,7 @@ def features(store: Store, root: Path, sid: str, labels: dict) -> list[dict]:
     src = manifest["source"]
     x0, y0, x1, y1 = minimap_roi_px(get_profile(manifest["source_profile"]),
                                     int(src["width"]), int(src["height"]))
-    med = store.read_static_map(sid)
+    med = geometry.reference_static(sid, root)
     sd = geometry.stability(sid, root, med.shape[:2])
     floor, slab = floor_mask(med, sd=sd), slab_mask(med, sd=sd)
     want = {round(r["t_ms"], 1): r for r in labels.values()}

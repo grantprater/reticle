@@ -34,7 +34,8 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from minimap_icons import ROI, floor_mask, red_mask, static_map    # noqa: E402
+from minimap_icons import ROI, floor_mask, red_mask                # noqa: E402
+from reticle import geometry                                      # noqa: E402
 
 
 def icon_features(sub, cx, cy):
@@ -115,6 +116,8 @@ def candidates(crop, floor, sat_min=100, min_area=40):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
+    ap.add_argument("--geometry", required=True, metavar="MAP__PROFILE",
+                    help="baked geometry key; input video never supplies map pixels")
     ap.add_argument("--n", type=int, default=600)
     ap.add_argument("--sheet")
     ap.add_argument("--max-rows", type=int, default=40)
@@ -129,13 +132,7 @@ def main() -> int:
     x0, y0, x1, y1 = ROI
 
     # Static map from a coarse pass first: icons move, furniture does not.
-    med_src = []
-    for i in np.linspace(0, tot - 1, 150).astype(int):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
-        ok, fr = cap.read()
-        if ok:
-            med_src.append(fr[y0:y1, x0:x1])
-    floor = floor_mask(static_map(med_src))
+    floor = floor_mask(geometry.reference_for_key(args.geometry))
     print(f"{Path(args.video).name}: {tot} frames, {tot/fps/60:.1f} min")
     print(f"walkable floor {floor.mean()*100:.1f}% of the ROI")
 

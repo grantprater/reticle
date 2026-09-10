@@ -31,7 +31,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 import minimap_ring_fit as rf                                     # noqa: E402
-from minimap_icons import floor_mask, static_map                  # noqa: E402
+from minimap_icons import floor_mask                              # noqa: E402
+from reticle import geometry                                     # noqa: E402
 from minimap_icon_eval import hits                                # noqa: E402
 
 STORE = Path.home() / "reticle-store"
@@ -72,13 +73,7 @@ def fits_for(sid, rows, sat):
         x0, y0, x1, y1 = rows[0]["roi"]
         cap = cv2.VideoCapture(str(src["path"]))
         tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        med = []
-        for i in np.linspace(0, tot - 1, 150).astype(int):
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
-            ok, fr = cap.read()
-            if ok:
-                med.append(fr[y0:y1, x0:x1])
-        floor = floor_mask(static_map(med))
+        floor = floor_mask(geometry.reference_static(sid, STORE))
         print(f"decoding {len(need)} new frames ({len(cache)} cached)")
         for n, r in enumerate(need):
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(r["t_ms"] / 1000.0 * fps)))

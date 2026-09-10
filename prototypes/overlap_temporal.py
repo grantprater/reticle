@@ -99,6 +99,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from reticle import geometry                                      # noqa: E402
 with contextlib.redirect_stdout(io.StringIO()):
     import minimap_dynamic as md
     import widget_objects as wo
@@ -142,7 +143,8 @@ def main(argv=None) -> int:
     src = man["source"]
     prof = get_profile(man["source_profile"])
     x0, y0, x1, y1 = minimap_roi_px(prof, int(src["width"]), int(src["height"]))
-    floor = floor_mask(store.read_static_map(a.session))
+    floor = floor_mask(geometry.reference_static(a.session, store.root),
+                       sd=geometry.stability(a.session, store.root))
     scale = widget_scale(x1 - x0)
 
     free_ctx = None

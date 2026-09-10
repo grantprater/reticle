@@ -105,7 +105,7 @@ HUD_VERSION = "hud-0.12.0"
 # cross-referencing the ally channel. No detector changed, so positions are
 # byte-identical to 0.5.0; this bump exists because the TABLE gained a column,
 # and rows without it must read as unknown rather than as false.
-MINIMAP_VERSION = "minimap-0.6.0"
+MINIMAP_VERSION = "minimap-0.7.0"
 # Minimap pings, emitted as EVENTS rather than per-frame rows. Bump when the
 # hue bands, the size gates or the lifetime gate change. Events are rewritten
 # whole per session, so this is a stamp for attribution rather than a cache

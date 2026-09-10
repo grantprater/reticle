@@ -203,9 +203,7 @@ def main(argv=None) -> int:
     src = manifest["source"]
     profile = get_profile(manifest["source_profile"])
     x0, y0, x1, y1 = minimap_roi_px(profile, int(src["width"]), int(src["height"]))
-    med = store.read_static_map(args.session)
-    if med is None:
-        raise SystemExit("no cached static map; run `reticle minimap` first")
+    med = geometry.reference_static(args.session, store.root)
     sd = geometry.stability(args.session, store.root, med.shape[:2])
     slab = slab_mask(med, sd=sd)
     with np.load(geometry.require(args.session, store.root)) as z:

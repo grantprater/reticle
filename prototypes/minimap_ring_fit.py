@@ -44,7 +44,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
-from minimap_icons import ROI, floor_mask, red_mask, static_map      # noqa: E402
+from minimap_icons import ROI, floor_mask, red_mask                  # noqa: E402
+from reticle import geometry                                        # noqa: E402
 
 # The ring fit itself lives in `reticle/minimap.py` as of 2026-09-06 and is
 # imported back here, NOT copied. It became shipped code the moment the
@@ -128,6 +129,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("video", nargs="?")
     ap.add_argument("--prekill", help="session id: test at its killfeed kills")
+    ap.add_argument("--geometry", metavar="MAP__PROFILE",
+                    help="baked geometry key (required with a bare video)")
     ap.add_argument("--sat", type=int, default=100)
     args = ap.parse_args()
 
@@ -163,7 +166,12 @@ def main() -> int:
         ok, fr = cap.read()
         if ok:
             med.append(fr[y0:y1, x0:x1])
-    floor = floor_mask(static_map(med))
+    if args.prekill:
+        floor = floor_mask(geometry.reference_static(args.prekill, STORE))
+    else:
+        if not args.geometry:
+            ap.error("--geometry is required with a bare video")
+        floor = floor_mask(geometry.reference_for_key(args.geometry, STORE))
     if times is None:
         times = list(np.linspace(0, tot - 1, 120) / fps * 1000)
 

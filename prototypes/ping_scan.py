@@ -11,10 +11,9 @@ reader joins the PASS" convention in `CLAUDE.md`. On a session, pings come off
   and does not need to be one;
 * the **contact sheet**, which is the only way to check a hit by eye.
 
-`scan()` here holds every crop so it can build its own static map -- the median
-does not exist until the pass is over. That is affordable for a 65 s clip and
-is exactly what does not scale, which is why `PingReader` takes a floor mask
-instead of deriving one. Keep this path for clips.
+Bare clips must name a baked ``map__profile`` geometry. They may determine the
+widget crop dimensions, but they never contribute pixels to the detector's
+background or floor mask.
 """
 from __future__ import annotations
 
@@ -27,6 +26,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from reticle.decode import sample_at, sample_frames                # noqa: E402
+from reticle import geometry                                      # noqa: E402
 from reticle.minimap import floor_mask                             # noqa: E402
 from reticle.ping import (LIFETIME_S, Grouper, resolve,            # noqa: E402
                           sightings)
@@ -38,7 +38,8 @@ from reticle.store import Store                                    # noqa: E402
 MINIMAP_ROI = (15, 15, 480, 500)
 
 
-def scan(path: str, roi=MINIMAP_ROI, hz: float = 10.0, fps: float = 60.0):
+def scan(path: str, geometry_key: str, roi=MINIMAP_ROI,
+         hz: float = 10.0, fps: float = 60.0):
     """[(kind, t0, t1, x, y, hue, n_frames)] for every ping in a video file.
 
     One sequential decode of its own, which is what a bare clip costs. The
@@ -53,7 +54,7 @@ def scan(path: str, roi=MINIMAP_ROI, hz: float = 10.0, fps: float = 60.0):
         ts.append(smp.t_ms / 1000.0)
     if not frames:
         return [], None
-    med = np.median(np.stack(frames[::3]), axis=0).astype(np.uint8)
+    med = geometry.reference_for_key(geometry_key)
     floor = floor_mask(med)
     g = Grouper(hz)
     for t, c in zip(ts, frames):
@@ -138,13 +139,17 @@ def main(argv=None) -> int:
                     help="treat the argument as a session id and render the "
                          "pings `reticle scan` already emitted for it")
     ap.add_argument("--hz", type=float, default=10.0)
+    ap.add_argument("--geometry", metavar="MAP__PROFILE",
+                    help="baked geometry key (required for a bare video)")
     ap.add_argument("--sheet", default=None, help="render every hit, magnified")
     a = ap.parse_args(argv)
 
     if a.session:
         return session_sheet(a.video, a.sheet or f"pings_{a.video}.png")
 
-    hits, aux = scan(a.video, hz=a.hz)
+    if not a.geometry:
+        ap.error("--geometry is required for a bare video")
+    hits, aux = scan(a.video, a.geometry, hz=a.hz)
     unconfirmed = aux[2] if aux else []
     rejected = aux[3] if aux else []
     print(f"{len(hits)} pings, {len(unconfirmed)} unconfirmed (clip ended), "

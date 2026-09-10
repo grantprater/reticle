@@ -932,15 +932,11 @@ def cmd_bootstrap(args):
 
     cap = cv2.VideoCapture(src["path"])
     tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    med = []
-    for i in np.linspace(tot * 0.1, tot * 0.9, 150).astype(int):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
-        ok, fr = cap.read()
-        if ok:
-            med.append(fr[my0:my1, mx0:mx1])
-    from minimap_icons import floor_mask, static_map
+    from reticle import geometry
+    med = geometry.reference_static(args.session, STORE)
+    from minimap_icons import floor_mask
     from minimap_temporal import usable
-    floor = floor_mask(static_map(med))
+    floor = floor_mask(med)
     print(f"floor slab {floor.mean()*100:.1f}% of the widget")
 
     # BURSTS, not scattered frames. The filters that make this population clean

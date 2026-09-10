@@ -33,8 +33,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 import enemy_features as ef                                        # noqa: E402
-from minimap_icons import ROI, floor_mask, static_map              # noqa: E402
+from minimap_icons import ROI, floor_mask                          # noqa: E402
 from minimap_icon_scan import candidates                          # noqa: E402
+from reticle import geometry                                      # noqa: E402
 
 # A close enemy: comfortably above the shipped AREA floor of 120, where the
 # detector's precision is much better than its 41% aggregate.
@@ -44,6 +45,8 @@ AREA_STRONG = 500
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
+    ap.add_argument("--geometry", required=True, metavar="MAP__PROFILE",
+                    help="baked geometry key; input video never supplies map pixels")
     ap.add_argument("--n", type=int, default=400)
     ap.add_argument("--sheet")
     ap.add_argument("--sat", type=int, default=100)
@@ -57,13 +60,7 @@ def main() -> int:
     fps = float(cap.get(cv2.CAP_PROP_FPS))
     x0, y0, x1, y1 = ROI
 
-    med = []
-    for i in np.linspace(0, tot - 1, 150).astype(int):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
-        ok, fr = cap.read()
-        if ok:
-            med.append(fr[y0:y1, x0:x1])
-    floor = floor_mask(static_map(med))
+    floor = floor_mask(geometry.reference_for_key(args.geometry))
     print(f"{Path(args.video).name}: {tot/fps/60:.1f} min, "
           f"floor {floor.mean()*100:.1f}% of ROI")
 

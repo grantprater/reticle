@@ -88,6 +88,7 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from reticle import geometry                                      # noqa: E402
 from reticle import ping as P                                      # noqa: E402
 from reticle.decode import sample_at                               # noqa: E402
 from reticle.minimap import (ally_rings, floor_mask,               # noqa: E402
@@ -137,7 +138,8 @@ def main(argv=None) -> int:
     src = man["source"]
     x0, y0, x1, y1 = minimap_roi_px(get_profile(man["source_profile"]),
                                     int(src["width"]), int(src["height"]))
-    floor = floor_mask(store.read_static_map(a.session))
+    floor = floor_mask(geometry.reference_static(a.session, store.root),
+                       sd=geometry.stability(a.session, store.root))
     rows = store.read_events("ping", a.session)
     if not rows:
         print(f"no ping events -- run `reticle scan {a.session}`")

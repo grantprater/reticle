@@ -146,18 +146,10 @@ def audit_session(session: str, store_root: Path) -> dict | None:
     x0, y0, x1, y1 = minimap_roi_px(
         profile, int(source["width"]), int(source["height"]))
     geometry_path = geometry.require(session, store.root)
-    static_map = store.read_static_map(session)
-    background_source = "session_static_map"
     with np.load(geometry_path) as data:
-        geometry_static = data["static"].copy()
+        static_map = data["static"].copy()
         lo = data["lo_gray"].astype(np.float32)
         hi = data["hi_gray"].astype(np.float32)
-    if static_map is None:
-        # Short controlled clips intentionally donate a map/profile geometry:
-        # they cannot build a clean median without baking the demonstrated
-        # ability into it.  Geometry owns the shared reference for this case.
-        static_map = geometry_static
-        background_source = "shared_geometry_static"
     stability = geometry.stability(session, store.root, static_map.shape[:2])
     slab = slab_mask(static_map, sd=stability)
 
@@ -239,7 +231,7 @@ def audit_session(session: str, store_root: Path) -> dict | None:
             for category, counts in sorted(failures_by_category.items())
         },
         "categories": dict(sorted(categories.items())),
-        "background_source": background_source,
+        "background_source": "baked_map_profile_geometry",
     })
     values["decoded_frames"] = decoded
     return values

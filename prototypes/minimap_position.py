@@ -273,7 +273,8 @@ def _roi_px(prof, w, h):
 # which this copy did not have. A half-applied de-duplication is the same
 # defect with a smaller surface, and it demonstrated itself in under an hour.
 from reticle.minimap import (ally_rings, filter_track, floor_mask,   # noqa: E402,F401
-                             self_rings, static_map)
+                             self_rings)
+from reticle import geometry                                        # noqa: E402
 
 
 def main() -> int:
@@ -291,7 +292,7 @@ def main() -> int:
                                        tbl.column("state").to_pylist()) if s == "active"]
 
     cap = cv2.VideoCapture(str(src["path"]))
-    med = static_map(cap, fps, spans, box)
+    med = geometry.reference_static(sid, STORE)
     floor = floor_mask(med)
     print(f"walkable floor {floor.mean() * 100:.1f}% of the widget")
 

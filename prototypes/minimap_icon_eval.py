@@ -38,7 +38,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
-from minimap_icons import floor_mask, static_map                   # noqa: E402
+from minimap_icons import floor_mask                               # noqa: E402
+from reticle import geometry                                      # noqa: E402
 from minimap_icon_scan import candidates                          # noqa: E402
 import minimap_ring_fit as ringfit                                # noqa: E402
 
@@ -109,13 +110,7 @@ def main() -> int:
     x0, y0, x1, y1 = rows[0]["roi"]
     cap = cv2.VideoCapture(str(src["path"]))
     tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    med = []
-    for i in np.linspace(0, tot - 1, 150).astype(int):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
-        ok, fr = cap.read()
-        if ok:
-            med.append(fr[y0:y1, x0:x1])
-    floor = floor_mask(static_map(med))
+    floor = floor_mask(geometry.reference_static(args.session, STORE))
 
     st = {p: dict(tp=0, fn=0, fp=0, fp_named=0, on_q=0, n_q=0)
           for p in ("prekill", "uniform")}

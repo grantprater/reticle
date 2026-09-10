@@ -49,7 +49,7 @@ import numpy as np
 from reticle.store import Store
 from reticle.profiles import get_profile
 from reticle.minimap import minimap_roi_px, floor_mask
-from reticle import ping as P
+from reticle import geometry, ping as P
 from reticle.refine import edges
 
 SID = "587c15b07779"
@@ -66,7 +66,8 @@ src = man["source"]
 prof = get_profile(man["source_profile"])
 box = minimap_roi_px(prof, int(src["width"]), int(src["height"]))
 x0, y0, x1, y1 = box
-floor = floor_mask(st.read_static_map(SID))
+floor = floor_mask(geometry.reference_static(SID, st.root),
+                   sd=geometry.stability(SID, st.root))
 rows = st.read_events("ping", SID)
 assert len(rows) == len(TRUTH)
 

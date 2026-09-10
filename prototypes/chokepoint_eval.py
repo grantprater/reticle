@@ -42,6 +42,7 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from reticle import geometry                                      # noqa: E402
 from reticle import decode                                        # noqa: E402
 from reticle.minimap import widget_drawn                          # noqa: E402
 from reticle.profiles import get_profile                          # noqa: E402
@@ -108,9 +109,7 @@ def main() -> int:
                                            tbl.column("t_end_ms").to_pylist(),
                                            tbl.column("state").to_pylist()) if s == "active"]
 
-    cap = cv2.VideoCapture(str(src["path"]))
-    med = mp.static_map(cap, fps, spans, mm_box)
-    cap.release()  # everything below uses decode.sample_at(), which opens its own
+    med = geometry.reference_static(sid, STORE)
     floor = mp.floor_mask(med)
     sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
     print(f"widget guard {'OFF (pre-0.2.0 baseline)' if a.no_guard else 'ON (minimap-0.2.0)'}")

@@ -499,8 +499,8 @@ def vote(sid: str, n: int, sources: dict, gen: dict | None = None,
     r_min = max(3, int(round(rf.R_MIN * sc)))
     r_max = max(r_min + 1, int(round(rf.R_MAX * sc)))
 
-    # Floor from the session's own geometry static -- every session with
-    # geometry has one, where `masks/<sid>.static.npy` exists for only a few.
+    # Floor from the shared baked (map, profile) geometry. Session pixels must
+    # never substitute here: the session only resolves which geometry to read.
     g = _G.path_of(sid, STORE)
     if g is None or not g.is_file():
         return {"error": "no geometry"}

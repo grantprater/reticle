@@ -148,6 +148,7 @@ from reticle.minimap import floor_mask, minimap_roi_px, widget_scale  # noqa: E4
 from reticle.profiles import get_profile                          # noqa: E402
 from reticle.store import Store                                   # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from reticle import geometry                                      # noqa: E402
 import minimap_dynamic as md                                      # noqa: E402
 
 #: Saturation/value floor for "something is drawn on the opaque slab". The same
@@ -363,7 +364,8 @@ def main(argv=None) -> int:
     prof = get_profile(man["source_profile"])
     box = minimap_roi_px(prof, int(src["width"]), int(src["height"]))
     x0, y0, x1, y1 = box
-    floor = floor_mask(store.read_static_map(a.session))
+    floor = floor_mask(geometry.reference_static(a.session, store.root),
+                       sd=geometry.stability(a.session, store.root))
 
     # The colour-free channel's reference, built exactly as `scan_ability_clip`
     # builds it so the two agree about what "differs from the static map"

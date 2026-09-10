@@ -20,6 +20,7 @@ import pyarrow.parquet as pq
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from reticle.profiles import get_profile                          # noqa: E402
+from reticle import geometry                                      # noqa: E402
 import minimap_position as mp                                     # noqa: E402
 from xmark_eval import teammate_deaths, xmark_blob                # noqa: E402
 
@@ -44,7 +45,7 @@ def main() -> int:
                                        tbl.column("state").to_pylist()) if s == "active"]
 
     cap = cv2.VideoCapture(str(src["path"]))
-    med = mp.static_map(cap, fps, spans, box)
+    med = geometry.reference_static(sid, STORE)
     floor = mp.floor_mask(med)
 
     def frame_at(tm):
