@@ -197,8 +197,8 @@ def prepare(args, store: Store, sid: str) -> int:
 
 
 def run(args, store: Store, sid: str) -> int:
+    import base64
     import tkinter as tk
-    from PIL import Image, ImageTk
 
     out_dir = Path(args.store) / "labels" / KIND / sid
     index = json.loads((out_dir / "index.json").read_text(encoding="utf-8"))
@@ -227,8 +227,11 @@ def run(args, store: Store, sid: str) -> int:
             root.quit()
             return
         c = todo[state["i"]]
-        img = Image.open(out_dir / c["image"])
-        keep["img"] = ImageTk.PhotoImage(img)   # a reference, or it renders blank
+        # base64 through `data=`, the way every other labeller here does it.
+        # Tk 8.6 reads PNG natively, so this needs no imaging dependency, and
+        # the reference must be kept or the image renders blank.
+        raw = (out_dir / c["image"]).read_bytes()
+        keep["img"] = tk.PhotoImage(data=base64.b64encode(raw))
         canvas.configure(image=keep["img"])
         status.configure(
             text=f"{state['i'] + 1}/{len(todo)}   t={c['t_ms']/1000:.2f}s   "
