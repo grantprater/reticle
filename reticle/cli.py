@@ -21,6 +21,8 @@
     reticle ability-capture                   targeted capture queue for demonstrated gaps
     reticle ability-phases                    entity phases and their transition causes
     reticle acquisition-plan SPEC.json        validate and plan evidence sampling
+    reticle capabilities                      validated reader tiers, and what is withheld
+    reticle fidelity-check                    P3: cheaper tiers vs reference fidelity
     reticle status  [--write]                 generated pipeline status -> STATUS.md
     reticle sql     "SELECT ..."              DuckDB over the store
 """
@@ -40,6 +42,7 @@ from .checks import KNOWN_KD, check_hud, player_events, track_entries
 from .rounds import build_rounds, summarise
 from .scoreboard import ScoreboardReader, read_scoreboard
 from . import cone, geometry, lighting
+from .fidelity import FROZEN_WINDOWS
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
@@ -1907,6 +1910,90 @@ def cmd_acquisition_plan(args) -> int:
     return 0
 
 
+def cmd_capabilities(args) -> int:
+    """Print what the shipped readers are validated to do, and what is withheld.
+
+    Stored-data-only: it declares, it does not measure. The measurement is
+    `reticle fidelity-check`.
+    """
+    from .capabilities import (CAPABILITIES_VERSION, FROZEN_EVIDENCE,
+                               builtin_capabilities, unvalidated)
+
+    declared = builtin_capabilities()
+    print(f"{CAPABILITIES_VERSION}   evidence: {FROZEN_EVIDENCE}")
+    print(f"\nDECLARED ({len(declared)} reader(s))")
+    for name, capability in sorted(declared.items()):
+        tiers = ", ".join(f"{t.name}@{'native' if t.hz is None else f'{t.hz:g}Hz'}"
+                          for t in capability.tiers)
+        print(f"  {name}")
+        print(f"    properties  {', '.join(capability.properties)}")
+        print(f"    tiers       {tiers}")
+        print(f"    regimes     {', '.join(capability.regimes)}")
+        print(f"    absence     {capability.negative_evidence}")
+    withheld = unvalidated()
+    print(f"\nWITHHELD ({len(withheld)})")
+    for key, why in sorted(withheld.items()):
+        print(f"  {key}")
+        print(f"    {why}")
+    return 0
+
+
+def cmd_fidelity_check(args) -> int:
+    """Run the frozen P3 comparison: reference fidelity against cheaper tiers.
+
+    This opens the source, so it is not a stored-data command. It reads the
+    frozen window contract, never writes to it, and refuses a session other
+    than the one the windows were reviewed on -- a frozen evaluation moved to
+    another capture is a new evaluation with an old name.
+    """
+    import json
+    from .fidelity import Tier, compare, load_windows
+
+    store = Store(args.store)
+    try:
+        frozen = load_windows(args.windows)
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(str(exc)) from exc
+    manifest = _resolve_session(store, args.session or frozen["session_id"])
+    sid = manifest["session_id"]
+    if sid != frozen["session_id"]:
+        raise SystemExit(f"these windows were reviewed on {frozen['session_id']}, "
+                         f"not {sid}")
+    profile = get_profile(manifest["source_profile"])
+    spans = _active_spans(store, sid, _date_of(manifest))
+    ctx = SessionContext(store=store, manifest=manifest, profile=profile, spans=spans)
+
+    tiers = [Tier("native", None)] + [Tier(f"{hz:g}hz", hz) for hz in args.hz]
+    print(f"session    {sid}  contract {frozen['contract']} frozen {frozen['frozen_on']}")
+    print(f"windows    {len(frozen['windows'])}, "
+          f"{sum(w['t1_ms'] - w['t0_ms'] for w in frozen['windows']) / 1000:.1f}s reviewed")
+    print(f"tiers      {', '.join(t.name for t in tiers)}  via {args.transport}")
+    result = compare(ctx, frozen, tiers, transport=args.transport)
+
+    print()
+    print(f"{'tier':>8}  {'frames':>7} {'wall_s':>7} {'cost':>6}  "
+          f"{'kf_recall':>9} {'kf_fp':>5}  {'mm_agree':>8}  verdict")
+    for row in result["tiers"]:
+        recall = row["killfeed"]["pooled_presence_recall"]
+        agree = row.get("minimap_agreement", {}).get("agreement_fraction")
+        verdict = ("reference" if row["is_reference"]
+                   else ("PASS" if row["verdict"]["pass"]
+                         else "FAIL " + ",".join(row["verdict"]["failed"])))
+        print(f"{row['tier']:>8}  {row['retrieved_frames']:>7} "
+              f"{row['wall_seconds']:>7.2f} "
+              f"{(row['cost_ratio_vs_reference'] or 0):>6.3f}  "
+              f"{('n/a' if recall is None else f'{recall:9.4f}'):>9} "
+              f"{row['killfeed']['false_positive_instants']:>5}  "
+              f"{('n/a' if agree is None else f'{agree:8.4f}'):>8}  {verdict}")
+    if args.out:
+        target = Path(args.out)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(result, sort_keys=True, indent=2,
+                                     allow_nan=False), encoding="utf-8")
+        print(f"\nwrote      {target}")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     """Structural checks on the REPO, the half `status` does not cover.
 
@@ -2226,6 +2313,24 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("spec", help="JSON file containing capabilities and evidence requests")
     s.add_argument("--out", help="also write the resulting plan JSON here")
     s.set_defaults(func=cmd_acquisition_plan)
+
+    s = sub.add_parser("capabilities",
+                       help="what the shipped readers are validated to do")
+    s.set_defaults(func=cmd_capabilities)
+
+    s = sub.add_parser("fidelity-check",
+                       help="P3: compare cheaper tiers to reference fidelity on "
+                            "the frozen source-reviewed windows")
+    s.add_argument("session", nargs="?", help="defaults to the session the windows name")
+    s.add_argument("--windows", default=str(FROZEN_WINDOWS),
+                   help="frozen window contract (default: the shipped reticle/frozen one)")
+    s.add_argument("--hz", type=float, nargs="+", default=[15.0, 10.0, 5.0, 2.0],
+                   help="candidate tiers to compare against native (default: 15 10 5 2)")
+    s.add_argument("--transport", default="seek_windows",
+                   choices=["seek_windows", "sequential_grab"],
+                   help="decode transport (default: seek_windows)")
+    s.add_argument("--out", help="write the full comparison JSON here")
+    s.set_defaults(func=cmd_fidelity_check)
 
     s = sub.add_parser("rounds", help="stage 05: derive rounds and score win rates")
     s.add_argument("session", nargs="?")

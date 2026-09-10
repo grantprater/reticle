@@ -1,0 +1,127 @@
+{
+  "contract": "p3-reference-fidelity-1",
+  "frozen_on": "2026-09-09",
+  "session_id": "c40d950031bb",
+  "reference": {
+    "tier": "native",
+    "hz": null,
+    "spatial_basis": "native_source_roi",
+    "note": "Reference fidelity is every native frame inside the window. It is the comparison baseline, NOT ground truth; the reviewed field below is the truth."
+  },
+  "review": {
+    "method": "Every window was inspected frame by frame at native rate in the killfeed ROI before freezing. `reviewed_instants_ms` lists the instants actually looked at; no claim is made about instants between them.",
+    "reviewer": "session 2026-09-09",
+    "granularity_ms": 200
+  },
+  "windows": [
+    {
+      "window_id": "w1-trigger-killfeed",
+      "role": "trigger",
+      "t0_ms": 182000,
+      "t1_ms": 203000,
+      "reviewed_instants_ms": [182800, 183000, 183200, 183400, 183600, 183800, 184000, 184200, 184400, 186000, 186200, 186400, 186600, 186800, 187000, 187200, 187400, 187600, 190000, 202000],
+      "reviewed": {
+        "killfeed_entries_present": true,
+        "onset_brackets_ms": [[183000, 183200], [186400, 186600]],
+        "entries_seen_at_ms": [183200, 183400, 183600, 183800, 184000, 184200, 184400, 186600, 186800, 187000, 187200, 187400, 187600, 190000, 202000],
+        "no_entries_at_ms": [182800, 183000, 186000, 186200, 186400],
+        "minimap_widget_drawn": true,
+        "note": "Two clean onsets. A death banner (KILLED BY CLOVE) is on screen at 202000 and the widget is still drawn."
+      }
+    },
+    {
+      "window_id": "w2-trigger-killfeed",
+      "role": "trigger",
+      "t0_ms": 506000,
+      "t1_ms": 524000,
+      "reviewed_instants_ms": [506000, 506200, 506400, 506620, 506800, 507000, 507200, 507400, 507620, 515000],
+      "reviewed": {
+        "killfeed_entries_present": true,
+        "onset_brackets_ms": [],
+        "entries_seen_at_ms": [506620, 506800, 507000, 507200, 507400, 507620, 515000],
+        "no_entries_at_ms": [506000, 506200, 506400],
+        "minimap_widget_drawn": true,
+        "note": "No onset is claimed here: a magenta camera wipe covers the ROI at 506200-506400, so the entry may predate the wipe. Entry presence after 506620 is reviewed and certain."
+      }
+    },
+    {
+      "window_id": "w3-audit-quiet",
+      "role": "audit",
+      "t0_ms": 351000,
+      "t1_ms": 371000,
+      "reviewed_instants_ms": [351000, 352000, 353000, 354000, 355000, 356000, 357000, 358000, 359000, 360000, 361000, 362000, 363000, 364000, 365000, 366000, 367000, 368000, 369000, 370000],
+      "reviewed": {
+        "killfeed_entries_present": false,
+        "onset_brackets_ms": [],
+        "entries_seen_at_ms": [],
+        "no_entries_at_ms": [351000, 352000, 353000, 354000, 355000, 356000, 357000, 358000, 359000, 360000, 361000, 362000, 363000, 364000, 365000, 366000, 367000, 368000, 369000, 370000],
+        "minimap_widget_drawn": true,
+        "note": "Mid-round play with no killfeed activity at any reviewed instant. Ability light (a green wash, a blue beam) crosses the world but not the killfeed tray."
+      }
+    },
+    {
+      "window_id": "w4-audit-buyphase",
+      "role": "audit",
+      "t0_ms": 645000,
+      "t1_ms": 660000,
+      "reviewed_instants_ms": [645000, 646000, 647000, 648000, 649000, 650000, 651000, 652000, 653000, 654000, 655000, 656000, 657000, 658000, 659000],
+      "reviewed": {
+        "killfeed_entries_present": false,
+        "onset_brackets_ms": [],
+        "entries_seen_at_ms": [],
+        "no_entries_at_ms": [645000, 646000, 647000, 648000, 649000, 650000, 651000, 652000, 653000, 654000, 655000, 656000, 657000, 658000, 659000],
+        "minimap_widget_drawn": true,
+        "note": "Buy phase with the scoreboard held open. The COMBAT REPORT panel and a KILLED BY RAZE spray card occupy the killfeed ROI for the whole window -- a confuser, not a killfeed row. The stored 2 Hz reader reports zero entries here and is right."
+      }
+    },
+    {
+      "window_id": "w5-confuser-wipe",
+      "role": "confuser",
+      "t0_ms": 503400,
+      "t1_ms": 505600,
+      "reviewed_instants_ms": [503620, 503800, 504000, 504200, 504400, 504620, 504800, 505000, 505200, 505400],
+      "reviewed": {
+        "killfeed_entries_present": false,
+        "onset_brackets_ms": [],
+        "entries_seen_at_ms": [],
+        "no_entries_at_ms": [503620, 503800, 504000, 504200, 504400, 504620, 504800, 505000, 505200, 505400],
+        "minimap_widget_drawn": true,
+        "note": "A green/violet respawn wipe sweeps the killfeed ROI at 504000-504620. No killfeed row is present at any reviewed instant. The stored 2 Hz read recorded THREE entries at 504000: a false positive produced by the wipe."
+      }
+    },
+    {
+      "window_id": "w6-confuser-wipe",
+      "role": "confuser",
+      "t0_ms": 858000,
+      "t1_ms": 861200,
+      "reviewed_instants_ms": [858000, 858220, 858400, 858600, 858800, 859000, 859220, 859400, 859600, 859800, 860000, 860220, 860400, 860600, 860800, 861000],
+      "reviewed": {
+        "killfeed_entries_present": false,
+        "onset_brackets_ms": [],
+        "entries_seen_at_ms": [],
+        "no_entries_at_ms": [858000, 858220, 858400, 858600, 858800, 859000, 859220, 859400, 859600, 859800, 860000, 860220, 860400, 860600, 860800, 861000],
+        "minimap_widget_drawn": true,
+        "note": "A vertical camera wipe with a bright green band crosses the ROI at 859000-860220. No killfeed row is present at any reviewed instant. The stored 2 Hz read recorded FOUR entries at 859000: a false positive produced by the wipe."
+      }
+    }
+  ],
+  "tolerances": {
+    "killfeed_entry": {
+      "onset_ms": 250,
+      "min_presence_recall": 0.9,
+      "max_confuser_false_positive_frames": 0,
+      "why": "The onset tolerance is not tighter than the 200 ms review granularity that established it. Presence recall is measured only at reviewed instants."
+    },
+    "minimap_self_position": {
+      "agreement_px": 3.0,
+      "min_agreement_fraction": 0.97,
+      "basis": "widget pixels, ROI-relative",
+      "why": "Agreement with the native-rate reference at SHARED frames isolates reader state from frame choice: a lower tier's frames are a subset of the reference's."
+    }
+  },
+  "limits": [
+    "One session, one map. These windows freeze an evaluation, not a corpus.",
+    "Reference fidelity is the same detector at a higher rate. Agreement with it is not accuracy; the reviewed field is the only truth here.",
+    "Presence recall is scored at reviewed instants only, never at instants nobody looked at."
+  ]
+}

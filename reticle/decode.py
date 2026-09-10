@@ -317,3 +317,97 @@ def sample_multi(
             idx += 1
     finally:
         cap.release()
+
+
+def sample_windows(
+    path: str,
+    nominal_fps: float,
+    requests: dict[str, tuple[float, list[tuple[float, float]] | None]],
+) -> Iterator[tuple[frozenset[str], Sample]]:
+    """`sample_multi`'s contract, but SEEKING to each window instead of
+    grabbing the file from the start. Same yields, different cost law.
+
+    **Measured 2026-09-09 on c40d950031bb, one 10 s window at 850-860 s.**
+    `sample_multi` pays for every frame between the file start and the last
+    span end, because `grab()` is how it advances:
+
+        sample_multi   60 Hz   601 frames   49.74 s
+        sample_multi   15 Hz   141 frames   48.69 s
+        sample_multi    2 Hz    21 frames   48.80 s
+        this           60 Hz   600 frames    1.85 s
+
+    So under `sample_multi` a 28.6x cut in retrieved frames buys 1.9% of the
+    wall clock, and the temporal tier a planner chooses is very nearly free
+    either way. The cost is the grab-through, and the only thing that removes
+    it is not decoding the part of the file nobody asked about. That is what
+    this does, and it is why `acquisition.execute_plan` routes through it: a
+    variable-fidelity planner whose transport cost is fixed by the LAST
+    timestamp it needs cannot deliver a saving no matter which tier it picks.
+
+    Use `sample_multi` when the requests are unrestricted or cover most of the
+    capture -- one sequential pass then beats a seek per span, and a reader
+    asking for `spans=None` has no windows to seek to. Use this for the
+    bounded trigger/audit windows an evidence request actually names.
+
+    Seeks are coarse: `CAP_PROP_POS_MSEC` lands on or before a keyframe, so
+    frames before the span start are decoded and dropped rather than yielded.
+    That is the price of the seek and it is already paid inside one window.
+    """
+    state = {}
+    for name, (hz, spans) in requests.items():
+        checked = _sampling_spans(spans)
+        if checked is None:
+            raise ValueError(
+                "sample_windows needs explicit spans; use sample_multi for "
+                f"unrestricted coverage (reader {name!r} asked for none)"
+            )
+        state[name] = {"step": _sampling_step(hz), "spans": checked}
+    state = {name: st for name, st in state.items() if st["spans"]}
+    if not state:
+        return
+
+    # One merged decode window per union of interest, so overlapping requests
+    # are not seeked to twice. Each reader keeps its own phase inside it.
+    from .refine import merge_windows
+
+    windows = merge_windows([span for st in state.values() for span in st["spans"]])
+
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        raise SystemExit(f"could not open {path}")
+    try:
+        for start, end in windows:
+            if not cap.set(cv2.CAP_PROP_POS_MSEC, start):
+                raise ValueError("decoder could not seek to requested window")
+            # A NEW WINDOW IS A NEW PHASE, the same rule `sample_spans` and
+            # `sample_multi` follow at a span boundary.
+            for st in state.values():
+                st["next_t"] = None
+            while True:
+                if not cap.grab():
+                    break
+                t_ms = float(cap.get(cv2.CAP_PROP_POS_MSEC))
+                if not math.isfinite(t_ms):
+                    raise ValueError("decoder returned invalid timestamp")
+                if t_ms < start:
+                    continue
+                if t_ms > end:
+                    break
+                want = set()
+                for name, st in state.items():
+                    if not any(s0 <= t_ms <= s1 for s0, s1 in st["spans"]):
+                        continue
+                    if st["next_t"] is None or t_ms >= st["next_t"]:
+                        want.add(name)
+                if not want:
+                    continue
+                ok, frame = cap.retrieve()
+                if not ok or frame is None:
+                    continue
+                idx = cap.get(cv2.CAP_PROP_POS_FRAMES) - 1
+                for name in want:
+                    state[name]["next_t"] = t_ms + state[name]["step"]
+                yield frozenset(want), Sample(frame_idx=int(idx), t_ms=t_ms,
+                                              frame=frame)
+    finally:
+        cap.release()

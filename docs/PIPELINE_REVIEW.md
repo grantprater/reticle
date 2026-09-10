@@ -225,7 +225,7 @@ The current artifact registry is a foundation, not yet a complete provenance DAG
 | P0: observable contracts | Coverage inventory; timestamp/empty-request/gap contracts; immutable run manifest design and minimal storage implementation | Empty request reads zero frames; missing/failed read differs from empty; gaps cannot assert continuous observation; failed publish preserves prior revision |
 | P1: appearance and state | Phase-aware gallery integration with raw appearance retained; explicit cause prerequisites and unknown ownership | Bright/dim is not automatically active/inactive; unknown owner cannot resolve owner death; class-specific brief phases survive as evidence; held-out D rerun reports pass/fail/not-evaluable |
 | P2: identity slice | Two-player overlap through split, roster/killfeed/portrait evidence, alternative histories and pinned replay overlay | Later evidence can revise the association; ambiguous victim stays unknown; fewer identity switches/fragments at matched coverage on current reviewed cases |
-| P3: adaptive observer | Request planner driving existing shared readers; temporal tiers first, spatial tiers where validated | Equal-quality comparison to reference fidelity on trigger and audit windows; measured cost reduction; actual coverage and budget refusal preserved |
+| P3: adaptive observer | Request planner driving existing shared readers; temporal tiers first, spatial tiers where validated | Equal-quality comparison to reference fidelity on trigger and audit windows; measured cost reduction; actual coverage and budget refusal preserved. **Reference fidelity must itself meet the reviewed truth**; where it does not, the property is refused rather than matched |
 | P4: wider semantics | Add phase/life/objective transitions, cross-round identity/economy and ability rules incrementally | Ruleset exceptions, partial captures, POV changes, multi-object uses, no-kill/no-contact cases and causal uncertainty exercised in source-reviewed fixtures |
 | P5: downstream migration | Coaching/episodes consume versioned state/event projections and correction history | No future leakage; every conclusion links to evidence and coverage; revision changes reproducible and explainable |
 
@@ -290,12 +290,58 @@ cost savings are **not** claimed by this documentation change.
   has yet passed held-out accuracy validation; all executable tiers currently retain
   native source/ROI pixels.
 
+2026-09-09, the P3 frozen comparison. `reticle/frozen/p3_reference_windows.json`
+freezes six source-reviewed windows on `c40d950031bb` -- two trigger, two audit,
+two confuser -- with the instants a reviewer actually looked at and the
+tolerances pinned before the run. `reticle fidelity-check` runs the shipped HUD
+and minimap readers over them at native rate and at 15, 10, 5 and 2 Hz;
+`reticle capabilities` prints what the result licensed. The full run is
+`notes/p3-fidelity-20260909.json` in the store. Three findings, and two of them
+refuse work rather than accept it.
+
+- **Frames are not the cost, and the transport is.** One 10 s window at 850 s:
+  `decode.sample_multi` cost 49.74 s at 60 Hz and 48.80 s at 2 Hz -- a 28.6x
+  frame cut buying 1.9% -- because it grabs the file from the start to the last
+  timestamp requested. `decode.sample_windows` seeks to the window instead and
+  cost 2.51 s and 1.10 s for the same frames. `execute_plan` now routes through
+  it when coverage is sparse against its own reach, and a plan reports
+  `covered_span_seconds` and `reach_seconds` beside the frame estimate. On the
+  corrected transport the tier becomes a real lever: over the 79.4 s window set,
+  native 60.24 s against 2 Hz 7.47 s, 8.1x.
+- **The killfeed reader fails the reviewed truth at every fidelity, reference
+  fidelity worst.** Entry-presence recall is 1.0000 at native, 15, 10 and 5 Hz
+  and 0.9545 at 2 Hz, so entries do persist. But across the two reviewed respawn
+  wipes the reader claims entries at 13 reviewed-empty instants at native rate,
+  8 at 15 Hz, 4 at 10, 7 at 5 and 5 at 2, with up to six phantom entries in one
+  frame -- while both audit windows, including a buy-phase window where the
+  COMBAT REPORT panel sits inside the killfeed ROI, score zero at every rate. So
+  the defect is specific to the wipe, and **no tier can be promoted by matching a
+  reference that is itself wrong.** The `transition` regime is refused.
+- **Reference fidelity is not the quality ceiling for a stateful reader.**
+  Minimap `self_position` agrees with the native reference on 0.9030 of shared
+  frames at 15 Hz, 0.9068 at 10, 0.8766 at 5 and 0.9085 at 2 -- flat and
+  non-monotonic, against a frozen 0.97. `pick_self` admits
+  `RUN_PX * scale * (step_ms/1000) * 2`, which is 1.50 px at 60 Hz; measured over
+  the 21 s trigger window, 13.8% of consecutive steps exceed that gate at 60 Hz
+  against 3.6% at 15 Hz and 0.0% at 2 Hz. The nearest-to-previous discipline is
+  abandoned for the largest-blob fallback most often at the highest rate, and on
+  the fast-movement frames worth tracking. The property gets no validated tier.
+
+`reticle/capabilities.py` therefore declares exactly one thing --
+`hud.killfeed_entry_presence` at 5, 10, 15 Hz and native, regime `standard` --
+and records why each withheld property is withheld. A spec may plan against it
+with `"capabilities": "builtin"` instead of asserting its own tiers.
+
 P0 still needs broader migration of mutable L1/current-only artifacts and a
 machine-readable cross-channel capability matrix. P2 still needs fresh-geometry
 visual review and independently attributed later evidence on real overlap cases.
-P3 still needs a real reader capability declaration, frozen reference-fidelity
-windows/tolerances, and a same-window accuracy/cost comparison before it is
-accepted. The current official-art geometry is authoritative and has no doctor
+P3 now has its reader capability declaration, its frozen reference-fidelity
+windows and tolerances, and a same-window accuracy/cost comparison. It is NOT
+accepted: the comparison refused two of the three properties it measured, and
+the cost reduction it does demonstrate came from the transport rather than from
+adaptive fidelity. Accepting P3 needs the killfeed wipe false positives fixed,
+`pick_self` decoupled from its own sample interval, and the comparison rerun on
+a second session. The current official-art geometry is authoritative and has no doctor
 staleness error; only the stored P2 replay artifact predates its rebuild. Do not
 proceed to P4/P5 or claim adaptive savings, spatial adaptation, or ability
 recognition as completed behavior.

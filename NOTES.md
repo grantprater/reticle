@@ -11,6 +11,50 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## PICKING UP -- 2026-09-09, the P3 comparison ran and refused two of three properties
+
+`reticle fidelity-check` compares the shipped readers against reference fidelity
+on six frozen, source-reviewed windows (`reticle/frozen/p3_reference_windows.json`,
+`c40d950031bb`: two trigger, two audit, two confuser, 79.4 s). `reticle
+capabilities` prints what the run licensed. 293 tests pass; `doctor` has six
+findings and zero errors. The full run is `notes/p3-fidelity-20260909.json`.
+
+**The gate is not passed, and the reasons are the result.**
+
+1. **The cost was never the frame count.** `sample_multi` grabs the file from
+   the start to the last timestamp requested, so over one 10 s window at 850 s it
+   cost 49.74 s at 60 Hz and 48.80 s at 2 Hz -- 28.6x fewer frames for 1.9% less
+   time. `decode.sample_windows` seeks to the window: 2.51 s and 1.10 s. Plans
+   now report `covered_span_seconds`/`reach_seconds` and `execute_plan` picks the
+   transport. On the fixed transport the tier finally matters: 60.24 s native
+   against 7.47 s at 2 Hz over the frozen set.
+2. **The killfeed reader fires on camera wipes at EVERY fidelity, worst at
+   native.** 13 reviewed-empty instants claimed at 60 Hz, 8 at 15, up to six
+   phantom entries in one frame; both audit windows clean at every rate,
+   including the buy-phase one where the COMBAT REPORT panel sits in the ROI.
+   Presence recall is 1.0000 down to 5 Hz. So a cheaper tier cannot be promoted
+   by matching a reference that is itself wrong. Regime `transition` is refused.
+3. **Reference fidelity is not the ceiling for a stateful reader.** Minimap
+   `self_position` agreement is 0.90/0.91/0.88/0.91 at 15/10/5/2 Hz -- flat, not
+   decaying. `pick_self`'s gate is `RUN_PX*scale*(step_ms/1000)*2` = **1.50 px at
+   60 Hz**, and 13.8% of consecutive steps exceed it there against 0.0% at 2 Hz.
+   The track discipline is abandoned most often at the highest rate.
+
+### Do this next, in order
+
+1. **Fix the killfeed wipe false positives.** Cross-reference before tuning: a
+   wipe moves the whole frame, so ask what the minimap or the scoreline already
+   says about that instant rather than reaching for the killfeed threshold.
+   `w5-confuser-wipe` and `w6-confuser-wipe` are the frozen cases.
+2. **Decouple `pick_self` from its own sample interval.** The gate should express
+   how far a player can run in the elapsed time with a floor that does not fall
+   below detector jitter, so a higher rate cannot score worse.
+3. **Rerun `fidelity-check` on a second session** before any tier is promoted.
+   One session is one map and one capture.
+
+Do not claim adaptive savings from tier selection: the measured saving so far is
+the transport's. Do not proceed to P4/P5.
+
 ## PICKING UP -- 2026-09-09, pipeline architecture implementation through P3 foundation
 
 Read [docs/PIPELINE_REVIEW.md](docs/PIPELINE_REVIEW.md) for the current P0-P5
@@ -34,14 +78,15 @@ conflict selection, refuses unsupported/budget-limited requests, and produces a
 shared-decode route plan without opening media. `execute_plan` drives registered
 readers over those routes and records actual frame coverage.
 
-P3 is a foundation, not accepted adaptive performance. Next, declare the first
-real reader/property capability, freeze source-reviewed reference-fidelity
-windows and tolerances, then compare recall/timing/identity and measured cost on
-the same windows. Reduced spatial tiers are deliberately rejected until separately
-validated. P0 still needs the cross-channel capability matrix and broader artifact
-migration; P2 still needs fresh-geometry visual review plus independently
-attributed later evidence. Do not proceed to P4 semantics or P5 coaching as if
-those gates were complete, and do not claim ability recognition from these results.
+P3 is a foundation, not accepted adaptive performance. The capability
+declaration, the frozen windows and the same-window comparison the next
+paragraphs called for all landed later the same day -- read the section above
+this one for what they measured. Reduced spatial tiers are deliberately rejected
+until separately validated. P0 still needs the cross-channel capability matrix
+and broader artifact migration; P2 still needs fresh-geometry visual review plus
+independently attributed later evidence. Do not proceed to P4 semantics or P5
+coaching as if those gates were complete, and do not claim ability recognition
+from these results.
 
 ## PICKING UP -- 2026-09-09, the ability line A-F, and what it actually says
 

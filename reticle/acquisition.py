@@ -1,9 +1,18 @@
 """Accuracy-constrained variable-fidelity observation planning.
 
-The planner decides what evidence a question needs; ``decode.sample_multi``
-remains transport. Temporal tiers are executable now. Spatial tiers deliberately
-remain native-pixel declarations until a reader is validated at lower fidelity.
-Plans refuse unsupported tolerances and budgets instead of degrading silently.
+The planner decides what evidence a question needs; ``decode`` remains
+transport. Temporal tiers are executable now. Spatial tiers deliberately remain
+native-pixel declarations until a reader is validated at lower fidelity. Plans
+refuse unsupported tolerances and budgets instead of degrading silently.
+
+**The tier is not where the saving is.** Measured 2026-09-09 on c40d950031bb
+over one 10 s window at 850 s, ``decode.sample_multi`` cost 49.74 s at 60 Hz and
+48.80 s at 2 Hz -- 28.6x fewer frames for 1.9% less time -- because it grabs the
+file from the start to the last timestamp anyone asked for. Seeking to the window
+instead costs 2.51 s and 1.10 s for the same frames. So a plan reports
+``covered_span_seconds`` and ``reach_seconds`` beside its frame estimate, and
+``execute_plan`` picks the transport whose cost law matches the coverage it was
+handed. A frame count alone described neither.
 """
 from __future__ import annotations
 
@@ -12,7 +21,7 @@ import json
 import math
 from pathlib import Path
 
-from .decode import sample_multi
+from .decode import sample_multi, sample_windows
 from .refine import merge_windows
 
 
@@ -101,6 +110,26 @@ def _validate_capability(name: str, capability: ReaderCapability,
             )
 
 
+# Below this share of its own reach, coverage is sparse enough that a seek per
+# window beats grabbing everything between the windows. At 1.0 the requests are
+# one contiguous block and the sequential pass has nothing to skip.
+SEEK_COVERAGE_FRACTION = 0.5
+
+
+def _choose_transport(span_seconds: float, reach_seconds: float) -> str:
+    """Name the transport whose cost law fits this coverage, and why.
+
+    Neither transport is faster in general: `sample_multi` pays for the whole
+    prefix once, `sample_windows` pays a seek per window. The crossover is how
+    much of the prefix the request actually wants.
+    """
+    if reach_seconds <= 0:
+        return "none"
+    if span_seconds / reach_seconds < SEEK_COVERAGE_FRACTION:
+        return "seek_windows"
+    return "sequential_grab"
+
+
 def plan_requests(requests: list[EvidenceRequest],
                   capabilities: dict[str, ReaderCapability], nominal_fps: float,
                   max_frames: int | None = None) -> dict:
@@ -182,20 +211,45 @@ def plan_requests(requests: list[EvidenceRequest],
             "request_ids": sorted(group["request_ids"]),
             "selections": sorted(group["selections"]),
         })
+    covered = merge_windows([span for route in routes for span in route["spans_ms"]])
+    span_seconds = sum(end - start for start, end in covered) / 1000.0
+    reach_seconds = (covered[-1][1] / 1000.0) if covered else 0.0
+    transport = _choose_transport(span_seconds, reach_seconds)
     return {
         "producer_version": ACQUISITION_VERSION,
         "nominal_fps": float(nominal_fps),
         "max_frames": max_frames,
         "estimated_frames_conservative": estimated,
+        "covered_span_seconds": span_seconds,
+        "reach_seconds": reach_seconds,
+        "transport": transport,
         "routes": routes,
         "refused": refused,
         "requests": [asdict(request) for request in requests],
         "limits": [
             "Estimated frames sum routes conservatively and may double-count overlaps.",
+            "Frames are NOT the cost. Measured 2026-09-09 on c40d950031bb, one 10 s "
+            "window at 850 s: under the sequential transport 60 Hz and 2 Hz cost "
+            "49.74 s and 48.80 s for 601 and 21 frames -- a 28.6x frame cut buying "
+            "1.9%. Cost tracks covered_span_seconds under the seeking transport and "
+            "reach_seconds under the sequential one.",
             "All current spatial tiers use native source/ROI pixels.",
             "Meeting a sample-gap tolerance does not establish detector recall.",
         ],
     }
+
+
+def _parse_requests(raw_requests: list) -> list[EvidenceRequest]:
+    """One parser for the public request shape, whichever registry serves it."""
+    return [EvidenceRequest(
+        request_id=raw["request_id"], reader=raw["reader"],
+        property=raw["property"], alternatives=tuple(raw["alternatives"]),
+        spans_ms=tuple(tuple(span) for span in raw["spans_ms"]),
+        max_sample_gap_ms=raw["max_sample_gap_ms"],
+        allowed_tiers=tuple(raw["allowed_tiers"]), reason=raw["reason"],
+        regime=raw.get("regime", "standard"),
+        selection=raw.get("selection", "conflict"),
+    ) for raw in raw_requests]
 
 
 def plan_spec(spec: dict) -> dict:
@@ -204,8 +258,22 @@ def plan_spec(spec: dict) -> dict:
         raise ValueError("acquisition spec must be a JSON object")
     raw_capabilities = spec.get("capabilities")
     raw_requests = spec.get("requests")
-    if not isinstance(raw_capabilities, list) or not isinstance(raw_requests, list):
-        raise ValueError("capabilities and requests must be JSON arrays")
+    if not isinstance(raw_requests, list):
+        raise ValueError("requests must be a JSON array")
+    # `"capabilities": "builtin"` plans against what the shipped readers were
+    # VALIDATED to do, so a spec cannot promote a tier by asserting it.
+    if raw_capabilities == "builtin":
+        from .capabilities import builtin_capabilities
+
+        try:
+            plan = plan_requests(_parse_requests(raw_requests),
+                                 builtin_capabilities(), spec["nominal_fps"],
+                                 spec.get("max_frames"))
+            return json.loads(json.dumps(plan, allow_nan=False))
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"invalid acquisition spec: {exc}") from exc
+    if not isinstance(raw_capabilities, list):
+        raise ValueError('capabilities must be a JSON array or the string "builtin"')
     capabilities = {}
     try:
         for raw in raw_capabilities:
@@ -219,17 +287,8 @@ def plan_spec(spec: dict) -> dict:
             if capability.reader in capabilities:
                 raise ValueError(f"duplicate capability: {capability.reader}")
             capabilities[capability.reader] = capability
-        requests = [EvidenceRequest(
-            request_id=raw["request_id"], reader=raw["reader"],
-            property=raw["property"], alternatives=tuple(raw["alternatives"]),
-            spans_ms=tuple(tuple(span) for span in raw["spans_ms"]),
-            max_sample_gap_ms=raw["max_sample_gap_ms"],
-            allowed_tiers=tuple(raw["allowed_tiers"]), reason=raw["reason"],
-            regime=raw.get("regime", "standard"),
-            selection=raw.get("selection", "conflict"),
-        ) for raw in raw_requests]
-        plan = plan_requests(requests, capabilities, spec["nominal_fps"],
-                             spec.get("max_frames"))
+        plan = plan_requests(_parse_requests(raw_requests), capabilities,
+                             spec["nominal_fps"], spec.get("max_frames"))
         # The public contract is JSON, so do not leak Python tuple semantics to
         # callers or produce an in-memory plan that differs from its persisted form.
         return json.loads(json.dumps(plan, allow_nan=False))
@@ -257,6 +316,10 @@ def execute_plan(ctx, plan: dict, readers: dict[str, object], progress=None) -> 
         raise ValueError(f"missing planned readers: {', '.join(missing)}")
     requests = {route["route_id"]: (route["hz"], route["spans_ms"])
                 for route in routes}
+    # The plan named the transport from the coverage it planned; honour it here
+    # rather than deciding a second time from the same numbers.
+    transport = plan.get("transport") or "sequential_grab"
+    sampler = sample_windows if transport == "seek_windows" else sample_multi
     coverage = {route["route_id"]: {"route_id": route["route_id"],
                                     "reader": route["reader"],
                                     "request_ids": route["request_ids"],
@@ -265,7 +328,7 @@ def execute_plan(ctx, plan: dict, readers: dict[str, object], progress=None) -> 
                 for route in routes}
     fed = set()
     retrieved = 0
-    for who, sample in sample_multi(str(ctx.media), ctx.fps, requests):
+    for who, sample in sampler(str(ctx.media), ctx.fps, requests):
         retrieved += 1
         for route_id in who:
             row = coverage[route_id]
@@ -287,6 +350,7 @@ def execute_plan(ctx, plan: dict, readers: dict[str, object], progress=None) -> 
         if callable(finish):
             finish()
     return {"producer_version": ACQUISITION_VERSION,
+            "transport": transport,
             "retrieved_frames": retrieved,
             "reader_frames": len(fed),
             "coverage": list(coverage.values()),
