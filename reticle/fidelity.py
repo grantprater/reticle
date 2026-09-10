@@ -48,7 +48,7 @@ from .decode import sample_multi, sample_windows
 from .refine import merge_windows
 
 
-FIDELITY_VERSION = "fidelity-0.1.0"
+FIDELITY_VERSION = "fidelity-0.2.0"
 
 FROZEN_CONTRACT = "p3-reference-fidelity-1"
 # Inside the package, not `fixtures/`: that directory is gitignored media,
@@ -244,6 +244,28 @@ def score_agreement(reference: list[dict], candidate: list[dict], tolerance: dic
     }
 
 
+def score_minimap_coverage(rows: list[dict], widget_absent: int) -> dict:
+    """Report detector refusals separately from widget-unavailable frames.
+
+    Agreement can rise when reference and candidate both refuse the same frame.
+    That is useful consistency, but it is not observation coverage. The frozen
+    P3 contract has no minimum coverage tolerance, so this remains a diagnostic
+    until an independently justified budget is frozen.
+    """
+    samples = len(rows)
+    eligible = max(0, samples - int(widget_absent))
+    reads = sum(1 for r in rows
+                if r["self_x"] is not None and r["self_y"] is not None)
+    return {
+        "samples": samples,
+        "widget_absent": int(widget_absent),
+        "eligible": eligible,
+        "reads": reads,
+        "refused": max(0, eligible - reads),
+        "eligible_coverage_fraction": (reads / eligible) if eligible else None,
+    }
+
+
 def _hud_args(nominal_fps: float, hz: float) -> argparse.Namespace:
     """The shipped HUD reader's constructor takes CLI args. Give it the same
     gates `scan` does, so this measures the shipped detector and not a variant."""
@@ -320,7 +342,7 @@ def run_tier(ctx, frozen: dict, tier: Tier, transport: str) -> dict:
         "minimap": [{"frame_idx": r["frame_idx"], "t_ms": r["t_ms"],
                      "self_x": r["self_x"], "self_y": r["self_y"]}
                     for r in minimap.rows],
-        "minimap_widget_absent": minimap.n_absent,
+        "minimap_coverage": score_minimap_coverage(minimap.rows, minimap.n_absent),
     }
 
 
@@ -355,7 +377,7 @@ def compare(ctx, frozen: dict, tiers: list[Tier], transport: str = "seek_windows
             "killfeed": killfeed,
             "killfeed_per_frame": score_killfeed(frozen, run["killfeed"], kf_tol),
             "killfeed_tracks": run["killfeed_tracks"],
-            "minimap_widget_absent": run["minimap_widget_absent"],
+            "minimap_coverage": run["minimap_coverage"],
         }
         if run is not reference:
             row["minimap_agreement"] = score_agreement(
@@ -383,6 +405,9 @@ def compare(ctx, frozen: dict, tiers: list[Tier], transport: str = "seek_windows
             "Killfeed presence is scored on the ADJUDICATED account -- entries "
             "that persisted -- and `killfeed_per_frame` reports what the reader "
             "claimed frame by frame, which is diagnostics and not the verdict.",
+            "Minimap eligible coverage excludes widget-absent frames and is "
+            "reported separately. The frozen contract has no minimum coverage "
+            "tolerance, so a fidelity PASS does not promote refusal-heavy output.",
         ],
     }
 

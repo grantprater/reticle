@@ -998,10 +998,16 @@ def self_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
     return icons(self_mask(crop), crop, floor, **kw)
 
 
-def pick_self(cands: list[tuple[int, float, float]],
+def pick_self(cands: list[tuple[float, float, float] | dict],
               prev: tuple[float, float] | None,
               dt_ms: float, scale: float = 1.0) -> tuple[float, float] | None:
-    """Nearest-to-previous when there is a previous point, else largest blob.
+    """Pick a fitted icon or legacy blob without changing its centre estimator.
+
+    A fitted-icon dict is ranked by arc coverage and supplies its fitted
+    ``cx, cy``. A legacy ``(area, cx, cy)`` tuple is ranked by area. Accepting
+    both keeps stored-data experiments and older prototype callers working;
+    the shipped reader supplies only fitted icons and never falls back to blob
+    centroids.
 
     Nearest-to-previous is what gives this a track rather than a per-frame
     guess: it is what survives a frame where an ally or a wall boundary also
@@ -1029,6 +1035,10 @@ def pick_self(cands: list[tuple[int, float, float]],
     """
     if not cands:
         return None
+    norm = [(float(c["cov"]), float(c["cx"]), float(c["cy"]))
+            if isinstance(c, dict)
+            else (float(c[0]), float(c[1]), float(c[2]))
+            for c in cands]
     if prev is not None and dt_ms <= GAP_MS:
         # RUN_PX is widget px/s, so the gate scales with the widget. `scale`
         # defaults to 1.0 rather than being derived, because this is the one
@@ -1036,10 +1046,10 @@ def pick_self(cands: list[tuple[int, float, float]],
         # caller has the width and passes it.
         lim = max(2.0 * FIT_ERR_PX * scale,
                   RUN_PX * scale * (dt_ms / 1000.0) * 2.0)
-        near = [c for c in cands if np.hypot(c[1] - prev[0], c[2] - prev[1]) <= lim]
+        near = [c for c in norm if np.hypot(c[1] - prev[0], c[2] - prev[1]) <= lim]
         if near:
             return max(near, key=lambda c: c[0])[1:]
-    return max(cands, key=lambda c: c[0])[1:]
+    return max(norm, key=lambda c: c[0])[1:]
 
 
 def filter_track(found: list[tuple[float, float, float]],

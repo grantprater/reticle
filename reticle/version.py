@@ -76,6 +76,13 @@ HUD_VERSION = "hud-0.12.0"
 # self positions and ~8,400 ally candidates of pure phantom. Re-reading it is
 # TABLED in BACKLOG.md, so this stamp is the thing that keeps the staleness
 # visible in `reticle status` rather than resting on someone reading a note.
+# 0.5.0: the shipped self reader now supplies fitted `self_icons` to
+# `pick_self`, ranked by arc coverage, and never falls back to connected-
+# component centroids. Broken arcs previously voted as separate icons with
+# centres biased by roughly the ring radius. Position fits do not require a
+# readable bearing, and candidates must touch the opaque slab. Every stored
+# self position can move or become null, so this requires a re-decode.
+#
 # 0.4.0: `pick_self`'s nearest-to-previous gate is floored at the icon fit's
 # own pair budget, `2 * FIT_ERR_PX`, and measures the elapsed time since the
 # previous position was READ rather than the rate the reader was configured
@@ -88,7 +95,7 @@ HUD_VERSION = "hud-0.12.0"
 # rate, but only on the frames that follow a widget-absent stretch. Measured
 # over the frozen windows: 6.6% of native reads move, 0.9% at 15 Hz -- exactly
 # its ten widget-absent frames -- and none at all at 10, 5 or 2 Hz.
-MINIMAP_VERSION = "minimap-0.4.0"
+MINIMAP_VERSION = "minimap-0.5.0"
 # Minimap pings, emitted as EVENTS rather than per-frame rows. Bump when the
 # hue bands, the size gates or the lifetime gate change. Events are rewritten
 # whole per session, so this is a stamp for attribution rather than a cache

@@ -89,6 +89,12 @@ class NoPreviousPointTests(unittest.TestCase):
         self.assertEqual(pick_self([cand(10, 10.0, 10.0), big], None, 16.7),
                          big[1:])
 
+    def test_fitted_icons_use_fitted_centres_and_arc_coverage(self):
+        weak = {"cov": 0.26, "cx": 30.5, "cy": 40.5, "area": 100}
+        strong = {"cov": 0.72, "cx": 10.25, "cy": 20.75, "area": 5}
+        self.assertEqual(pick_self([weak, strong], None, 16.7),
+                         (strong["cx"], strong["cy"]))
+
 
 if __name__ == "__main__":
     unittest.main()

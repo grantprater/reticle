@@ -1,6 +1,17 @@
 # Minimap appearance matching: design and implementation plan
 
-Date: 2026-09-09. Status: proposed; no matcher changes or new perceptual results.
+Date: 2026-09-09. Status: implementation started; Step 1 measured and shipped in
+the reader, Steps 2-6 remain proposed.
+
+Step 1 result: `minimap-0.5.0` feeds fitted `self_icons` to `pick_self`, accepts
+a supported centre with unknown bearing, requires opaque-slab support and has no
+blob fallback. On the frozen one-session gate, agreement moved from
+0.9363/0.9438/0.8816/0.9085 to 0.9917/0.9885/0.9849/0.9939 at 15/10/5/2 Hz.
+Eligible coverage is 0.7237 at native and 0.7101-0.7301 at candidate tiers, so
+the expected roughly 27.7% refusal remains. `fidelity-0.2.0` reports coverage
+separately; this consistency result does not establish independent accuracy or
+sufficient coverage. Measurements live in the store's
+`notes/appearance-step1-{baseline,after}.json`.
 
 ## Purpose and scope
 
@@ -172,7 +183,7 @@ experiment was run as part of writing this document.
 | Step | Work and likely integration point | Required evidence before promotion |
 |---|---|---|
 | 0. Freeze evaluation inputs | Existing fidelity windows plus disjoint development and held-out sessions; existing source review tools | Independent labels/provenance, eligible-frame denominators, ring-refusal subset, baseline errors and runtime |
-| 1. Establish self fit baseline | `reticle/minimap.py` and `pick_self` callers: evaluate `self_icons` without blob fallback | Reproduce reported consistency and coverage separately; inspect centre errors; do not declare refusal-heavy output sufficient |
+| 1. Established 2026-09-09 | `reticle/minimap.py` and `pick_self` callers use `self_icons` without blob fallback; `fidelity-0.2.0` reports coverage | Consistency and refusal reproduced as recorded above; independent centre accuracy and coverage remain Step 2 gates |
 | 2. Add upright appearance evidence | Extract reusable deterministic matcher from `prototypes/minimap_portrait.py` into the existing reader/gallery path | Appearance-only and joint-fit comparison; recover ring-refused observations without exceeding a predeclared false-positive budget |
 | 3. Add directional geometry | Shared-centre angle search, then directional chamfer if needed; existing bearing/overlay path | Reviewed centre and bearing error, angular ambiguity, overlap and no-icon negatives; improvement beyond appearance-only baseline |
 | 4. Add region representation | Existing ability observation path, reliable background references and bounded tint/shape fits | Held-out static/expanding regions; geometry and presence accuracy; illumination/confuser tests; ambiguous ownership preserved |

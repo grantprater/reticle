@@ -97,7 +97,7 @@ disagreeing frames at 15 Hz and **all 47** at 5 Hz, the reference's own answer
 sits in the candidate list the cheaper tier held: two to seven self-coloured
 blobs a median 10.3 px apart, which is the ring's own diameter.
 
-`pick_self` is fed by `self_rings` -- connected components of the yellow key,
+`pick_self` was fed by `self_rings` -- connected components of the yellow key,
 one CENTROID each -- so every arc of a broken annulus votes as its own icon and
 an arc's centroid sits ~r from the true centre. `self_icons`, the ring fit that
 has been in `minimap.py` all along and that `overlay.py` already uses, collapses
@@ -118,16 +118,21 @@ disagreement blows out to 71-74 px, because two tiers then differ by WHICH
 estimator ran on that frame -- and the two estimators are biased ~r apart by
 construction. Either fit or refuse.
 
-The fit alone clears the frozen 0.97 at three tiers of four. Its cost is
-coverage: it returns nothing on **1975 of 7131 frames (27.7%)**, and buying
-agreement by refusing is not the deal. That is what the next session is for.
+**Step 1 landed in `minimap-0.5.0`.** The real reader now supplies fitted
+`self_icons`, allows position when bearing is unreadable, requires opaque-slab
+support, and never falls back to blob centroids. The rerun in
+`reticle-store/notes/appearance-step1-after.json` moves agreement to **0.9917,
+0.9885, 0.9849 and 0.9939** at 15/10/5/2 Hz. Eligible coverage is **0.7237 at
+native and 0.7101-0.7301 at candidate tiers**: the predicted 27.7% refusal is
+real. `fidelity-0.2.0` now prints that denominator so matching refusals cannot
+masquerade as a complete PASS. Step 2 must recover coverage with appearance.
 
 ### Do this next, in order
 
 Design follow-up: [minimap appearance matching](docs/MINIMAP_APPEARANCE_MATCHING.md)
 consolidates the proposed portrait/shape, tinted-region and animation matchers,
-with staged implementation and independent evaluation gates. No new detector
-result is claimed. Portraits stay upright while facing geometry rotates; the
+with staged implementation and independent evaluation gates. Step 1 is now
+measured above. Portraits stay upright while facing geometry rotates; the
 prototype's 93.0% is provisional clustering-based evidence, not independent
 accuracy. The current P3 ordering below remains in force.
 
@@ -147,7 +152,7 @@ second better path inside a module that IS wired, both read as healthy.
    degraded channel in the file and ignore the best preserved one, which is why
    the annulus breaks into arcs at all. Three steps, cheapest first:
 
-   * feed `pick_self` from `self_icons`, and do NOT fall back (above);
+   * **DONE, `minimap-0.5.0`:** feed `pick_self` from `self_icons`, with no fallback;
    * close the 27.7% of frames the fit refuses by matching the icon's own
      mined appearance, `minimap_portrait`'s exemplar gallery applied to self;
    * match over ROTATIONS and keep the argmax rather than building rotation

@@ -10,7 +10,7 @@ from reticle.acquisition import plan_spec
 from reticle.capabilities import builtin_capabilities, unvalidated
 from reticle.decode import sample_windows
 from reticle.fidelity import (FROZEN_WINDOWS, Tier, load_windows, score_agreement,
-                              score_killfeed)
+                              score_killfeed, score_minimap_coverage)
 
 
 def frozen():
@@ -170,6 +170,19 @@ class NativeTierTests(unittest.TestCase):
         self.assertGreater(Tier("native", None).request_hz(60.0), 60.0)
         self.assertEqual(Tier("native", None).effective_hz(60.0), 60.0)
         self.assertEqual(Tier("2hz", 2.0).request_hz(60.0), 2.0)
+
+
+class MinimapCoverageTests(unittest.TestCase):
+    def test_widget_absence_is_not_a_detector_refusal(self):
+        rows = [
+            {"self_x": 1.0, "self_y": 2.0},
+            {"self_x": None, "self_y": None},  # fitted icon refused
+            {"self_x": None, "self_y": None},  # widget absent
+        ]
+        got = score_minimap_coverage(rows, widget_absent=1)
+        self.assertEqual((got["eligible"], got["reads"], got["refused"]),
+                         (2, 1, 1))
+        self.assertEqual(got["eligible_coverage_fraction"], 0.5)
 
 
 class SeekTransportTests(unittest.TestCase):

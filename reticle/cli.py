@@ -48,7 +48,7 @@ from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
 from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px, slab_mask,
                       widget_scale,
-                      pick_self, self_rings, static_map, widget_drawn)
+                      pick_self, self_icons, static_map, widget_drawn)
 from .overlay import OverlayContext, draw
 from .passes import SessionContext, run as passes_run
 from .ping import LIFETIME_S, PingReader
@@ -473,8 +473,9 @@ class _MinimapPass:
             store.write_static_map(sid, med)
         else:
             print("static     map cached")
-        self.floor = floor_mask(med, sd=geometry.stability(sid, store.root,
-                                                           med.shape[:2]))
+        sd = geometry.stability(sid, store.root, med.shape[:2])
+        self.floor = floor_mask(med, sd=sd)
+        self.slab = slab_mask(med, sd=sd)
         # The reference the widget test correlates against. See `widget_drawn`.
         self.sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
         # Declared for `passes.Reader`.
@@ -498,7 +499,8 @@ class _MinimapPass:
         crop = smp.frame[y0:y1, x0:x1]
         # **Is the widget even there.** Two things remove it -- the death screen
         # and the M key -- and in both the ROI holds ordinary world pixels that
-        # `self_rings` reads as icons. This reader previously had no such guard
+        # a colour-keyed icon reader can accept. This reader previously had no
+        # such guard
         # at all: measured over 27757 frames of a06f04a0059f at 15 Hz, 1394
         # (5.0%) were widget-absent and yielded 3605 self and 4178 ally
         # candidates, 2.6 per frame, every one of them a phantom.
@@ -519,8 +521,16 @@ class _MinimapPass:
             return
         dt_ms = (self.step_ms if self.prev_t is None
                  else smp.t_ms - self.prev_t)
-        pick = pick_self(self_rings(crop, self.floor), self.prev, dt_ms,
-                         widget_scale(crop.shape[1]))
+        # Fit one icon around all keyed fragments. A connected-component
+        # centroid sits near the middle of one broken arc, roughly one radius
+        # away from the icon centre. `self_icons` instead fits the shared ring
+        # and collapses nearby fragments. Position does not require a readable
+        # facing: bearing may be unknown while the centre is supported. There
+        # is deliberately no blob fallback; switching estimators introduces a
+        # radius-sized, rate-dependent bias.
+        fitted = self_icons(crop, self.floor, require_facing=False,
+                            support=self.slab)
+        pick = pick_self(fitted, self.prev, dt_ms, widget_scale(crop.shape[1]))
         if pick is not None:
             self.prev, self.prev_t = pick, smp.t_ms
         allies = sorted(ally_rings(crop, self.floor), key=lambda c: -c[0])[:MAX_ALLIES]
@@ -1983,13 +1993,16 @@ def cmd_fidelity_check(args) -> int:
           "persisted across frames;")
     print("the per-frame column beside it is what the reader claimed frame by "
           "frame.")
+    print("minimap coverage excludes widget-absent frames; it is diagnostic and "
+          "has no frozen PASS threshold.")
     print()
     print(f"{'tier':>8}  {'frames':>7} {'wall_s':>7} {'cost':>6}  "
           f"{'kf_recall':>9} {'kf_fp':>5} {'per_frame_fp':>12}  "
-          f"{'mm_agree':>8}  verdict")
+          f"{'mm_cover':>8} {'mm_agree':>8}  verdict")
     for row in result["tiers"]:
         recall = row["killfeed"]["pooled_presence_recall"]
         agree = row.get("minimap_agreement", {}).get("agreement_fraction")
+        coverage = row["minimap_coverage"]["eligible_coverage_fraction"]
         verdict = ("reference" if row["is_reference"]
                    else ("PASS" if row["verdict"]["pass"]
                          else "FAIL " + ",".join(row["verdict"]["failed"])))
@@ -1999,6 +2012,7 @@ def cmd_fidelity_check(args) -> int:
               f"{('n/a' if recall is None else f'{recall:9.4f}'):>9} "
               f"{row['killfeed']['false_positive_instants']:>5} "
               f"{row['killfeed_per_frame']['false_positive_instants']:>12}  "
+              f"{('n/a' if coverage is None else f'{coverage:8.4f}'):>8} "
               f"{('n/a' if agree is None else f'{agree:8.4f}'):>8}  {verdict}")
     print()
     for row in result["tiers"]:
