@@ -47,10 +47,34 @@ what it constrains, whether it is stored today, and what self identity
 withholds. It ends in a five-step order of work and the checks that would say
 the accounting is honestly implemented.
 
-Next is step 1: move the belief out of `minimap.py` and give it round bounds
-and the floor mask as inputs. That kills the 49 cross-boundary beliefs and the
-wall claim, and it establishes the seam the later channels plug into. Nothing
-stores or reads a `Fix` yet, so the channel is correct and unwired. `docs/ADJUDICATION_DESIGN.md`'s gap section is
+Step 1 is done. `reticle/belief.py` owns the belief now, `belief-0.2.0`, and
+takes its evidence as arguments: `voids` (round boundaries today, deaths and
+wipes later) and `reachable` (the art floor, dilated by the fit error either
+side). `minimap` keeps the motion law and exports `admit_steps`/`crosses`, so
+the filtered track and the belief cannot disagree about what was admitted --
+`filter_track` verified identical over 457,798 rows across all 20 sessions.
+Every `Fix` now carries `rests_on`, the observation instants it was drawn from.
+
+    session          void gate        floor gate    believed
+    c40d950031bb     relabels 87      refuses 28    88.7% -> 88.5%
+    ff636d173b07     refuses 18       refuses 66    90.3% -> 90.0%
+
+**Both gates refuse, so coverage fell slightly and correctness rose.** Zero
+beliefs now rest on evidence across a round boundary, and zero sit off walkable
+floor.
+
+**A correction to the previous handoff:** it claimed 49 cross-boundary beliefs.
+That came from a metric that reconstructed which reads a belief used from its
+nearest neighbours, and it over-counted -- a held belief rests only on the read
+BEFORE it, so a boundary after it is irrelevant. Asking `rests_on` directly
+gives 0 on `c40d950031bb` and 18 on `ff636d173b07`.
+
+`reticle belief SESSION` recomputes it from stored data and opens no video;
+`doctor`'s UNWIRED check caught the module before it could sit unreachable.
+Nothing STORES a `Fix` -- the belief is recomputable, so keeping the raw reads
+lets a later change to the law or to the evidence replay without a re-decode.
+
+Next is step 2: ally centres as a discriminator inside clusters. `docs/ADJUDICATION_DESIGN.md`'s gap section is
 current. 345 tests pass; `doctor` has six findings and zero errors.
 
 ## Prior P3 context -- killfeed persistence and the Step 1 ring fit

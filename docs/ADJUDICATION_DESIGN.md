@@ -459,7 +459,7 @@ two rows below.
 
 | Evidence | Constraint on the belief | Status |
 |---|---|---|
-| Round boundary (`l2/rounds`) | A round start returns every player to spawn, so no belief may cross one | Stored, 18 sessions. **49 of 2258 inferred fixes cross one today** |
+| Round boundary (`l2/rounds`) | A round start returns every player to spawn, so no belief may cross one | Stored, 18 sessions. Gated since `belief-0.2.0` |
 | Self death | A dead player has no world position; holding one is a false claim | BLOCKED on self identity. Widget absence is a partial proxy, since the death screen removes the widget |
 | Licensed teleport or displacement | A legal discontinuity; never draw a path through it | Wired, via `filter_track` motion spans and `track.Corroboration` |
 | Camera wipe or POV change | The icon may stop being self | `tools/wipe_scout.py` locates wipes from stored reads |
@@ -520,7 +520,8 @@ downstream should model death until it lands.
 
 ### How we would know the accounting is honestly implemented
 
-- No belief rests on evidence across a round boundary. Today 49 do.
+- No belief rests on evidence across a round boundary. Held: 0 on both
+  current sessions, read from `Fix.rests_on` rather than reconstructed.
 - No belief centre lies off walkable floor, and the bound is a reachable set
   rather than a disk.
 - The observed count equals the admitted read count exactly.
@@ -531,9 +532,19 @@ downstream should model death until it lands.
 
 ### Order of work
 
-1. Move the belief out of `minimap.py` and give it round bounds and the floor
-   mask as inputs. This kills the 49 crossings and the wall claim, and it
-   establishes the seam every later channel plugs into.
+1. ~~Move the belief out of `minimap.py` and give it round bounds and the
+   floor mask as inputs.~~ DONE, `belief-0.2.0`. It establishes the seam every
+   later channel plugs into, and it cost coverage rather than buying it:
+   88.7% -> 88.5% and 90.3% -> 90.0% believed, because both gates REFUSE.
+
+       session          void gate        floor gate    believed
+       c40d950031bb     relabels 87      refuses 28    88.7% -> 88.5%
+       ff636d173b07     refuses 18       refuses 66    90.3% -> 90.0%
+
+   The void gate changes nothing on `c40d950031bb`: every instant it would
+   refuse was already unresolved as stale, so it only renames the reason. That
+   is the honest shape of a correctness gate -- it buys nothing where the
+   layer was already silent.
 2. Ally centres as a discriminator inside clusters.
 3. A `widget_drawn` column, folded into the re-decode that rebuilds the 18
    sessions still on `minimap-0.4.0`.

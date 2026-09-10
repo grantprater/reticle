@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+from collections import Counter
 import sys
 import time
 from pathlib import Path
@@ -46,7 +47,10 @@ from .fidelity import FROZEN_WINDOWS
 from .fingerprint import fingerprint
 from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
-from .minimap import (MAX_ALLIES, ally_rings, filter_track, floor_mask, minimap_roi_px, slab_mask,
+from .belief import (BELIEF_VERSION, absent_instants, resolve,
+                     round_voids)
+from .minimap import (FIT_ERR_PX, MAX_ALLIES, _odd, ally_rings, art_floor,
+                      filter_track, floor_mask, minimap_roi_px, slab_mask,
                       widget_scale,
                       pick_self, self_icons, static_map, widget_drawn)
 from .overlay import OverlayContext, draw
@@ -1639,6 +1643,70 @@ def cmd_rounds(args) -> int:
     return 0
 
 
+def cmd_belief(args) -> int:
+    """Recompute the position belief from stored data. Opens no video.
+
+    The belief is not stored, for the reason `filter_track` is not: it is cheap,
+    and keeping the raw reads lets a later change to the law or to the evidence
+    be replayed without a re-decode.
+    """
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    sid, date = manifest["session_id"], _date_of(manifest)
+    rows = sorted(store.read_minimap(sid, date).to_pylist(),
+                  key=lambda r: r["t_ms"])
+    if len(rows) < 2:
+        raise SystemExit(f"no minimap positions for {sid}")
+    times = [r["t_ms"] for r in rows]
+    step = float(np.median(np.diff(times)))
+    raw = [(r["t_ms"], r["self_x"], r["self_y"]) for r in rows]
+
+    med = store.read_static_map(sid)
+    scale = widget_scale(med.shape[1]) if med is not None else 1.0
+    reachable = None
+    if med is not None:
+        # Admit the fit error either side: a centre one fit error outside the
+        # painted floor is a measurement at the boundary, not a claim that the
+        # player stands in a wall.
+        with np.load(geometry.require(sid, store.root)) as z:
+            if "shade_kind" in z:
+                reachable = art_floor(z["shade_kind"],
+                                      dilate=_odd(2 * FIT_ERR_PX * scale + 1))
+    try:
+        voids = round_voids(store.read_rounds(sid, date).to_pylist())
+    except Exception:
+        voids = []
+
+    fixes = resolve(raw, step, scale, absent_t=absent_instants(rows),
+                    voids=voids, reachable=reachable)
+    n = len(fixes)
+    by = Counter(f.source for f in fixes)
+    inferred = [f for f in fixes if f.x is not None and not f.observed]
+    print(f"session    {sid}  {n} sampled instants, step {step:.1f} ms")
+    print(f"producer   {BELIEF_VERSION}  scale {scale:.3f}  "
+          f"{len(voids)} voids  floor {'yes' if reachable is not None else 'NO'}")
+    for k in ("observed", "interpolated", "held", "unresolved"):
+        print(f"  {k:12s} {by[k]:6d}  {by[k] / n * 100:5.1f}%")
+    believed = n - by["unresolved"]
+    print(f"  {'believed':12s} {believed:6d}  {believed / n * 100:5.1f}%   "
+          f"(observed coverage is {by['observed'] / n * 100:.1f}% and the two "
+          f"are never summed)")
+    if inferred:
+        r = np.array([f.radius_px for f in inferred])
+        print(f"inferred   radius px median {np.median(r):.1f}  "
+              f"p90 {np.percentile(r, 90):.1f}  max {r.max():.1f}")
+    reasons = Counter(f.reason for f in fixes if f.reason)
+    for why, count in sorted(reasons.items(), key=lambda kv: -kv[1]):
+        print(f"  {why:16s} {count:6d}")
+    unresolved = sum(1 for f in fixes if f.source == "unresolved")
+    unreasoned = sum(1 for f in fixes if f.source == "unresolved" and not f.reason)
+    if unreasoned:
+        print(f"WARNING    {unreasoned} unresolved instants carry no reason")
+    elif unresolved:
+        print("every unresolved instant carries a reason")
+    return 0
+
+
 def cmd_audit(args) -> int:
     """Adjudicate stored independent observations without decoding."""
     import json
@@ -2286,6 +2354,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--min-margin", type=float, default=0.05)
     s.add_argument("--out", default=None)
     s.set_defaults(func=cmd_overlay)
+
+    s = sub.add_parser("belief", help="recompute the self position belief from stored data (no video)")
+    s.add_argument("session", nargs="?")
+    s.set_defaults(func=cmd_belief)
 
     s = sub.add_parser("audit", help="localize roster/scoreline disagreements from stored data")
     s.add_argument("session", nargs="?")

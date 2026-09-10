@@ -34,6 +34,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | HUD, killfeed, roster | `ocr.py`, `killfeed.py`, `roster.py` |
 | Rounds and phase boundaries | `rounds.py`, `scoreboard.py` |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py` |
+| Position belief and its evidence | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
 | Proposed portrait, shape, region and animation matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
 | Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
@@ -65,6 +66,7 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle doctor
 .\.venv\Scripts\python.exe -m reticle status
 .\.venv\Scripts\python.exe -m reticle audit
+.\.venv\Scripts\python.exe -m reticle belief SESSION   # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-coverage
 .\.venv\Scripts\python.exe -m reticle ability-timeline
 .\.venv\Scripts\python.exe -m reticle ability-entities
