@@ -327,13 +327,33 @@ sessions have no lineup at all. It therefore answers nothing yet and is not
 wired, because promoting a reader that refuses every frame would ship a column
 of nulls.
 
-**So the next step is lineup coverage, enemy side first**, which is a different
-problem from the one just solved. Three separable causes, none measured:
-`Lineup.add` accumulates only from a FULLY ALIVE side, so a side rarely at five
-contributes few frames -- checkable from stored roster counts with NO decode, and
-therefore first; `MARGIN_MIN = 0.07` is provisional and was fitted on five slots
-of one session; and the enemy roster art is drawn MIRRORED, which the notes
-record as costing 11 points when left unflipped.
+**CORRECTED the same day by the player: portrait identity is RIGHT and I
+credited the wrong cause.** `Lineup.player` already corroborates three witnesses
+-- the ability TRAY, which names the agent outright, the TOP BAR, which proposes
+five candidates, and the SELF ICON, which ranks among them -- keeping ABSTAINED
+distinct from DISAGREES. `verdict` already applies uniqueness per side with
+`track.assign`. Composition matching transfers at 83.5% held out.
+
+**The measured gap, over 79 refused slots in 19 stored lineups:**
+
+    12   pairwise ties `assign` ALREADY BROKE. The margin is taken from the raw
+         per-slot ordering, order[0] against order[1], computed WITHOUT the
+         assignment, so a slot is refused where the constraint resolved it
+    11   resolvable only by CROSS-SIDE elimination, which is FORBIDDEN --
+         [domain:rounds/agent-uniqueness], two teams may field the same agent
+    56   neither candidate named anywhere; these need a second witness
+
+So the next step is verdict logic, not more perception, in this order:
+
+1. **measure the margin against the ASSIGNMENT**, not the raw top two. It moves
+   a shipped reader's output, so it wants its own run against
+   `checks.KNOWN_KD`;
+2. **extend `add_self` and `add_tray` past the player's own slot** -- they
+   constrain one slot of ten today, and 56 refusals are exactly the case a
+   second witness is for;
+3. only then the coverage knobs: the FULLY ALIVE gate in `Lineup.add`, which
+   starves a side rarely at five and is checkable from stored roster counts with
+   NO decode, and `MARGIN_MIN = 0.07`, provisional and fitted on one session.
 
 **Trigger: now.** It is the priority. Step 1 needed decode and used its own
 sampling; step 2 should join an existing pass.

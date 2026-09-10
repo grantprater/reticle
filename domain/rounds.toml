@@ -1,4 +1,5 @@
-# Round structure and the match clock. Schema: reticle/domain.py.
+# Match and round structure: composition, sides, the clock.
+# Schema: reticle/domain.py.
 
 [halftime-side-swap]
 claim = """
@@ -10,3 +11,22 @@ known = "observed"
 since = "2026-09-02"
 use = "reticle/rounds.py owns the boundary; economy and belief read it, never re-derive it"
 phrases = ["halftime side swap", "side swaps at halftime"]
+
+[agent-uniqueness]
+claim = """
+Agents are distinct WITHIN a team and not across the match. Each side fields
+five different agents, and both teams may field the same agent at once.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-10"
+use = """
+so a slot assignment is per SIDE, five slots over the roster, and never a
+ten-slot assignment across the match. Naming an agent on one side eliminates it
+from that side's other four slots and says NOTHING about the other side
+"""
+exceptions = """
+none. It is the constraint reticle/lineup.py's verdict already applies with
+`track.assign`, and the cross-side elimination it forbids would have named 11
+refused slots wrongly across the 19 stored lineups
+"""

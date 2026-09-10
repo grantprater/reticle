@@ -23,8 +23,36 @@ assignment and reuses `lineup`'s composition matcher and gallery unchanged.
 `shrink_events` differences the set to say who left, which is step two's hook.
 Fifteen tests cover the assignment and every refusal.
 
-**The blocker is LINEUP COVERAGE, not the matching.** Over the 19 sessions with
-a stored lineup, ZERO have both sides complete:
+**CORRECTED, same session, by the player: portrait identity and its
+multi-channel corroboration are RIGHT and I credited the wrong cause.**
+`Lineup.player` combines three witnesses -- the ability TRAY, which names the
+agent outright, the TOP BAR, which proposes five candidates, and the SELF ICON,
+which ranks among them -- keeps ABSTAINED distinct from DISAGREES, and refuses
+to pool scores answering different questions. a06f04a0059f was decided by the
+tray at 128/186 votes. `verdict` already applies uniqueness per side with
+`track.assign`. Composition matching transfers at 83.5% held out. None of that
+is the problem.
+
+**The measured gap, over 79 refused slots in 19 stored lineups:**
+
+    12   pairwise ties `assign` ALREADY BROKE -- the margin is taken from the
+         raw per-slot ordering, order[0] against order[1], computed WITHOUT the
+         assignment, so a slot is refused where the constraint resolved it
+    11   resolvable only by CROSS-SIDE elimination, which is forbidden
+    56   neither candidate named anywhere -- these need a second witness
+
+So the fix is not more frames or a looser margin. It is (a) measure the margin
+against the best alternative CONSISTENT WITH the assignment, and (b) feed
+`add_self` and `add_tray` to all ten slots rather than to the player's own,
+which is the only slot they currently constrain.
+
+**A wrong elimination avoided by asking rather than assuming.** Two teams MAY
+field the same agent -- [domain:rounds/agent-uniqueness] -- so a ten-slot
+assignment across the match would have named those 11 slots wrongly. `assign`
+staying per side is already correct.
+
+**The coverage figures stand; the cause does not.** Over the 19 sessions with a
+stored lineup, ZERO have both sides complete:
 
     ally side    3-5 named of 5
     ENEMY side   0-3 named of 5
@@ -46,17 +74,19 @@ incomplete roster now refuses the whole side. `doctor` also caught a third: the
 function was called `read_session`, which `lineup.py` already defines, and the
 DUPLICATE check made it an ERROR. Renamed rather than blessed.
 
-**NEXT, and it is a different problem from the one just solved: raise lineup
-coverage, enemy side first.** Three separable candidate causes, none measured:
+**NEXT, in this order, and it is verdict logic rather than more perception:**
 
-1. `Lineup.add` accumulates only from a FULLY ALIVE side, since that is the only
-   state in which slot index is identity -- so a side rarely at five contributes
-   few frames. **Checkable from the stored roster counts with NO decode**, and
-   therefore first;
-2. `MARGIN_MIN = 0.07` is documented as provisional, fitted on five slots of one
-   session;
-3. the enemy roster art is drawn MIRRORED, which the notes record as costing 11
-   points of matching accuracy when left unflipped.
+1. **measure the margin against the ASSIGNMENT**, not the raw top two. Twelve
+   refusals are ties already broken. It changes a shipped reader's output, so it
+   wants its own run against `checks.KNOWN_KD` -- deliberately not attempted at
+   the end of a long session;
+2. **extend the two existing witnesses past one slot.** `add_self` and
+   `add_tray` constrain only the player's own slot today; 56 refusals have
+   neither candidate named anywhere and a second witness is what they need;
+3. only then the coverage knobs -- `Lineup.add` accumulating solely from a FULLY
+   ALIVE side, which starves a side rarely at five and is checkable from stored
+   roster counts with NO decode; and `MARGIN_MIN = 0.07`, provisional and fitted
+   on five slots of one session.
 
 Then step two: difference the alive set at each killfeed death time to name the
 victim, scoring against the killfeed and `checks.KNOWN_KD` and storing the

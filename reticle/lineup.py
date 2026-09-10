@@ -281,6 +281,21 @@ class Lineup:
         not five arg-maxes -- the same constraint the tracker uses on icons,
         for the same reason. A slot under the margin is `None` WITH its best
         guess kept beside it, because an unread value must say what it is.
+
+        **Per SIDE, and never across the match**:
+        [domain:rounds/agent-uniqueness]. Both teams may field the same agent,
+        so naming one on this side says nothing about the other -- a ten-slot
+        assignment would have named 11 refused slots wrongly across the stored
+        lineups.
+
+        **KNOWN GAP, measured 2026-09-10.** The margin below is taken from the
+        raw per-slot ordering, `order[0]` against `order[1]`, which is computed
+        WITHOUT the assignment that has just been made. So a slot whose top two
+        are near-tied is refused even where `assign` already resolved the tie by
+        giving one of the pair to another slot -- 12 of 79 refusals across 19
+        stored lineups are exactly that. The margin should be measured against
+        the best alternative CONSISTENT WITH the assignment. Not changed here:
+        it moves a shipped reader's output and wants its own measurement.
         """
         s = self.scores[side] / max(self.frames, 1)
         picked = assign([[-float(v) for v in row] for row in s])
