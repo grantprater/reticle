@@ -126,34 +126,21 @@ class SessionContext:
         self.store.write_kf_mask(self.session_id, m)
         return m
 
-    def static_map(self):
-        """The minimap's per-pixel median, from cache or measured once."""
-        from .minimap import minimap_roi_px, static_map as _static
+    def map_reference(self):
+        """The baked base map for this session's (map, profile) geometry key.
 
-        import cv2
+        Session frames must never enter this value.  Session-specific minimap
+        data is limited to the ROI dimensions/placement supplied by `profile`.
+        """
+        from . import geometry
 
-        got = self.store.read_static_map(self.session_id)
-        if got is not None:
-            return got
-        if not self.spans:
-            raise SystemExit(
-                "the static map is built from ACTIVE SPANS -- "
-                "run `reticle segment` first, or pass spans"
-            )
-        w, h = self.wh
-        cap = cv2.VideoCapture(str(self.media))
-        try:
-            med = _static(cap, self.fps, self.spans, minimap_roi_px(self.profile, w, h))
-        finally:
-            cap.release()
-        self.store.write_static_map(self.session_id, med)
-        return med
+        return geometry.reference_static(self.session_id, self.store.root)
 
     def floor(self) -> np.ndarray:
         from . import geometry
         from .minimap import floor_mask
 
-        med = self.static_map()
+        med = self.map_reference()
         return floor_mask(med, sd=geometry.stability(self.session_id,
                                                      self.store.root,
                                                      med.shape[:2]))
@@ -161,7 +148,7 @@ class SessionContext:
     def sgray(self) -> np.ndarray:
         import cv2
 
-        return cv2.cvtColor(self.static_map(), cv2.COLOR_BGR2GRAY).astype(np.float64)
+        return cv2.cvtColor(self.map_reference(), cv2.COLOR_BGR2GRAY).astype(np.float64)
 
 
 def run(ctx: SessionContext, readers: list, progress=None) -> int:

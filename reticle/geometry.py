@@ -128,6 +128,20 @@ def require(session: str, store: str | Path = DEFAULT_STORE) -> Path:
     return p
 
 
+def reference_static(session: str, store: str | Path = DEFAULT_STORE):
+    """The immutable base-map pixels for this session's (map, profile) key.
+
+    A session selects a geometry key through manifest metadata; it never
+    supplies or overrides these pixels.  Keep this accessor narrow so a new
+    reader cannot accidentally restore the retired per-session median cache.
+    Callers needing other geometry fields must name them at their own boundary.
+    """
+    import numpy as np
+
+    with np.load(require(session, store), allow_pickle=False) as z:
+        return z["static"].copy()
+
+
 def stability(session: str, store: str | Path = DEFAULT_STORE,
               shape: tuple[int, int] | None = None):
     """This session's per-pixel `sd_lo`, for `minimap.floor_mask`'s `sd`.

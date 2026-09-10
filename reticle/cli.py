@@ -52,7 +52,7 @@ from .belief import (BELIEF_VERSION, absent_instants, resolve,
 from .minimap import (FIT_ERR_PX, MAX_ALLIES, _odd, ally_rings, art_floor,
                       filter_track, floor_mask, minimap_roi_px, slab_mask,
                       widget_scale,
-                      pick_self, self_icons, static_map, widget_drawn)
+                      pick_self, self_icons, widget_drawn)
 from .overlay import OverlayContext, draw
 from .passes import SessionContext, run as passes_run
 from .ping import LIFETIME_S, PingReader
@@ -466,17 +466,9 @@ class _MinimapPass:
 
         self.src = manifest["source"]
         self.w, self.h = int(self.src["width"]), int(self.src["height"])
-        fps = float(self.src["fps"])
         self.box = minimap_roi_px(profile, self.w, self.h)
         sid = manifest["session_id"]
-        med = store.read_static_map(sid)
-        if med is None:
-            cap = cv2.VideoCapture(str(Path(self.src["path"])))
-            med = static_map(cap, fps, spans, self.box)
-            cap.release()
-            store.write_static_map(sid, med)
-        else:
-            print("static     map cached")
+        med = geometry.reference_static(sid, store.root)
         sd = geometry.stability(sid, store.root, med.shape[:2])
         self.floor = floor_mask(med, sd=sd)
         self.slab = slab_mask(med, sd=sd)
@@ -1385,22 +1377,16 @@ def cmd_overlay(args) -> int:
                          table.column("t_end_ms").to_pylist(),
                          table.column("state").to_pylist()))
 
-    # The minimap channel needs the session's static map (for `widget_drawn`
-    # and the floor) and, if it has been built, the geometry labels -- BOXEDGE
-    # is the one class a ray passes through without lighting. Without labels
-    # the area is simply the conservative one, so a missing npz degrades the
-    # picture rather than stopping it.
+    # Every minimap pixel reference comes from the baked (map, profile)
+    # geometry. Session frames may determine ROI placement/dimensions only.
     mm_box = mm_floor = mm_passable = mm_sgray = mm_light = mm_slab = None
     if not args.no_minimap:
-        med = store.read_static_map(sid)
-        if med is None:
-            geo = geometry.path_of(sid, args.store)
-            if geo is not None and geo.is_file():
-                med = np.load(geo)["static"]
-        if med is None:
-            print("minimap    no static map and no geometry -- run `reticle "
-                  "minimap`, or minimap_geometry.py for this session's map")
+        geo = geometry.path_of(sid, args.store)
+        if geo is None or not geo.is_file():
+            print("minimap    no baked geometry -- tag the session map or run "
+                  "minimap_geometry.py for its (map, profile) key")
         else:
+            med = geometry.reference_static(sid, args.store)
             mm_box = minimap_roi_px(profile, w, h)
             mm_sd = geometry.stability(sid, args.store, med.shape[:2])
             mm_floor = floor_mask(med, sd=mm_sd)
@@ -1668,17 +1654,18 @@ def cmd_belief(args) -> int:
     step = float(np.median(np.diff(times)))
     raw = [(r["t_ms"], r["self_x"], r["self_y"]) for r in rows]
 
-    med = store.read_static_map(sid)
-    scale = widget_scale(med.shape[1]) if med is not None else 1.0
+    box = minimap_roi_px(get_profile(manifest["source_profile"]),
+                         int(manifest["source"]["width"]),
+                         int(manifest["source"]["height"]))
+    scale = widget_scale(box[2] - box[0])
     reachable = None
-    if med is not None:
-        # Admit the fit error either side: a centre one fit error outside the
-        # painted floor is a measurement at the boundary, not a claim that the
-        # player stands in a wall.
-        with np.load(geometry.require(sid, store.root)) as z:
-            if "shade_kind" in z:
-                reachable = art_floor(z["shade_kind"],
-                                      dilate=_odd(2 * FIT_ERR_PX * scale + 1))
+    # Admit the fit error either side: a centre one fit error outside the
+    # painted floor is a measurement at the boundary, not a claim that the
+    # player stands in a wall.
+    with np.load(geometry.require(sid, store.root)) as z:
+        if "shade_kind" in z:
+            reachable = art_floor(z["shade_kind"],
+                                  dilate=_odd(2 * FIT_ERR_PX * scale + 1))
     try:
         voids = round_voids(store.read_rounds(sid, date).to_pylist())
     except Exception:
