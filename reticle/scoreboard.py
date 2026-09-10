@@ -304,11 +304,24 @@ def portrait_observations(frame: np.ndarray, board: ScoreboardRead) -> list[dict
     if hi - lo < width + 4:
         return []
     profile = np.zeros(hi - lo, np.float32)
+    # A row whose band has no pixels is not evidence, and it used to be a
+    # CRASH: `cvtColor` asserts on an empty Mat, so one degenerate row killed
+    # the whole scan mid-corpus (c62c2b06bcfb, 2026-09-09). `row_h` is taken
+    # from the FIRST row, so nothing here guarantees the others have height.
+    # The per-row loop below already refuses the same shape; this is that guard
+    # moved to where the exception actually came from.
+    used = 0
     for row in board.rows:
-        band = cv2.cvtColor(frame[row.y0 + 1:row.y1 - 1, lo:hi], cv2.COLOR_BGR2GRAY)
+        band = frame[row.y0 + 1:row.y1 - 1, lo:hi]
+        if band.shape[0] < 1 or band.shape[1] < 1:
+            continue
+        gray = cv2.cvtColor(band, cv2.COLOR_BGR2GRAY)
         profile += np.abs(cv2.Sobel(
-            band.astype(np.float32), cv2.CV_32F, 0, 1, ksize=3)).mean(0)
-    profile /= max(1, len(board.rows))
+            gray.astype(np.float32), cv2.CV_32F, 0, 1, ksize=3)).mean(0)
+        used += 1
+    if not used:
+        return []
+    profile /= used
     profile = np.convolve(profile, np.ones(3) / 3, "same")
     start = max(0, board.x0 - lo + int(0.6 * width))
     stop = min(len(profile), board.x0 + 2 * row_h - lo)

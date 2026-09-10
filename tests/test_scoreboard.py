@@ -96,6 +96,37 @@ class ScoreboardTests(unittest.TestCase):
         self.assertEqual(result["player_id"], "enemy:Skye")
         self.assertEqual(result["identity_status"], "resolved")
 
+class PortraitBandTests(unittest.TestCase):
+    """A degenerate scoreboard row must refuse, not raise.
+
+    `cvtColor` asserts on an empty Mat, so one row of no height took down a
+    whole corpus re-scan mid-run before this was guarded.
+    """
+
+    def frame(self, h=200, w=800):
+        return np.full((h, w, 3), 40, np.uint8)
+
+    def test_a_row_with_no_height_is_skipped_rather_than_read(self):
+        from reticle.scoreboard import portrait_observations
+        good = Row("ally", 10, 40, 1, 2, 3, True)
+        flat = Row("ally", 60, 61, 1, 2, 3, True)     # y1 - 1 == y0 + 1 - 1
+        board = ScoreboardRead(True, (good, flat), 300, 700)
+        out = portrait_observations(self.frame(), board)
+        self.assertEqual([o["display_row"] for o in out], [0])
+
+    def test_every_row_degenerate_reads_nothing_at_all(self):
+        from reticle.scoreboard import portrait_observations
+        rows = tuple(Row("ally", 60 + i, 61 + i, 1, 2, 3, True) for i in range(3))
+        board = ScoreboardRead(True, rows, 300, 700)
+        self.assertEqual(portrait_observations(self.frame(), board), [])
+
+    def test_a_row_past_the_frame_reads_nothing(self):
+        from reticle.scoreboard import portrait_observations
+        board = ScoreboardRead(True, (Row("ally", 900, 940, 1, 2, 3, True),),
+                               300, 700)
+        self.assertEqual(portrait_observations(self.frame(), board), [])
+
+
 
 if __name__ == "__main__":
     unittest.main()
