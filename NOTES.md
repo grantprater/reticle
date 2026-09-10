@@ -16,8 +16,11 @@ Split out of `CLAUDE.md` on 2026-08-27.
 `reticle fidelity-check` compares the shipped readers against reference fidelity
 on six frozen, source-reviewed windows (`reticle/frozen/p3_reference_windows.json`,
 `c40d950031bb`: two trigger, two audit, two confuser, 79.4 s). `reticle
-capabilities` prints what the run licensed. 293 tests pass; `doctor` has six
-findings and zero errors. The full run is `notes/p3-fidelity-20260909.json`.
+capabilities` prints what the run licensed. 299 tests pass; `doctor` has six
+findings and zero errors. Both runs are pinned in the store:
+`notes/p3-fidelity-20260909.json` is the gate as first measured and
+`notes/p3-fidelity-20260909-after.json` the same windows after the killfeed
+change below. The three numbered findings are from the first.
 
 **The gate is not passed, and the reasons are the result.**
 

@@ -327,6 +327,17 @@ refuse work rather than accept it.
   abandoned for the largest-blob fallback most often at the highest rate, and on
   the fast-movement frames worth tracking. The property gets no validated tier.
 
+The killfeed finding was acted on the same day and the gate result did not
+move. `kf_entries` no longer counts a band carrying none of an entry's furniture
+-- no ink, no icon, no glyphs -- which cut confuser false positives from 11 to 3
+at 15 Hz while holding presence recall at 1.0000 at 5 Hz and above, and left
+`c40d950031bb` at 2/7, still exact. **At native rate the count is unchanged at
+11**, so reference fidelity still fails the reviewed truth and P3 is still not
+accepted on this property. The survivors need either the adjudicator's
+persistence rule or the blur signature in `BACKLOG.md`, whose threshold must be
+fitted away from these windows. `HUD_VERSION` is `hud-0.12.0`; 19 sessions are
+stale. The post-change run is `notes/p3-fidelity-20260909-after.json`.
+
 `reticle/capabilities.py` therefore declares exactly one thing --
 `hud.killfeed_entry_presence` at 5, 10, 15 Hz and native, regime `standard` --
 and records why each withheld property is withheld. A spec may plan against it
