@@ -482,7 +482,13 @@ class _MinimapPass:
         self.hz = args.minimap_hz
         self.spans = spans         # the minimap has nothing to say off-round
         self.step_ms = 1000.0 / args.minimap_hz
+        # The last position READ and when, which is not the last frame fed:
+        # a widget-absent frame, a dropped frame and a stall all leave the
+        # previous point older than one nominal period. `pick_self`'s gate is
+        # how far the player could have moved since, so it needs the real
+        # elapsed time and not the rate this reader was configured with.
         self.prev = None
+        self.prev_t = None
         self.rows: list[dict] = []
         self.n_absent = 0
         print(f"floor      {self.floor.mean() * 100:.1f}% of the widget is walkable")
@@ -511,10 +517,12 @@ class _MinimapPass:
                 "ally_x": [None] * MAX_ALLIES, "ally_y": [None] * MAX_ALLIES,
             })
             return
-        pick = pick_self(self_rings(crop, self.floor), self.prev, self.step_ms,
+        dt_ms = (self.step_ms if self.prev_t is None
+                 else smp.t_ms - self.prev_t)
+        pick = pick_self(self_rings(crop, self.floor), self.prev, dt_ms,
                          widget_scale(crop.shape[1]))
         if pick is not None:
-            self.prev = pick
+            self.prev, self.prev_t = pick, smp.t_ms
         allies = sorted(ally_rings(crop, self.floor), key=lambda c: -c[0])[:MAX_ALLIES]
         ally_x = [c[1] for c in allies] + [None] * (MAX_ALLIES - len(allies))
         ally_y = [c[2] for c in allies] + [None] * (MAX_ALLIES - len(allies))

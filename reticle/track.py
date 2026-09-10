@@ -50,7 +50,7 @@ from dataclasses import dataclass, field
 #: Top speed of a real track, widget px/s. `minimap.RUN_PX`, measured rather
 #: than derived -- every filtered track sits under it and every misdetection
 #: blew far past it. Imported rather than restated so there is one definition.
-from .minimap import MIN_ICON_SEPARATION_PX, RUN_PX
+from .minimap import FIT_ERR_PX, MIN_ICON_SEPARATION_PX, RUN_PX
 
 #: Ping lifetimes, seconds. `ping.LIFETIME_S`, exact to 0.1 s at a 10 Hz
 #: sample. Imported for the same reason.
@@ -99,31 +99,6 @@ DASH_PX_S = RUN_PX * 4.0
 #: for a caller with no event channel, and every step it admits is reported
 #: `TELEPORT_ASSUMED` so the assumption is countable rather than invisible.
 TELEPORT_PX = 200.0
-
-#: Per-observation centre error of an icon fit, widget px at scale 1.0.
-#:
-#: **Measured from FORCED CORRESPONDENCES**, which need no tracker and no
-#: labels: in the 2 s 60 Hz Ascent and Lotus windows the self icon is detected
-#: in every one of the 120 frames, exactly once, so consecutive detections are
-#: the same entity by construction. Physical motion can contribute at most
-#: `RUN_PX * 1/60 = 0.75 px` at that rate, so the rest of each step is fit
-#: error, whatever the player was doing:
-#:
-#:     residual after the walk allowance, 238 self pairs over the two maps
-#:     p50 0.25 / -0.75   p90 1.49 / 2.08   p99 2.86 / 3.25   max 3.25 / 3.72
-#:
-#: An independent measurement agrees on the magnitude: `prototypes/CLAUDE.md`
-#: recorded the fitted centre moving 1.0 px per frame on stable frames and 3.2
-#: on flip frames (p90 5.0 and 8.5) at 15 Hz -- taken to diagnose the bearing
-#: flip, with nothing to do with association.
-#:
-#: 2.0 px is not knife-edge: every value from 2.0 to 10.0 holds the self track
-#: at ONE id across both windows, and the ceiling is icon separation -- two
-#: icons closer than ~2r = 20 px are not separately detectable anyway, so 2e
-#: spends 4 of a 20 px budget. Below 2.0 the track fragments: at the old
-#: sqrt(0.5) (quantization only, which is a floor rather than a measurement)
-#: the same 120 frames became 13 and 10 ids.
-FIT_ERR_PX = 2.0
 
 
 @dataclass(frozen=True)
@@ -905,7 +880,7 @@ def _self_test() -> int:
 
     # `minimap.filter_track` taking a class. Imported here rather than at the
     # top because `minimap` is what this module imports RUN_PX from.
-    from .minimap import MIN_ICON_SEPARATION_PX, RUN_PX as _RP, filter_track
+    from .minimap import FIT_ERR_PX, MIN_ICON_SEPARATION_PX, RUN_PX as _RP, filter_track
 
     step = 100.0                       # 10 Hz
     walk = _RP * 0.1 * 0.5             # comfortably inside one step

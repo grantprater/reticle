@@ -90,6 +90,36 @@ def _odd(n: float, lo: int = 3) -> int:
 # A SPEED in widget pixels, so it scales linearly with the widget.
 RUN_PX = 45.0
 GAP_MS = 1000.0
+
+#: Per-observation centre error of an icon fit, widget px at scale 1.0.
+#:
+#: **Measured from FORCED CORRESPONDENCES**, which need no tracker and no
+#: labels: in the 2 s 60 Hz Ascent and Lotus windows the self icon is detected
+#: in every one of the 120 frames, exactly once, so consecutive detections are
+#: the same entity by construction. Physical motion can contribute at most
+#: `RUN_PX * 1/60 = 0.75 px` at that rate, so the rest of each step is fit
+#: error, whatever the player was doing:
+#:
+#:     residual after the walk allowance, 238 self pairs over the two maps
+#:     p50 0.25 / -0.75   p90 1.49 / 2.08   p99 2.86 / 3.25   max 3.25 / 3.72
+#:
+#: An independent measurement agrees on the magnitude: `prototypes/CLAUDE.md`
+#: recorded the fitted centre moving 1.0 px per frame on stable frames and 3.2
+#: on flip frames (p90 5.0 and 8.5) at 15 Hz -- taken to diagnose the bearing
+#: flip, with nothing to do with association.
+#:
+#: 2.0 px is not knife-edge: every value from 2.0 to 10.0 holds the self track
+#: at ONE id across both windows, and the ceiling is icon separation -- two
+#: icons closer than ~2r = 20 px are not separately detectable anyway, so 2e
+#: spends 4 of a 20 px budget. Below 2.0 the track fragments: at the old
+#: sqrt(0.5) (quantization only, which is a floor rather than a measurement)
+#: the same 120 frames became 13 and 10 ids.
+#:
+#: It lives here rather than in `track`, where it was measured, because
+#: `pick_self` needs it too and `track` already imports `RUN_PX` from this
+#: module -- the other direction is a cycle. `track.FIT_ERR_PX` still resolves.
+FIT_ERR_PX = 2.0
+
 # The pale yellow-green the game rings the local player with -- the same
 # colour scoreboard.py keys the player's own row on, and it transfers
 # unchanged.
@@ -970,22 +1000,42 @@ def self_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
 
 def pick_self(cands: list[tuple[int, float, float]],
               prev: tuple[float, float] | None,
-              step_ms: float, scale: float = 1.0) -> tuple[float, float] | None:
+              dt_ms: float, scale: float = 1.0) -> tuple[float, float] | None:
     """Nearest-to-previous when there is a previous point, else largest blob.
 
     Nearest-to-previous is what gives this a track rather than a per-frame
     guess: it is what survives a frame where an ally or a wall boundary also
     passes the colour test, as long as the real self-ring is still closest to
     where it was a moment ago.
+
+    `dt_ms` is the time since `prev` was READ, not the sampler's nominal
+    period. They differ whenever a frame is dropped, the capture stalls, or the
+    widget is not drawn -- and the nominal period says the player had 1/60 s to
+    move when they in fact had five seconds behind a death screen.
+
+    **The gate is floored at the fit error, and that is the whole point of it
+    being a floor.** `RUN_PX * scale * dt * 2` is how far a player can run in
+    the elapsed time, which at 60 Hz is 1.50 px -- below the icon fit's own
+    p90 of ~1.5 px, so the gate refused the player's own icon and the pick fell
+    through to the largest blob. Over the frozen P3 windows that abandoned the
+    track on 9.4% of consecutive steps at 60 Hz against 1.9% at 2 Hz: the
+    highest rate scored WORST, which no rate-selection gate can be built on. A
+    step has fit error at both ends, so the floor is the pair budget `2e` --
+    the same 4 px `minimap_lifecycle` spends, and the same reasoning.
+
+    Past `GAP_MS` the previous point constrains nothing -- a player crosses the
+    whole widget in a second -- so it is dropped rather than used with a gate
+    so wide it admits everything.
     """
     if not cands:
         return None
-    if prev is not None:
+    if prev is not None and dt_ms <= GAP_MS:
         # RUN_PX is widget px/s, so the gate scales with the widget. `scale`
         # defaults to 1.0 rather than being derived, because this is the one
         # function here that is handed candidates instead of a crop -- the
         # caller has the width and passes it.
-        lim = RUN_PX * scale * (step_ms / 1000.0) * 2.0
+        lim = max(2.0 * FIT_ERR_PX * scale,
+                  RUN_PX * scale * (dt_ms / 1000.0) * 2.0)
         near = [c for c in cands if np.hypot(c[1] - prev[0], c[2] - prev[1]) <= lim]
         if near:
             return max(near, key=lambda c: c[0])[1:]

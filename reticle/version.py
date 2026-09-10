@@ -76,7 +76,19 @@ HUD_VERSION = "hud-0.12.0"
 # self positions and ~8,400 ally candidates of pure phantom. Re-reading it is
 # TABLED in BACKLOG.md, so this stamp is the thing that keeps the staleness
 # visible in `reticle status` rather than resting on someone reading a note.
-MINIMAP_VERSION = "minimap-0.3.0"
+# 0.4.0: `pick_self`'s nearest-to-previous gate is floored at the icon fit's
+# own pair budget, `2 * FIT_ERR_PX`, and measures the elapsed time since the
+# previous position was READ rather than the rate the reader was configured
+# with. The gate was `RUN_PX * scale * step * 2` alone, which is 1.50 px at
+# 60 Hz -- below the fit error it has to clear -- so the reader abandoned the
+# track on 9.4% of consecutive steps at 60 Hz against 1.9% at 2 Hz. A higher
+# rate scored WORSE, and the P3 tier comparison cannot rest on a reader that
+# is non-monotonic in its own rate. The FLOOR binds only above ~22 Hz, where
+# it crosses the run allowance at 44 ms; the elapsed-time half binds at any
+# rate, but only on the frames that follow a widget-absent stretch. Measured
+# over the frozen windows: 6.6% of native reads move, 0.9% at 15 Hz -- exactly
+# its ten widget-absent frames -- and none at all at 10, 5 or 2 Hz.
+MINIMAP_VERSION = "minimap-0.4.0"
 # Minimap pings, emitted as EVENTS rather than per-frame rows. Bump when the
 # hue bands, the size gates or the lifetime gate change. Events are rewritten
 # whole per session, so this is a stamp for attribution rather than a cache

@@ -16,26 +16,35 @@ is the content.** The first frozen run (2026-09-09, `c40d950031bb`, six windows,
 
 and refused two things outright:
 
-    hud, regime `transition`      The killfeed reader fires on camera wipes at
-                                  EVERY fidelity -- 13 reviewed-empty instants
-                                  claimed at native rate, 8 at 15 Hz, up to six
-                                  phantom entries in one frame. Reference
-                                  fidelity does not meet the frozen tolerance,
-                                  so no cheaper tier can be promoted by matching
-                                  it. A request that needs killfeed evidence
-                                  across a respawn wipe is refused as
-                                  `unsupported_regime` rather than answered.
+    hud, regime `transition`      The killfeed check now PASSES at every tier:
+                                  adjudicated presence takes the confuser false
+                                  positives to zero at native, 15, 10, 5 and
+                                  2 Hz, and every tier counts the same eleven
+                                  entries. It is withheld on coverage, not on
+                                  the defect -- one session, one map, two
+                                  reviewed wipes. A second reviewed session
+                                  promotes it; until then a request needing
+                                  killfeed evidence across a respawn wipe is
+                                  refused as `unsupported_regime`.
 
     minimap.self_position         No tier agrees with the native reference on
-                                  97% of shared frames; agreement is 0.88-0.91
-                                  and NON-MONOTONIC in the rate. `pick_self`
-                                  admits `RUN_PX * scale * (step_ms/1000) * 2`,
-                                  which is 1.50 px at 60 Hz, and 13.8% of
-                                  consecutive steps exceed it there against 0.0%
-                                  at 2 Hz. The nearest-to-previous discipline is
-                                  abandoned most often at the highest rate, so
-                                  reference fidelity is not the quality ceiling
-                                  and the comparison has no valid baseline yet.
+                                  97% of shared frames. `pick_self`'s gate is
+                                  no longer the reason: floored at the fit
+                                  error and given the real elapsed time, 15 Hz
+                                  goes 0.9030 -> 0.9363 and 10 Hz 0.9068 ->
+                                  0.9438. What is left is the SELF RING
+                                  FRAGMENTING. On all 69 disagreeing frames at
+                                  15 Hz and all 47 at 5 Hz the reference's own
+                                  answer sits in the candidate list the cheaper
+                                  tier held: two to seven self-coloured blobs a
+                                  median 10.3 px apart, which is the ring's own
+                                  diameter. The two readers latch onto opposite
+                                  arcs of one ring and each stays consistent
+                                  with itself -- taking the NEAREST to the
+                                  previous point instead of the largest
+                                  recovers 15 of 47 at 5 Hz and none at all at
+                                  15 Hz. Merge the fragments before promoting a
+                                  tier.
 
 Add a reader here by running `reticle fidelity-check` and pinning the run that
 promoted it, not by declaring what the reader looks like it should manage.
@@ -79,9 +88,9 @@ def builtin_capabilities() -> dict[str, ReaderCapability]:
             # `transition` is deliberately missing. See the module docstring.
             regimes=("standard",),
             negative_evidence=(
-                "An unobserved killfeed is not an empty one. 2 Hz missed a "
-                "reviewed entry instant (recall 0.9545), so absence below 5 Hz "
-                "carries no weight."
+                "An unobserved killfeed is not an empty one. 2 Hz misses two "
+                "reviewed entry instants (recall 0.9091) against 1.0000 at "
+                "5 Hz and above, so absence below 5 Hz carries no weight."
             ),
         ),
     }
@@ -95,19 +104,23 @@ def unvalidated() -> dict[str, str]:
     """
     return {
         "hud.killfeed_entry_count": (
-            "The frozen run scored presence, not how many rows were up. Up to "
-            "six phantom entries appear in a single wiped frame."
+            "The frozen run scores presence, not how many rows were up. The "
+            "adjudicated count agrees at eleven across every tier, which is "
+            "consistency and not accuracy -- nobody counted the rows in those "
+            "windows. `kf_entries`, the per-frame column, still reaches six on "
+            "one wiped frame and is not a count of anything."
         ),
         "hud@transition": (
-            "The killfeed reader fires on respawn and camera wipes at every "
-            "fidelity, reference fidelity included. Fix the detector before "
-            "declaring a tier."
+            "Adjudicated killfeed presence meets the frozen tolerance at every "
+            "tier, on ONE session with two reviewed wipes. Withheld for want "
+            "of a second reviewed session, not for a known defect."
         ),
         "minimap.self_position": (
-            "No tier reaches the frozen 0.97 agreement, and agreement does not "
-            "fall with the rate. pick_self's gate is 1.50 px at 60 Hz and 13.8% "
-            "of steps exceed it, so the native reference is the least "
-            "track-disciplined read rather than the best one."
+            "No tier reaches the frozen 0.97 agreement. The self ring "
+            "fragments into two to seven blobs a median 10.3 px apart, and "
+            "readers at different rates latch onto different arcs of it -- the "
+            "reference's answer is in the candidate list on every disagreeing "
+            "frame. Merge the fragments before declaring a tier."
         ),
         "minimap.ally_positions": "Never scored against reviewed truth.",
         "ping.ping_event": "Never scored against reviewed truth.",
