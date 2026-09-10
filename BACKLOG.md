@@ -21,6 +21,68 @@ Ordered by consequence, not by age.
 
 ---
 
+## Separate a killfeed entry from a camera wipe by BLUR, not by refusal class
+
+`_entry_bands` decides an entry from plate colour alone and splits a tall run
+into `round(h / PITCH)` bands, so a respawn or camera wipe painting the ROI in
+both plate colours manufactures three to six entries out of one wash. Refusing
+the bands that carry none of an entry's furniture (`EMPTY_BAND_REFUSALS`) took
+out roughly half; the survivors return `no_divider`, which is a class real
+entries also reach, so no refusal class finishes the job.
+
+**The player's suggestion measures well.** A wipe is blurred and its sub-bands
+share horizontal bounds, because they are slices of one rectangle rather than
+separate entries. Over 1,298 bands on `c40d950031bb`, mean horizontal Sobel
+magnitude inside the band's own plate extent:
+
+                             bands   median   p05    p95/max
+    real activity (w1)        1166     58.4   45.6      70.6
+    wipe w5                     61     16.8    2.8      28.2
+    wipe w6                     71     11.0    8.9      13.1
+
+The real p05 is 45.6 and no wipe band exceeds 28.2, so the classes are
+separated in these windows. Slide-in frames -- a plate drawn before its content
+-- keep the sharp edge (42-70), which is why this signal costs nothing that
+`no_icon` costs. Width identity corroborates more weakly: among frames holding
+several bands, the widths agree within 4 px in 20% of real frames, 55% of w5
+and 100% of w6. Real entries differ in width by more than two to one, which
+`_row_profile` already says.
+
+**Do not fit the threshold on these numbers.** They were measured on the frozen
+P3 evaluation windows, and choosing a cut from them turns the test set into the
+training set. Cut new development windows -- other wipes, other sessions -- pick
+the threshold there, and let `reticle fidelity-check` stay an untouched check.
+
+Persistence remains the stronger rule and belongs in the adjudicator: real
+entries occupy 134, 382 and 290 consecutive native frames while wipe bands are
+scattered singles with no kill or death among them.
+
+## A killfeed ability icon says that ability was used, and by whom
+
+The divider on an ability kill is the ABILITY's icon, not a weapon's -- see
+`c40d950031bb` 13:14, `HungryHamster5 [ability] Me`. So every ability kill in
+the feed is a labelled ability use with a timestamp and a named owner, standing
+about ten seconds. That is a channel the ability line does not currently read,
+and it is exactly the kind of evidence it is short of: the gallery's held-out
+problem is that **one** contrast exists in the whole corpus, because every
+ability but Deadlock's pair appears in a single session.
+
+What it would give, and what it would not:
+
+* an ability use with an OWNER, which onset proximity and `position_persistence`
+  currently have to guess at, and which `ability-entities` wants for per-agent
+  death;
+* a time bound tight enough to anchor a phase -- the entry stands for seconds
+  after the kill, so the icon dates the use to a window, not an instant;
+* only abilities that KILLED. Smokes, walls, recon and every non-damaging
+  ability never appear, so the sample is biased towards damage and says nothing
+  about the classes the gallery is actually failing on.
+
+Cost, and the player flagged it: extracting WHICH ability the icon names needs a
+mined template per ability per agent, the same work the weapon icons took, and
+there is no list to start from. Read it as a corroborating channel for uses the
+entity channel already hypothesises before trying to identify icons cold.
+
 ## Reject ally icons that have no light beside them
 
 **Measured 2026-09-07, rendered and inspected, deliberately NOT wired.** An ally

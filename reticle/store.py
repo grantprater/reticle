@@ -246,8 +246,8 @@ class Store:
             # on c40d950031bb: 20 such bands across the 503.4-505.6 s respawn
             # wipe and 37 across 858.0-861.2 s, against ZERO in 1261 frames of
             # real killfeed activity.
-            "kf_textless": pa.array(col("kf_textless"), type=pa.int16()),
-            "kf_textless_reason": pa.array(col("kf_textless_reason"),
+            "kf_empty_bands": pa.array(col("kf_empty_bands"), type=pa.int16()),
+            "kf_empty_band_reason": pa.array(col("kf_empty_band_reason"),
                                            type=pa.dictionary(pa.int8(), pa.string())),
             # Each entry's weapon-icon divider column, packed nine bits per
             # stack slot. An entry's divider does not move while it is on

@@ -95,20 +95,36 @@ wipes (503.4-505.6 s and 858.0-861.2 s, every frame inspected at 200 ms): at
 native rate the reader claimed entries at 13 instants a reviewer recorded as
 EMPTY, with up to six in a single frame.
 
-Half of that is now refused, and by cross-reference rather than by threshold.
-Every entry carries two names, and this function already computes whether the
-band holds glyphs -- so a band we can see that returns `no_ink` or `no_glyphs`
-is not an entry, whatever colour it is. See `TEXTLESS_REFUSALS`. That removed 20
-of the 26 bands in the first wipe and 37 of 63 in the second, at a cost of
-exactly ZERO over 1261 native frames of real killfeed activity, and it leaves
-`kf_player_kill`/`kf_player_death` untouched by construction: a textless band
-could only ever have been `unparsed`. `c40d950031bb` re-scans to 2/7, still
-exact against the scoreboard.
+Roughly half of that is now refused, by cross-reference rather than by
+threshold. Every entry is drawn with the same furniture -- two portraits, an
+icon between the names, and the names -- and this function already computes
+whether the band has any of it, so a band we can see that returns `no_ink`,
+`no_icon` or `no_glyphs` is not an entry, whatever colour it is. See
+`EMPTY_BAND_REFUSALS`. It leaves `kf_player_kill`/`kf_player_death` untouched by
+construction, because such a band could only ever have been `unparsed`, and
+`c40d950031bb` re-scans to 2/7, still exact against the scoreboard.
 
-**The rest is not fixable in one frame and is still open.** The surviving
-phantoms return `no_divider` and `no_icon`, which is also how an ability kill
-presents (13:14 in this session), so no per-frame rule separates them. What does
-separate them is PERSISTENCE, measured over the same windows at native rate:
+What it costs, measured rather than assumed: confuser false-positive instants
+fall from 11 to 3 at 15 Hz and 5 to 3 at 2 Hz, presence recall holds at 1.0000
+at 5 Hz and above, and at 2 Hz it falls from 0.9545 to 0.9091 -- a 2 Hz sampler
+can land on the one or two frames of an entry's SLIDE-IN, where the plate is
+drawn before its content and there is genuinely no icon yet. At native rate the
+count is unchanged at 11, so this is not the fix; it is the half of it that
+needs no threshold.
+
+**The rest is still open, and BLUR is the lead.** The survivors return
+`no_divider`, a class real entries also reach. But a wipe is soft-edged and its
+sub-bands are slices of one rectangle, so they share horizontal bounds -- while
+real entries differ in width by more than two to one, which `_row_profile`
+already relies on. Over 1,298 bands here, mean horizontal Sobel magnitude inside
+the band's own plate extent runs 45.6 (p05) to 70.6 (p95) on real activity
+against a maximum of 28.2 on one wipe and 13.1 on the other, and slide-in
+frames keep the sharp edge. Among frames holding several bands the widths agree
+within 4 px in 20% of real frames, 55% of one wipe and 100% of the other.
+Those numbers were measured ON the frozen P3 windows, so a threshold must be
+fitted somewhere else before `fidelity-check` can score it. See `BACKLOG.md`.
+
+PERSISTENCE is the stronger rule, measured over the same windows at native rate:
 
     real entries    134, 382 and 290 consecutive frames  (2.2 s, 6.4 s, 4.8 s)
     wipe bands      scattered single frames, and not one kill or death verdict
@@ -428,13 +444,14 @@ class KillfeedRead:
     entry_wxs: tuple[int, ...] = ()
     # Which team each entry's victim was on, parallel to `entry_ys`.
     entry_ally: tuple[object, ...] = ()
-    # Plate-coloured bands holding no name text, which are therefore not
-    # entries. Several at once means something is painting the ROI -- a respawn
-    # or camera wipe crosses it in both plate colours, and `_entry_bands` splits
-    # that wash into `round(h/PITCH)` bands. Counted rather than discarded so a
-    # frame can say "the killfeed was unreadable here" instead of "empty".
-    textless_bands: int = 0
-    textless_reason: str | None = None
+    # Plate-coloured bands carrying none of an entry's furniture -- no icon, no
+    # glyphs, no ink -- which are therefore not entries. Several at once means
+    # something is painting the ROI: a respawn or camera wipe crosses it in both
+    # plate colours and `_entry_bands` splits that wash into `round(h/PITCH)`
+    # bands. Counted rather than discarded so a frame can say "the killfeed was
+    # unreadable here" instead of "empty".
+    empty_bands: int = 0
+    empty_band_reason: str | None = None
     # Bands this frame held that could not be parsed at all, and which guard
     # refused the first of them. Separate from `unattributed`, which counts
     # entries that WERE parsed and could not be attributed -- the two are
@@ -815,15 +832,25 @@ def _match_me(region: np.ndarray, tpl_info, side: int) -> tuple[int, float]:
 #:   no_baseline glyphs, but none within BASELINE_TOL of the modal baseline
 BAND_REFUSALS = ("no_ink", "no_icon", "no_glyphs", "no_divider", "no_baseline")
 
-# Two of those refusals are positive evidence that the band is NOT an entry, and
-# the rest are not. Every killfeed entry carries two names, so a band we can see
-# and that holds no glyph-sized ink at all holds no entry -- whatever colour it
-# is. The others all have ink or glyphs and only failed to be *read*: `no_icon`
-# and `no_divider` are how an ability kill presents (`c40d950031bb` 13:14),
-# `no_baseline` is a cut band mid-slide, and `occluded` is the mask admitting it
-# could not look. Those stay entries, because absence of a reading is not
-# absence of an entry.
-TEXTLESS_REFUSALS = ("no_ink", "no_glyphs")
+# Three of those refusals are positive evidence that the band holds NO ENTRY, and
+# the rest are not. Every entry is drawn with the same furniture -- two
+# portraits, an icon between the names, and the two names -- and an ABILITY kill
+# is no exception: `c40d950031bb` 13:14 renders `HungryHamster5 [ability] Me`
+# with both portraits and the ability mark where the weapon icon goes. So a band
+# we can see that has no icon-sized component, or no glyph-sized ink, or no ink
+# at all, is a plate with nothing on it.
+#
+# `no_icon` was first left out of this list on the belief that it was the
+# ability-kill signature. It is not: measured band by band across that kill at
+# native rate, the entry reads `death` continuously for 1.6 s and returns
+# `no_icon` only on the two frames of its slide-in, before the content draws,
+# and on one frame a wipe crosses it. Nothing persistent is lost by refusing it,
+# which the frozen comparison checks rather than assumes.
+#
+# `no_divider` and `no_baseline` stay entries: both have an icon AND glyphs and
+# only failed to be split. `occluded` stays too -- that is the mask admitting it
+# could not look, and absence of a reading is not absence of an entry.
+EMPTY_BAND_REFUSALS = ("no_ink", "no_icon", "no_glyphs")
 
 
 def plate_seam(green_band: np.ndarray, red_band: np.ndarray) -> int | None:
@@ -1115,19 +1142,19 @@ def analyse_killfeed(
             # no name. When they disagree that way the band is not an entry, and
             # a camera wipe is where they disagree: a respawn wipe paints both
             # plate colours across the ROI, the split manufactures three to six
-            # bands from it, and every one of them reads `no_glyphs`. Measured
-            # on c40d950031bb over two source-reviewed wipes -- 13 phantom
-            # instants at native rate, up to six entries in a single frame --
-            # against zero in either audit window. Nothing here tunes
+            # bands from it, and not one of them carries an entry's furniture.
+            # Measured on c40d950031bb over two source-reviewed wipes -- 13
+            # phantom instants at native rate, up to six entries in a single
+            # frame -- against zero in either audit window. Nothing here tunes
             # PLATE_ROW_FRAC or the plate masks; the evidence was already being
             # computed and thrown away.
             # Returned in band order with every other view, and excluded from
             # the entry count by `read_killfeed`. Kept rather than dropped so
             # the count of them stays readable: several at once is the signature
             # of something painting the ROI, which is worth seeing, not hiding.
-            if parsed in TEXTLESS_REFUSALS:
+            if parsed in EMPTY_BAND_REFUSALS:
                 views.append(EntryView(slot, int(a), int(z),
-                                       verdict="textless", reason=parsed))
+                                       verdict="empty_band", reason=parsed))
                 continue
             verdict = "occluded" if parsed == "occluded" else "unparsed"
             views.append(EntryView(slot, int(a), int(z),
@@ -1192,20 +1219,20 @@ def read_killfeed(
     """Count killfeed entries and attribute any the local player is in."""
     seen = analyse_killfeed(frame, roi, width, height, mask, profile_name,
                             census, t_ms)
-    # A textless band is a plate-coloured region with no name in it. It is not
-    # an entry and it does not enter the stack, so nothing that tracks entry
-    # movement is handed one. It is still counted, because several in one frame
-    # says the ROI is being painted over.
-    views = [v for v in seen if v.verdict != "textless"]
-    textless = [v for v in seen if v.verdict == "textless"]
+    # An empty band is a plate-coloured region carrying none of an entry's
+    # furniture. It is not an entry and it does not enter the stack, so nothing
+    # that tracks entry movement is handed one. It is still counted, because
+    # several in one frame says the ROI is being painted over.
+    views = [v for v in seen if v.verdict != "empty_band"]
+    empty = [v for v in seen if v.verdict == "empty_band"]
     kills = [v for v in views if v.verdict == "kill"]
     deaths = [v for v in views if v.verdict == "death"]
     return KillfeedRead(
         entries=len(views),
         slots=tuple(v.slot for v in views),
         entry_ys=tuple(v.y0 for v in views),
-        textless_bands=len(textless),
-        textless_reason=next((v.reason for v in textless if v.reason), None),
+        empty_bands=len(empty),
+        empty_band_reason=next((v.reason for v in empty if v.reason), None),
         player_kill=bool(kills),
         player_death=bool(deaths),
         kill_slots=tuple(v.slot for v in kills),

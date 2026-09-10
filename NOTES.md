@@ -42,22 +42,33 @@ findings and zero errors. The full run is `notes/p3-fidelity-20260909.json`.
 
 **The killfeed half is half-fixed, and the band splitter is why.** The player
 called the entry-stack tracking suspect and both halves of that were right.
-Cross-referencing first: the reader ALREADY computed the evidence and discarded
-it -- every phantom band at the two reviewed wipes reported `no_glyphs` or
-`no_ink`, against ZERO such reports in 1261 native frames of real activity. So
-`kf_entries` no longer counts a plate-coloured band holding no name text, which
-removed 20 of 26 bands in the first wipe and 37 of 63 in the second at no cost;
-`c40d950031bb` re-scans to 2/7, still exact, because a textless band could never
-have carried a kill or death verdict. `HUD_VERSION` is `hud-0.12.0` and 19
-sessions are stale.
+`_entry_bands` decides an entry from PLATE COLOUR alone and splits a tall run
+into `round(h/PITCH)` bands with no per-band evidence, so a wipe painting both
+plate colours across the ROI manufactures three to six entries from one wash.
 
-The assumption behind the rest: `_entry_bands` decides an entry from PLATE
-COLOUR alone and splits a tall run into `round(h/PITCH)` bands with no per-band
-evidence, which is what manufactures three to six entries from one wash. The
-survivors return `no_divider`/`no_icon` -- also how an ability kill presents
-(13:14 this session) -- so no per-frame rule separates them. **Persistence
-does**: real entries occupy 134, 382 and 290 consecutive native frames; wipe
-bands are scattered single frames with not one kill or death among them.
+Cross-referencing first: the reader ALREADY computed the evidence and discarded
+it. `kf_entries` no longer counts a band carrying none of an entry's furniture
+-- `no_ink`, `no_icon` or `no_glyphs` (`EMPTY_BAND_REFUSALS`). Confuser false
+positives fall 11->3 at 15 Hz and 5->3 at 2 Hz, presence recall holds at 1.0000
+at 5 Hz and above, and 2 Hz costs one instant (0.9545->0.9091) because a 2 Hz
+sampler can land on an entry's slide-in. **Native rate is unchanged at 11**, so
+this is the half that needs no threshold, not the fix. `c40d950031bb` re-scans
+to 2/7, still exact. `HUD_VERSION` is `hud-0.12.0`; 19 sessions are stale.
+
+The player corrected me twice and both corrections landed. Ability kills DO
+carry both portraits and an ability icon -- 13:14 renders `HungryHamster5
+[ability] Me` and reads `death` for 1.6 s straight -- so `no_icon` was never the
+ability-kill signature, and `no_divider` never fires at all in this session.
+And the wipe has a per-frame signature: over 1,298 bands, mean horizontal Sobel
+inside the band's plate runs p05 45.6 / p95 70.6 on real activity against a
+maximum of 28.2 and 13.1 on the two wipes, with slide-ins staying SHARP at
+42-70. Width identity corroborates weakly (20% of real multi-band frames, 55%
+and 100% of the wipes). Those numbers came off the frozen windows, so the
+threshold must be fitted elsewhere -- see `BACKLOG.md`.
+
+**Persistence is still the stronger rule**: real entries occupy 134, 382 and 290
+consecutive native frames; wipe bands are scattered singles with not one kill or
+death among them.
 
 ### Do this next, in order
 

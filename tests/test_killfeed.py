@@ -4,7 +4,7 @@ from unittest import mock
 import numpy as np
 
 from reticle import killfeed
-from reticle.killfeed import TEXTLESS_REFUSALS, read_killfeed
+from reticle.killfeed import EMPTY_BAND_REFUSALS, read_killfeed
 from reticle.profiles import get_profile
 
 
@@ -36,47 +36,47 @@ def read_with_bands(bands, refusals):
                              np.ones((300, 400), dtype=bool))
 
 
-class TextlessBandTests(unittest.TestCase):
-    def test_a_band_with_no_text_is_not_an_entry(self):
-        for refusal in TEXTLESS_REFUSALS:
+class EmptyBandTests(unittest.TestCase):
+    def test_a_band_with_none_of_an_entrys_furniture_is_not_an_entry(self):
+        for refusal in EMPTY_BAND_REFUSALS:
             with self.subTest(refusal=refusal):
                 got = read_with_bands([(0, 34)], [refusal])
                 self.assertEqual(got.entries, 0)
-                self.assertEqual(got.textless_bands, 1)
-                self.assertEqual(got.textless_reason, refusal)
+                self.assertEqual(got.empty_bands, 1)
+                self.assertEqual(got.empty_band_reason, refusal)
                 self.assertEqual(got.unparsed, 0)
 
-    def test_a_readable_band_that_merely_failed_to_parse_stays_an_entry(self):
-        """`no_divider` is how an ability kill presents -- c40d950031bb 13:14.
-
-        Dropping it would trade a real death for the wipe false positives, which
-        is why the gate is glyph evidence and not the refusal count.
+    def test_a_readable_band_that_merely_failed_to_split_stays_an_entry(self):
+        """An ability kill carries both portraits and an ability icon where the
+        weapon icon goes, so it reaches these refusals rather than the empty
+        ones -- c40d950031bb 13:14 reads `death` for 1.6 s continuously.
+        Dropping these would trade a real death for the wipe false positives.
         """
-        for refusal in ("no_icon", "no_divider", "no_baseline"):
+        for refusal in ("no_divider", "no_baseline"):
             with self.subTest(refusal=refusal):
                 got = read_with_bands([(0, 34)], [refusal])
                 self.assertEqual(got.entries, 1)
                 self.assertEqual(got.unparsed, 1)
-                self.assertEqual(got.textless_bands, 0)
+                self.assertEqual(got.empty_bands, 0)
 
     def test_an_occluded_band_stays_an_entry(self):
         got = read_with_bands([(0, 34)], ["occluded"])
         self.assertEqual(got.entries, 1)
         self.assertEqual(got.unattributed, 1)
-        self.assertEqual(got.textless_bands, 0)
+        self.assertEqual(got.empty_bands, 0)
 
-    def test_a_wipe_splitting_into_several_textless_bands_counts_no_entries(self):
+    def test_a_wipe_splitting_into_several_empty_bands_counts_no_entries(self):
         """The measured failure: `_entry_bands` divides a tall plate run by
         PITCH, so a respawn wipe painting both plate colours across the ROI
         yields several bands at once and every one of them holds no name."""
         bands = [(0, 34), (40, 74), (80, 114), (120, 154)]
         got = read_with_bands(bands, ["no_glyphs"] * 4)
         self.assertEqual(got.entries, 0)
-        self.assertEqual(got.textless_bands, 4)
+        self.assertEqual(got.empty_bands, 4)
         self.assertEqual(got.entry_ys, ())
         self.assertEqual(got.slots, ())
 
-    def test_a_textless_band_does_not_displace_a_real_one_in_the_stack(self):
+    def test_an_empty_band_does_not_displace_a_real_one_in_the_stack(self):
         """Order matters: the parallel `_ys`/`_wx` tuples index the stack, so a
         rejected band must leave no hole and no shift behind it."""
         bands = [(0, 34), (40, 74)]
@@ -84,11 +84,11 @@ class TextlessBandTests(unittest.TestCase):
         self.assertEqual(got.entries, 1)
         self.assertEqual(got.entry_ys, (40,))
         self.assertEqual(len(got.entry_wxs), 1)
-        self.assertEqual(got.textless_bands, 1)
+        self.assertEqual(got.empty_bands, 1)
 
-    def test_attribution_cannot_be_reached_by_a_textless_band(self):
+    def test_attribution_cannot_be_reached_by_an_empty_band(self):
         """The reason the K/D table survives this change untouched: a band with
-        no glyphs never produced a kill or death verdict in the first place."""
+        no entry furniture never produced a kill or death verdict anyway."""
         got = read_with_bands([(0, 34), (40, 74)], ["no_ink", "no_glyphs"])
         self.assertFalse(got.player_kill)
         self.assertFalse(got.player_death)
