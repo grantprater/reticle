@@ -80,16 +80,27 @@ key and never governed two, and read self-ally pairs come as close as 0.7 px,
 with 6.6%/2.9% inside the separation. Gating on it would refuse the reader's
 own correct positions.
 
-**It also cut down a claim I had written into three documents.** Proximity to
-an ally lifts refusal only 1.2x-1.6x (within 15 px: 43.9% of bracketed refusals
-against 36.9% of reads, and 30.2% against 19.3%), and most refusals have no
-ally near them. The overlap story came from a contact sheet; the cross-
-reference the standing rule asks for is what cut it. Corrected in the
-appearance doc, the backlog and the accounting.
+**Overlap does not explain the self-ring refusal, and that claim was mine.**
+The ally test gave only a 1.2x-1.6x lift, and it could see one occluder, so
+`prototypes/minimap_occlusion.py` re-ran it naming none: it counts pixels near
+the self position that leave the geometry's lighting band, covering enemies,
+ability entities, pings, the spike, markers and barriers without reading any of
+them. Refused instants carry 0.481 foreign content against 0.454 at read
+instants -- **1.06x against a predeclared 1.5x bar**, and 0.99x at the widest
+margin. Nothing is drawn over the icon when the ring refuses.
 
-Left unresolved and recorded in `BACKLOG.md`: 73 and 104 self-ally pairs sit
-closer than 5.7 px, closest 0.7 px -- either genuine stacking or one icon read
-by both keys.
+The standing candidate is already in `BACKLOG.md`, measured over five sessions:
+the self key survives only over the LOWER HALF of the rim, present on 61-67% of
+bearings 150-240 deg and 22-23% at 330-30. A screen-space dropout in the icon's
+own rendering predicts refusals with nothing over them. **The next test is
+bearing, not occlusion** -- compare the facing of the fit before a refusal
+against the facing distribution at read instants.
+
+Also corrected: two icons may be EXACTLY coincident. The widget cannot resolve
+players who touch, and one above another on a different level draws at the same
+point. So no rule may assume distinct icons separate -- recorded in `BACKLOG.md`
+in place of the earlier entry, which had read coincidence as a possible detector
+disagreement.
 
 Next is step 3: a `widget_drawn` column in L1, which needs a re-decode and
 should carry the 18 stale `minimap-0.4.0` sessions with it. `docs/ADJUDICATION_DESIGN.md`'s gap section is

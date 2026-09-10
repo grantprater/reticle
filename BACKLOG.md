@@ -217,17 +217,23 @@ counts positions the current reader refuses to claim.
 before using stored positions as an adjudication baseline, and fold in the
 `widget_drawn` column above so one re-decode buys both.
 
-## Self and ally icons are read as NEARLY COINCIDENT in a few hundred instants
+## Two icons may be EXACTLY COINCIDENT, so no rule may assume they separate
 
 Measured 2026-09-09 while testing whether ally centres could exclude regions.
 At instants where the self reader answered, 73 self-ally pairs on
 `c40d950031bb` and 104 on `ff636d173b07` sit closer than 5.7 px -- about a
 third of an icon diameter -- and the closest pair is 0.7 px apart.
 
-Either players genuinely stack that tightly, or one drawn icon is being read by
-both colour keys. **The channels disagree and nothing records it.** Storing the
-disagreement is the standing rule; resolving it needs a look at those frames,
-not a threshold.
+**This is the widget's resolving power, not a defect.** Two players who touch
+are not separable at this scale, and one standing above another on a different
+level is drawn at the same point. So coincidence is expected, and any rule
+asserting a minimum distance between distinct icons is invalid.
+`MIN_ICON_SEPARATION_PX` is not such a rule: it collapses fragments inside ONE
+colour key, where the alternative reading is one icon rather than two players.
+
+What this forbids: excluding regions from a position belief because another
+icon is there; treating coincidence as a detector disagreement; assuming an
+overlap resolves into distinct centres given a better fit.
 
 ## Minimap re-validation after the `floor_mask` reconciliation
 

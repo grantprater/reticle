@@ -477,7 +477,7 @@ two rows below.
 
 | Evidence | Constraint on the belief | Status |
 |---|---|---|
-| Ally icon centres | **Exclude nothing.** The separation rule governs fragments within ONE colour key, not two; read self-ally pairs come as close as 0.7 px, and 6.6% sit inside the separation | Measured 2026-09-09 and REFUTED. Their one use is as a drawn-witness, in `absent_instants` |
+| Ally icon centres | **Exclude nothing, in principle and in measurement.** The widget cannot resolve two players who touch, and it draws one above another on a different level at the same point, so distinct icons may be exactly coincident. Read self-ally pairs come as close as 0.7 px | Measured 2026-09-09 and REFUTED. Their one use is as a drawn-witness, in `absent_instants` |
 | Self-key fragments at a refusal | Bound the centre tightly even when the ring fit refuses: within 12 px on every one of 137 bracketed refusals | Measured; `minimap_self_appearance.py --joint` |
 | Viewcone and lighting | Independent check on icon role and bearing | Channels exist |
 
@@ -553,18 +553,31 @@ downstream should model death until it lands.
      current sessions, and the closest read pair sits 0.7 px apart. There is
      no separation to exploit, because `MIN_ICON_SEPARATION_PX` collapses
      fragments inside one key and says nothing across two.
-   - **The overlap diagnosis is weaker than it was written.** Proximity to an
-     ally does lift refusal, but only by 1.2x-1.6x, and most refusals have no
-     ally near them at all:
+   - **The overlap diagnosis is refuted outright.** Proximity to an ally
+     lifts refusal only 1.2x-1.6x, and most refusals have no ally near them:
 
          session          nearest ally within 15 px
                           self read        self refused
          c40d950031bb     36.9%            43.9%
          ff636d173b07     19.3%            30.2%
 
-     Worse, the refused column is measurable only on BRACKETED refusals --
-     the isolated ones. It says nothing about the long runs, which is exactly
-     where overlap was claimed to dominate.
+     That test could only see one occluder, so `prototypes/minimap_occlusion.py`
+     re-ran it naming none: it counts pixels near the self position that leave
+     the geometry's measured lighting band, so enemies, ability entities,
+     pings, the spike, markers and barriers all count without being read.
+     Refused instants carry a foreign-content fraction of 0.481 against 0.454
+     at read instants -- **a lift of 1.06x against a 1.5x bar**, and 0.99x at
+     the widest margin.
+
+     **Nothing is drawn over the icon when the ring refuses.** The standing
+     candidate is already measured, over five sessions: the self key survives
+     only over the LOWER HALF of the rim, present on 61-67% of bearings
+     150-240 deg and 22-23% at 330-30. That is a screen-space dropout in the
+     icon's own rendering, and it predicts refusals with no occluder. The next
+     test is BEARING, not occlusion.
+
+     Both tests are measurable only on BRACKETED refusals -- the isolated
+     ones -- so the long runs remain untested either way.
 3. A `widget_drawn` column, folded into the re-decode that rebuilds the 18
    sessions still on `minimap-0.4.0`.
 4. Self identity, which unblocks death.

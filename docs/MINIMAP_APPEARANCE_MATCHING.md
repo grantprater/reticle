@@ -268,11 +268,15 @@ well it scores on the isolated refusals it can see.
 Step 2 therefore closes. The frozen windows were never opened for the joint
 rule, and `JOINT_RESIDUAL_SCORE_MIN` stays unselected so no threshold is chosen
 after the fact. Step 3 inherits the useful parts: `match_at`, the permissive
-proposal call, and the observation that portraits overlap where the ring
-refuses. **That last was inspected, not measured, and a later cross-reference
-cut it down**: ally proximity lifts refusal only 1.2x-1.6x, and most refusals
-have no ally within 15 px. See the ally row of the position-belief accounting
-in [ADJUDICATION_DESIGN.md](ADJUDICATION_DESIGN.md). Detailed
+proposal call. It does NOT inherit the overlap story that was written here:
+that came from inspecting a contact sheet, and two later measurements refuted
+it. Ally proximity lifts refusal only 1.2x-1.6x, and `prototypes/minimap_occlusion.py`
+-- which names no occluder and so covers enemies, abilities, pings, the spike
+and barriers alike -- finds foreign content near the self position at 1.06x on
+refused instants against read ones. **Nothing is drawn over the icon when the
+ring refuses.** The standing candidate is the self key's own screen-space
+dropout over the upper rim, already measured over five sessions in
+`BACKLOG.md`. Detailed
 predictions and outcomes are in the store's `notes/predictions.jsonl`; artifacts
 are `notes/self-appearance-step2-{frozen,tiers}.json` and
 `notes/self-appearance-step2-joint-dev{,-proposals}.{json,png}`.
