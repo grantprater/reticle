@@ -26,6 +26,12 @@ teammate is the defect.
     4  the SPIKE -- dropped, carried or planted
     5  an ABILITY icon or area
     6  a DEATH MARK or a LAST-KNOWN marker
+    8  TWO OR MORE things under the ring that cannot be separated -- the
+       player standing on the spike, two portraits exactly stacked. Added at
+       candidate 9 of the first run, when the player was on the spike at the
+       asked instant and walked off it in the next panel. This is NOT `U`:
+       `U` says the labeller could not tell, `8` says there is no single
+       answer to give, which is the case the reader fails on
     7  something real that is none of the above -- the escape hatch, because
        `0` is a CLAIM that nothing is there and being forced into it wrongly is
        how a negative class gets poisoned
@@ -60,7 +66,8 @@ from reticle.store import DEFAULT_STORE, Store  # noqa: E402
 
 KIND = "self_fit"
 CLASSES = {"1": "local_player", "2": "teammate", "3": "enemy", "4": "spike",
-           "5": "ability", "6": "mark", "7": "other", "0": "nothing"}
+           "5": "ability", "6": "mark", "7": "other", "0": "nothing",
+           "8": "coincident"}
 RING = (70, 240, 250)
 CROWD_PX = 25.0
 

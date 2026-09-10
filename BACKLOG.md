@@ -274,6 +274,15 @@ what was underneath. Recorded here as an open question rather than guessed. It
 matters: if players always draw over the spike, a fit on a spike means the
 player is elsewhere, which is a usable constraint; if not, it means nothing.
 
+**The player and the spike are CO-LOCATED when this happens.** Seen at
+candidate 9 of the first pass: the fit is on the player at the asked instant,
+and half a second later the same map spot holds the spike, the player having
+walked off it. So the reader is not jumping to a distant object -- it is
+choosing between two things at one place, which is why a speed gate cannot see
+it and why a better centre estimate cannot either. `8 = coincident` was added
+to the labeller for exactly this, kept separate from `U` because the labeller
+can see perfectly well; there is simply no single answer.
+
 `prototypes/label_self_fit.py` runs the pass. It samples the reader's own
 ACCEPTED fits in two recorded strata -- `crowded`, another read icon within
 25 px, and `clear` -- so a rate over all accepted fits can be reweighted rather
