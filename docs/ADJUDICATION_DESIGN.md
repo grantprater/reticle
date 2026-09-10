@@ -43,6 +43,17 @@ Inspected `reconciliation.py`, `round_lifetimes.py`, `minimap_lifecycle.py`,
   continuity. Expiring association anchors cannot establish that an entity died.
 - The artifact registry already supports explicit dependencies. Readers and
   refinement already provide a shared-decode boundary worth preserving.
+- `minimap.resolve_track` (2026-09-09, `belief-0.1.0`) supplies the position
+  half of "render interpolation and prediction distinctly from observed
+  coordinates" below. Each sampled instant gets a `Fix` carrying
+  `observed`/`interpolated`/`held`/`unresolved`, a physical radius, and a
+  refusal reason. `filter_track` stays exactly as it was and now shares the
+  admission law through `_admit`, verified identical over 401,797 points on
+  every stored session. It is a library channel; nothing stores a `Fix` yet
+  and no consumer reads one.
+- The step law drops 8.7% of the current reader's own answers on
+  `c40d950031bb` (699 of 8025). The `RUN_PX * 1.6` gate was calibrated against
+  `minimap-0.4.0`, so it is owed a re-measurement against the fitted reader.
 
 Pickup diagnostics: `doctor` reports six findings and zero errors; `status`
 reports 52 sessions, 411 derived rounds and four stale minimap artifacts. These

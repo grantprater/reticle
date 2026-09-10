@@ -11,35 +11,39 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-09, Step 2 is closed; Step 3 is next
+## PICKING UP -- 2026-09-09, the position belief channel exists
 
-Step 1 stands at `f0431b9`: fitted self icons hold frozen cross-rate agreement at
-0.9917/0.9885/0.9849/0.9939 for 15/10/5/2 Hz, eligible coverage about 71-73%,
-`MINIMAP_VERSION` 0.5.0. `reticle fidelity-check` reproduced every one of those
-numbers this session, so nothing in the reader moved.
+Step 2 closed as a measured negative (`136da29`); the detector work stopped
+there deliberately. **The next question turned out not to be detector
+precision.** A refused frame is not a hole in the pipeline -- the model is
+entitled to a belief -- and the adjudication layer was not supplying one.
 
-**Step 2 is closed as a measured negative result and nothing is wired.** Both
-required comparisons ran. The standalone recent-template rule failed tier
-transfer (80.0%/68.4%/12.5% precision at 15/10/5 Hz). The joint fit, which scores
-appearance only at permissive current-frame ring proposals, then fixed precision
--- 97.92% of ungated answers within 3 px, and exact above any modest gate -- and
-still failed coverage, answering 35.04% of opportunities against a 40% bar with a
-57.66% geometric ceiling against a 60% bar.
+`minimap.resolve_track` now answers every sampled instant with a `Fix`:
+`observed | interpolated | held | unresolved`, a physical radius (fit error
+plus how far a runner could have travelled since the evidence), and a reason
+when it refuses. `BELIEF_VERSION` is `belief-0.1.0`. `filter_track` is
+untouched and now shares `_admit`, verified identical over 401,797 points
+across all 20 stored sessions.
 
-The reason is the denominator, and it is worth carrying forward: the path can
-answer 164 of 1594 drawn refusals (10.29%) at best, because a recent template
-needs a recent fit and **refusals arrive in long runs while the self portrait
-overlaps ally portraits**. 85 of 137 opportunities had no trusted anchor at all,
-while the motion gate excluded none of the 51 correct proposals it saw. Overlap
-is the thing to model, not the score.
+    c40d950031bb    reader answered      75.0% of instants
+                    belief channel       89.6%   (17.4% interpolated, 3.7% held)
+                    unresolved           10.4%   (872 widget-absent, 244 stale)
+                    inferred radius      median 5.7 px, 92.3% within 25 px
 
-Next: Step 3 directional geometry, per `docs/MINIMAP_APPEARANCE_MATCHING.md`. It
-inherits `match_at`, the permissive proposal call (`icons(..., separation_px=0)`,
-whose default reproduces shipped deduplication), and the overlap finding. The
-frozen windows were never opened for the joint rule and `JOINT_RESIDUAL_SCORE_MIN`
-stays unselected, so do not promote a threshold from the development numbers.
-Artifacts are `notes/self-appearance-step2-*`; every prediction and outcome is in
-`notes/predictions.jsonl`. No production reader or schema change is pending.
+**Two defects came out of it, both in BACKLOG.md.** L1 writes the same NULL for
+a refused read and an absent widget, so `filter_track` treats every refusal as
+"nobody was looking" -- 2016 of 2676 unread instants on `c40d950031bb` plainly
+had the widget drawn, because the ally channel read icons there. The interim
+cross-reference is `absent_instants`; the fix is a stored `widget_drawn`
+column. Separately, 18 of 20 stored L1 datasets are still `minimap-0.4.0`, the
+pre-Step-1 permissive reader, so one re-decode should buy both.
+
+Also open: the `RUN_PX * 1.6` step gate drops 8.7% of the current reader's own
+answers (699 of 8025) and was calibrated against 0.4.0.
+
+Next: decide what consumes a `Fix`. Nothing stores or reads one yet, so the
+channel is correct and unwired. `docs/ADJUDICATION_DESIGN.md`'s gap section is
+current. 345 tests pass; `doctor` has six findings and zero errors.
 
 ## Prior P3 context -- killfeed persistence and the Step 1 ring fit
 

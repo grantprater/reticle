@@ -183,6 +183,38 @@ proposal call `icons(..., separation_px=0)`, whose default reproduces the shippe
 deduplication -- worth 11 points of ceiling, because deduplication keeps the best
 ARC rather than the fragment nearest the true centre.
 
+## L1 cannot tell a REFUSED self read from an ABSENT widget
+
+Both are written as `self_x = NULL` with no flag, so the standing constraint
+that refusal and missing widget stay distinguishable is violated in the table
+every downstream position rule reads. `cmd_minimap` writes the NULL on the
+`widget_drawn` branch and again when `pick_self` refuses.
+
+**What it costs.** `filter_track`'s docstring says NULL rows are how it tells
+"a widget-absent hole from a detection miss" -- it cannot, so it treats every
+refusal as a hole and refuses to interpolate across any of them. On
+`c40d950031bb`, 2016 of 2676 unread instants plainly had the widget drawn,
+because the ALLY channel read icons inside it at that instant.
+
+**The interim rule is a cross-reference**, `minimap.absent_instants`: an ally
+icon read at an instant proves the widget was drawn there. Sufficient, not
+necessary, so it over-reports absence and the belief layer stays conservative.
+
+**The fix is a stored column.** `widget_drawn` in L1 minimap, which is a
+`MINIMAP_VERSION` bump and a re-decode of every session. Worth doing with the
+18 sessions still on `minimap-0.4.0` (see the stale-L1 entry), not before.
+
+## 18 of 20 stored minimap L1 datasets predate the Step 1 reader
+
+Only `c40d950031bb` and `ff636d173b07` carry `minimap-0.5.0`; the rest are
+`minimap-0.4.0` and one is `minimap-0.1.0`. 0.4.0 is the permissive reader with
+the connected-component fallback that Step 1 removed, so its ~94% self coverage
+counts positions the current reader refuses to claim.
+
+**Any model work reading those tables is reading the old detector.** Rebuild
+before using stored positions as an adjudication baseline, and fold in the
+`widget_drawn` column above so one re-decode buys both.
+
 ## Minimap re-validation after the `floor_mask` reconciliation
 
 **Tabled 2026-09-06 by the player.** The commit is `18b0912`; the numbers and the

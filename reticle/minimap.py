@@ -41,6 +41,7 @@ Known limits carried from the prototype, unresolved:
 from __future__ import annotations
 
 import cv2
+from dataclasses import dataclass
 import numpy as np
 
 from .profiles import Profile
@@ -1061,6 +1062,225 @@ def pick_self(cands: list[tuple[float, float, float] | dict],
     return max(norm, key=lambda c: c[0])[1:]
 
 
+def _spans_hole(holes: list[float], t0: float, t1: float) -> bool:
+    """Is there an unobservable instant strictly inside `(t0, t1)`."""
+    i = int(np.searchsorted(holes, t0, side="right"))
+    return i < len(holes) and holes[i] < t1
+
+
+def _admit(found: list[tuple[float, float, float]], scale: float,
+           motion) -> tuple[list, set[int], list[float]]:
+    """Keep the physically reachable steps. See `filter_track` for the law.
+
+    Split out so the belief channel and the filtered track cannot disagree
+    about which observations were admitted; both read this one answer.
+    """
+    holes = sorted(p[0] for p in found if p[1] is None or p[2] is None)
+    found = [p for p in found if p[1] is not None and p[2] is not None]
+
+    # Deferred: `track` imports RUN_PX from here, so a module-level import
+    # would be circular. Nothing is imported at all on the default path.
+    mot, spans = None, None
+    evidence = None
+    if motion is not None:
+        from . import track as _track
+
+        def _ev(e):
+            # A stored event row is a dict; anything else is already a
+            # `track.Corroboration`. Keyed on the dict rather than on the
+            # class because `python -m reticle.track --self-test` runs this
+            # module's `track` and its own `__main__` copy side by side.
+            return _track.Corroboration.of(e) if isinstance(e, dict) else e
+
+        if isinstance(motion, (list, tuple)):
+            spans = [(float(s[0]), float(s[1]),
+                      s[2] if isinstance(s[2], _track.Motion) else _track.CLASSES[s[2]],
+                      _ev(s[3] if len(s) > 3 else None))
+                     for s in motion]
+        elif isinstance(motion, _track.Motion):
+            mot = motion
+        else:
+            mot = _track.CLASSES[motion]
+
+    def law(t_ms):
+        """The class and evidence governing a step arriving at `t_ms`.
+
+        `(None, None)` means no class was selected here, so the fixed gate
+        applies.
+        """
+        if spans is None:
+            return mot, evidence
+        for t0, t1, m, ev in spans:
+            if t0 <= t_ms <= t1:
+                return m, ev
+        return None, None
+
+    keep: list = []
+    jumps: set[int] = set()          # keep[i] -> keep[i+1] is a legal teleport
+    for p in found:
+        if keep:
+            dt = (p[0] - keep[-1][0]) / 1000.0
+            dist = float(np.hypot(p[1] - keep[-1][1], p[2] - keep[-1][2]))
+            m, ev = law(p[0])
+            if m is None:
+                if dt > 0 and dist / dt > RUN_PX * scale * 1.6:
+                    continue
+            else:
+                from . import track as _track
+                ok, why = _track.admits(m, dist, dt, scale, evidence=ev)
+                if not ok:
+                    continue
+                if _track.is_teleport(why):
+                    jumps.add(len(keep) - 1)
+        keep.append(p)
+    return keep, jumps, holes
+
+
+#: The belief channel's own stamp, beside `track.TRACK_VERSION` rather than in
+#: `version.py`, because nothing stores it yet. A caller that persists a `Fix`
+#: must carry this, since the beliefs change meaning when the law does.
+BELIEF_VERSION = "belief-0.1.0"
+
+OBSERVED = "observed"
+INTERPOLATED = "interpolated"
+HELD = "held"
+UNRESOLVED = "unresolved"
+
+
+@dataclass(frozen=True)
+class Fix:
+    """Where the player is BELIEVED to be, and on what standing.
+
+    `source` separates a read from an inference, which is the distinction
+    `docs/ADJUDICATION_DESIGN.md` requires and a bare `(t, x, y)` tuple loses:
+
+        observed      the reader answered here and the step law admitted it
+        interpolated  bracketed by two admitted reads close enough in time
+        held          carried forward from the last read; nothing closes it yet
+        unresolved    no belief -- `x`/`y` are None and `reason` says why
+
+    `radius_px` is a physical bound, not a calibrated confidence: the fit error
+    plus how far a running player could have travelled since the evidence. It
+    grows with elapsed time and, for an interpolated fix, is bounded by
+    whichever endpoint is nearer in time.
+
+    **A `Fix` is never evidence.** It must not seed a template, feed a
+    detector's prior, or count toward observed coverage; it is the model's
+    belief about a position, derived from reads that are stored separately.
+    """
+
+    t_ms: float
+    x: float | None
+    y: float | None
+    source: str
+    radius_px: float | None
+    reason: str | None = None
+
+    @property
+    def observed(self) -> bool:
+        return self.source == OBSERVED
+
+
+def absent_instants(rows: list[dict]) -> list[float]:
+    """The instants a stored L1 row cannot show the widget was drawn.
+
+    **L1 collapses a refusal and an absent widget into the same NULL**, which
+    the global constraint says must stay distinguishable: `cmd_minimap` writes
+    NULL positions both when `widget_drawn` is false and when the self fit is
+    refused, and stores no flag separating them. Until the reader carries the
+    flag, this cross-references the ALLY channel, which reads the same widget:
+    an ally icon read at that instant proves the widget was drawn, whatever the
+    self reader did.
+
+    The rule is sufficient, not necessary -- a drawn widget with no visible
+    teammate still lands here -- so it OVER-reports absence and the belief
+    layer stays conservative where it cannot tell. On `c40d950031bb` it
+    recovers 2016 of 2676 unread instants as plainly drawn.
+    """
+    return sorted(r["t_ms"] for r in rows
+                  if r.get("self_x") is None and not r.get("n_allies"))
+
+
+def resolve_track(found: list[tuple[float, float, float]], step_ms: float,
+                  scale: float = 1.0, motion=None,
+                  absent_t=None) -> list[Fix]:
+    """One belief per sampled instant, carrying its source and its bound.
+
+    Same admission law as `filter_track` -- they share `_admit` -- but this
+    answers at every instant the caller sampled, rather than only where an
+    observation survived. That is what a model consumes: a refused frame is a
+    position it still needs, and `unresolved` states plainly where none exists.
+
+    `absent_t` names the instants the widget was NOT drawn. Nothing is
+    interpolated or held across one of those, because the player may have died
+    or opened the full map there, and inventing a path through the only frames
+    that state nobody was looking is the fault `filter_track` was fixed for.
+    Passing `None` means the caller cannot tell, and then EVERY unread instant
+    is treated as unobservable -- today's conservative behaviour, and the
+    reason `absent_instants` exists to narrow it.
+
+    A legal teleport is never crossed either: it is a real discontinuity, so a
+    belief drawn through it would walk the player a route they did not walk.
+    """
+    keep, jumps, _ = _admit(found, scale, motion)
+    if absent_t is None:
+        blind = sorted(p[0] for p in found if p[1] is None or p[2] is None)
+    else:
+        blind = sorted(float(t) for t in absent_t)
+    kept_t = [k[0] for k in keep]
+    kept_at = {k[0]: k for k in keep}
+    jump_after = {kept_t[i] for i in jumps if i < len(kept_t)}
+    fit_err = FIT_ERR_PX * scale
+    reach = RUN_PX * scale
+
+    unobservable = set(blind)
+    out: list[Fix] = []
+    for t_ms, _x, _y in found:
+        # The instant itself may be the one nobody was looking at, which is a
+        # different answer from a gap BETWEEN two such instants.
+        if t_ms in unobservable and t_ms not in kept_at:
+            out.append(Fix(t_ms, None, None, UNRESOLVED, None, "widget_absent"))
+            continue
+        hit = kept_at.get(t_ms)
+        if hit is not None:
+            out.append(Fix(t_ms, hit[1], hit[2], OBSERVED, fit_err))
+            continue
+        # A read the step law rejected is not evidence, but the instant still
+        # needs a belief; `reason` keeps the rejection visible.
+        rejected = _x is not None and _y is not None
+        i = int(np.searchsorted(kept_t, t_ms, side="left"))
+        before = kept_at[kept_t[i - 1]] if i > 0 else None
+        after = kept_at[kept_t[i]] if i < len(kept_t) else None
+        reason = "rejected_step" if rejected else None
+        if before is not None and _spans_hole(blind, before[0], t_ms):
+            before = None
+            reason = "widget_absent"
+        if after is not None and _spans_hole(blind, t_ms, after[0]):
+            after = None
+        if (before is not None and after is not None
+                and before[0] not in jump_after
+                and after[0] - before[0] <= GAP_MS):
+            span = after[0] - before[0]
+            f = (t_ms - before[0]) / span
+            nearer = min(t_ms - before[0], after[0] - t_ms) / 1000.0
+            out.append(Fix(t_ms,
+                           before[1] + (after[1] - before[1]) * f,
+                           before[2] + (after[2] - before[2]) * f,
+                           INTERPOLATED, fit_err + reach * nearer, reason))
+            continue
+        if (before is not None and before[0] not in jump_after
+                and t_ms - before[0] <= GAP_MS):
+            held = (t_ms - before[0]) / 1000.0
+            out.append(Fix(t_ms, before[1], before[2], HELD,
+                           fit_err + reach * held, reason))
+            continue
+        if reason is None:
+            reason = ("teleport" if before is not None
+                      and before[0] in jump_after else "stale")
+        out.append(Fix(t_ms, None, None, UNRESOLVED, None, reason))
+    return out
+
+
 def filter_track(found: list[tuple[float, float, float]],
                   step_ms: float, scale: float = 1.0,
                   motion=None) -> list[tuple[float, float, float]]:
@@ -1143,68 +1363,11 @@ def filter_track(found: list[tuple[float, float, float]],
     Interpolating a gap the widget was absent for would be inventing a path
     through the only frames that state outright that nobody was looking.
     """
-    holes = sorted(p[0] for p in found if p[1] is None or p[2] is None)
-    found = [p for p in found if p[1] is not None and p[2] is not None]
+    keep, jumps, holes = _admit(found, scale, motion)
 
     def spans_hole(t0: float, t1: float) -> bool:
-        i = int(np.searchsorted(holes, t0, side="right"))
-        return i < len(holes) and holes[i] < t1
+        return _spans_hole(holes, t0, t1)
 
-    # Deferred: `track` imports RUN_PX from here, so a module-level import
-    # would be circular. Nothing is imported at all on the default path.
-    mot, spans = None, None
-    evidence = None
-    if motion is not None:
-        from . import track as _track
-
-        def _ev(e):
-            # A stored event row is a dict; anything else is already a
-            # `track.Corroboration`. Keyed on the dict rather than on the
-            # class because `python -m reticle.track --self-test` runs this
-            # module's `track` and its own `__main__` copy side by side.
-            return _track.Corroboration.of(e) if isinstance(e, dict) else e
-
-        if isinstance(motion, (list, tuple)):
-            spans = [(float(s[0]), float(s[1]),
-                      s[2] if isinstance(s[2], _track.Motion) else _track.CLASSES[s[2]],
-                      _ev(s[3] if len(s) > 3 else None))
-                     for s in motion]
-        elif isinstance(motion, _track.Motion):
-            mot = motion
-        else:
-            mot = _track.CLASSES[motion]
-
-    def law(t_ms):
-        """The class and evidence governing a step arriving at `t_ms`.
-
-        `(None, None)` means no class was selected here, so the fixed gate
-        applies.
-        """
-        if spans is None:
-            return mot, evidence
-        for t0, t1, m, ev in spans:
-            if t0 <= t_ms <= t1:
-                return m, ev
-        return None, None
-
-    keep: list = []
-    jumps: set[int] = set()          # keep[i] -> keep[i+1] is a legal teleport
-    for p in found:
-        if keep:
-            dt = (p[0] - keep[-1][0]) / 1000.0
-            dist = float(np.hypot(p[1] - keep[-1][1], p[2] - keep[-1][2]))
-            m, ev = law(p[0])
-            if m is None:
-                if dt > 0 and dist / dt > RUN_PX * scale * 1.6:
-                    continue
-            else:
-                from . import track as _track
-                ok, why = _track.admits(m, dist, dt, scale, evidence=ev)
-                if not ok:
-                    continue
-                if _track.is_teleport(why):
-                    jumps.add(len(keep) - 1)
-        keep.append(p)
     out = []
     for i, (a, b) in enumerate(zip(keep, keep[1:])):
         out.append(a)
