@@ -11,7 +11,7 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-09, the killfeed half of P3 passes; the minimap half has a name
+## PICKING UP -- 2026-09-09, the killfeed half of P3 passes; the minimap needs icon MATCHING
 
 The two rules the last handoff asked for landed and both were measured before
 and after. `reticle fidelity-check` is the gate; the run is pinned at
@@ -45,14 +45,37 @@ sessions against `checks.KNOWN_KD` is byte-identical.
 The classes never came close, so no threshold was fitted anywhere: eleven real
 entries span 4733-8017 ms and eleven wipe tracks span 0-667 ms.
 
-**Four false positives survive at every rate, and they are not wipes.** Both
-sit in TRIGGER windows. w1: the reader's onset is 186167 ms against the review's
-[186400, 186600] bracket, with divider column 176 continuous either side of a
-583 ms plate dropout -- one entry, not two. w2: 506517 against a reviewed 506620.
-233 ms and 103 ms, at a review granularity of 200. **Ask the player whether a
-plate drawn before its content is an entry yet**; the answer decides whether
-these are reader error or review error, and nothing else in the gate turns on
-it.
+**Four false positives survive at every rate, and w1 holds an UNLABELLED
+WIPE.** I first read these as an onset-granularity quibble. They are not. The
+killfeed ROI at 185567-185717 ms goes to a uniform 190.3 with **zero green and
+zero white pixels** and 17115 red, then decays back over ~600 ms:
+
+    t_ms   roi_mean  green    red   white  glyphs
+    185533    138.7   4709   6005  496740      29   entry, divider 176
+    185567    190.3      0  17115       0       0   flat wash, whole ROI
+    186000    167.7      0   9266  311100      17
+    186183    147.4   1227   7806  322065      20   same entry, divider 176
+
+The entry either side is the same one -- divider 176, victim run (293,317). So
+this is a THIRD camera wipe in this session, sitting inside a **trigger**
+window, and the reviewed field's "no entries at 186000/186200/186400" is a
+person correctly reporting they cannot see a row through a wash. The frozen
+contract calls that stretch clean; it is not. w2's single survivor is the same
+shape at 506517 against a reviewed 506620.
+
+**The player's rule fixes both without a threshold, and it is better than the
+persistence bar.** A killfeed entry renders in a fixed ORDER -- plate, then
+furniture (divider and portraits), then glyphs -- and unrenders in reverse. At
+186167 the band arrives with its final divider column and a victim name run
+already up, and only the killer run missing, for exactly one frame. So:
+
+    a band that appears WITH FULL CONTENTS in a single frame violates the
+    ordering and is a wash;
+    a band that loses its contents while keeping its plate AND its divider is
+    one entry blinking, not two.
+
+Neither test has a number in it. Build it in `analyse_killfeed`, which already
+computes every term.
 
 **2. `pick_self` no longer scores worse at a higher rate.** The gate was
 `RUN_PX * scale * (step_ms/1000) * 2` and nothing else -- 1.50 px at 60 Hz,
@@ -68,27 +91,94 @@ time since the previous position was read, dropping `prev` past `GAP_MS`.
     reads that moved         native 6.6%, 15 Hz 0.9% -- exactly its ten
                              widget-absent frames -- and none at 10, 5 or 2 Hz
 
-**3. What is left of the minimap failure is the self ring FRAGMENTING, and it
-is not about rates.** On **all 69** disagreeing frames at 15 Hz and **all 47**
-at 5 Hz, the reference's own answer sits in the candidate list the cheaper tier
-held: two to seven self-coloured blobs a median 10.3 px apart, which is the
-ring's own diameter. The readers latch onto opposite arcs of one ring and each
-stays consistent with itself. Taking the NEAREST candidate instead of the
-largest recovers 15 of 47 at 5 Hz and none at all at 15 Hz, so the tie-break is
-not the fix -- merging components closer than `MIN_ICON_SEPARATION_PX` is. See
-`BACKLOG.md`.
+**3. What is left of the minimap failure is the self ring FRAGMENTING, and the
+fix is icon MATCHING rather than anything about rates.** On **all 69**
+disagreeing frames at 15 Hz and **all 47** at 5 Hz, the reference's own answer
+sits in the candidate list the cheaper tier held: two to seven self-coloured
+blobs a median 10.3 px apart, which is the ring's own diameter.
+
+`pick_self` is fed by `self_rings` -- connected components of the yellow key,
+one CENTROID each -- so every arc of a broken annulus votes as its own icon and
+an arc's centroid sits ~r from the true centre. `self_icons`, the ring fit that
+has been in `minimap.py` all along and that `overlay.py` already uses, collapses
+them: on 10 of 11 sampled disagreeing frames it returns exactly ONE icon.
+
+    182800  key 55 px  3 blobs 20@(267,156) 8@(274,162) 40@(263,167)
+                       -> 1 icon (267.0,162.0) r6.0
+
+Measured through the frozen gate, three ways:
+
+    pick_self fed by          15 Hz     10 Hz      5 Hz      2 Hz
+    self_rings (shipped)     0.9363    0.9438    0.8816    0.9085
+    self_icons               0.9825    0.9949    0.9874    1.0000
+    self_icons else blobs    0.9520    0.9349    0.8992    0.9512
+
+**Do not fall back.** The mixture is worse than either pure choice and its worst
+disagreement blows out to 71-74 px, because two tiers then differ by WHICH
+estimator ran on that frame -- and the two estimators are biased ~r apart by
+construction. Either fit or refuse.
+
+The fit alone clears the frozen 0.97 at three tiers of four. Its cost is
+coverage: it returns nothing on **1975 of 7131 frames (27.7%)**, and buying
+agreement by refusing is not the deal. That is what the next session is for.
 
 ### Do this next, in order
 
-1. **Merge the self ring's fragments** and re-run `fidelity-check`. Expect the
-   agreement to move on the CANDIDATE tiers, not on the reference. This is the
-   only thing between P3 and a declared `minimap.self_position` tier.
-2. **Cut and review frozen windows on a second session** -- another map, another
-   capture. `capabilities` now withholds `hud@transition` for want of coverage
-   rather than for a defect, so this is what promotes it. Pick the confuser
-   windows out of the store rather than by watching video: a wipe is a frame
-   with `kf_empty_bands > 0`, which every re-scanned session now carries.
-3. **Ask the player about the slide-in**, per the four survivors above.
+**The theme is that measured work never reached the readers.** Three separate
+things below were built, scored and left in place: `self_icons` sits in
+`minimap.py` and only `overlay.py` calls it; `prototypes/minimap_portrait.py`
+reached 93.0% and nothing in `reticle/` imports it; the ordering evidence
+`analyse_killfeed` needs is already computed there. None of this is new
+research. `doctor`'s UNWIRED check catches a module in `reticle/` that no CLI
+command reaches, and catches none of these -- a prototype named by a doc, or a
+second better path inside a module that IS wired, both read as healthy.
+
+1. **Match the icon instead of keying its ring.** The self ring is a **1-2 px
+   COLOUR feature** and this capture is 4:2:0, which halves colour, while the
+   icon interior is **~11 px of LUMA carried at full resolution** --
+   `prototypes/minimap_portrait.py` measured exactly that. We key on the most
+   degraded channel in the file and ignore the best preserved one, which is why
+   the annulus breaks into arcs at all. Three steps, cheapest first:
+
+   * feed `pick_self` from `self_icons`, and do NOT fall back (above);
+   * close the 27.7% of frames the fit refuses by matching the icon's own
+     mined appearance, `minimap_portrait`'s exemplar gallery applied to self;
+   * match over ROTATIONS and keep the argmax rather than building rotation
+     invariance. Invariance discards the bearing, which this project wants, and
+     the bearing argmax is already recorded as following centre jitter -- one
+     joint fit for centre and bearing settles both.
+
+   **Mine the exemplars from FORCED CORRESPONDENCES**, not from frames the
+   current detector called clean: one detection in frame t-1 and one in frame t
+   have no alternative explanation, which needs no tracker and no labels. It is
+   how `FIT_ERR_PX` was measured. Anything else scores the detector against
+   itself.
+
+   **Normalise the background out first.** `geometry` stores `lo_gray`/`hi_gray`
+   per pixel per map and `lighting.py` classifies which state a frame is in, so
+   a semi-transparent icon can be matched against a KNOWN two-state background
+   rather than unknown live scenery. That is what makes fuzzy matching
+   well-posed here at all.
+
+   `nearest exemplar, not a per-agent template` is the load-bearing result to
+   carry over: 93.0% against 70.4% for an average, because within-agent
+   variation exceeds between-agent distance.
+
+2. **Put the render ORDER in `analyse_killfeed`**, per the rule above. It ends
+   the wipe problem in the per-frame column, which is what `capabilities`
+   withholds `hud.killfeed_entry_count` for, and it needs no threshold.
+
+3. **Re-review w1 and re-freeze the contract.** `p3_reference_windows.json`
+   records 185.6-186.2 s as clean and it holds a wash. A frozen evaluation with
+   a mislabelled window is worse than none -- it is where the four surviving
+   false positives come from. Either mark the stretch as a confuser or drop
+   those instants; do not adjust a tolerance to absorb it.
+
+4. **Cut and review frozen windows on a second session** -- another map, another
+   capture. `capabilities` withholds `hud@transition` for want of coverage
+   rather than for a defect, so this is what promotes it. Use
+   `tools/wipe_scout.py` to pick the confuser windows out of the store instead
+   of watching video.
 
 Do not claim adaptive savings from tier selection: the measured saving so far is
 the transport's. Do not proceed to P4/P5.
