@@ -111,8 +111,8 @@ model's `origin` / `bearing` / `extent`, as `ping.py` states it.
 | Local player | self (yellow) | Ring + upright portrait + facing lobe. moves / present / none | `minimap-0.5.0`, `self_icons` | roster alive, pings, killfeed (blocked on self identity) | -- |
 | Teammate | ally (teal) | Filled teardrop + portrait. moves / present / none | `ally_icons` | roster alive, chat spot lines | the player |
 | Enemy | enemy (red) | Ring. moves / present / none. **Drawn only inside team vision** -- see the gate below | nothing in `reticle/`; `prototypes/enemy_detect_eval.py` and 300 labels | the drawn light, killfeed, chat spot lines, enemy roster alive | the player, a death mark |
-| **Dropped spike** | **self, yellow (measured)** | Filled glyph, no ring, no portrait. **Slightly LARGER than carried, with one edge pointing straight UP.** fixed / absent / none | **nothing** | the drawn light where it is enemy-side; the carrier's death in the killfeed; the announcer's *spike down <location>* | **the player** |
-| **Carried-spike badge** | **self, yellow -- ally-carried too** | The same glyph inverted: **slightly SMALLER, one edge pointing straight DOWN**, beside the carrier's portrait, 3.2 px to its bottom left. follows a player / absent / none | nothing | it moves with a player icon, which a dropped spike never does | the player's own centre, by a fixed offset |
+| **Dropped spike** | **self, yellow (measured)** | Rounded equilateral triangle, thin black outline, black centre dot inside a black circle, three dots toward the corners. **Base DOWN, corner up; slightly larger than carried.** fixed / absent / none | **nothing** | the drawn light where it is enemy-side; the carrier's death in the killfeed; the announcer's *spike down <location>* | **the player** |
+| **Carried-spike badge** | **self, yellow -- ally-carried too** | The same glyph rotated 180 degrees: **base UP**, slightly smaller, beside the carrier's portrait, 3.2 px to its bottom left. follows a player / absent / none | nothing | it moves with a player icon, which a dropped spike never does | the player's own centre, by a fixed offset |
 | **Planted spike** | **self, yellow (measured)** | Compact glyph, dark core, on site paint. fixed / absent / none, plant to defuse or detonate | HUD only: `rounds.spike_planted`, and `prototypes/plant_spike.py` unwired | the HUD spike graphic replacing the clock; the site letter; the beep interval | the player |
 | Death mark | team colour (unknown) | X glyph. fixed / absent / none, short life (unmeasured) | nothing; `world:x_mark` in the paint bank | **the killfeed names owner and time** | the player, an enemy |
 | Last-known mark | team colour (unknown) | Question-mark glyph. fixed / absent / none, short life (unmeasured) | nothing; `world:question_mark` | that enemy's last read; chat spot lines | an enemy |
@@ -135,9 +135,12 @@ G1 is designed against.
 - **It is yellow in every state, including carried by a teammate.** The ally
   key holds no spike. So the whole spike lives in the self key, which is what
   makes it the self reader's confuser and nobody else's.
-- **It INVERTS on pickup.** On the ground it is slightly larger with one edge
-  pointing straight up; carried, slightly smaller with one edge pointing
-  straight down. **The transition takes one frame.**
+- **The glyph is a rounded equilateral triangle with a very thin black
+  outline**, holding a black dot at its centre inside a black circle, and three
+  more black dots set toward the corners.
+- **It INVERTS on pickup.** On the ground the base sits at the BOTTOM and a
+  corner points up; carried, the whole glyph is rotated 180 degrees and is
+  slightly smaller. **The transition takes one frame.**
 - **A round may hold unboundedly many pickups and drops.** So the spike is ONE
   entity alternating between two states, not a new entity per drop, and a
   lifetime model that opens a track on each appearance will miscount it. At
@@ -153,15 +156,24 @@ G1 is designed against.
   <location>*** -- mid, A, B, C, spawn and others. That is an audio event with
   a coarse position, and it is the only witness the dropped spike has.
 
-Two questions the domain has not answered, worth asking before G1 is scored:
-whether an own-team spike on the ground is exempt from the vision gate, and
+- **Own-team icons are always visible.** The vision gate is an enemy-team rule
+  only, so on the attacking half the spike's state is FULLY OBSERVABLE at every
+  instant: a base-up glyph beside a player is carried, a base-down glyph is on
+  the ground, the planted glyph plus the HUD graphic is planted, and no glyph at
+  all is a detector failure rather than information. On the defending half only
+  the ground state is drawn, and only inside our vision.
+
+One question the domain has not answered, worth asking before G1 is scored:
 whether a reveal ability that shows an enemy also shows a spike on the ground.
 
 ### The vision gate on enemy-team entities
 
 **An enemy-team entity is drawn on our minimap only where our team can see
 it.** That is a game rule rather than a tendency, and it applies to the enemy
-player icons and to the enemy-side spike on the ground alike. The repo already
+player icons and to the enemy-side spike on the ground alike. **Own-team icons
+are always visible**, so the gate is scoped to the enemy half and must never be
+applied to ours -- where a missing icon stays what the entity model already
+calls it, a detection failure rather than information. The repo already
 uses the weak form of it -- *an ally icon with no lit pixels beside it is not
 an ally* is a standing constraint in `../CLAUDE.md` -- but for allies the light
 is only a correlate. For enemy-team entities it is a NECESSARY CONDITION, which
@@ -217,12 +229,70 @@ false positives, and a necessary condition removes them without touching the
 detector. It is the `ally_icons`-against-the-roster precedent again, on a class
 where the constraint is a rule rather than a correlation.
 
+### Infer the inventory; do not be told it
+
+**The prose descriptions above are a stopgap and must not become the method.**
+Everything in them except the game rules is a property of pixels the capture
+already holds, and this plan's own gallery contract already says to mine
+exemplars from independently anchored windows. Asking for a paragraph per icon
+does not scale past the fourteen rows above, it puts a person in the loop for
+something a decode can answer, and it introduces an error class nothing can
+catch: a description is unfalsifiable against the frame until someone re-reads
+both.
+
+**The precedent already worked, on the hardest case.**
+`prototypes/minimap_portrait.py` mined 71 enemy icons on `a06f04a0059f` and
+clustered them on their interiors alone. It produced 19 groups, every one
+visually pure, merging into exactly the five agents the enemy roster shows plus
+a sixth group for the question-mark icons -- with nothing tuned to make that
+happen. Its own note records the residue precisely: the agent NAMES were first
+written down wrong, the player corrected them, and **no measurement changed,
+because the classes were right.** Structure is inferable. A name is not, and a
+name is one word.
+
+The protocol, which G1 uses and every later G-step inherits:
+
+1. **Residual against the static median.** The map is already stored per
+   session; anything not in it and inside the opaque slab is drawn content. No
+   colour key, so nothing is presumed about which class it belongs to.
+2. **Cluster the residual objects by appearance.** The clusters are the
+   classes. States separate here too, because a glyph that is smaller and
+   rotated does not land in its neighbour's cluster.
+3. **Relate the clusters automatically.** Test each pair for the
+   transformations the widget actually uses -- a 180-degree rotation, a scale
+   change, a colour swap. *It inverts on pickup* is a discovered relation
+   between two clusters, not a sentence someone has to supply.
+4. **Anchor clusters to independently timed events for their meaning.** The
+   cluster that appears at a HUD-detected plant is the planted spike; the one
+   that appears where a killfeed victim last stood is the dropped spike; the one
+   that rides a player icon is carried. This is the same forced-correspondence
+   rule this plan already states, and it names classes without a person.
+5. **Ask the player only what survives.** A one-word name for a cluster, or a
+   yes/no on a rule the pipeline has hypothesised. Never a description.
+
+**What genuinely does not come out of this, and why.** Game RULES are not
+appearance: *an enemy-team entity is drawn only inside our vision*, *the enemy
+has no carried state*, *own-team icons are always visible*. Each is a claim
+about the whole corpus that needs many rounds and a stated hypothesis to test,
+and each is one sentence to answer. That is the honest boundary -- rules from
+the player, appearance from the pixels -- and it is a far smaller ask than
+fourteen paragraphs of artwork.
+
+The spike descriptions recorded above were obtained the wrong way round, and
+they were load-bearing: the black circle killed an entire family of proposed
+fixes in one line. That is an argument for mining sooner, not for asking more.
+Ten magnified exemplars were on screen when the question was asked, and the
+black core is visible in them.
+
 ### What each new reader must carry
 
 A reader joins this inventory when it does all five. The first four are the
 repo's standing rules applied to a class rather than to a channel; the fifth is
 what this plan adds.
 
+0. **Derive its row by mining, not by asking.** The section above is the
+   method. A reader whose appearance came from a description has an unfalsified
+   premise in it.
 1. **Name its key, and what else is in it.** `key_collision.py` is the cheap
    version wherever labels already exist.
 2. **Declare `origin` / `bearing` / `extent` and a lifetime**, in the entity
@@ -277,6 +347,14 @@ from before a neighbour existed does not carry forward.
 
 ### G1: the spike
 
+**Step one is the mining pass, not a detector.** Residual against the static
+median, cluster, relate the clusters, anchor them to the plant instant and to
+killfeed deaths. The spike is the ideal first case for it: three states that
+must fall into three clusters, two of them related by a 180-degree rotation
+that the pass should DISCOVER, and two independently timed events to anchor
+them by. If it cannot recover the spike, the protocol is wrong and the later
+G-steps need to know that before they depend on it.
+
 **Three states, one glyph family, and they do not share evidence.** The state
 that is easy has a witness and is not the confuser; the state that is the
 confuser has no witness. Do not wire the easy half and call the entry closed.
@@ -288,7 +366,35 @@ confuser has no witness. Do not wire the easy half and call the entry closed.
     carried    no -- it IS the player,     yes: it moves with a player icon
                offset by 3.2 px
 
-**The orientation flip is the whole discriminator, if it survives our scale.**
+**Why the ring fit accepts it, and why no better ring fit will ever refuse it.**
+The glyph holds a black dot inside a black circle. So at this scale the spike
+presents a KEYED ANNULUS AROUND A DARK INTERIOR -- which is precisely the
+structure `fit_ring` exists to find, and precisely what the local player's icon
+is: a yellow ring around an agent portrait. `inner_red` is the keyed fraction of
+the fitted interior, and the two classes agree because both interiors are
+un-keyed: the player at 0.000 and the spike at 0.156, with the gate at 0.25
+admitting both. The confuser is therefore not a weak fit, a fragment or a
+threshold: **the spike really is a ring, and the reader is right about the only
+thing it looks at.** Every proposal of the form *fit the ring better* is dead on
+arrival, arc coverage included.
+
+What separates them is everything the ring fit discards:
+
+- **The silhouette.** A rounded triangle against a circle, read on the OUTER
+  boundary rather than the inner one. The thin black outline is where to look.
+- **The interior VALUE.** The player's interior is a portrait; the spike's is
+  black. `fit_ring` already computes `inner_v`, the interior grey mean, and
+  **`icons` drops it on the floor** -- its output dict carries `cov`, `inner`,
+  `facing`, `lobe` and `area`, and not `inner_v`. That is a computed,
+  discarded feature aimed at exactly this distinction, and it is not in the
+  self-fit feature cache either, so measuring it costs a decode.
+- **The dot pattern.** Three dark dots toward the corners, whose arrangement
+  rotates 180 degrees with the state. At a 7-9 px glyph these are near a pixel
+  each, so treat this as an appearance-fit target rather than a morphological
+  one, and expect it to be the weakest of the three.
+
+**The orientation flip is the whole discriminator for STATE, if it survives our
+scale.**
 Ground and carried are the same glyph inverted, so one per-frame shape test
 separates a fixed object from a badge on a player -- no association, no
 temporal reasoning, no second channel. Nothing else in this inventory is that
@@ -336,10 +442,19 @@ does not deliver the glyph as an object:**
 
 The glyph is plainly visible in the raw pixels at 0.712 scale, so this is a KEY
 problem and not a resolution one: `self_mask` catches a broken rim and drops the
-body. Suggestive, and not evidence: the largest component is a wide short bar in
-five of ten -- 4x9 px three times, 6x10 and 6x12 -- which is what a flat
-horizontal edge leaves behind. The keyed mass also sits ABOVE the fitted centre
-on 6 of 10, so the ring fit is not centred on the glyph it accepted.
+body. One thing it did establish: the keyed mass sits ABOVE the fitted centre on
+6 of 10, so the ring fit is not centred on the glyph it accepted.
+
+**A second attempt, with the corrected geometry, failed too -- on
+contamination.** A rounded triangle's widest row is its base, so the row profile
+of all keyed mass near the position should read base-down for a ground spike and
+base-up for a carried one, and unlike a component test it survives the key
+fragmenting the glyph. It returned base-up on 8 of 10, which is not believable:
+the top row held exactly 8 keyed pixels in five separate cases, which is a
+sampling window clipping something above rather than a base. The self key holds
+site paint and neighbouring player icons too, and a fixed window around a fit
+that is not centred on the glyph will catch them. **Segment the glyph before
+measuring its shape** -- on its outline and interior, not on the yellow key.
 
 **So G1 is not built on `self_mask` connected components.** It needs the
 glyph's own colour band or a masked appearance fit over luma, which is the

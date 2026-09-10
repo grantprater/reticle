@@ -155,8 +155,15 @@ beside what it kept.
 **Trigger: G3, the enemy reader**, in `docs/MINIMAP_APPEARANCE_MATCHING.md`.
 The hard part of reading a red ring off a translucent widget is the false
 positives, and a necessary condition removes them without touching the
-detector. Open: whether an own-team ground spike is exempt, and whether a
-reveal that shows an enemy also shows a spike on the ground.
+detector.
+
+**Own-team icons are always visible**, so the gate is scoped to the enemy half
+and must never touch ours: a missing own-team icon stays a detection failure
+rather than information. One consequence worth having: on the attacking half
+the spike's state is fully observable at every instant -- base-up beside a
+player is carried, base-down is on the ground, the planted glyph with the HUD
+graphic is planted. Open: whether a reveal that shows an enemy also shows a
+spike lying on the ground.
 
 ## Reject ally icons that have no light beside them
 
@@ -398,12 +405,27 @@ player at r = 0.025, so a joint rule may refuse the same spikes at a lower
 coverage gate and keep more real positions. **No cut may be chosen here**;
 these are the frozen labels.
 
-**THE GLYPH INVERTS ON PICKUP, and that is the whole discriminator.** Domain,
-2026-09-10: the spike is yellow in every state, including carried by a teammate,
-so the ally key holds no spike and the entire object lives in the self key. On
-the ground it is slightly LARGER with one edge pointing straight UP; carried, it
-is slightly SMALLER with that edge pointing straight DOWN, and the transition
-takes ONE FRAME. A round may hold unboundedly many pickups and drops, so this is
+**THE SPIKE REALLY IS A RING, WHICH IS WHY THE READER ACCEPTS IT.** Domain,
+2026-09-10: the glyph is a rounded equilateral triangle with a very thin black
+outline, a black dot at its centre inside a BLACK CIRCLE, and three more dots
+set toward the corners. At this scale that presents a keyed annulus around a
+dark interior -- exactly what `fit_ring` exists to find, and exactly what the
+local player's icon is. `inner_red` is the keyed fraction of the fitted
+interior, and both classes pass because both interiors are un-keyed: the player
+0.000, the spike 0.156, the gate 0.25. **So the confuser is not a weak fit or a
+threshold, and every proposal of the form *fit the ring better* is dead,
+including arc coverage.** What separates them is what the ring fit discards: the
+SILHOUETTE (rounded triangle against circle, read on the outer boundary), the
+INTERIOR VALUE (portrait against black), and the dot pattern. Note that
+`fit_ring` already computes `inner_v`, the interior grey mean, and `icons`
+drops it -- a computed feature aimed at precisely this distinction, absent from
+its output dict and from the self-fit feature cache alike.
+
+**THE GLYPH INVERTS ON PICKUP, and that is the discriminator for STATE.** The
+spike is yellow in every state, including carried by a teammate, so the ally key
+holds no spike and the entire object lives in the self key. On the ground the
+BASE sits at the bottom with a corner up; carried, the whole glyph is rotated
+180 degrees and is slightly smaller. The transition takes ONE FRAME. A round may hold unboundedly many pickups and drops, so this is
 one entity alternating between two states rather than a new entity per drop --
 a lifetime model that opens a track per appearance will miscount it, and at 2 Hz
 the transitions are unobservable, so state is read per frame and never from a
@@ -427,11 +449,16 @@ the glyph as an object:
 The glyph is plainly visible in the raw pixels at 0.712 scale, so this is a KEY
 problem and not a resolution one -- `self_mask` catches a broken rim and drops
 the body. **So the spike reader is not built on `self_mask` components**; it
-needs the glyph's own colour band or a masked appearance fit over luma.
-Suggestive and not evidence: the largest component is a wide short bar in five
-of ten, which is what a flat horizontal edge leaves behind. The keyed mass sits
-ABOVE the fitted centre on 6 of 10, so the ring fit is not centred on the glyph
-it accepted.
+needs the glyph's own colour band or a masked appearance fit over luma. The
+keyed mass sits ABOVE the fitted centre on 6 of 10, so the ring fit is not
+centred on the glyph it accepted.
+
+A second attempt with the corrected triangle geometry failed on contamination.
+A rounded triangle's widest row is its base, so the row profile of the keyed
+mass should read base-down on the ground and base-up when carried; it returned
+base-up on 8 of 10, with exactly 8 keyed pixels in the top row of five separate
+cases. That is a sampling window clipping site paint or a neighbouring icon,
+not a base. **Segment the glyph before measuring its shape.**
 
 Scoring needs two things nothing has yet: per-case STATE truth, since the ten
 labels say `spike` and not which state, and a window spanning a PICKUP, which is

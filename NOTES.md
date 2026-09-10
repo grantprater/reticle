@@ -58,19 +58,51 @@ spike positions against 0.062 at the 179 player ones -- and that is a lower
 bound, since the player is an annulus and the spike is filled.
 `prototypes/key_collision.py` measures it off the label sheets with no decode.
 
-**Then the player named the discriminator, and the first attempt at it failed
-on the instrument.** The spike is yellow in every state, carried by a teammate
-included, so the ally key holds no spike at all; and the glyph INVERTS on
-pickup -- larger with an edge straight up on the ground, smaller with that edge
-straight down when carried, in a one-frame transition, unboundedly many times
-per round. That is a per-frame shape test separating a fixed object from a
-badge on a player, with no association and no second channel. Three predictions
-were pre-registered and all ten labelled instants were sought at native rate.
+**Then the player described the glyph, and it explains the confuser outright.**
+It is a rounded equilateral triangle, thin black outline, a black dot at the
+centre inside a BLACK CIRCLE, three more dots toward the corners. At this scale
+that is a keyed annulus around a dark interior -- what `fit_ring` exists to
+find, and what the player's own icon is. Both pass `inner_max`: the player
+0.000, the spike 0.156, the gate 0.25. **The spike really is a ring, so every
+*fit the ring better* proposal is dead, arc coverage included.** The separators
+are the silhouette, the interior VALUE -- `fit_ring` computes `inner_v` and
+`icons` throws it away -- and the dot pattern.
+
+**The state discriminator is the flip, and the first two attempts at it both
+failed.** The spike is yellow in every state, carried by a teammate included,
+so the ally key holds no spike at all; on the ground the base sits at the bottom
+with a corner up, and carried it is the same glyph rotated 180 degrees and
+slightly smaller, in a one-frame transition, unboundedly many times per round.
+That is a per-frame shape test separating a fixed object from a badge on a
+player, with no association and no second channel. Three predictions were
+pre-registered and all ten labelled instants were sought at native rate.
 **None could be scored: `self_mask` does not deliver the glyph as an object** --
 1 to 5 keyed components within 8 px, a single component on 2 of 10, largest
 8-36 px. The glyph is plainly visible in the raw pixels, so this is a KEY
 problem, not a resolution one, and G1 must be built on the glyph's own colour
-band or a masked luma fit rather than on `self_mask` components.
+band or a masked luma fit rather than on `self_mask` components. The second
+attempt, a row profile with the corrected geometry, failed on contamination --
+base-up on 8 of 10, with exactly 8 keyed pixels in the top row of five separate
+cases, which is a window clipping site paint rather than a base. Segment the
+glyph before measuring its shape.
+
+**Own-team icons are always visible**, so on the attacking half the spike's
+state is fully observable at every instant and a missing icon is a detector
+failure. The vision gate below is scoped to the enemy half only.
+
+**Stop asking for prose and mine the inventory instead** -- *Infer the
+inventory; do not be told it*, in the plan. Everything above except the game
+rules is a property of pixels the capture already holds, and the precedent
+already worked on the harder case: `prototypes/minimap_portrait.py` clustered
+71 enemy icons on their interiors into 19 pure groups that merged into exactly
+the five agents on the roster plus a sixth for question marks, nothing tuned,
+and when the agent NAMES were written down wrong no measurement changed. So
+G1's step one is a mining pass -- residual against the static median, cluster,
+relate the clusters, anchor them to the plant instant and to killfeed deaths --
+and the spike is its test case, since its three states must fall into three
+clusters and two of them are a 180-degree rotation the pass should DISCOVER.
+What stays a question for the player is a one-word cluster name or a yes/no on
+a rule, never a description.
 
 **Reintroduce the vision gate on enemy-team entities.** An enemy-team entity is
 drawn only where our team can see it -- enemy icons and the enemy-side ground
