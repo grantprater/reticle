@@ -887,9 +887,7 @@ invalidates twelve baked artifacts and invites a rebuild that changes nothing.
 That is the opposite of what a staleness check is for.
 
 **The fix is one line** -- hash normalised text rather than bytes:
-`p.read_text(encoding="utf-8").replace("
-", "
-").encode()`. It is NOT
+`read_text()`, then `.replace(CRLF, LF).encode()`, before hashing. It is NOT
 applied here because it changes the stamp value, which marks all 12 shades
 stale for real and forces `prototypes/map_shade.py build --all` to rewrite
 baked geometry. That rewrite is the player's call, not a side effect of a
