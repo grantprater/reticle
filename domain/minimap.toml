@@ -243,3 +243,31 @@ the enemy case additionally requires the device to have been placed outside team
 vision, since an enemy-owned entity is drawn only inside it
 """
 see = ["minimap/vision-gate", "minimap/device-dim-on-deactivation"]
+
+[enemy-death-mark]
+claim = """
+An enemy death leaves an X mark, and for a GUNFIRE kill both the enemy's icon
+and the X are visible around the time of death -- someone had to see them to
+shoot them. The mark is missing only when nobody on the team saw the victim:
+killed by ally UTILITY, or fell off the map.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-10"
+use = """
+so enemy death LOCATION is two-sided for a gunfire kill and one-sided only for a
+named, readable exception. The killfeed's weapon-icon slot is what separates
+them, and it needs a BINARY -- gun against ability mark -- not the ability
+template bank a full identification would cost. A gunfire entry is therefore
+also a VISION WITNESS: it says a teammate saw the victim at that moment
+"""
+exceptions = """
+ally utility and a fall narrow the position without naming it. Neither requires
+anyone to have seen the victim, which is exactly why the mark can be absent
+"""
+supersedes = """
+the prototypes/CLAUDE.md note that enemy-mark visibility is unmeasured and that
+absence means nothing. Absence now means one of two named causes, and the
+killfeed can tell which
+"""
+see = ["minimap/vision-gate"]

@@ -293,11 +293,30 @@ session on a full-roster frame.
    location problem. A named victim plus the ally track that vanished plus the X
    mark is one death event with a position and an error bar.
 
-**Two limits to carry from the start.** Enemy death marks are NOT always drawn
--- an observed mark means a death, an absent one means nothing -- so enemy
-location stays one-sided while ally location is two-sided. And `lineup` refuses
-on a thin margin, which is correct; a refused slot must produce an unnamed death
-rather than a guessed one.
+**Enemy location is BETTER than I first recorded, and the exception is
+readable.** [domain:minimap/enemy-death-mark]: for a GUNFIRE kill both the
+enemy's icon and the X are visible around the death, because somebody had to see
+the victim to shoot them. The mark is missing only where nobody saw them --
+killed by ally UTILITY, or fell off the map -- and those narrow the position
+without naming it. So enemy death location is TWO-SIDED for a gunfire kill.
+
+Separating the two needs only a BINARY on the killfeed's weapon-icon slot, gun
+against ability mark, which is far cheaper than the per-ability template bank
+*A killfeed ability icon says that ability was used, and by whom* prices. The
+slot is already located as the divider on every entry and is never classified.
+Read the other way it is a VISION WITNESS: a gunfire entry says a teammate saw
+the victim at that instant, which is evidence about the vision state nothing
+currently uses -- and it bears directly on
+[domain:minimap/vision-trailing-persistence], whose duration is unmeasured.
+
+**The one limit to carry unchanged.** `lineup` refuses on a thin margin, which
+is correct: a refused slot must produce an UNNAMED death, never a guessed one.
+
+**And deaths are the entry point, not the goal.** The target is the event stream
+in `CLAUDE.md`'s north star -- every observable event, carrying identity,
+position and orientation. A death is where identity is sharpest, because two
+independent channels bracket it, so it is the cheapest place to establish the
+identity machinery that movement and ability events then reuse.
 
 **Trigger: now.** It is the priority. Step 1 needs decode, so it should join an
 existing pass rather than open its own.

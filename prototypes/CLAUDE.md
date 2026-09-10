@@ -2775,10 +2775,21 @@ looks like at 15 Hz before choosing.
   deaths keep the two-sided form, which is why `xmark_eval` is built on them
   and should stay that way.
 
-  What decides visibility is unmeasured. The obvious candidate is the same rule
-  the whole minimap obeys -- the widget shows what your TEAM knows -- so an
-  enemy death nobody could see plausibly leaves nothing. Not confirmed; do not
-  encode it.
+  **NARROWED 2026-09-10 by the player, and the candidate mechanism is confirmed.**
+  The rule is the one the whole minimap obeys -- the widget shows what your TEAM
+  knows -- and it has a sharp consequence: for a GUNFIRE kill both the enemy's
+  icon and the X are visible around the time of death, because somebody had to
+  see the victim to shoot them. The mark is missing only where nobody saw them:
+  **killed by ally UTILITY, or fell off the map.** Those narrow the position
+  without naming it.
+
+  So the one-sided form above is too weak. Enemy death location is TWO-SIDED for
+  a gunfire kill, and the exception class is NAMED AND READABLE -- the killfeed's
+  weapon-icon slot separates a gun from an ability mark, which is a binary and
+  not the per-ability template bank a full identification would cost. Read the
+  other way, a gunfire entry is a VISION WITNESS: it says a teammate saw the
+  victim at that instant, which is evidence about the vision state that nothing
+  currently uses. Registered as [domain:minimap/enemy-death-mark].
 * **An OMEN SMOKE TRANSLATES while it deploys**, and it is the only one. the player,
   2026-08-27, on candidate 61 of the Lotus pass: *it's the only smoke in the
   game that moves from omen to the placed location. Viper orb is throwable but I

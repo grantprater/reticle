@@ -42,6 +42,31 @@ named, `xmark_eval`'s standing caveat dissolves -- *closest of several will
 always look better than a single detector's true accuracy* is the identity
 problem stated from inside the location problem.
 
+**The artifact is an EVENT STREAM CARRYING IDENTITY, and it is now the north
+star in `CLAUDE.md`.** The player's own shape for it: at x our ally Breach was at
+(u,v); at x+1 at (u+du,v+dv); at x+2 they used their C at (n,m) with orientation
+(r,t). Identity is the primary means by which rules of MOVEMENT and EXISTENCE
+can be verified -- a position with no identity cannot contradict a speed limit,
+a continuity rule, a teleport, or the origin-event invariants. The annotated
+match is the CHECK on that stream, not a separate goal. Deaths are the entry
+point rather than the goal: identity is sharpest there, because two independent
+channels bracket a death.
+
+**Enemy death location is BETTER than I recorded, and the correction is the
+player's.** [domain:minimap/enemy-death-mark]: for a GUNFIRE kill both the
+enemy's icon and the X are visible around the death, because somebody had to see
+the victim to shoot them. The mark is missing only where nobody saw them --
+killed by ally utility, or fell off the map -- and those narrow the position
+without naming it. My standing note that visibility was unmeasured and absence
+meant nothing is corrected in place in `prototypes/CLAUDE.md`.
+
+Separating the causes needs only a BINARY on the killfeed's weapon-icon slot,
+gun against ability mark -- far cheaper than the per-ability template bank the
+backlog prices for identifying WHICH ability. That slot is already located as
+the divider on every entry and never classified. Read the other way it is a
+VISION WITNESS: a gunfire entry says a teammate saw the victim at that instant,
+which bears directly on the unmeasured persistence window.
+
 **Also recorded: the fact registry has no SUBJECT**, so what was built is a list
 rather than the wiki-shaped graph the player asked for. Filing by `kind` groups a
 Cypher cam with the audio ring and separates two facts about one device. The

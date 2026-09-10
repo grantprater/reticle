@@ -14,10 +14,24 @@ and private quotes remain in `~/reticle-notes/`, outside this public repo.
 
 ## Acceptance north star
 
-The entity channel must produce a visually checkable annotated match: players,
-abilities, viewcones, pings, and other icons as they evolve through a VOD.
-Prediction/logging and coaching are downstream of observations. When a
-perceptual question cannot be derived, ask the player and record the first
+**The artifact is an EVENT STREAM CARRYING IDENTITY, and every observable event
+in the game belongs in it.** Stated by the player, 2026-09-10:
+
+    at time x    our ally BREACH was at (u, v)
+    at x+1       our ally BREACH was at (u+du, v+dv)
+    at x+2       our ally BREACH used their C at (n, m), orientation (r, t)
+
+**Identity is the primary means by which rules of movement and existence can be
+verified**, which is why it outranks everything else queued. Without a named
+entity there is nothing for a speed limit, a continuity rule, a teleport, or
+the origin-event invariants to be checked against -- a position with no identity
+cannot contradict anything. Only with the stream in this shape does analysis on
+it become possible, and analysis is downstream of it, never a substitute.
+
+The visually checkable annotated match -- players, abilities, viewcones, pings
+and other icons as they evolve through a VOD -- is the CHECK on that stream, not
+a separate goal. Prediction, logging and coaching are downstream of observations.
+When a perceptual question cannot be derived, ask the player and record the first
 failure, not a guessed answer.
 
 ## How to write
