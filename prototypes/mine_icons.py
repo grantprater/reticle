@@ -227,6 +227,8 @@ def core_proposals(foreign, scale, floor_ref=CORE_REF, spacing=CORE_SPACING):
 #: [domain:minimap/dim-devices-defeat-the-residual]. `core` needs a
 #: substantially filled disc; `base`'s area-gated centroid survives the sparse
 #: speckle a dim device leaves, which is what finds seven of a06f04a0059f's ten.
+#: Whether such a miss MATTERS is an OWNERSHIP question, not a detector one:
+#: [domain:minimap/dim-first-only-for-enemies].
 POOL = ("base", "neck", "core")
 
 

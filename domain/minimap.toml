@@ -215,8 +215,31 @@ floor swept
 use = """
 this is why the acquisition pool keeps `base` alongside `core`: core needs a
 substantially filled disc, base's area-gated centroid survives speckle. Rank
-low-contrast candidates in a retained audit channel rather than gating them out,
-and anticipate the miss from the killfeed
+low-contrast candidates in a retained audit channel rather than gating them out.
+Whether the miss MATTERS depends on ownership --
+[domain:minimap/dim-first-only-for-enemies]
 """
 depends_on = ["minimap/device-dim-on-deactivation",
               "minimap/icon-residual-is-a-ring"]
+
+[dim-first-only-for-enemies]
+claim = """
+A dim device can only be seen dim-FIRST if it is enemy-owned: the enemy Deadlock
+was killed before the sensor ever entered team vision. An ALLY device is always
+visible from the moment it is placed, so an ally device that dims was always
+observed live first.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-10"
+use = """
+adjudication can carry an ALLY device's dim frames as missing OBSERVATIONS of a
+known entity, with no dim detector at all. The enemy case is the ONLY one that
+needs the dim state acquired in its own right, and it should be a FLAG rather
+than a silent miss
+"""
+exceptions = """
+the enemy case additionally requires the device to have been placed outside team
+vision, since an enemy-owned entity is drawn only inside it
+"""
+see = ["minimap/vision-gate", "minimap/device-dim-on-deactivation"]
