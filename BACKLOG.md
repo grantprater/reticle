@@ -105,6 +105,59 @@ mined template per ability per agent, the same work the weapon icons took, and
 there is no list to start from. Read it as a corroborating channel for uses the
 entity channel already hypothesises before trying to identify icons cold.
 
+## The vision gate on enemy-team entities is a RULE, and nothing consumes it
+
+**Domain, 2026-09-10.** An enemy-team entity is drawn on our minimap only where
+our team can see it. That covers enemy player icons and the enemy-side spike
+lying on the ground alike. The entry below applies the weak form of this to
+ALLIES, where light is only a correlate; for enemy-team entities it is a
+NECESSARY CONDITION, which is a far stronger gate, and no reader uses it.
+
+**Use `lighting.py`, not `cone.py`.** The drawn light classifies each floor
+pixel against the map's own `lo_gray`/`hi_gray` resting states, so it reads what
+the game shaded. The raycast reconstruction over-claims its area by roughly 3x
+-- a gate that wide refuses almost nothing, which is a fair reason to have left
+the gate out while that was the only instrument. It is no longer the only one.
+The collective-viewcone entry says the same thing from the other side: *the
+interior-appearance invariant is not wired to anything. The area exists;
+nothing consumes it yet.*
+
+Three constraints on how it may be used:
+
+* **it refuses, it never confirms.** An enemy-team detection on unlit floor is
+  a false positive; one on lit floor is merely permitted;
+* **absence outside the light says nothing**, so the gate cannot raise recall
+  and must never be read as though it could, or coverage becomes biased by
+  where the team happened to be looking;
+* **the exception class is already an entry here.** A reveal ability shows an
+  enemy with no sight of them -- *A RECON DART PULSE is a legal origin for an
+  enemy appearance*. An unlit enemy icon is therefore a refusal OR a reveal,
+  separated by the ability channel and not by the light. Store the
+  disagreement; never delete the detection.
+
+`lighting.py` is not ground truth and says so: any map object whose resting
+state is the bright one reads permanently lit, and the mechanical doors on
+Ascent and Lotus still do. Unknown light is never counted as unlit, which is
+what stops the gate refusing on pixels that could not be classified.
+
+**The rule is not new; it has simply never reached a reader.** The entity model
+already made it an origin-time event -- an enemy-owned entity's interval ends
+when it leaves the collective team viewcone -- and §11 there says the collective
+viewcone *is not one more detector, it is the term four of these invariants are
+written in*. **Note the error direction reverses.** That document argues for
+UNDER-claiming the area, because its invariants are about disappearance and an
+over-large area discards legitimate vanishings. This gate refuses DETECTIONS
+instead, so over-claiming merely wastes it while under-claiming deletes real
+enemies. One instrument, two opposite failure directions: keep the gate as a
+stored disagreement rather than a silent filter, and report what it refused
+beside what it kept.
+
+**Trigger: G3, the enemy reader**, in `docs/MINIMAP_APPEARANCE_MATCHING.md`.
+The hard part of reading a red ring off a translucent widget is the false
+positives, and a necessary condition removes them without touching the
+detector. Open: whether an own-team ground spike is exempt, and whether a
+reveal that shows an enemy also shows a spike on the ground.
+
 ## Reject ally icons that have no light beside them
 
 **Measured 2026-09-07, rendered and inspected, deliberately NOT wired.** An ally
@@ -345,9 +398,47 @@ player at r = 0.025, so a joint rule may refuse the same spikes at a lower
 coverage gate and keep more real positions. **No cut may be chosen here**;
 these are the frozen labels.
 
-The reader itself is planned as G1 in *Icon-class order of work*,
-`docs/MINIMAP_APPEARANCE_MATCHING.md`, with the three spike states, what is
-already built and unwired, and four predictions to predeclare.
+**THE GLYPH INVERTS ON PICKUP, and that is the whole discriminator.** Domain,
+2026-09-10: the spike is yellow in every state, including carried by a teammate,
+so the ally key holds no spike and the entire object lives in the self key. On
+the ground it is slightly LARGER with one edge pointing straight UP; carried, it
+is slightly SMALLER with that edge pointing straight DOWN, and the transition
+takes ONE FRAME. A round may hold unboundedly many pickups and drops, so this is
+one entity alternating between two states rather than a new entity per drop --
+a lifetime model that opens a track per appearance will miscount it, and at 2 Hz
+the transitions are unobservable, so state is read per frame and never from a
+transition. The enemy team has no carried state on our minimap: an enemy holding
+the spike draws nothing, and the icon exists only while it lies on the ground,
+where it obeys the vision gate. A carrier's death drops it, and the announcer
+says *spike down <location>* -- the only witness the dropped spike has.
+
+**PRE-REGISTERED AND FAILED ON THE INSTRUMENT, 2026-09-10.** Three predictions
+went into `notes/predictions.jsonl` -- the flip is readable at this scale, the
+ground glyph is larger, a carried glyph is adjacent to a player icon. All ten
+labelled instants were sought at native rate and read as raw pixels with no
+annotation on them. None could be scored, because `self_mask` does not deliver
+the glyph as an object:
+
+    keyed components within 8 px of the labelled spike    1 to 5
+    positions where it is a single component              2 of 10
+    largest component                                     8-36 px
+    nearest component to the fit is a 1-4 px speck        4 of 10
+
+The glyph is plainly visible in the raw pixels at 0.712 scale, so this is a KEY
+problem and not a resolution one -- `self_mask` catches a broken rim and drops
+the body. **So the spike reader is not built on `self_mask` components**; it
+needs the glyph's own colour band or a masked appearance fit over luma.
+Suggestive and not evidence: the largest component is a wide short bar in five
+of ten, which is what a flat horizontal edge leaves behind. The keyed mass sits
+ABOVE the fitted centre on 6 of 10, so the ring fit is not centred on the glyph
+it accepted.
+
+Scoring needs two things nothing has yet: per-case STATE truth, since the ten
+labels say `spike` and not which state, and a window spanning a PICKUP, which is
+the only place two states are known to be the same physical spike.
+
+The reader is planned as G1 in *Icon-class order of work*,
+`docs/MINIMAP_APPEARANCE_MATCHING.md`.
 
 **MEASURED 2026-09-10, 200 labelled accepted fits, reweighted by stratum:**
 

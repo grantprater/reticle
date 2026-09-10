@@ -58,6 +58,29 @@ spike positions against 0.062 at the 179 player ones -- and that is a lower
 bound, since the player is an annulus and the spike is filled.
 `prototypes/key_collision.py` measures it off the label sheets with no decode.
 
+**Then the player named the discriminator, and the first attempt at it failed
+on the instrument.** The spike is yellow in every state, carried by a teammate
+included, so the ally key holds no spike at all; and the glyph INVERTS on
+pickup -- larger with an edge straight up on the ground, smaller with that edge
+straight down when carried, in a one-frame transition, unboundedly many times
+per round. That is a per-frame shape test separating a fixed object from a
+badge on a player, with no association and no second channel. Three predictions
+were pre-registered and all ten labelled instants were sought at native rate.
+**None could be scored: `self_mask` does not deliver the glyph as an object** --
+1 to 5 keyed components within 8 px, a single component on 2 of 10, largest
+8-36 px. The glyph is plainly visible in the raw pixels, so this is a KEY
+problem, not a resolution one, and G1 must be built on the glyph's own colour
+band or a masked luma fit rather than on `self_mask` components.
+
+**Reintroduce the vision gate on enemy-team entities.** An enemy-team entity is
+drawn only where our team can see it -- enemy icons and the enemy-side ground
+spike alike -- which for enemies is a necessary condition rather than the
+correlate it is for allies. The rule is not new: it is already an origin-time
+event in the entity model and §11 there calls the collective viewcone the term
+four enemy-half invariants are written in. Nothing consumes it. Use the DRAWN
+light in `lighting.py`, not the raycast in `cone.py`, whose area over-claims
+~3x. New backlog entry above *Reject ally icons that have no light beside them*.
+
 Next, in the order that unblocks the most witnesses:
 
 1. a crude spike reader -- it is the largest confuser and the missing witness.

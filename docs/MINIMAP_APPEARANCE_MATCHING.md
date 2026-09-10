@@ -110,10 +110,10 @@ model's `origin` / `bearing` / `extent`, as `ping.py` states it.
 |---|---|---|---|---|---|
 | Local player | self (yellow) | Ring + upright portrait + facing lobe. moves / present / none | `minimap-0.5.0`, `self_icons` | roster alive, pings, killfeed (blocked on self identity) | -- |
 | Teammate | ally (teal) | Filled teardrop + portrait. moves / present / none | `ally_icons` | roster alive, chat spot lines | the player |
-| Enemy | enemy (red) | Ring. moves / present / none, drawn only while revealed | nothing in `reticle/`; `prototypes/enemy_detect_eval.py` and 300 labels | killfeed, chat spot lines, enemy roster alive | the player, a death mark |
-| **Dropped spike** | **self (measured)** | Filled chevron glyph, no ring, no portrait. **fixed / absent / none** | **nothing** | the carrier's death in the killfeed, at that player's last read position | **the player** |
-| **Carried-spike badge** | self; ally-carried unknown | Badge 3.2 px to the bottom left of the carrier's portrait (measured from a bimodal step distribution). **follows a player / absent / none** | nothing | it MOVES WITH a player icon, which a dropped spike never does | the player's own centre, by a fixed offset |
-| **Planted spike** | **self (measured)** | Compact glyph, dark core, on site paint. fixed / absent / none, plant to defuse or detonate | HUD only: `rounds.spike_planted`, and `prototypes/plant_spike.py` unwired | the HUD spike graphic replacing the clock; the site letter; the beep interval | the player |
+| Enemy | enemy (red) | Ring. moves / present / none. **Drawn only inside team vision** -- see the gate below | nothing in `reticle/`; `prototypes/enemy_detect_eval.py` and 300 labels | the drawn light, killfeed, chat spot lines, enemy roster alive | the player, a death mark |
+| **Dropped spike** | **self, yellow (measured)** | Filled glyph, no ring, no portrait. **Slightly LARGER than carried, with one edge pointing straight UP.** fixed / absent / none | **nothing** | the drawn light where it is enemy-side; the carrier's death in the killfeed; the announcer's *spike down <location>* | **the player** |
+| **Carried-spike badge** | **self, yellow -- ally-carried too** | The same glyph inverted: **slightly SMALLER, one edge pointing straight DOWN**, beside the carrier's portrait, 3.2 px to its bottom left. follows a player / absent / none | nothing | it moves with a player icon, which a dropped spike never does | the player's own centre, by a fixed offset |
+| **Planted spike** | **self, yellow (measured)** | Compact glyph, dark core, on site paint. fixed / absent / none, plant to defuse or detonate | HUD only: `rounds.spike_planted`, and `prototypes/plant_spike.py` unwired | the HUD spike graphic replacing the clock; the site letter; the beep interval | the player |
 | Death mark | team colour (unknown) | X glyph. fixed / absent / none, short life (unmeasured) | nothing; `world:x_mark` in the paint bank | **the killfeed names owner and time** | the player, an enemy |
 | Last-known mark | team colour (unknown) | Question-mark glyph. fixed / absent / none, short life (unmeasured) | nothing; `world:question_mark` | that enemy's last read; chat spot lines | an enemy |
 | Ping | per type | Glyph, no growth phase. fixed / absent / none, **7.0 s or 10.0 s exactly** | `ping-0.1.0` | the player who placed it, at their position | an ability icon |
@@ -126,6 +126,96 @@ model's `origin` / `bearing` / `extent`, as `ping.py` states it.
 Rows in bold are the ones inside the self key, which is why the spike goes
 first. Map lettering and widget furniture are already excluded by the
 opaque-slab support rule in `icons`.
+
+### The spike, as the domain states it
+
+Recorded 2026-09-10. These are game rules, not measurements, and they are what
+G1 is designed against.
+
+- **It is yellow in every state, including carried by a teammate.** The ally
+  key holds no spike. So the whole spike lives in the self key, which is what
+  makes it the self reader's confuser and nobody else's.
+- **It INVERTS on pickup.** On the ground it is slightly larger with one edge
+  pointing straight up; carried, slightly smaller with one edge pointing
+  straight down. **The transition takes one frame.**
+- **A round may hold unboundedly many pickups and drops.** So the spike is ONE
+  entity alternating between two states, not a new entity per drop, and a
+  lifetime model that opens a track on each appearance will miscount it. At
+  2 Hz the transitions are unobservable, so state is read per frame and never
+  from a transition.
+- **The enemy team has no carried state on our minimap.** An enemy carrying
+  the spike draws nothing. The icon exists only while the spike is on the
+  ground.
+- **An enemy-side spike on the ground obeys the vision gate below.** Absence is
+  therefore not evidence of possession: no glyph may mean carried, or may mean
+  nobody is looking at it.
+- **A carrier's death drops it, and the announcer says *spike down
+  <location>*** -- mid, A, B, C, spawn and others. That is an audio event with
+  a coarse position, and it is the only witness the dropped spike has.
+
+Two questions the domain has not answered, worth asking before G1 is scored:
+whether an own-team spike on the ground is exempt from the vision gate, and
+whether a reveal ability that shows an enemy also shows a spike on the ground.
+
+### The vision gate on enemy-team entities
+
+**An enemy-team entity is drawn on our minimap only where our team can see
+it.** That is a game rule rather than a tendency, and it applies to the enemy
+player icons and to the enemy-side spike on the ground alike. The repo already
+uses the weak form of it -- *an ally icon with no lit pixels beside it is not
+an ally* is a standing constraint in `../CLAUDE.md` -- but for allies the light
+is only a correlate. For enemy-team entities it is a NECESSARY CONDITION, which
+is a far stronger gate, and nothing consumes it today.
+
+**The instrument is the DRAWN light, not the reconstructed cone.**
+`reticle/lighting.py` classifies each floor pixel against the map's own
+`lo_gray`/`hi_gray` resting states, so it reads what the game actually shaded.
+`reticle/cone.py` raycasts a wedge instead, and its area over-claims by roughly
+3x against what the game draws -- a gate that wide refuses almost nothing,
+which is why the gate was fair to leave out while that was the only instrument
+available. The drawn light removes that objection. The collective-viewcone
+backlog entry records the same thing from the other side: *the interior-
+appearance invariant is not wired to anything. The area exists; nothing
+consumes it yet.*
+
+How the gate is allowed to be used:
+
+- **It refuses, it does not confirm.** An enemy-team detection on unlit floor
+  is a false positive. A detection on lit floor is merely permitted.
+- **Absence outside the light says nothing.** The gate cannot raise recall and
+  must never be read as one, or coverage becomes biased by where the team was
+  looking.
+- **It has an exception class, and the exception is already a backlog entry.**
+  A reveal ability shows an enemy without our team having sight of them -- *A
+  RECON DART PULSE is a legal origin for an enemy appearance*. So an unlit
+  enemy icon is a refusal OR a reveal, and the two are separated by the ability
+  channel, not by the light. Store the disagreement; do not delete the
+  detection.
+- **`lighting.py` is not ground truth.** Its own docstring names the failure:
+  any map object whose resting state is the bright one reads permanently lit,
+  and the mechanical doors on Ascent and Lotus still do. Scoring a channel
+  against it and calling the result precision implies a truth that is not there.
+- **Unknown light is never counted as unlit.** That rule is already in
+  `MINIMAP_DETECTION_PLAN.md`, and it is what keeps this gate from refusing on
+  pixels that simply could not be classified.
+
+**The safe direction of error is the opposite of the entity model's.**
+`minimap-entity-model.html` argues the collective viewcone should be built to
+UNDER-claim, because its enemy-half invariants are about disappearance: an area
+that is too large says we could see a place we could not, so a legitimate
+vanishing reads as an error and the read is discarded. This gate runs the other
+way. It refuses DETECTIONS on unlit floor, so an area that is too large
+under-refuses and merely wastes the gate, while one that under-claims deletes
+real enemies. Both instruments are used by both, so neither error direction can
+be tuned away for one without hurting the other -- which is a reason to keep the
+gate as a stored disagreement rather than a silent filter, and to report what it
+refused alongside what it kept.
+
+This gate is a prerequisite of G3 and it is what makes the enemy channel
+cheap: the hard part of reading a red ring off a translucent widget is the
+false positives, and a necessary condition removes them without touching the
+detector. It is the `ally_icons`-against-the-roster precedent again, on a class
+where the constraint is a rule rather than a correlation.
 
 ### What each new reader must carry
 
@@ -178,7 +268,7 @@ reader, and the self reader's ceiling is set by G1.
 |---|---|---|---|
 | G1 | The spike, all three states | The largest labelled confuser, inside the self key, with no witness anywhere | Stated below |
 | G2 | Death and last-known marks | The killfeed already names owner and time for a death mark, so the witness exists before the reader does | Presence and position against painted frames; every mark reconciled against a killfeed entry, or held as a disagreement |
-| G3 | Enemies | 300 labels and a prototype exist; it closes the last player-shaped confuser and feeds the roster and killfeed channels | Precision and recall on painted frames, not on the existing candidate-anchored labels |
+| G3 | Enemies, **gated on the drawn light** | 300 labels and a prototype exist; it closes the last player-shaped confuser and feeds the roster and killfeed channels. The vision gate is a necessary condition here, so it removes false positives without touching the detector | Precision and recall on painted frames, not on the existing candidate-anchored labels; every unlit detection resolved as a refusal or a reveal and stored either way |
 | G4 | Ability icons | Owner comes free on kills from the killfeed ability-icon channel; identity needs mined templates | Held-out casts; ambiguous ownership preserved rather than forced |
 | G5 | Regions and animations | The existing Steps 4-5 | As stated there |
 
@@ -193,10 +283,17 @@ confuser has no witness. Do not wire the easy half and call the entry closed.
 
     state      confuses the self reader?   witness available
     planted    yes, measured               yes: the HUD graphic, already built
-    dropped    yes, measured, and it is    none
-               where the self fit drifts
+    dropped    yes, measured, and it is    the announcer's "spike down <loc>",
+               where the self fit drifts   and the drawn light when enemy-side
     carried    no -- it IS the player,     yes: it moves with a player icon
                offset by 3.2 px
+
+**The orientation flip is the whole discriminator, if it survives our scale.**
+Ground and carried are the same glyph inverted, so one per-frame shape test
+separates a fixed object from a badge on a player -- no association, no
+temporal reasoning, no second channel. Nothing else in this inventory is that
+cheap. Everything below is about getting the glyph into a form that can be
+asked the question.
 
 Built and not wired, to check before writing anything new:
 
@@ -224,19 +321,49 @@ uncorrelated on the player at r = 0.025, so a joint rule may refuse the same
 spikes while keeping more real positions than coverage can alone. **Choose no
 cut here.** These are the frozen labels; the cut is chosen on another session.
 
-Predeclare these in `notes/predictions.jsonl` before opening any video:
+**RUN 2026-09-10, pre-registered, and it failed on the instrument.** Three
+predictions were logged in `notes/predictions.jsonl` -- that the flip is
+readable at this scale, that the ground glyph is larger, and that a carried
+glyph is adjacent to a player icon. All ten spike-labelled instants on
+`c40d950031bb` were sought at native rate and read as raw widget pixels with no
+annotation on them. **None of the three could be scored, because `self_mask`
+does not deliver the glyph as an object:**
 
-1. The dropped spike glyph is FILLED where the player's icon is an annulus, so
-   its radial self-key profile peaks at the centre while the player's peaks at
-   r 6-9 px. Falsified if the two profiles overlap within their p10-p90 bands.
-   The label sheets cannot settle this: the annotation ring is drawn at
-   11 * scale px in a colour that keys as self, over the band in question.
-2. A dropped spike does not move. Over its life its fitted centre stays within
+    keyed components within 8 px of the labelled spike   1 to 5
+    positions where it is a single component             2 of 10
+    largest component                                    8-36 px
+    nearest component to the fit centre is a 1-4 px speck 4 of 10
+
+The glyph is plainly visible in the raw pixels at 0.712 scale, so this is a KEY
+problem and not a resolution one: `self_mask` catches a broken rim and drops the
+body. Suggestive, and not evidence: the largest component is a wide short bar in
+five of ten -- 4x9 px three times, 6x10 and 6x12 -- which is what a flat
+horizontal edge leaves behind. The keyed mass also sits ABOVE the fitted centre
+on 6 of 10, so the ring fit is not centred on the glyph it accepted.
+
+**So G1 is not built on `self_mask` connected components.** It needs the
+glyph's own colour band or a masked appearance fit over luma, which is the
+framework this plan already describes for portraits. Rebuild the three
+predictions once the glyph arrives as one object.
+
+Two further things that pass must supply, and neither is optional:
+
+- **Per-case state truth.** The ten labelled positions record `spike` and not
+  which state, so even a working reader has nothing to be scored against.
+  An exhaustive paint pass with `world:spike` supplies it, split by state.
+- **Frames spanning a pickup.** The flip is a one-frame transition and a round
+  holds unboundedly many, so a window that catches one is the only place the
+  two states are known to be the same physical spike.
+
+Still to predeclare, unchanged by the run above:
+
+1. A dropped spike does not move. Over its life its fitted centre stays within
    the fit's own error; the self icon's does not.
-3. The planted spike is co-located with the HUD plant window and a site zone,
+2. The planted spike is co-located with the HUD plant window and a site zone,
    so a minimap spike glyph outside a plant window is dropped or carried.
-4. The carried badge sits at a fixed offset from a player icon, and the offset
+3. The carried badge sits at a fixed offset from a player icon, and the offset
    is the same for every carrier.
+4. An enemy-side ground spike appears only on lit floor, per the vision gate.
 
 Promotion gate: presence precision and recall on exhaustively painted frames
 over at least two sessions, with the spike state reported separately; position
