@@ -312,6 +312,35 @@ The protocol, which G1 uses and every later G-step inherits:
 6. **Ask the player only what survives.** A one-word name for a cluster, or a
    yes/no on a rule the pipeline has hypothesised. Never a description.
 
+**BUILT AND FIRST-RUN 2026-09-10: `prototypes/mine_icons.py`.** It runs end to
+end and the proposer holds -- 2391 proposals over 101 frames of
+`c40d950031bb` at 1 Hz, 23.7 per frame, every one describable. **Three of the
+four steps above do not work as this document claims, and the claims are
+corrected here rather than left standing:**
+
+1. **The static subtraction is INERT.** At a 0.5 foreign rate it removed 14 px,
+   0.0% of the slab, against the text above promising it removes the bulk of
+   the tail. Furniture is not foreign in half of frames, so either the rate is
+   the wrong statistic or the level is far off. Unsupported until re-measured.
+2. **Clustering on appearance alone FRAGMENTS.** 254 clusters at join 0.60, 67
+   recurring, and the large ones carry a POSITION SPREAD of 60-84 px. A class
+   whose members are scattered over a third of the widget is a bag of visually
+   similar noise, not an object.
+3. **The rotation relation has no NULL and is therefore meaningless as run.**
+   It fired on 93 pairs, several at rotated 0.75-0.82 against upright -0.97. An
+   11x11 masked luma patch correlates with its own rotation by chance far too
+   often for that to be a discovery. Measure rotated similarity between
+   clusters known to be unrelated BEFORE any pair is called a relation.
+
+**What the run did find, and it was printed by accident rather than designed:
+POSITION SPREAD separates the clusters.** Cluster 11 is n=37 at 6.8 px spread
+and contrast 150; cluster 14 is n=30 at 32 px and contrast 126; the noise
+clusters sit at 60-84 px and contrast 45-70. That is the entity model's own
+`origin` parameter falling out of the data: a fixed object recurs in ONE PLACE,
+a player recurs everywhere, and speckle recurs nowhere in particular at low
+contrast. **Cluster on appearance AND on that behaviour**, and gate proposals on
+contrast before describing them.
+
 Cost is bounded by sampling rather than by the pass: mining wants enough
 exemplars per class, not every frame, so it takes the event-anchored windows
 plus a spread of ordinary ones and rides the shared decode. Scoring it needs

@@ -11,7 +11,89 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-10, the self reader has an accuracy figure at last
+## PICKING UP -- 2026-09-10 late, the mining pass exists and its clusters are not classes
+
+**`prototypes/mine_icons.py` is the general instrument the appearance plan
+specified and never described.** Propose from the lighting-band residual inside
+the slab with NO colour key, subtract what is always foreign, describe with
+`minimap_appearance.describe`, leader-cluster on masked NCC, then relate
+clusters by rotation. It runs end to end. The proposer holds: 2391 proposals
+over 101 frames of `c40d950031bb` at 1 Hz, 23.7 per frame, all describable.
+
+**Three of its four steps are refuted by their own first run**, and
+`docs/MINIMAP_APPEARANCE_MATCHING.md` is corrected rather than left standing:
+
+* the static subtraction is INERT -- 14 px, 0.0% of the slab, where the plan
+  promised the bulk of the tail;
+* clustering on appearance alone FRAGMENTS -- 254 clusters, 67 recurring, the
+  large ones with a POSITION SPREAD of 60-84 px, which is a bag of similar
+  noise rather than a class;
+* the rotation relation has no NULL and fired on 93 pairs. Give it one.
+
+**The finding is that POSITION SPREAD separates them, and it was printed by
+accident.** Cluster 11: n=37, spread 6.8 px, contrast 150. Cluster 14: n=30,
+32 px, 126. Noise: 60-84 px at contrast 45-70. That is the entity model's
+`origin` falling out of the data -- a fixed object recurs in one place, a
+player recurs everywhere, speckle recurs nowhere at low contrast.
+
+Do this next, in order:
+
+1. gate proposals on CONTRAST before describing them;
+2. cluster on appearance AND recurrence behaviour -- spread and contrast --
+   rather than on the descriptor alone;
+3. give the rotation test a null, then re-ask whether the spike's two states
+   are a discovered pair;
+4. only then anchor clusters to the HUD plant and to killfeed deaths for their
+   meaning, which is the step that turns a cluster into a thing.
+
+**Do not build another detector per icon family.** That is what this pass
+replaces, and a session went into `ability_disc` before the player stopped it.
+A class-specific detector is a candidate CHANNEL of the proposer, never the
+reader.
+
+### Also this session
+
+**`doctor` has a PROMOTE check.** It reads `notes/predictions.jsonl` and
+reports every prototype named there that no `reticle/` module uses. Not wiring
+was the silent default: `check_unwired` sees only modules already inside
+`reticle/`, and `check_orphan` exempts anything a document names, so writing a
+result up was what made it invisible. Declining now costs a `"wire": "no"` and
+a `wire_reason`. The rule is in `CLAUDE.md`'s global constraints. Every
+prototype it listed carries a decision; the ability line is triaged in
+`BACKLOG.md`.
+
+**Wired:** `icons` returns `inner_v`, the interior GREY that `fit_ring` always
+computed and this function dropped -- the feature that separates the player
+from the spike, where `inner` cannot. `minimap-0.6.0` writes `widget_drawn` and
+`belief.absent_instants` reads it, so a refusal is finally distinguishable from
+an absent widget; older rows fall back to the ally proxy and a missing column
+reads as UNKNOWN, never false.
+
+**Fixed:** `prototypes/minimap_dynamic.py` imported `reticle.geometry as _G`
+inside one function while three others referenced it, so the whole ability line
+raised `NameError`. It had been dead long enough that nothing noticed.
+
+**Measured and rejected:** a peak-based disc finder. The pre-registered
+prediction held -- local maxima are monotonic in the response floor where
+thresholded blobs ridge, confirming merging past `AREA_MAX` as the cause -- and
+the painted frames killed it anyway: 4.0% and 1.7% precision against the blob
+finder's 100% and 32.3%. **Do not choose an operating point on labels that
+cannot score precision**; the candidate-anchored sweep made it look like a
+modest trade.
+
+**Domain, recorded:** the spike glyph is a rounded equilateral triangle with a
+thin black outline, a black dot inside a BLACK CIRCLE, and three dots toward
+the corners. That circle is why the ring fit accepts it -- the spike really is
+a keyed annulus around a dark interior, so every *fit the ring better* proposal
+is dead. It inverts on pickup, base down on the ground and base up carried, in
+one frame, unboundedly many times a round. Own-team icons are always visible;
+enemy-team entities are drawn only inside team vision, and a reveal shows
+PLAYERS ONLY -- not the spike, not abilities -- so for those the gate is
+exceptionless. Use the DRAWN light in `lighting.py`, not the raycast.
+
+360 tests pass; `doctor` has six findings and zero errors.
+
+## PRIOR -- 2026-09-10 earlier, the self reader has an accuracy figure at last
 
 **The headline: 87.49% of the self reader's ACCEPTED positions are the player.**
 200 labelled fits on `c40d950031bb`, reweighted by stratum: 8.13% are a
