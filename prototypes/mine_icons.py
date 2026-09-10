@@ -102,15 +102,39 @@ JOIN = 0.60
 MIN_MEMBERS = 8
 
 
-def propose(grey, lo, hi, slab, static, lo_a, hi_a):
-    """Components of the foreign mask, minus what is always foreign."""
+def proposal_components(grey, lo, hi, slab, static):
+    """All residual components before the icon-area decision.
+
+    Keeping the rejected components is necessary to measure acquisition: a
+    missed painted icon can have no residual support, fragmented support, or a
+    component rejected for size.  Returning only accepted centroids made those
+    failures indistinguishable.
+    """
     foreign = ((grey < lo - MARGIN) | (grey > hi + MARGIN)) & slab & ~static
     n, lbl, st, cen = cv2.connectedComponentsWithStats(foreign.astype(np.uint8), 8)
-    out = []
+    components = []
     for i in range(1, n):
-        a = int(st[i, cv2.CC_STAT_AREA])
+        components.append({
+            "id": i,
+            "cx": float(cen[i][0]),
+            "cy": float(cen[i][1]),
+            "area": int(st[i, cv2.CC_STAT_AREA]),
+            "bbox": [int(st[i, cv2.CC_STAT_LEFT]),
+                     int(st[i, cv2.CC_STAT_TOP]),
+                     int(st[i, cv2.CC_STAT_WIDTH]),
+                     int(st[i, cv2.CC_STAT_HEIGHT])],
+        })
+    return components, foreign, lbl
+
+
+def propose(grey, lo, hi, slab, static, lo_a, hi_a):
+    """Accepted icon-band centroids, preserving the original miner contract."""
+    components, foreign, _lbl = proposal_components(grey, lo, hi, slab, static)
+    out = []
+    for component in components:
+        a = component["area"]
         if lo_a <= a <= hi_a:
-            out.append((float(cen[i][0]), float(cen[i][1]), a))
+            out.append((component["cx"], component["cy"], a))
     return out, foreign
 
 
