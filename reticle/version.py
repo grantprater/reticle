@@ -31,7 +31,20 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the
 # template set, or field parsing changes -- that invalidates stored HUD reads
 # and forces a re-decode, since this stage needs pixels.
-HUD_VERSION = "hud-0.11.0"
+HUD_VERSION = "hud-0.12.0"
+# 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
+# name text. Every killfeed entry carries two names, so a band we can see and
+# that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits
+# a tall plate run into round(h/PITCH) bands, which is how a respawn wipe
+# painting both plate colours across the ROI manufactures three to six of them
+# at once. The evidence was already computed and discarded; `kf_textless` and
+# `kf_textless_reason` now store it, so a wiped frame reads as unreadable rather
+# than as empty or as six kills. Attribution is untouched by construction: a
+# textless band could only ever have been `unparsed`, never `kill` or `death`,
+# so kf_player_kill/kf_player_death and every _wx and _ys column are unchanged
+# and the K/D table in killfeed.py still stands. What moves is `kf_entries` and
+# the entry stack derived from it.
+#
 # 0.11.0: every null field now carries WHY. `clock_reason`,
 # `score_*_reason`, `kf_unparsed` and `kf_unparsed_reason` are new columns.
 # A null with no reason beside it is a number nobody can act on, and the

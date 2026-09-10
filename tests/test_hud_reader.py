@@ -37,7 +37,8 @@ class HudReaderTests(unittest.TestCase):
         kill = types.SimpleNamespace(
             entries=("entry",), player_kill=True, player_death=False,
             entry_mask=1, kill_mask=2, death_mask=4, unattributed=False,
-            unparsed=True, unparsed_reason="bad glyph", ally_mask=8,
+            unparsed=True, unparsed_reason="bad glyph",
+            textless_bands=2, textless_reason="no_glyphs", ally_mask=8,
             enemy_mask=16, entry_dividers=(10,), kill_dividers=(20,),
             death_dividers=(30,),
         )
@@ -60,6 +61,7 @@ class HudReaderTests(unittest.TestCase):
             "kf_player_kill": True, "kf_player_death": False, "kf_entry_mask": 1,
             "kf_kill_mask": 2, "kf_death_mask": 4, "kf_unattributed": False,
             "kf_unparsed": True, "kf_unparsed_reason": "bad glyph",
+            "kf_textless": 2, "kf_textless_reason": "no_glyphs",
             "clock_reason": "unreadable", "score_left_reason": None,
             "score_right_reason": "unreadable", "kf_ally_mask": 8,
             "kf_enemy_mask": 16, "kf_entry_wx": (10,), "kf_kill_wx": (20,),

@@ -85,6 +85,40 @@ This reasoning does not transfer to the HUD ROIs, where the content is static by
 nature: masking persistent pixels there would erase the digits. Those rely on
 the per-frame occlusion guards in ocr.py instead.
 
+What a camera wipe does to this, and what is still wrong
+-------------------------------------------------------
+`_entry_bands` decides an entry from PLATE COLOUR alone, and splits a tall run
+into `round(h / PITCH)` of them. A respawn or camera wipe paints the ROI in
+both plate colours across a tall region, so the split manufactures three to six
+bands out of one wash. Measured on `c40d950031bb` against two source-reviewed
+wipes (503.4-505.6 s and 858.0-861.2 s, every frame inspected at 200 ms): at
+native rate the reader claimed entries at 13 instants a reviewer recorded as
+EMPTY, with up to six in a single frame.
+
+Half of that is now refused, and by cross-reference rather than by threshold.
+Every entry carries two names, and this function already computes whether the
+band holds glyphs -- so a band we can see that returns `no_ink` or `no_glyphs`
+is not an entry, whatever colour it is. See `TEXTLESS_REFUSALS`. That removed 20
+of the 26 bands in the first wipe and 37 of 63 in the second, at a cost of
+exactly ZERO over 1261 native frames of real killfeed activity, and it leaves
+`kf_player_kill`/`kf_player_death` untouched by construction: a textless band
+could only ever have been `unparsed`. `c40d950031bb` re-scans to 2/7, still
+exact against the scoreboard.
+
+**The rest is not fixable in one frame and is still open.** The surviving
+phantoms return `no_divider` and `no_icon`, which is also how an ability kill
+presents (13:14 in this session), so no per-frame rule separates them. What does
+separate them is PERSISTENCE, measured over the same windows at native rate:
+
+    real entries    134, 382 and 290 consecutive frames  (2.2 s, 6.4 s, 4.8 s)
+    wipe bands      scattered single frames, and not one kill or death verdict
+                    among them
+
+An entry that never persists is not an entry. That rule belongs to the
+adjudicator, not here -- this function reads one frame and must keep reporting
+what it saw in it. Until it exists, treat `kf_entries` on a frame carrying
+`textless_bands > 0` as unreadable rather than as a count.
+
 Validation status
 -----------------
 Entry detection is solid: exact on an 11-frame hand-labelled set spanning empty
@@ -394,6 +428,13 @@ class KillfeedRead:
     entry_wxs: tuple[int, ...] = ()
     # Which team each entry's victim was on, parallel to `entry_ys`.
     entry_ally: tuple[object, ...] = ()
+    # Plate-coloured bands holding no name text, which are therefore not
+    # entries. Several at once means something is painting the ROI -- a respawn
+    # or camera wipe crosses it in both plate colours, and `_entry_bands` splits
+    # that wash into `round(h/PITCH)` bands. Counted rather than discarded so a
+    # frame can say "the killfeed was unreadable here" instead of "empty".
+    textless_bands: int = 0
+    textless_reason: str | None = None
     # Bands this frame held that could not be parsed at all, and which guard
     # refused the first of them. Separate from `unattributed`, which counts
     # entries that WERE parsed and could not be attributed -- the two are
@@ -774,6 +815,16 @@ def _match_me(region: np.ndarray, tpl_info, side: int) -> tuple[int, float]:
 #:   no_baseline glyphs, but none within BASELINE_TOL of the modal baseline
 BAND_REFUSALS = ("no_ink", "no_icon", "no_glyphs", "no_divider", "no_baseline")
 
+# Two of those refusals are positive evidence that the band is NOT an entry, and
+# the rest are not. Every killfeed entry carries two names, so a band we can see
+# and that holds no glyph-sized ink at all holds no entry -- whatever colour it
+# is. The others all have ink or glyphs and only failed to be *read*: `no_icon`
+# and `no_divider` are how an ability kill presents (`c40d950031bb` 13:14),
+# `no_baseline` is a cut band mid-slide, and `occluded` is the mask admitting it
+# could not look. Those stay entries, because absence of a reading is not
+# absence of an entry.
+TEXTLESS_REFUSALS = ("no_ink", "no_glyphs")
+
 
 def plate_seam(green_band: np.ndarray, red_band: np.ndarray) -> int | None:
     """The column where the killer's plate ends and the victim's begins.
@@ -1056,9 +1107,29 @@ def analyse_killfeed(
             continue
         parsed = _band_text(white[a:z] > 0, mask[a:z], (green[a:z], red[a:z]))
         if isinstance(parsed, str):
-            verdict = "occluded" if parsed == "occluded" else "unparsed"
             if census is not None:
                 census.drop(parsed, where)
+            # CROSS-REFERENCE, not a threshold. `_entry_bands` says "entry" from
+            # plate colour alone and splits a tall run into `round(h/PITCH)` of
+            # them; the text reader, in this same function, says the band holds
+            # no name. When they disagree that way the band is not an entry, and
+            # a camera wipe is where they disagree: a respawn wipe paints both
+            # plate colours across the ROI, the split manufactures three to six
+            # bands from it, and every one of them reads `no_glyphs`. Measured
+            # on c40d950031bb over two source-reviewed wipes -- 13 phantom
+            # instants at native rate, up to six entries in a single frame --
+            # against zero in either audit window. Nothing here tunes
+            # PLATE_ROW_FRAC or the plate masks; the evidence was already being
+            # computed and thrown away.
+            # Returned in band order with every other view, and excluded from
+            # the entry count by `read_killfeed`. Kept rather than dropped so
+            # the count of them stays readable: several at once is the signature
+            # of something painting the ROI, which is worth seeing, not hiding.
+            if parsed in TEXTLESS_REFUSALS:
+                views.append(EntryView(slot, int(a), int(z),
+                                       verdict="textless", reason=parsed))
+                continue
+            verdict = "occluded" if parsed == "occluded" else "unparsed"
             views.append(EntryView(slot, int(a), int(z),
                                    verdict=verdict, reason=parsed))
             continue
@@ -1119,14 +1190,22 @@ def read_killfeed(
     t_ms: float | None = None,
 ) -> KillfeedRead:
     """Count killfeed entries and attribute any the local player is in."""
-    views = analyse_killfeed(frame, roi, width, height, mask, profile_name,
-                             census, t_ms)
+    seen = analyse_killfeed(frame, roi, width, height, mask, profile_name,
+                            census, t_ms)
+    # A textless band is a plate-coloured region with no name in it. It is not
+    # an entry and it does not enter the stack, so nothing that tracks entry
+    # movement is handed one. It is still counted, because several in one frame
+    # says the ROI is being painted over.
+    views = [v for v in seen if v.verdict != "textless"]
+    textless = [v for v in seen if v.verdict == "textless"]
     kills = [v for v in views if v.verdict == "kill"]
     deaths = [v for v in views if v.verdict == "death"]
     return KillfeedRead(
         entries=len(views),
         slots=tuple(v.slot for v in views),
         entry_ys=tuple(v.y0 for v in views),
+        textless_bands=len(textless),
+        textless_reason=next((v.reason for v in textless if v.reason), None),
         player_kill=bool(kills),
         player_death=bool(deaths),
         kill_slots=tuple(v.slot for v in kills),

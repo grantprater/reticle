@@ -40,17 +40,40 @@ findings and zero errors. The full run is `notes/p3-fidelity-20260909.json`.
    60 Hz**, and 13.8% of consecutive steps exceed it there against 0.0% at 2 Hz.
    The track discipline is abandoned most often at the highest rate.
 
+**The killfeed half is half-fixed, and the band splitter is why.** The player
+called the entry-stack tracking suspect and both halves of that were right.
+Cross-referencing first: the reader ALREADY computed the evidence and discarded
+it -- every phantom band at the two reviewed wipes reported `no_glyphs` or
+`no_ink`, against ZERO such reports in 1261 native frames of real activity. So
+`kf_entries` no longer counts a plate-coloured band holding no name text, which
+removed 20 of 26 bands in the first wipe and 37 of 63 in the second at no cost;
+`c40d950031bb` re-scans to 2/7, still exact, because a textless band could never
+have carried a kill or death verdict. `HUD_VERSION` is `hud-0.12.0` and 19
+sessions are stale.
+
+The assumption behind the rest: `_entry_bands` decides an entry from PLATE
+COLOUR alone and splits a tall run into `round(h/PITCH)` bands with no per-band
+evidence, which is what manufactures three to six entries from one wash. The
+survivors return `no_divider`/`no_icon` -- also how an ability kill presents
+(13:14 this session) -- so no per-frame rule separates them. **Persistence
+does**: real entries occupy 134, 382 and 290 consecutive native frames; wipe
+bands are scattered single frames with not one kill or death among them.
+
 ### Do this next, in order
 
-1. **Fix the killfeed wipe false positives.** Cross-reference before tuning: a
-   wipe moves the whole frame, so ask what the minimap or the scoreline already
-   says about that instant rather than reaching for the killfeed threshold.
-   `w5-confuser-wipe` and `w6-confuser-wipe` are the frozen cases.
+1. **Put the persistence rule in the adjudicator, not the reader.** An entry
+   that never persists is not an entry. `read_killfeed` must keep reporting what
+   one frame held; the tracker is where a band that appears for three frames and
+   never again gets refused. Until then, treat `kf_entries` on a frame with
+   `kf_textless > 0` as unreadable rather than as a count.
 2. **Decouple `pick_self` from its own sample interval.** The gate should express
    how far a player can run in the elapsed time with a floor that does not fall
    below detector jitter, so a higher rate cannot score worse.
 3. **Rerun `fidelity-check` on a second session** before any tier is promoted.
    One session is one map and one capture.
+4. **Re-scan the 19 stale sessions** at `hud-0.12.0` and re-score
+   `checks.KNOWN_KD`. The K/D table in `killfeed.py` predates this and one
+   session has been re-scanned.
 
 Do not claim adaptive savings from tier selection: the measured saving so far is
 the transport's. Do not proceed to P4/P5.
