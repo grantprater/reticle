@@ -118,10 +118,24 @@ here: `belief.resolve` treats an admitted read as evidence, and the refusal work
 above assumed the accepted reads were the player. Neither survives contaminated
 anchors, so the false-accept rate comes first.
 
+**The labelling pass is prepared and waiting on the player:**
+
+    .\.venv\Scripts\python.exe prototypes\label_self_fit.py c40d950031bb
+
+200 candidates in `<store>/labels/self_fit/c40d950031bb/`, stratified crowded
+vs clear and resumable. It answers one question: of the fits the reader
+ACCEPTED, how many are the player. Nothing downstream is worth trusting until
+it has a number.
+
 A constant-velocity hold was measured the same day and does not beat a
 stationary one -- but the test is scored against those same reads, and a falsely
-accepted spike does not move, which flatters the stationary hold. Both results
-are in BACKLOG.md, and neither is settled.
+accepted spike does not move, which flatters the stationary hold. Fitting the
+velocity by least squares over a 500 ms baseline rather than differencing the
+endpoints changes it by hundredths of a pixel, so the jagged fit centres are
+NOT the limit -- the velocity simply does not persist over seconds. Inertia
+does beat a hold on `ff636d173b07` at 0.5-2 s and never on `c40d950031bb`,
+which is the session whose clips show the false accepts. Both results are in
+BACKLOG.md, and neither is settled.
 
 The standing candidate is already in `BACKLOG.md`, measured over five sessions:
 the self key survives only over the LOWER HALF of the rim, present on 61-67% of

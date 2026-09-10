@@ -261,9 +261,25 @@ This is upstream of everything built on self position. `belief.resolve` treats
 an admitted read as evidence and cannot be right while the reads are wrong, and
 the leave-one-out motion test below is scored against these same reads.
 
-Needs: a class list from the player, then a labelling pass over accepted self
-fits -- is this the player, the spike, a teammate, or something else -- and a
-false-accept rate before any further motion or appearance work.
+**Class list, from the player 2026-09-10.** What can be mistaken for the self
+icon: the spike, ability icons, and other players. Death marks and last-known
+markers are covered by players when both are present, so they are not the
+common confusion -- but they remain visible where nobody stands, so the
+labeller keeps a class for them.
+
+**The DRAW ORDER is unknown, and the player does not know it either.** Whether
+the widget has a defined priority between players, the spike, abilities and
+marks is unrecorded and is NOT derivable from stored data -- nothing stores
+what was underneath. Recorded here as an open question rather than guessed. It
+matters: if players always draw over the spike, a fit on a spike means the
+player is elsewhere, which is a usable constraint; if not, it means nothing.
+
+`prototypes/label_self_fit.py` runs the pass. It samples the reader's own
+ACCEPTED fits in two recorded strata -- `crowded`, another read icon within
+25 px, and `clear` -- so a rate over all accepted fits can be reweighted rather
+than measured on the interesting case alone. 200 candidates are prepared for
+`c40d950031bb`; three panels at -0.5 s, 0 and +0.5 s ring the same place, since
+a dropped spike does not move and a player does.
 
 ## A constant-velocity hold does not beat a stationary one
 
