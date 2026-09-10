@@ -872,6 +872,32 @@ sit below in this file and are untouched by it. The plan is about one thread --
 events, review and the state model. It is silent on the others, and silence is
 not deprecation.
 
+## A FORKED CONSTANT has no check, and one check was tried and declined
+
+**Found and fixed 2026-09-10, then the general check failed its own audition.**
+`ICON_AREA_REF` sat at (10, 400) in `prototypes/object_proposals.py` while
+`mine_icons.py` was re-measured to (10, 500), so the sweep that justified the
+margin and the miner that used it disagreed about which components are icons at
+all. `object_proposals.py` now imports the one definition.
+
+`doctor` catches a forked FUNCTION and has nothing for a forked constant, so a
+`check_constant` was written that compares every module-level SHOUTING_CASE
+literal across the three trees. It fired 17 ERRORs on a clean repo. Two or three
+name a real question -- `GREEN_H` differs between `scoreboard.py` and
+`killfeed.py`, `N_THETA` between `minimap.py` and `revive_mark.py` -- and the
+rest are unrelated per-tool knobs sharing a generic name: `PAD`, `ZOOM`, `WIN`,
+`SID`, `KIND`, `ROI`, `RING`, `CLASSES`, `POINTS`, `SEARCH`.
+
+It was reverted, because `doctor`'s own standard is that a checker which fails
+on everything gets ignored. Blessing each name leaves an allowlist longer than
+the check. Narrowing to cross-tree forks would not have caught this one, which
+was prototypes-to-prototypes; narrowing to files that import each other would
+not either, because before the fix neither imported the other.
+
+**Trigger: a second forked constant that costs a measurement.** One precedent is
+an anecdote; two would say what the discriminating signal is, which a single case
+did not. `GREEN_H` and `N_THETA` are the two worth settling by hand meanwhile.
+
 ## `map_shade.stamp()` hashes RAW BYTES, so a line ending flips it
 
 **Found 2026-09-10, after it had already lied.** `doctor` opened this session
@@ -902,24 +928,33 @@ believing a SHADE finding.
 **Found 2026-09-10 while measuring the new acquisition channels.** Two separate
 defects in the same session, and both cap what `proposal_audit.py` can say.
 
-`ICON_AREA_REF = (10, 400)` in `prototypes/mine_icons.py` is declared in
-REFERENCE px, so on `valorant-16x9-bigmap` -- the reference widget, scale 1.0 --
-it caps an icon at radius 11. That widget's real icons are 20-25 px in radius:
-`a06f04a0059f`'s missed residual components run 1189-1417 px. The band was
-measured on something, but not on the profile it is stated in.
+**The band half is DONE, 2026-09-10.** `ICON_AREA_REF` is re-measured to
+(10, 500) against `minimap_dynamic` box extents -- an independent human pass,
+831 rows on three scale-1.0 sessions -- and the result is
+[domain:minimap/icon-extent-by-family]. The old cap of 400 was a disc 22.6 px
+across, below the ability family's 24 px median, because it had been fitted on
+players. Raising it took d95's base-channel recall from 77.1% to 93.8% for a
+1.6% rise in candidate volume. `prototypes/object_proposals.py` held a forked
+copy of the same constant and now imports the one definition.
+
+**What remains is the a06 PAINT, and the censoring.** The extent labels stop at
+40 px, so they justify a floor under the cap and cannot bound its top;
+`a06f04a0059f`'s missed components run 1189-1417 px, which is a disc 39-42 px
+across -- at or past that boundary. And a06's `ability_paint` rows still mark
+r=7 discs on icons of 20-25 px radius, so the matching radius is smaller than
+the icon and the `core` channel scores 45.5% there against 100.0% on d95.
 
 `a06f04a0059f`'s `ability_paint` rows mark r=7 discs on those same icons, so the
 matching radius is SMALLER than the icon and a hand-clicked point need not sit
 near the icon's thickest place. That is why the `core` channel scores 100.0%
 recall on d95 and 45.5% on a06 -- the a06 figure may be measuring the labels.
 
-Until both are fixed a06's acquisition numbers are a lower bound and an upper
-bound on nothing, and the pool keeps `base` on that session's evidence alone.
-**Trigger: the next time a single acquisition channel is to be selected.**
-Re-measure the band against the bigmap widget's icons -- do not tune it against
-these labels -- and repaint a06 with radii that match what is drawn. Then rerun
-`proposal_audit.py --channels core` and see whether `base` still earns its
-place.
+Until the paint is fixed a06's acquisition numbers are a lower bound and an
+upper bound on nothing, and the pool keeps `base` on that session's evidence
+alone. **Trigger: the next time a single acquisition channel is to be
+selected.** Repaint a06 with radii that match what is drawn, which also lifts
+the 40 px censoring, then rerun `proposal_audit.py --channels core` and see
+whether `base` still earns its place.
 
 ## A small-widget painting, to score the length scaling
 

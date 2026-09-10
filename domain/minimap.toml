@@ -108,3 +108,27 @@ known = "measured"
 since = "2026-09-10"
 source = "12 of 14 audited misses; prototypes/proposal_audit.py"
 see = ["minimap/icon-residual-is-a-ring"]
+
+[icon-extent-by-family]
+claim = """
+On the reference widget the drawn families separate by SIZE: a player icon is
+13 px across at the median, an ability icon 24, a region 27. Player and ability
+therefore need one band between them, and a region's extent overlaps an
+ability's.
+"""
+kind = "geometry"
+known = "measured"
+since = "2026-09-10"
+source = """
+831 human minimap_dynamic rows over a06f04a0059f, 5822b6646448 and
+c62c2b06bcfb, all widget width 465; box extent, not the rows' own area, which
+came from a different proposer
+"""
+use = """
+scale by widget_scale before comparing; an area cap of 400 reference px is a
+disc only 22.6 px across and sits BELOW the ability median
+"""
+exceptions = """
+the labelled boxes are RIGHT-CENSORED at 40 px, so this bounds the families
+from below and says nothing about the top of the ability tail
+"""

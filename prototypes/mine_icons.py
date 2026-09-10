@@ -87,8 +87,18 @@ from minimap_appearance import (GRID, appearance_similarity, describe)  # noqa: 
 MARGIN = 10.0
 
 #: Icon areas in reference px, scaled by the widget. Regions are a separate
-#: family and are deliberately not proposed here.
-ICON_AREA_REF = (10, 400)
+#: family and are deliberately not proposed here -- which is the tension in the
+#: cap, because a region's extent overlaps an ability's.
+#:
+#: Re-measured 2026-09-10 against independent human extent labels:
+#: [domain:minimap/icon-extent-by-family]. The old cap of 400 is a disc 22.6 px
+#: across, so it sat below the ability family's median and bounded at most 59%
+#: of 233 labelled icons -- fitted where the evidence was, on players, then
+#: applied to a miner whose purpose is the families with no detector. 500 is the
+#: knee: 82% of icons bounded against 14% of regions admitted, before 600 admits
+#: 62% of them. Those labels are right-censored at 40 px, so they justify a floor
+#: under the cap and cannot bound its top.
+ICON_AREA_REF = (10, 500)
 
 #: A pixel foreign in more than this share of sampled frames is FURNITURE. Not
 #: fitted: an entity that sat still for most of a session would not be an

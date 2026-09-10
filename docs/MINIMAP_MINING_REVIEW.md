@@ -93,17 +93,59 @@ leaked diagonally through every thin ring, and filled nothing. With
 core channel went from 89.6% to 100.0% on d95 and 27.3% to 45.5% on a06, with no
 threshold touched.
 
+## The area band was fitted on players, and cost 17 points of recall
+
+The cap was the other half of the acquisition failure, and independent labels
+settle it without touching the audit's own frames. `minimap_dynamic` is a
+different human pass with a different proposer; over 831 rows on three
+scale-1.0 sessions, box extent -- a property of the drawn icon rather than of
+any mask -- separates the families:
+
+| Family | n | p25 | median | p75 | p95 |
+|---|---:|---:|---:|---:|---:|
+| player | 104 | 11 | 13 | 19 | 37 |
+| ability | 123 | 22 | **24** | 25 | 32 |
+| region | 78 | 26 | 27 | 29 | 38 |
+| negative | 434 | 10 | 16 | 25 | 37 |
+
+`ICON_AREA_REF`'s cap of 400 reference px is a disc **22.6 px across**, below
+the ability family's median. The band had been fitted where the evidence was --
+on players, at 13 px -- and then applied to a miner whose whole purpose is the
+families with no detector. 500 is the knee of the curve: it bounds 82% of the
+233 labelled icons against 14% of regions admitted, where 600 admits 62% of
+them.
+
+Raising it to `(10, 500)` was pre-registered and confirmed on every clause:
+
+| | before | after |
+|---|---:|---:|
+| d95 `base` recall | 77.1% | **93.8%** |
+| d95 `base` precision | 7.6% | 9.1% |
+| d95 candidates | 515 | 523 |
+| d95 fragmented targets | 8 | 3 |
+| a06 `base` recall | 72.7% | 72.7% |
+| union recall, d95 / a06 | 100% / 90.9% | 100% / 90.9% |
+
+Seven of d95's eight `component_too_large` misses sat on components of 205-251
+px against a cap of 203. So the audited attribution was right, the cap really
+was losing them, and recovering them cost 1.6% more candidates -- a claim no
+threshold tuned against these same frames could have made. Note also that the
+extent labels are RIGHT-CENSORED at 40 px: they justify a floor under the cap
+and say nothing about the top of the ability tail.
+
+`prototypes/object_proposals.py` held a forked copy of the same constant at
+(10, 400) and now imports the one definition.
+
 ## Why a06 cannot score this yet
 
 a06f04a0059f is the reference `valorant-16x9-bigmap` widget, and its icons are
-drawn several times larger than d95's. Its missed components run 1189-1417 px
-against an area band that caps at 400, and the painter marked r=7 discs on icons
-whose drawn radius is 20-25 px -- so the matching radius is smaller than the
-icon, and the hand-clicked point need not sit near the icon's thickest place.
-**`ICON_AREA_REF = (10, 400)` is wrong for the bigmap profile's real icon
-sizes.** Re-measure it against that widget's icons; do not tune it against these
-labels. Until a06 is repainted with radii that match its widget, treat its
-figures as a lower bound on acquisition and an upper bound on nothing.
+drawn several times larger than d95's. Its missed components run 1189-1417 px --
+a disc 39-42 px across, at or past the extent labels' 40 px censoring boundary --
+and the painter marked r=7 discs on icons whose drawn radius is 20-25 px, so the
+matching radius is smaller than the icon and the hand-clicked point need not sit
+near the icon's thickest place. Raising the cap therefore moved a06 not at all,
+exactly as predicted. Until a06 is repainted with radii that match its widget,
+treat its figures as a lower bound on acquisition and an upper bound on nothing.
 
 Widen the painted truth -- more maps, more agents, an a06 repaint -- and
 re-audit before selecting a single channel or moving to the descriptor.

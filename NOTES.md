@@ -11,7 +11,54 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-10, the baked-geometry baseline and two new channels
+## PICKING UP -- 2026-09-10 late, the area band was fitted on players
+
+**The cap was the other half of the acquisition failure, and independent labels
+settled it.** `minimap_dynamic` is a different human pass with a different
+proposer; over 831 rows on three scale-1.0 sessions, box extent separates the
+families -- a player icon is 13 px across at the median, an ability icon 24, a
+region 27. `ICON_AREA_REF`'s cap of 400 reference px is a disc **22.6 px
+across**, below the ability median, because it had been fitted where the
+evidence was: on players. It is now `(10, 500)`, the knee of the curve, and the
+measurement is [domain:minimap/icon-extent-by-family].
+
+Pre-registered and confirmed on every clause:
+
+    d95cfad5693a base recall   77.1% -> 93.8%    precision 7.6% -> 9.1%
+    d95 candidates              515  ->  523     fragmented targets 8 -> 3
+    a06f04a0059f base recall   72.7% -> 72.7%    (predicted unchanged)
+    union recall           100% / 90.9% unchanged on both
+
+Seven of d95's eight `component_too_large` misses sat on components of 205-251
+px against a cap of 203. The audited attribution was right, and recovering them
+cost 1.6% more candidates -- a claim no threshold tuned on these same frames
+could have made. `prototypes/object_proposals.py` held a FORKED copy of the same
+constant at (10, 400) and now imports the one definition.
+
+**Domain facts now live in `domain/*.toml` and prose cites them.** Fourteen
+seeded facts, every one cited by its consumer, `doctor`'s DOMAIN check making a
+dangling citation an ERROR. See the global constraint in `CLAUDE.md` and
+`reticle domain --check`.
+
+Two things measured and declined, both in `BACKLOG.md`: a `doctor` check for
+forked CONSTANTS fired 17 errors on a clean repo and was reverted, because a
+checker that fails on everything gets ignored; and `map_shade.stamp()` hashes
+raw bytes, so the LF copy of `wiki_map.py` in the working tree made twelve
+current shades report stale all session -- the one-line fix forces a rebuild of
+baked geometry, so it waits for a deliberate one.
+
+**Next: the a06 repaint, and it needs the player.** a06's `ability_paint` rows
+mark r=7 discs on icons of 20-25 px radius, so the matching radius is smaller
+than the icon and `core` scores 45.5% there against 100.0% on d95. The extent
+labels are also right-censored at 40 px, and a06's missed components are 39-42
+px across -- at that boundary. A repaint lifts both limits at once. Until then
+a06 is a lower bound on acquisition and an upper bound on nothing, d95's
+diversity is about six distinct objects on one map with one agent, and no single
+channel should be selected. Invoke `labelling-pass` before painting.
+
+395 tests pass; `doctor` has seven findings and zero errors.
+
+## PRIOR -- 2026-09-10, the baked-geometry baseline and two new channels
 
 **The geometry cleanup cost nothing and the proposer now clears its floor.**
 Rerunning `proposal_audit.py` with both sessions on baked `(map, profile)`

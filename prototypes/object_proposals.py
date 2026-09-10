@@ -51,9 +51,12 @@ from reticle.minimap import (ally_mask, minimap_roi_px, self_mask,  # noqa: E402
 from reticle.profiles import get_profile  # noqa: E402
 from reticle.store import DEFAULT_STORE, Store  # noqa: E402
 
-#: Icon areas in reference px, scaled by the widget. The upper bound keeps a
-#: smoke region from being proposed as an icon; regions are their own family.
-ICON_AREA_REF = (10, 400)
+#: Icon areas in reference px, scaled by the widget. Imported rather than
+#: restated: this file held its own copy at (10, 400) while `mine_icons` was
+#: re-measured to (10, 500) against independent extent labels, and a forked
+#: constant is the same fault as a forked function with none of the visibility.
+#: This file's question is MARGINS; the band is not its to own.
+from mine_icons import ICON_AREA_REF  # noqa: E402,F401
 MARGINS = (6.0, 10.0, 14.0)
 
 
