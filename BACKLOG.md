@@ -339,6 +339,35 @@ cannot be split into the carried badge and a dropped one, and site paint had no
 class for most of the run, so some site cases are inside `nothing` or `spike`.
 Fixed for the next pass; the first pass's provenance is simply lost.
 
+**ARC COVERAGE separates them, and nothing else does.** Recomputed on the
+labelled fits (`self_fit_eval.py --features`): the player sits at cov 0.38
+[0.28-0.56], and every wrong class sits at 0.28-0.30 with p90 at or below 0.38.
+Lobe (0.52 both) and facing (97-100% both) do not separate at all. The wrong
+accepts are all low-coverage fits sitting just above the shipped gate of 0.25.
+
+    cov >=   players kept   wrong kept   wrong share of kept
+      0.25        100.0%       100.0%          8.50%   <- shipped
+      0.28         79.7%        40.0%          4.45%
+      0.32         69.9%        24.6%          3.17%
+      0.35         64.1%         7.7%          1.10%
+      0.40         47.1%         7.7%          1.49%
+
+**The gate alone is not the answer: it buys accuracy with coverage.** Cutting
+the wrong-object rate to 1.1% costs 36% of the reader's correct positions, and
+observed coverage is already only 75% of instants. Note also that there are 15
+wrong examples in total, so the middle column moves in steps of about 7 points.
+
+**What makes it affordable is the belief layer.** A refused low-coverage fit is
+not a lost position: single-frame refusals interpolate at 96.4% and short runs
+at 94.2%, from the reads either side, which the gate has just made cleaner. So
+the pairing to measure is a raised gate PLUS `belief.resolve`, end to end --
+observed accuracy up, observed coverage down, believed coverage roughly held.
+Measure it before shipping either half; neither is worth much alone.
+
+This also removes the need for an anti-oscillation rule. The portrait/badge
+flip is a low-coverage fit beside a high-coverage one, so a shape gate refuses
+it a frame at a time and never has to reason about the sequence.
+
 **Class list, from the player 2026-09-10.** What can be mistaken for the self
 icon: the spike, ability icons, and other players. Death marks and last-known
 markers are covered by players when both are present, so they are not the
