@@ -235,6 +235,57 @@ What this forbids: excluding regions from a position belief because another
 icon is there; treating coincidence as a detector disagreement; assuming an
 overlap resolves into distinct centres given a better fit.
 
+## The self reader ACCEPTS THE SPIKE ICON as the player
+
+**Reviewed 2026-09-10 on annotated clips** (`prototypes/refusal_clip.py`, five
+refusal runs on `c40d950031bb`, one per length band). Three of the five show it:
+
+* the self fit lands on the spike icon while the player stands beside it;
+* on a longer run the fit drifts from the player, through the spike, and onto a
+  DIFFERENT PLAYER, with the positions before the drift nowhere near the ones
+  after;
+* in buy phase, with the team clumped around the spike, the fit moves to the
+  spike, the buy menu opens -- the widget goes absent -- and when it closes the
+  fit has settled on another player.
+
+**The step law cannot catch this.** It rejects implausible SPEED, and a spike
+lying at the player's feet is a fraction of a pixel away; so is a teammate in a
+clump. The drift is a sequence of small legal steps onto the wrong object.
+
+**No existing channel witnesses it.** `full_round_entities.py` gets the spike
+from the HUD plant graphic, which covers the PLANTED spike only -- its own
+limitations list says "dropped spike, death marks and last-known marks may
+remain generic objects". Every clip above is a dropped or carried spike.
+
+This is upstream of everything built on self position. `belief.resolve` treats
+an admitted read as evidence and cannot be right while the reads are wrong, and
+the leave-one-out motion test below is scored against these same reads.
+
+Needs: a class list from the player, then a labelling pass over accepted self
+fits -- is this the player, the spike, a teammate, or something else -- and a
+false-accept rate before any further motion or appearance work.
+
+## A constant-velocity hold does not beat a stationary one
+
+Measured 2026-09-10 by leave-one-out over admitted reads: hide a read, predict
+it from the reads before it, score against it. Velocity is taken over a 500 ms
+baseline, because fit centres are integers and one sample of displacement is
+mostly quantisation.
+
+    gap     c40d950031bb hold / inertia      ff636d173b07 hold / inertia
+    0.5 s   3.16 / 3.16  (39.8% better)      3.61 / 2.81  (52.8% better)
+    1.0 s   5.39 / 6.14  (35.9%)             6.40 / 5.10  (48.7%)
+    2.0 s   8.94 / 13.04 (27.6%)             12.04 / 11.55 (40.6%)
+    3.0 s   11.18 / 19.70 (23.0%)            16.28 / 18.40 (34.7%)
+
+Medians in px. Inertia helps only on one session at short gaps and loses badly
+by 3 s, which is what a straight line does to a player who turns a corner.
+
+**But the comparison is confounded by the entry above.** A falsely accepted
+spike icon does not move, so every such read flatters the stationary hold. The
+test cannot settle the question until the false accepts are gone. Do not wire
+an inertial hold on this evidence, and do not conclude that inertia is wrong.
+
 ## Minimap re-validation after the `floor_mask` reconciliation
 
 **Tabled 2026-09-06 by the player.** The commit is `18b0912`; the numbers and the

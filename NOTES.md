@@ -108,7 +108,20 @@ file samples the ISOLATED refusals, which are the ones that already work.
 `prototypes/refusal_clip.py` renders the seconds around a refusal with the
 reader's reading and the self colour key drawn on top, sampling one run per
 length band rather than taking the modal case. Five clips are in the store at
-`notes/refusal-clips/`, sent to the player 2026-09-10 and NOT yet reviewed.
+`notes/refusal-clips/`.
+
+**They were reviewed 2026-09-10 and they moved the problem.** Three of five show
+the self fit landing on the SPIKE ICON, once drifting from the player through
+the spike onto a different player, once doing so in buy phase across a
+buy-menu widget absence. See the BACKLOG entry. This is upstream of everything
+here: `belief.resolve` treats an admitted read as evidence, and the refusal work
+above assumed the accepted reads were the player. Neither survives contaminated
+anchors, so the false-accept rate comes first.
+
+A constant-velocity hold was measured the same day and does not beat a
+stationary one -- but the test is scored against those same reads, and a falsely
+accepted spike does not move, which flatters the stationary hold. Both results
+are in BACKLOG.md, and neither is settled.
 
 The standing candidate is already in `BACKLOG.md`, measured over five sessions:
 the self key survives only over the LOWER HALF of the rim, present on 61-67% of
