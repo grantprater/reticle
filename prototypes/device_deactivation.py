@@ -2,6 +2,10 @@ r"""Does a deployed device dim because its owner died?
 
     .\.venv\Scripts\python.exe prototypes\device_deactivation.py [--session S]
 
+The dimming itself is [domain:minimap/device-dim-on-deactivation]; this asks
+what CAUSES it. Its consequence for acquisition, measured later, is
+[domain:minimap/dim-devices-defeat-the-residual].
+
 the player, mid-labelling on 2026-09-09: a sonic sensor is *much dimmer* because the
 ally Deadlock who placed it died, and *the only deployed abilities that don't
 deactivate on death are walls and barriers*. Killjoy's devices also deactivate

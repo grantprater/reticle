@@ -982,24 +982,46 @@ players. Raising it took d95's base-channel recall from 77.1% to 93.8% for a
 1.6% rise in candidate volume. `prototypes/object_proposals.py` held a forked
 copy of the same constant and now imports the one definition.
 
-**What remains is the a06 PAINT, and the censoring.** The extent labels stop at
-40 px, so they justify a floor under the cap and cannot bound its top;
-`a06f04a0059f`'s missed components run 1189-1417 px, which is a disc 39-42 px
-across -- at or past that boundary. And a06's `ability_paint` rows still mark
-r=7 discs on icons of 20-25 px radius, so the matching radius is smaller than
-the icon and the `core` channel scores 45.5% there against 100.0% on d95.
+**The PAINT half is REFUTED, 2026-09-10, before it cost the player anything.**
+Overriding the recorded r=7 to 10, 12, 14 and 16 -- writing to no label file --
+leaves the audit bit-identical at every value: 72.7% base recall, 90.9% union
+recall, 1.9% precision, the same single miss. The matching radius was never
+what loses a06's icons, so there is no repaint to do.
+
+**What actually limits a06 is the DIM DEVICE STATE**, and this repo already had
+it as a domain fact without connecting it to acquisition:
+[domain:minimap/dim-devices-defeat-the-residual]. The ten acquired icons sit at
+median contrast 240 and hole-filled coverage 0.46; the one missed at 173 and
+0.11, inside the recorded dim mode of 122-175. A live sensor is near-black on
+grey floor and fills solid, dt 6.6-10.0 px; a dim one is mid-grey on grey floor,
+its residual is speckle, dt 1.0-3.2 px. `core` recall on a06 caps at 54.5% at
+the most permissive floor swept, so no threshold reaches it.
+
+That also explains, at last, why the pool keeps `base`: `core` needs a filled
+disc and `base` survives speckle. And the miss is anticipatable rather than
+chaseable -- `prototypes/device_deactivation.py` links dim devices to a
+preceding ally death at pooled p=0.002 over 73 devices, both channels stored. **Corrected
+2026-09-10: r=12, not the 20-25 first claimed here.** Rendering all 11 painted
+icons at 5x against reference circles settled it -- an r=12 circle sits on the
+sonic sensor's disc edge and r=7 sits on its inner bullseye. That also
+reconciles with [domain:minimap/icon-extent-by-family], whose 24 px median box
+side IS r=12; the 20-25 came from over-reading a 4x crop.
 
 `a06f04a0059f`'s `ability_paint` rows mark r=7 discs on those same icons, so the
 matching radius is SMALLER than the icon and a hand-clicked point need not sit
 near the icon's thickest place. That is why the `core` channel scores 100.0%
 recall on d95 and 45.5% on a06 -- the a06 figure may be measuring the labels.
 
-Until the paint is fixed a06's acquisition numbers are a lower bound and an
-upper bound on nothing, and the pool keeps `base` on that session's evidence
-alone. **Trigger: the next time a single acquisition channel is to be
-selected.** Repaint a06 with radii that match what is drawn, which also lifts
-the 40 px censoring, then rerun `proposal_audit.py --channels core` and see
-whether `base` still earns its place.
+**What remains is DIVERSITY, not a06.** a06 is nine sonic sensors and two
+barrier mesh nodes; d95 is about six distinct Cypher objects on one map with one
+agent. Neither establishes inventory recall, and the extent labels are still
+right-censored at 40 px, so they bound the area cap from below only.
+
+**Trigger: the next time a single acquisition channel is to be selected.** What
+is needed is painted frames on MORE MAPS AND MORE AGENTS -- the mining review's
+own next step -- plus a retained low-contrast audit channel that RANKS rather
+than gates, which is the shape the dim state argues for. Building that channel
+on a06's single missed icon would be fitting to n=1.
 
 ## A small-widget painting, to score the length scaling
 

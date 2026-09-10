@@ -136,14 +136,53 @@ and say nothing about the top of the ability tail.
 `prototypes/object_proposals.py` held a forked copy of the same constant at
 (10, 400) and now imports the one definition.
 
+## a06's limit is the DIM DEVICE STATE, and the repaint was refuted
+
+The repaint queued below was measured before it cost the player anything, and it
+buys **nothing**. Overriding the recorded r=7 to 10, 12, 14 and 16 -- without
+writing to any label file -- leaves the audit bit-identical at every value:
+72.7% base recall, 90.9% union recall, 1.9% union precision, the same single
+miss. The matching radius was never what loses a06's icons.
+
+What does is [domain:minimap/dim-devices-defeat-the-residual]. Contrast and
+hole-filled coverage at each of a06's 11 painted icons:
+
+| | n | median contrast | median filled fraction |
+|---|---:|---:|---:|
+| acquired | 10 | 240 | 0.46 |
+| missed | 1 | **173** | **0.11** |
+
+173 sits inside the recorded dim mode (122-175) against the live mode
+(231-241), whose 56-grey-level gap holds nothing. Rendering the pixels, the
+residual and the hole-filled mask together shows one mechanism in two states: a
+live sensor is near-black on grey floor, so its residual covers the disc, fills
+solid, and has a distance-transform core of 6.6-10.0 px; a dim one is mid-grey
+on grey floor, so its residual is sparse speckle, filling changes almost
+nothing, and dt is 1.0-3.2 px. No floor recovers it -- at the most permissive
+value swept, a06's `core` recall caps at 54.5%.
+
+**This is the measured reason the pool keeps `base`**, which until now was only
+an observation that it helped. `core` needs a substantially filled disc;
+`base`'s area-gated centroid survives speckle that has no core at all. The two
+channels are complementary in CONTRAST as well as in the welding `neck`
+attacks.
+
+And the miss is ANTICIPATABLE rather than chaseable.
+`prototypes/device_deactivation.py` already links dim devices to a preceding
+ally death at pooled p=0.002 over 73 devices, from two channels that are both
+already stored. That is the cross-reference rule with the threshold left alone.
+
 ## Why a06 cannot score this yet
 
 a06f04a0059f is the reference `valorant-16x9-bigmap` widget, and its icons are
 drawn several times larger than d95's. Its missed components run 1189-1417 px --
 a disc 39-42 px across, at or past the extent labels' 40 px censoring boundary --
-and the painter marked r=7 discs on icons whose drawn radius is 20-25 px, so the
+and the painter marked r=7 discs on icons whose drawn radius is 12 px, so the
 matching radius is smaller than the icon and the hand-clicked point need not sit
-near the icon's thickest place. Raising the cap therefore moved a06 not at all,
+near the icon's thickest place. (Corrected: an earlier draft here said 20-25 px
+radius, from over-reading a 4x crop. Rendering all 11 icons at 5x against
+reference circles puts the disc edge at r=12, which is what the 24 px median box
+side of [domain:minimap/icon-extent-by-family] already said.) Raising the cap therefore moved a06 not at all,
 exactly as predicted. Until a06 is repainted with radii that match its widget,
 treat its figures as a lower bound on acquisition and an upper bound on nothing.
 

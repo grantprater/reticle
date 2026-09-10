@@ -8,7 +8,8 @@ Controls
     r                toggle ICON / REGION mode -- shown in the status bar
     t                switch the 1-9 bank: ABILITIES <-> WORLD OBJECTS
     h                help overlay, drawn ON the map. Shown on launch.
-    [ / ]            disc radius / brush radius smaller / larger
+    [ / ]            disc radius / brush radius smaller / larger -- SET THIS.
+                     `r` is the ICON DISC ONLY; extent past it is a REGION
     shift + drag     paint a region without leaving ICON mode
     shift + right    erase from the current region
     right click      undo the last mark on this frame
@@ -82,6 +83,31 @@ detached so its stdout is never seen; and the bank was bound to `<Tab>`, which
 Tk consumes for focus traversal and which therefore may never have fired at all.
 Hence `h`, an overlay drawn ON the map and **shown on launch**, and `t` for the
 bank. Treat a control nobody found as a bug, not as a note to repeat.
+
+WHAT `r` MEANS, AND WHERE EXTENT GOES. ANSWERED 2026-09-10, DO NOT RE-ASK
+--------------------------------------------------------------------------
+Asked directly, after a06f04a0059f came back with every icon at the default
+r=7 on icons that are r=12:
+
+    r is the ICON DISC ONLY -- the drawn glyph's own circle, and nothing else.
+    Anything the ability draws PAST the icon is a separate REGION mark.
+
+So on the reference widget a Deadlock sonic sensor is r=12 and a barrier mesh
+NODE is r=12 regardless of the wire running out of it; the wire is a region.
+That keeps `r` comparable across widget sizes and makes it the same quantity
+`domain/minimap.toml`'s icon-extent fact measures.
+
+**A multi-segment object is one icon PER NODE plus a region for the span.** The
+barrier mesh and the Cypher trapwire are the same shape -- a findable circular
+node, and extent that no circle fit can centre on -- so recall is measured on
+the NODES, which is what the proposer can actually find. Marking the whole mesh
+as one icon would put something uncentreable into the icon denominator, and a
+"miss" would then be ambiguous between the proposer failing and the target not
+being a circle.
+
+**Set the radius. It is the thing this pass exists to collect.** Two passes have
+now been completed at the default, which is why `h` opens on launch and why the
+status bar shows the current radius in pixels.
 
 One row per FRAME, not one per mark
 -------------------------------------
@@ -307,12 +333,16 @@ def main() -> int:
             # label under a 485px canvas. A control nobody sees does not exist.
             pad = np.zeros((base.shape[0], base.shape[1], 3), np.uint8)
             lines = ["CONTROLS", "",
+                     "r IS THE ICON DISC ONLY -- set it with [ ]",
+                     "extent past the icon is a REGION, not a bigger r",
+                     "a multi-segment object: one icon PER NODE",
+                     "",
                      "left click    drop icon (ICON mode)",
                      "left drag     paint      (REGION mode)",
                      "r             switch ICON <-> REGION",
                      "t             switch ABILITIES <-> WORLD",
                      "1-9           pick class from the bank",
-                     "[  ]          radius smaller / larger",
+                     "[  ]          radius smaller / larger  <- SET THIS",
                      "c             new ability class by name",
                      "right click   undo last mark",
                      "SPACE / d     frame done, next",

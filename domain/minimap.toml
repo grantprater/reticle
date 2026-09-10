@@ -133,7 +133,9 @@ since = "2026-09-10"
 source = """
 831 human minimap_dynamic rows over a06f04a0059f, 5822b6646448 and
 c62c2b06bcfb, all widget width 465; box extent, not the rows' own area, which
-came from a different proposer
+came from a different proposer. Confirmed independently by rendering all 11
+a06f04a0059f painted icons at 5x against reference circles: an r=12 circle sits
+on the sonic sensor's disc edge, which is the same 24 px across
 """
 use = """
 scale by widget_scale before comparing; an area cap of 400 reference px is a
@@ -167,3 +169,54 @@ different marker, or nothing
 """
 source = "the player, correcting the gate's exceptionless form"
 see = ["minimap/vision-gate"]
+
+[device-dim-on-deactivation]
+claim = """
+A deployed device DIMS when it deactivates. It is still drawn and still where it
+was placed, and has merely stopped being live -- so the class is bimodal in
+brightness, with an empty gap between the two modes.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-09"
+source = """
+71 labelled deadlock:sonic sensor positions: dim n=24 contrast 122-175 median
+137, live n=47 contrast 231-241 median 237, the largest gap 56 grey levels with
+NOTHING in it. Owner death is one cause and is corroborated on an independent
+channel by prototypes/device_deactivation.py, pooled p=0.002 over 73 devices
+"""
+use = """
+never read dimming as an ENDING -- Killjoy's devices deactivate out of her
+activation radius and come back, so it is reversible. Do not average a gallery
+over both modes; and expect an acquisition MISS on the dim mode rather than
+tuning for it
+"""
+exceptions = """
+deadlock:barrier mesh is unimodal (223-238). That every low-contrast label is a
+deactivated device is NOT established -- occlusion looks similar
+"""
+
+[dim-devices-defeat-the-residual]
+claim = """
+A dim device is nearly invisible to a lighting-band residual. A live sensor is
+near-black on grey floor and fills solid; a dim one is mid-grey on grey floor,
+so its residual is sparse speckle that hole-filling cannot close.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-10"
+source = """
+prototypes/proposal_audit.py on a06f04a0059f: the ten acquired icons sit at
+median contrast 240 and hole-filled coverage 0.46, the one missed at 173 and
+0.11. Distance transform under a live sensor is 6.6-10.0 px against 1.0-3.2 px
+under a dim one, and core recall there caps at 54.5% at the most permissive
+floor swept
+"""
+use = """
+this is why the acquisition pool keeps `base` alongside `core`: core needs a
+substantially filled disc, base's area-gated centroid survives speckle. Rank
+low-contrast candidates in a retained audit channel rather than gating them out,
+and anticipate the miss from the killfeed
+"""
+depends_on = ["minimap/device-dim-on-deactivation",
+              "minimap/icon-residual-is-a-ring"]

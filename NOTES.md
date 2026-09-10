@@ -11,7 +11,56 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-10 late, the area band was fitted on players
+## PICKING UP -- 2026-09-10 latest, the repaint was refuted and a06 explained
+
+**The a06 repaint buys nothing, and it was measured before it cost the player
+anything.** Overriding the recorded r=7 to 10, 12, 14 and 16 -- writing to no
+label file -- leaves the audit bit-identical at every value: 72.7% base recall,
+90.9% union recall, 1.9% precision, the same single miss. **The matching radius
+was never what loses a06's icons**, so my "a06's paint is the blocker"
+diagnosis was wrong and there is no repaint to do.
+
+**Also corrected: the icons are r=12, not the 20-25 I claimed.** Rendering all
+11 painted icons at 5x against reference circles put r=12 on the sonic sensor's
+disc edge and r=7 on its inner bullseye, which reconciles with
+[domain:minimap/icon-extent-by-family] -- 24 px across IS r=12. The three files
+carrying the wrong number are fixed; the superseded claim in the PRIOR below is
+marked rather than rewritten.
+
+**What actually limits a06 was already a domain fact nobody had connected to
+acquisition.** [domain:minimap/dim-devices-defeat-the-residual]:
+
+    a06's 11 painted icons     n    median contrast   median filled fraction
+    acquired                  10          240                  0.46
+    missed                     1          173                  0.11
+
+173 is inside the recorded dim mode of 122-175 against the live mode's
+231-241. A live sensor is near-black on grey floor, fills solid, dt 6.6-10.0 px;
+a dim one is mid-grey on grey floor, its residual is speckle, filling changes
+nothing, dt 1.0-3.2 px. `core` recall on a06 caps at 54.5% at the most
+permissive floor swept, so no threshold reaches it.
+
+**That is the measured reason the pool keeps `base`** -- previously only an
+observation that it helped. `core` needs a substantially filled disc; `base`'s
+area-gated centroid survives speckle. And the miss is anticipatable rather than
+chaseable: `device_deactivation.py` links dim devices to a preceding ally death
+at pooled p=0.002 over 73 devices, both channels already stored.
+
+**The player set two labelling conventions, now in the tool rather than in my
+head.** `r` is the ICON DISC ONLY and extent past it is a REGION; a
+multi-segment object is one icon PER NODE plus a region for the span. Both are
+in `paint_icons.py`'s docstring and its on-launch help overlay -- which is where
+two earlier passes failed to find the radius keys at all.
+
+**Next: DIVERSITY, not a06.** a06 is nine sonic sensors and two mesh nodes; d95
+is about six Cypher objects on one map with one agent. Painted frames on more
+maps and more agents are the mining review's own next step, and the dim state
+argues for a retained low-contrast channel that RANKS rather than gates.
+Building that on one missed icon would be fitting to n=1.
+
+413 tests pass; `doctor` has seven findings and zero errors.
+
+## PRIOR -- 2026-09-10 late, the area band was fitted on players
 
 **The cap was the other half of the acquisition failure, and independent labels
 settled it.** `minimap_dynamic` is a different human pass with a different
@@ -48,10 +97,12 @@ current shades report stale all session -- the one-line fix forces a rebuild of
 baked geometry, so it waits for a deliberate one.
 
 **Next: the a06 repaint, and it needs the player.** a06's `ability_paint` rows
-mark r=7 discs on icons of 20-25 px radius, so the matching radius is smaller
-than the icon and `core` scores 45.5% there against 100.0% on d95. The extent
-labels are also right-censored at 40 px, and a06's missed components are 39-42
-px across -- at that boundary. A repaint lifts both limits at once. Until then
+mark r=7 discs on icons of **r=12**, so the matching radius is smaller than the
+icon and `core` scores 45.5% there against 100.0% on d95. Rendering all 11 at 5x
+corrected an earlier claim of 20-25 px radius here: r=12 puts the circle on the
+sonic sensor's disc edge, and 24 px across is exactly what
+[domain:minimap/icon-extent-by-family] measured. So the missed components of
+1189-1417 px are the icon (area ~452) welded to adjacent art, not a huge icon. Until then
 a06 is a lower bound on acquisition and an upper bound on nothing, d95's
 diversity is about six distinct objects on one map with one agent, and no single
 channel should be selected. Invoke `labelling-pass` before painting.
@@ -105,6 +156,8 @@ d95 and 27.3% -> 45.5% on a06, untuned.
 reference `valorant-16x9-bigmap` widget; its missed components run 1189-1417 px
 against an area band capping at 400, and the painter marked r=7 discs on icons
 of 20-25 px radius, so the matching radius is smaller than the icon.
+[CORRECTED 2026-09-10 later: the icons are r=12, not 20-25 -- see the current
+PICKING UP section. The claim is left here as what was believed at the time.]
 `ICON_AREA_REF = (10, 400)` is wrong for that profile's real icon sizes --
 re-measure it against the widget, do not tune it against these labels.
 

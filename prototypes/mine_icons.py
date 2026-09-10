@@ -223,8 +223,10 @@ def core_proposals(foreign, scale, floor_ref=CORE_REF, spacing=CORE_SPACING):
 #: The acquisition pool, scored in `proposal_audit.py`. It is a UNION, so
 #: adding a channel can only raise recall. On d95cfad5693a `core` alone reaches
 #: 100% recall at 66.7% precision and 6 proposals per frame against `base`'s
-#: 77.1% and 43 per frame -- but `base` is still the only channel that finds
-#: seven of a06f04a0059f's ten, so nothing is dropped on one session's evidence.
+#: 77.1% and 43 per frame -- and `base` is kept anyway, for a MEASURED reason:
+#: [domain:minimap/dim-devices-defeat-the-residual]. `core` needs a
+#: substantially filled disc; `base`'s area-gated centroid survives the sparse
+#: speckle a dim device leaves, which is what finds seven of a06f04a0059f's ten.
 POOL = ("base", "neck", "core")
 
 
