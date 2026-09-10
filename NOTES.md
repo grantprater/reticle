@@ -124,6 +124,13 @@ agreement by refusing is not the deal. That is what the next session is for.
 
 ### Do this next, in order
 
+Design follow-up: [minimap appearance matching](docs/MINIMAP_APPEARANCE_MATCHING.md)
+consolidates the proposed portrait/shape, tinted-region and animation matchers,
+with staged implementation and independent evaluation gates. No new detector
+result is claimed. Portraits stay upright while facing geometry rotates; the
+prototype's 93.0% is provisional clustering-based evidence, not independent
+accuracy. The current P3 ordering below remains in force.
+
 **The theme is that measured work never reached the readers.** Three separate
 things below were built, scored and left in place: `self_icons` sits in
 `minimap.py` and only `overlay.py` calls it; `prototypes/minimap_portrait.py`

@@ -207,6 +207,12 @@ and speed under sampling/occlusion. Clip end supplies right censoring, not expir
 
 ### 6. Test candidate explanations against original evidence
 
+The visual implementation is specified in
+[MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md): upright portrait
+and rotating geometry parts, background-composited regions, phase-indexed
+animations, shared observation contracts and staged evaluation gates. It is
+proposed work; origin, ownership and collection policy remain in this document.
+
 Use a restrained forward rendering model: hypothesize glyph/region/animation and
 predict its pixel support over the known background and illumination. Fit allowed
 transform/opacity/phase nuisance parameters, with complexity penalties and a
