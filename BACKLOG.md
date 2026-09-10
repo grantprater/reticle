@@ -192,6 +192,43 @@ mined template per ability per agent, the same work the weapon icons took, and
 there is no list to start from. Read it as a corroborating channel for uses the
 entity channel already hypothesises before trying to identify icons cold.
 
+## Measure how long an enemy stays drawn AFTER leaving vision
+
+**Asked by the player 2026-09-10, and it corrects a rule this repo had written
+as exceptionless.** An enemy-owned entity stays drawn normally for a brief
+period after exiting the team viewcone, before becoming a last-known marker:
+[domain:minimap/vision-trailing-persistence]. Three things are unmeasured and
+each is null with a reason, not a guess:
+
+* **the duration.** Constant, or does it depend on the entity or the reveal
+  source?
+* **whether enemy ABILITIES persist like enemy PLAYERS.** The player's example
+  was a player. A Cypher cam is not obviously the same case.
+* **the terminal state.** A question mark, some other marker, or nothing.
+  `prototypes/glance_cams.py` already names `question-mark` and `death-mark` as
+  classes, so the marker exists as a label; what it means here does not.
+
+**This blocks the entry below**, which is the only reason it is worth doing now.
+That gate is written on CONCURRENT light -- *an enemy-team detection on unlit
+floor is a false positive* -- and inside the lag that is false, so the gate would
+refuse true detections at an unknown rate. The rule cannot be wired until the
+window is known.
+
+**How to measure it without new labels, first.** The two channels needed already
+exist and are independent. `lighting.py` gives the drawn light per floor pixel
+per frame, so the instant an enemy icon's position stops being lit is
+observable. The enemy icon track gives how much longer it keeps being drawn.
+The measurement is the distribution of that gap, over enemy icons whose
+disappearance is not a death -- gate on the killfeed, because a killed enemy
+leaves for a different reason and would contaminate the estimate. Deaths are
+the confuser here and there is a channel that reads them.
+
+**Trigger: now, before the vision gate is wired.** If the stored-data route is
+underpowered -- enemy tracks are short and the L1 minimap datasets are stale
+against `minimap-0.7.0` -- then this is a `labelling-pass`: show the player the
+frames around a cone exit and ask when the icon changed. Record the first
+failure, not a guessed duration.
+
 ## The vision gate on enemy-team entities is a RULE, and nothing consumes it
 
 **Domain, 2026-09-10.** An enemy-team entity is drawn on our minimap only where
@@ -211,8 +248,13 @@ nothing consumes it yet.*
 
 Three constraints on how it may be used:
 
-* **it refuses, it never confirms.** An enemy-team detection on unlit floor is
-  a false positive; one on lit floor is merely permitted;
+* **it refuses, it never confirms, and it is NOT CONCURRENT.** Corrected
+  2026-09-10 by the player: an enemy-owned entity stays drawn normally for a
+  brief period after leaving the cone --
+  [domain:minimap/vision-trailing-persistence]. So an enemy-team detection on
+  unlit floor is a false positive OR a true detection inside that lag, and the
+  duration is unmeasured. A gate written on concurrent light refuses true
+  detections at an unknown rate. Measure the window before wiring the gate;
 * **absence outside the light says nothing**, so the gate cannot raise recall
   and must never be read as though it could, or coverage becomes biased by
   where the team happened to be looking;
@@ -229,7 +271,8 @@ what stops the gate refusing on pixels that could not be classified.
 
 **The rule is not new; it has simply never reached a reader.** The entity model
 already made it an origin-time event -- an enemy-owned entity's interval ends
-when it leaves the collective team viewcone -- and §11 there says the collective
+when it leaves the collective team viewcone, which the correction above makes
+wrong by a brief lag -- and §11 there says the collective
 viewcone *is not one more detector, it is the term four of these invariants are
 written in*. **Note the error direction reverses.** That document argues for
 UNDER-claiming the area, because its invariants are about disappearance and an

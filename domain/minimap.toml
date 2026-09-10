@@ -10,7 +10,13 @@ kind = "rule"
 known = "player"
 since = "2026-09-10"
 use = "the DRAWN light in lighting.py, never the raycast"
-exceptions = "none for players: the gate is exceptionless"
+exceptions = """
+a reveal ability shows an enemy with no sight of them, and an enemy-owned
+entity stays drawn for a brief period AFTER leaving vision --
+[domain:minimap/vision-trailing-persistence]. So the gate is not concurrent
+and it is not exceptionless.
+"""
+see = ["minimap/vision-trailing-persistence"]
 phrases = ["reveal shows players only", "a reveal shows PLAYERS ONLY"]
 
 [transparency]
@@ -132,3 +138,27 @@ exceptions = """
 the labelled boxes are RIGHT-CENSORED at 40 px, so this bounds the families
 from below and says nothing about the top of the ability tail
 """
+
+[vision-trailing-persistence]
+claim = """
+An enemy-owned entity does not vanish the instant it leaves vision. It stays
+drawn NORMALLY for a brief period after exiting the cone, before it becomes a
+last-known marker. So being drawn means our team saw it recently, not that they
+see it now.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-10"
+use = """
+any gate on concurrent light must allow this lag or it refuses true detections;
+the duration is UNMEASURED, so no reader may assume a value -- and an entity's
+interval must not be ended at the frame it leaves the collective viewcone
+"""
+exceptions = """
+UNMEASURED, three ways, and each is null with a reason rather than a guess: the
+duration; whether enemy-owned ABILITIES persist like enemy PLAYERS, the player's
+example being a player; and what the terminal state is -- a question mark, a
+different marker, or nothing
+"""
+source = "the player, correcting the gate's exceptionless form"
+see = ["minimap/vision-gate"]
