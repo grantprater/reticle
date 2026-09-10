@@ -23,6 +23,20 @@ Ordered by consequence, not by age.
 
 ## Separate a killfeed entry from a camera wipe by BLUR, not by refusal class
 
+**Demoted 2026-09-09: persistence settled the gate, so this is now only about
+the per-frame column.** `checks.entry_presence` refuses a band that never
+persisted and takes the confuser false positives to zero at every tier, so
+nothing downstream needs the blur signal to get the right answer. What is still
+wrong is `kf_entries` itself -- it reaches six on one wiped frame and is a
+count of nothing -- and that is what `capabilities` withholds
+`hud.killfeed_entry_count` for.
+
+**What would un-defer it:** a consumer that needs the count on ONE frame, where
+there is no walk across frames to appeal to. `refine`'s dense evidence for a
+single reviewed instant is the likely first one. Until then the reader is
+allowed to be wrong per frame as long as it says so, which `kf_empty_bands`
+does.
+
 `_entry_bands` decides an entry from plate colour alone and splits a tall run
 into `round(h / PITCH)` bands, so a respawn or camera wipe painting the ROI in
 both plate colours manufactures three to six entries out of one wash. Refusing
@@ -53,9 +67,36 @@ P3 evaluation windows, and choosing a cut from them turns the test set into the
 training set. Cut new development windows -- other wipes, other sessions -- pick
 the threshold there, and let `reticle fidelity-check` stay an untouched check.
 
-Persistence remains the stronger rule and belongs in the adjudicator: real
-entries occupy 134, 382 and 290 consecutive native frames while wipe bands are
-scattered singles with no kill or death among them.
+Persistence was the stronger rule and it landed on 2026-09-09 in
+`checks.track_entries`. Over the frozen windows at native rate, eleven real
+entries span 4733-8017 ms and eleven wipe tracks span 0-667 ms -- classes that
+do not come close, needing no threshold fitted anywhere.
+
+## Merge the self ring's fragments before promoting a minimap tier
+
+**The whole of what is left of `minimap.self_position`'s P3 failure, diagnosed
+2026-09-09.** No tier reaches the frozen 0.97 agreement, and `pick_self`'s gate
+is no longer why: floored at the fit error and given the real elapsed time, it
+took 15 Hz from 0.9030 to 0.9363 and 10 Hz from 0.9068 to 0.9438.
+
+The residual is one thing, and it is not about rates at all. On **all 69**
+disagreeing frames at 15 Hz and **all 47** at 5 Hz, the reference's own answer
+sits in the candidate list the cheaper tier held -- two to seven self-coloured
+blobs, a median 10.3 px apart. 10 px is the ring's own diameter. The ring
+threshold splits it into arcs, the two readers latch onto opposite ones, and
+each then stays consistent with itself.
+
+**Do not reach for the tie-break.** Taking the nearest candidate to the
+previous point instead of the largest recovers 15 of 47 at 5 Hz and **none at
+all** at 15 Hz, which says the arcs are not distinguishable by where they sit
+either. The fix is upstream: merge components closer than
+`MIN_ICON_SEPARATION_PX`, which this repo already argues are not separately
+detectable, and fit one centre.
+
+**What would un-defer it:** it is the next minimap task, and P3 cannot promote
+a self-position tier without it. Measure the merge against the same frozen
+windows, and expect the agreement to move on the candidate tiers rather than on
+the reference.
 
 ## A killfeed ability icon says that ability was used, and by whom
 

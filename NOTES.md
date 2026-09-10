@@ -11,86 +11,113 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-09, the P3 comparison ran and refused two of three properties
+## PICKING UP -- 2026-09-09, the killfeed half of P3 passes; the minimap half has a name
+
+The two rules the last handoff asked for landed and both were measured before
+and after. `reticle fidelity-check` is the gate; the run is pinned at
+`notes/p3-fidelity-20260909-adjudicated.json`. 320 tests pass; `doctor` has six
+findings and zero errors.
+
+**1. Persistence went into the adjudicator, and the killfeed gate passes.**
+`read_killfeed` still reports what one frame held, because one frame is not
+where a camera wipe can be told from an entry. `checks.track_entries` refuses
+what never persisted, and `checks.entry_presence` is the entry count of record.
+Two bars, both stated in samples as well as milliseconds:
+
+    KF_ENTRY_MIN_LIFE_MS   1500. A track counts when it COULD have been on
+                           screen that long -- `span + 2*step` -- so a low rate
+                           is not refused for resolution it never had. 614
+                           player entries at 2 Hz over seventeen scored
+                           sessions allow it; the shortest spans one interval.
+    KF_TRACK_GAP_STEPS     40, with the existing 2500 ms cap, whichever is
+                           shorter. At 2 Hz the cap binds and nothing moves. At
+                           native it has to bind: with 2500 ms alone one track
+                           ran 503.5-511.5 s, absorbing seven scattered wipe
+                           bands in four slots and then the real entry 1.8 s
+                           after them.
+
+Measured on the frozen windows, reader unchanged: confuser false-positive
+instants go **11 -> 0 at native, 3 -> 0 at 15 Hz, 3 -> 0 at 10, 6 -> 0 at 5 and
+3 -> 0 at 2**; presence recall is unchanged at every tier; and every tier from
+native to 2 Hz counts **the same eleven entries**. Scoring the twenty stored
+sessions against `checks.KNOWN_KD` is byte-identical.
+
+The classes never came close, so no threshold was fitted anywhere: eleven real
+entries span 4733-8017 ms and eleven wipe tracks span 0-667 ms.
+
+**Four false positives survive at every rate, and they are not wipes.** Both
+sit in TRIGGER windows. w1: the reader's onset is 186167 ms against the review's
+[186400, 186600] bracket, with divider column 176 continuous either side of a
+583 ms plate dropout -- one entry, not two. w2: 506517 against a reviewed 506620.
+233 ms and 103 ms, at a review granularity of 200. **Ask the player whether a
+plate drawn before its content is an entry yet**; the answer decides whether
+these are reader error or review error, and nothing else in the gate turns on
+it.
+
+**2. `pick_self` no longer scores worse at a higher rate.** The gate was
+`RUN_PX * scale * (step_ms/1000) * 2` and nothing else -- 1.50 px at 60 Hz,
+narrower than the icon fit's own p90, so it refused the player's own icon and
+the pick fell through to the largest blob on 9.4% of consecutive steps at 60 Hz
+against 1.9% at 2 Hz. It is now floored at `2 * FIT_ERR_PX` (the fit's pair
+budget, the same 4 px `minimap_lifecycle` spends) and takes the REAL elapsed
+time since the previous position was read, dropping `prev` past `GAP_MS`.
+`FIT_ERR_PX` moved to `minimap.py`; `track.FIT_ERR_PX` still resolves.
+
+    minimap self agreement   15 Hz 0.9030 -> 0.9363, 10 Hz 0.9068 -> 0.9438,
+                             5 Hz 0.8766 -> 0.8816, 2 Hz unchanged at 0.9085
+    reads that moved         native 6.6%, 15 Hz 0.9% -- exactly its ten
+                             widget-absent frames -- and none at 10, 5 or 2 Hz
+
+**3. What is left of the minimap failure is the self ring FRAGMENTING, and it
+is not about rates.** On **all 69** disagreeing frames at 15 Hz and **all 47**
+at 5 Hz, the reference's own answer sits in the candidate list the cheaper tier
+held: two to seven self-coloured blobs a median 10.3 px apart, which is the
+ring's own diameter. The readers latch onto opposite arcs of one ring and each
+stays consistent with itself. Taking the NEAREST candidate instead of the
+largest recovers 15 of 47 at 5 Hz and none at all at 15 Hz, so the tie-break is
+not the fix -- merging components closer than `MIN_ICON_SEPARATION_PX` is. See
+`BACKLOG.md`.
+
+### Do this next, in order
+
+1. **Merge the self ring's fragments** and re-run `fidelity-check`. Expect the
+   agreement to move on the CANDIDATE tiers, not on the reference. This is the
+   only thing between P3 and a declared `minimap.self_position` tier.
+2. **Cut and review frozen windows on a second session** -- another map, another
+   capture. `capabilities` now withholds `hud@transition` for want of coverage
+   rather than for a defect, so this is what promotes it. Pick the confuser
+   windows out of the store rather than by watching video: a wipe is a frame
+   with `kf_empty_bands > 0`, which every re-scanned session now carries.
+3. **Ask the player about the slide-in**, per the four survivors above.
+
+Do not claim adaptive savings from tier selection: the measured saving so far is
+the transport's. Do not proceed to P4/P5.
+
+## The first P3 comparison, 2026-09-09 -- superseded above except for the transport
 
 `reticle fidelity-check` compares the shipped readers against reference fidelity
 on six frozen, source-reviewed windows (`reticle/frozen/p3_reference_windows.json`,
 `c40d950031bb`: two trigger, two audit, two confuser, 79.4 s). `reticle
-capabilities` prints what the run licensed. 299 tests pass; `doctor` has six
-findings and zero errors. Both runs are pinned in the store:
-`notes/p3-fidelity-20260909.json` is the gate as first measured and
-`notes/p3-fidelity-20260909-after.json` the same windows after the killfeed
-change below. The three numbered findings are from the first.
+capabilities` prints what the run licensed. Its killfeed and minimap findings
+are answered in the section above; `notes/p3-fidelity-20260909.json` is the gate
+as first measured and `notes/p3-fidelity-20260909-after.json` the same windows
+after the empty-band refusal.
 
-**The gate is not passed, and the reasons are the result.**
+**The one finding that still stands is the transport, and it is worth keeping.**
+The cost was never the frame count. `sample_multi` grabs the file from the start
+to the last timestamp requested, so over one 10 s window at 850 s it cost 49.74 s
+at 60 Hz and 48.80 s at 2 Hz -- 28.6x fewer frames for 1.9% less time.
+`decode.sample_windows` seeks to the window: 2.51 s and 1.10 s. Plans now report
+`covered_span_seconds`/`reach_seconds` and `execute_plan` picks the transport. On
+the fixed transport the tier finally matters: 60.24 s native against 7.47 s at
+2 Hz over the frozen set.
 
-1. **The cost was never the frame count.** `sample_multi` grabs the file from
-   the start to the last timestamp requested, so over one 10 s window at 850 s it
-   cost 49.74 s at 60 Hz and 48.80 s at 2 Hz -- 28.6x fewer frames for 1.9% less
-   time. `decode.sample_windows` seeks to the window: 2.51 s and 1.10 s. Plans
-   now report `covered_span_seconds`/`reach_seconds` and `execute_plan` picks the
-   transport. On the fixed transport the tier finally matters: 60.24 s native
-   against 7.47 s at 2 Hz over the frozen set.
-2. **The killfeed reader fires on camera wipes at EVERY fidelity, worst at
-   native.** 13 reviewed-empty instants claimed at 60 Hz, 8 at 15, up to six
-   phantom entries in one frame; both audit windows clean at every rate,
-   including the buy-phase one where the COMBAT REPORT panel sits in the ROI.
-   Presence recall is 1.0000 down to 5 Hz. So a cheaper tier cannot be promoted
-   by matching a reference that is itself wrong. Regime `transition` is refused.
-3. **Reference fidelity is not the ceiling for a stateful reader.** Minimap
-   `self_position` agreement is 0.90/0.91/0.88/0.91 at 15/10/5/2 Hz -- flat, not
-   decaying. `pick_self`'s gate is `RUN_PX*scale*(step_ms/1000)*2` = **1.50 px at
-   60 Hz**, and 13.8% of consecutive steps exceed it there against 0.0% at 2 Hz.
-   The track discipline is abandoned most often at the highest rate.
-
-**The killfeed half is half-fixed, and the band splitter is why.** The player
-called the entry-stack tracking suspect and both halves of that were right.
-`_entry_bands` decides an entry from PLATE COLOUR alone and splits a tall run
-into `round(h/PITCH)` bands with no per-band evidence, so a wipe painting both
-plate colours across the ROI manufactures three to six entries from one wash.
-
-Cross-referencing first: the reader ALREADY computed the evidence and discarded
-it. `kf_entries` no longer counts a band carrying none of an entry's furniture
--- `no_ink`, `no_icon` or `no_glyphs` (`EMPTY_BAND_REFUSALS`). Confuser false
-positives fall 11->3 at 15 Hz and 5->3 at 2 Hz, presence recall holds at 1.0000
-at 5 Hz and above, and 2 Hz costs one instant (0.9545->0.9091) because a 2 Hz
-sampler can land on an entry's slide-in. **Native rate is unchanged at 11**, so
-this is the half that needs no threshold, not the fix. `c40d950031bb` re-scans
-to 2/7, still exact. `HUD_VERSION` is `hud-0.12.0`; 19 sessions are stale.
-
-The player corrected me twice and both corrections landed. Ability kills DO
-carry both portraits and an ability icon -- 13:14 renders `HungryHamster5
-[ability] Me` and reads `death` for 1.6 s straight -- so `no_icon` was never the
-ability-kill signature, and `no_divider` never fires at all in this session.
-And the wipe has a per-frame signature: over 1,298 bands, mean horizontal Sobel
-inside the band's plate runs p05 45.6 / p95 70.6 on real activity against a
-maximum of 28.2 and 13.1 on the two wipes, with slide-ins staying SHARP at
-42-70. Width identity corroborates weakly (20% of real multi-band frames, 55%
-and 100% of the wipes). Those numbers came off the frozen windows, so the
-threshold must be fitted elsewhere -- see `BACKLOG.md`.
-
-**Persistence is still the stronger rule**: real entries occupy 134, 382 and 290
-consecutive native frames; wipe bands are scattered singles with not one kill or
-death among them.
-
-### Do this next, in order
-
-1. **Put the persistence rule in the adjudicator, not the reader.** An entry
-   that never persists is not an entry. `read_killfeed` must keep reporting what
-   one frame held; the tracker is where a band that appears for three frames and
-   never again gets refused. Until then, treat `kf_entries` on a frame with
-   `kf_textless > 0` as unreadable rather than as a count.
-2. **Decouple `pick_self` from its own sample interval.** The gate should express
-   how far a player can run in the elapsed time with a floor that does not fall
-   below detector jitter, so a higher rate cannot score worse.
-3. **Rerun `fidelity-check` on a second session** before any tier is promoted.
-   One session is one map and one capture.
-4. **Re-scan the 19 stale sessions** at `hud-0.12.0` and re-score
-   `checks.KNOWN_KD`. The K/D table in `killfeed.py` predates this and one
-   session has been re-scanned.
-
-Do not claim adaptive savings from tier selection: the measured saving so far is
-the transport's. Do not proceed to P4/P5.
+The reading that produced the empty-band refusal is kept because it is the
+domain fact, not the fix: the player corrected me twice and both landed. Ability
+kills DO carry both portraits and an ability icon -- 13:14 renders
+`HungryHamster5 [ability] Me` and reads `death` for 1.6 s straight -- so
+`no_icon` was never the ability-kill signature, and `no_divider` never fires at
+all in this session.
 
 ## PICKING UP -- 2026-09-09, pipeline architecture implementation through P3 foundation
 
