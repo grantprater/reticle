@@ -11,7 +11,48 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-10 latest, the repaint was refuted and a06 explained
+## PICKING UP -- 2026-09-10, DEATHS WITH IDENTITY IS THE PRIORITY
+
+**The player set the ordering plainly: deaths as events with identity and
+location is the point of the whole pipeline, and getting to identity in events
+matters more than anything else queued.** The plan is in `BACKLOG.md` under
+*DEATHS AS EVENTS WITH IDENTITY AND LOCATION*. Read it before anything else.
+
+**Verified, not assumed: no stored column carries identity on any channel.**
+`l1/roster` is COUNTS, and its occupied slots are a contiguous run because
+survivors pack, so slot index is never identity and a count can never name a
+victim. `l1/hud` carries TEAM masks. `l1/minimap` has positional `ally0..3`
+slots over a track identity that already churns. Death times are
+scoreboard-verified and ally death location is solid via the X mark; identity is
+simply absent.
+
+**The anchor already exists and I had not connected it.** `reticle/lineup.py`
+identifies roster and scoreboard portraits by COMPOSITION and writes
+`slot -> agent` with scores, margins and explicit refusals on a thin margin, and
+most sessions have a stored lineup. It runs once per session. Running its matcher
+over the OCCUPIED roster slots per sampled frame gives the SET of agents alive at
+t for both teams, and differencing that set at each killfeed death time names the
+victim -- two independent sides, so the disagreements are the output worth
+storing.
+
+That also repairs the broken link in the question that opened this: *the deadlock
+is now dead* is not readable from the killfeed, which gives a team mask, but an
+agent leaving the roster's alive set is exactly that fact. And with a victim
+named, `xmark_eval`'s standing caveat dissolves -- *closest of several will
+always look better than a single detector's true accuracy* is the identity
+problem stated from inside the location problem.
+
+**Also recorded: the fact registry has no SUBJECT**, so what was built is a list
+rather than the wiki-shaped graph the player asked for. Filing by `kind` groups a
+Cypher cam with the audio ring and separates two facts about one device. The
+minimal fix is a `subject` from identifiers the pipeline already uses, plus a
+`given` field for the conditional facts, which are prose today and therefore
+unscorable. Not started, deliberately: a graph over an event log with no identity
+has nothing to check itself against.
+
+435 tests pass; `doctor` has eight findings and zero errors.
+
+## PRIOR -- 2026-09-10 latest, the repaint was refuted and a06 explained
 
 **The a06 repaint buys nothing, and it was measured before it cost the player
 anything.** Overriding the recorded r=7 to 10, 12, 14 and 16 -- writing to no

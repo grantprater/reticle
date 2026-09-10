@@ -192,6 +192,116 @@ mined template per ability per agent, the same work the weapon icons took, and
 there is no list to start from. Read it as a corroborating channel for uses the
 entity channel already hypothesises before trying to identify icons cold.
 
+## THE FACT REGISTRY HAS NO SUBJECT, so it is a list rather than a graph
+
+**The player, 2026-09-10, and it names a real gap in what was just built:** most
+facts are about abilities and their behaviour invariants GIVEN OTHER EVENTS, some
+are general game mechanics -- economy rules, round phases -- and some are about
+ICONS themselves. What is wanted is a knowledge graph, akin to a wiki, which
+feeds into the modules and their implementations as references.
+
+`domain/*.toml` gets the reference half right -- one place, cited not restated, a
+dangling citation an ERROR -- and the STRUCTURE half wrong. It has:
+
+    kind          a flat type tag: rule, appearance, constraint, geometry,
+                  codec, lifecycle, measurement
+    see           fact -> fact, lateral
+    depends_on    fact -> fact, derivation, acyclic and provenance-checked
+
+What it does NOT have is **what the fact is ABOUT**. There is no way to ask
+*everything known about `deadlock:sonic sensor`*, or *about round phases*, which
+is exactly the wiki-shaped question. Filing by `kind` groups a Cypher cam with
+the audio ring because both are `appearance`, and separates two facts about the
+same device because one is a `rule`.
+
+**The minimal upgrade that gets most of the graph** is a `subject` field naming
+the entity a fact concerns, drawn from a CONTROLLED vocabulary rather than free
+text -- and the vocabulary already exists as identifiers the pipeline uses:
+`ability_categories.json`'s agent:ability ids, the agent names `lineup.py`
+resolves, the round phases `rounds.py` owns. Then:
+
+* facts group by subject, which is the wiki index;
+* `doctor` can check a subject RESOLVES -- an unknown agent:ability in a fact is
+  a typo or a renamed class, and the notes already flag that registry as
+  unchecked, where a name reused across agents cannot be split apart later;
+* a module can cite a SUBJECT rather than a single fact and get everything known
+  about it, which is the *feeds into the modules as references* half.
+
+**The relational facts need one thing more.** Behaviour invariants GIVEN other
+events are conditional, and a `claim` string cannot be checked against data.
+[domain:minimap/dim-first-only-for-enemies] is exactly this shape -- if
+enemy-owned AND the owner died before it entered vision THEN dim-first is
+possible -- and it is prose. A `given` field naming the conditioning events
+would make such a fact scorable against the event log once the log has identity,
+which is the player's *all could be inferred given enough data and accurate
+bookkeeping*.
+
+**Deliberately NOT started, and the ordering is the player's.** A graph over an
+event log with no identity would be a schema with nothing to check itself
+against. Deaths with identity come first.
+
+**Trigger: the death event log carrying identity.** Add `subject` first, since it
+is cheap and immediately useful as an index; add `given` when there is something
+to evaluate it against.
+
+## DEATHS AS EVENTS WITH IDENTITY AND LOCATION -- the point of the whole pipeline
+
+**The player, 2026-09-10: *we need deaths as events with identity and location.
+That's the whole point of all of this. We need to move from where we are to
+identity in events as quickly as possible.*** So this is the priority, and what
+follows is the shortest path, with what each step is scored against.
+
+**Where we are, verified rather than assumed.** No stored column carries
+identity, on any channel:
+
+    l1/roster    alive_ally, alive_enemy, detail_ally, detail_enemy
+                 -- COUNTS. Occupied slots are a CONTIGUOUS run because
+                 survivors PACK, so slot index is never identity and a count
+                 can never name a victim
+    l1/hud       kf_ally_mask, kf_enemy_mask -- TEAM masks, not agents.
+                 kf_*_wx is an entry SIGNATURE that separates two entries in
+                 one slot; whether it also discriminates PLAYERS is unmeasured
+    l1/minimap   self_x/y and ally0..3_x/y -- POSITIONAL slots with no stable
+                 identity, and the ally channel already churns (862 tracks
+                 over 4266 frames, 27% lasting one observation)
+
+So death TIMES are solid and scoreboard-verified, ally death LOCATION is solid
+via the blue X mark (`xmark_eval`, within ~1-1.5m), and identity is absent.
+
+**What already exists and is the anchor.** `reticle/lineup.py` identifies roster
+and scoreboard portraits by COMPOSITION -- the method that transferred at 83.5%
+held out after pixel correlation failed -- and writes `slot -> agent` per side
+with scores, margins, and an explicit `agent: null` plus a reason where the
+margin is too thin. Stored lineups exist for most sessions. It runs ONCE per
+session on a full-roster frame.
+
+**The path, in order.**
+
+1. **Per-frame roster portrait identity.** Run `lineup`'s existing matcher over
+   the roster bar's OCCUPIED slots on sampled frames, giving the SET of agents
+   alive at t, both teams. This is the step that breaks the packing problem:
+   the sequence is identity, so read the portraits rather than counting them.
+   No new perception method -- a validated matcher on a new cadence.
+2. **Difference that set at each killfeed death time** to name the victim. This
+   is a genuine cross-channel check with two independent sides: the killfeed
+   says a death happened and which team, the roster says which agent left. Score
+   the agreement, and STORE THE DISAGREEMENTS -- they are where a missed
+   killfeed entry and a portrait misread separate.
+3. **Attribute the location.** With the victim named, `xmark_eval`'s standing
+   caveat dissolves: *"closest of several" will always look better than a single
+   detector's true accuracy* is the identity problem stated from inside the
+   location problem. A named victim plus the ally track that vanished plus the X
+   mark is one death event with a position and an error bar.
+
+**Two limits to carry from the start.** Enemy death marks are NOT always drawn
+-- an observed mark means a death, an absent one means nothing -- so enemy
+location stays one-sided while ally location is two-sided. And `lineup` refuses
+on a thin margin, which is correct; a refused slot must produce an unnamed death
+rather than a guessed one.
+
+**Trigger: now.** It is the priority. Step 1 needs decode, so it should join an
+existing pass rather than open its own.
+
 ## Measure how long an enemy stays drawn AFTER leaving vision
 
 **Asked by the player 2026-09-10, and it corrects a rule this repo had written
