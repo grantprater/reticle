@@ -1971,8 +1971,14 @@ def cmd_fidelity_check(args) -> int:
     result = compare(ctx, frozen, tiers, transport=args.transport)
 
     print()
+    print("killfeed presence is the ADJUDICATED account -- entries that "
+          "persisted across frames;")
+    print("the per-frame column beside it is what the reader claimed frame by "
+          "frame.")
+    print()
     print(f"{'tier':>8}  {'frames':>7} {'wall_s':>7} {'cost':>6}  "
-          f"{'kf_recall':>9} {'kf_fp':>5}  {'mm_agree':>8}  verdict")
+          f"{'kf_recall':>9} {'kf_fp':>5} {'per_frame_fp':>12}  "
+          f"{'mm_agree':>8}  verdict")
     for row in result["tiers"]:
         recall = row["killfeed"]["pooled_presence_recall"]
         agree = row.get("minimap_agreement", {}).get("agreement_fraction")
@@ -1983,8 +1989,15 @@ def cmd_fidelity_check(args) -> int:
               f"{row['wall_seconds']:>7.2f} "
               f"{(row['cost_ratio_vs_reference'] or 0):>6.3f}  "
               f"{('n/a' if recall is None else f'{recall:9.4f}'):>9} "
-              f"{row['killfeed']['false_positive_instants']:>5}  "
+              f"{row['killfeed']['false_positive_instants']:>5} "
+              f"{row['killfeed_per_frame']['false_positive_instants']:>12}  "
               f"{('n/a' if agree is None else f'{agree:8.4f}'):>8}  {verdict}")
+    print()
+    for row in result["tiers"]:
+        tr = row["killfeed_tracks"]
+        print(f"{row['tier']:>8}  entry tracks {tr['counted']:2d} counted, "
+              f"{tr['refused']['single_frame']:2d} single-frame and "
+              f"{tr['refused']['no_persistence']:2d} refused for no persistence")
     if args.out:
         target = Path(args.out)
         target.parent.mkdir(parents=True, exist_ok=True)

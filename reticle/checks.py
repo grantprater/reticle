@@ -37,8 +37,38 @@ MAX_GAP_MS = 3_000
 # counts the same kill many times over. Counting *entries* means following each
 # one across frames, which works because an entry never moves down the stack: it
 # holds its position until an entry above it expires, then rises.
+#
+# Both bars below are stated in SAMPLES as well as milliseconds, because a bar
+# in milliseconds alone means different things at different rates: 2500 ms is
+# five samples at 2 Hz and 150 frames at 60. Every stored session was read at
+# 2 Hz, so the millisecond figures are the ones the K/D scoring validated;
+# the sample figures are what carries them to another rate.
 KF_TRACK_GAP_MS = 2_500     # unseen for longer than this and the entry is gone
+# ...and unseen for this many samples, whichever is SHORTER. At 2 Hz the
+# millisecond cap binds and nothing changes. At native rate it is the sample
+# count that binds, and it has to: with the 2500 ms cap alone, one track on
+# c40d950031bb ran 503.5-511.5 s, absorbing seven scattered camera-wipe bands
+# in four different slots and then the real entry that followed them 1.8 s
+# later. The bar has to clear the reader's own dropouts, which are longer than
+# one frame -- a real entry at 185.6-186.2 s vanishes for 583 ms and returns
+# with the same divider column -- so it is set well above that and below the
+# gap that laundered the wipe.
+KF_TRACK_GAP_STEPS = 40
 KF_MIN_OBS = 2              # a single-frame detection is noise, not an entry
+# An entry that never persists is not an entry. A killfeed row lives about five
+# seconds; a camera wipe paints plate colour across the tray for a frame or
+# two. Over the six frozen P3 windows at native rate the two classes do not
+# overlap or come close: eleven real entries span 4733-8017 ms and eleven wipe
+# tracks span 0-667 ms.
+#
+# Written as a LIFE rather than a span so a low rate is not asked for
+# resolution it does not have: a track qualifies when it could have been on
+# screen this long, `span + 2*step`, since a sampler at interval d observes an
+# entry of life L over at least L - 2d. 1500 ms is what 614 player entries at
+# 2 Hz across seventeen scoreboard-scored sessions allow -- the shortest of
+# them spans one sample interval, 500 ms = 1500 - 2*500 -- and scoring those
+# sessions against `KNOWN_KD` is unchanged by it at every value up to 1500.
+KF_ENTRY_MIN_LIFE_MS = 1_500
 # How far an entry's divider column may move before it is a *different* entry.
 # An entry's divider does not move at all while it is on screen -- the feed is
 # right-aligned, so the victim's name width fixes the column -- and measured
@@ -142,13 +172,30 @@ def _slots(mask) -> list[int]:
     return [s for s in range(6) if m & (1 << s)]
 
 
+def sample_step_ms(times, default: float = 500.0) -> float:
+    """The sampler's own interval, as the median gap between reads.
+
+    Every bar below that is stated in samples needs this, and it has to be
+    measured rather than declared: a run is asked for a rate and delivers
+    another one, and a session with stalled capture has gaps no nominal rate
+    predicts. The median ignores both.
+    """
+    t = np.asarray(list(times), dtype=np.float64)
+    if t.size < 3:
+        return float(default)
+    d = np.diff(t)
+    d = d[d > 0]
+    return float(np.median(d)) if d.size else float(default)
+
+
 def track_entries(times, masks, dividers=None) -> list[dict]:
     """Follow each entry across frames; one dict per distinct entry.
 
-    Returns every track, including the short ones below KF_MIN_OBS, with
-    `counted` saying whether it met the bar. Callers that only want the number
-    use `player_events`; a review needs the timestamps as well, and both must
-    come from the same walk or they can disagree.
+    Returns every track, including the ones the bars refuse, with `counted`
+    saying whether it met them and `refused` naming the first bar it failed.
+    Callers that only want the number use `player_events`; a review needs the
+    timestamps as well, and both must come from the same walk or they can
+    disagree.
 
     `dividers` is the parallel column of packed divider positions written by
     `killfeed.divider_of_ys`. Given it, a detection is only allowed to extend a
@@ -156,15 +203,27 @@ def track_entries(times, masks, dividers=None) -> list[dict]:
     two entries occupying the same slot in turn from one entry that stayed put.
     Pass None and the walk falls back to slot and time alone, which is what
     every stored session before hud-0.8.0 has.
+
+    **This is where a band that appears for three frames and never again is
+    refused, and it is the right place for it.** `read_killfeed` sees one frame
+    and must keep reporting what that frame held; only a walk across frames can
+    say that a plate-coloured band never persisted and so was never an entry.
+    Measured over the frozen P3 windows at native rate, the two bars together
+    leave eleven tracks -- the same eleven the stored 2 Hz read finds -- and
+    refuse eleven camera-wipe tracks, taking the confuser false-positive
+    instants from eleven to zero without costing one instant of recall.
     """
     active: list[dict] = []
     done: list[dict] = []
+    times = list(times)
+    step = sample_step_ms(times)
+    gap = min(KF_TRACK_GAP_MS, KF_TRACK_GAP_STEPS * step)
     if dividers is None:
-        dividers = [None] * len(list(times))
+        dividers = [None] * len(times)
     for t, mask, packed in zip(times, masks, dividers):
         keep = []
         for a in active:
-            (keep if t - a["t_last"] <= KF_TRACK_GAP_MS else done).append(a)
+            (keep if t - a["t_last"] <= gap else done).append(a)
         active = keep
         used: set[int] = set()
         for slot in _slots(mask):
@@ -213,8 +272,34 @@ def track_entries(times, masks, dividers=None) -> list[dict]:
     done.extend(active)
     done.sort(key=lambda a: a["t_first"])
     for a in done:
-        a["counted"] = a["n_obs"] >= KF_MIN_OBS
+        a["span_ms"] = a["t_last"] - a["t_first"]
+        # `span + 2*step` is the longest life this track is consistent with,
+        # so a sampler is never refused for resolution it does not have.
+        a["life_ms"] = a["span_ms"] + 2 * step
+        a["refused"] = (
+            "single_frame" if a["n_obs"] < KF_MIN_OBS
+            else "no_persistence" if a["life_ms"] < KF_ENTRY_MIN_LIFE_MS
+            else None
+        )
+        a["counted"] = a["refused"] is None
     return done
+
+
+def entry_presence(times, masks, dividers=None) -> list[dict]:
+    """Adjudicated entry count at each sampled instant.
+
+    The count of record, and not the same thing as `kf_entries`: that column is
+    what one frame held, which on a wiped frame is a guess dressed as a count.
+    Here an instant carries an entry when a track that PERSISTED covers it, so
+    a wash that paints the tray for two frames contributes nothing and a real
+    entry contributes over its whole life, including the frames its own plate
+    dropped out of.
+    """
+    times = list(times)
+    live = [(a["t_first"], a["t_last"])
+            for a in track_entries(times, masks, dividers) if a["counted"]]
+    return [{"t_ms": t, "entries": sum(1 for a, b in live if a <= t <= b)}
+            for t in times]
 
 
 def _count(times, masks, dividers=None) -> int:

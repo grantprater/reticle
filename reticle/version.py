@@ -37,10 +37,10 @@ HUD_VERSION = "hud-0.12.0"
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits
 # a tall plate run into round(h/PITCH) bands, which is how a respawn wipe
 # painting both plate colours across the ROI manufactures three to six of them
-# at once. The evidence was already computed and discarded; `kf_textless` and
-# `kf_textless_reason` now store it, so a wiped frame reads as unreadable rather
+# at once. The evidence was already computed and discarded; `kf_empty_bands`
+# and `kf_empty_band_reason` now store it, so a wiped frame reads as unreadable rather
 # than as empty or as six kills. Attribution is untouched by construction: a
-# textless band could only ever have been `unparsed`, never `kill` or `death`,
+# an empty band could only ever have been `unparsed`, never `kill` or `death`,
 # so kf_player_kill/kf_player_death and every _wx and _ys column are unchanged
 # and the K/D table in killfeed.py still stands. What moves is `kf_entries` and
 # the entry stack derived from it.

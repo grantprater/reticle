@@ -24,6 +24,15 @@ killfeed row at any reviewed instant.
 tolerance is 250 ms because the review that established the onsets was done at
 200 ms; a tighter tolerance would be measuring the reviewer, not the reader.
 Presence is scored only at instants somebody actually looked at.
+
+**Killfeed presence is scored on the adjudicated account, not per frame.** The
+first run of this gate scored `kf_entries`, and refused every tier on the
+killfeed at every rate: a camera wipe paints both plate colours across the tray,
+so one frame of it looks like three entries, and one frame is not where that can
+be told from an entry. `checks.entry_presence` walks the frames instead and
+keeps the tracks that persisted. Nothing about the reader changed and nothing in
+the frozen contract changed; what changed is which account the verdict is taken
+on. `killfeed_per_frame` still reports the reader's own claim, as diagnostics.
 """
 from __future__ import annotations
 
@@ -34,6 +43,7 @@ import math
 import time
 from pathlib import Path
 
+from .checks import entry_presence, track_entries
 from .decode import sample_multi, sample_windows
 from .refine import merge_windows
 
@@ -132,6 +142,11 @@ def score_killfeed(frozen: dict, observations: list[dict], tolerance: dict) -> d
     tolerance of it, which is the only fair test of a rate: a 2 Hz reader has no
     sample at 183 400 ms and being asked for one would score the phase, not the
     reader.
+
+    Called twice per tier, on two different accounts of the same run: what each
+    frame held, and what `checks.entry_presence` adjudicated across frames. The
+    verdict is taken on the adjudicated one, because a frame is not where a
+    camera wipe can be told from an entry -- see `run_tier`.
     """
     onset_ms = float(tolerance["onset_ms"])
     rows = sorted(observations, key=lambda r: r["t_ms"])
@@ -270,6 +285,19 @@ def run_tier(ctx, frozen: dict, tier: Tier, transport: str) -> dict:
             minimap.feed(sample)
     wall = time.perf_counter() - start
 
+    # The count of record is the adjudicated one. `read_killfeed` reports what
+    # one frame held and cannot do better -- a camera wipe paints both plate
+    # colours across the tray and looks like three entries in that frame -- so
+    # the walk across frames is where a band that never persisted is refused.
+    rows = sorted(hud.rows, key=lambda r: r["t_ms"])
+    times = [r["t_ms"] for r in rows]
+    masks = [r["kf_entry_mask"] for r in rows]
+    wx = [r["kf_entry_wx"] for r in rows]
+    tracks = track_entries(times, masks, wx)
+    adjudicated = entry_presence(times, masks, wx)
+    for row, obs in zip(rows, adjudicated):
+        obs["frame_idx"] = row["frame_idx"]
+
     return {
         "tier": tier.name, "hz": hz, "requested_hz": request_hz,
         "transport": transport,
@@ -279,6 +307,16 @@ def run_tier(ctx, frozen: dict, tier: Tier, transport: str) -> dict:
         "reach_seconds": (spans[-1][1] / 1000.0) if spans else 0.0,
         "killfeed": [{"frame_idx": r["frame_idx"], "t_ms": r["t_ms"],
                       "entries": r["kf_entries"]} for r in hud.rows],
+        "killfeed_adjudicated": adjudicated,
+        "killfeed_tracks": {
+            "counted": sum(1 for a in tracks if a["counted"]),
+            "refused": {reason: sum(1 for a in tracks if a["refused"] == reason)
+                        for reason in ("single_frame", "no_persistence")},
+            "counted_span_ms": sorted(round(a["span_ms"])
+                                      for a in tracks if a["counted"]),
+            "refused_span_ms": sorted(round(a["span_ms"])
+                                      for a in tracks if not a["counted"]),
+        },
         "minimap": [{"frame_idx": r["frame_idx"], "t_ms": r["t_ms"],
                      "self_x": r["self_x"], "self_y": r["self_y"]}
                     for r in minimap.rows],
@@ -302,7 +340,7 @@ def compare(ctx, frozen: dict, tiers: list[Tier], transport: str = "seek_windows
 
     results = []
     for run in [reference] + candidates:
-        killfeed = score_killfeed(frozen, run["killfeed"], kf_tol)
+        killfeed = score_killfeed(frozen, run["killfeed_adjudicated"], kf_tol)
         row = {
             "tier": run["tier"], "hz": run["hz"],
             "is_reference": run is reference,
@@ -315,6 +353,8 @@ def compare(ctx, frozen: dict, tiers: list[Tier], transport: str = "seek_windows
                                                / reference["retrieved_frames"], 4)
                                          if reference["retrieved_frames"] else None),
             "killfeed": killfeed,
+            "killfeed_per_frame": score_killfeed(frozen, run["killfeed"], kf_tol),
+            "killfeed_tracks": run["killfeed_tracks"],
             "minimap_widget_absent": run["minimap_widget_absent"],
         }
         if run is not reference:
@@ -340,6 +380,9 @@ def compare(ctx, frozen: dict, tiers: list[Tier], transport: str = "seek_windows
             "Agreement with reference fidelity is the same detector at a higher "
             "rate. Presence and false positives are scored against the reviewed "
             "field instead, which is why the confuser windows are here.",
+            "Killfeed presence is scored on the ADJUDICATED account -- entries "
+            "that persisted -- and `killfeed_per_frame` reports what the reader "
+            "claimed frame by frame, which is diagnostics and not the verdict.",
         ],
     }
 

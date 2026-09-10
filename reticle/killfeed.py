@@ -124,16 +124,23 @@ within 4 px in 20% of real frames, 55% of one wipe and 100% of the other.
 Those numbers were measured ON the frozen P3 windows, so a threshold must be
 fitted somewhere else before `fidelity-check` can score it. See `BACKLOG.md`.
 
-PERSISTENCE is the stronger rule, measured over the same windows at native rate:
+PERSISTENCE is the stronger rule, and it now lives in `checks.track_entries`
+where it belongs: this function reads one frame and must keep reporting what it
+saw in it, so only a walk across frames can say a band never persisted. Over
+the frozen windows at native rate the two classes do not come close --
 
-    real entries    134, 382 and 290 consecutive frames  (2.2 s, 6.4 s, 4.8 s)
-    wipe bands      scattered single frames, and not one kill or death verdict
-                    among them
+    real entries    eleven tracks spanning 4733-8017 ms
+    wipe bands      eleven tracks spanning 0-667 ms, and not one kill or death
+                    verdict among them
 
-An entry that never persists is not an entry. That rule belongs to the
-adjudicator, not here -- this function reads one frame and must keep reporting
-what it saw in it. Until it exists, treat `kf_entries` on a frame carrying
-`textless_bands > 0` as unreadable rather than as a count.
+-- and `checks.entry_presence`, which is the entry count of record, takes the
+confuser false-positive instants from eleven to zero at native rate and from
+three to zero at 2 Hz without costing one instant of presence recall. The
+count is the same eleven at every rate from native to 2 Hz.
+
+`kf_entries` is still what one frame held, and on a wiped frame that is a guess
+dressed as a count. Read it as the reader's own claim, never as the number of
+entries on screen.
 
 Validation status
 -----------------
