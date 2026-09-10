@@ -364,6 +364,40 @@ the pairing to measure is a raised gate PLUS `belief.resolve`, end to end --
 observed accuracy up, observed coverage down, believed coverage roughly held.
 Measure it before shipping either half; neither is worth much alone.
 
+**Gate only where a confuser could be -- but VICINITY cannot be defined from
+the channels.** Applying the gate only in the crowded stratum keeps more real
+positions and lets far more wrong ones through:
+
+    rule                          players kept  wrong kept  wrong share
+    shipped, 0.25 everywhere            100.0%      100.0%       8.50%
+    0.35 everywhere                      64.1%        7.7%       1.10%
+    0.35 only when crowded               77.8%       30.7%       3.54%
+
+Because 3 of the 9 spike cases and 2 of the 3 `nothing` cases are in the CLEAR
+stratum. `crowded` asks whether a read ALLY is within 25 px, and the spike is
+read by no channel, so a dropped spike beside the player is a `clear` instant
+with a confuser in it. Ability icons, enemies and marks are invisible to the
+test for the same reason.
+
+**So the vicinity test has to be photometric, not channel-based**: is there any
+other drawn structure near the fit, whatever it is and whoever would name it.
+`prototypes/minimap_occlusion.py` already measures exactly that -- foreign
+content against the geometry's lighting band -- and it was built to refute the
+overlap story for REFUSALS. Here it would gate ACCEPTS, which is the use it is
+actually suited to.
+
+**Untested risk in raising the gate: arc coverage depends on BEARING.** The
+self key survives only over the lower half of the rim, at 61-67% of bearings
+150-240 deg against 22-23% at 330-30. Raising `cov_min` therefore refuses more
+often at particular facings, which is a directional bias in coverage rather
+than a random loss, and it is not measured. The facing angle was not kept in
+the feature cache; keep it next time.
+
+Strafing is not at risk from this rule: arc coverage is a per-frame shape and
+has no motion term. That is a reason to prefer it over an anti-oscillation
+rule, which would have to reason about a sequence and could mistake real
+movement for a flip.
+
 This also removes the need for an anti-oscillation rule. The portrait/badge
 flip is a low-coverage fit beside a high-coverage one, so a shape gate refuses
 it a frame at a time and never has to reason about the sequence.
