@@ -127,14 +127,122 @@ def proposal_components(grey, lo, hi, slab, static):
     return components, foreign, lbl
 
 
-def propose(grey, lo, hi, slab, static, lo_a, hi_a):
-    """Accepted icon-band centroids, preserving the original miner contract."""
+#: Opening element that cuts a NECK. A residual mask sees an icon as a ragged
+#: RING -- the mid-grey interior sits inside the lighting band, so the icon
+#: contributes edges and encloses a hole -- and a 1-2 px neck is what welds that
+#: ring to a viewcone, a trapwire line, a neighbouring icon, or bright map
+#: structure. Twelve of the fourteen misses in `proposal_audit.py` are one
+#: painted icon on one component too large for the band, so the area gate is
+#: rejecting the icon for its neighbour's extent. Three px is the smallest
+#: element that cuts a two px neck; it is a geometric floor, not a fit.
+NECK = 3
+
+#: Distance-transform floor for a CORE proposal, in reference px, scaled by the
+#: widget. An icon's filled disc has an inradius near the seven reference px the
+#: painter marks, so a floor of four admits any core eight px across and rejects
+#: wires and sheet edges. On the RAW mask this channel is worthless -- peak dt
+#: under a matched icon and under a missed one are the same 2-3 px, because a
+#: ring has no core. Fill the holes first.
+CORE_REF = 4.0
+
+#: Non-max suppression radius between core proposals, in px. Two icons may be
+#: exactly coincident, so this bounds candidate volume rather than asserting
+#: that objects cannot touch.
+CORE_SPACING = 6
+
+
+def fill_holes(mask):
+    """Close the enclosed background of a residual mask.
+
+    A background component touching no border is a hole, and an icon's mid-grey
+    interior is one. Filling turns the ring into the disc the icon actually is.
+    """
+    inverse = (~mask).astype(np.uint8)
+    # 4-connectivity for the BACKGROUND, and it is the whole trick: an
+    # 8-connected outline seals a 4-connected interior, while an 8-connected
+    # background leaks diagonally through any one px ring and fills nothing.
+    n, lbl = cv2.connectedComponents(inverse, connectivity=4)
+    border = set(np.unique(np.concatenate(
+        [lbl[0], lbl[-1], lbl[:, 0], lbl[:, -1]])).tolist())
+    out = mask.copy()
+    for i in range(1, n):
+        if i not in border:
+            out |= lbl == i
+    return out
+
+
+def neck_components(foreign, neck=NECK):
+    """Residual components after the necks are cut. Same contract as above."""
+    element = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (neck, neck))
+    opened = cv2.morphologyEx(foreign.astype(np.uint8), cv2.MORPH_OPEN, element)
+    n, lbl, st, cen = cv2.connectedComponentsWithStats(opened, 8)
+    components = []
+    for i in range(1, n):
+        components.append({
+            "id": i,
+            "cx": float(cen[i][0]),
+            "cy": float(cen[i][1]),
+            "area": int(st[i, cv2.CC_STAT_AREA]),
+            "bbox": [int(st[i, cv2.CC_STAT_LEFT]),
+                     int(st[i, cv2.CC_STAT_TOP]),
+                     int(st[i, cv2.CC_STAT_WIDTH]),
+                     int(st[i, cv2.CC_STAT_HEIGHT])],
+        })
+    return components, opened.astype(bool), lbl
+
+
+def core_proposals(foreign, scale, floor_ref=CORE_REF, spacing=CORE_SPACING):
+    """Centres of compact cores in the hole-filled residual.
+
+    This is the channel that survives an icon being CONNECTED to extended art:
+    it asks where the mask is locally thick rather than how large the component
+    is, so a viewcone welded to a spycam costs the cone, not the spycam.
+    """
+    filled = fill_holes(foreign)
+    dt = cv2.distanceTransform(filled.astype(np.uint8), cv2.DIST_L2, 5)
+    peak = cv2.dilate(dt, np.ones((5, 5), np.uint8))
+    floor = max(3.0, floor_ref * scale)
+    ys, xs = np.nonzero((dt >= peak - 1e-6) & (dt >= floor))
+    kept = []
+    for i in np.argsort(-dt[ys, xs]):
+        y, x = int(ys[i]), int(xs[i])
+        if all((y - ky) ** 2 + (x - kx) ** 2 > spacing ** 2 for ky, kx in kept):
+            kept.append((y, x))
+    return [{"id": i + 1, "cx": float(x), "cy": float(y),
+             "area": int(round(np.pi * dt[y, x] ** 2)), "dt": float(dt[y, x])}
+            for i, (y, x) in enumerate(kept)], filled
+
+
+#: The acquisition pool, scored in `proposal_audit.py`. It is a UNION, so
+#: adding a channel can only raise recall. On d95cfad5693a `core` alone reaches
+#: 100% recall at 66.7% precision and 6 proposals per frame against `base`'s
+#: 77.1% and 43 per frame -- but `base` is still the only channel that finds
+#: seven of a06f04a0059f's ten, so nothing is dropped on one session's evidence.
+POOL = ("base", "neck", "core")
+
+
+def propose(grey, lo, hi, slab, static, lo_a, hi_a, scale=1.0, pool=POOL):
+    """Accepted icon-band centroids, preserving the original miner contract.
+
+    `base` is the original one-centroid-per-component channel.  `neck` cuts the
+    thin welds first, `core` asks where the hole-filled mask is thick; both
+    exist because 12 of 14 audited misses were one icon on one component the
+    area band rejected for a NEIGHBOUR's extent.
+    """
     components, foreign, _lbl = proposal_components(grey, lo, hi, slab, static)
     out = []
-    for component in components:
-        a = component["area"]
-        if lo_a <= a <= hi_a:
-            out.append((component["cx"], component["cy"], a))
+    if "base" in pool:
+        for component in components:
+            if lo_a <= component["area"] <= hi_a:
+                out.append((component["cx"], component["cy"], component["area"]))
+    if "neck" in pool:
+        cut, _opened, _labels = neck_components(foreign)
+        for component in cut:
+            if lo_a <= component["area"] <= hi_a:
+                out.append((component["cx"], component["cy"], component["area"]))
+    if "core" in pool:
+        cores, _filled = core_proposals(foreign, scale)
+        out.extend((c["cx"], c["cy"], c["area"]) for c in cores)
     return out, foreign
 
 
@@ -239,7 +347,7 @@ def main(argv=None) -> int:
     items, n_prop = [], 0
     for t, crop in frames:
         g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
-        props, _f = propose(g, lo, hi, slab, static, lo_a, hi_a)
+        props, _f = propose(g, lo, hi, slab, static, lo_a, hi_a, sc)
         n_prop += len(props)
         for cx, cy, a in props:
             d = describe(crop, empty, cx, cy, icon_r, lo, hi)

@@ -11,7 +11,64 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-10, per-session map state removed and guarded
+## PICKING UP -- 2026-09-10, the baked-geometry baseline and two new channels
+
+**The geometry cleanup cost nothing and the proposer now clears its floor.**
+Rerunning `proposal_audit.py` with both sessions on baked `(map, profile)`
+geometry -- the rerun the mixed-dependency correction demanded -- moved a06 from
+254 proposals to 244 and its precision from 3.1% to 3.3%. Every other figure is
+identical; d95 is unchanged because it already read baked geometry. The retired
+per-session static contributed nothing this measurement could see, so the earlier
+numbers were wrong in dependency, not in value.
+
+**Inspecting all 14 misses found one failure shape.** Twelve of 14 sit on a
+component too large for the area band that contains exactly one painted icon:
+the icon welded through a 1-2 px neck to a viewcone, a trapwire line, a
+neighbouring icon, or bright map structure. The area gate was rejecting an icon
+for its neighbour's extent. Two things about the mask follow: an icon is a ragged
+RING, because its mid-grey interior sits inside the lighting band, and a ring has
+no distance-transform core -- peak dt under a matched icon and a missed one are
+the same 2-3 px. Fill the enclosed holes and the icon becomes the disc it is.
+
+`proposal-audit-0.3.0` now scores an acquisition POOL. On `d95cfad5693a`:
+
+    channel   recall  precision  candidates   (48 icons, 12 frames)
+    base       77.1%      7.6%       515
+    neck       97.9%     19.5%       249
+    core      100.0%     66.7%        72
+    all three 100.0%      6.0%       836
+
+`core` is distance-transform peaks on the hole-filled residual -- 9x the base
+channel's precision at perfect recall, 6 candidates per frame against 43, median
+centre error 1.207 px. On `a06f04a0059f` it collapses to 45.5% and `base` is the
+only channel finding seven of that session's ten, so `mine_icons.propose` takes
+the UNION, `POOL = ("base", "neck", "core")`. A union cannot lower recall;
+proposals per frame on `c40d950031bb` rise 23.7 -> 44.4, which mining tolerates.
+Replacing `base` with `core` is **measured and declined** in writing: six
+distinct objects on one map and one agent do not justify dropping the channel the
+other session depends on.
+
+One defect nearly buried this. The first `fill_holes` passed `4` positionally to
+`cv2.connectedComponents`, where it binds to `labels`, not connectivity; the
+background stayed 8-connected, leaked diagonally through every thin ring, and
+filled nothing. With `connectivity=4` the core channel went 89.6% -> 100.0% on
+d95 and 27.3% -> 45.5% on a06, untuned.
+
+**a06 cannot fairly score this yet, and that is the next task.** It is the
+reference `valorant-16x9-bigmap` widget; its missed components run 1189-1417 px
+against an area band capping at 400, and the painter marked r=7 discs on icons
+of 20-25 px radius, so the matching radius is smaller than the icon.
+`ICON_AREA_REF = (10, 400)` is wrong for that profile's real icon sizes --
+re-measure it against the widget, do not tune it against these labels.
+
+Next, in order: repaint a06 with radii that match its widget and widen the
+painted truth to more maps and agents; re-audit; only then choose a single
+channel or touch the descriptor. Read
+[MINIMAP_MINING_REVIEW.md](docs/MINIMAP_MINING_REVIEW.md) first.
+
+378 tests pass; `doctor` has eight findings and zero errors.
+
+## PRIOR -- 2026-09-10, per-session map state removed and guarded
 
 The invariant is now explicit and enforced: session pixels may measure only
 minimap widget dimensions/placement. Production readers and prototypes obtain
@@ -28,10 +85,9 @@ placement, and orientation. Twenty legacy `masks/*.static.npy` files remain
 untouched and are reported as ignored; deleting them is a separate destructive
 cleanup. Full suite: 367 tests pass.
 
-The proposal-audit figures immediately below are retained as history but are
-not a valid post-cleanup baseline: the a06 run used the retired session static.
-Rerun it only as part of a future mining task, with both sessions reading their
-baked geometry.
+The proposal-audit figures immediately below are history. The rerun they asked
+for is done, and it is reported in the `PICKING UP` section above: the retired
+session static changed nothing the measurement could see.
 
 ## PRIOR -- 2026-09-10, proposal acquisition audited and below floor
 

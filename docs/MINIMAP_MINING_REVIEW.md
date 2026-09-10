@@ -1,9 +1,9 @@
 # Minimap mining critique and revised design
 
-Date: 2026-09-10. Status: proposal acquisition audit implemented, then its mixed
-background dependency invalidated; production and prototypes now use baked
-geometry exclusively. This review supersedes the mining interpretation and
-next-step sequence in `MINIMAP_APPEARANCE_MATCHING.md`, not its recorded history.
+Date: 2026-09-10. Status: proposal acquisition audited on baked geometry, its
+misses inspected, and two complementary channels measured and wired. This review
+supersedes the mining interpretation and next-step sequence in
+`MINIMAP_APPEARANCE_MATCHING.md`, not its recorded history.
 
 ## First implementation result: proposal acquisition is below floor
 
@@ -14,24 +14,99 @@ area rejection, fragmentation, and displaced/claimed centroids. It disables the
 miner's interval-frequency subtraction because selected evaluation frames are not
 an independent background sample.
 
-These figures are historical and invalid as a post-cleanup baseline: a06 used a
-retired per-session static while d95 used baked geometry. The implementation now
-uses baked map/profile geometry exclusively. It must be rerun before further
-proposal work; do not compare a new method against the mixed-source figures below.
-
-The pre-registered recall prediction was at least 80% per session. It failed:
+The pre-registered recall prediction was at least 80% per session. It failed,
+and the baked-geometry rerun that the mixed-dependency correction demanded
+changes nothing:
 
 | Session | Frames / icons | Proposals | Recall | Precision | Misses |
 |---|---:|---:|---:|---:|---|
-| `a06f04a0059f` | 12 / 11 | 254 | 72.7% | 3.1% | 2 oversized components, 1 undersized support |
+| `a06f04a0059f` | 12 / 11 | 244 | 72.7% | 3.3% | 2 oversized components, 1 undersized support |
 | `d95cfad5693a` | 12 / 48 | 515 | 77.1% | 7.6% | 8 oversized components, 3 displaced/claimed centroids |
 
+a06 fell from 254 proposals to 244 and gained 0.2 points of precision; every
+other figure is identical, and d95 is unchanged because it already read baked
+geometry. **The retired per-session static contributed nothing this measurement
+could see.** The earlier figures were wrong in dependency, not in value.
+
 All 14 false negatives overlap residual components; none lack residual support.
-Ten targets are fragmented. The result localizes the immediate failure: the
-lighting residual contains relevant pixels on this small set, while reducing each
-connected component to one area-gated centroid loses targets. Inspect those misses,
-then add a complementary decomposition/center channel over the same support and
-re-audit union recall before descriptor or clustering work.
+Nine targets are fragmented. Reducing each connected component to one area-gated
+centroid loses targets, and the next section says exactly how.
+
+## What the misses actually are
+
+Inspecting all 14 misses at 4x, against the pixels and the labelled residual,
+found ONE failure shape. Twelve of the 14 sit on a component whose area exceeds
+the band while containing **exactly one** painted icon. The component is the
+icon welded to something with extent: a spycam's viewcone, a trapwire's line, a
+neighbouring icon, or bright map structure. The welds are 1-2 px necks. So the
+area gate is rejecting an icon for its NEIGHBOUR's size, and neither the margin
+nor the area band is the defect.
+
+Two facts about the residual mask follow from the same inspection, and both are
+load-bearing:
+
+* **An icon is a ragged RING, not a disc.** The mask is
+  `grey < lo - MARGIN | grey > hi + MARGIN`, and an icon's mid-grey interior
+  falls INSIDE the lighting band. The icon contributes its edges and encloses a
+  hole.
+* **A ring therefore has no distance-transform core.** Peak dt within the
+  painted radius is 2.0-3.0 px for matched icons and 2.2-3.2 px for missed ones
+  on d95, 1.4-2.8 against 1.0-3.2 on a06 -- indistinguishable, while 9-47
+  map-structure maxima per frame share the range. Fill the enclosed holes first
+  and the icon becomes the disc it is.
+
+## Two complementary channels, measured
+
+`proposal-audit-0.3.0` scores an acquisition POOL. Every channel proposes over
+the same residual mask and the same area band, differing only in the mask
+TOPOLOGY it asks the band about:
+
+* `base` -- one area-gated centroid per residual component, the original;
+* `neck` -- a 3 px opening that cuts the weld, then the same area band. Three px
+  is the smallest element that severs a 2 px neck: a geometric floor, not a fit;
+* `core` -- non-max-suppressed distance-transform peaks on the HOLE-FILLED
+  residual. It asks where the mask is locally thick rather than how large the
+  component is, so a viewcone welded to a spycam costs the cone, not the spycam.
+
+| Channel | d95 recall | d95 precision | d95 candidates | a06 recall | a06 candidates |
+|---|---:|---:|---:|---:|---:|
+| `base` | 77.1% | 7.6% | 515 | 72.7% | 244 |
+| `neck` | 97.9% | 19.5% | 249 | 72.7% | 187 |
+| `core` | **100.0%** | **66.7%** | **72** | 45.5% | 111 |
+| pool of all three | 100.0% | 6.0% | 836 | 90.9% | 542 |
+
+On d95 the core channel is 9x the base channel's precision at perfect recall,
+with 6 candidates per frame against 43 and a median centre error of 1.207 px
+against 0.757 px. On a06 it collapses, and `base` is the only channel that finds
+seven of that session's ten. `mine_icons.propose` therefore proposes the UNION,
+`POOL = ("base", "neck", "core")` -- a union cannot lower recall, so the change
+is monotone for a miner, and proposals per frame on `c40d950031bb` rise from
+23.7 to 44.4, which mining tolerates by design. **Replacing `base` with `core`
+is measured and declined**: one session's six distinct objects do not justify
+dropping the channel the other session depends on.
+
+One defect is worth recording because it nearly buried the result. The first
+`fill_holes` passed `4` positionally to `cv2.connectedComponents`, where it
+binds to `labels` rather than connectivity. The background stayed 8-connected,
+leaked diagonally through every thin ring, and filled nothing. With
+`connectivity=4` -- an 8-connected outline seals a 4-connected interior -- the
+core channel went from 89.6% to 100.0% on d95 and 27.3% to 45.5% on a06, with no
+threshold touched.
+
+## Why a06 cannot score this yet
+
+a06f04a0059f is the reference `valorant-16x9-bigmap` widget, and its icons are
+drawn several times larger than d95's. Its missed components run 1189-1417 px
+against an area band that caps at 400, and the painter marked r=7 discs on icons
+whose drawn radius is 20-25 px -- so the matching radius is smaller than the
+icon, and the hand-clicked point need not sit near the icon's thickest place.
+**`ICON_AREA_REF = (10, 400)` is wrong for the bigmap profile's real icon
+sizes.** Re-measure it against that widget's icons; do not tune it against these
+labels. Until a06 is repainted with radii that match its widget, treat its
+figures as a lower bound on acquisition and an upper bound on nothing.
+
+Widen the painted truth -- more maps, more agents, an a06 repaint -- and
+re-audit before selecting a single channel or moving to the descriptor.
 
 These labels have little class diversity: a06 contains nine Sonic Sensor and two
 Barrier Mesh marks; d95 repeats three Cypher devices and the self icon. Precision

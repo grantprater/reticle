@@ -869,6 +869,30 @@ sit below in this file and are untouched by it. The plan is about one thread --
 events, review and the state model. It is silent on the others, and silence is
 not deprecation.
 
+## `ICON_AREA_REF` is wrong for the BIGMAP profile, and a06's paint cannot score acquisition
+
+**Found 2026-09-10 while measuring the new acquisition channels.** Two separate
+defects in the same session, and both cap what `proposal_audit.py` can say.
+
+`ICON_AREA_REF = (10, 400)` in `prototypes/mine_icons.py` is declared in
+REFERENCE px, so on `valorant-16x9-bigmap` -- the reference widget, scale 1.0 --
+it caps an icon at radius 11. That widget's real icons are 20-25 px in radius:
+`a06f04a0059f`'s missed residual components run 1189-1417 px. The band was
+measured on something, but not on the profile it is stated in.
+
+`a06f04a0059f`'s `ability_paint` rows mark r=7 discs on those same icons, so the
+matching radius is SMALLER than the icon and a hand-clicked point need not sit
+near the icon's thickest place. That is why the `core` channel scores 100.0%
+recall on d95 and 45.5% on a06 -- the a06 figure may be measuring the labels.
+
+Until both are fixed a06's acquisition numbers are a lower bound and an upper
+bound on nothing, and the pool keeps `base` on that session's evidence alone.
+**Trigger: the next time a single acquisition channel is to be selected.**
+Re-measure the band against the bigmap widget's icons -- do not tune it against
+these labels -- and repaint a06 with radii that match what is drawn. Then rerun
+`proposal_audit.py --channels core` and see whether `base` still earns its
+place.
+
 ## A small-widget painting, to score the length scaling
 
 **Tabled 2026-09-06 by *I don't plan on having small widget sessions be
