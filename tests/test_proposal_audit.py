@@ -42,6 +42,7 @@ class ProposalDiagnosisTests(unittest.TestCase):
             "component_too_large": 1,
             "accepted_component_miscentered_or_claimed": 1,
         })
+        self.assertEqual(got["failures_by_category"]["unknown"], got["failures"])
 
     def test_reports_fragmented_target_separately(self):
         labels = np.zeros((20, 20), np.int32)

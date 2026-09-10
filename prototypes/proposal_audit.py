@@ -95,6 +95,7 @@ def diagnose(icons: list[dict], components: list[dict], labels: np.ndarray,
     matched = _maximum_matching(icons, accepted, slack)
     accepted_ids = {c["id"] for c in accepted}
     failures = Counter()
+    failures_by_category: dict[str, Counter] = {}
     fragmentation = 0
     errors = []
 
@@ -111,21 +112,26 @@ def diagnose(icons: list[dict], components: list[dict], labels: np.ndarray,
         if len(ids) > 1:
             fragmentation += 1
         overlapping = [components[i - 1] for i in ids]
+        reason = None
         if not overlapping:
-            failures["no_residual_support"] += 1
+            reason = "no_residual_support"
         elif any(c["id"] in accepted_ids for c in overlapping):
-            failures["accepted_component_miscentered_or_claimed"] += 1
+            reason = "accepted_component_miscentered_or_claimed"
         elif any(c["area"] > hi_area for c in overlapping):
-            failures["component_too_large"] += 1
+            reason = "component_too_large"
         elif all(c["area"] < lo_area for c in overlapping):
-            failures["components_too_small"] += 1
+            reason = "components_too_small"
         else:
-            failures["mixed_rejected_support"] += 1
+            reason = "mixed_rejected_support"
+        failures[reason] += 1
+        category = icon.get("category_id") or "unknown"
+        failures_by_category.setdefault(category, Counter())[reason] += 1
 
     return {
         "accepted": accepted,
         "matched": matched,
         "failures": failures,
+        "failures_by_category": failures_by_category,
         "fragmented_targets": fragmentation,
         "center_errors": errors,
     }
@@ -139,14 +145,21 @@ def audit_session(session: str, store_root: Path) -> dict | None:
     profile = get_profile(manifest["source_profile"])
     x0, y0, x1, y1 = minimap_roi_px(
         profile, int(source["width"]), int(source["height"]))
+    geometry_path = geometry.require(session, store.root)
     static_map = store.read_static_map(session)
-    if static_map is None:
-        raise SystemExit(f"{session}: no cached static map")
-    stability = geometry.stability(session, store.root, static_map.shape[:2])
-    slab = slab_mask(static_map, sd=stability)
-    with np.load(geometry.require(session, store.root)) as data:
+    background_source = "session_static_map"
+    with np.load(geometry_path) as data:
+        geometry_static = data["static"].copy()
         lo = data["lo_gray"].astype(np.float32)
         hi = data["hi_gray"].astype(np.float32)
+    if static_map is None:
+        # Short controlled clips intentionally donate a map/profile geometry:
+        # they cannot build a clean median without baking the demonstrated
+        # ability into it.  Geometry owns the shared reference for this case.
+        static_map = geometry_static
+        background_source = "shared_geometry_static"
+    stability = geometry.stability(session, store.root, static_map.shape[:2])
+    slab = slab_mask(static_map, sd=stability)
 
     scale = widget_scale(static_map.shape[1])
     lo_area = max(4, int(round(ICON_AREA_REF[0] * scale * scale)))
@@ -161,6 +174,7 @@ def audit_session(session: str, store_root: Path) -> dict | None:
     fps = float(source["fps"])
     totals = Counter()
     failures = Counter()
+    failures_by_category: dict[str, Counter] = {}
     center_errors: list[float] = []
     categories = Counter()
     decoded = 0
@@ -202,6 +216,8 @@ def audit_session(session: str, store_root: Path) -> dict | None:
             "fragmented_targets": result["fragmented_targets"],
         })
         failures.update(result["failures"])
+        for category, counts in result["failures_by_category"].items():
+            failures_by_category.setdefault(category, Counter()).update(counts)
         center_errors.extend(result["center_errors"])
         for icon in icons:
             categories[icon.get("category_id") or "unknown"] += 1
@@ -218,7 +234,12 @@ def audit_session(session: str, store_root: Path) -> dict | None:
         "p90_center_error_px": (round(float(np.percentile(center_errors, 90)), 3)
                                 if center_errors else None),
         "failures": dict(sorted(failures.items())),
+        "failures_by_category": {
+            category: dict(sorted(counts.items()))
+            for category, counts in sorted(failures_by_category.items())
+        },
         "categories": dict(sorted(categories.items())),
+        "background_source": background_source,
     })
     values["decoded_frames"] = decoded
     return values
@@ -252,6 +273,8 @@ def main(argv=None) -> int:
               f"p90 {values['p90_center_error_px']} px")
         print(f"  miss reasons {values['failures']}; "
               f"fragmented targets {values['fragmented_targets']}")
+        if values["failures_by_category"]:
+            print(f"  misses by category {values['failures_by_category']}")
         metrics.record(
             "proposal_audit", part="acquisition", session=session, values=values,
             deps={
@@ -263,7 +286,8 @@ def main(argv=None) -> int:
                 "static_subtraction": "disabled-no-independent-background-sample",
             },
             context={"frames": values["frames"], "icons": values["icons"],
-                     "categories": values["categories"]},
+                     "categories": values["categories"],
+                     "background_source": values["background_source"]},
         )
     return 0 if any_scored else 1
 
