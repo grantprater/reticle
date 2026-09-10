@@ -46,6 +46,11 @@ from proposed semantics, acquisition policy and acceptance requirements.
 Contiguous minimap correction and review: [MINIMAP_DETECTION_PLAN.md](MINIMAP_DETECTION_PLAN.md),
 `tools/minimap_sequence_summary.py`, and `tools/minimap_sequence_review.py`.
 
+Cutting a frozen evaluation window on a new session starts at
+`tools/wipe_scout.py`: it locates the instants where the per-frame killfeed
+count and the adjudicated one disagree, which is where a camera wipe is,
+without opening the video.
+
 Module names above are relative to `reticle/` unless a directory is shown.
 Minimap work also requires `prototypes/CLAUDE.md` and the domain notes kept
 outside this public repository. Do not recreate attribution or private quotes
@@ -70,6 +75,7 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID
 .\.venv\Scripts\python.exe -m reticle fidelity-check          # opens media
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
+.\.venv\Scripts\python.exe tools\wipe_scout.py SESSION   # stored data only
 .\.venv\Scripts\python.exe prototypes\minimap_geometry.py --all
 ```
 
