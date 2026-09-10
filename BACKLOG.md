@@ -318,8 +318,25 @@ position and orientation. A death is where identity is sharpest, because two
 independent channels bracket it, so it is the cheapest place to establish the
 identity machinery that movement and ability events then reuse.
 
-**Trigger: now.** It is the priority. Step 1 needs decode, so it should join an
-existing pass rather than open its own.
+**Step 1 is DONE, 2026-09-10, and it repointed itself.**
+`prototypes/roster_identity.py` implements the ordered subsequence assignment
+and is covered by 15 tests. Running it found that LINEUP COVERAGE is the binding
+constraint: over 19 sessions with a stored lineup, zero have both sides
+complete -- ally names 3-5 of 5, the ENEMY side 0-3 of 5, and 33 further
+sessions have no lineup at all. It therefore answers nothing yet and is not
+wired, because promoting a reader that refuses every frame would ship a column
+of nulls.
+
+**So the next step is lineup coverage, enemy side first**, which is a different
+problem from the one just solved. Three separable causes, none measured:
+`Lineup.add` accumulates only from a FULLY ALIVE side, so a side rarely at five
+contributes few frames -- checkable from stored roster counts with NO decode, and
+therefore first; `MARGIN_MIN = 0.07` is provisional and was fitted on five slots
+of one session; and the enemy roster art is drawn MIRRORED, which the notes
+record as costing 11 points when left unflipped.
+
+**Trigger: now.** It is the priority. Step 1 needed decode and used its own
+sampling; step 2 should join an existing pass.
 
 ## Measure how long an enemy stays drawn AFTER leaving vision
 

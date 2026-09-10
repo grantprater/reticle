@@ -11,7 +11,60 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-10, DEATHS WITH IDENTITY IS THE PRIORITY
+## PICKING UP -- 2026-09-10, STEP ONE IS BUILT AND LINEUP IS THE BLOCKER
+
+**`prototypes/roster_identity.py` names the living, and running it named its own
+blocker.** The alive SET per side per instant, by name. The packing is the
+obstacle -- survivors shift left, so slot index is never identity -- and the
+ORDER is the solution: survivors keep team order, so the k occupied cells are a
+k-SUBSEQUENCE of the side's five known agents, at most ten candidates for a
+five-slot bar. That turns a 29-way classification into a 5-choose-k ordered
+assignment and reuses `lineup`'s composition matcher and gallery unchanged.
+`shrink_events` differences the set to say who left, which is step two's hook.
+Fifteen tests cover the assignment and every refusal.
+
+**The blocker is LINEUP COVERAGE, not the matching.** Over the 19 sessions with
+a stored lineup, ZERO have both sides complete:
+
+    ally side    3-5 named of 5
+    ENEMY side   0-3 named of 5
+    33 further sessions have no lineup at all
+
+So a06f04a0059f names 0 of 40 sampled frames and refuses each one --
+`roster_incomplete:3/5` ally, `2/5` enemy. Every downstream step assumes a named
+roster, and none of them can run on a side with an unnamed slot without
+guessing.
+
+**Two bugs the first run exposed, both worth remembering.** It reported a median
+margin of 1.000: at five alive there is exactly ONE candidate subset, so the
+runner-up scores zero and the most trivial case was reading as the most
+confident one. And an unnamed roster slot scores zero against every cell, so
+every subset containing it loses and the assignment silently preferred the NAMED
+slots -- reporting a named agent alive in a cell whose true occupant lineup had
+declined to name. That is exactly the named-wrong-one the plan forbids, so an
+incomplete roster now refuses the whole side. `doctor` also caught a third: the
+function was called `read_session`, which `lineup.py` already defines, and the
+DUPLICATE check made it an ERROR. Renamed rather than blessed.
+
+**NEXT, and it is a different problem from the one just solved: raise lineup
+coverage, enemy side first.** Three separable candidate causes, none measured:
+
+1. `Lineup.add` accumulates only from a FULLY ALIVE side, since that is the only
+   state in which slot index is identity -- so a side rarely at five contributes
+   few frames. **Checkable from the stored roster counts with NO decode**, and
+   therefore first;
+2. `MARGIN_MIN = 0.07` is documented as provisional, fitted on five slots of one
+   session;
+3. the enemy roster art is drawn MIRRORED, which the notes record as costing 11
+   points of matching accuracy when left unflipped.
+
+Then step two: difference the alive set at each killfeed death time to name the
+victim, scoring against the killfeed and `checks.KNOWN_KD` and storing the
+disagreements.
+
+450 tests pass; `doctor` has eight findings and zero errors.
+
+## PRIOR -- 2026-09-10, DEATHS WITH IDENTITY IS THE PRIORITY
 
 **The player set the ordering plainly: deaths as events with identity and
 location is the point of the whole pipeline, and getting to identity in events
