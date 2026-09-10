@@ -27,7 +27,8 @@ from reticle.fidelity import FROZEN_WINDOWS, load_windows  # noqa: E402
 from reticle.minimap import (FIT_ERR_PX, RUN_PX, floor_mask, minimap_roi_px,
                              pick_self, self_icons, self_mask, slab_mask,
                              widget_drawn, widget_scale)  # noqa: E402
-from prototypes.minimap_appearance import (MIN_CONTRAST,
+from prototypes.minimap_appearance import (JOINT_RESIDUAL_SCORE_MIN,
+                                           MIN_CONTRAST,
                                            RECENT_RESIDUAL_SCORE_MIN,
                                            RecentAppearanceRecovery, describe,
                                            match_near)  # noqa: E402
@@ -77,6 +78,179 @@ def _bracketed(rows: list[dict], max_gap_ms: float = 55.0) -> list[dict]:
         out.append({**row,
                     "cx": af["cx"] + q * (bf["cx"] - af["cx"]),
                     "cy": af["cy"] + q * (bf["cy"] - af["cy"])})
+    return out
+
+
+def _proposals(crop: np.ndarray, floor: np.ndarray, slab: np.ndarray,
+               separation_px: float | None) -> list[dict]:
+    """Every permissive current-frame self-key ring fit.
+
+    The shape gate is removed, not lowered: cov_min=0 and inner_max=1 keep the
+    fragments `pick_self` refused. These are PROPOSALS -- places the frame
+    itself put self-coloured ring evidence -- and not detections.
+    """
+    return self_icons(crop, floor, cov_min=0.0, inner_max=1.0,
+                      require_facing=False, support=slab,
+                      separation_px=separation_px)
+
+
+def _nearest(points, target) -> float | None:
+    """Distance from the closest offered point to the bracketed centre."""
+    if not points:
+        return None
+    return float(min(np.hypot(x - target[0], y - target[1])
+                     for x, y in points))
+
+
+def _joint(rows: list[dict], truth: dict[int, tuple[float, float, str]],
+           lo: np.ndarray, hi: np.ndarray, floor: np.ndarray, slab: np.ndarray,
+           scale: float, *, separation_px: float | None = None,
+           locked: bool = False) -> list[dict]:
+    """Score appearance only at current-frame proposals, one record per refusal.
+
+    `locked=False` reports every ungated query so a development interval can
+    choose the gate; it advances the position prior on ring fits alone, so the
+    records do not depend on the gate being selected from them. `locked=True`
+    runs the selected rule the way a fed reader would, letting an accepted
+    answer carry the prior forward.
+    """
+    recovery = RecentAppearanceRecovery(lo, hi, slab, scale=scale,
+                                        run_px=RUN_PX, fit_error_px=FIT_ERR_PX)
+    previous = None
+    previous_t = None
+    records = []
+    for row in rows:
+        if not row["drawn"]:
+            recovery.unavailable()
+            continue
+        dt_ms = (1000.0 / 60.0 if previous_t is None
+                 else row["t_ms"] - previous_t)
+        pick = pick_self(row["fits"], previous, dt_ms, scale)
+        mask = self_mask(row["crop"])
+        if pick is not None:
+            selected = min(row["fits"], key=lambda fit:
+                           np.hypot(fit["cx"] - pick[0], fit["cy"] - pick[1]))
+            recovery.fitted(row["crop"], mask, selected, row["t_ms"])
+            previous, previous_t = pick, row["t_ms"]
+            continue
+        proposals = _proposals(row["crop"], floor, slab, separation_px)
+        admissible = recovery.admissible(proposals, row["t_ms"])
+        if locked:
+            got = recovery.proposed(row["crop"], mask, proposals, row["t_ms"])
+        else:
+            got = recovery.query_at(row["crop"], mask, proposals, row["t_ms"])
+            recovery.refusal()
+        target = truth.get(row["frame_idx"])
+        record = {"frame_idx": row["frame_idx"], "t_ms": row["t_ms"],
+                  "proposals": len(proposals), "admissible": len(admissible),
+                  "opportunity": target is not None,
+                  "offered": [(float(p["cx"]), float(p["cy"]))
+                              for p in proposals]}
+        if target is not None:
+            record["ceiling_px"] = _nearest(record["offered"], target)
+            record["admissible_ceiling_px"] = _nearest(admissible, target)
+        if got is not None:
+            record.update({"score": got.score, "margin": got.margin,
+                           "contrast": got.contrast, "x": got.x, "y": got.y})
+            if target is not None:
+                record["error_px"] = float(np.hypot(got.x - target[0],
+                                                    got.y - target[1]))
+            if locked:
+                previous, previous_t = (got.x, got.y), row["t_ms"]
+        records.append(record)
+    return records
+
+
+def _joint_report(records: list[dict], label: str) -> dict:
+    """Separate what geometry could offer from what appearance then chose."""
+    chances = [r for r in records if r["opportunity"]]
+    scored = [r for r in chances if "error_px" in r]
+    offered = [r for r in chances if r["proposals"]]
+    ceiling = [r for r in chances if (r.get("ceiling_px") or 1e9) <= 3.0]
+    admitted = [r for r in chances
+                if (r.get("admissible_ceiling_px") or 1e9) <= 3.0]
+    report = {
+        "label": label,
+        "refusals": len(records),
+        "opportunities": len(chances),
+        # Bracketed opportunities are only the MEASURABLE refusals. The share
+        # of every refusal this path can answer at all is what bounds the
+        # eligible-coverage gain, whether or not truth exists there.
+        "refusals_with_anchor": sum(r["admissible"] > 0 for r in records),
+        "refusals_answered": sum("score" in r for r in records),
+        "with_any_proposal": len(offered),
+        "median_proposals": (float(np.median([r["proposals"] for r in chances]))
+                             if chances else None),
+        "ceiling_within_3px": len(ceiling) / len(chances) if chances else None,
+        "admissible_ceiling_within_3px": (len(admitted) / len(chances)
+                                          if chances else None),
+        "queries": len(scored),
+        "ungated_within_3px": (float(np.mean([r["error_px"] <= 3.0
+                                              for r in scored]))
+                               if scored else None),
+        "median_error_px": (float(np.median([r["error_px"] for r in scored]))
+                            if scored else None),
+        "gates": [],
+        "rows": [{k: r[k] for k in
+                  ("t_ms", "proposals", "admissible", "ceiling_px",
+                   "admissible_ceiling_px", "score", "contrast", "error_px")
+                  if k in r} for r in chances],
+    }
+    reachable = [r["ceiling_px"] for r in chances if r.get("ceiling_px")
+                 is not None]
+    if reachable:
+        report["ceiling_px_quantiles"] = {
+            str(q): float(np.quantile(reachable, q))
+            for q in (0.25, 0.5, 0.75, 0.9)}
+        # A near miss says the fragment is displaced; a far miss says the
+        # proposal belongs to a different icon.
+        report["ceiling_px_bands"] = {
+            "within_3": sum(v <= 3.0 for v in reachable),
+            "3_to_6": sum(3.0 < v <= 6.0 for v in reachable),
+            "6_to_12": sum(6.0 < v <= 12.0 for v in reachable),
+            "beyond_12": sum(v > 12.0 for v in reachable),
+        }
+    usable = [r for r in scored if r["contrast"] >= MIN_CONTRAST]
+    for quantile in (0.0, 0.2, 0.4, 0.6, 0.8):
+        if not usable:
+            break
+        threshold = float(np.quantile([r["score"] for r in usable], quantile))
+        keep = [r for r in usable if r["score"] >= threshold]
+        report["gates"].append({
+            "score_min": threshold,
+            "answered": len(keep),
+            "answer_fraction_of_opportunities": (len(keep) / len(chances)
+                                                 if chances else None),
+            "within_3px": (float(np.mean([r["error_px"] <= 3.0 for r in keep]))
+                           if keep else None),
+        })
+    return report
+
+
+def _joint_cell(crop: np.ndarray, target: tuple[float, float], record: dict,
+                label: str) -> np.ndarray | None:
+    """One refused frame: the bracketed centre, what was offered, what won."""
+    half, scale = 15, 5
+    patch = _patch(crop, target[0], target[1], half)
+    if patch is None:
+        return None
+    view = cv2.resize(patch, None, fx=scale, fy=scale,
+                      interpolation=cv2.INTER_NEAREST)
+    out = np.full((view.shape[0] + 22, view.shape[1], 3), 18, np.uint8)
+    out[:view.shape[0]] = view
+
+    def place(x, y):
+        return (int(round((x - target[0] + half) * scale + scale // 2)),
+                int(round((y - target[1] + half) * scale + scale // 2)))
+
+    for px, py in record["offered"]:
+        cv2.circle(out, place(px, py), 7, (200, 200, 60), 1, cv2.LINE_AA)
+    cv2.drawMarker(out, place(*target), (80, 180, 255), cv2.MARKER_CROSS, 13, 1)
+    if "x" in record:
+        cv2.drawMarker(out, place(record["x"], record["y"]), (80, 240, 80),
+                       cv2.MARKER_TILTED_CROSS, 11, 1)
+    cv2.putText(out, label, (3, view.shape[0] + 15), cv2.FONT_HERSHEY_SIMPLEX,
+                0.38, (200, 200, 200), 1, cv2.LINE_AA)
     return out
 
 
@@ -146,6 +320,8 @@ def main(argv=None) -> int:
                     help="score causal luma matching against fitted/bracket centres")
     ap.add_argument("--tiers", action="store_true",
                     help="also evaluate the locked rule at actual 15/10/5/2 Hz samples")
+    ap.add_argument("--joint", action="store_true",
+                    help="score appearance only at permissive current-frame ring proposals")
     args = ap.parse_args(argv)
 
     store = Store(args.store)
@@ -214,17 +390,90 @@ def main(argv=None) -> int:
     cells.extend([blank] * ((-len(cells)) % cols))
     sheet = np.vstack([np.hstack(cells[i:i + cols])
                        for i in range(0, len(cells), cols)])
-    target = Path(args.out)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if not cv2.imwrite(str(target), sheet):
-        raise SystemExit(f"could not write {target}")
+    target_path = Path(args.out)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(target_path), sheet):
+        raise SystemExit(f"could not write {target_path}")
     print(f"frames {len(rows)}; accepted {len(accepted)}; refused {len(rows)-len(accepted)}; "
           f"bracketed refusals {len(refused)}")
-    print(target)
-    if args.evaluate:
+    print(target_path)
+    truth = {r["frame_idx"]: (r["cx"], r["cy"], "bracket") for r in refused}
+    scale = widget_scale(rows[0]["crop"].shape[1])
+    if args.evaluate or args.joint:
         with np.load(geometry.require(args.session, store.root)) as z:
             lo, hi = z["lo_gray"].copy(), z["hi_gray"].copy()
-        truth = {r["frame_idx"]: (r["cx"], r["cy"], "bracket") for r in refused}
+
+    if args.joint:
+        report = {"session_id": args.session, "spans_ms": spans,
+                  "proposal_families": {}}
+        # The shipped separation keeps the best ARC per neighbourhood; 0 keeps
+        # every fragment. Both are measured because the ceiling difference is
+        # what says whether deduplication, and not appearance, is the limit.
+        for family, separation in (("deduped", None), ("fragments", 0.0)):
+            records = _joint(rows, truth, lo, hi, floor, slab, scale,
+                             separation_px=separation)
+            summary = _joint_report(records, family)
+            report["proposal_families"][family] = summary
+            gates = summary.pop("gates")
+            rows_dump = summary.pop("rows")
+            print(json.dumps(summary, sort_keys=True))
+            for gate in gates:
+                print(f"  score>={gate['score_min']:.4f} "
+                      f"answer={gate['answer_fraction_of_opportunities']:.3f} "
+                      f"<=3px={gate['within_3px']}")
+            summary["gates"] = gates
+            summary["rows"] = rows_dump
+            if family == "fragments":
+                fragment_records = records
+        by_index = {row["frame_idx"]: row for row in rows}
+        cells = []
+        chances = [r for r in fragment_records if r["opportunity"]]
+        if chances:
+            picked = [chances[i] for i in
+                      np.linspace(0, len(chances) - 1,
+                                  min(args.keep, len(chances))).astype(int)]
+            for record in picked:
+                target = truth[record["frame_idx"]]
+                cell = _joint_cell(by_index[record["frame_idx"]]["crop"],
+                                   (target[0], target[1]), record,
+                                   f"{record['t_ms']/1000:.2f}s "
+                                   f"n={record['proposals']}")
+                if cell is not None:
+                    cells.append(cell)
+        if cells:
+            cols = min(args.keep, 8)
+            blank = np.full_like(cells[0], 18)
+            cells.extend([blank] * ((-len(cells)) % cols))
+            sheet = np.vstack([np.hstack(cells[i:i + cols])
+                               for i in range(0, len(cells), cols)])
+            proposal_sheet = target_path.with_name(
+                target_path.stem + "-proposals" + target_path.suffix)
+            if not cv2.imwrite(str(proposal_sheet), sheet):
+                raise SystemExit(f"could not write {proposal_sheet}")
+            print(proposal_sheet)
+        if args.tiers:
+            if JOINT_RESIDUAL_SCORE_MIN is None:
+                raise SystemExit("select the joint gate on a development "
+                                 "interval before running the tiers")
+            tiers = {}
+            for name, tier_rows in rows_by_tier.items():
+                if name == native_name:
+                    continue
+                locked = _joint(tier_rows, truth, lo, hi, floor, slab, scale,
+                                separation_px=0.0, locked=True)
+                tiers[name] = _joint_report(locked, name)
+                tiers[name].pop("gates")
+                rows_dump = tiers[name].pop("rows")
+                print(f"tier {name:5s} "
+                      + json.dumps(tiers[name], sort_keys=True))
+                tiers[name]["rows"] = rows_dump
+            report["tier_joint"] = tiers
+        sidecar = target_path.with_name(target_path.stem + "-joint.json")
+        sidecar.write_text(json.dumps(report, indent=2, sort_keys=True,
+                                      allow_nan=False), encoding="utf-8")
+        print(sidecar)
+
+    if args.evaluate:
         gallery = []
         previous_fit = None
         last_added_t = -1e12
@@ -329,7 +578,6 @@ def main(argv=None) -> int:
         report["selected_rule"] = selected_report
         print("selected", json.dumps(selected_report, sort_keys=True))
         if args.tiers:
-            scale = widget_scale(rows[0]["crop"].shape[1])
             tier_report = {name: _tier_recovery(tier_rows, truth, lo, hi,
                                                  slab, scale)
                            for name, tier_rows in rows_by_tier.items()
@@ -337,7 +585,7 @@ def main(argv=None) -> int:
             report["tier_recovery"] = tier_report
             for name, values in tier_report.items():
                 print(f"tier {name:4s} " + json.dumps(values, sort_keys=True))
-        sidecar = target.with_suffix(".json")
+        sidecar = target_path.with_suffix(".json")
         sidecar.write_text(json.dumps(report, indent=2, sort_keys=True,
                                       allow_nan=False), encoding="utf-8")
         print(sidecar)

@@ -150,6 +150,39 @@ teammate the ally channel dropped for a few frames, not a better bearing for one
 it can see. Validate leave-one-out, never by explained lit area, which is
 circular. See `reticle/cone.py` and the memory note on ensemble guessing.
 
+## ~~Recover a refused self position from the icon's APPEARANCE~~ CLOSED 2026-09-09
+
+**Measured twice and closed both times.** The design is Step 2 of
+`docs/MINIMAP_APPEARANCE_MATCHING.md`; the numbers and every predeclared
+prediction are in the store's `notes/predictions.jsonl`.
+
+A recent-template descriptor searched over a disk around a causal prior looked
+excellent at native rate -- 110/111 frozen answers within 3 px -- and collapsed
+at the reader's real tiers, to 80.0%/68.4%/12.5% precision at 15/10/5 Hz. Wrong
+offsets sat confidently above the score gate, so no threshold could repair it.
+
+The joint fit replaced the disk with permissive current-frame ring proposals, so
+that a wrong offset must also explain self-coloured pixels. **That fixed the
+confident errors** -- 97.92% of ungated answers within 3 px, exact above any
+modest gate -- and it did not matter, because of the denominator:
+
+    drawn refusals in the development interval            1594
+    ...that a recent template can answer at all            164   10.29%
+    ...with a forced bracket, i.e. MEASURABLE at all       137    8.60%
+
+**Refusals arrive in long runs while the self portrait overlaps ally
+portraits**, and a recent template needs a recent fit. 85 of 137 opportunities
+had no trusted anchor; where one existed the path was nearly exhaustive, and the
+motion gate excluded none of the 51 correct proposals it saw. Ceiling misses are
+displaced fragments and never another icon -- 25 at 3-6 px, 26 at 6-12 px, none
+beyond 12 px.
+
+Do not re-open this by tuning a score. **The thing to model is the overlap**,
+which is Step 3's directional geometry. It inherits `match_at` and the permissive
+proposal call `icons(..., separation_px=0)`, whose default reproduces the shipped
+deduplication -- worth 11 points of ceiling, because deduplication keeps the best
+ARC rather than the fragment nearest the true centre.
+
 ## Minimap re-validation after the `floor_mask` reconciliation
 
 **Tabled 2026-09-06 by the player.** The commit is `18b0912`; the numbers and the

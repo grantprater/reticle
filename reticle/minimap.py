@@ -855,7 +855,8 @@ ALLY_INNER_MAX = 0.25
 def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
           cov_min: float = ALLY_COV_MIN, inner_max: float = ALLY_INNER_MAX,
           require_facing: bool = True, min_area: int | None = None,
-          support: np.ndarray | None = None) -> list[dict]:
+          support: np.ndarray | None = None,
+          separation_px: float | None = None) -> list[dict]:
     """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
 
     Returns a dict per icon: `cx`, `cy`, `r`, `cov`, `inner`, `facing` (degrees
@@ -920,10 +921,18 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     # rule was here at 8 px, which is under the 8.1-9.1 px the duplicate pairs
     # actually sit at, so every one of them leaked through as a second
     # teammate; the constant is shared now rather than restated.
+    #
+    # `separation_px=0` keeps every fragment instead, which is what a joint
+    # appearance fit wants: the survivor here is the best ARC, and on a broken
+    # self ring that is not always the fragment nearest the true centre. A
+    # caller asking for PROPOSALS to score is not asking how many icons there
+    # are, so it must be able to decline the answer this rule gives.
+    sep = MIN_ICON_SEPARATION_PX * sc if separation_px is None else float(separation_px)
+    if sep <= 0:
+        return sorted(found, key=lambda d: -d["cov"])
     out: list[dict] = []
     for f in sorted(found, key=lambda d: -d["cov"]):
-        if any(np.hypot(f["cx"] - o["cx"], f["cy"] - o["cy"])
-               < MIN_ICON_SEPARATION_PX * sc for o in out):
+        if any(np.hypot(f["cx"] - o["cx"], f["cy"] - o["cy"]) < sep for o in out):
             continue
         out.append(f)
     return out

@@ -1,9 +1,9 @@
 # Minimap appearance matching: design and implementation plan
 
-Date: 2026-09-09. Status: Step 1 measured and shipped. Step 2's standalone
-appearance path is implemented and measured but withheld from the reader after
-failing real-tier transfer. Joint appearance/geometry remains the next Step 2
-candidate; Steps 3-6 remain proposed.
+Date: 2026-09-09. Status: Step 1 measured and shipped. Step 2 is CLOSED as a
+measured negative result: both its standalone and its joint appearance/geometry
+paths are implemented and measured, and neither is wired into the reader. Step 3
+directional geometry is next; Steps 4-6 remain proposed.
 
 Step 1 result: `minimap-0.5.0` feeds fitted `self_icons` to `pick_self`, accepts
 a supported centre with unknown bearing, requires opaque-slab support and has no
@@ -186,7 +186,7 @@ experiment was run as part of writing this document.
 |---|---|---|
 | 0. Freeze evaluation inputs | Existing fidelity windows plus disjoint development and held-out sessions; existing source review tools | Independent labels/provenance, eligible-frame denominators, ring-refusal subset, baseline errors and runtime |
 | 1. Established 2026-09-09 | `reticle/minimap.py` and `pick_self` callers use `self_icons` without blob fallback; `fidelity-0.2.0` reports coverage | Consistency and refusal reproduced as recorded above; independent centre accuracy and coverage remain Step 2 gates |
-| 2. Add upright appearance evidence | Extract reusable deterministic matcher from `prototypes/minimap_portrait.py` into the existing reader/gallery path | Appearance-only and joint-fit comparison; recover ring-refused observations without exceeding a predeclared false-positive budget |
+| 2. Closed 2026-09-09 | Measured in `prototypes/`; nothing wired. Appearance-only failed tier transfer, joint appearance/geometry failed coverage | Both required comparisons ran. Precision was recoverable; the answerable share of refusals was not, so no predeclared budget was met |
 | 3. Add directional geometry | Shared-centre angle search, then directional chamfer if needed; existing bearing/overlay path | Reviewed centre and bearing error, angular ambiguity, overlap and no-icon negatives; improvement beyond appearance-only baseline |
 | 4. Add region representation | Existing ability observation path, reliable background references and bounded tint/shape fits | Held-out static/expanding regions; geometry and presence accuracy; illumination/confuser tests; ambiguous ownership preserved |
 | 5. Add phase sequence matching | Existing appearance-state and lifecycle contracts; timestamped phase gallery | Phase/order errors, onset intervals, pulse grouping, missed-frame and occlusion cases; benefit over independent frame matching |
@@ -227,15 +227,51 @@ physical search disk expands while compositing and overlap change. Therefore the
 standalone matcher remains in `prototypes/` and is not wired into `_MinimapPass`;
 `MINIMAP_VERSION` remains 0.5.0.
 
-The next bounded experiment is the table's required joint-fit comparison. Expose
-the ring fitter's rejected centres as current-frame geometric proposals, score
-appearance only at those proposals, and predeclare the same positional precision
-budget on a development interval before a new frozen run. Do not tune the
-standalone score threshold: its false answers are already confidently above it.
-If permissive ring proposals do not restore precision and useful coverage, close
-Step 2 as a measured negative result and proceed to Step 3 directional geometry.
-Detailed predictions and outcomes are in the store's `notes/predictions.jsonl`;
-frozen artifacts are `notes/self-appearance-step2-{frozen,tiers}.json`.
+### The joint fit, and why Step 2 closes
+
+The table's required joint comparison then ran on the development interval
+alone. `icons` gained an optional `separation_px` so a caller can ask for
+PROPOSALS rather than detections, `--joint` scores appearance only at permissive
+current-frame ring fits (`cov_min=0`, `inner_max=1`, slab support), and
+`match_at` replaces the disk enumeration that `match_near` performs.
+
+**It fixed precision and could not fix coverage.** Of 137 bracketed
+opportunities, 97.92% of ungated answers were within 3 px at 1.00 px median
+error, and every score gate at or above 0.1254 was exact over 27.74% of
+opportunities. That is the confident-error population gone: a wrong offset must
+now also explain self-coloured ring pixels, which an arbitrary disk position
+need not. Against this, the predeclared budgets failed. A proposal lay within
+3 px in only 57.66% of opportunities against a 60% bar, and the rule answered
+35.04% against a 40% bar.
+
+What caps it is availability, not scoring:
+
+- 85 of 137 opportunities had no trusted anchor, because a refusal breaks the
+  consecutive-fit pair and refusals arrive in runs.
+- Where an anchor existed the path was nearly exhaustive. 51 of 52 anchored
+  opportunities were offered a correct proposal, and the motion gate admitted
+  all 51 -- it excluded none, so the reach floor is not the limit.
+- Ceiling misses are displaced fragments, not other icons: 25 at 3-6 px, 26 at
+  6-12 px, and NONE beyond 12 px. That displacement is the self portrait
+  overlapping adjacent ally portraits, which is also what refused the ring.
+- Deduplication costs 11 points of ceiling, 46.72% against 57.66%, because it
+  keeps the best ARC rather than the fragment nearest the true centre.
+
+The decisive number is the denominator. The joint path can answer 164 of 1594
+drawn refusals (10.29%) before any accuracy gate, so at its own perfect
+precision it moves eligible coverage about two points. Bracketed refusals are
+themselves only 137 of 1594 (8.60%): the refusal mass is LONG RUNS during
+portrait overlap, which neither a bracket nor a recent template reaches. A
+recent-template channel is structurally the wrong instrument for it, however
+well it scores on the isolated refusals it can see.
+
+Step 2 therefore closes. The frozen windows were never opened for the joint
+rule, and `JOINT_RESIDUAL_SCORE_MIN` stays unselected so no threshold is chosen
+after the fact. Step 3 inherits the useful parts: `match_at`, the permissive
+proposal call, and the finding that overlap is the thing to model. Detailed
+predictions and outcomes are in the store's `notes/predictions.jsonl`; artifacts
+are `notes/self-appearance-step2-{frozen,tiers}.json` and
+`notes/self-appearance-step2-joint-dev{,-proposals}.{json,png}`.
 
 ### Evaluation contract
 

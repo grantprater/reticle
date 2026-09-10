@@ -11,27 +11,35 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
-## PICKING UP -- 2026-09-09, Step 2 appearance is measured and withheld
+## PICKING UP -- 2026-09-09, Step 2 is closed; Step 3 is next
 
-Step 1 is committed at `f0431b9`: fitted self icons moved frozen cross-rate
-agreement to 0.9917/0.9885/0.9849/0.9939 at 15/10/5/2 Hz, while eligible
-coverage remains about 71-73%. `MINIMAP_VERSION` is 0.5.0.
+Step 1 stands at `f0431b9`: fitted self icons hold frozen cross-rate agreement at
+0.9917/0.9885/0.9849/0.9939 for 15/10/5/2 Hz, eligible coverage about 71-73%,
+`MINIMAP_VERSION` 0.5.0. `reticle fidelity-check` reproduced every one of those
+numbers this session, so nothing in the reader moved.
 
-Step 2 now has a reusable deterministic upright-interior descriptor and causal
-recent-template recovery in `prototypes/minimap_appearance.py`, its evaluator in
-`prototypes/minimap_self_appearance.py`, focused tests, and full results in
-`docs/MINIMAP_APPEARANCE_MATCHING.md`. The locked residual rule looked excellent
-at native rate (110/111 frozen answers within 3 px, 56.1% bracket coverage) but
-failed the actual tiers: precision was 80.0%/68.4%/12.5%/0-of-2 at 15/10/5/2 Hz.
-Wrong offsets remained above the score gate, so do not retune or wire this path.
+**Step 2 is closed as a measured negative result and nothing is wired.** Both
+required comparisons ran. The standalone recent-template rule failed tier
+transfer (80.0%/68.4%/12.5% precision at 15/10/5 Hz). The joint fit, which scores
+appearance only at permissive current-frame ring proposals, then fixed precision
+-- 97.92% of ungated answers within 3 px, and exact above any modest gate -- and
+still failed coverage, answering 35.04% of opportunities against a 40% bar with a
+57.66% geometric ceiling against a 60% bar.
 
-Next: evaluate appearance only at permissive current-frame ring-fit proposals,
-using a development interval and a predeclared gate before touching frozen data.
-This is the pending joint appearance/geometry comparison already required by the
-design. If it fails, close Step 2 and start Step 3 directional geometry. Frozen
-reports are in store notes as `self-appearance-step2-{frozen,tiers}.json`; every
-prediction and outcome is in `notes/predictions.jsonl`. No production reader or
-schema change is pending in this checkpoint.
+The reason is the denominator, and it is worth carrying forward: the path can
+answer 164 of 1594 drawn refusals (10.29%) at best, because a recent template
+needs a recent fit and **refusals arrive in long runs while the self portrait
+overlaps ally portraits**. 85 of 137 opportunities had no trusted anchor at all,
+while the motion gate excluded none of the 51 correct proposals it saw. Overlap
+is the thing to model, not the score.
+
+Next: Step 3 directional geometry, per `docs/MINIMAP_APPEARANCE_MATCHING.md`. It
+inherits `match_at`, the permissive proposal call (`icons(..., separation_px=0)`,
+whose default reproduces shipped deduplication), and the overlap finding. The
+frozen windows were never opened for the joint rule and `JOINT_RESIDUAL_SCORE_MIN`
+stays unselected, so do not promote a threshold from the development numbers.
+Artifacts are `notes/self-appearance-step2-*`; every prediction and outcome is in
+`notes/predictions.jsonl`. No production reader or schema change is pending.
 
 ## Prior P3 context -- killfeed persistence and the Step 1 ring fit
 

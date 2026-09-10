@@ -4,7 +4,7 @@ import numpy as np
 
 from prototypes.minimap_appearance import (RecentAppearanceRecovery,
                                             appearance_similarity, describe,
-                                            match_near)
+                                            match_at, match_near)
 
 
 def scene(cx=20, cy=20, size=45):
@@ -48,6 +48,33 @@ class DescriptorTests(unittest.TestCase):
         self.assertIsNotNone(got)
         self.assertEqual((got.x, got.y), (23.0, 18.0))
         self.assertEqual(got.mode, "residual")
+
+
+    def test_proposals_bound_the_answer_to_offered_centres(self):
+        anchor_crop, colour = scene(20, 20)
+        query_crop, _ = scene(23, 18)
+        lo = np.full(colour.shape, 60, np.float32)
+        hi = np.full(colour.shape, 100, np.float32)
+        exemplar = describe(anchor_crop, colour, 20, 20, 9, lo, hi)
+        support = np.ones_like(colour)
+        got = match_at(query_crop, colour, lo, hi, [exemplar],
+                       [(23, 18), (14, 24)], 9, support=support)
+        self.assertEqual((got.x, got.y), (23.0, 18.0))
+        # The true centre is unreachable when no proposal names it, however
+        # good the appearance evidence there would have been.
+        away = match_at(query_crop, colour, lo, hi, [exemplar],
+                        [(14, 24)], 9, support=support)
+        self.assertEqual((away.x, away.y), (14.0, 24.0))
+        self.assertLess(away.score, got.score)
+
+    def test_unsupported_proposals_are_dropped(self):
+        crop, colour = scene(20, 20)
+        lo = np.full(colour.shape, 60, np.float32)
+        hi = np.full(colour.shape, 100, np.float32)
+        exemplar = describe(crop, colour, 20, 20, 9, lo, hi)
+        support = np.zeros_like(colour)
+        self.assertIsNone(match_at(crop, colour, lo, hi, [exemplar],
+                                   [(20, 20)], 9, support=support))
 
 
 class RecoveryTrustTests(unittest.TestCase):
