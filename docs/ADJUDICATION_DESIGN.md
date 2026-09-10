@@ -50,7 +50,9 @@ Inspected `reconciliation.py`, `round_lifetimes.py`, `minimap_lifecycle.py`,
   refusal reason. `filter_track` stays exactly as it was and now shares the
   admission law through `_admit`, verified identical over 401,797 points on
   every stored session. It is a library channel; nothing stores a `Fix` yet
-  and no consumer reads one.
+  and no consumer reads one. What it SHOULD consult, and what each
+  channel would change, is *The position belief: a full accounting*
+  below.
 - The step law drops 8.7% of the current reader's own answers on
   `c40d950031bb` (699 of 8025). The `RUN_PX * 1.6` gate was calibrated against
   `minimap-0.4.0`, so it is owed a re-measurement against the fitted reader.
@@ -435,6 +437,111 @@ Promote each milestone only after its real command and annotated source windows
 demonstrate the intended gain at matched coverage with no unexplained regression.
 Set numeric thresholds from the measured baseline before tuning. Runtime tests
 and mathematical invariants cannot substitute for perceptual accuracy checks.
+
+## The position belief: a full accounting
+
+One question: **where is the local player at a sampled instant, and how
+tightly.** Existence, identity, bearing and ownership are separate answers this
+one must not absorb. The families above are general; this section grounds them
+in what bears on this question, what is stored today, and what each would
+change. It is the target `minimap.resolve_track` is measured against, not a
+description of what it does.
+
+### What answers it today
+
+`belief-0.1.0` consults three things: the self reads, the step law, and the ally
+channel as a witness that the widget was drawn. On `c40d950031bb` that lifts the
+answer from 75.0% of instants to 89.6%, at a median inferred radius of 5.7 px.
+It is single-channel, and single-channel is exactly why it is wrong in the first
+two rows below.
+
+### Evidence that VOIDS the prior
+
+| Evidence | Constraint on the belief | Status |
+|---|---|---|
+| Round boundary (`l2/rounds`) | A round start returns every player to spawn, so no belief may cross one | Stored, 18 sessions. **49 of 2258 inferred fixes cross one today** |
+| Self death | A dead player has no world position; holding one is a false claim | BLOCKED on self identity. Widget absence is a partial proxy, since the death screen removes the widget |
+| Licensed teleport or displacement | A legal discontinuity; never draw a path through it | Wired, via `filter_track` motion spans and `track.Corroboration` |
+| Camera wipe or POV change | The icon may stop being self | `tools/wipe_scout.py` locates wipes from stored reads |
+
+### Evidence that BOUNDS the region
+
+| Evidence | Constraint on the belief | Status |
+|---|---|---|
+| Map art floor (`store/geometry`) | The reachable set is walkable floor, not a disk | Cached per `<map>__<profile>`. A 47 px belief disk currently spans walls |
+| Buy-phase barriers (`store/barriers`) | Closed doorways cut the reachable set during buy | Stored for two maps; see the backlog entry to bake them per map and side |
+| Phase (`l2/rounds`, HUD clock) | During buy the player stands at spawn -- far tighter than any motion bound | Stored |
+| Motion class (`track.admits`) | Sets how fast the region expands; dash and teleport widen it only with corroboration | Exists |
+
+### Evidence that RESOLVES WHICH ICON is self
+
+| Evidence | Constraint on the belief | Status |
+|---|---|---|
+| Ally icon centres | Two icons cannot sit closer than `MIN_ICON_SEPARATION_PX` (16 px at reference scale), so ally centres exclude regions -- and refusals happen inside clusters, so they also explain the miss | In the same L1 rows, already read, UNUSED |
+| Self-key fragments at a refusal | Bound the centre tightly even when the ring fit refuses: within 12 px on every one of 137 bracketed refusals | Measured; `minimap_self_appearance.py --joint` |
+| Viewcone and lighting | Independent check on icon role and bearing | Channels exist |
+
+### Evidence that says WHETHER WE COULD SEE AT ALL
+
+| Evidence | Constraint on the belief | Status |
+|---|---|---|
+| Widget drawn | Separates "refused" from "nobody was looking"; only the latter forbids a belief | **BLOCKED -- L1 writes the same NULL for both.** Interim ally cross-reference recovers 2016 of 2676 |
+| Stalled capture | Those frames are not observations and must not count either way | `doctor` reports it per session |
+| Sampling tier and gaps | A belief must never inflate observed coverage | Coverage is reported separately by `fidelity-check` |
+
+### Evidence that CORROBORATES AFTERWARDS
+
+| Evidence | Constraint on the belief | Status |
+|---|---|---|
+| Pings (`store/events/ping`) | A ping origin ties to a player position at a time | Stored |
+| Killfeed | Locates participants at a time | Exists; for SELF it is blocked on identity |
+| Roster alive counts | Bound how many icons should exist | `l1/roster`, per team rather than per player |
+| Scoreboard | Cumulative constraints across rounds | Row observations exist; row association open |
+| Audio | Event timing and owner corroboration | Proposed |
+
+### What self identity unblocks
+
+The session does not record which player is self. That single gap withholds
+per-player alive state, self death, killfeed self-participation and scoreboard
+row association -- so the layer's whole account of death currently rests on
+widget absence, which is a proxy for the death screen and not the event. The
+backlog entry is *Record which agent the player played, per session*. Nothing
+downstream should model death until it lands.
+
+### Rules the belief obeys whatever it consults
+
+- A belief is never evidence. It cannot seed a template, feed a detector's
+  prior, or count toward observed coverage.
+- Observed and believed coverage are reported separately and never summed.
+- It never crosses a void, and never claims a region the map forbids.
+- Interpolation and prediction render distinctly from observed coordinates.
+- `unresolved` carries a reason, and the reasons partition every unanswered
+  instant.
+
+### How we would know the accounting is honestly implemented
+
+- No belief rests on evidence across a round boundary. Today 49 do.
+- No belief centre lies off walkable floor, and the bound is a reachable set
+  rather than a disk.
+- The observed count equals the admitted read count exactly.
+- Every unanswered instant carries exactly one reason.
+- Ablation: removing any one channel costs coverage and never precision. A
+  channel that buys precision is either doing another channel's job or is
+  being read as independent when it is not.
+
+### Order of work
+
+1. Move the belief out of `minimap.py` and give it round bounds and the floor
+   mask as inputs. This kills the 49 crossings and the wall claim, and it
+   establishes the seam every later channel plugs into.
+2. Ally centres as a discriminator inside clusters.
+3. A `widget_drawn` column, folded into the re-decode that rebuilds the 18
+   sessions still on `minimap-0.4.0`.
+4. Self identity, which unblocks death.
+5. Ping and killfeed corroboration.
+
+Steps 1 and 2 are recomputable from stored data. Step 3 needs a re-decode, and
+steps 4 and 5 need it only if identity requires new reads.
 
 ## Reference basis
 

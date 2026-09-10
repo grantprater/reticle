@@ -41,8 +41,16 @@ pre-Step-1 permissive reader, so one re-decode should buy both.
 Also open: the `RUN_PX * 1.6` step gate drops 8.7% of the current reader's own
 answers (699 of 8025) and was calibrated against 0.4.0.
 
-Next: decide what consumes a `Fix`. Nothing stores or reads one yet, so the
-channel is correct and unwired. `docs/ADJUDICATION_DESIGN.md`'s gap section is
+The target is now written down: *The position belief: a full accounting* in
+`docs/ADJUDICATION_DESIGN.md` names every channel that bears on the question,
+what it constrains, whether it is stored today, and what self identity
+withholds. It ends in a five-step order of work and the checks that would say
+the accounting is honestly implemented.
+
+Next is step 1: move the belief out of `minimap.py` and give it round bounds
+and the floor mask as inputs. That kills the 49 cross-boundary beliefs and the
+wall claim, and it establishes the seam the later channels plug into. Nothing
+stores or reads a `Fix` yet, so the channel is correct and unwired. `docs/ADJUDICATION_DESIGN.md`'s gap section is
 current. 345 tests pass; `doctor` has six findings and zero errors.
 
 ## Prior P3 context -- killfeed persistence and the Step 1 ring fit
