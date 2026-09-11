@@ -510,13 +510,14 @@ question = "Which agent occupies this roster or top-bar slot?"
 owner = "lineup"
 role = ["assign"]
 status = "transitional"
-produces = ["Lineup", "LineupReader", "read_session"]
+produces = ["adjudicate", "Lineup", "LineupReader", "read_session"]
 not_for = """
 Slots on an incomplete side, and cross-side elimination. Accumulate only while a
-side is fully alive, or deaths average two identities together; a thin margin
-stays `None` WITH ITS REASON, and the reason is the thing to read -- twelve of
-79 refusals were pairwise ties assignment had already broken, and counting them
-instead produced a coverage claim that was an artifact.
+side is fully alive, or deaths average two identities together. A thin margin
+stays `None` WITH ITS REASON, and the margin is measured against the best
+alternative the ASSIGNMENT permits -- measured against the raw ordering it
+refused ties the constraint had already broken, and worse, cleared the gate on
+one agent's evidence while naming another.
 """
 exit = """
 `_composition` inserts `prototypes/` on `sys.path` and imports

@@ -11,6 +11,63 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## THE MARGIN NOW MEASURES THE ASSIGNMENT -- 2026-09-11
+
+**`lineup.adjudicate` replaces `Lineup.verdict`'s arithmetic, and the
+interesting result is the two names it TOOK AWAY.** The margin is now the
+optimal assignment's total minus the best total attainable with the slot
+forbidden its agent, so the alternative is one the uniqueness constraint
+permits. Over 190 slots in 19 sessions, old against new on IDENTICAL score
+matrices, refusals went 82 -> 73: eleven named, and two un-named.
+
+**Both losses are `043bafca271a` enemy slots 0 and 4, and they are the fault
+worth having found.** Both slots look most like Breach. The old margin scored
+Breach against Breach's own runner-up, cleared 0.07 on that, and then printed
+the name the assignment gave -- *Raze* for slot 0. A confident name resting on
+a different agent's evidence. Under the new rule the two fight each other for
+Breach, both collapse to 0.019, and both refuse. `best_guess` carried the same
+fault on 12 of 190 slots, reporting an argmax the constraint had already thrown
+out; it now reports the assignment's pick.
+
+**What did NOT happen.** On `7010b3d62460`, the only session with a recorded
+lineup truth, nothing changed: slots 0 and 3 stay refused at 0.054 and 0.013,
+because Chamber and Breach are claimed by no other slot and there was no
+constraint to exploit. So the correctness prediction is UNTESTED rather than
+passed, none of the eleven newly named slots has a truth to check against, and
+nine of the eleven sit within 0.03 of a `MARGIN_MIN` fitted on one lineup of
+five slots. The honest claim is that the rule stopped measuring the wrong
+quantity, not that coverage is solved.
+
+**The verdict is now pure over a stored observation.** `adjudicate` takes the
+(slot, agent) matrix, and the matrix is written beside the verdict -- about 3 KB
+a session. Changing this rule cost a seven-minute decode of nineteen sessions
+because the observation had been thrown away and only the conclusion kept; the
+next change costs nothing. The 19 stored lineups were rebuilt at 300 sampled
+frames, 2286 -> 3395 contributing, and backed up first. Complete SIDES, the unit
+alive-set differencing needs, went 4 -> 7 of 38. Sessions complete on BOTH sides
+remain 0.
+
+**Next, and the player named the shape of it: the other identity channels are
+built and unfed.** The gallery already loads three surfaces per agent --
+`agent_icon`, `killfeed_portrait`, `minimap_portrait` -- and scores all three
+against the TOP BAR only.
+
+    top bar        wired, and the only channel naming agents today
+    ability tray   wired, names the player outright, one slot of ten
+    minimap self   `Lineup.add_self` exists and HAS NO CALLER anywhere; the
+                   self-icon witness the player identity claims to combine is
+                   never fed, so the tray and the top bar decide alone
+    scoreboard     `scoreboard.portrait_observations` emits descriptors and
+                   refuses to name; nothing consumes them
+    killfeed       locates both portraits as structural landmarks and never
+                   matches them, though the reference art is already loaded
+
+The killfeed is the one to take first. It names agents on BOTH teams, it fires
+on every death rather than only at 5v5, and its portrait is the same feature the
+matcher already uses. It also carries the state transition the lineup cannot see
+-- 56 of the 79 refusals had no named candidate from any witness, and the
+witness that would name them is drawn every time someone dies.
+
 ## OWNERSHIP IS DECLARED AND CHECKED -- 2026-09-11
 
 **`ownership.toml` says who may DECIDE each question, and `doctor`'s OWNERSHIP

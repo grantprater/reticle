@@ -12,21 +12,40 @@ and a histogram is layout-free -- which is also why the enemy bar being mirrored
 costs nothing here.
 
 **One frame is not an answer; the MARGIN is.** Measured on Lotus
-`7010b3d62460`, 90 frames spaced across the session, official art only, no
-session mining and no labels:
+`7010b3d62460`, 67 contributing frames of 90 sampled, official art only, no
+session mining and no labels, against the 29-agent gallery:
 
-    slot   answer     margin over the runner-up    truth
-    1      Sage         0.132                      correct
-    2      Phoenix      0.109                      correct
-    4      Cypher       0.109                      correct
-    0      Sova         0.035                      WRONG (truth Chamber,
-                                                    which is the runner-up)
-    3      Raze         0.031                      WRONG (truth Brimstone)
+    slot   answer     margin   truth
+    2      Phoenix     0.153    correct
+    1      Sage        0.138    correct
+    4      Cypher      0.132    correct
+    0      --          0.054    refused; truth Chamber, and Chamber is the
+                                rival it could not be separated from
+    3      --          0.013    refused; truth Brimstone
 
 The margin separates them completely, so the gate is the margin and a slot
 below it stays `None` with a reason rather than guessing. `MARGIN_MIN` is a
 PROVISIONAL cut resting on one lineup of five slots -- every verdict carries
 its margin so a real cut can be fitted when more lineups are known.
+
+**The margin is measured against the ASSIGNMENT, not the raw ordering** -- see
+`adjudicate` for the rule. Over 190 slots in 19 sessions, old against new on
+IDENTICAL score matrices, refusals went from
+[metric:lineup/assignment-margin#refused_before=82] to
+[metric:lineup/assignment-margin#refused=73]:
+[metric:lineup/assignment-margin#gained=11] slots named where the constraint
+had already broken the tie, and [metric:lineup/assignment-margin#lost=2]
+UNNAMED that the old rule had named. The two losses are the better half of the
+result. Both are `043bafca271a` enemy slots 0 and 4, which both look most like
+Breach; the old margin scored Breach against its own runner-up, cleared the
+gate on that, and then named slot 0 *Raze* -- a name justified by a different
+agent's evidence. Nothing could see it until the alternative had to be one the
+constraint permits.
+
+Coverage is not the result to read here. Nine of the eleven newly named sit
+within 0.03 of `MARGIN_MIN`, and no newly named slot has a recorded truth to
+check it against, so the honest summary is that the rule stopped measuring the
+wrong quantity -- not that identity coverage is solved.
 
 Owns [owns:agent-from-slot] and [owns:player-agent].
 """
@@ -42,7 +61,7 @@ import numpy as np
 from .roster import ART_FRAC, N_SLOTS, alive_counts, roster_rois
 from .track import assign
 
-LINEUP_VERSION = "lineup-0.2.0"
+LINEUP_VERSION = "lineup-0.3.0"
 
 #: The three official renderings of an agent. They are independent drawings of
 #: one thing, so their scores are summed rather than chosen between.
@@ -101,6 +120,75 @@ def slot_crops(crop: np.ndarray) -> list[np.ndarray]:
         return []
     w = art.shape[1] / float(N_SLOTS)
     return [art[:, int(i * w):int((i + 1) * w)] for i in range(N_SLOTS)]
+
+
+def adjudicate(scores, names: list[str], frames: int, side: str = "ally",
+               margin_min: float = MARGIN_MIN) -> list[dict]:
+    """One row per slot: the agent, its margin, and whether to believe it.
+
+    Pure over the per-frame (slot, agent) matrix, so a stored lineup can be
+    re-adjudicated without opening the capture again.
+
+    The five slots are five DIFFERENT agents, so this is an assignment and not
+    five arg-maxes -- the same constraint the tracker uses on icons, for the
+    same reason. A slot under the margin is `None` WITH its best guess kept
+    beside it, because an unread value must say what it is.
+
+    **Per SIDE, and never across the match**: [domain:rounds/agent-uniqueness].
+    Both teams may field the same agent, so naming one on this side says
+    nothing about the other -- a ten-slot assignment would have named 11
+    refused slots wrongly across the stored lineups.
+
+    **The margin is measured against the assignment, not against the raw
+    ordering.** It is the optimal assignment's total score minus the best total
+    attainable when this slot is FORBIDDEN its agent, so the alternative it is
+    separated from is one the uniqueness constraint permits, and the
+    displacement that alternative forces on the other four slots is paid for in
+    the margin.
+
+    The version this replaces compared `order[0]` with `order[1]` on the raw
+    per-slot ordering, computed WITHOUT the assignment made two lines above it.
+    Where the runner-up was near-tied but taken by another slot, the constraint
+    had already resolved the tie and the slot was refused anyway -- 12 of 79
+    refusals across 19 stored lineups. The count read as thin evidence and was
+    a measurement taken in the wrong place.
+
+    `best_guess` is the assignment's pick for the same reason. Reporting an
+    argmax the constraint has already rejected is the original fault wearing a
+    different field name.
+    """
+    s = np.asarray(scores, dtype=float)
+    cost = [[-float(v) for v in row] for row in s]
+    picked = assign(cost)
+    best_total = sum(float(s[i, j]) for i, j in enumerate(picked) if j >= 0)
+    out = []
+    for i, j in enumerate(picked):
+        margin, rival = 0.0, None
+        if j >= 0:
+            # Forbidding one cell and re-solving gives the best assignment in
+            # which THIS slot differs -- the maximum over every alternative at
+            # once, for one solve rather than one per candidate agent.
+            blocked = [row[:] for row in cost]
+            blocked[i][j] = float("inf")
+            other = assign(blocked)
+            margin = best_total - sum(float(s[k, c])
+                                      for k, c in enumerate(other) if c >= 0)
+            rival = names[other[i]] if other[i] >= 0 else None
+        ok = j >= 0 and margin >= margin_min
+        out.append({
+            "slot": i, "side": side,
+            "agent": names[j] if ok else None,
+            "best_guess": names[j] if j >= 0 else names[int(np.argmax(s[i]))],
+            "rival": rival,
+            "score": round(float(s[i, j]) if j >= 0 else 0.0, 4),
+            "margin": round(margin, 4),
+            "frames": frames,
+            "reason": None if ok else
+                      f"margin {margin:.3f} below {margin_min} -- "
+                      + (f"not separated from {rival}" if rival
+                         else "no assignment"),
+        })
+    return out
 
 
 class Lineup:
@@ -276,49 +364,32 @@ class Lineup:
                       f"{side} slots",
         }
 
-    def verdict(self, side: str, margin_min: float = MARGIN_MIN) -> list[dict]:
-        """One row per slot: the agent, its margin, and whether to believe it.
+    def mean_scores(self, side: str) -> np.ndarray:
+        """The (slot, agent) evidence, per frame. THE observation this stores.
 
-        The five slots are five DIFFERENT agents, so this is an assignment and
-        not five arg-maxes -- the same constraint the tracker uses on icons,
-        for the same reason. A slot under the margin is `None` WITH its best
-        guess kept beside it, because an unread value must say what it is.
-
-        **Per SIDE, and never across the match**:
-        [domain:rounds/agent-uniqueness]. Both teams may field the same agent,
-        so naming one on this side says nothing about the other -- a ten-slot
-        assignment would have named 11 refused slots wrongly across the stored
-        lineups.
-
-        **KNOWN GAP, measured 2026-09-10.** The margin below is taken from the
-        raw per-slot ordering, `order[0]` against `order[1]`, which is computed
-        WITHOUT the assignment that has just been made. So a slot whose top two
-        are near-tied is refused even where `assign` already resolved the tie by
-        giving one of the pair to another slot -- 12 of 79 refusals across 19
-        stored lineups are exactly that. The margin should be measured against
-        the best alternative CONSISTENT WITH the assignment. Not changed here:
-        it moves a shipped reader's output and wants its own measurement.
+        Kept separate from `verdict` because the verdict is adjudication over
+        it, and adjudication that cannot be recomputed from a stored
+        observation is adjudication nobody can revisit. Changing the margin
+        rule cost a seven-minute decode of nineteen sessions precisely because
+        this matrix was thrown away and only the verdict was written down.
         """
-        s = self.scores[side] / max(self.frames, 1)
-        picked = assign([[-float(v) for v in row] for row in s])
-        out = []
-        for i, j in enumerate(picked):
-            order = np.argsort(-s[i])
-            best, runner = float(s[i, order[0]]), float(s[i, order[1]])
-            margin = best - runner
-            ok = j >= 0 and margin >= margin_min
-            out.append({
-                "slot": i, "side": side,
-                "agent": self.names[j] if ok else None,
-                "best_guess": self.names[order[0]],
-                "score": round(float(s[i, j]) if j >= 0 else 0.0, 4),
-                "margin": round(margin, 4),
-                "frames": self.frames,
-                "reason": None if ok else
-                          f"margin {margin:.3f} below {margin_min} -- "
-                          f"not separated from {self.names[order[1]]}",
-            })
-        return out
+        return self.scores[side] / max(self.frames, 1)
+
+    def verdict(self, side: str, margin_min: float = MARGIN_MIN) -> list[dict]:
+        """This side's slots, adjudicated. See `adjudicate`."""
+        return adjudicate(self.mean_scores(side), self.names, self.frames,
+                          side, margin_min)
+
+    def stored_scores(self) -> dict:
+        """The observation to write beside the verdict, for `adjudicate`.
+
+        Ten rows of 29 numbers. It costs about 3 KB per session and buys the
+        next change to the margin rule the decode this one had to pay.
+        """
+        return {"names": list(self.names),
+                **{side: [[round(float(v), 5) for v in row]
+                          for row in self.mean_scores(side)]
+                   for side in ("ally", "enemy")}}
 
 
 class LineupReader:
@@ -357,7 +428,8 @@ class LineupReader:
                            for side in ("ally", "enemy")},
                  "tray": {"agent": agent, "votes": votes, "total": total,
                           "frames_offered": self.state.tray_frames},
-                 "player": self.state.player("ally")}]
+                 "player": self.state.player("ally"),
+                 "scores": self.state.stored_scores()}]
 
 
 def read_session(session: str, store, frames: int = 90, cap=None):
@@ -440,7 +512,9 @@ def main(argv=None):
                                    "tray": {"agent": agent, "votes": votes,
                                             "total": total,
                                             "frames_offered": state.tray_frames},
-                                   "player": player}, indent=2), encoding="utf-8")
+                                   "player": player,
+                                   "scores": state.stored_scores()},
+                                  indent=2), encoding="utf-8")
         print(f"  wrote {out}")
     return 0
 

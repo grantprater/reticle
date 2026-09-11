@@ -66,6 +66,65 @@ class VerdictTests(unittest.TestCase):
         self.assertTrue(all(r["margin"] == 0.0 for r in out))
         self.assertTrue(all(r["best_guess"] for r in out))
 
+    def test_a_tie_the_assignment_already_broke_is_NAMED(self):
+        """The 12 of 79 refusals the old margin threw away.
+
+        Slot 0 is near-tied between Sage and Sova, and slot 1 wants Sova
+        outright. The constraint therefore settles slot 0 on Sage, and the
+        alternative it must be separated from is not Sova at 0.85 but the whole
+        assignment that giving Sova away would force.
+        """
+        rows = np.zeros((5, 6))
+        rows[0] = [0, 0, 0, 0, 0.90, 0.85]      # Sage, barely over Sova
+        rows[1] = [0, 0, 0, 0, 0.10, 0.90]      # Sova, and nothing else
+        rows[2] = [0, 0, 0.9, 0, 0, 0]
+        rows[3] = [0, 0, 0, 0.9, 0, 0]
+        rows[4] = [0.9, 0, 0, 0, 0, 0]
+        out = self.build(rows).verdict("ally", margin_min=0.07)
+        self.assertEqual(out[0]["agent"], "Sage")
+        self.assertEqual(out[1]["agent"], "Sova")
+        # The old rule saw 0.90 - 0.85 = 0.05 and refused.
+        self.assertGreater(out[0]["margin"], 0.07)
+
+    def test_a_tie_with_an_agent_NOBODY_else_wants_is_still_refused(self):
+        """The other half: the rule must not name everything it touches."""
+        rows = np.zeros((5, 6))
+        rows[0] = [0, 0, 0, 0, 0.90, 0.85]      # Sage vs Sova, both free
+        rows[1] = [0, 0.9, 0, 0, 0, 0]
+        rows[2] = [0, 0, 0.9, 0, 0, 0]
+        rows[3] = [0, 0, 0, 0.9, 0, 0]
+        rows[4] = [0.9, 0, 0, 0, 0, 0]
+        out = self.build(rows).verdict("ally", margin_min=0.07)
+        self.assertIsNone(out[0]["agent"])
+        self.assertAlmostEqual(out[0]["margin"], 0.05, places=4)
+        self.assertEqual(out[0]["rival"], "Sova")
+
+    def test_the_reason_names_the_rival_the_constraint_PERMITS(self):
+        """A refusal's reason must name an alternative that was available."""
+        rows = np.zeros((5, 6))
+        rows[0] = [0, 0, 0, 0, 0.90, 0.89]      # closest rival is Sova...
+        rows[1] = [0, 0, 0, 0, 0.05, 0.95]      # ...but slot 1 owns Sova
+        rows[2] = [0, 0, 0.9, 0, 0, 0]
+        rows[3] = [0, 0, 0, 0.9, 0, 0]
+        rows[4] = [0.88, 0, 0, 0, 0, 0]         # Astra, weakly
+        out = self.build(rows).verdict("ally", margin_min=5.0)   # refuse all
+        self.assertNotEqual(out[0]["rival"], "Sova")
+        self.assertIn(out[0]["rival"], out[0]["reason"])
+
+    def test_adjudicate_is_pure_over_the_stored_matrix(self):
+        """A stored lineup can be re-adjudicated without opening the capture."""
+        rows = np.zeros((5, 6))
+        rows[0] = [0.9, 0.2, 0, 0, 0, 0]
+        rows[1] = [0, 0.50, 0.49, 0, 0, 0]
+        rows[2] = [0, 0, 0, 0.9, 0.1, 0]
+        rows[3] = [0, 0, 0, 0, 0.9, 0.1]
+        rows[4] = [0, 0, 0, 0, 0, 0.9]
+        st = self.build(rows)
+        self.assertEqual(
+            lineup.adjudicate(st.mean_scores("ally"), st.names, st.frames,
+                              "ally", 0.07),
+            st.verdict("ally", margin_min=0.07))
+
     def test_the_five_slots_cannot_be_one_agent(self):
         # Every slot looks most like Sage; the assignment must still spread.
         rows = np.zeros((5, 6))
@@ -121,8 +180,11 @@ class PlayerCorroborationTests(unittest.TestCase):
         st = self.build()
         st.self_n = 1
         st.self_scores = np.array([0.2, 0.1, 0.1, 0.8, 0.1, 0.95])
-        # Make the top bar unsure about the slot the self icon lands on.
-        st.scores["ally"][3] = [0, 0, 0, 0.50, 0.49, 0]
+        # Make the top bar unsure about the slot the self icon lands on. The
+        # rival has to be Sova, the one agent no other slot claims: a tie with
+        # Sage would not be one, because the assignment gives Sage to slot 4
+        # and the margin is measured against what the constraint PERMITS.
+        st.scores["ally"][3] = [0, 0, 0, 0.50, 0, 0.49]
         got = st.player("ally")
         # The top bar could not separate that slot; that is silence, not
         # a contradiction, and the two must not read the same.
