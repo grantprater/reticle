@@ -70,6 +70,10 @@ CITE = re.compile(
 HISTORY = ("NOTES.md", "BACKLOG.md")
 
 #: Where prose lives. `domain/` holds no figures and `tests/` asserts its own.
+#: Scanned RECURSIVELY: a flat listing could not see `reticle/adjudication/`,
+#: so five modules could quote any figure they liked and the check reported the
+#: series as uncited instead. `architecture.py` had the same blind spot for the
+#: same reason -- a directory is not a `*.py`.
 SCAN_DIRS = ("", "docs", "reticle", "prototypes", "tools")
 SCAN_SUFFIXES = (".py", ".md")
 
@@ -101,16 +105,22 @@ def scan_files(root: Path | None = None) -> list[Path]:
     """The repo's prose, history and self-referential examples excluded."""
     base = Path(root) if root else ROOT
     out: list[Path] = []
+    out_names: set[str] = set()
     for relative in SCAN_DIRS:
         directory = base / relative if relative else base
         if not directory.is_dir():
             continue
-        for path in sorted(directory.iterdir()):
+        walk = (sorted(directory.rglob("*")) if relative
+                else sorted(directory.iterdir()))
+        for path in walk:
             if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
                 continue
             name = path.relative_to(base).as_posix()
             if name in HISTORY or name in EXAMPLE_ONLY:
                 continue
+            if name in out_names:
+                continue
+            out_names.add(name)
             out.append(path)
     return out
 

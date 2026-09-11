@@ -27,8 +27,25 @@ from ..roster import N_SLOTS
 
 
 AGENT_IDENTITY_VERSION = "agent-identity-0.2.0"
+
+#: Borrowed from `lineup.MARGIN_MIN` and NOT refitted here. It keeps every
+#: correct player portrait on the one population with a truth --
+#: [metric:killfeed/portrait-gate#correct_at_gate=210] of
+#: [metric:killfeed/portrait-gate#truth_portraits=210], whose thinnest correct
+#: margin is [metric:killfeed/portrait-gate#min_margin_correct=0.078] -- and it
+#: refuses [metric:killfeed/portrait-gate#refused_for_margin=173] of
+#: [metric:killfeed/portrait-gate#portraits=392] portraits overall, where no
+#: truth says whether that is right. Untested on the other nine players.
 PORTRAIT_MARGIN_MIN = 0.07
-_IDENTITY_SURFACES = ("agent_icon", "killfeed_portrait", "minimap_portrait")
+
+#: The surface the killfeed actually draws, and the gallery both measured runs
+#: used: `killfeed/portrait-identity` and `killfeed/portrait-stability` each
+#: record `deps.gallery = "killfeed_portrait art, 29 agents"`. Scoring a
+#: killfeed portrait against agent-icon and minimap art as well, and keeping
+#: the best, changed the top match on 63 of 388 portraits -- a different rule
+#: from the one the 93/93 rests on, and one whose winning surface varies per
+#: agent, so the two scores a margin subtracts come from different drawings.
+MEASURED_SURFACES = ("killfeed_portrait",)
 
 
 def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
@@ -114,11 +131,16 @@ def claims_from_lineup(sides, player=None, *, observation_id="lineup",
     return out
 
 
-def load_identity_gallery(store) -> dict[str, list[np.ndarray]]:
-    """Load official portrait descriptors in the killfeed feature space."""
+def load_identity_gallery(store, surfaces=MEASURED_SURFACES) -> dict[str, list[np.ndarray]]:
+    """Load official portrait descriptors in the killfeed feature space.
+
+    The default is the surface that was measured; see `MEASURED_SURFACES`.
+    Widening it is a different rule and needs its own before-and-after, which
+    is why it is an argument and not a constant read from somewhere else.
+    """
     art = Path(store) / "reference" / "assets" / "agents"
     gallery: dict[str, list[np.ndarray]] = {}
-    for surface in _IDENTITY_SURFACES:
+    for surface in surfaces:
         for path in sorted(glob.glob(str(art / f"*_{surface}.png"))):
             image = cv2.imread(path, cv2.IMREAD_UNCHANGED)
             if image is None or image.ndim != 3:
