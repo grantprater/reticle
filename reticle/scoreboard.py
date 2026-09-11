@@ -38,6 +38,7 @@ import numpy as np
 
 import cv2
 
+from . import appearance
 from .ocr import Templates, _raw_components, normalise
 from .version import SCOREBOARD_VERSION
 
@@ -336,19 +337,15 @@ def portrait_observations(frame: np.ndarray, board: ScoreboardRead) -> list[dict
         art = frame[row.y0:row.y1, x0:x0 + width]
         if art.shape[0] <= 4 or art.shape[1] <= 4:
             continue
-        gray = cv2.cvtColor(art, cv2.COLOR_BGR2GRAY).astype(np.float32)
-        detail = float(np.abs(cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)).mean())
-        hsv = cv2.cvtColor(art, cv2.COLOR_BGR2HSV)
-        hb = (hsv[:, :, 0].astype(int) * 10 // 180).clip(0, 9)
-        sb = (hsv[:, :, 1].astype(int) * 3 // 256).clip(0, 2)
-        vb = (hsv[:, :, 2].astype(int) * 3 // 256).clip(0, 2)
-        hist = np.bincount(((hb * 3 + sb) * 3 + vb).ravel(),
-                           minlength=90).astype(np.float32)
-        hist /= max(1.0, float(hist.sum()))
+        # The histogram lives in `appearance` so the killfeed can describe its
+        # own portraits with the SAME function. Two copies of it was the fork
+        # this repo has a checker for.
         result.append({"display_row": index, "portrait_x0": x0,
                        "portrait_y0": row.y0, "portrait_x1": x0 + width,
-                       "portrait_y1": row.y1, "portrait_detail": detail,
-                       "portrait_composition": hist.tolist()})
+                       "portrait_y1": row.y1,
+                       "portrait_detail": appearance.detail(art),
+                       "portrait_composition":
+                           appearance.hsv_composition(art).tolist()})
     return result
 
 

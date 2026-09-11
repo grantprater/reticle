@@ -11,6 +11,58 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## THE KILLFEED DRAWS THE AGENT, AND NOW SOMETHING LOOKS AT IT -- 2026-09-11
+
+**`killfeed.portrait_observations` extracts both portraits from every entry.**
+The reference art for all 29 agents was already in the store and already loaded;
+this module had only ever used the portraits as landmarks -- the thing at the
+ROI edge that is not a name.
+
+**Matched inside the lineup for the side its own plate names, it is exact.**
+Against the ability TRAY, which names the player's agent on a different surface
+by a different rule and knows nothing about the killfeed:
+
+    within the side's lineup     93 / 93   player-involved observations
+    open against all 29 agents   62 / 93
+
+`b7d24102a6f6` is the whole argument: open set it picks Tejo over Skye on 30 of
+31, and the ally lineup corrects every one. The portrait is a weak 29-way
+classifier and a perfect 5-way one, which is CROSS-REFERENCE BEFORE TUNING
+paying out -- gate the channel on what another channel already knows instead of
+fitting the detector.
+
+**The geometry took three attempts and each was rendered and looked at.**
+Anchoring on the plate runs put the box on the weapon icon. Anchoring on the
+largest plate span ran off the entry into the scenery, because warm scenery
+reads as the enemy plate's red -- the same thing that used to merge background
+into the band above. What works: walk outward from the name to the first
+sustained gap in plate-or-text, and take the WIDTH from the official art, which
+is 256x128 and therefore two band heights. No constant is fitted to a session.
+
+**The descriptor has one definition now.** `appearance.composition` is the
+10x3x3 HSV histogram `scoreboard` had inline; `killfeed` calls the same
+function rather than carrying a second copy, and the plate is masked OUT --
+unmasked, every ally portrait resembles the ally plate rather than the agent.
+Note that `lineup` still uses a DIFFERENT composition from `prototypes`, and the
+agent gallery is built with it. The two are not interchangeable and unifying
+them would move every measured lineup result at once; `BACKLOG.md` carries it.
+
+**Limits, stated rather than implied.** Truth here is the tray, a reader and not
+an external record. The 93 are repeated views of a smaller number of distinct
+deaths and this run did not separate them. 37% of victim portraits are clipped
+by the killfeed ROI's right edge. And nothing yet names the other nine players:
+the reader emits a descriptor and a side and refuses to name, because naming
+needs the lineup and a reader that borrowed it would collapse two witnesses into
+one.
+
+**Next is the owner, not more evidence.** `agent-identity` in `ownership.toml`
+is still declared unowned, and its `blocked_by` now says so: what is missing is
+the module that holds a named claim per entity, weighs the portrait against the
+top bar, the tray and the self icon, and keeps the disagreements. The player has
+named the shape of the endstate -- one producer of agent events, with the
+ability and ping adjudicators consuming it for `is_alive` rather than
+re-deriving it.
+
 ## THE MARGIN NOW MEASURES THE ASSIGNMENT -- 2026-09-11
 
 **`lineup.adjudicate` replaces `Lineup.verdict`'s arithmetic, and the

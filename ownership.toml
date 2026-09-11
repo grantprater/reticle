@@ -180,6 +180,36 @@ excludes another's region.
 consumers = ["round_lifetimes", "minimap_diagnostics", "overlay"]
 
 [[entry]]
+id = "portrait-descriptor"
+question = "What does this crop of agent art look like, as one comparable vector?"
+owner = "appearance"
+role = ["detect"]
+status = "shipped"
+produces = ["hsv_composition", "detail", "agrees"]
+not_for = """
+Naming the agent, and replacing `lineup`'s feature. This is a DESCRIPTION; the
+gallery that would turn one into a name is built with the prototype composition
+in `lineup`, and the two are not interchangeable. Unmasked it describes the
+furniture a portrait is drawn on rather than the portrait.
+"""
+consumers = ["killfeed", "scoreboard"]
+
+[[entry]]
+id = "killfeed-portrait"
+question = "What do the killer and victim portraits in this entry look like?"
+owner = "killfeed"
+role = ["detect"]
+status = "partial"
+produces = ["portrait_observations", "PORTRAIT_ASPECT"]
+not_for = """
+Naming either agent. The descriptor plus the plate's side is all a reader may
+emit; the five agents that side may hold come from `lineup`, and a reader that
+borrowed them would collapse two witnesses into one. See `agent-identity`.
+"""
+defers_to = ["portrait-descriptor"]
+evidence = "tests/test_killfeed_portraits.py"
+
+[[entry]]
 id = "killfeed-event"
 question = "Did a kill appear in the feed, and did it involve the local player?"
 owner = "killfeed"
@@ -670,10 +700,12 @@ not_for = """
 alive counts, position -- and none may promote its piece into a name.
 """
 blocked_by = """
-lineup coverage: ally sides name 3-5 of 5, enemy sides 0-3, and 33 sessions have
-no lineup at all. An incomplete side must refuse rather than assign an unnamed
-slot, and the margin must be measured against the best assignment-consistent
-alternative.
+An owner, not evidence. `killfeed-portrait` now describes both agents on every
+entry, and matched inside the lineup for the side its plate names it hit the
+tray's answer on 93 of 93 player-involved observations -- against 62 of 93 open
+against all 29 agents, so the CONSTRAINT is doing the work. What is missing is
+the module that holds a named claim per entity, weighs the portrait against the
+top bar, the tray and the self icon, and keeps the disagreements.
 """
 
 [[entry]]

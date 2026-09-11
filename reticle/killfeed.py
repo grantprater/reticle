@@ -303,7 +303,7 @@ Deaths per round is deliberately NOT used as a check anywhere: Sage
 resurrection and Clove self-revive both let a player die more than once in a
 round, so any such invariant would fire on legitimate footage.
 
-Owns [owns:killfeed-event].
+Owns [owns:killfeed-event] and [owns:killfeed-portrait].
 """
 
 from __future__ import annotations
@@ -315,6 +315,7 @@ import numpy as np
 
 import cv2
 
+from . import appearance
 from .census import Census
 from .profiles import Profile, Roi, template_key
 
@@ -1195,6 +1196,130 @@ def analyse_killfeed(
                                verdict=verdict,
                                victim_ally=victim_is_ally(green, red, a, z, wx1)))
     return views
+
+
+#: The official killfeed portrait art is 256x128 -- TWO band heights wide. Taken
+#: from the asset, not fitted to a session, which is why it is a ratio and not a
+#: pixel count: the band height already carries the widget's scale.
+PORTRAIT_ASPECT = 2.0
+
+#: How many columns must stay clear of plate and text before a gap is the
+#: portrait rather than the space inside a letter.
+PORTRAIT_MIN_RUN = 4
+
+#: A column with this much white ink is text, and text sits ON the plate. Lower
+#: than `TEXT_V_MIN`'s per-pixel test because this one is per column.
+PORTRAIT_TEXT_FRAC = 0.15
+
+
+def _entry_columns(green_band, red_band, white_band, bh: int) -> np.ndarray:
+    """Per column: is this the entry's own furniture -- plate, or text on it?"""
+    covered = ((green_band.sum(axis=0) + red_band.sum(axis=0))
+               >= PLATE_COL_FRAC * bh)
+    text = white_band.sum(axis=0) >= PORTRAIT_TEXT_FRAC * bh * 255
+    return covered | text
+
+
+def _portrait_edge(on: np.ndarray, start: int, step: int, w: int) -> int | None:
+    """Walk out from a name to the first sustained gap in the entry's furniture.
+
+    That gap is the portrait, and the walk stops there rather than continuing,
+    which is what keeps the scenery out. Past the entry the ROI is open world
+    and warm scenery reads as the enemy plate's red, so any rule that looks for
+    the LARGEST plate run, or the last one, runs off the end of the entry --
+    both were tried, and both put the box on the weapon icon or the wall.
+    """
+    x = start
+    while 0 <= x < w:
+        if not on[x]:
+            ahead = [x + step * d for d in range(PORTRAIT_MIN_RUN)]
+            if all(0 <= p < w for p in ahead) and not any(on[p] for p in ahead):
+                return x
+        x += step
+    return None
+
+
+def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
+                          views: "list[EntryView] | None" = None,
+                          mask: np.ndarray | None = None,
+                          profile_name: str = "valorant-16x9") -> list[dict]:
+    """Context-free appearance evidence for each entry's two agent portraits.
+
+    **The killfeed draws the agent, and nothing has ever looked at it.** Every
+    entry carries the killer's portrait and the victim's, the reference art for
+    all 29 is already in the store, and this module has only ever used those
+    portraits as landmarks -- the thing at the ROI edge that is not a name. So
+    the one channel that names agents on BOTH teams, and that fires on a death
+    rather than only while a side is at five alive, has been discarded on every
+    frame.
+
+    Like `scoreboard.portrait_observations`, this emits the descriptor and the
+    box and NEVER an agent. Turning a descriptor into a name needs the lineup to
+    say which five agents that side may hold, and that belongs to an
+    adjudicator; a reader that borrowed the lineup's conclusion would make two
+    channels into one witness.
+
+    The plate is masked OUT of the descriptor. Agent art is drawn over a
+    team-coloured plate, and unmasked every ally portrait would resemble every
+    other ally portrait rather than the agent it shows.
+
+    `clipped` is the fraction of the portrait's expected width that falls
+    outside the ROI. The victim's portrait sits at the entry's right end and is
+    routinely cut by a few pixels; a consumer weighing two claims should know
+    which one saw a whole face.
+    """
+    if views is None:
+        views = analyse_killfeed(frame, roi, width, height, mask=mask,
+                                 profile_name=profile_name)
+    x0, y0, x1, y1 = roi.pixels(width, height)
+    crop = frame[y0:y1, x0:x1]
+    h, w = crop.shape[:2]
+    if mask is None:
+        mask = np.ones((h, w), dtype=bool)
+    green, red, white = _plate_masks(crop, mask)
+
+    out: list[dict] = []
+    for view in views:
+        if not (view.killer_run and view.victim_run):
+            continue
+        bh = view.y1 - view.y0
+        if bh < 8:
+            continue
+        band = crop[view.y0:view.y1]
+        on = _entry_columns(green[view.y0:view.y1], red[view.y0:view.y1],
+                            white[view.y0:view.y1], bh)
+        furniture = (green[view.y0:view.y1] | red[view.y0:view.y1]
+                     | (white[view.y0:view.y1] > 0))
+        wide = int(round(PORTRAIT_ASPECT * bh))
+        for role, start, step in (("killer", view.killer_run[0] - 1, -1),
+                                  ("victim", view.victim_run[1] + 1, +1)):
+            edge = _portrait_edge(on, start, step, w)
+            if edge is None:
+                out.append({"slot": view.slot, "role": role,
+                            "reason": "no gap past the name"})
+                continue
+            outer = edge + step * wide
+            px0, px1 = sorted((edge, outer))
+            px0, px1 = max(0, px0), min(w, px1)
+            art = band[:, px0:px1]
+            keep = ~furniture[:, px0:px1]
+            out.append({
+                "slot": view.slot, "role": role,
+                "x0": int(px0), "x1": int(px1),
+                "y0": int(view.y0), "y1": int(view.y1),
+                "clipped": round(1.0 - (px1 - px0) / max(1, wide), 4),
+                "art_fraction": round(float(keep.mean()) if keep.size else 0.0, 4),
+                "detail": round(appearance.detail(art), 3),
+                "composition": appearance.hsv_composition(art, keep).tolist(),
+                # Which team this portrait belongs to. The killer and the victim
+                # are on opposite sides of every entry, and `victim_ally` is
+                # read from the plate the VICTIM's name sits on.
+                "ally": None if view.victim_ally is None else
+                        (view.victim_ally if role == "victim"
+                         else not view.victim_ally),
+                "reason": "",
+            })
+    return out
 
 
 def _trusted_wx(view: "EntryView") -> int:

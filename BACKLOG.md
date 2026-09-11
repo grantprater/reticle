@@ -1210,6 +1210,48 @@ and one of them is badly wrong. See *`lotus__valorant-16x9` finds 41% of the
 plant zones it should* above. A painting would say whether the rest of the
 gradient (72-85% against the bigmap keys' 87%) is the mask or the art fit.
 
+## TWO COMPOSITION FEATURES, and the gallery is built with the older one
+
+`appearance.composition` is a 10x3x3 HSV histogram, shared by `scoreboard` and
+`killfeed`. `lineup._composition` reaches into `prototypes/minimap_portrait.py`
+for a different one, and the agent gallery -- every `load_gallery` score, every
+margin, the 83.5% held-out transfer, the whole assignment -- is built with that
+one.
+
+They are not interchangeable and this is deliberately not a unification. Every
+measured lineup result rests on the prototype feature, and swapping it would
+move all of them at once with nobody having re-scored a session. The killfeed
+result (93/93 within the lineup) was measured with the SHARED feature against a
+gallery re-described in the shared feature, so the two channels are internally
+consistent; they are simply not describing agents the same way as `lineup` is.
+
+What would un-defer it: the `agent-identity` adjudicator needing to compare a
+killfeed portrait claim with a top-bar claim on one scale. Until then two
+features with one owner each is honest, and one feature nobody re-scored is not.
+Do the swap as its own change with its own before-and-after on the stored
+lineups, which now carry their score matrices and can be re-adjudicated without
+a decode.
+
+---
+
+## THE VICTIM PORTRAIT IS CUT BY THE KILLFEED ROI
+
+37% of the portraits `killfeed.portrait_observations` extracts are clipped at
+the ROI's right edge, all of them victims: the entry's right end sits past where
+the ROI stops. The observation records `clipped` as a fraction so a consumer can
+weigh a partial face against a whole one, and the 93/93 result held with them
+included, so this is not currently costing an answer.
+
+Widening the ROI is not free -- it is the input to every killfeed measurement in
+this module's docstring, and a wider ROI admits more scenery to the band
+detector, which is the thing `_plate_runs` already has to defend against. What
+would un-defer it: a portrait claim refused for want of pixels, or the
+`agent-identity` adjudicator finding victim claims systematically weaker than
+killer claims. Measure the refusal first; do not widen the ROI to see what
+happens.
+
+---
+
 ## Three ownership boundaries the index RECORDS and does not resolve
 
 `ownership.toml` now names an owner for every question and a `not_for` for every
