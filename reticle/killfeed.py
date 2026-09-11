@@ -308,6 +308,7 @@ Owns [owns:killfeed-event] and [owns:killfeed-portrait].
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1202,6 +1203,7 @@ def analyse_killfeed(
 #: from the asset, not fitted to a session, which is why it is a ratio and not a
 #: pixel count: the band height already carries the widget's scale.
 PORTRAIT_ASPECT = 2.0
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.2.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -1320,6 +1322,84 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                 "reason": "",
             })
     return out
+
+
+class KillfeedPortraitReader:
+    """Persist context-free portrait observations from the shared HUD pass.
+
+    This reader does not name an agent. It stores the descriptor, role, side
+    evidence and source coordinates so `adjudication.identity` can later join
+    it to a lineup without reopening the video.
+    """
+
+    def __init__(self, profile, wh, mask=None, hz=2.0, spans=None):
+        self.profile = profile
+        self.w, self.h = wh
+        self.mask = mask
+        self.roi = killfeed_roi(profile)
+        self.name = "killfeed_portrait"
+        self.hz = hz
+        self.spans = spans
+        self.rows: list[dict] = []
+        self.frames_offered = 0
+
+    def feed(self, smp) -> None:
+        self.frames_offered += 1
+        if self.roi is None:
+            return
+        views = analyse_killfeed(
+            smp.frame, self.roi, self.w, self.h, self.mask,
+            self.profile.name)
+        for observation in portrait_observations(
+                smp.frame, self.roi, self.w, self.h, views=views,
+                mask=self.mask, profile_name=self.profile.name):
+            self.rows.append({
+                "frame_idx": int(smp.frame_idx),
+                "t_ms": float(smp.t_ms),
+                **observation,
+            })
+
+    def events(self, session_id: str) -> list[dict]:
+        """Return JSONL-ready raw observations, never identity verdicts.
+
+        The coverage row carries the REFUSALS and their reasons, not only the
+        count of what was read. A rate needs both halves, and a reason nobody
+        tallies is a guard that fires eleven times more often on one session
+        than another with nothing to show it -- which is `census`'s whole
+        argument, applied to the file this reader writes.
+        """
+        common = {
+            "session_id": session_id,
+            "source": "killfeed",
+            "killfeed_portrait_version": KILLFEED_PORTRAIT_VERSION,
+        }
+        refused = Counter(row["reason"] for row in self.rows if row.get("reason"))
+        coverage = {
+            **common,
+            "kind": "coverage",
+            "frames_offered": self.frames_offered,
+            "observations": len(self.rows),
+            "described": len(self.rows) - sum(refused.values()),
+            "refused": sum(refused.values()),
+            "refused_reasons": dict(sorted(refused.items())),
+        }
+        rows = []
+        for row in self.rows:
+            out = dict(row)
+            # The descriptor is two thirds of the stored row at full float
+            # repr, and the gate it feeds is measured in hundredths. Five
+            # decimals is three orders of magnitude below the finest margin
+            # anything compares.
+            if out.get("composition") is not None:
+                out["composition"] = [round(v, 5) for v in out["composition"]]
+            rows.append({
+                **common,
+                "kind": "portrait_observation",
+                "observation_key":
+                    f"{session_id}:{row['frame_idx']}:{row['slot']}:{row['role']}",
+                **out,
+            })
+        return [coverage] + rows
 
 
 def _trusted_wx(view: "EntryView") -> int:

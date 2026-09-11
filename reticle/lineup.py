@@ -60,8 +60,10 @@ import numpy as np
 
 from .roster import ART_FRAC, N_SLOTS, alive_counts, roster_rois
 from .track import assign
+from .adjudication.identity import (adjudicate_agent_identity,
+                                    claims_from_lineup)
 
-LINEUP_VERSION = "lineup-0.3.0"
+LINEUP_VERSION = "lineup-0.4.0"
 
 #: The three official renderings of an agent. They are independent drawings of
 #: one thing, so their scores are summed rather than chosen between.
@@ -86,10 +88,29 @@ def _composition(bgr, mask=None):
 
 
 def load_lineup(session: str, store) -> dict | None:
-    """The stored lineup verdict for a session, or None when never read."""
+    """The stored lineup verdict for a session, or None when never read.
+
+    **The identity verdict is DERIVED here when the file predates it.** The 19
+    stored lineups were written before `agent_identity` existed and carry the
+    same version stamp as a file that has it, so a consumer reading the key
+    would fail on two thirds of the store while the stamp said current. The
+    claims are pure over `sides` and `player`, which every file already holds,
+    so this costs no decode and no rewrite -- and the artifact is never the
+    only place the answer lives.
+    """
     import json
     f = Path(store) / "lineups" / f"{session}.json"
-    return json.loads(f.read_text(encoding="utf-8")) if f.is_file() else None
+    if not f.is_file():
+        return None
+    got = json.loads(f.read_text(encoding="utf-8"))
+    if "agent_identity" not in got:
+        claims = claims_from_lineup(
+            got.get("sides", {}), got.get("player"), observation_id=session,
+            source_version=got.get("version", "lineup"))
+        got["identity_claims"] = claims
+        got["agent_identity"] = adjudicate_agent_identity(claims)
+        got["agent_identity_recomputed"] = True
+    return got
 
 
 def load_gallery(store) -> dict[str, list[np.ndarray]]:
@@ -422,13 +443,19 @@ class LineupReader:
 
     def finish(self):
         agent, votes, total = self.state.tray_verdict()
+        sides = {side: self.state.verdict(side)
+                 for side in ("ally", "enemy")}
+        player = self.state.player("ally")
+        identity_claims = claims_from_lineup(
+            sides, player, observation_id=self.name,
+            source_version=LINEUP_VERSION)
         return [{"version": LINEUP_VERSION, "frames": self.state.frames,
-                 "margin_min": MARGIN_MIN,
-                 "sides": {side: self.state.verdict(side)
-                           for side in ("ally", "enemy")},
+                 "margin_min": MARGIN_MIN, "sides": sides,
                  "tray": {"agent": agent, "votes": votes, "total": total,
                           "frames_offered": self.state.tray_frames},
-                 "player": self.state.player("ally"),
+                 "player": player,
+                 "identity_claims": identity_claims,
+                 "agent_identity": adjudicate_agent_identity(identity_claims),
                  "scores": self.state.stored_scores()}]
 
 
@@ -480,6 +507,9 @@ def main(argv=None):
     state = read_session(args.session, store, args.frames)
     rows = {side: state.verdict(side) for side in ("ally", "enemy")}
     player = state.player("ally")
+    identity_claims = claims_from_lineup(
+        rows, player, observation_id=args.session, source_version=LINEUP_VERSION)
+    agent_identity = adjudicate_agent_identity(identity_claims)
     agent, votes, total = state.tray_verdict()
     print(f"{args.session}: {state.frames} frames sampled")
     print(f"  tray   {agent or '--'} ({votes}/{total} votes over "
@@ -513,6 +543,8 @@ def main(argv=None):
                                             "total": total,
                                             "frames_offered": state.tray_frames},
                                    "player": player,
+                                   "identity_claims": identity_claims,
+                                   "agent_identity": agent_identity,
                                    "scores": state.stored_scores()},
                                   indent=2), encoding="utf-8")
         print(f"  wrote {out}")

@@ -21,6 +21,30 @@ Ordered by consequence, not by age.
 
 ---
 
+## THE HUD PASS ANALYSES THE KILLFEED TWICE PER FRAME
+
+`HudReader.feed` calls `read_killfeed`, which calls `analyse_killfeed`, and
+`KillfeedPortraitReader.feed` calls `analyse_killfeed` again on the same frame
+at the same rate. The portrait extraction itself is nearly free; the duplicated
+band analysis is the whole cost.
+
+Measured on `b7d24102a6f6`: `analyse_killfeed` is 4.7 ms a frame and the
+portraits add 0.4 ms on top of it, so the duplicate is **23 seconds of a
+40-minute scan at 2 Hz** against a decode measured in minutes.
+
+**Deferred because the cheap fixes are both wrong.** Passing one reader's views
+to another breaks `passes`' own claim that no reader knows another; moving
+portraits into `HudReader` moves a question `ownership.toml` gives to
+`killfeed`. The right shape is a per-frame derived cache owned by the PASS, not
+by either reader, which means touching the sample type that every reader takes
+-- too much to do at the end of a session for 23 seconds.
+
+**What would un-defer it:** a second rider wanting the same views (the entry
+ORDER rule above needs exactly them), or a scan whose wall clock starts
+mattering. Two riders make the cache pay for itself and settle its shape.
+
+---
+
 ## Separate a killfeed entry from a camera wipe by BLUR -- superseded by ORDER
 
 **Twice demoted on 2026-09-09, and the second time it was replaced.**

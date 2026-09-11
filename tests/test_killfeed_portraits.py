@@ -1,11 +1,15 @@
 """The two agent portraits every killfeed entry draws, and the plate under them."""
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 
 from reticle import appearance, killfeed
-from reticle.killfeed import (PORTRAIT_ASPECT, EntryView, _entry_columns,
+from reticle.killfeed import (KILLFEED_PORTRAIT_VERSION,
+                              PORTRAIT_ASPECT, EntryView,
+                              KillfeedPortraitReader, _entry_columns,
                               _portrait_edge, portrait_observations)
 from reticle.profiles import Roi
 
@@ -156,6 +160,66 @@ class CompositionTests(unittest.TestCase):
         self.assertGreater(appearance.agrees(
             appearance.hsv_composition(art, mask),
             appearance.hsv_composition(art[:, :20])), 0.99)
+
+
+class ReaderTests(unittest.TestCase):
+    def test_reader_persists_raw_observations_with_stable_keys(self):
+        profile = SimpleNamespace(name="valorant-16x9")
+        sample = SimpleNamespace(frame=np.zeros((20, 20, 3), np.uint8),
+                                 frame_idx=12, t_ms=1500.0)
+        observation = {"slot": 1, "role": "victim", "ally": False,
+                       "composition": [0.5, 0.5], "reason": ""}
+        with patch("reticle.killfeed.killfeed_roi", return_value=Roi("kf", 0, 0, 1, 1)), \
+             patch("reticle.killfeed.analyse_killfeed", return_value=[]), \
+             patch("reticle.killfeed.portrait_observations",
+                   return_value=[observation]):
+            reader = KillfeedPortraitReader(profile, (1920, 1080), hz=2.0)
+            reader.feed(sample)
+        events = reader.events("session-1")
+        self.assertEqual(events[0]["kind"], "coverage")
+        self.assertEqual(events[0]["killfeed_portrait_version"],
+                         KILLFEED_PORTRAIT_VERSION)
+        self.assertEqual(events[1]["observation_key"],
+                         "session-1:12:1:victim")
+        self.assertNotIn("agent", events[1])
+
+    def test_coverage_counts_the_refusals_and_names_them(self):
+        profile = SimpleNamespace(name="valorant-16x9")
+        sample = SimpleNamespace(frame=np.zeros((20, 20, 3), np.uint8),
+                                 frame_idx=3, t_ms=500.0)
+        described = {"slot": 0, "role": "killer", "ally": True,
+                     "composition": [0.123456789, 0.876543211], "reason": ""}
+        refused = {"slot": 1, "role": "victim",
+                   "reason": "no gap past the name"}
+        with patch("reticle.killfeed.killfeed_roi", return_value=Roi("kf", 0, 0, 1, 1)), \
+             patch("reticle.killfeed.analyse_killfeed", return_value=[]), \
+             patch("reticle.killfeed.portrait_observations",
+                   return_value=[described, refused]):
+            reader = KillfeedPortraitReader(profile, (1920, 1080), hz=2.0)
+            reader.feed(sample)
+        coverage = reader.events("session-1")[0]
+        self.assertEqual(coverage["observations"], 2)
+        self.assertEqual(coverage["described"], 1)
+        self.assertEqual(coverage["refused"], 1)
+        self.assertEqual(coverage["refused_reasons"],
+                         {"no gap past the name": 1})
+
+    def test_the_stored_descriptor_is_rounded(self):
+        profile = SimpleNamespace(name="valorant-16x9")
+        sample = SimpleNamespace(frame=np.zeros((20, 20, 3), np.uint8),
+                                 frame_idx=3, t_ms=500.0)
+        observation = {"slot": 0, "role": "killer", "ally": True,
+                       "composition": [0.123456789, 0.876543211], "reason": ""}
+        with patch("reticle.killfeed.killfeed_roi", return_value=Roi("kf", 0, 0, 1, 1)), \
+             patch("reticle.killfeed.analyse_killfeed", return_value=[]), \
+             patch("reticle.killfeed.portrait_observations",
+                   return_value=[observation]):
+            reader = KillfeedPortraitReader(profile, (1920, 1080), hz=2.0)
+            reader.feed(sample)
+        stored = reader.events("session-1")[1]["composition"]
+        self.assertEqual(stored, [0.12346, 0.87654])
+        # The reader's own rows keep full precision; only the file rounds.
+        self.assertEqual(reader.rows[0]["composition"][0], 0.123456789)
 
 
 if __name__ == "__main__":
