@@ -175,7 +175,51 @@ class AgentIdentityTests(unittest.TestCase):
         result = adjudicate_agent_identity(claims)[0]
         self.assertEqual(result["status"], "resolved")
         self.assertEqual(result["agent"], "Phoenix")
-        self.assertEqual(result["independent_channels"], 2)
+        # Two channels, ONE witness: `Lineup.player` found the slot by
+        # searching the top bar for the tray's name, so the tray cannot
+        # disagree with the top bar here and is not counted against it.
+        self.assertEqual(result["channels"], ["ability_tray", "top_bar"])
+        self.assertEqual(result["independent_channels"], 1)
+        self.assertEqual(result["by_channel"]["ability_tray"]["binding_from"],
+                         "top_bar")
+
+    def test_repeated_views_of_one_channel_accumulate(self):
+        """One entry drawn over many frames is one witness, not many."""
+        frames = [identity_claim("entry-7:victim", name,
+                                 channel="killfeed_portrait", observed_at_ms=t)
+                  for t, name in enumerate(["Sage", "Sage", "Raze", "Sage"])]
+        result = adjudicate_agent_identity(frames)[0]
+        self.assertEqual(result["status"], "resolved")
+        self.assertEqual(result["agent"], "Sage")
+        self.assertEqual(result["independent_channels"], 1)
+        channel = result["by_channel"]["killfeed_portrait"]
+        self.assertEqual(channel["votes"], {"Raze": 1, "Sage": 3})
+        self.assertFalse(channel["constant"])
+
+    def test_a_tie_inside_one_channel_abstains(self):
+        result = adjudicate_agent_identity([
+            identity_claim("entry-8:killer", "Sage", channel="killfeed_portrait"),
+            identity_claim("entry-8:killer", "Raze", channel="killfeed_portrait"),
+        ])[0]
+        self.assertEqual(result["status"], "abstained")
+        self.assertIsNone(result["agent"])
+        self.assertEqual(result["by_channel"]["killfeed_portrait"]["reason"],
+                         "channel_tie Raze Sage")
+
+    def test_an_abstaining_channel_keeps_its_commonest_reason(self):
+        result = adjudicate_agent_identity([
+            identity_claim("entry-9:victim", channel="killfeed_portrait",
+                           reason="portrait_margin 0.010 below 0.07"),
+            identity_claim("entry-9:victim", channel="killfeed_portrait",
+                           reason="portrait_margin 0.010 below 0.07"),
+            identity_claim("entry-9:victim", channel="killfeed_portrait",
+                           reason="no gap past the name"),
+            identity_claim("entry-9:victim", "Sage", channel="top_bar"),
+        ])[0]
+        self.assertEqual(result["agent"], "Sage")
+        self.assertEqual(result["channels"], ["top_bar"])
+        self.assertEqual(result["by_channel"]["killfeed_portrait"]["reason"],
+                         "portrait_margin 0.010 below 0.07")
 
 
 if __name__ == "__main__":

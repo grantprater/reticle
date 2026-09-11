@@ -14,7 +14,7 @@ Owns [owns:agent-identity].
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from copy import deepcopy
 import glob
 from pathlib import Path
@@ -26,17 +26,24 @@ from .. import appearance
 from ..roster import N_SLOTS
 
 
-AGENT_IDENTITY_VERSION = "agent-identity-0.1.0"
+AGENT_IDENTITY_VERSION = "agent-identity-0.2.0"
 PORTRAIT_MARGIN_MIN = 0.07
 _IDENTITY_SURFACES = ("agent_icon", "killfeed_portrait", "minimap_portrait")
 
 
 def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
-                   reason=None, source_version=None, evidence=None) -> dict:
+                   reason=None, source_version=None, evidence=None,
+                   binding_from=None) -> dict:
     """Return one normalized, provenance-carrying identity claim.
 
     ``agent=None`` is an explicit abstention.  The arbiter never turns a
     missing name into an unknown agent or drops the reason for refusing.
+
+    ``binding_from`` names the channel this claim took its ENTITY from, when
+    that is a different channel from the one that read the name.  It is the
+    difference between two witnesses and one witness counted twice; see
+    `adjudicate_agent_identity`.  ``reason`` is kept whatever the claim says,
+    because a named claim can still carry how it was named.
     """
     if not channel:
         raise ValueError("identity claims need a channel")
@@ -47,8 +54,9 @@ def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
         "agent": agent,
         "channel": channel,
         "observed_at_ms": observed_at_ms,
-        "reason": reason if agent is None else None,
+        "reason": reason,
         "source_version": source_version,
+        "binding_from": binding_from,
         "evidence": deepcopy(evidence) if evidence is not None else {},
     }
 
@@ -81,6 +89,14 @@ def claims_from_lineup(sides, player=None, *, observation_id="lineup",
     # that answer a different question from the top bar.  Emit the witness
     # that actually decided, not a global self-icon argmax that may be an enemy
     # agent outside the ally roster.
+    #
+    # **The SLOT comes from the top bar either way**, and that is why the claim
+    # says so.  `Lineup.player` finds the tray's agent by searching the top
+    # bar's own rows for that name, and ranks the self icon among the five the
+    # top bar proposed, so neither witness can contradict the top bar at the
+    # slot it is attached to.  The name is independent evidence; the binding is
+    # not, and counting it as a second channel would report corroboration that
+    # the construction guarantees.
     if player and player.get("agent") is not None and player.get("slot") is not None:
         entity_id = f"{observation_id}:ally:slot:{player['slot']}"
         decided_by = player.get("decided_by")
@@ -89,7 +105,7 @@ def claims_from_lineup(sides, player=None, *, observation_id="lineup",
                    else "player_identity")
         out.append(identity_claim(
             entity_id, player["agent"], channel=channel,
-            source_version=version,
+            source_version=version, binding_from="top_bar",
             evidence={"slot": player["slot"],
                       "decided_by": decided_by,
                       "agree": player.get("agree"),
@@ -298,23 +314,74 @@ def _normalise(claim):
         reason=claim.get("reason"),
         source_version=claim.get("source_version"),
         evidence=claim.get("evidence"),
+        binding_from=claim.get("binding_from"),
     )
+
+
+def _channel_verdict(claims) -> dict:
+    """Accumulate one channel's repeated views of one entity into one vote.
+
+    **Repeated views of one channel are not independent witnesses**, so the
+    rule that governs them is not the rule that governs two channels. A
+    killfeed entry is drawn over a dozen frames and the top match changes at
+    least once on a fifth of them, while
+    [metric:killfeed/portrait-stability#frames_with_majority_side=545] of
+    [metric:killfeed/portrait-stability#frames=589] frames agree with their own
+    entry's majority.
+    Reading those as a dozen witnesses turns a good channel into a permanent
+    disagreement; accumulating them is what `lineup` already does over a
+    session and `killfeed`'s own `not_for` demands.
+
+    A tie inside a channel abstains. A majority of one over a rival is still a
+    majority, and the dissent stays on the row rather than being averaged away.
+    """
+    named = [c for c in claims if c["agent"] is not None]
+    votes = Counter(c["agent"] for c in named)
+    ranked = votes.most_common()
+    total = len(claims)
+    row = {"votes": dict(sorted(votes.items())), "claims": total,
+           "named": len(named), "constant": len(ranked) == 1,
+           "binding_from": next((c.get("binding_from") for c in claims
+                                 if c.get("binding_from")), None)}
+    if not ranked:
+        # Abstentions carry the reader's reason, and the commonest one is the
+        # channel's answer for why it said nothing.
+        reasons = Counter(c["reason"] for c in claims if c["reason"])
+        return {**row, "agent": None,
+                "reason": reasons.most_common(1)[0][0] if reasons
+                          else "all_claims_abstained"}
+    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+        rivals = sorted(name for name, n in ranked if n == ranked[0][1])
+        return {**row, "agent": None,
+                "reason": "channel_tie " + " ".join(rivals)}
+    return {**row, "agent": ranked[0][0], "reason": None}
 
 
 def adjudicate_agent_identity(claims) -> list[dict]:
     """Adjudicate independent claims, grouped by their supplied entity key.
 
-    The result is intentionally conservative:
+    Two rules, because two different things are being combined.
+
+    *Within* a channel, repeated views accumulate into one vote; see
+    `_channel_verdict`.  *Across* channels the result is intentionally
+    conservative and nothing is decided by counting:
 
     * one distinct named agent produces ``resolved``;
     * two or more named agents produce ``disagreement`` and no answer;
-    * claims containing only abstentions produce ``abstained``;
+    * channels that all abstain produce ``abstained``;
     * no claims produce no row, since there was no observation opportunity.
 
     A single named witness is not presented as corroborated.  Consumers can
     require ``independent_channels >= 2`` when their question needs it, while
     direct witnesses such as the ability tray remain usable for the local
-    player's identity.  No confidence is invented from channel agreement.
+    player's identity.
+
+    **A channel that cannot disagree is not independent.**  A claim naming
+    ``binding_from`` took its ENTITY from another channel -- the tray names the
+    player's agent on its own, but the SLOT that claim is attached to came from
+    searching the top bar for that name, so the two agree by construction.
+    Such a channel is listed, and excluded from the independent count, because
+    agreement is consistency and not accuracy.
     """
     grouped = defaultdict(list)
     for raw in claims:
@@ -323,12 +390,14 @@ def adjudicate_agent_identity(claims) -> list[dict]:
 
     out = []
     for entity_id, group in grouped.items():
-        named = [c for c in group if c["agent"] is not None]
-        agents = sorted({c["agent"] for c in named})
-        by_agent = defaultdict(list)
-        for claim in named:
-            by_agent[claim["agent"]].append(claim["channel"])
-        channels = sorted({c["channel"] for c in named})
+        by_channel = {channel: _channel_verdict(
+                          [c for c in group if c["channel"] == channel])
+                      for channel in sorted({c["channel"] for c in group})}
+        naming = {channel: row for channel, row in by_channel.items()
+                  if row["agent"]}
+        agents = sorted({row["agent"] for row in naming.values()})
+        independent = [channel for channel, row in naming.items()
+                       if row["binding_from"] not in naming]
         if len(agents) > 1:
             status, agent, reason = "disagreement", None, "conflicting_claims"
         elif agents:
@@ -340,12 +409,10 @@ def adjudicate_agent_identity(claims) -> list[dict]:
             "agent": agent,
             "status": status,
             "reason": reason,
-            "channels": channels,
-            "independent_channels": len(channels),
+            "channels": sorted(naming),
+            "independent_channels": len(independent),
             "agents_seen": agents,
-            "channels_by_agent": {
-                name: sorted(set(values)) for name, values in sorted(by_agent.items())
-            },
+            "by_channel": by_channel,
             "claims": group,
             "adjudication_version": AGENT_IDENTITY_VERSION,
         })
