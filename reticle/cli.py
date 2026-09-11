@@ -45,7 +45,8 @@ from .scoreboard import ScoreboardReader, read_scoreboard
 from . import cone, geometry, lighting
 from .fidelity import FROZEN_WINDOWS
 from .fingerprint import fingerprint
-from .killfeed import (KillfeedRead, analyse_killfeed, killfeed_roi,
+from .killfeed import (KILLFEED_PORTRAIT_VERSION, KillfeedPortraitReader,
+                       KillfeedRead, analyse_killfeed, killfeed_roi,
                        overlay_mask, read_killfeed)
 from .belief import (BELIEF_VERSION, absent_instants, resolve,
                      round_voids)
@@ -783,6 +784,9 @@ def cmd_scan(args) -> int:
     fps = float(src["fps"])
 
     want_hud = 'hud' in channels and (args.force or not store.has_hud(sid, date))
+    want_portraits = ('hud' in channels and
+                      (args.force or store.events_version(
+                          "killfeed_portrait", sid) != KILLFEED_PORTRAIT_VERSION))
     want_mm = 'minimap' in channels and (args.force or not store.has_minimap(sid, date))
     # Pings are events rather than a versioned table, but the cache key is the
     # VERSION, not the file's existence. Keying on existence made `PING_VERSION`
@@ -795,7 +799,7 @@ def cmd_scan(args) -> int:
     want_scoreboard = ('scoreboard' in channels and args.scoreboard and
                        (args.force or store.events_version("scoreboard", sid)
                         != SCOREBOARD_VERSION))
-    if not (want_hud or want_mm or want_ping or want_roster or want_scoreboard):
+    if not (want_hud or want_portraits or want_mm or want_ping or want_roster or want_scoreboard):
         print(f"cache hit  session {sid}: requested channels are current or disabled; "
               "--force to re-read")
         return 0
@@ -804,6 +808,8 @@ def cmd_scan(args) -> int:
     print(f"profile    {profile.name}")
     print(f"stages     " + ", ".join(
         ([f"hud {args.hz:g} Hz, whole capture"] if want_hud else [])
+        + ([f"killfeed portraits {args.hz:g} Hz, whole capture"]
+           if want_portraits else [])
         + ([f"minimap {args.minimap_hz:g} Hz, {len(spans)} active spans "
             f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)"] if want_mm else [])
         + ([f"ping {args.ping_hz:g} Hz, active spans"] if want_ping else [])
@@ -814,6 +820,9 @@ def cmd_scan(args) -> int:
     mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
 
     ctx = SessionContext(store=store, manifest=manifest, profile=profile, spans=spans)
+    kp = (KillfeedPortraitReader(
+              profile, ctx.wh, mask=ctx.kf_mask(), hz=args.hz, spans=None)
+          if want_portraits else None)
     # Pings ride whatever pass is already happening -- they never justify a
     # decode of their own, which is why this is on by default and why it takes
     # the floor mask the minimap half has already paid for rather than
@@ -843,8 +852,9 @@ def cmd_scan(args) -> int:
                            min_margin=args.min_margin)
           if want_scoreboard else None)
 
-    lp = (LineupReader(profile, ctx.wh, store.root) if want_lineup else None)
-    readers = [r for r in (hp, mp, pp, rp, sp, lp) if r is not None]
+    lp = (LineupReader(profile, ctx.wh, store.root, name=f"lineup:{sid}")
+          if want_lineup else None)
+    readers = [r for r in (hp, kp, mp, pp, rp, sp, lp) if r is not None]
 
     t0 = time.perf_counter()
     last = [t0]
@@ -874,6 +884,10 @@ def cmd_scan(args) -> int:
         )
         print(f"HUD        {len(hp.rows)} rows -> {out}")
         print(f"           tracked entries: {ev['kills']} kills, {ev['deaths']} deaths")
+    if kp is not None:
+        events = kp.events(sid)
+        out = store.write_events("killfeed_portrait", sid, events)
+        print(f"portraits  {len(events) - 1} observations -> {out}")
     if mp is not None:
         if not mp.rows:
             raise SystemExit("decoded zero frames inside active spans "

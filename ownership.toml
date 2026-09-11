@@ -200,7 +200,7 @@ question = "What do the killer and victim portraits in this entry look like?"
 owner = "killfeed"
 role = ["detect"]
 status = "partial"
-produces = ["portrait_observations", "PORTRAIT_ASPECT"]
+produces = ["portrait_observations", "PORTRAIT_ASPECT", "KILLFEED_PORTRAIT_VERSION", "KillfeedPortraitReader"]
 not_for = """
 Naming either agent, and being believed one frame at a time. The descriptor plus
 the plate's side is all a reader may emit; the five agents that side may hold
@@ -561,6 +561,29 @@ those assets into `reticle/` and this becomes `partial`.
 evidence = "tests/test_lineup.py"
 
 [[entry]]
+id = "agent-identity"
+question = "Which NAMED AGENT is this icon, track or ability?"
+owner = "adjudication.identity"
+role = ["assign", "adjudicate"]
+status = "partial"
+produces = ["AGENT_IDENTITY_VERSION", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "adjudicate_agent_identity", "AgentIdentityArbiter"]
+not_for = """
+Reading pixels, inventing an entity key, or deciding roster-slot continuity. Readers
+publish independent claims here; this owner combines them, preserves abstentions
+and disagreements, and refuses to name an entity when witnesses conflict. Death
+victims, ability owners and track continuity are separate questions downstream.
+
+Nor is it for naming an entity against a candidate set it knows to be short. A
+lineup slot the top bar refused still holds an agent: it is admitted as a RIVAL
+under its best_guess, it can take a match away, and it can never take a name. A
+side with a refused slot proposing no candidate at all refuses every portrait
+on it. Counting corroboration is bounded the same way -- a claim that took its
+ENTITY from another channel declares `binding_from` and does not count as a
+second independent witness, because it cannot disagree.
+"""
+evidence = "tests/test_agent_identity.py"
+
+[[entry]]
 id = "player-agent"
 question = "Which agent is the local player?"
 owner = "lineup"
@@ -693,24 +716,6 @@ evidence = "tests/test_acquisition.py"
 # Questions nothing owns yet. These are the product, and they stay visible on
 # every `doctor` run rather than being rediscovered from NOTES.md.
 # ---------------------------------------------------------------------------
-
-[[entry]]
-id = "agent-identity"
-question = "Which NAMED AGENT is this icon, track or ability?"
-role = ["assign", "adjudicate"]
-status = "unowned"
-not_for = """
-`track`, `roster` or `minimap` absorbing it. Each owns a piece -- admissibility,
-alive counts, position -- and none may promote its piece into a name.
-"""
-blocked_by = """
-An owner, not evidence. `killfeed-portrait` now describes both agents on every
-entry, and matched inside the lineup for the side its plate names it hit the
-tray's answer on 93 of 93 player-involved observations -- against 62 of 93 open
-against all 29 agents, so the CONSTRAINT is doing the work. What is missing is
-the module that holds a named claim per entity, weighs the portrait against the
-top bar, the tray and the self icon, and keeps the disagreements.
-"""
 
 [[entry]]
 id = "death-victim"

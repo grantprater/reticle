@@ -86,24 +86,24 @@ so a forbidden-edge list would catch nothing and look like it was working.
 
 ## The gaps are declared too
 
-Five questions have `status = "unowned"`, and `doctor` prints them on every run:
+Four questions have `status = "unowned"`, and `doctor` prints them on every run:
 
-    agent-identity      which named agent an icon, track or ability is
     death-victim        which agent died at a killfeed time, and where
     ability-owner       which agent cast an ability
     ability-detection   where an ability entity is in the frame
     fact-subject        what a domain fact is about
 
-These are the product. `agent-identity` blocks the other three, and its own
-blocker is lineup coverage rather than perception. Naming them here keeps them
+These are the product. `agent-identity` now has a narrow adjudicator; it blocks
+the other three, and its remaining blocker is lineup coverage rather than
+perception. Naming the remaining gaps here keeps them
 in front of the next session instead of in a paragraph of `NOTES.md`.
 
 ## Open questions
 
 - Should `subject` in `domain/*.toml` reuse the agent/ability vocabulary, or
   stay broader?
-- When `agent-identity` gets an owner, does it become a new module or does
-  `reconciliation` narrow into it? The entry forbids `reconciliation` growing
-  into a universal adjudicator, but does not yet name the replacement.
+- `agent-identity` now has a narrow owner in `adjudication.identity`; the next
+  boundary is wiring stored lineup, tray, self-icon and killfeed claims into it
+  without making `reconciliation` a universal adjudicator.
 - `ability_phases.ally_deaths` is a cross-channel read living in a command
   adapter. `BACKLOG.md` carries it.

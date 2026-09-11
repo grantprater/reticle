@@ -189,6 +189,48 @@ raised and did not resolve -- `minimap_lifecycle` against `round_lifetimes`,
 command adapter -- are in `BACKLOG.md` with their triggers. 477 tests pass;
 `doctor` reports 13 findings and zero errors.
 
+## PICKING UP -- 2026-09-11, AGENT IDENTITY HAS ITS ARBITER
+
+`reticle.adjudication.identity` owns `agent-identity`. Readers publish
+channel-attributed claims under a caller-supplied entity key and it emits one
+versioned verdict -- resolved, abstained or disagreement -- keeping the raw
+claims, the source versions and every refusal reason beside it. It invents no
+entity key. `lineup` publishes the top bar, the tray and the self icon;
+`killfeed.KillfeedPortraitReader` writes raw portrait observations to
+`events/killfeed_portrait/<session>.jsonl` on the shared HUD pass and names
+nothing.
+
+**Four faults came out of reviewing it, and each one is measured.**
+
+1. The candidate set dropped the slots the lineup REFUSED, so a portrait of
+   that agent competed against the four it named and one of them won. On
+   `b7d24102a6f6` that is 58 of 392 portraits. A refused slot is now a rival
+   under its `best_guess`: it takes matches and never names. Scored against the
+   tray -- the one truth here -- 210 of 210 player-owned portraits still name
+   Skye with the rival admitted, so the rule costs nothing where truth exists.
+2. The arbiter read a dozen frames of one entry as a dozen witnesses, against
+   `killfeed-portrait`'s own `not_for`. Repeated views of ONE channel now
+   accumulate; two channels still disagree rather than vote. It changes no
+   verdict today -- zero dissent among named claims over 66 entry-roles -- and
+   becomes load-bearing the moment the gate loosens.
+3. The gallery was not the measured one. Both recorded runs say
+   `killfeed_portrait art, 29 agents`; the code scored three surfaces and kept
+   the best, which moves the top match on 63 of 388 portraits.
+4. Refusals were re-diagnosed rather than quoted, stored lineups changed shape
+   under an unchanged stamp, and `quoted.scan_files` could not see
+   `reticle/adjudication/` at all, so its citations went unchecked.
+
+`PORTRAIT_MARGIN_MIN` stays 0.07 and unrefitted: it keeps all 210 correct
+player portraits, thinnest correct margin 0.078, and refuses 173 of 392
+portraits where nothing says whether that is right. Nine of ten players have no
+recorded truth on any session, and that -- not the threshold -- is the blocker.
+
+**Next is the entry key.** Portrait claims are grouped by `(burst, slot)` in
+the probes, which the stack shifting up when an entry expires will break. The
+arbiter accumulates correctly once the key is real. Declined in writing: the
+HUD pass analyses the killfeed twice a frame, 23 seconds of a 40-minute scan,
+in `BACKLOG.md` with what would un-defer it.
+
 ## PICKING UP -- 2026-09-10, STEP ONE IS BUILT AND LINEUP IS THE BLOCKER
 
 **`prototypes/roster_identity.py` names the living, and running it named its own

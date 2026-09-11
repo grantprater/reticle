@@ -58,7 +58,7 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "refine", "minimap_diagnostics", "minimap_lifecycle",
            "round_lifetimes", "lineup", "barriers", "acquisition",
            "capabilities", "adjudication.ability", "adjudication.capture",
-           "adjudication.gallery", "adjudication.phases",
+           "adjudication.gallery", "adjudication.phases", "adjudication.identity",
            "ability_coverage", "ability_timeline"]
 
 [entities]
