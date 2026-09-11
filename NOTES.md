@@ -55,6 +55,29 @@ the reader emits a descriptor and a side and refuses to name, because naming
 needs the lineup and a reader that borrowed it would collapse two witnesses into
 one.
 
+**Measured after the fact, and it tempers the 93/93: per FRAME the portrait is
+not reliable, per ENTRY it is.** The first stability run scored 0 of 0 because it
+sampled SPACED frames, so no two observations landed inside one entry. Sampled
+consecutively -- 8 bursts of 12 frames on each of 3 sessions, 52 multi-frame
+runs:
+
+    within the side's lineup   41/52 runs constant, 545/589 frames with the
+                               run's own majority (92.5%)
+    open against 29 agents     38/52 runs constant, 531/589 frames (90.2%)
+
+So a fifth of entries would give a different name depending on which frame was
+looked at, while nine frames in ten agree with their entry's majority. The 93/93
+was player-involved entries only and reads as stronger than the channel is.
+
+**That constrains the adjudicator rather than the reader.** It accumulates over
+an entry's lifetime and takes the majority, exactly as `lineup` accumulates
+scores across a session instead of an argmax per frame. Recorded as the
+`killfeed-portrait` entry's negative boundary, so the next session cannot build
+on a single-frame claim without `reticle ownership` saying not to. How much of
+the instability is a band still sliding into the stack -- `_trusted_wx` already
+records a half-formed band reading a wrong divider for a frame or two -- is not
+separated, and accumulating fixes both.
+
 **Next is the owner, not more evidence.** `agent-identity` in `ownership.toml`
 is still declared unowned, and its `blocked_by` now says so: what is missing is
 the module that holds a named claim per entity, weighs the portrait against the

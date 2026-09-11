@@ -202,9 +202,13 @@ role = ["detect"]
 status = "partial"
 produces = ["portrait_observations", "PORTRAIT_ASPECT"]
 not_for = """
-Naming either agent. The descriptor plus the plate's side is all a reader may
-emit; the five agents that side may hold come from `lineup`, and a reader that
-borrowed them would collapse two witnesses into one. See `agent-identity`.
+Naming either agent, and being believed one frame at a time. The descriptor plus
+the plate's side is all a reader may emit; the five agents that side may hold
+come from `lineup`, and a reader that borrowed them would collapse two witnesses
+into one. Nor is one frame an answer: over 12 consecutive frames of one entry
+the top match changes at least once on a fifth of them, while 92.5% of frames
+agree with their own entry's majority. Accumulate over the entry's lifetime, as
+`lineup` accumulates over a session. See `agent-identity`.
 """
 defers_to = ["portrait-descriptor"]
 evidence = "tests/test_killfeed_portraits.py"
