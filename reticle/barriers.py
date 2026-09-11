@@ -18,6 +18,8 @@ The bars are keyed on team colour and the key catches only part of each bar, so
 `GROW_PX` closes the drawn bar to its blocking extent. It is not fitted to the
 answer: the cut is reported at every growth so a set that only "works" at one
 value is visible as such.
+
+Owns [owns:map-furniture].
 """
 from __future__ import annotations
 

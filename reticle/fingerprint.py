@@ -4,6 +4,8 @@ Design doc SS3 stage 00 and SS7: raw media never moves and never gets copied
 into the store. All we keep is a manifest pointing at where it lives, keyed by
 a content digest so re-ingesting the same file is recognised as the same
 session.
+
+Owns [owns:source-identity].
 """
 
 from __future__ import annotations

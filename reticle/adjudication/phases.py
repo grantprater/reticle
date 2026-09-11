@@ -45,6 +45,8 @@ Two rules are structural rather than tuned, and both are asserted by tests:
 
 Stored data only. Contrast comes from the series' own `g_max - g_min`, so no
 frame is decoded here.
+
+Owns [owns:ability-phase].
 """
 from __future__ import annotations
 

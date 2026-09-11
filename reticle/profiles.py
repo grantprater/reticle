@@ -8,6 +8,8 @@ VALORANT_16_9 was measured against real 1920x1080 footage on 2026-08-23
 ("2026-08-23 18-24-15.mp4", Abyss). Run `reticle probe <video>` after any HUD
 restyle or layout-setting change -- it renders the boxes onto sample frames so
 you can see what each ROI actually lands on, then edit the numbers here.
+
+Owns [owns:extraction-profile].
 """
 
 from __future__ import annotations

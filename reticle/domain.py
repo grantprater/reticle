@@ -42,6 +42,8 @@ the store's `notes/predictions.jsonl` and in `metrics`, which are append-only
 and dated. This registry holds what is true of the GAME and its capture --
 facts a new session should not have to rediscover, and that no rerun can
 change. A fact whose truth depends on a detector version is not a domain fact.
+
+Owns [owns:domain-fact].
 """
 from __future__ import annotations
 

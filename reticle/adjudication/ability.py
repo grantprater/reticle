@@ -4,6 +4,8 @@ This is milestone C of ``docs/ABILITY_ENTITY_INFERENCE_DESIGN.md``.  It creates
 alternatives for the match-wide adjudicator; it is not a final classifier.
 Human component identity can support a parent edge.  It cannot prove that
 several components form one physical entity.
+
+Owns [owns:ability-hypothesis].
 """
 from __future__ import annotations
 

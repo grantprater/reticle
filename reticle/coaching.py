@@ -4,6 +4,8 @@ Events are killfeed observations, not verified scoreboard deaths. Model states
 are restricted to observed ticking-clock play with both teams still alive.
 There is deliberately no inferred plant, POV, economy, side or causal credit.
 All tuning constants are fixed here; session holdouts are not a tuning set.
+
+Owns [owns:coaching-state].
 """
 from __future__ import annotations
 

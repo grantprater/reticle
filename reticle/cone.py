@@ -67,6 +67,8 @@ over-claims (anything anyone glanced at) and the intersection under-claims
 (held the whole window). This module refuses to pick: `reduce_window` returns
 both, because "THE AGGREGATE IS THE MEASUREMENT" has already inverted three
 results in this repo by choosing one silently.
+
+Owns [owns:viewcone].
 """
 
 from __future__ import annotations

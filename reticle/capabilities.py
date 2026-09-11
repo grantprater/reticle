@@ -48,6 +48,8 @@ and refused two things outright:
 
 Add a reader here by running `reticle fidelity-check` and pinning the run that
 promoted it, not by declaring what the reader looks like it should manage.
+
+Owns [owns:reader-capability].
 """
 from __future__ import annotations
 

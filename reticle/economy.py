@@ -5,6 +5,8 @@ observation into a purchase.  Balances are intervals because missing purchases,
 plants, survival and kill attribution must remain unknown rather than becoming
 zero.  A later credit reader can anchor an interval without erasing the residual
 between the observation and the prior ledger.
+
+Owns [owns:credit-ledger].
 """
 from __future__ import annotations
 

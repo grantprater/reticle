@@ -111,6 +111,8 @@ its failure as a defect.
 Not derivable, and deliberately absent rather than guessed: who planted,
 assists, and economy of any kind -- which, per the note above, is the one
 confounder that actually varies between rounds.
+
+Owns [owns:round-bounds].
 """
 
 from __future__ import annotations

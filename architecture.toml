@@ -13,7 +13,17 @@
 # spine `docs/WORKING_MAP.md` already names: raw observation -> adjudication ->
 # lifecycle event -> compound episode -> review.
 #
-# Schema and the checks: `reticle/architecture.py`.
+# Subpackages are placed by their DOTTED name. `reticle/adjudication/` was
+# invisible to the check until 2026-09-11 -- a `*.py` glob cannot see a
+# directory -- so four modules sat in no layer and `adjudication.ability`
+# imported `ability_timeline`, an eager edge up into `entities`, unreported.
+# The fix was to place the timeline where it belongs rather than to bless the
+# edge: `ability_timeline` and `ability_coverage` are pure over stored
+# observations, which is this file's definition of `adjudication`, and the
+# `entities` entries left behind them are the command adapters.
+#
+# Schema and the checks: `reticle/architecture.py`. Who owns which QUESTION is
+# a different matter and lives in `ownership.toml`.
 
 [layers]
 order = ["foundation", "source", "primitives", "readers", "orchestration",
@@ -22,8 +32,8 @@ order = ["foundation", "source", "primitives", "readers", "orchestration",
 [foundation]
 claim = "no siblings above the language and the store's own vocabulary"
 modules = ["version", "profiles", "fingerprint", "metrics", "judgement",
-           "domain", "architecture", "quoted", "screen", "artifacts",
-           "revisions", "census"]
+           "domain", "architecture", "ownership", "quoted", "screen",
+           "artifacts", "revisions", "census"]
 
 [source]
 claim = "identity, decode, persistence, and the baked (map, profile) geometry"
@@ -47,13 +57,15 @@ claim = "pure over stored observations, with evidence and alternatives"
 modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "refine", "minimap_diagnostics", "minimap_lifecycle",
            "round_lifetimes", "lineup", "barriers", "acquisition",
-           "capabilities"]
+           "capabilities", "adjudication.ability", "adjudication.capture",
+           "adjudication.gallery", "adjudication.phases",
+           "ability_coverage", "ability_timeline"]
 
 [entities]
 claim = "lifecycle events, compound episodes, review and coaching hypotheses"
-modules = ["ability_capture", "ability_coverage", "ability_entities",
-           "ability_gallery", "ability_phases", "ability_timeline",
-           "coaching", "review", "overlay", "status", "fidelity", "doctor"]
+modules = ["ability_capture", "ability_entities", "ability_gallery",
+           "ability_phases", "coaching", "review", "overlay", "status",
+           "fidelity", "doctor"]
 
 [delivery]
 claim = "the command surface, and nothing else may import it"

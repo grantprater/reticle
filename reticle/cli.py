@@ -2124,6 +2124,24 @@ def cmd_domain(args) -> int:
     return domain_main(argv)
 
 
+def cmd_ownership(args) -> int:
+    """Who owns a question, and what that owner is NOT for.
+
+    Ask it in plain language -- `reticle ownership which agent died` -- and it
+    routes to the owner, or to the entry saying nothing owns that yet. The
+    negative boundary is the half worth reading: it is what stops `track` being
+    selected because the word *track* matched.
+    """
+    from .ownership import main as ownership_main
+
+    argv = list(args.question or [])
+    if args.module:
+        argv += ["--module", args.module]
+    if args.check:
+        argv.append("--check")
+    return ownership_main(argv)
+
+
 def cmd_status(args) -> int:
     """Status, computed from the store rather than written down.
 
@@ -2472,6 +2490,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--check", action="store_true",
                    help="validate the registry and its citations")
     s.set_defaults(func=cmd_domain)
+
+    s = sub.add_parser("ownership", help="which module owns a question, and "
+                       "what it is NOT for")
+    s.add_argument("question", nargs="*", help="the question, in plain language")
+    s.add_argument("--module", help="the entries one module owns")
+    s.add_argument("--check", action="store_true",
+                   help="verify the declaration against the code")
+    s.set_defaults(func=cmd_ownership)
 
     s = sub.add_parser("status", help="generated pipeline status "
                        "(the perishable half of CLAUDE.md, computed)")

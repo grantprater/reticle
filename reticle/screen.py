@@ -3,6 +3,8 @@
 The prototype docstring retains evaluations and failure classes. These are
 outline candidates, not established living enemies. The optional minimap box
 excludes the actual profile ROI; default calls reproduce the original eval.
+
+Owns [owns:screen-outline].
 """
 import cv2
 import numpy as np

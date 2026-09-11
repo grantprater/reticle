@@ -77,6 +77,8 @@ This is a self-honesty instrument, not an adversarial one. The key file sits
 next to the sheet and could simply be read. What makes the number mean anything
 is that the truth is A PERSON'S, written before the question was asked, and that
 the answer file is written before the score is revealed.
+
+Owns [owns:review-question].
 """
 from __future__ import annotations
 

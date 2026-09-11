@@ -56,6 +56,8 @@ A caution the corpus makes obvious: short ability-demo clips report 4-17%
 stalled, because a static practice-range scene genuinely repeats a thumbnail
 and 2 s is a large share of a 40 s clip. Treat a stall inside a clip as
 suspect; the figure means what it says on a full match.
+
+Owns [owns:capture-stall].
 """
 
 from __future__ import annotations

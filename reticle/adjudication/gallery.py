@@ -18,6 +18,8 @@ really a session artefact:
 Only a contrast that satisfies both is reported as recognition.  Everything
 else enters the gallery and is named as not evaluable, which is a coverage
 statement rather than a negative result.
+
+Owns [owns:ability-appearance].
 """
 from __future__ import annotations
 

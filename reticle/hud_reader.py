@@ -5,6 +5,8 @@ and killfeed extraction and writes identical rows.  Killfeed calibration is a
 per-session constant: it is measured once and cached, while cached reads avoid
 opening the source video.  This module only relocates that reader; detector and
 version behavior remain unchanged.
+
+Owns [owns:hud-scan].
 """
 
 from __future__ import annotations

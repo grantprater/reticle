@@ -8,6 +8,8 @@ fault in time.
 This module computes; it does not print. `reticle verify` renders the result,
 and the dashboard reads the same structure, so there is one implementation of
 what counts as a fault.
+
+Owns [owns:hud-invariant].
 """
 
 from __future__ import annotations

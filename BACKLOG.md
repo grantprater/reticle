@@ -1210,6 +1210,40 @@ and one of them is badly wrong. See *`lotus__valorant-16x9` finds 41% of the
 plant zones it should* above. A painting would say whether the rest of the
 gradient (72-85% against the bigmap keys' 87%) is the mask or the art fit.
 
+## Three ownership boundaries the index RECORDS and does not resolve
+
+`ownership.toml` now names an owner for every question and a `not_for` for every
+owner, and `doctor`'s OWNERSHIP check holds the declaration against the code.
+Three boundaries survived that pass unresolved, because resolving them moves
+code and the index was built to route work rather than to reorganize it.
+
+**`minimap_lifecycle` against `round_lifetimes`.** Both own lifecycle
+vocabulary. The working split is that the first is a detector-local quarantine
+over minimap observations and the second is the round-scoped physical entity
+layer over stored multi-view evidence, but nothing states it and neither
+docstring claims the boundary against the other. They already share `track` as
+the motion owner, which is what keeps them from drifting the way
+`minimap_lifecycle` drifted from `track`. Trigger: the first consumer that needs
+one entity identity across both, or a third module that speaks lifecycle.
+
+**`reconciliation` has no ceiling.** It compares score, roster and killfeed and
+preserves disagreement, which is the right job, and it is the module a
+cross-channel identity claim will be tempted into next. `ownership.toml` forbids
+that in prose -- *identity adjudication is a NARROWER owner that does not exist
+yet* -- and prose is not a check. Trigger: the `agent-identity` entry getting an
+owner. Decide then whether it is a new module or a narrowed `reconciliation`,
+and give the loser an explicit `not_for`.
+
+**`ability_phases.ally_deaths` is a cross-channel read inside a command
+adapter.** `ability_phases` is otherwise a CLI shim over
+`adjudication.phases`, and `ally_deaths` is real evidence joining ally death
+information to phase inference. An adapter holding evidence is how an adapter
+becomes an owner nobody declared. Trigger: the next change to phase transition
+causes; move it into `adjudication.phases` or into the future death owner, and
+give it an entry.
+
+---
+
 ## Correct §1 of the published reconciliation plan
 
 `docs/reconciliation-pass.html` —

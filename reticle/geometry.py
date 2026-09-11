@@ -30,6 +30,8 @@ way; this is the same key, and the two files line up by construction.
 A session with no `map:` tag resolves to nothing. That is deliberate: the old
 layout let such a session hold a private geometry whose map nobody could name,
 which is how two Ascent clips ended up outside every map-level check.
+
+Owns [owns:map-geometry].
 """
 from __future__ import annotations
 

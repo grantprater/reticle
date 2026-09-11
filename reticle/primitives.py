@@ -8,6 +8,8 @@ These are the columns stage 01 segmentation consumes. They are deliberately
 generic -- motion, luminance, edge density, and per-ROI perceptual hashes --
 because they are the signals that survive a HUD restyle, and because they are
 the inputs a trained state classifier would take later.
+
+Owns [owns:frame-primitive].
 """
 
 from __future__ import annotations

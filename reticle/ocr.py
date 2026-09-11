@@ -20,6 +20,8 @@ them matching the footage, which is why they are mined from it.
 What this reads today: the top-centre scoreline, meaning the round clock and
 both team scores. Ammo, HP, credits and the killfeed are the other stage-02
 extractors and are not built yet.
+
+Owns [owns:scoreline].
 """
 
 from __future__ import annotations

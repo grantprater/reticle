@@ -49,13 +49,43 @@ ROOT = Path(__file__).resolve().parent.parent
 DECLARATION = ROOT / "architecture.toml"
 
 
-def sibling_imports(path: Path, package: str = "reticle") -> list[tuple[str, int, bool]]:
+def modules(root: Path | None = None, package: str = "reticle") -> dict[str, Path]:
+    """Every module in the package, INCLUDING its subpackages, dotted.
+
+    `reticle/adjudication/` was invisible here until 2026-09-11: a `*.py` glob
+    cannot see a directory, so four modules sat in no layer, unreported, and
+    `adjudication/ability.py` imported `ability_timeline` -- an eager edge out
+    of adjudication up into entities -- with nothing to say so. A checker's
+    blind spot is worse than a missing check, because the clean run is read as
+    a clean repo.
+    """
+    base = (Path(root) if root else ROOT) / package
+    out: dict[str, Path] = {}
+    for path in sorted(base.glob("*.py")):
+        if path.stem != "__init__":
+            out[path.stem] = path
+    for sub in sorted(p for p in base.iterdir() if p.is_dir()):
+        if sub.name.startswith(("_", ".")):
+            continue
+        for path in sorted(sub.glob("*.py")):
+            if path.stem != "__init__":
+                out[f"{sub.name}.{path.stem}"] = path
+    return out
+
+
+def sibling_imports(path: Path, package: str = "reticle",
+                    within: str = "") -> list[tuple[str, int, bool]]:
     """`(module, lineno, deferred)` for every same-package import in a file.
 
     `deferred` means the import sits inside a function or class body, so it
     runs on call rather than on import. That distinction is the whole point:
     it is what separates an inverted layer from a runtime call upward, and it
     is what makes every cycle in this package invisible to a naive graph.
+
+    `within` is the subpackage the file itself lives in, because a relative
+    import only resolves against it: inside `adjudication/`, `from .ability`
+    means `adjudication.ability` and `from ..ability_timeline` means the
+    top-level module of that name.
     """
     try:
         tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
@@ -63,18 +93,24 @@ def sibling_imports(path: Path, package: str = "reticle") -> list[tuple[str, int
         return []
     out: list[tuple[str, int, bool]] = []
 
+    here = f"{within}." if within else ""
+
     def targets(node: ast.AST) -> list[str]:
         if isinstance(node, ast.ImportFrom):
             if node.module is None and node.level == 1:
-                return [a.name for a in node.names]
+                return [f"{here}{a.name}" for a in node.names]
             if node.module:
                 if node.level == 1:
-                    return [node.module.split(".")[0]]
+                    return [f"{here}{node.module}"]
+                if node.level == 2 and within:
+                    return [node.module]
+                if node.module == package:
+                    return [a.name for a in node.names]
                 if node.module.startswith(f"{package}."):
-                    return [node.module.split(".")[1]]
+                    return [node.module[len(package) + 1:]]
             return []
         if isinstance(node, ast.Import):
-            return [a.name.split(".")[1] for a in node.names
+            return [a.name[len(package) + 1:] for a in node.names
                     if a.name.startswith(f"{package}.")]
         return []
 
@@ -155,15 +191,15 @@ def verify(data: dict | None = None,
         return [("WARN", "architecture.toml is absent -- the layering is "
                          "declared there, see reticle/architecture.py")]
     order, index = data["_order"], data["_index"]
-    package = base / "reticle"
-    present = {p.stem for p in sorted(package.glob("*.py")) if p.stem != "__init__"}
+    paths = modules(base)
+    present = set(paths)
     out: list[tuple[str, str]] = []
 
     for module in data["_duplicated"]:
         out.append(("ERROR", f"`{module}` is declared in more than one layer"))
     for module in sorted(present - set(index)):
-        out.append(("ERROR", f"`reticle/{module}.py` is in no declared layer -- "
-                             f"place it in architecture.toml"))
+        out.append(("ERROR", f"`reticle/{module.replace('.', '/')}.py` is in no "
+                             f"declared layer -- place it in architecture.toml"))
     for module in sorted(set(index) - present):
         out.append(("ERROR", f"architecture.toml declares `{module}`, which is "
                              f"not a module in reticle/"))
@@ -171,7 +207,8 @@ def verify(data: dict | None = None,
     blessed = _blessed(data)
     used: set[tuple[str, str]] = set()
     for module in sorted(present & set(index)):
-        for target, line, deferred in sibling_imports(package / f"{module}.py"):
+        within = module.rpartition(".")[0]
+        for target, line, deferred in sibling_imports(paths[module], within=within):
             if target == module or target not in index:
                 continue
             if index[target] <= index[module]:
@@ -205,15 +242,16 @@ def verify(data: dict | None = None,
     # the bare-import case pass vacuously under test.
     stems = frozenset(p.stem for p in (base / "prototypes").glob("*.py"))
     for module in sorted(present):
-        crossings = foreign_imports(package / f"{module}.py", stems=stems)
+        crossings = foreign_imports(paths[module], stems=stems)
         if not crossings:
             continue
         if module in allowed:
             seen_allowed.add(module)
             continue
         where = ", ".join(f"{name} (line {line})" for name, line in crossings)
-        out.append(("ERROR", f"`reticle/{module}.py` imports the prototypes "
-                             f"tree -- {where}. reticle/ must not depend on it."))
+        out.append(("ERROR", f"`reticle/{module.replace('.', '/')}.py` imports "
+                             f"the prototypes tree -- {where}. reticle/ must "
+                             f"not depend on it."))
     for module in sorted(allowed - seen_allowed):
         out.append(("WARN", f"architecture.toml allows `{module}` to import "
                             f"prototypes/ and it no longer does -- delete it "
@@ -223,12 +261,11 @@ def verify(data: dict | None = None,
 
 def graph(root: Path | None = None) -> dict[str, dict]:
     """The eager and deferred sibling edges, for a reader rather than a check."""
-    base = Path(root) if root else ROOT
-    package = base / "reticle"
-    present = {p.stem for p in sorted(package.glob("*.py")) if p.stem != "__init__"}
+    paths = modules(Path(root) if root else ROOT)
+    present = set(paths)
     out: dict[str, dict] = {}
     for module in sorted(present):
-        found = sibling_imports(package / f"{module}.py")
+        found = sibling_imports(paths[module], within=module.rpartition(".")[0])
         eager = sorted({t for t, _l, d in found if not d and t in present and t != module})
         deferred = sorted({t for t, _l, d in found
                            if d and t in present and t != module} - set(eager))

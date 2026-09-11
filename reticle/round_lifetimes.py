@@ -5,6 +5,8 @@ provisional for anonymous agents; a unique feasible predecessor is continuity,
 multiple predecessors are alternatives. Screen and minimap coordinate systems
 never associate spatially with each other. Roster capacity permits acquisition,
 not identification. First detection is never substituted for origin time.
+
+Owns [owns:round-entity].
 """
 from __future__ import annotations
 

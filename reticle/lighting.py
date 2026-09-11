@@ -33,6 +33,8 @@ a cone is a large connected region and the residue is speckle. Both are widget
 quantities and scale accordingly: a length linearly, an area by the square.
 Getting that pair the wrong way round is a defect this repo has already paid
 for twice.
+
+Owns [owns:drawn-light].
 """
 from __future__ import annotations
 

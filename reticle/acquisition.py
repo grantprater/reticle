@@ -13,6 +13,8 @@ instead costs 2.51 s and 1.10 s for the same frames. So a plan reports
 ``covered_span_seconds`` and ``reach_seconds`` beside its frame estimate, and
 ``execute_plan`` picks the transport whose cost law matches the coverage it was
 handed. A frame count alone described neither.
+
+Owns [owns:evidence-plan].
 """
 from __future__ import annotations
 

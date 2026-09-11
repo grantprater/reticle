@@ -171,6 +171,8 @@ each one is a way a clip-shaped detector fails at session length:
   level down, and invisible on a clip for the same reason the merging bug was.
   Stale entries are now dropped from the cell as they are passed, so the search
   is bounded by what is live. The clip control is unchanged at 15.
+
+Owns [owns:ping-event].
 """
 
 from __future__ import annotations

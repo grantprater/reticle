@@ -3,6 +3,8 @@
 Agreement is consistency, not detector accuracy. The score audit proposes
 confirmed boundaries without changing stored rounds. The roster audit compares
 CHANGES from an observed baseline; it never assumes a probe begins at 5v5.
+
+Owns [owns:channel-disagreement].
 """
 from bisect import bisect_left, bisect_right
 from collections import Counter

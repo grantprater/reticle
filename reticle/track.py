@@ -38,6 +38,8 @@ Every number here is recorded elsewhere in the repo and cited
 ------------------------------------------------------------
 Nothing below was invented for this file, which is the point of §6's
 inventory: the invariants existed and nothing consumed them.
+
+Owns [owns:teleport-licence] and [owns:track-continuation].
 """
 
 from __future__ import annotations

@@ -46,7 +46,7 @@ import json
 import re
 from pathlib import Path
 
-from reticle import architecture, domain, metrics, quoted
+from reticle import architecture, domain, metrics, ownership, quoted
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -657,6 +657,35 @@ def check_layer() -> list[tuple[str, str]]:
     return out
 
 
+def check_ownership() -> list[tuple[str, str]]:
+    """Which module owns which question, verified against the code.
+
+    `architecture.toml` says which imports are permitted and `domain/*.toml`
+    says what is true of the game. Neither says who may DECIDE something, and
+    that is the boundary the names in this repo collide on: `roster` and
+    `lineup` both sound like identity, `minimap.pick_self` and `lineup`'s player
+    vote are both called self, and `track` sounds like the answer to every
+    identity question while owning none of them.
+
+    Two faults paid for it. The HUD death signal dims a PACKED living-slot
+    index, and read as identity it named the wrong victim in both rounds it was
+    tested on. `minimap_lifecycle` restated `track`'s continuation ceiling and
+    the two drifted by a factor of two, so it quarantined appearances the
+    tracker had already associated -- which is why a `defers_to` edge is checked
+    as an import that must still exist.
+
+    `reticle/ownership.py` owns the schema. An entry pointing at code that is
+    gone, an owner that does not claim its own contract, a module in neither the
+    entries nor the infrastructure list, and a `shipped` owner still reaching
+    `prototypes/` are ERRORs. A question with no owner is a finding, deliberately
+    -- `death-victim` is the product and stays on screen.
+    """
+    out = []
+    for level, message in ownership.verify():
+        out.append((ERROR if level == ERROR else "finding", message))
+    return out
+
+
 def check_quoted(store: Path) -> list[tuple[str, str]]:
     """Numbers quoted in prose, against the run that produced them.
 
@@ -681,7 +710,7 @@ def check_quoted(store: Path) -> list[tuple[str, str]]:
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),
-              ("LAYER", check_layer),
+              ("LAYER", check_layer), ("OWNERSHIP", check_ownership),
               ("QUOTED", lambda: check_quoted(store)),
               ("PROMOTE", lambda: check_promote(store)),
               ("SESSION_STATIC", lambda: check_session_static(store)),

@@ -10,6 +10,8 @@ module's own inputs: an absent widget suspends adjudication rather than ending
 every lifetime, and only elapsed time past the gap budget makes a boundary.
 The motion law and the teleport rule are `track`'s -- restating either here is
 how they drifted apart the first time.
+
+Owns [owns:minimap-origin].
 """
 from __future__ import annotations
 

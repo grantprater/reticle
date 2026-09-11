@@ -26,6 +26,8 @@ or the bottom HUD (h~33), so they fall outside the geometry band in `ocr.py`
 and are read against a band of their own. That is what `_raw_components` is for.
 Nothing here reads names: identity comes from row position and the highlight,
 and a name would need an alphabet this project has no templates for.
+
+Owns [owns:scoreboard-row].
 """
 
 from __future__ import annotations

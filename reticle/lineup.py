@@ -27,6 +27,8 @@ The margin separates them completely, so the gate is the margin and a slot
 below it stays `None` with a reason rather than guessing. `MARGIN_MIN` is a
 PROVISIONAL cut resting on one lineup of five slots -- every verdict carries
 its margin so a real cut can be fitted when more lineups are known.
+
+Owns [owns:agent-from-slot] and [owns:player-agent].
 """
 from __future__ import annotations
 

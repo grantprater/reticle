@@ -1,0 +1,750 @@
+# Who owns each piece of information. DECLARED, never derived.
+#
+# One entry per QUESTION, because the question is what a developer arrives
+# with; the module is the destination, not the organizing idea. `reticle`
+# `ownership` routes a plain-language question to its owner, and `doctor`'s
+# OWNERSHIP check verifies every claim here against the code: the owner exists,
+# it defines what this says it produces, it CLAIMS the entry in its own
+# docstring with an `[owns:id]` token, its `defers_to` imports still exist, and
+# every module in `reticle/` either owns an entry or is declared
+# infrastructure.
+#
+# Why declared rather than derived. Ownership cannot be read off the import
+# graph -- that graph is exactly how the confusion arises. `minimap_lifecycle`
+# imports `track`, which says nothing about which of them owns the motion law,
+# and the two silently owned it together until they disagreed by a factor of
+# two. Deriving ownership from imports would have blessed that.
+#
+# `not_for` is the field to read second. The negative boundary is what stops a
+# module being selected because its NAME matched, and every one of them below
+# is a mistake the repo has already made or nearly made.
+#
+# Schema and the checks: `reticle/ownership.py`. The layering is a different
+# question and lives in `architecture.toml`; what is true of the GAME lives in
+# `domain/*.toml`.
+
+# ---------------------------------------------------------------------------
+# Source, schema, and the baked map
+# ---------------------------------------------------------------------------
+
+[[entry]]
+id = "source-identity"
+question = "Which media is this row from?"
+owner = "fingerprint"
+role = ["assign"]
+status = "shipped"
+produces = ["content_key", "SourceFingerprint"]
+not_for = """
+Anything inside the frame. `identity` here means PROVENANCE -- which file, which
+session -- and an entity-identity task routed here is routed wrong.
+"""
+stored_consumers = ["store"]
+
+[[entry]]
+id = "extraction-profile"
+question = "Which ROI layout and widget scale does this source use?"
+owner = "profiles"
+role = ["constrain"]
+status = "shipped"
+produces = ["get_profile", "Profile"]
+not_for = """
+The content found in any ROI, and the map. A profile is a capture layout; it is
+not a map, not a widget reading, and not the player's point of view.
+"""
+consumers = ["minimap", "killfeed", "ocr", "roster", "primitives", "overlay"]
+
+[[entry]]
+id = "map-geometry"
+question = "What is the floor, terrain and reference art for this (map, profile)?"
+owner = "geometry"
+role = ["constrain"]
+status = "shipped"
+produces = ["reference_for_key", "key_of", "path_of"]
+not_for = """
+Anything a session's own pixels say. SESSION PIXELS DO NOT DEFINE THE MAP: a
+capture determines the widget's size, placement and orientation and nothing
+else, and a reader building its own static map from a capture median is the
+fault `doctor`'s SESSION_STATIC check exists for.
+"""
+consumers = ["barriers", "status", "cone", "doctor"]
+evidence = "tests/test_geometry.py, tests/test_floor_stability.py"
+
+[[entry]]
+id = "domain-fact"
+question = "What is true of VALORANT itself, rather than of this pipeline?"
+owner = "domain"
+role = ["constrain"]
+status = "shipped"
+produces = ["load", "Fact", "citations", "restatements"]
+not_for = """
+This pipeline's own accuracy. A fact whose truth depends on a detector version
+is an outcome and belongs in `notes/predictions.jsonl` and `metrics`.
+"""
+consumers = ["doctor"]
+evidence = "tests/test_domain.py, `reticle domain --check`"
+
+# ---------------------------------------------------------------------------
+# Per-frame evidence, before anything interprets it
+# ---------------------------------------------------------------------------
+
+[[entry]]
+id = "frame-primitive"
+question = "What cheap, deterministic evidence does this frame carry?"
+owner = "primitives"
+role = ["detect"]
+status = "shipped"
+produces = ["PrimitiveExtractor", "frame_columns", "hamming"]
+not_for = """
+Entity classes, track identity or events. This is the evidence-before-
+interpretation boundary, and adjudication placed here is adjudication nothing
+can later disagree with.
+"""
+stored_consumers = ["segment", "stalls"]
+
+[[entry]]
+id = "evidence-span"
+question = "Over which contiguous spans does a per-frame signal hold?"
+owner = "segment"
+role = ["lifecycle"]
+status = "shipped"
+produces = ["to_spans", "classify", "SegmentConfig"]
+not_for = """
+An entity's lifetime. These are SOURCE spans over a stored column; an entity
+existing from one origin event to a terminal state is `round-entity`, and the
+shared word is the whole reason to say so here.
+"""
+consumers = ["synth"]
+
+[[entry]]
+id = "capture-stall"
+question = "Are these frames a stalled capture rather than observations?"
+owner = "stalls"
+role = ["constrain"]
+status = "shipped"
+produces = ["spans", "for_session", "stalled_at"]
+not_for = """
+Channel-specific absence. A stall says the SOURCE repeated, not that an entity
+died, a widget vanished or a reader refused -- every reader joins this fact
+rather than deciding on its own that a missing observation means death.
+"""
+consumers = ["overlay", "doctor"]
+evidence = "tests/test_stalls.py"
+
+# ---------------------------------------------------------------------------
+# Readers: pixels in, one observation out
+# ---------------------------------------------------------------------------
+
+[[entry]]
+id = "widget-drawn"
+question = "Is the minimap widget drawn in this frame at all?"
+owner = "minimap"
+role = ["detect"]
+status = "partial"
+produces = ["widget_drawn"]
+not_for = """
+A refusal. An absent widget and a reader that would not commit are different
+states and must stay distinguishable; both currently arrive downstream as
+`self_x = NULL`, which is the open defect BACKLOG.md names.
+"""
+consumers = ["belief"]
+
+[[entry]]
+id = "self-position"
+question = "Where is the local player's icon on the minimap?"
+owner = "minimap"
+role = ["detect"]
+status = "partial"
+produces = ["pick_self", "self_icons", "filter_track"]
+not_for = """
+WHICH AGENT the player is. `pick_self` answers a spatial question and the name
+is the trap: semantic self is `player-agent`, owned by `lineup`. The fit can
+also land on the carried spike, so an accepted position is not an accepted
+identity.
+"""
+consumers = ["belief", "track", "lighting", "minimap_diagnostics", "overlay"]
+evidence = "tests/test_pick_self.py, prototypes/xmark_eval.py"
+
+[[entry]]
+id = "ally-candidates"
+question = "Which minimap blobs could be a teammate this frame?"
+owner = "minimap"
+role = ["detect"]
+status = "partial"
+produces = ["ally_icons", "ally_rings"]
+not_for = """
+Stable ally identity. These are per-frame candidates sorted by blob area, and
+nothing claims slot 0 is the same player between frames. Two icons may also be
+exactly coincident [domain:minimap/coincident-icons], so one candidate never
+excludes another's region.
+"""
+consumers = ["round_lifetimes", "minimap_diagnostics", "overlay"]
+
+[[entry]]
+id = "killfeed-event"
+question = "Did a kill appear in the feed, and did it involve the local player?"
+owner = "killfeed"
+role = ["detect", "attribute"]
+status = "shipped"
+produces = ["analyse_killfeed", "read_killfeed", "EntryView"]
+not_for = """
+Naming an arbitrary victim. The feed states a TEAM through the plate colour and
+the local player through the literal string "Me"; an agent name for either side
+needs the roster and lineup channels, and that owner does not exist yet --
+see `death-victim`.
+"""
+consumers = ["checks", "hud_reader", "rounds", "overlay"]
+evidence = "tests/test_killfeed.py, tests/test_entry_persistence.py"
+
+[[entry]]
+id = "scoreline"
+question = "What do the score and the bottom HUD read this frame?"
+owner = "ocr"
+role = ["detect"]
+status = "shipped"
+produces = ["read_scoreline", "read_bottom_hud", "segment_glyphs"]
+not_for = """
+Player identity, and confidence in a reading. OCR confidence is evidence
+QUALITY; a transient leading `1` on a scoreline stays an OCR finding rather
+than becoming a score two channels then have to disagree about.
+"""
+consumers = ["hud_reader", "scoreboard", "overlay"]
+
+[[entry]]
+id = "scoreboard-row"
+question = "What does a scoreboard row say, and which row is the local player?"
+owner = "scoreboard"
+role = ["detect", "attribute"]
+status = "partial"
+produces = ["read_scoreboard", "ScoreboardRead", "portrait_observations"]
+not_for = """
+Cross-round player identity. Rows compact and reorder, so a row POSITION is not
+a player; the marked local row is the only attribution this owns.
+"""
+evidence = "tests/test_scoreboard.py"
+
+[[entry]]
+id = "hud-scan"
+question = "What does one shared HUD decode pass see in this frame?"
+owner = "hud_reader"
+role = ["detect"]
+status = "shipped"
+produces = ["HudReader"]
+not_for = """
+Adjudicated killfeed events. A shared extraction is an execution optimization,
+and its output must stay distinguishable from what `killfeed` concluded.
+"""
+evidence = "tests/test_hud_reader.py"
+
+[[entry]]
+id = "alive-count"
+question = "How many players are alive on each side right now?"
+owner = "roster"
+role = ["count", "detect"]
+status = "shipped"
+produces = ["alive_counts", "slot_details", "resolve"]
+not_for = """
+WHICH AGENT occupies a slot. The bars pack survivors toward one edge, so a slot
+index is a position among the LIVING and not a player: the HUD death signal dims
+a packed index and, read as identity, named the wrong victim in both rounds it
+was tested on. The packed sequence is the INPUT to assignment, never the answer.
+"""
+consumers = ["lineup", "reconciliation", "coaching", "store"]
+evidence = "tests/test_roster_identity.py"
+
+[[entry]]
+id = "ping-event"
+question = "Is this mark a ping, which kind, and when did it appear?"
+owner = "ping"
+role = ["detect", "group"]
+status = "partial"
+produces = ["classify", "sightings", "Grouper"]
+not_for = """
+Player identity, or any static object. `static` motion is a CONSTRAINT a ping
+satisfies, not proof that a static object is one.
+"""
+consumers = ["track"]
+
+[[entry]]
+id = "drawn-light"
+question = "Which minimap pixels does the team's drawn light call lit?"
+owner = "lighting"
+role = ["detect", "constrain"]
+status = "partial"
+produces = ["lit_mask", "reference", "Lighting"]
+not_for = """
+Visibility truth, or confirmation. Light can REFUSE an entity and cannot
+confirm one, and unknown is not dark [domain:minimap/vision-gate].
+"""
+consumers = ["overlay"]
+evidence = "tests/test_lighting.py"
+
+[[entry]]
+id = "viewcone"
+question = "What does the geometric raycast say the player can see?"
+owner = "cone"
+role = ["constrain", "corroborate"]
+status = "partial"
+produces = ["raycast", "coverage", "compare_evidence"]
+not_for = """
+Ground truth for vision, and the identity of anything revealed. The raycast
+overclaims area and disagrees with the drawn light; it is a crosscheck. A Sova
+dart reveals a line-of-sight set from a variable-height origin, so its drawn
+circle is not ground coverage.
+"""
+consumers = ["overlay", "barriers"]
+evidence = "tests/test_cone_evidence.py, tests/test_full_round_cones.py"
+
+[[entry]]
+id = "screen-outline"
+question = "Where are the outline candidates on the game screen?"
+owner = "screen"
+role = ["detect"]
+status = "partial"
+produces = ["outline_candidates", "find_boxes", "hud_mask"]
+not_for = """
+An entity class. `outline` is a generic shape result, and a consumer promoting
+it to "enemy" is the promotion this boundary exists to stop.
+"""
+
+[[entry]]
+id = "review-question"
+question = "What should a human be asked to look at, and what did they answer?"
+owner = "glance"
+role = ["corroborate"]
+status = "shipped"
+produces = ["build", "Sheet", "answer", "calibration"]
+not_for = """
+Truth. A review answer is source-linked EVIDENCE; copying it into a detector's
+labels turns one person's reading into a label file nothing can audit.
+"""
+
+[[entry]]
+id = "map-furniture"
+question = "Where are the buy-phase barriers, and do they partition the map?"
+owner = "barriers"
+role = ["constrain"]
+status = "partial"
+produces = ["partition", "territories", "separates"]
+not_for = """
+Ally identity, despite barriers being drawn in the ally colour key. A barrier is
+static, side-specific map furniture; it is one of the things an unlit ally
+detection usually turns out to be.
+"""
+evidence = "tests/test_barriers.py"
+
+# ---------------------------------------------------------------------------
+# Association, lifecycle and belief
+# ---------------------------------------------------------------------------
+
+[[entry]]
+id = "track-continuation"
+question = "May this observation continue that entity's track?"
+owner = "track"
+role = ["track", "constrain"]
+status = "shipped"
+produces = ["admits", "association_tolerance", "assign", "CLASSES"]
+not_for = """
+SEMANTIC IDENTITY. This is the most important negative boundary in the repo:
+`track` says what a PROPOSED identity is allowed to do over time, and motion
+being consistent with Agent X is not evidence that this is Agent X. A consumer
+treating an association as a name is a design error, not a tuning problem.
+"""
+consumers = ["lineup", "minimap_lifecycle", "round_lifetimes", "overlay"]
+evidence = "`python -m reticle.track --self-test`"
+
+[[entry]]
+id = "teleport-licence"
+question = "Is this discontinuity a licensed teleport or a broken track?"
+owner = "track"
+role = ["constrain"]
+status = "shipped"
+produces = ["corroborates_teleport", "is_teleport", "Corroboration"]
+not_for = """
+Deciding from distance alone. A teleport needs an icon, a cone, audio or an
+observed destination to corroborate it; distance-only is an explicitly marked
+fallback and nothing may launder it into a licence.
+"""
+consumers = ["minimap_lifecycle"]
+
+[[entry]]
+id = "minimap-origin"
+question = "Is this minimap appearance a birth, a continuation or unexplained?"
+owner = "minimap_lifecycle"
+role = ["lifecycle", "adjudicate"]
+status = "partial"
+produces = ["Lifecycle", "light_state", "matching_events"]
+not_for = """
+The motion law. This module restated `track`'s continuation ceiling once and the
+two drifted -- 2.2 px against 4.8 at 60 Hz -- so it quarantined appearances the
+tracker had already associated. It defers, it does not re-derive.
+"""
+defers_to = ["track-continuation", "teleport-licence"]
+consumers = ["overlay"]
+evidence = "tests/test_minimap_lifecycle.py"
+
+[[entry]]
+id = "round-entity"
+question = "Which observations across views are one physical entity this round?"
+owner = "round_lifetimes"
+role = ["track", "lifecycle", "adjudicate"]
+status = "partial"
+produces = ["RoundLifetimes", "readable_kind", "known_kind"]
+not_for = """
+Agent identity. Names here are fixed at birth and deliberately English rather
+than agent names, which exposes fragmentation instead of pretending to know who
+it is; appearance-only reacquisition is vacuous past the widget diagonal over
+walking speed and must be refused or marked.
+"""
+defers_to = ["track-continuation"]
+evidence = "tests/test_round_lifetimes.py"
+
+[[entry]]
+id = "position-belief"
+question = "Where was the player at an instant nothing observed?"
+owner = "belief"
+role = ["adjudicate"]
+status = "partial"
+produces = ["resolve", "Fix", "absent_instants"]
+not_for = """
+Becoming a second tracker. This projects observed, interpolated, held and
+unresolved fixes for a consumer, and must keep a refusal distinguishable from an
+absent widget rather than smoothing over both.
+"""
+defers_to = ["self-position", "widget-drawn"]
+evidence = "tests/test_belief.py"
+
+[[entry]]
+id = "round-bounds"
+question = "Where does a round begin and end, and which side is the player on?"
+owner = "rounds"
+role = ["lifecycle", "adjudicate"]
+status = "partial"
+produces = ["round_bounds", "build_rounds", "infer_player_side"]
+not_for = """
+Player identity. A side is a round state. About 20% of coaching events still sit
+near an uncertain boundary, and plant inference that reads a FUTURE clock gap is
+not available as a prediction-time feature.
+"""
+consumers = ["reconciliation", "coaching", "status"]
+
+# ---------------------------------------------------------------------------
+# Cross-channel comparison
+# ---------------------------------------------------------------------------
+
+[[entry]]
+id = "hud-invariant"
+question = "Do the stored HUD reads contradict each other?"
+owner = "checks"
+role = ["constrain", "corroborate"]
+status = "shipped"
+produces = ["check_hud", "track_entries", "player_events"]
+not_for = """
+Choosing which channel is right. A check surfaces the disagreement; silently
+picking a winner destroys the evidence that something is wrong.
+"""
+consumers = ["reconciliation", "rounds", "coaching", "fidelity", "status"]
+
+[[entry]]
+id = "channel-disagreement"
+question = "Where do independent stored channels disagree about the same event?"
+owner = "reconciliation"
+role = ["adjudicate", "corroborate"]
+status = "partial"
+produces = ["audit_scoreline", "audit_roster_deltas", "adjudicate_scoreboard_credits"]
+not_for = """
+Becoming the owner of every cross-channel question. It compares channels and
+preserves disagreement; identity adjudication is a NARROWER owner that does not
+exist yet, and letting this module absorb it is how an unnamed universal
+adjudicator gets built by accident.
+"""
+evidence = "tests/test_reconciliation.py"
+
+[[entry]]
+id = "light-support"
+question = "Does the light beside an icon support the detection?"
+owner = "minimap_diagnostics"
+role = ["corroborate"]
+status = "partial"
+produces = ["light_support", "distance_agreement"]
+not_for = """
+Labels. These are diagnostic panels; feeding them back as training or label data
+is a model grading its own homework.
+"""
+consumers = ["overlay"]
+evidence = "tests/test_minimap_diagnostics.py"
+
+[[entry]]
+id = "credit-ledger"
+question = "What can each player afford, given what has been observed?"
+owner = "economy"
+role = ["adjudicate"]
+status = "partial"
+produces = ["EconomyTracker", "CreditRange", "BalanceReconciliation"]
+not_for = """
+Player identity. It requires player ids supplied by a layer above it, and a
+local identifier invented here would be a sixth kind of identity.
+"""
+evidence = "tests/test_economy.py"
+
+[[entry]]
+id = "coaching-state"
+question = "What state was the round in, and what does that predict?"
+owner = "coaching"
+role = ["adjudicate"]
+status = "partial"
+produces = ["observed_states", "run_coaching", "attach_event_estimates"]
+not_for = """
+Event ground truth. Its events are observations until something independent
+verifies them, and analysis is downstream of the event stream, never a
+substitute for it.
+"""
+evidence = "tests/test_coaching.py"
+
+# ---------------------------------------------------------------------------
+# Identity from the portrait channels
+# ---------------------------------------------------------------------------
+
+[[entry]]
+id = "agent-from-slot"
+question = "Which agent occupies this roster or top-bar slot?"
+owner = "lineup"
+role = ["assign"]
+status = "transitional"
+produces = ["Lineup", "LineupReader", "read_session"]
+not_for = """
+Slots on an incomplete side, and cross-side elimination. Accumulate only while a
+side is fully alive, or deaths average two identities together; a thin margin
+stays `None` WITH ITS REASON, and the reason is the thing to read -- twelve of
+79 refusals were pairwise ties assignment had already broken, and counting them
+instead produced a coverage claim that was an artifact.
+"""
+exit = """
+`_composition` inserts `prototypes/` on `sys.path` and imports
+`minimap_portrait.composition`, then `ability_hud`'s tray geometry. Promote
+those assets into `reticle/` and this becomes `partial`.
+"""
+evidence = "tests/test_lineup.py"
+
+[[entry]]
+id = "player-agent"
+question = "Which agent is the local player?"
+owner = "lineup"
+role = ["assign", "adjudicate"]
+status = "transitional"
+produces = ["tray_vote", "tray_shapes", "abilities_for"]
+not_for = """
+Being decided by one witness. The tray, the top bar and the self icon are
+independent witnesses and the tray decided one session; tray QUALITY is checked
+first, because a bright Lotus background once produced a confident wrong answer.
+Abstention and disagreement are different outcomes.
+"""
+exit = "As `agent-from-slot`: the calibration assets still live in prototypes/."
+evidence = "tests/test_lineup.py"
+
+# ---------------------------------------------------------------------------
+# Abilities
+# ---------------------------------------------------------------------------
+
+[[entry]]
+id = "ability-cast"
+question = "When was an ability cast, and from which tray slot?"
+owner = "ability_timeline"
+role = ["detect", "corroborate"]
+status = "transitional"
+produces = ["build_timeline", "write_timeline"]
+not_for = """
+A pixel detector result. A cast claim is temporal evidence from the tray and
+audio; it does not locate the ability's entity in the world, and the audio and
+tray agreeing is corroboration rather than detection.
+"""
+exit = "`materialize_demo_casts` drives `ability_cast` and `ability_hud` from prototypes/."
+evidence = "tests/test_ability_timeline.py"
+
+[[entry]]
+id = "ability-evidence"
+question = "Which ability properties have evidence, and from which source?"
+owner = "ability_coverage"
+role = ["count"]
+status = "shipped"
+produces = ["build_inventory", "write_inventory"]
+not_for = """
+Detector capability. `coverage` here counts EVIDENCE, and reading it as what the
+pipeline can detect is the word doing work the data does not support.
+"""
+consumers = ["ability_timeline"]
+evidence = "tests/test_ability_coverage.py"
+
+[[entry]]
+id = "ability-hypothesis"
+question = "Which observed components belong to one ability entity?"
+owner = "adjudication.ability"
+role = ["group", "adjudicate"]
+status = "partial"
+produces = ["build_entities", "onset_groups", "persistence_groups"]
+not_for = """
+A final classification, and an owner. It emits ALTERNATIVE parent edges and
+property hypotheses; the similarly named `ability_entities` is the command
+adapter over this, and routing by filename picks the adapter every time.
+"""
+evidence = "tests/test_ability_entities.py"
+
+[[entry]]
+id = "ability-phase"
+question = "What phase is an ability entity in, and what caused the transition?"
+owner = "adjudication.phases"
+role = ["lifecycle", "constrain"]
+status = "partial"
+produces = ["entity_phases", "candidate_causes", "segment"]
+not_for = """
+Component detection or agent ownership. Devices DIM on deactivation and entities
+can transform, so a phase change is not a disappearance and a transformed entity
+is not a new one.
+"""
+evidence = "tests/test_ability_phases.py, tests/test_device_deactivation.py"
+
+[[entry]]
+id = "ability-appearance"
+question = "What does this ability look like, and does the gallery separate it?"
+owner = "adjudication.gallery"
+role = ["corroborate", "constrain"]
+status = "partial"
+produces = ["build_gallery_bundle", "evaluate", "permutation_p"]
+not_for = """
+The live classifier. Temporal shape failed to separate the Deadlock sensor from
+Barrier Mesh across held-out directions, and the corpus supports one held-out
+contrast; a gallery that stores exemplars has not thereby assigned an identity.
+"""
+evidence = "tests/test_ability_gallery.py"
+
+[[entry]]
+id = "capture-queue"
+question = "What should be recorded next, and was the take usable?"
+owner = "adjudication.capture"
+role = ["constrain"]
+status = "shipped"
+produces = ["build_queue", "verify_takes", "record_take"]
+not_for = "Any identity claim. It plans recordings and validates takes."
+evidence = "tests/test_ability_capture.py"
+
+[[entry]]
+id = "reader-capability"
+question = "What is a reader VALIDATED to do, at which sampling tier?"
+owner = "capabilities"
+role = ["constrain"]
+status = "shipped"
+produces = ["builtin_capabilities", "unvalidated"]
+not_for = """
+What a reader looks like it should manage. A tier appears only after `fidelity`
+scored it against source-reviewed windows, and most of what the readers can be
+asked to do is deliberately absent.
+"""
+consumers = ["acquisition"]
+
+[[entry]]
+id = "evidence-plan"
+question = "How should evidence be sampled to answer a request?"
+owner = "acquisition"
+role = ["constrain"]
+status = "shipped"
+produces = ["plan_requests", "execute_plan", "EvidenceRequest"]
+not_for = """
+Deciding which identity is true. A request may NAME an identity need; the
+planner routes it to the owner and never answers it.
+"""
+consumers = ["capabilities"]
+evidence = "tests/test_acquisition.py"
+
+# ---------------------------------------------------------------------------
+# Questions nothing owns yet. These are the product, and they stay visible on
+# every `doctor` run rather than being rediscovered from NOTES.md.
+# ---------------------------------------------------------------------------
+
+[[entry]]
+id = "agent-identity"
+question = "Which NAMED AGENT is this icon, track or ability?"
+role = ["assign", "adjudicate"]
+status = "unowned"
+not_for = """
+`track`, `roster` or `minimap` absorbing it. Each owns a piece -- admissibility,
+alive counts, position -- and none may promote its piece into a name.
+"""
+blocked_by = """
+lineup coverage: ally sides name 3-5 of 5, enemy sides 0-3, and 33 sessions have
+no lineup at all. An incomplete side must refuse rather than assign an unnamed
+slot, and the margin must be measured against the best assignment-consistent
+alternative.
+"""
+
+[[entry]]
+id = "death-victim"
+question = "Which agent died at this killfeed time, and where?"
+role = ["attribute", "adjudicate"]
+status = "unowned"
+not_for = """
+`killfeed` growing into it. The feed gives the time, the team mask and the local
+player; differencing a NAMED alive set across that instant gives the victim, and
+the two sides disagreeing is output rather than something to hide.
+"""
+blocked_by = "agent-identity, and alive sets named per instant from roster occupancy."
+
+[[entry]]
+id = "ability-owner"
+question = "Which agent cast this ability?"
+role = ["attribute", "adjudicate"]
+status = "unowned"
+not_for = """
+Inference from the tray alone. Cast order, roster, audio, killfeed ability icons
+and owner-death linkage are candidate witnesses; the killfeed icon is biased
+toward damaging abilities and represents no smoke, wall or recon use.
+"""
+blocked_by = "agent-identity, plus an ability entity to attribute."
+
+[[entry]]
+id = "ability-detection"
+question = "Where in the frame is an ability entity?"
+role = ["detect"]
+status = "unowned"
+not_for = """
+`adjudication.ability` being read as the detector. It groups components that
+something else must first detect; five prototypes were triaged and none shipped.
+"""
+blocked_by = """
+Acquisition diversity. Dim devices survive the area-gated channel and not the
+distance-transform one, validation covers too few maps and agents, and the
+peak-finder failed on painted frames.
+"""
+
+[[entry]]
+id = "fact-subject"
+question = "What is a domain fact ABOUT, and under what condition does it hold?"
+role = ["attribute"]
+status = "unowned"
+not_for = """
+A graph. `subject` is cheap and useful immediately; the conditional layer waits
+until events carry identity and can be evaluated against.
+"""
+blocked_by = "`domain/*.toml` has no `subject` and no `given` field."
+
+# ---------------------------------------------------------------------------
+# Modules that answer no ownership question. Naming them here is what makes the
+# placement check total: a new module owns an entry or lands in this list, and
+# neither can be skipped by saying nothing.
+#
+#   the command surface   cli, __main__
+#   the store and decode  store, decode, passes, synth, refine, refinement
+#   provenance            version, metrics, judgement, quoted, artifacts,
+#                         revisions, census
+#   the auditors          architecture, ownership, doctor, status, fidelity
+#   delivery              overlay, review
+#   ability adapters      ability_capture, ability_entities, ability_gallery,
+#                         ability_phases -- commands over stored artifacts, and
+#                         the reason routing by filename picks the wrong module
+# ---------------------------------------------------------------------------
+
+[infrastructure]
+modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
+           "refinement", "version", "metrics", "judgement", "quoted",
+           "artifacts", "revisions", "census", "architecture", "ownership",
+           "doctor", "status", "fidelity", "overlay", "review",
+           "ability_capture", "ability_entities", "ability_gallery",
+           "ability_phases"]

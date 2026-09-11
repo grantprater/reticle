@@ -302,6 +302,8 @@ entry that genuinely exists.
 Deaths per round is deliberately NOT used as a check anywhere: Sage
 resurrection and Clove self-revive both let a player die more than once in a
 round, so any such invariant would fire on legitimate footage.
+
+Owns [owns:killfeed-event].
 """
 
 from __future__ import annotations

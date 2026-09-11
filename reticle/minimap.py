@@ -37,6 +37,8 @@ Known limits carried from the prototype, unresolved:
   (see the pre-ingest checklist in the root CLAUDE.md), not a game default --
   a capture recorded with Valorant's defaults breaks every position here
   silently, returning rotated or mirrored positions rather than an error.
+
+Owns [owns:ally-candidates], [owns:self-position] and [owns:widget-drawn].
 """
 
 from __future__ import annotations

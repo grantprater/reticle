@@ -3,6 +3,8 @@
 This is milestone A of ``docs/ABILITY_ENTITY_INFERENCE_DESIGN.md``.  It indexes
 source windows and reports property-level coverage.  It never treats a missing
 candidate, label, or tray drop as evidence that an ability was absent.
+
+Owns [owns:ability-evidence].
 """
 from __future__ import annotations
 

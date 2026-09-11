@@ -14,6 +14,8 @@ recording cannot establish, becomes a capture card.
 A detector scoring poorly is explicitly not a reason to ask for footage, and
 neither is a bookkeeping fault: a session missing its `ability-demo` tag is a
 manifest to fix, not a clip to record.
+
+Owns [owns:capture-queue].
 """
 from __future__ import annotations
 

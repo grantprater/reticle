@@ -2,6 +2,8 @@
 
 These are consistency measurements, never labels or accuracy estimates. Unknown
 lighting is excluded from denominators. No observation is deleted by this module.
+
+Owns [owns:light-support].
 """
 from __future__ import annotations
 

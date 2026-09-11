@@ -15,6 +15,8 @@ hides which evidence an answer rested on; passing it in keeps both visible.
 **A `Fix` is never evidence.** It must not seed a template, feed a detector's
 prior, or count toward observed coverage. Observed and believed coverage are
 reported separately and never summed.
+
+Owns [owns:position-belief].
 """
 from __future__ import annotations
 

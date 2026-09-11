@@ -16,6 +16,8 @@ deliberately coarser claim:
 
 The thresholds below are starting guesses. Calibrate them against your own
 footage with `reticle segment --show-signals` before trusting the numbers.
+
+Owns [owns:evidence-span].
 """
 
 from __future__ import annotations

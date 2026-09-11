@@ -11,6 +11,52 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## OWNERSHIP IS DECLARED AND CHECKED -- 2026-09-11
+
+**`ownership.toml` says who may DECIDE each question, and `doctor`'s OWNERSHIP
+check holds it against the code.** 47 entries, 26 infrastructure modules, every
+one of the 64 modules placed exactly once. An owner claims its entry in its own
+docstring with an `[owns:<id>]` token, so an entry pointing at a renamed output,
+an owner that stopped claiming its contract, a new module nobody classified, a
+`defers_to` whose import went away, and a `shipped` owner still reaching
+`prototypes/` are ERRORs. Read one with `reticle ownership which agent died`.
+
+**The route that was asked for was a hand-written index, and the registry
+replaces it.** Three arguments decided it. A prose restatement of 63 module
+boundaries is the tangle `domain/*.toml` exists to replace, and the owners'
+docstrings already carry the argument better -- `track.py` has a *What this is
+not* section, `minimap.py` says ally identity is future work and not silently
+assumed, `minimap_lifecycle.py` says the motion law is `track`'s. An unchecked
+declaration is satisfied by declaring everything, which `architecture.toml`
+argues in its own header. And the index pass itself, which classified all 63
+modules accurately, did not notice the thing a check found immediately.
+
+**What the check found: `reticle/adjudication/` was in no layer at all.**
+`architecture.py` globbed `reticle/*.py`, and a glob cannot see a directory, so
+four modules sat unplaced and `adjudication.ability` imported `ability_timeline`
+-- an eager edge up out of adjudication into entities -- with nothing reporting
+it. The blind spot is fixed: modules are placed by dotted name, relative imports
+resolve against their own subpackage, and `from reticle import x` is counted,
+which it never was. The edge is gone rather than blessed: `ability_timeline` and
+`ability_coverage` are pure over stored observations, which is this repo's own
+definition of `adjudication`, so they moved down a layer and the `entities`
+entries left behind are the command adapters they always were.
+
+**Five questions are declared UNOWNED and print on every run.**
+`agent-identity`, `death-victim`, `ability-owner`, `ability-detection`,
+`fact-subject`. That is the north star, on screen, with its blocker attached:
+`agent-identity` blocks three of the other four, and its own blocker is lineup
+COVERAGE rather than perception. Nothing in this change moves that work; it
+stops the next session having to rediscover where it lives.
+
+Superseded by this: `PROVISIONAL_INDEXING.md`, whose per-module content is now
+the registry, and `docs/IDENTITY_INDEX_DESIGN.md`, which is now
+`docs/OWNERSHIP_INDEX.md` and describes what exists. Three boundaries the pass
+raised and did not resolve -- `minimap_lifecycle` against `round_lifetimes`,
+`reconciliation`'s missing ceiling, and `ability_phases.ally_deaths` living in a
+command adapter -- are in `BACKLOG.md` with their triggers. 477 tests pass;
+`doctor` reports 13 findings and zero errors.
+
 ## PICKING UP -- 2026-09-10, STEP ONE IS BUILT AND LINEUP IS THE BLOCKER
 
 **`prototypes/roster_identity.py` names the living, and running it named its own

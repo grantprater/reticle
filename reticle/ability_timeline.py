@@ -5,6 +5,8 @@ bounded observations of a state transition, not unconditional casts.  This
 module preserves the possible transition meanings and never requires a minimap
 candidate.  Optional materialization drives the existing prototype reader over
 demo sources, then consumes its version-stamped caches.
+
+Owns [owns:ability-cast].
 """
 from __future__ import annotations
 

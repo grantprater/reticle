@@ -111,6 +111,8 @@ re-read of the video. `ROSTER_SPLIT_VERSION` stamps the rule; `ROSTER_VERSION`
 stamps the pixels, and `Store.has_roster` keys only on the latter.
 `prototypes/roster_split_eval.py` is what that buys: it scores candidate rules
 against each other, and against the killfeed audit, at no decode cost.
+
+Owns [owns:alive-count].
 """
 
 # Three further defects are localized in docs/ROSTER_FINDINGS.md, all confirmed

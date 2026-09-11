@@ -147,6 +147,23 @@ it" states plainly, and the player had to ask what the sentence meant.
   dependencies sit inside functions. `reticle/` must not import `prototypes/`,
   including by `sys.path` insert plus a bare import, which is the spelling that
   hid two real violations until this check existed.
+- **WHO MAY DECIDE A QUESTION IS DECLARED IN `ownership.toml`, AND VERIFIED.**
+  One entry per question, naming the owner, what it produces, what it defers to,
+  and -- the field to read second -- what it is `not_for`. The negative boundary
+  is what stops a module being selected because its NAME matched: `roster` owns
+  alive counts and not agent identity, `minimap` owns where the self icon is and
+  not which agent the player is, and `track` owns what a proposed identity may
+  DO over time and owns no identity at all. Two faults paid for it -- a packed
+  living-slot index read as a player named the wrong victim in both rounds it
+  was tested on, and `minimap_lifecycle` restated `track`'s continuation ceiling
+  until the two disagreed by a factor of two. An owner claims its entry in its
+  own docstring with an `[owns:<id>]` token, so a stale entry, a renamed
+  output, an unplaced new module, a `defers_to` whose import went away, and a
+  `shipped` owner still reaching `prototypes/` are all ERRORs in `doctor`'s
+  OWNERSHIP check. A question nothing owns is declared too, with what blocks it:
+  `death-victim` is the product and prints on every run. Route with
+  `reticle ownership <question>`; the argument stays in the owner's docstring
+  and is cited, never restated.
 - Never put Claude session URLs in repository files or commit messages. Public
   files contain facts; attribution, quotes, and private domain notes stay out.
 
