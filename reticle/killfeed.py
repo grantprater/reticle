@@ -734,6 +734,19 @@ def _entry_bands(
 _ME_CACHE: dict[str, tuple] = {}
 
 
+def me_template_path(profile_name: str) -> Path:
+    """Resolve path to the 'Me' template .npz in reticle-store or fallback to package templates."""
+    filename = f"{template_key(profile_name)}-killfeed.npz"
+    try:
+        from .store import Store
+        store_path = Store().root / "reference" / "templates" / filename
+        if store_path.is_file():
+            return store_path
+    except Exception:
+        pass
+    return Path(__file__).with_name("templates") / filename
+
+
 def me_template(profile_name: str) -> np.ndarray | None:
     """The rendered "Me" bitmap, mined from footage and committed per profile.
 
@@ -741,7 +754,7 @@ def me_template(profile_name: str) -> np.ndarray | None:
     are (see ocr.py): what matters is how this build renders at this resolution.
     """
     if profile_name not in _ME_CACHE:
-        path = Path(__file__).with_name("templates") / f"{template_key(profile_name)}-killfeed.npz"
+        path = me_template_path(profile_name)
         if not path.is_file():
             _ME_CACHE[profile_name] = None
         else:

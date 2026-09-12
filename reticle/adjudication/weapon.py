@@ -27,8 +27,8 @@ ICON_WHITE_V_MIN = 185
 ICON_WHITE_S_MAX = 75
 
 #: Aspect ratio and width thresholds separating abilities from guns.
-ABILITY_MAX_WIDTH_PX = 25
-ABILITY_MAX_ASPECT = 1.25
+ABILITY_MAX_WIDTH_PX = 36
+ABILITY_MAX_ASPECT = 1.35
 
 #: Weapon classification taxonomy by category and canonical in-game names.
 WEAPON_TAXONOMY = {
@@ -320,10 +320,45 @@ def load_ability_gallery(assets_dir: Optional[Path | str] = None) -> dict[str, n
     for p in assets_dir.glob("*.png"):
         raw = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
         if raw is not None and len(raw.shape) == 3 and raw.shape[2] == 4:
+            alpha = raw[:, :, 3]
+            ys, xs = np.where(alpha > 128)
+            if len(ys) > 10:
+                raw = raw[int(ys.min()):int(ys.max()+1), int(xs.min()):int(xs.max()+1)]
             loaded[p.stem] = raw
 
     _ABILITY_GALLERY_CACHE = loaded
     return _ABILITY_GALLERY_CACHE
+
+
+_WEAPON_GALLERY_CACHE: dict[str, np.ndarray] = {}
+
+
+def load_weapon_gallery(assets_dir: Optional[Path | str] = None) -> dict[str, np.ndarray]:
+    """Load and cache canonical reference weapon PNGs from reference store."""
+    global _WEAPON_GALLERY_CACHE
+    if _WEAPON_GALLERY_CACHE:
+        return _WEAPON_GALLERY_CACHE
+
+    if assets_dir is None:
+        from ..store import Store
+        try:
+            assets_dir = Store().root / "reference" / "assets" / "weapons"
+        except Exception:
+            assets_dir = Path("reticle-store/reference/assets/weapons")
+    else:
+        assets_dir = Path(assets_dir)
+
+    if not assets_dir.is_dir():
+        return {}
+
+    loaded = {}
+    for p in assets_dir.glob("*.png"):
+        raw = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
+        if raw is not None and len(raw.shape) == 3 and raw.shape[2] == 4:
+            loaded[p.stem] = raw
+
+    _WEAPON_GALLERY_CACHE = loaded
+    return _WEAPON_GALLERY_CACHE
 
 
 def estimate_weapon_class(width: int, aspect_ratio: float) -> str:
@@ -345,10 +380,11 @@ def classify_killfeed_icon(
     obs_or_crop: IconObservation | np.ndarray,
     active_agent: Optional[str] = None,
     gallery: Optional[dict[str, np.ndarray]] = None,
+    weapon_gallery: Optional[dict[str, np.ndarray]] = None,
     min_score: float = 0.60,
     min_margin: float = 0.10,
 ) -> WeaponVerdict:
-    """Classify a killfeed divider icon against ability gallery and weapon geometry.
+    """Classify a killfeed divider icon against ability and weapon reference galleries.
 
     When `active_agent` is provided (e.g. Breach or Raze), candidate ability templates
     for that agent are prioritized.
@@ -368,7 +404,7 @@ def classify_killfeed_icon(
         )
 
     # 1. Check ability match if candidate or squarish dimensions
-    if obs.is_ability_candidate or obs.width <= 32:
+    if obs.is_ability_candidate or (obs.width <= 36 and obs.aspect_ratio <= 1.35):
         if gallery is None:
             gallery = load_ability_gallery()
 
@@ -391,15 +427,21 @@ def classify_killfeed_icon(
             th_obs, tw_obs = tight_white.shape
             scores: dict[str, float] = {}
             for stem, raw in cands.items():
+                tys, txs = np.where(raw[:, :, 3] > 128)
+                if len(tys) > 8:
+                    raw_tight = raw[int(tys.min()):int(tys.max()+1), int(txs.min()):int(txs.max()+1)]
+                else:
+                    raw_tight = raw
+
                 best = 0.0
                 for dy in (-3, -2, -1, 0, 1, 2, 3):
                     th = th_obs + dy
                     if th <= 0:
                         continue
-                    tw = int(round(raw.shape[1] * (th / raw.shape[0])))
+                    tw = int(round(raw_tight.shape[1] * (th / raw_tight.shape[0])))
                     if tw <= 0:
                         continue
-                    resized = cv2.resize(raw, (tw, th))
+                    resized = cv2.resize(raw_tight, (tw, th))
                     mask = (resized[:, :, 3] > 128).astype(np.float32)
                     if tight_white.shape[0] >= mask.shape[0] and tight_white.shape[1] >= mask.shape[1]:
                         res = cv2.matchTemplate(tight_white, mask, cv2.TM_CCOEFF_NORMED)
@@ -437,7 +479,84 @@ def classify_killfeed_icon(
                         },
                     )
 
-    # 2. Geometric class estimation for guns
+    # 2. Template matching for weapons
+    if weapon_gallery is None:
+        weapon_gallery = load_weapon_gallery()
+
+    if weapon_gallery and obs.width >= 20:
+        ys, xs = np.where(obs.white_mask)
+        if len(ys) > 10:
+            tight_white = obs.white_mask[int(ys.min()):int(ys.max()+1), int(xs.min()):int(xs.max()+1)].astype(np.float32)
+        else:
+            tight_white = obs.white_mask.astype(np.float32)
+
+        th_obs, tw_obs = tight_white.shape
+        aspect_obs = float(tw_obs) / float(th_obs) if th_obs > 0 else 0.0
+
+        w_scores: dict[str, float] = {}
+        for w_name, raw in weapon_gallery.items():
+            tmpl_mask = (raw[:, :, 3] > 128).astype(np.float32)
+            tys, txs = np.where(tmpl_mask > 0)
+            if len(tys) > 5:
+                tmpl_mask = tmpl_mask[int(tys.min()):int(tys.max()+1), int(txs.min()):int(txs.max()+1)]
+            th_tmpl, tw_tmpl = tmpl_mask.shape
+            aspect_tmpl = float(tw_tmpl) / float(th_tmpl) if th_tmpl > 0 else 0.0
+
+            # Aspect ratio gate
+            if abs(aspect_tmpl - aspect_obs) > 1.2:
+                continue
+
+            best = 0.0
+            for dy in (-2, -1, 0, 1, 2):
+                th = th_obs + dy
+                if th <= 0:
+                    continue
+                tw = int(round(tw_tmpl * (th / float(th_tmpl))))
+                if tw <= 0:
+                    continue
+                resized = cv2.resize(tmpl_mask, (tw, th))
+                if tight_white.shape[0] >= resized.shape[0] and tight_white.shape[1] >= resized.shape[1]:
+                    res = cv2.matchTemplate(tight_white, resized, cv2.TM_CCOEFF_NORMED)
+                    _, max_v, _, _ = cv2.minMaxLoc(res)
+                    if not math.isnan(max_v) and max_v > best:
+                        best = float(max_v)
+                elif resized.shape[0] >= tight_white.shape[0] and resized.shape[1] >= tight_white.shape[1]:
+                    res = cv2.matchTemplate(resized, tight_white, cv2.TM_CCOEFF_NORMED)
+                    _, max_v, _, _ = cv2.minMaxLoc(res)
+                    if not math.isnan(max_v) and max_v > best:
+                        best = float(max_v)
+            if best > 0.0:
+                w_scores[w_name] = round(best, 3)
+
+        sorted_w = sorted(w_scores.items(), key=lambda x: x[1], reverse=True)
+        if sorted_w:
+            top_w, top_score = sorted_w[0]
+            runner_up = sorted_w[1][1] if len(sorted_w) > 1 else 0.0
+            margin = round(top_score - runner_up, 3)
+            # Find weapon class in taxonomy
+            w_class = estimate_weapon_class(obs.width, obs.aspect_ratio)
+            for w_c, w_list in WEAPON_TAXONOMY.items():
+                if top_w in w_list:
+                    w_class = w_c
+                    break
+
+            if top_score >= 0.70 and margin >= 0.04:
+                return WeaponVerdict(
+                    name=top_w,
+                    category="gun",
+                    weapon_class=w_class,
+                    confidence=top_score,
+                    margin=margin,
+                    status="resolved",
+                    scores=dict(sorted_w[:5]),
+                    metadata={
+                        "aspect_ratio": obs.aspect_ratio,
+                        "width": obs.width,
+                        "height": obs.height,
+                    },
+                )
+
+    # 3. Geometric class estimation fallback for guns
     predicted_class = estimate_weapon_class(obs.width, obs.aspect_ratio)
     return WeaponVerdict(
         name=None,  # Specific weapon gun model requires template match

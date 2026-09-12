@@ -203,7 +203,15 @@ class Templates:
 
     @classmethod
     def path_for(cls, profile_name: str) -> Path:
-        return TEMPLATE_DIR / f"{template_key(profile_name)}-digits.npz"
+        filename = f"{template_key(profile_name)}-digits.npz"
+        try:
+            from .store import Store
+            store_path = Store().root / "reference" / "templates" / filename
+            if store_path.is_file():
+                return store_path
+        except Exception:
+            pass
+        return TEMPLATE_DIR / filename
 
     @classmethod
     def load(cls, profile_name: str) -> "Templates":
@@ -217,8 +225,17 @@ class Templates:
         return cls([str(s) for s in z["labels"]], z["bitmaps"])
 
     def save(self, profile_name: str) -> Path:
-        TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
-        path = self.path_for(profile_name)
+        filename = f"{template_key(profile_name)}-digits.npz"
+        out_dir = TEMPLATE_DIR
+        try:
+            from .store import Store
+            store_dir = Store().root / "reference" / "templates"
+            if store_dir.is_dir():
+                out_dir = store_dir
+        except Exception:
+            pass
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / filename
         np.savez_compressed(
             path, labels=np.array(self.labels, dtype="U2"), bitmaps=self.bitmaps
         )

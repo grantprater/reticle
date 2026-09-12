@@ -16,6 +16,7 @@ from reticle.adjudication.weapon import (
     estimate_weapon_class,
     extract_icon_observation,
     load_ability_gallery,
+    load_weapon_gallery,
 )
 
 
@@ -95,6 +96,33 @@ class WeaponAttributionTests(unittest.TestCase):
         self.assertEqual(verdict.category, "gun")
         self.assertEqual(verdict.weapon_class, "rifle")
 
+    def test_load_weapon_gallery(self):
+        """load_weapon_gallery loads canonical reference weapon templates from reticle-store."""
+        gallery = load_weapon_gallery()
+        if gallery:
+            self.assertIn("Vandal", gallery)
+            self.assertIn("Spectre", gallery)
+            self.assertEqual(gallery["Vandal"].shape[2], 4)  # RGBA
+
+    def test_classify_killfeed_icon_gun_template_match(self):
+        """classify_killfeed_icon resolves specific weapon name when matching weapon gallery."""
+        # Create a synthetic Spectre template with stepped silhouette
+        mock_spectre = np.zeros((20, 60, 4), dtype=np.uint8)
+        mock_spectre[6:14, 5:40] = (255, 255, 255, 255)
+        mock_spectre[10:18, 20:30] = (255, 255, 255, 255)
+        mock_spectre[4:8, 40:55] = (255, 255, 255, 255)
+        weapon_gallery = {"Spectre": mock_spectre}
+
+        crop = np.zeros((34, 62, 3), dtype=np.uint8)
+        crop[7:27, 1:61][mock_spectre[:, :, 3] > 0] = 255
+        verdict = classify_killfeed_icon(crop, weapon_gallery=weapon_gallery)
+
+        self.assertEqual(verdict.status, "resolved")
+        self.assertEqual(verdict.name, "Spectre")
+        self.assertEqual(verdict.category, "gun")
+        self.assertEqual(verdict.weapon_class, "smg")
+        self.assertGreaterEqual(verdict.confidence, 0.70)
+
     def test_weapon_verdict_serialization(self):
         """WeaponVerdict serializes cleanly with adjudication version."""
         verdict = WeaponVerdict(
@@ -115,3 +143,4 @@ class WeaponAttributionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

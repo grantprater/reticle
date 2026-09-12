@@ -11,6 +11,20 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## WEAPON AND KILLFEED ABILITY ICON MINING AND ADJUDICATION -- 2026-09-12
+
+**`reticle/adjudication/weapon.py` and `prototypes/mine_weapon_icons.py` classify killfeed divider icons into canonical weapons and abilities.**
+1. **Multi-session silhouette mining and canonical templates:**
+   - Mined 459 icon observations across sessions `a06f04a0059f`, `59c70f1ef720`, and `ff636d173b07` from killfeed divider bands and Scoreboard (`Tab`) loadout cells.
+   - Built canonical reference weapon templates in `reticle-store/reference/assets/weapons/` (Vandal, Phantom, Spectre, Classic, Ghost, Sheriff, Marshal, Operator).
+2. **Normalized cross-correlation with aspect ratio gating:**
+   - Evaluates foreground bounding boxes against canonical weapon and ability galleries.
+   - Decisively discriminates high-confusion pairs (e.g., Spectre 0.962 vs Vandal 0.639) and resolves ability kills (e.g. Breach Aftershock at 0.694).
+3. **Adjudication integration:**
+   - `adjudicate_round_deaths` consumes raw `icon_crop`, populating `DeathVerdict.weapon`, `DeathVerdict.death_cause`, and second-life flags (`Run It Back`, `NULL/cmd`).
+4. **Unified template store:**
+   - Migrated digit and killfeed templates (`valorant-16x9-digits.npz` and `valorant-16x9-killfeed.npz`) into `reticle-store/reference/templates/` with transparent fallback.
+
 ## IN-GAME TIME AND CAPTURE DISCONTINUITY ADJUDICATION -- 2026-09-12
 
 **`reticle/gametime.py` bridges media container time (`t_ms`) to game simulation time.**

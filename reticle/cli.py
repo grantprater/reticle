@@ -47,7 +47,7 @@ from .fidelity import FROZEN_WINDOWS
 from .fingerprint import fingerprint
 from .killfeed import (KILLFEED_PORTRAIT_VERSION, KillfeedPortraitReader,
                        KillfeedRead, analyse_killfeed, killfeed_roi,
-                       overlay_mask, read_killfeed)
+                       me_template_path, overlay_mask, read_killfeed)
 from .belief import (BELIEF_VERSION, absent_instants, resolve,
                      round_voids)
 from .minimap import (FIT_ERR_PX, MAX_ALLIES, _odd, ally_rings, art_floor,
@@ -1970,7 +1970,7 @@ def cmd_refine(args) -> int:
     reader = _HudPass(store, manifest, profile,
                       argparse.Namespace(min_confidence=0.82, min_margin=0.05, hz=0))
     assets = [Templates.path_for(profile.name),
-              Path(__file__).with_name('templates') / f'{template_key(profile.name)}-killfeed.npz',
+              me_template_path(profile.name),
               store.kf_mask_path(manifest['session_id'])]
     plan['reader_configuration'] = dict(hud_version=HUD_VERSION, min_confidence=0.82,
                                         min_margin=0.05, max_frames=args.max_frames,

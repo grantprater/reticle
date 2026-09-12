@@ -263,6 +263,16 @@ def extract_scoreboard_icons(
     return records
 
 
+def exemplar_quality(crop: np.ndarray, mask: np.ndarray, fill: float) -> float:
+    """Score exemplar quality: favors sharp edges and typical icon fill ratio (~0.30)."""
+    if fill > 0.60 or fill < 0.10:
+        return -1000.0
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    detail = float(cv2.Laplacian(gray, cv2.CV_32F).var())
+    fill_penalty = abs(fill - 0.28) * 150.0
+    return detail - fill_penalty
+
+
 def cluster_icons(icons: list[dict[str, Any]], match_threshold: float = 0.65) -> list[dict[str, Any]]:
     """Cluster extracted icons by aspect ratio and correlation distance."""
     clusters: list[dict[str, Any]] = []
@@ -272,6 +282,7 @@ def cluster_icons(icons: list[dict[str, Any]], match_threshold: float = 0.65) ->
         mask = item["tight_mask"].astype(np.float32)
         h, w = mask.shape
         aspect = item["tight_aspect"]
+        quality = exemplar_quality(crop, mask, item["fill_ratio"])
 
         best_cluster = None
         best_sim = 0.0
@@ -313,11 +324,15 @@ def cluster_icons(icons: list[dict[str, Any]], match_threshold: float = 0.65) ->
                 best_cluster["suggested_name"] = item["verdict"]["name"]
                 best_cluster["category"] = item["verdict"]["category"]
                 best_cluster["weapon_class"] = item["verdict"]["weapon_class"]
-            # Update exemplar if this one has higher contrast/fill
-            if item["fill_ratio"] > best_cluster["fill_ratio"]:
+            # Update exemplar if this one has higher quality
+            if quality > best_cluster.get("exemplar_quality", -999.0):
                 best_cluster["exemplar_crop"] = crop
                 best_cluster["exemplar_mask"] = mask
+                best_cluster["exemplar_quality"] = quality
                 best_cluster["fill_ratio"] = item["fill_ratio"]
+                best_cluster["width"] = w
+                best_cluster["height"] = h
+                best_cluster["aspect"] = aspect
         else:
             clusters.append({
                 "cluster_id": len(clusters),
@@ -327,6 +342,7 @@ def cluster_icons(icons: list[dict[str, Any]], match_threshold: float = 0.65) ->
                 "fill_ratio": item["fill_ratio"],
                 "exemplar_crop": crop,
                 "exemplar_mask": mask,
+                "exemplar_quality": quality,
                 "count": 1,
                 "category": item["verdict"]["category"],
                 "weapon_class": item["verdict"]["weapon_class"],

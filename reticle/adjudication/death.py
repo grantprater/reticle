@@ -39,6 +39,7 @@ from ..events import (
 )
 from ..roster import N_SLOTS
 from .identity import claim_from_killfeed_portrait, _channel_verdict
+from .weapon import classify_killfeed_icon
 
 DEATH_ADJUDICATION_VERSION = "death-adjudication-0.1.0"
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
@@ -810,14 +811,30 @@ def adjudicate_round_deaths(
                     is_second_life = True
                     badge_metrics = b_info
 
+        death_cause = kf.get("death_cause")
         weapon = kf.get("weapon") or kf.get("ability_name")
 
-        # Revive / ability icon classification if icon crop is provided
+        # Weapon / Ability icon classification if icon crop is provided
+        if kf.get("icon_crop") is not None and not weapon:
+            w_verdict = classify_killfeed_icon(kf["icon_crop"], active_agent=player_agent)
+            if w_verdict.status == "resolved" and w_verdict.name:
+                weapon = w_verdict.name
+                if not death_cause:
+                    death_cause = w_verdict.category
+                if w_verdict.name in ("Run It Back", "NULL/cmd") or (
+                    w_verdict.metadata and w_verdict.metadata.get("asset_stem") in ("Phoenix_Ultimate", "KAY_O_Ultimate")
+                ):
+                    is_second_life = True
+            elif w_verdict.category != "gun" and not death_cause:
+                death_cause = w_verdict.category
+
+        # Revive icon fallback if still unclassified
         if kf.get("icon_crop") is not None and not weapon:
             matched_ab, ab_score, ab_info = classify_revive_icon(kf["icon_crop"])
             if matched_ab:
                 weapon = f"{matched_ab} Ultimate"
-                death_cause = "ability"
+                if not death_cause:
+                    death_cause = "ability"
                 if matched_ab in ("Phoenix", "KAY/O"):
                     is_second_life = True
 
@@ -828,10 +845,12 @@ def adjudicate_round_deaths(
                 kf_claim["is_second_life"] = True
                 kf_claim["badge"] = badge_metrics
 
-        death_cause = (
-            kf.get("death_cause")
-            or ("environmental" if kf.get("is_environmental") or kf.get("is_fall") else "ability" if kf.get("is_ability") else "gun")
-        )
+        if not death_cause:
+            death_cause = (
+                "environmental" if kf.get("is_environmental") or kf.get("is_fall")
+                else "ability" if kf.get("is_ability")
+                else "gun"
+            )
 
         verdict = adjudicate_death(
             death_id=death_id,

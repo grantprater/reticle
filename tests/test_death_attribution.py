@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import unittest
 
+import cv2
+import numpy as np
+
 from reticle.adjudication.death import (
     DEATH_ADJUDICATION_VERSION,
     DeathVerdict,
@@ -733,6 +736,60 @@ class DeathAttributionTests(unittest.TestCase):
         self.assertGreater(len(events), 0)
         errors = validate_event_rows(events)
         self.assertEqual(errors, [])
+
+    def test_adjudicate_round_deaths_icon_crop_populates_weapon_and_cause(self):
+        """adjudicate_round_deaths uses icon_crop to adjudicate weapon, cause, and second life."""
+        from reticle.adjudication.weapon import load_ability_gallery, load_weapon_gallery
+
+        # 1. Gun icon crop: Spectre
+        gallery = load_weapon_gallery()
+        spectre_crop = np.zeros((34, 66, 3), dtype=np.uint8)
+        if "Spectre" in gallery:
+            s = gallery["Spectre"]
+            spectre_crop[7:27, 2:64][s[:, :, 3] > 128] = 255
+
+        raw_kf = [
+            {
+                "t_ms": 100000.0,
+                "side": "enemy",
+                "claim": {"channel": "killfeed_portrait", "agent": "Jett"},
+                "killer": "Phoenix",
+                "icon_crop": spectre_crop,
+            },
+        ]
+        verdicts = adjudicate_round_deaths("test_session", raw_kf, [])
+        self.assertEqual(len(verdicts), 1)
+        v = verdicts[0]
+        self.assertEqual(v.victim, "Jett")
+        self.assertEqual(v.weapon, "Spectre")
+        self.assertEqual(v.death_cause, "gun")
+        self.assertFalse(v.is_second_life)
+
+        # 2. Revive / Second life ability icon crop: Phoenix Run It Back
+        ab_gallery = load_ability_gallery()
+        phoenix_crop = np.zeros((34, 34, 3), dtype=np.uint8)
+        if "Phoenix_Ultimate" in ab_gallery:
+            pu = ab_gallery["Phoenix_Ultimate"]
+            w_target = int(round(pu.shape[1] * (20 / pu.shape[0])))
+            pu_resized = cv2.resize(pu, (w_target, 20))
+            phoenix_crop[7:27, 5:5+w_target][pu_resized[:, :, 3] > 128] = 255
+
+        raw_kf_2 = [
+            {
+                "t_ms": 105000.0,
+                "side": "ally",
+                "claim": {"channel": "killfeed_portrait", "agent": "Phoenix"},
+                "killer": "Jett",
+                "icon_crop": phoenix_crop,
+            },
+        ]
+        verdicts_2 = adjudicate_round_deaths("test_session", raw_kf_2, [], player_agent="Phoenix")
+        self.assertEqual(len(verdicts_2), 1)
+        v2 = verdicts_2[0]
+        self.assertEqual(v2.victim, "Phoenix")
+        self.assertEqual(v2.weapon, "Run It Back")
+        self.assertEqual(v2.death_cause, "ability")
+        self.assertTrue(v2.is_second_life)
 
 
 if __name__ == "__main__":
