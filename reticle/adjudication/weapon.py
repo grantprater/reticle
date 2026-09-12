@@ -381,16 +381,33 @@ def classify_killfeed_icon(
             else:
                 cands = gallery
 
-            white_f = obs.white_mask.astype(np.float32)
+            # Extract tight foreground bounding box of white mask
+            ys, xs = np.where(obs.white_mask)
+            if len(ys) > 8:
+                tight_white = obs.white_mask[int(ys.min()):int(ys.max()+1), int(xs.min()):int(xs.max()+1)].astype(np.float32)
+            else:
+                tight_white = obs.white_mask.astype(np.float32)
+
+            th_obs, tw_obs = tight_white.shape
             scores: dict[str, float] = {}
             for stem, raw in cands.items():
                 best = 0.0
-                for th in range(max(14, obs.height - 10), min(obs.height + 1, 26)):
+                for dy in (-3, -2, -1, 0, 1, 2, 3):
+                    th = th_obs + dy
+                    if th <= 0:
+                        continue
                     tw = int(round(raw.shape[1] * (th / raw.shape[0])))
-                    if obs.height >= th and obs.width >= tw:
-                        resized = cv2.resize(raw, (tw, th))
-                        mask = (resized[:, :, 3] > 128).astype(np.float32)
-                        res = cv2.matchTemplate(white_f, mask, cv2.TM_CCOEFF_NORMED)
+                    if tw <= 0:
+                        continue
+                    resized = cv2.resize(raw, (tw, th))
+                    mask = (resized[:, :, 3] > 128).astype(np.float32)
+                    if tight_white.shape[0] >= mask.shape[0] and tight_white.shape[1] >= mask.shape[1]:
+                        res = cv2.matchTemplate(tight_white, mask, cv2.TM_CCOEFF_NORMED)
+                        _, max_v, _, _ = cv2.minMaxLoc(res)
+                        if not math.isnan(max_v) and max_v > best:
+                            best = float(max_v)
+                    elif mask.shape[0] >= tight_white.shape[0] and mask.shape[1] >= tight_white.shape[1]:
+                        res = cv2.matchTemplate(mask, tight_white, cv2.TM_CCOEFF_NORMED)
                         _, max_v, _, _ = cv2.minMaxLoc(res)
                         if not math.isnan(max_v) and max_v > best:
                             best = float(max_v)
