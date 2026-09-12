@@ -60,6 +60,7 @@ from .ping import LIFETIME_S, PingReader
 from .lineup import LineupReader
 from .roster import RosterReader
 from . import stalls
+from . import gametime
 from .ocr import (GLYPH_H, GLYPH_W, Templates, cluster_glyphs, crop_gray,
                   read_bottom_hud, read_scoreline, scoreline_roi, segment_glyphs)
 from .primitives import PrimitiveExtractor
@@ -1606,6 +1607,8 @@ def cmd_rounds(args) -> int:
             r["session_id"] = sid
         every += rs
         store.write_rounds(rs, sid, date)
+        st_list = stalls.for_session(store, sid, date)
+        _gt = gametime.build_session_gametime(sid, hud, rs, stall_list=st_list)
         won = [r["won"] for r in rs if r["won"] is not None]
         # `player_side` is structural now (rounds.PLAYER_SIDE). The statistical
         # inference rides alongside: `~` where it abstained, `!` where it

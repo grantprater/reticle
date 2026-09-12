@@ -95,6 +95,7 @@ class Lifecycle:
         self.boundary = True
         self.known = {}
         self.anchors = []
+        self.history: list[dict] = []
 
     def _expire(self, t_ms):
         """Drop anchors older than the gap budget; a boundary is what remains.
@@ -184,9 +185,62 @@ class Lifecycle:
                    "origin_interval_ms": origin_ms,
                    "reason": None if eligible else "origin or continuity needs corroboration"}
             output.append(row)
+            self.history.append(row)
             self.known[key] = row
             if eligible:
                 additions.append(row)
         self.anchors.extend(additions)
         self.boundary = False
         return output
+
+    def events(self, session_id: str, transitions_only: bool = True) -> list[dict]:
+        """Return formal CAUSAL_ORIGIN events.
+
+        By default, transitions_only=True returns origin events: appearances,
+        relocations, boundary onsets, and re-associations. Setting
+        transitions_only=False returns events for every observation frame.
+        """
+        out = []
+        seen_keys = set()
+        for row in self.history:
+            if transitions_only:
+                key = row.get("observation_key")
+                is_origin = (
+                    key not in seen_keys
+                    or row["state"] != "continuation"
+                )
+                seen_keys.add(key)
+                if not is_origin:
+                    continue
+            out.append(lifecycle_row_to_event(row, session_id))
+        return out
+
+
+def lifecycle_row_to_event(row: dict, session_id: str) -> dict:
+    """Convert a Lifecycle step row into a formal CAUSAL_ORIGIN event."""
+    from .events import causal_origin_event, CausalOriginKind, SourceChannel
+
+    origin_kind = CausalOriginKind(row["state"])
+    return causal_origin_event(
+        session_id=session_id,
+        entity_id=f"lifecycle:{row['role']}:{row['entity_id']}",
+        t_ms=float(row["t_ms"]),
+        origin_kind=origin_kind,
+        source_channel=SourceChannel.MINIMAP_LIFECYCLE,
+        producer_version=LIFECYCLE_VERSION,
+        origin_event_id=row.get("origin_event_id"),
+        origin_interval_ms=tuple(row["origin_interval_ms"]) if row.get("origin_interval_ms") else None,
+        alternatives=row.get("alternatives", []),
+        conflict=row.get("conflict"),
+        eligible=row.get("eligible", True),
+        metadata={
+            "observation_key": row.get("observation_key"),
+            "role": row.get("role"),
+            "light_state": row.get("light_state"),
+            "x": row.get("x"),
+            "y": row.get("y"),
+            "r": row.get("r"),
+            "reason": row.get("reason"),
+        },
+    ).to_dict()
+

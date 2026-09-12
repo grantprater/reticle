@@ -449,3 +449,47 @@ def _wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     c = p + z * z / (2 * n)
     half = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5)
     return max(0.0, (c - half) / d), min(1.0, (c + half) / d)
+
+
+def round_events(rounds: list[dict], session_id: str) -> list[dict]:
+    """Convert round records from build_rounds into formal SESSION_BOUNDARY events.
+
+    Each round produces:
+    - boundary_type="round_start" at t_start_ms
+    - boundary_type="round_end" at t_end_ms
+    """
+    from .events import session_boundary_event, SourceChannel
+    from .version import ROUND_VERSION
+
+    events = []
+    for r in rounds:
+        r_no = r.get("round_no")
+        events.append(session_boundary_event(
+            session_id=session_id,
+            t_ms=float(r["t_start_ms"]),
+            boundary_type="round_start",
+            source_channel=SourceChannel.ROUNDS,
+            producer_version=ROUND_VERSION,
+            round_no=r_no,
+            metadata={
+                "start_source": r.get("start_source"),
+            },
+        ).to_dict())
+
+        events.append(session_boundary_event(
+            session_id=session_id,
+            t_ms=float(r["t_end_ms"]),
+            boundary_type="round_end",
+            source_channel=SourceChannel.ROUNDS,
+            producer_version=ROUND_VERSION,
+            round_no=r_no,
+            metadata={
+                "won_left": r.get("won_left"),
+                "left_before": r.get("left_before"),
+                "right_before": r.get("right_before"),
+                "spike_planted": r.get("spike_planted"),
+                "plant_t_ms": r.get("plant_t_ms"),
+            },
+        ).to_dict())
+    return events
+

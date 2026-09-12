@@ -406,7 +406,7 @@ question = "Is this minimap appearance a birth, a continuation or unexplained?"
 owner = "minimap_lifecycle"
 role = ["lifecycle", "adjudicate"]
 status = "partial"
-produces = ["Lifecycle", "light_state", "matching_events"]
+produces = ["Lifecycle", "light_state", "matching_events", "lifecycle_row_to_event"]
 not_for = """
 The motion law. This module restated `track`'s continuation ceiling once and the
 two drifted -- 2.2 px against 4.8 at 60 Hz -- so it quarantined appearances the
@@ -453,13 +453,28 @@ question = "Where does a round begin and end, and which side is the player on?"
 owner = "rounds"
 role = ["lifecycle", "adjudicate"]
 status = "partial"
-produces = ["round_bounds", "build_rounds", "infer_player_side"]
+produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events"]
 not_for = """
 Player identity. A side is a round state. About 20% of coaching events still sit
 near an uncertain boundary, and plant inference that reads a FUTURE clock gap is
 not available as a prediction-time feature.
 """
 consumers = ["reconciliation", "coaching", "status"]
+
+[[entry]]
+id = "in-game-time"
+question = "What instant in the game's simulation does a media timestamp correspond to, and where does time jump?"
+owner = "gametime"
+role = ["lifecycle", "adjudicate"]
+status = "shipped"
+produces = ["GameTime", "TimeDiscontinuity", "SessionGameTime", "build_session_gametime"]
+not_for = """
+Deciding who won a round or attributing deaths. This transforms the time coordinate
+from raw media PTS into round-scoped simulation time and quantifies capture blackouts.
+"""
+defers_to = ["round-bounds", "capture-stall"]
+consumers = ["cli"]
+evidence = "tests/test_gametime.py"
 
 # ---------------------------------------------------------------------------
 # Cross-channel comparison
@@ -566,7 +581,7 @@ question = "Which NAMED AGENT is this icon, track or ability?"
 owner = "adjudication.identity"
 role = ["assign", "adjudicate"]
 status = "partial"
-produces = ["AGENT_IDENTITY_VERSION", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "adjudicate_agent_identity", "AgentIdentityArbiter"]
+produces = ["AGENT_IDENTITY_VERSION", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "MINIMAP_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "claim_from_minimap_icon", "claims_from_minimap_icons", "adjudicate_agent_identity", "AgentIdentityArbiter"]
 not_for = """
 Reading pixels, inventing an entity key, or deciding roster-slot continuity. Readers
 publish independent claims here; this owner combines them, preserves abstentions
@@ -720,14 +735,16 @@ evidence = "tests/test_acquisition.py"
 [[entry]]
 id = "death-victim"
 question = "Which agent died at this killfeed time, and where?"
+owner = "adjudication.death"
 role = ["attribute", "adjudicate"]
-status = "unowned"
+status = "partial"
+produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "extract_minimap_death_marks", "extract_killer_location", "detect_second_life_badge", "classify_revive_icon", "fit_arc"]
 not_for = """
 `killfeed` growing into it. The feed gives the time, the team mask and the local
 player; differencing a NAMED alive set across that instant gives the victim, and
 the two sides disagreeing is output rather than something to hide.
 """
-blocked_by = "agent-identity, and alive sets named per instant from roster occupancy."
+evidence = "tests/test_death_attribution.py"
 
 [[entry]]
 id = "ability-owner"
@@ -789,4 +806,4 @@ modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
            "artifacts", "revisions", "census", "architecture", "ownership",
            "doctor", "status", "fidelity", "overlay", "review",
            "ability_capture", "ability_entities", "ability_gallery",
-           "ability_phases"]
+           "ability_phases", "events"]

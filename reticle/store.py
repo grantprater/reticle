@@ -27,6 +27,7 @@ import pyarrow.parquet as pq
 from .roster import N_SLOTS
 from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, ROSTER_VERSION,
                       ROSTER_SPLIT_VERSION, ROUND_VERSION, SCHEMA_VERSION, SEGMENTER_VERSION)
+from .events import validate_event_rows, EVENTS_VERSION
 
 DEFAULT_STORE = Path.home() / "reticle-store"
 
@@ -547,6 +548,9 @@ class Store:
     def events_path(self, kind: str, session_id: str) -> Path:
         return self.root / "events" / kind / f"{session_id}.jsonl"
 
+    def has_events(self, kind: str, session_id: str) -> bool:
+        return self.events_path(kind, session_id).is_file()
+
     def write_events(self, kind: str, session_id: str, rows: list[dict]) -> Path:
         """One JSONL file per (kind, session). Rewritten whole, never appended.
 
@@ -559,12 +563,31 @@ class Store:
         A rewrite rather than an append because a re-read supersedes: the
         alternative is two runs of the same detector both present in the file
         with nothing to say which is current.
+
+        Validates every row against the unified event contract (events.py).
         """
+        # If the stream contains formal events, validate against contract
+        is_formal_events = any("event_kind" in r for r in rows)
+        if is_formal_events:
+            errors = validate_event_rows(rows)
+            if errors:
+                msg = "\n".join(f"  row {i}: {err}" for i, err in errors[:10])
+                raise ValueError(f"event validation failed for {kind}/{session_id} ({len(errors)} errors):\n{msg}")
+
+            # Stamp events_version on every row if not present
+            stamped = []
+            for r in rows:
+                r = dict(r)
+                r.setdefault("events_version", EVENTS_VERSION)
+                stamped.append(r)
+        else:
+            stamped = rows
+
         path = self.events_path(kind, session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r) + "\n")
+            for r in stamped:
+                f.write(json.dumps(r, separators=(",", ":"), allow_nan=False) + "\n")
         return path
 
     def events_version(self, kind: str, session_id: str) -> str | None:

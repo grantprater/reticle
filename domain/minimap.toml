@@ -271,3 +271,35 @@ absence means nothing. Absence now means one of two named causes, and the
 killfeed can tell which
 """
 see = ["minimap/vision-gate"]
+
+[ally-death-mark]
+claim = """
+An ally death always leaves a cyan/blue X mark on the minimap at the exact death
+location, regardless of cause (gun, ability, or environmental). Ally death locations
+are always observable.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-12"
+use = """
+Ally death locations are always observable and must never be abstained when the
+minimap or player HUD is available.
+"""
+see = ["minimap/vision-gate", "minimap/enemy-death-mark"]
+
+[environmental-death]
+claim = """
+Environmental deaths occur when an agent falls off the map (currently only on
+Abyss, indicated by a falling person icon) or gets crushed by a door (currently
+only on Summit).
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-12"
+use = """
+Environmental deaths have no weapon or killer. For an ally, the death location
+remains observable via the blue death mark. For an enemy, an environmental death
+is unobservable unless a teammate witnessed it, in which case the death location
+is explicitly abstained.
+"""
+see = ["minimap/enemy-death-mark"]

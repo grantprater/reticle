@@ -180,6 +180,17 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from .events import (
+    EventKind,
+    EntityState,
+    SourceChannel,
+    MotionClass,
+    entity_state_event,
+    entity_deleted_event,
+    make_event_id,
+)
+from .version import PING_VERSION
+
 #: Measured 2026-09-05; see the module docstring for n and for the limits.
 #: `hue` is OpenCV's 0-179.
 PING_TYPES = [
@@ -438,19 +449,50 @@ class PingReader:
         return self.hits
 
     def events(self, session_id: str) -> list[dict]:
-        """Confirmed pings as event rows. Positions are WIDGET pixels."""
-        from .version import PING_VERSION
+        """Confirmed pings as ENTITY_STATE + ENTITY_DELETED event pairs.
 
-        return [{
-            "session_id": session_id,
-            "ping_version": PING_VERSION,
-            "t_ms": int(t0 * 1000),
-            "source": "minimap",
-            "kind": kind,
-            "x": x, "y": y,
-            "frame": "widget",
-            "lifetime_s": round(n / self.hz, 1),
-            "expected_lifetime_s": LIFETIME_S[kind],
-            "hue": hue,
-            "drivers": {"origin": "fixed", "bearing": "absent", "extent": "none"},
-        } for kind, t0, _t1, x, y, hue, n in self.hits]
+        Each ping produces two events:
+        - ENTITY_STATE at t0 (appearance) with state=ACTIVE, motion_class=STATIC
+        - ENTITY_DELETED at t1 (expiration) with deletion_reason="expired"
+
+        Positions are WIDGET pixels. Entity IDs are "ping:{kind}:{index}".
+        """
+        events = []
+        for idx, (kind, t0, t1, x, y, hue, n) in enumerate(self.hits):
+            entity_id = f"ping:{kind}:{idx}"
+            t0_ms = int(t0 * 1000)
+            t1_ms = int(t1 * 1000)
+
+            # Appearance event
+            events.append(entity_state_event(
+                session_id=session_id,
+                entity_id=entity_id,
+                t_ms=t0_ms,
+                position=(float(x), float(y)),
+                state=EntityState.ACTIVE,
+                source_channel=SourceChannel.PING,
+                producer_version=PING_VERSION,
+                orientation=None,
+                motion_class=MotionClass.STATIC,
+                metadata={
+                    "kind": kind,
+                    "hue": hue,
+                    "lifetime_s": round(n / self.hz, 1),
+                    "expected_lifetime_s": LIFETIME_S[kind],
+                    "frame": "widget",
+                    "drivers": {"origin": "fixed", "bearing": "absent", "extent": "none"},
+                },
+            ).to_dict())
+
+            # Expiration event
+            events.append(entity_deleted_event(
+                session_id=session_id,
+                entity_id=entity_id,
+                t_ms=t1_ms,
+                deletion_reason="expired",
+                source_channel=SourceChannel.PING,
+                producer_version=PING_VERSION,
+                metadata={"kind": kind, "frame": "widget"},
+            ).to_dict())
+
+        return events

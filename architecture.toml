@@ -33,7 +33,7 @@ order = ["foundation", "source", "primitives", "readers", "orchestration",
 claim = "no siblings above the language and the store's own vocabulary"
 modules = ["version", "profiles", "fingerprint", "metrics", "judgement",
            "domain", "architecture", "ownership", "quoted", "screen",
-           "appearance", "artifacts", "revisions", "census"]
+           "appearance", "artifacts", "revisions", "census", "events"]
 
 [source]
 claim = "identity, decode, persistence, and the baked (map, profile) geometry"
@@ -59,7 +59,8 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "round_lifetimes", "lineup", "barriers", "acquisition",
            "capabilities", "adjudication.ability", "adjudication.capture",
            "adjudication.gallery", "adjudication.phases", "adjudication.identity",
-           "ability_coverage", "ability_timeline"]
+           "adjudication.death", "ability_coverage", "ability_timeline",
+           "gametime"]
 
 [entities]
 claim = "lifecycle events, compound episodes, review and coaching hypotheses"

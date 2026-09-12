@@ -5,10 +5,13 @@ import numpy as np
 from reticle.adjudication.identity import (
     AGENT_IDENTITY_VERSION,
     AgentIdentityArbiter,
+    MINIMAP_SURFACES,
     adjudicate_agent_identity,
     claim_from_killfeed_portrait,
+    claim_from_minimap_icon,
     claims_from_killfeed_portraits,
     claims_from_lineup,
+    claims_from_minimap_icons,
     identity_claim,
 )
 
@@ -220,6 +223,101 @@ class AgentIdentityTests(unittest.TestCase):
         self.assertEqual(result["channels"], ["top_bar"])
         self.assertEqual(result["by_channel"]["killfeed_portrait"]["reason"],
                          "portrait_margin 0.010 below 0.07")
+
+    def test_arbiter_events_emits_valid_identity_distribution_events(self):
+        from reticle.events import validate_event_rows
+        arbiter = AgentIdentityArbiter()
+        arbiter.extend([
+            identity_claim("entry-1:killer", "Jett", channel="killfeed_portrait"),
+            identity_claim("entry-1:killer", "Jett", channel="lineup"),
+            identity_claim("entry-2:victim", "Raze", channel="killfeed_portrait"),
+            identity_claim("entry-2:victim", "Sage", channel="top_bar"),
+        ])
+        events = arbiter.events("session-arbiter-test", t_ms=12345.0)
+        self.assertEqual(len(events), 2)
+        errors = validate_event_rows(events)
+        self.assertEqual(errors, [])
+
+        resolved = next(e for e in events if e["entity_id"] == "identity:entry-1:killer")
+        self.assertEqual(resolved["event_kind"], "identity_distribution")
+        self.assertEqual(resolved["identity_distribution"]["distribution"], {"Jett": 1.0})
+        self.assertEqual(resolved["metadata"]["status"], "resolved")
+
+        disagreed = next(e for e in events if e["entity_id"] == "identity:entry-2:victim")
+        self.assertEqual(disagreed["metadata"]["status"], "disagreement")
+        self.assertEqual(disagreed["identity_distribution"]["distribution"], {"Raze": 0.5, "Sage": 0.5})
+
+    def test_minimap_icon_claim_resolves_when_margin_clears(self):
+        gallery = {"Killjoy": [np.array([1.0, 0.0])],
+                   "Skye": [np.array([0.0, 1.0])],
+                   "Iso": [np.array([0.5, 0.5])]}
+        observation = {"composition": [0.95, 0.05], "t_ms": 294000.0, "x": 223, "y": 267, "r": 8}
+        claim = claim_from_minimap_icon(
+            observation, entity_id="track-1", candidates=["Killjoy", "Skye"], gallery=gallery)
+        self.assertEqual(claim["agent"], "Killjoy")
+        self.assertEqual(claim["channel"], "minimap_portrait")
+        self.assertEqual(claim["observed_at_ms"], 294000.0)
+        self.assertEqual(claim["evidence"]["candidates"], ["Killjoy", "Skye"])
+        self.assertGreater(claim["evidence"]["margin"], 0.07)
+
+    def test_minimap_icon_refuses_thin_margin(self):
+        gallery = {"Killjoy": [np.array([1.0, 0.0])],
+                   "Skye": [np.array([0.98, 0.02])]}
+        observation = {"composition": [1.0, 0.0], "t_ms": 294000.0}
+        claim = claim_from_minimap_icon(
+            observation, entity_id="track-2", candidates=["Killjoy", "Skye"], gallery=gallery)
+        self.assertIsNone(claim["agent"])
+        self.assertIn("icon_margin", claim["reason"])
+
+    def test_minimap_icon_refuses_question_mark(self):
+        observation = {"marked_kind": "question", "t_ms": 1161907.0, "x": 205, "y": 273}
+        claim = claim_from_minimap_icon(
+            observation, entity_id="icon-q", candidates=["Killjoy", "Skye"], gallery={})
+        self.assertIsNone(claim["agent"])
+        self.assertEqual(claim["reason"], "minimap_icon_question_mark")
+
+    def test_minimap_icon_uses_precomputed_scores_when_present(self):
+        observation = {"scores": {"Killjoy": 0.85, "Skye": 0.50}, "t_ms": 100.0}
+        claim = claim_from_minimap_icon(
+            observation, entity_id="track-3", candidates=["Killjoy", "Skye"], gallery={})
+        self.assertEqual(claim["agent"], "Killjoy")
+        self.assertEqual(claim["evidence"]["best_guess"], "Killjoy")
+        self.assertAlmostEqual(claim["evidence"]["margin"], 0.35, places=5)
+
+    def test_claims_from_minimap_icons_respects_lineup_and_entity_key(self):
+        lineup = {"sides": {"enemy": _side(["Killjoy", "Skye", "Iso", "Omen", "Jett"])}}
+        gallery = {"Killjoy": [np.array([1.0, 0.0])],
+                   "Skye": [np.array([0.0, 1.0])],
+                   "Iso": [np.array([0.0, 0.0])],
+                   "Omen": [np.array([0.0, 0.0])],
+                   "Jett": [np.array([0.0, 0.0])]}
+        observations = [
+            {"composition": [1.0, 0.0], "t_ms": 1000, "x": 10, "y": 20, "track_id": 42},
+            {"composition": [0.0, 1.0], "t_ms": 2000, "x": 30, "y": 40, "track_id": 42},
+        ]
+        claims = claims_from_minimap_icons(observations, lineup, gallery=gallery)
+        self.assertEqual(len(claims), 2)
+        self.assertEqual(claims[0]["entity_id"], "minimap:enemy:track:42")
+        self.assertEqual(claims[0]["agent"], "Killjoy")
+        self.assertEqual(claims[1]["agent"], "Skye")
+
+    def test_claims_from_minimap_icons_refuses_when_lineup_is_blind(self):
+        lineup = {"sides": {"enemy": [{"slot": 0, "agent": None, "best_guess": None}]}}
+        claims = claims_from_minimap_icons([{"composition": [1.0, 0.0], "t_ms": 100}], lineup, gallery={})
+        self.assertIsNone(claims[0]["agent"])
+        self.assertIn("lineup_incomplete", claims[0]["reason"])
+
+    def test_minimap_and_killfeed_cross_channel_adjudication(self):
+        """Cross-channel corroboration between minimap and killfeed claims."""
+        arbiter = AgentIdentityArbiter()
+        entity = "round4:enemy:entity-1"
+        arbiter.add(identity_claim(entity, "Killjoy", channel="minimap_portrait", observed_at_ms=294100.0))
+        arbiter.add(identity_claim(entity, "Killjoy", channel="killfeed_portrait", observed_at_ms=295000.0))
+        verdicts = arbiter.verdict()
+        self.assertEqual(len(verdicts), 1)
+        self.assertEqual(verdicts[0]["status"], "resolved")
+        self.assertEqual(verdicts[0]["agent"], "Killjoy")
+        self.assertEqual(verdicts[0]["independent_channels"], 2)
 
 
 if __name__ == "__main__":

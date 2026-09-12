@@ -210,15 +210,20 @@ def scan_files(root: Path | None = None) -> list[Path]:
     """The repo's own prose and code, in a stable order."""
     base = Path(root) if root else ROOT
     out: list[Path] = []
+    out_names: set[str] = set()
     for relative in SCAN_DIRS:
         directory = base / relative if relative else base
         if not directory.is_dir():
             continue
-        for path in sorted(directory.iterdir()):
+        walk = (sorted(directory.rglob("*")) if relative
+                else sorted(directory.iterdir()))
+        for path in walk:
             if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
                 continue
-            if path.relative_to(base).as_posix() in EXAMPLE_ONLY:
+            rel_name = path.relative_to(base).as_posix()
+            if rel_name in EXAMPLE_ONLY or rel_name in out_names:
                 continue
+            out_names.add(rel_name)
             out.append(path)
     return out
 

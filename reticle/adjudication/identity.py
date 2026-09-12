@@ -46,6 +46,7 @@ PORTRAIT_MARGIN_MIN = 0.07
 #: from the one the 93/93 rests on, and one whose winning surface varies per
 #: agent, so the two scores a margin subtracts come from different drawings.
 MEASURED_SURFACES = ("killfeed_portrait",)
+MINIMAP_SURFACES = ("minimap_portrait",)
 
 
 def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
@@ -164,7 +165,15 @@ def _portrait_scores(composition, candidates, gallery):
         return {}
     scores = {}
     for agent in sorted({c for c in candidates if c}):
-        references = gallery.get(agent, ())
+        references = gallery.get(agent)
+        if references is None:
+            agent_lower = str(agent).lower()
+            for g_name, g_refs in gallery.items():
+                if str(g_name).lower() == agent_lower:
+                    references = g_refs
+                    break
+            else:
+                references = ()
         values = [float(np.minimum(observed, np.asarray(reference)).sum())
                   for reference in references
                   if np.asarray(reference).size == observed.size]
@@ -323,6 +332,151 @@ def claims_from_killfeed_portraits(observations, lineup, *, entry_id, gallery,
     return out
 
 
+def claim_from_minimap_icon(observation, *, entity_id, candidates, gallery,
+                            rivals=(), source_version="minimap-portrait",
+                            margin_min=PORTRAIT_MARGIN_MIN) -> dict:
+    """Turn one stored minimap icon descriptor into an identity claim.
+
+    ``candidates`` must come from the owning lineup observation. The candidate
+    set is constrained to the lineup's side candidates (or rivals).
+    If the icon is flagged as a question mark, or has an upstream refusal reason,
+    an abstention claim is emitted quoting the reason.
+    """
+    stored = str(observation.get("reason") or "").strip()
+    marked_kind = observation.get("marked_kind", observation.get("kind"))
+    if not stored and (marked_kind == "question" or observation.get("is_question")
+                       or str(observation.get("agent")).lower() == "question"):
+        stored = "minimap_icon_question_mark"
+
+    evidence = {
+        "x": observation.get("x"),
+        "y": observation.get("y"),
+        "r": observation.get("r"),
+        "track_id": observation.get("track_id"),
+        "marked_kind": marked_kind,
+        "observation_reason": stored or None,
+        "candidates": sorted({c for c in candidates if c}),
+        "rivals": sorted({r for r in rivals if r}),
+    }
+
+    comp = observation.get("composition")
+    if comp is None:
+        comp = observation.get("appearance")
+    if comp is None and observation.get("crop") is not None:
+        comp = appearance.hsv_composition(observation["crop"])
+    elif comp is None and observation.get("patch") is not None:
+        comp = appearance.hsv_composition(observation["patch"])
+
+    has_comp = comp is not None and np.asarray(comp).size > 0
+    has_scores = bool(observation.get("scores"))
+
+    if stored or (not has_comp and not has_scores):
+        return identity_claim(
+            entity_id, None, channel="minimap_portrait",
+            reason=stored or "icon_no_descriptor",
+            source_version=source_version,
+            observed_at_ms=observation.get("t_ms"), evidence=evidence)
+
+    admitted = list(candidates) + list(rivals)
+    if has_scores:
+        raw_scores = observation["scores"]
+        admitted_lower = {a.lower(): a for a in admitted}
+        scores = {}
+        for k, v in raw_scores.items():
+            k_canon = admitted_lower.get(str(k).lower())
+            if k_canon is not None:
+                scores[k_canon] = float(v)
+    else:
+        scores = _portrait_scores(comp, admitted, gallery)
+
+    ordered = sorted(scores.items(), key=lambda pair: (-pair[1], pair[0]))
+    best = ordered[0] if ordered else (None, 0.0)
+    runner = ordered[1] if len(ordered) > 1 else (None, 0.0)
+    margin = best[1] - runner[1] if len(ordered) > 1 else 0.0
+    evidence.update({
+        "scores": {name: round(score, 6) for name, score in ordered},
+        "best_guess": best[0],
+        "margin": round(margin, 6),
+    })
+
+    barred = set(evidence["rivals"])
+    if not ordered:
+        reason = "icon_no_comparable_candidate"
+    elif best[0] in barred:
+        reason = f"icon_best_is_refused_slot {best[0]}"
+    elif len(ordered) == 1:
+        reason = "icon_single_candidate"
+    elif margin < margin_min:
+        reason = f"icon_margin {margin:.3f} below {margin_min}"
+    else:
+        reason = None
+    return identity_claim(
+        entity_id, best[0] if reason is None else None,
+        channel="minimap_portrait", reason=reason,
+        source_version=source_version,
+        observed_at_ms=observation.get("t_ms"), evidence=evidence)
+
+
+def claims_from_minimap_icons(observations, lineup, *, gallery,
+                              entity_key=None, side="enemy",
+                              source_version="minimap-portrait",
+                              margin_min=PORTRAIT_MARGIN_MIN) -> list[dict]:
+    """Publish one constrained minimap icon claim per candidate sighting.
+
+    ``entity_key`` determines the entity identity key attached to each claim:
+    - If callable: called with ``observation`` to produce the key string.
+    - If string: taken from ``observation.get(entity_key)``.
+    - If None: inferred from ``observation["entity_id"]``,
+      ``observation["track_id"]``, or falling back to
+      ``f"minimap:{side}:{obs['t_ms']}:{obs['x']}:{obs['y']}"``.
+    """
+    sides = lineup.get("sides", lineup)
+    split = side_candidates(sides.get(side, []))
+    out = []
+    for obs in observations:
+        if callable(entity_key):
+            entity_id = entity_key(obs)
+        elif isinstance(entity_key, str) and obs.get(entity_key) is not None:
+            entity_id = str(obs[entity_key])
+        elif obs.get("entity_id") is not None:
+            entity_id = str(obs["entity_id"])
+        elif obs.get("track_id") is not None:
+            entity_id = f"minimap:{side}:track:{obs['track_id']}"
+        else:
+            t = obs.get("t_ms", 0)
+            x = obs.get("x", 0)
+            y = obs.get("y", 0)
+            entity_id = f"minimap:{side}:{t}:{x}:{y}"
+
+        stored = str(obs.get("reason") or "").strip()
+        marked_kind = obs.get("marked_kind", obs.get("kind"))
+        if not stored and (marked_kind == "question" or obs.get("is_question")
+                           or str(obs.get("agent")).lower() == "question"):
+            stored = "minimap_icon_question_mark"
+
+        if split["blind"] and not stored:
+            out.append(identity_claim(
+                entity_id, channel="minimap_portrait",
+                reason=(f"lineup_incomplete: {len(split['named'])} of "
+                        f"{split['slots']} {side} slots named and "
+                        f"{len(split['blind'])} propose no candidate"),
+                source_version=source_version,
+                observed_at_ms=obs.get("t_ms"),
+                evidence={"x": obs.get("x"), "y": obs.get("y"), "r": obs.get("r"),
+                          "track_id": obs.get("track_id"), "marked_kind": marked_kind,
+                          "observation_reason": None,
+                          "candidates": sorted(set(split["named"])),
+                          "rivals": sorted({r for r in split["rivals"] if r})},
+            ))
+            continue
+
+        out.append(claim_from_minimap_icon(
+            obs, entity_id=entity_id,
+            candidates=split["named"], rivals=split["rivals"], gallery=gallery,
+            source_version=source_version, margin_min=margin_min))
+    return out
+
+
 def _normalise(claim):
     """Validate a caller-supplied claim without mutating it."""
     required = ("entity_id", "channel")
@@ -462,3 +616,39 @@ class AgentIdentityArbiter:
     def claims(self) -> tuple[dict, ...]:
         """The immutable view callers can store beside the verdict."""
         return tuple(deepcopy(c) for c in self._claims)
+
+    def events(self, session_id: str, t_ms: float = 0.0) -> list[dict]:
+        """Convert adjudicated identity verdicts to formal IDENTITY_DISTRIBUTION events."""
+        from ..events import identity_distribution_event, IdentityDistribution, SourceChannel
+
+        events = []
+        for v in self.verdict():
+            dist = {}
+            if v["status"] == "resolved" and v["agent"]:
+                dist = {v["agent"]: 1.0}
+            elif v["status"] == "disagreement" and v["agents_seen"]:
+                p = round(1.0 / len(v["agents_seen"]), 3)
+                dist = {a: p for a in v["agents_seen"]}
+
+            id_dist = IdentityDistribution(
+                distribution=dist,
+                subject_entity_id=v["entity_id"],
+                contributing_channels=v["channels"],
+            )
+            event = identity_distribution_event(
+                session_id=session_id,
+                entity_id=f"identity:{v['entity_id']}",
+                t_ms=t_ms,
+                identity_distribution=id_dist,
+                source_channel=SourceChannel.ADJUDICATION_IDENTITY,
+                producer_version=AGENT_IDENTITY_VERSION,
+                metadata={
+                    "status": v["status"],
+                    "reason": v["reason"],
+                    "independent_channels": v["independent_channels"],
+                    "by_channel": {ch: r["agent"] for ch, r in v["by_channel"].items()},
+                },
+            )
+            events.append(event.to_dict())
+        return events
+

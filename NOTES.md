@@ -11,6 +11,34 @@ rather than let it grow.
 
 Split out of `CLAUDE.md` on 2026-08-27.
 
+## IN-GAME TIME AND CAPTURE DISCONTINUITY ADJUDICATION -- 2026-09-12
+
+**`reticle/gametime.py` bridges media container time (`t_ms`) to game simulation time.**
+Capture stalls (encoder freezes) and dropped frames distort media time relative to the server simulation clock:
+1. **Accurate freeze identification via multi-witness fusion:**
+   - Source pixel motion from `l1/primitives` (`motion == 0.0` from `stalls.py`).
+   - Clock stillness during live play (`clock_ms` holding constant for $\ge 1.0\text{s}$).
+2. **Quantifying in-game time discontinuities:**
+   - Measures true simulation elapsed time $\Delta t_{\text{game}}$ vs recorded media duration $\Delta t_{\text{media}}$.
+   - Directly tested on session `a06f04a0059f` Round 7: a 9.2-second capture stall at $t=692.6\text{s} - 701.8\text{s}$ concealed a 34-second game simulation interval ($c=35\text{s} \to 1\text{s}$) during which the final 3v1 duel resolved and the round ended unobserved on video.
+3. **Post-plant handling without clock digits:**
+   - Post-plant HUD replaces the countdown digits with the spike icon (`clock_ms is None`).
+   - Freeze detection falls back to pixel motion spans (`stalls.spans`), anchored at $t_{\text{plant}}$ and bounded by the 45.0s spike fuse.
+
+## ROUND IDENTITY EVALUATION AND MULTI-CHANNEL HARNESS -- 2026-09-12
+
+**`prototypes/round_identity_eval.py` and `tests/test_round_identity_e2e.py` close the end-to-end loop on round identity.**
+Evaluated against 25 ground-truth human labels across Round 4 of session `a06f04a0059f` (t_ms 232,000 to 351,000):
+
+1. **Rival slots prevent misnaming under incomplete lineups:**
+   When evaluated against the stored top-bar lineup (where enemy slots 0 and 4 were refused as thin matches and admitted as rivals Breach and Raze), every one of the 25 sightings abstained (`icon_best_is_refused_slot` or thin margin). **Zero false identifications were made.** The rival-slot rule prevents unrepresented agents from being misassigned to the surviving named slots.
+2. **Precision on resolved claims is 100% (12/12):**
+   When evaluated against the true candidate roster (`Skye`, `Killjoy`, `Iso`, `Omen`, `Jett`), all 12 resolved claims match human truth. Skye resolves in 11 of 11 sightings with decisive margins (0.15 - 0.22); Killjoy resolves or safely abstains when scannable contrast is thin.
+3. **Multi-channel corroboration reaches resolution:**
+   Feeding minimap sightings and concurrent killfeed portrait claims into `AgentIdentityArbiter` achieves resolution with independent channels (minimap + killfeed) and zero cross-channel disagreement.
+4. **Unified event contract validated:**
+   Emitted `identity_distribution` events pass `reticle.events.validate_event_rows` with zero errors.
+
 ## THE KILLFEED DRAWS THE AGENT, AND NOW SOMETHING LOOKS AT IT -- 2026-09-11
 
 **`killfeed.portrait_observations` extracts both portraits from every entry.**

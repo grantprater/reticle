@@ -30,3 +30,23 @@ none. It is the constraint reticle/lineup.py's verdict already applies with
 `track.assign`, and the cross-side elimination it forbids would have named 11
 refused slots wrongly across the 19 stored lineups
 """
+
+[resurrection-mechanics]
+claim = """
+Only four agents possess resurrection, second-life, or stabilization mechanics:
+1. Phoenix (Run It Back): grants a second life before the duel; dying in ult does
+   not eliminate Phoenix from the roster or decrement the alive count. The killfeed
+   entry carries a circular badge.
+2. Sage (Resurrection): resurrects a dead ally on field; the killfeed entry has
+   matching team plates and Sage's ultimate icon, increasing the living count.
+3. Clove (Not Dead Yet): post-death self-resurrection window with dimmed icon state;
+   activating ult immediately restores Clove to the living count.
+4. KAY/O (NULL/cmd): downed state with a reddish/overlaid icon instead of immediate death;
+   teammates can channel to stabilize him back into active combat.
+No other abilities in VALORANT deal with resurrection in any form.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-12"
+use = "reticle/adjudication/death.py conditions living roster state transitions, second life flags, and ability icon matching against this closed four-agent set"
+

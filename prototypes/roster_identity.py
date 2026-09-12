@@ -204,28 +204,8 @@ def read_alive_series(session: str, store: Path, hz: float = 1.0,
             "roster": roster}
 
 
-def shrink_events(series: list[dict], side: str) -> list[dict]:
-    """Instants where a NAMED agent left the living set. The step-two hook.
+from reticle.adjudication.death import shrink_events  # promoted to adjudication.death
 
-    Reported per side with the agent that vanished, so it can be matched
-    against the killfeed's own death times by a later pass. An unnamed drop --
-    the count fell but the assignment refused -- is kept and labelled, because
-    a coverage hole must not look like an absence of deaths.
-    """
-    out = []
-    previous: set[str] | None = None
-    for row in series:
-        got = row[side]
-        current = set(a for a in got["agents"] if a) if got["agents"] else None
-        if previous and current is not None and len(current) < len(previous):
-            gone = sorted(previous - current)
-            out.append({"t_ms": row["t_ms"], "side": side,
-                        "gone": gone or None,
-                        "margin": got["margin"],
-                        "named": bool(gone)})
-        if current:
-            previous = current
-    return out
 
 
 def report(result: dict) -> str:

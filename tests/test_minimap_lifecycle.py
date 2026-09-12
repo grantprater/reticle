@@ -125,6 +125,31 @@ class LifecycleTests(unittest.TestCase):
         f["light_budget"]["lit"] = 0
         self.assertEqual(Lifecycle().step(f)[0]["light_state"], "unknown")
 
+    def test_lifecycle_events_emits_valid_causal_origin_events(self):
+        from reticle.events import validate_event_rows
+        lifecycle = Lifecycle()
+        # Step 0: left_censored at boundary
+        lifecycle.step(frame(0, [obs(tid=1, x=10)]))
+        # Step 1: continuation
+        lifecycle.step(frame(17, [obs(tid=1, x=10)]))
+        # Step 2: new entity appearance (unexplained)
+        lifecycle.step(frame(34, [obs(tid=1, x=10), obs(tid=2, x=80)]))
+
+        events = lifecycle.events("session-lifecycle-test", transitions_only=True)
+        self.assertEqual(len(events), 2)
+        errors = validate_event_rows(events)
+        self.assertEqual(errors, [])
+
+        e0, e1 = events[0], events[1]
+        self.assertEqual(e0["event_kind"], "causal_origin")
+        self.assertEqual(e0["origin_kind"], "left_censored")
+        self.assertEqual(e0["entity_id"], "lifecycle:ally:ally:1")
+        self.assertEqual(e0["t_ms"], 0.0)
+
+        self.assertEqual(e1["origin_kind"], "unexplained_appearance")
+        self.assertEqual(e1["entity_id"], "lifecycle:ally:ally:2")
+        self.assertEqual(e1["t_ms"], 34.0)
+
 
 if __name__ == "__main__":
     unittest.main()
