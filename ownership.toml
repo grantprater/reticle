@@ -747,6 +747,20 @@ the two sides disagreeing is output rather than something to hide.
 evidence = "tests/test_death_attribution.py"
 
 [[entry]]
+id = "killfeed-weapon"
+question = "Which weapon or ability caused this death?"
+owner = "adjudication.weapon"
+role = ["attribute", "adjudicate"]
+status = "partial"
+produces = ["WEAPON_ADJUDICATION_VERSION", "IconObservation", "WeaponVerdict", "WEAPON_TAXONOMY", "ABILITY_CANONICAL_NAMES", "extract_icon_observation", "classify_killfeed_icon", "estimate_weapon_class", "load_ability_gallery"]
+not_for = """
+`killfeed` growing into it. The feed gives the bounding columns (wx0, wx1) and
+band bounds (y0, y1); classifying whether those pixels are an Aftershock, a
+Vandal, or an environmental fall belongs to adjudication.
+"""
+evidence = "tests/test_weapon_attribution.py"
+
+[[entry]]
 id = "ability-owner"
 question = "Which agent cast this ability?"
 role = ["attribute", "adjudicate"]

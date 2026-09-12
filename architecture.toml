@@ -59,8 +59,8 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "round_lifetimes", "lineup", "barriers", "acquisition",
            "capabilities", "adjudication.ability", "adjudication.capture",
            "adjudication.gallery", "adjudication.phases", "adjudication.identity",
-           "adjudication.death", "ability_coverage", "ability_timeline",
-           "gametime"]
+           "adjudication.death", "adjudication.weapon", "ability_coverage",
+           "ability_timeline", "gametime"]
 
 [entities]
 claim = "lifecycle events, compound episodes, review and coaching hypotheses"
