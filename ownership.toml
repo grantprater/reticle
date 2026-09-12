@@ -541,7 +541,7 @@ question = "What state was the round in, and what does that predict?"
 owner = "coaching"
 role = ["adjudicate"]
 status = "partial"
-produces = ["observed_states", "run_coaching", "attach_event_estimates"]
+produces = ["observed_states", "run_coaching", "attach_event_estimates", "estimate_duel_win_prob", "calculate_surprisal", "calculate_importance", "WEAPON_TIERS"]
 not_for = """
 Event ground truth. Its events are observations until something independent
 verifies them, and analysis is downstream of the event stream, never a

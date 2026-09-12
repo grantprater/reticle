@@ -13,6 +13,7 @@ from bisect import bisect_left, bisect_right
 from collections import Counter
 import hashlib
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -238,13 +239,87 @@ def evaluate_states(states):
     return report, models, predictions
 
 
+WEAPON_TIERS: dict[str, float] = {
+    # Sidearms
+    "Classic": 1.0, "Shorty": 1.0, "Frenzy": 1.1, "Ghost": 1.3, "Sheriff": 1.7,
+    # SMGs / Shotguns
+    "Stinger": 2.0, "Spectre": 2.2, "Bucky": 2.1, "Judge": 2.5,
+    # Rifles / Heavy
+    "Bulldog": 3.0, "Guardian": 3.3, "Phantom": 3.8, "Vandal": 4.0,
+    "Ares": 2.8, "Odin": 3.6,
+    # Snipers
+    "Marshal": 2.6, "Outlaw": 3.5, "Operator": 4.5,
+    # Damaging / Lethal abilities
+    "Aftershock": 2.0, "Run It Back": 3.0, "Paint Shells": 2.5, "Hunter's Fury": 3.5,
+}
+DEFAULT_WEAPON_TIER = 3.5
+CLOSE_ENGAGEMENT_DIST_PX = 18.0
+ISOLATION_DIST_PX = 35.0
+
+
+def calculate_surprisal(p: float) -> float:
+    """Information surprisal I(p) = -log2(p) in bits."""
+    clamped = max(1e-6, min(1.0, float(p)))
+    return -math.log2(clamped)
+
+
+def _kl_bernoulli(p: float, q: float) -> float:
+    """KL divergence KL(Bern(p) || Bern(q)) in bits."""
+    kl = 0.0
+    if p > 1e-12:
+        kl += p * math.log2(p / max(1e-12, q))
+    if p < 1.0 - 1e-12:
+        kl += (1.0 - p) * math.log2((1.0 - p) / max(1e-12, 1.0 - q))
+    return kl
+
+
+def calculate_importance(p_before: float, p_after: float) -> float:
+    """Jensen-Shannon divergence between prior and posterior win probabilities in bits [0, 1]."""
+    p = max(0.0, min(1.0, float(p_before)))
+    q = max(0.0, min(1.0, float(p_after)))
+    if abs(p - q) < 1e-9:
+        return 0.0
+    m = 0.5 * (p + q)
+    js = 0.5 * _kl_bernoulli(p, m) + 0.5 * _kl_bernoulli(q, m)
+    return max(0.0, min(1.0, float(js)))
+
+
+def estimate_duel_win_prob(
+    killer_wep: str | None,
+    victim_wep: str | None,
+    dist_px: float | None = None,
+    ally_dist_px: float | None = None,
+) -> float:
+    """Estimate P(killer wins duel) based on weapon tiers, distance, and player isolation.
+
+    Returns probability in [0.05, 0.95].
+    """
+    t_k = WEAPON_TIERS.get(killer_wep, DEFAULT_WEAPON_TIER) if killer_wep else DEFAULT_WEAPON_TIER
+    t_v = WEAPON_TIERS.get(victim_wep, DEFAULT_WEAPON_TIER) if victim_wep else DEFAULT_WEAPON_TIER
+    tier_delta = t_k - t_v
+    logit = 0.55 * tier_delta
+
+    # Close engagement (<18px ~ 15m) compresses weapon tier disparity
+    if dist_px is not None and dist_px < CLOSE_ENGAGEMENT_DIST_PX and tier_delta > 0:
+        logit *= 0.7
+
+    # Spatial isolation penalty for victim (ally distance > 35px ~ 30m)
+    if ally_dist_px is not None and ally_dist_px > ISOLATION_DIST_PX:
+        logit += 0.35
+
+    p = 1.0 / (1.0 + math.exp(-logit))
+    return max(0.05, min(0.95, p))
+
+
 def attach_event_estimates(events, states, models):
     grouped = {}
     for s in states:
         grouped.setdefault((s["session_id"], s["round_no"]), []).append(s)
     for e in events:
         e.update(probability_before=None, probability_after=None,
-                 state_delta=None, estimate_reason="no_held_out_model")
+                 state_delta=None, wpa=None, importance=None,
+                 p_duel_win=None, surprise_bits=None,
+                 estimate_reason="no_held_out_model")
         if "round_boundary_uncertain" in e["quality_flags"]:
             e["estimate_reason"] = "round_boundary_uncertain"
             continue
@@ -261,8 +336,23 @@ def attach_event_estimates(events, states, models):
             continue
         selected = [nearby[before], nearby[after]]
         p, q = _coach_sigmoid(_coach_features(selected) @ beta)
+        delta = float(q - p)
+        imp = calculate_importance(float(p), float(q))
+
+        p_duel = None
+        surp = None
+        if "weapon" in e or "killer_weapon" in e or "victim_weapon" in e:
+            kw = e.get("killer_weapon") or e.get("weapon")
+            vw = e.get("victim_weapon")
+            dist = e.get("dist_px")
+            ally_dist = e.get("ally_dist_px")
+            p_duel = estimate_duel_win_prob(kw, vw, dist_px=dist, ally_dist_px=ally_dist)
+            surp = calculate_surprisal(p_duel)
+
         e.update(probability_before=float(p), probability_after=float(q),
-                 state_delta=float(q-p), state_before=selected[0], state_after=selected[1],
+                 state_delta=delta, wpa=delta, importance=imp,
+                 p_duel_win=p_duel, surprise_bits=surp,
+                 state_before=selected[0], state_after=selected[1],
                  estimate_reason="observational_state_change_not_personal_credit")
 
 

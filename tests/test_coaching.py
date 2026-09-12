@@ -9,7 +9,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from reticle.coaching import (observed_states, player_observations, evaluate_states,
-                              attach_event_estimates, _coach_weights, run_coaching)
+                              attach_event_estimates, _coach_weights, run_coaching,
+                              estimate_duel_win_prob, calculate_surprisal,
+                              calculate_importance, WEAPON_TIERS)
 from reticle.store import Store
 from reticle.cli import _resolve_session
 from reticle.rounds import (round_bounds, _clock_reset_after,
@@ -244,6 +246,69 @@ class CoachingTests(unittest.TestCase):
             row = store.read_rounds('s', '2026-09-07').to_pylist()[0]
             self.assertEqual(row['hud_version'], 'hud-old')
             self.assertEqual(row['content_key'], 'real-key')
+
+    def test_estimate_duel_win_prob(self):
+        # Equal weapon tiers yield 50% baseline
+        self.assertAlmostEqual(estimate_duel_win_prob("Vandal", "Vandal"), 0.5)
+        self.assertAlmostEqual(estimate_duel_win_prob("Classic", "Classic"), 0.5)
+
+        # Higher tier is favored
+        p_favored = estimate_duel_win_prob("Vandal", "Classic")
+        self.assertGreater(p_favored, 0.8)
+
+        # Close range (< 18px) compresses weapon disparity
+        p_close = estimate_duel_win_prob("Vandal", "Classic", dist_px=10.0)
+        self.assertLess(p_close, p_favored)
+        self.assertGreater(p_close, 0.5)
+
+        # Victim isolation (> 35px) increases killer advantage
+        p_isolated = estimate_duel_win_prob("Vandal", "Classic", ally_dist_px=45.0)
+        self.assertGreater(p_isolated, p_favored)
+
+        # Probability remains strictly bounded
+        p_extreme = estimate_duel_win_prob("Operator", "Classic", ally_dist_px=100.0)
+        self.assertLessEqual(p_extreme, 0.95)
+        self.assertGreaterEqual(p_extreme, 0.05)
+
+    def test_calculate_surprisal(self):
+        self.assertAlmostEqual(calculate_surprisal(1.0), 0.0)
+        self.assertAlmostEqual(calculate_surprisal(0.5), 1.0)
+        self.assertAlmostEqual(calculate_surprisal(0.25), 2.0)
+        # Numerical clamping prevents -inf / NaNs on non-positive input
+        self.assertGreater(calculate_surprisal(0.0), 15.0)
+
+    def test_calculate_importance(self):
+        # No shift yields 0 divergence
+        self.assertAlmostEqual(calculate_importance(0.5, 0.5), 0.0)
+        self.assertAlmostEqual(calculate_importance(0.8, 0.8), 0.0)
+
+        # Maximal shift between deterministic outcomes yields 1.0 bit
+        self.assertAlmostEqual(calculate_importance(1.0, 0.0), 1.0)
+        self.assertAlmostEqual(calculate_importance(0.0, 1.0), 1.0)
+
+        # Symmetry: JS(P, Q) == JS(Q, P)
+        self.assertAlmostEqual(calculate_importance(0.8, 0.2), calculate_importance(0.2, 0.8))
+
+        # Modest shift yields strictly positive bounded bits
+        imp = calculate_importance(0.65, 0.35)
+        self.assertGreater(imp, 0.05)
+        self.assertLess(imp, 1.0)
+
+    def test_attach_event_estimates_populates_wpa_and_importance(self):
+        event = dict(session_id='s', round_no=2, t_ms=5000, quality_flags=[],
+                     weapon="Vandal", victim_weapon="Classic", dist_px=25.0, ally_dist_px=15.0)
+        states = [dict(session_id='s', round_no=2, t_ms=4000,
+                       alive_ally=4, alive_enemy=3, clock_ms=90000, won=True),
+                  dict(session_id='s', round_no=2, t_ms=6000,
+                       alive_ally=4, alive_enemy=2, clock_ms=88000, won=True)]
+        attach_event_estimates([event], states, {'s': np.array([0.1, 0.5, -0.5, 0.0])})
+        self.assertIsNotNone(event['state_delta'])
+        self.assertEqual(event['wpa'], event['state_delta'])
+        self.assertIsNotNone(event['importance'])
+        self.assertGreater(event['importance'], 0.0)
+        self.assertIsNotNone(event['p_duel_win'])
+        self.assertIsNotNone(event['surprise_bits'])
+        self.assertGreater(event['p_duel_win'], 0.5)
 
 
 if __name__ == '__main__':
