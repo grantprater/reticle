@@ -276,6 +276,23 @@ def extract_icon_observation(
 
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
     white = (hsv[:, :, 2] > ICON_WHITE_V_MIN) & (hsv[:, :, 1] < ICON_WHITE_S_MAX)
+
+    # Reject boundary line bleeds from adjacent killfeed slots
+    if h >= 25 and white.any():
+        num_labels, labels_im, stats, _ = cv2.connectedComponentsWithStats(white.astype(np.uint8))
+        if num_labels > 2:
+            max_area = stats[1:, cv2.CC_STAT_AREA].max()
+            clean_white = np.zeros_like(white)
+            for label_idx in range(1, num_labels):
+                comp_y = stats[label_idx, cv2.CC_STAT_TOP]
+                comp_h = stats[label_idx, cv2.CC_STAT_HEIGHT]
+                comp_area = stats[label_idx, cv2.CC_STAT_AREA]
+                if (comp_y <= 1 or (comp_y + comp_h >= h - 1)) and comp_h <= 3 and comp_area < max_area * 0.4:
+                    continue
+                clean_white[labels_im == label_idx] = True
+            if clean_white.any():
+                white = clean_white
+
     aspect = float(w) / float(h) if h > 0 else 0.0
     fill = float(white.sum()) / float(w * h) if (w * h) > 0 else 0.0
 
