@@ -1804,6 +1804,19 @@ def cmd_coach(args) -> int:
     return 0
 
 
+def cmd_dashboard(args) -> int:
+    """Locate or open the interactive tactical coaching dashboard."""
+    store = Store(args.store)
+    p = store.root / "notes" / "coaching_dashboard.html"
+    if not p.is_file():
+        raise SystemExit(f"dashboard HTML not found at {p}")
+    print(f"Tactical Coaching Dashboard: {p}")
+    if args.open:
+        import webbrowser
+        webbrowser.open(p.as_uri())
+    return 0
+
+
 def cmd_economy(args) -> int:
     """Apply an explicit fact document; does not read or infer from video."""
     import json
@@ -2533,6 +2546,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("sql", help="run DuckDB over the store")
     s.add_argument("query", nargs="?"); s.add_argument("--limit", type=int, default=50)
     s.set_defaults(func=cmd_sql)
+
+    s = sub.add_parser("dashboard", help="display the interactive tactical coaching dashboard")
+    s.add_argument("--open", action="store_true", help="open dashboard in default web browser")
+    s.set_defaults(func=cmd_dashboard)
     return p
 
 
