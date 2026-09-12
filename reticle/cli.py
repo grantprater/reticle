@@ -1805,12 +1805,154 @@ def cmd_coach(args) -> int:
 
 
 def cmd_dashboard(args) -> int:
-    """Locate or open the interactive tactical coaching dashboard."""
+    """Locate, open, or stream the interactive tactical coaching dashboard."""
     store = Store(args.store)
     p = store.root / "notes" / "coaching_dashboard.html"
     if not p.is_file():
         raise SystemExit(f"dashboard HTML not found at {p}")
     print(f"Tactical Coaching Dashboard: {p}")
+
+    if getattr(args, "serve", False):
+        import http.server
+        import socketserver
+        import urllib.parse
+        import re
+        import webbrowser
+
+        port = args.port
+        html_path = p
+        videos_dir = Path(args.videos_dir)
+
+        class RangeHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                parsed = urllib.parse.urlparse(self.path)
+                req_path = urllib.parse.unquote(parsed.path)
+
+                if req_path in ("/", "/index.html"):
+                    content = html_path.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(content)))
+                    self.end_headers()
+                    self.wfile.write(content)
+                    return
+
+                if req_path.startswith("/video/"):
+                    fname = req_path[len("/video/"):].lstrip("/\\")
+                    target = videos_dir / fname
+                    if not target.is_file():
+                        target = Path(fname)
+                    if not target.is_file():
+                        self.send_error(404, f"Video not found: {fname}")
+                        return
+                    self._serve_range(target)
+                    return
+
+                self.send_error(404, "Not Found")
+
+            def do_HEAD(self):
+                parsed = urllib.parse.urlparse(self.path)
+                req_path = urllib.parse.unquote(parsed.path)
+
+                if req_path in ("/", "/index.html"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(html_path.stat().st_size))
+                    self.end_headers()
+                    return
+
+                if req_path.startswith("/video/"):
+                    fname = req_path[len("/video/"):].lstrip("/\\")
+                    target = videos_dir / fname
+                    if not target.is_file():
+                        target = Path(fname)
+                    if not target.is_file():
+                        self.send_error(404)
+                        return
+                    self.send_response(200)
+                    self.send_header("Content-Type", "video/mp4")
+                    self.send_header("Content-Length", str(target.stat().st_size))
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.end_headers()
+                    return
+
+                self.send_error(404)
+
+            def _serve_range(self, file_path: Path):
+                file_size = file_path.stat().st_size
+                range_header = self.headers.get("Range")
+
+                if range_header:
+                    m = re.match(r"^bytes=(\d+)-(\d+)?$", range_header.strip())
+                    if m:
+                        start = int(m.group(1))
+                        end = int(m.group(2)) if m.group(2) else file_size - 1
+                        if start < file_size and end < file_size and start <= end:
+                            length = end - start + 1
+                            self.send_response(206)
+                            self.send_header("Content-Type", "video/mp4")
+                            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+                            self.send_header("Content-Length", str(length))
+                            self.send_header("Accept-Ranges", "bytes")
+                            self.end_headers()
+                            try:
+                                with open(file_path, "rb") as f:
+                                    f.seek(start)
+                                    rem = length
+                                    while rem > 0:
+                                        chunk = f.read(min(rem, 65536))
+                                        if not chunk:
+                                            break
+                                        self.wfile.write(chunk)
+                                        rem -= len(chunk)
+                            except (ConnectionResetError, BrokenPipeError):
+                                pass
+                            return
+
+                self.send_response(200)
+                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Content-Length", str(file_size))
+                self.send_header("Accept-Ranges", "bytes")
+                self.end_headers()
+                try:
+                    with open(file_path, "rb") as f:
+                        rem = file_size
+                        while rem > 0:
+                            chunk = f.read(min(rem, 65536))
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            rem -= len(chunk)
+                except (ConnectionResetError, BrokenPipeError):
+                    pass
+
+            def log_message(self, format, *args):
+                pass
+
+        class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+            daemon_threads = True
+
+        server_address = ("127.0.0.1", port)
+        try:
+            httpd = ThreadingServer(server_address, RangeHandler)
+        except OSError as e:
+            raise SystemExit(f"Could not bind to port {port}: {e}")
+
+        url = f"http://127.0.0.1:{port}"
+        print(f"Serving dashboard at: {url}")
+        print(f"Streaming video from: {videos_dir} (HTTP 206 Range enabled)")
+        print("Press Ctrl+C to stop.")
+
+        if args.open:
+            webbrowser.open(url)
+
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nDashboard server stopped.")
+            httpd.server_close()
+        return 0
+
     if args.open:
         import webbrowser
         webbrowser.open(p.as_uri())
@@ -2547,8 +2689,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("query", nargs="?"); s.add_argument("--limit", type=int, default=50)
     s.set_defaults(func=cmd_sql)
 
-    s = sub.add_parser("dashboard", help="display the interactive tactical coaching dashboard")
+    s = sub.add_parser("dashboard", help="display or stream the interactive tactical coaching dashboard")
     s.add_argument("--open", action="store_true", help="open dashboard in default web browser")
+    s.add_argument("--serve", action="store_true", help="stream dashboard and video clips via local HTTP range server")
+    s.add_argument("--port", type=int, default=8765, help="port to listen on with --serve (default: 8765)")
+    s.add_argument("--videos-dir", default=r"C:\Users\grant\Videos", help="directory containing match MP4 videos")
     s.set_defaults(func=cmd_dashboard)
     return p
 
