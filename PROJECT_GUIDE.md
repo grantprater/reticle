@@ -1531,3 +1531,83 @@ decision, it belongs in the docstring.
   is verified -- because that survives a session ending abruptly, which no
   end-of-session ritual can. Treat the handoff as a summary of commits already
   made, never as the only place a finding is written down.
+
+## Repository declarations and why they exist
+
+Moved verbatim from the root `CLAUDE.md` on 2026-09-23, when the root guidance was merged into `AGENTS.md` and compressed to one line per rule. These are the full arguments; `doctor` enforces the mechanical half of each.
+
+- **BEFORE CALLING ANYTHING A BLOCKER, READ THE FIELD THAT SAYS WHY IT REFUSED.
+  Not the count of refusals.** A count is a symptom and is trivially
+  computable; naming it the cause is a claim, and the reason is usually already
+  stored beside it. `lineup`'s refused slots each carry a `reason` -- *not
+  separated from Raze* -- which says PAIRWISE TIE and therefore says a
+  constraint might break it. Counting them instead gave *3 of 5 named*, which
+  read as a coverage fact and was an artifact of the margin being computed
+  before the assignment. Twelve of 79 refusals were ties already broken. The
+  provenance was perfect and the attribution was wrong, so no citation check
+  catches this: it is the aggregate hiding the mechanism, which this file
+  already warns about from the other end.
+- **A measured result is WIRED or it is declined, in writing.** Leaving a
+  prototype measured and unpromoted was the silent default, and writing it up
+  made it look alive: `doctor`'s ORPHAN check exempts anything a document
+  names. `doctor`'s PROMOTE check now reads `notes/predictions.jsonl` and
+  reports every prototype named there that no module in `reticle/` uses.
+  Declining is legitimate -- a refuted result belongs in `prototypes/` -- but
+  it costs a `"wire": "no"` with a `"wire_reason"` on that row. Silence is no
+  longer an option.
+- **DOMAIN FACTS LIVE IN `domain/*.toml`, AND PROSE CITES THEM.** What is true
+  of VALORANT and its capture goes in one TOML table per fact with a `claim`,
+  a `kind`, a `known` provenance and a `since` date; everything else references
+  it by a bracketed `domain:` token naming the file and the fact, instead of
+  restating it. The tangle this replaces had
+  the minimap vision rule in five files and *semi-transparent over the void* in
+  twenty-four, each restatement free to drift, while facts the player supplied
+  once got no consumer and were lost. `doctor`'s DOMAIN check makes a citation
+  resolving to no fact an ERROR, and reports every fact nothing cites plus every
+  file that still restates one. `NOTES.md` and `BACKLOG.md` are exempt: they are
+  append-only records of what was known on a date. Read one with
+  `reticle domain [DOMAIN] [--id ID]`. Pipeline accuracy is NOT a domain fact --
+  outcomes belong in `notes/predictions.jsonl`. Facts carry a dependency graph
+  too: a GIVEN fact (`player`, `observed`) rests on nothing and may not declare
+  `depends_on`, an `inferred` one must name what it rests on, a `measured` one
+  must name a `source`, and the graph must be acyclic. That is what stops a
+  guess being laundered into a given.
+- **A NUMBER QUOTED IN PROSE CITES THE RUN THAT PRODUCED IT.** The form is a
+  bracketed `metric:` token carrying the series, the session and the VALUE, and
+  `doctor`'s QUOTED check compares it to the latest `pass` row. A citation to a
+  series with no recorded run is an ERROR; a quoted value that no longer matches
+  is a finding naming the file and both numbers, because the honest fix is
+  sometimes the prose and sometimes the number. This existed because `metrics`
+  stored 132 runs and nothing linked a single line of prose to any of them, so a
+  figure could be quoted, the code could move, and the prose would stay. Read
+  with `reticle/quoted.py`; `NOTES.md` and `BACKLOG.md` are exempt as
+  append-only history.
+- **THE LAYERING IS DECLARED IN `architecture.toml`, AND VERIFIED, NEVER
+  DERIVED.** Eight layers over `reticle/`; a module may import its own layer or
+  any below it, and every upward edge is blessed one at a time with a reason
+  and whether it is eager or deferred. `doctor`'s LAYER check makes an
+  unblessed eager upward import an ERROR, reports deferred ones -- a deferred
+  import is how an inversion hides -- and reports a declaration that has gone
+  stale, which is what stops the file rotting upward into permissiveness. It is
+  declared because the DERIVED order is an accident: depth by longest path puts
+  `doctor`, `domain` and `decode` beside `version`, since their real
+  dependencies sit inside functions. `reticle/` must not import `prototypes/`,
+  including by `sys.path` insert plus a bare import, which is the spelling that
+  hid two real violations until this check existed.
+- **WHO MAY DECIDE A QUESTION IS DECLARED IN `ownership.toml`, AND VERIFIED.**
+  One entry per question, naming the owner, what it produces, what it defers to,
+  and -- the field to read second -- what it is `not_for`. The negative boundary
+  is what stops a module being selected because its NAME matched: `roster` owns
+  alive counts and not agent identity, `minimap` owns where the self icon is and
+  not which agent the player is, and `track` owns what a proposed identity may
+  DO over time and owns no identity at all. Two faults paid for it -- a packed
+  living-slot index read as a player named the wrong victim in both rounds it
+  was tested on, and `minimap_lifecycle` restated `track`'s continuation ceiling
+  until the two disagreed by a factor of two. An owner claims its entry in its
+  own docstring with an `[owns:<id>]` token, so a stale entry, a renamed
+  output, an unplaced new module, a `defers_to` whose import went away, and a
+  `shipped` owner still reaching `prototypes/` are all ERRORs in `doctor`'s
+  OWNERSHIP check. A question nothing owns is declared too, with what blocks it:
+  `death-victim` is the product and prints on every run. Route with
+  `reticle ownership <question>`; the argument stays in the owner's docstring
+  and is cited, never restated.
