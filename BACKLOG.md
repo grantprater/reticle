@@ -2,6 +2,15 @@
 
 `docs/tasks.json` defines executable checks. This file orders work and records why a task is active. Historical arguments and completed items are in [the dated backlog archive](docs/archive/BACKLOG-through-2026-09-23.md).
 
+## Agreed order (2026-09-23)
+
+1. **Scoreboard availability:** count openings per round across sessions from stored rows, with no decode. This decides how much of the corpus the scoreboard witness can reach.
+2. **`scoreboard-lineup`,** below.
+3. **Gate generalisation:** rescan other sessions under `scoreboard-0.2.0` on the next shared pass, and check the agent and dimming gates on a second session and map.
+4. **Named alive sets:** check roster counts and death verdicts against each accepted opening's lit and dim sets.
+
+The player answered the dimming question: dimmed means currently dead, a Sage revive lights the row again, and Run It Back is not expected to dim [domain:rounds/scoreboard-dim-is-dead]. Clove before Not Dead Yet and a downed KAY/O remain unknown; capture one of each and ask when it occurs.
+
 ## Next (no contract yet): scoreboard-lineup
 
 - **Output:** use accepted scoreboard openings as an independent agent witness for `lineup`, then store each disagreement with the top bar.

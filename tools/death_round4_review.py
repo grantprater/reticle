@@ -150,7 +150,8 @@ def build(store: Store, output: Path, export_frames: bool = False,
         [r for r in store.read_events("scoreboard", SESSION)
          if start <= float(r.get("t_ms", -1)) <= end])
     board_claims = scoreboard_death_claims(
-        entries, openings, {i: v.victim for i, v in enumerate(first)})
+        entries, openings, {i: v.victim for i, v in enumerate(first)},
+        {i for i, v in enumerate(first) if v.is_second_life})
     verdicts = adjudicate_round_deaths(
         SESSION, entries, window_roster, player_agent=player["agent"],
         scoreboard_claims=board_claims,

@@ -41,7 +41,7 @@ from ..roster import N_SLOTS
 from .identity import claim_from_killfeed_portrait, side_candidates, _channel_verdict
 from .weapon import classify_killfeed_icon
 
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.3.0"
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.3.1"
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 
@@ -109,7 +109,8 @@ def attach_stored_killfeed_portraits(
 
 
 def scoreboard_death_claims(entries: list[dict], openings: list[dict],
-                            named: dict[int, str | None]) -> list[dict]:
+                            named: dict[int, str | None],
+                            second_life: set[int] = frozenset()) -> list[dict]:
     """A victim witness per killfeed entry from the scoreboard's dimmed rows.
 
     Between the last accepted opening before a death and the first after it,
@@ -124,6 +125,13 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
     (`named`, which must not come from this witness), those names are all in
     the dimmed set, and exactly one agent is left. The names it rested on are
     stored with the claim.
+
+    What dimming means is a player rule [domain:rounds/scoreboard-dim-is-dead]:
+    a Run It Back death does not dim, so second-life deaths (`second_life`
+    indices, or an entry flag) are left out of the count and name nothing
+    here; a dimmed agent lit again was revived, which is recorded and is not a
+    contradiction. Clove and a downed KAY/O are unknown to it, so they get no
+    rule, and a count that disagrees still refuses.
     """
     from .scoreboard import SCOREBOARD_AGENT_VERSION, side_state
     accepted = [o for o in openings if o["accepted"]]
@@ -138,6 +146,9 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
         if side not in ("ally", "enemy"):
             claim["reason"] = "entry_side_unknown"
             continue
+        if _second_life(i, entries, second_life):
+            claim["reason"] = "second_life_death_does_not_dim"
+            continue
         if not before or not after:
             claim["reason"] = ("no_accepted_opening_before" if not before
                                else "no_accepted_opening_after")
@@ -147,20 +158,20 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
         newly = now["dim"] - was["dim"]
         revived = was["dim"] - now["dim"]
         deaths = [j for j, e in enumerate(entries)
-                  if e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) < hi["t_ms"]]
+                  if e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) < hi["t_ms"]
+                  and not _second_life(j, entries, second_life)]
         claim["evidence"] = {
             "opening_before": {"t_ms": lo["t_ms"], "frame_idx": lo["frame_idx"],
                                "dim": sorted(was["dim"])},
             "opening_after": {"t_ms": hi["t_ms"], "frame_idx": hi["frame_idx"],
                               "dim": sorted(now["dim"])},
             "newly_dim": sorted(newly),
+            "revived": sorted(revived),
             "interval_deaths": [float(entries[j]["t_ms"]) for j in deaths],
             "observation_keys": [s["observation_key"] for s in hi["rows"]
                                  if s["team"] == side and s["agent"] in newly],
         }
-        if revived:
-            claim["reason"] = f"dim_row_lit_again {sorted(revived)}"
-        elif len(newly) != len(deaths):
+        if len(newly) != len(deaths):
             claim["reason"] = (f"newly_dim_{len(newly)}_disagrees_with_"
                                f"killfeed_deaths_{len(deaths)}")
         elif len(newly) == 1:
@@ -182,6 +193,11 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
                 else:
                     claim["reason"] = f"interval_unordered {sorted(left)}"
     return claims
+
+
+def _second_life(i: int, entries: list[dict], second_life) -> bool:
+    e = entries[i]
+    return i in second_life or bool(e.get("is_second_life") or e.get("is_run_it_back"))
 
 
 BLUE_X_H = (95, 118)

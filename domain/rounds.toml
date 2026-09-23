@@ -67,8 +67,29 @@ two openings as a victim witness
 """
 exceptions = """
 observed in one August 2026 round of a06f04a0059f, where every expanded
-opening's dimmed rows matched the killfeed deaths before it. The player saw the
-dimming but is unsure it always means dead. Clove's Not Dead Yet and KAY/O's
-downed state are untested, and a board still fading in dims live rows too
+opening's dimmed rows matched the killfeed deaths before it. What dimming MEANS
+is [domain:rounds/scoreboard-dim-is-dead]. A board still fading in dims live
+rows too, which is an appearance of the animation and not of death
 """
 phrases = ["scoreboard dims dead players", "dead portrait is dimmed"]
+
+[scoreboard-dim-is-dead]
+claim = """
+A dimmed scoreboard row means the player is currently dead. A player Sage
+resurrects is no longer dimmed. Phoenix dying inside Run It Back is not
+expected to dim at all before he reappears.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-23"
+use = """
+reticle/adjudication/death.py counts newly dimmed agents against killfeed
+deaths, excludes second-life deaths from that count, and treats a dimmed row
+lit again as a revive rather than a contradiction
+"""
+exceptions = """
+the player does not know the dimming bounds for Clove after death and before
+Not Dead Yet, nor how a downed-but-not-dead KAY/O row looks. Neither may be
+assumed; a count that disagrees stays a refusal
+"""
+phrases = ["dimmed means dead", "sage revive is not dimmed"]

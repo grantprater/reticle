@@ -914,6 +914,24 @@ class ScoreboardDimWitnessTest(unittest.TestCase):
         self.assertIsNone(claims[0]["agent"])
         self.assertEqual(claims[0]["reason"], "newly_dim_2_disagrees_with_killfeed_deaths_1")
 
+    def test_a_sage_revive_lights_a_row_again_without_refusing(self):
+        from reticle.adjudication.death import scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        openings = scoreboard_openings(self.board(1000.0, dim={"Reyna"})
+                                       + self.board(3000.0, dim={"Miks"}))
+        claims = scoreboard_death_claims([{"t_ms": 2000.0, "side": "ally"}], openings, {})
+        self.assertEqual(claims[0]["agent"], "Miks")
+        self.assertEqual(claims[0]["evidence"]["revived"], ["Reyna"])
+
+    def test_a_run_it_back_death_is_not_counted_against_the_dimmed_set(self):
+        from reticle.adjudication.death import scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        openings = scoreboard_openings(self.board(1000.0) + self.board(3000.0, dim={"Miks"}))
+        entries = [{"t_ms": 1500.0, "side": "ally"}, {"t_ms": 2000.0, "side": "ally"}]
+        claims = scoreboard_death_claims(entries, openings, {}, second_life={0})
+        self.assertEqual(claims[0]["reason"], "second_life_death_does_not_dim")
+        self.assertEqual(claims[1]["agent"], "Miks")
+
     def test_scoreboard_name_resolves_and_disagreement_is_kept(self):
         claim = {"channel": "scoreboard_dim", "agent": "Deadlock"}
         alone = adjudicate_death(death_id="d", t_ms=1.0, side="ally", scoreboard_claim=claim)
