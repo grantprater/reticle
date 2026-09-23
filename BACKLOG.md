@@ -8,6 +8,7 @@
 - **Dependency:** the [five-refusal diagnosis](docs/DEATH_ROUND4_REFUSALS.md) identifies refused lineup slots, absent repeat views, and two wrong portrait best matches. The player reviewed all five source portraits; those answers check output and cannot serve as detector input.
 - **Completion:** establish a row/binding baseline before changing a reader, then rerun the real seven-death command and source review with at least three correct machine names, zero new wrong names or extras, and explicit location refusals. Use the `death-scoreboard-binding` contract. If the independent binding cannot be derived, record the first failure and ask the player.
 - **Current blocker:** the stored cross-surface portrait descriptor ranks an enemy scoreboard row first for the 281500 ms ally victim, while the visible matching player's row has no stored name. The player identified the dimmed second row; that review answer and a bright pre-death descriptor check still supply no validated machine binding. The three-name gate fails. The [binding attempt and follow-up](docs/DEATH_SCOREBOARD_BINDING.md) retain the null result.
+- **Ordering constraint:** source confirms row reordering as scores change. The inspected August openings are compatible with kills and assists affecting rank, but only 4/80 fixed-round stored rows have complete K/D/A, and the exact rule is unproven. Use ordering only to constrain independently identified row candidates, never as a player key.
 
 ## Completed
 
