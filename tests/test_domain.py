@@ -143,6 +143,15 @@ class RestatementTests(unittest.TestCase):
                               "BACKLOG.md": "always drawn, we found"})
         self.assertEqual(got, {})
 
+    def test_archived_records_are_history(self):
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            tree = RegistryTree(stack)
+            archive = tree.root / "docs" / "archive"
+            archive.mkdir(parents=True)
+            (archive / "old-notes.md").write_text("ally icons are always drawn", encoding="utf-8")
+            self.assertEqual(domain.restatements(tree.facts(), tree.root), {})
+
     def test_a_fact_with_no_phrases_claims_no_prose(self):
         got = self._restated({"docs/plan.md": "icons are always drawn"})
         self.assertTrue(got)

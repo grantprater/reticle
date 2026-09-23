@@ -2,6 +2,14 @@
   "schema_version": 1,
   "tasks": [
     {
+      "id": "death-round4",
+      "objective": "Produce conservative death events and a source-linked review for a06f04a0059f round 4 (232000-351000 ms), accounting for seven observed entries without oracle or fixture claims.",
+      "files": ["tools/death_round4_review.py", "reticle/adjudication/death.py", "tests/test_death_attribution.py"],
+      "reads": ["AGENTS.md", "BACKLOG.md#Active: death-round4", "reticle/adjudication/death.py", "prototypes/round_identity_eval.py", "PROJECT_GUIDE.md#Checking against the game's own numbers"],
+      "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-v3"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
+      "evidence": ["Frozen source is a06f04a0059f round 4, 232000-351000 ms. Confirm seven L1 entries and at least the Phoenix player death, with explicit refusal of other unsupported names and all unverified locations.", "Open review.html against the original video; record independently reviewed deaths, misses, extras, identity and location coverage, and a before/after comparison. Runner PASS alone does not close visual review.", "Stop at the first upstream identity or source-review failure; do not promote oracle candidates, synthetic claims, fixture locations, or an all-null output."]
+    },
+    {
       "id": "hud-reader",
       "objective": "Keep HUD extraction reusable without changing detector rows or calibration behavior.",
       "files": ["reticle/hud_reader.py", "reticle/cli.py", "tests/test_hud_reader.py"],

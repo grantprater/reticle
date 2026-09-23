@@ -95,6 +95,7 @@ DERIVED = frozenset({"inferred", "measured"})
 #: restated inside them is HISTORY and rewriting it would be a lie about what
 #: was known then. Restatement checks skip them; citation still works there.
 HISTORY = ("NOTES.md", "BACKLOG.md")
+HISTORY_PREFIXES = ("docs/archive/",)
 
 #: Trees worth scanning for citations and restatements. Everything else --
 #: `.venv`, the store, generated HTML -- is not this repo's prose.
@@ -263,7 +264,7 @@ def restatements(facts: dict[str, Fact],
         hits = []
         for path in scan_files(base):
             relative = path.relative_to(base).as_posix()
-            if relative in HISTORY or relative in owners:
+            if relative in HISTORY or relative.startswith(HISTORY_PREFIXES) or relative in owners:
                 continue
             lowered = path.read_text(encoding="utf-8", errors="replace").lower()
             if any(phrase.lower() in lowered for phrase in fact.phrases):

@@ -707,8 +707,55 @@ def check_quoted(store: Path) -> list[tuple[str, str]]:
     return out
 
 
+def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
+    """Warn on the small, exact handoff and active-queue conventions."""
+    root = root or ROOT
+    out = []
+    notes_path = root / "NOTES.md"
+    backlog_path = root / "BACKLOG.md"
+    contracts_path = root / "docs" / "tasks.json"
+    for path in (notes_path, backlog_path, contracts_path):
+        if not path.is_file():
+            return [(WARN, f"missing handoff file: {path.relative_to(root)}")]
+    notes = notes_path.read_text(encoding="utf-8")
+    headings = re.findall(r"(?im)^## Picking up\s*$", notes)
+    if len(headings) != 1:
+        out.append((WARN, f"NOTES.md has {len(headings)} Picking up headings; expected one"))
+    lines = len(notes.splitlines())
+    words = len(notes.split())
+    if lines > 100 or words > 1000:
+        out.append((WARN, f"NOTES.md has {lines} lines and {words} words; limits are 100 and 1000"))
+    backlog = backlog_path.read_text(encoding="utf-8")
+    active = re.findall(r"(?m)^## Active: ([a-z0-9-]+)\s*$", backlog)
+    if len(active) > 3:
+        out.append((WARN, f"BACKLOG.md has {len(active)} active tasks; limit is three"))
+    try:
+        contracts = json.loads(contracts_path.read_text(encoding="utf-8"))
+        tasks = contracts["tasks"]
+        ids = {task["id"] for task in tasks}
+        if len(ids) != len(tasks):
+            out.append((WARN, "docs/tasks.json has duplicate task IDs"))
+        for task in tasks:
+            for read in task.get("reads", []):
+                path = root / read.split("#", 1)[0]
+                if not path.is_file():
+                    out.append((WARN, f"contract {task['id']} has missing read: {read}"))
+        for task_id in active:
+            if task_id not in ids:
+                out.append((WARN, f"active task {task_id} has no contract"))
+                continue
+            task = next(item for item in tasks if item["id"] == task_id)
+            for declared in task.get("files", []):
+                if not (root / declared).is_file():
+                    out.append((WARN, f"active task {task_id} has missing owning file: {declared}"))
+    except (ValueError, KeyError, TypeError) as exc:
+        out.append((WARN, f"invalid docs/tasks.json: {exc}"))
+    return out
+
+
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
-    checks = (("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
+    checks = (("HANDOFF", check_handoff),
+              ("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),
               ("LAYER", check_layer), ("OWNERSHIP", check_ownership),
               ("QUOTED", lambda: check_quoted(store)),
