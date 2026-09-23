@@ -1564,8 +1564,9 @@ Moved verbatim from the root `CLAUDE.md` on 2026-09-23, when the root guidance w
   twenty-four, each restatement free to drift, while facts the player supplied
   once got no consumer and were lost. `doctor`'s DOMAIN check makes a citation
   resolving to no fact an ERROR, and reports every fact nothing cites plus every
-  file that still restates one. `NOTES.md` and `BACKLOG.md` are exempt: they are
-  append-only records of what was known on a date. Read one with
+  file that still restates one. Only `docs/archive/` is exempt, as dated
+  history; `NOTES.md` and `BACKLOG.md` are bounded working documents and are
+  checked (amended 2026-09-23). Read one with
   `reticle domain [DOMAIN] [--id ID]`. Pipeline accuracy is NOT a domain fact --
   outcomes belong in `notes/predictions.jsonl`. Facts carry a dependency graph
   too: a GIVEN fact (`player`, `observed`) rests on nothing and may not declare
@@ -1580,8 +1581,8 @@ Moved verbatim from the root `CLAUDE.md` on 2026-09-23, when the root guidance w
   sometimes the prose and sometimes the number. This existed because `metrics`
   stored 132 runs and nothing linked a single line of prose to any of them, so a
   figure could be quoted, the code could move, and the prose would stay. Read
-  with `reticle/quoted.py`; `NOTES.md` and `BACKLOG.md` are exempt as
-  append-only history.
+  with `reticle/quoted.py`; only `docs/archive/` is exempt, as dated history
+  (amended 2026-09-23).
 - **THE LAYERING IS DECLARED IN `architecture.toml`, AND VERIFIED, NEVER
   DERIVED.** Eight layers over `reticle/`; a module may import its own layer or
   any below it, and every upward edge is blessed one at a time with a reason

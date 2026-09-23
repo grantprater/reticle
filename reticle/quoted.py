@@ -43,10 +43,11 @@ Three findings, and the levels are deliberate
 
 What is exempt, and why
 -----------------------
-`NOTES.md` and `BACKLOG.md`. They are append-only records of what was known on
-a date, so a figure inside them was true when written and rewriting it would be
-a lie about what was known then. That is the same HISTORY convention
-`reticle/domain.py` uses, for the same reason.
+`docs/archive/`. Its files are dated records of what was known then, so a
+figure inside them was true when written and rewriting it would be a lie about
+what was known then. That is the same HISTORY convention `reticle/domain.py`
+uses, for the same reason. `NOTES.md` and `BACKLOG.md` are bounded working
+documents and are checked like any other.
 """
 from __future__ import annotations
 
@@ -66,8 +67,8 @@ CITE = re.compile(
     r"#(?P<field>[A-Za-z_][A-Za-z0-9_]*)"
     r"=(?P<value>[^\]]+)\]")
 
-#: Append-only records of what was known on a date. See the docstring.
-HISTORY = ("NOTES.md", "BACKLOG.md")
+#: Dated records live under HISTORY_PREFIXES. See the docstring.
+HISTORY = ()
 
 #: Where prose lives. `domain/` holds no figures and `tests/` asserts its own.
 #: Scanned RECURSIVELY: a flat listing could not see `reticle/adjudication/`,

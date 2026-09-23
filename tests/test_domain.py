@@ -137,11 +137,13 @@ class RestatementTests(unittest.TestCase):
             "docs/plan.md": "always drawn [domain:minimap/vision-gate]"})
         self.assertEqual(got, {})
 
-    def test_the_append_only_records_are_exempt_because_they_are_history(self):
-        self.assertIn("NOTES.md", domain.HISTORY)
+    def test_the_bounded_working_documents_are_checked(self):
+        # NOTES.md and BACKLOG.md are rewritten in place, not logs, so a
+        # restatement in them drifts like anywhere else; history is archived.
+        self.assertNotIn("NOTES.md", domain.HISTORY)
         got = self._restated({"NOTES.md": "ally icons are always drawn",
                               "BACKLOG.md": "always drawn, we found"})
-        self.assertEqual(got, {})
+        self.assertEqual(sorted(got["minimap/vision-gate"]), ["BACKLOG.md", "NOTES.md"])
 
     def test_archived_records_are_history(self):
         import contextlib

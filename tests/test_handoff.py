@@ -35,6 +35,18 @@ class HandoffTests(unittest.TestCase):
             self.assertTrue(any("4 active" in message for message in findings))
             self.assertTrue(any("no contract" in message for message in findings))
 
+    def test_backlog_is_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+            done = "".join(f"- **`t{i}`:** done.\n" for i in range(6))
+            (root / "BACKLOG.md").write_text(
+                "# Queue\n\n## Active: t\n\n## Completed\n\n" + done
+                + "\n## Deferred\n\n" + "word " * 1600, encoding="utf-8")
+            findings = [message for _, message in check_handoff(root)]
+            self.assertTrue(any("6 completed" in message for message in findings))
+            self.assertTrue(any("limits are 150 and 1500" in message for message in findings))
+
     def test_missing_contract_read(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -163,14 +163,14 @@ class BaselineTests(unittest.TestCase):
 
 
 class ExemptionTests(unittest.TestCase):
-    def test_the_append_only_records_are_not_scanned(self):
-        self.assertIn("NOTES.md", quoted.HISTORY)
-        self.assertIn("BACKLOG.md", quoted.HISTORY)
+    def test_the_bounded_working_documents_are_scanned(self):
+        self.assertNotIn("NOTES.md", quoted.HISTORY)
+        self.assertNotIn("BACKLOG.md", quoted.HISTORY)
         with contextlib.ExitStack() as stack:
             tree = Tree(stack, {"NOTES.md":
                                 "[metric:proposal_audit/acquisition@d95"
                                 "#recall=0.771]"})
-            self.assertEqual(quoted.citations(tree.root), [])
+            self.assertEqual(len(quoted.citations(tree.root)), 1)
 
     def test_a_recorded_series_nothing_cites_is_reported_once(self):
         with contextlib.ExitStack() as stack:

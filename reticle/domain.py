@@ -91,10 +91,12 @@ GIVEN = frozenset({"player", "observed"})
 #: resting on nothing stated is the shape every guess in this repo took first.
 DERIVED = frozenset({"inferred", "measured"})
 
-#: Append-only records. They hold the argument as it stood on a date, so a fact
+#: Dated records. They hold the argument as it stood on a date, so a fact
 #: restated inside them is HISTORY and rewriting it would be a lie about what
 #: was known then. Restatement checks skip them; citation still works there.
-HISTORY = ("NOTES.md", "BACKLOG.md")
+#: `NOTES.md` and `BACKLOG.md` are bounded working documents, not history, so
+#: they are checked; what they retire moves to `docs/archive/`.
+HISTORY = ()
 HISTORY_PREFIXES = ("docs/archive/",)
 
 #: Trees worth scanning for citations and restatements. Everything else --

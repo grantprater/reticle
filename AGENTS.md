@@ -79,8 +79,11 @@ states plainly, and the player had to ask what the sentence meant.
 - Before a perceptual experiment, state falsifiable predictions and log them in
   the store's `notes/predictions.jsonl`; inspect source images before measuring.
   On the first failed perceptual approach, build the tool that asks the player.
-- Commit whenever a result is verified, and keep the `Picking up` section of
-  `NOTES.md` short and current.
+- Commit whenever a result is verified. `NOTES.md` and `BACKLOG.md` are
+  bounded working documents, not logs: `NOTES.md` holds only the current
+  handoff, and `BACKLOG.md` holds open work plus the five latest completed
+  tasks. Rewrite them in place and move what they retire to a dated file under
+  `docs/archive/`. `doctor` HANDOFF checks the limits.
 - Never put Claude session URLs in repository files or commit messages. Public
   files contain facts; attribution, quotes, and private domain notes stay out.
 
@@ -107,8 +110,8 @@ states plainly, and the player had to ask what the sentence meant.
   carries its `[owns:<id>]` token. Route with `reticle ownership <question>`
   (OWNERSHIP).
 
-`NOTES.md` and `BACKLOG.md` are append-only records and exempt from the DOMAIN
-and QUOTED checks.
+Only the dated files under `docs/archive/` are exempt from DOMAIN and QUOTED.
+`NOTES.md` and `BACKLOG.md` are checked like any other document.
 
 ## Running
 

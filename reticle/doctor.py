@@ -698,8 +698,8 @@ def check_quoted(store: Path) -> list[tuple[str, str]]:
     `reticle/quoted.py` owns the `[metric:...]` form. A citation to a series
     with no recorded `pass` run is an ERROR; a quoted value disagreeing with
     the latest one is a finding, because the honest fix is sometimes the prose
-    and sometimes the number. `NOTES.md` and `BACKLOG.md` are exempt as
-    append-only history, the same rule the DOMAIN check uses.
+    and sometimes the number. Only `docs/archive/` is exempt, as dated history,
+    the same rule the DOMAIN check uses.
     """
     out = []
     for level, message in quoted.verify(rows=metrics.load(store / "notes" / "metrics.jsonl")):
@@ -707,8 +707,17 @@ def check_quoted(store: Path) -> list[tuple[str, str]]:
     return out
 
 
+BACKLOG_MAX_WORDS = 1500
+BACKLOG_MAX_COMPLETED = 5
+
+
 def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
-    """Warn on the small, exact handoff and active-queue conventions."""
+    """Warn on the small, exact handoff and active-queue conventions.
+
+    `NOTES.md` and `BACKLOG.md` are bounded working documents, not logs. Both
+    have size limits, and `BACKLOG.md` keeps at most five completed entries;
+    older ones move to a dated file under `docs/archive/`.
+    """
     root = root or ROOT
     out = []
     notes_path = root / "NOTES.md"
@@ -729,6 +738,15 @@ def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
     active = re.findall(r"(?m)^## Active: ([a-z0-9-]+)\s*$", backlog)
     if len(active) > 3:
         out.append((WARN, f"BACKLOG.md has {len(active)} active tasks; limit is three"))
+    lines, words = len(backlog.splitlines()), len(backlog.split())
+    if lines > 150 or words > BACKLOG_MAX_WORDS:
+        out.append((WARN, f"BACKLOG.md has {lines} lines and {words} words; limits are "
+                          f"150 and {BACKLOG_MAX_WORDS}; archive under docs/archive/"))
+    done = re.search(r"(?ms)^## Completed\s*$(.*?)(?=^## |\Z)", backlog)
+    n_done = len(re.findall(r"(?m)^- ", done.group(1))) if done else 0
+    if n_done > BACKLOG_MAX_COMPLETED:
+        out.append((WARN, f"BACKLOG.md lists {n_done} completed tasks; keep the latest "
+                          f"{BACKLOG_MAX_COMPLETED} and archive the rest under docs/archive/"))
     try:
         contracts = json.loads(contracts_path.read_text(encoding="utf-8"))
         tasks = contracts["tasks"]
