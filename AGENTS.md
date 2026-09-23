@@ -109,6 +109,18 @@ states plainly, and the player had to ask what the sentence meant.
   the owner, what it produces and what it is `not_for`. The owner's docstring
   carries its `[owns:<id>]` token. Route with `reticle ownership <question>`
   (OWNERSHIP).
+- **Ask the owner; never restate its rule.** Before writing code that decides
+  anything, run `reticle ownership` for the question. If an owner exists, call
+  it, even when its rule looks like three lines to copy. A restated rule
+  compiles, passes its tests and drifts silently.
+- **Every agent name is decided by `adjudication.identity`**, per entity and
+  per side. Readers publish `identity_claim`s. Owners that bind a death, track,
+  row or ability to a witness supply the entity key and ask the arbiter. A
+  claim that rests on another entity's verdict declares `depends_on`. An
+  ownership entry whose output carries a name declares `names_agents = true`
+  and defers to `agent-identity`. OWNERSHIP makes an undeclared name producer,
+  or an identity event built outside the arbiter, an ERROR, and the event
+  validator rejects the event.
 
 Only the dated files under `docs/archive/` are exempt from DOMAIN and QUOTED.
 `NOTES.md` and `BACKLOG.md` are checked like any other document.

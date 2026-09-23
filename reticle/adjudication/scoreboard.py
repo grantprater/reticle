@@ -18,13 +18,22 @@ misaligned rows at most 0.70 with margins of at most 0.23. Live gain was
 row identity also has to hold across openings, which the death witness checks
 by requiring each side's five agents to be distinct.
 
+**This module gates rows; it does not decide names.** Each gated row becomes
+an `identity_claim` on channel `scoreboard_portrait`, and the name on a row is
+`adjudication.identity`'s verdict. The distinct-agents test only accepts or
+refuses an opening. Naming a side from the board belongs to
+`identity.assign_side`, which needs the full per-agent score matrix this
+reader does not yet store.
+
 Owns [owns:scoreboard-row-agent].
 """
 from __future__ import annotations
 
 from collections import defaultdict
 
-SCOREBOARD_AGENT_VERSION = "scoreboard-agent-0.1.0"
+from .identity import adjudicate_agent_identity, identity_claim
+
+SCOREBOARD_AGENT_VERSION = "scoreboard-agent-0.2.0"
 
 AGENT_SCORE_MIN = 0.75
 AGENT_MARGIN_MIN = 0.25
@@ -64,15 +73,27 @@ def scoreboard_openings(rows: list[dict]) -> list[dict]:
     out = []
     for t_ms in sorted(by_t):
         group = sorted(by_t[t_ms], key=lambda r: r["display_row"])
-        states = []
+        states, claims = [], []
         for row in group:
             agent, dim, reason = _row_state(row)
+            entity = f"scoreboard:{t_ms:.0f}:{row['team']}:row:{row['display_row']}"
+            claims.append(identity_claim(
+                entity, agent, channel="scoreboard_portrait", observed_at_ms=t_ms,
+                reason=reason, source_version=row.get("scoreboard_version"),
+                evidence={"observation_key": row.get("observation_key"),
+                          "score": row.get("portrait_agent_score"),
+                          "margin": row.get("portrait_agent_margin"),
+                          "gain": row.get("portrait_gain")}))
             states.append({"observation_key": row.get("observation_key"),
+                           "entity_id": entity,
                            "display_row": row["display_row"], "team": row["team"],
-                           "agent": agent, "dim": dim, "reason": reason,
+                           "agent": None, "dim": dim, "reason": reason,
                            "score": row.get("portrait_agent_score"),
                            "margin": row.get("portrait_agent_margin"),
                            "gain": row.get("portrait_gain")})
+        named = {v["entity_id"]: v["agent"] for v in adjudicate_agent_identity(claims)}
+        for state in states:
+            state["agent"] = named.get(state["entity_id"])
         reason = None
         teams = [s["team"] for s in states]
         if teams.count("ally") != 5 or teams.count("enemy") != 5:
@@ -86,6 +107,7 @@ def scoreboard_openings(rows: list[dict]) -> list[dict]:
                     reason = f"{side}_agents_not_distinct"
         out.append({"t_ms": t_ms, "frame_idx": group[0].get("frame_idx"),
                     "accepted": reason is None, "reason": reason, "rows": states,
+                    "claims": claims,
                     "source_version": group[0].get("scoreboard_version"),
                     "version": SCOREBOARD_AGENT_VERSION})
     return out

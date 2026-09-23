@@ -17,6 +17,10 @@ Observability rules:
   (Phoenix Run It Back, Sage Resurrection, Clove Not Dead Yet, and KAY/O NULL/cmd)
   [domain:rounds/resurrection-mechanics].
 
+This module decides WHICH death a witness speaks about and never decides the
+name. Each witness becomes an `identity_claim` keyed by the death id, and
+`adjudication.identity` returns the victim; see that module for why.
+
 Owns [owns:death-victim].
 """
 from __future__ import annotations
@@ -30,18 +34,17 @@ import numpy as np
 from ..events import (
     EntityState,
     EventKind,
-    IdentityDistribution,
     SourceChannel,
     entity_deleted_event,
     entity_state_event,
-    identity_distribution_event,
     session_boundary_event,
 )
 from ..roster import N_SLOTS
-from .identity import claim_from_killfeed_portrait, side_candidates, _channel_verdict
+from .identity import (adjudicate_agent_identity, claim_from_killfeed_portrait,
+                       identity_claim, identity_events, side_candidates, _channel_verdict)
 from .weapon import classify_killfeed_icon
 
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.3.1"
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.4.0"
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 
@@ -190,6 +193,7 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
                 left = newly - set(names)
                 if len(left) == 1:
                     claim["agent"] = next(iter(left))
+                    claim["depends_on_entries"] = others
                 else:
                     claim["reason"] = f"interval_unordered {sorted(left)}"
     return claims
@@ -521,8 +525,12 @@ def adjudicate_death(
     is_player_kill: bool = False,
     is_player_death: bool = False,
     is_second_life: bool = False,
+    victim_depends_on: Optional[dict] = None,
 ) -> DeathVerdict:
     """Adjudicate victim identity, killer, and location for one death instant.
+
+    `victim_depends_on` maps a channel to the death ids its name rested on, so
+    the arbiter can refuse to count it as independent.
 
     Corroborates four independent candidate channels:
     1. `killfeed_claim`: portrait/role claim from killfeed plate.
@@ -635,22 +643,23 @@ def adjudicate_death(
             "location": killer_location,
         })
 
-    # Adjudicate victim identity across candidate channels
+    # The name is decided by the identity arbiter, keyed by this death.
     named_votes = {ch: ag for ch, ag in victim_candidates.items() if ag}
-    unique_names = {ag.lower(): ag for ag in named_votes.values()}
-
-    status = "abstained"
-    victim = None
+    claims = [identity_claim(death_id, agent, channel=ch,
+                             depends_on=(victim_depends_on or {}).get(ch))
+              for ch, agent in named_votes.items()]
+    for w in witnesses:
+        ch = w.get("channel")
+        if ch in ("killfeed_portrait", "scoreboard_dim") and ch not in named_votes:
+            claims.append(identity_claim(death_id, None, channel=ch,
+                                         reason=w.get("reason")))
+    identity = (adjudicate_agent_identity(claims) or [None])[0]
+    status = identity["status"] if identity else "abstained"
+    victim = identity["agent"] if identity else None
     reason = None
-
-    if len(unique_names) == 1:
-        status = "resolved"
-        victim = next(iter(unique_names.values()))
-    elif len(unique_names) > 1:
-        status = "disagreement"
+    if status == "disagreement":
         reason = f"witnesses disagree: {named_votes}"
-    else:
-        status = "abstained"
+    elif status == "abstained":
         reason = "no witness provided a confident candidate"
 
     # Location observability rules:
@@ -673,13 +682,14 @@ def adjudicate_death(
         status=status,
         is_second_life=is_second_life,
         channels=sorted(set(channels)),
-        independent_channels=len(named_votes),
+        independent_channels=identity["independent_channels"] if identity else 0,
         witnesses=witnesses,
         reason=reason,
         metadata={
             "is_player_kill": is_player_kill,
             "is_player_death": is_player_death,
             "named_votes": named_votes,
+            "identity": identity,
         },
     )
 
@@ -828,13 +838,17 @@ def adjudicate_round_deaths(
 
     verdicts = []
     used_shrinks = set()
+    death_ids = []
+    for i, kf in enumerate(killfeed_entries):
+        side_i = kf.get("side") or ("ally" if kf.get("victim_ally") is True else "enemy" if kf.get("victim_ally") is False else kf.get("victim_side", "enemy"))
+        death_ids.append(f"death:{session_id}:{int(float(kf.get('t_ms', 0.0)))}:{side_i}:{i}")
     sorted_revives = sorted(all_revives, key=lambda r: float(r.get("t_ms", 0.0)))
     applied_revives = set()
 
     for i, kf in enumerate(killfeed_entries):
         t_ms = float(kf.get("t_ms", 0.0))
         side = kf.get("side") or ("ally" if kf.get("victim_ally") is True else "enemy" if kf.get("victim_ally") is False else kf.get("victim_side", "enemy"))
-        death_id = f"death:{session_id}:{int(t_ms)}:{side}:{i}"
+        death_id = death_ids[i]
 
         # Apply any pending revives prior to this death instant
         for r_item in sorted_revives:
@@ -1028,6 +1042,10 @@ def adjudicate_round_deaths(
             side=side,
             killfeed_claim=kf_claim,
             scoreboard_claim=scoreboard_claims[i] if scoreboard_claims else None,
+            victim_depends_on=({"scoreboard_dim": [death_ids[j] for j in
+                                scoreboard_claims[i].get("depends_on_entries", [])]}
+                               if scoreboard_claims and scoreboard_claims[i].get("depends_on_entries")
+                               else None),
             roster_shrink=matched_shrink,
             track_termination=matched_track,
             xmark_location=matched_xmark,
@@ -1081,37 +1099,10 @@ def death_verdict_to_events(verdict: DeathVerdict, session_id: str) -> list[dict
     )
     events.append(del_event.to_dict())
 
-    # 2. IDENTITY_DISTRIBUTION event (if victim is identified or has alternatives)
-    dist = {}
-    if verdict.status == "resolved" and verdict.victim:
-        dist = {verdict.victim: 1.0}
-    elif verdict.status == "disagreement":
-        votes = verdict.metadata.get("named_votes", {})
-        unique_votes = sorted(set(votes.values()))
-        if unique_votes:
-            p = round(1.0 / len(unique_votes), 3)
-            dist = {a: p for a in unique_votes}
-
-    if dist:
-        id_dist = IdentityDistribution(
-            distribution=dist,
-            subject_entity_id=verdict.death_id,
-            contributing_channels=verdict.channels,
-        )
-        id_event = identity_distribution_event(
-            session_id=session_id,
-            entity_id=f"identity:{verdict.death_id}",
-            t_ms=verdict.t_ms,
-            identity_distribution=id_dist,
-            source_channel=SourceChannel.KILLFEED,
-            producer_version=DEATH_ADJUDICATION_VERSION,
-            metadata={
-                "status": verdict.status,
-                "victim": verdict.victim,
-                "independent_channels": verdict.independent_channels,
-            },
-        )
-        events.append(id_event.to_dict())
+    # 2. IDENTITY_DISTRIBUTION event, from the identity arbiter only.
+    identity = verdict.metadata.get("identity")
+    if identity and identity["status"] in ("resolved", "disagreement"):
+        events.extend(identity_events([identity], session_id, verdict.t_ms))
 
     return events
 

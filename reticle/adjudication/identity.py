@@ -1,13 +1,31 @@
-"""Cross-channel agent identity adjudication over stored claims.
+"""Match identity: which named agent every entity is, decided in one place.
 
 Readers do not name entities.  They publish claims, and this module is the
 single owner that turns claims about one entity into a canonical answer.  A
 claim may abstain; an abstention is not a disagreement.  Conflicting names
 remain unresolved with both witnesses attached.
 
-This is deliberately narrower than a general reconciliation engine.  It does
-not read frames, track icons, or infer a persistent entity key.  Callers must
-provide that key, so a packed roster slot cannot silently become a player.
+**Every name in the match passes through here.** That covers the icon,
+track, killfeed portrait, scoreboard row, death victim and ability owner.
+Downstream owners bind an entity -- `death` decides WHICH death a witness
+speaks about -- and then ask this module for the name with their own entity
+key. `death` once kept its own copy of the cross-channel rule, missing
+`binding_from`, and the scoreboard named rows without publishing claims.
+Nothing failed, so nothing caught it. Identity events now come only from
+`identity_events`, which the event validator and `doctor`'s IDENTITY check
+enforce.
+
+Two stages, both here:
+
+* **per entity** -- `adjudicate_agent_identity` over `identity_claim`s;
+* **per side** -- `assign_side`, the five-distinct-agents assignment
+  [domain:rounds/agent-uniqueness]. A side's lineup is identity of the match
+  as a whole rather than of one entity, and its constraint breaks ties that
+  no single entity's evidence can.
+
+It does not read frames, track icons, or infer a persistent entity key.
+Callers must provide that key, so a packed roster slot cannot silently become
+a player.
 
 Owns [owns:agent-identity].
 """
@@ -24,6 +42,7 @@ import numpy as np
 
 from .. import appearance
 from ..roster import N_SLOTS
+from ..track import assign
 
 
 AGENT_IDENTITY_VERSION = "agent-identity-0.2.0"
@@ -45,13 +64,17 @@ PORTRAIT_MARGIN_MIN = 0.07
 #: the best, changed the top match on 63 of 388 portraits -- a different rule
 #: from the one the 93/93 rests on, and one whose winning surface varies per
 #: agent, so the two scores a margin subtracts come from different drawings.
+#: The side assignment's margin gate, fitted on one five-slot lineup and
+#: provisional; `lineup`'s docstring carries the measurement.
+SIDE_MARGIN_MIN = 0.07
+
 MEASURED_SURFACES = ("killfeed_portrait",)
 MINIMAP_SURFACES = ("minimap_portrait",)
 
 
 def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
                    reason=None, source_version=None, evidence=None,
-                   binding_from=None) -> dict:
+                   binding_from=None, depends_on=None) -> dict:
     """Return one normalized, provenance-carrying identity claim.
 
     ``agent=None`` is an explicit abstention.  The arbiter never turns a
@@ -62,6 +85,11 @@ def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
     difference between two witnesses and one witness counted twice; see
     `adjudicate_agent_identity`.  ``reason`` is kept whatever the claim says,
     because a named claim can still carry how it was named.
+
+    ``depends_on`` lists the entity ids whose OWN verdicts this claim used to
+    reach its name -- naming one death by eliminating the others' names is the
+    case. Such a claim can still disagree, so it is not ``binding_from``, but
+    it is not independent evidence either and is not counted as such.
     """
     if not channel:
         raise ValueError("identity claims need a channel")
@@ -75,6 +103,7 @@ def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
         "reason": reason,
         "source_version": source_version,
         "binding_from": binding_from,
+        "depends_on": sorted(depends_on) if depends_on else [],
         "evidence": deepcopy(evidence) if evidence is not None else {},
     }
 
@@ -129,6 +158,80 @@ def claims_from_lineup(sides, player=None, *, observation_id="lineup",
                       "agree": player.get("agree"),
                       "witnesses": player.get("witnesses", {})},
         ))
+    return out
+
+
+def assign_side(scores, names: list[str], frames: int, side: str = "ally",
+                margin_min: float = SIDE_MARGIN_MIN) -> list[dict]:
+    """One row per slot of one side: the agent, its margin, and whether to believe it.
+
+    Moved here from `lineup.adjudicate` on 2026-09-23: which five agents a side
+    fields is match identity, decided by this module like every other name.
+    `lineup` supplies the top bar's scores; any other surface that scores a
+    whole side can supply its own.
+
+    Pure over the per-frame (slot, agent) matrix, so a stored lineup can be
+    re-adjudicated without opening the capture again.
+
+    The five slots are five DIFFERENT agents, so this is an assignment and not
+    five arg-maxes -- the same constraint the tracker uses on icons, for the
+    same reason. A slot under the margin is `None` WITH its best guess kept
+    beside it, because an unread value must say what it is.
+
+    **Per SIDE, and never across the match**: [domain:rounds/agent-uniqueness].
+    Both teams may field the same agent, so naming one on this side says
+    nothing about the other -- a ten-slot assignment would have named 11
+    refused slots wrongly across the stored lineups.
+
+    **The margin is measured against the assignment, not against the raw
+    ordering.** It is the optimal assignment's total score minus the best total
+    attainable when this slot is FORBIDDEN its agent, so the alternative it is
+    separated from is one the uniqueness constraint permits, and the
+    displacement that alternative forces on the other four slots is paid for in
+    the margin.
+
+    The version this replaces compared `order[0]` with `order[1]` on the raw
+    per-slot ordering, computed WITHOUT the assignment made two lines above it.
+    Where the runner-up was near-tied but taken by another slot, the constraint
+    had already resolved the tie and the slot was refused anyway -- 12 of 79
+    refusals across 19 stored lineups. The count read as thin evidence and was
+    a measurement taken in the wrong place.
+
+    `best_guess` is the assignment's pick for the same reason. Reporting an
+    argmax the constraint has already rejected is the original fault wearing a
+    different field name.
+    """
+    s = np.asarray(scores, dtype=float)
+    cost = [[-float(v) for v in row] for row in s]
+    picked = assign(cost)
+    best_total = sum(float(s[i, j]) for i, j in enumerate(picked) if j >= 0)
+    out = []
+    for i, j in enumerate(picked):
+        margin, rival = 0.0, None
+        if j >= 0:
+            # Forbidding one cell and re-solving gives the best assignment in
+            # which THIS slot differs -- the maximum over every alternative at
+            # once, for one solve rather than one per candidate agent.
+            blocked = [row[:] for row in cost]
+            blocked[i][j] = float("inf")
+            other = assign(blocked)
+            margin = best_total - sum(float(s[k, c])
+                                      for k, c in enumerate(other) if c >= 0)
+            rival = names[other[i]] if other[i] >= 0 else None
+        ok = j >= 0 and margin >= margin_min
+        out.append({
+            "slot": i, "side": side,
+            "agent": names[j] if ok else None,
+            "best_guess": names[j] if j >= 0 else names[int(np.argmax(s[i]))],
+            "rival": rival,
+            "score": round(float(s[i, j]) if j >= 0 else 0.0, 4),
+            "margin": round(margin, 4),
+            "frames": frames,
+            "reason": None if ok else
+                      f"margin {margin:.3f} below {margin_min} -- "
+                      + (f"not separated from {rival}" if rival
+                         else "no assignment"),
+        })
     return out
 
 
@@ -189,7 +292,7 @@ def side_candidates(rows) -> dict:
     actually hold.** A refused lineup slot still holds an agent, and dropping
     it leaves that agent's portrait competing only against the four the lineup
     did name -- which names one of them, confidently, and wrongly.
-    `lineup.adjudicate` learned this from the other end: a margin measured
+    `assign_side` learned this from the other end: a margin measured
     against an inadmissible alternative is not a margin.
 
     So a refused slot enters the comparison as a RIVAL under its `best_guess`.
@@ -491,6 +594,7 @@ def _normalise(claim):
         source_version=claim.get("source_version"),
         evidence=claim.get("evidence"),
         binding_from=claim.get("binding_from"),
+        depends_on=claim.get("depends_on"),
     )
 
 
@@ -518,7 +622,8 @@ def _channel_verdict(claims) -> dict:
     row = {"votes": dict(sorted(votes.items())), "claims": total,
            "named": len(named), "constant": len(ranked) == 1,
            "binding_from": next((c.get("binding_from") for c in claims
-                                 if c.get("binding_from")), None)}
+                                 if c.get("binding_from")), None),
+           "depends_on": sorted({d for c in claims for d in c.get("depends_on") or []})}
     if not ranked:
         # Abstentions carry the reader's reason, and the commonest one is the
         # channel's answer for why it said nothing.
@@ -557,7 +662,9 @@ def adjudicate_agent_identity(claims) -> list[dict]:
     player's agent on its own, but the SLOT that claim is attached to came from
     searching the top bar for that name, so the two agree by construction.
     Such a channel is listed, and excluded from the independent count, because
-    agreement is consistency and not accuracy.
+    agreement is consistency and not accuracy. A channel whose claim
+    ``depends_on`` other entities' verdicts is excluded from the count for the
+    same reason, and its dependencies are listed on the row.
     """
     grouped = defaultdict(list)
     for raw in claims:
@@ -573,7 +680,8 @@ def adjudicate_agent_identity(claims) -> list[dict]:
                   if row["agent"]}
         agents = sorted({row["agent"] for row in naming.values()})
         independent = [channel for channel, row in naming.items()
-                       if row["binding_from"] not in naming]
+                       if row["binding_from"] not in naming
+                       and not row["depends_on"]]
         if len(agents) > 1:
             status, agent, reason = "disagreement", None, "conflicting_claims"
         elif agents:
@@ -587,6 +695,8 @@ def adjudicate_agent_identity(claims) -> list[dict]:
             "reason": reason,
             "channels": sorted(naming),
             "independent_channels": len(independent),
+            "depends_on": sorted({d for row in naming.values()
+                                  for d in row["depends_on"]}),
             "agents_seen": agents,
             "by_channel": by_channel,
             "claims": group,
@@ -619,36 +729,43 @@ class AgentIdentityArbiter:
 
     def events(self, session_id: str, t_ms: float = 0.0) -> list[dict]:
         """Convert adjudicated identity verdicts to formal IDENTITY_DISTRIBUTION events."""
-        from ..events import identity_distribution_event, IdentityDistribution, SourceChannel
+        return identity_events(self.verdict(), session_id, t_ms)
 
-        events = []
-        for v in self.verdict():
-            dist = {}
-            if v["status"] == "resolved" and v["agent"]:
-                dist = {v["agent"]: 1.0}
-            elif v["status"] == "disagreement" and v["agents_seen"]:
-                p = round(1.0 / len(v["agents_seen"]), 3)
-                dist = {a: p for a in v["agents_seen"]}
 
-            id_dist = IdentityDistribution(
+def identity_events(verdicts, session_id: str, t_ms: float = 0.0) -> list[dict]:
+    """IDENTITY_DISTRIBUTION events for arbiter verdicts: the only producer.
+
+    The event validator rejects an identity event from any other source, so a
+    module that decides a name without this arbiter cannot publish it.
+    """
+    from ..events import identity_distribution_event, IdentityDistribution, SourceChannel
+
+    events = []
+    for v in verdicts:
+        dist = {}
+        if v["status"] == "resolved" and v["agent"]:
+            dist = {v["agent"]: 1.0}
+        elif v["status"] == "disagreement" and v["agents_seen"]:
+            p = round(1.0 / len(v["agents_seen"]), 3)
+            dist = {a: p for a in v["agents_seen"]}
+        event = identity_distribution_event(
+            session_id=session_id,
+            entity_id=f"identity:{v['entity_id']}",
+            t_ms=t_ms,
+            identity_distribution=IdentityDistribution(
                 distribution=dist,
                 subject_entity_id=v["entity_id"],
                 contributing_channels=v["channels"],
-            )
-            event = identity_distribution_event(
-                session_id=session_id,
-                entity_id=f"identity:{v['entity_id']}",
-                t_ms=t_ms,
-                identity_distribution=id_dist,
-                source_channel=SourceChannel.ADJUDICATION_IDENTITY,
-                producer_version=AGENT_IDENTITY_VERSION,
-                metadata={
-                    "status": v["status"],
-                    "reason": v["reason"],
-                    "independent_channels": v["independent_channels"],
-                    "by_channel": {ch: r["agent"] for ch, r in v["by_channel"].items()},
-                },
-            )
-            events.append(event.to_dict())
-        return events
-
+            ),
+            source_channel=SourceChannel.ADJUDICATION_IDENTITY,
+            producer_version=AGENT_IDENTITY_VERSION,
+            metadata={
+                "status": v["status"],
+                "reason": v["reason"],
+                "independent_channels": v["independent_channels"],
+                "depends_on": v.get("depends_on", []),
+                "by_channel": {ch: r["agent"] for ch, r in v["by_channel"].items()},
+            },
+        )
+        events.append(event.to_dict())
+    return events

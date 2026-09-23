@@ -383,7 +383,7 @@ SEMANTIC IDENTITY. This is the most important negative boundary in the repo:
 being consistent with Agent X is not evidence that this is Agent X. A consumer
 treating an association as a name is a design error, not a tuning problem.
 """
-consumers = ["lineup", "minimap_lifecycle", "round_lifetimes", "overlay"]
+consumers = ["adjudication.identity", "minimap_lifecycle", "round_lifetimes", "overlay"]
 evidence = "`python -m reticle.track --self-test`"
 
 [[entry]]
@@ -557,10 +557,14 @@ evidence = "tests/test_coaching.py"
 id = "agent-from-slot"
 question = "Which agent occupies this roster or top-bar slot?"
 owner = "lineup"
-role = ["assign"]
+role = ["detect"]
 status = "transitional"
-produces = ["adjudicate", "Lineup", "LineupReader", "read_session"]
+produces = ["Lineup", "LineupReader", "read_session"]
+names_agents = true
+defers_to = ["agent-identity"]
 not_for = """
+Deciding the assignment. This reads the top bar into per-slot scores; the
+five-distinct-agents assignment and its margin are `identity.assign_side`.
 Slots on an incomplete side, and cross-side elimination. Accumulate only while a
 side is fully alive, or deaths average two identities together. A thin margin
 stays `None` WITH ITS REASON, and the margin is measured against the best
@@ -577,16 +581,19 @@ evidence = "tests/test_lineup.py"
 
 [[entry]]
 id = "agent-identity"
-question = "Which NAMED AGENT is this icon, track or ability?"
+question = "Which NAMED AGENT is this icon, track, row, death or ability, and which five agents does each side field?"
 owner = "adjudication.identity"
 role = ["assign", "adjudicate"]
 status = "partial"
-produces = ["AGENT_IDENTITY_VERSION", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "MINIMAP_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "claim_from_minimap_icon", "claims_from_minimap_icons", "adjudicate_agent_identity", "AgentIdentityArbiter"]
+produces = ["AGENT_IDENTITY_VERSION", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "MINIMAP_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "claim_from_minimap_icon", "claims_from_minimap_icons", "adjudicate_agent_identity", "AgentIdentityArbiter", "identity_events", "assign_side", "SIDE_MARGIN_MIN"]
+names_agents = true
 not_for = """
 Reading pixels, inventing an entity key, or deciding roster-slot continuity. Readers
 publish independent claims here; this owner combines them, preserves abstentions
-and disagreements, and refuses to name an entity when witnesses conflict. Death
-victims, ability owners and track continuity are separate questions downstream.
+and disagreements, and refuses to name an entity when witnesses conflict. Which
+death, track or ability a witness speaks about is a BINDING owned downstream;
+the NAME on it is decided here, and every owner that outputs a name declares
+`names_agents` and defers to this entry.
 
 Nor is it for naming an entity against a candidate set it knows to be short. A
 lineup slot the top bar refused still holds an agent: it is admitted as a RIVAL
@@ -605,13 +612,19 @@ owner = "lineup"
 role = ["assign", "adjudicate"]
 status = "transitional"
 produces = ["tray_vote", "tray_shapes", "abilities_for"]
+names_agents = true
+defers_to = ["agent-identity"]
 not_for = """
 Being decided by one witness. The tray, the top bar and the self icon are
 independent witnesses and the tray decided one session; tray QUALITY is checked
 first, because a bright Lotus background once produced a confident wrong answer.
 Abstention and disagreement are different outcomes.
 """
-exit = "As `agent-from-slot`: the calibration assets still live in prototypes/."
+exit = """
+As `agent-from-slot`: the calibration assets still live in prototypes/. And
+`Lineup.player` still combines the tray, self icon and top bar itself before
+publishing claims; that combination moves into `identity` with the exit.
+"""
 evidence = "tests/test_lineup.py"
 
 # ---------------------------------------------------------------------------
@@ -739,6 +752,8 @@ owner = "adjudication.death"
 role = ["attribute", "adjudicate"]
 status = "partial"
 produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "extract_minimap_death_marks", "extract_killer_location", "detect_second_life_badge", "classify_revive_icon", "fit_arc"]
+names_agents = true
+defers_to = ["agent-identity"]
 not_for = """
 `killfeed` growing into it. The feed gives the time, the team mask and the local
 player; differencing a NAMED alive set across that instant gives the victim, and
@@ -753,6 +768,8 @@ owner = "adjudication.scoreboard"
 role = ["attribute", "adjudicate"]
 status = "partial"
 produces = ["SCOREBOARD_AGENT_VERSION", "scoreboard_openings", "side_state"]
+names_agents = true
+defers_to = ["agent-identity"]
 not_for = """
 Player names, and a row across openings. It names the AGENT drawn in a row of
 one accepted opening; the row ordinal reorders as scores change and is never a

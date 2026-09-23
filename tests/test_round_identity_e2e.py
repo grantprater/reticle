@@ -377,11 +377,14 @@ class RoundIdentityE2ETests(unittest.TestCase):
         self.assertAlmostEqual(skye_del_event["metadata"]["killer_location"][0], 280.1, delta=1.0)
         self.assertAlmostEqual(skye_del_event["metadata"]["killer_location"][1], 334.7, delta=1.0)
 
+        # The identity event comes from the arbiter, keyed by the death.
         skye_id_event = next(
             e for e in death_events
-            if e.get("metadata", {}).get("victim") == "Skye" and e["event_kind"] == "identity_distribution"
+            if e["event_kind"] == "identity_distribution"
+            and e["identity_distribution"]["subject_entity_id"] == skye_del_event["entity_id"]
         )
         self.assertEqual(skye_id_event["identity_distribution"]["distribution"], {"Skye": 1.0})
+        self.assertEqual(skye_id_event["source_channel"], "adjudication.identity")
 
     def test_round4_living_roster_timeline_and_slot_tracking(self):
         """Verify the complete Round 4 living roster timeline, survivor inward packing, and slot mapping."""

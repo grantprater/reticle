@@ -622,6 +622,13 @@ def validate_event_row(row: dict) -> tuple[bool, Optional[str]]:
     if kind_missing:
         return False, f"{kind.value} missing required payload: {sorted(kind_missing)}"
 
+    # One producer of names: the identity arbiter. A module that decided a
+    # name beside it cannot publish that name.
+    if (kind == EventKind.IDENTITY_DISTRIBUTION
+            and row["source_channel"] != SourceChannel.ADJUDICATION_IDENTITY.value):
+        return False, ("identity_distribution events come only from "
+                       "adjudication.identity, got " + str(row["source_channel"]))
+
     # p_exists bounds
     if kind == EventKind.EXISTENCE_PROBABILITY:
         p = row.get("p_exists")

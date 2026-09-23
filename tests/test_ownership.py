@@ -322,3 +322,63 @@ class RepositoryDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IdentityFunnelTests(unittest.TestCase):
+    """Every agent name is decided by the identity arbiter, and only it emits."""
+
+    ARBITER = '''
+    """The arbiter.
+
+    Owns [owns:agent-identity].
+    """
+
+
+    def adjudicate_agent_identity():
+        return identity_distribution_event()
+    '''
+
+    def declaration(self, names_agents, defers):
+        return f"""
+[[entry]]
+id = "agent-identity"
+question = "Which agent?"
+owner = "arbiter"
+role = ["adjudicate"]
+status = "partial"
+produces = ["adjudicate_agent_identity"]
+names_agents = true
+not_for = "Reading pixels."
+
+[[entry]]
+id = "thing-position"
+question = "Where is the thing, and who is it?"
+owner = "reader"
+role = ["detect"]
+status = "shipped"
+produces = ["find_thing"]
+{"names_agents = true" if names_agents else ""}
+{'defers_to = ["agent-identity"]' if defers else ""}
+not_for = "Deciding the name."
+
+[infrastructure]
+modules = ["cli", "events"]
+"""
+
+    def test_an_owner_that_names_agents_must_defer_to_identity(self):
+        with contextlib.ExitStack() as stack:
+            tree = Tree(stack, {"reader": READER, "arbiter": self.ARBITER,
+                                "cli": "", "events": ""},
+                        declaration=self.declaration(True, False))
+            errors = tree.messages("ERROR")
+        self.assertTrue(any("does not defer to `agent-identity`" in m for m in errors))
+
+    def test_a_module_building_identity_events_itself_is_an_error(self):
+        rogue = READER + "\n\ndef emit():\n    return identity_distribution_event(1)\n"
+        with contextlib.ExitStack() as stack:
+            tree = Tree(stack, {"reader": rogue, "arbiter": self.ARBITER,
+                                "cli": "", "events": ""},
+                        declaration=self.declaration(False, False))
+            errors = tree.messages("ERROR")
+        self.assertTrue(any("`reader` builds identity events itself" in m for m in errors))
+        self.assertFalse(any("`arbiter` builds" in m for m in errors))

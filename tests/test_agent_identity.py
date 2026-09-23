@@ -322,3 +322,14 @@ class AgentIdentityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DependentClaimTests(unittest.TestCase):
+    def test_a_claim_resting_on_other_verdicts_is_not_independent(self):
+        from reticle.adjudication.identity import adjudicate_agent_identity, identity_claim
+        got = adjudicate_agent_identity([
+            identity_claim("death:2", "Miks", channel="scoreboard_dim",
+                           depends_on=["death:1", "death:3"])])[0]
+        self.assertEqual((got["status"], got["agent"]), ("resolved", "Miks"))
+        self.assertEqual(got["independent_channels"], 0)
+        self.assertEqual(got["depends_on"], ["death:1", "death:3"])

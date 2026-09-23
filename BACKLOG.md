@@ -15,7 +15,9 @@ The player answered the dimming question: dimmed means currently dead, a Sage re
 
 - **Output:** use accepted scoreboard openings as an independent agent witness for `lineup`, then store each disagreement with the top bar.
 - **Why:** on `a06f04a0059f` the board names enemy Killjoy where the lineup accepts Clove, and ally Breach where the lineup refuses a Raze slot. The enemy pair at 284500/295500 ms is `interval_unordered` {Jett, Skye}; 332500 ms has no accepted opening after it (337000 enemy rows misaligned).
-- **Before starting:** write the contract in `docs/tasks.json`, measure the gates on a second session, and read `lineup`'s ownership entry.
+- **Before starting:** write the contract in `docs/tasks.json`, measure the gates on a second session, and read the `agent-identity` ownership entry.
+- **Shape:** the side assignment now lives in `identity.assign_side`. Store the scoreboard's full per-agent score matrix (the reader computes all 29 scores and keeps two), so the board can feed `assign_side` as a second surface. Do not add a combination rule in `lineup`.
+- **Remaining drift to retire:** `Lineup.player` still combines the tray, self icon and top bar itself before publishing claims (the `player-agent` exit).
 
 ## Completed
 

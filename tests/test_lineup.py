@@ -121,7 +121,7 @@ class VerdictTests(unittest.TestCase):
         rows[4] = [0, 0, 0, 0, 0, 0.9]
         st = self.build(rows)
         self.assertEqual(
-            lineup.adjudicate(st.mean_scores("ally"), st.names, st.frames,
+            lineup.assign_side(st.mean_scores("ally"), st.names, st.frames,
                               "ally", 0.07),
             st.verdict("ally", margin_min=0.07))
 

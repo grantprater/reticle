@@ -80,6 +80,12 @@ STATUSES = frozenset({"shipped", "partial", "transitional", "unowned"})
 
 REQUIRED = ("question", "role", "status", "not_for")
 
+#: The one question every agent name in the match is decided under. An entry
+#: declaring `names_agents = true` outputs agent names and must defer to it;
+#: only its owner may emit identity events. See `adjudication.identity`.
+IDENTITY_QUESTION = "agent-identity"
+IDENTITY_EMITTER = "identity_distribution_event("
+
 
 def public_names(path: Path) -> set[str]:
     """Top-level names a module defines: what another module may name."""
@@ -201,6 +207,16 @@ def verify(data: dict | None = None, root: Path | None = None
     for key in data["_duplicated"]:
         out.append(("ERROR", f"`{key}` is declared more than once"))
 
+    # Identity events have one producer. `death` built its own, from its own
+    # copy of the cross-channel rule, and nothing failed.
+    arbiter = str(index.get(IDENTITY_QUESTION, {}).get("owner", ""))
+    for name, path in sorted(paths.items()):
+        if name in (arbiter, "events", "ownership"):
+            continue
+        if IDENTITY_EMITTER in path.read_text(encoding="utf-8", errors="replace"):
+            out.append(("ERROR", f"`{name}` builds identity events itself -- "
+                                 f"call `identity_events` in `{arbiter}`"))
+
     for key in sorted(index):
         entry = index[key]
         where = f"ownership.toml [{key}]"
@@ -256,6 +272,12 @@ def verify(data: dict | None = None, root: Path | None = None
             out.append(("ERROR", f"`reticle/{spelt}.py` does not claim "
                                  f"`[owns:{key}]` -- the owner names its own "
                                  f"contract, or the entry is stale"))
+
+        if (entry.get("names_agents") and key != IDENTITY_QUESTION
+                and IDENTITY_QUESTION not in _listed(entry, "defers_to")):
+            out.append(("ERROR", f"{where} names agents and does not defer to "
+                                 f"`{IDENTITY_QUESTION}` -- a name is decided by "
+                                 f"the identity arbiter, never beside it"))
 
         for other in _listed(entry, "defers_to"):
             if other not in index:

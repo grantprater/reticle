@@ -328,3 +328,18 @@ class EventContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IdentityProducerTests(unittest.TestCase):
+    def test_an_identity_event_from_another_channel_is_rejected(self):
+        from reticle.events import validate_event_row
+        dist = IdentityDistribution(distribution={"Jett": 1.0},
+                                    subject_entity_id="death:1",
+                                    contributing_channels=["killfeed_portrait"])
+        row = identity_distribution_event(
+            session_id="s1", entity_id="identity:death:1", t_ms=1.0,
+            identity_distribution=dist, source_channel=SourceChannel.KILLFEED,
+            producer_version="death-adjudication-0.3.0").to_dict()
+        ok, err = validate_event_row(row)
+        self.assertFalse(ok)
+        self.assertIn("only from adjudication.identity", err)
