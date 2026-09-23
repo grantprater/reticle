@@ -1,8 +1,16 @@
 # Streamlining LLM development
 
-Date: 2026-09-23. Status: in progress. Context migration, structural warnings,
-and a conservative fixed-round command are implemented. Source review and pilot
-acceptance remain open; archive this plan only after those checks finish.
+Date: 2026-09-23. Status: implemented; archived after the fixed-round source review. The next three bounded tasks should be evaluated through the standing working-map guidance.
+
+Implementation record: the active route was reduced by about 84% in word count
+for the selected death task; `NOTES.md` has one short handoff and `BACKLOG.md`
+one active contract. Deliberate structural violations are caught by tests, and
+`doctor` returned its baseline 11 findings and zero errors. The fixed-round
+pilot passed its repeatable command and review: seven visible deaths, zero
+misses or extras in that reviewed set, one source-verified name, six identity
+refusals and seven location refusals. The next task follows the first observed
+failure: missing stored killfeed portrait observations. See the local
+`teststore/death-round4-v3/review-summary.md` for the bounded comparison.
 
 ## Outcome and boundaries
 

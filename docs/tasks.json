@@ -6,8 +6,16 @@
       "objective": "Produce conservative death events and a source-linked review for a06f04a0059f round 4 (232000-351000 ms), accounting for seven observed entries without oracle or fixture claims.",
       "files": ["tools/death_round4_review.py", "reticle/adjudication/death.py", "tests/test_death_attribution.py"],
       "reads": ["AGENTS.md", "BACKLOG.md#Active: death-round4", "reticle/adjudication/death.py", "prototypes/round_identity_eval.py", "PROJECT_GUIDE.md#Checking against the game's own numbers"],
-      "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-v3"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
+      "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-v3", "--export-review-frames"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
       "evidence": ["Frozen source is a06f04a0059f round 4, 232000-351000 ms. Confirm seven L1 entries and at least the Phoenix player death, with explicit refusal of other unsupported names and all unverified locations.", "Open review.html against the original video; record independently reviewed deaths, misses, extras, identity and location coverage, and a before/after comparison. Runner PASS alone does not close visual review.", "Stop at the first upstream identity or source-review failure; do not promote oracle candidates, synthetic claims, fixture locations, or an all-null output."]
+    },
+    {
+      "id": "death-portraits",
+      "objective": "Persist real killfeed portrait observations for the fixed round and use them to resolve at least one additional victim without oracle or synthetic claims.",
+      "files": ["reticle/hud_reader.py", "reticle/killfeed.py", "reticle/adjudication/death.py", "tools/death_round4_review.py"],
+      "reads": ["AGENTS.md", "BACKLOG.md#Active: death-portraits", "NOTES.md#Picking up", "reticle/killfeed.py", "reticle/adjudication/death.py", "docs/archive/STREAMLINING_PLAN-2026-09-23.md#5-pilot-on-the-death-event-path"],
+      "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-portraits", "--minimum-named", "2"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
+      "evidence": ["A stored, versioned portrait observation for this round must precede each promoted identity; rival lineup slots remain alternatives and disagreements remain visible.", "The frozen round must still account for seven source-reviewed deaths, zero extra detections, and explicit location refusals. At least two named victims must match source review, with no new wrong names.", "Compare the new output against the one-name baseline in teststore/death-round4-v3/review-summary.md; inspect source frames and stop at the first failed observation rather than changing a threshold on its own channel."]
     },
     {
       "id": "hud-reader",

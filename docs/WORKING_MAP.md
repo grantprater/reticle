@@ -23,6 +23,10 @@ specify commands and evidence requirements. Historical handoffs and completed
 arguments live in [docs/archive/](archive/). The product and architecture plans
 retain design rationale, not a competing live queue.
 
+For the next three bounded tasks, record accepted or blocked outcome, selected
+required reading volume, measured corrections, and whether the real output was
+reviewed. Leave unmeasured time and token claims unknown.
+
 ## Module routing
 
 Current cross-pipeline review and delivery gates:

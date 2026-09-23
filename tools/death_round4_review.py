@@ -2,7 +2,8 @@
 
 Uses stored HUD/roster observations. The old identity harness's oracle lineup,
 synthetic Skye claim, human label crops, and fixture locations are excluded.
-Links observation times to original media; never copies raw media.
+Links observation times to original media. With explicit approval, exports seven
+annotated, downscaled review composites; it never copies raw video.
 """
 from __future__ import annotations
 
@@ -12,10 +13,15 @@ import json
 from pathlib import Path
 import sys
 
+import cv2
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reticle.adjudication.death import adjudicate_round_deaths, death_verdict_to_events
 from reticle.events import validate_event_rows
+from reticle.killfeed import killfeed_roi
+from reticle.profiles import get_profile
 from reticle.store import Store
 from prototypes.round_identity_eval import extract_round_killfeed_entries, load_round_bounds
 
@@ -35,7 +41,51 @@ def _write_once(path: Path, content: bytes) -> None:
     path.write_bytes(content)
 
 
-def build(store: Store, output: Path) -> dict:
+def export_review_frames(source: Path, profile_name: str, entries: list[dict],
+                         fps: float, output: Path) -> list[str]:
+    """Save seven labeled composites for source review, never unmarked frames."""
+    roi = killfeed_roi(get_profile(profile_name))
+    if roi is None:
+        raise ValueError(f"profile {profile_name} has no killfeed ROI")
+    cap = cv2.VideoCapture(str(source))
+    if not cap.isOpened():
+        raise RuntimeError(f"cannot open source {source}")
+    paths = []
+    try:
+        for i, entry in enumerate(entries, 1):
+            observation_ms = float(entry["t_ms"])
+            frame_index = round((observation_ms + 100.0) * fps / 1000.0)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            ok, frame = cap.read()
+            if not ok:
+                raise RuntimeError(f"cannot read source frame {frame_index}")
+            x0, y0, x1, y1 = roi.pixels(frame.shape[1], frame.shape[0])
+            marked = frame.copy()
+            cv2.rectangle(marked, (x0, y0), (x1, y1), (0, 255, 255), 3)
+            full = cv2.resize(marked, (960, 540), interpolation=cv2.INTER_AREA)
+            crop = frame[y0:y1, x0:x1]
+            detail = cv2.resize(crop, (640, 540), interpolation=cv2.INTER_CUBIC)
+            canvas = np.full((610, 1600, 3), (28, 30, 34), dtype=np.uint8)
+            canvas[70:610, :960] = full
+            canvas[70:610, 960:] = detail
+            label = (f"{SESSION} round {ROUND}  entry {i}/7  "
+                     f"observed {observation_ms:.0f} ms  frame {frame_index}")
+            cv2.putText(canvas, label, (20, 45), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.85, (0, 255, 255), 2, cv2.LINE_AA)
+            success, encoded = cv2.imencode(".jpg", canvas,
+                                            [cv2.IMWRITE_JPEG_QUALITY, 87])
+            if not success:
+                raise RuntimeError("review composite encoding failed")
+            path = output / f"review-frame-{i}.jpg"
+            _write_once(path, encoded.tobytes())
+            paths.append(str(path))
+    finally:
+        cap.release()
+    return paths
+
+
+def build(store: Store, output: Path, export_frames: bool = False,
+          minimum_named: int = 1) -> dict:
     start, end, _ = load_round_bounds(store, SESSION, DATE, ROUND)
     if (start, end) != (START_MS, END_MS):
         raise ValueError(f"frozen round bounds changed: {(start, end)}")
@@ -57,6 +107,9 @@ def build(store: Store, output: Path) -> dict:
     # A count change is an upstream observation change; review before accepting it.
     if len(entries) != 7:
         raise ValueError(f"expected 7 observed killfeed entries, got {len(entries)}")
+    frame_paths = (export_review_frames(source, manifest["source_profile"], entries,
+                                        float(manifest["source"]["fps"]), output)
+                   if export_frames else [])
 
     lineup = json.loads((store.root / "lineups" / f"{SESSION}.json").read_text(encoding="utf-8"))
     player = lineup.get("player", {})
@@ -73,6 +126,9 @@ def build(store: Store, output: Path) -> dict:
     verdicts = adjudicate_round_deaths(
         SESSION, entries, window_roster, player_agent=player["agent"],
     )
+    named_count = sum(v.victim is not None for v in verdicts)
+    if named_count < minimum_named:
+        raise ValueError(f"only {named_count} named death(s); need {minimum_named}")
     events = []
     for verdict in verdicts:
         source_ref = {"session_id": SESSION, "t_ms": verdict.t_ms,
@@ -117,14 +173,20 @@ def build(store: Store, output: Path) -> dict:
             + "".join(cards) + '<script>function seek(t){let v=document.querySelector("video");v.currentTime=t;v.play()}</script>')
     _write_once(output / "review.html", page.encode("utf-8"))
     return {"summary": report["summary"], "events": str(output / "events.json"),
-            "review": str(output / "review.html")}
+            "review": str(output / "review.html"), "review_frames": frame_paths}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--export-review-frames", action="store_true",
+                        help="save seven approved annotated source composites")
+    parser.add_argument("--minimum-named", type=int, default=1)
     args = parser.parse_args()
-    print(json.dumps(build(Store(), args.output), indent=2))
+    if args.minimum_named < 1:
+        parser.error("--minimum-named must be positive")
+    print(json.dumps(build(Store(), args.output, export_frames=args.export_review_frames,
+                           minimum_named=args.minimum_named), indent=2))
     return 0
 
 
