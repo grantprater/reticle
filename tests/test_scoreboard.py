@@ -66,6 +66,31 @@ class ScoreboardTests(unittest.TestCase):
         self.assertEqual({r.y1 - r.y0 for r in board.rows[:5]}, {20})
         self.assertEqual({r.y1 - r.y0 for r in board.rows[5:]}, {20})
 
+    def test_red_inside_the_ally_block_is_not_the_enemy_block(self):
+        green = np.zeros((300, 700), bool)
+        red = np.zeros_like(green)
+        green[10:110, 50:650] = True
+        # The ally slab over a purple backdrop also passes the red test, and
+        # the real enemy slab is too faint to make a block.
+        red[30:108, 50:650] = True
+        red[160:190, 50:650] = True
+        frame = np.zeros((300, 700, 3), np.uint8)
+        detail = (0, None, 1.0, 1.0, 0)
+        with patch("reticle.scoreboard._slabs", return_value=(green, red)),                 patch("reticle.scoreboard._read_cell_detail", return_value=detail):
+            board = read_scoreboard(frame, object(), 0, 0)
+        self.assertFalse(board.open_)
+
+    def test_an_enemy_block_anchored_into_the_ally_rows_closes_the_board(self):
+        green = np.zeros((300, 700), bool)
+        red = np.zeros_like(green)
+        green[10:110, 50:650] = True
+        red[110:200, 50:650] = True       # a short run at the ally bottom
+        frame = np.zeros((300, 700, 3), np.uint8)
+        detail = (0, None, 1.0, 1.0, 0)
+        with patch("reticle.scoreboard._slabs", return_value=(green, red)),                 patch("reticle.scoreboard._read_cell_detail", return_value=detail):
+            board = read_scoreboard(frame, object(), 0, 0)
+        self.assertFalse(board.open_)
+
     def test_adjudicator_preserves_cross_channel_disagreement(self):
         rows = []
         for frame, t in ((1, 1000.0), (2, 1500.0)):

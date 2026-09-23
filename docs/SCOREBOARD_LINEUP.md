@@ -39,10 +39,26 @@ Skye, and the verdict records zero independent channels and that dependency.
 Some openings place the enemy block on top of the ally block and read the ally
 portraits twice. At 1999000 ms of `a06f04a0059f` that produced a second enemy
 set equal to the ally set, and `board_side_sets` refused on the disagreement.
-`scoreboard_openings` now refuses any opening whose enemy rows are not below
-its ally rows: 13 of 378 openings in `a06f04a0059f` and 108 of 450 in
-`7010b3d62460`. The reader's block detection is the fix; the gate keeps the
-defect out of identity until then.
+`scoreboard_openings` refuses any opening whose enemy rows are not below its
+ally rows: 13 of 378 openings in `a06f04a0059f` and 108 of 450 in
+`7010b3d62460` at `scoreboard-0.3.0`.
+
+The reader now fixes it at the source, in two steps. Two predictions were
+logged, and the first was partly falsified:
+
+- **0.4.0** searches for the enemy block only below the ally block. At
+  1999000 ms the ally slab over a purple backdrop also passed the red test,
+  so the tallest red run lay inside the ally block. That removed the case but
+  left 30 and 118 overlapping openings from two other mechanisms: a short red
+  run at the ally bottom (`a06f04a0059f` 305500 ms), and an ally block that
+  swallowed the history strip (`7010b3d62460` 102000 ms). In both, anchoring
+  the enemy rows at a team height lifts them into the ally block.
+- **0.5.0** does not read a board whose anchored enemy rows start above the
+  ally block's bottom, because nothing in the reader knows which block is
+  right. Both sessions then have zero overlapping openings. Board sets,
+  constrained lineups and all seven round-4 names are unchanged
+  (`teststore/death-round4-reader-block-2/`). The adjudication gate stays as
+  a second guard.
 
 ## Gates on the second session
 

@@ -6,7 +6,7 @@
 
 Steps 1 and 2 are done. Step 1 measured scoreboard availability from stored rows: 33 of 52 sessions have no scoreboard rows, and in the 17 with rows and rounds, 326 of 348 rounds have at least two separate Tab holds. Usable openings around each death remain unmeasured outside `a06f04a0059f`.
 
-3. **Scoreboard reader block fix, then corpus rescan.** The reader sometimes places the enemy block on the ally block (13 of 378 openings in `a06f04a0059f`, 108 of 450 in `7010b3d62460`); a geometry gate refuses them. Fix the block detection in `scoreboard.read_scoreboard` first, then rescan the 17 scoreboard sessions under the new version on the next shared pass (about 10 minutes each), and record board-constrained lineups against the top bar across the corpus.
+3. **Corpus rescan.** `scoreboard-0.5.0` fixes the reader placing the enemy block on the ally block ([details](docs/SCOREBOARD_LINEUP.md#reader-defect-found)). Rescan the other 15 scoreboard sessions (about 10 minutes each) and record board-constrained lineups against the top bar across the corpus. Check each changed name against source before trusting the corpus figure.
 4. **Named alive sets:** check roster counts and death verdicts against each accepted opening's lit and dim sets.
 5. **Killers:** every death verdict has `killer: null`. The killfeed stores killer portraits; compare them over the board-constrained candidates through `adjudication.identity`.
 6. **Minimap identity:** name minimap icons over the five candidates per side; the stored minimap for `a06f04a0059f` is stale (`minimap-0.4.0`).

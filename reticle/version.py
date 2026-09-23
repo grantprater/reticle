@@ -29,7 +29,9 @@ ECONOMY_VERSION = "economy-0.1.0"
 # 0.2.0: the portrait box is the square cell at the table's left edge (the old
 # trough locator landed inside the slab); raw agent-art scores and gain added.
 # 0.3.0: every agent's score per row, for a side assignment downstream.
-SCOREBOARD_VERSION = "scoreboard-0.3.0"
+# 0.4.0: the enemy block is searched for only below the ally block.
+# 0.5.0: a board whose anchored enemy rows overlap the ally rows is not read.
+SCOREBOARD_VERSION = "scoreboard-0.5.0"
 EXTRACTOR_VERSION = "l1-0.1.0"
 SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the

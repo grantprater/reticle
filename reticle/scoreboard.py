@@ -225,10 +225,18 @@ def read_scoreboard(
     """Read every row's K/D/A, and say which row is the local player's."""
     H, W = frame.shape[:2]
     green, red = _slabs(frame)
-    ally, enemy = _block(green), _block(red, merge_gap=0)
-    if ally is None or enemy is None:
+    ally = _block(green)
+    if ally is None:
         return ScoreboardRead(False)
-    if enemy[0] < ally[0]:            # ally block always sits above the enemy one
+    # The ally block always sits above the enemy one, so the enemy block is
+    # searched for BELOW it. The translucent ally slab over a purple backdrop
+    # also passes the red test: at 1999000 ms of a06f04a0059f the tallest red
+    # run lay inside the ally block, and five enemy rows were read off the
+    # ally portraits. A faint real enemy slab now closes the board instead.
+    below = red.copy()
+    below[:ally[1]] = False
+    enemy = _block(below, merge_gap=0)
+    if enemy is None:
         return ScoreboardRead(False)
     # The red match-history strip can be connected to the enemy slab by its
     # own marks, so even an unmerged red run may begin too high. Both teams use
@@ -237,6 +245,13 @@ def read_scoreboard(
     team_h = ally[1] - ally[0]
     if enemy[1] - enemy[0] != team_h:
         enemy = (enemy[1] - team_h, enemy[1])
+    # Anchoring can lift the enemy rows into the ally block when the two
+    # geometries disagree: a short red run at the ally bottom (a06f04a0059f
+    # 305500 ms), or an ally block that swallowed the history strip
+    # (7010b3d62460 102000 ms). Nothing here knows which block is right, so
+    # the board is not read.
+    if enemy[0] < ally[1]:
+        return ScoreboardRead(False)
 
     # Table edges from the ally block's own dense columns, which are cleaner
     # than a whole-frame profile that also catches the team bars up top.
