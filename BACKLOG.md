@@ -7,6 +7,7 @@
 - **Output:** a stored, versioned scoreboard or top-bar witness that binds and correctly names at least one additional death in `a06f04a0059f` round 4.
 - **Dependency:** the [five-refusal diagnosis](docs/DEATH_ROUND4_REFUSALS.md) identifies refused lineup slots, absent repeat views, and two wrong portrait best matches. The player reviewed all five source portraits; those answers check output and cannot serve as detector input.
 - **Completion:** establish a row/binding baseline before changing a reader, then rerun the real seven-death command and source review with at least three correct machine names, zero new wrong names or extras, and explicit location refusals. Use the `death-scoreboard-binding` contract. If the independent binding cannot be derived, record the first failure and ask the player.
+- **Current blocker:** the stored cross-surface portrait descriptor ranks an enemy scoreboard row first for the 281500 ms ally victim, while the visible matching player's row has no stored name. The three-name gate fails. The [binding attempt and player question](docs/DEATH_SCOREBOARD_BINDING.md) retain the null result.
 
 ## Completed
 
