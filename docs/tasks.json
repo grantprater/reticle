@@ -26,6 +26,14 @@
       "evidence": ["Account for all five current refusals with raw portrait keys, accepted and refused lineup candidates, and source review, including the visible mismatch at 284500 ms.", "Cross-reference another stored channel before altering portrait matching; where identity cannot be derived, use a player question and keep the event unnamed until answered.", "Retain seven reviewed deaths, at least the two source-verified names, zero new wrong names or extra entries, and explicit location refusals. Do not overwrite the prior review artifact."]
     },
     {
+      "id": "death-scoreboard-binding",
+      "objective": "Use an independent stored scoreboard or top-bar witness to bind and correctly name at least one of the five fixed-round death refusals, preserving disagreements and source provenance.",
+      "files": ["reticle/scoreboard.py", "reticle/adjudication/identity.py", "reticle/adjudication/death.py", "tools/death_round4_review.py"],
+      "reads": ["AGENTS.md", "BACKLOG.md#Active: death-scoreboard-binding", "NOTES.md#Picking up", "docs/DEATH_ROUND4_REFUSALS.md", "reticle/scoreboard.py", "reticle/adjudication/death.py", "PROJECT_GUIDE.md#Scoreboard divergence is a finding, not an error"],
+      "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-scoreboard", "--minimum-named", "3"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
+      "evidence": ["Before changing a reader, establish a known row and identity baseline, inspect the source, state a falsifiable prediction, and log it in notes/predictions.jsonl.", "A new named victim needs a stored, versioned scoreboard/top-bar observation and a checkable binding to the death; K/D arithmetic alone, human answers, refused lineup best guesses, and stale minimap positions cannot be its input.", "Source-review all seven deaths again and compare with docs/DEATH_ROUND4_REFUSALS.md. Keep zero new wrong names or extra entries and explicit location refusals. If the binding cannot be derived, record the first failure and retain the five machine refusals."]
+    },
+    {
       "id": "hud-reader",
       "objective": "Keep HUD extraction reusable without changing detector rows or calibration behavior.",
       "files": ["reticle/hud_reader.py", "reticle/cli.py", "tests/test_hud_reader.py"],

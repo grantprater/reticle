@@ -2,14 +2,15 @@
 
 `docs/tasks.json` defines executable checks. This file orders work and records why a task is active. Historical arguments and completed items are in [the dated backlog archive](docs/archive/BACKLOG-through-2026-09-23.md).
 
-## Active: death-refusals
+## Active: death-scoreboard-binding
 
-- **Output:** a source-checked diagnosis of the five remaining identity refusals in `a06f04a0059f` round 4, with the first independent evidence gap identified and a bounded next fix or player question path.
-- **Dependency:** the [two-name portrait review](teststore/death-round4-portraits/review-summary.md), stored portrait observations, and refused lineup rivals. Do not promote a best guess or loosen the portrait gate from its own output.
-- **Completion:** account for all five refusals against source and stored witnesses, record disagreement and missing-observation counts, and keep the seven-event, two-correct-name baseline intact. Use the `death-refusals` contract.
+- **Output:** a stored, versioned scoreboard or top-bar witness that binds and correctly names at least one additional death in `a06f04a0059f` round 4.
+- **Dependency:** the [five-refusal diagnosis](docs/DEATH_ROUND4_REFUSALS.md) identifies refused lineup slots, absent repeat views, and two wrong portrait best matches. The player reviewed all five source portraits; those answers check output and cannot serve as detector input.
+- **Completion:** establish a row/binding baseline before changing a reader, then rerun the real seven-death command and source review with at least three correct machine names, zero new wrong names or extras, and explicit location refusals. Use the `death-scoreboard-binding` contract. If the independent binding cannot be derived, record the first failure and ask the player.
 
 ## Completed
 
+- **`death-refusals` (2026-09-23):** all five refusals traced to raw portrait views, accepted/refused lineup candidates, count-only roster shrinks, and source composites. Player review identified Deadlock, Jett, Miks, Skye, and Iso; two portrait best matches disagree with source. Machine output remains seven deaths, two correct names, five refusals, zero verified locations. [Diagnosis](docs/DEATH_ROUND4_REFUSALS.md); [contract](docs/tasks.json).
 - **`death-portraits` (2026-09-23):** 3,392 raw portrait observations persisted on the shared scan, two source-verified named victims (Reyna and Phoenix), five identity refusals, zero wrong names or verified locations. [Review and comparison](teststore/death-round4-portraits/review-summary.md); [contract](docs/tasks.json).
 - **`death-round4` (2026-09-23):** seven source-reviewed deaths, zero misses or extras in the fixed set, one named Phoenix victim, six identity refusals, and zero verified locations. [Review and before/after comparison](teststore/death-round4-v3/review-summary.md); [contract](docs/tasks.json).
 
