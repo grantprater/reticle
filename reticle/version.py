@@ -28,7 +28,8 @@ ECONOMY_VERSION = "economy-0.1.0"
 # adjudicated downstream.
 # 0.2.0: the portrait box is the square cell at the table's left edge (the old
 # trough locator landed inside the slab); raw agent-art scores and gain added.
-SCOREBOARD_VERSION = "scoreboard-0.2.0"
+# 0.3.0: every agent's score per row, for a side assignment downstream.
+SCOREBOARD_VERSION = "scoreboard-0.3.0"
 EXTRACTOR_VERSION = "l1-0.1.0"
 SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the

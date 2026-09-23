@@ -2,12 +2,10 @@
 
 ## Picking up
 
-**Task `death-scoreboard-binding` passed on 2026-09-23.** The real round emits seven deaths with four correct machine names (Deadlock, Reyna, Miks, Phoenix), three enemy identity refusals, and seven location refusals. Read the [resolution](docs/DEATH_SCOREBOARD_BINDING.md#resolution--scoreboard-agent-and-dimming-witness). The first failure was the stored portrait box, which sat inside the slab. `scoreboard-0.2.0` scores the table-edge cell against official agent art; `adjudication/scoreboard.py` gates whole openings and reads dimmed portraits as dead [domain:rounds/scoreboard-dead-dimmed]. Only `a06f04a0059f` was rescanned under 0.2.0; other sessions still hold 0.1.0 rows, and the gates rest on one round.
+**`scoreboard-lineup` passed on 2026-09-23.** Read the [results](docs/SCOREBOARD_LINEUP.md). The scoreboard names each side's five agents and `adjudication.identity` restricts the top-bar assignment to them; `lineup.load_lineup` applies it when a session's scoreboard rows are current (`scoreboard-0.3.0`). Only `a06f04a0059f` and `7010b3d62460` are rescanned. Both name all ten slots correctly, and round 4 names all seven deaths (`teststore/death-round4-lineup/`).
 
-The player confirmed that dimmed means currently dead; `death-adjudication-0.3.1` now treats a Sage revive as expected and excludes Run It Back deaths from the dimmed count, with round 4 unchanged (`teststore/death-round4-dim-rules/`). Next: the agreed order in the [backlog](BACKLOG.md), starting with scoreboard availability, then `scoreboard-lineup`. The board names enemy Killjoy where the lineup accepts Clove. The enemy pair at 284500/295500 ms stays unordered {Jett, Skye}.
+Every agent name passes through `adjudication.identity`; `AGENTS.md` states the rule and `doctor` OWNERSHIP plus the event validator enforce it. Next is step 3 in the [backlog](BACKLOG.md): fix the scoreboard reader placing the enemy block on the ally block, then rescan the corpus.
 
-**Identity funnel (2026-09-23).** Every agent name now passes through `adjudication.identity`. `death` builds claims keyed by the death id and asks the arbiter. Scoreboard rows publish claims. The side assignment moved from `lineup` to `identity.assign_side`. The event validator and `doctor` OWNERSHIP reject identity events from anywhere else and owners that name agents without deferring. Round 4 is unchanged (`teststore/death-round4-identity-funnel/`); Miks now reports zero independent channels and the two deaths its elimination rested on.
-
-Full suite 603 tests pass; `doctor` 11 findings, zero errors. Development time and token use were not measured.
+Full suite 607 tests pass; `doctor` 11 findings, zero errors. Development time and token use were not measured.
 
 The untracked `prototypes/mechanics_eval.py` belongs to the user and must remain untouched. Historical handoffs and measurements are in [the dated archive](docs/archive/NOTES-through-2026-09-12.md). The [backlog](BACKLOG.md) orders current work; the [working map](docs/WORKING_MAP.md) routes required subsystem reading.

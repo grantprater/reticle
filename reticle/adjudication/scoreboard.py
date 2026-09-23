@@ -31,12 +31,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from .identity import adjudicate_agent_identity, identity_claim
+from .identity import BOARD_MARGIN_MIN, adjudicate_agent_identity, identity_claim
 
 SCOREBOARD_AGENT_VERSION = "scoreboard-agent-0.2.0"
 
 AGENT_SCORE_MIN = 0.75
-AGENT_MARGIN_MIN = 0.25
+AGENT_MARGIN_MIN = BOARD_MARGIN_MIN
 DIM_GAIN_MAX = 0.60
 LIT_GAIN_MIN = 0.75
 
@@ -90,14 +90,23 @@ def scoreboard_openings(rows: list[dict]) -> list[dict]:
                            "agent": None, "dim": dim, "reason": reason,
                            "score": row.get("portrait_agent_score"),
                            "margin": row.get("portrait_agent_margin"),
-                           "gain": row.get("portrait_gain")})
+                           "gain": row.get("portrait_gain"),
+                           "scores": row.get("portrait_agent_scores")})
         named = {v["entity_id"]: v["agent"] for v in adjudicate_agent_identity(claims)}
         for state in states:
             state["agent"] = named.get(state["entity_id"])
         reason = None
         teams = [s["team"] for s in states]
+        ally_y = [r["row_y0"] for r in group if r["team"] == "ally" and r.get("row_y0") is not None]
+        enemy_y = [r["row_y0"] for r in group if r["team"] == "enemy" and r.get("row_y0") is not None]
         if teams.count("ally") != 5 or teams.count("enemy") != 5:
             reason = "not_five_rows_per_side"
+        elif ally_y and enemy_y and min(enemy_y) <= max(ally_y):
+            # The enemy block is drawn below the ally block. At 1999000 ms of
+            # a06f04a0059f the reader placed the enemy rows ON the ally rows
+            # and read the ally portraits twice -- a reader defect this gate
+            # refuses rather than names.
+            reason = "enemy_rows_not_below_ally_rows"
         elif any(s["reason"] for s in states):
             reason = "row_refused"
         else:

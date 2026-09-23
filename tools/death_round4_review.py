@@ -25,6 +25,7 @@ from reticle.adjudication.scoreboard import SCOREBOARD_AGENT_VERSION, scoreboard
 from reticle.adjudication.identity import AGENT_IDENTITY_VERSION, load_identity_gallery
 from reticle.events import validate_event_rows
 from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, killfeed_roi
+from reticle.lineup import load_lineup
 from reticle.profiles import get_profile
 from reticle.store import Store
 from reticle.version import SCOREBOARD_VERSION
@@ -116,7 +117,7 @@ def build(store: Store, output: Path, export_frames: bool = False,
                                         float(manifest["source"]["fps"]), output)
                    if export_frames else [])
 
-    lineup = json.loads((store.root / "lineups" / f"{SESSION}.json").read_text(encoding="utf-8"))
+    lineup = load_lineup(SESSION, store.root)
     player = lineup.get("player", {})
     if player.get("reason") or player.get("agent") != "Phoenix":
         raise ValueError("frozen player identity no longer has the reviewed Phoenix witness")
@@ -127,6 +128,8 @@ def build(store: Store, output: Path, export_frames: bool = False,
         "hud": hud_table.schema.metadata[b"hud_version"].decode(),
         "roster": roster_table.schema.metadata[b"roster_version"].decode(),
         "lineup": lineup["version"],
+        "lineup_board": (lineup.get("board") and {s: r.get("agents") or r.get("reason")
+                                                  for s, r in lineup["board"].items()}),
         "killfeed_portrait": store.events_version("killfeed_portrait", SESSION),
         "agent_identity": AGENT_IDENTITY_VERSION,
         "death_adjudication": DEATH_ADJUDICATION_VERSION,

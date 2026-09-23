@@ -235,6 +235,98 @@ def assign_side(scores, names: list[str], frames: int, side: str = "ally",
     return out
 
 
+#: A scoreboard row's best agent must lead its runner-up by this much, in
+#: masked-correlation units. Measured on one round of `a06f04a0059f`: accepted
+#: rows led by at least 0.30, misaligned rows by at most 0.23. Provisional.
+BOARD_MARGIN_MIN = 0.25
+#: Accepted openings that must agree before a side's set is believed.
+BOARD_MIN_OPENINGS = 2
+
+
+def board_side_sets(openings) -> dict[str, dict]:
+    """Which five agents each side fields, from accepted scoreboard openings.
+
+    Each accepted opening's five rows on a side are ASSIGNED with
+    `assign_side` over every agent's stored score, not read as five argmaxes.
+    A side's set is believed only when at least `BOARD_MIN_OPENINGS` openings
+    name all five and every one of them names the same five; otherwise the
+    side refuses with its reason and the per-opening sets stay on the row.
+    Agents are fixed for the match, so openings from both halves count, and a
+    disagreement between openings is a finding rather than a vote.
+    """
+    out = {}
+    for side in ("ally", "enemy"):
+        seen, missing = {}, 0
+        for opening in openings:
+            if not opening.get("accepted"):
+                continue
+            rows = [r for r in opening["rows"] if r["team"] == side]
+            if len(rows) != N_SLOTS or any(not r.get("scores") for r in rows):
+                missing += 1
+                continue
+            names = sorted(rows[0]["scores"])
+            matrix = [[r["scores"].get(n, -1.0) for n in names] for r in rows]
+            picked = assign_side(matrix, names, 1, side, margin_min=BOARD_MARGIN_MIN)
+            if any(p["agent"] is None for p in picked):
+                continue
+            key = tuple(sorted(p["agent"] for p in picked))
+            seen.setdefault(key, []).append(opening["t_ms"])
+        row = {"agents": None, "openings": sorted(t for ts in seen.values() for t in ts),
+               "sets": [{"agents": list(k), "openings": v} for k, v in sorted(seen.items())],
+               "unscored_openings": missing, "reason": None}
+        if len(seen) > 1:
+            row["reason"] = "board_sets_disagree"
+        elif not seen:
+            row["reason"] = ("scores_not_stored" if missing else "no_accepted_opening")
+        elif len(row["openings"]) < BOARD_MIN_OPENINGS:
+            row["reason"] = f"only_{len(row['openings'])}_accepted_opening"
+        else:
+            row["agents"] = list(next(iter(seen)))
+        out[side] = row
+    return out
+
+
+def lineup_with_board(lineup: dict, board: dict[str, dict]) -> dict:
+    """The stored top-bar lineup with each side restricted to the board's set.
+
+    Where the board names a side's five agents, the top bar's stored
+    (slot, agent) matrix is re-assigned over those five only: the board says
+    WHO is on the side, the top bar says WHICH SLOT. Every top-bar name the
+    constraint changes or removes is stored in `board_disagreements`, and the
+    unconstrained sides are kept under `top_bar_sides`. A side the board
+    refuses keeps its top-bar verdict. Pure over stored data.
+    """
+    scores = lineup.get("scores") or {}
+    names = scores.get("names")
+    got = deepcopy(lineup)
+    got["top_bar_sides"] = deepcopy(lineup.get("sides", {}))
+    got["board"] = deepcopy(board)
+    got["board_disagreements"] = []
+    for side, row in board.items():
+        if not row.get("agents") or not names or side not in scores:
+            continue
+        cols = [names.index(a) for a in row["agents"] if a in names]
+        if len(cols) != N_SLOTS:
+            continue
+        matrix = np.asarray(scores[side], dtype=float)[:, cols]
+        frames = int(lineup.get("frames") or 0)
+        constrained = assign_side(matrix, [names[c] for c in cols], frames, side)
+        for before, after in zip(got["top_bar_sides"].get(side, []), constrained):
+            after["constrained_by"] = "scoreboard"
+            if before.get("agent") and before["agent"] != after["agent"]:
+                got["board_disagreements"].append({
+                    "side": side, "slot": before.get("slot"),
+                    "top_bar": before["agent"], "with_board": after["agent"],
+                    "board_agents": row["agents"]})
+        got.setdefault("sides", {})[side] = constrained
+    claims = claims_from_lineup(got.get("sides", {}), got.get("player"),
+                                observation_id=str(got.get("session", "lineup")),
+                                source_version=got.get("version", "lineup"))
+    got["identity_claims"] = claims
+    got["agent_identity"] = adjudicate_agent_identity(claims)
+    return got
+
+
 def load_identity_gallery(store, surfaces=MEASURED_SURFACES) -> dict[str, list[np.ndarray]]:
     """Load official portrait descriptors in the killfeed feature space.
 

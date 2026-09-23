@@ -339,7 +339,7 @@ def portrait_agent(frame: np.ndarray, box: tuple[int, int, int, int],
     """
     empty = {"portrait_agent_best": None, "portrait_agent_score": None,
              "portrait_agent_second": None, "portrait_agent_margin": None,
-             "portrait_gain": None}
+             "portrait_gain": None, "portrait_agent_scores": None}
     if not icons:
         return {**empty, "portrait_agent_reason": "no_agent_icons"}
     x0, y0, x1, y1 = box
@@ -370,6 +370,9 @@ def portrait_agent(frame: np.ndarray, box: tuple[int, int, int, int],
             "portrait_agent_second": ranked[1][0],
             "portrait_agent_margin": round(ranked[0][1] - ranked[1][1], 4),
             "portrait_gain": round(float(np.polyfit(art, seen, 1)[0]), 4),
+            # Every agent's score, so a whole side can be ASSIGNED downstream
+            # (`identity.assign_side`) instead of read as five argmaxes.
+            "portrait_agent_scores": {k: round(v, 4) for k, v in sorted(scores.items())},
             "portrait_agent_reason": None}
 
 
@@ -452,7 +455,7 @@ class ScoreboardReader:
                     "portrait_detail": None, "portrait_composition": None,
                     "portrait_agent_best": None, "portrait_agent_score": None,
                     "portrait_agent_second": None, "portrait_agent_margin": None,
-                    "portrait_gain": None,
+                    "portrait_gain": None, "portrait_agent_scores": None,
                     "portrait_agent_reason": "no_portrait_box",
                 }),
             })

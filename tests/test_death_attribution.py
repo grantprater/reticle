@@ -868,6 +868,15 @@ class ScoreboardDimWitnessTest(unittest.TestCase):
         self.assertEqual([o["accepted"] for o in got], [False, True])
         self.assertEqual(got[0]["reason"], "row_refused")
 
+    def test_enemy_rows_on_top_of_ally_rows_refuse_the_opening(self):
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        rows = self.board(1000.0)
+        for i, r in enumerate(rows):
+            r["row_y0"] = 340 + 34 * (i % 5)     # both blocks at the ally rows
+        got = scoreboard_openings(rows)[0]
+        self.assertFalse(got["accepted"])
+        self.assertEqual(got["reason"], "enemy_rows_not_below_ally_rows")
+
     def test_a_gain_between_bands_names_nothing(self):
         from reticle.adjudication.scoreboard import scoreboard_openings
         rows = self.board(1000.0)

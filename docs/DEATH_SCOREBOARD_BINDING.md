@@ -143,10 +143,11 @@ portrait. Both match the scoreboard rows and the player's earlier answers.
 There are zero wrong names and zero extras in the reviewed set. The player
 answers were checks only.
 
-**Lineup disagreement found, not promoted.** The board and killfeed show
-vanshrana as Killjoy. The stored lineup accepts Clove on the enemy side and
-refuses a Raze slot that the board shows as Breach on the ally side. This
-scoreboard witness is a candidate independent input for the lineup.
+**Lineup disagreement found, not promoted.** The stored lineup accepts Clove
+on the enemy side, where the board shows no Clove, and refuses a Raze slot that
+the board shows as Breach on the ally side. *Correction, 2026-09-23:* this
+paragraph first attributed the Clove to Killjoy's slot. The source top bar
+shows it held Jett's slot; see [the scoreboard lineup](SCOREBOARD_LINEUP.md).
 
 The earlier two-name baseline `events.json` and `review.html` in
 `teststore/death-round4-scoreboard/` were byte-identical to

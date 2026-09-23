@@ -56,6 +56,14 @@
       "reads": ["CLAUDE.md", "docs/ARCHITECTURE_PLAN.md", "docs/tasks.json"],
       "acceptance": [["{python}", "-m", "unittest", "discover", "-s", "tests", "-q"], ["git", "diff", "--check"]],
       "evidence": ["All behavioral checks pass. Inspect doctor separately: stale geometry is a pre-existing blocker, not a waived regression.", "Record actual corpus comparisons separately. Logged elapsed time is check execution time, not total agent labor; tokens and corrections stay null unless measured."]
+    },
+    {
+      "id": "scoreboard-lineup",
+      "objective": "Use accepted Tab-scoreboard openings as an independent side-set witness that constrains the top-bar side assignment in adjudication.identity, storing every disagreement with the top bar.",
+      "files": ["reticle/scoreboard.py", "reticle/adjudication/identity.py", "reticle/adjudication/scoreboard.py", "reticle/lineup.py", "tools/death_round4_review.py"],
+      "reads": ["AGENTS.md", "BACKLOG.md#Next (no contract yet): scoreboard-lineup", "NOTES.md#Picking up", "docs/DEATH_SCOREBOARD_BINDING.md", "reticle/adjudication/identity.py", "reticle/lineup.py"],
+      "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-lineup", "--minimum-named", "4"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_agent_identity.py", "-q"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
+      "evidence": ["Log falsifiable predictions for a06f04a0059f and a second session with a recorded lineup truth before measuring.", "The side set is decided by identity.assign_side over stored scoreboard scores; the top-bar constraint is decided in adjudication.identity, never in lineup.", "Store each top-bar name the board contradicts. Refuse the constraint when accepted openings disagree on a side's set.", "Rerun the round-4 review and source-check any newly named death against the player's answers; keep zero wrong names."]
     }
   ]
 }

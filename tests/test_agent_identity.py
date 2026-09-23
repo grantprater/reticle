@@ -333,3 +333,58 @@ class DependentClaimTests(unittest.TestCase):
         self.assertEqual((got["status"], got["agent"]), ("resolved", "Miks"))
         self.assertEqual(got["independent_channels"], 0)
         self.assertEqual(got["depends_on"], ["death:1", "death:3"])
+
+
+class BoardSideSetTests(unittest.TestCase):
+    """The scoreboard names a side's five agents; the top bar places them."""
+
+    NAMES = ["Breach", "Clove", "Deadlock", "Iso", "Jett", "Killjoy", "Omen", "Raze", "Skye"]
+    ENEMY = ["Jett", "Killjoy", "Skye", "Iso", "Omen"]
+
+    def opening(self, t_ms, enemy=None, accepted=True):
+        rows = []
+        for team, agents in (("ally", ["Breach", "Deadlock", "Raze", "Clove", "Iso"]),
+                             ("enemy", enemy or self.ENEMY)):
+            for a in agents:
+                rows.append({"team": team, "scores": {n: (0.9 if n == a else 0.3) for n in self.NAMES}})
+        return {"t_ms": t_ms, "accepted": accepted, "rows": rows}
+
+    def test_agreeing_openings_name_the_side(self):
+        from reticle.adjudication.identity import board_side_sets
+        got = board_side_sets([self.opening(1.0), self.opening(2.0),
+                               self.opening(3.0, accepted=False)])
+        self.assertEqual(sorted(got["enemy"]["agents"]), sorted(self.ENEMY))
+        self.assertEqual(got["enemy"]["openings"], [1.0, 2.0])
+
+    def test_one_opening_or_a_disagreement_refuses(self):
+        from reticle.adjudication.identity import board_side_sets
+        self.assertEqual(board_side_sets([self.opening(1.0)])["enemy"]["reason"],
+                         "only_1_accepted_opening")
+        other = ["Jett", "Killjoy", "Skye", "Iso", "Raze"]
+        got = board_side_sets([self.opening(1.0), self.opening(2.0, enemy=other)])
+        self.assertIsNone(got["enemy"]["agents"])
+        self.assertEqual(got["enemy"]["reason"], "board_sets_disagree")
+
+    def test_the_board_restricts_the_top_bar_and_keeps_the_disagreement(self):
+        from reticle.adjudication.identity import board_side_sets, lineup_with_board
+        # The top bar prefers Clove in slot 1 and cannot separate slot 0.
+        scores = np.full((5, len(self.NAMES)), 0.2)
+        best = {0: "Breach", 1: "Clove", 2: "Skye", 3: "Iso", 4: "Omen"}
+        for slot, a in best.items():
+            scores[slot, self.NAMES.index(a)] = 0.8
+        scores[1, self.NAMES.index("Killjoy")] = 0.7
+        scores[0, self.NAMES.index("Jett")] = 0.79
+        lineup = {"session": "s", "version": "lineup-test", "frames": 10,
+                  "scores": {"names": self.NAMES, "enemy": scores.tolist(),
+                             "ally": scores.tolist()},
+                  "sides": {"enemy": [{"slot": i, "agent": a if i else None}
+                                      for i, a in best.items()]},
+                  "player": None}
+        board = board_side_sets([self.opening(1.0), self.opening(2.0)])
+        got = lineup_with_board(lineup, board)
+        self.assertEqual([r["agent"] for r in got["sides"]["enemy"]],
+                         ["Jett", "Killjoy", "Skye", "Iso", "Omen"])
+        self.assertIn({"side": "enemy", "slot": 1, "top_bar": "Clove",
+                       "with_board": "Killjoy", "board_agents": board["enemy"]["agents"]},
+                      got["board_disagreements"])
+        self.assertEqual(got["top_bar_sides"]["enemy"][1]["agent"], "Clove")

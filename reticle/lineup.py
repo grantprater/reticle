@@ -97,6 +97,11 @@ def load_lineup(session: str, store) -> dict | None:
     claims are pure over `sides` and `player`, which every file already holds,
     so this costs no decode and no rewrite -- and the artifact is never the
     only place the answer lives.
+
+    **The scoreboard constrains it here too**, when the session's stored rows
+    are current: `identity.board_side_sets` decides each side's five agents
+    and `identity.lineup_with_board` re-assigns the top bar over them, keeping
+    the unconstrained verdict and every disagreement beside it.
     """
     import json
     f = Path(store) / "lineups" / f"{session}.json"
@@ -110,6 +115,14 @@ def load_lineup(session: str, store) -> dict | None:
         got["identity_claims"] = claims
         got["agent_identity"] = adjudicate_agent_identity(claims)
         got["agent_identity_recomputed"] = True
+    from .adjudication.identity import board_side_sets, lineup_with_board
+    from .adjudication.scoreboard import scoreboard_openings
+    from .store import Store
+    from .version import SCOREBOARD_VERSION
+    board_store = Store(store)
+    if board_store.events_version("scoreboard", session) == SCOREBOARD_VERSION:
+        openings = scoreboard_openings(board_store.read_events("scoreboard", session))
+        got = lineup_with_board(got, board_side_sets(openings))
     return got
 
 
