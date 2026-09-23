@@ -7,14 +7,16 @@ historical conventions, is [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md).
 ## Start here
 
 Use [`docs/WORKING_MAP.md`](docs/WORKING_MAP.md) for task routing. Read
-`NOTES.md` for the live handoff, the relevant `BACKLOG.md` heading, and the
-relevant section of `PROJECT_GUIDE.md` before changing a subsystem. Minimap
-and prototype work also requires `prototypes/CLAUDE.md`; domain attribution
+`NOTES.md` for the single current handoff, then the selected `BACKLOG.md` task
+and its contract in `docs/tasks.json`. Read the relevant section of
+`PROJECT_GUIDE.md` before changing a subsystem. Minimap and prototype work
+also requires `prototypes/CLAUDE.md`; domain attribution
 and private quotes remain in `~/reticle-notes/`, outside this public repo.
 
 ## Acceptance north star
 
-The entity channel must produce a visually checkable annotated match: players,
+The entity channel produces identity-bearing events and a visually checkable
+annotated match: players,
 abilities, viewcones, pings, and other icons as they evolve through a VOD.
 Prediction/logging and coaching are downstream of observations. When a
 perceptual question cannot be derived, ask the player and record the first

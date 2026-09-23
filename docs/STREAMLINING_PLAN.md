@@ -1,6 +1,8 @@
 # Streamlining LLM development
 
-Date: 2026-09-23. Status: proposed; implementation has not started.
+Date: 2026-09-23. Status: in progress. Context migration, structural warnings,
+and a conservative fixed-round command are implemented. Source review and pilot
+acceptance remain open; archive this plan only after those checks finish.
 
 ## Outcome and boundaries
 

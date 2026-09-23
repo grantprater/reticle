@@ -8,18 +8,20 @@ by the question itself -- *which agent died*, *where is the player* -- ask
 ## Start here
 
 1. `git status --short` — preserve existing work and avoid overwriting it.
-2. Read [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for product direction,
-   acceptance gates, and current milestone boundaries.
-3. Read [NOTES.md](../NOTES.md) for the live handoff, then the relevant
-   [BACKLOG.md](../BACKLOG.md) heading before choosing a task; the backlog is
-   the queue and records superseded arguments.
-4. Read the eager root [`CLAUDE.md`](../CLAUDE.md), then the relevant section
-   of [`PROJECT_GUIDE.md`](../PROJECT_GUIDE.md); the guide retains the full
-   design documents, operating rules, pipeline state, and known defects.
-5. Read [ARCHITECTURE_PLAN.md](ARCHITECTURE_PLAN.md) for architecture direction
-   and acceptance boundaries.
-6. Run `.\.venv\Scripts\python.exe -m reticle doctor` and inspect status
+2. Read the eager root [`AGENTS.md`](../AGENTS.md) (or equivalent `CLAUDE.md`),
+   [NOTES.md](../NOTES.md), and the selected active task in
+   [BACKLOG.md](../BACKLOG.md). Its single executable definition is in
+   [tasks.json](tasks.json).
+3. Run `.\.venv\Scripts\python.exe -m reticle doctor` and inspect status
    with `.\.venv\Scripts\python.exe -m reticle status`.
+4. Follow the selected contract's `reads`, the owning module docstring, and the
+   relevant [PROJECT_GUIDE.md](../PROJECT_GUIDE.md) section. Read design plans
+   only when that task needs their rationale or acceptance boundary.
+
+`NOTES.md` holds current execution state; `BACKLOG.md` orders work; contracts
+specify commands and evidence requirements. Historical handoffs and completed
+arguments live in [docs/archive/](archive/). The product and architecture plans
+retain design rationale, not a competing live queue.
 
 ## Module routing
 
