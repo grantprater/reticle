@@ -59,7 +59,8 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "round_lifetimes", "lineup", "barriers", "acquisition",
            "capabilities", "adjudication.ability", "adjudication.capture",
            "adjudication.gallery", "adjudication.phases", "adjudication.identity",
-           "adjudication.death", "adjudication.weapon", "ability_coverage",
+           "adjudication.death", "adjudication.weapon", "adjudication.scoreboard",
+           "ability_coverage",
            "ability_timeline", "gametime"]
 
 [entities]

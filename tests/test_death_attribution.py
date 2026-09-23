@@ -839,3 +839,85 @@ class DeathAttributionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScoreboardDimWitnessTest(unittest.TestCase):
+    """The scoreboard's newly dimmed rows as a gated victim witness."""
+
+    ALLY = ["Breach", "Deadlock", "Phoenix", "Reyna", "Miks"]
+    ENEMY = ["Jett", "Killjoy", "Skye", "Iso", "Omen"]
+
+    def board(self, t_ms, dim=(), bad=None):
+        rows = []
+        for i, name in enumerate(self.ALLY + self.ENEMY):
+            rows.append({
+                "kind": "row_observation", "t_ms": t_ms, "frame_idx": int(t_ms / 33),
+                "display_row": i, "team": "ally" if i < 5 else "enemy",
+                "observation_key": f"s:{t_ms}:{i}", "portrait_agent_reason": None,
+                "portrait_agent_best": name, "portrait_agent_score": 0.9,
+                "portrait_agent_margin": 0.4,
+                "portrait_gain": 0.35 if name in dim else 0.9,
+                "scoreboard_version": "scoreboard-0.2.0"})
+        if bad is not None:
+            rows[bad]["portrait_agent_score"] = 0.5
+        return rows
+
+    def test_one_refused_row_refuses_the_whole_opening(self):
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        got = scoreboard_openings(self.board(1000.0, bad=7) + self.board(2000.0))
+        self.assertEqual([o["accepted"] for o in got], [False, True])
+        self.assertEqual(got[0]["reason"], "row_refused")
+
+    def test_a_gain_between_bands_names_nothing(self):
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        rows = self.board(1000.0)
+        rows[2]["portrait_gain"] = 0.68
+        got = scoreboard_openings(rows)[0]
+        self.assertFalse(got["accepted"])
+        self.assertTrue(got["rows"][2]["reason"].startswith("gain_between_bands"))
+
+    def test_one_death_and_one_newly_dim_agent_binds(self):
+        from reticle.adjudication.death import scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        openings = scoreboard_openings(self.board(1000.0) + self.board(3000.0, dim={"Deadlock"}))
+        claims = scoreboard_death_claims([{"t_ms": 2000.0, "side": "ally"}], openings, {})
+        self.assertEqual(claims[0]["agent"], "Deadlock")
+        self.assertEqual(claims[0]["evidence"]["newly_dim"], ["Deadlock"])
+
+    def test_several_deaths_name_only_by_elimination(self):
+        from reticle.adjudication.death import scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        openings = scoreboard_openings(
+            self.board(1000.0) + self.board(9000.0, dim={"Reyna", "Miks", "Jett", "Skye"}))
+        entries = [{"t_ms": 2000.0, "side": "ally"}, {"t_ms": 3000.0, "side": "enemy"},
+                   {"t_ms": 4000.0, "side": "ally"}, {"t_ms": 5000.0, "side": "enemy"}]
+        claims = scoreboard_death_claims(entries, openings, {0: "Reyna"})
+        self.assertEqual(claims[2]["agent"], "Miks")
+        self.assertIsNone(claims[0]["agent"])      # its only other death is unnamed
+        self.assertTrue(claims[1]["reason"].startswith("interval_unordered"))
+        self.assertTrue(claims[3]["reason"].startswith("interval_unordered"))
+
+    def test_an_independent_name_outside_the_dim_set_refuses(self):
+        from reticle.adjudication.death import scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        openings = scoreboard_openings(self.board(1000.0) + self.board(9000.0, dim={"Reyna", "Miks"}))
+        entries = [{"t_ms": 2000.0, "side": "ally"}, {"t_ms": 4000.0, "side": "ally"}]
+        claims = scoreboard_death_claims(entries, openings, {0: "Phoenix"})
+        self.assertIsNone(claims[1]["agent"])
+        self.assertTrue(claims[1]["reason"].startswith("other_names_not_in_newly_dim"))
+
+    def test_count_disagreement_with_killfeed_refuses(self):
+        from reticle.adjudication.death import scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        openings = scoreboard_openings(self.board(1000.0) + self.board(3000.0, dim={"Reyna", "Miks"}))
+        claims = scoreboard_death_claims([{"t_ms": 2000.0, "side": "ally"}], openings, {})
+        self.assertIsNone(claims[0]["agent"])
+        self.assertEqual(claims[0]["reason"], "newly_dim_2_disagrees_with_killfeed_deaths_1")
+
+    def test_scoreboard_name_resolves_and_disagreement_is_kept(self):
+        claim = {"channel": "scoreboard_dim", "agent": "Deadlock"}
+        alone = adjudicate_death(death_id="d", t_ms=1.0, side="ally", scoreboard_claim=claim)
+        self.assertEqual((alone.status, alone.victim), ("resolved", "Deadlock"))
+        clash = adjudicate_death(death_id="d", t_ms=1.0, side="ally", scoreboard_claim=claim,
+                                 killfeed_claim={"channel": "killfeed_portrait", "agent": "Reyna"})
+        self.assertEqual((clash.status, clash.victim), ("disagreement", None))

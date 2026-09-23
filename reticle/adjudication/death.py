@@ -41,7 +41,7 @@ from ..roster import N_SLOTS
 from .identity import claim_from_killfeed_portrait, side_candidates, _channel_verdict
 from .weapon import classify_killfeed_icon
 
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.2.0"
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.3.0"
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 
@@ -106,6 +106,82 @@ def attach_stored_killfeed_portraits(
         }
         out.append(entry)
     return out
+
+
+def scoreboard_death_claims(entries: list[dict], openings: list[dict],
+                            named: dict[int, str | None]) -> list[dict]:
+    """A victim witness per killfeed entry from the scoreboard's dimmed rows.
+
+    Between the last accepted opening before a death and the first after it,
+    the side's NEWLY dimmed agents are the players who died in that interval
+    [domain:rounds/scoreboard-dead-dimmed]. The count must equal the killfeed
+    deaths on that side in the same interval, or the claim refuses: the two
+    channels disagreeing is output, not something to average.
+
+    One death and one newly dimmed agent is a binding. Several deaths are not
+    ordered by the board, so a death is named only by ELIMINATION: every other
+    death in the interval already carries a name from an independent channel
+    (`named`, which must not come from this witness), those names are all in
+    the dimmed set, and exactly one agent is left. The names it rested on are
+    stored with the claim.
+    """
+    from .scoreboard import SCOREBOARD_AGENT_VERSION, side_state
+    accepted = [o for o in openings if o["accepted"]]
+    claims = []
+    for i, entry in enumerate(entries):
+        t_ms, side = float(entry["t_ms"]), entry.get("side")
+        before = [o for o in accepted if o["t_ms"] < t_ms]
+        after = [o for o in accepted if o["t_ms"] > t_ms]
+        claim = {"channel": "scoreboard_dim", "agent": None, "reason": None,
+                 "source_version": SCOREBOARD_AGENT_VERSION, "evidence": {}}
+        claims.append(claim)
+        if side not in ("ally", "enemy"):
+            claim["reason"] = "entry_side_unknown"
+            continue
+        if not before or not after:
+            claim["reason"] = ("no_accepted_opening_before" if not before
+                               else "no_accepted_opening_after")
+            continue
+        lo, hi = before[-1], after[0]
+        was, now = side_state(lo, side), side_state(hi, side)
+        newly = now["dim"] - was["dim"]
+        revived = was["dim"] - now["dim"]
+        deaths = [j for j, e in enumerate(entries)
+                  if e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) < hi["t_ms"]]
+        claim["evidence"] = {
+            "opening_before": {"t_ms": lo["t_ms"], "frame_idx": lo["frame_idx"],
+                               "dim": sorted(was["dim"])},
+            "opening_after": {"t_ms": hi["t_ms"], "frame_idx": hi["frame_idx"],
+                              "dim": sorted(now["dim"])},
+            "newly_dim": sorted(newly),
+            "interval_deaths": [float(entries[j]["t_ms"]) for j in deaths],
+            "observation_keys": [s["observation_key"] for s in hi["rows"]
+                                 if s["team"] == side and s["agent"] in newly],
+        }
+        if revived:
+            claim["reason"] = f"dim_row_lit_again {sorted(revived)}"
+        elif len(newly) != len(deaths):
+            claim["reason"] = (f"newly_dim_{len(newly)}_disagrees_with_"
+                               f"killfeed_deaths_{len(deaths)}")
+        elif len(newly) == 1:
+            claim["agent"] = next(iter(newly))
+        else:
+            others = [j for j in deaths if j != i]
+            names = [named.get(j) for j in others]
+            claim["evidence"]["by_elimination"] = [
+                {"t_ms": float(entries[j]["t_ms"]), "agent": named.get(j)} for j in others]
+            if not all(names):
+                claim["reason"] = f"interval_unordered {sorted(newly)}"
+            elif not set(names) <= newly or len(set(names)) != len(names):
+                claim["reason"] = (f"other_names_not_in_newly_dim {sorted(names)} "
+                                   f"vs {sorted(newly)}")
+            else:
+                left = newly - set(names)
+                if len(left) == 1:
+                    claim["agent"] = next(iter(left))
+                else:
+                    claim["reason"] = f"interval_unordered {sorted(left)}"
+    return claims
 
 
 BLUE_X_H = (95, 118)
@@ -418,6 +494,7 @@ def adjudicate_death(
     t_ms: float,
     side: str,
     killfeed_claim: Optional[dict] = None,
+    scoreboard_claim: Optional[dict] = None,
     roster_shrink: Optional[dict] = None,
     track_termination: Optional[dict] = None,
     xmark_location: Optional[tuple[float, float]] = None,
@@ -431,10 +508,12 @@ def adjudicate_death(
 ) -> DeathVerdict:
     """Adjudicate victim identity, killer, and location for one death instant.
 
-    Corroborates three independent candidate channels:
+    Corroborates four independent candidate channels:
     1. `killfeed_claim`: portrait/role claim from killfeed plate.
-    2. `roster_shrink`: agent differenced from living set occupancy.
-    3. `track_termination`: terminating minimap track and its identity.
+    2. `scoreboard_claim`: the agent the Tab scoreboard newly dimmed around
+       this death (`scoreboard_death_claims`).
+    3. `roster_shrink`: agent differenced from living set occupancy.
+    4. `track_termination`: terminating minimap track and its identity.
 
     Cross-channel disagreements are preserved explicitly as `disagreement`
     verdicts rather than masked by majority vote. Refused or thin witnesses
@@ -459,6 +538,13 @@ def adjudicate_death(
             weapon = killfeed_claim["weapon"]
         if death_cause == "gun" and killfeed_claim.get("death_cause"):
             death_cause = killfeed_claim["death_cause"]
+
+    # Scoreboard dimmed-row witness
+    if scoreboard_claim:
+        witnesses.append(scoreboard_claim)
+        channels.append("scoreboard_dim")
+        if scoreboard_claim.get("agent"):
+            victim_candidates["scoreboard_dim"] = scoreboard_claim["agent"]
 
     # 2. Roster shrink witness
     if roster_shrink:
@@ -685,9 +771,14 @@ def adjudicate_round_deaths(
     player_agent: Optional[str] = None,
     lineup: Optional[dict] = None,
     gallery: Optional[dict] = None,
+    scoreboard_claims: Optional[list] = None,
     max_dt_ms: float = MAX_DEATH_ALIGNMENT_DT_MS,
 ) -> list[DeathVerdict]:
-    """Align killfeed entries to roster drops and minimap tracks across a round."""
+    """Align killfeed entries to roster drops and minimap tracks across a round.
+
+    `scoreboard_claims`, when given, holds one `scoreboard_death_claims` claim
+    per entry, in entry order.
+    """
     ally_shrinks = shrink_events(roster_series, "ally")
     enemy_shrinks = shrink_events(roster_series, "enemy")
     ally_expands = expand_events(roster_series, "ally")
@@ -920,6 +1011,7 @@ def adjudicate_round_deaths(
             t_ms=t_ms,
             side=side,
             killfeed_claim=kf_claim,
+            scoreboard_claim=scoreboard_claims[i] if scoreboard_claims else None,
             roster_shrink=matched_shrink,
             track_termination=matched_track,
             xmark_location=matched_xmark,

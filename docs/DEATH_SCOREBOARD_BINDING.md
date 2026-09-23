@@ -92,3 +92,64 @@ relevant sections inspected, plus the working map and identity arbiter. Measured
 machine correction: zero. The real output and all seven approved source frames
 were reviewed. The focused 25 tests passed; pickup `doctor` showed 11 findings
 and zero errors. Development time and token use were not measured.
+
+## Resolution — scoreboard agent and dimming witness
+
+**Outcome: passed.** The real contract command with `--minimum-named 3` emits
+seven deaths with four correct machine names (Deadlock, Reyna, Miks, Phoenix),
+three enemy identity refusals, and seven location refusals.
+
+The first failure was the portrait box, not the descriptor. Source crops of all
+eight openings show the agent portrait as the square cell at `table_x0`, one
+row high. The stored `portrait_x0` lay 9–41 px right of it and moved between
+openings on one table, so the colour descriptor mostly measured the slab. That
+explains the enemy-first ranking above.
+
+`scoreboard-0.2.0` places the box at the table edge and scores each portrait
+against the 29 official `agent_icon` drawings. It uses masked normalised
+correlation over a small shift and scale search, and stores the raw best
+agent, runner-up, margin and gain. The gain is the least-squares slope of row
+pixels on art pixels. The reader names nothing. `adjudication/scoreboard.py`
+(`scoreboard-agent-0.1.0`) accepts an opening only when all ten rows pass the
+agent gate (score ≥ 0.75, margin ≥ 0.25), every gain falls outside 0.60–0.75,
+and each side names five distinct agents. Both predictions were logged before
+measurement and confirmed:
+
+- Five expanded openings (262500–319000 ms) name ally Breach, Deadlock,
+  Phoenix, Reyna and Miks, and enemy Jett, Killjoy, Skye, Iso and Omen. Each
+  player keeps the same agent through reordering.
+- The game dims a dead player's portrait rather than removing it
+  [domain:rounds/scoreboard-dead-dimmed]. Live gain was 0.84–0.95 and dimmed
+  gain 0.30–0.41. At every accepted opening the dimmed set per side equals
+  the killfeed deaths before it.
+- At 237500 ms the board is still fading in and four live allies read dim.
+  The whole-board gate refuses that opening because its enemy rows fail the
+  agent gate. 238000 and 337000 are refused as well.
+
+The `scoreboard_dim` witness in `adjudication/death.py` compares the accepted
+openings on either side of each death. It names 281500 Deadlock (one ally
+death, one newly dimmed agent). It names 295000 Miks by elimination: three
+ally deaths, newly dimmed {Miks, Phoenix, Reyna}, with the other two deaths
+already named Reyna and Phoenix by the killfeed portrait in a first pass
+that excludes this witness. Enemy deaths 284500 and 295500 share the
+interval with newly dimmed {Jett, Skye} and no independent order, so they
+refuse as `interval_unordered`. 332500 has no accepted opening after it.
+Deadlock and Miks agree with the killfeed portrait's refused best guesses,
+which were not inputs.
+
+Source review: all seven approved composites were rechecked. Entry 1's victim
+is WhaleKicker with the Deadlock portrait, and entry 4's is tin with the Miks
+portrait. Both match the scoreboard rows and the player's earlier answers.
+There are zero wrong names and zero extras in the reviewed set. The player
+answers were checks only.
+
+**Lineup disagreement found, not promoted.** The board and killfeed show
+vanshrana as Killjoy. The stored lineup accepts Clove on the enemy side and
+refuses a Raze slot that the board shows as Breach on the ally side. This
+scoreboard witness is a candidate independent input for the lineup.
+
+The earlier two-name baseline `events.json` and `review.html` in
+`teststore/death-round4-scoreboard/` were byte-identical to
+`teststore/death-round4-refusals/`. They were renamed `events-baseline.json`
+and `review-baseline.html`. The session's scoreboard events were rescanned
+under 0.2.0. Full suite: 596 tests pass; `doctor` 11 findings, zero errors.

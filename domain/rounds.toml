@@ -50,3 +50,25 @@ known = "player"
 since = "2026-09-12"
 use = "reticle/adjudication/death.py conditions living roster state transitions, second life flags, and ability icon matching against this closed four-agent set"
 
+
+[scoreboard-dead-dimmed]
+claim = """
+The Tab scoreboard keeps a dead player's row and agent portrait in place and
+dims them; it does not remove the portrait. The drawing is unchanged, only its
+contrast falls.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-23"
+use = """
+reticle/adjudication/scoreboard.py reads a dimmed portrait as dead only on a
+fully expanded board, and death attribution uses the newly dimmed set between
+two openings as a victim witness
+"""
+exceptions = """
+observed in one August 2026 round of a06f04a0059f, where every expanded
+opening's dimmed rows matched the killfeed deaths before it. The player saw the
+dimming but is unsure it always means dead. Clove's Not Dead Yet and KAY/O's
+downed state are untested, and a board still fading in dims live rows too
+"""
+phrases = ["scoreboard dims dead players", "dead portrait is dimmed"]

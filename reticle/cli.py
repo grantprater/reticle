@@ -850,7 +850,7 @@ def cmd_scan(args) -> int:
           if want_roster else None)
     sp = (ScoreboardReader(profile.name, hz=args.hz, spans=None,
                            min_confidence=args.min_confidence,
-                           min_margin=args.min_margin)
+                           min_margin=args.min_margin, icons_root=store.root)
           if want_scoreboard else None)
 
     lp = (LineupReader(profile, ctx.wh, store.root, name=f"lineup:{sid}")

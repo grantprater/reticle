@@ -738,11 +738,25 @@ question = "Which agent died at this killfeed time, and where?"
 owner = "adjudication.death"
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "extract_minimap_death_marks", "extract_killer_location", "detect_second_life_badge", "classify_revive_icon", "fit_arc"]
+produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "extract_minimap_death_marks", "extract_killer_location", "detect_second_life_badge", "classify_revive_icon", "fit_arc"]
 not_for = """
 `killfeed` growing into it. The feed gives the time, the team mask and the local
 player; differencing a NAMED alive set across that instant gives the victim, and
 the two sides disagreeing is output rather than something to hide.
+"""
+evidence = "tests/test_death_attribution.py"
+
+[[entry]]
+id = "scoreboard-row-agent"
+question = "Which agent does a Tab scoreboard row show, and has the game dimmed it as dead?"
+owner = "adjudication.scoreboard"
+role = ["attribute", "adjudicate"]
+status = "partial"
+produces = ["SCOREBOARD_AGENT_VERSION", "scoreboard_openings", "side_state"]
+not_for = """
+Player names, and a row across openings. It names the AGENT drawn in a row of
+one accepted opening; the row ordinal reorders as scores change and is never a
+key. Which death a dimmed row belongs to is `death-victim`'s call.
 """
 evidence = "tests/test_death_attribution.py"
 

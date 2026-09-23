@@ -2,16 +2,15 @@
 
 `docs/tasks.json` defines executable checks. This file orders work and records why a task is active. Historical arguments and completed items are in [the dated backlog archive](docs/archive/BACKLOG-through-2026-09-23.md).
 
-## Active: death-scoreboard-binding
+## Next (no contract yet): scoreboard-lineup
 
-- **Output:** a stored, versioned scoreboard or top-bar witness that binds and correctly names at least one additional death in `a06f04a0059f` round 4.
-- **Dependency:** the [five-refusal diagnosis](docs/DEATH_ROUND4_REFUSALS.md) identifies refused lineup slots, absent repeat views, and two wrong portrait best matches. The player reviewed all five source portraits; those answers check output and cannot serve as detector input.
-- **Completion:** establish a row/binding baseline before changing a reader, then rerun the real seven-death command and source review with at least three correct machine names, zero new wrong names or extras, and explicit location refusals. Use the `death-scoreboard-binding` contract. If the independent binding cannot be derived, record the first failure and ask the player.
-- **Current blocker:** the stored cross-surface portrait descriptor ranks an enemy scoreboard row first for the 281500 ms ally victim, while the visible matching player's row has no stored name. The player identified the dimmed second row; that review answer and a bright pre-death descriptor check still supply no validated machine binding. The three-name gate fails. The [binding attempt and follow-up](docs/DEATH_SCOREBOARD_BINDING.md) retain the null result.
-- **Ordering constraint:** source confirms row reordering as scores change. The inspected August openings are compatible with kills and assists affecting rank, but only 4/80 fixed-round stored rows have complete K/D/A, and the exact rule is unproven. Use ordering only to constrain independently identified row candidates, never as a player key.
+- **Output:** use accepted scoreboard openings as an independent agent witness for `lineup`, then store each disagreement with the top bar.
+- **Why:** on `a06f04a0059f` the board names enemy Killjoy where the lineup accepts Clove, and ally Breach where the lineup refuses a Raze slot. The enemy pair at 284500/295500 ms is `interval_unordered` {Jett, Skye}; 332500 ms has no accepted opening after it (337000 enemy rows misaligned).
+- **Before starting:** write the contract in `docs/tasks.json`, measure the gates on a second session, and read `lineup`'s ownership entry.
 
 ## Completed
 
+- **`death-scoreboard-binding` (2026-09-23):** the stored scoreboard portrait box was inside the slab. `scoreboard-0.2.0` scores the table-edge cell against official agent art; `scoreboard-agent-0.1.0` gates whole openings and reads dimmed rows as dead. The `scoreboard_dim` death witness names Deadlock (281500) and Miks (295000, by elimination). The real round has seven deaths, four correct names, three enemy refusals with reasons, and zero wrong names or extras. [Resolution](docs/DEATH_SCOREBOARD_BINDING.md#resolution--scoreboard-agent-and-dimming-witness); [contract](docs/tasks.json).
 - **`death-refusals` (2026-09-23):** all five refusals traced to raw portrait views, accepted/refused lineup candidates, count-only roster shrinks, and source composites. Player review identified Deadlock, Jett, Miks, Skye, and Iso; two portrait best matches disagree with source. Machine output remains seven deaths, two correct names, five refusals, zero verified locations. [Diagnosis](docs/DEATH_ROUND4_REFUSALS.md); [contract](docs/tasks.json).
 - **`death-portraits` (2026-09-23):** 3,392 raw portrait observations persisted on the shared scan, two source-verified named victims (Reyna and Phoenix), five identity refusals, zero wrong names or verified locations. [Review and comparison](teststore/death-round4-portraits/review-summary.md); [contract](docs/tasks.json).
 - **`death-round4` (2026-09-23):** seven source-reviewed deaths, zero misses or extras in the fixed set, one named Phoenix victim, six identity refusals, and zero verified locations. [Review and before/after comparison](teststore/death-round4-v3/review-summary.md); [contract](docs/tasks.json).

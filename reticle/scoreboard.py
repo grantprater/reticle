@@ -24,8 +24,11 @@ Digit size
 These digits are h~11 at 1080p, *smaller* than either the scoreline (h~20-26)
 or the bottom HUD (h~33), so they fall outside the geometry band in `ocr.py`
 and are read against a band of their own. That is what `_raw_components` is for.
-Nothing here reads names: identity comes from row position and the highlight,
-and a name would need an alphabet this project has no templates for.
+Nothing here reads names: a name would need an alphabet this project has no
+templates for. Each portrait is scored against the official agent art, raw and
+unnamed; `adjudication.scoreboard` decides which agent a row holds and whether
+the game has dimmed it as dead. The scoring is promoted from the measured
+prototype `scoreboard_agent`.
 
 Owns [owns:scoreboard-row].
 """
@@ -292,60 +295,119 @@ def read_scoreboard(
     return ScoreboardRead(True, tuple(rows), x0, x1)
 
 
-def portrait_observations(frame: np.ndarray, board: ScoreboardRead) -> list[dict]:
-    """Context-free colour evidence for each scoreboard portrait.
+#: Search around the portrait box for the agent drawing, in pixels and in
+#: drawn size. Row height is ~34 px at 1080p and the art fills the row.
+AGENT_PAD = 5
+AGENT_SCALES = tuple(range(30, 42, 2))
 
-    The detector emits the descriptor and source box, never an agent identity.
-    Cross-channel identity belongs to reconciliation.
+
+def load_agent_icons(root) -> dict[str, tuple[list, list]]:
+    """Every official square `agent_icon`, resized to each search scale.
+
+    The scoreboard portrait IS this drawing at row height, so the comparison is
+    pixels on one surface -- not the cross-surface colour histogram the stored
+    descriptor was, which ranked an enemy row first for an ally victim.
+    """
+    import glob
+    import os
+    out = {}
+    pattern = os.path.join(str(root), "reference", "assets", "agents", "*_agent_icon.png")
+    for f in sorted(glob.glob(pattern)):
+        im = cv2.imread(f, cv2.IMREAD_UNCHANGED)
+        if im is None or im.ndim != 3 or im.shape[2] != 4:
+            continue
+        ims, masks = [], []
+        for s in AGENT_SCALES:
+            r = cv2.resize(im, (s, s), interpolation=cv2.INTER_AREA)
+            ims.append(np.ascontiguousarray(r[:, :, :3]))
+            masks.append(np.repeat((r[:, :, 3:4] > 200).astype(np.uint8), 3, 2))
+        # `KAY_O_agent_icon.png` -- strip the SUFFIX, never split on "_".
+        out[os.path.basename(f)[: -len("_agent_icon.png")]] = (ims, masks)
+    return out
+
+
+def portrait_agent(frame: np.ndarray, box: tuple[int, int, int, int],
+                   icons: dict) -> dict:
+    """Raw agent-art scores for one portrait box, and its brightness gain.
+
+    Context-free: every agent in the gallery is scored and nothing is named.
+    `portrait_gain` is the least-squares slope of the row's pixels on the
+    matched art's pixels. The game dims a dead player's portrait, which lowers
+    that slope while the normalised correlation holds; a naturally dark agent
+    keeps a slope near one. Adjudication decides whether a board is expanded
+    enough to trust either number.
+    """
+    empty = {"portrait_agent_best": None, "portrait_agent_score": None,
+             "portrait_agent_second": None, "portrait_agent_margin": None,
+             "portrait_gain": None}
+    if not icons:
+        return {**empty, "portrait_agent_reason": "no_agent_icons"}
+    x0, y0, x1, y1 = box
+    win = frame[max(0, y0 - AGENT_PAD):max(0, y1 + AGENT_PAD),
+                max(0, x0 - AGENT_PAD):max(0, x1 + AGENT_PAD)]
+    scores, where = {}, {}
+    for name, (ims, masks) in icons.items():
+        best = (-1.0, None)
+        for i, (t, m) in enumerate(zip(ims, masks)):
+            if t.shape[0] > win.shape[0] or t.shape[1] > win.shape[1]:
+                continue
+            r = cv2.matchTemplate(win, t, cv2.TM_CCOEFF_NORMED, mask=m)
+            r = np.nan_to_num(r, nan=-1.0, posinf=-1.0, neginf=-1.0)
+            _, v, _, loc = cv2.minMaxLoc(r)
+            if v > best[0]:
+                best = (float(v), (i, loc))
+        scores[name], where[name] = best
+    ranked = sorted(scores.items(), key=lambda kv: -kv[1])
+    if len(ranked) < 2 or where[ranked[0][0]] is None:
+        return {**empty, "portrait_agent_reason": "portrait_box_smaller_than_art"}
+    name = ranked[0][0]
+    i, (x, y) = where[name]
+    t, m = icons[name][0][i], icons[name][1][i][:, :, 0] > 0
+    art = t[m].astype(np.float64).ravel()
+    seen = win[y:y + t.shape[0], x:x + t.shape[1]][m].astype(np.float64).ravel()
+    return {"portrait_agent_best": name,
+            "portrait_agent_score": round(ranked[0][1], 4),
+            "portrait_agent_second": ranked[1][0],
+            "portrait_agent_margin": round(ranked[0][1] - ranked[1][1], 4),
+            "portrait_gain": round(float(np.polyfit(art, seen, 1)[0]), 4),
+            "portrait_agent_reason": None}
+
+
+def portrait_observations(frame: np.ndarray, board: ScoreboardRead,
+                          icons: dict | None = None) -> list[dict]:
+    """Context-free evidence for each scoreboard portrait.
+
+    The portrait is the square cell at the table's left edge, one row high.
+    Source review of `a06f04a0059f` showed that the earlier locator, a
+    structural trough searched right of `x0`, landed 9-41 px inside the slab
+    and moved between openings on one table, so the descriptor mostly measured
+    the row colour. The detector emits descriptors, raw agent-art scores and
+    the source box, never an agent identity. Cross-channel identity belongs to
+    reconciliation.
     """
     if not board.open_ or not board.rows:
         return []
-    row_h = board.rows[0].y1 - board.rows[0].y0
-    width = max(4, int(round(row_h * 0.79)))
-    lo = max(0, board.x0 - 2 * row_h)
-    hi = min(frame.shape[1], board.x0 + 3 * row_h)
-    if hi - lo < width + 4:
-        return []
-    profile = np.zeros(hi - lo, np.float32)
-    # A row whose band has no pixels is not evidence, and it used to be a
-    # CRASH: `cvtColor` asserts on an empty Mat, so one degenerate row killed
-    # the whole scan mid-corpus (c62c2b06bcfb, 2026-09-09). `row_h` is taken
-    # from the FIRST row, so nothing here guarantees the others have height.
-    # The per-row loop below already refuses the same shape; this is that guard
-    # moved to where the exception actually came from.
-    used = 0
-    for row in board.rows:
-        band = frame[row.y0 + 1:row.y1 - 1, lo:hi]
-        if band.shape[0] < 1 or band.shape[1] < 1:
-            continue
-        gray = cv2.cvtColor(band, cv2.COLOR_BGR2GRAY)
-        profile += np.abs(cv2.Sobel(
-            gray.astype(np.float32), cv2.CV_32F, 0, 1, ksize=3)).mean(0)
-        used += 1
-    if not used:
-        return []
-    profile /= used
-    profile = np.convolve(profile, np.ones(3) / 3, "same")
-    start = max(0, board.x0 - lo + int(0.6 * width))
-    stop = min(len(profile), board.x0 + 2 * row_h - lo)
-    if stop - start < 6:
-        return []
-    gap = start + int(np.argmin(profile[start:stop]))
-    x0 = max(lo, lo + gap - width)
     result = []
     for index, row in enumerate(board.rows):
-        art = frame[row.y0:row.y1, x0:x0 + width]
+        height = row.y1 - row.y0
+        x0 = max(0, board.x0)
+        art = frame[max(0, row.y0):max(0, row.y1), x0:x0 + max(0, height)]
+        # A row whose band has no pixels is not evidence, and it used to be a
+        # CRASH: `cvtColor` asserts on an empty Mat, so one degenerate row
+        # killed the whole scan mid-corpus (c62c2b06bcfb, 2026-09-09).
         if art.shape[0] <= 4 or art.shape[1] <= 4:
             continue
         # The histogram lives in `appearance` so the killfeed can describe its
         # own portraits with the SAME function. Two copies of it was the fork
         # this repo has a checker for.
-        result.append({"display_row": index, "portrait_x0": x0,
-                       "portrait_y0": row.y0, "portrait_x1": x0 + width,
-                       "portrait_y1": row.y1,
-                       "portrait_detail": appearance.detail(art),
-                       "portrait_composition":
-                           appearance.hsv_composition(art).tolist()})
+        got = {"display_row": index, "portrait_x0": x0,
+               "portrait_y0": row.y0, "portrait_x1": x0 + art.shape[1],
+               "portrait_y1": row.y1,
+               "portrait_detail": appearance.detail(art),
+               "portrait_composition": appearance.hsv_composition(art).tolist()}
+        if icons is not None:
+            got.update(portrait_agent(frame, (x0, row.y0, x0 + height, row.y1), icons))
+        result.append(got)
     return result
 
 
@@ -353,9 +415,11 @@ class ScoreboardReader:
     """Sparse context-free scoreboard observations for a shared decode pass."""
 
     def __init__(self, profile_name: str, hz: float = 2.0, spans=None,
-                 min_confidence: float = 0.80, min_margin: float = 0.04):
+                 min_confidence: float = 0.80, min_margin: float = 0.04,
+                 icons_root=None):
         self.name, self.hz, self.spans = "scoreboard", hz, spans
         self.templates = Templates.load(profile_name)
+        self.icons = load_agent_icons(icons_root) if icons_root is not None else {}
         self.min_confidence, self.min_margin = min_confidence, min_margin
         self.frames_offered = 0
         self.frames_open = 0
@@ -368,7 +432,8 @@ class ScoreboardReader:
         if not board.open_:
             return
         self.frames_open += 1
-        portraits = {r["display_row"]: r for r in portrait_observations(sample.frame, board)}
+        portraits = {r["display_row"]: r for r in
+                     portrait_observations(sample.frame, board, self.icons)}
         for index, row in enumerate(board.rows):
             self.rows.append({
                 "frame_idx": int(sample.frame_idx), "t_ms": float(sample.t_ms),
@@ -385,6 +450,10 @@ class ScoreboardReader:
                     "portrait_x0": None, "portrait_y0": None,
                     "portrait_x1": None, "portrait_y1": None,
                     "portrait_detail": None, "portrait_composition": None,
+                    "portrait_agent_best": None, "portrait_agent_score": None,
+                    "portrait_agent_second": None, "portrait_agent_margin": None,
+                    "portrait_gain": None,
+                    "portrait_agent_reason": "no_portrait_box",
                 }),
             })
 
