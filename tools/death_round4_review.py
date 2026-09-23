@@ -1,6 +1,6 @@
 """Frozen, conservative stored-data death review for a06f04a0059f round 4.
 
-Uses stored HUD/roster observations. The old identity harness's oracle lineup,
+Uses stored HUD/roster/killfeed portrait observations. The old identity harness's oracle lineup,
 synthetic Skye claim, human label crops, and fixture locations are excluded.
 Links observation times to original media. With explicit approval, exports seven
 annotated, downscaled review composites; it never copies raw video.
@@ -18,9 +18,11 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from reticle.adjudication.death import adjudicate_round_deaths, death_verdict_to_events
+from reticle.adjudication.death import (DEATH_ADJUDICATION_VERSION,
+    adjudicate_round_deaths, attach_stored_killfeed_portraits, death_verdict_to_events)
+from reticle.adjudication.identity import AGENT_IDENTITY_VERSION, load_identity_gallery
 from reticle.events import validate_event_rows
-from reticle.killfeed import killfeed_roi
+from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, killfeed_roi
 from reticle.profiles import get_profile
 from reticle.store import Store
 from prototypes.round_identity_eval import extract_round_killfeed_entries, load_round_bounds
@@ -122,7 +124,16 @@ def build(store: Store, output: Path, export_frames: bool = False,
         "hud": hud_table.schema.metadata[b"hud_version"].decode(),
         "roster": roster_table.schema.metadata[b"roster_version"].decode(),
         "lineup": lineup["version"],
+        "killfeed_portrait": store.events_version("killfeed_portrait", SESSION),
+        "agent_identity": AGENT_IDENTITY_VERSION,
+        "death_adjudication": DEATH_ADJUDICATION_VERSION,
     }
+    if versions["killfeed_portrait"] != KILLFEED_PORTRAIT_VERSION:
+        raise ValueError("killfeed portrait observations are absent or stale; run reticle scan SESSION --only hud")
+    portraits = store.read_events("killfeed_portrait", SESSION)
+    entries = attach_stored_killfeed_portraits(
+        entries, portraits, lineup, load_identity_gallery(store.root),
+        source_version=KILLFEED_PORTRAIT_VERSION)
     verdicts = adjudicate_round_deaths(
         SESSION, entries, window_roster, player_agent=player["agent"],
     )
@@ -150,9 +161,9 @@ def build(store: Store, output: Path, export_frames: bool = False,
     report = {
         "session_id": SESSION, "round_no": ROUND, "window_ms": [start, end],
         "source_path": str(source), "source_profile": manifest["source_profile"],
-        "input_tables": ["l1/hud", "l1/roster", "lineups"],
+        "input_tables": ["l1/hud", "l1/roster", "lineups", "events/killfeed_portrait"],
         "input_versions": versions, "content_key": manifest["source"]["content_key"],
-        "limitations": ["Stored killfeed portrait observations are absent for this session.",
+        "limitations": ["A victim portrait needs two consistent stored views and an admitted lineup name; refused rivals remain visible.",
                         "No oracle lineup, synthetic claims, or human-label fixture locations were used.",
                         "The seven-entry count is an L1 result; source review must check misses and extras."],
         "summary": {"observed": len(verdicts),
@@ -165,7 +176,10 @@ def build(store: Store, output: Path, export_frames: bool = False,
     cards = []
     for verdict in verdicts:
         title = f"{verdict.t_ms:.0f} ms | {verdict.side} | {verdict.victim or 'unresolved'} | {verdict.status}"
-        cards.append(f'<article><h2>{html.escape(title)}</h2><p>{html.escape(verdict.reason or "No identity refusal")}; location: {html.escape(str(verdict.location or "unresolved"))}</p><button onclick="seek({verdict.t_ms / 1000})">Open source time</button></article>')
+        portrait = next((w for w in verdict.witnesses
+                         if w.get("channel") == "killfeed_portrait"), {})
+        portrait_reason = portrait.get("reason") or "portrait named a candidate"
+        cards.append(f'<article><h2>{html.escape(title)}</h2><p>{html.escape(verdict.reason or "No identity refusal")}; portrait: {html.escape(portrait_reason)}; location: {html.escape(str(verdict.location or "unresolved"))}</p><button onclick="seek({verdict.t_ms / 1000})">Open source time</button></article>')
     page = ('<!doctype html><meta charset="utf-8"><title>Round 4 death review</title>'
             '<style>body{font:16px system-ui;background:#171b22;color:#eee;margin:2rem}article{margin:2rem 0}video{max-width:100%}</style>'
             '<h1>Round 4 death review</h1><p>Review each source window for misses, extras and identity.</p>'

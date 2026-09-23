@@ -18,6 +18,14 @@
       "evidence": ["A stored, versioned portrait observation for this round must precede each promoted identity; rival lineup slots remain alternatives and disagreements remain visible.", "The frozen round must still account for seven source-reviewed deaths, zero extra detections, and explicit location refusals. At least two named victims must match source review, with no new wrong names.", "Compare the new output against the one-name baseline in teststore/death-round4-v3/review-summary.md; inspect source frames and stop at the first failed observation rather than changing a threshold on its own channel."]
     },
     {
+      "id": "death-refusals",
+      "objective": "Diagnose the five remaining victim identity refusals in a06f04a0059f round 4 against stored independent channels and source, then identify the first bounded fix or player question path without a new wrong name.",
+      "files": ["reticle/adjudication/death.py", "reticle/adjudication/identity.py", "tools/death_round4_review.py"],
+      "reads": ["AGENTS.md", "BACKLOG.md#Active: death-refusals", "NOTES.md#Picking up", "teststore/death-round4-portraits/review-summary.md", "reticle/adjudication/identity.py", "PROJECT_GUIDE.md#Checking against the game's own numbers"],
+      "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-refusals", "--minimum-named", "2"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
+      "evidence": ["Account for all five current refusals with raw portrait keys, accepted and refused lineup candidates, and source review, including the visible mismatch at 284500 ms.", "Cross-reference another stored channel before altering portrait matching; where identity cannot be derived, use a player question and keep the event unnamed until answered.", "Retain seven reviewed deaths, at least the two source-verified names, zero new wrong names or extra entries, and explicit location refusals. Do not overwrite the prior review artifact."]
+    },
+    {
       "id": "hud-reader",
       "objective": "Keep HUD extraction reusable without changing detector rows or calibration behavior.",
       "files": ["reticle/hud_reader.py", "reticle/cli.py", "tests/test_hud_reader.py"],

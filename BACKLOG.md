@@ -2,14 +2,15 @@
 
 `docs/tasks.json` defines executable checks. This file orders work and records why a task is active. Historical arguments and completed items are in [the dated backlog archive](docs/archive/BACKLOG-through-2026-09-23.md).
 
-## Active: death-portraits
+## Active: death-refusals
 
-- **Output:** versioned stored killfeed portrait observations for `a06f04a0059f` round 4 and a rebuilt death-event review with at least two source-verified named victims.
-- **Dependency:** the reviewed [one-name baseline](teststore/death-round4-v3/review-summary.md); source portraits must be observed before identity promotion. Preserve refused lineup rivals, unknowns, event provenance, and the shared HUD decode pass.
-- **Completion:** the `death-portraits` contract passes and source review finds no new wrong name, missed death, or extra event. Record identity and location coverage, including refusals. Stop at the first upstream observation failure.
+- **Output:** a source-checked diagnosis of the five remaining identity refusals in `a06f04a0059f` round 4, with the first independent evidence gap identified and a bounded next fix or player question path.
+- **Dependency:** the [two-name portrait review](teststore/death-round4-portraits/review-summary.md), stored portrait observations, and refused lineup rivals. Do not promote a best guess or loosen the portrait gate from its own output.
+- **Completion:** account for all five refusals against source and stored witnesses, record disagreement and missing-observation counts, and keep the seven-event, two-correct-name baseline intact. Use the `death-refusals` contract.
 
 ## Completed
 
+- **`death-portraits` (2026-09-23):** 3,392 raw portrait observations persisted on the shared scan, two source-verified named victims (Reyna and Phoenix), five identity refusals, zero wrong names or verified locations. [Review and comparison](teststore/death-round4-portraits/review-summary.md); [contract](docs/tasks.json).
 - **`death-round4` (2026-09-23):** seven source-reviewed deaths, zero misses or extras in the fixed set, one named Phoenix victim, six identity refusals, and zero verified locations. [Review and before/after comparison](teststore/death-round4-v3/review-summary.md); [contract](docs/tasks.json).
 
 ## Deferred

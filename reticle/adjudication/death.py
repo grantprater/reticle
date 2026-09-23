@@ -38,11 +38,74 @@ from ..events import (
     session_boundary_event,
 )
 from ..roster import N_SLOTS
-from .identity import claim_from_killfeed_portrait, _channel_verdict
+from .identity import claim_from_killfeed_portrait, side_candidates, _channel_verdict
 from .weapon import classify_killfeed_icon
 
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.1.0"
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.2.0"
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
+
+
+def attach_stored_killfeed_portraits(
+    entries: list[dict], observations: list[dict], lineup: dict, gallery: dict,
+    *, source_version: str,
+) -> list[dict]:
+    """Join raw portraits to their first entry interval without reading media.
+
+    A stack slot is only stable until the next new entry. A single named frame
+    is retained as evidence but cannot promote a victim: its appearance has no
+    within-entry repeat check. Every view must name the same admitted lineup
+    candidate before this channel publishes a name. Refused lineup slots stay
+    rivals in every comparison, including after earlier deaths.
+    """
+    out = []
+    portraits = [r for r in observations if r.get("kind") == "portrait_observation"]
+    for i, original in enumerate(entries):
+        entry = dict(original)
+        start = float(entry["t_ms"])
+        end = min(start + 2000.0,
+                  float(entries[i + 1]["t_ms"]) if i + 1 < len(entries) else float("inf"))
+        side = entry.get("side")
+        split = side_candidates(lineup.get("sides", {}).get(side, []))
+        views = sorted((r for r in portraits
+                        if start <= float(r.get("t_ms", -1)) < end
+                        and r.get("slot") == entry.get("slot")
+                        and r.get("role") == "victim"),
+                       key=lambda r: (r["t_ms"], r.get("frame_idx", -1)))
+        claims = []
+        for view in views:
+            if ("ally" if view.get("ally") is True else
+                "enemy" if view.get("ally") is False else None) != side:
+                claim = {"agent": None, "reason": "portrait_side_disagrees_with_entry",
+                         "evidence": {"observation_key": view.get("observation_key"),
+                                      "observed_side": view.get("ally")}}
+            elif split["blind"]:
+                claim = {"agent": None, "reason": "lineup_has_blind_rival",
+                         "evidence": {"blind": split["blind"]}}
+            else:
+                claim = claim_from_killfeed_portrait(
+                    view, entity_id=f"death:{int(start)}:victim",
+                    candidates=split["named"], rivals=split["rivals"],
+                    gallery=gallery, source_version=source_version)
+            claims.append({"observation_key": view.get("observation_key"),
+                           "t_ms": view.get("t_ms"), "frame_idx": view.get("frame_idx"),
+                           "agent": claim.get("agent"), "reason": claim.get("reason"),
+                           "evidence": claim.get("evidence", {})})
+        names = {c["agent"] for c in claims if c["agent"]}
+        unanimous = len(claims) >= 2 and len(names) == 1 and all(c["agent"] for c in claims)
+        reason = (None if unanimous else
+                  "no_stored_portrait_at_entry" if not claims else
+                  "portrait_single_view" if len(claims) == 1 else
+                  "portrait_views_refused_or_disagree")
+        entry["claim"] = {
+            "channel": "killfeed_portrait", "agent": next(iter(names)) if unanimous else None,
+            "reason": reason, "source_version": source_version,
+            "evidence": {"window_ms": [start, end], "slot": entry.get("slot"),
+                         "named_candidates": split["named"],
+                         "refused_rivals": split["rivals"], "blind_rivals": split["blind"],
+                         "observations": claims},
+        }
+        out.append(entry)
+    return out
 
 
 BLUE_X_H = (95, 118)
@@ -1250,4 +1313,3 @@ def build_match_roster_timeline(
     """Convenience helper to build a full match's living roster timeline."""
     tracker = LivingRosterTracker(lineup, starting_role=starting_role)
     return tracker.build_match_timeline(rounds)
-

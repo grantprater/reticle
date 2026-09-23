@@ -16,6 +16,7 @@ from reticle.adjudication.death import (
     build_match_roster_timeline,
     adjudicate_death,
     adjudicate_round_deaths,
+    attach_stored_killfeed_portraits,
     death_verdict_to_events,
     extract_minimap_death_marks,
     extract_killer_location,
@@ -29,6 +30,50 @@ from reticle.events import validate_event_rows
 
 
 class DeathAttributionTests(unittest.TestCase):
+    def test_stored_portraits_keep_refused_rivals_and_entry_boundaries(self):
+        lineup = {"sides": {"ally": [
+            {"agent": "Phoenix"}, {"agent": "Reyna"},
+            {"agent": None, "best_guess": "Deadlock"},
+            {"agent": "Raze"}, {"agent": "Miks"}]}}
+        gallery = {"Phoenix": [np.array([1., 0., 0.])],
+                   "Reyna": [np.array([0., 1., 0.])],
+                   "Deadlock": [np.array([0., 0., 1.])],
+                   "Raze": [np.array([0.5, 0.5, 0.])],
+                   "Miks": [np.array([0.5, 0., 0.5])]}
+        entries = [{"t_ms": 1000., "slot": 0, "side": "ally"},
+                   {"t_ms": 2000., "slot": 1, "side": "ally"}]
+        def observation(t, slot, comp):
+            return {"kind": "portrait_observation", "t_ms": float(t),
+                    "frame_idx": t, "observation_key": f"o:{t}",
+                    "slot": slot, "role": "victim", "ally": True,
+                    "composition": comp, "reason": ""}
+        rows = [observation(1000, 0, [0., 0., 1.]),
+                observation(1500, 0, [0., 0., 1.]),
+                observation(2000, 1, [0., 1., 0.]),
+                observation(2500, 1, [0., 1., 0.]),
+                observation(2500, 0, [0., 0., 1.])]
+        got = attach_stored_killfeed_portraits(
+            entries, rows, lineup, gallery, source_version="portrait-test")
+        self.assertIsNone(got[0]["claim"]["agent"])
+        self.assertEqual(got[0]["claim"]["evidence"]["refused_rivals"], ["Deadlock"])
+        self.assertEqual(len(got[0]["claim"]["evidence"]["observations"]), 2)
+        self.assertEqual(got[1]["claim"]["agent"], "Reyna")
+        self.assertEqual(len(got[1]["claim"]["evidence"]["observations"]), 2)
+
+    def test_single_portrait_view_cannot_promote_a_name(self):
+        lineup = {"sides": {"ally": [{"agent": a} for a in
+                             ("Phoenix", "Reyna", "Raze", "Miks", "Clove")]}}
+        gallery = {"Reyna": [np.array([0., 1.])],
+                   "Phoenix": [np.array([1., 0.])]}
+        rows = [{"kind": "portrait_observation", "t_ms": 1000.,
+                 "slot": 0, "role": "victim", "ally": True,
+                 "composition": [0., 1.], "reason": ""}]
+        got = attach_stored_killfeed_portraits(
+            [{"t_ms": 1000., "slot": 0, "side": "ally"}], rows,
+            lineup, gallery, source_version="portrait-test")
+        self.assertIsNone(got[0]["claim"]["agent"])
+        self.assertEqual(got[0]["claim"]["reason"], "portrait_single_view")
+
     def test_agreement_resolves_victim_with_independent_channels(self):
         """When killfeed portrait and roster differencing agree, status is resolved with 2 channels."""
         kf_claim = {
