@@ -171,6 +171,7 @@ def collect(store: Store) -> dict:
         # module exists to make impossible.
         rec["n_rounds"] = rec["won"] = rec["lost"] = rec["planted"] = None
         rec["kills"] = rec["deaths"] = None
+        rec["verdict"] = None
         if rec["hud"]:
             try:
                 import pyarrow.parquet as pq
@@ -183,6 +184,14 @@ def collect(store: Store) -> dict:
                 second_life = stored_second_life(store.read_events("killfeed_portrait", sid),
                                                  KILLFEED_PORTRAIT_VERSION)
                 rs = build_rounds(pq.read_table(store.hud_path(sid, date)), second_life)
+                # The combat report's per-round verdict, read through its
+                # owner, which refuses a verdict assigned against other rounds.
+                from .adjudication.combat_report import round_verdicts
+                v = round_verdicts(store.read_events("combat_report_round", sid), rs)
+                rec["verdict"] = v["reason"] if v["status"] != "ok" else (
+                    sum(r["kills"] or 0 for r in v["rounds"].values()),
+                    sum(r["deaths"] or 0 for r in v["rounds"].values()),
+                    sum(r["source"] == "combat_report" for r in v["rounds"].values()))
                 if rs:
                     rec["n_rounds"] = len(rs)
                     # `is True` / `is False`, not truthiness: an unresolved
@@ -266,7 +275,7 @@ def render(data: dict, markdown: bool = False) -> str:
     L.append("")
 
     cols = ("session", "map", "min", "rnds", "W-L", "plant", "K/D", "known", "d",
-            "geo", "labels")
+            "verdict", "geo", "labels")
     rows = []
     for s in ss:
         kd = f"{s['kills']}/{s['deaths']}" if s["kills"] is not None else "--"
@@ -281,8 +290,11 @@ def render(data: dict, markdown: bool = False) -> str:
               if s["planted"] is not None and s["n_rounds"] else "--")
         lab = ",".join(f"{k.replace('minimap_', 'mm_')}:{v}"
                        for k, v in sorted(s["labels"].items())) or "--"
+        v = s.get("verdict")
+        vd = ("--" if v is None or str(v).startswith("no_report") else
+              f"{v[0]}/{v[1]} r{v[2]}" if isinstance(v, tuple) else str(v).split()[0])
         rows.append((s["sid"], s["map"], f"{s['minutes']:.0f}",
-                     str(s["n_rounds"] or "--"), wl, pl, kd, kn, delta,
+                     str(s["n_rounds"] or "--"), wl, pl, kd, kn, delta, vd,
                      "y" if s["geometry"] else "-", lab))
     w = [max(len(c), max((len(r[i]) for r in rows), default=0)) for i, c in enumerate(cols)]
     if markdown:
@@ -306,6 +318,8 @@ def render(data: dict, markdown: bool = False) -> str:
         L.append("")
         L.append("d = our K/D minus the scoreboard's. A positive delta is not")
         L.append("automatically an error -- see 'Scoreboard divergence is a finding'.")
+        L.append("verdict = the combat report's K/D where shown, else the killfeed's;")
+        L.append("rN = rounds decided by a report panel. A stamp or round change refuses it.")
     return "\n".join(L)
 
 

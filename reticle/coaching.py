@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow.parquet as pq
 
-from .checks import track_entries
+from .checks import merge_split_tracks, track_entries
 from .artifacts import file_digest, producer_fingerprint
 from .rounds import build_rounds
 from .roster import resolve as roster_resolve
@@ -97,19 +97,25 @@ def observed_states(hud, roster, rounds, session_id):
     return result, dict(rejected)
 
 
-def player_observations(hud, rounds, manifest):
-    """Deduplicated killfeed tracks with stable source keys and review bounds."""
+def player_observations(hud, rounds, manifest, second_life=None):
+    """Deduplicated killfeed tracks with stable source keys and review bounds.
+
+    Tracks are the ones `rounds` counts: split tracks merged
+    (`checks.merge_split_tracks`), and a death `adjudication.death` calls a
+    second life emitted as `player_second_life`, not `player_death`.
+    """
+    from .adjudication.death import split_second_lives
     h = _coach_columns(hud)
     sid = manifest["session_id"]
     starts = [r["t_start_ms"] for r in rounds]
     events = []
     for kind in ("kill", "death"):
-        tracks = track_entries(h["t_ms"], h[f"kf_{kind}_mask"],
-                               h.get(f"kf_{kind}_wx"))
+        tracks = merge_split_tracks([tr for tr in track_entries(
+            h["t_ms"], h[f"kf_{kind}_mask"], h.get(f"kf_{kind}_wx")) if tr["counted"]])
+        lives = split_second_lives(tracks, second_life)[1] if kind == "death" else []
         for ordinal, tr in enumerate(tracks):
-            if not tr["counted"]:
-                continue
             t = tr["t_first"]
+            name = "second_life" if tr in lives else kind
             j = bisect_right(starts, t) - 1
             r = rounds[j] if j >= 0 and t < rounds[j]["t_end_ms"] else None
             flags = ["killfeed_observation", "timing_not_refined"]
@@ -123,7 +129,7 @@ def player_observations(hud, rounds, manifest):
                 end = min(end, duration)
             key = f"{sid}:{kind}:{t:.3f}:{ordinal}"
             events.append(dict(event_id=hashlib.sha256(key.encode()).hexdigest()[:20],
-                               session_id=sid, kind=f"player_{kind}",
+                               session_id=sid, kind=f"player_{name}",
                                t_ms=t, last_seen_ms=tr["t_last"],
                                n_observations=tr["n_obs"],
                                round_no=r["round_no"] if r else None,
@@ -132,6 +138,20 @@ def player_observations(hud, rounds, manifest):
                                source_path=manifest["source"].get("path"),
                                clip_start_ms=max(0, t - 8000), clip_end_ms=end))
     return sorted(events, key=lambda e: (e["t_ms"], e["kind"], e["event_id"]))
+
+
+def attach_round_verdicts(events, verdicts):
+    """Give each killfeed event its round's combat report verdict, read through
+    `adjudication.combat_report.round_verdicts`. The event stays a killfeed
+    observation; a round where the report counts differently is flagged, and a
+    refused verdict is flagged with its reason."""
+    for e in events:
+        v = verdicts["rounds"].get(e["round_no"]) if verdicts["status"] == "ok" else None
+        e["round_verdict"] = v
+        if verdicts["status"] != "ok":
+            e["quality_flags"].append(f"round_verdict_refused:{verdicts['reason'].split()[0]}")
+        elif v is not None and not v["agree"]:
+            e["quality_flags"].append("report_disagrees_with_killfeed")
 
 
 def _coach_landmarks(states):
@@ -382,14 +402,21 @@ def run_coaching(store, manifests, out):
             skipped.append(dict(session_id=sid, reason="duplicate_content"))
             continue
         content_seen.add(key)
-        rounds = build_rounds(hud)
+        from .adjudication.combat_report import round_verdicts
+        from .adjudication.death import stored_second_life
+        from .killfeed import KILLFEED_PORTRAIT_VERSION
+        second_life = stored_second_life(store.read_events("killfeed_portrait", sid),
+                                         KILLFEED_PORTRAIT_VERSION)
+        rounds = build_rounds(hud, second_life)
+        verdicts = round_verdicts(store.read_events("combat_report_round", sid), rounds)
         review_contexts[sid] = dict(source_path=man["source"].get("path"),
                                     duration_ms=man["source"].get("duration_ms"),
                                     rounds=rounds)
         source = dict(session_id=sid, hud_sha256=file_digest(hp),
                       manifest_sha256=file_digest(store.manifest_path(sid)),
                       hud_version=HUD_VERSION, round_version=ROUND_VERSION)
-        es = player_observations(hud, rounds, man)
+        es = player_observations(hud, rounds, man, second_life)
+        attach_round_verdicts(es, verdicts)
         rp = store.roster_path(sid, date)
         roster = None
         roster_status = "missing"

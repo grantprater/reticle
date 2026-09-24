@@ -184,5 +184,38 @@ class Naming(unittest.TestCase):
         self.assertNotIn(ps[1]["rows"][1]["entity_id"], by)   # no witness: no verdict
 
 
+class RoundVerdicts(unittest.TestCase):
+    def _stream(self, **over):
+        from reticle.version import COMBAT_REPORT_ROUND_VERSION
+        rnd = {"kind": "round", "round_no": 1, "t_start_ms": 0.0, "t_end_ms": 100.0,
+               "stored_kills": 2, "stored_deaths": 1, "kills_verdict": 1, "deaths_verdict": 1,
+               "assists": 0, "verdict_source": "combat_report",
+               "kills_agree": False, "deaths_agree": True, **over}
+        return [{"kind": "summary", "combat_report_round_version": COMBAT_REPORT_ROUND_VERSION}, rnd]
+
+    def test_current_rounds_read_and_changed_ones_refuse(self):
+        rounds = [{"round_no": 1, "t_start_ms": 0.0, "t_end_ms": 100.0,
+                   "player_kills": 2, "player_deaths": 1}]
+        v = adj.round_verdicts(self._stream(), rounds)
+        self.assertEqual(v["status"], "ok")
+        self.assertEqual((v["rounds"][1]["kills"], v["rounds"][1]["killfeed_kills"],
+                          v["rounds"][1]["agree"]), (1, 2, False))
+        moved = [{**rounds[0], "player_deaths": 2}]
+        self.assertTrue(adj.round_verdicts(self._stream(), moved)["reason"].startswith("rounds_changed"))
+        stale = self._stream()
+        stale[0]["combat_report_round_version"] = "old"
+        self.assertTrue(adj.round_verdicts(stale, rounds)["reason"].startswith("stale_verdict"))
+        self.assertEqual(adj.round_verdicts([], rounds)["reason"], "no_report")
+
+    def test_coach_flags_a_disagreeing_round(self):
+        from reticle.coaching import attach_round_verdicts
+        rounds = [{"round_no": 1, "t_start_ms": 0.0, "t_end_ms": 100.0,
+                   "player_kills": 2, "player_deaths": 1}]
+        ev = [{"round_no": 1, "quality_flags": []}, {"round_no": None, "quality_flags": []}]
+        attach_round_verdicts(ev, adj.round_verdicts(self._stream(), rounds))
+        self.assertIn("report_disagrees_with_killfeed", ev[0]["quality_flags"])
+        self.assertIsNone(ev[1]["round_verdict"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -212,6 +212,40 @@ def events(session_id: str, frames: list[dict], rounds: list[dict],
             + [{**common, "kind": "round", **r} for r in per_round])
 
 
+def round_verdicts(stream: list[dict], rounds: list[dict]) -> dict:
+    """The per-round verdict a consumer reads, or a refusal with its reason.
+
+    `stream` is the stored `combat_report_round` events and `rounds` the
+    caller's current rounds. The verdict was assigned against the rounds of its
+    own run, so it is refused -- never silently read -- when its stamp is not
+    current or when any round's bounds or killfeed counts have changed since.
+    Each round carries `kills`, `deaths` (the verdict), `assists` (report only,
+    else None), `source` (combat_report or killfeed) and the killfeed counts beside it.
+    Names are not here: a row's agent is `adjudication.identity`'s verdict.
+    """
+    if not stream:
+        return {"status": "refused", "reason": "no_report", "rounds": {}}
+    stamp = stream[0].get("combat_report_round_version")
+    if stamp != COMBAT_REPORT_ROUND_VERSION:
+        return {"status": "refused", "reason": f"stale_verdict {stamp}", "rounds": {}}
+    got = [r for r in stream if r.get("kind") == "round"]
+    now = {r["round_no"]: r for r in rounds}
+    changed = [r["round_no"] for r in got
+               if r["round_no"] not in now
+               or (r["t_start_ms"], r["t_end_ms"], r["stored_kills"], r["stored_deaths"])
+               != (now[r["round_no"]]["t_start_ms"], now[r["round_no"]]["t_end_ms"],
+                   now[r["round_no"]]["player_kills"], now[r["round_no"]]["player_deaths"])]
+    if changed or len(got) != len(now):
+        return {"status": "refused", "reason": f"rounds_changed {changed or 'count'}",
+                "rounds": {}}
+    return {"status": "ok", "reason": None, "rounds": {
+        r["round_no"]: {"kills": r["kills_verdict"], "deaths": r["deaths_verdict"],
+                        "assists": r["assists"], "source": r["verdict_source"],
+                        "killfeed_kills": r["stored_kills"], "killfeed_deaths": r["stored_deaths"],
+                        "agree": r["kills_agree"] is not False and r["deaths_agree"] is not False}
+        for r in got}}
+
+
 #: Thumbnail correlation joining two rows to one player.
 PORTRAIT_SAME = 0.8
 #: No kill happens this early in a round, so reads before it are "before".

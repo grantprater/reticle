@@ -30,7 +30,9 @@ SCHEMA_VERSION = 1
 # 0.7.0 (2026-09-24): a player kill or death entry split into two tracks is
 # counted once (`checks.merge_split_tracks`).
 ROUND_VERSION = "round-0.7.0"
-COACH_VERSION = "coach-0.1.0"
+# Coaching bundle. 0.2.0 (2026-09-24): rounds apply the second-life gate, and
+# each event carries its round's combat report verdict (`round_verdict`).
+COACH_VERSION = "coach-0.2.0"
 # Pure credit-ledger rules and interval semantics. This does not stamp a credit
 # detector: no such observation channel exists yet.
 ECONOMY_VERSION = "economy-0.1.0"
