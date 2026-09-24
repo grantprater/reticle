@@ -3,16 +3,21 @@
 
 [appears-on-death]
 claim = """
-The combat report appears when the local player dies. The player can hide and
-show it with N. Whether a game setting turns it off entirely is unconfirmed
-(the player's own uncertainty); they have not turned it off in any capture.
+The combat report appears when the local player dies, since a dead player's
+round is over. No setting turns it off. The player can hide and show it with N,
+arbitrarily quickly, so a panel may be up for less than one sample.
 """
 kind = "lifecycle"
 known = "player"
 since = "2026-09-24"
 use = """
-a death with no panel is a hidden or disabled panel, not a reader failure, until
-the frames say otherwise; keep it as a refusal with that reason
+a death with no panel in any sample is a panel hidden with N or a reader
+failure; look at the frames before deciding, and keep it as a refusal with the
+reason found
+"""
+exceptions = """
+how a Sage revive interacts with the panel is unknown to the player; capture
+one and look when it occurs
 """
 phrases = ["combat report appears on death"]
 
@@ -59,3 +64,22 @@ kind = "appearance"
 known = "observed"
 since = "2026-09-24"
 source = "a06f04a0059f at 488, 1370 and 1429 s"
+
+[damage-decomposition]
+claim = """
+A row's damage is not one product. Weapon damage has head, torso and leg values,
+usually in three range bands; a wallbang lowers it further. Ability damage is
+either a fixed chunk or ticks over time and adds no hits. Unknown to the player:
+whether a weapon's penetration power scales the wallbang reduction or only
+decides which surfaces it passes, and whether the thickness penetrated matters.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-24"
+use = """
+explain a row as hits times one weapon's per-hit values, per band, plus a
+residual; infer the per-hit values from the rows themselves and classify each
+row as exact in one band, exact over mixed bands, short (wallbang or cap
+candidate) or excess (ability candidate). A short or excess residual is a
+guess with its reason, never a claim
+"""

@@ -213,21 +213,208 @@ def _rounds(sid: str) -> list[dict]:
     return pq.read_table(f).to_pylist()
 
 
-def judge(sid: str) -> None:
-    recs = [json.loads(l) for l in
+def _load(sid: str) -> list[dict]:
+    return [json.loads(l) for l in
             (Store().root / "analysis" / f"combat_report_{sid}.jsonl").open()]
+
+
+def _episodes(recs: list[dict]) -> list[list[dict]]:
+    """Runs of frames with the header found, split at gaps over 3 s."""
+    eps, cur = [], []
+    for r in (r for r in recs if r["header"] >= HEADER_MIN):
+        if cur and r["t_ms"] - cur[-1]["t_ms"] > 3000:
+            eps.append(cur); cur = []
+        cur.append(r)
+    if cur:
+        eps.append(cur)
+    return eps
+
+
+def _sig(r: dict) -> tuple:
+    return tuple((row["out"]["text"], row["in"]["text"],
+                  row["out_hits"]["text"], row["in_hits"]["text"])
+                 for row in r.get("rows", []))
+
+
+def distinct_panels(recs: list[dict]) -> list[dict]:
+    """One representative frame per distinct panel: the episode's modal read,
+    taken at the frame nearest the episode's middle that shows it. A buy-phase
+    reopen repeats an earlier panel and is dropped."""
+    out, seen = [], set()
+    for e in _episodes(recs):
+        sigs = {}
+        for r in e:
+            sigs.setdefault(_sig(r), []).append(r)
+        sig, frames = max(sigs.items(), key=lambda kv: len(kv[1]))
+        if not sig or sig in seen:
+            continue
+        seen.add(sig)
+        mid = frames[len(frames) // 2]
+        out.append({"t_ms": mid["t_ms"], "hx": mid["hx"], "hy": mid["hy"],
+                    "episode_start_ms": e[0]["t_ms"], "rows": sig})
+    return out
+
+
+ICON = (35, 0, 160, 32)                  # weapon icon box within a row
+ICON_GRID = (24, 96)                     # h, w after tight crop
+
+
+def icons(sid: str) -> Path:
+    """Crop each distinct panel's weapon icons from one frame apiece."""
+    path, fps = _source(sid)
+    panels = distinct_panels(_load(sid))
+    by_t = {p["t_ms"]: p for p in panels}
+    bitmaps, meta = [], []
+    for s in sample_at(path, sorted(by_t), fps):
+        p = by_t[s.t_ms] if s.t_ms in by_t else min(panels, key=lambda q: abs(q["t_ms"] - s.t_ms))
+        g = cv2.cvtColor(s.frame, cv2.COLOR_BGR2GRAY)
+        for k, row in enumerate(p["rows"]):
+            cell = _field(g, p["hx"], p["hy"], ICON, ROW0 + k * PITCH)
+            b = (cell >= ocr.THRESHOLD).astype(np.uint8)
+            ys, xs = np.nonzero(b)
+            if len(xs) < 30:
+                continue
+            b = b[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+            bitmaps.append(cv2.resize(b, ICON_GRID[::-1], interpolation=cv2.INTER_AREA))
+            meta.append({"t_ms": p["t_ms"], "episode_start_ms": p["episode_start_ms"],
+                         "row": k, "read": list(row),
+                         "aspect": round(b.shape[1] / b.shape[0], 2)})
+    out = Store().root / "analysis" / f"combat_report_icons_{sid}.npz"
+    np.savez_compressed(out, bitmaps=np.array(bitmaps), meta=json.dumps(meta))
+    print(f"{len(panels)} distinct panels, {len(bitmaps)} icons; wrote {out}")
+    return out
+
+
+SAME_ICON = 0.78                         # IoU joining two icons; Q1 says the gap is 0.70-0.85
+
+
+def _cluster(bm: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Single-link groups of binary icons by IoU, and the IoU matrix."""
+    f = bm.reshape(len(bm), -1).astype(bool)
+    inter = (f[:, None, :] & f[None, :, :]).sum(-1)
+    union = (f[:, None, :] | f[None, :, :]).sum(-1)
+    iou = inter / np.maximum(union, 1)
+    lab = np.arange(len(bm))
+    for i in range(len(bm)):
+        for j in range(i + 1, len(bm)):
+            if iou[i, j] >= SAME_ICON and lab[i] != lab[j]:
+                lab[lab == lab[j]] = lab[i]
+    _, lab = np.unique(lab, return_inverse=True)
+    return lab, iou
+
+
+def _sums(hits: list[int], vals: list[set[int]], mixed: bool) -> set[int]:
+    """Totals reachable with one value per location (`mixed` False) or one value
+    per bullet (`mixed` True)."""
+    out = {0}
+    for n, vs in zip(hits, vals):
+        if not n:
+            continue
+        if mixed:
+            for _ in range(n):
+                out = {a + v for a in out for v in vs}
+        else:
+            out = {a + n * v for a in out for v in vs}
+    return out
+
+
+def decompose(rows: list[tuple[list[int], int]]) -> list[tuple[str, str]]:
+    """Classify each (hits, damage) row of one weapon group against per-hit
+    values taken from the OTHER rows only [domain:combat_report/damage-decomposition].
+
+    Returns (class, detail) per row: exact-one-band, exact-mixed, short (wallbang
+    or cap candidate), excess (ability candidate), inside (between the bounds
+    but no sum hits it), or unknown (no values for a hit location)."""
+    out = []
+    for k, (h, d) in enumerate(rows):
+        vals = [set(), set(), set()]
+        others = [r for j, r in enumerate(rows) if j != k]
+        for hh, dd in others:
+            nz = [i for i in range(3) if hh[i]]
+            if len(nz) == 1 and dd % hh[nz[0]] == 0:
+                vals[nz[0]].add(dd // hh[nz[0]])
+        # One pass of solving a two-location row for its unknown location.
+        for hh, dd in others:
+            nz = [i for i in range(3) if hh[i]]
+            if len(nz) == 2:
+                a, b = nz
+                for known, unk in ((a, b), (b, a)):
+                    if vals[known] and not vals[unk]:
+                        for v in list(vals[known]):
+                            rest = dd - hh[known] * v
+                            if rest > 0 and rest % hh[unk] == 0:
+                                vals[unk].add(rest // hh[unk])
+        if sum(h) == 0:
+            out.append(("excess" if d else "exact-one-band", f"{d} with no hits"))
+            continue
+        if any(h[i] and not vals[i] for i in range(3)):
+            out.append(("unknown", f"no per-hit value for {[i for i in range(3) if h[i] and not vals[i]]}"))
+            continue
+        one, mix = _sums(h, vals, False), _sums(h, vals, True)
+        if d in one:
+            out.append(("exact-one-band", ""))
+        elif d in mix:
+            out.append(("exact-mixed", ""))
+        elif d < min(mix):
+            out.append(("short", f"{min(mix) - d} below the lowest sum"))
+        elif d > max(mix):
+            out.append(("excess", f"{d - max(mix)} above the highest sum"))
+        else:
+            out.append(("inside", f"between {min(mix)} and {max(mix)}"))
+    return out
+
+
+def weapons(sid: str) -> None:
+    z = np.load(Store().root / "analysis" / f"combat_report_icons_{sid}.npz")
+    bm, meta = z["bitmaps"], json.loads(str(z["meta"]))
+    lab, iou = _cluster(bm)
+    tri = iou[np.triu_indices(len(bm), 1)]
+    print(f"{len(bm)} icons, {lab.max() + 1} groups at IoU >= {SAME_ICON}")
+    print("Q1 pairwise IoU histogram:",
+          dict(zip(["<.5", ".5-.6", ".6-.7", ".7-.78", ".78-.85", ".85-.9", ">=.9"],
+                   np.histogram(tri, [0, .5, .6, .7, .78, .85, .9, 1.01])[0].tolist())))
+    # Contact sheet: one line per group.
+    sheet = []
+    for g in range(lab.max() + 1):
+        idx = np.flatnonzero(lab == g)[:12]
+        line = np.hstack([np.pad(bm[i] * 255, 2) for i in idx] +
+                         [np.zeros((ICON_GRID[0] + 4, (ICON_GRID[1] + 4) * (12 - len(idx))), np.uint8)])
+        sheet.append(line)
+    cv2.imwrite(str(Store().root / "analysis" / f"combat_report_icons_{sid}.png"),
+                cv2.resize(np.vstack(sheet).astype(np.uint8), None, fx=2, fy=2,
+                           interpolation=cv2.INTER_NEAREST))
+    for side, hk, dk in (("in", 3, 1), ("out", 2, 0)):
+        print(f"\n== {side} rows grouped by icon ==")
+        tally = {}
+        for g in range(lab.max() + 1):
+            rows, where = [], []
+            for i in np.flatnonzero(lab == g):
+                m = meta[i]; hits, dmg = m["read"][hk], m["read"][dk]
+                if hits and dmg and hits.isdigit() and dmg.isdigit():
+                    rows.append(([int(c) for c in hits], int(dmg)))
+                    where.append(m["episode_start_ms"] / 1000)
+            if not rows:
+                continue
+            per = [sorted({d // h[i] for h, d in rows
+                           if [x for x in h if x] == [h[i]] and h[i] and d % h[i] == 0})
+                   for i in range(3)]
+            cls = decompose(rows)
+            for c, _ in cls:
+                tally[c] = tally.get(c, 0) + 1
+            print(f" group {g} (n={len(rows)}) per-hit head/body/legs {per}")
+            for (h, d), (c, why), t in zip(rows, cls, where):
+                if c not in ("exact-one-band",):
+                    print(f"    {t:7.1f}s  hits {h} dmg {d}: {c} {why}")
+        print(f" {side} tally: {tally}")
+
+
+def judge(sid: str) -> None:
+    recs = _load(sid)
     hs = np.array([r["header"] for r in recs])
     print("header score quantiles (all frames):",
           np.round(np.quantile(hs, [0.5, 0.9, 0.95, 0.99, 1.0]), 3))
     print("header score histogram:", np.histogram(hs, bins=[0, .3, .4, .5, .6, .7, .8, .9, 1.01])[0])
-    up = [r for r in recs if r["header"] >= HEADER_MIN]
-    # Panel episodes: runs of found frames separated by < 3 s.
-    eps, cur = [], []
-    for r in up:
-        if cur and r["t_ms"] - cur[-1]["t_ms"] > 3000:
-            eps.append(cur); cur = []
-        cur.append(r)
-    if cur: eps.append(cur)
+    eps = _episodes(recs)
     deaths = _deaths(sid)
     print(f"{len(eps)} panel episodes; {len(deaths)} killfeed death onsets")
     totals, disagreements, rowcounts = {}, [], {}
@@ -237,10 +424,7 @@ def judge(sid: str) -> None:
         near = deaths[(deaths >= t0 - 5000) & (deaths <= t0 + 2000)]
         sigs = {}
         for r in e:
-            sig = tuple((row["out"]["text"], row["in"]["text"],
-                         row["out_hits"]["text"], row["in_hits"]["text"])
-                        for row in r.get("rows", []))
-            sigs[sig] = sigs.get(sig, 0) + 1
+            sigs[_sig(r)] = sigs.get(_sig(r), 0) + 1
         top = max(sigs.items(), key=lambda kv: kv[1])
         print(f"  {t0/1000:7.1f}-{t1/1000:7.1f}s  n={len(e):3d}  death={[round(x/1000,1) for x in near]}"
               f"  reads={len(sigs)}  modal({top[1]})={list(top[0])}")
@@ -329,9 +513,15 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("scan"); a.add_argument("session"); a.add_argument("--hz", type=float, default=1.0)
     b = sub.add_parser("judge"); b.add_argument("session")
+    c = sub.add_parser("icons"); c.add_argument("session")
+    w = sub.add_parser("weapons"); w.add_argument("session")
     args = ap.parse_args()
     if args.cmd == "scan":
         scan(args.session, args.hz)
+    elif args.cmd == "icons":
+        icons(args.session)
+    elif args.cmd == "weapons":
+        weapons(args.session)
     else:
         judge(args.session)
 
