@@ -43,6 +43,14 @@ class MinimapDiscsTest(unittest.TestCase):
                                      self_xy=self_xy, k=19, bh_min=80)
         self.assertEqual(len(discs), 0)
 
+    def test_discs_outside_radar_circle_are_filtered(self):
+        gray = np.full((100, 100), 180, dtype=np.uint8)
+        floor = np.ones((100, 100), dtype=bool)
+        import cv2
+        cv2.circle(gray, (5, 5), 4, 20, -1)
+        discs = detect_ability_discs(gray, floor, k=15, bh_min=50)
+        self.assertEqual(len(discs), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

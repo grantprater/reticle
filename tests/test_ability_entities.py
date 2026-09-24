@@ -252,6 +252,19 @@ class LightRefusalTests(unittest.TestCase):
         self.assertEqual(res["c1"]["status"], "refused")
         self.assertEqual(res["c1"]["reason"], "drawn_light")
 
+    def test_trajectory_ability_emits_parametric_beam_schema(self):
+        from reticle.adjudication.ability import _properties
+        use = {"use_claim_id": "u1", "ability_id": "sova:hunter's fury", "session_id": "s1"}
+        group = [{"component_id": "c1", "observed_t_ms": 1000.0, "observed_end_ms": 1500.0,
+                  "x": 20, "y": 20, "label_state": "named"},
+                 {"component_id": "c2", "observed_t_ms": 1100.0, "observed_end_ms": 1600.0,
+                  "x": 40, "y": 20, "label_state": "named"}]
+        rule = {"origin_driver": "fixed", "bearing_driver": "fixed", "extent": "trajectory"}
+        props = _properties(use, group, "entity:e1", "bearing", rule)
+        schema_prop = next((p for p in props if p["property"] == "trajectory_schema"), None)
+        self.assertIsNotNone(schema_prop)
+        self.assertEqual(schema_prop["value"], "beam(x0, y0, theta, L, w)")
+
 
 if __name__ == "__main__":
     unittest.main()

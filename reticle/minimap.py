@@ -1375,6 +1375,18 @@ def self_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
     return icons(self_mask(crop), crop, floor, **kw)
 
 
+def radar_circular_mask(h: int, w: int, margin_px: float = 0.0) -> np.ndarray:
+    """Boolean mask for the circular minimap radar boundary.
+
+    In Valorant, the minimap HUD radar is a circle inscribed in the rectangular ROI.
+    Pixels outside this circle belong to transparent void or surrounding HUD elements.
+    """
+    cy, cx = h / 2.0, w / 2.0
+    r = min(cy, cx) - margin_px
+    y, x = np.ogrid[:h, :w]
+    return ((x - cx) ** 2 + (y - cy) ** 2) <= (r * r)
+
+
 def detect_ability_discs(gray: np.ndarray, floor: np.ndarray,
                          static_peaks: list[tuple[float, float, float]] | None = None,
                          self_xy: tuple[float, float] | None = None,
@@ -1392,7 +1404,8 @@ def detect_ability_discs(gray: np.ndarray, floor: np.ndarray,
     r = max(1, int(round(k * nms_frac)))
     resp_smooth = cv2.GaussianBlur(resp, (2 * r + 1, 2 * r + 1), r / 2.0)
     se_nms = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
-    peak = (resp_smooth >= cv2.dilate(resp_smooth, se_nms)) & (resp_smooth > bh_min) & floor
+    radar_mask = radar_circular_mask(floor.shape[0], floor.shape[1])
+    peak = (resp_smooth >= cv2.dilate(resp_smooth, se_nms)) & (resp_smooth > bh_min) & floor & radar_mask
     ys, xs = np.nonzero(peak)
     if not len(ys):
         return []
@@ -1497,6 +1510,7 @@ def detect_ability_walls(crop: np.ndarray, floor: np.ndarray,
     """
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
     masked_gray = np.where(floor, gray, 0)
+    radar_mask = radar_circular_mask(floor.shape[0], floor.shape[1])
 
     lsd = cv2.createLineSegmentDetector()
     raw_lines, _, _, _ = lsd.detect(masked_gray)
@@ -1511,10 +1525,10 @@ def detect_ability_walls(crop: np.ndarray, floor: np.ndarray,
             continue
         ix1, iy1 = int(np.clip(x1, 0, floor.shape[1] - 1)), int(np.clip(y1, 0, floor.shape[0] - 1))
         ix2, iy2 = int(np.clip(x2, 0, floor.shape[1] - 1)), int(np.clip(y2, 0, floor.shape[0] - 1))
-        if not (floor[iy1, ix1] and floor[iy2, ix2]):
-            continue
-
         cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+        icx, icy = int(np.clip(cx, 0, floor.shape[1] - 1)), int(np.clip(cy, 0, floor.shape[0] - 1))
+        if not (floor[iy1, ix1] and floor[iy2, ix2] and radar_mask[iy1, ix1] and radar_mask[iy2, ix2] and radar_mask[icy, icx]):
+            continue
         # Exclude player self icon region
         if self_xy and (np.hypot(cx - self_xy[0], cy - self_xy[1]) < self_radius or
                         np.hypot(x1 - self_xy[0], y1 - self_xy[1]) < self_radius or

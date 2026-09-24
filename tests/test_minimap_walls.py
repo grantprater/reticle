@@ -89,6 +89,13 @@ class MinimapWallsTest(unittest.TestCase):
         self.assertAlmostEqual(tw["cy"], 48.0, delta=4.0)
         self.assertEqual(tw["archetype"], "trapwire_dual")
 
+    def test_walls_outside_radar_circle_are_filtered(self):
+        crop = np.full((120, 120, 3), 80, dtype=np.uint8)
+        floor = np.ones((120, 120), dtype=bool)
+        cv2.line(crop, (2, 2), (20, 2), (240, 240, 240), 3)
+        walls = detect_ability_walls(crop, floor, min_length=10.0)
+        self.assertEqual(len(walls), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

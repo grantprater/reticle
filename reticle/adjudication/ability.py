@@ -162,10 +162,11 @@ PARAMETER_RULES = {
     "skye:trailblazer": {"origin_driver": "piloted", "bearing_driver": "piloted", "extent": "none"},
     "skye:guiding light": {"origin_driver": "piloted", "bearing_driver": "piloted", "extent": "none"},
     "cypher:spycam": {"origin_driver": "fixed", "bearing_driver": "aimed", "extent": "none"},
+    "breach:rolling thunder": {"origin_driver": "fixed", "bearing_driver": "fixed", "extent": "trajectory"},
     "cypher:trapwire": {"origin_driver": "fixed", "bearing_driver": "fixed", "extent": "extending"},
     "phoenix:blaze": {"origin_driver": "fixed", "bearing_driver": "fixed", "extent": "freeform"},
     "viper:toxic screen": {"origin_driver": "fixed", "bearing_driver": "fixed", "extent": "extending"},
-    "sova:hunter's fury": {"origin_driver": "fixed", "bearing_driver": "fixed", "extent": "extending"},
+    "sova:hunter's fury": {"origin_driver": "fixed", "bearing_driver": "fixed", "extent": "trajectory"},
     "viper:poison cloud": {"origin_driver": "fixed", "bearing_driver": "absent", "extent": "radius"},
     "viper:viper's pit": {"origin_driver": "fixed", "bearing_driver": "absent", "extent": "radius"},
     "jett:cloudburst": {"origin_driver": "fixed", "bearing_driver": "absent", "extent": "radius"},
@@ -476,7 +477,7 @@ def build_entities(root: str | Path) -> dict:
         })
         methods = [("onset_proximity", ONSET_GROUP_VERSION, onset_groups(candidates))]
         rule = PARAMETER_RULES.get(use.get("ability_id"))
-        if rule and rule["extent"] == "extending":
+        if rule and rule["extent"] in ("extending", "trajectory"):
             methods.append(("bearing", BEARING_GROUP_VERSION, bearing_groups(candidates)))
         # A piloted object translates for its whole life, so position
         # persistence would collapse a flight path into a point. Every other
@@ -627,6 +628,14 @@ def _properties(use: dict, group: list[dict], hypothesis_id: str,
             rows.append({
                 "hypothesis_id": hypothesis_id, "property": prop,
                 "value": rule[prop], "units": None, "source_kind": "reference_derived",
+                "status": "domain_hypothesis_needs_patch_validation",
+                "rule_scope": use.get("ability_id"),
+            })
+        if rule.get("extent") == "trajectory":
+            rows.append({
+                "hypothesis_id": hypothesis_id, "property": "trajectory_schema",
+                "value": "beam(x0, y0, theta, L, w)", "units": None,
+                "source_kind": "reference_derived",
                 "status": "domain_hypothesis_needs_patch_validation",
                 "rule_scope": use.get("ability_id"),
             })
