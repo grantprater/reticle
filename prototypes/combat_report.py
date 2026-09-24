@@ -347,7 +347,7 @@ ROW_NAME = (40, 36, 155, 50)             # player name text under the weapon
 ART_V_MIN = 30                           # drop only near-black; the art is often dark
 
 
-def _composition(crop):
+def _report_composition(crop):
     from reticle import appearance
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
     return appearance.hsv_composition(crop, hsv[:, :, 2] >= ART_V_MIN)
@@ -400,7 +400,7 @@ def portraits(sid: str) -> None:
         g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
         if p["kind"] == "death":
             c = f[hy + CARD[1]:hy + CARD[3], hx + CARD[0]:hx + CARD[2]]
-            cards.append((p, name(_composition(c), enemy)))
+            cards.append((p, name(_report_composition(c), enemy)))
         for k, row in enumerate(p["rows"]):
             dy = ROW0 + k * PITCH
             crop = field_at(f, hx, hy, ROW_PORTRAIT, dy)
@@ -408,8 +408,8 @@ def portraits(sid: str) -> None:
             thumb = cv2.resize(crop, (20, 27), interpolation=cv2.INTER_AREA).astype(np.float32)
             rows_out.append({"t": p["start_ms"] / 1000, "row": k, "kind": p["kind"],
                              "killed_you": row["killed_you"], "name_bits": nm, "thumb": thumb,
-                             "enemy": name(_composition(crop), enemy),
-                             "open": name(_composition(crop), sorted(gallery))})
+                             "enemy": name(_report_composition(crop), enemy),
+                             "open": name(_report_composition(crop), sorted(gallery))})
     named = [x for x in rows_out if x["enemy"][0]]
     print(f"I1: {len(named)}/{len(rows_out)} rows named over the enemy lineup {enemy}")
     for x in rows_out:
