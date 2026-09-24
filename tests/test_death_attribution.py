@@ -207,7 +207,10 @@ class DeathAttributionTests(unittest.TestCase):
         self.assertEqual(d["killer_location"], [112.0, 229.4])
 
         events = death_verdict_to_events(verdict, "session_test")
-        self.assertEqual(len(events), 2)
+        # ENTITY_DELETED, the victim's identity and the killer's identity.
+        self.assertEqual(len(events), 3)
+        self.assertEqual(events[2]["identity_distribution"]["subject_entity_id"],
+                         f"{verdict.death_id}:killer")
         del_event = events[0]
         self.assertEqual(del_event["metadata"]["location"], [137.8, 201.1])
         self.assertEqual(del_event["metadata"]["killer_location"], [112.0, 229.4])
@@ -276,7 +279,7 @@ class DeathAttributionTests(unittest.TestCase):
         self.assertEqual(v.location, (275.0, 241.0))
 
         events = death_verdict_to_events(v, session_id)
-        self.assertEqual(len(events), 2)  # ENTITY_DELETED + IDENTITY_DISTRIBUTION
+        self.assertEqual(len(events), 3)  # ENTITY_DELETED + victim and killer IDENTITY_DISTRIBUTION
 
         errors = validate_event_rows(events)
         self.assertEqual(len(errors), 0)

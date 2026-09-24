@@ -72,6 +72,14 @@
       "reads": ["AGENTS.md", "BACKLOG.md#Agreed order (2026-09-23)", "docs/SCOREBOARD_LINEUP.md", "reticle/reconciliation.py", "reticle/roster.py"],
       "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-board-alive", "--minimum-named", "7"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_reconciliation.py", "-q"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
       "evidence": ["Log predictions before measuring the 19 scoreboard sessions.", "Classify every disagreement from stored fields and source-check one of each class before naming a wrong channel.", "The audit compares channels and never picks a winner; the witness only skips openings the roster contradicts."]
+    },
+    {
+      "id": "death-killers",
+      "objective": "Name each death's killer as its own entity through adjudication.identity, from the player HUD and the stored killer portraits over the board-constrained killer side.",
+      "files": ["reticle/adjudication/death.py", "ownership.toml"],
+      "reads": ["AGENTS.md", "BACKLOG.md#Agreed order (2026-09-23)", "docs/BOARD_ALIVE_SETS.md", "reticle/adjudication/death.py", "reticle/adjudication/identity.py"],
+      "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-killers-2", "--minimum-named", "7"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
+      "evidence": ["Read killer truth from source killfeed crops and log it with the prediction before measuring.", "No killer name is set outside the arbiter; keep zero wrong killer names and read every refusal's reason."]
     }
   ]
 }

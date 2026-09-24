@@ -747,7 +747,7 @@ evidence = "tests/test_acquisition.py"
 
 [[entry]]
 id = "death-victim"
-question = "Which agent died at this killfeed time, and where?"
+question = "Which agent died at this killfeed time, who killed them, and where?"
 owner = "adjudication.death"
 role = ["attribute", "adjudicate"]
 status = "partial"
