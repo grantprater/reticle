@@ -3,6 +3,14 @@
 This module never writes accepted facts. `domain` remains their owner. Evidence
 dependencies include selection and decision rules, so a rule cannot validate
 itself through a transitive verdict.
+
+A `reference` evidence node cites a published source -- patch notes, an agent
+page, a wiki -- by URL, retrieval date, the patch it applies to and the quoted
+claim. It never counts as independent support: a page states a value, it does
+not observe one. References that support and contradict one proposal are
+reported as a source disagreement, and neither is picked. A proposal resting
+only on references keeps `known` null in its promotion draft, with a reason,
+because `domain.KNOWN` has no value for a citation.
 """
 from __future__ import annotations
 
@@ -12,8 +20,10 @@ from pathlib import Path
 from . import artifacts, domain, revisions
 
 SCHEMA_VERSION = 1
-PRODUCER_VERSION = "domain-learning-0.1.0"
+PRODUCER_VERSION = "domain-learning-0.2.0"
 ROLES = {"supporting", "contradicting", "unresolved"}
+EVIDENCE_KINDS = {"observation", "verdict", "selection", "review", "reference"}
+REFERENCE_FIELDS = ("url", "retrieved_at", "patch", "quote")
 STATUSES = {"proposed", "under_review", "accepted", "rejected", "superseded", "withdrawn"}
 TRANSITIONS = {
     "proposed": {"under_review", "rejected"},
@@ -65,9 +75,15 @@ def validate(document: dict) -> dict:
         if node.get("revision") != node.get("current_revision"):
             errors.append(f"{label}: stale revision")
         source = node.get("source")
-        if not isinstance(source, dict) or not source.get("session") or not source.get("window_ms"):
+        if node.get("kind") == "reference":
+            if not isinstance(source, dict):
+                source = {}
+            missing = [field for field in REFERENCE_FIELDS if not source.get(field)]
+            if missing:
+                errors.append(f"{label}: reference source requires {', '.join(missing)}")
+        elif not isinstance(source, dict) or not source.get("session") or not source.get("window_ms"):
             errors.append(f"{label}: source session and window_ms required")
-        if node.get("kind") not in {"observation", "verdict", "selection", "review"}:
+        if node.get("kind") not in EVIDENCE_KINDS:
             errors.append(f"{label}: invalid kind")
         if not isinstance(node.get("dependencies"), list) or not isinstance(node.get("rules_used"), list):
             errors.append(f"{label}: dependencies and rules_used must be lists")
@@ -113,7 +129,12 @@ def validate(document: dict) -> dict:
         classified[ref["role"]].append(key)
         if proposal.get("rule_id") in transitive.get(key, set()):
             dependent.append(key)
-    independent = [key for key in classified["supporting"] if key not in dependent]
+    def is_reference(key: str) -> bool:
+        return index[key].get("kind") == "reference"
+    references = {role: [key for key in keys if is_reference(key)]
+                  for role, keys in classified.items()}
+    independent = [key for key in classified["supporting"]
+                   if key not in dependent and not is_reference(key)]
     status = proposal.get("status")
     transition = document.get("transition")
     if transition is not None:
@@ -135,7 +156,11 @@ def validate(document: dict) -> dict:
         units[level] = len({index[key].get(level) for key in independent if index[key].get(level)})
     fact = {
         "claim": proposal.get("claim"), "kind": proposal.get("kind"),
-        "known": "inferred", "since": (transition or {}).get("decided_at") or proposal.get("proposed_at"),
+        "known": "inferred" if independent else None,
+        "known_reason": (None if independent else
+                         "no independent observation; a reference states a value and "
+                         "domain.KNOWN has no provenance for a citation"),
+        "since": (transition or {}).get("decided_at") or proposal.get("proposed_at"),
         "subject": proposal.get("subject"),
         "depends_on": sorted(independent),
     }
@@ -160,6 +185,9 @@ def validate(document: dict) -> dict:
             "supporting": classified["supporting"], "independent_support": independent,
             "dependent_support": sorted(set(dependent)),
             "contradicting": classified["contradicting"], "unresolved": classified["unresolved"],
+            "reference_support": references["supporting"],
+            "reference_contradiction": references["contradicting"],
+            "source_disagreement": bool(references["supporting"] and references["contradicting"]),
             "support_units": units, "promotion_proposal": fact,
             "withdrawal_impact": impacted}
 
@@ -169,8 +197,12 @@ def render(report: dict) -> str:
     lines = [f"# Domain hypothesis: {proposal.get('hypothesis_id')}", "",
              f"Status: {proposal.get('status')}; valid: {report['valid']}", "",
              f"Claim: {proposal.get('claim')}", f"Scope: {json.dumps(proposal.get('scope'), sort_keys=True)}", ""]
-    for label in ("independent_support", "dependent_support", "contradicting", "unresolved"):
-        lines.append(f"{label}: {', '.join(report[label]) or 'none'}")
+    for label in ("independent_support", "dependent_support", "contradicting", "unresolved",
+                  "reference_support", "reference_contradiction"):
+        lines.append(f"{label}: {', '.join(report.get(label, [])) or 'none'}")
+    if report.get("source_disagreement"):
+        lines.append("SOURCE DISAGREEMENT: references support and contradict this claim; "
+                     "neither is picked.")
     lines += ["", f"Support units: {json.dumps(report['support_units'], sort_keys=True)}",
               "", "Validation refusals:"]
     lines += [f"- {error}" for error in report["errors"]] or ["- none"]
@@ -180,6 +212,12 @@ def render(report: dict) -> str:
     lines += [f"- {item['id']}@{item['revision']}: {item['action']}" for item in report["withdrawal_impact"]] or ["- no declared consumers"]
     lines += ["", "Evidence source windows:"]
     for key, node in report["evidence_details"].items():
+        if node.get("kind") == "reference":
+            source = node.get("source") or {}
+            lines.append(f"- {key}@{node['revision']}: reference {source.get('url')}; patch "
+                         f"{source.get('patch')}; retrieved {source.get('retrieved_at')}; "
+                         f"quote \"{source.get('quote')}\"")
+            continue
         lines.append(f"- {key}@{node['revision']}: {json.dumps(node['source'], sort_keys=True)}; observed {node['observed_at']}; analyzed {node['analyzed_at']}; refusal {node.get('refusal_reason') or 'none'}")
     return "\n".join(lines) + "\n"
 

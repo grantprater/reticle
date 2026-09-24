@@ -96,6 +96,31 @@ class DomainLearningTests(unittest.TestCase):
             self.assertEqual(revisions.current_revision(tmp), newer)
             self.assertIn("Synthetic test claim", (path / "review.md").read_text())
 
+    def test_references_never_count_as_independent_and_disagreements_stay(self):
+        doc = sample()
+        doc["hypothesis"]["evidence"] = [
+            {"id": "page-a", "revision": "a1", "role": "supporting"},
+            {"id": "page-b", "revision": "b1", "role": "contradicting"},
+        ]
+        doc["evidence"] += [
+            {"id": key, "revision": rev, "current_revision": rev, "kind": "reference",
+             "observed_at": "2026-01-01", "analyzed_at": "2026-01-02",
+             "source": {"url": f"https://example.invalid/{key}", "retrieved_at": "2026-01-02",
+                        "patch": "0.00", "quote": "Duration: 1 s"},
+             "dependencies": [], "rules_used": []}
+            for key, rev in (("page-a", "a1"), ("page-b", "b1"))]
+        report = domain_learning.validate(doc)
+        self.assertTrue(report["valid"], report["errors"])
+        self.assertEqual(report["independent_support"], [])
+        self.assertEqual(report["reference_support"], ["page-a"])
+        self.assertEqual(report["reference_contradiction"], ["page-b"])
+        self.assertTrue(report["source_disagreement"])
+        self.assertIsNone(report["promotion_proposal"]["known"])
+        self.assertIn("SOURCE DISAGREEMENT", domain_learning.render(report))
+        doc["evidence"][-1]["source"].pop("patch")
+        self.assertIn("reference source requires patch",
+                      "\n".join(domain_learning.validate(doc)["errors"]))
+
 
 if __name__ == "__main__":
     unittest.main()

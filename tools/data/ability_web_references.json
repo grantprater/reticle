@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "retrieved_at": "2026-09-23",
+  "retrieval_method": "WebFetch of the rendered page through a summarising reader; quotes are the reader's extraction and are not guaranteed verbatim. The Fandom wiki refused every fetch (HTTP 402).",
+  "patch_scope": {
+    "patches": ["13.04", "13.05", "13.06"],
+    "reason": "Official patch notes for 13.04 (live 2026-08-18), 13.05 (live 2026-09-01) and 13.06 (2026-09-22) list no numeric agent ability change, so values on the agent pages edited 2026-09-22 apply to the match captures (2026-08-23..26, patch 13.04) and the ability demos (2026-09-02..06, patch 13.05). Values set before 13.04 may have changed earlier; the pages carry no per-value patch.",
+    "sources": [
+      "https://playvalorant.com/en-us/news/game-updates/valorant-patch-notes-13-04/",
+      "https://playvalorant.com/en-us/news/game-updates/valorant-patch-notes-13-05/",
+      "https://playvalorant.com/en-us/news/game-updates/valorant-patch-notes-13-06/"
+    ]
+  },
+  "catalogue": {
+    "path": "reference/abilities.json",
+    "harvested": "2026-09-04",
+    "note": "The store's catalogue, harvested from valorant-api.com and the Fandom wiki on 2026-09-04 (patch 13.05). It is a second reference, not an observation."
+  },
+  "proposals": [
+    {"hypothesis_id": "web-omen-dark-cover-duration", "subject": "omen:dark cover", "property": "duration_s",
+     "claim": "Omen's Dark Cover smoke lasts 15 s.", "value": 15.0,
+     "check": {"kind": "lifetime_upper", "ability_id": "omen:dark cover", "expected_ms": 15000},
+     "references": [
+       {"id": "official-omen", "url": "https://wiki.playvalorant.com/en-us/Omen", "quote": "Duration: 15 s", "value": 15.0, "stance": "supporting"},
+       {"id": "valoranttracker-omen", "url": "https://valoranttracker.org/agents/omen", "quote": "Duration: 15 seconds", "value": 15.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-omen-dark-cover-cooldown", "subject": "omen:dark cover", "property": "restock_s",
+     "claim": "Omen's Dark Cover restores one charge every 40 s.", "value": 40.0,
+     "accepted_fact_conflict": {"fact": "abilities/omen-tray-charges", "states": "Recharging restores one charge every 30.0 seconds.", "note": "The accepted fact is left unchanged; a reviewer decides."},
+     "check": {"kind": "none", "reason": "The demos run with infinite abilities, so no capture observes a natural restock."},
+     "references": [
+       {"id": "official-omen", "url": "https://wiki.playvalorant.com/en-us/Omen", "quote": "Cooldown: 40 s", "value": 40.0, "stance": "supporting"},
+       {"id": "catalogue-omen", "url": "reference/abilities.json#Omen/Dark Cover", "quote": "Restock: 40 seconds", "value": 40.0, "stance": "supporting", "retrieved_at": "2026-09-04", "patch": "13.05"},
+       {"id": "leak-11-08", "url": "https://x.com/VALORANTLeaksEN/status/1977452603261825289", "quote": "Patch 11.08 // OMEN - Dark Cover cooldown INCREASED from 30s to 40s", "value": 40.0, "stance": "supporting", "patch": "11.08", "note": "Secondary account, not Riot; states the change that superseded 30 s."},
+       {"id": "valoranttracker-omen", "url": "https://valoranttracker.org/agents/omen", "quote": "Cooldown: 35 seconds", "value": 35.0, "stance": "contradicting"}
+     ]},
+    {"hypothesis_id": "web-omen-dark-cover-charges", "subject": "omen:dark cover", "property": "charges",
+     "claim": "Omen's Dark Cover holds 2 charges.", "value": 2,
+     "check": {"kind": "none", "reason": "Infinite abilities refill the tray, so drops cannot bound the charge count."},
+     "references": [
+       {"id": "official-omen", "url": "https://wiki.playvalorant.com/en-us/Omen", "quote": "Uses: 2", "value": 2, "stance": "supporting"},
+       {"id": "catalogue-omen", "url": "reference/abilities.json#Omen/Dark Cover", "quote": "Uses: 2", "value": 2, "stance": "supporting", "retrieved_at": "2026-09-04", "patch": "13.05"},
+       {"id": "valoranttracker-omen", "url": "https://valoranttracker.org/agents/omen", "quote": "2 Uses", "value": 2, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-brimstone-sky-smoke-duration", "subject": "brimstone:sky smoke", "property": "duration_s",
+     "claim": "Brimstone's Sky Smoke lasts 19.25 s.", "value": 19.25,
+     "check": {"kind": "lifetime_upper", "ability_id": "brimstone:sky smoke", "expected_ms": 19250},
+     "references": [
+       {"id": "official-brimstone", "url": "https://wiki.playvalorant.com/en-us/Brimstone", "quote": "Duration: 19.25 s", "value": 19.25, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-brimstone-sky-smoke-charges", "subject": "brimstone:sky smoke", "property": "charges",
+     "claim": "Brimstone's Sky Smoke holds 3 charges.", "value": 3,
+     "check": {"kind": "none", "reason": "Infinite abilities refill the tray."},
+     "references": [
+       {"id": "official-brimstone", "url": "https://wiki.playvalorant.com/en-us/Brimstone", "quote": "Uses: 3", "value": 3, "stance": "supporting"},
+       {"id": "catalogue-brimstone", "url": "reference/abilities.json#Brimstone/Sky Smoke", "quote": "charges: 3", "value": 3, "stance": "supporting", "retrieved_at": "2026-09-04", "patch": "13.05"}
+     ]},
+    {"hypothesis_id": "web-brimstone-orbital-strike-duration", "subject": "brimstone:orbital strike", "property": "duration_s",
+     "claim": "Brimstone's Orbital Strike winds up for 2 s and then lasts 3 s at full size.", "value": 5.0,
+     "check": {"kind": "lifetime_upper", "ability_id": "brimstone:orbital strike", "expected_ms": 5000},
+     "references": [
+       {"id": "official-brimstone", "url": "https://wiki.playvalorant.com/en-us/Brimstone", "quote": "Windup: 2 s; Duration: 3 s (minimum at full size)", "value": 5.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-deadlock-barrier-mesh-duration", "subject": "deadlock:barrier mesh", "property": "duration_s",
+     "claim": "Deadlock's Barrier Mesh lasts 30 s.", "value": 30.0,
+     "check": {"kind": "lifetime_upper", "ability_id": "deadlock:barrier mesh", "expected_ms": 30000},
+     "references": [
+       {"id": "official-deadlock", "url": "https://wiki.playvalorant.com/en-us/Deadlock", "quote": "Windup: 3 s for fortification; Duration: 30 s", "value": 30.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-deadlock-sonic-sensor-charges", "subject": "deadlock:sonic sensor", "property": "charges",
+     "claim": "Deadlock's Sonic Sensor holds 2 charges.", "value": 2,
+     "check": {"kind": "none", "reason": "No capture tray for Deadlock."},
+     "references": [
+       {"id": "official-deadlock", "url": "https://wiki.playvalorant.com/en-us/Deadlock", "quote": "Uses: 2", "value": 2, "stance": "supporting"},
+       {"id": "catalogue-deadlock", "url": "reference/abilities.json#Deadlock/Sonic Sensor", "quote": "charges: 2", "value": 2, "stance": "supporting", "retrieved_at": "2026-09-04", "patch": "13.05"}
+     ]},
+    {"hypothesis_id": "web-sova-owl-drone-duration", "subject": "sova:owl drone", "property": "duration_s",
+     "claim": "Sova's Owl Drone flies for 7 s.", "value": 7.0,
+     "check": {"kind": "lifetime_upper", "ability_id": "sova:owl drone", "expected_ms": 7000},
+     "references": [
+       {"id": "official-sova", "url": "https://wiki.playvalorant.com/en-us/Sova", "quote": "Duration: 7 s", "value": 7.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-sova-recon-bolt-duration", "subject": "sova:recon bolt", "property": "duration_s",
+     "claim": "Sova's Recon Bolt scans for 3.2 s.", "value": 3.2,
+     "check": {"kind": "lifetime_upper", "ability_id": "sova:recon bolt", "expected_ms": 3200},
+     "references": [
+       {"id": "official-sova", "url": "https://wiki.playvalorant.com/en-us/Sova", "quote": "Duration: 3.2 s", "value": 3.2, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-sova-recon-bolt-cooldown", "subject": "sova:recon bolt", "property": "restock_s",
+     "claim": "Sova's Recon Bolt restocks after 50 s.", "value": 50.0,
+     "check": {"kind": "none", "reason": "Infinite abilities in the demo."},
+     "references": [
+       {"id": "official-sova", "url": "https://wiki.playvalorant.com/en-us/Sova", "quote": "Cooldown: 50 s", "value": 50.0, "stance": "supporting"},
+       {"id": "catalogue-sova", "url": "reference/abilities.json#Sova/Recon Bolt", "quote": "Restock: 60 seconds", "value": 60.0, "stance": "contradicting", "retrieved_at": "2026-09-04", "patch": "13.05"}
+     ]},
+    {"hypothesis_id": "web-sova-hunters-fury-duration", "subject": "sova:hunter's fury", "property": "duration_s",
+     "claim": "Sova's Hunter's Fury lasts 6 s.", "value": 6.0,
+     "check": {"kind": "lifetime_upper", "ability_id": "sova:hunter's fury", "expected_ms": 6000},
+     "references": [
+       {"id": "official-sova", "url": "https://wiki.playvalorant.com/en-us/Sova", "quote": "Duration: 6 s", "value": 6.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-skye-trailblazer-duration", "subject": "skye:trailblazer", "property": "duration_s",
+     "claim": "Skye's Trailblazer lasts 6 s.", "value": 6.0,
+     "check": {"kind": "lifetime_upper", "ability_id": "skye:trailblazer", "expected_ms": 6000},
+     "references": [
+       {"id": "official-skye", "url": "https://wiki.playvalorant.com/en-us/Skye", "quote": "Duration: 6 s", "value": 6.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-skye-guiding-light-duration", "subject": "skye:guiding light", "property": "duration_s",
+     "claim": "Skye's Guiding Light lasts 2 s.", "value": 2.0,
+     "check": {"kind": "lifetime_upper", "ability_id": "skye:guiding light", "expected_ms": 2000},
+     "references": [
+       {"id": "official-skye", "url": "https://wiki.playvalorant.com/en-us/Skye", "quote": "Duration: 2 s", "value": 2.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-skye-guiding-light-cooldown", "subject": "skye:guiding light", "property": "restock_s",
+     "claim": "Skye's Guiding Light restocks after 50 s.", "value": 50.0,
+     "check": {"kind": "none", "reason": "Infinite abilities in the demo."},
+     "references": [
+       {"id": "official-skye", "url": "https://wiki.playvalorant.com/en-us/Skye", "quote": "Cooldown: 50 s", "value": 50.0, "stance": "supporting"},
+       {"id": "catalogue-skye", "url": "reference/abilities.json#Skye/Guiding Light", "quote": "Restock: 60 seconds", "value": 60.0, "stance": "contradicting", "retrieved_at": "2026-09-04", "patch": "13.05"}
+     ]},
+    {"hypothesis_id": "web-reyna-leer-duration", "subject": "reyna:leer", "property": "duration_s",
+     "claim": "Reyna's Leer lasts 1.6 s after a 0.4 s windup.", "value": 2.0,
+     "check": {"kind": "lifetime_upper", "ability_id": "reyna:leer", "expected_ms": 2000},
+     "references": [
+       {"id": "official-reyna", "url": "https://wiki.playvalorant.com/en-us/Reyna", "quote": "Windup: 0.4 s; Duration: 1.6 s", "value": 2.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-clove-ruse-duration", "subject": "clove:ruse", "property": "duration_s",
+     "claim": "Clove's Ruse smoke lasts 14 s while Clove is alive and 6 s after death.", "value": 14.0,
+     "check": {"kind": "lifetime_upper", "ability_id": "clove:ruse", "expected_ms": 14000},
+     "references": [
+       {"id": "official-clove", "url": "https://wiki.playvalorant.com/en-us/Clove", "quote": "Duration: 14/6 s (Alive/Dead)", "value": 14.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-clove-ruse-cooldown", "subject": "clove:ruse", "property": "restock_s",
+     "claim": "Clove's Ruse restores one charge every 40 s.", "value": 40.0,
+     "check": {"kind": "none", "reason": "Infinite abilities in the demo."},
+     "references": [
+       {"id": "official-clove", "url": "https://wiki.playvalorant.com/en-us/Clove", "quote": "Cooldown: 40 s", "value": 40.0, "stance": "supporting"},
+       {"id": "catalogue-clove", "url": "reference/abilities.json#Clove/Ruse", "quote": "Restock: 40 seconds", "value": 40.0, "stance": "supporting", "retrieved_at": "2026-09-04", "patch": "13.05"}
+     ]},
+    {"hypothesis_id": "web-killjoy-nanoswarm-duration", "subject": "killjoy:nanoswarm", "property": "duration_s",
+     "claim": "Killjoy's Nanoswarm damages for 5 s once activated.", "value": 5.0,
+     "check": {"kind": "none", "reason": "A placed Nanoswarm waits concealed until activated, so its minimap lifetime is not bounded by the 5 s swarm."},
+     "references": [
+       {"id": "official-killjoy", "url": "https://wiki.playvalorant.com/en-us/Killjoy", "quote": "Duration: 5 s", "value": 5.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-cypher-cyber-cage-duration", "subject": "cypher:cyber cage", "property": "duration_s",
+     "claim": "Cypher's Cyber Cage lasts 7.25 s.", "value": 7.25,
+     "check": {"kind": "lifetime_upper", "ability_id": "cypher:cyber cage", "expected_ms": 7250},
+     "references": [
+       {"id": "official-cypher", "url": "https://wiki.playvalorant.com/en-us/Cypher", "quote": "Duration: 7.25 s", "value": 7.25, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-cypher-trapwire-charges", "subject": "cypher:trapwire", "property": "charges",
+     "claim": "Cypher's Trapwire holds 2 charges.", "value": 2,
+     "check": {"kind": "none", "reason": "Infinite abilities refill the tray."},
+     "references": [
+       {"id": "official-cypher", "url": "https://wiki.playvalorant.com/en-us/Cypher", "quote": "Uses: 2", "value": 2, "stance": "supporting"},
+       {"id": "catalogue-cypher", "url": "reference/abilities.json#Cypher/Trapwire", "quote": "Uses: 2", "value": 2, "stance": "supporting", "retrieved_at": "2026-09-04", "patch": "13.05"}
+     ]},
+    {"hypothesis_id": "web-viper-poison-cloud-duration", "subject": "viper:poison cloud", "property": "duration_s",
+     "claim": "Viper's Poison Cloud stays up at least 2 s and then as long as fuel lasts (12 s maximum from full).", "value": 2.0,
+     "check": {"kind": "none", "reason": "Fuel sets the life; the demo's fuel level is unread, so no observed lifetime bounds the claim."},
+     "references": [
+       {"id": "official-viper", "url": "https://wiki.playvalorant.com/en-us/Viper", "quote": "Duration: Minimum 2 s; Passive (Fuel) Duration: 12 s max, 8.5 s max if both abilities activated", "value": 2.0, "stance": "supporting"}
+     ]}
+  ]
+}
