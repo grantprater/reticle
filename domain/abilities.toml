@@ -20,7 +20,6 @@ see = ["abilities/omen-tray-charges"]
 claim = """
 Omen has two Dark Cover charges in slot E. A charge drop of at least 0.25 of
 the slot's p90 clean level between consecutive HUD samples indicates a cast.
-Recharging restores one charge every 30.0 seconds.
 """
 kind = "rule"
 known = "measured"
@@ -28,7 +27,18 @@ since = "2026-09-23"
 subject = "omen:dark cover"
 source = "prototypes/ability_hud.py measured on a06f04a0059f and b9558488a607"
 use = "ability_hud.slot_counts at y 1032..1051, x 980..1050 (slot index 2)"
-see = ["abilities/omen-dark-cover"]
+see = ["abilities/omen-dark-cover", "abilities/omen-dark-cover-restock"]
+
+[omen-dark-cover-restock]
+claim = """
+A spent Dark Cover charge restores after 40 seconds.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-23"
+subject = "omen:dark cover"
+use = "expected gap before a spent slot E charge refills; replaces a 30 s value the HUD measurement stated"
+see = ["abilities/omen-tray-charges"]
 
 [killjoy-alarmbot]
 claim = """
@@ -139,9 +149,8 @@ see = ["abilities/clove-rouse"]
 [phoenix-blaze]
 claim = """
 Phoenix's Blaze is a flame wall in slot C. On the minimap it renders as a
-linear or curved wall segment extending forward from Phoenix, lasting
-for approximately 4.0 seconds. It blocks vision and heals Phoenix while damaging
-enemies.
+linear or curved wall segment extending forward from Phoenix. It blocks vision
+and heals Phoenix while damaging enemies.
 """
 kind = "rule"
 known = "measured"
@@ -149,7 +158,18 @@ since = "2026-09-23"
 subject = "phoenix:blaze"
 source = "prototypes/ability_hud.py measured on 481336df9adb"
 use = "search for linear or curved wall segment upon slot C charge drop"
-see = ["abilities/phoenix-tray-charges"]
+see = ["abilities/phoenix-tray-charges", "abilities/phoenix-blaze-duration"]
+
+[phoenix-blaze-duration]
+claim = """
+Phoenix's Blaze wall lasts 8 seconds.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-23"
+subject = "phoenix:blaze"
+use = "wall lifetime after a slot C cast; replaces an approximate 4 s the wall measurement stated"
+see = ["abilities/phoenix-blaze"]
 
 [phoenix-tray-charges]
 claim = """
