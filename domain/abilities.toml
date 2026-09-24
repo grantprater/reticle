@@ -490,3 +490,19 @@ agents, use the minimap disc lifetime and refuse where two agents' lifetimes
 are within measurement error
 """
 see = ["abilities/enemy-smokes-not-on-minimap", "abilities/miks-smoke-minimap-disc"]
+
+[smoke-bulk-confirm]
+claim = """
+Every smoke agent except Omen and Astra can place two smokes, three for
+Brimstone, and confirm them in bulk, so they appear at the same instant. Omen
+and Astra cannot.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-24"
+source = "the player; a06f04a0059f shows six pairs of Miks smokes born at the same sample"
+use = """
+simultaneous smoke births are one cast from one agent; they are not evidence of
+two smoke agents, and for Omen or Astra they cannot share a cast
+"""
+see = ["abilities/smoke-attribution"]
