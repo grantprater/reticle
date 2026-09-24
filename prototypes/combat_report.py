@@ -1,31 +1,28 @@
-r"""Read the combat report, the post-death panel, with no labels.
+r"""The combat report experiment: what the production reader's rows say.
 
-    .\.venv\Scripts\python.exe prototypes\combat_report.py scan <session> [--hz 1]
+    .\.venv\Scripts\python.exe -m reticle scan <session> --only combat_report
     .\.venv\Scripts\python.exe prototypes\combat_report.py judge <session>
+    .\.venv\Scripts\python.exe prototypes\combat_report.py flags <session>
+    .\.venv\Scripts\python.exe prototypes\combat_report.py icons <session>
+    .\.venv\Scripts\python.exe prototypes\combat_report.py weapons <session>
 
-Why this exists
----------------
-The panel [domain:combat_report/panel-layout] is the one surface that states,
-per enemy engaged, the damage each way, the head/body/legs hit split and who
-killed whom. The killfeed gives only the kill. Nothing here is labelled: the
-panel's own arithmetic and the channels already stored are the checks.
+The reader was promoted on 2026-09-24 into `reticle.combat_report` and the
+panel and round rules into `reticle.adjudication.combat_report`; this file
+calls both and keeps what is still an experiment. Nothing here is labelled:
+the panel's own arithmetic and the channels already stored are the checks.
 
-* **Locator.** The COMBAT REPORT header is fixed UI text. One crop of it, mined
-  from `a06f04a0059f` at 187 s, is matched over the right of the frame by
-  normalised correlation. The panel's height changes with its row count and
-  with the round's end [domain:combat_report/frozen-after-death], so every
-  field is placed relative to the header, never at a fixed screen position.
-* **Digits.** The scoreline's mined digit templates (`ocr.Templates`), matched
-  after `ocr.normalise` scales each blob to the shared grid. Whether they read
-  a different size of the same font is prediction P3, not an assumption.
-* **Checks, all label-free.** A panel is read in every frame it is up and the
-  reads must agree (P2); each damage number must be explained by hits times one
-  weapon's damage (P4, P5); KILLED YOU must appear once and KILLED must match
-  the player's killfeed kills (P6). `scan` stores the reads; `judge` scores them
-  from storage without decoding video.
+* `judge` -- frame-to-frame agreement per field inside each panel (P2), and
+  damage against per-hit values pooled over all rows (P4, loose).
+* `flags` -- the report's per-round kills and deaths against the stored rounds
+  and `checks.KNOWN_KD` (R1, R2), recorded as the `combat_report/flags` series.
+* `icons`, `weapons` -- rows grouped by the enemy's weapon icon, and each row's
+  damage decomposed into per-hit values from the OTHER rows in its group
+  [domain:combat_report/damage-decomposition].
 
-Coverage is every death [domain:combat_report/appears-on-death] plus any buy-phase
-reopen, which can carry extra row kinds [domain:combat_report/survived-round-rows].
+Coverage is every death [domain:combat_report/appears-on-death] plus the
+buy-phase round summary [domain:combat_report/round-summary], which can carry
+extra row kinds [domain:combat_report/survived-round-rows]; the panel freezes
+at death and grows at the round's end [domain:combat_report/frozen-after-death].
 
 Predictions are logged in the store's `notes/predictions.jsonl` under
 `combat-report`.
@@ -33,7 +30,6 @@ Predictions are logged in the store's `notes/predictions.jsonl` under
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import sys
 from pathlib import Path
@@ -43,278 +39,44 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from reticle import ocr  # noqa: E402
-from reticle.decode import sample_at, sample_frames  # noqa: E402
+from reticle import metrics, ocr  # noqa: E402
+from reticle.adjudication import combat_report as adj  # noqa: E402
+from reticle.checks import KNOWN_KD  # noqa: E402
+from reticle.combat_report import PITCH, ROW0, field_at  # noqa: E402
+from reticle.decode import sample_at  # noqa: E402
+from reticle.rounds import player_death_times  # noqa: E402
 from reticle.store import Store  # noqa: E402
-
-VERSION = "combat-report-proto-0.2.0"
-
-# The mined header: session, time and box (x0, y0, x1, y1) at 1080p.
-HEADER_SRC = ("a06f04a0059f", 187000.0, (1633, 465, 1778, 481))
-SEARCH = (1300, 120, 1920, 960)          # x0, y0, x1, y1 searched for the header
-HEADER_MIN = 0.70                        # correlation that counts as found
-
-# Offsets from the header's top-left (hx, hy), measured on 187 s.
-ROW0, PITCH, MAX_ROWS = 25, 58, 5
-OUT_NUM = (-121, 6, -55, 42)             # x0, y0, x1, y1 within a row
-IN_NUM = (199, 6, 262, 42)
-OUT_HITS = (-53, 3, -37, 55)
-IN_HITS = (180, 3, 196, 55)
-OUT_FLAG = (-121, 43, -55, 56)           # KILLED
-IN_FLAG = (195, 43, 262, 56)             # KILLED YOU
-NAME = (55, 43, 140, 56)
-
-BIG_H = (18, 40)                         # damage digit height band, px
-SMALL_H = (6, 14)                        # hit-count digit height band, px
-# Zero hit counts and both flags are drawn grey (~150-200), not white, so they
-# take their own threshold; the panel background sits near 40.
-DIM = 110
+from reticle.version import COMBAT_REPORT_ROUND_VERSION, COMBAT_REPORT_VERSION  # noqa: E402
 
 
-def _source(sid: str) -> tuple[str, float]:
-    m = json.loads((Store().root / "manifests" / f"{sid}.json").read_text())
-    return m["source"]["path"], float(m["source"]["fps"])
+def _manifest(sid: str) -> dict:
+    return Store().read_manifest(sid)
 
 
-def header_template() -> np.ndarray:
-    cache = Store().root / "reference" / "templates" / "combat-report-header.png"
-    if cache.is_file():
-        return cv2.imread(str(cache), cv2.IMREAD_GRAYSCALE)
-    sid, t, (x0, y0, x1, y1) = HEADER_SRC
-    path, fps = _source(sid)
-    s = next(sample_at(path, [t], fps))
-    g = cv2.cvtColor(s.frame, cv2.COLOR_BGR2GRAY)[y0:y1, x0:x1]
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(cache), g)
-    return g
+def _date(sid: str) -> str:
+    from reticle.cli import _date_of
+    return _date_of(_manifest(sid))
 
 
-# Flag words under a damage number, each mined once from a frame whose word was
-# read by eye: word -> (session, t_ms, hx, hy, row, field box).
-FLAG_SRC = {
-    "KILLED": ("a06f04a0059f", 187000.0, 1633, 465, 1, "out"),
-    "KILLED YOU": ("a06f04a0059f", 187000.0, 1633, 465, 0, "in"),
-    "ASSIST": ("a06f04a0059f", 1429000.0, 1633, 343, 0, "out"),
-}
-FLAG_PAD = 3
+def _frames(sid: str) -> list[dict]:
+    rows = Store().read_events("combat_report", sid)
+    if not rows or rows[0].get("combat_report_version") != COMBAT_REPORT_VERSION:
+        raise SystemExit(f"{sid}: scan first: reticle scan {sid} --only combat_report")
+    return [r for r in rows if r.get("kind") == "frame"]
 
 
-def flag_templates() -> dict[str, np.ndarray]:
-    """Tight crops of each flag word, cached beside the header template."""
-    root = Store().root / "reference" / "templates"
-    out, todo = {}, {}
-    for word, src in FLAG_SRC.items():
-        f = root / f"combat-report-flag-{word.lower().replace(' ', '-')}.png"
-        if f.is_file():
-            out[word] = cv2.imread(str(f), cv2.IMREAD_GRAYSCALE)
-        else:
-            todo.setdefault((src[0], src[1]), []).append((word, src, f))
-    for (sid, t), items in todo.items():
-        path, fps = _source(sid)
-        g = cv2.cvtColor(next(sample_at(path, [t], fps)).frame, cv2.COLOR_BGR2GRAY)
-        for word, (_, _, hx, hy, row, side), f in items:
-            cell = _field(g, hx, hy, OUT_FLAG if side == "out" else IN_FLAG, ROW0 + row * PITCH)
-            ys, xs = np.nonzero(cell >= DIM)
-            crop = cell[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
-            root.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(f), crop)
-            out[word] = crop
-    return out
-
-
-def read_flag(gray, hx, hy, box, dy, words) -> dict:
-    """Best correlation of each flag word inside the (padded) flag field. The
-    field is dark when no flag is drawn, so a flat field scores nothing."""
-    x0, y0, x1, y1 = box
-    cell = _field(gray, hx, hy, (x0 - FLAG_PAD, y0 - FLAG_PAD, x1 + FLAG_PAD, y1 + FLAG_PAD), dy)
-    if cell.size == 0 or cell.std() < 5:
-        return {w: 0.0 for w in words}
-    out = {}
-    for w, t in words.items():
-        if t.shape[0] > cell.shape[0] or t.shape[1] > cell.shape[1]:
-            out[w] = 0.0
-            continue
-        out[w] = round(float(cv2.matchTemplate(cell, t, cv2.TM_CCOEFF_NORMED).max()), 3)
-    return out
-
-
-def locate(gray: np.ndarray, tpl: np.ndarray) -> tuple[float, int, int]:
-    x0, y0, x1, y1 = SEARCH
-    r = cv2.matchTemplate(gray[y0:y1, x0:x1], tpl, cv2.TM_CCOEFF_NORMED)
-    _, mx, _, loc = cv2.minMaxLoc(r)
-    return float(mx), x0 + loc[0], y0 + loc[1]
-
-
-def _field(gray, hx, hy, box, dy=0):
-    x0, y0, x1, y1 = box
-    return gray[hy + dy + y0: hy + dy + y1, hx + x0: hx + x1]
-
-
-def read_number(patch, tpl, band, threshold=ocr.THRESHOLD):
-    """Digits in `patch` within the height band: (text, worst score, worst
-    margin), or (None, reason) fields when nothing digit-shaped is there."""
-    if patch.size == 0:
-        return {"text": None, "reason": "off-frame"}
-    binary, raw = ocr._raw_components(patch, threshold)
-    lo, hi = band
-    glyphs = [ocr.Glyph(x=x, y=y, w=w, h=h,
-                        bitmap=ocr.normalise(binary[y:y + h, x:x + w]))
-              for x, y, w, h, a in sorted(raw) if lo <= h <= hi and w <= h]
-    if not glyphs:
-        return {"text": None, "reason": "no-glyph"}
-    return _labelled(glyphs, tpl)
-
-
-def _labelled(glyphs, tpl):
-    text, score, margin = "", 1.0, 1.0
-    for g in glyphs:
-        lab, s, m = tpl.match(g)
-        text += lab
-        score, margin = min(score, s), min(margin, m)
-    return {"text": text, "score": round(score, 3), "margin": round(margin, 3)}
-
-
-def read_hits(patch, tpl, threshold=DIM):
-    """Three stacked hit counts, head to legs, one blob per count."""
-    if patch.size == 0:
-        return {"text": None, "reason": "off-frame"}
-    binary, raw = ocr._raw_components(patch, threshold)
-    lo, hi = SMALL_H
-    blobs = sorted((b for b in raw if lo <= b[3] <= hi), key=lambda b: b[1])
-    if len(blobs) != 3:
-        return {"text": None, "reason": f"{len(blobs)}-blobs"}
-    # The panel draws a zero count grey and any other count white, so the
-    # blob's peak decides zero; only a white blob is matched, re-thresholded
-    # at the white level so its grey anti-aliasing does not thicken it.
-    text, score, margin = "", 1.0, 1.0
-    for x, y, w, h, a in blobs:
-        cell = patch[y:y + h, x:x + w]
-        if cell.max() < ocr.THRESHOLD:
-            text += "0"
-            continue
-        wb = (cell >= ocr.THRESHOLD).astype(np.uint8)
-        ys, xs = np.nonzero(wb)
-        wb = wb[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
-        lab, s, m = tpl.match(ocr.Glyph(x=x, y=y, w=wb.shape[1], h=wb.shape[0],
-                                        bitmap=ocr.normalise(wb)))
-        text += lab
-        score, margin = min(score, s), min(margin, m)
-    return {"text": text, "score": round(score, 3), "margin": round(margin, 3)}
-
-
-def bright(patch, threshold=ocr.THRESHOLD) -> float:
-    return float((patch >= threshold).mean()) if patch.size else 0.0
-
-
-def read_panel(gray, hx, hy, tpl, words):
-    rows = []
-    for k in range(MAX_ROWS):
-        dy = ROW0 + k * PITCH
-        out = read_number(_field(gray, hx, hy, OUT_NUM, dy), tpl, BIG_H)
-        inc = read_number(_field(gray, hx, hy, IN_NUM, dy), tpl, BIG_H)
-        if out["text"] is None and inc["text"] is None:
-            break
-        rows.append({
-            "out": out, "in": inc,
-            "out_hits": read_hits(_field(gray, hx, hy, OUT_HITS, dy), tpl),
-            "in_hits": read_hits(_field(gray, hx, hy, IN_HITS, dy), tpl),
-            "out_flag": round(bright(_field(gray, hx, hy, OUT_FLAG, dy), DIM), 3),
-            "in_flag": round(bright(_field(gray, hx, hy, IN_FLAG, dy), DIM), 3),
-            "name_ink": round(bright(_field(gray, hx, hy, NAME, dy), 150), 3),
-            "out_word": read_flag(gray, hx, hy, OUT_FLAG, dy, words),
-            "in_word": read_flag(gray, hx, hy, IN_FLAG, dy, words),
-        })
-    return rows
-
-
-def scan(sid: str, hz: float) -> Path:
-    path, fps = _source(sid)
-    head = header_template()
-    words = flag_templates()
-    tpl = ocr.Templates.load(json.loads(
-        (Store().root / "manifests" / f"{sid}.json").read_text())["source_profile"])
-    out = Store().root / "analysis" / f"combat_report_{sid}.jsonl"
-    n = found = 0
-    with out.open("w", encoding="utf-8") as f:
-        for s in sample_frames(path, hz, fps):
-            g = cv2.cvtColor(s.frame, cv2.COLOR_BGR2GRAY)
-            score, hx, hy = locate(g, head)
-            rec = {"t_ms": s.t_ms, "header": round(score, 3), "hx": hx, "hy": hy,
-                   "version": VERSION}
-            if score >= HEADER_MIN:
-                rec["rows"] = read_panel(g, hx, hy, tpl, words)
-                found += 1
-            f.write(json.dumps(rec) + "\n")
-            n += 1
-    print(f"{n} frames, header found in {found}; wrote {out}")
-    return out
-
-
-def _deaths(sid: str) -> np.ndarray:
-    import pyarrow.parquet as pq
-    f = glob.glob(str(Store().root / "l1" / "hud" / "*" / f"session={sid}" / "hud.parquet"))[0]
-    t = pq.read_table(f, columns=["t_ms", "kf_player_death"]).to_pydict()
-    tm = np.array(t["t_ms"])
-    d = np.array([(v or 0) > 0 for v in t["kf_player_death"]])
-    return tm[np.flatnonzero(d & ~np.r_[False, d[:-1]])]
+def _deaths(sid: str) -> list[float]:
+    return player_death_times(Store().read_hud(sid, _date(sid)))
 
 
 def _rounds(sid: str) -> list[dict]:
-    import pyarrow.parquet as pq
-    f = glob.glob(str(Store().root / "l2" / "rounds" / "*" / f"session={sid}" / "*.parquet"))[0]
-    return pq.read_table(f).to_pylist()
+    return Store().read_rounds(sid, _date(sid)).to_pylist()
 
 
-def _load(sid: str) -> list[dict]:
-    return [json.loads(l) for l in
-            (Store().root / "analysis" / f"combat_report_{sid}.jsonl").open()]
-
-
-def _episodes(recs: list[dict]) -> list[list[dict]]:
-    """Runs of frames with the header found, split at gaps over 3 s."""
-    eps, cur = [], []
-    for r in (r for r in recs if r["header"] >= HEADER_MIN):
-        if cur and r["t_ms"] - cur[-1]["t_ms"] > 3000:
-            eps.append(cur); cur = []
-        cur.append(r)
-    if cur:
-        eps.append(cur)
-    return eps
-
-
-def _sig(r: dict) -> tuple:
-    return tuple((row["out"]["text"], row["in"]["text"],
-                  row["out_hits"]["text"], row["in_hits"]["text"])
-                 for row in r.get("rows", []))
-
-
-def distinct_panels(recs: list[dict], deaths: np.ndarray | None = None) -> list[dict]:
-    """One representative frame per distinct panel: the episode's modal read,
-    taken at the frame nearest the episode's middle that shows it.
-
-    An episode that starts at a death is always a new panel: two rounds can
-    read identically (one 160 headshot each). Any other episode is a reopen of
-    the previous panel when its damage numbers match, which are stable across
-    frames where hit counts are not."""
-    out = []
-    for e in _episodes(recs):
-        sigs = {}
-        for r in e:
-            sigs.setdefault(_sig(r), []).append(r)
-        sig, frames = max(sigs.items(), key=lambda kv: len(kv[1]))
-        if not sig:
-            continue
-        t0 = e[0]["t_ms"]
-        at_death = deaths is not None and bool(
-            len(deaths[(deaths >= t0 - 5000) & (deaths <= t0 + 2000)]))
-        dmg = [(o, i) for o, i, _, _ in sig]
-        if out and not at_death and dmg == [(o, i) for o, i, _, _ in out[-1]["rows"]]:
-            continue
-        mid = frames[len(frames) // 2]
-        out.append({"t_ms": mid["t_ms"], "hx": mid["hx"], "hy": mid["hy"],
-                    "episode_start_ms": t0, "rows": sig, "frames": frames,
-                    "at_death": at_death})
-    return out
+def _panels(sid: str) -> list[dict]:
+    ps = adj.panels(_frames(sid), _deaths(sid))
+    adj.assign_rounds(ps, _rounds(sid))
+    return ps
 
 
 ICON = (35, 0, 160, 32)                  # weapon icon box within a row
@@ -322,28 +84,36 @@ ICON_GRID = (24, 96)                     # h, w after tight crop
 
 
 def crop_icons(sid: str) -> Path:
-    """Crop each distinct panel's weapon icons from one frame apiece."""
-    path, fps = _source(sid)
-    panels = distinct_panels(_load(sid), _deaths(sid))
-    by_t = {p["t_ms"]: p for p in panels}
+    """Crop each panel's weapon icons from one frame that shows its modal read."""
+    frames = _frames(sid)
+    reps = []
+    for p in _panels(sid):
+        want = tuple(tuple(row[f] for f in adj.FIELDS) for row in p["rows"])
+        shown = [r for r in frames if p["start_ms"] <= r["t_ms"] <= p["end_ms"]
+                 and "rows" in r and (r.get("header") or 0) >= adj.HEADER_MIN
+                 and adj.frame_read(r) == want]
+        if shown:
+            reps.append((shown[len(shown) // 2], p))
+    m = _manifest(sid)["source"]
+    by_t = {r["t_ms"]: (r, p) for r, p in reps}
     bitmaps, meta = [], []
-    for s in sample_at(path, sorted(by_t), fps):
-        p = by_t[s.t_ms] if s.t_ms in by_t else min(panels, key=lambda q: abs(q["t_ms"] - s.t_ms))
+    for s in sample_at(m["path"], sorted(by_t), float(m["fps"])):
+        r, p = by_t.get(s.t_ms) or min(reps, key=lambda q: abs(q[0]["t_ms"] - s.t_ms))
         g = cv2.cvtColor(s.frame, cv2.COLOR_BGR2GRAY)
         for k, row in enumerate(p["rows"]):
-            cell = _field(g, p["hx"], p["hy"], ICON, ROW0 + k * PITCH)
+            cell = field_at(g, r["hx"], r["hy"], ICON, ROW0 + k * PITCH)
             b = (cell >= ocr.THRESHOLD).astype(np.uint8)
             ys, xs = np.nonzero(b)
             if len(xs) < 30:
                 continue
             b = b[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
             bitmaps.append(cv2.resize(b, ICON_GRID[::-1], interpolation=cv2.INTER_AREA))
-            meta.append({"t_ms": p["t_ms"], "episode_start_ms": p["episode_start_ms"],
-                         "row": k, "read": list(row),
+            meta.append({"t_ms": r["t_ms"], "episode_start_ms": p["start_ms"], "row": k,
+                         "read": [row[f] for f in adj.FIELDS],
                          "aspect": round(b.shape[1] / b.shape[0], 2)})
     out = Store().root / "analysis" / f"combat_report_icons_{sid}.npz"
     np.savez_compressed(out, bitmaps=np.array(bitmaps), meta=json.dumps(meta))
-    print(f"{len(panels)} distinct panels, {len(bitmaps)} icons; wrote {out}")
+    print(f"{len(reps)} panels, {len(bitmaps)} icons; wrote {out}")
     return out
 
 
@@ -470,140 +240,56 @@ def weapons(sid: str) -> None:
         print(f" {side} tally: {tally}")
 
 
-FLAG_MIN = 0.7                           # flag word correlation that counts as drawn
-SUMMARY_WINDOW_MS = 45000                # a new panel this early in a round, with no
-                                         # death near, summarises the previous round
-
-
-def _flags(frames: list[dict], k: int) -> dict[str, bool]:
-    """Majority vote per flag word over the frames showing this panel."""
-    votes = {}
-    for r in frames:
-        row = r["rows"][k]
-        for side in ("out_word", "in_word"):
-            for w, v in row.get(side, {}).items():
-                key = f"{side[:-5]}:{w}"
-                votes.setdefault(key, []).append(v >= FLAG_MIN)
-    return {key: sum(v) * 2 > len(v) for key, v in votes.items()}
-
-
 def flags(sid: str) -> None:
-    """R1/R2: the report's flags against stored per-round kills and deaths."""
-    rounds = sorted(_rounds(sid), key=lambda r: r["t_start_ms"])
-    deaths = _deaths(sid)
-    by_round = {}
-    for p in distinct_panels(_load(sid), deaths):
-        t0 = p["episode_start_ms"]
-        cur = [r for r in rounds if r["t_start_ms"] <= t0 <= r["t_end_ms"] + 8000]
-        rnd = cur[-1] if cur else None
-        died = p["at_death"]
-        kind = "death" if died else "summary"
-        if rnd and not died and t0 - rnd["t_start_ms"] < SUMMARY_WINDOW_MS:
-            prev = [r for r in rounds if r["t_end_ms"] <= rnd["t_start_ms"]]
-            rnd = prev[-1] if prev else None
-        if rnd is None:
-            print(f"  panel at {t0/1000:.1f}s maps to no round")
-            continue
-        f = [_flags(p["frames"], k) for k in range(len(p["rows"]))]
-        rec = {"t0": t0 / 1000, "kind": kind,
-               "killed": sum(x.get("out:KILLED", False) for x in f),
-               "assist": sum(x.get("out:ASSIST", False) for x in f),
-               "killed_you": sum(x.get("in:KILLED YOU", False) for x in f),
-               "rows": len(p["rows"])}
-        by_round.setdefault(rnd["round_no"], []).append(rec)
-    agree_k = agree_d = n = 0
-    print(f"{'rnd':>3} {'kills':>5} {'deaths':>6}  panels (start, kind, KILLED, KILLED YOU, ASSIST)")
-    for r in rounds:
-        ps = by_round.get(r["round_no"], [])
-        tag = ""
-        if ps:
-            n += 1
-            # The last panel of a round carries its full set of rows.
-            last = ps[-1]
-            k_ok = last["killed"] == (r["player_kills"] or 0)
-            d_ok = max(p["killed_you"] for p in ps) == (r["player_deaths"] or 0)
-            agree_k += k_ok; agree_d += d_ok
-            tag = ("" if k_ok else " KILLS-DIFFER") + ("" if d_ok else " DEATHS-DIFFER")
-        else:
-            tag = " no panel"
-        print(f"{r['round_no']:>3} {r['player_kills']!s:>5} {r['player_deaths']!s:>6}  "
-              + "; ".join(f"{p['t0']:.0f} {p['kind']} K{p['killed']} KY{p['killed_you']} A{p['assist']}" for p in ps)
-              + tag)
-    print(f"\nrounds with a panel {n}/{len(rounds)}; kills agree {agree_k}/{n}; deaths agree {agree_d}/{n}")
-    tk = sum(ps[-1]["killed"] for ps in by_round.values())
-    td = sum(max(p["killed_you"] for p in ps) for ps in by_round.values())
-    print(f"report totals: kills {tk}, deaths {td}, assists {sum(ps[-1]['assist'] for ps in by_round.values())}")
-    from reticle import metrics
-    from reticle.checks import KNOWN_KD
+    """R1/R2: the adjudication's per-round counts, printed and recorded against
+    the stored rounds and `checks.KNOWN_KD`."""
+    rounds = _rounds(sid)
+    ev = adj.events(sid, _frames(sid), rounds, _deaths(sid))
+    head = ev[0]
+    for r in (e for e in ev if e["kind"] == "round"):
+        tag = (("" if r["kills_agree"] is not False else " KILLS-DIFFER")
+               + ("" if r["deaths_agree"] is not False else " DEATHS-DIFFER")
+               + (" no panel" if r["kills"] is None else ""))
+        print(f"{r['round_no']:>3} stored K{r['stored_kills']} D{r['stored_deaths']}  "
+              f"report K{r['kills']} D{r['deaths']} A{r['assists']}{tag}")
+    print(f"\nrounds with a panel {head['rounds_with_panel']}/{head['rounds']}; "
+          f"report kills {head['kills']}, deaths {head['deaths']}, assists {head['assists']}")
     known = KNOWN_KD.get(sid)
-    stored_k = sum(r["player_kills"] or 0 for r in rounds)
-    stored_d = sum(r["player_deaths"] or 0 for r in rounds)
-    controls = []
-    if known:
-        controls = [{"name": "kills_vs_known_kd", "observed": tk, "expected": known[0], "tol": 0},
-                    {"name": "deaths_vs_known_kd", "observed": td, "expected": known[1], "tol": 0}]
+    controls = [] if not known else [
+        {"name": "kills_vs_known_kd", "observed": head["kills"], "expected": known[0], "tol": 0},
+        {"name": "deaths_vs_known_kd", "observed": head["deaths"], "expected": known[1], "tol": 0}]
+    seen = [r for r in ev if r["kind"] == "round" and r["kills"] is not None]
     metrics.record("combat_report", part="flags", session=sid,
-                   values={"kills": tk, "deaths": td, "rounds_with_panel": n,
-                           "rounds": len(rounds), "kills_agree_rounds": agree_k,
-                           "deaths_agree_rounds": agree_d,
-                           "stored_round_kills": stored_k, "stored_round_deaths": stored_d},
-                   deps={"version": VERSION, "flag_min": FLAG_MIN,
-                         "summary_window_ms": SUMMARY_WINDOW_MS, "header_min": HEADER_MIN},
-                   context={"round_version": rounds[0].get("round_version")},
+                   values={"kills": head["kills"], "deaths": head["deaths"],
+                           "rounds_with_panel": head["rounds_with_panel"], "rounds": head["rounds"],
+                           "kills_agree_rounds": sum(r["kills_agree"] is True for r in seen),
+                           "deaths_agree_rounds": sum(r["deaths_agree"] is True for r in seen),
+                           "stored_round_kills": sum(r["player_kills"] or 0 for r in rounds),
+                           "stored_round_deaths": sum(r["player_deaths"] or 0 for r in rounds)},
+                   deps={"version": COMBAT_REPORT_VERSION, "round_version": COMBAT_REPORT_ROUND_VERSION,
+                         "flag_min": adj.FLAG_MIN, "header_min": adj.HEADER_MIN},
+                   context={"rounds_version": rounds[0].get("round_version")},
                    controls=controls)
 
 
 def judge(sid: str) -> None:
-    recs = _load(sid)
-    hs = np.array([r["header"] for r in recs])
-    print("header score quantiles (all frames):",
-          np.round(np.quantile(hs, [0.5, 0.9, 0.95, 0.99, 1.0]), 3))
-    print("header score histogram:", np.histogram(hs, bins=[0, .3, .4, .5, .6, .7, .8, .9, 1.01])[0])
-    eps = _episodes(recs)
-    deaths = _deaths(sid)
-    print(f"{len(eps)} panel episodes; {len(deaths)} killfeed death onsets")
-    totals, disagreements, rowcounts = {}, [], {}
-    pairs, seen = [], set()
-    for e in eps:
-        t0, t1 = e[0]["t_ms"], e[-1]["t_ms"]
-        near = deaths[(deaths >= t0 - 5000) & (deaths <= t0 + 2000)]
-        sigs = {}
-        for r in e:
-            sigs[_sig(r)] = sigs.get(_sig(r), 0) + 1
-        top = max(sigs.items(), key=lambda kv: kv[1])
-        print(f"  {t0/1000:7.1f}-{t1/1000:7.1f}s  n={len(e):3d}  death={[round(x/1000,1) for x in near]}"
-              f"  reads={len(sigs)}  modal({top[1]})={list(top[0])}")
-        # P2 per field: each (row, field) read against the episode's mode.
-        # A null read is a refusal and is counted apart from a disagreement.
-        for k in range(len(top[0])):
-            for f, name in enumerate(("out", "in", "out_hits", "in_hits")):
-                vals = [r["rows"][k][name]["text"] for r in e if len(r.get("rows", [])) > k]
-                mode = top[0][k][f]
-                n_null = sum(v is None for v in vals)
-                bad = [(r["t_ms"] / 1000, r["rows"][k][name]["text"]) for r in e
-                       if len(r.get("rows", [])) > k
-                       and r["rows"][k][name]["text"] not in (None, mode)]
-                totals.setdefault(name, [0, 0, 0])
-                totals[name][0] += len(vals) - n_null - len(bad)
-                totals[name][1] += len(bad)
-                totals[name][2] += n_null
-                if bad:
-                    disagreements.append((t0 / 1000, k, name, mode, bad[:4]))
-        rowcounts[len(top[0])] = rowcounts.get(len(top[0]), 0) + 1
-        # Episodes that repeat an earlier episode's panel (a buy-phase reopen)
-        # would double-count its rows in the arithmetic.
-        if top[0] not in seen:
-            seen.add(top[0])
-            for out, inc, oh, ih in top[0]:
-                pairs.append(("out", oh, out, t0 / 1000))
-                pairs.append(("in", ih, inc, t0 / 1000))
-    print("\nP2 field agreement with episode mode (agree, disagree, refused):")
-    for name, v in totals.items():
-        print(f"  {name:9s} {v}")
-    print("modal row counts:", rowcounts)
-    print("disagreements (episode start, row, field, mode, first reads):")
-    for d in disagreements:
-        print("  ", d)
+    """P2 per field inside each panel, then the loose pooled arithmetic."""
+    ps = _panels(sid)
+    totals = {f: [0, 0, 0] for f in adj.FIELDS}
+    for p in ps:
+        for f, v in p["agreement"].items():
+            totals[f] = [a + b for a, b in zip(totals[f], v)]
+        print(f"  {p['start_ms']/1000:7.1f}-{p['end_ms']/1000:7.1f}s  {p['kind']:7s} round {p['round_no']}  "
+              f"frames {p['frames']} (modal {p['modal_frames']})  "
+              + str([tuple(row[f] for f in adj.FIELDS) for row in p["rows"]]))
+    print("\nP2 field agreement with the panel's mode (agree, disagree, refused):")
+    for f, v in totals.items():
+        print(f"  {f:9s} {v}")
+    pairs = []
+    for p in ps:
+        for row in p["rows"]:
+            pairs.append(("out", row["out_hits"], row["out"], p["start_ms"] / 1000))
+            pairs.append(("in", row["in_hits"], row["in"], p["start_ms"] / 1000))
     arithmetic(pairs)
 
 
@@ -656,22 +342,10 @@ def arithmetic(pairs) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    a = sub.add_parser("scan"); a.add_argument("session"); a.add_argument("--hz", type=float, default=1.0)
-    b = sub.add_parser("judge"); b.add_argument("session")
-    c = sub.add_parser("icons"); c.add_argument("session")
-    w = sub.add_parser("weapons"); w.add_argument("session")
-    fl = sub.add_parser("flags"); fl.add_argument("session")
+    for name in ("judge", "flags", "icons", "weapons"):
+        sub.add_parser(name).add_argument("session")
     args = ap.parse_args()
-    if args.cmd == "scan":
-        scan(args.session, args.hz)
-    elif args.cmd == "icons":
-        crop_icons(args.session)
-    elif args.cmd == "weapons":
-        weapons(args.session)
-    elif args.cmd == "flags":
-        flags(args.session)
-    else:
-        judge(args.session)
+    {"judge": judge, "flags": flags, "icons": crop_icons, "weapons": weapons}[args.cmd](args.session)
 
 
 if __name__ == "__main__":

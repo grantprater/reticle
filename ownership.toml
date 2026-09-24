@@ -221,6 +221,36 @@ consumers = ["cli"]
 evidence = "tests/test_smokes.py"
 
 [[entry]]
+id = "combat-report-read"
+question = "What does the combat report panel show in this frame: its header score, and per row the damage each way, the hit splits and the flag words?"
+owner = "combat_report"
+role = ["detect"]
+status = "partial"
+produces = ["CombatReportReader", "locate", "read_rows", "read_number", "read_hits", "read_flag", "load_templates", "field_at"]
+not_for = """
+Which panel or round a frame belongs to, or what the flags mean for kills and
+deaths; that is `adjudication.combat_report`. Row names, portraits and the
+KILLED BY header are not read yet, and no agent name is produced.
+"""
+consumers = ["cli"]
+stored_consumers = ["adjudication.combat_report"]
+
+[[entry]]
+id = "combat-report-round"
+question = "Which combat report panels were shown, which round does each summarise, and how many kills, deaths and assists do their flags give the player per round?"
+owner = "adjudication.combat_report"
+role = ["adjudicate"]
+status = "partial"
+produces = ["episodes", "panels", "assign_rounds", "round_counts", "events", "frame_read"]
+not_for = """
+Replacing the stored rounds' kill and death counts: a disagreement is output
+beside them. Which agent killed the player (`death-victim`), and damage
+decomposition by weapon, which stays in `prototypes/combat_report.py`.
+"""
+consumers = ["cli"]
+evidence = "tests/test_combat_report.py"
+
+[[entry]]
 id = "minimap-icon-disposition"
 question = "Which fitted minimap player-icon candidates survive shape, facing, overlap and map-interior decisions?"
 owner = "adjudication.minimap_candidates"

@@ -303,6 +303,16 @@ def _tracks(t, masks, dividers):
     return [a for a in track_entries(t, masks, dividers) if a["counted"]]
 
 
+def player_death_times(table) -> list[float]:
+    """First-seen time of each counted killfeed entry for the player's death,
+    the same tracks `build_rounds` counts, for readers that need the instants
+    rather than a per-round count."""
+    names = set(table.column_names)
+    div = table.column("kf_death_wx").to_pylist() if "kf_death_wx" in names else None
+    return sorted(e["t_first"] for e in _tracks(
+        table.column("t_ms").to_pylist(), table.column("kf_death_mask").to_pylist(), div))
+
+
 #: The player's team is drawn on the LEFT of the scoreline. Structural, not
 #: inferred, and settled 2026-08-27 by three independent lines:
 #:

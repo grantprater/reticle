@@ -2207,3 +2207,4 @@ dependency and can be taken whenever agent identity is next worked on.
 ## Retired from Completed on 2026-09-24
 
 - **`scoreboard-corpus` (2026-09-23):** rescanned the other 17 scoreboard sessions at `scoreboard-0.5.0`. All 17 name both sides from one agreeing set per side; the constrained lineup names 170 of 170 slots against 113 for the top bar. The board changed six top-bar names and a source crop shows all six are corrections. [Results](docs/SCOREBOARD_LINEUP.md#corpus-at-scoreboard-050).
+- **`ability-detection` (2026-09-23):** Promoted scale-selective local contrast disc detection (`detect_ability_discs`) into `reticle/minimap.py`, claiming `[owns:ability-detection]`. POV benchmark corroborates HUD tray charge drops against minimap disc appearances, achieving 9/9 true positives (100% recall) and 0 false positives across five solo ability demo sessions. Added unit tests in `tests/test_minimap_discs.py`.

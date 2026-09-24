@@ -48,7 +48,7 @@ modules = ["primitives", "segment", "stalls", "synth"]
 claim = "pixels in, one observation out; no reader knows another"
 modules = ["minimap", "ocr", "killfeed", "roster", "ping", "cone", "lighting",
            "hud_reader", "scoreboard", "glance", "track", "economy",
-           "minimap_dark"]
+           "minimap_dark", "combat_report"]
 
 [orchestration]
 claim = "shared decode passes, which dispatch to readers and own no reading"
@@ -63,6 +63,7 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "adjudication.gallery", "adjudication.phases", "adjudication.identity",
            "adjudication.death", "adjudication.weapon", "adjudication.scoreboard",
            "adjudication.minimap_candidates", "adjudication.smokes",
+           "adjudication.combat_report",
            "ability_coverage",
            "ability_timeline", "gametime", "domain_learning"]
 

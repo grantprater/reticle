@@ -69,7 +69,7 @@ from .primitives import PrimitiveExtractor
 from .profiles import DEFAULT_PROFILE, MinimapMode, get_profile
 from .segment import HUD_CHROME_ROIS, STATES, SegmentConfig, classify, segment
 from .store import DEFAULT_STORE, Store
-from .version import (ALLY_ICON_VERSION, MINIMAP_DARK_VERSION, SMOKE_VERSION, EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
+from .version import (ALLY_ICON_VERSION, COMBAT_REPORT_VERSION, MINIMAP_DARK_VERSION, SMOKE_VERSION, EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
                       ROSTER_VERSION, SCOREBOARD_VERSION, SEGMENTER_VERSION)
 from .hud_reader import HudReader
 
@@ -778,7 +778,7 @@ def cmd_scan(args) -> int:
             "the manifest records where it was at ingest time"
         )
     channels = set(args.only or ('hud', 'minimap', 'ping', 'roster', 'scoreboard',
-                                 'ally_icon', 'minimap_dark'))
+                                 'ally_icon', 'minimap_dark', 'combat_report'))
     # IDENTITY RIDES EVERY SCAN. The top bar is drawn on every frame, so naming
     # the ten agents costs no decode of its own -- it joins the pass at 0.1 Hz.
     # A scan narrowed with `--only` is testing one specific thing and is left
@@ -810,11 +810,15 @@ def cmd_scan(args) -> int:
     # without a re-read.
     want_dark = 'minimap_dark' in channels and (
         args.force or store.events_version("minimap_dark", sid) != MINIMAP_DARK_VERSION)
+    # The combat report over the whole capture at 1 Hz: a header correlation
+    # per frame, rows only where a panel may be up.
+    want_report = 'combat_report' in channels and (
+        args.force or store.events_version("combat_report", sid) != COMBAT_REPORT_VERSION)
     want_scoreboard = ('scoreboard' in channels and args.scoreboard and
                        (args.force or store.events_version("scoreboard", sid)
                         != SCOREBOARD_VERSION))
     if not (want_hud or want_portraits or want_mm or want_ping or want_roster
-            or want_scoreboard or want_ally or want_dark):
+            or want_scoreboard or want_ally or want_dark or want_report):
         print(f"cache hit  session {sid}: requested channels are current or disabled; "
               "--force to re-read")
         return 0
@@ -831,7 +835,8 @@ def cmd_scan(args) -> int:
         + ([f"roster {args.hz:g} Hz, whole capture"] if want_roster else [])
         + ([f"scoreboard {args.hz:g} Hz, whole capture"] if want_scoreboard else [])
         + ([f"ally icons {args.ally_hz:g} Hz, active spans"] if want_ally else [])
-        + ([f"minimap dark {args.dark_hz:g} Hz, active spans"] if want_dark else [])))
+        + ([f"minimap dark {args.dark_hz:g} Hz, active spans"] if want_dark else [])
+        + ([f"combat report {args.report_hz:g} Hz, whole capture"] if want_report else [])))
 
     hp = _HudPass(store, manifest, profile, args) if want_hud else None
     mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
@@ -894,7 +899,11 @@ def cmd_scan(args) -> int:
                 sgray=mp.sgray if mp is not None else ctx.sgray(),
                 static=ctx.map_reference(), ref=dark_ref,
                 box=minimap_roi_px(profile, *ctx.wh), hz=args.dark_hz, spans=spans)
-    readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp) if r is not None]
+    cp = None
+    if want_report:
+        from .combat_report import CombatReportReader
+        cp = CombatReportReader(Templates.load(profile.name), hz=args.report_hz, spans=None)
+    readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, cp) if r is not None]
 
     t0 = time.perf_counter()
     last = [t0]
@@ -1012,6 +1021,11 @@ def cmd_scan(args) -> int:
         if over:
             print(f"           !! {over} rows report MORE THAN FIVE alive "
                   f"-- the split rule is wrong, do not use this table")
+
+    if cp is not None:
+        rows = cp.events(sid)
+        out = store.write_events("combat_report", sid, rows)
+        print(f"combat report {rows[0]['frames']} frames, rows read in {rows[0]['rows_read']} -> {out}")
 
     if dp is not None:
         rows = dp.events(sid, geometry.key_of(sid, store.root))
@@ -2214,6 +2228,39 @@ def cmd_ability_light(args) -> int:
     return 0
 
 
+def cmd_combat_report(args) -> int:
+    """Panels, rounds and per-round counts from stored `combat_report` rows.
+    Decodes no video."""
+    from .adjudication.combat_report import events as report_events
+    from .rounds import player_death_times
+
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    sid, date = manifest["session_id"], _date_of(manifest)
+    rows = store.read_events("combat_report", sid)
+    if not rows:
+        raise SystemExit(f"{sid}: no combat_report rows -- run `reticle scan {sid} --only combat_report`")
+    if rows[0].get("combat_report_version") != COMBAT_REPORT_VERSION:
+        raise SystemExit(f"{sid}: combat_report rows are {rows[0].get('combat_report_version')}, "
+                         f"current is {COMBAT_REPORT_VERSION} -- re-scan before trusting them")
+    rounds = store.read_rounds(sid, date)
+    if rounds is None:
+        raise SystemExit(f"{sid}: no stored rounds -- run `reticle rounds {sid}` first")
+    deaths = player_death_times(store.read_hud(sid, date))
+    out_rows = report_events(sid, rows, rounds.to_pylist(), deaths)
+    out = store.write_events("combat_report_round", sid, out_rows)
+    head = out_rows[0]
+    print(f"{sid}: {head['panels']} panels over {head['rounds_with_panel']}/{head['rounds']} rounds; "
+          f"report kills {head['kills']}, deaths {head['deaths']}, assists {head['assists']}; "
+          f"disagree with stored rounds on kills {head['kills_disagree']}, deaths {head['deaths_disagree']} -> {out}")
+    for r in out_rows:
+        if r["kind"] == "round" and (r["kills_agree"] is False or r["deaths_agree"] is False
+                                     or r["kills"] is None):
+            print(f"  round {r['round_no']:>2}: report K{r['kills']} D{r['deaths']}  "
+                  f"stored K{r['stored_kills']} D{r['stored_deaths']}  {r['reason'] or ''}")
+    return 0
+
+
 def cmd_smokes(args) -> int:
     """Smoke tracks from stored `minimap_dark` rows. Decodes no video."""
     from .adjudication.smokes import events as smoke_events
@@ -2714,8 +2761,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "round lifetimes want the minimap's 15")
     s.add_argument("--only", nargs="+",
                    choices=("hud", "minimap", "ping", "roster", "scoreboard",
-                            "ally_icon", "minimap_dark"),
+                            "ally_icon", "minimap_dark", "combat_report"),
                    help="run only these readers through the shared pass; roster-only needs no minimap geometry")
+    s.add_argument("--report-hz", type=float, default=1.0,
+                   help="combat report rate, whole capture (default 1)")
     s.add_argument("--dark-hz", type=float, default=4.0,
                    help="grey dark minimap floor rate for smokes (default 4)")
     s.add_argument("--no-roster", dest="roster", action="store_false",
@@ -2827,6 +2876,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--step", type=float, default=0.5,
                    help="tray sampling interval for --materialize (default 0.5s)")
     s.set_defaults(func=cmd_ability_timeline)
+
+    s = sub.add_parser("combat-report", help="combat report panels and per-round counts from stored rows (no video)")
+    s.add_argument("session", nargs="?")
+    s.set_defaults(func=cmd_combat_report)
 
     s = sub.add_parser("smokes", help="smoke tracks from stored minimap_dark rows (no video)")
     s.add_argument("session", nargs="?")

@@ -146,6 +146,15 @@ MINIMAP_DARK_VERSION = "minimap-dark-0.1.0"
 # Bump when a birth, presence or end rule in `adjudication.smokes` changes.
 # 0.2.0: sampling gaps are unobserved; onsets carry their own censoring.
 SMOKE_VERSION = "smoke-0.2.0"
+# Combat report reads (header score, per-row damage, hit splits, flag-word
+# correlations), written as `combat_report` rows by `reticle scan`. It stores no
+# decision. Bump when an offset, a threshold, the templates or the stored fields
+# change -- those need pixels, so they re-decode.
+COMBAT_REPORT_VERSION = "combat-report-0.1.0"
+# Panels, their rounds and per-round kill/death/assist counts, recomputed from
+# stored `combat_report` rows by `reticle combat-report`. Bump when a grouping,
+# voting or round rule in `adjudication.combat_report` changes.
+COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.1.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.
