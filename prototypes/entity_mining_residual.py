@@ -182,7 +182,7 @@ def lifetime(ts: np.ndarray, st: str) -> dict:
             "unobserved_inside": gaps}
 
 
-def run(record: bool = False) -> list[dict]:
+def mine_demos(record: bool = False) -> list[dict]:
     rows = []
     for sid, slots in USES.items():
         s = Session(sid)
@@ -225,7 +225,7 @@ def run(record: bool = False) -> list[dict]:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--record", action="store_true")
-    run(ap.parse_args(argv).record)
+    mine_demos(ap.parse_args(argv).record)
     return 0
 
 
