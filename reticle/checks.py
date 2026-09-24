@@ -304,8 +304,43 @@ def entry_presence(times, masks, dividers=None) -> list[dict]:
             for t in times]
 
 
+#: The longest a real entry was seen on screen (8017 ms over the frozen P3
+#: windows, above): two tracks spanning more than this are two entries.
+KF_ENTRY_MAX_LIFE_MS = 8_000
+
+
+def merge_split_tracks(tracks: list[dict]) -> list[dict]:
+    """Join a player's kill or death tracks that are one entry split in two.
+
+    The entry stays on screen while its ATTRIBUTION drops out -- `a06f04a0059f`
+    shows one Me->Deebo entry in slot 0 from 106.5 to 111.0 s with the kill
+    verdict lost for 3 s, longer than `KF_TRACK_GAP_MS` -- or it rises a slot
+    across the gap. A later track is the same entry when its divider column
+    matches within `KF_SIG_TOL`, it starts after the earlier one ends, it sits
+    in the same or a higher slot (entries only rise), and the two span no more
+    than one entry can live. Found against the combat report; over the 17
+    `KNOWN_KD` sessions this merges exactly those two and no other track.
+    """
+    out: list[dict] = []
+    for tr in sorted(tracks, key=lambda x: x["t_first"]):
+        prev = next((p for p in reversed(out)
+                     if p.get("sig") and tr.get("sig")
+                     and abs(p["sig"] - tr["sig"]) <= KF_SIG_TOL
+                     and tr["t_first"] > p["t_last"] and tr["slot"] <= p["slot"]
+                     and tr["t_last"] - p["t_first"] <= KF_ENTRY_MAX_LIFE_MS), None)
+        if prev is None:
+            out.append(dict(tr))
+            continue
+        prev["t_last"] = max(prev["t_last"], tr["t_last"])
+        prev["slot"] = tr["slot"]
+        prev["n_obs"] = prev.get("n_obs", 0) + tr.get("n_obs", 0)
+        prev["merged"] = prev.get("merged", 0) + 1
+    return out
+
+
 def _count(times, masks, dividers=None) -> int:
-    return sum(1 for a in track_entries(times, masks, dividers) if a["counted"])
+    return len(merge_split_tracks(
+        [a for a in track_entries(times, masks, dividers) if a["counted"]]))
 
 
 def player_events(times, kill_masks, death_masks,

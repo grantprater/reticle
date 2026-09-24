@@ -119,7 +119,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .checks import KF_MIN_OBS, track_entries
+from .checks import KF_MIN_OBS, merge_split_tracks, track_entries
 from .killfeed import wx_at  # noqa: F401  (kept so callers can unpack dividers)
 
 # The spike countdown. A mid-round reset to this is a plant; `checks` uses the
@@ -352,8 +352,8 @@ def player_death_times(table) -> list[float]:
     rather than a per-round count."""
     names = set(table.column_names)
     div = table.column("kf_death_wx").to_pylist() if "kf_death_wx" in names else None
-    return sorted(e["t_first"] for e in _tracks(
-        table.column("t_ms").to_pylist(), table.column("kf_death_mask").to_pylist(), div))
+    return sorted(e["t_first"] for e in merge_split_tracks(_tracks(
+        table.column("t_ms").to_pylist(), table.column("kf_death_mask").to_pylist(), div)))
 
 
 #: The player's team is drawn on the LEFT of the scoreline. Structural, not
@@ -457,8 +457,8 @@ def build_rounds(table, second_life: list[dict] | None = None) -> list[dict]:
     last = final_round(t, sl, sr, clock, rounds)
     if last is not None:
         rounds.append(last)
-    kills = _tracks(t, table.column("kf_kill_mask").to_pylist(), div("kf_kill_wx"))
-    deaths = _tracks(t, table.column("kf_death_mask").to_pylist(), div("kf_death_wx"))
+    kills = merge_split_tracks(_tracks(t, table.column("kf_kill_mask").to_pylist(), div("kf_kill_wx")))
+    deaths = merge_split_tracks(_tracks(t, table.column("kf_death_mask").to_pylist(), div("kf_death_wx")))
     lives = []
     if second_life is not None:
         from .adjudication.death import second_life_death

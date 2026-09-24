@@ -27,7 +27,9 @@ SCHEMA_VERSION = 1
 # the match-end rule (`end_source = match_end_rule`).
 # 0.6.0 (2026-09-24): a player death carrying the second-life badge is a
 # second life, not a death (`player_second_lives`), where badge reads exist.
-ROUND_VERSION = "round-0.6.0"
+# 0.7.0 (2026-09-24): a player kill or death entry split into two tracks is
+# counted once (`checks.merge_split_tracks`).
+ROUND_VERSION = "round-0.7.0"
 COACH_VERSION = "coach-0.1.0"
 # Pure credit-ledger rules and interval semantics. This does not stamp a credit
 # detector: no such observation channel exists yet.
@@ -166,7 +168,8 @@ COMBAT_REPORT_VERSION = "combat-report-0.2.0"
 # voting or round rule in `adjudication.combat_report` changes.
 # 0.2.0: per-round verdict (report where shown, else killfeed) with its source.
 # 0.3.0: rows named through adjudication.identity by portrait cluster.
-COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.3.0"
+# 0.4.0: killfeed witnesses take enemy portraits only.
+COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.4.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

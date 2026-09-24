@@ -83,3 +83,20 @@ row as exact in one band, exact over mixed bands, short (wallbang or cap
 candidate) or excess (ability candidate). A short or excess residual is a
 guess with its reason, never a claim
 """
+
+[ally-damage-row]
+claim = """
+Damage to a teammate shows as a green row reading ALLY with the teammate's
+name. Guns never damage allies in this game; only some agents' abilities do
+(mollies, shock darts, Sova's ultimate), and many agents cannot damage allies
+at all.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-24"
+use = """
+an ALLY row names a teammate, never an enemy, and its outgoing damage is
+ability damage, so it carries no hits; the player's own agent must have an
+ally-damaging ability for the row to exist. The killfeed can witness an ALLY
+row only when that ability killed the teammate (a team kill), which is rare
+"""

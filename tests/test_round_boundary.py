@@ -88,5 +88,24 @@ class SecondLife(unittest.TestCase):
         self.assertIsNone(second_life_death(1000, 2000, obs))
 
 
+
+class SplitTracks(unittest.TestCase):
+    def _tr(self, a, z, slot, sig):
+        return {"t_first": float(a), "t_last": float(z), "slot": slot, "sig": sig, "n_obs": 2}
+
+    def test_an_attribution_dropout_and_a_slot_rise_are_one_entry(self):
+        from reticle.checks import merge_split_tracks
+        got = merge_split_tracks([self._tr(106500, 107000, 0, 276), self._tr(110000, 111000, 0, 276),
+                                  self._tr(409000, 409500, 1, 233), self._tr(413000, 413500, 0, 233)])
+        self.assertEqual(len(got), 2)
+
+    def test_overlapping_or_too_long_or_other_column_tracks_stay_apart(self):
+        from reticle.checks import merge_split_tracks
+        self.assertEqual(len(merge_split_tracks([self._tr(0, 4000, 0, 200), self._tr(3000, 7000, 1, 200)])), 2)
+        self.assertEqual(len(merge_split_tracks([self._tr(0, 4000, 0, 200), self._tr(5000, 9000, 0, 200)])), 2)
+        self.assertEqual(len(merge_split_tracks([self._tr(0, 1000, 0, 200), self._tr(3000, 4000, 0, 240)])), 2)
+        self.assertEqual(len(merge_split_tracks([self._tr(0, 1000, 0, 200), self._tr(3000, 4000, 1, 200)])), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

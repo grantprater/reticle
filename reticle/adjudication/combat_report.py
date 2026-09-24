@@ -270,7 +270,11 @@ def _killfeed_name(track, portraits, role, split, gallery):
     from .identity import claim_from_killfeed_portrait
     votes = Counter()
     for o in portraits:
-        if (o.get("role") == role and o.get("slot") == track["slot"]
+        # The killer on the player's death and the victim of the player's kill
+        # are both enemies. Without this the slot match took the PLAYER's own
+        # killer portrait from the kill entry above a death, which the enemy
+        # candidates then read as Iso: four KILLED YOU rows on `a06f04a0059f`.
+        if (o.get("role") == role and o.get("ally") is False and o.get("slot") == track["slot"]
                 and track["t_first"] - KF_SLACK_MS <= o["t_ms"] <= track["t_last"] + KF_SLACK_MS):
             c = claim_from_killfeed_portrait(o, entity_id="kf", candidates=split["named"],
                                              rivals=split["rivals"], gallery=gallery)
