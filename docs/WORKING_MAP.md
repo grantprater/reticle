@@ -48,6 +48,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | What else lives in a colour key | `prototypes/key_collision.py`, off existing label sheets, no decode |
 | Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py` |
 | What is true of the GAME, cited not restated | `domain/*.toml`, `reticle/domain.py`, `reticle domain` |
+| First entity/domain loop after scan fixes | [ENTITY_DOMAIN_LOOP_PILOT.md](ENTITY_DOMAIN_LOOP_PILOT.md) (prepared; waits for readiness) |
 | Review proposed domain knowledge over stored evidence | `reticle/domain_learning.py`, `tools/domain_hypothesis.py`, [ENTITY_DOMAIN_LEARNING_DESIGN.md](ENTITY_DOMAIN_LEARNING_DESIGN.md) |
 | WHICH MODULE MAY DECIDE A QUESTION, and what it is not for | `reticle ownership <question>`, `ownership.toml`, [OWNERSHIP_INDEX.md](OWNERSHIP_INDEX.md) |
 | The layering, and which upward edges are blessed | `architecture.toml`, `reticle/architecture.py` |

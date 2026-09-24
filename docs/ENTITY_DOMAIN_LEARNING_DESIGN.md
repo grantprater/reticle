@@ -3,6 +3,9 @@
 Date: 2026-09-23
 Status: accepted direction; bounded foundation implementation authorized.
 
+Next pilot handoff: [ENTITY_DOMAIN_LOOP_PILOT.md](ENTITY_DOMAIN_LOOP_PILOT.md).
+Launch waits for the user's scan-fix readiness confirmation.
+
 ## Purpose
 
 Extend the exemplar loop to extract and identify entities in unlabelled sessions,
