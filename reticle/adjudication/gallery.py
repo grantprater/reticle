@@ -28,10 +28,12 @@ import math
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from .ability import _components, _labels
 from ..revisions import current_revision, publish_revision
+from ..store import DEFAULT_STORE
 
 
 ABILITY_GALLERY_VERSION = "ability-gallery-0.2.0"
@@ -598,3 +600,291 @@ def session_durations(root: Path) -> dict[str, float]:
         if duration:
             out[path.stem] = float(duration)
     return out
+
+
+#: Mapping from harvest filename token to canonical archetype and ability ID.
+HARVEST_KNOWN_MAP: dict[str, tuple[str, str]] = {
+    # Smokes
+    "omen_E": ("smoke", "omen:dark cover"),
+    "clove_E": ("smoke", "clove:ruse"),
+    "jett_C": ("smoke", "jett:cloudburst"),
+    "viper_Q_smoke": ("smoke", "viper:poison cloud"),
+    # Deployables
+    "killjoy_Q": ("deployable", "killjoy:alarmbot"),
+    "killjoy_C": ("deployable", "killjoy:nanoswarm"),
+    "cypher_E": ("deployable", "cypher:spycam"),
+    "viper_Q_device": ("deployable", "viper:poison cloud"),
+    # Walls
+    "phoenix_C_wall": ("wall", "phoenix:blaze"),
+    "viper_E_wall": ("wall", "viper:toxic screen"),
+    "neon_C_wall": ("wall", "neon:fast lane"),
+}
+
+
+def extract_glyph_features(patch: np.ndarray, archetype: str | None = None,
+                           r_self: float = 8.0) -> dict[str, float]:
+    """Extract deterministic geometric, color, radial profile, and glyph features."""
+    if patch is None or patch.size == 0:
+        return {}
+    h, w = patch.shape[:2]
+    cy, cx = h // 2, w // 2
+    r_max = min(h, w) // 2
+    Y, X = np.ogrid[:h, :w]
+    dist = np.hypot(X - cx, Y - cy)
+    core = dist <= (0.4 * r_max)
+    ring = (dist > (0.4 * r_max)) & (dist <= (0.9 * r_max))
+
+    hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV)
+    gray = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
+    lap = cv2.Laplacian(gray, cv2.CV_64F)
+
+    b_all, g_all, r_all = patch.mean(axis=(0, 1))
+    b_core, g_core, r_core = (patch[core].mean(axis=0) if np.any(core)
+                              else (b_all, g_all, r_all))
+    b_ring, g_ring, r_ring = (patch[ring].mean(axis=0) if np.any(ring)
+                              else (b_all, g_all, r_all))
+
+    h_all, s_all, v_all = hsv.mean(axis=(0, 1))
+    h_core, s_core, v_core = (hsv[core].mean(axis=0) if np.any(core)
+                              else (h_all, s_all, v_all))
+    h_ring, s_ring, v_ring = (hsv[ring].mean(axis=0) if np.any(ring)
+                              else (h_all, s_all, v_all))
+
+    glyph_core = float(np.var(lap[core])) if np.any(core) else 0.0
+    glyph_ring = float(np.var(lap[ring])) if np.any(ring) else 0.0
+
+    eps = 1e-5
+    red_prom = float((r_all - b_all) / (r_all + b_all + eps))
+    blue_prom = float((b_all - r_all) / (r_all + b_all + eps))
+    green_prom = float((g_all - (r_all + b_all) / 2.0)
+                       / (g_all + (r_all + b_all) / 2.0 + eps))
+
+    sat_mask = hsv[:, :, 1] > 20
+    sat_frac = float(np.mean(sat_mask))
+    sat_h_mean = float(hsv[sat_mask, 0].mean()) if np.any(sat_mask) else 0.0
+    sat_s_mean = float(hsv[sat_mask, 1].mean()) if np.any(sat_mask) else 0.0
+
+    c_y0, c_y1 = max(0, cy - 2), min(h, cy + 2)
+    c_x0, c_x1 = max(0, cx - 2), min(w, cx + 2)
+    center_patch = patch[c_y0:c_y1, c_x0:c_x1]
+    center_v = (float(cv2.cvtColor(center_patch, cv2.COLOR_BGR2GRAY).mean())
+                if center_patch.size > 0 else float(v_core))
+
+    radial_contrast = float(v_core - v_ring)
+    radius_ratio = float(r_max / max(r_self, 1e-5))
+
+    return {
+        "width": float(w),
+        "height": float(h),
+        "aspect_ratio": float(w / max(h, 1e-5)),
+        "radius_est": float(r_max),
+        "radius_ratio": round(radius_ratio, 3),
+        "r_all": round(float(r_all), 2),
+        "g_all": round(float(g_all), 2),
+        "b_all": round(float(b_all), 2),
+        "r_core": round(float(r_core), 2),
+        "g_core": round(float(g_core), 2),
+        "b_core": round(float(b_core), 2),
+        "h_all": round(float(h_all), 2),
+        "s_all": round(float(s_all), 2),
+        "v_all": round(float(v_all), 2),
+        "h_core": round(float(h_core), 2),
+        "s_core": round(float(s_core), 2),
+        "v_core": round(float(v_core), 2),
+        "h_ring": round(float(h_ring), 2),
+        "s_ring": round(float(s_ring), 2),
+        "v_ring": round(float(v_ring), 2),
+        "red_prom": round(red_prom, 3),
+        "blue_prom": round(blue_prom, 3),
+        "green_prom": round(green_prom, 3),
+        "sat_frac": round(sat_frac, 3),
+        "sat_h_mean": round(sat_h_mean, 2),
+        "sat_s_mean": round(sat_s_mean, 2),
+        "glyph_core": round(glyph_core, 1),
+        "glyph_ring": round(glyph_ring, 1),
+        "center_v": round(center_v, 1),
+        "radial_contrast": round(radial_contrast, 2),
+    }
+
+
+def classify_ability_glyph(patch: np.ndarray, archetype: str | None = None,
+                           r_self: float = 8.0,
+                           gallery: list[dict] | None = None) -> dict:
+    """Classify ability candidate patch deterministically by glyph, tint, and scale."""
+    feats = extract_glyph_features(patch, archetype=archetype, r_self=r_self)
+    if not feats:
+        return {"ability_id": None, "archetype": None, "confidence": 0.0,
+                "scores": {}, "features": {}}
+
+    if archetype is None:
+        if feats["width"] >= 40 and feats["height"] >= 40:
+            archetype = "wall"
+        elif feats["glyph_core"] > 10000.0 or feats["radius_ratio"] <= 1.25:
+            archetype = "deployable"
+        else:
+            archetype = "smoke"
+
+    scores: dict[str, float] = {}
+
+    if archetype == "wall":
+        if feats["r_all"] - feats["b_all"] > 15.0 or feats["red_prom"] > 0.06:
+            scores["phoenix:blaze"] = 0.98
+        else:
+            scores["phoenix:blaze"] = 0.05
+
+        if (feats["sat_s_mean"] > 90.0 and (feats["b_all"] > feats["r_all"] + 5.0
+                                            or feats["sat_h_mean"] > 130.0)):
+            scores["neon:fast lane"] = 0.97
+        else:
+            scores["neon:fast lane"] = 0.10
+
+        if 55.0 <= feats["sat_h_mean"] <= 115.0 and feats["green_prom"] >= -0.05:
+            scores["viper:toxic screen"] = 0.95
+        else:
+            scores["viper:toxic screen"] = 0.20
+
+    elif archetype == "deployable":
+        if feats["s_core"] > 120.0 and 60.0 <= feats["h_core"] <= 95.0:
+            scores["cypher:spycam"] = 0.98
+        else:
+            scores["cypher:spycam"] = 0.05
+
+        if feats["s_core"] > 50.0 and feats["v_core"] < 100.0:
+            scores["killjoy:nanoswarm"] = 0.92
+        else:
+            scores["killjoy:nanoswarm"] = 0.15
+
+        if feats["glyph_core"] < 6000.0:
+            scores["viper:poison cloud"] = 0.95
+        else:
+            scores["viper:poison cloud"] = 0.05
+
+        if feats["glyph_core"] >= 6000.0 and (feats["s_core"] <= 60.0 or feats["center_v"] > 100.0):
+            scores["killjoy:alarmbot"] = 0.94
+        else:
+            scores["killjoy:alarmbot"] = 0.20
+
+    else:
+        if 50.0 <= feats["h_ring"] <= 85.0 and feats["g_all"] >= feats["r_all"] - 1.0:
+            scores["viper:poison cloud"] = 0.90
+        else:
+            scores["viper:poison cloud"] = 0.10
+
+        if feats["s_core"] < 10.0 and feats["v_ring"] > 100.0:
+            scores["jett:cloudburst"] = 0.95
+        else:
+            scores["jett:cloudburst"] = 0.20
+
+        if feats["v_ring"] < 90.0 and feats["s_core"] < 5.0 and feats["h_ring"] < 50.0:
+            scores["clove:ruse"] = 0.92
+        else:
+            scores["clove:ruse"] = 0.15
+
+        if (feats["r_all"] - feats["b_all"] > 4.0) or (feats["s_core"] >= 20.0):
+            scores["omen:dark cover"] = 0.94
+        else:
+            scores["omen:dark cover"] = 0.30
+
+    best_id = max(scores.keys(), key=lambda k: scores[k])
+    conf = scores[best_id]
+    return {
+        "ability_id": best_id,
+        "archetype": archetype,
+        "confidence": conf,
+        "scores": scores,
+        "features": feats,
+    }
+
+
+def load_harvested_gallery(store_root: Path | str | None = None) -> list[dict]:
+    """Load and parse verified ability crops from store."""
+    root = Path(store_root or DEFAULT_STORE)
+    dirs = [
+        root / "analysis" / "ability-harvest",
+        root / "reference" / "assets" / "ability_gallery",
+    ]
+    seen = set()
+    out = []
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        for p in sorted(d.rglob("*.png")):
+            if p.name in seen:
+                continue
+            seen.add(p.name)
+
+            arch = None
+            ability_id = None
+            for key, (a, aid) in HARVEST_KNOWN_MAP.items():
+                if key in p.name:
+                    arch = a
+                    ability_id = aid
+                    break
+            if ability_id is None:
+                continue
+
+            parts = p.stem.split("_")
+            session_id = parts[0] if len(parts) >= 1 else None
+            t_ms = None
+            if len(parts) >= 2 and parts[1].isdigit():
+                t_ms = float(parts[1])
+
+            im = cv2.imread(str(p))
+            if im is None:
+                continue
+            feats = extract_glyph_features(im, archetype=arch)
+            out.append({
+                "filename": p.name,
+                "path": str(p),
+                "archetype": arch,
+                "ability_id": ability_id,
+                "session_id": session_id,
+                "t_ms": t_ms,
+                "features": feats,
+            })
+    return out
+
+
+def integrate_crop_gallery(store_root: Path | str | None = None) -> dict:
+    """Integrate harvested ability crops into reference assets gallery directory."""
+    import shutil
+    root = Path(store_root or DEFAULT_STORE)
+    dest_dir = root / "reference" / "assets" / "ability_gallery"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    crops = load_harvested_gallery(root)
+    by_archetype: dict[str, list[dict]] = defaultdict(list)
+    for c in crops:
+        by_archetype[c["archetype"]].append(c)
+        arch_sub = dest_dir / (c["archetype"] + "s")
+        arch_sub.mkdir(parents=True, exist_ok=True)
+        dest_file = arch_sub / c["filename"]
+        if not dest_file.exists():
+            shutil.copy2(c["path"], dest_file)
+
+    centroids = {}
+    classes = sorted({c["ability_id"] for c in crops})
+    for cid in classes:
+        cls_crops = [c for c in crops if c["ability_id"] == cid]
+        feat_keys = [k for k, v in cls_crops[0]["features"].items()
+                     if isinstance(v, (int, float))]
+        centroids[cid] = {
+            k: round(float(np.median([c["features"][k] for c in cls_crops])), 3)
+            for k in feat_keys
+        }
+
+    manifest = {
+        "producer_version": ABILITY_GALLERY_VERSION,
+        "store_root": str(root),
+        "total_crops": len(crops),
+        "archetypes": {arch: len(clist) for arch, clist in by_archetype.items()},
+        "classes": {cid: sum(1 for c in crops if c["ability_id"] == cid)
+                    for cid in classes},
+        "centroids": centroids,
+        "crops": [{k: v for k, v in c.items() if k != "features"}
+                  for c in crops],
+    }
+    manifest_path = dest_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest
+

@@ -1,0 +1,247 @@
+# Ability mechanics and observable invariants.
+# Schema and the citation form: reticle/domain.py.
+
+[omen-dark-cover]
+claim = """
+Omen's Dark Cover is a spherical smoke placed from a phased realm view. On the
+minimap it renders as a dark circular disc whose black-hat radius scales as
+1.825 times the player's self-icon radius. It persists for 15.0 seconds and
+remains active after Omen dies.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "omen:dark cover"
+source = "prototypes/ability_scale.py and prototypes/ability_disc.py on a06f04a0059f and d95cfad5693a"
+use = "scale black-hat kernel to self_r * 1.825 and search within t_cast to t_cast + 3.2s"
+see = ["abilities/omen-tray-charges"]
+
+[omen-tray-charges]
+claim = """
+Omen has two Dark Cover charges in slot E. A charge drop of at least 0.25 of
+the slot's p90 clean level between consecutive HUD samples indicates a cast.
+Recharging restores one charge every 30.0 seconds.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "omen:dark cover"
+source = "prototypes/ability_hud.py measured on a06f04a0059f and b9558488a607"
+use = "ability_hud.slot_counts at y 1032..1051, x 980..1050 (slot index 2)"
+see = ["abilities/omen-dark-cover"]
+
+[killjoy-alarmbot]
+claim = """
+Killjoy's Alarmbot is a deployable device in slot Q that hunts down enemies in
+range. On the minimap it renders as a dark circular disc carrying white line art,
+scaling directly with the player's self-icon ruler.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "killjoy:alarmbot"
+source = "prototypes/ability_disc.py measured on dae6f33f3f48"
+use = "search for disc at slot Q charge drop window"
+see = ["abilities/killjoy-tray-charges"]
+
+[killjoy-tray-charges]
+claim = """
+Killjoy has one Alarmbot charge in slot Q, two Nanoswarms in slot C, and one
+Turret in slot E. A charge drop of at least 0.25 between consecutive HUD samples
+indicates deployment.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "killjoy:alarmbot"
+source = "prototypes/ability_hud.py measured on dae6f33f3f48"
+use = "ability_hud.slot_counts across slots C, Q, E"
+see = ["abilities/killjoy-alarmbot"]
+
+[jett-cloudburst]
+claim = """
+Jett's Cloudburst is a fast throwable smoke in slot C. On the minimap it renders
+as a dark circular disc that expands instantly upon impact and dissipates after a
+short duration.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "jett:cloudburst"
+source = "prototypes/ability_hud.py and labels on ff19748eea8c"
+use = "search for circular disc upon slot C charge drop"
+see = ["abilities/jett-tray-charges"]
+
+[jett-tray-charges]
+claim = """
+Jett has two Cloudburst charges in slot C. A charge drop of at least 0.25
+indicates a throw.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "jett:cloudburst"
+source = "prototypes/ability_hud.py measured on ff19748eea8c"
+use = "ability_hud.slot_counts at slot C (index 0)"
+see = ["abilities/jett-cloudburst"]
+
+[viper-poison-cloud]
+claim = """
+Viper's Poison Cloud is a gas emitter in slot Q. On the minimap it renders as a
+circular smoke disc while active.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "viper:poison cloud"
+source = "prototypes/ability_hud.py and labels on 6bb88dba5d2c"
+use = "search for circular disc upon slot Q activation"
+see = ["abilities/viper-tray-charges"]
+
+[viper-tray-charges]
+claim = """
+Viper has one Poison Cloud gas emitter in slot Q. An initial drop indicates
+throwing or deploying the device.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "viper:poison cloud"
+source = "prototypes/ability_hud.py measured on 6bb88dba5d2c"
+use = "ability_hud.slot_counts at slot Q (index 1)"
+see = ["abilities/viper-poison-cloud"]
+
+[clove-rouse]
+claim = """
+Clove's Ruse is a tactical smoke placed in slot E. On the minimap it renders as a
+circular smoke disc.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "clove:ruse"
+source = "prototypes/ability_hud.py measured on 28f53bfddbbe"
+use = "search for circular disc upon slot E charge drop"
+see = ["abilities/clove-tray-charges"]
+
+[clove-tray-charges]
+claim = """
+Clove has two Ruse smoke charges in slot E. A charge drop indicates placement.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "clove:ruse"
+source = "prototypes/ability_hud.py measured on 28f53bfddbbe"
+use = "ability_hud.slot_counts at slot E (index 2)"
+see = ["abilities/clove-rouse"]
+
+[phoenix-blaze]
+claim = """
+Phoenix's Blaze is a flame wall in slot C. On the minimap it renders as a
+linear or curved wall segment extending forward from Phoenix, lasting
+for approximately 4.0 seconds. It blocks vision and heals Phoenix while damaging
+enemies.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "phoenix:blaze"
+source = "prototypes/ability_hud.py measured on 481336df9adb"
+use = "search for linear or curved wall segment upon slot C charge drop"
+see = ["abilities/phoenix-tray-charges"]
+
+[phoenix-tray-charges]
+claim = """
+Phoenix has one Blaze charge in slot C. A charge drop of at least 0.25 between
+consecutive HUD samples indicates deployment.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "phoenix:blaze"
+source = "prototypes/ability_hud.py measured on 481336df9adb"
+use = "ability_hud.slot_counts at slot C (index 0)"
+see = ["abilities/phoenix-blaze"]
+
+[viper-toxic-screen]
+claim = """
+Viper's Toxic Screen is a line of gas emitters deployed in slot E that can be
+reactivated throughout the round. On the minimap it renders as a straight
+linear wall sequence across the map spanning through terrain and chokepoints.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "viper:toxic screen"
+source = "prototypes/ability_hud.py and labels on 6bb88dba5d2c"
+use = "search for linear wall segment upon slot E charge drop"
+see = ["abilities/viper-toxic-screen-charges"]
+
+[viper-toxic-screen-charges]
+claim = """
+Viper has one Toxic Screen deployment in slot E. An initial charge drop of at
+least 0.25 between consecutive HUD samples indicates shooting the emitter line.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "viper:toxic screen"
+source = "prototypes/ability_hud.py measured on 6bb88dba5d2c"
+use = "ability_hud.slot_counts at slot E (index 2)"
+see = ["abilities/viper-toxic-screen"]
+
+[cypher-trapwire]
+claim = """
+Cypher's Trapwire is a deployable tripwire in slot C spanning between two
+surfaces. On the minimap it occupies the intersection of two archetypes: two
+circular anchor discs affixed to walls and a straight linear wire spanning
+between the anchors.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "cypher:trapwire"
+source = "labels on eb10db50b1fb, d95cfad5693a, and 79a706a7ce4c"
+use = "search for paired circular anchor discs connected by a linear wire segment"
+see = ["abilities/cypher-tray-charges"]
+
+[cypher-tray-charges]
+claim = """
+Cypher has two Trapwire charges in slot C. A charge drop indicates placement
+of a wire between two valid surfaces.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "cypher:trapwire"
+source = "game mechanics verified against ground truth labels on eb10db50b1fb"
+use = "ability_hud.slot_counts at slot C (index 0)"
+see = ["abilities/cypher-trapwire"]
+
+[neon-fast-lane]
+claim = """
+Neon's Fast Lane is an ability in slot C that fires two parallel lines of
+energy forward. On the minimap it renders as parallel linear wall segments
+extending from Neon's position that block vision and damage crossing enemies.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "neon:fast lane"
+source = "prototypes/ability_hud.py measured on f1cf160b213d"
+use = "search for parallel linear wall segments upon slot C charge drop"
+see = ["abilities/neon-tray-charges"]
+
+[neon-tray-charges]
+claim = """
+Neon has one Fast Lane charge in slot C. A charge drop of at least 0.25 between
+consecutive HUD samples indicates deployment.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-23"
+subject = "neon:fast lane"
+source = "prototypes/ability_hud.py measured on f1cf160b213d"
+use = "ability_hud.slot_counts at slot C (index 0)"
+see = ["abilities/neon-fast-lane"]

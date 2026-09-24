@@ -694,13 +694,13 @@ question = "What does this ability look like, and does the gallery separate it?"
 owner = "adjudication.gallery"
 role = ["corroborate", "constrain"]
 status = "partial"
-produces = ["build_gallery_bundle", "evaluate", "permutation_p"]
+produces = ["build_gallery_bundle", "evaluate", "permutation_p", "extract_glyph_features", "classify_ability_glyph", "load_harvested_gallery", "integrate_crop_gallery"]
 not_for = """
 The live classifier. Temporal shape failed to separate the Deadlock sensor from
 Barrier Mesh across held-out directions, and the corpus supports one held-out
 contrast; a gallery that stores exemplars has not thereby assigned an identity.
 """
-evidence = "tests/test_ability_gallery.py"
+evidence = "tests/test_ability_gallery.py, tests/test_ability_glyph.py, tools/ability_glyph_benchmark.py"
 
 [[entry]]
 id = "capture-queue"
@@ -806,28 +806,31 @@ blocked_by = "agent-identity, plus an ability entity to attribute."
 [[entry]]
 id = "ability-detection"
 question = "Where in the frame is an ability entity?"
+owner = "minimap"
 role = ["detect"]
-status = "unowned"
+status = "partial"
+produces = ["detect_ability_discs", "detect_ability_walls", "detect_trapwire_anchors"]
 not_for = """
 `adjudication.ability` being read as the detector. It groups components that
-something else must first detect; five prototypes were triaged and none shipped.
+something else must first detect; this detector proposes disc/deployable candidates
+via scale-selective local contrast and linear/wall segment extraction.
 """
-blocked_by = """
-Acquisition diversity. Dim devices survive the area-gated channel and not the
-distance-transform one, validation covers too few maps and agents, and the
-peak-finder failed on painted frames.
-"""
+evidence = "tests/test_minimap_discs.py, tests/test_minimap_walls.py, tools/ability_pov_benchmark.py, tools/ability_wall_benchmark.py"
+
+
 
 [[entry]]
 id = "fact-subject"
 question = "What is a domain fact ABOUT, and under what condition does it hold?"
+owner = "domain"
 role = ["attribute"]
-status = "unowned"
+status = "shipped"
+produces = ["by_subject"]
 not_for = """
 A graph. `subject` is cheap and useful immediately; the conditional layer waits
 until events carry identity and can be evaluated against.
 """
-blocked_by = "`domain/*.toml` has no `subject` and no `given` field."
+evidence = "tests/test_domain.py, `reticle domain --subject`"
 
 # ---------------------------------------------------------------------------
 # Modules that answer no ownership question. Naming them here is what makes the

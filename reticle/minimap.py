@@ -38,7 +38,7 @@ Known limits carried from the prototype, unresolved:
   a capture recorded with Valorant's defaults breaks every position here
   silently, returning rotated or mirrored positions rather than an error.
 
-Owns [owns:ally-candidates], [owns:self-position] and [owns:widget-drawn].
+Owns [owns:ally-candidates], [owns:self-position], [owns:widget-drawn] and [owns:ability-detection].
 """
 
 from __future__ import annotations
@@ -162,6 +162,13 @@ def median_widget(frames) -> np.ndarray:
 #: BRIGHTER than the floor, not darker -- so saturation is the discriminator
 #: and the level is tight on purpose.
 FLOOR_S_MAX, FLOOR_V_MIN = 20, 100
+
+#: Structuring element and contrast floor for ability discs.
+#: Scale-selective black-hat: measures small dark structures relative to local background.
+BH_K = 27
+BH_MIN = 110
+NMS_FRAC = 0.37
+
 
 #: The yellow plant zones, PROMOTED from `prototypes/minimap_geometry.py` on
 #: 2026-09-06 so the tint rule exists once. That module keys its `PLANT` class
@@ -1003,6 +1010,244 @@ def self_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
     by coverage rather than treating an empty list as "not there".
     """
     return icons(self_mask(crop), crop, floor, **kw)
+
+
+def detect_ability_discs(gray: np.ndarray, floor: np.ndarray,
+                         static_peaks: list[tuple[float, float, float]] | None = None,
+                         self_xy: tuple[float, float] | None = None,
+                         *, k: int = BH_K, bh_min: int = BH_MIN,
+                         nms_frac: float = NMS_FRAC,
+                         dist_tol_px: float = 18.0) -> list[dict]:
+    """Find dark ability discs/deployables inside the slab.
+
+    Uses a scale-selective black-hat response with Gaussian smoothing at object scale
+    and non-maximum suppression. Filters out static map structures and player self icon.
+    Returns list of dicts with (cx, cy, response, radius).
+    """
+    se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    resp = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, se)
+    r = max(1, int(round(k * nms_frac)))
+    resp_smooth = cv2.GaussianBlur(resp, (2 * r + 1, 2 * r + 1), r / 2.0)
+    se_nms = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+    peak = (resp_smooth >= cv2.dilate(resp_smooth, se_nms)) & (resp_smooth > bh_min) & floor
+    ys, xs = np.nonzero(peak)
+    if not len(ys):
+        return []
+    order = np.argsort(-resp_smooth[ys, xs])
+    out = []
+    taken = []
+    for i in order:
+        y, x = int(ys[i]), int(xs[i])
+        if any((x - px) ** 2 + (y - py) ** 2 < r * r for px, py in taken):
+            continue
+        # Exclude baked static map geometry
+        if static_peaks and any(np.hypot(x - sp[0], y - sp[1]) < dist_tol_px for sp in static_peaks):
+            continue
+        # Exclude player self icon
+        if self_xy and np.hypot(x - self_xy[0], y - self_xy[1]) < dist_tol_px:
+            continue
+        taken.append((x, y))
+        out.append({
+            "cx": float(x),
+            "cy": float(y),
+            "response": float(resp_smooth[y, x]),
+            "r": float(r),
+        })
+    return out
+
+
+def extract_static_lines(static: np.ndarray, floor: np.ndarray,
+                         *, min_length: float = 8.0) -> list[tuple[float, float, float, float]]:
+    """Extract baseline static map line segments inside the floor slab.
+
+    Used to suppress static terrain lanes and map boundary structures.
+    """
+    gray = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY) if static.ndim == 3 else static
+    masked = np.where(floor, gray, 0)
+    lsd = cv2.createLineSegmentDetector()
+    raw_lines, _, _, _ = lsd.detect(masked)
+    out = []
+    if raw_lines is not None:
+        for l in raw_lines:
+            x1, y1, x2, y2 = l.ravel()
+            length = float(np.hypot(x2 - x1, y2 - y1))
+            if length < min_length:
+                continue
+            ix1, iy1 = int(np.clip(x1, 0, floor.shape[1] - 1)), int(np.clip(y1, 0, floor.shape[0] - 1))
+            ix2, iy2 = int(np.clip(x2, 0, floor.shape[1] - 1)), int(np.clip(y2, 0, floor.shape[0] - 1))
+            if floor[iy1, ix1] and floor[iy2, ix2]:
+                out.append((float(x1), float(y1), float(x2), float(y2)))
+    return out
+
+
+def _point_to_segment_dist(px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> float:
+    """Distance from point (px, py) to line segment (x1, y1)-(x2, y2)."""
+    dx, dy = x2 - x1, y2 - y1
+    l2 = dx * dx + dy * dy
+    if l2 == 0.0:
+        return float(np.hypot(px - x1, py - y1))
+    t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / l2))
+    qx, qy = x1 + t * dx, y1 + t * dy
+    return float(np.hypot(px - qx, py - qy))
+
+
+def _line_similarity(l1: tuple[float, float, float, float] | dict,
+                     l2: tuple[float, float, float, float] | dict,
+                     dist_tol: float = 6.0, ang_tol: float = 20.0) -> bool:
+    """Check whether candidate line segment l1 lies along static line segment l2."""
+    if isinstance(l1, dict):
+        x1_a, y1_a, x2_a, y2_a = l1["x1"], l1["y1"], l1["x2"], l1["y2"]
+    else:
+        x1_a, y1_a, x2_a, y2_a = l1
+    if isinstance(l2, dict):
+        x1_b, y1_b, x2_b, y2_b = l2["x1"], l2["y1"], l2["x2"], l2["y2"]
+    else:
+        x1_b, y1_b, x2_b, y2_b = l2
+
+    a1 = np.degrees(np.arctan2(y2_a - y1_a, x2_a - x1_a)) % 180.0
+    a2 = np.degrees(np.arctan2(y2_b - y1_b, x2_b - x1_b)) % 180.0
+    diff = abs(a1 - a2)
+    diff = min(diff, 180.0 - diff)
+    if diff > ang_tol:
+        return False
+
+    mx1, my1 = (x1_a + x2_a) / 2.0, (y1_a + y2_a) / 2.0
+    return (_point_to_segment_dist(mx1, my1, x1_b, y1_b, x2_b, y2_b) < dist_tol or
+            _point_to_segment_dist((x1_b + x2_b) / 2.0, (y1_b + y2_b) / 2.0, x1_a, y1_a, x2_a, y2_a) < dist_tol)
+
+
+def detect_ability_walls(crop: np.ndarray, floor: np.ndarray,
+                         static_lines: list[tuple[float, float, float, float]] | None = None,
+                         self_xy: tuple[float, float] | None = None,
+                         *, min_length: float = 12.0,
+                         dist_tol_px: float = 6.0,
+                         self_radius: float = 12.0,
+                         color_hint: str | tuple[str, ...] | None = None) -> list[dict]:
+
+    """Find linear ability wall segments inside the floor slab.
+
+    Extracts line segments inside the opaque floor slab using Line Segment
+    Detection (LSD), suppressing static map reference geometry and the player's
+    self icon. Characterizes line color and filters by color hint if requested.
+    Cites [domain:abilities/viper-toxic-screen], [domain:abilities/phoenix-blaze],
+    [domain:abilities/neon-fast-lane], and [domain:abilities/cypher-trapwire].
+    """
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+    masked_gray = np.where(floor, gray, 0)
+
+    lsd = cv2.createLineSegmentDetector()
+    raw_lines, _, _, _ = lsd.detect(masked_gray)
+    if raw_lines is None:
+        return []
+
+    out = []
+    for l in raw_lines:
+        x1, y1, x2, y2 = l.ravel()
+        length = float(np.hypot(x2 - x1, y2 - y1))
+        if length < min_length:
+            continue
+        ix1, iy1 = int(np.clip(x1, 0, floor.shape[1] - 1)), int(np.clip(y1, 0, floor.shape[0] - 1))
+        ix2, iy2 = int(np.clip(x2, 0, floor.shape[1] - 1)), int(np.clip(y2, 0, floor.shape[0] - 1))
+        if not (floor[iy1, ix1] and floor[iy2, ix2]):
+            continue
+
+        cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+        # Exclude player self icon region
+        if self_xy and (np.hypot(cx - self_xy[0], cy - self_xy[1]) < self_radius or
+                        np.hypot(x1 - self_xy[0], y1 - self_xy[1]) < self_radius or
+                        np.hypot(x2 - self_xy[0], y2 - self_xy[1]) < self_radius):
+            continue
+
+        candidate = (float(x1), float(y1), float(x2), float(y2))
+        if static_lines and any(_line_similarity(candidate, sl, dist_tol=dist_tol_px) for sl in static_lines):
+            continue
+
+        color = "neutral"
+        if crop.ndim == 3:
+            n_samples = max(5, int(length))
+            xs = np.linspace(x1, x2, n_samples)
+            ys = np.linspace(y1, y2, n_samples)
+            samples = [crop[int(np.clip(y, 0, crop.shape[0] - 1)), int(np.clip(x, 0, crop.shape[1] - 1))]
+                       for x, y in zip(xs, ys)]
+            b = float(np.mean([s[0] for s in samples]))
+            g = float(np.mean([s[1] for s in samples]))
+            r = float(np.mean([s[2] for s in samples]))
+            if b > 140.0 and b > r + 15.0 and g > 110.0:
+                color = "teal"
+            elif r > 150.0 and r > b + 15.0:
+                color = "warm"
+            elif (r + g + b) / 3.0 > 175.0:
+                color = "bright"
+
+        if color_hint:
+            hints = (color_hint,) if isinstance(color_hint, str) else tuple(color_hint)
+            if color not in hints:
+                continue
+
+
+        ang = float(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
+        out.append({
+            "x1": float(x1), "y1": float(y1),
+            "x2": float(x2), "y2": float(y2),
+            "cx": float(cx), "cy": float(cy),
+            "length": float(length),
+            "angle_deg": float(ang),
+            "color": color,
+        })
+
+    return out
+
+
+def detect_trapwire_anchors(crop: np.ndarray, floor: np.ndarray,
+                            static_lines: list[tuple[float, float, float, float]] | None = None,
+                            self_xy: tuple[float, float] | None = None,
+                            *, min_wire_length: float = 5.0,
+                            max_wire_length: float = 45.0,
+                            tophat_k: int = 7,
+                            tophat_min: int = 60) -> list[dict]:
+    """Find Cypher Trapwire entities sitting at the intersection of circular and linear archetypes.
+
+    Detects paired small anchor discs spanning a thin linear wire across opposing
+    surfaces. Cites [domain:abilities/cypher-trapwire].
+
+    Returns list of dicts with (anchor1, anchor2, cx, cy, length, angle_deg, archetype).
+    """
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+    masked_gray = np.where(floor, gray, 0)
+    if self_xy:
+        cv2.circle(masked_gray, (int(round(self_xy[0])), int(round(self_xy[1]))), 30, 0, -1)
+
+    se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (tophat_k, tophat_k))
+    tophat = cv2.morphologyEx(masked_gray, cv2.MORPH_TOPHAT, se)
+    r = 3
+    se_nms = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+    peak = (tophat >= cv2.dilate(tophat, se_nms)) & (tophat > tophat_min) & floor
+    ys, xs = np.nonzero(peak)
+
+    walls = detect_ability_walls(crop, floor, static_lines=static_lines, self_xy=self_xy,
+                                 min_length=min_wire_length, color_hint=None)
+
+    out = []
+    for w in walls:
+        if w["length"] > max_wire_length:
+            continue
+        p1 = (w["x1"], w["y1"])
+        p2 = (w["x2"], w["y2"])
+        near_peak1 = any(np.hypot(p1[0] - px, p1[1] - py) < 8.0 for px, py in zip(xs, ys))
+        near_peak2 = any(np.hypot(p2[0] - px, p2[1] - py) < 8.0 for px, py in zip(xs, ys))
+        if near_peak1 or near_peak2 or w["color"] in ("teal", "bright"):
+            out.append({
+                "anchor1": (float(w["x1"]), float(w["y1"])),
+                "anchor2": (float(w["x2"]), float(w["y2"])),
+                "cx": float(w["cx"]),
+                "cy": float(w["cy"]),
+                "length": float(w["length"]),
+                "angle_deg": float(w["angle_deg"]),
+                "archetype": "trapwire_dual",
+                "color": w["color"],
+            })
+    return out
+
 
 
 def pick_self(cands: list[tuple[float, float, float] | dict],

@@ -51,6 +51,23 @@ class LoadTests(unittest.TestCase):
     def test_a_missing_directory_is_empty_rather_than_an_error(self):
         self.assertEqual(domain.load(Path("no-such-directory")), {})
 
+    def test_subject_and_given_are_loaded_and_filtered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            toml_text = (
+                '[smoke]\nclaim = "x"\nkind = "rule"\nknown = "player"\nsince = "2026-01-01"\n'
+                'subject = "omen:dark cover"\ngiven = "alive"\n'
+            )
+            (directory / "abilities.toml").write_text(toml_text, encoding="utf-8")
+            facts = domain.load(directory)
+        self.assertIn("abilities/smoke", facts)
+        fact = facts["abilities/smoke"]
+        self.assertEqual(fact.subject, "omen:dark cover")
+        self.assertEqual(fact.given, "alive")
+        filtered = domain.by_subject(facts, "omen:dark cover")
+        self.assertEqual(list(filtered), ["abilities/smoke"])
+        self.assertEqual(domain.by_subject(facts, "cypher:trapwire"), {})
+
 
 class SchemaTests(unittest.TestCase):
     def _errors(self, toml):

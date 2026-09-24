@@ -43,7 +43,7 @@ and dated. This registry holds what is true of the GAME and its capture --
 facts a new session should not have to rediscover, and that no rerun can
 change. A fact whose truth depends on a detector version is not a domain fact.
 
-Owns [owns:domain-fact].
+Owns [owns:domain-fact], [owns:fact-subject].
 """
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ KNOWN = frozenset({"player", "measured", "observed", "inferred"})
 
 REQUIRED = ("claim", "kind", "known", "since")
 OPTIONAL = ("use", "exceptions", "source", "see", "phrases", "supersedes",
-            "depends_on")
+            "depends_on", "subject", "given")
 
 #: A fact whose `known` is one of these is GIVEN: someone told us, or we watched
 #: it happen. It rests on nothing, so it may not declare `depends_on` -- that is
@@ -127,6 +127,8 @@ class Fact:
     depends_on: tuple[str, ...] = ()
     phrases: tuple[str, ...] = ()
     supersedes: str = ""
+    subject: str = ""
+    given: str = ""
     unknown_keys: tuple[str, ...] = field(default=(), compare=False)
     missing_keys: tuple[str, ...] = field(default=(), compare=False)
 
@@ -202,11 +204,19 @@ def load(domain_dir: Path | None = None) -> dict[str, Fact]:
                 see=_str_tuple(body.get("see")),
                 phrases=_str_tuple(body.get("phrases")),
                 supersedes=str(body.get("supersedes", "")).strip(),
+                subject=str(body.get("subject", "")).strip(),
+                given=str(body.get("given", "")).strip(),
                 unknown_keys=unknown,
                 missing_keys=missing,
             )
             facts[fact.key] = fact
     return facts
+
+
+def by_subject(facts: dict[str, Fact], subject: str) -> dict[str, Fact]:
+    """Filter facts by subject ID, e.g. 'omen:dark cover'."""
+    return {k: f for k, f in facts.items() if f.subject == subject}
+
 
 
 def scan_files(root: Path | None = None) -> list[Path]:
@@ -364,7 +374,7 @@ def _wrap(text: str, label: str = "", width: int = 76) -> list[str]:
 
 def render(facts: dict[str, Fact], domain: str | None = None,
            fact_id: str | None = None, cited: dict[str, list[str]] | None = None,
-           uncited_only: bool = False) -> str:
+           uncited_only: bool = False, subject: str | None = None) -> str:
     """The registry as a reader wants it: claim first, provenance beside it."""
     lines: list[str] = []
     for key, fact in sorted(facts.items()):
@@ -372,12 +382,16 @@ def render(facts: dict[str, Fact], domain: str | None = None,
             continue
         if fact_id and fact.id != fact_id:
             continue
+        if subject and fact.subject != subject:
+            continue
         users = (cited or {}).get(key, [])
         if uncited_only and users:
             continue
         lines.append(f"{fact.cite}  [{fact.kind}, {fact.known}, {fact.since}]")
         lines += _wrap(fact.claim)
-        for label, value in (("USE", fact.use),
+        for label, value in (("SUBJECT", fact.subject),
+                             ("GIVEN", fact.given),
+                             ("USE", fact.use),
                              ("EXCEPTIONS", fact.exceptions),
                              ("SOURCE", fact.source),
                              ("SUPERSEDES", fact.supersedes),
@@ -399,6 +413,7 @@ def main(argv=None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("domain", nargs="?", help="limit to one domain file")
     parser.add_argument("--id", help="limit to one fact id")
+    parser.add_argument("--subject", help="limit to facts concerning one subject")
     parser.add_argument("--uncited", action="store_true",
                         help="only facts nothing cites")
     parser.add_argument("--check", action="store_true",
@@ -414,7 +429,8 @@ def main(argv=None) -> int:
         print(f"\n{len(facts)} fact(s), {len(problems)} finding(s), "
               f"{errors} error(s)")
         return 1 if errors else 0
-    print(render(facts, args.domain, args.id, citations(), args.uncited))
+    print(render(facts, args.domain, args.id, citations(), args.uncited,
+                 subject=args.subject))
     return 0
 
 

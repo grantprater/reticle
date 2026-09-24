@@ -2289,6 +2289,8 @@ def cmd_domain(args) -> int:
         argv.append(args.domain)
     if args.id:
         argv += ["--id", args.id]
+    if args.subject:
+        argv += ["--subject", args.subject]
     if args.uncited:
         argv.append("--uncited")
     if args.check:
@@ -2657,6 +2659,7 @@ def build_parser() -> argparse.ArgumentParser:
                        "VALORANT, cited rather than restated")
     s.add_argument("domain", nargs="?", help="limit to one domain file")
     s.add_argument("--id", help="limit to one fact id")
+    s.add_argument("--subject", help="limit to facts concerning one subject")
     s.add_argument("--uncited", action="store_true",
                    help="only facts nothing cites")
     s.add_argument("--check", action="store_true",
