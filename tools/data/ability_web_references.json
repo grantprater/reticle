@@ -161,6 +161,75 @@
      "check": {"kind": "none", "reason": "Fuel sets the life; the demo's fuel level is unread, so no observed lifetime bounds the claim."},
      "references": [
        {"id": "official-viper", "url": "https://wiki.playvalorant.com/en-us/Viper", "quote": "Duration: Minimum 2 s; Passive (Fuel) Duration: 12 s max, 8.5 s max if both abilities activated", "value": 2.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-clove-ruse-batch-launch", "subject": "clove:ruse", "property": "launch",
+     "claim": "One Ruse confirmation launches every cloud Clove placed, so a single tray drop can spend both charges.", "value": null,
+     "check": {"kind": "tray_multi_drop", "ability_id": "clove:ruse", "uses": 2},
+     "references": [
+       {"id": "catalogue-clove-ruse-text", "url": "reference/abilities.json#Clove/Ruse (valorant-api description)", "quote": "FIRE to set the locations where Clove's clouds will settle. ALT FIRE to confirm, launching clouds that block vision in the chosen areas.", "value": null, "stance": "supporting", "retrieved_at": "2026-09-04", "patch": "13.05"}
+     ]},
+    {"hypothesis_id": "web-phoenix-blaze-duration", "subject": "phoenix:blaze", "property": "duration_s",
+     "claim": "Phoenix's Blaze wall lasts 8 s.", "value": 8.0,
+     "accepted_fact_conflict": {"fact": "abilities/phoenix-blaze", "states": "lasting for approximately 4.0 seconds", "note": "The accepted fact may describe how long the minimap draws the wall rather than the game value; a reviewer decides. It is left unchanged."},
+     "check": {"kind": "lifetime_upper", "ability_id": "phoenix:blaze", "expected_ms": 8000},
+     "references": [
+       {"id": "official-phoenix", "url": "https://wiki.playvalorant.com/en-us/Phoenix", "quote": "Duration: 8 s", "value": 8.0, "stance": "supporting"},
+       {"id": "patch-1-0", "url": "https://playvalorant.com/en-us/news/game-updates/valorant-patch-notes-1-0/", "quote": "Blaze duration increased from 6 to 8 seconds (as summarised by the search reader; not fetched)", "value": 8.0, "stance": "supporting", "patch": "1.0", "note": "Patch history, not a current-value statement."}
+     ]},
+    {"hypothesis_id": "web-neon-fast-lane-duration", "subject": "neon:fast lane", "property": "duration_s",
+     "claim": "Neon's Fast Lane walls last 4 s.", "value": 4.0,
+     "check": {"kind": "lifetime_upper", "ability_id": "neon:fast lane", "expected_ms": 4000},
+     "references": [
+       {"id": "official-neon", "url": "https://wiki.playvalorant.com/en-us/Neon", "quote": "Uses: 1; Cost: 300; Duration: 4 s", "value": 4.0, "stance": "supporting"}
+     ]},
+    {"hypothesis_id": "web-jett-cloudburst-duration", "subject": "jett:cloudburst", "property": "duration_s",
+     "claim": "Jett's Cloudburst smoke lasts 2.5 s.", "value": 2.5,
+     "check": {"kind": "lifetime_upper", "ability_id": "jett:cloudburst", "expected_ms": 2500},
+     "references": [
+       {"id": "official-jett", "url": "https://wiki.playvalorant.com/en-us/Jett", "quote": "Uses: 2; Cost: 200; Duration: 2.5 s", "value": 2.5, "stance": "supporting"}
      ]}
-  ]
+  ],
+  "official_uses": {
+    "note": "Uses per ability as the official agent pages state them (retrieved 2026-09-23). Tailwind and High Gear state no Uses and recharge on kills; they are 1 here only because one pip shows. Fuel abilities (Viper Q/E) are kept and reported separately.",
+    "fuel": ["viper:poison cloud", "viper:toxic screen"],
+    "uses": {
+      "omen:dark cover": 2, "omen:paranoia": 1, "omen:shrouded step": 2,
+      "brimstone:stim beacon": 1, "brimstone:incendiary": 1, "brimstone:sky smoke": 3,
+      "viper:snake bite": 1, "viper:poison cloud": 1, "viper:toxic screen": 1,
+      "killjoy:nanoswarm": 2, "killjoy:alarmbot": 1, "killjoy:turret": 1,
+      "cypher:trapwire": 2, "cypher:cyber cage": 2, "cypher:spycam": 1,
+      "sova:owl drone": 1, "sova:shock bolt": 2, "sova:recon bolt": 1,
+      "skye:regrowth": 1, "skye:trailblazer": 1, "skye:guiding light": 2,
+      "reyna:leer": 2, "reyna:devour": 2, "reyna:dismiss": 2,
+      "clove:pick-me-up": 1, "clove:meddle": 1, "clove:ruse": 2,
+      "phoenix:blaze": 1, "phoenix:hot hands": 1, "phoenix:curveball": 2,
+      "neon:fast lane": 1, "neon:relay bolt": 1, "neon:high gear": 1,
+      "jett:cloudburst": 2, "jett:updraft": 1, "jett:tailwind": 1
+    },
+    "urls": ["https://wiki.playvalorant.com/en-us/Omen", "https://wiki.playvalorant.com/en-us/Brimstone",
+             "https://wiki.playvalorant.com/en-us/Viper", "https://wiki.playvalorant.com/en-us/Killjoy",
+             "https://wiki.playvalorant.com/en-us/Cypher", "https://wiki.playvalorant.com/en-us/Sova",
+             "https://wiki.playvalorant.com/en-us/Skye", "https://wiki.playvalorant.com/en-us/Reyna",
+             "https://wiki.playvalorant.com/en-us/Clove", "https://wiki.playvalorant.com/en-us/Phoenix",
+             "https://wiki.playvalorant.com/en-us/Neon", "https://wiki.playvalorant.com/en-us/Jett"]
+  },
+  "accepted_fact_audit": {
+    "note": "Numbers in accepted domain/abilities.toml facts compared with the official agent pages retrieved 2026-09-23. Agreement is consistency between a page and a fact, not an observation. No accepted fact is edited.",
+    "agree": [
+      {"fact": "abilities/omen-dark-cover", "states": "persists for 15.0 seconds", "page": "Duration: 15 s"},
+      {"fact": "abilities/omen-tray-charges", "states": "two Dark Cover charges in slot E", "page": "Uses: 2"},
+      {"fact": "abilities/killjoy-tray-charges", "states": "one Alarmbot (Q), two Nanoswarms (C), one Turret (E)", "page": "Alarmbot Uses: 1; Nanoswarm Uses: 2; Turret Uses: 1"},
+      {"fact": "abilities/jett-tray-charges", "states": "two Cloudburst charges in slot C", "page": "Uses: 2"},
+      {"fact": "abilities/viper-tray-charges", "states": "one Poison Cloud in slot Q", "page": "Uses: 1"},
+      {"fact": "abilities/viper-toxic-screen-charges", "states": "one Toxic Screen in slot E", "page": "Uses: 1"},
+      {"fact": "abilities/clove-tray-charges", "states": "two Ruse charges in slot E", "page": "Uses: 2"},
+      {"fact": "abilities/phoenix-tray-charges", "states": "one Blaze charge in slot C", "page": "Uses: 1"},
+      {"fact": "abilities/cypher-tray-charges", "states": "two Trapwire charges in slot C", "page": "Uses: 2"},
+      {"fact": "abilities/neon-tray-charges", "states": "one Fast Lane charge in slot C", "page": "Uses: 1"}
+    ],
+    "contradict": [
+      {"fact": "abilities/omen-tray-charges", "states": "restores one charge every 30.0 seconds", "page": "Cooldown: 40 s", "proposal": "web-omen-dark-cover-cooldown"},
+      {"fact": "abilities/phoenix-blaze", "states": "lasting for approximately 4.0 seconds", "page": "Duration: 8 s", "proposal": "web-phoenix-blaze-duration"}
+    ]
+  }
 }

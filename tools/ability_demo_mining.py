@@ -3,6 +3,7 @@
     .\\.venv\\Scripts\\python.exe tools\\ability_demo_mining.py witness
     .\\.venv\\Scripts\\python.exe tools\\ability_demo_mining.py facts
     .\\.venv\\Scripts\\python.exe tools\\ability_demo_mining.py retrieve
+    .\\.venv\\Scripts\\python.exe tools\\ability_demo_mining.py charges
 
 A solo demo has one player, so the HUD tray is a witness for which ability a
 minimap candidate could be. This tool asks the owners and restates none of
@@ -259,6 +260,40 @@ def instance_spans(ability, expected, observed, edges, components, durations, de
     return out
 
 
+def multi_drop_evidence(check: dict, uses: dict[str, dict], demos: dict) -> list[tuple[dict, str]]:
+    """A demo cast whose tray drop spends more than one charge supports a batch launch.
+
+    A one-charge drop is consistent with the claim too, so it stays unresolved;
+    the tray alone cannot contradict a batch launch.
+    """
+    out = []
+    one = 1.0 / check["uses"]
+    for use_id, use in sorted(uses.items()):
+        if (use.get("ability_id") != check["ability_id"] or use["session_id"] not in demos
+                or use.get("status") != "candidate"):
+            continue
+        drop = float(use["raw"][2]) - float(use["raw"][3])
+        role = "supporting" if drop > one + CHARGE_TOL else "unresolved"
+        reason = (f"one drop of {drop:.2f} spends more than one charge ({one:.2f})"
+                  if role == "supporting" else "a one-charge drop is consistent either way")
+        pin = _pin(use["raw"])
+        out.append(({"id": f"tray:{use_id}", "revision": pin, "current_revision": pin,
+                     "kind": "observation", "observed_at": f"{use['session_id']}@{int(use['observed_t_ms'])}ms",
+                     "analyzed_at": TODAY,
+                     "source": {"session": use["session_id"],
+                                "window_ms": list(use["occurrence_interval_ms"]),
+                                "evidence": use["source_evidence"]},
+                     "instance": use_id, "session": use["session_id"],
+                     "session_class": "ability-demo", "drop": round(drop, 3),
+                     "dependencies": [], "rules_used": [], "reason": reason,
+                     "refusal_reason": None if role == "supporting" else reason,
+                     "source_review": ("28f53bfddbbe 15.0 s: two dark discs appear together after "
+                                       "the 14.5 s E drop; awaiting player confirmation"
+                                       if use["session_id"] == "28f53bfddbbe" else None)},
+                    role))
+    return out
+
+
 def facts(root: Path, output: Path) -> dict:
     data = json.loads(REFERENCES.read_text(encoding="utf-8"))
     scope = data["patch_scope"]
@@ -275,6 +310,11 @@ def facts(root: Path, output: Path) -> dict:
             refs.append({"id": node["id"], "revision": node["revision"], "role": ref["stance"]})
         check = proposal["check"]
         observed = []
+        if check["kind"] == "tray_multi_drop":
+            observed = multi_drop_evidence(check, uses, demos)
+            for node, role in observed:
+                nodes.append(node)
+                refs.append({"id": node["id"], "revision": node["revision"], "role": role})
         if check["kind"] == "lifetime_upper":
             observed = lifetime_evidence(check, uses, edges, components, durations, demos)
             for node, role in observed:
@@ -403,9 +443,57 @@ def retrieve(root: Path) -> dict:
                            for s in sorted({r["session_id"] for r in rows})}}
 
 
+CHARGE_TOL = 0.15
+
+
+def charges(root: Path) -> dict:
+    """Compare each demo cast's tray drop with 1/Uses from the official pages.
+
+    The tray fill is lit pips over total pips, so one cast removes 1/n. The
+    tray reader and the page are independent: agreement is consistency between
+    two channels, and each disagreement is kept.
+    """
+    import statistics
+    from reticle.ability_timeline import build_timeline
+    data = json.loads(REFERENCES.read_text(encoding="utf-8"))["official_uses"]
+    uses_of, fuel = data["uses"], set(data["fuel"])
+    demos = demo_sessions(root)
+    drops = defaultdict(list)
+    for use in build_timeline(root)["use_claims"]:
+        ability = use.get("ability_id")
+        if use["session_id"] not in demos or use.get("status") != "candidate" or ability not in uses_of:
+            continue
+        raw = use["raw"]
+        drops[ability].append({"session": use["session_id"], "t_ms": use["observed_t_ms"],
+                               "drop": round(float(raw[2]) - float(raw[3]), 3)})
+    rows, matched, total = [], 0, 0
+    for ability, casts in sorted(drops.items()):
+        n = uses_of[ability]
+        ok = [abs(c["drop"] - 1.0 / n) <= CHARGE_TOL for c in casts]
+        median = statistics.median(c["drop"] for c in casts)
+        nearest = min((1, 2, 3), key=lambda k: abs(median - 1.0 / k))
+        if ability not in fuel:
+            matched += sum(ok)
+            total += len(casts)
+        rows.append({"ability_id": ability, "official_uses": n, "casts": len(casts),
+                     "matching": sum(ok), "median_drop": median, "nearest_uses": nearest,
+                     "fuel": ability in fuel,
+                     "role": ("supporting" if nearest == n and all(ok) else
+                              "contradicting" if nearest != n else "unresolved"),
+                     "drops": casts})
+    values = {"abilities": len(rows), "casts": total, "matching": matched,
+              "match_rate": round(matched / total, 3) if total else None,
+              "abilities_nearest_other": sum(1 for r in rows if r["nearest_uses"] != r["official_uses"]
+                                             and not r["fuel"])}
+    metrics.record("ability_demo_mining", part="tray-charges", values=values,
+                   deps={**_deps(), "tol": CHARGE_TOL, "uses": _pin(uses_of)},
+                   context={"demo_sessions": len(demos)})
+    return {"values": values, "abilities": rows}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("witness", "facts", "retrieve"))
+    parser.add_argument("command", choices=("witness", "facts", "retrieve", "charges"))
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
     parser.add_argument("--output", type=Path, default=None,
                         help="facts: directory for hypothesis revisions")
@@ -415,6 +503,8 @@ def main(argv: list[str] | None = None) -> int:
         result = witness(root)
     elif args.command == "facts":
         result = facts(root, args.output or root / "analysis" / "domain-hypotheses")
+    elif args.command == "charges":
+        result = charges(root)
     else:
         result = retrieve(root)
     print(json.dumps(result, indent=2, default=str))
