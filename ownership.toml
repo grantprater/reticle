@@ -720,7 +720,7 @@ question = "What does this ability look like, and does the gallery separate it?"
 owner = "adjudication.gallery"
 role = ["corroborate", "constrain"]
 status = "partial"
-produces = ["build_gallery_bundle", "evaluate", "permutation_p", "extract_glyph_features", "classify_ability_glyph", "load_harvested_gallery", "integrate_crop_gallery"]
+produces = ["build_gallery_bundle", "evaluate", "permutation_p", "extract_glyph_features", "classify_ability_glyph", "classify_glyph_features", "load_harvested_gallery", "integrate_crop_gallery"]
 not_for = """
 The live classifier. Temporal shape failed to separate the Deadlock sensor from
 Barrier Mesh across held-out directions, and the corpus supports one held-out

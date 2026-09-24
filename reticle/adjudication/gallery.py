@@ -37,6 +37,8 @@ from ..store import DEFAULT_STORE
 
 
 ABILITY_GALLERY_VERSION = "ability-gallery-0.2.0"
+#: The glyph classifier's own stamp; it changes independently of the gallery.
+GLYPH_CLASSIFIER_VERSION = "ability-glyph-0.2.0"
 
 # Relative to the component's own observation time.  ``pre`` is the background
 # the effect arrives against; it is evidence, not padding.
@@ -709,12 +711,30 @@ def extract_glyph_features(patch: np.ndarray, archetype: str | None = None,
 
 def classify_ability_glyph(patch: np.ndarray, archetype: str | None = None,
                            r_self: float = 8.0,
-                           gallery: list[dict] | None = None) -> dict:
+                           gallery: list[dict] | None = None,
+                           allowed: set[str] | None = None) -> dict:
     """Classify ability candidate patch deterministically by glyph, tint, and scale."""
     feats = extract_glyph_features(patch, archetype=archetype, r_self=r_self)
+    return classify_glyph_features(feats, archetype=archetype, allowed=allowed)
+
+
+def classify_glyph_features(feats: dict, archetype: str | None = None,
+                            allowed: set[str] | None = None) -> dict:
+    """The rule behind `classify_ability_glyph`, over already-extracted features.
+
+    Split out so an evaluation can score stored features without keeping the
+    pixels they came from.
+
+    `allowed` is the ability vocabulary an independent witness permits -- the
+    solo demo's agent, or the scoreboard lineup of a match. Scores outside it
+    are dropped before the best is taken, and when nothing in the archetype is
+    allowed the answer is null with a reason rather than the nearest foreign
+    name. None keeps the unconstrained ranking.
+    """
     if not feats:
         return {"ability_id": None, "archetype": None, "confidence": 0.0,
-                "scores": {}, "features": {}}
+                "scores": {}, "features": {}, "refusal_reason": "no features",
+                "version": GLYPH_CLASSIFIER_VERSION}
 
     if archetype is None:
         if feats["width"] >= 40 and feats["height"] >= 40:
@@ -785,6 +805,13 @@ def classify_ability_glyph(patch: np.ndarray, archetype: str | None = None,
         else:
             scores["omen:dark cover"] = 0.30
 
+    if allowed is not None:
+        scores = {k: v for k, v in scores.items() if k in allowed}
+        if not scores:
+            return {"ability_id": None, "archetype": archetype, "confidence": 0.0,
+                    "scores": {}, "features": feats,
+                    "refusal_reason": f"no witnessed agent's ability is a {archetype}",
+                    "version": GLYPH_CLASSIFIER_VERSION}
     best_id = max(scores.keys(), key=lambda k: scores[k])
     conf = scores[best_id]
     return {
@@ -793,6 +820,8 @@ def classify_ability_glyph(patch: np.ndarray, archetype: str | None = None,
         "confidence": conf,
         "scores": scores,
         "features": feats,
+        "refusal_reason": None,
+        "version": GLYPH_CLASSIFIER_VERSION,
     }
 
 

@@ -98,6 +98,19 @@ class GlyphClassificationTests(unittest.TestCase):
         res_o = classify_ability_glyph(omen_patch, archetype="smoke")
         self.assertEqual(res_o["ability_id"], "omen:dark cover")
 
+    def test_witnessed_vocabulary_gates_the_name(self):
+        omen_patch = np.full((32, 32, 3), [110, 115, 125], dtype=np.uint8)
+        omen_patch[12:20, 12:20] = [95, 90, 105]
+        # A Sova clip permits no smoke: refuse with a reason, never Omen.
+        res = classify_ability_glyph(omen_patch, archetype="smoke",
+                                     allowed={"sova:recon bolt", "sova:owl drone"})
+        self.assertIsNone(res["ability_id"])
+        self.assertIn("smoke", res["refusal_reason"])
+        # Within the allowed set the best remaining score wins.
+        res = classify_ability_glyph(omen_patch, archetype="smoke",
+                                     allowed={"jett:cloudburst", "clove:ruse"})
+        self.assertIn(res["ability_id"], {"jett:cloudburst", "clove:ruse"})
+
 
 class GalleryIntegrationTests(unittest.TestCase):
     """Test loading and integration of harvested crop gallery."""
