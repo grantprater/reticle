@@ -25,7 +25,9 @@ SCHEMA_VERSION = 1
 # (`t_close_ms`), since post-round kills count [domain:rounds/post-round-period].
 # 0.5.0 (2026-09-24): a final round the scoreline never closed is inferred from
 # the match-end rule (`end_source = match_end_rule`).
-ROUND_VERSION = "round-0.5.0"
+# 0.6.0 (2026-09-24): a player death carrying the second-life badge is a
+# second life, not a death (`player_second_lives`), where badge reads exist.
+ROUND_VERSION = "round-0.6.0"
 COACH_VERSION = "coach-0.1.0"
 # Pure credit-ledger rules and interval semantics. This does not stamp a credit
 # detector: no such observation channel exists yet.

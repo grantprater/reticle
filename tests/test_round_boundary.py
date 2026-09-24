@@ -74,5 +74,19 @@ class MatchEnd(unittest.TestCase):
         self.assertIsNone(final_round(t, left, right, clock, rounds))
 
 
+
+class SecondLife(unittest.TestCase):
+    def _obs(self, t, badge):
+        return {"kind": "second_life_observation", "t_ms": float(t), "has_badge": badge}
+
+    def test_a_badged_entry_is_a_second_life_and_an_unread_one_is_unknown(self):
+        from reticle.adjudication.death import second_life_death
+        obs = [self._obs(1577000, True), self._obs(1577500, True), self._obs(1578000, False),
+               self._obs(1594000, False)]
+        self.assertTrue(second_life_death(1576500, 1579500, obs))
+        self.assertFalse(second_life_death(1593500, 1598000, obs))
+        self.assertIsNone(second_life_death(1000, 2000, obs))
+
+
 if __name__ == "__main__":
     unittest.main()

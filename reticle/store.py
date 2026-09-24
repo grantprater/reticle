@@ -601,6 +601,9 @@ class Store:
             "score_them": col("score_them", pa.int16()),
             "player_kills": col("player_kills", pa.int16()),
             "player_deaths": col("player_deaths", pa.int16()),
+            # Player deaths the second-life badge moved out of `player_deaths`;
+            # null where no badge observations were stored (round-0.6.0).
+            "player_second_lives": col("player_second_lives", pa.int16()),
             "multikill": col("multikill", pa.int16()),
             "first_event": col("first_event", pa.string()),
             "spike_planted": col("spike_planted", pa.bool_()),

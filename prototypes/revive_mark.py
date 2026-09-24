@@ -140,58 +140,9 @@ def white_mask(bgr: np.ndarray) -> np.ndarray:
     return ((hsv[:, :, 2] >= WHITE_V_MIN) & (hsv[:, :, 1] <= WHITE_S_MAX))
 
 
-def _longest_circular_run(hit) -> int:
-    """Longest circular run of consecutive True samples."""
-    n = len(hit)
-    if hit.all():
-        return n
-    best = run = 0
-    for k in range(2 * n):
-        if hit[k % n]:
-            run += 1
-            best = max(best, run)
-        else:
-            run = 0
-    return min(best, n)
-
-
-def fit_arc(mask, cx0):
-    """Best (coverage, longest_run, cx, r) over a small circle search.
-
-    TWO statistics, because coverage alone was MEASURED not to separate. The
-    badge and the headshot crosshair both put white at one radius from a
-    centre -- a crosshair is four bars arranged around a point, which is a
-    circle sampled at four places -- so a fitted circle's coverage reads
-    0.59-0.69 on the badge and 0.64 on a plain crosshair. It also fires on
-    letters: circles were fitted to `Jett`, `Vyse` and `Me` at 0.28-0.34.
-
-    What differs is CONTINUITY. A ring is one unbroken arc; a crosshair is
-    four short runs separated by four gaps. So the discriminator is the
-    longest circular run of white along the circumference, as a fraction of
-    it, and coverage is kept beside it as the second aggregate this repo's
-    own convention requires.
-
-    Selection is on the RUN, not on coverage -- picking the circle with the
-    most white and then measuring its continuity would let the crosshair pick
-    the circle and then fail it.
-    """
-    h, w = mask.shape
-    best = (0.0, 0.0, cx0, 0.0)
-    th = np.linspace(0.0, 2.0 * np.pi, N_THETA, endpoint=False)
-    ct, stt = np.cos(th), np.sin(th)
-    cy = (h - 1) / 2.0
-    for r in np.arange(R_FRAC[0] * h, R_FRAC[1] * h, 0.5):
-        for cx in np.arange(cx0 - CX_FRAC * h, cx0 + CX_FRAC * h, 1.0):
-            xs = np.rint(cx + r * ct).astype(int)
-            ys = np.rint(cy + r * stt).astype(int)
-            ok = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
-            if ok.sum() < N_THETA:      # the whole circle must be in the crop
-                continue
-            hit = mask[ys, xs]
-            run = _longest_circular_run(hit) / float(N_THETA)
-            if run > best[1]:
-                best = (float(hit.mean()), run, float(cx), float(r))
-    return best
+# The arc search was promoted into `reticle.killfeed` (via `adjudication.death`)
+# and is imported from there; its constants above are the same values.
+from reticle.killfeed import _longest_circular_run, fit_arc  # noqa: E402,F401
 
 
 def entry_marks(frame, roi, w, h, profile_name):

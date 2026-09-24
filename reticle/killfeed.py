@@ -303,7 +303,7 @@ Deaths per round is deliberately NOT used as a check anywhere: Sage
 resurrection and Clove self-revive both let a player die more than once in a
 round, so any such invariant would fire on legitimate footage.
 
-Owns [owns:killfeed-event] and [owns:killfeed-portrait].
+Owns [owns:killfeed-event], [owns:killfeed-portrait] and [owns:killfeed-second-life-badge].
 """
 
 from __future__ import annotations
@@ -1216,7 +1216,9 @@ def analyse_killfeed(
 #: from the asset, not fitted to a session, which is why it is a ratio and not a
 #: pixel count: the band height already carries the widget's scale.
 PORTRAIT_ASPECT = 2.0
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.2.0"
+# 0.3.0 (2026-09-24): also stores a `second_life_observation` per read player
+# death entry: whether it carries the Run It Back / downed badge.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.3.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -1363,6 +1365,117 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
     return out
 
 
+# --------------------------------------------------------------------------- second life
+# The circular badge a second-life death carries (Phoenix Run It Back, a downed
+# KAY/O) [domain:rounds/resurrection-mechanics]. Read here, in the reader
+# that already crops every entry; `adjudication.death` re-exports it.
+
+SECOND_LIFE_WHITE_V_MIN = 190
+SECOND_LIFE_WHITE_S_MAX = 70
+SECOND_LIFE_R_FRAC = (0.26, 0.42)
+SECOND_LIFE_CX_FRAC = 0.45
+SECOND_LIFE_N_THETA = 64
+SECOND_LIFE_RUN_MIN = 0.29
+
+
+def _white_mask(bgr: np.ndarray) -> np.ndarray:
+    """Mask white line art: bright and near-zero saturation against plate backgrounds."""
+    import cv2
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    return (hsv[:, :, 2] >= SECOND_LIFE_WHITE_V_MIN) & (hsv[:, :, 1] <= SECOND_LIFE_WHITE_S_MAX)
+
+
+def _longest_circular_run(hit: np.ndarray) -> int:
+    """Longest circular run of consecutive True samples along a circumference."""
+    n = len(hit)
+    if hit.all():
+        return n
+    best = run = 0
+    for k in range(2 * n):
+        if hit[k % n]:
+            run += 1
+            best = max(best, run)
+        else:
+            run = 0
+    return min(best, n)
+
+
+def fit_arc(mask: np.ndarray, cx0: float) -> tuple[float, float, float, float]:
+    """Best (coverage, longest_run, cx, r) over a circular arc search.
+
+    Ported from `prototypes/revive_mark.py`. Coverage alone was measured not to
+    separate: a fitted circle's coverage reads 0.59-0.69 on the badge and 0.64
+    on a plain headshot crosshair (four bars around a point), and 0.28-0.34 on
+    letters. A ring is one unbroken arc and a crosshair four short runs, so the
+    discriminator is the longest circular run of white along the circumference,
+    selected on first, with coverage kept beside it.
+    """
+    h, w = mask.shape
+    best = (0.0, 0.0, cx0, 0.0)
+    th = np.linspace(0.0, 2.0 * np.pi, SECOND_LIFE_N_THETA, endpoint=False)
+    ct, stt = np.cos(th), np.sin(th)
+    cy = (h - 1) / 2.0
+    for r in np.arange(SECOND_LIFE_R_FRAC[0] * h, SECOND_LIFE_R_FRAC[1] * h, 0.5):
+        for cx in np.arange(cx0 - SECOND_LIFE_CX_FRAC * h, cx0 + SECOND_LIFE_CX_FRAC * h, 1.0):
+            xs = np.rint(cx + r * ct).astype(int)
+            ys = np.rint(cy + r * stt).astype(int)
+            ok = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+            if ok.sum() < SECOND_LIFE_N_THETA:
+                continue
+            hit = mask[ys, xs]
+            run = _longest_circular_run(hit) / float(SECOND_LIFE_N_THETA)
+            if run > best[1]:
+                best = (float(hit.mean()), float(run), float(cx), float(r))
+    return best
+
+
+def detect_second_life_badge(
+    crop: np.ndarray,
+    victim_x: float | None = None,
+    run_min: float = SECOND_LIFE_RUN_MIN,
+) -> tuple[bool, dict]:
+    """Detect circular second-life badge (e.g. Phoenix Run It Back / KAY/O downed) on an entry crop.
+
+    When `victim_x` is supplied, `crop` is the full entry band and the search
+    window is centered on `victim_x` with a width equal to twice the band height.
+    When `victim_x` is None, `crop` is assumed to already be centered on the badge boundary.
+
+    Returns:
+        tuple (has_badge, metrics_dict) where metrics_dict contains coverage, run, cx, r.
+    """
+    if crop is None or crop.size == 0 or crop.shape[0] < 10:
+        return False, {"coverage": 0.0, "run": 0.0, "cx": 0.0, "r": 0.0, "has_badge": False}
+
+    bh = crop.shape[0]
+    if victim_x is not None:
+        x0 = max(0, int(victim_x) - bh)
+        x1 = min(crop.shape[1], int(victim_x) + bh)
+        sub = crop[:, x0:x1]
+        if sub.shape[1] < 8:
+            return False, {"coverage": 0.0, "run": 0.0, "cx": 0.0, "r": 0.0, "has_badge": False}
+        cx0 = float(int(victim_x) - x0)
+        cov, run, cx, r = fit_arc(_white_mask(sub), cx0)
+        has_badge = run >= run_min
+        return has_badge, {
+            "coverage": round(cov, 3),
+            "run": round(run, 3),
+            "cx": round(cx + x0, 1),
+            "r": round(r, 1),
+            "has_badge": has_badge,
+        }
+    else:
+        cx0 = float(crop.shape[1] / 2.0)
+        cov, run, cx, r = fit_arc(_white_mask(crop), cx0)
+        has_badge = run >= run_min
+        return has_badge, {
+            "coverage": round(cov, 3),
+            "run": round(run, 3),
+            "cx": round(cx, 1),
+            "r": round(r, 1),
+            "has_badge": has_badge,
+        }
+
+
 class KillfeedPortraitReader:
     """Persist context-free portrait observations from the shared HUD pass.
 
@@ -1380,6 +1493,7 @@ class KillfeedPortraitReader:
         self.hz = hz
         self.spans = spans
         self.rows: list[dict] = []
+        self.badges: list[dict] = []
         self.frames_offered = 0
 
     def feed(self, smp) -> None:
@@ -1389,6 +1503,19 @@ class KillfeedPortraitReader:
         views = analyse_killfeed(
             smp.frame, self.roi, self.w, self.h, self.mask,
             self.profile.name)
+        # The player's own deaths: does the entry carry the second-life badge?
+        # Stored for every such entry, badge or not, so a consumer can tell a
+        # Run It Back death from a death, and both from an entry never read.
+        x0, y0, x1, y1 = self.roi.pixels(self.w, self.h)
+        for view in views:
+            if view.verdict != "death" or not view.victim_run or view.y1 - view.y0 < 10:
+                continue
+            band = smp.frame[y0 + view.y0:y0 + view.y1, x0:x1]
+            has_badge, metrics = detect_second_life_badge(band, view.victim_run[0])
+            self.badges.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms),
+                                "slot": view.slot, "y0": int(view.y0), "y1": int(view.y1),
+                                "victim_x": int(view.victim_run[0]),
+                                "has_badge": bool(has_badge), **metrics})
         for observation in portrait_observations(
                 smp.frame, self.roi, self.w, self.h, views=views,
                 mask=self.mask, profile_name=self.profile.name):
@@ -1441,7 +1568,10 @@ class KillfeedPortraitReader:
                     f"{session_id}:{row['frame_idx']}:{row['slot']}:{row['role']}",
                 **out,
             })
-        return [coverage] + rows
+        coverage["second_life_observations"] = len(self.badges)
+        coverage["second_life_badges"] = sum(b["has_badge"] for b in self.badges)
+        badges = [{**common, "kind": "second_life_observation", **b} for b in self.badges]
+        return [coverage] + rows + badges
 
 
 def _trusted_wx(view: "EntryView") -> int:

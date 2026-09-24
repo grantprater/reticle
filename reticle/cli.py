@@ -1679,7 +1679,13 @@ def cmd_rounds(args) -> int:
             continue          # never had `hud` run, or has no killfeed ROI
         import pyarrow.parquet as pq
         hud = pq.read_table(path)
-        rs = build_rounds(hud)
+        # Second-life badge reads ride the killfeed portrait events; only a
+        # current version carries them, so a stale store counts every death.
+        portraits = store.read_events("killfeed_portrait", sid)
+        second_life = ([r for r in portraits if r.get("kind") == "second_life_observation"]
+                       if portraits and portraits[0].get("killfeed_portrait_version")
+                       == KILLFEED_PORTRAIT_VERSION else None)
+        rs = build_rounds(hud, second_life)
         if not rs:
             continue
         mp = next((t.split(":", 1)[1] for t in man.get("tags", []) if t.startswith("map:")), "?")

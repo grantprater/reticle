@@ -39,6 +39,8 @@ from ..events import (
     entity_state_event,
     session_boundary_event,
 )
+from ..killfeed import (SECOND_LIFE_RUN_MIN, detect_second_life_badge,  # noqa: F401 -- re-exported
+                        fit_arc)
 from ..roster import N_SLOTS
 from .identity import (adjudicate_agent_identity, claim_from_killfeed_portrait,
                        identity_claim, identity_events, side_candidates, _channel_verdict)
@@ -295,12 +297,25 @@ XMARK_AREA_RANGE = (15, 150)
 #: many blue marks a blob holds.
 BLUE_XMARK_AREA_RANGE = (15, 300)
 
-SECOND_LIFE_WHITE_V_MIN = 190
-SECOND_LIFE_WHITE_S_MAX = 70
-SECOND_LIFE_R_FRAC = (0.26, 0.42)
-SECOND_LIFE_CX_FRAC = 0.45
-SECOND_LIFE_N_THETA = 64
-SECOND_LIFE_RUN_MIN = 0.29
+#: Slack around a killfeed track's lifetime when collecting its badge reads.
+SECOND_LIFE_SLACK_MS = 500.0
+
+
+def second_life_death(t_first: float, t_last: float, observations: list[dict]) -> bool | None:
+    """Whether the player's killfeed death seen from `t_first` to `t_last` is a
+    second life (Run It Back, a downed KAY/O) rather than a death.
+
+    A majority vote over the stored `second_life_observation` rows inside the
+    track's lifetime. None when no observation falls there: unread, which a
+    caller keeps apart from "no badge".
+    """
+    votes = [o["has_badge"] for o in observations
+             if o.get("kind") == "second_life_observation"
+             and t_first - SECOND_LIFE_SLACK_MS <= o["t_ms"] <= t_last + SECOND_LIFE_SLACK_MS]
+    if not votes:
+        return None
+    return sum(votes) * 2 > len(votes)
+
 
 REVIVE_ABILITY_ICONS = {
     "Sage": "Sage_Ultimate.png",
@@ -419,101 +434,6 @@ def extract_killer_location(
                 return min(enemy_sightings, key=lambda pt: math.hypot(pt[0] - victim_location[0], pt[1] - victim_location[1]))
             return enemy_sightings[0]
     return None
-
-
-def _white_mask(bgr: np.ndarray) -> np.ndarray:
-    """Mask white line art: bright and near-zero saturation against plate backgrounds."""
-    import cv2
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    return (hsv[:, :, 2] >= SECOND_LIFE_WHITE_V_MIN) & (hsv[:, :, 1] <= SECOND_LIFE_WHITE_S_MAX)
-
-
-def _longest_circular_run(hit: np.ndarray) -> int:
-    """Longest circular run of consecutive True samples along a circumference."""
-    n = len(hit)
-    if hit.all():
-        return n
-    best = run = 0
-    for k in range(2 * n):
-        if hit[k % n]:
-            run += 1
-            best = max(best, run)
-        else:
-            run = 0
-    return min(best, n)
-
-
-def fit_arc(mask: np.ndarray, cx0: float) -> tuple[float, float, float, float]:
-    """Best (coverage, longest_run, cx, r) over a circular arc search.
-
-    Ported from prototypes/revive_mark.py. Measures continuity (longest circular
-    unbroken run of white pixels) rather than mere coverage to distinguish the
-    second-life badge from a four-spoke headshot crosshair.
-    """
-    h, w = mask.shape
-    best = (0.0, 0.0, cx0, 0.0)
-    th = np.linspace(0.0, 2.0 * np.pi, SECOND_LIFE_N_THETA, endpoint=False)
-    ct, stt = np.cos(th), np.sin(th)
-    cy = (h - 1) / 2.0
-    for r in np.arange(SECOND_LIFE_R_FRAC[0] * h, SECOND_LIFE_R_FRAC[1] * h, 0.5):
-        for cx in np.arange(cx0 - SECOND_LIFE_CX_FRAC * h, cx0 + SECOND_LIFE_CX_FRAC * h, 1.0):
-            xs = np.rint(cx + r * ct).astype(int)
-            ys = np.rint(cy + r * stt).astype(int)
-            ok = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
-            if ok.sum() < SECOND_LIFE_N_THETA:
-                continue
-            hit = mask[ys, xs]
-            run = _longest_circular_run(hit) / float(SECOND_LIFE_N_THETA)
-            if run > best[1]:
-                best = (float(hit.mean()), float(run), float(cx), float(r))
-    return best
-
-
-def detect_second_life_badge(
-    crop: np.ndarray,
-    victim_x: Optional[float] = None,
-    run_min: float = SECOND_LIFE_RUN_MIN,
-) -> tuple[bool, dict[str, Any]]:
-    """Detect circular second-life badge (e.g. Phoenix Run It Back / KAY/O downed) on an entry crop.
-
-    When `victim_x` is supplied, `crop` is the full entry band and the search
-    window is centered on `victim_x` with a width equal to twice the band height.
-    When `victim_x` is None, `crop` is assumed to already be centered on the badge boundary.
-
-    Returns:
-        tuple (has_badge, metrics_dict) where metrics_dict contains coverage, run, cx, r.
-    """
-    if crop is None or crop.size == 0 or crop.shape[0] < 10:
-        return False, {"coverage": 0.0, "run": 0.0, "cx": 0.0, "r": 0.0, "has_badge": False}
-
-    bh = crop.shape[0]
-    if victim_x is not None:
-        x0 = max(0, int(victim_x) - bh)
-        x1 = min(crop.shape[1], int(victim_x) + bh)
-        sub = crop[:, x0:x1]
-        if sub.shape[1] < 8:
-            return False, {"coverage": 0.0, "run": 0.0, "cx": 0.0, "r": 0.0, "has_badge": False}
-        cx0 = float(int(victim_x) - x0)
-        cov, run, cx, r = fit_arc(_white_mask(sub), cx0)
-        has_badge = run >= run_min
-        return has_badge, {
-            "coverage": round(cov, 3),
-            "run": round(run, 3),
-            "cx": round(cx + x0, 1),
-            "r": round(r, 1),
-            "has_badge": has_badge,
-        }
-    else:
-        cx0 = float(crop.shape[1] / 2.0)
-        cov, run, cx, r = fit_arc(_white_mask(crop), cx0)
-        has_badge = run >= run_min
-        return has_badge, {
-            "coverage": round(cov, 3),
-            "run": round(run, 3),
-            "cx": round(cx, 1),
-            "r": round(r, 1),
-            "has_badge": has_badge,
-        }
 
 
 def classify_revive_icon(

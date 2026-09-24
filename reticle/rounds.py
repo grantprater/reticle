@@ -437,8 +437,14 @@ def round_closes(rounds: list[dict]) -> list[float]:
         [rounds[-1]["t_end_ms"] + tail] if rounds else [])
 
 
-def build_rounds(table) -> list[dict]:
-    """One row per round, from a session's stored HUD reads."""
+def build_rounds(table, second_life: list[dict] | None = None) -> list[dict]:
+    """One row per round, from a session's stored HUD reads.
+
+    `second_life` is the stored `second_life_observation` rows. Given them, a
+    player death that `adjudication.death.second_life_death` calls a second
+    life (Run It Back) is counted in `player_second_lives`, not as a death;
+    without them every death is counted, as before.
+    """
     names = set(table.column_names)
     t = table.column("t_ms").to_pylist()
     clock = table.column("clock_ms").to_pylist()
@@ -453,6 +459,11 @@ def build_rounds(table) -> list[dict]:
         rounds.append(last)
     kills = _tracks(t, table.column("kf_kill_mask").to_pylist(), div("kf_kill_wx"))
     deaths = _tracks(t, table.column("kf_death_mask").to_pylist(), div("kf_death_wx"))
+    lives = []
+    if second_life is not None:
+        from .adjudication.death import second_life_death
+        lives = [d for d in deaths if second_life_death(d["t_first"], d["t_last"], second_life)]
+        deaths = [d for d in deaths if d not in lives]
     entries = _tracks(t, table.column("kf_entry_mask").to_pylist(), div("kf_entry_wx"))
 
     ends = {r["t_end_ms"] for r in rounds}
@@ -465,6 +476,7 @@ def build_rounds(table) -> list[dict]:
         r["round_no"] = idx
         r["player_kills"] = len(rk)
         r["player_deaths"] = len(rd)
+        r["player_second_lives"] = len(in_round(lives)) if second_life is not None else None
         r["multikill"] = len(rk)
 
         # First blood: the earliest entry of the round, whoever it belonged to.
