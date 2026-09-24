@@ -47,7 +47,7 @@ from reticle import ocr  # noqa: E402
 from reticle.decode import sample_at, sample_frames  # noqa: E402
 from reticle.store import Store  # noqa: E402
 
-VERSION = "combat-report-proto-0.1.2"
+VERSION = "combat-report-proto-0.2.0"
 
 # The mined header: session, time and box (x0, y0, x1, y1) at 1080p.
 HEADER_SRC = ("a06f04a0059f", 187000.0, (1633, 465, 1778, 481))
@@ -87,6 +87,55 @@ def header_template() -> np.ndarray:
     cache.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(cache), g)
     return g
+
+
+# Flag words under a damage number, each mined once from a frame whose word was
+# read by eye: word -> (session, t_ms, hx, hy, row, field box).
+FLAG_SRC = {
+    "KILLED": ("a06f04a0059f", 187000.0, 1633, 465, 1, "out"),
+    "KILLED YOU": ("a06f04a0059f", 187000.0, 1633, 465, 0, "in"),
+    "ASSIST": ("a06f04a0059f", 1429000.0, 1633, 343, 0, "out"),
+}
+FLAG_PAD = 3
+
+
+def flag_templates() -> dict[str, np.ndarray]:
+    """Tight crops of each flag word, cached beside the header template."""
+    root = Store().root / "reference" / "templates"
+    out, todo = {}, {}
+    for word, src in FLAG_SRC.items():
+        f = root / f"combat-report-flag-{word.lower().replace(' ', '-')}.png"
+        if f.is_file():
+            out[word] = cv2.imread(str(f), cv2.IMREAD_GRAYSCALE)
+        else:
+            todo.setdefault((src[0], src[1]), []).append((word, src, f))
+    for (sid, t), items in todo.items():
+        path, fps = _source(sid)
+        g = cv2.cvtColor(next(sample_at(path, [t], fps)).frame, cv2.COLOR_BGR2GRAY)
+        for word, (_, _, hx, hy, row, side), f in items:
+            cell = _field(g, hx, hy, OUT_FLAG if side == "out" else IN_FLAG, ROW0 + row * PITCH)
+            ys, xs = np.nonzero(cell >= DIM)
+            crop = cell[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+            root.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(f), crop)
+            out[word] = crop
+    return out
+
+
+def read_flag(gray, hx, hy, box, dy, words) -> dict:
+    """Best correlation of each flag word inside the (padded) flag field. The
+    field is dark when no flag is drawn, so a flat field scores nothing."""
+    x0, y0, x1, y1 = box
+    cell = _field(gray, hx, hy, (x0 - FLAG_PAD, y0 - FLAG_PAD, x1 + FLAG_PAD, y1 + FLAG_PAD), dy)
+    if cell.size == 0 or cell.std() < 5:
+        return {w: 0.0 for w in words}
+    out = {}
+    for w, t in words.items():
+        if t.shape[0] > cell.shape[0] or t.shape[1] > cell.shape[1]:
+            out[w] = 0.0
+            continue
+        out[w] = round(float(cv2.matchTemplate(cell, t, cv2.TM_CCOEFF_NORMED).max()), 3)
+    return out
 
 
 def locate(gray: np.ndarray, tpl: np.ndarray) -> tuple[float, int, int]:
@@ -157,7 +206,7 @@ def bright(patch, threshold=ocr.THRESHOLD) -> float:
     return float((patch >= threshold).mean()) if patch.size else 0.0
 
 
-def read_panel(gray, hx, hy, tpl):
+def read_panel(gray, hx, hy, tpl, words):
     rows = []
     for k in range(MAX_ROWS):
         dy = ROW0 + k * PITCH
@@ -172,6 +221,8 @@ def read_panel(gray, hx, hy, tpl):
             "out_flag": round(bright(_field(gray, hx, hy, OUT_FLAG, dy), DIM), 3),
             "in_flag": round(bright(_field(gray, hx, hy, IN_FLAG, dy), DIM), 3),
             "name_ink": round(bright(_field(gray, hx, hy, NAME, dy), 150), 3),
+            "out_word": read_flag(gray, hx, hy, OUT_FLAG, dy, words),
+            "in_word": read_flag(gray, hx, hy, IN_FLAG, dy, words),
         })
     return rows
 
@@ -179,6 +230,7 @@ def read_panel(gray, hx, hy, tpl):
 def scan(sid: str, hz: float) -> Path:
     path, fps = _source(sid)
     head = header_template()
+    words = flag_templates()
     tpl = ocr.Templates.load(json.loads(
         (Store().root / "manifests" / f"{sid}.json").read_text())["source_profile"])
     out = Store().root / "analysis" / f"combat_report_{sid}.jsonl"
@@ -190,7 +242,7 @@ def scan(sid: str, hz: float) -> Path:
             rec = {"t_ms": s.t_ms, "header": round(score, 3), "hx": hx, "hy": hy,
                    "version": VERSION}
             if score >= HEADER_MIN:
-                rec["rows"] = read_panel(g, hx, hy, tpl)
+                rec["rows"] = read_panel(g, hx, hy, tpl, words)
                 found += 1
             f.write(json.dumps(rec) + "\n")
             n += 1
@@ -236,22 +288,32 @@ def _sig(r: dict) -> tuple:
                  for row in r.get("rows", []))
 
 
-def distinct_panels(recs: list[dict]) -> list[dict]:
+def distinct_panels(recs: list[dict], deaths: np.ndarray | None = None) -> list[dict]:
     """One representative frame per distinct panel: the episode's modal read,
-    taken at the frame nearest the episode's middle that shows it. A buy-phase
-    reopen repeats an earlier panel and is dropped."""
-    out, seen = [], set()
+    taken at the frame nearest the episode's middle that shows it.
+
+    An episode that starts at a death is always a new panel: two rounds can
+    read identically (one 160 headshot each). Any other episode is a reopen of
+    the previous panel when its damage numbers match, which are stable across
+    frames where hit counts are not."""
+    out = []
     for e in _episodes(recs):
         sigs = {}
         for r in e:
             sigs.setdefault(_sig(r), []).append(r)
         sig, frames = max(sigs.items(), key=lambda kv: len(kv[1]))
-        if not sig or sig in seen:
+        if not sig:
             continue
-        seen.add(sig)
+        t0 = e[0]["t_ms"]
+        at_death = deaths is not None and bool(
+            len(deaths[(deaths >= t0 - 5000) & (deaths <= t0 + 2000)]))
+        dmg = [(o, i) for o, i, _, _ in sig]
+        if out and not at_death and dmg == [(o, i) for o, i, _, _ in out[-1]["rows"]]:
+            continue
         mid = frames[len(frames) // 2]
         out.append({"t_ms": mid["t_ms"], "hx": mid["hx"], "hy": mid["hy"],
-                    "episode_start_ms": e[0]["t_ms"], "rows": sig})
+                    "episode_start_ms": t0, "rows": sig, "frames": frames,
+                    "at_death": at_death})
     return out
 
 
@@ -262,7 +324,7 @@ ICON_GRID = (24, 96)                     # h, w after tight crop
 def crop_icons(sid: str) -> Path:
     """Crop each distinct panel's weapon icons from one frame apiece."""
     path, fps = _source(sid)
-    panels = distinct_panels(_load(sid))
+    panels = distinct_panels(_load(sid), _deaths(sid))
     by_t = {p["t_ms"]: p for p in panels}
     bitmaps, meta = [], []
     for s in sample_at(path, sorted(by_t), fps):
@@ -408,6 +470,89 @@ def weapons(sid: str) -> None:
         print(f" {side} tally: {tally}")
 
 
+FLAG_MIN = 0.7                           # flag word correlation that counts as drawn
+SUMMARY_WINDOW_MS = 45000                # a new panel this early in a round, with no
+                                         # death near, summarises the previous round
+
+
+def _flags(frames: list[dict], k: int) -> dict[str, bool]:
+    """Majority vote per flag word over the frames showing this panel."""
+    votes = {}
+    for r in frames:
+        row = r["rows"][k]
+        for side in ("out_word", "in_word"):
+            for w, v in row.get(side, {}).items():
+                key = f"{side[:-5]}:{w}"
+                votes.setdefault(key, []).append(v >= FLAG_MIN)
+    return {key: sum(v) * 2 > len(v) for key, v in votes.items()}
+
+
+def flags(sid: str) -> None:
+    """R1/R2: the report's flags against stored per-round kills and deaths."""
+    rounds = sorted(_rounds(sid), key=lambda r: r["t_start_ms"])
+    deaths = _deaths(sid)
+    by_round = {}
+    for p in distinct_panels(_load(sid), deaths):
+        t0 = p["episode_start_ms"]
+        cur = [r for r in rounds if r["t_start_ms"] <= t0 <= r["t_end_ms"] + 8000]
+        rnd = cur[-1] if cur else None
+        died = p["at_death"]
+        kind = "death" if died else "summary"
+        if rnd and not died and t0 - rnd["t_start_ms"] < SUMMARY_WINDOW_MS:
+            prev = [r for r in rounds if r["t_end_ms"] <= rnd["t_start_ms"]]
+            rnd = prev[-1] if prev else None
+        if rnd is None:
+            print(f"  panel at {t0/1000:.1f}s maps to no round")
+            continue
+        f = [_flags(p["frames"], k) for k in range(len(p["rows"]))]
+        rec = {"t0": t0 / 1000, "kind": kind,
+               "killed": sum(x.get("out:KILLED", False) for x in f),
+               "assist": sum(x.get("out:ASSIST", False) for x in f),
+               "killed_you": sum(x.get("in:KILLED YOU", False) for x in f),
+               "rows": len(p["rows"])}
+        by_round.setdefault(rnd["round_no"], []).append(rec)
+    agree_k = agree_d = n = 0
+    print(f"{'rnd':>3} {'kills':>5} {'deaths':>6}  panels (start, kind, KILLED, KILLED YOU, ASSIST)")
+    for r in rounds:
+        ps = by_round.get(r["round_no"], [])
+        tag = ""
+        if ps:
+            n += 1
+            # The last panel of a round carries its full set of rows.
+            last = ps[-1]
+            k_ok = last["killed"] == (r["player_kills"] or 0)
+            d_ok = max(p["killed_you"] for p in ps) == (r["player_deaths"] or 0)
+            agree_k += k_ok; agree_d += d_ok
+            tag = ("" if k_ok else " KILLS-DIFFER") + ("" if d_ok else " DEATHS-DIFFER")
+        else:
+            tag = " no panel"
+        print(f"{r['round_no']:>3} {r['player_kills']!s:>5} {r['player_deaths']!s:>6}  "
+              + "; ".join(f"{p['t0']:.0f} {p['kind']} K{p['killed']} KY{p['killed_you']} A{p['assist']}" for p in ps)
+              + tag)
+    print(f"\nrounds with a panel {n}/{len(rounds)}; kills agree {agree_k}/{n}; deaths agree {agree_d}/{n}")
+    tk = sum(ps[-1]["killed"] for ps in by_round.values())
+    td = sum(max(p["killed_you"] for p in ps) for ps in by_round.values())
+    print(f"report totals: kills {tk}, deaths {td}, assists {sum(ps[-1]['assist'] for ps in by_round.values())}")
+    from reticle import metrics
+    from reticle.checks import KNOWN_KD
+    known = KNOWN_KD.get(sid)
+    stored_k = sum(r["player_kills"] or 0 for r in rounds)
+    stored_d = sum(r["player_deaths"] or 0 for r in rounds)
+    controls = []
+    if known:
+        controls = [{"name": "kills_vs_known_kd", "observed": tk, "expected": known[0], "tol": 0},
+                    {"name": "deaths_vs_known_kd", "observed": td, "expected": known[1], "tol": 0}]
+    metrics.record("combat_report", part="flags", session=sid,
+                   values={"kills": tk, "deaths": td, "rounds_with_panel": n,
+                           "rounds": len(rounds), "kills_agree_rounds": agree_k,
+                           "deaths_agree_rounds": agree_d,
+                           "stored_round_kills": stored_k, "stored_round_deaths": stored_d},
+                   deps={"version": VERSION, "flag_min": FLAG_MIN,
+                         "summary_window_ms": SUMMARY_WINDOW_MS, "header_min": HEADER_MIN},
+                   context={"round_version": rounds[0].get("round_version")},
+                   controls=controls)
+
+
 def judge(sid: str) -> None:
     recs = _load(sid)
     hs = np.array([r["header"] for r in recs])
@@ -515,6 +660,7 @@ def main() -> None:
     b = sub.add_parser("judge"); b.add_argument("session")
     c = sub.add_parser("icons"); c.add_argument("session")
     w = sub.add_parser("weapons"); w.add_argument("session")
+    fl = sub.add_parser("flags"); fl.add_argument("session")
     args = ap.parse_args()
     if args.cmd == "scan":
         scan(args.session, args.hz)
@@ -522,6 +668,8 @@ def main() -> None:
         crop_icons(args.session)
     elif args.cmd == "weapons":
         weapons(args.session)
+    elif args.cmd == "flags":
+        flags(args.session)
     else:
         judge(args.session)
 

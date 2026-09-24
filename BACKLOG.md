@@ -26,6 +26,8 @@ The player answered the dimming question: dimmed means currently dead, a Sage re
 
 **Killer crop with assist icons:** at 284500 in `a06f04a0059f` icons left of the killer portrait likely corrupt its descriptor ([details](docs/IDENTITY_EXEMPLAR_LOOP.md#open)); `killfeed` owns the crop.
 
+**Combat report into production, then gate round kills and deaths on it (2026-09-24).** `prototypes/combat_report.py` reproduces the known K/D on `a06f04a0059f` and `3694746e4e54` from the panel alone, where the stored rounds overcount deaths from killfeed flicker and drop a death landing on a round's exact end time. Promote the reader into `reticle/` with its own stamp, an ownership entry and a `scan` channel joining the shared decode; store raw reads, then adjudicate each round's kills and deaths from the report beside the killfeed and keep the disagreements. Name rows through `adjudication.identity` from the portrait and the KILLED BY header. Outgoing rows still lack the player's own weapon (HUD or scoreboard loadout).
+
 **Remaining identity drift to retire:** `Lineup.player` still combines the tray, self icon and top bar itself before publishing claims (the `player-agent` exit).
 
 ## Completed
