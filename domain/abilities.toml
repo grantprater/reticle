@@ -288,3 +288,69 @@ since = "2026-09-23"
 subject = "clove:ruse"
 use = "a pre-confirmation preview, not a cast; not parsed"
 see = ["abilities/clove-ruse-batch-launch"]
+
+[ability-sound-phases]
+claim = """
+When the local player uses an ability, its equip sound is separate from its cast
+sound, and only the local player hears the equip. Some abilities also have an
+activation sound and a death or dematerialize sound.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-06"
+use = """
+segment an ability's audio by phase before matching; an equip template and a
+cast template are different references
+"""
+
+[ability-voice-line-mask]
+claim = """
+An agent sometimes speaks a voice line over an ability's equip or cast. The
+line is not on every use, and the ability sound under it is unchanged.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-09-24"
+source = "b9558488a607 Omen ult equips at 60.3 s (voiced) and 72.9 s (unvoiced)"
+use = "match against an unvoiced reference with a one-sided score; voice adds energy only"
+see = ["abilities/ability-sound-phases"]
+
+[ammo-hidden-while-non-gun-held]
+claim = """
+The HUD ammo counter disappears while the local player holds anything other
+than a gun: an equipped ability or the knife. A held ultimate draws its own
+count in its place.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-24"
+source = "29eff6920e8f, b9558488a607, e78e75b2d191 against the viewmodel"
+use = "an equip/unequip witness independent of the tray; it does not say which item"
+
+[deadlock-ult-tray-drop-at-equip]
+claim = """
+Deadlock's ultimate pips empty when Annihilation is equipped, not when it
+fires.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-09-24"
+subject = "deadlock:annihilation"
+source = "29eff6920e8f: pips drop 45.3 s, ult held 46-50 s, fire 50.2 s"
+use = "a tray X drop for Deadlock opens a fire window; it is not the fire time"
+
+[deadlock-gravnet-detonation-flash]
+claim = """
+When GravNet detonates, the minimap draws a filled yellow disc at the detonation
+for under 0.3 s, and the world draws a blue ring over the net's area for about
+0.7 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-24"
+subject = "deadlock:gravnet"
+source = """
+29eff6920e8f: disc at 42.3 s, gone by 42.6 s; the player recalled a yellow
+circle. Unknown whether it is drawn for a non-local Deadlock.
+"""
+use = "sample the minimap at 10 Hz or faster near a GravNet throw; 0.5 s sampling misses it"
