@@ -109,3 +109,18 @@ Not Dead Yet, nor how a downed-but-not-dead KAY/O row looks. Neither may be
 assumed; a count that disagrees stays a refusal
 """
 phrases = ["dimmed means dead", "sage revive is not dimmed"]
+
+[post-round-period]
+claim = """
+A round is decided when the score increments, but play continues through a
+post-round period until the snap to the next buy phase: kills are legal, guns
+can be picked up, and those kills count. The player's events in that period
+belong to the round just decided.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-24"
+use = """
+reticle/rounds.py assigns an event to a round from its start up to the next
+round's start (the buy-phase snap); the score increment stays the round's end
+"""

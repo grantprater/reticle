@@ -187,8 +187,10 @@ channels fixed it: the clock reads median 6.0 s at the old start over 281 rounds
 (exactly 6.0 on 17 of 18 sessions, 95% under 15 s), and on the two sessions with
 a roster both teams return to 5 a median of 7.0 s later at a buy-phase clock of
 28.0 s. The END did not move; the ~7.5 s gap between one round's end and the
-next one's start is the post-round period, and an event landing in it now
-belongs to no round rather than to the wrong one. Every stored round carries
+next one's start is the post-round period. Kills there are legal and count
+[domain:rounds/post-round-period], so since `round-0.4.0` an event landing in it
+belongs to the round just decided; the last round closes one median gap after
+its end. Every stored round carries
 `start_source`, so a round built the old way cannot read as current.
 
 | Stage | What | Status |

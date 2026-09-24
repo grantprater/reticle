@@ -362,19 +362,36 @@ def infer_player_side(rounds: list[dict]) -> tuple[str | None, float]:
     return ("left" if ml > mr else "right"), abs(ml - mr)
 
 
-def in_round_window(seq: list[dict], a: float, z: float, ends: set[float]) -> list[dict]:
-    """The events of `seq` that belong to the round [a, z].
+def in_round_window(seq: list[dict], a: float, z: float, close: float,
+                    ends: set[float]) -> list[dict]:
+    """The events of `seq` that belong to the round that starts at `a`, is
+    decided at `z` and closes at `close`, the next round's buy-phase snap.
 
-    An event first seen at a round's END is that round's decisive event: the
-    score increments on the sample where the last player dies, so the killfeed
-    entry and the round's end share one timestamp. `a <= t < z` dropped it, and
-    over the 17 `KNOWN_KD` sessions lost 25 of the player's deaths (first seen
-    on `3694746e4e54` against `adjudication.combat_report`). Where rounds touch,
-    the shared instant belongs to the round it ends, never to both. An event in
-    the post-round gap still belongs to no round.
+    Two rules, each found against the combat report (`adjudication.combat_report`):
+
+    * **The post-round period is part of the round.** Kills stay legal and count
+      until the snap to the next buy phase [domain:rounds/post-round-period], so
+      an event after the score increment belongs to the round just decided.
+      Until `round-0.4.0` those events belonged to no round.
+    * **The decisive event is the round's own.** The score increments on the
+      sample where the last player dies, so that killfeed entry shares `z`.
+      Where rounds touch (`z` is the next round's start) the shared instant
+      belongs to the round it ends, never to both. `a <= t < z` dropped it and
+      over the 17 `KNOWN_KD` sessions lost 25 of the player's deaths.
     """
-    return [e for e in seq if a <= e["t_first"] <= z
+    return [e for e in seq
+            if a <= e["t_first"] and (e["t_first"] < close or e["t_first"] == z)
             and not (e["t_first"] == a and a in ends and a != z)]
+
+
+def round_closes(rounds: list[dict]) -> list[float]:
+    """Each round's close: the next round's start, and for the last round one
+    median post-round gap after its end (its own end where no gap is seen)."""
+    starts = [r["t_start_ms"] for r in rounds]
+    gaps = [n - r["t_end_ms"] for r, n in zip(rounds, starts[1:]) if n > r["t_end_ms"]]
+    tail = float(np.median(gaps)) if gaps else 0.0
+    return [max(n, r["t_end_ms"]) for r, n in zip(rounds, starts[1:])] + (
+        [rounds[-1]["t_end_ms"] + tail] if rounds else [])
 
 
 def build_rounds(table) -> list[dict]:
@@ -391,9 +408,11 @@ def build_rounds(table) -> list[dict]:
     entries = _tracks(t, table.column("kf_entry_mask").to_pylist(), div("kf_entry_wx"))
 
     ends = {r["t_end_ms"] for r in rounds}
-    for idx, r in enumerate(rounds, start=1):
+    closes = round_closes(rounds)
+    for idx, (r, c) in enumerate(zip(rounds, closes), start=1):
         a, z = r["t_start_ms"], r["t_end_ms"]
-        in_round = lambda seq: in_round_window(seq, a, z, ends)
+        r["t_close_ms"] = c
+        in_round = lambda seq: in_round_window(seq, a, z, c, ends)
         rk, rd, re_ = in_round(kills), in_round(deaths), in_round(entries)
         r["round_no"] = idx
         r["player_kills"] = len(rk)

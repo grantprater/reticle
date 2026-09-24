@@ -121,5 +121,20 @@ class Rounds(unittest.TestCase):
             adj.events("s", frames, ROUNDS, death_times=[60000.0])
 
 
+
+class Verdict(unittest.TestCase):
+    def test_report_decides_where_shown_and_killfeed_elsewhere(self):
+        frames = _run(60000, 70000, [_row("160", "65", oh="100", ih="010", killed=0.95,
+                                          killed_you=0.99)])
+        rounds = [dict(r) for r in ROUNDS]
+        rounds[0]["player_deaths"] = 2          # killfeed flicker: one death seen twice
+        ev = adj.events("s", frames, rounds, death_times=[60000.0])
+        by = {e["round_no"]: e for e in ev if e["kind"] == "round"}
+        self.assertEqual((by[1]["deaths_verdict"], by[1]["verdict_source"]), (1, "combat_report"))
+        self.assertFalse(by[1]["deaths_agree"])
+        self.assertEqual((by[3]["kills_verdict"], by[3]["verdict_source"]), (2, "killfeed"))
+        self.assertEqual(ev[0]["verdict_from_killfeed"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

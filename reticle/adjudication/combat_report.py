@@ -5,9 +5,11 @@ Recomputed from stored `combat_report` rows; decodes no video. The reader
 (`reticle.combat_report`) stores what each sampled frame shows. This module
 groups frames into panels, votes each field across a panel's frames, assigns
 the panel to a round, and compares its counts with the round's stored killfeed
-counts. A disagreement is output, never resolved here: the report reproduced
-the known K/D on `a06f04a0059f` and `3694746e4e54` where the stored rounds did
-not, but agreement with a control on two sessions is not a licence to overwrite.
+counts. Where a report was shown its counts are the round's VERDICT, and the
+killfeed count and the disagreement are stored beside it; a round with no
+report takes the killfeed's count, marked as such. The report reproduced the
+known K/D on `a06f04a0059f` and `3694746e4e54` where the killfeed did not, and
+its disagreements with the killfeed are the killfeed reader's error list.
 
 Panels and rounds
 -----------------
@@ -155,6 +157,15 @@ def round_counts(ps: list[dict], rounds: list[dict]) -> list[dict]:
                               else row["kills"] == row["stored_kills"])
         row["deaths_agree"] = (None if row["deaths"] is None or row["stored_deaths"] is None
                                else row["deaths"] == row["stored_deaths"])
+        # The verdict: the report where one was shown, else the killfeed.
+        # The report totalled the known K/D on both sessions checked where
+        # the killfeed did not; the killfeed count stays beside it.
+        if row["kills"] is not None:
+            row.update({"kills_verdict": row["kills"], "deaths_verdict": row["deaths"],
+                        "verdict_source": "combat_report"})
+        else:
+            row.update({"kills_verdict": row["stored_kills"], "deaths_verdict": row["stored_deaths"],
+                        "verdict_source": "killfeed" if row["stored_kills"] is not None else None})
         out.append(row)
     return out
 
@@ -177,7 +188,10 @@ def events(session_id: str, frames: list[dict], rounds: list[dict],
             "deaths": sum(r["deaths"] for r in seen),
             "assists": sum(r["assists"] for r in seen),
             "kills_disagree": sum(r["kills_agree"] is False for r in seen),
-            "deaths_disagree": sum(r["deaths_agree"] is False for r in seen)}
+            "deaths_disagree": sum(r["deaths_agree"] is False for r in seen),
+            "kills_verdict": sum(r["kills_verdict"] or 0 for r in per_round),
+            "deaths_verdict": sum(r["deaths_verdict"] or 0 for r in per_round),
+            "verdict_from_killfeed": sum(r["verdict_source"] == "killfeed" for r in per_round)}
     return ([head]
             + [{**common, "kind": "panel", **{k: v for k, v in p.items() if k != "read"}} for p in ps]
             + [{**common, "kind": "round", **r} for r in per_round])

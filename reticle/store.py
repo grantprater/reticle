@@ -580,6 +580,9 @@ class Store:
             "round_no": col("round_no", pa.int16()),
             "t_start_ms": col("t_start_ms", pa.float64()),
             "t_end_ms": col("t_end_ms", pa.float64()),
+            # The next round's buy-phase snap: events up to it are this
+            # round's, since post-round kills count (round-0.4.0).
+            "t_close_ms": col("t_close_ms", pa.float64()),
             # WHICH DEFINITION produced this start. `clock_reset` is the
             # current rule; `score_increment` is the fallback taken when no
             # reset was found; `capture_start` is round 1, which opens at the

@@ -2253,6 +2253,8 @@ def cmd_combat_report(args) -> int:
     print(f"{sid}: {head['panels']} panels over {head['rounds_with_panel']}/{head['rounds']} rounds; "
           f"report kills {head['kills']}, deaths {head['deaths']}, assists {head['assists']}; "
           f"disagree with stored rounds on kills {head['kills_disagree']}, deaths {head['deaths_disagree']} -> {out}")
+    print(f"verdict K/D {head['kills_verdict']}/{head['deaths_verdict']} "
+          f"({head['verdict_from_killfeed']} rounds from the killfeed, the rest from the report)")
     for r in out_rows:
         if r["kind"] == "round" and (r["kills_agree"] is False or r["deaths_agree"] is False
                                      or r["kills"] is None):

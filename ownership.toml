@@ -237,14 +237,15 @@ stored_consumers = ["adjudication.combat_report"]
 
 [[entry]]
 id = "combat-report-round"
-question = "Which combat report panels were shown, which round does each summarise, and how many kills, deaths and assists do their flags give the player per round?"
+question = "How many kills, deaths and assists did the player get in each round, by the combat report where it was shown and the killfeed otherwise, and which panels and rounds does that rest on?"
 owner = "adjudication.combat_report"
 role = ["adjudicate"]
 status = "partial"
 produces = ["episodes", "panels", "assign_rounds", "round_counts", "events", "frame_read"]
 not_for = """
-Replacing the stored rounds' kill and death counts: a disagreement is output
-beside them. Which agent killed the player (`death-victim`), and damage
+Rewriting the stored rounds' killfeed counts: the verdict is a separate
+product with its source, and the killfeed count stays beside it. Which agent
+killed the player (`death-victim`), and damage
 decomposition by weapon, which stays in `prototypes/combat_report.py`.
 """
 consumers = ["cli"]

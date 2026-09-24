@@ -21,7 +21,9 @@ SCHEMA_VERSION = 1
 # 0.3.0 (2026-09-24): an event first seen at a round's exact end belongs to that
 # round (it is the decisive event); `a <= t < z` dropped 25 of the player's
 # deaths and 12 kills over the 17 KNOWN_KD sessions.
-ROUND_VERSION = "round-0.3.0"
+# 0.4.0 (2026-09-24): events run to the next round's buy-phase snap
+# (`t_close_ms`), since post-round kills count [domain:rounds/post-round-period].
+ROUND_VERSION = "round-0.4.0"
 COACH_VERSION = "coach-0.1.0"
 # Pure credit-ledger rules and interval semantics. This does not stamp a credit
 # detector: no such observation channel exists yet.
@@ -157,7 +159,8 @@ COMBAT_REPORT_VERSION = "combat-report-0.1.0"
 # Panels, their rounds and per-round kill/death/assist counts, recomputed from
 # stored `combat_report` rows by `reticle combat-report`. Bump when a grouping,
 # voting or round rule in `adjudication.combat_report` changes.
-COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.1.0"
+# 0.2.0: per-round verdict (report where shown, else killfeed) with its source.
+COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.2.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.
