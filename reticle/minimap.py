@@ -935,7 +935,11 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     if seed not in ("centroid", "surface"):
         raise ValueError(f"unknown seed {seed!r}")
     if seed == "surface":
-        surf, surf_r = coverage_surface(keyed, r_min, r_max)
+        # The surface is read only within r_max of a kept blob, and a ring of
+        # radius <= r_max there reads only pixels within 2*r_max of it. So it
+        # is computed per blob on that padded window; a window clipped by the
+        # image edge sees the same zero border the whole-crop filter did. The
+        # whole-crop surface was 43% of the ally reader's time at 15 Hz.
         grow = np.ones((2 * r_max + 1, 2 * r_max + 1), np.uint8)
     H, W = keyed.shape
     found: list[dict] = []
@@ -950,12 +954,15 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
             x, y, w, h = (int(v) for v in st[i, :4])
             a, b = max(0, y - r_max), min(H, y + h + r_max)
             c, d = max(0, x - r_max), min(W, x + w + r_max)
+            a2, b2 = max(0, y - 2 * r_max), min(H, y + h + 2 * r_max)
+            c2, d2 = max(0, x - 2 * r_max), min(W, x + w + 2 * r_max)
+            surf, surf_r = coverage_surface(keyed[a2:b2, c2:d2], r_min, r_max)
             near = cv2.dilate((lbl[a:b, c:d] == i).astype(np.uint8), grow) > 0
-            cand = np.where(near, surf[a:b, c:d], -1.0)
+            cand = np.where(near, surf[a - a2:b - a2, c - c2:d - c2], -1.0)
             yy, xx = divmod(int(np.argmax(cand)), cand.shape[1])
             f = (None if cand[yy, xx] < 0 else
                  _ring_at(keyed, grey, float(cand[yy, xx]), c + xx, a + yy,
-                          int(surf_r[a + yy, c + xx])))
+                          int(surf_r[a - a2 + yy, c - c2 + xx])))
         if f is None:
             continue
         if gates and (f["cov"] < cov_min or f["inner_red"] > inner_max):
