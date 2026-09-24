@@ -159,12 +159,14 @@ SMOKE_VERSION = "smoke-0.2.0"
 # correlations), written as `combat_report` rows by `reticle scan`. It stores no
 # decision. Bump when an offset, a threshold, the templates or the stored fields
 # change -- those need pixels, so they re-decode.
-COMBAT_REPORT_VERSION = "combat-report-0.1.0"
+# 0.2.0: each row also stores its portrait thumbnail (`portrait`).
+COMBAT_REPORT_VERSION = "combat-report-0.2.0"
 # Panels, their rounds and per-round kill/death/assist counts, recomputed from
 # stored `combat_report` rows by `reticle combat-report`. Bump when a grouping,
 # voting or round rule in `adjudication.combat_report` changes.
 # 0.2.0: per-round verdict (report where shown, else killfeed) with its source.
-COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.2.0"
+# 0.3.0: rows named through adjudication.identity by portrait cluster.
+COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.3.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

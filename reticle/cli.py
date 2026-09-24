@@ -2266,7 +2266,56 @@ def cmd_combat_report(args) -> int:
                                      or r["kills"] is None):
             print(f"  round {r['round_no']:>2}: report K{r['kills']} D{r['deaths']}  "
                   f"stored K{r['stored_kills']} D{r['stored_deaths']}  {r['reason'] or ''}")
+    _combat_report_identity(store, sid, date, rows, rounds.to_pylist(), deaths)
     return 0
+
+
+def _combat_report_identity(store, sid, date, rows, rounds, death_times) -> None:
+    """Name report rows through `adjudication.identity` from stored data."""
+    from .adjudication import combat_report as adj
+    from .adjudication.identity import identity_events, load_identity_gallery
+    from .checks import track_entries
+    from .lineup import load_lineup
+
+    lineup = load_lineup(sid, store.root)
+    if not lineup or not lineup.get("sides", {}).get("enemy"):
+        print(f"  identity: no stored lineup for {sid}; rows stay unnamed")
+        return
+    frames = [r for r in rows if r.get("kind") == "frame"]
+    ps = adj.panels(frames, death_times)
+    adj.assign_rounds(ps, rounds)
+    hud = store.read_hud(sid, date)
+    t = hud.column("t_ms").to_pylist()
+    tracks = lambda c: [x for x in track_entries(t, hud.column(f"kf_{c}_mask").to_pylist(),
+                                                 hud.column(f"kf_{c}_wx").to_pylist())
+                        if x["counted"]]
+    portraits = [o for o in store.read_events("killfeed_portrait", sid)
+                 if o.get("kind") == "portrait_observation"]
+    board = [{"t": r["t_ms"], "agent": r.get("portrait_agent_best"),
+              "kills": r.get("kills"), "deaths": r.get("deaths")}
+             for r in store.read_events("scoreboard", sid)
+             if r.get("kind") == "row_observation" and r.get("team") == "enemy"
+             and r.get("portrait_agent_best")]
+    claims, verdicts = adj.name_rows(sid, ps, rounds, tracks("kill"), tracks("death"),
+                                     portraits, board, lineup["sides"]["enemy"],
+                                     load_identity_gallery(store.root))
+    events = identity_events(verdicts, sid)
+    rows_named = [{"session_id": sid, "kind": "row_entity", "panel_start_ms": p["start_ms"],
+                   "row": k, "entity_id": row.get("entity_id"), "cluster": row.get("cluster")}
+                  for p in ps for k, row in enumerate(p["rows"])]
+    # A stream of formal events holds nothing else, so the row-to-entity map
+    # is its own stream beside the arbiter's events.
+    store.write_events("combat_report_rows", sid, rows_named)
+    out = store.write_events("combat_report_identity", sid, events)
+    by = {v["entity_id"]: v for v in verdicts}
+    covered = sum(1 for r in rows_named if by.get(r["entity_id"], {}).get("status") == "resolved")
+    print(f"  identity: {len({r['cluster'] for r in rows_named})} portrait clusters, "
+          f"{len(claims)} claims, {sum(v['status'] == 'resolved' for v in verdicts)} named, "
+          f"{sum(v['status'] == 'disagreement' for v in verdicts)} disagree; "
+          f"{covered}/{len(rows_named)} rows named -> {out}")
+    for v in verdicts:
+        print(f"    {v['entity_id']}: {v['status']} {v['agent'] or ''} "
+              f"{ {ch: r['votes'] for ch, r in v['by_channel'].items()} }")
 
 
 def cmd_smokes(args) -> int:

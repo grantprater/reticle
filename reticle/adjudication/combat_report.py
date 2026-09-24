@@ -24,11 +24,25 @@ Panels and rounds
 * A summary that opens within `SUMMARY_WINDOW_MS` of a round's start with no
   death near it summarises the PREVIOUS round.
 
+Naming rows
+-----------
+`name_rows` groups rows across panels by their portrait thumbnails (one
+player's art repeats) and asks `adjudication.identity` for each group's agent.
+The witnesses are the killfeed portraits of the entries the report's flags bind
+to -- the killer on the player's death for KILLED YOU, the victim of the
+player's single kill for a lone KILLED row -- kept only where the scoreboard's
+kill or death increments over the round admit that agent, and the scoreboard
+itself where those increments admit exactly one. On the player's 50 labelled
+rows of `a06f04a0059f` this named 49 with no error; the gallery match on the
+report's own portrait named 28 right of 37 and is not used.
+
 Owns [owns:combat-report-round].
 """
 from __future__ import annotations
 
 from collections import Counter
+
+import numpy as np
 
 from ..version import COMBAT_REPORT_ROUND_VERSION, COMBAT_REPORT_VERSION
 
@@ -111,8 +125,9 @@ def panels(frames: list[dict], death_times: list[float]) -> list[dict]:
             "rows": [{**dict(zip(FIELDS, vals)),
                       "killed": f.get("out:KILLED", False),
                       "assist": f.get("out:ASSIST", False),
-                      "killed_you": f.get("in:KILLED YOU", False)}
-                     for vals, f in zip(read, flags)],
+                      "killed_you": f.get("in:KILLED YOU", False),
+                      "portrait": shown[len(shown) // 2]["rows"][k].get("portrait")}
+                     for k, (vals, f) in enumerate(zip(read, flags))],
         })
     return out
 
@@ -195,3 +210,135 @@ def events(session_id: str, frames: list[dict], rounds: list[dict],
     return ([head]
             + [{**common, "kind": "panel", **{k: v for k, v in p.items() if k != "read"}} for p in ps]
             + [{**common, "kind": "round", **r} for r in per_round])
+
+
+#: Thumbnail correlation joining two rows to one player.
+PORTRAIT_SAME = 0.8
+#: No kill happens this early in a round, so reads before it are "before".
+BUY_PHASE_MS = 25000.0
+KF_SLACK_MS = 500.0
+DEATH_LOOKBACK_MS = 6000.0
+
+
+def _corr(a, b) -> float:
+    a = (a - a.mean()) / (a.std() + 1e-6)
+    b = (b - b.mean()) / (b.std() + 1e-6)
+    return float((a * b).mean())
+
+
+def portrait_clusters(ps: list[dict]) -> None:
+    """Set `cluster` on every row in place: a row whose thumbnail correlates at
+    `PORTRAIT_SAME` with a cluster's first row joins it; None without one."""
+    from ..combat_report import thumbnail_array
+    reps: list[np.ndarray] = []
+    for p in ps:
+        for row in p["rows"]:
+            if not row.get("portrait"):
+                row["cluster"] = None
+                continue
+            t = thumbnail_array(row["portrait"]).astype(np.float32)
+            for i, r in enumerate(reps):
+                if _corr(r, t) >= PORTRAIT_SAME:
+                    row["cluster"] = i
+                    break
+            else:
+                reps.append(t)
+                row["cluster"] = len(reps) - 1
+
+
+def _stat(board, agent, key, lo, hi, last):
+    vals = [b for b in board if b["agent"] == agent and b[key] is not None and lo <= b["t"] <= hi]
+    if not vals:
+        return None
+    return (max if last else min)(vals, key=lambda b: b["t"])[key]
+
+
+def scoreboard_bound(board, enemy, a, after_lo, close) -> tuple[set, set]:
+    """Enemies whose deaths and whose kills rose between the last read before
+    the buy phase ends and the first read after `after_lo`."""
+    died, killed = set(), set()
+    for ag in enemy:
+        for key, bucket in (("deaths", died), ("kills", killed)):
+            b = _stat(board, ag, key, 0, a + BUY_PHASE_MS, last=True)
+            f = _stat(board, ag, key, after_lo, close + 2 * BUY_PHASE_MS, last=False)
+            if b is not None and f is not None and f > b:
+                bucket.add(ag)
+    return died, killed
+
+
+def _killfeed_name(track, portraits, role, split, gallery):
+    from .identity import claim_from_killfeed_portrait
+    votes = Counter()
+    for o in portraits:
+        if (o.get("role") == role and o.get("slot") == track["slot"]
+                and track["t_first"] - KF_SLACK_MS <= o["t_ms"] <= track["t_last"] + KF_SLACK_MS):
+            c = claim_from_killfeed_portrait(o, entity_id="kf", candidates=split["named"],
+                                             rivals=split["rivals"], gallery=gallery)
+            if c["agent"]:
+                votes[c["agent"]] += 1
+    top = votes.most_common(2)
+    if not top or (len(top) > 1 and top[0][1] == top[1][1]):
+        return None
+    return top[0][0]
+
+
+def name_rows(session_id, ps, rounds, kill_tracks, death_tracks, portraits, board,
+              enemy_rows, gallery):
+    """Identity claims and verdicts for report rows, keyed by portrait cluster.
+
+    `board` is one dict per enemy scoreboard row read: t, agent, kills, deaths.
+    `kill_tracks` and `death_tracks` are the player's counted killfeed tracks;
+    `portraits` the stored killfeed portrait observations. Each panel row gets
+    `entity_id`; the name lives only in the arbiter's verdicts.
+    """
+    from ..killfeed import KILLFEED_PORTRAIT_VERSION
+    from .identity import adjudicate_agent_identity, identity_claim, side_candidates
+    portrait_clusters(ps)
+    split = side_candidates(enemy_rows)
+    enemy = split["named"]
+    by_no = {r["round_no"]: r for r in rounds}
+    claims = []
+    for p in ps:
+        for row in p["rows"]:
+            row["entity_id"] = (None if row.get("cluster") is None
+                                else f"combat_report:{session_id}:portrait:{row['cluster']}")
+        rnd = by_no.get(p.get("round_no"))
+        if rnd is None:
+            continue
+        a = rnd["t_start_ms"]
+        close = rnd.get("t_close_ms") or rnd["t_end_ms"]
+        after_lo = p["start_ms"] if p["kind"] == "death" else rnd["t_end_ms"]
+        died, killed = scoreboard_bound(board, enemy, a, after_lo, close)
+        kills = [t for t in kill_tracks if a <= t["t_first"] < close
+                 and (p["kind"] != "death" or t["t_first"] <= p["start_ms"])]
+        death = [t for t in death_tracks if p["kind"] == "death"
+                 and p["start_ms"] - DEATH_LOOKBACK_MS <= t["t_first"] <= p["start_ms"] + 1000]
+        victims = {_killfeed_name(t, portraits, "victim", split, gallery) for t in kills} - {None}
+        killer = _killfeed_name(death[-1], portraits, "killer", split, gallery) if death else None
+        lone_kill = sum(r["killed"] for r in p["rows"]) == 1 and len(kills) == 1
+        for k, row in enumerate(p["rows"]):
+            if row["entity_id"] is None:
+                continue
+            if row["killed_you"]:
+                name, bound, role = killer, killed, "killer"
+            elif row["killed"] and lone_kill and len(victims) == 1:
+                name, bound, role = next(iter(victims)), died, "victim"
+            elif row["killed"]:
+                name, bound, role = None, died, "victim"
+            else:
+                continue
+            evidence = {"panel_start_ms": p["start_ms"], "row": k, "role": role,
+                        "scoreboard_bound": sorted(bound)}
+            if name is not None:
+                inside = not bound or name in bound
+                claims.append(identity_claim(
+                    row["entity_id"], name if inside else None, channel="killfeed_portrait",
+                    binding_from="combat_report", observed_at_ms=p["start_ms"],
+                    source_version=KILLFEED_PORTRAIT_VERSION, evidence=evidence,
+                    reason=None if inside else f"outside scoreboard bound {sorted(bound)}"))
+            if len(bound) == 1:
+                claims.append(identity_claim(
+                    row["entity_id"], next(iter(bound)), channel="scoreboard_kd",
+                    binding_from="combat_report", observed_at_ms=p["start_ms"],
+                    evidence=evidence))
+    return claims, adjudicate_agent_identity(claims)

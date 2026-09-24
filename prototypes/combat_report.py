@@ -608,14 +608,51 @@ def witnesses(sid: str) -> None:
             print("   outside bound", r)
 
 
+def score(sid: str) -> None:
+    """Production row names (`reticle combat-report`) against the player's labels."""
+    store = Store()
+    ev = store.read_events("combat_report_identity", sid)
+    rows = {(r["panel_start_ms"], r["row"]): r
+            for r in store.read_events("combat_report_rows", sid) if r.get("kind") == "row_entity"}
+    names = {}
+    for e in ev:
+        sub = (e.get("identity_distribution") or {}).get("subject_entity_id")
+        dist = (e.get("identity_distribution") or {}).get("distribution") or {}
+        status = (e.get("metadata") or {}).get("status")
+        if sub:
+            names[sub] = next(iter(dist)) if status == "resolved" and len(dist) == 1 else None
+    lp = store.root / "labels" / "combat_report_portrait" / f"{sid}.jsonl"
+    labels = {}
+    for line in lp.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            r = json.loads(line)
+            labels[(r["panel_start_ms"], r["row"])] = r
+    named = right = 0
+    for key, lab in sorted(labels.items()):
+        row = rows.get(key)
+        got = names.get(row["entity_id"]) if row else None
+        if got:
+            named += 1
+            right += got == lab.get("agent")
+            if got != lab.get("agent"):
+                print(f"   wrong {key}: named {got}, labelled {lab.get('agent')}")
+        elif lab.get("agent"):
+            print(f"   unnamed {key}: labelled {lab.get('agent')}")
+    print(f"production names {named}/{len(labels)} labelled rows; right {right}")
+    metrics.record("combat_report", part="identity", session=sid,
+                   values={"labelled": len(labels), "named": named, "right": right},
+                   deps={"version": COMBAT_REPORT_VERSION, "round_version": COMBAT_REPORT_ROUND_VERSION},
+                   context={"labels": len(labels)})
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("judge", "flags", "icons", "weapons", "portraits", "witnesses"):
+    for name in ("judge", "flags", "icons", "weapons", "portraits", "witnesses", "score"):
         sub.add_parser(name).add_argument("session")
     args = ap.parse_args()
     {"judge": judge, "flags": flags, "icons": crop_icons, "weapons": weapons,
-     "portraits": portraits, "witnesses": witnesses}[args.cmd](args.session)
+     "portraits": portraits, "witnesses": witnesses, "score": score}[args.cmd](args.session)
 
 
 if __name__ == "__main__":

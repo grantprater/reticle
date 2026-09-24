@@ -33,6 +33,7 @@ Owns [owns:combat-report-read].
 """
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -58,6 +59,12 @@ IN_HITS = (180, 3, 196, 55)
 OUT_FLAG = (-121, 43, -55, 56)
 IN_FLAG = (195, 43, 262, 56)
 FLAG_PAD = 3
+#: The row portrait inside its chevron edge, and the thumbnail it is stored at.
+#: Thumbnails of one player's art correlate at r >= 0.8 across panels; on the
+#: player's labels of `a06f04a0059f` that groups 50 rows into 7 clusters, none
+#: mixed (`prototypes/combat_report.py witnesses`).
+ROW_PORTRAIT = (-6, 2, 34, 56)
+THUMB_WH = (20, 27)
 
 BIG_H = (18, 40)                         # damage digit height band, px
 SMALL_H = (6, 14)                        # hit-count digit height band, px
@@ -161,7 +168,21 @@ def read_flag(gray, hx, hy, box, dy, words: dict[str, np.ndarray]) -> dict[str, 
     return out
 
 
-def read_rows(gray, hx, hy, tpl: ocr.Templates, words) -> list[dict]:
+def thumbnail(frame, hx, hy, dy) -> str | None:
+    """The row portrait as a base64 BGR thumbnail, or None off-frame."""
+    crop = field_at(frame, hx, hy, ROW_PORTRAIT, dy)
+    if crop.shape[0] < 10 or crop.shape[1] < 10:
+        return None
+    small = cv2.resize(crop, THUMB_WH, interpolation=cv2.INTER_AREA)
+    return base64.b64encode(np.ascontiguousarray(small).tobytes()).decode("ascii")
+
+
+def thumbnail_array(encoded: str) -> np.ndarray:
+    w, h = THUMB_WH
+    return np.frombuffer(base64.b64decode(encoded), np.uint8).reshape(h, w, 3)
+
+
+def read_rows(gray, hx, hy, tpl: ocr.Templates, words, frame=None) -> list[dict]:
     """Rows below the header until one shows neither damage number."""
     rows = []
     for k in range(MAX_ROWS):
@@ -176,6 +197,7 @@ def read_rows(gray, hx, hy, tpl: ocr.Templates, words) -> list[dict]:
             "in_hits": read_hits(field_at(gray, hx, hy, IN_HITS, dy), tpl),
             "out_word": read_flag(gray, hx, hy, OUT_FLAG, dy, words),
             "in_word": read_flag(gray, hx, hy, IN_FLAG, dy, words),
+            "portrait": thumbnail(frame, hx, hy, dy) if frame is not None else None,
         })
     return rows
 
@@ -201,7 +223,7 @@ class CombatReportReader:
         score, hx, hy = locate(gray, self.header)
         row.update({"header": round(score, 3), "hx": hx, "hy": hy, "reason": None})
         if score >= READ_MIN:
-            row["rows"] = read_rows(gray, hx, hy, self.digits, self.words)
+            row["rows"] = read_rows(gray, hx, hy, self.digits, self.words, smp.frame)
         self.rows.append(row)
 
     def events(self, session_id: str) -> list[dict]:

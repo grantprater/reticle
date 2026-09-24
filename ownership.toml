@@ -241,11 +241,14 @@ question = "How many kills, deaths and assists did the player get in each round,
 owner = "adjudication.combat_report"
 role = ["adjudicate"]
 status = "partial"
-produces = ["episodes", "panels", "assign_rounds", "round_counts", "events", "frame_read"]
+produces = ["episodes", "panels", "assign_rounds", "round_counts", "events", "frame_read", "portrait_clusters", "scoreboard_bound", "name_rows"]
+names_agents = true
+defers_to = ["agent-identity"]
 not_for = """
 Rewriting the stored rounds' killfeed counts: the verdict is a separate
-product with its source, and the killfeed count stays beside it. Which agent
-killed the player (`death-victim`), and damage
+product with its source, and the killfeed count stays beside it. Deciding a
+row's agent: `name_rows` publishes claims keyed by portrait cluster and the
+name is `adjudication.identity`'s verdict. Which agent killed the player (`death-victim`), and damage
 decomposition by weapon, which stays in `prototypes/combat_report.py`.
 """
 consumers = ["cli"]

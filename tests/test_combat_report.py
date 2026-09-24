@@ -136,5 +136,53 @@ class Verdict(unittest.TestCase):
         self.assertEqual(ev[0]["verdict_from_killfeed"], 2)
 
 
+
+class Naming(unittest.TestCase):
+    """`name_rows`: killfeed witnesses kept inside the scoreboard bound, per cluster."""
+
+    def _thumb(self, seed):
+        import base64
+        arr = np.random.default_rng(seed).integers(0, 255, (27, 20, 3)).astype(np.uint8)
+        return base64.b64encode(arr.tobytes()).decode("ascii")
+
+    def test_a_killfeed_name_outside_the_bound_abstains_and_the_cluster_carries_the_rest(self):
+        jett, skye = self._thumb(1), self._thumb(2)
+        ps = [
+            {"start_ms": 60000.0, "kind": "death", "round_no": 1,
+             "rows": [{"killed_you": True, "killed": False, "portrait": jett}]},
+            {"start_ms": 150000.0, "kind": "death", "round_no": 2,
+             "rows": [{"killed_you": True, "killed": False, "portrait": jett},
+                      {"killed_you": False, "killed": False, "portrait": skye}]},
+        ]
+        rounds = [dict(r) for r in ROUNDS[:2]]
+        deaths = [{"t_first": 59000.0, "t_last": 63000.0, "slot": 0},
+                  {"t_first": 149000.0, "t_last": 153000.0, "slot": 0}]
+        # The killfeed reads the killer as Jett in round 1 and Iso in round 2;
+        # the scoreboard says only Jett's kills rose in round 2.
+        board = [{"t": 1000.0, "agent": "Jett", "kills": 0, "deaths": 0},
+                 {"t": 1000.0, "agent": "Iso", "kills": 0, "deaths": 0},
+                 {"t": 101000.0, "agent": "Jett", "kills": 1, "deaths": 0},
+                 {"t": 101000.0, "agent": "Iso", "kills": 0, "deaths": 0},
+                 {"t": 152000.0, "agent": "Jett", "kills": 2, "deaths": 0},
+                 {"t": 152000.0, "agent": "Iso", "kills": 0, "deaths": 0}]
+        enemy = [{"agent": "Jett"}, {"agent": "Iso"}, {"agent": "Skye"},
+                 {"agent": "Omen"}, {"agent": "Killjoy"}]
+        reads = {59000.0: "Jett", 149000.0: "Iso"}
+        original = adj._killfeed_name
+        adj._killfeed_name = lambda tr, *_a: reads[tr["t_first"]]
+        try:
+            claims, verdicts = adj.name_rows("s", ps, rounds, [], deaths, [], board, enemy, {})
+        finally:
+            adj._killfeed_name = original
+        by = {v["entity_id"]: v for v in verdicts}
+        jett_entity = ps[0]["rows"][0]["entity_id"]
+        self.assertEqual(ps[1]["rows"][0]["entity_id"], jett_entity)
+        self.assertEqual((by[jett_entity]["status"], by[jett_entity]["agent"]), ("resolved", "Jett"))
+        refused = [c for c in claims if c["channel"] == "killfeed_portrait" and c["agent"] is None]
+        self.assertEqual(len(refused), 1)
+        self.assertIn("outside scoreboard bound", refused[0]["reason"])
+        self.assertNotIn(ps[1]["rows"][1]["entity_id"], by)   # no witness: no verdict
+
+
 if __name__ == "__main__":
     unittest.main()
