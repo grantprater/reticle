@@ -44,7 +44,7 @@ from .identity import (adjudicate_agent_identity, claim_from_killfeed_portrait,
                        identity_claim, identity_events, side_candidates, _channel_verdict)
 from .weapon import classify_killfeed_icon
 
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.4.0"
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.6.0"
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 
@@ -68,52 +68,68 @@ def attach_stored_killfeed_portraits(
         end = min(start + 2000.0,
                   float(entries[i + 1]["t_ms"]) if i + 1 < len(entries) else float("inf"))
         side = entry.get("side")
-        split = side_candidates(lineup.get("sides", {}).get(side, []))
-        views = sorted((r for r in portraits
-                        if start <= float(r.get("t_ms", -1)) < end
-                        and r.get("slot") == entry.get("slot")
-                        and r.get("role") == "victim"),
-                       key=lambda r: (r["t_ms"], r.get("frame_idx", -1)))
-        claims = []
-        for view in views:
-            if ("ally" if view.get("ally") is True else
-                "enemy" if view.get("ally") is False else None) != side:
-                claim = {"agent": None, "reason": "portrait_side_disagrees_with_entry",
-                         "evidence": {"observation_key": view.get("observation_key"),
-                                      "observed_side": view.get("ally")}}
-            elif split["blind"]:
-                claim = {"agent": None, "reason": "lineup_has_blind_rival",
-                         "evidence": {"blind": split["blind"]}}
-            else:
-                claim = claim_from_killfeed_portrait(
-                    view, entity_id=f"death:{int(start)}:victim",
-                    candidates=split["named"], rivals=split["rivals"],
-                    gallery=gallery, source_version=source_version)
-            claims.append({"observation_key": view.get("observation_key"),
-                           "t_ms": view.get("t_ms"), "frame_idx": view.get("frame_idx"),
-                           "agent": claim.get("agent"), "reason": claim.get("reason"),
-                           "evidence": claim.get("evidence", {})})
-        names = {c["agent"] for c in claims if c["agent"]}
-        unanimous = len(claims) >= 2 and len(names) == 1 and all(c["agent"] for c in claims)
-        reason = (None if unanimous else
-                  "no_stored_portrait_at_entry" if not claims else
-                  "portrait_single_view" if len(claims) == 1 else
-                  "portrait_views_refused_or_disagree")
-        entry["claim"] = {
-            "channel": "killfeed_portrait", "agent": next(iter(names)) if unanimous else None,
-            "reason": reason, "source_version": source_version,
-            "evidence": {"window_ms": [start, end], "slot": entry.get("slot"),
-                         "named_candidates": split["named"],
-                         "refused_rivals": split["rivals"], "blind_rivals": split["blind"],
-                         "observations": claims},
-        }
+        killer_side = {"ally": "enemy", "enemy": "ally"}.get(side)
+        entry["claim"] = _portrait_channel(
+            portraits, "victim", side, entry.get("slot"), start, end, lineup, gallery,
+            entity_id=f"death:{int(start)}:victim", source_version=source_version)
+        entry["killer_claim"] = _portrait_channel(
+            portraits, "killer", killer_side, entry.get("slot"), start, end, lineup, gallery,
+            entity_id=f"death:{int(start)}:killer", source_version=source_version)
         out.append(entry)
     return out
 
 
+def _portrait_channel(portraits, role, side, slot, start, end, lineup, gallery, *,
+                      entity_id, source_version):
+    """One role's stored portrait views in an entry window, as one channel claim.
+
+    The killer's plate is the side opposite the victim's; a view whose plate
+    says otherwise (a team kill, or a misread) names nothing.
+    """
+    split = side_candidates(lineup.get("sides", {}).get(side, []))
+    views = sorted((r for r in portraits
+                    if start <= float(r.get("t_ms", -1)) < end
+                    and r.get("slot") == slot and r.get("role") == role),
+                   key=lambda r: (r["t_ms"], r.get("frame_idx", -1)))
+    claims = []
+    for view in views:
+        if ("ally" if view.get("ally") is True else
+            "enemy" if view.get("ally") is False else None) != side:
+            claim = {"agent": None, "reason": "portrait_side_disagrees_with_entry",
+                     "evidence": {"observation_key": view.get("observation_key"),
+                                  "observed_side": view.get("ally")}}
+        elif split["blind"]:
+            claim = {"agent": None, "reason": "lineup_has_blind_rival",
+                     "evidence": {"blind": split["blind"]}}
+        else:
+            claim = claim_from_killfeed_portrait(
+                view, entity_id=entity_id,
+                candidates=split["named"], rivals=split["rivals"],
+                gallery=gallery, source_version=source_version)
+        claims.append({"observation_key": view.get("observation_key"),
+                       "t_ms": view.get("t_ms"), "frame_idx": view.get("frame_idx"),
+                       "agent": claim.get("agent"), "reason": claim.get("reason"),
+                       "evidence": claim.get("evidence", {})})
+    names = {c["agent"] for c in claims if c["agent"]}
+    unanimous = len(claims) >= 2 and len(names) == 1 and all(c["agent"] for c in claims)
+    reason = (None if unanimous else
+              "no_stored_portrait_at_entry" if not claims else
+              "portrait_single_view" if len(claims) == 1 else
+              "portrait_views_refused_or_disagree")
+    return {
+        "channel": "killfeed_portrait", "agent": next(iter(names)) if unanimous else None,
+        "reason": reason, "source_version": source_version,
+        "evidence": {"window_ms": [start, end], "slot": slot, "role": role, "side": side,
+                     "named_candidates": split["named"],
+                     "refused_rivals": split["rivals"], "blind_rivals": split["blind"],
+                     "observations": claims},
+    }
+
+
 def scoreboard_death_claims(entries: list[dict], openings: list[dict],
                             named: dict[int, str | None],
-                            second_life: set[int] = frozenset()) -> list[dict]:
+                            second_life: set[int] = frozenset(),
+                            contradicted: set[tuple[float, str]] = frozenset()) -> list[dict]:
     """A victim witness per killfeed entry from the scoreboard's dimmed rows.
 
     Between the last accepted opening before a death and the first after it,
@@ -135,14 +151,22 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
     here; a dimmed agent lit again was revived, which is recorded and is not a
     contradiction. Clove and a downed KAY/O are unknown to it, so they get no
     rule, and a count that disagrees still refuses.
+
+    `contradicted` holds the (opening time, side) pairs whose lit count the
+    roster contradicts (`reconciliation.audit_board_alive`). The board relights
+    its rows a moment after the top bar resets at a round start
+    [domain:rounds/scoreboard-relights-after-top-bar], so such an
+    opening carries the previous round's dead; the witness skips it on that
+    side and counts the skips in the evidence.
     """
     from .scoreboard import SCOREBOARD_AGENT_VERSION, side_state
     accepted = [o for o in openings if o["accepted"]]
     claims = []
     for i, entry in enumerate(entries):
         t_ms, side = float(entry["t_ms"]), entry.get("side")
-        before = [o for o in accepted if o["t_ms"] < t_ms]
-        after = [o for o in accepted if o["t_ms"] > t_ms]
+        usable = [o for o in accepted if (o["t_ms"], side) not in contradicted]
+        before = [o for o in usable if o["t_ms"] < t_ms]
+        after = [o for o in usable if o["t_ms"] > t_ms]
         claim = {"channel": "scoreboard_dim", "agent": None, "reason": None,
                  "source_version": SCOREBOARD_AGENT_VERSION, "evidence": {}}
         claims.append(claim)
@@ -171,6 +195,8 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
             "newly_dim": sorted(newly),
             "revived": sorted(revived),
             "interval_deaths": [float(entries[j]["t_ms"]) for j in deaths],
+            "skipped_contradicted": sum(lo["t_ms"] < t < hi["t_ms"] for t, s in contradicted
+                                        if s == side),
             "observation_keys": [s["observation_key"] for s in hi["rows"]
                                  if s["team"] == side and s["agent"] in newly],
         }
@@ -526,11 +552,17 @@ def adjudicate_death(
     is_player_death: bool = False,
     is_second_life: bool = False,
     victim_depends_on: Optional[dict] = None,
+    killer_claim: Optional[dict] = None,
 ) -> DeathVerdict:
     """Adjudicate victim identity, killer, and location for one death instant.
 
     `victim_depends_on` maps a channel to the death ids its name rested on, so
     the arbiter can refuse to count it as independent.
+
+    The killer is a second entity, `<death_id>:killer`, named by the same
+    arbiter: the player HUD on a player kill, and `killer_claim`, the killer
+    portraits (`attach_stored_killfeed_portraits`). An environmental death has
+    no killer claim at all.
 
     Corroborates four independent candidate channels:
     1. `killfeed_claim`: portrait/role claim from killfeed plate.
@@ -601,16 +633,26 @@ def adjudicate_death(
         if tr_agent:
             victim_candidates["minimap_track"] = tr_agent
 
-    # Killer attribution
-    killer = None
+    # Killer attribution: a second entity, named by the identity arbiter.
+    killer_id = f"{death_id}:killer"
+    killer_claims = []
     if death_cause == "environmental":
         # Falling off map (Abyss) or crushed by door (Summit) has no killer unless credited
-        killer = None
         killer_location = None
-    elif is_player_kill and player_agent:
-        killer = player_agent
-    elif killfeed_claim and killfeed_claim.get("killer"):
-        killer = killfeed_claim["killer"]
+    else:
+        if is_player_kill and player_agent:
+            killer_claims.append(identity_claim(killer_id, player_agent, channel="player_hud"))
+        if killer_claim:
+            killer_claims.append(identity_claim(
+                killer_id, killer_claim.get("agent"), channel="killfeed_portrait",
+                reason=killer_claim.get("reason"),
+                source_version=killer_claim.get("source_version"),
+                evidence=killer_claim.get("evidence")))
+        elif killfeed_claim and killfeed_claim.get("killer"):
+            killer_claims.append(identity_claim(killer_id, killfeed_claim["killer"],
+                                                channel="killfeed_portrait"))
+    killer_identity = (adjudicate_agent_identity(killer_claims) or [None])[0]
+    killer = killer_identity["agent"] if killer_identity else None
 
     # If local player died, player_agent is the definitive victim witness
     if is_player_death and player_agent:
@@ -690,6 +732,7 @@ def adjudicate_death(
             "is_player_death": is_player_death,
             "named_votes": named_votes,
             "identity": identity,
+            "killer_identity": killer_identity,
         },
     )
 
@@ -1041,6 +1084,7 @@ def adjudicate_round_deaths(
             t_ms=t_ms,
             side=side,
             killfeed_claim=kf_claim,
+            killer_claim=kf.get("killer_claim"),
             scoreboard_claim=scoreboard_claims[i] if scoreboard_claims else None,
             victim_depends_on=({"scoreboard_dim": [death_ids[j] for j in
                                 scoreboard_claims[i].get("depends_on_entries", [])]}
@@ -1100,9 +1144,10 @@ def death_verdict_to_events(verdict: DeathVerdict, session_id: str) -> list[dict
     events.append(del_event.to_dict())
 
     # 2. IDENTITY_DISTRIBUTION event, from the identity arbiter only.
-    identity = verdict.metadata.get("identity")
-    if identity and identity["status"] in ("resolved", "disagreement"):
-        events.extend(identity_events([identity], session_id, verdict.t_ms))
+    for key in ("identity", "killer_identity"):
+        identity = verdict.metadata.get(key)
+        if identity and identity["status"] in ("resolved", "disagreement"):
+            events.extend(identity_events([identity], session_id, verdict.t_ms))
 
     return events
 

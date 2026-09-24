@@ -499,7 +499,7 @@ question = "Where do independent stored channels disagree about the same event?"
 owner = "reconciliation"
 role = ["adjudicate", "corroborate"]
 status = "partial"
-produces = ["audit_scoreline", "audit_roster_deltas", "adjudicate_scoreboard_credits"]
+produces = ["audit_scoreline", "audit_roster_deltas", "adjudicate_scoreboard_credits", "audit_board_alive", "contradicted_openings"]
 not_for = """
 Becoming the owner of every cross-channel question. It compares channels and
 preserves disagreement; identity adjudication is a NARROWER owner that does not
@@ -747,7 +747,7 @@ evidence = "tests/test_acquisition.py"
 
 [[entry]]
 id = "death-victim"
-question = "Which agent died at this killfeed time, and where?"
+question = "Which agent died at this killfeed time, who killed them, and where?"
 owner = "adjudication.death"
 role = ["attribute", "adjudicate"]
 status = "partial"

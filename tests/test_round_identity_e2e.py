@@ -354,7 +354,8 @@ class RoundIdentityE2ETests(unittest.TestCase):
         for dv in death_verdicts:
             death_events.extend(death_verdict_to_events(dv, self.session_id))
 
-        self.assertEqual(len(death_events), 14)  # 7 ENTITY_DELETED + 7 IDENTITY_DISTRIBUTION
+        # 7 ENTITY_DELETED, 7 victim and 7 killer IDENTITY_DISTRIBUTION events.
+        self.assertEqual(len(death_events), 21)
         errors = validate_event_rows(death_events)
         self.assertEqual(len(errors), 0)
 

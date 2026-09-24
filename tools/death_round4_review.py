@@ -27,6 +27,7 @@ from reticle.events import validate_event_rows
 from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, killfeed_roi
 from reticle.lineup import load_lineup
 from reticle.profiles import get_profile
+from reticle.reconciliation import audit_board_alive, contradicted_openings
 from reticle.store import Store
 from reticle.version import SCOREBOARD_VERSION
 from prototypes.round_identity_eval import extract_round_killfeed_entries, load_round_bounds
@@ -152,9 +153,11 @@ def build(store: Store, output: Path, export_frames: bool = False,
     openings = scoreboard_openings(
         [r for r in store.read_events("scoreboard", SESSION)
          if start <= float(r.get("t_ms", -1)) <= end])
+    board_audit = audit_board_alive(openings, hud_table, roster_table)
     board_claims = scoreboard_death_claims(
         entries, openings, {i: v.victim for i, v in enumerate(first)},
-        {i for i, v in enumerate(first) if v.is_second_life})
+        {i for i, v in enumerate(first) if v.is_second_life},
+        contradicted_openings(board_audit))
     verdicts = adjudicate_round_deaths(
         SESSION, entries, window_roster, player_agent=player["agent"],
         scoreboard_claims=board_claims,
@@ -194,6 +197,7 @@ def build(store: Store, output: Path, export_frames: bool = False,
                     "named": sum(v.victim is not None for v in verdicts),
                     "unresolved": sum(v.victim is None for v in verdicts),
                     "located": sum(v.location is not None for v in verdicts)},
+        "board_alive_audit": board_audit["counts"],
         "scoreboard_openings": [{k: o[k] for k in ("t_ms", "frame_idx", "accepted", "reason")}
                                 | {"rows": [{k: r[k] for k in ("display_row", "team", "agent", "dim", "reason", "score", "margin", "gain")}
                                             for r in o["rows"]]}
