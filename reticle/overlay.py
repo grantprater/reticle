@@ -114,6 +114,7 @@ class OverlayContext:
     mm_slab: np.ndarray | None = None
     mm_passable: np.ndarray | None = None
     mm_sgray: np.ndarray | None = None  # the static map, for `widget_drawn`
+    mm_static: np.ndarray | None = None  # the baked map, for `ally_icons`' barrier gate
     #: This session's capture-stall spans from `stalls.for_session`, or None
     #: when the session has no primitives table -- which is UNKNOWN rather than
     #: "no stalls", and the diagnostic says which.
@@ -312,7 +313,7 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     # `require_facing=False` so a refused bearing is still DRAWN, in amber.
     # Dropping it would hide the gap, and the gap is what limits the area.
     allies = ally_icons(crop, ctx.mm_floor, require_facing=False,
-                        support=ctx.mm_slab)
+                        support=ctx.mm_slab, static=getattr(ctx, "mm_static", None))
     # **Every self candidate goes to the tracker, and the TRACK decides.** The
     # game draws one self icon, and this used to take the best-`cov` candidate
     # per frame -- a choice made before the tracker saw any of them, on one

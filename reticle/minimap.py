@@ -670,6 +670,12 @@ def fit_ring(red, grey, cx, cy, r_min: int = None, r_max: int = None):
     if best is None:
         return None
     cov, x0, y0, r = best
+    return _ring_at(red, grey, cov, x0, y0, r)
+
+
+def _ring_at(red, grey, cov, x0, y0, r):
+    """Interior and lobe statistics of the circle `(x0, y0, r)` already chosen."""
+    h, w = red.shape
     _, d = _offsets(r)
     xs, ys = x0 + d[:, 0], y0 + d[:, 1]
     ok = (xs >= 0) & (ys >= 0) & (xs < w) & (ys < h)
@@ -682,6 +688,27 @@ def fit_ring(red, grey, cx, cy, r_min: int = None, r_max: int = None):
             "inner_red": inner_red, "inner_v": inner_v,
             "facing": _facing_from(reach, r),
             "lobe": _lobe_from(reach, r)}
+
+
+def coverage_surface(red, r_min, r_max):
+    """Per pixel, the best circumference coverage over radii, and that radius.
+
+    The score `_best_circle` maximises, computed everywhere at once: one
+    ring-kernel correlation per radius. A circle running off the image scores
+    its in-bounds points against the full count, so an edge candidate is
+    penalised rather than skipped.
+    """
+    kf = red.astype(np.float32)
+    best = np.full(kf.shape, -1.0, np.float32)
+    rad = np.zeros(kf.shape, np.int32)
+    for r in range(r_min, r_max + 1):
+        pts, _ = _offsets(r)
+        k = np.zeros((2 * r + 1, 2 * r + 1), np.float32)
+        k[pts[:, 1] + r, pts[:, 0] + r] = 1.0 / len(pts)
+        c = cv2.filter2D(kf, -1, k, borderType=cv2.BORDER_CONSTANT)
+        up = c > best
+        best[up], rad[up] = c[up], r
+    return best, rad
 
 
 def _lobe_from(reach, r):
@@ -850,8 +877,22 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
           cov_min: float = ALLY_COV_MIN, inner_max: float = ALLY_INNER_MAX,
           require_facing: bool = True, min_area: int | None = None,
           support: np.ndarray | None = None,
-          separation_px: float | None = None) -> list[dict]:
+          separation_px: float | None = None,
+          seed: str = "centroid") -> list[dict]:
     """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
+
+    **`seed` decides where each blob's circle is searched for.** `"centroid"`
+    searches +/-`SEARCH` px around the blob's centroid, and every self-position
+    number on record was measured with it. But an icon's key breaks into
+    pieces: arcs whose centroids sit about one radius from the centre, out of
+    reach, and the filled lobe, whose best nearby circle runs along the lobe --
+    so the fit lands on the teardrop. `"surface"` takes the best peak of
+    `coverage_surface` among the centres whose circle can touch the blob
+    (within `r_max` of it). Over 600 frames of `a06f04a0059f` it cut the ally
+    fit-jump rate from
+    [metric:ally_ring_peaks/windows@a06f04a0059f#jump_rate_centroid=0.0364] to
+    [metric:ally_ring_peaks/windows@a06f04a0059f#jump_rate_surface=0.0212], and
+    none of the remaining jumps viewed was a lobe fit.
 
     Returns a dict per icon: `cx`, `cy`, `r`, `cov`, `inner`, `facing` (degrees
     or None), `lobe`, `area`. Facing is in the same convention as
@@ -891,13 +932,30 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
                          np.ones((_odd(3 * sc), _odd(3 * sc)), np.uint8))
     n, lbl, st, cen = cv2.connectedComponentsWithStats(m, 8)
     supported = None if support is None else set(np.unique(lbl[(m > 0) & support]))
+    if seed not in ("centroid", "surface"):
+        raise ValueError(f"unknown seed {seed!r}")
+    if seed == "surface":
+        surf, surf_r = coverage_surface(keyed, r_min, r_max)
+        grow = np.ones((2 * r_max + 1, 2 * r_max + 1), np.uint8)
+    H, W = keyed.shape
     found: list[dict] = []
     for i in range(1, n):
         if st[i, 4] < min_area:
             continue
         if supported is not None and i not in supported:
             continue
-        f = fit_ring(keyed, grey, cen[i][0], cen[i][1], r_min, r_max)
+        if seed == "centroid":
+            f = fit_ring(keyed, grey, cen[i][0], cen[i][1], r_min, r_max)
+        else:
+            x, y, w, h = (int(v) for v in st[i, :4])
+            a, b = max(0, y - r_max), min(H, y + h + r_max)
+            c, d = max(0, x - r_max), min(W, x + w + r_max)
+            near = cv2.dilate((lbl[a:b, c:d] == i).astype(np.uint8), grow) > 0
+            cand = np.where(near, surf[a:b, c:d], -1.0)
+            yy, xx = divmod(int(np.argmax(cand)), cand.shape[1])
+            f = (None if cand[yy, xx] < 0 else
+                 _ring_at(keyed, grey, float(cand[yy, xx]), c + xx, a + yy,
+                          int(surf_r[a + yy, c + xx])))
         if f is None:
             continue
         if f["cov"] < cov_min or f["inner_red"] > inner_max:
@@ -943,9 +1001,54 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     return out
 
 
-def ally_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
-    """Teammate icons, each carrying its own bearing. See `icons`."""
-    return icons(ally_mask(crop), crop, floor, **kw)
+def ally_icons(crop: np.ndarray, floor: np.ndarray, *, static: np.ndarray | None = None,
+               keep_barriers: bool = False, seed: str = "surface", **kw) -> list[dict]:
+    """Teammate icons, each carrying its own bearing. See `icons`.
+
+    **With `static`, the baked map reference, a spawn barrier is not a
+    teammate.** A barrier passes the ring-fit and facing gates, and inside its
+    ring the unkeyed pixels ARE the map. Each fit gains `map_diff`, the mean
+    grey difference between its interior and `static`, and `barrier`, true
+    below `ALLY_MAP_DIFF_MIN`. Barriers are dropped unless `keep_barriers`,
+    which a reader storing them as furniture passes. Without `static` nothing
+    is decided and no field is added -- so a caller holding baked geometry
+    should pass it.
+    """
+    found = icons(ally_mask(crop), crop, floor, seed=seed, **kw)
+    if static is None:
+        return found
+    keyed = ally_mask(crop) | self_mask(crop)
+    grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    ref = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    for f in found:
+        win, keep = _interior(f, keyed, found)
+        f["map_diff"] = (float(np.abs(grey[win][keep] - ref[win][keep]).mean())
+                         if keep.any() else None)
+        f["barrier"] = f["map_diff"] is not None and f["map_diff"] < ALLY_MAP_DIFF_MIN
+    return found if keep_barriers else [f for f in found if not f["barrier"]]
+
+
+def _interior(f: dict, keyed: np.ndarray, others=(), occluders=()):
+    """The portrait pixels of one fit, as `(window, mask)` over the crop.
+
+    The disc of `ALLY_INTERIOR_FRAC * r`, less keyed pixels, less every
+    occluder disc `(cx, cy, r)`, less pixels nearer another fit in `others`.
+    Computed in a window around the fit rather than over the whole widget.
+    """
+    rad = ALLY_INTERIOR_FRAC * f["r"]
+    R = int(np.ceil(rad)) + 1
+    H, W = keyed.shape
+    a, b = max(0, int(f["cy"]) - R), min(H, int(f["cy"]) + R + 1)
+    c, d = max(0, int(f["cx"]) - R), min(W, int(f["cx"]) + R + 1)
+    yy, xx = np.mgrid[a:b, c:d]
+    d2 = (xx - f["cx"]) ** 2 + (yy - f["cy"]) ** 2
+    keep = (d2 <= rad * rad) & ~keyed[a:b, c:d]
+    for ox, oy, orad in occluders:
+        keep &= (xx - ox) ** 2 + (yy - oy) ** 2 > (orad + 1) ** 2
+    for g in others:
+        if g is not f:
+            keep &= d2 < (xx - g["cx"]) ** 2 + (yy - g["cy"]) ** 2
+    return (slice(a, b), slice(c, d)), keep
 
 
 #: The share of the fitted radius whose interior is the portrait. The teal
@@ -990,27 +1093,15 @@ def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
     from . import appearance
 
     keyed = ally_mask(crop) | self_mask(crop)
-    yy, xx = np.mgrid[0:crop.shape[0], 0:crop.shape[1]]
-    for ox, oy, orad in occluders:
-        keyed |= (xx - ox) ** 2 + (yy - oy) ** 2 <= (orad + 1) ** 2
-    grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    ref = (None if static is None
-           else cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float32))
-    found = ally_icons(crop, floor, support=support)
+    found = ally_icons(crop, floor, support=support, static=static,
+                       keep_barriers=True)
     out = []
-    for i, f in enumerate(found):
-        d2 = (xx - f["cx"]) ** 2 + (yy - f["cy"]) ** 2
-        rad = ALLY_INTERIOR_FRAC * f["r"]
-        keep = (d2 <= rad * rad) & ~keyed
-        for j, g in enumerate(found):
-            if j != i:
-                keep &= d2 < (xx - g["cx"]) ** 2 + (yy - g["cy"]) ** 2
-        comp = appearance.hsv_composition(crop, keep)
-        diff = (float(np.abs(grey[keep] - ref[keep]).mean())
-                if ref is not None and keep.any() else None)
-        reason = ("interior_too_thin" if not comp.size
-                  else "interior_is_map" if diff is not None and diff < ALLY_MAP_DIFF_MIN
-                  else None)
+    for f in found:
+        win, keep = _interior(f, keyed, found, occluders)
+        comp = appearance.hsv_composition(crop[win], keep)
+        diff = f.get("map_diff")
+        reason = ("interior_is_map" if f.get("barrier")
+                  else "interior_too_thin" if not comp.size else None)
         out.append({"cx": f["cx"], "cy": f["cy"], "r": f["r"],
                     "facing": None if f["facing"] is None else float(f["facing"]),
                     "cov": f["cov"], "pixels": int(keep.sum()), "map_diff": diff,

@@ -1420,7 +1420,7 @@ def cmd_overlay(args) -> int:
 
     # Every minimap pixel reference comes from the baked (map, profile)
     # geometry. Session frames may determine ROI placement/dimensions only.
-    mm_box = mm_floor = mm_passable = mm_sgray = mm_light = mm_slab = None
+    mm_box = mm_floor = mm_passable = mm_sgray = mm_light = mm_slab = med = None
     if not args.no_minimap:
         geo = geometry.path_of(sid, args.store)
         if geo is None or not geo.is_file():
@@ -1461,6 +1461,7 @@ def cmd_overlay(args) -> int:
                          min_margin=args.min_margin, spans=spans,
                          mm_box=mm_box, mm_floor=mm_floor, mm_slab=mm_slab,
                          mm_passable=mm_passable, mm_sgray=mm_sgray,
+                         mm_static=med if mm_box is not None else None,
                          mm_light=mm_light)
     ctx.mm_apply_lifecycle = args.minimap_lifecycle
     # Capture stalls are a property of the SOURCE, read once from stored

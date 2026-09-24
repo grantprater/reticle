@@ -123,7 +123,11 @@ PING_VERSION = "ping-0.1.0"
 # MINIMAP_VERSION bump: positions do not change, and a descriptor is an
 # independent detector. Bump when the icon gate, the interior mask, the
 # occluder rule or `ALLY_MAP_DIFF_MIN` changes.
-ALLY_ICON_VERSION = "ally-icon-0.1.0"
+# 0.2.0: the fit is seeded on `minimap.coverage_surface` rather than the
+# blob centroid, so a fit no longer lands on the teardrop lobe; the barrier
+# gate moved into `ally_icons` itself, and the interior is computed in a
+# window around each fit.
+ALLY_ICON_VERSION = "ally-icon-0.2.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

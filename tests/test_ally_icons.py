@@ -132,3 +132,37 @@ class AllyIconDescriptorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SurfaceSeedTests(unittest.TestCase):
+    """A broken ring beside a filled lobe: the fit must find the ring's centre."""
+
+    def crop(self):
+        crop = np.full((W, W, 3), 128, np.uint8)
+        teal = (200, 220, 40)
+        centre = (200, 200)
+        # Three separate arcs: each arc's centroid sits about a radius from
+        # the centre, out of a centroid search's reach.
+        for a0 in (200, 290, 20):
+            cv2.ellipse(crop, centre, (10, 10), 0, a0, a0 + 60, teal, 2)
+        lobe = np.array([[209, 192], [226, 200], [209, 208]], np.int32)
+        cv2.fillPoly(crop, [lobe], teal)
+        cv2.circle(crop, centre, 7, (30, 60, 200), -1)
+        return crop
+
+    def test_the_surface_seed_centres_on_the_ring(self):
+        from reticle.minimap import icons, ally_mask
+
+        crop = self.crop()
+        floor = np.ones((W, W), bool)
+        got = icons(ally_mask(crop), crop, floor, require_facing=False,
+                    seed="surface")
+        best = min(got, key=lambda f: np.hypot(f["cx"] - 200, f["cy"] - 200))
+        self.assertLessEqual(np.hypot(best["cx"] - 200, best["cy"] - 200), 1.5)
+
+    def test_an_unknown_seed_is_refused(self):
+        from reticle.minimap import icons, ally_mask
+
+        crop = self.crop()
+        with self.assertRaises(ValueError):
+            icons(ally_mask(crop), crop, np.ones((W, W), bool), seed="guess")
