@@ -76,6 +76,12 @@ states plainly, and the player had to ask what the sentence meant.
   detector. Agreement is consistency, not accuracy -- store the disagreements.
 - Measure a known baseline before structural edits, then rerun the real command
   and confirm a known result. A parse check alone is not verification.
+- Treat what you know about the system as beliefs held with uncertainty, and
+  update them on evidence. Before acting on an assumption about an owner, a
+  detector or a mechanic, check it or state it with a falsifier. Spend effort
+  where uncertainty is largest and a cheap experiment can resolve it, as the
+  pipeline refines where uncertainty exceeds a question's tolerance. A failed
+  prediction revises the belief; record it and carry it into the handoff.
 - Before a perceptual experiment, state falsifiable predictions and log them in
   the store's `notes/predictions.jsonl`; inspect source images before measuring.
   On the first failed perceptual approach, build the tool that asks the player.
