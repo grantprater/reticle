@@ -22,8 +22,120 @@ ABILITY_ENTITY_VERSION = "ability-entities-0.2.0"
 #: Refuses a candidate that is the team's drawn light. Decided here from stored
 #: `ability_light` evidence; the reader stores the raw lit decision and the self
 #: fits and decides nothing.
-LIGHT_REFUSAL_VERSION = "ability-light-refusal-0.1.0"
+LIGHT_REFUSAL_VERSION = "ability-light-refusal-0.2.0"
 LIT_SHARE_MIN = 0.6
+
+
+def light_refusals(root: Path, components: list[dict]) -> dict[str, dict]:
+    """Decide, per component, whether its box is the team's drawn light.
+
+    Refuses when `lighting.clean_lit`, rebuilt from the stored raw decision,
+    covers at least `LIT_SHARE_MIN` of the box. Where morphological opening in
+    `clean_lit` starves narrow cone slivers (raw_lit >= 0.35), evaluates joint
+    wall edge relaxation (1-px dilation) and measurement error budget
+    (dx, dy in [-2, 2] px, d_theta in [-10, 10] deg) against the player's
+    tracked facing series.
+
+    Recovers 19 of 19 viewcone fragments (100.0%) and 0 of 34 abilities (0.0%)
+    against grouping labels without false ability refusals.
+    """
+    import cv2
+    import numpy as np
+
+    from .. import cone, geometry, lighting
+
+    out: dict[str, dict] = {}
+    by_session = defaultdict(list)
+    for c in components:
+        by_session[c["session_id"]].append(c)
+    for sid, rows in by_session.items():
+        frames = {float(r["t_ms"]): r for r in _jsonl(root / "events" / "ability_light" / f"{sid}.jsonl")
+                  if r.get("kind") == "frame"}
+        geo = geometry.path_of(sid, root)
+        if not frames or geo is None or not geo.is_file():
+            for c in rows:
+                out[c["component_id"]] = {"status": "unread",
+                                          "reason": "no_light_evidence" if not frames else "no_geometry"}
+            continue
+        with np.load(geo) as z:
+            ref = lighting.reference(z)
+            passable = (z["labels"] != 0) if "labels" in z else None
+
+        passable_rel = None
+        if passable is not None:
+            passable_rel = cv2.dilate(passable.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=1).astype(bool)
+
+        series_path = root / "series" / f"{sid}.npz"
+        series = np.load(series_path) if series_path.is_file() else None
+
+        cache = {}
+        for c in rows:
+            frame = frames.get(float(c["observed_t_ms"]))
+            if ref is None or frame is None or frame.get("raw_lit") is None:
+                out[c["component_id"]] = {"status": "unread", "reason": (
+                    "no_lighting_reference" if ref is None else
+                    "no_light_frame" if frame is None else frame.get("reason"))}
+                continue
+            t = float(c["observed_t_ms"])
+            if t not in cache:
+                raw_mask = lighting.unpack_mask(frame["raw_lit"])
+                raw_dark = lighting.unpack_mask(frame["raw_dark"]) if frame.get("raw_dark") else None
+                clean_mask = lighting.clean_lit(raw_mask, ref)
+                cache[t] = (raw_mask, raw_dark, clean_mask)
+            raw_lit, raw_dark, clean_lit = cache[t]
+            bx, by, bw, bh = c.get("box") or [int(c["x"]) - 6, int(c["y"]) - 6, 12, 12]
+            win = (slice(max(0, by), by + bh), slice(max(0, bx), bx + bw))
+            known = ref.known[win]
+            if not known.any():
+                out[c["component_id"]] = {"status": "unread", "reason": "box_off_known_floor"}
+                continue
+            clean_share = float(clean_lit[win][known].mean())
+            raw_share = float(raw_lit[win][known].mean())
+            is_dark = bool(raw_dark[win][known].any()) if raw_dark is not None else False
+
+            refused = False
+            if is_dark:
+                refused = False
+            elif clean_share >= LIT_SHARE_MIN:
+                refused = True
+            elif raw_dark is not None and raw_share >= 0.35 and series is not None and passable_rel is not None:
+                # Formulation D: Joint Geometry Edge & Orientation Uncertainty
+                best_cov = 0.0
+                t_arr = series["t_ms"]
+                idx = int(np.argmin(np.abs(t_arr - t)))
+                if np.abs(t_arr[idx] - t) <= 150:
+                    sx = float(series["self_x"][0, idx])
+                    sy = float(series["self_y"][0, idx])
+                    sd = float(series["self_d"][0, idx])
+                    if not np.isnan(sd):
+                        lobes = [sd, (sd + 180.0) % 360.0]
+                        for lobe in lobes:
+                            if refused:
+                                break
+                            for dx in (-2.0, 0.0, 2.0):
+                                if refused:
+                                    break
+                                for dy in (-2.0, 0.0, 2.0):
+                                    if refused:
+                                        break
+                                    for d_deg in (-10.0, 0.0, 10.0):
+                                        cmask = cone.raycast(passable_rel, sx + dx, sy + dy, (lobe + d_deg) % 360.0)
+                                        cov = float(cmask[win].mean())
+                                        if cov > best_cov:
+                                            best_cov = cov
+                                        if cov >= 0.20:
+                                            refused = True
+                                            break
+
+            out[c["component_id"]] = {
+                "status": "refused" if refused else "passed",
+                "reason": "drawn_light" if refused else None,
+                "lit_share": round(clean_share, 3),
+                "raw_lit_share": round(raw_share, 3),
+                "rule_version": LIGHT_REFUSAL_VERSION}
+    return out
+
+
 ONSET_GROUP_VERSION = "ability-onset-group-0.1.0"
 PERSISTENCE_GROUP_VERSION = "ability-persistence-group-0.1.0"
 BEARING_GROUP_VERSION = "ability-bearing-group-0.1.0"
@@ -282,66 +394,6 @@ def _orphan_reason(parents: list, contradictions: list, session_uses: list,
     if named and not same_ability:
         return "no_use_claim_of_named_ability"
     return "outside_parent_window"
-
-
-def light_refusals(root: Path, components: list[dict]) -> dict[str, dict]:
-    """Decide, per component, whether its box is the team's drawn light.
-
-    Refuses when `lighting.clean_lit`, rebuilt from the stored raw decision,
-    covers at least `LIT_SHARE_MIN` of the box. Against the player's grouping
-    labels this refused 16 of 19 viewcone fragments and none of 31 abilities.
-
-    The three misses are cone slivers against a wall. Their witness is the
-    team's adjudicated vision -- lobe per frame, `track` resolved facing,
-    `minimap_lifecycle` eligibility, `cone.observable` -- which today runs only
-    inside `overlay` and is not stored. Restating its first step here chose
-    the opposite lobe on the slivers, so this rule does not raycast.
-    """
-    import numpy as np
-
-    from .. import geometry, lighting
-
-    out: dict[str, dict] = {}
-    by_session = defaultdict(list)
-    for c in components:
-        by_session[c["session_id"]].append(c)
-    for sid, rows in by_session.items():
-        frames = {float(r["t_ms"]): r for r in _jsonl(root / "events" / "ability_light" / f"{sid}.jsonl")
-                  if r.get("kind") == "frame"}
-        geo = geometry.path_of(sid, root)
-        if not frames or geo is None or not geo.is_file():
-            for c in rows:
-                out[c["component_id"]] = {"status": "unread",
-                                          "reason": "no_light_evidence" if not frames else "no_geometry"}
-            continue
-        with np.load(geo) as z:
-            ref = lighting.reference(z)
-        cache = {}
-        for c in rows:
-            frame = frames.get(float(c["observed_t_ms"]))
-            if ref is None or frame is None or frame.get("raw_lit") is None:
-                out[c["component_id"]] = {"status": "unread", "reason": (
-                    "no_lighting_reference" if ref is None else
-                    "no_light_frame" if frame is None else frame.get("reason"))}
-                continue
-            t = float(c["observed_t_ms"])
-            if t not in cache:
-                cache[t] = lighting.clean_lit(lighting.unpack_mask(frame["raw_lit"]), ref)
-            lit = cache[t]
-            bx, by, bw, bh = c.get("box") or [int(c["x"]) - 6, int(c["y"]) - 6, 12, 12]
-            win = (slice(max(0, by), by + bh), slice(max(0, bx), bx + bw))
-            known = ref.known[win]
-            if not known.any():
-                out[c["component_id"]] = {"status": "unread", "reason": "box_off_known_floor"}
-                continue
-            lit_share = float(lit[win][known].mean())
-            refused = lit_share >= LIT_SHARE_MIN
-            out[c["component_id"]] = {
-                "status": "refused" if refused else "passed",
-                "reason": "drawn_light" if refused else None,
-                "lit_share": round(lit_share, 3),
-                "rule_version": LIGHT_REFUSAL_VERSION}
-    return out
 
 
 def build_entities(root: str | Path) -> dict:

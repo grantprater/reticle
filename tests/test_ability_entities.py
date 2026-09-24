@@ -4,7 +4,9 @@ import unittest
 from pathlib import Path
 
 from reticle.adjudication.ability import (bearing_groups, build_entities,
-                                          onset_groups, persistence_groups)
+                                          light_refusals, onset_groups,
+                                          persistence_groups)
+from reticle import lighting
 
 
 class GroupingUnitTests(unittest.TestCase):
@@ -177,6 +179,78 @@ class OrphanEvidenceTests(unittest.TestCase):
         self.assertIsNone(clutter["orphan_reason"])
         reviewed = {cid for r in got["review"] for cid in r["component_ids"]}
         self.assertNotIn(clutter["component_id"], reviewed)
+
+
+class LightRefusalTests(unittest.TestCase):
+    def setUp(self):
+        import numpy as np
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / "manifests").mkdir(parents=True, exist_ok=True)
+        (self.root / "geometry").mkdir(parents=True, exist_ok=True)
+        (self.root / "events/ability_light").mkdir(parents=True, exist_ok=True)
+        (self.root / "series").mkdir(parents=True, exist_ok=True)
+
+        # Build mock geometry
+        h, w = 50, 50
+        lo_gray = np.full((h, w), 100, dtype=np.uint8)
+        hi_gray = np.full((h, w), 160, dtype=np.uint8)
+        sd_lo = np.full((h, w), 2.0, dtype=np.float32)
+        sd_hi = np.full((h, w), 2.0, dtype=np.float32)
+        labels = np.ones((h, w), dtype=np.int32)
+        geo_path = self.root / "geometry/testmap__testprof.npz"
+        np.savez_compressed(geo_path, lo_gray=lo_gray, hi_gray=hi_gray,
+                            sd_lo=sd_lo, sd_hi=sd_hi, labels=labels)
+
+        man = {"session_id": "s1", "source_profile": "testprof",
+               "tags": ["map:testmap"],
+               "source": {"path": "missing", "width": 1920, "height": 1080}}
+        (self.root / "manifests/s1.json").write_text(json.dumps(man))
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_dark_object_is_not_refused_despite_light_or_facing(self):
+        import numpy as np
+        h, w = 50, 50
+        raw_lit = np.zeros((h, w), dtype=bool)
+        raw_lit[20:30, 20:30] = True
+        raw_dark = np.zeros((h, w), dtype=bool)
+        raw_dark[22:25, 22:25] = True  # Opaque object present
+
+        row = {
+            "session_id": "s1", "kind": "frame", "t_ms": 1000.0,
+            "raw_lit": lighting.pack_mask(raw_lit),
+            "raw_dark": lighting.pack_mask(raw_dark),
+            "reason": None,
+        }
+        (self.root / "events/ability_light/s1.jsonl").write_text(json.dumps(row) + "\n")
+
+        comp = [{"component_id": "c1", "session_id": "s1", "observed_t_ms": 1000.0,
+                 "x": 25, "y": 25, "box": [20, 20, 10, 10]}]
+        res = light_refusals(self.root, comp)
+        self.assertEqual(res["c1"]["status"], "passed")
+
+    def test_pure_light_viewcone_is_refused(self):
+        import numpy as np
+        h, w = 50, 50
+        raw_lit = np.zeros((h, w), dtype=bool)
+        raw_lit[20:30, 20:30] = True
+        raw_dark = np.zeros((h, w), dtype=bool)
+
+        row = {
+            "session_id": "s1", "kind": "frame", "t_ms": 1000.0,
+            "raw_lit": lighting.pack_mask(raw_lit),
+            "raw_dark": lighting.pack_mask(raw_dark),
+            "reason": None,
+        }
+        (self.root / "events/ability_light/s1.jsonl").write_text(json.dumps(row) + "\n")
+
+        comp = [{"component_id": "c1", "session_id": "s1", "observed_t_ms": 1000.0,
+                 "x": 25, "y": 25, "box": [20, 20, 10, 10]}]
+        res = light_refusals(self.root, comp)
+        self.assertEqual(res["c1"]["status"], "refused")
+        self.assertEqual(res["c1"]["reason"], "drawn_light")
 
 
 if __name__ == "__main__":

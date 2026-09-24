@@ -133,10 +133,10 @@ PING_VERSION = "ping-0.1.0"
 # stamp moves because events now carry `candidate_key`, `family` and lineage.
 ALLY_ICON_VERSION = "ally-icon-0.3.0"
 # Light evidence at each ability candidate's instant, written as `ability_light`
-# EVENTS by `reticle ability-light`: `lighting.raw_lit` packed per frame. It
-# stores no decision; `adjudication.ability` rebuilds `lit_mask` from it.
-# Bump when the stored fields or the frame selection change.
-ABILITY_LIGHT_VERSION = "ability-light-0.1.0"
+# EVENTS by `reticle ability-light`: `lighting.raw_lit` and `lighting.raw_dark`
+# packed per frame. It stores no decision; `adjudication.ability` reads it.
+# 0.2.0: stores raw_dark alongside raw_lit to distinguish opaque objects from viewcones.
+ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

@@ -2179,6 +2179,7 @@ def cmd_ability_light(args) -> int:
                 continue
             rows.append({**common, "kind": "frame", "t_ms": t,
                          "raw_lit": lighting.pack_mask(lighting.raw_lit(crop, ref)),
+                         "raw_dark": lighting.pack_mask(lighting.raw_dark(crop, ref)),
                          "reason": None})
         cap.release()
         rows.insert(0, {**common, "kind": "coverage", "frames": len(rows),

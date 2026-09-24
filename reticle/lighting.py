@@ -62,6 +62,8 @@ CLOSE_PX = 5
 #: Smallest number of measured pixels a terrain class needs before its median
 #: is trusted as that class's unlit level.
 GROUP_MIN_PX = 40
+#: Minimum drop in raw grey levels below unlit floor baseline to classify as dark object.
+DARK_DROP_MIN = 15.0
 
 LIGHTING_VERSION = "lighting-0.3.0"
 
@@ -172,6 +174,17 @@ def raw_lit(crop: np.ndarray, ref: Lighting) -> np.ndarray:
     g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float64)
     crossing = (ref.hi * ref.sd_lo + ref.lo * ref.sd_hi) / (ref.sd_lo + ref.sd_hi)
     return ref.known & (g > crossing)
+
+
+def raw_dark(crop: np.ndarray, ref: Lighting, threshold: float = DARK_DROP_MIN) -> np.ndarray:
+    """The per-pixel DARK decision where floor drops below unlit baseline.
+
+    Floor pixels obscured by an opaque ability object, device, icon, or smoke
+    boundary drop significantly below the unlit baseline `ref.lo`. Viewcones
+    are additive illumination and produce zero raw dark pixels on known floor.
+    """
+    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    return ref.known & ((ref.lo - g) >= threshold)
 
 
 def lit_mask(crop: np.ndarray, ref: Lighting) -> np.ndarray:
