@@ -259,7 +259,7 @@ ICON = (35, 0, 160, 32)                  # weapon icon box within a row
 ICON_GRID = (24, 96)                     # h, w after tight crop
 
 
-def icons(sid: str) -> Path:
+def crop_icons(sid: str) -> Path:
     """Crop each distinct panel's weapon icons from one frame apiece."""
     path, fps = _source(sid)
     panels = distinct_panels(_load(sid))
@@ -519,7 +519,7 @@ def main() -> None:
     if args.cmd == "scan":
         scan(args.session, args.hz)
     elif args.cmd == "icons":
-        icons(args.session)
+        crop_icons(args.session)
     elif args.cmd == "weapons":
         weapons(args.session)
     else:
