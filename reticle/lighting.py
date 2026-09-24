@@ -161,6 +161,19 @@ def reference(z) -> Lighting | None:
                     widget_scale(labels.shape[1]), known=known, solid=solid)
 
 
+def raw_lit(crop: np.ndarray, ref: Lighting) -> np.ndarray:
+    """The per-pixel LIT decision before `lit_mask` removes speckle.
+
+    The opening that removes speckle also removes a real cone narrowed to a
+    sliver against a wall. A caller holding an independent witness for where
+    light can reach -- the self icon's raycast cone -- may accept these pixels
+    where that witness agrees; alone they include the noise `lit_mask` rejects.
+    """
+    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    crossing = (ref.hi * ref.sd_lo + ref.lo * ref.sd_hi) / (ref.sd_lo + ref.sd_hi)
+    return ref.known & (g > crossing)
+
+
 def lit_mask(crop: np.ndarray, ref: Lighting) -> np.ndarray:
     """Which usable floor pixels this frame draws in the LIT state.
 
@@ -174,11 +187,18 @@ def lit_mask(crop: np.ndarray, ref: Lighting) -> np.ndarray:
     and removes that reversal; bright foreground overlays can still contaminate
     the read, so agreement remains a crosscheck rather than truth.
     """
-    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float64)
-    crossing = (ref.hi * ref.sd_lo + ref.lo * ref.sd_hi) / (ref.sd_lo + ref.sd_hi)
-    lit = ref.known & (g > crossing)
+    return clean_lit(raw_lit(crop, ref), ref)
+
+
+def clean_lit(raw: np.ndarray, ref: Lighting) -> np.ndarray:
+    """`lit_mask` from a stored `raw_lit` decision, with no source pixels.
+
+    `lit_mask` is exactly `clean_lit(raw_lit(crop, ref), ref)`, so a reader may
+    store the raw decision and an adjudicator rebuild the clean mask from it.
+    """
+    lit = raw.astype(np.uint8)
     k = _odd(OPEN_PX * ref.scale)
-    lit = cv2.morphologyEx(lit.astype(np.uint8), cv2.MORPH_OPEN,
+    lit = cv2.morphologyEx(lit, cv2.MORPH_OPEN,
                            np.ones((k, k), np.uint8))
     n, lbl, st, _ = cv2.connectedComponentsWithStats(lit, 8)
     keep_px = MIN_BLOB_PX * ref.scale * ref.scale
@@ -189,3 +209,21 @@ def lit_mask(crop: np.ndarray, ref: Lighting) -> np.ndarray:
     c = _odd(CLOSE_PX * ref.scale)
     lit = cv2.morphologyEx(lit, cv2.MORPH_CLOSE, np.ones((c, c), np.uint8))
     return (lit > 0) & ref.known
+
+
+def pack_mask(mask: np.ndarray) -> dict:
+    """A boolean mask as compact JSON: shape plus zlib-compressed packed bits."""
+    import base64
+    import zlib
+    bits = np.packbits(mask.astype(bool), axis=None)
+    return {"shape": list(mask.shape),
+            "bits": base64.b64encode(zlib.compress(bits.tobytes(), 9)).decode("ascii")}
+
+
+def unpack_mask(packed: dict) -> np.ndarray:
+    """Invert `pack_mask`."""
+    import base64
+    import zlib
+    shape = tuple(packed["shape"])
+    bits = np.frombuffer(zlib.decompress(base64.b64decode(packed["bits"])), np.uint8)
+    return np.unpackbits(bits)[:shape[0] * shape[1]].reshape(shape).astype(bool)

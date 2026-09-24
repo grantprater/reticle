@@ -2124,6 +2124,70 @@ def cmd_ability_entities(args) -> int:
     return 0
 
 
+def cmd_ability_light(args) -> int:
+    """Store the drawn light at every ability candidate's instant.
+
+    `lighting.raw_lit` on a sparse set of frames. Nothing here decides;
+    `adjudication.ability` reads the `ability_light` events to refuse
+    drawn-light candidates.
+    """
+    import cv2
+    import numpy as np
+
+    from . import geometry, lighting
+    from .adjudication.ability import _components, _labels
+    from .version import ABILITY_LIGHT_VERSION
+
+    store = Store(args.store)
+    root = store.root
+    times = {}
+    for c in _components(root, _labels(root)):
+        times.setdefault(c["session_id"], set()).add(float(c["observed_t_ms"]))
+    sessions = sorted(times) if args.all else [args.session]
+    for sid in sessions:
+        if sid not in times:
+            print(f"{sid}: no ability candidates")
+            continue
+        man = geometry.manifest(sid, root)
+        geo = geometry.path_of(sid, root)
+        if man is None or geo is None or not geo.is_file():
+            print(f"{sid}: no baked geometry -- skipped")
+            continue
+        with np.load(geo) as z:
+            ref = lighting.reference(z)
+        if ref is None:
+            print(f"{sid}: geometry has no lighting reference -- skipped")
+            continue
+        src = man["source"]
+        x0, y0, x1, y1 = minimap_roi_px(get_profile(man["source_profile"]),
+                                        int(src["width"]), int(src["height"]))
+        common = {"session_id": sid, "source": "minimap",
+                  "ability_light_version": ABILITY_LIGHT_VERSION,
+                  "lighting_version": lighting.LIGHTING_VERSION,
+                  "geometry_key": geometry.key_of(sid, root)}
+        rows, refused = [], Counter()
+        cap = cv2.VideoCapture(src["path"])
+        for t in sorted(times[sid]):
+            cap.set(cv2.CAP_PROP_POS_MSEC, t)
+            ok, frame = cap.read()
+            crop = frame[y0:y1, x0:x1] if ok else None
+            if crop is None or crop.shape[:2] != ref.known.shape:
+                reason = "unreadable_frame" if crop is None else "geometry_size_mismatch"
+                refused[reason] += 1
+                rows.append({**common, "kind": "frame", "t_ms": t, "raw_lit": None,
+                             "reason": reason})
+                continue
+            rows.append({**common, "kind": "frame", "t_ms": t,
+                         "raw_lit": lighting.pack_mask(lighting.raw_lit(crop, ref)),
+                         "reason": None})
+        cap.release()
+        rows.insert(0, {**common, "kind": "coverage", "frames": len(rows),
+                        "refused_reasons": dict(sorted(refused.items()))})
+        out = store.write_events("ability_light", sid, rows)
+        print(f"{sid}: {len(rows) - 1} frames, refused {dict(refused)} -> {out}")
+    return 0
+
+
 def cmd_ability_gallery(args) -> int:
     """Build phase galleries and score identity on held-out sessions."""
     from .ability_gallery import run
@@ -2711,6 +2775,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--step", type=float, default=0.5,
                    help="tray sampling interval for --materialize (default 0.5s)")
     s.set_defaults(func=cmd_ability_timeline)
+
+    s = sub.add_parser("ability-light", help="store the drawn light at ability candidates (opens media)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session with ability candidates")
+    s.set_defaults(func=cmd_ability_light)
 
     s = sub.add_parser("ability-entities", help="build alternative ability entity hypotheses")
     s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-entities)")

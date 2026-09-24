@@ -18,7 +18,12 @@ from pathlib import Path
 from ..ability_timeline import build_timeline
 
 
-ABILITY_ENTITY_VERSION = "ability-entities-0.1.0"
+ABILITY_ENTITY_VERSION = "ability-entities-0.2.0"
+#: Refuses a candidate that is the team's drawn light. Decided here from stored
+#: `ability_light` evidence; the reader stores the raw lit decision and the self
+#: fits and decides nothing.
+LIGHT_REFUSAL_VERSION = "ability-light-refusal-0.1.0"
+LIT_SHARE_MIN = 0.6
 ONSET_GROUP_VERSION = "ability-onset-group-0.1.0"
 PERSISTENCE_GROUP_VERSION = "ability-persistence-group-0.1.0"
 BEARING_GROUP_VERSION = "ability-bearing-group-0.1.0"
@@ -279,11 +284,75 @@ def _orphan_reason(parents: list, contradictions: list, session_uses: list,
     return "outside_parent_window"
 
 
+def light_refusals(root: Path, components: list[dict]) -> dict[str, dict]:
+    """Decide, per component, whether its box is the team's drawn light.
+
+    Refuses when `lighting.clean_lit`, rebuilt from the stored raw decision,
+    covers at least `LIT_SHARE_MIN` of the box. Against the player's grouping
+    labels this refused 16 of 19 viewcone fragments and none of 31 abilities.
+
+    The three misses are cone slivers against a wall. Their witness is the
+    team's adjudicated vision -- lobe per frame, `track` resolved facing,
+    `minimap_lifecycle` eligibility, `cone.observable` -- which today runs only
+    inside `overlay` and is not stored. Restating its first step here chose
+    the opposite lobe on the slivers, so this rule does not raycast.
+    """
+    import numpy as np
+
+    from .. import geometry, lighting
+
+    out: dict[str, dict] = {}
+    by_session = defaultdict(list)
+    for c in components:
+        by_session[c["session_id"]].append(c)
+    for sid, rows in by_session.items():
+        frames = {float(r["t_ms"]): r for r in _jsonl(root / "events" / "ability_light" / f"{sid}.jsonl")
+                  if r.get("kind") == "frame"}
+        geo = geometry.path_of(sid, root)
+        if not frames or geo is None or not geo.is_file():
+            for c in rows:
+                out[c["component_id"]] = {"status": "unread",
+                                          "reason": "no_light_evidence" if not frames else "no_geometry"}
+            continue
+        with np.load(geo) as z:
+            ref = lighting.reference(z)
+        cache = {}
+        for c in rows:
+            frame = frames.get(float(c["observed_t_ms"]))
+            if ref is None or frame is None or frame.get("raw_lit") is None:
+                out[c["component_id"]] = {"status": "unread", "reason": (
+                    "no_lighting_reference" if ref is None else
+                    "no_light_frame" if frame is None else frame.get("reason"))}
+                continue
+            t = float(c["observed_t_ms"])
+            if t not in cache:
+                cache[t] = lighting.clean_lit(lighting.unpack_mask(frame["raw_lit"]), ref)
+            lit = cache[t]
+            bx, by, bw, bh = c.get("box") or [int(c["x"]) - 6, int(c["y"]) - 6, 12, 12]
+            win = (slice(max(0, by), by + bh), slice(max(0, bx), bx + bw))
+            known = ref.known[win]
+            if not known.any():
+                out[c["component_id"]] = {"status": "unread", "reason": "box_off_known_floor"}
+                continue
+            lit_share = float(lit[win][known].mean())
+            refused = lit_share >= LIT_SHARE_MIN
+            out[c["component_id"]] = {
+                "status": "refused" if refused else "passed",
+                "reason": "drawn_light" if refused else None,
+                "lit_share": round(lit_share, 3),
+                "rule_version": LIGHT_REFUSAL_VERSION}
+    return out
+
+
 def build_entities(root: str | Path) -> dict:
     root = Path(root).resolve()
     timeline = build_timeline(root)
     labels = _labels(root)
     components = _components(root, labels)
+    light = light_refusals(root, components)
+    # A human name outranks the light; the disagreement is kept, not resolved.
+    refused = {cid for cid, v in light.items() if v["status"] == "refused"}
+    refused -= {c["component_id"] for c in components if c["label_state"] == "named"}
     uses = timeline["use_claims"]
     uses_by_session = defaultdict(list)
     for use in uses:
@@ -294,7 +363,8 @@ def build_entities(root: str | Path) -> dict:
     for component in components:
         parents = []
         contradictions = []
-        for use in uses_by_session.get(component["session_id"], []):
+        is_light = component["component_id"] in refused
+        for use in ([] if is_light else uses_by_session.get(component["session_id"], [])):
             dt = component["observed_t_ms"] - use["observed_t_ms"]
             if not -PARENT_PRE_MS <= dt <= PARENT_POST_MS:
                 continue
@@ -325,8 +395,11 @@ def build_entities(root: str | Path) -> dict:
             "label_state": component["label_state"],
             "possible_parents": sorted(parents, key=lambda r: r["use_claim_id"]),
             "contradicted_parents": sorted(contradictions, key=lambda r: r["use_claim_id"]),
-            "orphan_reason": _orphan_reason(parents, contradictions, session_uses, same,
-                                            named, component["label_state"]),
+            "orphan_reason": (None if is_light else
+                              _orphan_reason(parents, contradictions, session_uses, same,
+                                             named, component["label_state"])),
+            "light": light.get(component["component_id"]),
+            "refusal": light[component["component_id"]]["reason"] if is_light else None,
             "nearest_use_claim_id": nearest["use_claim_id"] if nearest else None,
             "nearest_use_dt_ms": (round(component["observed_t_ms"] - nearest["observed_t_ms"], 1)
                                   if nearest else None),
@@ -400,7 +473,8 @@ def build_entities(root: str | Path) -> dict:
 
     parented = {r["component_id"] for r in component_claims if r["possible_parents"]}
     orphans = [c for c in components
-               if c["component_id"] not in parented and c["label_state"] != "clutter"]
+               if c["component_id"] not in parented and c["label_state"] != "clutter"
+               and c["component_id"] not in refused]
     reason_by_id = {r["component_id"]: r["orphan_reason"] for r in component_claims}
     by_session = defaultdict(list)
     for component in orphans:
@@ -428,6 +502,11 @@ def build_entities(root: str | Path) -> dict:
         "use_claims": len(uses), "components": len(components),
         "components_by_origin": dict(sorted(Counter(c["origin"] for c in components).items())),
         "orphan_components": len(orphan_claims),
+        "light_refused": len(refused),
+        "light_status": dict(sorted(Counter(v["status"] for v in light.values()).items())),
+        "light_refused_but_human_named": sum(
+            1 for c in components if c["label_state"] == "named"
+            and light.get(c["component_id"], {}).get("status") == "refused"),
         "orphan_reasons": dict(sorted(Counter(r["orphan_reason"] for r in orphan_claims).items())),
         "human_named_without_supported_parent": sum(
             1 for r in component_claims

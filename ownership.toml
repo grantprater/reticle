@@ -329,12 +329,12 @@ question = "Which minimap pixels does the team's drawn light call lit?"
 owner = "lighting"
 role = ["detect", "constrain"]
 status = "partial"
-produces = ["lit_mask", "reference", "Lighting"]
+produces = ["lit_mask", "raw_lit", "clean_lit", "pack_mask", "unpack_mask", "reference", "Lighting"]
 not_for = """
 Visibility truth, or confirmation. Light can REFUSE an entity and cannot
 confirm one, and unknown is not dark [domain:minimap/vision-gate].
 """
-consumers = ["overlay"]
+consumers = ["overlay", "cli", "adjudication.ability"]
 evidence = "tests/test_lighting.py"
 
 [[entry]]

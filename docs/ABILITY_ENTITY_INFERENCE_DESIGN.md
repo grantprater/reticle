@@ -665,14 +665,30 @@ answers, and under 30% lit for
 [metric:ability_light_gate/grouping-labels@all-labelled#ability_lit_lt_030=34] of
 [metric:ability_light_gate/grouping-labels@all-labelled#ability_n=34] ability
 answers. The logged prediction held. The misses are thin slivers against a wall,
-which the mask's opening removes. The self icon's geometric cone is the next
-witness for them; the gate is not yet wired into the candidate owner.
+which the mask's opening removes.
 
-The player also settled four mechanics: a Dark Cover charge restores after 40 s
-[domain:abilities/omen-dark-cover-restock], Blaze lasts 8 s
-[domain:abilities/phoenix-blaze-duration], one Ruse confirmation launches every
-placed cloud [domain:abilities/clove-ruse-batch-launch], and Ruse placement shows
-a targeting view first [domain:abilities/clove-ruse-targeting-view].
+The gate is now wired under the reader/adjudicator split. `reticle ability-light`
+stores `lighting.raw_lit` for every candidate instant and decides nothing. `adjudication.ability` rebuilds the clean mask from that
+record and refuses a component as `drawn_light`, keeping it with its evidence.
+A human name outranks the light, and the disagreement is counted. It refuses
+[metric:ability_light_refusal/grouping-labels@all-labelled#viewcone_refused=16]
+viewcone components and
+[metric:ability_light_refusal/grouping-labels@all-labelled#ability_refused=0]
+abilities, and
+[metric:ability_light_refusal/grouping-labels@all-labelled#light_refused=733] of
+[metric:ability_light_refusal/grouping-labels@all-labelled#components=1410]
+components overall. The review queue fell from
+[metric:ability_light_refusal/grouping-labels@all-labelled#questions_before=1357]
+to [metric:ability_light_refusal/grouping-labels@all-labelled#questions_after=637]
+questions, partly because the player answered 50 in between.
+
+A per-frame self cone did not rescue the slivers, and the prediction that it
+would failed: resolving the lobe against a sliver's thin light chose the
+opposite lobe twice. The right witness already exists as the team's adjudicated
+vision -- lobe per frame, `track` resolved facing, `minimap_lifecycle`
+eligibility, `cone.observable` -- but it runs only inside `overlay` and stores
+nothing. Storing it as its own product is the next step; the ability rule must
+consume it rather than restate its first stage.
 
 ## Sources and mechanics policy
 

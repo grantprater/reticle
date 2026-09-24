@@ -88,6 +88,17 @@ class LitMask(unittest.TestCase):
         crop[200:204, 200:204] = 160          # 16 px, far under MIN_BLOB_PX
         self.assertEqual(lighting.lit_mask(crop, ref).sum(), 0)
 
+    def test_stored_raw_decision_rebuilds_the_clean_mask(self):
+        # An adjudicator rebuilds lit_mask from the reader's packed raw_lit.
+        ref = lighting.reference(_z())
+        crop = np.full((485, 465, 3), 100, np.uint8)
+        crop[150:260, 120:300] = 160
+        crop[200:204, 350:354] = 160
+        raw = lighting.unpack_mask(lighting.pack_mask(lighting.raw_lit(crop, ref)))
+        self.assertTrue(np.array_equal(lighting.clean_lit(raw, ref),
+                                       lighting.lit_mask(crop, ref)))
+        self.assertTrue(raw[200:204, 350:354].all())
+
 
 class ResolveLobe(unittest.TestCase):
     def setUp(self):
