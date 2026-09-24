@@ -771,9 +771,149 @@ def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
     return out
 
 
+#: Modules whose calls do not count as wiring: they render or diagnose what
+#: the pipeline produced, so a producer reached only through them feeds no
+#: stored answer. `overlay` is where `resolve_lobe` and the lifecycle hid.
+RENDER_ONLY = frozenset({"overlay", "doctor"})
+
+
+def _code_graph(base: Path):
+    """Name-level call graph of `reticle/`: defs, what each references, calls.
+
+    Deliberately approximate: an identifier resolves to EVERY def of that
+    name, so a collision can only make more code reachable. The check can
+    miss an unwired producer; it cannot invent one.
+    """
+    defs: dict[str, list[tuple[str, ast.AST]]] = collections.defaultdict(list)
+    top: dict[str, list[ast.AST]] = {}
+    for path in sorted((base / "reticle").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        rel = path.relative_to(base / "reticle").with_suffix("")
+        module = ".".join(rel.parts)
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        top[module] = []
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                defs[node.name].append((module, node))
+            else:
+                top[module].append(node)
+    return defs, top
+
+
+def _refs(node: ast.AST) -> set[str]:
+    out = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Name):
+            out.add(n.id)
+        elif isinstance(n, ast.Attribute):
+            out.add(n.attr)
+    return out
+
+
+def _reachable(defs, top, roots, skip=frozenset()):
+    """`(module, name)` pairs reachable from `roots`, never entering `skip`."""
+    seen: set[tuple[str, str]] = set()
+    queue = list(roots)
+    # Module-level code runs on import: constants built from functions count.
+    for module, nodes in top.items():
+        if module in skip:
+            continue
+        for node in nodes:
+            queue.extend(_refs(node))
+    while queue:
+        name = queue.pop()
+        for module, node in defs.get(name, ()):
+            if module in skip or (module, name) in seen:
+                continue
+            seen.add((module, name))
+            queue.extend(_refs(node))
+    return seen
+
+
+def check_uncalled(base: Path | None = None) -> list[tuple[str, str]]:
+    """Owned producers no CLI command reaches, and owned keywords never passed.
+
+    `UNWIRED` asks whether a MODULE is reachable, and a module the CLI imports
+    passes however little of it runs. On 2026-09-23 that hid, among others:
+    `death.extract_minimap_death_marks` (no caller), the `tracks` and `xmarks`
+    that `adjudicate_round_deaths` accepts and no caller passes (no death was
+    ever located), `cone.resolve_lobe` (overlay only, so stored bearings keep
+    their 180-degree flips), and three ability detectors reached only by
+    benchmark tools. A producer is wired when a `cmd_*` in `cli` reaches it
+    without passing through `RENDER_ONLY`.
+    """
+    base = base or ROOT
+    data = ownership.load(base / "ownership.toml")
+    if not data:
+        return []
+    defs, top = _code_graph(base)
+    roots = [name for name, entries in defs.items()
+             if name.startswith("cmd_") and any(m == "cli" for m, _n in entries)]
+    wired = _reachable(defs, top, roots, skip=RENDER_ONLY)
+    rendered = _reachable(defs, top, roots) - wired
+
+    # Keywords passed to each function NAME by any call anywhere -- the
+    # pipeline, tools or prototypes. An input nothing supplies is dead
+    # whoever calls the function.
+    passed: dict[str, set[str]] = collections.defaultdict(set)
+    for tree in ("reticle", "tools", "prototypes"):
+        for path in (base / tree).rglob("*.py"):
+            try:
+                parsed = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            except SyntaxError:
+                continue
+            for n in ast.walk(parsed):
+                if isinstance(n, ast.Call):
+                    f = n.func
+                    fname = f.id if isinstance(f, ast.Name) else getattr(f, "attr", None)
+                    if fname:
+                        passed[fname].update(k.arg for k in n.keywords if k.arg)
+
+    out: list[tuple[str, str]] = []
+    for key, entry in sorted(data.get("_index", {}).items()):
+        owner = str(entry.get("owner", ""))
+        if not owner:
+            continue
+        cold, render, unpassed = [], [], []
+        for name in entry.get("produces", []) or []:
+            here = [n for m, n in defs.get(name, ()) if m == owner]
+            if not here or name.isupper():
+                continue
+            node = here[0]
+            if (owner, name) in rendered:
+                render.append(name)
+            elif (owner, name) not in wired:
+                cold.append(name)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                args = node.args
+                for arg, default in zip(args.kwonlyargs, args.kw_defaults):
+                    empty = (isinstance(default, ast.Constant) and default.value is None) or (
+                        isinstance(default, (ast.Tuple, ast.List, ast.Dict))
+                        and not getattr(default, "elts", getattr(default, "keys", [1])))
+                    if empty and arg.arg not in passed[name]:
+                        unpassed.append(f"{name}({arg.arg}=)")
+        if cold:
+            out.append((WARN, f"[{key}] `{owner}` produces {', '.join(cold)} and "
+                              f"no CLI command reaches it -- wire it, or say "
+                              f"in the entry why it waits"))
+        if render:
+            out.append((WARN, f"[{key}] `{owner}` produces {', '.join(render)}, "
+                              f"reached only through {', '.join(sorted(RENDER_ONLY))} "
+                              f"-- it draws, and feeds no stored answer"))
+        if unpassed:
+            out.append((WARN, f"[{key}] no call anywhere passes {', '.join(unpassed)} "
+                              f"-- that input is accepted and never supplied"))
+    return out
+
+
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("HANDOFF", check_handoff),
               ("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
+              ("UNCALLED", check_uncalled),
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),
               ("LAYER", check_layer), ("OWNERSHIP", check_ownership),
               ("QUOTED", lambda: check_quoted(store)),
