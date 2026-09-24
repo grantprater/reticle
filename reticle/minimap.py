@@ -1063,7 +1063,7 @@ class AllyIconReader:
         from .version import ALLY_ICON_VERSION
 
         common = {"session_id": session_id, "source": "minimap",
-                  "ally_icon_version": ALLY_ICON_VERSION}
+                  "ally_icon_version": ALLY_ICON_VERSION, "hz": self.hz}
         refused = Counter(r["reason"] for r in self.icons if r["reason"])
         rows = [{**common, "kind": "coverage",
                  "frames": len(self.frames),

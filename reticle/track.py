@@ -345,6 +345,31 @@ def explain(dist_px: float, dt_s: float, scale: float = 1.0) -> dict[str, str]:
     return out
 
 
+def refit_of(x: float, y: float, unobserved, scale: float = 1.0,
+             min_separation_px: float = MIN_ICON_SEPARATION_PX):
+    """Index of the unobserved entity this detection is a REFIT of, or None.
+
+    **The resolution limit overrides the motion law.** The widget cannot draw
+    two icons closer than `min_separation_px`, so a detection that near an
+    entity with no observation of its own this frame is that entity's icon
+    fitted again -- the fit moved, nothing crossed. The motion law says a
+    walker cannot cover 10-15 px in 67 ms and it is right; minting a new
+    identity instead is what made one Ascent ally alternate between two ids,
+    and 460 of 707 mid-round ally births in `a06f04a0059f`'s round lifetimes.
+
+    `unobserved` is `(x, y)` per candidate; the caller guarantees none of them
+    was observed this frame, so a refit never steals a detection from an
+    entity that has one of its own. 0 disables the rule.
+    """
+    limit = min_separation_px * scale
+    best = None
+    for i, (ux, uy) in enumerate(unobserved):
+        d = ((x - ux) ** 2 + (y - uy) ** 2) ** 0.5
+        if limit and d <= limit and (best is None or d < best[0]):
+            best = (d, i)
+    return None if best is None else best[1]
+
+
 def assign(cost: list[list[float]], forbidden: float = float("inf")) -> list[int]:
     """Minimum-cost one-to-one assignment. Hungarian, O(n^3), no scipy.
 
@@ -627,11 +652,11 @@ class Tracker:
             # one Ascent ally alternate between two of them. Only an
             # unobserved track is eligible, so this never steals a detection
             # from an entity that has one of its own this frame.
-            limit = self.min_separation_px * self.scale
-            near = [t for t in alive if t.t_ms != t_ms
-                    and ((d["cx"] - t.x) ** 2 + (d["cy"] - t.y) ** 2) ** 0.5 <= limit]
-            if limit and near:
-                tr = min(near, key=lambda t: (d["cx"] - t.x) ** 2 + (d["cy"] - t.y) ** 2)
+            idle = [t for t in alive if t.t_ms != t_ms]
+            k = refit_of(d["cx"], d["cy"], [(t.x, t.y) for t in idle],
+                         self.scale, self.min_separation_px)
+            if k is not None:
+                tr = idle[k]
                 tr.x, tr.y, tr.t_ms = d["cx"], d["cy"], t_ms
                 tr.r = d.get("r", tr.r)
                 tr.n_obs += 1

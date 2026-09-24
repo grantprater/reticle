@@ -825,7 +825,7 @@ def cmd_scan(args) -> int:
         + ([f"ping {args.ping_hz:g} Hz, active spans"] if want_ping else [])
         + ([f"roster {args.hz:g} Hz, whole capture"] if want_roster else [])
         + ([f"scoreboard {args.hz:g} Hz, whole capture"] if want_scoreboard else [])
-        + ([f"ally icons {ALLY_DESCRIPTOR_HZ:g} Hz, active spans"] if want_ally else [])))
+        + ([f"ally icons {args.ally_hz:g} Hz, active spans"] if want_ally else [])))
 
     hp = _HudPass(store, manifest, profile, args) if want_hud else None
     mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
@@ -872,7 +872,8 @@ def cmd_scan(args) -> int:
             floor=mp.floor if mp is not None else ctx.floor(),
             slab=mp.slab if mp is not None else slab_mask(
                 med, sd=geometry.stability(sid, store.root, med.shape[:2])),
-            static=med, box=minimap_roi_px(profile, *ctx.wh), spans=spans)
+            static=med, box=minimap_roi_px(profile, *ctx.wh), hz=args.ally_hz,
+            spans=spans)
     readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap) if r is not None]
 
     t0 = time.perf_counter()
@@ -1675,6 +1676,56 @@ def cmd_rounds(args) -> int:
             for f in sm["facts"][:4]:
                 print(f"    {f['fact']:24s} {f['n']:3d} {f['rate'] * 100:5.1f}% "
                       f"{f['lift'] * 100:+6.1f}")
+    return 0
+
+
+def cmd_lifetimes(args) -> int:
+    """Round entity lifetimes from stored ally icons, rounds and roster. No video.
+
+    Writes `round_entity` events; see `reticle/round_entities.py`.
+    """
+    import json
+
+    from .round_entities import ROUND_ENTITY_VERSION, session_lifetimes
+    from .round_lifetimes import ROUND_LIFETIME_VERSION
+
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    sid, date = manifest["session_id"], _date_of(manifest)
+    events = store.read_events("ally_icon", sid)
+    if not events:
+        raise SystemExit(f"no ally_icon events for {sid} -- "
+                         f"run `reticle scan {sid} --only ally_icon --ally-hz 15`")
+    # Two stamps key this file: the runner's and the association law's.
+    path = store.events_path("round_entity", sid)
+    stamped = None
+    if path.is_file():
+        with open(path, encoding="utf-8") as f:
+            first = json.loads(f.readline() or "{}")
+        stamped = (first.get("round_entity_version"), first.get("round_lifetime_version"))
+    if stamped == (ROUND_ENTITY_VERSION, ROUND_LIFETIME_VERSION) and not args.force:
+        print(f"cache hit  session {sid} already has round entities at "
+              f"{ROUND_ENTITY_VERSION} / {ROUND_LIFETIME_VERSION}; --force to recompute")
+        return 0
+    rounds = build_rounds(store.read_hud(sid, date))
+    roster = None
+    if store.has_roster(sid, date):
+        t = store.read_roster(sid, date)
+        roster = {"t_ms": t.column("t_ms").to_pylist(),
+                  "alive_ally": t.column("alive_ally").to_pylist()}
+    box = minimap_roi_px(get_profile(manifest["source_profile"]),
+                         int(manifest["source"]["width"]),
+                         int(manifest["source"]["height"]))
+    rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]), roster)
+    out = store.write_events("round_entity", sid, rows)
+    cov = rows[0]
+    ents = [r for r in rows if r["kind"] == "entity"]
+    by_family = Counter(e["family"] for e in ents)
+    print(f"session    {sid}  ally_icon at {events[0].get('hz')} Hz")
+    print(f"rounds     {cov.get('rounds', 0)} associated, "
+          f"{cov.get('frames', 0)} frames, {cov.get('absent_frames', 0)} widget-absent")
+    print(f"entities   {len(ents)}  " + "  ".join(f"{k} {v}" for k, v in sorted(by_family.items())))
+    print(f"wrote      {out}")
     return 0
 
 
@@ -2522,6 +2573,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-lineup", dest="lineup", action="store_false",
                    help="skip naming the ten agents from the top bar; it "
                         "otherwise rides every unnarrowed scan for free")
+    s.add_argument("--ally-hz", type=float, default=ALLY_DESCRIPTOR_HZ,
+                   help=f"ally icon descriptor rate (default {ALLY_DESCRIPTOR_HZ:g}); "
+                        "round lifetimes want the minimap's 15")
     s.add_argument("--only", nargs="+",
                    choices=("hud", "minimap", "ping", "roster", "scoreboard",
                             "ally_icon"),
@@ -2599,6 +2653,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--min-margin", type=float, default=0.05)
     s.add_argument("--out", default=None)
     s.set_defaults(func=cmd_overlay)
+
+    s = sub.add_parser("lifetimes", help="round entity lifetimes from stored ally icons (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--force", action="store_true", help="recompute on a cache hit")
+    s.set_defaults(func=cmd_lifetimes)
 
     s = sub.add_parser("belief", help="recompute the self position belief from stored data (no video)")
     s.add_argument("session", nargs="?")

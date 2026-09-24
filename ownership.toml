@@ -443,6 +443,22 @@ defers_to = ["track-continuation"]
 evidence = "tests/test_round_lifetimes.py"
 
 [[entry]]
+id = "round-entity-session"
+question = "Which round entities did a whole session hold, from stored observations?"
+owner = "round_entities"
+role = ["lifecycle"]
+status = "partial"
+produces = ["session_lifetimes", "ROUND_ENTITY_VERSION"]
+not_for = """
+Deciding continuity or names. `round_lifetimes` decides which observations are
+one entity and `adjudication.identity` names it; this maps stored ally icons,
+the self fit, round bounds and the roster into those owners and stores what
+they answer.
+"""
+defers_to = ["round-entity"]
+evidence = "tests/test_round_entities.py"
+
+[[entry]]
 id = "position-belief"
 question = "Where was the player at an instant nothing observed?"
 owner = "belief"

@@ -11,10 +11,10 @@ Owns [owns:round-entity].
 from __future__ import annotations
 
 import math
-from .track import CLASSES, admits, association_tolerance, assign
+from .track import CLASSES, admits, association_tolerance, assign, refit_of
 from .minimap import REF_WIDGET_W
 
-ROUND_LIFETIME_VERSION = "round-lifetimes-0.6.0"
+ROUND_LIFETIME_VERSION = "round-lifetimes-0.7.0"
 MAX_ASSOCIATION_HISTORIES = 64
 
 #: Readable kind per family, when a reader does not supply a better one.
@@ -81,6 +81,7 @@ class RoundLifetimes:
              association_evidence=()):
         if not math.isfinite(t_ms) or (self.last_t is not None and t_ms <= self.last_t):
             raise ValueError("timestamps must be finite and strictly increasing")
+        previous_t = self.last_t
         self.last_t = t_ms
         for claim in association_evidence:
             self.resolve_association(
@@ -165,9 +166,29 @@ class RoundLifetimes:
             self.next_observation += 1
         component_for = self._record_ambiguous_components(
             observation_ids, assignments, prior, candidates)
+        # Entities seen on the PREVIOUS step and not on this one, which an
+        # unassigned icon may be a refit of -- `track.refit_of` owns the rule.
+        # Only the previous step: an entity hidden for longer is a
+        # reacquisition, not a jumping fit. Allowing the whole 1 s budget let
+        # a stacked teammate "refit" onto its neighbour -- across such a refit
+        # 45% of portrait pairs disagreed, against 2.4% without one.
+        claimed = {prior[j]["id"] for j in assignments if j >= 0}
+        idle = [e for e in prior if e["id"] not in claimed
+                and e["family"] in {"ally", "enemy"}
+                and e["last_seen_ms"] == previous_t]
         for i, obs in enumerate(observations):
             j = assignments[i]
             parents = candidates[i]
+            refit = None
+            if j < 0 and obs["family"] in {"ally", "enemy"} and idle:
+                same = [e for e in idle if e["family"] == obs["family"]
+                        and e["view"] == obs["view"]]
+                k = refit_of(obs["x"], obs["y"],
+                             [(e["last_observation"]["x"], e["last_observation"]["y"])
+                              for e in same], self.scale)
+                if k is not None:
+                    refit = same[k]
+                    idle.remove(refit)
             # Resolve a unique correspondence only. Hungarian ensures one-to-one,
             # but a cheap optimum alone does not prove identity in a crowd.
             unique = j >= 0 and len(parents) == 1 and sum(
@@ -175,6 +196,9 @@ class RoundLifetimes:
             if j >= 0:
                 ent = prior[j]
                 state = "continuation" if unique else "ambiguous_continuation"
+            elif refit is not None:
+                ent = refit
+                state = "refit"
             else:
                 eid = f"{self.round_id}:E{self.next_id:04d}"
                 self.next_id += 1
@@ -207,7 +231,7 @@ class RoundLifetimes:
             # candidates. The association component, not this field, is the
             # authoritative identity account and can revise the proposal later.
             ent["last_observation"] = dict(obs)
-            if unique or j < 0:
+            if unique or (j < 0 and refit is None):
                 if known_kind(obs):
                     ent["known_kind"] = known_kind(obs)
                 if obs.get("appearance"):
@@ -228,8 +252,8 @@ class RoundLifetimes:
                            "provisional_entity_id": ent["id"],
                            "observation_id": observation_ids[i],
                            "state":state,
-                           "alternatives":parents if not unique else [],
-                           "identity_status": ("resolved" if unique else
+                           "alternatives":parents if not unique and refit is None else [],
+                           "identity_status": ("resolved" if unique or refit is not None else
                                                "ambiguous" if parents else "provisional"),
                            "association_component_id": component_for.get(i),
                            "acquisition":acquisition, "origin_ms":ent["origin_ms"],

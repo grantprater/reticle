@@ -65,7 +65,7 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
 
 [entities]
 claim = "lifecycle events, compound episodes, review and coaching hypotheses"
-modules = ["ability_capture", "ability_entities", "ability_gallery",
+modules = ["ability_capture", "ability_entities", "ability_gallery", "round_entities",
            "ability_phases", "coaching", "review", "overlay", "status",
            "fidelity", "doctor"]
 

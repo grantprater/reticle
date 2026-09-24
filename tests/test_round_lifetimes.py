@@ -177,18 +177,35 @@ class NameTests(unittest.TestCase):
                          'ability?')
 
 
+class RefitTests(unittest.TestCase):
+    def test_a_fit_that_jumps_within_one_icon_is_the_same_entity(self):
+        life = RoundLifetimes('R1', 0)
+        first = life.step(0, [detection(10)])[0]
+        again = life.step(67, [detection(22)])[0]
+        self.assertEqual(again['entity_id'], first['entity_id'])
+        self.assertEqual(again['state'], 'refit')
+
+    def test_a_refit_never_takes_an_entity_observed_this_frame(self):
+        life = RoundLifetimes('R1', 0)
+        first = life.step(0, [detection(10)])[0]
+        rows = life.step(67, [detection(11), detection(22)])
+        self.assertEqual(rows[0]['entity_id'], first['entity_id'])
+        self.assertNotEqual(rows[1]['entity_id'], first['entity_id'])
+
+
 class ReplayScaleTests(unittest.TestCase):
     """An export replayed at the wrong widget scale is a silent wrong answer."""
 
     def test_scale_changes_which_observations_are_one_entity(self):
-        # 8 widget px in 100 ms: inside the walker ceiling on a 465 px widget,
-        # outside it on a 331 px one. Replaying either at the other's scale is
-        # not a rounding difference, it is a different set of entities.
+        # 14 widget px in 100 ms: past the walker ceiling at both scales, but a
+        # REFIT on a 465 px widget (the resolution limit is 16 px there) and a
+        # new entity on a 331 px one (11.4 px). Replaying either at the other's
+        # scale is not a rounding difference, it is a different set of entities.
         ids = []
         for scale in (1.0, 0.7118):
             life = RoundLifetimes('R1', 0, scale)
             first = life.step(0, [detection(10)])[0]
-            ids.append(first['entity_id'] == life.step(100, [detection(18)])[0]['entity_id'])
+            ids.append(first['entity_id'] == life.step(100, [detection(24)])[0]['entity_id'])
         self.assertEqual(ids, [True, False])
 
     def test_stated_scale_is_read_not_derived(self):
