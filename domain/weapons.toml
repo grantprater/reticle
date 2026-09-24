@@ -1,0 +1,36 @@
+# Weapons: facts about the game's guns, not about any reader of them. Schema and
+# the citation form: reticle/domain.py.
+
+[magazine-and-reserve]
+claim = """
+The HUD ammo counter shows magazine | reserve. A full load per weapon is:
+sidearms Classic 12 | 36, Shorty 2 | 6, Frenzy 15 | 45, Ghost 13 | 39,
+Bandit 8 | 24, Sheriff 6 | 24; SMGs Stinger 20 | 60, Spectre 30 | 90; shotguns
+Bucky 5 | 10, Judge 5 | 15; rifles Bulldog 24 | 72, Guardian 12 | 36,
+Phantom 30 | 60, Vandal 25 | 50; sniper rifles Marshal 5 | 15, Outlaw 2 | 10,
+Operator 5 | 10; machine guns Ares 50 | 100, Odin 100 | 200. Melee (the knife)
+has no ammo counter.
+"""
+kind = "measurement"
+known = "player"
+since = "2026-09-24"
+use = """
+a full magazine | reserve pair read after a buy or reload names the held gun's
+class; the magazine read at a kill is the gun that made it
+"""
+exceptions = """
+three pairs are shared and the ammo counter alone cannot separate them:
+Classic and Guardian 12 | 36, Bucky and Operator 5 | 10, Judge and Marshal
+5 | 15; break the tie with another witness (the killfeed weapon icon, credits
+spent). A partial pair only bounds the capacity from below.
+"""
+phrases = ["magazine capacity", "ammo reserve per weapon"]
+
+[per-weapon-properties]
+claim = """
+Each weapon also has its own damage per body part, damage falloff with range,
+run speed, equip speed, reload speed and fire rate.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-24"
