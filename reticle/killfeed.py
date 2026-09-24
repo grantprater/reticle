@@ -1235,7 +1235,8 @@ def _entry_columns(green_band, red_band, white_band, bh: int) -> np.ndarray:
     return covered | text
 
 
-def _portrait_edge(on: np.ndarray, start: int, step: int, w: int) -> int | None:
+def _portrait_edge(on: np.ndarray, start: int, step: int, w: int,
+                   max_walk: int | None = None) -> int | None:
     """Walk out from a name to the first sustained gap in the entry's furniture.
 
     That gap is the portrait, and the walk stops there rather than continuing,
@@ -1243,14 +1244,22 @@ def _portrait_edge(on: np.ndarray, start: int, step: int, w: int) -> int | None:
     and warm scenery reads as the enemy plate's red, so any rule that looks for
     the LARGEST plate run, or the last one, runs off the end of the entry --
     both were tried, and both put the box on the weapon icon or the wall.
+
+    ``max_walk`` bounds the search. Walking further than ``max_walk`` columns
+    (e.g. into assist icons) indicates the portrait art itself was plate-coloured
+    and the gap was stepped over; in that case the portrait abuts ``start`` directly.
     """
     x = start
+    steps = 0
     while 0 <= x < w:
+        if max_walk is not None and steps > max_walk:
+            return start
         if not on[x]:
             ahead = [x + step * d for d in range(PORTRAIT_MIN_RUN)]
             if all(0 <= p < w for p in ahead) and not any(on[p] for p in ahead):
                 return x
         x += step
+        steps += 1
     return None
 
 
@@ -1308,7 +1317,13 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
         wide = int(round(PORTRAIT_ASPECT * bh))
         for role, start, step in (("killer", view.killer_run[0] - 1, -1),
                                   ("victim", view.victim_run[1] + 1, +1)):
-            edge = _portrait_edge(on, start, step, w)
+            if role == "killer":
+                # In Valorant's layout [killer portrait][killer name], the killer
+                # portrait abuts the name run directly. Walking left with _portrait_edge
+                # steps into the portrait art itself (hair/shadows) or into assist icons.
+                edge = start
+            else:
+                edge = _portrait_edge(on, start, step, w)
             if edge is None:
                 out.append({"slot": view.slot, "role": role,
                             "reason": "no gap past the name"})
@@ -1318,6 +1333,16 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
             px0, px1 = max(0, px0), min(w, px1)
             art = band[:, px0:px1]
             keep = ~furniture[:, px0:px1]
+
+            # Sample bounded candidate offsets for spatial crop uncertainty search
+            shifts = {}
+            for dx in (-4, -2, 0, 2, 4):
+                sx0 = max(0, min(w - wide, px0 + dx))
+                sx1 = min(w, sx0 + wide)
+                art_s = band[:, sx0:sx1]
+                keep_s = ~furniture[:, sx0:sx1]
+                shifts[dx] = appearance.hsv_composition(art_s, keep_s).tolist()
+
             out.append({
                 "slot": view.slot, "role": role,
                 "x0": int(px0), "x1": int(px1),
@@ -1326,6 +1351,7 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                 "art_fraction": round(float(keep.mean()) if keep.size else 0.0, 4),
                 "detail": round(appearance.detail(art), 3),
                 "composition": appearance.hsv_composition(art, keep).tolist(),
+                "shifts": shifts,
                 # Which team this portrait belongs to. The killer and the victim
                 # are on opposite sides of every entry, and `victim_ally` is
                 # read from the plate the VICTIM's name sits on.
@@ -1405,6 +1431,9 @@ class KillfeedPortraitReader:
             # anything compares.
             if out.get("composition") is not None:
                 out["composition"] = [round(v, 5) for v in out["composition"]]
+            if out.get("shifts") is not None:
+                out["shifts"] = {str(k): [round(v, 5) for v in comp]
+                                 for k, comp in out["shifts"].items()}
             rows.append({
                 **common,
                 "kind": "portrait_observation",

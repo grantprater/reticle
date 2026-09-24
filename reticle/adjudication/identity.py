@@ -352,7 +352,7 @@ def load_identity_gallery(store, surfaces=MEASURED_SURFACES) -> dict[str, list[n
 
 
 def _portrait_scores(composition, candidates, gallery, exemplars=(), exclude_entry=None,
-                     sources=None):
+                     sources=None, shifts=None, lambda_reg=0.0015):
     """Best intersection for each admitted agent, over official art and exemplars.
 
     `exemplars` are this session's own portraits, each labelled by a witness
@@ -360,7 +360,49 @@ def _portrait_scores(composition, candidates, gallery, exemplars=(), exclude_ent
     `adjudication.death`). One whose `entry_t_ms` equals `exclude_entry` came
     from the entry being scored and is left out. When `sources` is a dict, the
     exemplar that set an agent's best score is recorded there.
+
+    When ``shifts`` is provided (a mapping of horizontal shift offset Delta_x
+    to composition vector), killer/victim identification optimizes over spatial
+    crop shift with quadratic penalty lambda * (Delta_x)^2:
+        score(agent) = max_{Delta_x} [ corr(crop(x0 + Delta_x), agent) - lambda * (Delta_x)^2 ]
+    eliminating assist-icon contamination and subpixel boundary jitter.
     """
+    if shifts:
+        scores = {}
+        wanted = {str(c).lower(): c for c in candidates if c}
+        for agent in sorted({c for c in candidates if c}):
+            best_val = -1.0
+            best_src = None
+            for dx_key, comp in shifts.items():
+                try:
+                    dx = float(dx_key)
+                except (ValueError, TypeError):
+                    dx = 0.0
+                obs = np.asarray(comp, dtype=np.float32).ravel()
+                if not obs.size:
+                    continue
+                cand_official = _official_scores(obs, [agent], gallery).get(agent, -1.0)
+                cand_val = cand_official
+                for ex in exemplars:
+                    ex_agent = wanted.get(str(ex.get("agent")).lower())
+                    if ex_agent != agent or ex.get("entry_t_ms") == exclude_entry:
+                        continue
+                    ref = np.asarray(ex["composition"], dtype=np.float32).ravel()
+                    if ref.size != obs.size:
+                        continue
+                    ex_val = float(np.minimum(obs, ref).sum())
+                    if ex_val > cand_val:
+                        cand_val = ex_val
+                        best_src = ex
+                penalized = cand_val - lambda_reg * (dx ** 2)
+                if penalized > best_val:
+                    best_val = penalized
+            if best_val >= 0.0:
+                scores[agent] = best_val
+                if sources is not None and best_src is not None:
+                    sources[agent] = best_src
+        return scores
+
     if composition is None:
         return {}
     observed = np.asarray(composition, dtype=np.float32).ravel()
@@ -461,7 +503,7 @@ def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
         "candidates": sorted({c for c in candidates if c}),
         "rivals": sorted({r for r in rivals if r}),
     }
-    if stored or observation.get("composition") is None:
+    if stored or (observation.get("composition") is None and not observation.get("shifts")):
         return identity_claim(
             entity_id, None, channel="killfeed_portrait",
             reason=stored or "portrait_no_descriptor",
@@ -478,8 +520,9 @@ def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
             return plain
     admitted = list(candidates) + list(rivals)
     sources = {}
+    shifts = observation.get("shifts")
     scores = _portrait_scores(observation.get("composition"), admitted, gallery,
-                              exemplars, exclude_entry, sources)
+                              exemplars, exclude_entry, sources, shifts=shifts)
     ordered = sorted(scores.items(), key=lambda pair: (-pair[1], pair[0]))
     best = ordered[0] if ordered else (None, 0.0)
     runner = ordered[1] if len(ordered) > 1 else (None, 0.0)
@@ -489,6 +532,8 @@ def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
         "best_guess": best[0],
         "margin": round(margin, 6),
     })
+    if shifts:
+        evidence["shifts_evaluated"] = sorted(shifts.keys())
 
     barred = set(evidence["rivals"])
     if not ordered:

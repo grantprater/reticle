@@ -87,6 +87,30 @@ class AgentIdentityTests(unittest.TestCase):
         self.assertEqual(claims[1]["reason"], "portrait_side_unknown")
         self.assertEqual(claims[0]["entity_id"], "session:1000:3:killer")
 
+    def test_spatial_alignment_search_recovers_shifted_portrait(self):
+        gallery = {"Phoenix": [np.array([1.0, 0.0])],
+                   "Sage": [np.array([0.0, 1.0])]}
+        # At dx=0, contamination makes the margin too thin (< 0.07).
+        # At dx=+2, alignment search recovers Phoenix at margin 0.20 - 0.0015*4 = 0.194.
+        observation = {
+            "composition": [0.52, 0.48],
+            "shifts": {
+                -2: [0.45, 0.55],
+                0: [0.52, 0.48],
+                2: [0.90, 0.10],
+            },
+            "role": "killer",
+            "ally": True,
+            "t_ms": 284500.0,
+        }
+        claim = claim_from_killfeed_portrait(
+            observation, entity_id="session:284500:2:killer",
+            candidates=["Phoenix", "Sage"], gallery=gallery)
+        self.assertEqual(claim["agent"], "Phoenix")
+        self.assertIsNone(claim["reason"])
+        self.assertGreater(claim["evidence"]["margin"], 0.07)
+        self.assertIn("shifts_evaluated", claim["evidence"])
+
     def test_a_refused_slot_is_a_rival_and_never_a_name(self):
         """The alternative must be one the side can hold. See `side_candidates`."""
         gallery = {"Sage": [np.array([1.0, 0.0, 0.0])],
