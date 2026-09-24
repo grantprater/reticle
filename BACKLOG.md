@@ -6,7 +6,7 @@
 
 Steps 1 to 5 are done; steps 3 to 5 are recorded under Completed. Step 1 measured scoreboard availability from stored rows: 33 of 52 sessions have no scoreboard rows, and in the 17 with rows and rounds, 326 of 348 rounds have at least two separate Tab holds. Usable openings around each death remain unmeasured outside `a06f04a0059f`.
 
-6. **Minimap identity:** name minimap icons over the five candidates per side; the stored minimap for `a06f04a0059f` is stale (`minimap-0.4.0`).
+6. **Minimap identity, ally slice first.** The minimap table stores positions only (self and up to four allies), no descriptor and no enemies; `identity.claim_from_minimap_icon` has nothing to consume. Agreed slice (2026-09-23): the minimap reader stores an icon descriptor (`appearance.hsv_composition`) at each ally position at about 2 Hz, versioned; rescan `a06f04a0059f` (already at `minimap-0.7.0`, about 6 minutes); the arbiter names the four allies per frame with `assign_side` over the board's ally set minus the player. Exemplar labels come free: an ally whose death is named at t is the icon that vanishes at t (`death.portrait_exemplars` pattern, with `depends_on`). Enemy icons are a later, separate promotion from `prototypes/minimap_portrait.py`, whose 93% leave-one-out was partly scored against provisional labels; read `prototypes/CLAUDE.md` first.
 
 The player answered the dimming question: dimmed means currently dead, a Sage revive lights the row again, and Run It Back is not expected to dim [domain:rounds/scoreboard-dim-is-dead]. Clove before Not Dead Yet and a downed KAY/O remain unknown; capture one of each and ask when it occurs.
 
