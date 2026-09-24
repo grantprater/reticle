@@ -354,3 +354,15 @@ source = """
 circle. Unknown whether it is drawn for a non-local Deadlock.
 """
 use = "sample the minimap at 10 Hz or faster near a GravNet throw; 0.5 s sampling misses it"
+
+[deadlock-slots]
+claim = """
+Deadlock's tray slots are C Barrier Mesh, Q Sonic Sensor, E GravNet and X
+Annihilation.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-24"
+subject = "deadlock"
+source = "29eff6920e8f tray icons and viewmodel; the player confirmed"
+use = "map a Deadlock tray slot to its ability; E is the thrown net, not the mesh"
