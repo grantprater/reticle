@@ -265,3 +265,26 @@ subject = "neon:fast lane"
 source = "prototypes/ability_hud.py measured on f1cf160b213d"
 use = "ability_hud.slot_counts at slot C (index 0)"
 see = ["abilities/neon-fast-lane"]
+
+[clove-ruse-batch-launch]
+claim = """
+One Ruse confirmation launches every placed cloud together, so one cast can
+spend both charges and land two clouds at the same instant.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-23"
+subject = "clove:ruse"
+use = "a two-charge slot drop at one instant is one Ruse cast, not two"
+
+[clove-ruse-targeting-view]
+claim = """
+While Clove places Ruse clouds, the screen centre shows a map view with each
+placement and its outline before confirmation.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-23"
+subject = "clove:ruse"
+use = "a pre-confirmation preview, not a cast; not parsed"
+see = ["abilities/clove-ruse-batch-launch"]

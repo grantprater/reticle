@@ -648,6 +648,32 @@ group on onset and distance, so it can still split one transforming entity in
 two. The phase records exist beside it rather than inside it, and joining them
 is the next structural step.
 
+## Viewcone fragments among ability candidates (2026-09-23)
+
+The candidate generator flags whatever differs from the static map, and a lit
+viewcone differs. In the player's grouping pass on the Omen demo
+`e78e75b2d191` (`Videos6-09-03 19-16-07.mp4`), viewcone fragments were the
+largest answer class. Source images show why: each fragment is a bright wedge
+from the self icon cut off by a wall, while every labelled ability is a dark disc.
+
+The drawn light already observes those pixels, so `prototypes/ability_light_gate.py`
+asks `lighting.lit_mask` before any change to the generator. Over all labelled
+components, it marks at least 60% of the box lit for
+[metric:ability_light_gate/grouping-labels@all-labelled#viewcone_lit_ge_060=16] of
+[metric:ability_light_gate/grouping-labels@all-labelled#viewcone_n=19] viewcone
+answers, and under 30% lit for
+[metric:ability_light_gate/grouping-labels@all-labelled#ability_lit_lt_030=34] of
+[metric:ability_light_gate/grouping-labels@all-labelled#ability_n=34] ability
+answers. The logged prediction held. The misses are thin slivers against a wall,
+which the mask's opening removes. The self icon's geometric cone is the next
+witness for them; the gate is not yet wired into the candidate owner.
+
+The player also settled four mechanics: a Dark Cover charge restores after 40 s
+[domain:abilities/omen-dark-cover-restock], Blaze lasts 8 s
+[domain:abilities/phoenix-blaze-duration], one Ruse confirmation launches every
+placed cloud [domain:abilities/clove-ruse-batch-launch], and Ruse placement shows
+a targeting view first [domain:abilities/clove-ruse-targeting-view].
+
 ## Sources and mechanics policy
 
 Repository findings above come from the current manifests/assets and the owning
