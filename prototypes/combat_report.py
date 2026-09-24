@@ -448,6 +448,9 @@ def portraits(sid: str) -> None:
             clusters.append([x])
     name_of = {id(x): gi for gi, gset in enumerate(groups) for x in gset}
     print(f"portrait clusters at corr >= {PORTRAIT_SAME}: {len(clusters)}")
+    saved = [{"t": x["t"], "row": x["row"], "gallery": x["enemy"][0],
+              "cluster": ci} for ci, c in enumerate(clusters) for x in c]
+    (Store().root / "analysis" / f"combat_report_portraits_{sid}.json").write_text(json.dumps(saved))
     for c in clusters:
         agents = Counter(x["enemy"][0] for x in c)
         names = Counter(name_of.get(id(x)) for x in c)
@@ -461,14 +464,158 @@ def portraits(sid: str) -> None:
     print(f"I3: card and KILLED YOU row agree on {agree}/{len(cards)} death panels")
 
 
+BUY_PHASE_MS = 25000.0                   # no kills before this far into a round
+KF_SLACK_MS = 500.0
+
+
+def _board_stats(sid: str) -> list[dict]:
+    """(t_ms, agent, team, kills, deaths) per scoreboard row read."""
+    rows = Store().read_events("scoreboard", sid)
+    return [{"t": r["t_ms"], "agent": r.get("portrait_agent_best"), "team": r["team"],
+             "kills": r.get("kills"), "deaths": r.get("deaths")}
+            for r in rows if r.get("kind") == "row_observation" and r.get("portrait_agent_best")]
+
+
+def _stat(stats, agent, key, lo, hi, last):
+    vals = [s for s in stats if s["agent"] == agent and s["team"] == "enemy"
+            and s[key] is not None and lo <= s["t"] <= hi]
+    if not vals:
+        return None
+    return (max if last else min)(vals, key=lambda s: s["t"])[key]
+
+
+def _kf_names(sid, tracks, obs, role, enemy, gallery):
+    """Majority killfeed portrait name for `role` over each track's lifetime."""
+    from reticle.adjudication.identity import claim_from_killfeed_portrait
+    out = []
+    for tr in tracks:
+        votes = Counter()
+        for o in obs:
+            if (o.get("role") == role and o.get("slot") == tr["slot"]
+                    and tr["t_first"] - KF_SLACK_MS <= o["t_ms"] <= tr["t_last"] + KF_SLACK_MS):
+                c = claim_from_killfeed_portrait(o, entity_id="x", candidates=enemy, gallery=gallery)
+                if c["agent"]:
+                    votes[c["agent"]] += 1
+        out.append((tr, votes.most_common(1)[0][0] if votes else None, dict(votes)))
+    return out
+
+
+def witnesses(sid: str) -> None:
+    """Killfeed and scoreboard witnesses per report row, scored on the labels."""
+    from reticle.adjudication.identity import _portrait_scores, load_identity_gallery
+    from reticle.checks import track_entries
+    from reticle.lineup import load_lineup
+    store = Store()
+    gallery = load_identity_gallery(store.root)
+    lineup = load_lineup(sid, store.root)
+    enemy = [r.get("agent") or r.get("best_guess") for r in lineup["sides"]["enemy"]]
+    hud = store.read_hud(sid, _date(sid))
+    t = hud.column("t_ms").to_pylist()
+    tr = lambda col: [x for x in track_entries(t, hud.column(f"kf_{col}_mask").to_pylist(),
+                                               hud.column(f"kf_{col}_wx").to_pylist()) if x["counted"]]
+    kills, deaths = tr("kill"), tr("death")
+    obs = [o for o in store.read_events("killfeed_portrait", sid) if o.get("kind") == "portrait_observation"]
+    stats = _board_stats(sid)
+    rounds = {r["round_no"]: r for r in _rounds(sid)}
+    labels = {}
+    lp = store.root / "labels" / "combat_report_portrait" / f"{sid}.jsonl"
+    if lp.is_file():
+        for line in lp.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                r = json.loads(line)
+                labels[(r["panel_start_ms"], r["row"])] = r
+    res = []
+    for p in _panels(sid):
+        rnd = rounds.get(p["round_no"])
+        if rnd is None:
+            continue
+        a, close = rnd["t_start_ms"], rnd.get("t_close_ms") or rnd["t_end_ms"]
+        after_lo = p["start_ms"] if p["kind"] == "death" else rnd["t_end_ms"]
+        V, K = set(), set()
+        for ag in enemy:
+            for key, bucket in (("deaths", V), ("kills", K)):
+                b = _stat(stats, ag, key, 0, a + BUY_PHASE_MS, last=True)
+                f = _stat(stats, ag, key, after_lo, close + BUY_PHASE_MS * 2, last=False)
+                if b is not None and f is not None and f > b:
+                    bucket.add(ag)
+        my_kills = [k for k in kills if a <= k["t_first"] < close
+                    and (p["kind"] != "death" or k["t_first"] <= p["start_ms"])]
+        my_death = [d for d in deaths if p["kind"] == "death"
+                    and p["start_ms"] - 6000 <= d["t_first"] <= p["start_ms"] + 1000]
+        kv = [n for _, n, _ in _kf_names(sid, my_kills, obs, "victim", enemy, gallery) if n]
+        kk = [n for _, n, _ in _kf_names(sid, my_death[-1:], obs, "killer", enemy, gallery) if n]
+        killed_rows = [k for k, row in enumerate(p["rows"]) if row["killed"]]
+        for k, row in enumerate(p["rows"]):
+            lab = labels.get((p["start_ms"], k))
+            kf = None
+            if row["killed_you"] and len(kk) == 1:
+                kf = kk[0]
+            elif row["killed"] and len(killed_rows) == 1 and len(set(kv)) == 1:
+                kf = kv[0]
+            res.append({"t": p["start_ms"] / 1000, "row": k, "killed": row["killed"],
+                        "killed_you": row["killed_you"], "kf": kf,
+                        "V": sorted(V), "K": sorted(K), "kv": kv, "kk": kk,
+                        "label": (lab or {}).get("agent"),
+                        "label_unsure": bool(lab and (lab.get("uncertain") or lab.get("none_of_these")))})
+    pf = store.root / "analysis" / f"combat_report_portraits_{sid}.json"
+    por = {(x["t"], x["row"]): x for x in json.loads(pf.read_text())} if pf.is_file() else {}
+    for r in res:
+        x = por.get((r["t"], r["row"]), {})
+        r["gallery"], r["cluster"] = x.get("gallery"), x.get("cluster")
+    lab = [r for r in res if r["label"]]
+    print(f"{len(res)} rows; {len(lab)} labelled")
+    g = [r for r in lab if r["gallery"]]
+    print(f"W0 gallery names {len(g)}/{len(lab)} labelled rows; right {sum(r['gallery'] == r['label'] for r in g)}")
+    by_c = {}
+    for r in lab:
+        by_c.setdefault(r["cluster"], []).append(r["label"])
+    pure = sum(max(Counter(v).values()) for v in by_c.values())
+    print(f"W3 portrait clusters: {len(by_c)} clusters; {pure}/{len(lab)} rows carry their cluster's majority label; "
+          f"{sum(len(set(v)) > 1 for v in by_c.values())} clusters mixed; "
+          f"{len({l for v in by_c.values() for l in set(v)})} agents over them")
+    for c, v in sorted(by_c.items(), key=lambda kv: str(kv[0])):
+        print(f"   cluster {c}: {dict(Counter(v))}")
+    # W4: combined. Killfeed name kept only inside the scoreboard bound when the
+    # bound exists; the cluster then carries the kept names to its other rows.
+    for r in res:
+        bound = r["K"] if r["killed_you"] else r["V"] if r["killed"] else None
+        r["kf_kept"] = r["kf"] if r["kf"] and (not bound or r["kf"] in bound) else None
+    names_c = {}
+    for r in res:
+        if r["kf_kept"]:
+            names_c.setdefault(r["cluster"], Counter())[r["kf_kept"]] += 1
+    for r in res:
+        v = names_c.get(r["cluster"])
+        top = v.most_common(2) if v else []
+        r["combined"] = top[0][0] if top and (len(top) == 1 or top[0][1] > top[1][1]) else None
+    cn = [r for r in lab if r["combined"]]
+    print(f"W4 killfeed within bound, spread by cluster: names {len(cn)}/{len(lab)}; "
+          f"right {sum(r['combined'] == r['label'] for r in cn)}")
+    for r in cn:
+        if r["combined"] != r["label"]:
+            print("   wrong", {k: r[k] for k in ("t", "row", "combined", "label", "cluster", "kf", "gallery")})
+    kf_named = [r for r in res if r["kf"]]
+    kf_ok = [r for r in kf_named if r["label"] and r["kf"] == r["label"]]
+    kf_bad = [r for r in kf_named if r["label"] and r["kf"] != r["label"]]
+    print(f"W1 killfeed names {len(kf_named)} rows; against labels {len(kf_ok)} right, {len(kf_bad)} wrong")
+    for r in kf_bad:
+        print("   wrong", r)
+    inb = [r for r in lab if (r["killed"] and r["label"] in r["V"]) or (r["killed_you"] and r["label"] in r["K"])]
+    flagged = [r for r in lab if r["killed"] or r["killed_you"]]
+    print(f"W2 scoreboard bound holds for {len(inb)}/{len(flagged)} labelled KILLED / KILLED YOU rows")
+    for r in flagged:
+        if r not in inb:
+            print("   outside bound", r)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("judge", "flags", "icons", "weapons", "portraits"):
+    for name in ("judge", "flags", "icons", "weapons", "portraits", "witnesses"):
         sub.add_parser(name).add_argument("session")
     args = ap.parse_args()
     {"judge": judge, "flags": flags, "icons": crop_icons, "weapons": weapons,
-     "portraits": portraits}[args.cmd](args.session)
+     "portraits": portraits, "witnesses": witnesses}[args.cmd](args.session)
 
 
 if __name__ == "__main__":
