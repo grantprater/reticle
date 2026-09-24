@@ -456,3 +456,20 @@ which fits the ally Miks.
 """
 use = "a minimap smoke is an ally ability; attribute it among the player's team only"
 see = ["minimap/enemy-smokes-block-cones"]
+
+[miks-smoke-minimap-disc]
+claim = """
+Miks's smoke is drawn on the minimap as a disc for about 18.2 seconds. It
+appears and disappears as a step, fully dark in one frame and gone the next.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-24"
+subject = "miks"
+source = """
+a06f04a0059f at 10 Hz: 934.20-952.40 s and 435.87-454.10 s. Longer than the
+16.75 s the wiki gives [domain:abilities/miks-smoke-duration]; the gap is not
+tracker bias and is unexplained.
+"""
+use = "the minimap lifetime to expect for a Miks smoke; do not correct it toward the wiki value"
+see = ["abilities/miks-smoke-duration"]

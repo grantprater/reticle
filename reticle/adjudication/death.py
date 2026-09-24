@@ -287,6 +287,13 @@ RED_X_H2 = (165, 180)
 RED_X_S_MIN = 90
 RED_X_V_MIN = 120
 XMARK_AREA_RANGE = (15, 150)
+#: Blue marks only. Over 240 s of a06f04a0059f at 1 Hz, blue components
+#: cluster at 100-130 px (one X) and 200-212 px (two overlapping X marks),
+#: with nothing above 212; the shared 150 px cap dropped every merged pair.
+#: Red has no such gap (a continuous tail past 500 px from enemy icon rings
+#: and pings), so red keeps `XMARK_AREA_RANGE`. Area / ~115 px estimates how
+#: many blue marks a blob holds.
+BLUE_XMARK_AREA_RANGE = (15, 300)
 
 SECOND_LIFE_WHITE_V_MIN = 190
 SECOND_LIFE_WHITE_S_MAX = 70
@@ -371,7 +378,7 @@ def extract_minimap_death_marks(
     blue_blobs = [
         (int(st_b[i, 4]), float(cen_b[i][0]), float(cen_b[i][1]))
         for i in range(1, n_b)
-        if XMARK_AREA_RANGE[0] <= st_b[i, 4] <= XMARK_AREA_RANGE[1]
+        if BLUE_XMARK_AREA_RANGE[0] <= st_b[i, 4] <= BLUE_XMARK_AREA_RANGE[1]
     ]
 
     # Red mask (enemy death X / enemy pings)
