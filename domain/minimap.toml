@@ -323,3 +323,17 @@ use = """
 a radar mask must contain the whole map; a circle inscribed in the ROI clips map
 pixels on 6 of 12 baked geometries
 """
+
+[enemy-smokes-block-cones]
+claim = """
+Enemy smokes block allied viewcones on the minimap. That is their only
+influence on the player's minimap: the smoke itself is not drawn.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-24"
+use = """
+an enemy smoke can only be inferred as missing light: floor the raycast says an
+ally sees but the drawn light leaves unlit, in a smoke-sized disc
+"""
+see = ["abilities/enemy-smokes-not-on-minimap", "minimap/vision-gate"]

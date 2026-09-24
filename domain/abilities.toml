@@ -426,3 +426,33 @@ after the buy phase, every Poison Cloud phase in the round sits at the
 emitter's one position; a phase elsewhere is not this emitter
 """
 see = ["abilities/viper-poison-cloud-toggle"]
+
+[miks-smoke-duration]
+claim = """
+Miks's smoke lasts 16.75 seconds, the longest smoke in the game.
+"""
+kind = "measurement"
+known = "player"
+since = "2026-09-24"
+subject = "miks"
+source = """
+the player, citing the wiki. On a06f04a0059f, where Miks is an ally, every fully
+observed minimap smoke reads 18.0 s with the raw_dark tracker, 1.25 s longer.
+"""
+use = "expected lifetime of a Miks smoke; the tracker's excess over it is its measured bias"
+
+[enemy-smokes-not-on-minimap]
+claim = """
+Enemy smokes are not drawn on the player's minimap; only the player's team's
+smokes are.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-24"
+source = """
+the player, stated as a belief. On a06f04a0059f no smoke track reads Dark
+Cover's 15 s although the enemy has Omen, and every full smoke reads 18 s,
+which fits the ally Miks.
+"""
+use = "a minimap smoke is an ally ability; attribute it among the player's team only"
+see = ["minimap/enemy-smokes-block-cones"]
