@@ -214,6 +214,48 @@ def lifetime_evidence(check: dict, uses, edges, components, durations, demos) ->
         node["reason"] = reason
         node["revision"] = node["current_revision"] = _pin(comp["raw"])
         out.append((node, role))
+    return out + instance_spans(ability, expected, out, edges, components, durations, demos)
+
+
+def instance_spans(ability, expected, observed, edges, components, durations, demos):
+    """One node per cast: the span of the named fragments the owner binds to it.
+
+    `adjudication.ability` marks an edge `supported` when a human named the
+    candidate as the tray's ability. Fragments sharing that use claim are one
+    instance, so their union bounds its life where no single fragment does.
+    """
+    by_use = defaultdict(list)
+    for node, _ in observed:
+        if node["kind"] != "observation":
+            continue
+        cid = node["instance"]
+        for edge in edges[cid]["possible_parents"]:
+            if edge["status"] == "supported":
+                by_use[edge["use_claim_id"]].append((node, components[cid]))
+    out = []
+    for use_id, members in sorted(by_use.items()):
+        sid = members[0][1]["session_id"]
+        start = min(c["observed_t_ms"] for _, c in members)
+        end = max(c["observed_end_ms"] for _, c in members)
+        censored = end >= durations.get(sid, float("inf")) - CENSOR_MS
+        role, reason = classify_lifetime(end - start, expected, censored)
+        deps = [{"id": n["id"], "revision": n["revision"]} for n, _ in members]
+        pin = _pin({"use": use_id, "deps": deps})
+        out.append(({"id": f"span:{use_id}", "revision": pin, "current_revision": pin,
+                     "kind": "verdict", "observed_at": f"{sid}@{int(start)}ms",
+                     "analyzed_at": TODAY,
+                     "source": {"session": sid, "window_ms": [start, end]},
+                     "instance": use_id, "session": sid,
+                     "session_class": "ability-demo" if sid in demos else "match",
+                     "unit": "instance", "fragments": len(members),
+                     "observed_ms": end - start, "right_censored": censored,
+                     "use_claim_status": next(e["use_claim_status"] for e in
+                                              edges[members[0][0]["instance"]]["possible_parents"]
+                                              if e["use_claim_id"] == use_id),
+                     "dependencies": deps,
+                     "rules_used": ["ability-hypothesis:matching_human_component_identity"],
+                     "reason": reason, "refusal_reason": None if role == "supporting" else reason},
+                    role))
     return out
 
 
@@ -242,7 +284,8 @@ def facts(root: Path, output: Path) -> dict:
         document = {
             "schema_version": 1,
             "hypothesis": {
-                "hypothesis_id": proposal["hypothesis_id"], "revision": _pin(proposal),
+                "hypothesis_id": proposal["hypothesis_id"],
+                "revision": _pin({"proposal": proposal, "evidence": refs}),
                 "claim": proposal["claim"], "kind": kind, "subject": proposal["subject"],
                 "scope": {"patches": scope["patches"], "patch_reason": scope["reason"],
                           "map": None, "profile": None},
@@ -264,8 +307,11 @@ def facts(root: Path, output: Path) -> dict:
             "consumers": [],
         }
         path, report = publish(document, output / proposal["hypothesis_id"])
-        roles = Counter(role for _, role in observed)
-        demo_roles = Counter(role for node, role in observed if node["session_class"] == "ability-demo")
+        fragments = [(n, r) for n, r in observed if n.get("unit") != "instance"]
+        instances = [(n, r) for n, r in observed if n.get("unit") == "instance"]
+        roles = Counter(role for _, role in fragments)
+        demo_roles = Counter(role for node, role in fragments
+                             if node["session_class"] == "ability-demo")
         summary.append({
             "hypothesis_id": proposal["hypothesis_id"], "valid": report["valid"],
             "errors": report["errors"], "review": str(path / "review.md"),
@@ -274,10 +320,14 @@ def facts(root: Path, output: Path) -> dict:
             "source_disagreement": report["source_disagreement"],
             "accepted_fact_conflict": bool(proposal.get("accepted_fact_conflict")),
             "observations": dict(roles), "demo_observations": dict(demo_roles),
+            "instances": [{"use_claim": n["instance"], "span_ms": n["observed_ms"],
+                           "fragments": n["fragments"], "role": r, "reason": n["reason"],
+                           "use_claim_status": n["use_claim_status"],
+                           "session_class": n["session_class"]} for n, r in instances],
             "contradicting_detail": [
                 {"instance": node["instance"], "observed_ms": node.get("observed_ms"),
                  "session_class": node["session_class"]}
-                for node, role in observed if role == "contradicting"],
+                for node, role in fragments if role == "contradicting"],
             "check": check["kind"],
         })
     values = {
@@ -293,6 +343,8 @@ def facts(root: Path, output: Path) -> dict:
         "supporting_obs": sum(s["observations"].get("supporting", 0) for s in summary),
         "contradicting_obs": sum(s["observations"].get("contradicting", 0) for s in summary),
         "unresolved_obs": sum(s["observations"].get("unresolved", 0) for s in summary),
+        **{f"instance_{role}": sum(1 for s in summary for i in s["instances"] if i["role"] == role)
+           for role in ("supporting", "contradicting", "unresolved")},
     }
     metrics.record("ability_demo_mining", part="web-facts", values=values,
                    deps={**_deps(), "hypothesis": HYPOTHESIS_VERSION,
