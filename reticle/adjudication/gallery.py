@@ -38,7 +38,10 @@ from ..store import DEFAULT_STORE
 
 ABILITY_GALLERY_VERSION = "ability-gallery-0.2.0"
 #: The glyph classifier's own stamp; it changes independently of the gallery.
-GLYPH_CLASSIFIER_VERSION = "ability-glyph-0.2.0"
+GLYPH_CLASSIFIER_VERSION = "ability-glyph-0.3.0"
+#: Every class rule scores 0.90-0.98 when its test passes and 0.05-0.30 when it
+#: fails, so a best score below this means no rule fired: refuse, don't rank.
+GLYPH_FIT_MIN = 0.5
 
 # Relative to the component's own observation time.  ``pre`` is the background
 # the effect arrives against; it is evidence, not padding.
@@ -729,7 +732,8 @@ def classify_glyph_features(feats: dict, archetype: str | None = None,
     solo demo's agent, or the scoreboard lineup of a match. Scores outside it
     are dropped before the best is taken, and when nothing in the archetype is
     allowed the answer is null with a reason rather than the nearest foreign
-    name. None keeps the unconstrained ranking.
+    name. None keeps the unconstrained ranking. Either way a best score that
+    no rule produced by passing its test refuses (`GLYPH_FIT_MIN`).
     """
     if not feats:
         return {"ability_id": None, "archetype": None, "confidence": 0.0,
@@ -814,6 +818,11 @@ def classify_glyph_features(feats: dict, archetype: str | None = None,
                     "version": GLYPH_CLASSIFIER_VERSION}
     best_id = max(scores.keys(), key=lambda k: scores[k])
     conf = scores[best_id]
+    if conf < GLYPH_FIT_MIN:
+        return {"ability_id": None, "archetype": archetype, "confidence": conf,
+                "scores": scores, "features": feats,
+                "refusal_reason": f"no {archetype} rule fired (best {best_id} {conf:.2f})",
+                "version": GLYPH_CLASSIFIER_VERSION}
     return {
         "ability_id": best_id,
         "archetype": archetype,

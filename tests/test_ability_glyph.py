@@ -106,10 +106,16 @@ class GlyphClassificationTests(unittest.TestCase):
                                      allowed={"sova:recon bolt", "sova:owl drone"})
         self.assertIsNone(res["ability_id"])
         self.assertIn("smoke", res["refusal_reason"])
-        # Within the allowed set the best remaining score wins.
+        # Allowed classes whose rules all fail refuse rather than rank.
         res = classify_ability_glyph(omen_patch, archetype="smoke",
                                      allowed={"jett:cloudburst", "clove:ruse"})
-        self.assertIn(res["ability_id"], {"jett:cloudburst", "clove:ruse"})
+        self.assertIsNone(res["ability_id"])
+        self.assertIn("no smoke rule fired", res["refusal_reason"])
+        # A rule that fires inside the allowed set names.
+        grey = np.full((32, 32, 3), 150, dtype=np.uint8)
+        res = classify_ability_glyph(grey, archetype="smoke",
+                                     allowed={"jett:cloudburst", "clove:ruse"})
+        self.assertEqual(res["ability_id"], "jett:cloudburst")
 
 
 class GalleryIntegrationTests(unittest.TestCase):

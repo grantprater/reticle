@@ -56,6 +56,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |
 | Ability entity inference and minimal capture plan | `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` |
+| Solo-demo ability mining, web-fact proposals, glyph classifier scoring | `tools/ability_demo_mining.py`, `tools/ability_glyph_eval.py`, [ABILITY_DEMO_MINING.md](ABILITY_DEMO_MINING.md) |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
