@@ -41,6 +41,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reticle.adjudication.ability import _components, _labels  # noqa: E402
+from reticle.lineup import abilities_for, ability_label  # noqa: E402
 from reticle.profiles import get_profile  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
@@ -64,6 +65,11 @@ ORPHAN_EXTRA = {"e": "present_before_this_window"}
 # state the same object passes through, orthogonal to which object it is. It
 # toggles rather than answering, so identity and state stay separate fields.
 DIM_KEY = "d"
+# A component can be a real ability of the same agent that is not the claimed
+# one: Omen's smoke inside a From the Shadows window. `o other` would lose the
+# name, so `x` asks which of the agent's slots it is, then 1-4 answer C Q E X.
+OTHER_ABILITY_KEY = "x"
+SLOTS = ("C", "Q", "E", "X")
 # Offsets from the labelled instant. Zero is mandatory and is the whole point:
 # an Omen smoke in flight is present for under two seconds, so an evenly spaced
 # strip misses it entirely and shows the player bare ground at the one moment the
@@ -75,7 +81,7 @@ TILE_ZOOM = 3      # magnification of each strip tile
 PANEL_H = 690      # keeps the whole window inside a 1080p screen
 _IS = "IS the ability: 1-5 group id (same digit = same entity)"
 _NOT = "NOT the ability: v viewcone  c crack  p ping  i icon  o other  n nothing there"
-_END = ("d = DIM/deactivated (toggle, then answer) | u unsure | "
+_END = ("x = a DIFFERENT ability of this agent, then 1-4 | d = DIM/deactivated (toggle, then answer) | u unsure | "
         "click = mark a component we missed | a back | q save+quit")
 HELP_GROUP = f"{_IS} | {_NOT} | {_END}"
 HELP_ORPHAN = (f"{_IS}, or e = already there before this strip | {_NOT} | {_END}")
@@ -291,7 +297,7 @@ def main() -> int:
 
     handles: dict[str, object] = {}
     state = {"i": 0, "img": None, "missing": [], "written": 0, "answers": {},
-             "dim": False}
+             "dim": False, "pick": None}
 
     tkroot = tk.Tk()
     tkroot.title("reticle - which components are one entity")
@@ -333,6 +339,10 @@ def main() -> int:
         given = [f"{answers_short(state['answers'], c)}"
                  for c in window["component_ids"] if c in state["answers"]]
         sofar = ("  already: " + " ".join(given)) if given else ""
+        if state["pick"] is not None:
+            shape = "WHICH ability is it?  " + "  ".join(
+                f"{i + 1} {k} {state['pick'].get(k) or '(none)'}"
+                for i, k in enumerate(SLOTS)) + "   (a = cancel)"
         status.config(text=(
             f"[{state['i'] + 1}/{len(queue)}] {window['session_id']} "
             f"{window.get('ability_id') or window.get('named_abilities') or '?'}  "
@@ -341,7 +351,8 @@ def main() -> int:
             f"{shape}{sofar}"
             + ("   [DIM]" if state["dim"] else "")))
 
-    def write(answer: str, group: int | None = None, unsure: bool = False):
+    def write(answer: str, group: int | None = None, unsure: bool = False,
+              other_ability_id: str | None = None):
         window, cid = queue[state["i"]]
         component = components.get(cid) if cid else None
         row = {
@@ -359,6 +370,8 @@ def main() -> int:
                 for (mx, my) in state["missing"]],
             "by": "human",
         }
+        if other_ability_id is not None:
+            row["other_ability_id"] = other_ability_id
         if component is not None:
             row.update({"t_ms": component["observed_t_ms"],
                         "x": component["x"], "y": component["y"]})
@@ -374,6 +387,7 @@ def main() -> int:
             write_row()
         state["missing"] = []
         state["dim"] = False
+        state["pick"] = None
         state["i"] += step
         if state["i"] >= len(queue):
             finish()
@@ -381,7 +395,34 @@ def main() -> int:
         state["i"] = max(0, state["i"])
         show()
 
+    ref_agents = json.loads((root_store / "reference" / "abilities.json")
+                            .read_text(encoding="utf-8"))["agents"]
+    by_lower = {a.lower(): a for a in ref_agents}
+
+    def agent_of(window) -> str | None:
+        # Review rows name `omen:dark cover`; the reference keys `Omen`.
+        named = window.get("ability_id") or (window.get("named_abilities") or [None])[0]
+        return by_lower.get(named.split(":")[0]) if named else None
+
+    def start_pick():
+        agent = agent_of(queue[state["i"]][0])
+        slots = abilities_for(agent, root_store) if agent else {}
+        if not slots:
+            status.config(text=f"no ability list for agent {agent!r}; use o other")
+            return
+        state["pick"] = slots
+        show()
+
     def answer_group(digit: int):
+        if state["pick"] is not None:
+            if digit > len(SLOTS):
+                return
+            slot = SLOTS[digit - 1]
+            name = ability_label(agent_of(queue[state["i"]][0]), slot, root_store)
+            if name is None:
+                return
+            advance(+1, lambda: write("other_ability", other_ability_id=name))
+            return
         advance(+1, lambda: write("same_entity", group=digit))
 
     def answer_clutter(name: str):
@@ -402,7 +443,15 @@ def main() -> int:
     tkroot.bind("u", lambda e: advance(+1, lambda: write("unsure", unsure=True)))
     tkroot.bind("n", lambda e: advance(+1, lambda: write("nothing_there")))
     tkroot.bind("<space>", lambda e: advance(+1, lambda: write("marked_missing_only")))
-    tkroot.bind("a", lambda e: advance(-1, write=False))
+    tkroot.bind(OTHER_ABILITY_KEY, lambda e: start_pick())
+
+    def back():
+        if state["pick"] is not None:
+            state["pick"] = None
+            show()
+        else:
+            advance(-1, write=False)
+    tkroot.bind("a", lambda e: back())
     tkroot.bind("q", lambda e: finish())
     tkroot.bind("<Escape>", lambda e: finish())
     canvas.bind("<Button-1>", lambda e: (
