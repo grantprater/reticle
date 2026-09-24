@@ -190,6 +190,21 @@ excludes another's region.
 consumers = ["round_lifetimes", "minimap_diagnostics", "overlay"]
 
 [[entry]]
+id = "minimap-icon-disposition"
+question = "Which fitted minimap player-icon candidates survive shape, facing, overlap and map-interior decisions?"
+owner = "adjudication.minimap_candidates"
+role = ["adjudicate"]
+status = "partial"
+produces = ["ally_decisions", "accepted"]
+not_for = """
+Generating fitted hypotheses from pixels, binding an agent name, or deciding
+whether a surviving icon continues a round lifetime.
+"""
+consumers = ["cli"]
+stored_consumers = ["round_entities"]
+evidence = "tests/test_candidate_evidence.py"
+
+[[entry]]
 id = "portrait-descriptor"
 question = "What does this crop of agent art look like, as one comparable vector?"
 owner = "appearance"
@@ -866,7 +881,7 @@ evidence = "tests/test_domain.py, `reticle domain --subject`"
 #   the command surface   cli, __main__
 #   the store and decode  store, decode, passes, synth, refine, refinement
 #   provenance            version, metrics, judgement, quoted, artifacts,
-#                         revisions, census
+#                         revisions, census, candidate_evidence
 #   the auditors          architecture, ownership, doctor, status, fidelity
 #   delivery              overlay, review
 #   ability adapters      ability_capture, ability_entities, ability_gallery,
@@ -880,4 +895,4 @@ modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
            "artifacts", "revisions", "census", "architecture", "ownership",
            "doctor", "status", "fidelity", "overlay", "review",
            "ability_capture", "ability_entities", "ability_gallery",
-           "ability_phases", "events"]
+           "ability_phases", "events", "candidate_evidence"]

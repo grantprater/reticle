@@ -33,7 +33,10 @@ ROUND_ENTITY_VERSION = "round-entity-0.1.0"
 
 def _observation(icon: dict) -> dict:
     r = float(icon["r"])
-    family = "barrier" if icon.get("reason") == "interior_is_map" else "ally"
+    # New reader revisions carry adjudication's family. Historical events
+    # lack it, so retain their recorded refusal for stored-data replay.
+    family = icon.get("family") or (
+        "barrier" if icon.get("reason") == "interior_is_map" else "ally")
     obs = {"x": icon["cx"], "y": icon["cy"], "r": r,
            "box": [icon["cx"] - r, icon["cy"] - r, 2 * r, 2 * r],
            "family": family, "view": "minimap", "label": family,
@@ -63,7 +66,8 @@ def _roster_at(times: list[float], alive: list, t_ms: float):
 
 
 def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
-                      scale: float, roster: dict | None = None) -> list[dict]:
+                      scale: float, roster: dict | None = None,
+                      source_revision: str | None = None) -> list[dict]:
     """`round_entity` event rows for every round the stored frames reach.
 
     `events` are the session's `ally_icon` rows; `rounds` come from
@@ -78,7 +82,9 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
             icons.setdefault(e["frame_idx"], []).append(e)
     rt, ra = (roster or {}).get("t_ms", []), (roster or {}).get("alive_ally", [])
     common = {"session_id": session_id, "round_entity_version": ROUND_ENTITY_VERSION,
-              "round_lifetime_version": ROUND_LIFETIME_VERSION}
+              "round_lifetime_version": ROUND_LIFETIME_VERSION,
+              "ally_icon_revision": source_revision,
+              "candidate_revision": events[0].get("candidate_revision")}
     rows: list[dict] = []
     coverage = Counter()
     for rnd in rounds:

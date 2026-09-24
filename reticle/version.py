@@ -127,7 +127,11 @@ PING_VERSION = "ping-0.1.0"
 # blob centroid, so a fit no longer lands on the teardrop lobe; the barrier
 # gate moved into `ally_icons` itself, and the interior is computed in a
 # window around each fit.
-ALLY_ICON_VERSION = "ally-icon-0.2.0"
+# 0.3.0: every fitted hypothesis is stored under a candidate revision with a
+# baseline appearance (no occluders); the accepted view's descriptor names the
+# self and neighbor candidates it masked. Accepted rows are unchanged; the
+# stamp moves because events now carry `candidate_key`, `family` and lineage.
+ALLY_ICON_VERSION = "ally-icon-0.3.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

@@ -878,7 +878,7 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
           require_facing: bool = True, min_area: int | None = None,
           support: np.ndarray | None = None,
           separation_px: float | None = None,
-          seed: str = "centroid") -> list[dict]:
+          seed: str = "centroid", gates: bool = True) -> list[dict]:
     """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
 
     **`seed` decides where each blob's circle is searched for.** `"centroid"`
@@ -958,9 +958,9 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
                           int(surf_r[a + yy, c + xx])))
         if f is None:
             continue
-        if f["cov"] < cov_min or f["inner_red"] > inner_max:
+        if gates and (f["cov"] < cov_min or f["inner_red"] > inner_max):
             continue
-        if require_facing and f["facing"] is None:
+        if gates and require_facing and f["facing"] is None:
             continue
         found.append({"cx": float(f["cx"]), "cy": float(f["cy"]), "r": int(f["r"]),
                       "cov": float(f["cov"]), "inner": float(f["inner_red"]),
@@ -991,7 +991,7 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     # caller asking for PROPOSALS to score is not asking how many icons there
     # are, so it must be able to decline the answer this rule gives.
     sep = MIN_ICON_SEPARATION_PX * sc if separation_px is None else float(separation_px)
-    if sep <= 0:
+    if sep <= 0 or not gates:
         return sorted(found, key=lambda d: -d["cov"])
     out: list[dict] = []
     for f in sorted(found, key=lambda d: -d["cov"]):
@@ -1069,7 +1069,7 @@ ALLY_MAP_DIFF_MIN = 15.0
 def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
                           support: np.ndarray | None = None,
                           static: np.ndarray | None = None,
-                          occluders=()) -> list[dict]:
+                          occluders=(), found: list[dict] | None = None) -> list[dict]:
     """Each teammate icon's centre, radius and what its portrait LOOKS like.
 
     The icon is the ally channel's gated fit, supported by the slab.
@@ -1093,8 +1093,9 @@ def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
     from . import appearance
 
     keyed = ally_mask(crop) | self_mask(crop)
-    found = ally_icons(crop, floor, support=support, static=static,
-                       keep_barriers=True)
+    if found is None:
+        found = ally_icons(crop, floor, support=support, static=static,
+                           keep_barriers=True)
     out = []
     for f in found:
         win, keep = _interior(f, keyed, found, occluders)
@@ -1104,7 +1105,9 @@ def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
                   else "interior_too_thin" if not comp.size else None)
         out.append({"cx": f["cx"], "cy": f["cy"], "r": f["r"],
                     "facing": None if f["facing"] is None else float(f["facing"]),
-                    "cov": f["cov"], "pixels": int(keep.sum()), "map_diff": diff,
+                    "cov": f["cov"], "inner": f["inner"],
+                    "inner_v": f["inner_v"], "lobe": f["lobe"],
+                    "area": f["area"], "pixels": int(keep.sum()), "map_diff": diff,
                     "composition": [float(v) for v in comp] if comp.size else None,
                     "reason": reason})
     return out
@@ -1127,6 +1130,7 @@ class AllyIconReader:
         self.sgray = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float64)
         self.frames: list[dict] = []
         self.icons: list[dict] = []
+        self.candidates: list[dict] = []
 
     def feed(self, smp) -> None:
         x0, y0, x1, y1 = self.box
@@ -1142,28 +1146,148 @@ class AllyIconReader:
         me = mine[0] if mine else None
         occ = [(me["cx"], me["cy"], me["r"])] if me else []
         got = ally_icon_descriptors(crop, self.floor, self.slab, self.static, occ)
+        raw_self = self_icons(crop, self.floor, support=self.slab, gates=False)
+        self_key = next((f"{frame['frame_idx']}:self:{i}" for i, f in enumerate(raw_self)
+                         if me is not None and (f["cx"], f["cy"], f["r"]) ==
+                         (me["cx"], me["cy"], me["r"])), None)
+        for i, f in enumerate(raw_self):
+            self.candidates.append({**frame, "channel": "self", "index": i,
+                                    **f, "widget_scale": widget_scale(crop.shape[1]),
+                                    "facing_reason": ("lobe_unread" if f["facing"] is None
+                                                      else None),
+                                    "map_diff": None, "map_diff_reason": "not_applicable",
+                                    "descriptor": None, "descriptor_reason": "not_applicable",
+                                    "descriptor_pixels": None,
+                                    "baseline_descriptor": None,
+                                    "baseline_map_diff": None,
+                                    "baseline_reason": "not_applicable",
+                                    "self_occluder": None,
+                                    "self_occluder_candidate_key": None,
+                                    "neighbor_candidate_keys": []})
+        raw = icons(ally_mask(crop), crop, self.floor, support=self.slab,
+                    seed="surface", gates=False)
+        from . import appearance
+        keyed = ally_mask(crop) | self_mask(crop)
+        grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        ref = cv2.cvtColor(self.static, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        # Two blobs can yield an identical fit. Each descriptor claims one raw
+        # fit, the first in coverage order, which is the copy both the gated
+        # path and adjudication keep; the other copy stays unselected.
+        claimed: dict[int, dict] = {}
+        for d in got:
+            i = next((i for i, f in enumerate(raw) if i not in claimed and
+                      (d["cx"], d["cy"], d["r"]) == (f["cx"], f["cy"], f["r"])), None)
+            if i is None:
+                raise ValueError(f"gated ally fit has no raw candidate: frame "
+                                 f"{frame['frame_idx']} at {d['cx']},{d['cy']}")
+            claimed[i] = d
+        selected_keys = [f"{frame['frame_idx']}:ally:{i}" for i in sorted(claimed)]
+        # Descriptors are measured under the chosen self/neighbor mask. Keep
+        # that mask's source keys; another selection requires source pixels.
+        for i, f in enumerate(raw):
+            match = claimed.get(i)
+            win, keep = _interior(f, keyed)
+            baseline = appearance.hsv_composition(crop[win], keep)
+            baseline_diff = (float(np.abs(grey[win][keep] - ref[win][keep]).mean())
+                             if keep.any() else None)
+            self.candidates.append({**frame, "channel": "ally", "index": i,
+                                    **f, "widget_scale": widget_scale(crop.shape[1]),
+                                    "facing_reason": ("lobe_unread" if f["facing"] is None
+                                                      else None),
+                                    "map_diff": match["map_diff"] if match else None,
+                                    "map_diff_reason": (None if match and match["map_diff"] is not None
+                                                        else "interior_unread" if match else
+                                                        "not_selected"),
+                                    "descriptor": match["composition"] if match else None,
+                                    "descriptor_pixels": match["pixels"] if match else None,
+                                    "descriptor_reason": (match["reason"] if match else
+                                                          "not_selected"),
+                                    "baseline_descriptor": ([float(v) for v in baseline]
+                                                            if baseline.size else None),
+                                    "baseline_map_diff": baseline_diff,
+                                    "baseline_reason": (None if baseline.size and
+                                                        baseline_diff is not None else
+                                                        "interior_unread"),
+                                    "self_occluder": ([round(v, 2) for v in occ[0]]
+                                                      if occ else None),
+                                    "self_occluder_candidate_key": self_key,
+                                    "neighbor_candidate_keys": [k for k in selected_keys
+                                                               if k != f"{frame['frame_idx']}:ally:{i}"]})
         self.frames.append({**frame, "widget_drawn": True, "icons": len(got),
                             "self": [round(v, 2) for v in occ[0]] if occ else None})
         for i, d in enumerate(got):
             self.icons.append({**frame, "index": i, **d})
 
-    def events(self, session_id: str) -> list[dict]:
-        """JSONL-ready raw observations, with refusals counted by reason."""
+    def candidate_rows(self, session_id: str) -> list[dict]:
+        """All fitted ally hypotheses, including later rejected fits."""
+        from .version import ALLY_ICON_VERSION
+        return [{**r, "kind": "candidate", "session_id": session_id,
+                 "candidate_key": f"{session_id}:{r['frame_idx']}:{r['channel']}:{r['index']}",
+                 "self_occluder_candidate_key": (f"{session_id}:{r['self_occluder_candidate_key']}"
+                                                 if r["self_occluder_candidate_key"] else None),
+                 "neighbor_candidate_keys": [f"{session_id}:{k}"
+                                             for k in r["neighbor_candidate_keys"]],
+                 "reader_version": ALLY_ICON_VERSION}
+                for r in self.candidates]
+
+    def events(self, session_id: str, accepted: list[dict] | None = None,
+               candidate_revision: str | None = None) -> list[dict]:
+        """JSONL-ready raw observations, with refusals counted by reason.
+
+        `accepted` is `adjudication.minimap_candidates.accepted` over a stored
+        candidate revision; the reader publishes that view and never decides it.
+        """
         from collections import Counter
 
         from .version import ALLY_ICON_VERSION
 
         common = {"session_id": session_id, "source": "minimap",
                   "ally_icon_version": ALLY_ICON_VERSION, "hz": self.hz}
-        refused = Counter(r["reason"] for r in self.icons if r["reason"])
+        selected = self.icons
+        if accepted is not None:
+            selected = []
+            accepted_index = {}
+            for c in accepted:
+                if c["channel"] != "ally":
+                    continue
+                if c.get("descriptor_reason") == "not_selected":
+                    raise ValueError(f"accepted fit has no measured descriptor: {c['candidate_key']}")
+                reason = ("interior_is_map" if c["decision"]["family"] == "barrier"
+                          else c["descriptor_reason"])
+                old_index = accepted_index.get(c["frame_idx"], 0)
+                accepted_index[c["frame_idx"]] = old_index + 1
+                selected.append({"frame_idx": c["frame_idx"], "t_ms": c["t_ms"],
+                                 "index": old_index, "cx": c["cx"], "cy": c["cy"],
+                                 "r": c["r"], "facing": c["facing"], "cov": c["cov"],
+                                 "inner": c["inner"], "inner_v": c["inner_v"],
+                                 "lobe": c["lobe"], "area": c["area"],
+                                 "map_diff": c["map_diff"],
+                                 "composition": c["descriptor"],
+                                 "pixels": c["descriptor_pixels"],
+                                 "reason": reason,
+                                 "candidate_key": c["candidate_key"],
+                                 "family": c["decision"]["family"],
+                                 "self_occluder": c["self_occluder"]})
+            # Preserve the previous accepted view's positions and refusal
+            # causes; a changed gate must be deliberate and versioned.
+            if self.icons:
+                old = sorted((r["frame_idx"], r["cx"], r["cy"], r["reason"])
+                             for r in self.icons)
+                new = sorted((r["frame_idx"], r["cx"], r["cy"], r["reason"])
+                             for r in selected)
+                if old != new:
+                    raise ValueError("stored candidate replay changed accepted ally output")
+        refused = Counter(r["reason"] for r in selected if r["reason"])
         rows = [{**common, "kind": "coverage",
                  "frames": len(self.frames),
                  "widget_absent": sum(1 for f in self.frames if not f["widget_drawn"]),
-                 "icons": len(self.icons),
-                 "described": len(self.icons) - sum(refused.values()),
+                 "icons": len(selected),
+                 "described": len(selected) - sum(refused.values()),
+                 "candidate_revision": candidate_revision,
+                 "candidate_lineage": "complete" if candidate_revision else "unavailable",
                  "refused_reasons": dict(sorted(refused.items()))}]
         rows += [{**common, "kind": "frame", **f} for f in self.frames]
-        for r in self.icons:
+        for r in selected:
             out = dict(r)
             for k in ("cx", "cy", "cov", "map_diff"):
                 if out[k] is not None:
@@ -1174,6 +1298,17 @@ class AllyIconReader:
                          "observation_key": f"{session_id}:{r['frame_idx']}:{r['index']}",
                          **out})
         return rows
+
+    @classmethod
+    def replay_events(cls, session_id: str, frames: list[dict],
+                      accepted: list[dict], hz: float,
+                      candidate_revision: str) -> list[dict]:
+        """Rebuild the accepted event stream from stored evidence alone."""
+        reader = cls.__new__(cls)
+        reader.frames = frames
+        reader.icons = []
+        reader.hz = hz
+        return reader.events(session_id, accepted, candidate_revision)
 
 
 def art_floor(shade_kind: np.ndarray, dilate: float = 1) -> np.ndarray:

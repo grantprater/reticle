@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +29,8 @@ from .roster import N_SLOTS
 from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, ROSTER_VERSION,
                       ROSTER_SPLIT_VERSION, ROUND_VERSION, SCHEMA_VERSION, SEGMENTER_VERSION)
 from .events import validate_event_rows, EVENTS_VERSION
+from .candidate_evidence import (CANDIDATE_CONTRACT_VERSION, revision,
+                                 validate_candidates, validate_decisions)
 
 DEFAULT_STORE = Path.home() / "reticle-store"
 
@@ -35,6 +38,89 @@ DEFAULT_STORE = Path.home() / "reticle-store"
 class Store:
     def __init__(self, root: str | Path = DEFAULT_STORE):
         self.root = Path(root).resolve()
+
+    # Candidate revisions are immutable; accepted views are separate outputs.
+    def candidate_revision_path(self, producer: str, session_id: str,
+                                revision_id: str) -> Path:
+        return self.root / "candidates" / producer / session_id / f"{revision_id}.json"
+
+    def decision_revision_path(self, producer: str, session_id: str,
+                               candidate_revision: str, rule_version: str) -> Path:
+        return (self.root / "decisions" / producer / session_id /
+                f"{candidate_revision}__{rule_version}.json")
+
+    def write_candidates(self, producer: str, session_id: str,
+                         rows: list[dict], frames: list[dict] | None = None) -> str:
+        validate_candidates(rows, producer)
+        frames = frames or []
+        if len({f.get("frame_idx") for f in frames}) != len(frames):
+            raise ValueError("duplicate candidate frame coverage")
+        if rows and not frames:
+            raise ValueError("candidate batch lacks frame coverage")
+        covered = {f["frame_idx"] for f in frames}
+        if any(r["frame_idx"] not in covered for r in rows):
+            raise ValueError("candidate without a covered frame")
+        doc = {"contract_version": CANDIDATE_CONTRACT_VERSION,
+               "producer": producer, "session_id": session_id,
+               "frames": frames, "rows": rows}
+        rev = revision(doc)
+        path = self.candidate_revision_path(producer, session_id, rev)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(doc, allow_nan=False, separators=(",", ":")),
+                           encoding="utf-8")
+            os.replace(tmp, path)
+        return rev
+
+    def read_candidate_batch(self, producer: str, session_id: str,
+                             revision_id: str) -> dict:
+        path = self.candidate_revision_path(producer, session_id, revision_id)
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if (doc.get("producer"), doc.get("session_id"), revision(doc)) != (
+                producer, session_id, revision_id):
+            raise ValueError("candidate revision or source mismatch")
+        validate_candidates(doc["rows"], producer)
+        return doc
+
+    def read_candidates(self, producer: str, session_id: str,
+                        revision_id: str) -> list[dict]:
+        return self.read_candidate_batch(producer, session_id, revision_id)["rows"]
+
+    def write_decisions(self, producer: str, session_id: str,
+                        candidate_revision: str, rule_version: str,
+                        rows: list[dict]) -> Path:
+        candidates = self.read_candidates(producer, session_id, candidate_revision)
+        validate_decisions(candidates, rows, producer)
+        if any(r["rule_version"] != rule_version for r in rows):
+            raise ValueError("mixed decision rule versions")
+        doc = {"candidate_revision": candidate_revision,
+               "rule_version": rule_version, "rows": rows}
+        path = self.decision_revision_path(producer, session_id,
+                                           candidate_revision, rule_version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            if json.loads(path.read_text(encoding="utf-8")) != doc:
+                raise ValueError("immutable decision revision differs")
+        else:
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(doc, allow_nan=False, separators=(",", ":")),
+                           encoding="utf-8")
+            os.replace(tmp, path)
+        return path
+
+    def read_decisions(self, producer: str, session_id: str,
+                       candidate_revision: str, rule_version: str) -> list[dict]:
+        path = self.decision_revision_path(producer, session_id,
+                                           candidate_revision, rule_version)
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if (doc.get("candidate_revision"), doc.get("rule_version")) != (
+                candidate_revision, rule_version):
+            raise ValueError("decision dependency mismatch")
+        rows = doc["rows"]
+        validate_decisions(self.read_candidates(producer, session_id,
+                                                 candidate_revision), rows, producer)
+        return rows
 
     # ---------- paths ----------
 

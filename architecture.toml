@@ -33,7 +33,8 @@ order = ["foundation", "source", "primitives", "readers", "orchestration",
 claim = "no siblings above the language and the store's own vocabulary"
 modules = ["version", "profiles", "fingerprint", "metrics", "judgement",
            "domain", "architecture", "ownership", "quoted", "screen",
-           "appearance", "artifacts", "revisions", "census", "events"]
+           "appearance", "artifacts", "revisions", "census", "events",
+           "candidate_evidence"]
 
 [source]
 claim = "identity, decode, persistence, and the baked (map, profile) geometry"
@@ -60,6 +61,7 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "capabilities", "adjudication.ability", "adjudication.capture",
            "adjudication.gallery", "adjudication.phases", "adjudication.identity",
            "adjudication.death", "adjudication.weapon", "adjudication.scoreboard",
+           "adjudication.minimap_candidates",
            "ability_coverage",
            "ability_timeline", "gametime", "domain_learning"]
 

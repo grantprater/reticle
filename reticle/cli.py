@@ -920,7 +920,22 @@ def cmd_scan(args) -> int:
         print(f"           self raw {got}/{len(mp.rows)} "
               f"({got / len(mp.rows) * 100:.1f}%)")
     if ap is not None:
-        events = ap.events(sid)
+        from .adjudication.minimap_candidates import (
+            MINIMAP_ICON_DECISION_VERSION, accepted, ally_decisions)
+        candidate_revision = store.write_candidates("ally_icon", sid,
+                                                     ap.candidate_rows(sid), ap.frames)
+        batch = store.read_candidate_batch("ally_icon", sid, candidate_revision)
+        candidates = batch["rows"]
+        store.write_decisions("ally_icon", sid, candidate_revision,
+                              MINIMAP_ICON_DECISION_VERSION,
+                              ally_decisions(candidates))
+        decisions = store.read_decisions("ally_icon", sid, candidate_revision,
+                                         MINIMAP_ICON_DECISION_VERSION)
+        kept = accepted(candidates, decisions)
+        # Check the previous output contract before publishing the replay.
+        ap.events(sid, kept, candidate_revision)
+        events = AllyIconReader.replay_events(sid, batch["frames"], kept, ap.hz,
+                                               candidate_revision)
         out = store.write_events("ally_icon", sid, events)
         cov = events[0]
         print(f"ally icons {cov['frames']} frames, {cov['icons']} icons, "
@@ -1685,6 +1700,7 @@ def cmd_lifetimes(args) -> int:
 
     Writes `round_entity` events; see `reticle/round_entities.py`.
     """
+    import hashlib
     import json
 
     from .round_entities import ROUND_ENTITY_VERSION, session_lifetimes
@@ -1697,14 +1713,18 @@ def cmd_lifetimes(args) -> int:
     if not events:
         raise SystemExit(f"no ally_icon events for {sid} -- "
                          f"run `reticle scan {sid} --only ally_icon --ally-hz 15`")
-    # Two stamps key this file: the runner's and the association law's.
+    source_revision = hashlib.sha256(
+        store.events_path("ally_icon", sid).read_bytes()).hexdigest()
+    # A new observation revision invalidates this derived association.
     path = store.events_path("round_entity", sid)
     stamped = None
     if path.is_file():
         with open(path, encoding="utf-8") as f:
             first = json.loads(f.readline() or "{}")
-        stamped = (first.get("round_entity_version"), first.get("round_lifetime_version"))
-    if stamped == (ROUND_ENTITY_VERSION, ROUND_LIFETIME_VERSION) and not args.force:
+        stamped = (first.get("round_entity_version"), first.get("round_lifetime_version"),
+                   first.get("ally_icon_revision"))
+    if stamped == (ROUND_ENTITY_VERSION, ROUND_LIFETIME_VERSION,
+                   source_revision) and not args.force:
         print(f"cache hit  session {sid} already has round entities at "
               f"{ROUND_ENTITY_VERSION} / {ROUND_LIFETIME_VERSION}; --force to recompute")
         return 0
@@ -1717,7 +1737,8 @@ def cmd_lifetimes(args) -> int:
     box = minimap_roi_px(get_profile(manifest["source_profile"]),
                          int(manifest["source"]["width"]),
                          int(manifest["source"]["height"]))
-    rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]), roster)
+    rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]),
+                             roster, source_revision)
     out = store.write_events("round_entity", sid, rows)
     cov = rows[0]
     ents = [r for r in rows if r["kind"] == "entity"]
