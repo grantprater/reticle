@@ -83,6 +83,16 @@ is an outcome and belongs in `notes/predictions.jsonl` and `metrics`.
 consumers = ["doctor"]
 evidence = "tests/test_domain.py, `reticle domain --check`"
 
+[[entry]]
+id = "domain-hypothesis"
+question = "Does stored evidence independently support a proposed domain fact?"
+owner = "domain_learning"
+role = ["adjudicate"]
+status = "shipped"
+produces = ["validate", "publish", "render"]
+not_for = "Accepted domain facts, entity identity, track association, or automatic promotion. The canonical fact owner is domain."
+evidence = "tests/test_domain_learning.py, tools/domain_hypothesis.py"
+
 # ---------------------------------------------------------------------------
 # Per-frame evidence, before anything interprets it
 # ---------------------------------------------------------------------------

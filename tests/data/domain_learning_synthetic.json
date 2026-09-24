@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "hypothesis": {
+    "hypothesis_id": "synthetic-rule",
+    "revision": "h2",
+    "claim": "Synthetic test claim",
+    "kind": "rule",
+    "subject": "synthetic:object",
+    "scope": {
+      "map": null
+    },
+    "proposed_by": "synthetic fixture",
+    "proposed_at": "2026-01-02",
+    "rule_id": "synthetic-rule",
+    "prediction": "A source window shows the pattern",
+    "falsifier": "A window lacks it",
+    "evaluation_plan": "Review separate source windows",
+    "status": "proposed",
+    "evidence": [
+      {
+        "id": "source",
+        "revision": "s1",
+        "role": "supporting"
+      },
+      {
+        "id": "derived",
+        "revision": "d1",
+        "role": "supporting"
+      },
+      {
+        "id": "counter",
+        "revision": "c1",
+        "role": "contradicting"
+      },
+      {
+        "id": "unknown",
+        "revision": "u1",
+        "role": "unresolved"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "id": "source",
+      "revision": "s1",
+      "current_revision": "s1",
+      "kind": "observation",
+      "observed_at": "2026-01-01T00:00:00Z",
+      "analyzed_at": "2026-01-02T00:00:00Z",
+      "source": {
+        "session": "synthetic-a",
+        "window_ms": [
+          100,
+          200
+        ]
+      },
+      "instance": "i1",
+      "round": "r1",
+      "session": "synthetic-a",
+      "dependencies": [],
+      "rules_used": []
+    },
+    {
+      "id": "intermediate",
+      "revision": "m1",
+      "current_revision": "m1",
+      "kind": "verdict",
+      "observed_at": "2026-01-01T00:00:00Z",
+      "analyzed_at": "2026-01-02T00:00:00Z",
+      "source": {
+        "session": "synthetic-a",
+        "window_ms": [
+          100,
+          200
+        ]
+      },
+      "dependencies": [],
+      "rules_used": [
+        "synthetic-rule"
+      ]
+    },
+    {
+      "id": "derived",
+      "revision": "d1",
+      "current_revision": "d1",
+      "kind": "verdict",
+      "observed_at": "2026-01-01T00:00:00Z",
+      "analyzed_at": "2026-01-02T00:00:00Z",
+      "source": {
+        "session": "synthetic-a",
+        "window_ms": [
+          100,
+          200
+        ]
+      },
+      "dependencies": [
+        {
+          "id": "intermediate",
+          "revision": "m1"
+        }
+      ],
+      "rules_used": []
+    },
+    {
+      "id": "counter",
+      "revision": "c1",
+      "current_revision": "c1",
+      "kind": "observation",
+      "observed_at": "2026-01-01T00:00:00Z",
+      "analyzed_at": "2026-01-02T00:00:00Z",
+      "source": {
+        "session": "synthetic-b",
+        "window_ms": [
+          300,
+          400
+        ]
+      },
+      "dependencies": [],
+      "rules_used": []
+    },
+    {
+      "id": "unknown",
+      "revision": "u1",
+      "current_revision": "u1",
+      "kind": "observation",
+      "observed_at": "2026-01-01T00:00:00Z",
+      "analyzed_at": "2026-01-02T00:00:00Z",
+      "source": {
+        "session": "synthetic-b",
+        "window_ms": [
+          300,
+          400
+        ]
+      },
+      "dependencies": [],
+      "rules_used": []
+    }
+  ],
+  "consumers": [
+    {
+      "id": "verdict",
+      "revision": "v1",
+      "depends_on": [
+        "synthetic-rule"
+      ],
+      "stored_inputs": true
+    },
+    {
+      "id": "review",
+      "revision": "r1",
+      "depends_on": [
+        "verdict"
+      ],
+      "stored_inputs": false
+    }
+  ]
+}

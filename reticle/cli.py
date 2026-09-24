@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import json
 from collections import Counter
 import sys
 import time
@@ -2322,6 +2323,18 @@ def cmd_domain(args) -> int:
     return domain_main(argv)
 
 
+def cmd_domain_hypothesis(args) -> int:
+    """Review a pinned stored-data proposal without changing accepted facts."""
+    from .domain_learning import publish
+    document = json.loads(args.proposal.read_text(encoding="utf-8"))
+    path, report = publish(document, args.output)
+    print(f"Review: {path / 'review.md'}")
+    print(f"JSON: {path / 'report.json'}")
+    print(f"Valid: {report['valid']}; independent support: {len(report['independent_support'])}; "
+          f"refusals: {len(report['errors'])}")
+    return 0 if report["valid"] else 1
+
+
 def cmd_ownership(args) -> int:
     """Who owns a question, and what that owner is NOT for.
 
@@ -2690,6 +2703,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--check", action="store_true",
                    help="validate the registry and its citations")
     s.set_defaults(func=cmd_domain)
+
+    s = sub.add_parser("domain-hypothesis", help="review a pinned stored-data domain proposal")
+    s.add_argument("proposal", type=Path)
+    s.add_argument("--output", type=Path, required=True)
+    s.set_defaults(func=cmd_domain_hypothesis)
 
     s = sub.add_parser("ownership", help="which module owns a question, and "
                        "what it is NOT for")

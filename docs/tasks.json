@@ -82,6 +82,14 @@
       "evidence": ["Read killer truth from source killfeed crops and log it with the prediction before measuring.", "No killer name is set outside the arbiter; keep zero wrong killer names and read every refusal's reason."]
     },
     {
+      "id": "entity-domain-learning-foundation",
+      "objective": "Validate and persist reviewable domain hypotheses from pinned stored evidence, with transitive independence checks and a withdrawal impact dry run; do not promote production facts.",
+      "files": ["reticle/domain_learning.py", "reticle/cli.py", "tools/domain_hypothesis.py", "tests/test_domain_learning.py", "tests/data/domain_learning_synthetic.json"],
+      "reads": ["AGENTS.md", "NOTES.md", "docs/ENTITY_DOMAIN_LEARNING_DESIGN.md", "reticle/domain.py", "reticle/revisions.py", "reticle/artifacts.py"],
+      "acceptance": [["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_domain_learning.py", "-q"], ["{python}", "-m", "reticle", "domain-hypothesis", "tests/data/domain_learning_synthetic.json", "--output", "teststore/domain-learning-synthetic"], ["{python}", "-m", "reticle", "doctor"]],
+      "evidence": ["Inspect review.md and report.json from the actual synthetic run; confirm independent and circular support, counterexample and unresolved preservation, derived provenance, and transitive impact.", "A synthetic pass proves schema and command plumbing only. Keep domain/*.toml unchanged and stop before corpus experiments or consumer wiring."]
+    },
+    {
       "id": "minimap-ally-identity",
       "objective": "Store a versioned descriptor for each ally minimap icon and name each frame icons through adjudication.identity over the board ally set minus the player.",
       "files": ["reticle/minimap.py", "reticle/adjudication/identity.py", "reticle/cli.py", "reticle/version.py", "tools/ally_identity_review.py", "ownership.toml"],

@@ -51,7 +51,7 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(affected_artifacts(["reticle/artifacts.py"]),
                          ["ability_capture", "ability_coverage", "ability_entities",
                           "ability_gallery", "ability_phases", "ability_timeline",
-                          "coaching", "refinement"])
+                     "coaching", "domain_hypothesis", "refinement"])
 
 
 if __name__ == "__main__":

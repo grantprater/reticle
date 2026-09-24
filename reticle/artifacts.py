@@ -21,6 +21,9 @@ class ArtifactSpec:
 
 
 ARTIFACTS = {
+    "domain_hypothesis": ArtifactSpec(
+        ("domain_learning.py", "domain.py", "artifacts.py", "revisions.py"),
+        inputs=("pinned_evidence_revisions", "accepted_fact_revisions")),
     "ability_coverage": ArtifactSpec(
         ("ability_coverage.py", "artifacts.py", "store.py"),
         inputs=("manifest", "ability_reference", "ability_labels",
