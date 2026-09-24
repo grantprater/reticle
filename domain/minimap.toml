@@ -303,3 +303,23 @@ is unobservable unless a teammate witnessed it, in which case the death location
 is explicitly abstained.
 """
 see = ["minimap/enemy-death-mark"]
+
+[widget-ring]
+claim = """
+The minimap widget's boundary is a circle that circumscribes the map painting.
+On Ascent it touches the map at the B-site boathouse, the leftmost point, and
+at A site's top-right corner.
+"""
+kind = "geometry"
+known = "player"
+since = "2026-09-24"
+source = """
+the player. A faint drawn ring fitted in the baked base maps sits below the ROI
+centre, about (+1, +15) px on the bigmap profile and (-5, +7) px on the standard
+one, because the ROI includes the location label band; its fitted radius is not
+yet stable across maps.
+"""
+use = """
+a radar mask must contain the whole map; a circle inscribed in the ROI clips map
+pixels on 6 of 12 baked geometries
+"""

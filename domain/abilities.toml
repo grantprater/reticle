@@ -366,3 +366,47 @@ since = "2026-09-24"
 subject = "deadlock"
 source = "29eff6920e8f tray icons and viewmodel; the player confirmed"
 use = "map a Deadlock tray slot to its ability; E is the thrown net, not the mesh"
+
+[jett-cloudburst-duration]
+claim = """
+A Cloudburst smoke lasts about 3 seconds.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-24"
+subject = "jett:cloudburst"
+source = "the player; the minimap disc measured 2.75-3.0 s twice on ff19748eea8c"
+use = "expected lifetime of a Cloudburst disc; a longer dark disc is another object"
+see = ["abilities/jett-cloudburst"]
+
+[viper-poison-cloud-toggle]
+claim = """
+Viper throws the Poison Cloud emitter first and toggles the cloud on and off
+afterwards, several times. The throw does not start the cloud.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-24"
+subject = "viper:poison cloud"
+source = """
+the player. On afa5bc60b935 the tray drop is the throw at 18.1 s, and the cloud
+is dark on the minimap at one spot over 23.1-29.6, 52.1-58.6 and 75.6-85.35 s;
+on 6bb88dba5d2c the throw is at 9.5 s and the first cloud reads 12.5-17.25 s
+"""
+use = "a Poison Cloud entity has several active phases; each toggle is a phase, not a new entity"
+see = ["abilities/viper-poison-cloud"]
+
+[viper-pit-tint]
+claim = """
+Inside Viper's Pit the screen is tinted green, but the minimap floor does not
+drop below its unlit level.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-24"
+subject = "viper:viper's pit"
+source = """
+the player; on 6bb88dba5d2c lighting.raw_dark covers 233 px of the slab at
+40.0, 44.5 and 46.0 s, before and inside the Pit
+"""
+use = "the Pit is not a minimap dark region; do not read the tint as one"

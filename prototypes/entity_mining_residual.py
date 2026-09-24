@@ -32,9 +32,14 @@ What the loop found
    14.25-16.75 s where one end is censored [domain:abilities/omen-dark-cover].
    The fifth use claimed the same smoke as a cast 1.5 s later: two adjacent
    smokes, and no one-to-one assignment of casts to entities.
-6. Jett's Cloudburst reads 2.75-3.0 s twice. Viper's Poison Cloud is dark too
-   (4.75-5.0 s here; it is toggled). Viper's Pit darkens the whole widget and
-   then the widget disappears, which is a different event, not an object.
+6. Jett's Cloudburst reads 2.75-3.0 s twice, and the player confirms about 3 s
+   [domain:abilities/jett-cloudburst-duration]. Viper's Poison Cloud is dark
+   too: its first toggle reads 4.75-5.0 s [domain:abilities/viper-poison-cloud-toggle].
+7. **Two instrument errors, found by looking.** The "widget-wide dark" at
+   Viper's Pit was the in-game settings menu, whose dim overlay darkens the
+   minimap while `widget_drawn` still reports it drawn; the Pit's own tint
+   does not [domain:abilities/viper-pit-tint]. And the "widget absent" after it
+   was the end of the file. End of capture is now its own state.
 
 What it does not do
 -------------------
@@ -71,10 +76,13 @@ STEP_S = 0.25
 BIRTH_WINDOW_S = 4.0
 PERSIST = 4
 HORIZON_S = 45.0
+#: Past the last frame of the capture: a terminal state, not an unobserved one.
+END = "end_of_capture"
 
 
 class Session:
-    """Frame access returning `raw_dark` with the self icon removed, or None if unobserved."""
+    """Frame access: `raw_dark` with the self icon removed, None if the widget
+    is not drawn, or `END` past the last frame -- never conflated."""
 
     def __init__(self, sid: str):
         man = geometry.manifest(sid, STORE)
@@ -94,9 +102,12 @@ class Session:
         if t not in self.cache:
             self.cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
             ok, f = self.cap.read()
+            if not ok:
+                self.cache[t] = END
+                return END
             x0, y0, x1, y1 = self.box
-            crop = f[y0:y1, x0:x1] if ok else None
-            if crop is None or not minimap.widget_drawn(crop, self.sgray, self.floor):
+            crop = f[y0:y1, x0:x1]
+            if not minimap.widget_drawn(crop, self.sgray, self.floor):
                 self.cache[t] = None
             else:
                 dk = lighting.raw_dark(crop, self.ref).astype(np.uint8)
@@ -109,13 +120,13 @@ class Session:
 def births(s: Session, t_cast: float) -> tuple[list[dict], list[dict]]:
     """Persistent new dark components after a cast, and widget-wide dark events."""
     pre = s.dark(t_cast - 0.75)
-    if pre is None:
+    if pre is None or pre is END:
         return [], [{"reason": "widget_absent_before_cast"}]
     grown = cv2.dilate(pre.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
     out, other = [], []
     for dt in np.arange(STEP_S, BIRTH_WINDOW_S + 1e-6, STEP_S):
         d = s.dark(t_cast + dt)
-        if d is None:
+        if d is None or d is END:
             continue
         new = cv2.morphologyEx((d & ~grown).astype(np.uint8), cv2.MORPH_OPEN,
                                np.ones((3, 3), np.uint8))
@@ -129,7 +140,7 @@ def births(s: Session, t_cast: float) -> tuple[list[dict], list[dict]]:
                 continue
             cx, cy = int(cen[i][0]), int(cen[i][1])
             later = [s.dark(t + k * STEP_S) for k in range(1, PERSIST + 1)]
-            if any(l is None or not l[cy, cx] for l in later):
+            if any(l is None or l is END or not l[cy, cx] for l in later):
                 continue
             out.append({"t": t, "cx": float(cen[i][0]), "cy": float(cen[i][1]),
                         "area": int(st[i, 4]), "r_eq": float(np.sqrt(st[i, 4] / np.pi))})
@@ -137,7 +148,7 @@ def births(s: Session, t_cast: float) -> tuple[list[dict], list[dict]]:
 
 
 def states(s: Session, b: dict, t_end: float) -> tuple[np.ndarray, str]:
-    """Per sample: D dark, p partial, c clear, u unobserved, inside 0.7 r of the birth."""
+    """Per sample: D dark, p partial, c clear, u unobserved, x past the capture."""
     H, W = s.floor.shape
     Y, X = np.ogrid[:H, :W]
     disc = ((X - b["cx"]) ** 2 + (Y - b["cy"]) ** 2 <= (0.7 * b["r_eq"]) ** 2) & s.ref.known
@@ -145,6 +156,9 @@ def states(s: Session, b: dict, t_end: float) -> tuple[np.ndarray, str]:
     out = []
     for t in ts:
         d = s.dark(t)
+        if d is END:
+            out.append("x")
+            continue
         if d is None or not disc.any():
             out.append("u")
             continue
@@ -164,7 +178,8 @@ def lifetime(ts: np.ndarray, st: str) -> dict:
         return {"status": "never_dark"}
     end = st.find("c" * PERSIST, first)
     if end < 0:
-        return {"status": "no_end_observed", "onset": float(ts[first])}
+        return {"status": ("capture_ended" if "x" in st[first:] else "no_end_observed"),
+                "onset": float(ts[first])}
     last = st.rfind("D", first, end)
     on_lo = on_hi = float(ts[first])
     k = first - 1
@@ -173,7 +188,7 @@ def lifetime(ts: np.ndarray, st: str) -> dict:
     if k < first - 1:
         on_lo = float(ts[k + 1])
     off_lo, off_hi = float(ts[last]), float(ts[end])
-    if "u" not in st[last:end]:
+    if not set(st[last:end]) & {"u", "x"}:
         off_hi = float(ts[last]) + STEP_S
     gaps = st.count("u", first, last)
     return {"status": "censored" if (on_lo < on_hi or off_hi - off_lo > STEP_S) else "observed",
