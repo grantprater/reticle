@@ -845,6 +845,14 @@ def check_uncalled(base: Path | None = None) -> list[tuple[str, str]]:
     their 180-degree flips), and three ability detectors reached only by
     benchmark tools. A producer is wired when a `cmd_*` in `cli` reaches it
     without passing through `RENDER_ONLY`.
+
+    **A ratchet, because a warning was not enough.** As a warning this listed
+    23 producers and stopped none: the team's adjudicated vision (lobe, track
+    facing, lifecycle, observable area) ran only inside `overlay` while a new
+    ability rule restated its first step. `uncalled_debt.toml` names each
+    finding that existed on 2026-09-23. A finding not named there is an ERROR,
+    and a named one no longer found is a WARN to delete it, so the list only
+    shrinks. Wire the producer; never add to the list to pass.
     """
     base = base or ROOT
     data = ownership.load(base / "ownership.toml")
@@ -873,6 +881,18 @@ def check_uncalled(base: Path | None = None) -> list[tuple[str, str]]:
                     if fname:
                         passed[fname].update(k.arg for k in n.keywords if k.arg)
 
+    debt_path = base / "uncalled_debt.toml"
+    debt = set()
+    if debt_path.is_file():
+        import tomllib
+        debt = set(tomllib.loads(debt_path.read_text(encoding="utf-8")).get("items", []))
+    found: set[str] = set()
+
+    def level(kind: str, key: str, names: list[str]) -> str:
+        ids = {f"{kind}:{key}:{n}" for n in names}
+        found.update(ids)
+        return WARN if ids <= debt else ERROR
+
     out: list[tuple[str, str]] = []
     for key, entry in sorted(data.get("_index", {}).items()):
         owner = str(entry.get("owner", ""))
@@ -897,17 +917,23 @@ def check_uncalled(base: Path | None = None) -> list[tuple[str, str]]:
                     if empty and arg.arg not in passed[name]:
                         unpassed.append(f"{name}({arg.arg}=)")
         if cold:
-            out.append((WARN, f"[{key}] `{owner}` produces {', '.join(cold)} and "
+            out.append((level("cold", key, cold), f"[{key}] `{owner}` produces {', '.join(cold)} and "
                               f"no CLI command reaches it -- wire it, or say "
                               f"in the entry why it waits"))
         if render:
-            out.append((WARN, f"[{key}] `{owner}` produces {', '.join(render)}, "
+            out.append((level("render", key, render), f"[{key}] `{owner}` produces {', '.join(render)}, "
                               f"reached only through {', '.join(sorted(RENDER_ONLY))} "
                               f"-- it draws, and feeds no stored answer"))
         if unpassed:
-            out.append((WARN, f"[{key}] no call anywhere passes {', '.join(unpassed)} "
+            out.append((level("unpassed", key, unpassed), f"[{key}] no call anywhere passes {', '.join(unpassed)} "
                               f"-- that input is accepted and never supplied"))
+    paid = sorted(debt - found)
+    if paid:
+        out.append((WARN, f"{len(paid)} uncalled_debt.toml item(s) now wired or gone -- "
+                          f"delete them: {', '.join(paid[:5])}"))
+    check_uncalled.found = sorted(found)
     return out
+
 
 
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:

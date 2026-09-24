@@ -10,6 +10,8 @@ Steps 1 to 5 are done; steps 3 to 5 are recorded under Completed. Step 1 measure
 
 The player answered the dimming question: dimmed means currently dead, a Sage revive lights the row again, and Run It Back is not expected to dim [domain:rounds/scoreboard-dim-is-dead]. Clove before Not Dead Yet and a downed KAY/O remain unknown; capture one of each and ask when it occurs.
 
+**Store the team's adjudicated vision, then feed it to ability refusal (next, 2026-09-23).** The chain the player built -- `cone.resolve_lobe` per frame, `track` resolved facing, `minimap_lifecycle` eligibility, `cone.observable` union (`adjudicated_agg`) -- runs only inside `overlay` and stores nothing, so no adjudicator can consume it. Make it a stored product with its own owner entry and stamp, reached by `scan` or a stored-data command, and delete its items from `uncalled_debt.toml`. Then `adjudication.ability.light_refusals` consumes it for the three cone slivers `lit_mask` misses, without restating any stage; score against the grouping labels (16 of 19 viewcones refused today, 0 of 31 abilities). Decide the order of adjudicators explicitly: a smoke blocks the drawn light while the light refuses ability candidates, so that loop needs breaking by time (the previous frame's accepted entities) or a bounded fixed point over stored data.
+
 **Roster defect:** `roster.resolve` reads 1 on a wiped side ([details](docs/BOARD_ALIVE_SETS.md#results)).
 
 **Geometry stamp reads line endings:** `minimap_geometry.source_stamp` hashes the file's raw bytes, so a CRLF checkout (any fresh worktree here, `core.autocrlf=true`) reports all 12 geometry npz stale. Normalising the bytes edits the stamped file, which itself forces a rebuild; schedule it with the next geometry rebuild.

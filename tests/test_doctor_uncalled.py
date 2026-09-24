@@ -64,6 +64,19 @@ class UncalledTests(unittest.TestCase):
         self.assertTrue(any("drawn" in m and "reached only through" in m
                             for m in self.found))
 
+    def test_a_finding_outside_the_debt_list_is_an_error(self):
+        levels = {m: lv for lv, m in doctor.check_uncalled(self.root)}
+        self.assertTrue(all(lv == "ERROR" for lv in levels.values()))
+        (self.root / "uncalled_debt.toml").write_text(
+            'items = ["cold:thing:cold", "render:thing:drawn", "cold:thing:gone"]\n',
+            encoding="utf-8")
+        out = doctor.check_uncalled(self.root)
+        cold = next(lv for lv, m in out if "produces cold" in m)
+        drawn = next(lv for lv, m in out if "produces drawn" in m)
+        self.assertEqual((cold, drawn), ("WARN", "WARN"))
+        # A listed item no longer found must be deleted, so the list shrinks.
+        self.assertTrue(any("cold:thing:gone" in m and "delete" in m for _lv, m in out))
+
     def test_a_wired_producer_is_not_flagged(self):
         self.assertFalse(any("produces wired" in m for m in self.found))
 
