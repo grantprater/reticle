@@ -50,7 +50,8 @@ from .killfeed import (KILLFEED_PORTRAIT_VERSION, KillfeedPortraitReader,
                        me_template_path, overlay_mask, read_killfeed)
 from .belief import (BELIEF_VERSION, absent_instants, resolve,
                      round_voids)
-from .minimap import (FIT_ERR_PX, MAX_ALLIES, _odd, ally_rings, art_floor,
+from .minimap import (ALLY_DESCRIPTOR_HZ, FIT_ERR_PX, MAX_ALLIES, AllyIconReader, _odd,
+                      ally_rings, art_floor,
                       filter_track, floor_mask, minimap_roi_px, slab_mask,
                       widget_scale,
                       pick_self, self_icons, widget_drawn)
@@ -67,7 +68,7 @@ from .primitives import PrimitiveExtractor
 from .profiles import DEFAULT_PROFILE, MinimapMode, get_profile
 from .segment import HUD_CHROME_ROIS, STATES, SegmentConfig, classify, segment
 from .store import DEFAULT_STORE, Store
-from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
+from .version import (ALLY_ICON_VERSION, EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
                       ROSTER_VERSION, SCOREBOARD_VERSION, SEGMENTER_VERSION)
 from .hud_reader import HudReader
 
@@ -775,13 +776,15 @@ def cmd_scan(args) -> int:
             f"source media has moved: {media}\n"
             "the manifest records where it was at ingest time"
         )
-    channels = set(args.only or ('hud', 'minimap', 'ping', 'roster', 'scoreboard'))
+    channels = set(args.only or ('hud', 'minimap', 'ping', 'roster', 'scoreboard',
+                                 'ally_icon'))
     # IDENTITY RIDES EVERY SCAN. The top bar is drawn on every frame, so naming
     # the ten agents costs no decode of its own -- it joins the pass at 0.1 Hz.
     # A scan narrowed with `--only` is testing one specific thing and is left
     # alone; anything else reads the lineup unless `--no-lineup` says not to.
     want_lineup = args.lineup and not args.only
-    spans = _active_spans(store, sid, date) if channels & {'minimap', 'ping'} else []
+    spans = (_active_spans(store, sid, date)
+             if channels & {'minimap', 'ping', 'ally_icon'} else [])
     fps = float(src["fps"])
 
     want_hud = 'hud' in channels and (args.force or not store.has_hud(sid, date))
@@ -797,10 +800,15 @@ def cmd_scan(args) -> int:
     want_ping = 'ping' in channels and args.ping and (args.force
                                or store.events_version("ping", sid) != PING_VERSION)
     want_roster = 'roster' in channels and args.roster and (args.force or not store.has_roster(sid, date))
+    # Rides the minimap's active spans at 2 Hz; versioned by its own stamp, so a
+    # descriptor change re-reads descriptors and leaves positions alone.
+    want_ally = 'ally_icon' in channels and (
+        args.force or store.events_version("ally_icon", sid) != ALLY_ICON_VERSION)
     want_scoreboard = ('scoreboard' in channels and args.scoreboard and
                        (args.force or store.events_version("scoreboard", sid)
                         != SCOREBOARD_VERSION))
-    if not (want_hud or want_portraits or want_mm or want_ping or want_roster or want_scoreboard):
+    if not (want_hud or want_portraits or want_mm or want_ping or want_roster
+            or want_scoreboard or want_ally):
         print(f"cache hit  session {sid}: requested channels are current or disabled; "
               "--force to re-read")
         return 0
@@ -815,7 +823,8 @@ def cmd_scan(args) -> int:
             f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)"] if want_mm else [])
         + ([f"ping {args.ping_hz:g} Hz, active spans"] if want_ping else [])
         + ([f"roster {args.hz:g} Hz, whole capture"] if want_roster else [])
-        + ([f"scoreboard {args.hz:g} Hz, whole capture"] if want_scoreboard else [])))
+        + ([f"scoreboard {args.hz:g} Hz, whole capture"] if want_scoreboard else [])
+        + ([f"ally icons {ALLY_DESCRIPTOR_HZ:g} Hz, active spans"] if want_ally else [])))
 
     hp = _HudPass(store, manifest, profile, args) if want_hud else None
     mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
@@ -855,7 +864,15 @@ def cmd_scan(args) -> int:
 
     lp = (LineupReader(profile, ctx.wh, store.root, name=f"lineup:{sid}")
           if want_lineup else None)
-    readers = [r for r in (hp, kp, mp, pp, rp, sp, lp) if r is not None]
+    ap = None
+    if want_ally:
+        med = ctx.map_reference()
+        ap = AllyIconReader(
+            floor=mp.floor if mp is not None else ctx.floor(),
+            slab=mp.slab if mp is not None else slab_mask(
+                med, sd=geometry.stability(sid, store.root, med.shape[:2])),
+            static=med, box=minimap_roi_px(profile, *ctx.wh), spans=spans)
+    readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap) if r is not None]
 
     t0 = time.perf_counter()
     last = [t0]
@@ -900,6 +917,13 @@ def cmd_scan(args) -> int:
               f"({mp.n_absent / len(mp.rows) * 100:.1f}%)")
         print(f"           self raw {got}/{len(mp.rows)} "
               f"({got / len(mp.rows) * 100:.1f}%)")
+    if ap is not None:
+        events = ap.events(sid)
+        out = store.write_events("ally_icon", sid, events)
+        cov = events[0]
+        print(f"ally icons {cov['frames']} frames, {cov['icons']} icons, "
+              f"{cov['described']} described -> {out}")
+        print(f"           refused {cov['refused_reasons']}")
     if lp is not None:
         import json
         result = lp.finish()[0]
@@ -2486,7 +2510,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="skip naming the ten agents from the top bar; it "
                         "otherwise rides every unnarrowed scan for free")
     s.add_argument("--only", nargs="+",
-                   choices=("hud", "minimap", "ping", "roster", "scoreboard"),
+                   choices=("hud", "minimap", "ping", "roster", "scoreboard",
+                            "ally_icon"),
                    help="run only these readers through the shared pass; roster-only needs no minimap geometry")
     s.add_argument("--no-roster", dest="roster", action="store_false",
                    help="skip the roster alive-count reader (it rides this pass free)")

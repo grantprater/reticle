@@ -948,6 +948,143 @@ def ally_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
     return icons(ally_mask(crop), crop, floor, **kw)
 
 
+#: The share of the fitted radius whose interior is the portrait. The teal
+#: surround is about two pixels thick at r 8-10, so 0.75 stays inside it; the
+#: key pixels are masked out anyway, so this bounds where the portrait may be
+#: rather than trimming the ring.
+ALLY_INTERIOR_FRAC = 0.75
+#: How often the reader describes ally icons. Positions ride every frame; a
+#: descriptor is 90 floats per icon, and identity changes only at a death.
+ALLY_DESCRIPTOR_HZ = 2.0
+#: Below this mean grey difference from the baked map, an icon's interior IS
+#: the map and the icon is a teal spawn barrier, not a teammate. Measured on
+#: ten random frames of a06f04a0059f with five allies alive: nine barrier fits
+#: read 0.0-4.9 and 29 portraits 30.2-73.7. The gate sits inside that gap.
+ALLY_MAP_DIFF_MIN = 15.0
+
+
+def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
+                          support: np.ndarray | None = None,
+                          static: np.ndarray | None = None,
+                          occluders=()) -> list[dict]:
+    """Each teammate icon's centre, radius and what its portrait LOOKS like.
+
+    The icon is the ally channel's gated fit, supported by the slab.
+
+    `composition` is `appearance.hsv_composition` over the disc inside the
+    ring, less three kinds of pixel that are not this portrait: the ally and
+    self keys, every `occluders` disc `(cx, cy, r)` -- the player's own icon,
+    drawn over teammates with its own portrait inside -- and pixels nearer
+    another ally icon's centre than this one's. It is None, with `reason`,
+    when too few pixels remain; the icon stays in the list, so a thin
+    interior reads as an unread descriptor rather than a missing ally.
+
+    `map_diff` is the mean grey difference between those pixels and `static`,
+    the baked map reference. A portrait is drawn OVER the map; a teal spawn
+    barrier passes the ring fit and facing gates, and inside its ring the
+    unkeyed pixels ARE the map. None when no reference is passed.
+
+    Readers do not name entities. This describes; `adjudication.identity`
+    names.
+    """
+    from . import appearance
+
+    keyed = ally_mask(crop) | self_mask(crop)
+    yy, xx = np.mgrid[0:crop.shape[0], 0:crop.shape[1]]
+    for ox, oy, orad in occluders:
+        keyed |= (xx - ox) ** 2 + (yy - oy) ** 2 <= (orad + 1) ** 2
+    grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    ref = (None if static is None
+           else cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float32))
+    found = ally_icons(crop, floor, support=support)
+    out = []
+    for i, f in enumerate(found):
+        d2 = (xx - f["cx"]) ** 2 + (yy - f["cy"]) ** 2
+        rad = ALLY_INTERIOR_FRAC * f["r"]
+        keep = (d2 <= rad * rad) & ~keyed
+        for j, g in enumerate(found):
+            if j != i:
+                keep &= d2 < (xx - g["cx"]) ** 2 + (yy - g["cy"]) ** 2
+        comp = appearance.hsv_composition(crop, keep)
+        diff = (float(np.abs(grey[keep] - ref[keep]).mean())
+                if ref is not None and keep.any() else None)
+        reason = ("interior_too_thin" if not comp.size
+                  else "interior_is_map" if diff is not None and diff < ALLY_MAP_DIFF_MIN
+                  else None)
+        out.append({"cx": f["cx"], "cy": f["cy"], "r": f["r"],
+                    "facing": None if f["facing"] is None else float(f["facing"]),
+                    "cov": f["cov"], "pixels": int(keep.sum()), "map_diff": diff,
+                    "composition": [float(v) for v in comp] if comp.size else None,
+                    "reason": reason})
+    return out
+
+
+class AllyIconReader:
+    """`passes.Reader` that describes teammate icons on frames somebody else decoded.
+
+    Writes `ally_icon` events: one `frame` row per described frame -- so a
+    frame with no icon is an observation, not a gap -- and one `icon` row per
+    icon with its descriptor. It names nobody; `adjudication.identity` joins
+    these to the lineup from storage. A widget-absent frame is recorded as
+    such and describes nothing.
+    """
+
+    def __init__(self, floor, slab, static, box, hz=ALLY_DESCRIPTOR_HZ,
+                 spans=None, name="ally_icon"):
+        self.name, self.hz, self.spans = name, hz, spans
+        self.floor, self.slab, self.static, self.box = floor, slab, static, box
+        self.sgray = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float64)
+        self.frames: list[dict] = []
+        self.icons: list[dict] = []
+
+    def feed(self, smp) -> None:
+        x0, y0, x1, y1 = self.box
+        crop = smp.frame[y0:y1, x0:x1]
+        frame = {"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms)}
+        if not widget_drawn(crop, self.sgray, self.floor):
+            self.frames.append({**frame, "widget_drawn": False, "icons": 0,
+                                "self": None})
+            return
+        # The player's icon draws over teammates with its own portrait inside.
+        # Best by coverage, as `self_icons` says a single answer should be.
+        mine = self_icons(crop, self.floor, require_facing=False, support=self.slab)
+        me = mine[0] if mine else None
+        occ = [(me["cx"], me["cy"], me["r"])] if me else []
+        got = ally_icon_descriptors(crop, self.floor, self.slab, self.static, occ)
+        self.frames.append({**frame, "widget_drawn": True, "icons": len(got),
+                            "self": [round(v, 2) for v in occ[0]] if occ else None})
+        for i, d in enumerate(got):
+            self.icons.append({**frame, "index": i, **d})
+
+    def events(self, session_id: str) -> list[dict]:
+        """JSONL-ready raw observations, with refusals counted by reason."""
+        from collections import Counter
+
+        from .version import ALLY_ICON_VERSION
+
+        common = {"session_id": session_id, "source": "minimap",
+                  "ally_icon_version": ALLY_ICON_VERSION}
+        refused = Counter(r["reason"] for r in self.icons if r["reason"])
+        rows = [{**common, "kind": "coverage",
+                 "frames": len(self.frames),
+                 "widget_absent": sum(1 for f in self.frames if not f["widget_drawn"]),
+                 "icons": len(self.icons),
+                 "described": len(self.icons) - sum(refused.values()),
+                 "refused_reasons": dict(sorted(refused.items()))}]
+        rows += [{**common, "kind": "frame", **f} for f in self.frames]
+        for r in self.icons:
+            out = dict(r)
+            for k in ("cx", "cy", "cov", "map_diff"):
+                if out[k] is not None:
+                    out[k] = round(out[k], 3)
+            if out["composition"] is not None:
+                out["composition"] = [round(v, 5) for v in out["composition"]]
+            rows.append({**common, "kind": "icon",
+                         "observation_key": f"{session_id}:{r['frame_idx']}:{r['index']}",
+                         **out})
+        return rows
+
+
 def art_floor(shade_kind: np.ndarray, dilate: float = 1) -> np.ndarray:
     """The map's own footprint, from the OFFICIAL ART. Prefer this to `floor_mask`.
 

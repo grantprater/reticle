@@ -118,6 +118,12 @@ MINIMAP_VERSION = "minimap-0.7.0"
 # key -- nothing skips a ping read on a version match, because pings ride a
 # pass that was going to happen anyway and cost no decode of their own.
 PING_VERSION = "ping-0.1.0"
+# Ally icon descriptors, emitted as `ally_icon` EVENTS by
+# `minimap.AllyIconReader` at 2 Hz. Its own stamp rather than a
+# MINIMAP_VERSION bump: positions do not change, and a descriptor is an
+# independent detector. Bump when the icon gate, the interior mask, the
+# occluder rule or `ALLY_MAP_DIFF_MIN` changes.
+ALLY_ICON_VERSION = "ally-icon-0.1.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

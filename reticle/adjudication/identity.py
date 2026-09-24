@@ -715,6 +715,78 @@ def claims_from_minimap_icons(observations, lineup, *, gallery,
     return out
 
 
+def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
+                           source_version="ally-icon",
+                           margin_min=SIDE_MARGIN_MIN) -> list[dict]:
+    """One claim per stored ally icon, each frame's icons named TOGETHER.
+
+    `icons` are `ally_icon` events of kind `icon`. The icons of one frame are
+    different teammates [domain:rounds/agent-uniqueness], so they are named by
+    `assign_side` over the ally side's agents minus the player -- whose icon
+    is drawn in the self key and never reaches this channel -- and a margin
+    is measured against an assignment the constraint permits. A refused ally
+    slot enters as a rival under its best guess: it can take an icon away and
+    never name one.
+
+    The entity is the OBSERVATION, `<session>:ally_icon:<observation_key>`.
+    Nothing here joins icons across frames; a track that does must supply its
+    own key and ask again.
+    """
+    sides = lineup.get("sides", lineup)
+    player = (lineup.get("player") or {}).get("agent")
+    rows = [r for r in sides.get("ally", []) if not player or r.get("agent") != player]
+    split = side_candidates(rows)
+    # `side_candidates` pads to five slots; four teammates are the whole side here.
+    split["blind"] = [b for b in split["blind"] if b is not None] + (
+        [None] * max(0, N_SLOTS - 1 - len(rows)))
+    names = sorted(set(split["named"]) | {r for r in split["rivals"] if r})
+    barred = {r for r in split["rivals"] if r}
+    refuse = ("player_unknown" if not player
+              else f"lineup_incomplete: {len(split['named'])} of {N_SLOTS - 1} "
+                   f"teammates named and {len(split['blind'])} propose no candidate"
+              if split["blind"] else None)
+
+    def claim(icon, agent, reason, evidence=None):
+        return identity_claim(
+            f"{session_id}:ally_icon:{icon['observation_key']}", agent,
+            channel="minimap_portrait", reason=reason,
+            source_version=icon.get("ally_icon_version", source_version),
+            observed_at_ms=icon.get("t_ms"),
+            evidence={"x": icon.get("cx"), "y": icon.get("cy"), "r": icon.get("r"),
+                      "frame_idx": icon.get("frame_idx"),
+                      "observation_reason": icon.get("reason"),
+                      "candidates": sorted(split["named"]),
+                      "rivals": sorted(barred), **(evidence or {})})
+
+    frames = defaultdict(list)
+    for icon in icons:
+        frames[icon["frame_idx"]].append(icon)
+    out = []
+    for _frame, group in sorted(frames.items()):
+        described = [i for i in group
+                     if not i.get("reason") and i.get("composition") is not None]
+        for icon in group:
+            if icon not in described:
+                out.append(claim(icon, None, icon.get("reason") or "icon_no_descriptor"))
+            elif refuse:
+                out.append(claim(icon, None, refuse))
+        if refuse or not described:
+            continue
+        scores = [_portrait_scores(i["composition"], names, gallery) for i in described]
+        matrix = [[s.get(n, 0.0) for n in names] for s in scores]
+        for icon, s, row in zip(described, scores,
+                                assign_side(matrix, names, 1, "ally", margin_min)):
+            reason = row["reason"]
+            if reason is None and row["agent"] in barred:
+                reason = f"icon_best_is_refused_slot {row['agent']}"
+            out.append(claim(
+                icon, row["agent"] if reason is None else None, reason,
+                {"scores": {n: round(v, 6) for n, v in sorted(s.items())},
+                 "best_guess": row["best_guess"], "rival": row["rival"],
+                 "margin": row["margin"], "icons_in_frame": len(described)}))
+    return out
+
+
 def _normalise(claim):
     """Validate a caller-supplied claim without mutating it."""
     required = ("entity_id", "channel")

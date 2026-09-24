@@ -80,6 +80,14 @@
       "reads": ["AGENTS.md", "BACKLOG.md#Agreed order (2026-09-23)", "docs/BOARD_ALIVE_SETS.md", "reticle/adjudication/death.py", "reticle/adjudication/identity.py"],
       "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-killers-2", "--minimum-named", "7"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
       "evidence": ["Read killer truth from source killfeed crops and log it with the prediction before measuring.", "No killer name is set outside the arbiter; keep zero wrong killer names and read every refusal's reason."]
+    },
+    {
+      "id": "minimap-ally-identity",
+      "objective": "Store a versioned descriptor for each ally minimap icon and name each frame icons through adjudication.identity over the board ally set minus the player.",
+      "files": ["reticle/minimap.py", "reticle/adjudication/identity.py", "reticle/cli.py", "reticle/version.py", "tools/ally_identity_review.py", "ownership.toml"],
+      "reads": ["AGENTS.md", "BACKLOG.md#Agreed order (2026-09-23)", "prototypes/CLAUDE.md", "docs/ALLY_MINIMAP_IDENTITY.md", "reticle/minimap.py", "reticle/adjudication/identity.py"],
+      "acceptance": [["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_ally_icons.py", "-q"], ["{python}", "tools/ally_identity_review.py", "--out", "teststore/ally-identity-review"]],
+      "evidence": ["Log the prediction and inspect source crops before measuring.", "Source-check a seeded random sample of named icons; at most 1 wrong of 40. Read every refusal reason; overlapping icons are the known failure."]
     }
   ]
 }
