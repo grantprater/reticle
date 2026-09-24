@@ -137,6 +137,15 @@ ALLY_ICON_VERSION = "ally-icon-0.3.0"
 # packed per frame. It stores no decision; `adjudication.ability` reads it.
 # 0.2.0: stores raw_dark alongside raw_lit to distinguish opaque objects from viewcones.
 ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
+# Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
+# written as `minimap_dark` rows by `reticle scan`. It stores no decision;
+# `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or
+# the stored fields change -- those need pixels, so they re-decode.
+MINIMAP_DARK_VERSION = "minimap-dark-0.1.0"
+# Smoke tracks recomputed from stored `minimap_dark` rows by `reticle smokes`.
+# Bump when a birth, presence or end rule in `adjudication.smokes` changes.
+# 0.2.0: sampling gaps are unobserved; onsets carry their own censoring.
+SMOKE_VERSION = "smoke-0.2.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

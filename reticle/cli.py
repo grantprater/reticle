@@ -69,7 +69,7 @@ from .primitives import PrimitiveExtractor
 from .profiles import DEFAULT_PROFILE, MinimapMode, get_profile
 from .segment import HUD_CHROME_ROIS, STATES, SegmentConfig, classify, segment
 from .store import DEFAULT_STORE, Store
-from .version import (ALLY_ICON_VERSION, EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
+from .version import (ALLY_ICON_VERSION, MINIMAP_DARK_VERSION, SMOKE_VERSION, EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
                       ROSTER_VERSION, SCOREBOARD_VERSION, SEGMENTER_VERSION)
 from .hud_reader import HudReader
 
@@ -778,14 +778,14 @@ def cmd_scan(args) -> int:
             "the manifest records where it was at ingest time"
         )
     channels = set(args.only or ('hud', 'minimap', 'ping', 'roster', 'scoreboard',
-                                 'ally_icon'))
+                                 'ally_icon', 'minimap_dark'))
     # IDENTITY RIDES EVERY SCAN. The top bar is drawn on every frame, so naming
     # the ten agents costs no decode of its own -- it joins the pass at 0.1 Hz.
     # A scan narrowed with `--only` is testing one specific thing and is left
     # alone; anything else reads the lineup unless `--no-lineup` says not to.
     want_lineup = args.lineup and not args.only
     spans = (_active_spans(store, sid, date)
-             if channels & {'minimap', 'ping', 'ally_icon'} else [])
+             if channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark'} else [])
     fps = float(src["fps"])
 
     want_hud = 'hud' in channels and (args.force or not store.has_hud(sid, date))
@@ -805,11 +805,16 @@ def cmd_scan(args) -> int:
     # descriptor change re-reads descriptors and leaves positions alone.
     want_ally = 'ally_icon' in channels and (
         args.force or store.events_version("ally_icon", sid) != ALLY_ICON_VERSION)
+    # Grey dark floor at 4 Hz over active spans: the smoke observation.
+    # Versioned by its own stamp, so `reticle smokes` can re-adjudicate
+    # without a re-read.
+    want_dark = 'minimap_dark' in channels and (
+        args.force or store.events_version("minimap_dark", sid) != MINIMAP_DARK_VERSION)
     want_scoreboard = ('scoreboard' in channels and args.scoreboard and
                        (args.force or store.events_version("scoreboard", sid)
                         != SCOREBOARD_VERSION))
     if not (want_hud or want_portraits or want_mm or want_ping or want_roster
-            or want_scoreboard or want_ally):
+            or want_scoreboard or want_ally or want_dark):
         print(f"cache hit  session {sid}: requested channels are current or disabled; "
               "--force to re-read")
         return 0
@@ -825,7 +830,8 @@ def cmd_scan(args) -> int:
         + ([f"ping {args.ping_hz:g} Hz, active spans"] if want_ping else [])
         + ([f"roster {args.hz:g} Hz, whole capture"] if want_roster else [])
         + ([f"scoreboard {args.hz:g} Hz, whole capture"] if want_scoreboard else [])
-        + ([f"ally icons {args.ally_hz:g} Hz, active spans"] if want_ally else [])))
+        + ([f"ally icons {args.ally_hz:g} Hz, active spans"] if want_ally else [])
+        + ([f"minimap dark {args.dark_hz:g} Hz, active spans"] if want_dark else [])))
 
     hp = _HudPass(store, manifest, profile, args) if want_hud else None
     mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
@@ -874,7 +880,21 @@ def cmd_scan(args) -> int:
                 med, sd=geometry.stability(sid, store.root, med.shape[:2])),
             static=med, box=minimap_roi_px(profile, *ctx.wh), hz=args.ally_hz,
             spans=spans)
-    readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap) if r is not None]
+    dp = None
+    if want_dark:
+        from .minimap_dark import DarkRegionReader
+        geo = geometry.path_of(sid, store.root)
+        with np.load(geo) as z:
+            dark_ref = lighting.reference(z)
+        if dark_ref is None:
+            print("minimap dark skipped: geometry has no lighting reference")
+        else:
+            dp = DarkRegionReader(
+                floor=mp.floor if mp is not None else ctx.floor(),
+                sgray=mp.sgray if mp is not None else ctx.sgray(),
+                static=ctx.map_reference(), ref=dark_ref,
+                box=minimap_roi_px(profile, *ctx.wh), hz=args.dark_hz, spans=spans)
+    readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp) if r is not None]
 
     t0 = time.perf_counter()
     last = [t0]
@@ -992,6 +1012,11 @@ def cmd_scan(args) -> int:
         if over:
             print(f"           !! {over} rows report MORE THAN FIVE alive "
                   f"-- the split rule is wrong, do not use this table")
+
+    if dp is not None:
+        rows = dp.events(sid, geometry.key_of(sid, store.root))
+        out = store.write_events("minimap_dark", sid, rows)
+        print(f"minimap dark {rows[0]['frames']} frames, {rows[0]['unobserved']} unobserved -> {out}")
 
     if pp is not None:
         pp.finish()
@@ -2189,6 +2214,30 @@ def cmd_ability_light(args) -> int:
     return 0
 
 
+def cmd_smokes(args) -> int:
+    """Smoke tracks from stored `minimap_dark` rows. Decodes no video."""
+    from .adjudication.smokes import events as smoke_events
+
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    rows = store.read_events("minimap_dark", sid)
+    if not rows:
+        raise SystemExit(f"{sid}: no minimap_dark rows -- run `reticle scan {sid} --only minimap_dark`")
+    if rows[0].get("minimap_dark_version") != MINIMAP_DARK_VERSION:
+        raise SystemExit(f"{sid}: minimap_dark rows are {rows[0].get('minimap_dark_version')}, "
+                         f"current is {MINIMAP_DARK_VERSION} -- re-scan before trusting them")
+    with np.load(geometry.path_of(sid, store.root)) as z:
+        ref = lighting.reference(z)
+    out_rows = smoke_events(sid, rows, ref.known)
+    out = store.write_events("smoke", sid, out_rows)
+    head = out_rows[0]
+    print(f"{sid}: {head['tracks']} smoke tracks, {head['observed_ends']} with an observed end -> {out}")
+    for t in out_rows[1:]:
+        print(f"  {t['first_ms'] / 1000:8.2f}-{t['last_ms'] / 1000:8.2f} s  {t['life_s']:6.2f} s  "
+              f"at ({t['cx']:.0f},{t['cy']:.0f}) r {t['r']:.1f}  {t['end_status']}")
+    return 0
+
+
 def cmd_ability_gallery(args) -> int:
     """Build phase galleries and score identity on held-out sessions."""
     from .ability_gallery import run
@@ -2665,8 +2714,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "round lifetimes want the minimap's 15")
     s.add_argument("--only", nargs="+",
                    choices=("hud", "minimap", "ping", "roster", "scoreboard",
-                            "ally_icon"),
+                            "ally_icon", "minimap_dark"),
                    help="run only these readers through the shared pass; roster-only needs no minimap geometry")
+    s.add_argument("--dark-hz", type=float, default=4.0,
+                   help="grey dark minimap floor rate for smokes (default 4)")
     s.add_argument("--no-roster", dest="roster", action="store_false",
                    help="skip the roster alive-count reader (it rides this pass free)")
     s.set_defaults(roster=True)
@@ -2776,6 +2827,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--step", type=float, default=0.5,
                    help="tray sampling interval for --materialize (default 0.5s)")
     s.set_defaults(func=cmd_ability_timeline)
+
+    s = sub.add_parser("smokes", help="smoke tracks from stored minimap_dark rows (no video)")
+    s.add_argument("session", nargs="?")
+    s.set_defaults(func=cmd_smokes)
 
     s = sub.add_parser("ability-light", help="store the drawn light at ability candidates (opens media)")
     s.add_argument("session", nargs="?")

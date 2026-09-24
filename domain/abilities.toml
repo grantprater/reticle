@@ -473,3 +473,20 @@ tracker bias and is unexplained.
 """
 use = "the minimap lifetime to expect for a Miks smoke; do not correct it toward the wiki value"
 see = ["abilities/miks-smoke-duration"]
+
+[smoke-attribution]
+claim = """
+A minimap smoke can be attributed to an agent only three ways: the team has one
+smoke agent; it has two and one is the player, whose casts the tray shows; or
+the smoke's duration, which is unique per agent, though some agents' durations
+are close.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-24"
+use = """
+attribute a smoke among the player's team only; with two or more other smoke
+agents, use the minimap disc lifetime and refuse where two agents' lifetimes
+are within measurement error
+"""
+see = ["abilities/enemy-smokes-not-on-minimap", "abilities/miks-smoke-minimap-disc"]

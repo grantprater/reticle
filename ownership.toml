@@ -190,6 +190,37 @@ excludes another's region.
 consumers = ["round_lifetimes", "minimap_diagnostics", "overlay"]
 
 [[entry]]
+id = "minimap-dark"
+question = "Which minimap floor pixels does something grey and opaque cover this frame, and which can an icon hide?"
+owner = "minimap_dark"
+role = ["detect"]
+status = "partial"
+produces = ["grey_dark", "occluded", "DarkRegionReader"]
+not_for = """
+Deciding what covers the floor or how long it lasts; that is
+`adjudication.smokes`. Enemy smokes, which are not drawn
+[domain:abilities/enemy-smokes-not-on-minimap], and coloured marks, which the
+grey gate excludes by design.
+"""
+consumers = ["cli"]
+stored_consumers = ["adjudication.smokes"]
+
+[[entry]]
+id = "minimap-smoke"
+question = "Where and when is a smoke drawn on the player's minimap?"
+owner = "adjudication.smokes"
+role = ["adjudicate", "lifecycle"]
+status = "partial"
+produces = ["tracks", "events"]
+not_for = """
+Which agent cast the smoke (`ability-owner`, unowned), enemy smokes (only
+missing cone light shows them [domain:minimap/enemy-smokes-block-cones]), and
+non-disc abilities. An end marked censored is an interval, not a time.
+"""
+consumers = ["cli"]
+evidence = "tests/test_smokes.py"
+
+[[entry]]
 id = "minimap-icon-disposition"
 question = "Which fitted minimap player-icon candidates survive shape, facing, overlap and map-interior decisions?"
 owner = "adjudication.minimap_candidates"
