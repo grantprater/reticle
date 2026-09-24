@@ -410,3 +410,19 @@ the player; on 6bb88dba5d2c lighting.raw_dark covers 233 px of the slab at
 40.0, 44.5 and 46.0 s, before and inside the Pit
 """
 use = "the Pit is not a minimap dark region; do not read the tint as one"
+
+[viper-poison-cloud-fixed]
+claim = """
+Viper can pick up a deployed Poison Cloud emitter only during the buy phase.
+Once it is deployed during a round it never moves; it can only be activated
+and deactivated.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-24"
+subject = "viper:poison cloud"
+use = """
+after the buy phase, every Poison Cloud phase in the round sits at the
+emitter's one position; a phase elsewhere is not this emitter
+"""
+see = ["abilities/viper-poison-cloud-toggle"]
