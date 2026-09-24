@@ -912,6 +912,27 @@ class ScoreboardDimWitnessTest(unittest.TestCase):
                                         contradicted={(1000.0, "ally")})
         self.assertEqual(enemy[0]["evidence"]["skipped_contradicted"], 0)
 
+    def test_exemplars_come_only_from_independent_non_portrait_labels(self):
+        from reticle.adjudication.death import adjudicate_death, portrait_exemplars
+        view = {"observation_key": "k", "composition": [0.1, 0.9]}
+        entry = {"t_ms": 1000.0, "claim": {"evidence": {"observations": [view]}},
+                 "killer_claim": {"evidence": {"observations": [dict(view, observation_key="kk")]}}}
+        board = {"channel": "scoreboard_dim", "agent": "Deadlock", "reason": None, "evidence": {}}
+        labelled = adjudicate_death(death_id="d1", t_ms=1000.0, side="ally",
+                                    scoreboard_claim=board, is_player_kill=True,
+                                    player_agent="Phoenix")
+        got = portrait_exemplars([labelled], [entry])
+        self.assertEqual(sorted((x["role"], x["agent"], x["label_channel"]) for x in got),
+                         [("killer", "Phoenix", "player_hud"), ("victim", "Deadlock", "scoreboard_dim")])
+        eliminated = adjudicate_death(death_id="d2", t_ms=1000.0, side="ally",
+                                      scoreboard_claim=board,
+                                      victim_depends_on={"scoreboard_dim": ["d1"]})
+        self.assertEqual(portrait_exemplars([eliminated], [entry]), [])
+        portrait_only = adjudicate_death(
+            death_id="d3", t_ms=1000.0, side="ally",
+            killfeed_claim={"channel": "killfeed_portrait", "agent": "Deadlock"})
+        self.assertEqual(portrait_exemplars([portrait_only], [entry]), [])
+
     def test_several_deaths_name_only_by_elimination(self):
         from reticle.adjudication.death import scoreboard_death_claims
         from reticle.adjudication.scoreboard import scoreboard_openings

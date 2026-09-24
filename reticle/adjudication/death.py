@@ -50,7 +50,7 @@ MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 def attach_stored_killfeed_portraits(
     entries: list[dict], observations: list[dict], lineup: dict, gallery: dict,
-    *, source_version: str,
+    *, source_version: str, exemplars: list[dict] = (),
 ) -> list[dict]:
     """Join raw portraits to their first entry interval without reading media.
 
@@ -59,6 +59,10 @@ def attach_stored_killfeed_portraits(
     within-entry repeat check. Every view must name the same admitted lineup
     candidate before this channel publishes a name. Refused lineup slots stay
     rivals in every comparison, including after earlier deaths.
+
+    `exemplars` (`portrait_exemplars`) widen each agent's references with this
+    session's own labelled portraits, never the entry's own; a name one of
+    them decided carries `depends_on` on the death that labelled it.
     """
     out = []
     portraits = [r for r in observations if r.get("kind") == "portrait_observation"]
@@ -71,16 +75,18 @@ def attach_stored_killfeed_portraits(
         killer_side = {"ally": "enemy", "enemy": "ally"}.get(side)
         entry["claim"] = _portrait_channel(
             portraits, "victim", side, entry.get("slot"), start, end, lineup, gallery,
-            entity_id=f"death:{int(start)}:victim", source_version=source_version)
+            entity_id=f"death:{int(start)}:victim", source_version=source_version,
+            exemplars=exemplars)
         entry["killer_claim"] = _portrait_channel(
             portraits, "killer", killer_side, entry.get("slot"), start, end, lineup, gallery,
-            entity_id=f"death:{int(start)}:killer", source_version=source_version)
+            entity_id=f"death:{int(start)}:killer", source_version=source_version,
+            exemplars=exemplars)
         out.append(entry)
     return out
 
 
 def _portrait_channel(portraits, role, side, slot, start, end, lineup, gallery, *,
-                      entity_id, source_version):
+                      entity_id, source_version, exemplars=()):
     """One role's stored portrait views in an entry window, as one channel claim.
 
     The killer's plate is the side opposite the victim's; a view whose plate
@@ -105,10 +111,13 @@ def _portrait_channel(portraits, role, side, slot, start, end, lineup, gallery, 
             claim = claim_from_killfeed_portrait(
                 view, entity_id=entity_id,
                 candidates=split["named"], rivals=split["rivals"],
-                gallery=gallery, source_version=source_version)
+                gallery=gallery, source_version=source_version,
+                exemplars=exemplars, exclude_entry=start)
         claims.append({"observation_key": view.get("observation_key"),
                        "t_ms": view.get("t_ms"), "frame_idx": view.get("frame_idx"),
                        "agent": claim.get("agent"), "reason": claim.get("reason"),
+                       "depends_on": claim.get("depends_on", []),
+                       "composition": view.get("composition"),
                        "evidence": claim.get("evidence", {})})
     names = {c["agent"] for c in claims if c["agent"]}
     unanimous = len(claims) >= 2 and len(names) == 1 and all(c["agent"] for c in claims)
@@ -119,6 +128,8 @@ def _portrait_channel(portraits, role, side, slot, start, end, lineup, gallery, 
     return {
         "channel": "killfeed_portrait", "agent": next(iter(names)) if unanimous else None,
         "reason": reason, "source_version": source_version,
+        "depends_on": (sorted({d for c in claims for d in c["depends_on"]})
+                       if unanimous else []),
         "evidence": {"window_ms": [start, end], "slot": slot, "role": role, "side": side,
                      "named_candidates": split["named"],
                      "refused_rivals": split["rivals"], "blind_rivals": split["blind"],
@@ -223,6 +234,43 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
                 else:
                     claim["reason"] = f"interval_unordered {sorted(left)}"
     return claims
+
+
+#: Channels whose name may label an exemplar. The portrait channel is not one:
+#: its own output labelling its own references is a model grading itself.
+EXEMPLAR_LABEL_CHANNELS = ("scoreboard_dim", "player_hud")
+
+
+def portrait_exemplars(verdicts: list["DeathVerdict"], entries: list[dict]) -> list[dict]:
+    """This session's portraits, labelled by a witness other than the portrait.
+
+    A death whose victim the arbiter resolved, with an INDEPENDENT claim from
+    `EXEMPLAR_LABEL_CHANNELS` naming that agent, lends its victim views; a
+    killer the player HUD named lends its killer views. A claim that rests on
+    another verdict (`depends_on`, as elimination does) labels nothing, so an
+    exemplar never carries a name that was itself inferred from portraits.
+    `entries` are the attached entries the verdicts came from, in order.
+    """
+    out = []
+    for verdict, entry in zip(verdicts, entries):
+        for key, role, claim in (("identity", "victim", entry.get("claim")),
+                                 ("killer_identity", "killer", entry.get("killer_claim"))):
+            v = verdict.metadata.get(key)
+            if not v or v["status"] != "resolved" or not claim:
+                continue
+            labels = [c for c in v["claims"] if c["channel"] in EXEMPLAR_LABEL_CHANNELS
+                      and c["agent"] == v["agent"] and not c["depends_on"]]
+            if not labels:
+                continue
+            for view in claim.get("evidence", {}).get("observations", []):
+                if view.get("composition") is None:
+                    continue
+                out.append({"agent": v["agent"], "composition": view["composition"],
+                            "role": role, "entry_t_ms": float(entry["t_ms"]),
+                            "label_entity": v["entity_id"],
+                            "label_channel": labels[0]["channel"],
+                            "observation_key": view.get("observation_key")})
+    return out
 
 
 def _second_life(i: int, entries: list[dict], second_life) -> bool:
@@ -647,7 +695,8 @@ def adjudicate_death(
                 killer_id, killer_claim.get("agent"), channel="killfeed_portrait",
                 reason=killer_claim.get("reason"),
                 source_version=killer_claim.get("source_version"),
-                evidence=killer_claim.get("evidence")))
+                evidence=killer_claim.get("evidence"),
+                depends_on=killer_claim.get("depends_on")))
         elif killfeed_claim and killfeed_claim.get("killer"):
             killer_claims.append(identity_claim(killer_id, killfeed_claim["killer"],
                                                 channel="killfeed_portrait"))
@@ -687,8 +736,10 @@ def adjudicate_death(
 
     # The name is decided by the identity arbiter, keyed by this death.
     named_votes = {ch: ag for ch, ag in victim_candidates.items() if ag}
-    claims = [identity_claim(death_id, agent, channel=ch,
-                             depends_on=(victim_depends_on or {}).get(ch))
+    depends = dict(victim_depends_on or {})
+    if killfeed_claim and killfeed_claim.get("depends_on"):
+        depends.setdefault("killfeed_portrait", killfeed_claim["depends_on"])
+    claims = [identity_claim(death_id, agent, channel=ch, depends_on=depends.get(ch))
               for ch, agent in named_votes.items()]
     for w in witnesses:
         ch = w.get("channel")

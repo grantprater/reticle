@@ -320,6 +320,40 @@ class AgentIdentityTests(unittest.TestCase):
         self.assertEqual(verdicts[0]["independent_channels"], 2)
 
 
+class PortraitExemplarTests(unittest.TestCase):
+    """Session exemplars widen the references only where the official art refuses."""
+
+    GALLERY = {"Breach": [np.array([0.5, 0.5, 0.0, 0.0])],
+               "Deadlock": [np.array([0.5, 0.0, 0.5, 0.0])]}
+
+    def claim(self, composition, exemplars=(), exclude=None):
+        from reticle.adjudication.identity import claim_from_killfeed_portrait
+        return claim_from_killfeed_portrait(
+            {"composition": composition, "t_ms": 1000.0}, entity_id="death:1000:victim",
+            candidates=["Breach", "Deadlock"], gallery=self.GALLERY,
+            exemplars=exemplars, exclude_entry=exclude)
+
+    EX = {"agent": "Deadlock", "composition": [0.5, 0.0, 0.0, 0.5], "role": "victim",
+          "entry_t_ms": 500.0, "label_entity": "death:S:500:ally:0",
+          "label_channel": "scoreboard_dim"}
+
+    def test_an_exemplar_names_a_refused_portrait_and_records_its_label(self):
+        tied = [0.5, 0.0, 0.0, 0.5]
+        self.assertIsNone(self.claim(tied)["agent"])
+        got = self.claim(tied, [self.EX])
+        self.assertEqual(got["agent"], "Deadlock")
+        self.assertEqual(got["depends_on"], ["death:S:500:ally:0"])
+
+    def test_the_entrys_own_portrait_is_never_its_exemplar(self):
+        got = self.claim([0.5, 0.0, 0.0, 0.5], [self.EX], exclude=500.0)
+        self.assertIsNone(got["agent"])
+
+    def test_a_name_the_art_supports_stays_independent(self):
+        got = self.claim([0.5, 0.5, 0.0, 0.0], [dict(self.EX, composition=[0.5, 0.5, 0.0, 0.0])])
+        self.assertEqual(got["agent"], "Breach")
+        self.assertEqual(got["depends_on"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
 

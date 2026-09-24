@@ -351,13 +351,39 @@ def load_identity_gallery(store, surfaces=MEASURED_SURFACES) -> dict[str, list[n
     return gallery
 
 
-def _portrait_scores(composition, candidates, gallery):
-    """Best official-art intersection for each agent admitted to the compare."""
+def _portrait_scores(composition, candidates, gallery, exemplars=(), exclude_entry=None,
+                     sources=None):
+    """Best intersection for each admitted agent, over official art and exemplars.
+
+    `exemplars` are this session's own portraits, each labelled by a witness
+    other than the portrait channel (`portrait_exemplars` in
+    `adjudication.death`). One whose `entry_t_ms` equals `exclude_entry` came
+    from the entry being scored and is left out. When `sources` is a dict, the
+    exemplar that set an agent's best score is recorded there.
+    """
     if composition is None:
         return {}
     observed = np.asarray(composition, dtype=np.float32).ravel()
     if not observed.size:
         return {}
+    scores = _official_scores(observed, candidates, gallery)
+    wanted = {str(c).lower(): c for c in candidates if c}
+    for ex in exemplars:
+        agent = wanted.get(str(ex["agent"]).lower())
+        if agent is None or ex.get("entry_t_ms") == exclude_entry:
+            continue
+        ref = np.asarray(ex["composition"], dtype=np.float32).ravel()
+        if ref.size != observed.size:
+            continue
+        value = float(np.minimum(observed, ref).sum())
+        if value > scores.get(agent, -1.0):
+            scores[agent] = value
+            if sources is not None:
+                sources[agent] = ex
+    return scores
+
+
+def _official_scores(observed, candidates, gallery):
     scores = {}
     for agent in sorted({c for c in candidates if c}):
         references = gallery.get(agent)
@@ -409,7 +435,8 @@ def side_candidates(rows) -> dict:
 
 def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
                                  rivals=(), source_version="killfeed-portrait",
-                                 margin_min=PORTRAIT_MARGIN_MIN) -> dict:
+                                 margin_min=PORTRAIT_MARGIN_MIN, exemplars=(),
+                                 exclude_entry=None) -> dict:
     """Turn one stored killfeed portrait descriptor into an identity claim.
 
     ``candidates`` must come from the owning lineup observation. The open
@@ -441,8 +468,18 @@ def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
             source_version=source_version,
             observed_at_ms=observation.get("t_ms"), evidence=evidence)
 
+    if exemplars:
+        # Exemplars are consulted only where the official art refuses, so a
+        # name the art already supports keeps its independence.
+        plain = claim_from_killfeed_portrait(
+            observation, entity_id=entity_id, candidates=candidates, gallery=gallery,
+            rivals=rivals, source_version=source_version, margin_min=margin_min)
+        if plain["agent"] is not None:
+            return plain
     admitted = list(candidates) + list(rivals)
-    scores = _portrait_scores(observation.get("composition"), admitted, gallery)
+    sources = {}
+    scores = _portrait_scores(observation.get("composition"), admitted, gallery,
+                              exemplars, exclude_entry, sources)
     ordered = sorted(scores.items(), key=lambda pair: (-pair[1], pair[0]))
     best = ordered[0] if ordered else (None, 0.0)
     runner = ordered[1] if len(ordered) > 1 else (None, 0.0)
@@ -469,11 +506,17 @@ def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
         reason = f"portrait_margin {margin:.3f} below {margin_min}"
     else:
         reason = None
+    # A name an exemplar decided rests on the witness that labelled it.
+    exemplar = sources.get(best[0]) if reason is None else None
+    if exemplar is not None:
+        evidence["exemplar"] = {k: exemplar.get(k) for k in
+                                ("label_entity", "label_channel", "entry_t_ms", "role")}
     return identity_claim(
         entity_id, best[0] if reason is None else None,
         channel="killfeed_portrait", reason=reason,
         source_version=source_version,
-        observed_at_ms=observation.get("t_ms"), evidence=evidence)
+        observed_at_ms=observation.get("t_ms"), evidence=evidence,
+        depends_on=[exemplar["label_entity"]] if exemplar is not None else None)
 
 
 def claims_from_killfeed_portraits(observations, lineup, *, entry_id, gallery,

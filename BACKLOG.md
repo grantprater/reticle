@@ -14,15 +14,17 @@ The player answered the dimming question: dimmed means currently dead, a Sage re
 
 **Geometry stamp reads line endings:** `minimap_geometry.source_stamp` hashes the file's raw bytes, so a CRLF checkout (any fresh worktree here, `core.autocrlf=true`) reports all 12 geometry npz stale. Normalising the bytes edits the stamped file, which itself forces a rebuild; schedule it with the next geometry rebuild.
 
+**Killer crop with assist icons:** at 284500 in `a06f04a0059f` icons left of the killer portrait likely corrupt its descriptor ([details](docs/IDENTITY_EXEMPLAR_LOOP.md#open)); `killfeed` owns the crop.
+
 **Remaining identity drift to retire:** `Lineup.player` still combines the tray, self icon and top bar itself before publishing claims (the `player-agent` exit).
 
 ## Completed
 
+- **`identity-exemplar-loop` (2026-09-23):** killfeed portraits also score against this session's portraits labelled by the scoreboard or the player HUD, only where the official art refuses, with `depends_on` on the labelling death. Across 24 rounds of `a06f04a0059f` it adds 32 names (12 of 12 source-checked correct), zero disagreements. [Results](docs/IDENTITY_EXEMPLAR_LOOP.md).
 - **`death-killers` (2026-09-23):** the killer is now entity `<death_id>:killer`, named by `adjudication.identity` from the player HUD and the stored killer portraits over the board-constrained side. Round 4 names 5 of 7 killers, all matching source; two refuse on a thin margin and a single view. [Results](docs/DEATH_KILLERS.md).
 - **`board-alive-sets` (2026-09-23):** `reconciliation.audit_board_alive` compares each accepted opening's lit rows with the roster count at the same sample: 11926 of 11958 side-openings agree across 19 sessions. 22 of the 32 disagreements are the board relighting after the top bar at a round start [domain:rounds/scoreboard-relights-after-top-bar] and 6 are the roster reading 1 on a wiped side. The death witness skips contradicted openings; round 4 still names seven. [Results](docs/BOARD_ALIVE_SETS.md).
 - **`ability-detection` (2026-09-23):** Promoted scale-selective local contrast disc detection (`detect_ability_discs`) into `reticle/minimap.py`, claiming `[owns:ability-detection]`. POV benchmark corroborates HUD tray charge drops against minimap disc appearances, achieving 9/9 true positives (100% recall) and 0 false positives across five solo ability demo sessions. Added unit tests in `tests/test_minimap_discs.py`.
 - **`scoreboard-corpus` (2026-09-23):** rescanned the other 17 scoreboard sessions at `scoreboard-0.5.0`. All 17 name both sides from one agreeing set per side; the constrained lineup names 170 of 170 slots against 113 for the top bar. The board changed six top-bar names and a source crop shows all six are corrections. [Results](docs/SCOREBOARD_LINEUP.md#corpus-at-scoreboard-050).
-- **`scoreboard-lineup` (2026-09-23):** `scoreboard-0.3.0` stores every agent's score per row; `identity.board_side_sets` names each side from agreeing openings and `identity.lineup_with_board` restricts the top-bar assignment to that set. Both tested sessions name all ten slots, matching source; the top bar's accepted Clove in `a06f04a0059f` was Jett's slot. Round 4 names all seven deaths correctly; Jett by scoreboard elimination with zero independent channels recorded. [Results](docs/SCOREBOARD_LINEUP.md); [contract](docs/tasks.json).
 
 ## Deferred
 
