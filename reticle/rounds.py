@@ -459,11 +459,8 @@ def build_rounds(table, second_life: list[dict] | None = None) -> list[dict]:
         rounds.append(last)
     kills = merge_split_tracks(_tracks(t, table.column("kf_kill_mask").to_pylist(), div("kf_kill_wx")))
     deaths = merge_split_tracks(_tracks(t, table.column("kf_death_mask").to_pylist(), div("kf_death_wx")))
-    lives = []
-    if second_life is not None:
-        from .adjudication.death import second_life_death
-        lives = [d for d in deaths if second_life_death(d["t_first"], d["t_last"], second_life)]
-        deaths = [d for d in deaths if d not in lives]
+    from .adjudication.death import split_second_lives
+    deaths, lives = split_second_lives(deaths, second_life)
     entries = _tracks(t, table.column("kf_entry_mask").to_pylist(), div("kf_entry_wx"))
 
     ends = {r["t_end_ms"] for r in rounds}

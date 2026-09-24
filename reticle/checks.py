@@ -344,14 +344,25 @@ def _count(times, masks, dividers=None) -> int:
 
 
 def player_events(times, kill_masks, death_masks,
-                  kill_dividers=None, death_dividers=None) -> dict:
-    """Distinct killfeed entries the local player was in, kills and deaths."""
+                  kill_dividers=None, death_dividers=None, second_life=None) -> dict:
+    """Distinct killfeed entries the local player was in, kills and deaths.
+
+    `second_life` is the stored `second_life_observation` rows; given them,
+    `adjudication.death.split_second_lives` moves Run It Back deaths to
+    `second_lives`, as `rounds` does. Without them every death counts and
+    `second_lives` is None.
+    """
+    from .adjudication.death import split_second_lives
+
     t = list(times)
+    div = lambda d: None if d is None else list(d)
+    deaths, lives = split_second_lives(
+        merge_split_tracks([a for a in track_entries(t, list(death_masks), div(death_dividers))
+                            if a["counted"]]), second_life)
     return {
-        "kills": _count(t, list(kill_masks),
-                        None if kill_dividers is None else list(kill_dividers)),
-        "deaths": _count(t, list(death_masks),
-                         None if death_dividers is None else list(death_dividers)),
+        "kills": _count(t, list(kill_masks), div(kill_dividers)),
+        "deaths": len(deaths),
+        "second_lives": None if second_life is None else len(lives),
     }
 
 

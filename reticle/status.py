@@ -175,8 +175,14 @@ def collect(store: Store) -> dict:
             try:
                 import pyarrow.parquet as pq
 
+                from .adjudication.death import stored_second_life
+                from .killfeed import KILLFEED_PORTRAIT_VERSION
                 from .rounds import build_rounds
-                rs = build_rounds(pq.read_table(store.hud_path(sid, date)))
+                # Run It Back deaths are second lives, not deaths, here as in
+                # `reticle rounds`: the gate is `adjudication.death`'s.
+                second_life = stored_second_life(store.read_events("killfeed_portrait", sid),
+                                                 KILLFEED_PORTRAIT_VERSION)
+                rs = build_rounds(pq.read_table(store.hud_path(sid, date)), second_life)
                 if rs:
                     rec["n_rounds"] = len(rs)
                     # `is True` / `is False`, not truthiness: an unresolved
@@ -210,6 +216,7 @@ def collect(store: Store) -> dict:
                     tbl.column("kf_death_mask").to_pylist(),
                     [int(x) for x in tbl.column("kf_kill_wx").to_pylist()],
                     [int(x) for x in tbl.column("kf_death_wx").to_pylist()],
+                    second_life=second_life,
                 )
                 rec["kills"], rec["deaths"] = ev["kills"], ev["deaths"]
             except Exception as e:                      # noqa: BLE001

@@ -1681,10 +1681,9 @@ def cmd_rounds(args) -> int:
         hud = pq.read_table(path)
         # Second-life badge reads ride the killfeed portrait events; only a
         # current version carries them, so a stale store counts every death.
-        portraits = store.read_events("killfeed_portrait", sid)
-        second_life = ([r for r in portraits if r.get("kind") == "second_life_observation"]
-                       if portraits and portraits[0].get("killfeed_portrait_version")
-                       == KILLFEED_PORTRAIT_VERSION else None)
+        from .adjudication.death import stored_second_life
+        second_life = stored_second_life(store.read_events("killfeed_portrait", sid),
+                                         KILLFEED_PORTRAIT_VERSION)
         rs = build_rounds(hud, second_life)
         if not rs:
             continue

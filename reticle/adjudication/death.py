@@ -317,6 +317,27 @@ def second_life_death(t_first: float, t_last: float, observations: list[dict]) -
     return sum(votes) * 2 > len(votes)
 
 
+def stored_second_life(portrait_rows: list[dict], version: str) -> list[dict] | None:
+    """The `second_life_observation` rows among a session's stored
+    `killfeed_portrait` events, or None when the stream is absent or not at
+    `version`: only a current stream carries badge reads, and a caller given
+    None counts every death rather than trusting a stale one."""
+    if not portrait_rows or portrait_rows[0].get("killfeed_portrait_version") != version:
+        return None
+    return [r for r in portrait_rows if r.get("kind") == "second_life_observation"]
+
+
+def split_second_lives(deaths: list[dict], observations: list[dict] | None
+                       ) -> tuple[list[dict], list[dict]]:
+    """The player's killfeed death tracks split into (deaths, second lives) by
+    `second_life_death`. An unread track stays a death; None observations
+    split nothing."""
+    if observations is None:
+        return list(deaths), []
+    lives = [d for d in deaths if second_life_death(d["t_first"], d["t_last"], observations)]
+    return [d for d in deaths if d not in lives], lives
+
+
 REVIVE_ABILITY_ICONS = {
     "Sage": "Sage_Ultimate.png",
     "Clove": "Clove_Ultimate.png",

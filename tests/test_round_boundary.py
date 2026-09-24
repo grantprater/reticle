@@ -87,6 +87,22 @@ class SecondLife(unittest.TestCase):
         self.assertFalse(second_life_death(1593500, 1598000, obs))
         self.assertIsNone(second_life_death(1000, 2000, obs))
 
+    def test_split_keeps_unread_deaths_and_a_stale_stream_splits_nothing(self):
+        from reticle.adjudication.death import split_second_lives, stored_second_life
+        obs = [self._obs(1577000, True), self._obs(1594000, False)]
+        tracks = [{"t_first": 1576500.0, "t_last": 1579500.0},
+                  {"t_first": 1593500.0, "t_last": 1598000.0},
+                  {"t_first": 1000.0, "t_last": 2000.0}]
+        deaths, lives = split_second_lives(tracks, obs)
+        self.assertEqual([d["t_first"] for d in deaths], [1593500.0, 1000.0])
+        self.assertEqual([d["t_first"] for d in lives], [1576500.0])
+        self.assertEqual(split_second_lives(tracks, None), (tracks, []))
+        rows = [{"killfeed_portrait_version": "v1", "kind": "portrait_observation"},
+                {"kind": "second_life_observation", "t_ms": 1.0, "has_badge": True}]
+        self.assertEqual(len(stored_second_life(rows, "v1")), 1)
+        self.assertIsNone(stored_second_life(rows, "v2"))
+        self.assertIsNone(stored_second_life([], "v1"))
+
 
 
 class SplitTracks(unittest.TestCase):
