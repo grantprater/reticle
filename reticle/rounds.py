@@ -299,6 +299,49 @@ def round_bounds(t, score_left, score_right, clock_ms=None):
     return out
 
 
+def match_over(left: int, right: int) -> bool:
+    """Whether a score ends the match [domain:rounds/match-end]: 13 against 11
+    or fewer, or two ahead in overtime -- one test, since winning both rounds
+    of an overtime cycle is leading a tie by two."""
+    return max(left, right) >= 13 and abs(left - right) >= 2
+
+
+def final_round(t, score_left, score_right, clock_ms, rounds: list[dict]) -> dict | None:
+    """The match's last round when the scoreline never showed its result.
+
+    The score increment ends every other round, but at match end the scoreline
+    gives way to the end screen, so the deciding increment is often never read
+    and the final round vanished with the events in it. When the last read
+    score does not end the match, exactly one result of one more round does
+    [domain:rounds/match-end]; that names the winner. The round needs its own
+    evidence of starting -- a buy-phase clock reset after the last end -- and
+    ends at the last sample where the scoreline was read. None where either is
+    missing, or where no single result ends the match (a capture cut short).
+    """
+    if not rounds:
+        return None
+    last = rounds[-1]
+    left = last["left_before"] + int(last["won_left"])
+    right = last["right_before"] + int(not last["won_left"])
+    if match_over(left, right):
+        return None
+    ending = [won_left for won_left, (a, b) in ((True, (left + 1, right)),
+                                                (False, (left, right + 1)))
+              if match_over(a, b)]
+    if len(ending) != 1 or clock_ms is None:
+        return None
+    start = _clock_reset_after(t, clock_ms, last["t_end_ms"])
+    if start is None:
+        return None
+    read = [float(t[i]) for i in range(len(t))
+            if t[i] > start and score_left[i] is not None and score_right[i] is not None]
+    if not read:
+        return None
+    return {"t_start_ms": start, "t_end_ms": read[-1], "left_before": left,
+            "right_before": right, "won_left": ending[0], "start_source": "clock_reset",
+            "end_source": "match_end_rule"}
+
+
 def _tracks(t, masks, dividers):
     return [a for a in track_entries(t, masks, dividers) if a["counted"]]
 
@@ -401,8 +444,13 @@ def build_rounds(table) -> list[dict]:
     clock = table.column("clock_ms").to_pylist()
     div = lambda c: table.column(c).to_pylist() if c in names else None
 
-    rounds = round_bounds(t, table.column("score_left").to_pylist(),
-                          table.column("score_right").to_pylist(), clock)
+    sl, sr = table.column("score_left").to_pylist(), table.column("score_right").to_pylist()
+    rounds = round_bounds(t, sl, sr, clock)
+    for r in rounds:
+        r["end_source"] = "score_increment"
+    last = final_round(t, sl, sr, clock, rounds)
+    if last is not None:
+        rounds.append(last)
     kills = _tracks(t, table.column("kf_kill_mask").to_pylist(), div("kf_kill_wx"))
     deaths = _tracks(t, table.column("kf_death_mask").to_pylist(), div("kf_death_wx"))
     entries = _tracks(t, table.column("kf_entry_mask").to_pylist(), div("kf_entry_wx"))

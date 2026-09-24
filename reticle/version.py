@@ -23,7 +23,9 @@ SCHEMA_VERSION = 1
 # deaths and 12 kills over the 17 KNOWN_KD sessions.
 # 0.4.0 (2026-09-24): events run to the next round's buy-phase snap
 # (`t_close_ms`), since post-round kills count [domain:rounds/post-round-period].
-ROUND_VERSION = "round-0.4.0"
+# 0.5.0 (2026-09-24): a final round the scoreline never closed is inferred from
+# the match-end rule (`end_source = match_end_rule`).
+ROUND_VERSION = "round-0.5.0"
 COACH_VERSION = "coach-0.1.0"
 # Pure credit-ledger rules and interval semantics. This does not stamp a credit
 # detector: no such observation channel exists yet.

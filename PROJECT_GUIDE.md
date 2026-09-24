@@ -190,7 +190,10 @@ a roster both teams return to 5 a median of 7.0 s later at a buy-phase clock of
 next one's start is the post-round period. Kills there are legal and count
 [domain:rounds/post-round-period], so since `round-0.4.0` an event landing in it
 belongs to the round just decided; the last round closes one median gap after
-its end. Every stored round carries
+its end. At match end the scoreline gives way to the end screen, so the deciding
+increment is often never read; since `round-0.5.0` the match-end rule
+[domain:rounds/match-end] infers that final round and its winner
+(`end_source = match_end_rule`). Every stored round carries
 `start_source`, so a round built the old way cannot read as current.
 
 | Stage | What | Status |

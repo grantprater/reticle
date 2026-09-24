@@ -124,3 +124,33 @@ use = """
 reticle/rounds.py assigns an event to a round from its start up to the next
 round's start (the buy-phase snap); the score increment stays the round's end
 """
+
+[match-end]
+claim = """
+A match ends the moment one team reaches 13 round wins while the other has 11
+or fewer. At 12-12 it goes to overtime, played in cycles of two rounds: a team
+that wins both rounds of a cycle wins the match, and otherwise play continues
+until one team is two rounds ahead. So the final round is the one whose result
+first meets that condition, and it has no following buy phase.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-24"
+use = """
+a match whose last read score does not meet the condition has a final round
+the scoreline never closed; the condition decides which team won it
+"""
+
+[run-it-back-in-report]
+claim = """
+The combat report does record a Run It Back death, in a slightly different
+format from a real death's panel.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-24"
+exceptions = """
+the format is not yet seen: at 1 Hz a06f04a0059f shows no panel between the
+Run It Back death at 1576.5 s and the real death at 1593.5 s, and the real
+death's panel lists the Run It Back killer as a row without a KILLED YOU flag
+"""
