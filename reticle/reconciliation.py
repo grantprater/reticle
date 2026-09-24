@@ -4,6 +4,9 @@ Agreement is consistency, not detector accuracy. The score audit proposes
 confirmed boundaries without changing stored rounds. The roster audit compares
 CHANGES from an observed baseline; it never assumes a probe begins at 5v5.
 
+The board-alive audit compares the scoreboard's lit rows with the roster's
+alive count at the same sample.
+
 Owns [owns:channel-disagreement].
 """
 from bisect import bisect_left, bisect_right
@@ -234,6 +237,82 @@ def audit_roster_deltas(hud, roster):
                                       reason='adjacent_residuals_cancel_check_onset_timing'))
     return dict(status='consistency_audit_not_accuracy', counts=dict(counts),
                 windows=windows, adjacent_cancellations=cancellations)
+
+BOARD_ALIVE_CONTEXT_MS = 2000
+
+
+def audit_board_alive(openings, hud, roster, join_ms: float = ROSTER_JOIN_MS):
+    """The scoreboard's lit rows per side against the roster's alive count.
+
+    Each accepted opening names who is lit and who is dimmed on each side
+    [domain:rounds/scoreboard-dim-is-dead]; the top-bar roster counts the
+    living independently. The join is as-of and never forward: an opening
+    takes the latest roster row at or before it within `join_ms`. A missing
+    or unread roster refuses with its reason. Every disagreement keeps its
+    distance to the nearest counted killfeed entry and score boundary, because
+    a death between the two reads is the expected cause, not a verdict on
+    either channel.
+    """
+    records, counts = [], Counter()
+    if roster is None:
+        return dict(status='missing_roster', records=records, counts={})
+    v = roster.to_pydict() if hasattr(roster, 'to_pydict') else dict(roster)
+    h = hud.to_pydict() if hasattr(hud, 'to_pydict') else dict(hud or {})
+    alive = dict(zip(('ally', 'enemy'), resolve(h, v)))
+    rt = v['t_ms']
+    entries = sorted(e['t_first'] for e in track_entries(
+        h['t_ms'], h['kf_entry_mask'], h.get('kf_entry_wx')) if e['counted']) if h else []
+    bounds = sorted({b for r in (round_bounds(h['t_ms'], h['score_left'], h['score_right'],
+                                              h.get('clock_ms')) if h else [])
+                     for b in (r['t_start_ms'], r['t_end_ms'])})
+
+    def nearest(ts, t):
+        i = bisect_left(ts, t)
+        return min((abs(ts[k] - t) for k in (i - 1, i) if 0 <= k < len(ts)), default=None)
+
+    for opening in openings:
+        if not opening.get('accepted'):
+            continue
+        t = opening['t_ms']
+        i = bisect_right(rt, t) - 1
+        for side in ('ally', 'enemy'):
+            rows = [r for r in opening['rows'] if r['team'] == side]
+            record = dict(t_ms=t, side=side,
+                          lit=sorted(r['agent'] for r in rows if r['dim'] is False),
+                          dim=sorted(r['agent'] for r in rows if r['dim'] is True),
+                          roster_alive=None)
+            if i < 0 or t - rt[i] > join_ms:
+                status = 'missing_roster_row'
+            elif alive[side][i] is None:
+                status = 'unreadable_roster'
+            else:
+                record['roster_alive'] = alive[side][i]
+                record['roster_t_ms'] = rt[i]
+                status = 'agree' if alive[side][i] == len(record['lit']) else 'disagreement'
+            if status == 'disagreement':
+                # A roster count that rises marks a round reset or a revive;
+                # the board relights its rows a moment after the top bar does.
+                k = i
+                while k > 0 and not (alive[side][k - 1] is not None
+                                     and alive[side][k - 1] < alive[side][i]):
+                    k -= 1
+                record['since_roster_rise_ms'] = t - rt[k] if k > 0 else None
+                record['nearest_entry_ms'] = nearest(entries, t)
+                record['nearest_boundary_ms'] = nearest(bounds, t)
+                near = [d for d in (record['nearest_entry_ms'], record['nearest_boundary_ms'])
+                        if d is not None and d <= BOARD_ALIVE_CONTEXT_MS]
+                record['near_death_or_boundary'] = bool(near)
+            record['status'] = status
+            counts[status] += 1
+            records.append(record)
+    return dict(status='consistency_audit_not_accuracy', counts=dict(counts), records=records)
+
+
+def contradicted_openings(audit) -> set[tuple[float, str]]:
+    """(opening time, side) pairs whose lit count the roster contradicts."""
+    return {(r['t_ms'], r['side']) for r in audit.get('records', [])
+            if r['status'] == 'disagreement'}
+
 
 #: Below this many counted tracks the median entry lifetime is a description of
 #: one entry rather than a measurement, so `over_long` refuses to answer.

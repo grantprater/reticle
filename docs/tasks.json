@@ -64,6 +64,14 @@
       "reads": ["AGENTS.md", "BACKLOG.md#Next (no contract yet): scoreboard-lineup", "NOTES.md#Picking up", "docs/DEATH_SCOREBOARD_BINDING.md", "reticle/adjudication/identity.py", "reticle/lineup.py"],
       "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-lineup", "--minimum-named", "4"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_agent_identity.py", "-q"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
       "evidence": ["Log falsifiable predictions for a06f04a0059f and a second session with a recorded lineup truth before measuring.", "The side set is decided by identity.assign_side over stored scoreboard scores; the top-bar constraint is decided in adjudication.identity, never in lineup.", "Store each top-bar name the board contradicts. Refuse the constraint when accepted openings disagree on a side's set.", "Rerun the round-4 review and source-check any newly named death against the player's answers; keep zero wrong names."]
+    },
+    {
+      "id": "board-alive-sets",
+      "objective": "Compare each accepted scoreboard opening's lit and dimmed agents with the roster count at the same sample and with the round's named death verdicts, storing every disagreement, and gate the scoreboard death witness on the roster.",
+      "files": ["reticle/reconciliation.py", "reticle/adjudication/death.py", "tools/death_round4_review.py", "domain/rounds.toml"],
+      "reads": ["AGENTS.md", "BACKLOG.md#Agreed order (2026-09-23)", "docs/SCOREBOARD_LINEUP.md", "reticle/reconciliation.py", "reticle/roster.py"],
+      "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-board-alive", "--minimum-named", "7"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_reconciliation.py", "-q"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
+      "evidence": ["Log predictions before measuring the 19 scoreboard sessions.", "Classify every disagreement from stored fields and source-check one of each class before naming a wrong channel.", "The audit compares channels and never picks a winner; the witness only skips openings the roster contradicts."]
     }
   ]
 }

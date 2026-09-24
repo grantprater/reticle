@@ -893,6 +893,22 @@ class ScoreboardDimWitnessTest(unittest.TestCase):
         self.assertEqual(claims[0]["agent"], "Deadlock")
         self.assertEqual(claims[0]["evidence"]["newly_dim"], ["Deadlock"])
 
+    def test_a_board_the_roster_contradicts_is_skipped_with_its_reason(self):
+        from reticle.adjudication.death import scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        # 1000 ms is a round start: the top bar reset, the board still dims
+        # Deadlock from the previous round. He dies again at 2000 ms.
+        openings = scoreboard_openings(self.board(1000.0, dim={"Deadlock"})
+                                       + self.board(3000.0, dim={"Deadlock"}))
+        entry = [{"t_ms": 2000.0, "side": "ally"}]
+        stale = scoreboard_death_claims(entry, openings, {})
+        self.assertTrue(stale[0]["reason"].startswith("newly_dim_0"))
+        guarded = scoreboard_death_claims(entry, openings, {}, contradicted={(1000.0, "ally")})
+        self.assertEqual(guarded[0]["reason"], "no_accepted_opening_before")
+        enemy = scoreboard_death_claims([{"t_ms": 2000.0, "side": "enemy"}], openings, {},
+                                        contradicted={(1000.0, "ally")})
+        self.assertEqual(enemy[0]["evidence"]["skipped_contradicted"], 0)
+
     def test_several_deaths_name_only_by_elimination(self):
         from reticle.adjudication.death import scoreboard_death_claims
         from reticle.adjudication.scoreboard import scoreboard_openings

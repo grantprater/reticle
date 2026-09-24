@@ -44,7 +44,7 @@ from .identity import (adjudicate_agent_identity, claim_from_killfeed_portrait,
                        identity_claim, identity_events, side_candidates, _channel_verdict)
 from .weapon import classify_killfeed_icon
 
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.4.0"
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.5.0"
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 
@@ -113,7 +113,8 @@ def attach_stored_killfeed_portraits(
 
 def scoreboard_death_claims(entries: list[dict], openings: list[dict],
                             named: dict[int, str | None],
-                            second_life: set[int] = frozenset()) -> list[dict]:
+                            second_life: set[int] = frozenset(),
+                            contradicted: set[tuple[float, str]] = frozenset()) -> list[dict]:
     """A victim witness per killfeed entry from the scoreboard's dimmed rows.
 
     Between the last accepted opening before a death and the first after it,
@@ -135,14 +136,22 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
     here; a dimmed agent lit again was revived, which is recorded and is not a
     contradiction. Clove and a downed KAY/O are unknown to it, so they get no
     rule, and a count that disagrees still refuses.
+
+    `contradicted` holds the (opening time, side) pairs whose lit count the
+    roster contradicts (`reconciliation.audit_board_alive`). The board relights
+    its rows a moment after the top bar resets at a round start
+    [domain:rounds/scoreboard-relights-after-top-bar], so such an
+    opening carries the previous round's dead; the witness skips it on that
+    side and counts the skips in the evidence.
     """
     from .scoreboard import SCOREBOARD_AGENT_VERSION, side_state
     accepted = [o for o in openings if o["accepted"]]
     claims = []
     for i, entry in enumerate(entries):
         t_ms, side = float(entry["t_ms"]), entry.get("side")
-        before = [o for o in accepted if o["t_ms"] < t_ms]
-        after = [o for o in accepted if o["t_ms"] > t_ms]
+        usable = [o for o in accepted if (o["t_ms"], side) not in contradicted]
+        before = [o for o in usable if o["t_ms"] < t_ms]
+        after = [o for o in usable if o["t_ms"] > t_ms]
         claim = {"channel": "scoreboard_dim", "agent": None, "reason": None,
                  "source_version": SCOREBOARD_AGENT_VERSION, "evidence": {}}
         claims.append(claim)
@@ -171,6 +180,8 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
             "newly_dim": sorted(newly),
             "revived": sorted(revived),
             "interval_deaths": [float(entries[j]["t_ms"]) for j in deaths],
+            "skipped_contradicted": sum(lo["t_ms"] < t < hi["t_ms"] for t, s in contradicted
+                                        if s == side),
             "observation_keys": [s["observation_key"] for s in hi["rows"]
                                  if s["team"] == side and s["agent"] in newly],
         }

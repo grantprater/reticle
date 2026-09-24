@@ -191,5 +191,47 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(resolve(blank, roster)[0], [None, None, None])
 
 
+class BoardAliveAuditTests(unittest.TestCase):
+    """The scoreboard's lit rows against the roster count at the same sample."""
+
+    @staticmethod
+    def opening(t_ms, ally_dim=0, enemy_dim=0, accepted=True):
+        rows = [{"team": side, "agent": f"{side}{i}", "dim": i < n}
+                for side, n in (("ally", ally_dim), ("enemy", enemy_dim)) for i in range(5)]
+        return {"t_ms": t_ms, "accepted": accepted, "rows": rows}
+
+    def audit(self, openings, ally, enemy):
+        from reticle.reconciliation import audit_board_alive
+        t = [float(1000 * i) for i in range(len(ally))]
+        hud = dict(t_ms=t, kf_entry_mask=[0] * len(t), kf_entry_wx=[None] * len(t),
+                   score_left=[0] * len(t), score_right=[0] * len(t), clock_ms=[None] * len(t))
+        return audit_board_alive(openings, hud, dict(t_ms=t, alive_ally=ally, alive_enemy=enemy))
+
+    def test_agreement_and_a_round_start_relight(self):
+        got = self.audit([self.opening(1000.0, ally_dim=1), self.opening(3000.0, ally_dim=2)],
+                         [4, 4, 4, 5], [5, 5, 5, 5])
+        by = {(r["t_ms"], r["side"]): r for r in got["records"]}
+        self.assertEqual(by[(1000.0, "ally")]["status"], "agree")
+        relight = by[(3000.0, "ally")]
+        self.assertEqual(relight["status"], "disagreement")
+        self.assertEqual(relight["since_roster_rise_ms"], 0.0)
+        self.assertEqual(relight["dim"], ["ally0", "ally1"])
+
+    def test_missing_unread_and_refused(self):
+        got = self.audit([self.opening(1000.0), self.opening(9000.0),
+                          self.opening(2000.0, accepted=False)], [None, None, 5], [5, 5, 5])
+        self.assertEqual(got["counts"], {"unreadable_roster": 1, "agree": 1,
+                                         "missing_roster_row": 2})
+
+    def test_contradicted_openings_are_the_disagreements(self):
+        from reticle.reconciliation import contradicted_openings
+        got = self.audit([self.opening(1000.0, enemy_dim=1)], [5, 5], [5, 5])
+        self.assertEqual(contradicted_openings(got), {(1000.0, "enemy")})
+
+    def test_a_missing_roster_refuses(self):
+        from reticle.reconciliation import audit_board_alive
+        self.assertEqual(audit_board_alive([self.opening(0.0)], {}, None)["status"], "missing_roster")
+
+
 if __name__ == '__main__':
     unittest.main()
