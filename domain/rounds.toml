@@ -143,14 +143,15 @@ the scoreline never closed; the condition decides which team won it
 
 [run-it-back-in-report]
 claim = """
-The combat report does record a Run It Back death, in a slightly different
-format from a real death's panel.
+The combat report records a Run It Back death as an ordinary row for the enemy
+who made it, without the KILLED YOU flag; the real death's panel carries it.
+The player believes the row may also differ by an icon or colour; unconfirmed.
 """
 kind = "appearance"
 known = "player"
 since = "2026-09-24"
-exceptions = """
-the format is not yet seen: at 1 Hz a06f04a0059f shows no panel between the
-Run It Back death at 1576.5 s and the real death at 1593.5 s, and the real
-death's panel lists the Run It Back killer as a row without a KILLED YOU flag
+source = """
+a06f04a0059f: no panel between the Run It Back death at 1576.5 s and the real
+death at 1593.5 s; the real death's panel lists the Run It Back killer
+(vanshrana, 158 incoming) as a row without a KILLED YOU flag
 """

@@ -30,6 +30,7 @@ Predictions are logged in the store's `notes/predictions.jsonl` under
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import sys
 from pathlib import Path
@@ -339,13 +340,135 @@ def arithmetic(pairs) -> None:
             print("   unexplained", u)
 
 
+PORTRAIT_SAME = 0.8                      # thumbnail correlation joining two row portraits
+CARD = (-123, -125, -38, -35)            # killer card portrait, header-relative
+ROW_PORTRAIT = (-6, 2, 34, 56)           # row portrait inside its chevron edge
+ROW_NAME = (40, 36, 155, 50)             # player name text under the weapon
+ART_V_MIN = 30                           # drop only near-black; the art is often dark
+
+
+def _composition(crop):
+    from reticle import appearance
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    return appearance.hsv_composition(crop, hsv[:, :, 2] >= ART_V_MIN)
+
+
+def _name_bits(gray):
+    b = (gray >= 150).astype(np.uint8)
+    ys, xs = np.nonzero(b)
+    if len(xs) < 20:
+        return None
+    return cv2.resize(b[ys.min():ys.max() + 1, xs.min():xs.max() + 1], (80, 12),
+                      interpolation=cv2.INTER_AREA)
+
+
+def portraits(sid: str) -> None:
+    """I1-I3: name report portraits against the gallery over the enemy lineup."""
+    from reticle import appearance  # noqa: F401
+    from reticle.adjudication.identity import (PORTRAIT_MARGIN_MIN, _portrait_scores,
+                                               load_identity_gallery)
+    from reticle.lineup import load_lineup
+    store = Store()
+    gallery = load_identity_gallery(store.root)
+    lineup = load_lineup(sid, store.root)
+    enemy = [r.get("agent") or r.get("best_guess") for r in lineup["sides"]["enemy"]]
+    allies = [r.get("agent") or r.get("best_guess") for r in lineup["sides"]["ally"]]
+    frames = _frames(sid)
+    reps = []
+    for p in _panels(sid):
+        want = tuple(tuple(row[f] for f in adj.FIELDS) for row in p["rows"])
+        shown = [r for r in frames if p["start_ms"] <= r["t_ms"] <= p["end_ms"]
+                 and "rows" in r and (r.get("header") or 0) >= adj.HEADER_MIN
+                 and adj.frame_read(r) == want]
+        if shown:
+            reps.append((shown[len(shown) // 2], p))
+    m = _manifest(sid)["source"]
+    by_t = {r["t_ms"]: (r, p) for r, p in reps}
+
+    def name(comp, cands):
+        sc = sorted(_portrait_scores(comp, cands, gallery).items(), key=lambda kv: -kv[1])
+        if len(sc) < 2:
+            return None, 0.0, sc
+        return (sc[0][0] if sc[0][1] - sc[1][1] >= PORTRAIT_MARGIN_MIN else None,
+                round(sc[0][1] - sc[1][1], 3), sc[:2])
+
+    rows_out, cards = [], []
+    for s in sample_at(m["path"], sorted(by_t), float(m["fps"])):
+        r, p = by_t[s.t_ms]
+        f = s.frame
+        hx, hy = r["hx"], r["hy"]
+        g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+        if p["kind"] == "death":
+            c = f[hy + CARD[1]:hy + CARD[3], hx + CARD[0]:hx + CARD[2]]
+            cards.append((p, name(_composition(c), enemy)))
+        for k, row in enumerate(p["rows"]):
+            dy = ROW0 + k * PITCH
+            crop = field_at(f, hx, hy, ROW_PORTRAIT, dy)
+            nm = _name_bits(field_at(g, hx, hy, ROW_NAME, dy))
+            thumb = cv2.resize(crop, (20, 27), interpolation=cv2.INTER_AREA).astype(np.float32)
+            rows_out.append({"t": p["start_ms"] / 1000, "row": k, "kind": p["kind"],
+                             "killed_you": row["killed_you"], "name_bits": nm, "thumb": thumb,
+                             "enemy": name(_composition(crop), enemy),
+                             "open": name(_composition(crop), sorted(gallery))})
+    named = [x for x in rows_out if x["enemy"][0]]
+    print(f"I1: {len(named)}/{len(rows_out)} rows named over the enemy lineup {enemy}")
+    for x in rows_out:
+        print(f"  {x['t']:7.1f}s row {x['row']} {x['kind']:7s} KY={x['killed_you']!s:5s} "
+              f"enemy {x['enemy'][0]!s:9s} m={x['enemy'][1]:.3f} {x['enemy'][2]}  "
+              f"open-gallery top {x['open'][2][:1]}")
+    # I2: group rows by name crop (IoU of binarised text) and check one agent per group.
+    groups = []
+    for x in rows_out:
+        if x["name_bits"] is None:
+            continue
+        for gset in groups:
+            a, b = gset[0]["name_bits"].astype(bool), x["name_bits"].astype(bool)
+            if (a & b).sum() / max(1, (a | b).sum()) >= 0.6:
+                gset.append(x)
+                break
+        else:
+            groups.append([x])
+    bad = 0
+    for gset in groups:
+        agents = {x["enemy"][0] for x in gset if x["enemy"][0]}
+        bad += len(agents) > 1
+        print(f"  name group n={len(gset)}: agents {sorted(agents)}  unnamed {sum(1 for x in gset if not x['enemy'][0])}")
+    print(f"I2: {len(groups)} name groups, {bad} with more than one agent")
+    # Portrait clusters by direct correlation: the same agent's art repeats.
+    def corr(a, b):
+        a = (a - a.mean()) / (a.std() + 1e-6); b = (b - b.mean()) / (b.std() + 1e-6)
+        return float((a * b).mean())
+    clusters = []
+    for x in rows_out:
+        for c in clusters:
+            if corr(c[0]["thumb"], x["thumb"]) >= PORTRAIT_SAME:
+                c.append(x)
+                break
+        else:
+            clusters.append([x])
+    name_of = {id(x): gi for gi, gset in enumerate(groups) for x in gset}
+    print(f"portrait clusters at corr >= {PORTRAIT_SAME}: {len(clusters)}")
+    for c in clusters:
+        agents = Counter(x["enemy"][0] for x in c)
+        names = Counter(name_of.get(id(x)) for x in c)
+        print(f"  n={len(c):2d} gallery names {dict(agents)}  name groups {dict(names)}")
+    agree = 0
+    for p, c in cards:
+        ky = [x for x in rows_out if x["t"] == p["start_ms"] / 1000 and x["killed_you"]]
+        kya = ky[0]["enemy"][0] if ky else None
+        agree += c[0] is not None and c[0] == kya
+        print(f"  card {p['start_ms']/1000:7.1f}s {c[0]!s:9s} m={c[1]:.3f}  KILLED YOU row {kya}")
+    print(f"I3: card and KILLED YOU row agree on {agree}/{len(cards)} death panels")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("judge", "flags", "icons", "weapons"):
+    for name in ("judge", "flags", "icons", "weapons", "portraits"):
         sub.add_parser(name).add_argument("session")
     args = ap.parse_args()
-    {"judge": judge, "flags": flags, "icons": crop_icons, "weapons": weapons}[args.cmd](args.session)
+    {"judge": judge, "flags": flags, "icons": crop_icons, "weapons": weapons,
+     "portraits": portraits}[args.cmd](args.session)
 
 
 if __name__ == "__main__":
