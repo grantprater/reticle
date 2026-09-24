@@ -18,7 +18,10 @@ SCHEMA_VERSION = 1
 # contiguous and the gap between them is the post-round period. Every stored
 # round carries `start_source`, so one built by the old contiguous rule cannot
 # read as current. See `rounds.round_bounds` and `docs/ROSTER_FINDINGS.md`.
-ROUND_VERSION = "round-0.2.0"
+# 0.3.0 (2026-09-24): an event first seen at a round's exact end belongs to that
+# round (it is the decisive event); `a <= t < z` dropped 25 of the player's
+# deaths and 12 kills over the 17 KNOWN_KD sessions.
+ROUND_VERSION = "round-0.3.0"
 COACH_VERSION = "coach-0.1.0"
 # Pure credit-ledger rules and interval semantics. This does not stamp a credit
 # detector: no such observation channel exists yet.

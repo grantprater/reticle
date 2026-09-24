@@ -362,6 +362,21 @@ def infer_player_side(rounds: list[dict]) -> tuple[str | None, float]:
     return ("left" if ml > mr else "right"), abs(ml - mr)
 
 
+def in_round_window(seq: list[dict], a: float, z: float, ends: set[float]) -> list[dict]:
+    """The events of `seq` that belong to the round [a, z].
+
+    An event first seen at a round's END is that round's decisive event: the
+    score increments on the sample where the last player dies, so the killfeed
+    entry and the round's end share one timestamp. `a <= t < z` dropped it, and
+    over the 17 `KNOWN_KD` sessions lost 25 of the player's deaths (first seen
+    on `3694746e4e54` against `adjudication.combat_report`). Where rounds touch,
+    the shared instant belongs to the round it ends, never to both. An event in
+    the post-round gap still belongs to no round.
+    """
+    return [e for e in seq if a <= e["t_first"] <= z
+            and not (e["t_first"] == a and a in ends and a != z)]
+
+
 def build_rounds(table) -> list[dict]:
     """One row per round, from a session's stored HUD reads."""
     names = set(table.column_names)
@@ -375,9 +390,10 @@ def build_rounds(table) -> list[dict]:
     deaths = _tracks(t, table.column("kf_death_mask").to_pylist(), div("kf_death_wx"))
     entries = _tracks(t, table.column("kf_entry_mask").to_pylist(), div("kf_entry_wx"))
 
+    ends = {r["t_end_ms"] for r in rounds}
     for idx, r in enumerate(rounds, start=1):
         a, z = r["t_start_ms"], r["t_end_ms"]
-        in_round = lambda seq: [e for e in seq if a <= e["t_first"] < z]
+        in_round = lambda seq: in_round_window(seq, a, z, ends)
         rk, rd, re_ = in_round(kills), in_round(deaths), in_round(entries)
         r["round_no"] = idx
         r["player_kills"] = len(rk)
