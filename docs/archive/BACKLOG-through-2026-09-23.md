@@ -2195,3 +2195,8 @@ That is the smallest instance on the event side -- a hypothesised event
 predicting an observable -- and it is worth proving the loop on one cheap
 channel before building a dictionary. The `self_agent` instance has no such
 dependency and can be taken whenever agent identity is next worked on.
+
+## Completed tasks retired from BACKLOG.md on 2026-09-23
+
+- **`death-portraits` (2026-09-23):** 3,392 raw portrait observations persisted on the shared scan, two source-verified named victims (Reyna and Phoenix), five identity refusals, zero wrong names or verified locations. [Review and comparison](teststore/death-round4-portraits/review-summary.md); [contract](docs/tasks.json).
+- **`death-round4` (2026-09-23):** seven source-reviewed deaths, zero misses or extras in the fixed set, one named Phoenix victim, six identity refusals, and zero verified locations. [Review and before/after comparison](teststore/death-round4-v3/review-summary.md); [contract](docs/tasks.json).

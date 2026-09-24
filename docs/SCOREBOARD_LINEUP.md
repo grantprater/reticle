@@ -34,6 +34,30 @@ four views split between Jett and Omen, and the channel abstains. The
 scoreboard witness names Jett by elimination against the independently named
 Skye, and the verdict records zero independent channels and that dependency.
 
+## Corpus at scoreboard-0.5.0
+
+The other 17 sessions with scoreboard rows were rescanned (`reticle scan
+<id> --only scoreboard --force`). In every one, each side's accepted
+openings, 73 to 891 per session, agree on a single five-agent set, so the
+board names both sides in all 17. The constrained lineup names 170 of 170
+slots; the top bar alone named 113.
+
+The board changed six top-bar names, one each in six sessions. A source crop
+of the top bar and an accepted opening shows the board right every time:
+
+| Session | Slot | Top bar | With board | Source |
+| --- | --- | --- | --- | --- |
+| `3694746e4e54` | enemy 2 | Breach | Brimstone | beret; all ten slots match |
+| `5822b6646448` | enemy 3 | Clove | Jett | white hair |
+| `96aa1ae9b96f` | enemy 3 | Raze | Cypher | hat; all five enemy slots match |
+| `b7d24102a6f6` | enemy 3 | Breach | Brimstone | beret |
+| `bdfdcf009dba` | enemy 2 | Breach | Tejo | goggles |
+| `bfad2778a372` | ally 2 | Sova | Chamber | glasses and suit |
+
+The eleven sessions with no changed name were not source-checked; their
+filled slots rest on the board alone. The prediction and outcome are in the
+store's `notes/predictions.jsonl` under `scoreboard-corpus`.
+
 ## Reader defect found
 
 Some openings place the enemy block on top of the ally block and read the ally
