@@ -1,0 +1,61 @@
+# The combat report: the post-death panel right of centre. Facts about the game's
+# panel, not about any reader of it. Schema and the citation form: reticle/domain.py.
+
+[appears-on-death]
+claim = """
+The combat report appears when the local player dies. The player can hide and
+show it with N. Whether a game setting turns it off entirely is unconfirmed
+(the player's own uncertainty); they have not turned it off in any capture.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-24"
+use = """
+a death with no panel is a hidden or disabled panel, not a reader failure, until
+the frames say otherwise; keep it as a refusal with that reason
+"""
+phrases = ["combat report appears on death"]
+
+[panel-layout]
+claim = """
+Top to bottom the panel shows: a KILLED BY <AGENT> header, the killer's card
+with their player name on a red bar, a COMBAT REPORT header flanked by OUTGOING
+and INCOMING, then one row per enemy engaged. Each row carries outgoing damage
+and a head/body/legs hit split, the enemy's portrait, weapon icon and name, the
+incoming head/body/legs split and incoming damage, and a KILLED or KILLED YOU
+flag under the matching number. A round status line closes the panel.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-24"
+source = "a06f04a0059f deaths at 184 s and 301 s"
+
+[frozen-after-death]
+claim = """
+The rows do not change between the death and the round's end. At the round's
+end the status line gives way to a TIME / ABILITY / AMOUNT section and the
+panel grows upward. In the next buy phase the previous round's report can show
+again, beside the Tab scoreboard or alone, including for a round the player
+survived.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-09-24"
+source = """
+a06f04a0059f: death at 184 s read identically at 187, 200, 215 and 229 s and
+grew at 232.5 s (round 3 ends 232.0 s); round 5, which the player survived,
+shows its report alone in buy phase at 486-491 s and beside Tab at 127, 1370
+and 1429 s. What opens it in buy phase (Tab, N, or the game) is not yet known.
+"""
+
+[survived-round-rows]
+claim = """
+A buy-phase report can carry rows and flags not seen on a death panel: an
+ASSIST flag under outgoing damage, an ALLY row for damage to a teammate, and
+ability entries such as KILLS and ENEMIES BLINDED in the TIME / ABILITY / AMOUNT
+section.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-24"
+source = "a06f04a0059f at 488, 1370 and 1429 s"
