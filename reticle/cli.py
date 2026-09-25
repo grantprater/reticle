@@ -749,6 +749,20 @@ def _roi_cache_stale(store, manifest, profile, name) -> bool:
     return RoiCache.load(store.root, manifest, profile, name)[0] is None
 
 
+def cmd_usage(args) -> int:
+    """Show completed scan cost records, including source and reader time."""
+    from .usage import load, format_usage
+
+    store = Store(args.store)
+    rows = load(store.root, args.session)
+    if not rows:
+        print("no completed scan usage records")
+        return 0
+    for row in rows[-args.limit:]:
+        print(json.dumps(row, indent=2) if args.json else format_usage(row))
+    return 0
+
+
 def cmd_scan(args) -> int:
     """Stages 02 HUD and 02 minimap in ONE decode of the capture.
 
@@ -854,6 +868,7 @@ def cmd_scan(args) -> int:
         + ([f"minimap dark {args.dark_hz:g} Hz, active spans"] if want_dark else [])
         + ([f"combat report {args.report_hz:g} Hz, whole capture"] if want_report else [])))
 
+    setup_t0 = time.perf_counter_ns()
     hp = _HudPass(store, manifest, profile, args) if want_hud else None
     mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
 
@@ -944,11 +959,18 @@ def cmd_scan(args) -> int:
     if cache is None and args.frames_from == "cache":
         raise SystemExit(f"--from cache: {why}")
     print(f"frames     {'from ' + why if cache is not None else 'decoded (' + why + ')'}")
+    from .usage import ScanUsage
+    usage = ScanUsage(manifest, profile.name, readers,
+                      f"cache:{cache.record['version']}" if cache is not None else "video")
+    usage.setup_ns = time.perf_counter_ns() - setup_t0
+    pass_t0 = time.perf_counter_ns()
     if cache is not None:
         from .passes import run_cached
-        n_dec = run_cached(ctx, readers, cache, progress)
+        n_dec = run_cached(ctx, readers, cache, progress, usage=usage)
     else:
-        n_dec = passes_run(ctx, readers, progress)
+        n_dec = passes_run(ctx, readers, progress, usage=usage)
+    usage.pass_ns = time.perf_counter_ns() - pass_t0
+    publish_t0 = time.perf_counter_ns()
     sys.stdout.write("\r" + " " * 72 + "\r")
     dt = time.perf_counter() - t0
 
@@ -1095,6 +1117,11 @@ def cmd_scan(args) -> int:
         print(f"scoreboard {sp.frames_open}/{sp.frames_offered} frames open, "
               f"{accepted}/{candidates} credit candidates gated -> {out}")
     print(f"one pass   {n_dec} frames retrieved in {dt:.1f}s")
+    usage.publish_ns = time.perf_counter_ns() - publish_t0
+    try:
+        usage.write(store.root)
+    except OSError as exc:
+        print(f"usage log could not be written: {exc}", file=sys.stderr)
     print(f"\nnext: reticle verify {sid}")
     return 0
 
@@ -3006,6 +3033,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "nearer than the next digit (default 0.05)")
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_hud)
+
+    s = sub.add_parser("usage", help="completed VOD scan timings by session and reader")
+    s.add_argument("session", nargs="?", help="filter by VOD session id")
+    s.add_argument("--limit", type=int, default=5, help="latest records (default 5)")
+    s.add_argument("--json", action="store_true", help="show full timing buckets")
+    s.set_defaults(func=cmd_usage)
 
     s = sub.add_parser("scan", help="stages 02 hud + minimap in ONE decode pass")
     s.add_argument("session", nargs="?")

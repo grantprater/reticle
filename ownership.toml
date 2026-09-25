@@ -989,7 +989,7 @@ evidence = "tests/test_domain.py, `reticle domain --subject`"
 
 [infrastructure]
 modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
-           "refinement", "version", "metrics", "judgement", "quoted",
+           "refinement", "version", "metrics", "usage", "judgement", "quoted",
            "artifacts", "revisions", "census", "architecture", "ownership",
            "doctor", "status", "fidelity", "overlay", "review",
            "ability_capture", "ability_entities", "ability_gallery",

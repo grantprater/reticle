@@ -127,7 +127,7 @@ class ReconciliationTests(unittest.TestCase):
             mp = store.manifest_path('s')
             mp.parent.mkdir()
             mp.write_text(json.dumps(man))
-            def shared_pass(ctx,readers,progress):
+            def shared_pass(ctx,readers,progress,usage=None):
                 self.assertEqual([r.name for r in readers],['roster'])
                 readers[0].rows = [dict(frame_idx=0,t_ms=0,alive_ally=5,alive_enemy=5,
                                         detail_ally=[30.0]*5,detail_enemy=[30.0]*5)]

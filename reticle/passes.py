@@ -149,7 +149,7 @@ class SessionContext:
         return cv2.cvtColor(self.map_reference(), cv2.COLOR_BGR2GRAY).astype(np.float64)
 
 
-def run(ctx: SessionContext, readers: list, progress=None) -> int:
+def run(ctx: SessionContext, readers: list, progress=None, usage=None) -> int:
     """Drive every reader over ONE decode. Returns frames retrieved.
 
     A reader is fed only the frames it asked for -- `decode.sample_multi`
@@ -165,20 +165,28 @@ def run(ctx: SessionContext, readers: list, progress=None) -> int:
     req = {r.name: (r.hz, r.spans) for r in readers}
     by_name = {r.name: r for r in readers}
     n = 0
-    for who, smp in sample_multi(str(ctx.media), ctx.fps, req):
+    frames = sample_multi(str(ctx.media), ctx.fps, req)
+    for who, smp in (usage.timed_frames(frames) if usage is not None else frames):
         n += 1
         for name in who:
-            by_name[name].feed(smp)
+            if usage is None:
+                by_name[name].feed(smp)
+            else:
+                usage.feed(by_name[name], smp)
         if progress is not None:
             progress(n, smp)
     for r in readers:
         fin = getattr(r, "finish", None)
         if callable(fin):
-            fin()
+            if usage is None:
+                fin()
+            else:
+                usage.finish(r, fin)
     return n
 
 
-def run_cached(ctx: SessionContext, readers: list, cache, progress=None) -> int:
+def run_cached(ctx: SessionContext, readers: list, cache, progress=None,
+               usage=None) -> int:
     """Drive every reader over the ROI crop cache instead of a decode.
 
     The caller has checked, through `roi_cache.cache_for`, that each reader's
@@ -191,16 +199,23 @@ def run_cached(ctx: SessionContext, readers: list, cache, progress=None) -> int:
     for r in readers:
         r.frames_from = cache.record["version"]
     n = 0
-    for smp in cache.samples(sorted(set(cache.t_ms.tolist())), rois=rois):
+    frames = cache.samples(sorted(set(cache.t_ms.tolist())), rois=rois)
+    for smp in (usage.timed_frames(frames) if usage is not None else frames):
         n += 1
         for r in readers:
-            r.feed(smp)
+            if usage is None:
+                r.feed(smp)
+            else:
+                usage.feed(r, smp)
         if progress is not None:
             progress(n, smp)
     for r in readers:
         fin = getattr(r, "finish", None)
         if callable(fin):
-            fin()
+            if usage is None:
+                fin()
+            else:
+                usage.finish(r, fin)
     return n
 
 

@@ -31,7 +31,7 @@ order = ["foundation", "source", "primitives", "readers", "orchestration",
 
 [foundation]
 claim = "no siblings above the language and the store's own vocabulary"
-modules = ["version", "profiles", "fingerprint", "metrics", "judgement",
+modules = ["version", "profiles", "fingerprint", "metrics", "usage", "judgement",
            "domain", "architecture", "ownership", "quoted", "screen",
            "appearance", "artifacts", "revisions", "census", "events",
            "candidate_evidence"]
