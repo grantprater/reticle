@@ -712,3 +712,26 @@ class Store:
             return []
         with open(path, encoding="utf-8") as f:
             return [json.loads(ln) for ln in f if ln.strip()]
+
+    def read_events_kind(self, kind: str, session_id: str, row_kind: str) -> list[dict]:
+        """Read the first row (for its stamp) and rows of one event kind.
+
+        Store-written JSONL uses compact, literal ASCII keys. Checking the
+        kind field before decoding avoids parsing large unrelated observations.
+        A candidate still gets parsed and checked, so a matching string in a
+        nested value cannot promote the wrong row.
+        """
+        path = self.events_path(kind, session_id)
+        if not path.is_file():
+            return []
+        needle = ('"kind":"' + row_kind + '"').encode("ascii")
+        rows = []
+        with open(path, "rb") as f:
+            for ln in f:
+                if not ln.strip():
+                    continue
+                if not rows or needle in ln:
+                    row = json.loads(ln)
+                    if not rows or row.get("kind") == row_kind:
+                        rows.append(row)
+        return rows

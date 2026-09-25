@@ -181,13 +181,16 @@ def collect(store: Store) -> dict:
                 from .rounds import build_rounds
                 # Run It Back deaths are second lives, not deaths, here as in
                 # `reticle rounds`: the gate is `adjudication.death`'s.
-                second_life = stored_second_life(store.read_events("killfeed_portrait", sid),
+                second_life = stored_second_life(store.read_events_kind(
+                    "killfeed_portrait", sid, "second_life_observation"),
                                                  KILLFEED_PORTRAIT_VERSION)
-                rs = build_rounds(pq.read_table(store.hud_path(sid, date)), second_life)
+                tbl = pq.read_table(store.hud_path(sid, date))
+                rs = build_rounds(tbl, second_life)
                 # The combat report's per-round verdict, read through its
                 # owner, which refuses a verdict assigned against other rounds.
                 from .adjudication.combat_report import round_verdicts
-                v = round_verdicts(store.read_events("combat_report_round", sid), rs)
+                v = round_verdicts(store.read_events_kind(
+                    "combat_report_round", sid, "round"), rs)
                 rec["verdict"] = v["reason"] if v["status"] != "ok" else (
                     sum(r["kills"] or 0 for r in v["rounds"].values()),
                     sum(r["deaths"] or 0 for r in v["rounds"].values()),
@@ -218,7 +221,6 @@ def collect(store: Store) -> dict:
                 # killfeed fixes recovered, which the round attribution then
                 # dropped again. Comparing a partial count against a total is
                 # not a comparison.
-                tbl = pq.read_table(store.hud_path(sid, date))
                 ev = player_events(
                     tbl.column("t_ms").to_pylist(),
                     tbl.column("kf_kill_mask").to_pylist(),

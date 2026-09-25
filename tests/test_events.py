@@ -282,6 +282,24 @@ class EventContractTests(unittest.TestCase):
             self.assertEqual(len(read_back), 2)
             self.assertEqual(read_back[0]["kind"], "coverage")
 
+    def test_store_read_events_kind_keeps_stamp_and_selected_rows(self):
+        from reticle.store import Store
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = Store(Path(tmpdir))
+            rows = [
+                {"kind": "coverage", "version": "v1"},
+                {"kind": "portrait", "data": '"kind":"round"'},
+                {"kind": "round", "round_no": 1},
+                {"kind": "other", "data": "large"},
+                {"kind": "round", "round_no": 2},
+            ]
+            store.write_events("report", "s1", rows)
+            self.assertEqual(store.read_events_kind("report", "s1", "round"),
+                             [rows[0], rows[2], rows[4]])
+            self.assertEqual(store.read_events_kind("report", "s1", "absent"),
+                             [rows[0]])
+            self.assertEqual(store.read_events_kind("report", "missing", "round"), [])
+
     def test_round_events_emits_valid_session_boundaries(self):
         from reticle.rounds import round_events
         sample_rounds = [
