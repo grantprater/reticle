@@ -2214,3 +2214,7 @@ dependency and can be taken whenever agent identity is next worked on.
 
 - **`identity-exemplar-loop` (2026-09-23):** killfeed portraits also score against this session's portraits labelled by the scoreboard or the player HUD, only where the official art refuses, with `depends_on` on the labelling death. Across 24 rounds of `a06f04a0059f` it adds 32 names (12 of 12 source-checked correct), zero disagreements. [Results](docs/IDENTITY_EXEMPLAR_LOOP.md).
 - **`death-killers` (2026-09-23):** the killer is now entity `<death_id>:killer`, named by `adjudication.identity` from the player HUD and the stored killer portraits over the board-constrained side. Round 4 names 5 of 7 killers, all matching source; two refuse on a thin margin and a single view. [Results](docs/DEATH_KILLERS.md).
+
+## Retired from BACKLOG.md on 2026-09-24
+
+Agreed order, step 1: Step 1 measured scoreboard availability from stored rows: 33 of 52 sessions have no scoreboard rows, and in the 17 with rows and rounds, 326 of 348 rounds have at least two separate Tab holds. Usable openings around each death remain unmeasured outside `a06f04a0059f`.

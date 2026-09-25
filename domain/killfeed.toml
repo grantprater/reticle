@@ -43,3 +43,25 @@ seen with an ability assist only; whether a damage assist by a gun draws a gun
 icon, and how several assisters stack, are not known
 """
 phrases = ["assist panel", "assist icon left of the killer"]
+
+[chamber-gun-shaped-abilities]
+claim = """
+Chamber's Headhunter and Tour De Force kill icons are gun silhouettes, a heavy
+revolver and a long sniper, not the squarer glyphs other abilities draw. A
+gun-shaped icon is therefore not proof of a gun kill.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-24"
+source = """
+the weapon-icon labelling pass (<store>/labels/weapon_icon/): the player named
+a 42 px revolver group (32 icons) and a 127 px sniper group (17 icons) Ability,
+then said two ability groups were Chamber's ultimate and, they believe,
+Headhunter. Which group is which is inferred from shape (revolver Headhunter,
+sniper Tour De Force), not stated
+"""
+use = """
+a weapon-icon gallery keeps these two as abilities naming Chamber; the gun
+class estimate from width alone would call them a sidearm and a sniper
+"""
+phrases = ["chamber abilities look like guns"]
