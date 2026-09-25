@@ -118,6 +118,62 @@ class EntityBundleTests(unittest.TestCase):
         self.assertTrue(rules)
         self.assertEqual(rules[0]["status"], "domain_hypothesis_needs_patch_validation")
 
+    def test_reach_gating_prunes_distant_candidate(self):
+        import numpy as np
+        t_arr = np.array([5000.0])
+        sx = np.array([[100.0]])
+        sy = np.array([[100.0]])
+        np.savez(self.root / "series" / "demo.npz", t_ms=t_arr, self_x=sx, self_y=sy)
+
+        ref = {"harvested": "test", "agents": {"Killjoy": {"abilities": [
+            {"name": "Alarmbot", "slot": "Ability1", "key": "Q"}]}}}
+        (self.root / "reference/abilities.json").write_text(json.dumps(ref))
+        man = {"session_id": "demo", "source_profile": "p",
+               "source": {"path": "missing", "duration_ms": 10000, "content_key": "k"},
+               "tags": ["ability-demo", "killjoy"]}
+        (self.root / "manifests/demo.json").write_text(json.dumps(man))
+        (self.root / "casts/demo.step0.5.reader.json").write_text(
+            json.dumps([[5.0, "Q", 1.0, 0.0, False]]))
+        candidates = [
+            {"session_id": "demo", "t_ms": 5200, "x": 110, "y": 100,
+             "duration_ms": 100, "n_observations": 2},
+            {"session_id": "demo", "t_ms": 5200, "x": 250, "y": 100,
+             "duration_ms": 100, "n_observations": 2},
+        ]
+        (self.root / "labels/ability_candidates/demo.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in candidates))
+        (self.root / "labels/ability/demo.jsonl").write_text("")
+
+        got = build_entities(self.root)
+        c_near = next(c for c in got["component_claims"] if c["origin"] == "detector_candidate" and "250" not in c["component_id"])
+        c_far = next(c for c in got["component_claims"] if c["origin"] == "detector_candidate" and "250" in c["component_id"])
+        self.assertTrue(any(p["status"] == "candidate" for p in c_near["possible_parents"]))
+        self.assertFalse(any(p["status"] == "candidate" for p in c_far["possible_parents"]))
+        self.assertTrue(any(p["reason"] == "outside_placement_reach" for p in c_far["contradicted_parents"]))
+
+    def test_domain_non_minimap_ability_confirms_absent_null(self):
+        ref = {"harvested": "test", "agents": {"Jett": {"abilities": [
+            {"name": "Tailwind", "slot": "Ability2", "key": "E"}]}}}
+        (self.root / "reference/abilities.json").write_text(json.dumps(ref))
+        man = {"session_id": "demo", "source_profile": "p",
+               "source": {"path": "missing", "duration_ms": 10000, "content_key": "k"},
+               "tags": ["ability-demo", "jett"]}
+        (self.root / "manifests/demo.json").write_text(json.dumps(man))
+        (self.root / "casts/demo.step0.5.reader.json").write_text(
+            json.dumps([[5.0, "E", 1.0, 0.0, False]]))
+        candidates = [
+            {"session_id": "demo", "t_ms": 5200, "x": 100, "y": 100,
+             "duration_ms": 100, "n_observations": 2},
+        ]
+        (self.root / "labels/ability_candidates/demo.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in candidates))
+        (self.root / "labels/ability/demo.jsonl").write_text("")
+
+        got = build_entities(self.root)
+        null_h = next(h for h in got["entity_hypotheses"] if h["grouping_method"] == "no_observed_spatial_child")
+        self.assertEqual(null_h["status"], "confirmed_absent")
+        self.assertEqual(null_h["status_reason"], "domain_invar_no_minimap_entity")
+
 
 class OrphanEvidenceTests(unittest.TestCase):
     """A human label the detector never reproduced is still an observation."""

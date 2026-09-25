@@ -18,7 +18,7 @@ from pathlib import Path
 from ..ability_timeline import build_timeline
 
 
-ABILITY_ENTITY_VERSION = "ability-entities-0.2.0"
+ABILITY_ENTITY_VERSION = "ability-entities-0.3.0"
 #: Refuses a candidate that is the team's drawn light. Decided here from stored
 #: `ability_light` evidence; the reader stores the raw lit decision and the self
 #: fits and decides nothing.
@@ -411,6 +411,28 @@ def build_entities(root: str | Path) -> dict:
     for use in uses:
         uses_by_session[use["session_id"]].append(use)
 
+    import numpy as np
+
+    series_cache = {}
+    for sid in uses_by_session:
+        series_path = root / "series" / f"{sid}.npz"
+        series_cache[sid] = np.load(series_path) if series_path.is_file() else None
+
+    def _caster_pos(sid: str, t_ms: float) -> tuple[float | None, float | None]:
+        z = series_cache.get(sid)
+        if z is None or "self_x" not in z or "t_ms" not in z:
+            return None, None
+        t_arr = z["t_ms"]
+        idx = int(np.argmin(np.abs(t_arr - t_ms)))
+        if abs(t_arr[idx] - t_ms) > 1000.0:
+            return None, None
+        cx, cy = float(z["self_x"][0, idx]), float(z["self_y"][0, idx])
+        if math.isnan(cx) or math.isnan(cy) or cx <= 0 or cy <= 0:
+            return None, None
+        return cx, cy
+
+    time_counts = Counter((u["session_id"], u["observed_t_ms"]) for u in uses)
+
     component_claims = []
     compatible_by_use = defaultdict(list)
     for component in components:
@@ -430,7 +452,33 @@ def build_entities(root: str | Path) -> dict:
                 contradictions.append({"use_claim_id": use["use_claim_id"],
                                        "reason": "human_marked_clutter"})
                 continue
+
+            agent = (use.get("agent") or "").lower()
+            ability = (use.get("ability") or "").lower()
+            key = (agent, ability)
             status = "supported" if named == use.get("ability_id") else "candidate"
+
+            is_batch = (use.get("status") == "suspect" and
+                        time_counts[(use["session_id"], use["observed_t_ms"])] >= BATCH_DESATURATION_THRESHOLD)
+            if is_batch and status != "supported":
+                contradictions.append({"use_claim_id": use["use_claim_id"],
+                                       "reason": "batch_desaturation_artefact"})
+                continue
+
+            if key in NO_MINIMAP_ABILITIES and status != "supported":
+                contradictions.append({"use_claim_id": use["use_claim_id"],
+                                       "reason": "domain_non_minimap_ability"})
+                continue
+
+            if key in (LOCAL_PLACEMENT_ABILITIES | AREA_SMOKE_ABILITIES):
+                cx, cy = _caster_pos(use["session_id"], use["observed_t_ms"])
+                if cx is not None and cy is not None:
+                    d = math.hypot(component["x"] - cx, component["y"] - cy)
+                    if d > PLACEMENT_REACH_PX and status != "supported":
+                        contradictions.append({"use_claim_id": use["use_claim_id"],
+                                               "reason": "outside_placement_reach"})
+                        continue
+
             parents.append({"use_claim_id": use["use_claim_id"], "status": status,
                             "use_claim_status": use.get("status"),
                             "reason": ("matching_human_component_identity" if status == "supported"
@@ -466,14 +514,31 @@ def build_entities(root: str | Path) -> dict:
     for use in uses:
         candidates = compatible_by_use.get(use["use_claim_id"], [])
         supported = [c for c in candidates if c.get("label_ability_id") == use.get("ability_id")]
-        null_status = "contradicted" if supported else "candidate"
+        agent = (use.get("agent") or "").lower()
+        ability = (use.get("ability") or "").lower()
+        key = (agent, ability)
+        is_batch = (use.get("status") == "suspect" and
+                    time_counts[(use["session_id"], use["observed_t_ms"])] >= BATCH_DESATURATION_THRESHOLD)
+
+        if supported:
+            null_status = "contradicted"
+            null_reason = "matching_human_component_exists"
+        elif key in NO_MINIMAP_ABILITIES:
+            null_status = "confirmed_absent"
+            null_reason = "domain_invar_no_minimap_entity"
+        elif is_batch:
+            null_status = "refused"
+            null_reason = "simultaneous_multi_slot_desaturation_artefact"
+        else:
+            null_status = "candidate"
+            null_reason = "ability_may_have_no_minimap_child_or_reader_missed_it"
+
         hypotheses.append({
             "hypothesis_id": f"entity:null:{use['use_claim_id']}",
             "use_claim_id": use["use_claim_id"], "relation": "spawned_by",
             "grouping_method": "no_observed_spatial_child",
             "component_ids": [], "status": null_status,
-            "status_reason": ("matching_human_component_exists" if supported
-                              else "ability_may_have_no_minimap_child_or_reader_missed_it"),
+            "status_reason": null_reason,
         })
         methods = [("onset_proximity", ONSET_GROUP_VERSION, onset_groups(candidates))]
         rule = PARAMETER_RULES.get(use.get("ability_id"))
@@ -502,16 +567,18 @@ def build_entities(root: str | Path) -> dict:
                     "component_ids": list(members),
                     "status": "supported_components" if human_supported else "proposal",
                     "status_reason": ("contains_matching_human_named_components" if human_supported
-                                      else "components_only_temporally_compatible"),
+                                       else "components_only_temporally_compatible"),
                     "grouping_resolved": len(group) == 1,
                     "grouping_limit": (None if len(group) == 1 else
-                                       "component identity does not prove common physical entity"),
+                                        "component identity does not prove common physical entity"),
                     "treats_appearance_change_as": (
                         "a later PHASE of one entity" if method == "position_persistence"
                         else "a separate observation, which splits a transforming entity"),
                 })
                 properties.extend(_properties(use, group, f"entity:{hid}", method, rule))
-        if len(candidates) != 1 or not supported:
+
+        skip_review = (not candidates) and (key in NO_MINIMAP_ABILITIES or is_batch)
+        if not skip_review and (len(candidates) != 1 or not supported):
             review.append({
                 "review_id": f"ability-group:{use['use_claim_id']}",
                 "session_id": use["session_id"], "use_claim_id": use["use_claim_id"],
