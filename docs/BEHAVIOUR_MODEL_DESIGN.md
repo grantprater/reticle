@@ -49,6 +49,46 @@ The standard names for the pieces:
   entities interact; pass each channel's information once, so no evidence is
   counted twice (the repository's `depends_on` rule).
 
+## One model: minimap entities, events and behaviour
+
+The frame level is multi-target tracking, and it covers minimap mining and
+event recognition as well as identity. Parts of the pipeline already work this
+way without the name:
+
+- **Baked geometry is the prior for the background.** It predicts an empty
+  minimap, and `SESSION PIXELS DO NOT DEFINE THE MAP` keeps that prior out of
+  the observation it explains.
+- **Residual mining is innovation.** `prototypes/entity_mining_residual.py`
+  seeds areas from `lighting.raw_dark` births after tray casts: observation
+  minus prediction, read as a birth.
+- **Tracks with censored lifetimes:** `round_lifetimes` for ally icons,
+  `reticle smokes` for smokes.
+
+What the full model adds:
+
+1. **Each entity carries a predicted future.** An icon predicts its next
+   position from its motion; a smoke predicts its expiry from its duration. A
+   frame is mostly confirmation; the surprises are the events.
+2. **Channels predict each other, and events are transitions.** A tray charge
+   drop predicts an ability entity near the caster; an ally icon vanishing
+   predicts a killfeed entry and a roster drop; a killfeed death places a death
+   on the map. Recognising an event is testing which transition explains the
+   innovation, and whether the other channels' predictions came true; when they
+   did not, the surprise is stored.
+3. **Birth and death of an unknown number of entities:** multi-target tracking
+   with birth-death processes (PHD or multi-Bernoulli filters). Detections are
+   gated against predicted tracks; what falls outside every gate is a birth
+   hypothesis; a track no longer observed decays toward death, or toward
+   unobserved where it could be hidden.
+4. **Sampling follows expected information:** dense reads around casts,
+   contacts and predicted expiries, sparse ones where every prediction holds.
+
+The minimap is harder than the killfeed: it is translucent, icons overlap and
+cones are partial, so its likelihoods need calibrating; censoring is everywhere
+(enemies only when spotted, smokes hide what is inside); and each entity type
+(icons, abilities, cones, pings) needs its own dynamics and appearance model,
+coupled only where entities interact.
+
 ## Requirements the model imposes
 
 - **Calibrated likelihoods.** Readers emit scores; the update step needs
