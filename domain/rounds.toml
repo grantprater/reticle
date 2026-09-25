@@ -146,6 +146,9 @@ claim = """
 The combat report records a Run It Back death as an ordinary row for the enemy
 who made it, without the KILLED YOU flag; the real death's panel carries it.
 The player believes the row may also differ by an icon or colour; unconfirmed.
+When the same enemy makes both deaths, the report shows one row for them with
+KILLED YOU, and its incoming damage is the total of both. The scoreboard
+counts the real death only.
 """
 kind = "appearance"
 known = "player"
@@ -154,6 +157,9 @@ source = """
 a06f04a0059f: no panel between the Run It Back death at 1576.5 s and the real
 death at 1593.5 s; the real death's panel lists the Run It Back killer
 (vanshrana, 158 incoming) as a row without a KILLED YOU flag
+5822b6646448 round 16 (player): Run It Back death by jay (Chamber) at 1413.5 s,
+then jay kills the player for real at 1415.5 s with a Miks assist; one row,
+KILLED YOU, 320 incoming, the sum of both
 """
 
 
