@@ -269,17 +269,24 @@ def restatements(facts: dict[str, Fact],
     base = Path(root) if root else ROOT
     cited = citations(base)
     out: dict[str, list[str]] = {}
+    # A phrase belongs to a fact, but the source files do not change while
+    # this check runs. Read each candidate once instead of once per fact.
+    sources = []
+    for path in scan_files(base):
+        relative = path.relative_to(base).as_posix()
+        if relative in HISTORY or relative.startswith(HISTORY_PREFIXES):
+            continue
+        sources.append((relative, path.read_text(encoding="utf-8", errors="replace").lower()))
     for key, fact in facts.items():
         if not fact.phrases:
             continue
         owners = set(cited.get(key, ()))
         hits = []
-        for path in scan_files(base):
-            relative = path.relative_to(base).as_posix()
-            if relative in HISTORY or relative.startswith(HISTORY_PREFIXES) or relative in owners:
+        phrases = tuple(phrase.lower() for phrase in fact.phrases)
+        for relative, lowered in sources:
+            if relative in owners:
                 continue
-            lowered = path.read_text(encoding="utf-8", errors="replace").lower()
-            if any(phrase.lower() in lowered for phrase in fact.phrases):
+            if any(phrase in lowered for phrase in phrases):
                 hits.append(relative)
         if hits:
             out[key] = sorted(hits)

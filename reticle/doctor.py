@@ -94,6 +94,10 @@ def check_session_static(store: Path, root: Path | None = None) -> list[tuple[st
             if rel == "reticle/doctor.py":
                 continue
             source = f.read_text(encoding="utf-8", errors="replace")
+            # Every checked call names one of these identifiers in source.
+            # Avoid parsing files that cannot contain a violation.
+            if not any(token in source for token in ("static_map", "median", ".static.npy")):
+                continue
             try:
                 mod = ast.parse(source)
             except SyntaxError:
