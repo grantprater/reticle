@@ -63,7 +63,7 @@ def rerun(sid: str, windows: list[tuple[float, float]]) -> tuple[list[dict], dic
     store, man, profile, cache, ctx = _session(sid)
     reader = KillfeedPortraitReader(profile, ctx.wh, mask=ctx.kf_mask(), hz=2.0)
     want = sorted({float(t) for t in cache.t_ms if any(a <= t <= b for a, b in windows)})
-    for smp in cache.samples(want):
+    for smp in cache.samples(want, rois="killfeed"):
         reader.feed(smp)
     rows = [dict(r, kind="weapon_icon_observation") for r in reader.weapons]
     return rows, man
@@ -155,7 +155,7 @@ def sheet(rows: list[dict]) -> None:
             continue
         sid = r["key"].split(":")[1]
         store, man, profile, cache, ctx = _session(sid)
-        (smp,) = list(cache.samples([float(r["t_ms"])])) or [None]
+        (smp,) = list(cache.samples([float(r["t_ms"])], rois="killfeed")) or [None]
         if smp is None:
             continue
         x0, y0, x1, y1 = cache.rect_of("killfeed")
@@ -178,7 +178,7 @@ def sheet(rows: list[dict]) -> None:
 def probe(sid: str, t_ms: float) -> None:
     from reticle import killfeed as K
     store, man, profile, cache, ctx = _session(sid)
-    (smp,) = list(cache.samples([t_ms]))
+    (smp,) = list(cache.samples([t_ms], rois="killfeed"))
     seen = []
     orig = K._band_text
 
@@ -221,7 +221,7 @@ def regress(sids: list[str]) -> dict:
                                           / "hud.parquet"))[0]).to_pydict()
         want = targets(hud, "occupied", 2000.0)
         reader = KillfeedPortraitReader(profile, ctx.wh, mask=ctx.kf_mask(), hz=2.0)
-        for smp in cache.samples(want):
+        for smp in cache.samples(want, rois="killfeed"):
             reader.feed(smp)
         new = {(r["t_ms"], r["slot"]): r for r in reader.weapons}
         old = {(r["t_ms"], r["slot"]): r for r in store.read_events("killfeed_weapon", sid)

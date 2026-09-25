@@ -14,7 +14,10 @@ Controls
     A                     back one
     Q / ESC               save and quit
 
-`prep` decodes one frame per item. The items are the stored deaths (`reticle
+`prep` decodes one frame per item. `prep --batch 3` decodes nothing: it binds
+each item's stored weapon-slot rows as `adjudication.weapon` does, frames the
+middle one from the `hud` ROI crop cache, and asks again about entries whose
+last answer was Bad crop, since the locator has moved their box. The items are the stored deaths (`reticle
 deaths`, death-adjudication-0.8.0) whose weapon the owner could not name: an
 ability kill known only as "Ability", a weapon verdict refused, or a named
 player kill outside its ammo label (the two witnesses conflict). The labeller
@@ -56,7 +59,7 @@ GUNS = [["Classic", "Shorty", "Frenzy", "Ghost", "Bandit", "Sheriff"],
         ["Stinger", "Spectre", "Bucky", "Judge"],
         ["Bulldog", "Guardian", "Phantom", "Vandal"],
         ["Marshal", "Outlaw", "Operator", "Ares", "Odin"],
-        ["Melee", "Environmental", "Other", "Bad crop"]]
+        ["Melee", "Environmental", "Other", "Bad crop", "Clove expiry"]]
 SLOTS = ["Grenade", "Ability1", "Ability2", "Ultimate"]
 
 
@@ -162,6 +165,69 @@ def prep(out: Path = PREP, relaxed: bool = False, skip: Path | None = None) -> N
     print(f"{len(meta)} items -> {out}")
 
 
+def prep_cache(out: Path) -> None:
+    """Batch 3: items framed from the crop cache at their bound weapon rows."""
+    import glob
+    import pyarrow.parquet as pq
+    from reticle.adjudication.death import session_entries
+    from reticle.adjudication.weapon import bind_entry
+    from reticle.roi_cache import RoiCache
+    store = Store()
+    last = {}
+    for path in (store.root / "labels" / KIND).glob("*.jsonl"):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                last[row["key"]] = row
+    todo = [it for it in items()
+            if it["death_id"] not in last or last[it["death_id"]]["class"] == "bad_crop"]
+    by = defaultdict(list)
+    for it in todo:
+        by[it["session_id"]].append(it)
+    bands, icons, meta = [], [], []
+    for sid, its in sorted(by.items()):
+        man = store.read_manifest(sid)
+        profile = get_profile(man.get("source_profile", "valorant-16x9"))
+        cache, why = RoiCache.load(store.root, man, profile, "killfeed")
+        if cache is None:
+            print(f"{sid}: no crop cache ({why}); {len(its)} items skipped")
+            continue
+        x0, y0, x1, _ = cache.rect_of("killfeed")
+        hud = pq.read_table(glob.glob(str(store.root / "l1" / "hud" / "*" / f"session={sid}"
+                                          / "hud.parquet"))[0]).to_pydict()
+        ents = {(int(e["t_first"]), e["slot"]): e for e in session_entries(hud)}
+        obs = store.read_events("killfeed_weapon", sid)
+        framed = 0
+        for it in its:
+            e = ents.get((int(it["t_first"]), it["slot"]))
+            rows = [o for o in (bind_entry(e, obs) if e else []) if o.get("grid")]
+            if not rows:
+                continue
+            o = rows[len(rows) // 2]
+            got = list(cache.samples([float(o["t_ms"])], rois="killfeed"))
+            if not got:
+                continue
+            f = got[0].frame
+            band = f[y0 + o["y0"] - 4:y0 + o["y1"] + 4, x0:x1]
+            c = np.full((*BAND, 3), 25, np.uint8)
+            c[:min(BAND[0], band.shape[0]), :min(BAND[1], band.shape[1])] = \
+                band[:BAND[0], :BAND[1]]
+            icon = f[y0 + o["y0"]:y0 + o["y1"], x0 + o["wx0"]:x0 + o["wx1"]]
+            ic = np.full((40, 160, 3), 25, np.uint8)
+            ic[:min(40, icon.shape[0]), :min(160, icon.shape[1])] = icon[:40, :160]
+            bands.append(c)
+            icons.append(ic)
+            meta.append({**it, "t_ms": float(o["t_ms"]),
+                         "ring": [o["wx0"], 4, o["wx1"], 4 + o["y1"] - o["y0"]],
+                         "batch": 3,
+                         "previous": (last.get(it["death_id"]) or {}).get("class")})
+            framed += 1
+        print(f"{sid}: {len(its)} items, {framed} framed from the cache")
+    np.savez_compressed(out, bands=np.array(bands).reshape(-1, *BAND, 3),
+                        icons=np.array(icons).reshape(-1, 40, 160, 3), meta=json.dumps(meta))
+    print(f"{len(meta)} items -> {out}")
+
+
 def ability_art(agent: str) -> list[tuple[str, str, np.ndarray]]:
     """(stem, shown name, art) for an agent's four abilities, from the store."""
     root = Store().root / "reference" / "assets" / "abilities"
@@ -192,11 +258,15 @@ def label(prep_path: Path = PREP) -> int:
     bands, icons, meta = z["bands"], z["icons"], json.loads(str(z["meta"]))
     root_dir = Store().root / "labels" / KIND
     root_dir.mkdir(parents=True, exist_ok=True)
-    done = set()
+    last = {}
     for p in root_dir.glob("*.jsonl"):
         for line in p.read_text(encoding="utf-8").splitlines():
             if line.strip():
-                done.add(json.loads(line)["key"])
+                row = json.loads(line)
+                last[row["key"]] = row
+    # A Bad crop answer is about the box; batch 3 shows a new box, so ask again.
+    reframed = {m["death_id"] for m in meta if m.get("batch") == 3}
+    done = {k for k, r in last.items() if r["class"] != "bad_crop" or k not in reframed}
     order = [i for i, m in enumerate(meta) if m["death_id"] not in done]
     if not order:
         print("every item already has a label")
@@ -287,7 +357,7 @@ def label(prep_path: Path = PREP) -> int:
     for r, names in enumerate(GUNS):
         for c, nm in enumerate(names):
             cls = {"Melee": "melee", "Environmental": "environmental", "Other": "other",
-                   "Bad crop": "bad_crop"}.get(nm, "gun")
+                   "Bad crop": "bad_crop", "Clove expiry": "ability"}.get(nm, "gun")
             tk.Button(pad, text=nm, width=12,
                       command=lambda nm=nm, cls=cls: write(
                           None if cls == "bad_crop" else nm, cls)).grid(row=r, column=c,
@@ -311,11 +381,15 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["prep", "label"])
     ap.add_argument("--batch", type=int, default=1,
-                    help="2: the items batch 1 could not frame, matched loosely")
+                    help="2: the items batch 1 could not frame, matched loosely; "
+                         "3: framed from the crop cache after the locator fix")
     args = ap.parse_args()
     path = PREP if args.batch == 1 else PREP.with_name(f"{PREP.stem}_{args.batch}.npz")
     if args.cmd == "prep":
-        prep(path, relaxed=args.batch > 1, skip=PREP if args.batch > 1 else None)
+        if args.batch == 3:
+            prep_cache(path)
+        else:
+            prep(path, relaxed=args.batch > 1, skip=PREP if args.batch > 1 else None)
         return 0
     return label(path)
 

@@ -159,16 +159,24 @@ class RoiCache:
         """The pixel rectangle of one profile ROI this cache holds."""
         return self.record["rects"][CACHE_SETS[self.record["roi"]].index(roi)]
 
-    def samples(self, targets_ms: list[float]):
-        """A Sample per target the cache holds, in target order: every stored
-        crop pasted into a black frame of the capture's size."""
-        rows: dict[float, list[int]] = {}
-        for i, t in enumerate(self.t_ms):
-            rows.setdefault(float(t), []).append(i)
+    def samples(self, targets_ms: list[float], rois=None):
+        """A Sample per target the cache holds, in target order: the stored
+        crops pasted into a black frame of the capture's size. `rois` names
+        the profile ROIs to decode (a cache set's, or a list); the rest stay
+        black, so a killfeed reader on a `hud` cache decodes one crop, not all."""
+        if isinstance(rois, str):
+            rois = CACHE_SETS[rois]
+        held = CACHE_SETS[self.record["roi"]]
+        keep = (set(range(len(held))) if rois is None
+                else {held.index(r) for r in rois if r in held})
+        if not hasattr(self, "_by_t"):
+            self._by_t: dict[float, list[int]] = {}
+            for i, t in enumerate(self.t_ms):
+                self._by_t.setdefault(float(t), []).append(i)
         w, h = self.record["wh"]
         with open(self.blob, "rb") as fh:
             for t in targets_ms:
-                got = rows.get(float(t))
+                got = [i for i in self._by_t.get(float(t), ()) if int(self.rect[i]) in keep]
                 if not got:
                     continue
                 frame = np.zeros((h, w, 3), np.uint8)

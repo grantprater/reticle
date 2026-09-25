@@ -380,8 +380,10 @@ def estimate_weapon_class(width: int, aspect_ratio: float) -> str:
 #: Built by `prototypes/weapon_icons.py gallery` from `<store>/labels/weapon_icon/`
 #: and the per-entry names in `<store>/labels/killfeed_icon/`; it carries its own
 #: provenance. 0.2.0 splits the group the player named only "Ability" into the
-#: abilities they named per entry, the revive icons among them.
-WEAPON_GALLERY_VERSION = "weapon-gallery-0.2.0"
+#: abilities they named per entry, the revive icons among them. 0.3.0 adds
+#: the Blade Storm knife [domain:killfeed/jett-blade-storm-icon] once the
+#: locator boxed it, and Curveball and Annihilation.
+WEAPON_GALLERY_VERSION = "weapon-gallery-0.3.0"
 NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
 NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
 NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
@@ -394,7 +396,9 @@ NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons n
 MINED_NOT_GUN = {"Melee": "melee", "Environmental": "environmental", "Other": "other",
                  "Ability": "ability", "Headhunter": "ability", "Tour De Force": "ability",
                  "Aftershock": "ability", "Orbital Strike": "ability", "Boom Bot": "ability",
-                 "Not Dead Yet": "ability", "Resurrection": "ability"}
+                 "Not Dead Yet": "ability", "Resurrection": "ability",
+                 "Blade Storm": "ability", "Curveball": "ability", "Annihilation": "ability",
+                 "Clove expiry": "ability"}
 
 
 _MINED_CACHE: dict[str, dict] = {}

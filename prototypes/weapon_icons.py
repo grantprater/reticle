@@ -476,10 +476,19 @@ def labelled_entries(labels: dict[str, dict]) -> list[dict]:
             e = entries.get(_key_of(lab["key"]))
             bound = bind_entry(e, obs) if e is not None else []
             x0, _, x1, _ = lab["ring"]
-            rows = [o for o in bound if abs(o["wx0"] - x0) <= ENTRY_BOX_TOL
-                    and abs(o["wx1"] - x1) <= ENTRY_BOX_TOL]
+            on = lambda o: (abs(o["wx0"] - x0) <= ENTRY_BOX_TOL
+                            and abs(o["wx1"] - x1) <= ENTRY_BOX_TOL)
+            rows = [o for o in bound if on(o)]
+            # The ring the player answered can be another entry's box at that
+            # frame (59c70f1ef720 2565.5 s: an Odin in slot 0, this entry a
+            # knife in slot 2); then the answer is about that entry.
+            ids = {id(o) for o in bound}
+            elsewhere = not rows and any(
+                o.get("kind") == "weapon_icon_observation" and o["t_ms"] == lab["t_ms"]
+                and id(o) not in ids and on(o) for o in obs)
             out.append({"key": lab["key"], "session_id": sid, "name": lab["answer"],
                         "class": lab["class"], "bound": len(bound), "on_ring": len(rows),
+                        "elsewhere": elsewhere,
                         "grids": [unpack_icon_grid(o["grid"]) for o in rows],
                         "aspects": [float(o["aspect"]) for o in rows]})
     return out
@@ -554,12 +563,17 @@ def evaluate_entries(have: list[dict], bms: np.ndarray, entries: list[dict]) -> 
                                     else None)
             outcome = ("refused" if v["status"] != "resolved"
                        else "right" if got == e["name"] else "wrong")
+            # Only a WRONG name is explained away, and only when the answered
+            # ring is another entry's box; a refusal stays a refusal.
+            if outcome == "wrong" and ent is not None and e["elsewhere"]:
+                outcome = "label_elsewhere"
             res[f"{e['class']}:{outcome}"] += 1
             by_name[e["name"]][outcome] += 1
             rows.append((e["key"], e["name"], got, v.get("reason"), outcome))
     return {"by_class": dict(sorted(res.items())),
             "by_name": {n: dict(c) for n, c in sorted(by_name.items())},
             "wrong": [r for r in rows if r[4] == "wrong"],
+            "label_elsewhere": [r for r in rows if r[4] == "label_elsewhere"],
             "refused": [r for r in rows if r[4] == "refused"]}
 
 

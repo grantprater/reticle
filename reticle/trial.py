@@ -138,7 +138,7 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
         if cache is None:
             raise SystemExit(f"{sid}: no usable {roi_name} ROI cache ({why}) -- run "
                              f"`reticle scan {sid} --only roi_cache --cache-roi {roi_name}`")
-        frames = cache.samples(want)
+        frames = cache.samples(want, rois=roi_name)
     else:
         raise ValueError(f"unknown source {source!r}")
     n = 0
