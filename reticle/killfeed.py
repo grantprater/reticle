@@ -634,7 +634,8 @@ def overlay_mask(
 
 
 def _row_profile(
-    green: np.ndarray, red: np.ndarray, usable: np.ndarray | None = None
+    green: np.ndarray, red: np.ndarray, usable: np.ndarray | None = None,
+    usable_prefix: np.ndarray | None = None,
 ) -> np.ndarray:
     """How solidly each row is filled by an entry's two plates.
 
@@ -673,7 +674,8 @@ def _row_profile(
     if usable is None:
         seen = (hi - lo + 1).astype(np.float64)
     else:
-        vis = usable.astype(np.int32).cumsum(axis=1)
+        vis = (usable_prefix if usable_prefix is not None
+               else usable.astype(np.int32).cumsum(axis=1))
         seen = (vis[rows, hi] - vis[rows, lo] + usable[rows, lo]).astype(np.float64)
     prof = np.divide(inside, seen, out=np.zeros(plate.shape[0]), where=seen > 0)
     both = (
@@ -684,7 +686,8 @@ def _row_profile(
 
 
 def _entry_bands(
-    green: np.ndarray, red: np.ndarray, usable: np.ndarray | None = None
+    green: np.ndarray, red: np.ndarray, usable: np.ndarray | None = None,
+    usable_prefix: np.ndarray | None = None,
 ) -> list[tuple[int, int]]:
     """Row spans holding one entry each, read off the plate row profile.
 
@@ -705,7 +708,7 @@ def _entry_bands(
     one. Padding is bounded by the neighbouring runs, so it can never annex a
     neighbour's text.
     """
-    on = _row_profile(green, red, usable) > PLATE_ROW_FRAC
+    on = _row_profile(green, red, usable, usable_prefix) > PLATE_ROW_FRAC
     limit = len(on)
 
     runs: list[tuple[int, int]] = []
@@ -1197,6 +1200,8 @@ def analyse_killfeed(
     profile_name: str = "valorant-16x9",
     census: "Census | None" = None,
     t_ms: float | None = None,
+    *,
+    mask_prefix: np.ndarray | None = None,
 ) -> list[EntryView]:
     """Per-entry detail for one frame. `read_killfeed` is a summary of this.
 
@@ -1220,7 +1225,7 @@ def analyse_killfeed(
     value = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)   # `_band_text` tests line art on it
 
     views: list[EntryView] = []
-    for (a, z) in _entry_bands(green, red, mask):
+    for (a, z) in _entry_bands(green, red, mask, mask_prefix):
         slot = absolute_slot(a)
         where = (round(t_ms / 1000.0, 2) if t_ms is not None else None, slot)
         if census is not None:
@@ -1752,6 +1757,7 @@ class KillfeedPortraitReader:
         self.profile = profile
         self.w, self.h = wh
         self.mask = mask
+        self.mask_prefix = mask.astype(np.int32).cumsum(axis=1) if mask is not None else None
         self.roi = killfeed_roi(profile)
         self.name = "killfeed_portrait"
         self.hz = hz
@@ -1773,7 +1779,7 @@ class KillfeedPortraitReader:
             return
         views = analyse_killfeed(
             smp.frame, self.roi, self.w, self.h, self.mask,
-            self.profile.name)
+            self.profile.name, mask_prefix=self.mask_prefix)
         # The player's own deaths: does the entry carry the second-life badge?
         # Stored for every such entry, badge or not, so a consumer can tell a
         # Run It Back death from a death, and both from an entry never read.
