@@ -39,7 +39,7 @@ def reader_streams() -> list[tuple[str, str, str, str | None]]:
     from .version import (ALLY_ICON_VERSION, COMBAT_REPORT_VERSION, HUD_VERSION,
                           MINIMAP_DARK_VERSION, MINIMAP_VERSION, PING_VERSION,
                           ROSTER_VERSION, SCOREBOARD_VERSION)
-    return [("hud", "hud", HUD_VERSION, None),
+    return [("hud", "hud", HUD_VERSION, "hud"),
             ("killfeed_portrait", "hud", KILLFEED_PORTRAIT_VERSION, "killfeed"),
             ("killfeed_weapon", "hud", KILLFEED_WEAPON_VERSION, "killfeed"),
             ("minimap", "minimap", MINIMAP_VERSION, None),
@@ -105,8 +105,8 @@ def render(plan: dict) -> str:
         for s in p["decode"]:
             if sid not in by_channel[s["channel"]]:
                 by_channel[s["channel"]].append(sid)
-            if s["trial"] and sid not in trials[s["trial"]]:
-                trials[s["trial"]].append(sid)
+            if s["trial"] and sid not in trials[(s["channel"], s["trial"])]:
+                trials[(s["channel"], s["trial"])].append(sid)
         derived += [(sid, d) for d in p["derived"]]
     lines = []
     if not by_channel and not derived:
@@ -115,8 +115,8 @@ def render(plan: dict) -> str:
         streams = sorted({s["stream"] for p in plan.values() for s in p["decode"]
                           if s["channel"] == ch})
         lines.append(f"decode   {ch}: {', '.join(streams)} stale on {len(sids)} sessions")
-        for t, tsids in sorted(trials.items()):
-            if set(tsids) & set(sids):
+        for (tch, t), tsids in sorted(trials.items()):
+            if tch == ch:
                 lines.append(f"  check  reticle trial {tsids[0]} --reader {t} --from cache"
                              f"   (one session, stored windows, no decode)")
         lines.append(f"  accept reticle scan <sid> --only {ch}   for {' '.join(sids)}")

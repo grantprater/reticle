@@ -115,3 +115,30 @@ Blade Storm kills (e.g. 59c70f1ef720 Jett -> Jaystic at 2571.0 s), and one was a
 Deadlock ult kill; `killfeed`'s weapon-slot box landed on a portrait or a name
 """
 use = "killfeed's weapon-slot locator must find this icon before any gallery can name it"
+
+[killstreak-indicator]
+claim = """
+A killer on a kill streak within the round carries a roman numeral left of
+the killfeed entry, beside the killer's portrait, in the position the assist
+panel uses: which kill of the round this entry is for that player.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-25"
+source = """
+the player, 2026-09-25, naming the badge the weapon-slot locator mistook for
+name text; frames show III, IV and V on Jett's Blade Storm streak at
+59c70f1ef720 2079.5, 2091.0 and 2111.0 s
+"""
+use = """
+the numeral is glyph-sized but sits below the names' baseline; it is not the
+killer's name, and it counts the killer's kills in the round, a witness to
+check a kill count against
+"""
+exceptions = """
+the numeral starts at the third kill (the player, 2026-09-25: II would be far
+more common, and III is the lowest seen). How the numeral and a two-assister
+panel share the space left of the entry is not known; the player expects a
+priority order rather than a wider row
+"""
+phrases = ["killstreak numeral", "kill streak badge"]

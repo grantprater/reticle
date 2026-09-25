@@ -2973,7 +2973,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-scoreboard", dest="scoreboard", action="store_false",
                    help="skip context-free Tab-scoreboard rows and credit observations")
     s.set_defaults(scoreboard=True)
-    s.add_argument("--cache-roi", choices=("killfeed",),
+    s.add_argument("--cache-roi", choices=("killfeed", "hud"),
                    help="also store lossless crops of this ROI at the HUD rate, for "
                         "`reticle trial --from cache`; `--only roi_cache` stores only them")
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
@@ -3094,7 +3094,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("trial", help="rerun one reader on stored windows and diff it (writes nothing)")
     s.add_argument("session", nargs="?")
-    s.add_argument("--reader", default="killfeed", choices=("killfeed",))
+    s.add_argument("--reader", default="killfeed", choices=("killfeed", "hud"))
     s.add_argument("--from", dest="source", default="cache", choices=("cache", "video"),
                    help="ROI crop cache (no decode) or seeks into the capture")
     s.add_argument("--windows", default="occupied", choices=("occupied", "all"),

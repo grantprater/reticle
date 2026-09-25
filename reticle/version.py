@@ -50,7 +50,9 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the
 # template set, or field parsing changes -- that invalidates stored HUD reads
 # and forces a re-decode, since this stage needs pixels.
-HUD_VERSION = "hud-0.12.0"
+# 0.13.0 (2026-09-25): the killfeed divider prefers line art, so the
+# weapon-slot box, and with it `kf_*_wx`, moves off pale plates and portraits.
+HUD_VERSION = "hud-0.13.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits

@@ -8,7 +8,7 @@ import numpy as np
 
 from reticle.decode import Sample, windows_of
 from reticle.profiles import get_profile
-from reticle.roi_cache import RoiCache, RoiCacheWriter, roi_rect
+from reticle.roi_cache import RoiCache, RoiCacheWriter, roi_rects
 from reticle.trial import diff, targets
 
 
@@ -50,7 +50,7 @@ class TrialTest(unittest.TestCase):
             cache, why = RoiCache.load(Path(root), man, profile, "killfeed")
             self.assertIsNone(why)
             (got,) = list(cache.samples([500.0, 999.0]))
-            x0, y0, x1, y1 = roi_rect("killfeed", profile, (1920, 1080))
+            x0, y0, x1, y1 = roi_rects("killfeed", profile, (1920, 1080))[0]
             self.assertTrue(np.array_equal(got.frame[y0:y1, x0:x1], frame[y0:y1, x0:x1]))
             self.assertEqual((got.frame_idx, got.t_ms), (30, 500.0))
             self.assertEqual(int(got.frame[:y0].max(initial=0)), 0)
@@ -61,3 +61,21 @@ class TrialTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HudCacheTest(unittest.TestCase):
+
+    def test_a_hud_cache_serves_the_killfeed_set(self):
+        profile = get_profile("valorant-16x9")
+        man = _manifest()
+        frame = np.random.default_rng(1).integers(0, 255, (1080, 1920, 3), dtype=np.uint8)
+        with tempfile.TemporaryDirectory() as root:
+            w = RoiCacheWriter(Path(root), man, profile, "hud", hz=2.0)
+            w.feed(Sample(frame_idx=7, t_ms=0.0, frame=frame))
+            w.finish()
+            cache, why = RoiCache.load(Path(root), man, profile, "killfeed")
+            self.assertIsNone(why)
+            self.assertEqual(cache.record["roi"], "hud")
+            (got,) = list(cache.samples([0.0]))
+            for x0, y0, x1, y1 in roi_rects("hud", profile, (1920, 1080)):
+                self.assertTrue(np.array_equal(got.frame[y0:y1, x0:x1], frame[y0:y1, x0:x1]))

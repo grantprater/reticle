@@ -375,6 +375,21 @@ MIN_COMP_AREA = 6
 # the old rule could parse parses identically, and only a band it refused can
 # change. Re-measured: 8 recovered, 0 lost, 0 re-decided.
 ICON_MIN_W, ICON_MIN_H, ICON_MIN_AREA = 34, 15, 150
+# An icon is line art: pure white strokes. A pale victim plate (a green ally
+# plate lightening toward the portrait) passes the text mask too, merges with
+# the victim's letters into one blob, and outweighs a ringed ult icon whose
+# ring breaks into two narrow arcs: 043bafca271a 944.0 s took the plate at
+# 346-412 over Not Dead Yet's butterfly. There the plate's median V was 217
+# and every icon stroke's 252-255. Letters merged along a pale victim plate
+# are brighter (V 242-244 at 59c70f1ef720 498.5 s) but tinted (median S
+# 26-32), where guns and butterflies read S 4-15. A candidate inside both
+# bars is tried before any that is not.
+ICON_V_MED_MIN, ICON_S_MED_MAX = 250, 20
+# Jett's Blade Storm knife [domain:killfeed/jett-blade-storm-icon] is 19x19 px
+# and 92 px of ink at 59c70f1ef720 2080.0 s, under both tiers above, and so
+# is Not Dead Yet's butterfly when its ring splits off; line art that small
+# is a candidate only in the first pass (see `_band_text`).
+KNIFE_MIN_AREA, KNIFE_MIN_H = 60, 12
 # Name glyphs. The headshot icon's fragments pass the size test but scatter off
 # the baseline, which is what excludes them.
 GLYPH_W = (1, 16)
@@ -914,8 +929,15 @@ def plate_seam(green_band: np.ndarray, red_band: np.ndarray) -> int | None:
     return int(seams[0]) if len(seams) == 1 else None
 
 
+def _line_art(px: np.ndarray) -> bool:
+    """Whether a component's HSV pixels read as the icon's white strokes."""
+    return (np.median(px[:, 2]) >= ICON_V_MED_MIN
+            and np.median(px[:, 1]) <= ICON_S_MED_MAX)
+
+
 def _band_text(
-    white: np.ndarray, usable: np.ndarray | None = None, plates=None
+    white: np.ndarray, usable: np.ndarray | None = None, plates=None,
+    value: np.ndarray | None = None,
 ):
     """Isolate the band's name text and locate the weapon icon dividing it.
 
@@ -945,6 +967,18 @@ def _band_text(
         return "no_ink"
     big = [i for i in idx if st[i, 2] >= ICON_MIN_W and st[i, 3] >= ICON_MIN_H]
     small = [i for i in idx if st[i, 4] >= ICON_MIN_AREA and i not in set(big)]
+    tiers = [big, small]
+    tiny_pool = [i for i in idx if i not in set(big + small) and st[i, 4] >= KNIFE_MIN_AREA
+                 and st[i, 3] >= KNIFE_MIN_H]
+    if value is not None:
+        # Line art first (ICON_V_MED_MIN, ICON_S_MED_MAX; `value` is the band's
+        # HSV), then the old
+        # tiers: an entry fading in or out dims its icon below the bar too
+        # (043bafca271a 1058.5 s, a Vandal), and it must still divide the names.
+        art = {i for i in big + small + tiny_pool if _line_art(value[lab == i])}
+        tiers = [[i for i in big if i in art], [i for i in small if i in art],
+                 [i for i in big if i not in art], [i for i in small if i not in art]]
+        tiers.append([i for i in tiny_pool if i in art])
     if not big and not small:
         return "no_icon"
     cand = [
@@ -966,12 +1000,27 @@ def _band_text(
     # weapon icon on size, and put the killer's "Me" on the victim's side -- a
     # kill reported as a death. Scenery makes blobs; it does not make glyphs.
     glyph_cols = np.array([st[i, 0] + st[i, 2] // 2 for i in cand])
+    # Two passes, most trusted first. (1) Line art, down to the knife, with name
+    # glyphs ON the baseline to its left: the killstreak numeral left of the
+    # killer's portrait (III, IV) [domain:killfeed/killstreak-indicator] is
+    # glyph-sized but sits below it, and made the portrait a divider at
+    # 59c70f1ef720 2080.0 s. The victim's side takes
+    # any glyph, since a pale plate can swallow a name. (2) Today's rule, line
+    # art first, any glyph either side: a pale plate can swallow the KILLER's
+    # name too (043bafca271a 820.0 s).
+    bottoms = np.array([st[i, 1] + st[i, 3] for i in cand])
+    line = int(np.bincount(bottoms).argmax())
+    named = glyph_cols[np.abs(bottoms - line) <= BASELINE_TOL]
+    divides = lambda i, left, right: ((left < st[i, 0]).any()
+                                      and (right > st[i, 0] + st[i, 2]).any())
+    passes = ([([tiers[0], tiers[1], tiers[4]], named, glyph_cols)] if value is not None
+              else []) + [(tiers[:4], glyph_cols, glyph_cols)]
     wep = None
-    for tier in (big, small):
-        for i in sorted(tier, key=lambda i: -st[i, 4]):
-            a0, a1 = int(st[i, 0]), int(st[i, 0] + st[i, 2])
-            if (glyph_cols < a0).any() and (glyph_cols > a1).any():
-                wep = i
+    for group, left, right in passes:
+        for tier in group:
+            wep = next((i for i in sorted(tier, key=lambda i: -st[i, 4])
+                        if divides(i, left, right)), None)
+            if wep is not None:
                 break
         if wep is not None:
             break
@@ -1141,6 +1190,7 @@ def analyse_killfeed(
     if mask is None:
         mask = np.ones((h, w), dtype=bool)
     green, red, white = _plate_masks(crop, mask)
+    value = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)   # `_band_text` tests line art on it
 
     views: list[EntryView] = []
     for (a, z) in _entry_bands(green, red, mask):
@@ -1157,7 +1207,7 @@ def analyse_killfeed(
             if census is not None:
                 census.drop("band_one_plate_colour", where)
             continue
-        parsed = _band_text(white[a:z] > 0, mask[a:z], (green[a:z], red[a:z]))
+        parsed = _band_text(white[a:z] > 0, mask[a:z], (green[a:z], red[a:z]), value[a:z])
         if isinstance(parsed, str):
             if census is not None:
                 census.drop(parsed, where)
@@ -1219,7 +1269,9 @@ def analyse_killfeed(
 PORTRAIT_ASPECT = 2.0
 # 0.3.0 (2026-09-24): also stores a `second_life_observation` per read player
 # death entry: whether it carries the Run It Back / downed badge.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.3.0"
+# 0.4.0 (2026-09-25): the divider that splits killer from victim moved
+# (`_band_text` line art), so the portrait crops beside it move too.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.4.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -1477,7 +1529,9 @@ def detect_second_life_badge(
         }
 
 
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.1.0"
+# 0.2.0 (2026-09-25): the weapon-slot box finds ringed ult icons and the
+# Blade Storm knife [domain:killfeed/jett-blade-storm-icon] (`_band_text`).
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.2.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a

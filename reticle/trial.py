@@ -22,12 +22,6 @@ import time
 
 import numpy as np
 
-TRIAL_READERS = {
-    # reader name -> (the ROI its reads stay inside, the streams it writes)
-    "killfeed": ("killfeed", ("killfeed_portrait", "killfeed_weapon")),
-}
-
-
 def _killfeed_reader(ctx):
     from .killfeed import KillfeedPortraitReader
     return KillfeedPortraitReader(ctx.profile, ctx.wh, mask=ctx.kf_mask(), hz=2.0, spans=None)
@@ -35,6 +29,26 @@ def _killfeed_reader(ctx):
 
 def _killfeed_rows(reader, sid: str) -> dict[str, list[dict]]:
     return {"killfeed_portrait": reader.events(sid), "killfeed_weapon": reader.weapon_events(sid)}
+
+
+def _hud_reader(ctx):
+    from types import SimpleNamespace
+    from .hud_reader import HudReader
+    # `scan`'s defaults: 2 Hz, and the glyph gates its parser sets.
+    args = SimpleNamespace(hz=2.0, min_confidence=0.82, min_margin=0.05)
+    return HudReader(ctx.store, ctx.manifest, ctx.profile, args)
+
+
+def _hud_rows(reader, sid: str) -> dict[str, list[dict]]:
+    return {"hud": reader.rows}
+
+
+TRIAL_READERS = {
+    # reader -> (the ROI cache set its reads stay inside, build, rows, streams)
+    "killfeed": ("killfeed", _killfeed_reader, _killfeed_rows,
+                 ("killfeed_portrait", "killfeed_weapon")),
+    "hud": ("hud", _hud_reader, _hud_rows, ("hud",)),
+}
 
 
 def targets(hud: dict, windows: str = "occupied", pad_ms: float = 2000.0) -> list[float]:
@@ -71,6 +85,34 @@ def diff(new: list[dict], stored: list[dict], at: set[float]) -> dict:
             "example_only_trial": sorted(sa - sb)[:2], "example_only_stored": sorted(sb - sa)[:2]}
 
 
+def diff_table(new: list[dict], stored: dict, at: set[float]) -> dict:
+    """Reader rows against a stored table, column by column, at the trial's
+    frames; the table's own stamp columns are not the reader's output."""
+    by_t = {float(t): i for i, t in enumerate(stored["t_ms"])}
+    norm = lambda v: list(v) if isinstance(v, tuple) else v
+    same = moved = missing = 0
+    cols: dict[str, int] = {}
+    example = []
+    for r in new:
+        i = by_t.get(float(r["t_ms"]))
+        if i is None:
+            missing += 1
+            continue
+        bad = [c for c, v in r.items() if c in stored and norm(v) != norm(stored[c][i])]
+        if bad:
+            moved += 1
+            for c in bad:
+                cols[c] = cols.get(c, 0) + 1
+            if len(example) < 2:
+                example.append(json.dumps({c: [r[c], stored[c][i]] for c in bad[:3]},
+                                          default=str))
+        else:
+            same += 1
+    return {"trial_rows": len(new), "stored_rows": len(at & set(by_t)), "same": same,
+            "only_trial": moved + missing, "only_stored": moved, "stored_outside_frames": 0,
+            "columns": cols, "example_only_trial": example, "example_only_stored": []}
+
+
 def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
         windows: str = "occupied", pad_ms: float = 2000.0) -> dict:
     from .decode import seek_at
@@ -80,22 +122,22 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
 
     if reader not in TRIAL_READERS:
         raise ValueError(f"no trial for reader {reader!r}; have {sorted(TRIAL_READERS)}")
-    roi_name, streams = TRIAL_READERS[reader]
+    roi_name, build, output, streams = TRIAL_READERS[reader]
     sid = manifest["session_id"]
     profile = get_profile(manifest["source_profile"])
     ctx = SessionContext(store=store, manifest=manifest, profile=profile)
     hud = store.read_hud(sid, manifest["ingested_at"][:10]).to_pydict()
     want = targets(hud, windows, pad_ms)
     stored_idx = dict(zip(hud["t_ms"], hud["frame_idx"]))
-    r = _killfeed_reader(ctx)
+    r = build(ctx)
     t0 = time.perf_counter()
     if source == "video":
         frames = seek_at(str(ctx.media), want, ctx.fps)
     elif source == "cache":
         cache, why = RoiCache.load(store.root, manifest, profile, roi_name)
         if cache is None:
-            raise SystemExit(f"{sid}: no usable {roi_name} ROI cache ({why}) -- "
-                             f"run `reticle roicache {sid}`")
+            raise SystemExit(f"{sid}: no usable {roi_name} ROI cache ({why}) -- run "
+                             f"`reticle scan {sid} --only roi_cache --cache-roi {roi_name}`")
         frames = cache.samples(want)
     else:
         raise ValueError(f"unknown source {source!r}")
@@ -107,9 +149,10 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
     seconds = time.perf_counter() - t0
     # The store writes plain JSON; compare what it would have written.
     rows = {s: [json.loads(json.dumps(x, separators=(",", ":"), allow_nan=False))
-                for x in rs] for s, rs in _killfeed_rows(r, sid).items()}
+                for x in rs] for s, rs in output(r, sid).items()}
     at = set(float(t) for t in want)
-    diffs = {s: diff(rows[s], store.read_events(s, sid), at) for s in streams}
+    diffs = {s: (diff_table(rows[s], hud, at) if s == "hud"
+                 else diff(rows[s], store.read_events(s, sid), at)) for s in streams}
     return {"session_id": sid, "reader": reader, "source": source, "windows": windows,
             "pad_ms": pad_ms, "timeline": len(hud["t_ms"]), "frames": n,
             "seconds": round(seconds, 1), "diff": diffs, "rows": rows}
