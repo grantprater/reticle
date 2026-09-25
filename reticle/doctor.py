@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import ast
 import collections
+import functools
 import json
 import re
 from pathlib import Path
@@ -827,7 +828,7 @@ def _refs(node: ast.AST) -> set[str]:
     return out
 
 
-def _reachable(defs, top, roots, skip=frozenset()):
+def _reachable(defs, top, roots, skip=frozenset(), refs=_refs):
     """`(module, name)` pairs reachable from `roots`, never entering `skip`."""
     seen: set[tuple[str, str]] = set()
     queue = list(roots)
@@ -836,14 +837,14 @@ def _reachable(defs, top, roots, skip=frozenset()):
         if module in skip:
             continue
         for node in nodes:
-            queue.extend(_refs(node))
+            queue.extend(refs(node))
     while queue:
         name = queue.pop()
         for module, node in defs.get(name, ()):
             if module in skip or (module, name) in seen:
                 continue
             seen.add((module, name))
-            queue.extend(_refs(node))
+            queue.extend(refs(node))
     return seen
 
 
@@ -874,8 +875,9 @@ def check_uncalled(base: Path | None = None) -> list[tuple[str, str]]:
     defs, top = _code_graph(base)
     roots = [name for name, entries in defs.items()
              if name.startswith("cmd_") and any(m == "cli" for m, _n in entries)]
-    wired = _reachable(defs, top, roots, skip=RENDER_ONLY)
-    rendered = _reachable(defs, top, roots) - wired
+    refs = functools.cache(_refs)
+    wired = _reachable(defs, top, roots, skip=RENDER_ONLY, refs=refs)
+    rendered = _reachable(defs, top, roots, refs=refs) - wired
 
     # Keywords passed to each function NAME by any call anywhere -- the
     # pipeline, tools or prototypes. An input nothing supplies is dead
