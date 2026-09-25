@@ -1,8 +1,8 @@
 r"""Name the killfeed portraits the arbiter named from portraits alone.
 
-    .\.venv\Scripts\python.exe prototypes\label_feed_portraits.py prep [--n 120]
-    .\.venv\Scripts\python.exe prototypes\label_feed_portraits.py label
-    .\.venv\Scripts\python.exe prototypes\label_feed_portraits.py score
+    .\.venv\Scripts\python.exe prototypes\label_feed_portraits.py prep [--n 120] [--uniform]
+    .\.venv\Scripts\python.exe prototypes\label_feed_portraits.py label [--uniform]
+    .\.venv\Scripts\python.exe prototypes\label_feed_portraits.py score [--uniform]
 
 The portrait channel's reliability measured against independent witnesses
 (`reticle reliability`) covers the player's own kills and deaths and ability
@@ -20,7 +20,17 @@ to `<store>/labels/feed_portrait/<session>.jsonl`, keyed by the verdict's
 entity, last row wins, resumable.
 
 `score` compares each label with the stored verdict and prints the
-portrait channel's accuracy on this population, per agent. Predictions are
+portrait channel's accuracy on this population, per agent.
+
+`--uniform` samples a second population: every killer in the current death
+stream, uniformly, whatever its verdict -- resolved, abstained, in
+disagreement, or witnessed by a reference channel. The first sample drew only
+names the crops had already resolved, before `killfeed-portrait-0.5.0` moved
+the killer crops, so it measures a resolved name's precision and says nothing
+of the killers left unnamed. Each item records its verdict status; `score
+--uniform` reports precision on resolved names and coverage (named right over
+all labelled faces). Its labels go to `<store>/labels/feed_portrait_uniform/`,
+since the first labels ringed the old crops. Predictions are
 `channel-reliability` in the store's `notes/predictions.jsonl`.
 """
 from __future__ import annotations
@@ -46,6 +56,8 @@ from reticle.store import Store  # noqa: E402
 
 KIND = "feed_portrait"
 PREP = Store().root / "analysis" / "feed_portrait_labels.npz"
+UNIFORM_KIND = "feed_portrait_uniform"
+UNIFORM_PREP = Store().root / "analysis" / "feed_portrait_uniform_labels.npz"
 SEED = 20260925
 BAND = (60, 1100)
 
@@ -77,12 +89,47 @@ def population() -> list[dict]:
     return out
 
 
-def prep(n: int, out: Path = PREP) -> None:
+def uniform_population() -> tuple[list[dict], Counter]:
+    """Every killer in the current death stream, one row per entity, whatever
+    its verdict; and the count of killers with no portrait observation to show."""
     store = Store()
-    pop = population()
+    out, unshown = [], Counter()
+    for man in store.sessions():
+        sid = man["session_id"]
+        rows = store.read_events("death", sid)
+        if not rows or rows[0].get("death_adjudication_version") != DEATH_ADJUDICATION_VERSION:
+            continue
+        for r in rows[1:]:
+            if r.get("is_revive"):
+                continue
+            v = r["metadata"].get("killer_identity") or {}
+            status = v.get("status") or "no_verdict"
+            obs = [o for c in v.get("claims", []) if c["channel"] == "killfeed_portrait"
+                   for o in (c.get("evidence") or {}).get("observations", [])]
+            if not obs:
+                unshown[status] += 1
+                continue
+            by = v.get("by_channel") or {}
+            out.append({"session_id": sid, "entity_id": v["entity_id"], "role": "killer",
+                        "death_id": r["death_id"], "said": v.get("agent"), "status": status,
+                        "witnessed": sorted(ch for ch in REFERENCE_CHANNELS
+                                            if ch in by and by[ch].get("agent")),
+                        "dependent": bool(v.get("depends_on")),
+                        "observation_key": obs[len(obs) // 2]["observation_key"]})
+    return out, unshown
+
+
+def prep(n: int, out: Path = PREP, uniform: bool = False) -> None:
+    store = Store()
+    if uniform:
+        pop, unshown = uniform_population()
+        print(f"{sum(unshown.values())} killers have no portrait view to show: {dict(unshown)}")
+    else:
+        pop = population()
     random.Random(SEED).shuffle(pop)
     pick = pop[:n]
-    print(f"{len(pop)} portrait-only names; sampling {len(pick)}")
+    print(f"{len(pop)} {'killers' if uniform else 'portrait-only names'}; sampling {len(pick)}"
+          + (f" {dict(Counter(it['status'] for it in pick))}" if uniform else ""))
     by = defaultdict(list)
     for it in pick:
         by[it["session_id"]].append(it)
@@ -135,9 +182,9 @@ def _all_agents() -> list[str]:
     return sorted({p.name.split("_killfeed")[0] for p in root.glob("*_killfeed_portrait.png")})
 
 
-def _labels() -> dict[str, dict]:
+def _labels(kind: str = KIND) -> dict[str, dict]:
     last = {}
-    for p in (Store().root / "labels" / KIND).glob("*.jsonl"):
+    for p in (Store().root / "labels" / kind).glob("*.jsonl"):
         for line in p.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 row = json.loads(line)
@@ -145,14 +192,14 @@ def _labels() -> dict[str, dict]:
     return last
 
 
-def label(prep_path: Path = PREP) -> int:
+def label(prep_path: Path = PREP, kind: str = KIND) -> int:
     import tkinter as tk
 
     z = np.load(prep_path)
     bands, faces, meta = z["bands"], z["faces"], json.loads(str(z["meta"]))
-    root_dir = Store().root / "labels" / KIND
+    root_dir = Store().root / "labels" / kind
     root_dir.mkdir(parents=True, exist_ok=True)
-    done = set(_labels())
+    done = set(_labels(kind))
     order = [i for i, m in enumerate(meta) if m["entity_id"] not in done]
     print(f"{len(done)} already done, {len(order)} to go", flush=True)
     if not order:
@@ -247,9 +294,11 @@ def label(prep_path: Path = PREP) -> int:
     return 0
 
 
-def score(prep_path: Path = PREP) -> dict:
+def score(prep_path: Path = PREP, kind: str = KIND) -> dict:
     meta = {m["entity_id"]: m for m in json.loads(str(np.load(prep_path)["meta"]))}
-    labs = [r for r in _labels().values() if r["key"] in meta and not r["uncertain"]]
+    labs = [r for r in _labels(kind).values() if r["key"] in meta and not r["uncertain"]]
+    if kind == UNIFORM_KIND:
+        return score_uniform(meta, labs)
     res, per, conf = Counter(), defaultdict(Counter), Counter()
     for r in labs:
         m = meta[r["key"]]
@@ -266,17 +315,46 @@ def score(prep_path: Path = PREP) -> dict:
             "confusions": dict(conf.most_common())}
 
 
+def score_uniform(meta: dict, labs: list[dict]) -> dict:
+    """Precision on resolved names, and coverage: of the labelled faces, how
+    many the verdict named right. Unsure items are left out of both."""
+    by_status = defaultdict(Counter)
+    conf = Counter()
+    for r in labs:
+        m = meta[r["key"]]
+        if r["class"] == "not_portrait":
+            by_status[m["status"]]["not_portrait"] += 1
+            continue
+        if m["said"] is None:
+            by_status[m["status"]]["unnamed"] += 1
+        elif r["answer"] == m["said"]:
+            by_status[m["status"]]["right"] += 1
+        else:
+            by_status[m["status"]]["wrong"] += 1
+            conf[f"{r['answer']} read as {m['said']}"] += 1
+    faces = sum(c[k] for c in by_status.values() for k in ("right", "wrong", "unnamed"))
+    res = by_status.get("resolved", Counter())
+    named = res["right"] + res["wrong"]
+    return {"labelled": len(labs), "by_status": {k: dict(c) for k, c in by_status.items()},
+            "resolved_precision": round(res["right"] / named, 3) if named else None,
+            "coverage": round(sum(c["right"] for c in by_status.values()) / faces, 3) if faces else None,
+            "confusions": dict(conf.most_common())}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["prep", "label", "score"])
     ap.add_argument("--n", type=int, default=120)
+    ap.add_argument("--uniform", action="store_true",
+                    help="every killer, whatever its verdict (a separate sample and label set)")
     args = ap.parse_args()
+    path, kind = (UNIFORM_PREP, UNIFORM_KIND) if args.uniform else (PREP, KIND)
     if args.cmd == "prep":
-        prep(args.n)
+        prep(args.n, path, uniform=args.uniform)
     elif args.cmd == "label":
-        return label()
+        return label(path, kind)
     else:
-        print(json.dumps(score(), indent=1))
+        print(json.dumps(score(path, kind), indent=1))
     return 0
 
 
