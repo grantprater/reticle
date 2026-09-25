@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "branch": "experiment/bootstrap-integration",
+  "base_commit": "3df93ccce95e0e684b86d6e07bb86911c72ba247",
+  "lane_a_base_commit": "70d888fdd37327a5041ab419be6c165b96011da2",
+  "lane_b_base_commit": "70d888fdd37327a5041ab419be6c165b96011da2",
+  "historical_lane_a_manifest": "C:/Users/grant/reticle-worktrees/bootstrap-a/docs/experiments/bootstrap-a/manifest.json",
+  "historical_lane_b_report": "C:/Users/grant/reticle-worktrees/bootstrap-b/.experiment-store/bootstrap-b/frozen-candidate/report.json",
+  "frozen_candidate": "C:/Users/grant/reticle-worktrees/bootstrap-b/.experiment-store/bootstrap-b/frozen-candidate/candidate.json",
+  "frozen_candidate_revision": "8164052e9fddde22a8b71540ba7fc389a33bec18c293dcc3a804dd9432fd7a9c",
+  "frozen_candidate_file_sha256": "6ff678f921f4650071be058717e3914dc10d0017508405ebc23d6fee5a9110d0",
+  "production_death_stream_sha256": "4c38319dc476af2308dd30f2a60be276e88390d9306184cf998766e6b2ccbe58",
+  "production_combat_report_round_stream_sha256": "5f77b1fa619b2ba2f1fb209ff17029f5b6159973d3bde10b5628d7199f5711c1",
+  "integration_code_sha256": {
+    "tools/bootstrap_b_replay.py": "ebd673d7bed5af2df8e5960686b4b3ac9228407fe2ba72aae0f4c3b1b0cfc08e",
+    "tools/bootstrap_b_run.py": "1c22e2c57de97c221d410cd02ffbc67374fc69257f19c697af6395097a1b46c8",
+    "tools/bootstrap_compare.py": "52fd8cc4c7f1724c69181f267069f926ba6ff72fc29b108c490e4541fd61ee1e",
+    "tools/identity_loop.py": "7431237b1d36e33ffd3c69449041a6106d9ccc5db2e4fafc02a1d0e17573d515"
+  },
+  "historical_adapter_replay": "C:/Users/grant/reticle-worktrees/bootstrap-integration/.experiment-store/bootstrap-integration/dev-replay-005/report.json",
+  "development_replay": "C:/Users/grant/reticle-worktrees/bootstrap-integration/.experiment-store/bootstrap-integration/production-replay-001/report.json",
+  "transfer_replay": "C:/Users/grant/reticle-worktrees/bootstrap-integration/.experiment-store/bootstrap-integration/production-transfer-001/report.json",
+  "comparison": "C:/Users/grant/reticle-worktrees/bootstrap-integration/.experiment-store/bootstrap-integration/production-replay-001/comparison_report.json",
+  "production_inputs": "read_only",
+  "new_source_truth": null,
+  "new_source_truth_reason": "Player has not completed the controlled source question"
+}

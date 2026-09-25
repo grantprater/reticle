@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "status": "review_pending",
+  "branch": "experiment/bootstrap-integration",
+  "commit": "refs/heads/experiment/bootstrap-integration",
+  "input_manifest": "docs/experiments/bootstrap-integration/manifest.json",
+  "baseline_revision": "3df93ccce95e0e684b86d6e07bb86911c72ba247",
+  "candidate_revision": "8164052e9fddde22a8b71540ba7fc389a33bec18c293dcc3a804dd9432fd7a9c",
+  "adapter_revision": "bootstrap-integration-0.1.0",
+  "training_sessions": ["a06f04a0059f"],
+  "evaluation_sessions": ["a06f04a0059f", "3694746e4e54"],
+  "evaluation_truth_used_for_learning": false,
+  "development": {
+    "rounds": [3, 4, 5],
+    "death_events": 26,
+    "query_changes": 0,
+    "production_binding": "death:a06f04a0059f:412000:1:killer",
+    "baseline_name": "Phoenix",
+    "adapted_name": "Phoenix",
+    "comparison_kind": "stored_agreement",
+    "source_accuracy": null,
+    "source_accuracy_reason": "no reviewed source truth"
+  },
+  "historical_adapter": {
+    "death_events": 25,
+    "query_changes": 1,
+    "legacy_changed_slot": "death:a06f04a0059f:412000:0:killer",
+    "production_slot_present": false,
+    "direct_anchor_withdrawal_changes": 1,
+    "all_contributing_withdrawal_changes": 0
+  },
+  "provisional_transfer_changes": 0,
+  "anchor_lineage": "selection_and_association_dependencies_incomplete",
+  "reviewed_scope": "Stored development replay and saved source query frame; no new labels",
+  "replay_artifact": "C:/Users/grant/reticle-worktrees/bootstrap-integration/.experiment-store/bootstrap-integration/production-replay-001/report.json",
+  "comparison_artifact": "C:/Users/grant/reticle-worktrees/bootstrap-integration/.experiment-store/bootstrap-integration/production-replay-001/comparison_report.json",
+  "first_failure": "The legacy adapter and production session_entries disagree on the query entry key; the proposed slot is absent from the accepted death stream.",
+  "questions": ["At 06:52 in a06f04a0059f, are the visible Me killfeed rows distinct kills? Which first appeared at 409000 ms and which at 412000 ms? Distinct with marked rows, one repeated event, or cannot tell."],
+  "next_action": "Use labelling-pass to review the entry association, then select a new unresolved production death for a bounded learner test."
+}

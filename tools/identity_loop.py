@@ -64,14 +64,14 @@ def rounds_of(store, session, date, hud):
 
 
 def run_pass(rounds, portraits, lineup, gallery, roster, hud_table, roster_table,
-             board_rows, player_agent, exemplars):
+             board_rows, player_agent, exemplars, session_id):
     results = []
     for r in rounds:
         entries = attach_stored_killfeed_portraits(
             r["entries"], portraits, lineup, gallery,
             source_version=KILLFEED_PORTRAIT_VERSION, exemplars=exemplars)
         window = [row for row in roster if r["start"] <= row["t_ms"] <= r["end"]]
-        first = adjudicate_round_deaths("S", entries, window, player_agent=player_agent)
+        first = adjudicate_round_deaths(session_id, entries, window, player_agent=player_agent)
         openings = scoreboard_openings([row for row in board_rows
                                         if r["start"] <= float(row.get("t_ms", -1)) <= r["end"]])
         audit = audit_board_alive(openings, hud_table, roster_table)
@@ -79,7 +79,7 @@ def run_pass(rounds, portraits, lineup, gallery, roster, hud_table, roster_table
             entries, openings, {i: v.victim for i, v in enumerate(first)},
             {i for i, v in enumerate(first) if v.is_second_life},
             contradicted_openings(audit))
-        verdicts = adjudicate_round_deaths("S", entries, window, player_agent=player_agent,
+        verdicts = adjudicate_round_deaths(session_id, entries, window, player_agent=player_agent,
                                            scoreboard_claims=board)
         results.append({"round": r["round"], "entries": entries, "verdicts": verdicts})
     return results
@@ -129,7 +129,7 @@ def main(argv=None) -> int:
     passes, exemplars, keys = [], [], None
     for n in range(MAX_PASSES):
         results = run_pass(rounds, portraits, lineup, gallery, roster, hud_table,
-                           roster_table, board_rows, player_agent, exemplars)
+                           roster_table, board_rows, player_agent, exemplars, args.session)
         counts, rows = summarize(results)
         harvested = portrait_exemplars(
             [v for r in results for v in r["verdicts"]],
