@@ -2218,3 +2218,7 @@ dependency and can be taken whenever agent identity is next worked on.
 ## Retired from BACKLOG.md on 2026-09-24
 
 Agreed order, step 1: Step 1 measured scoreboard availability from stored rows: 33 of 52 sessions have no scoreboard rows, and in the 17 with rows and rounds, 326 of 348 rounds have at least two separate Tab holds. Usable openings around each death remain unmeasured outside `a06f04a0059f`.
+
+Completed, retired 2026-09-24:
+
+- **`minimap-smoke` (2026-09-24):** `reticle scan` stores grey-dark and icon-occluded minimap floor at 4 Hz (`minimap_dark`) and `reticle smokes` recomputes smoke tracks from storage with censored onsets and ends. On `a06f04a0059f` the match scans in 301 s; all [metric:smokes/match@a06f04a0059f#both_ends_observed=22] tracks with both ends observed read 17.75-18.0 s, the Miks disc. Promoted from `prototypes/entity_mining_rounds.py`.

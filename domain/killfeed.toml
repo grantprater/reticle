@@ -70,3 +70,44 @@ a weapon-icon gallery keeps these two as abilities naming Chamber; the gun
 class estimate from width alone would call them a sidearm and a sniper
 """
 phrases = ["chamber abilities look like guns"]
+
+[revive-entries]
+claim = """
+A revive draws a killfeed entry that is not a death. Clove's Not Dead Yet draws
+Clove's player on both sides with the ult's round icon in the weapon slot; Sage's
+Resurrection draws the Sage as killer and the revived teammate as victim with the
+Resurrection icon. Both sit on the reviving team's plate colour.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-24"
+source = """
+the killfeed-icon labelling pass (<store>/labels/killfeed_icon/): the player named
+15 entries Not Dead Yet (e.g. 9acf02f98283 MrTaco -> MrTaco at 659.0 s) and 5
+Resurrection (59c70f1ef720 sneaks -> Jett at 961.0 s); death-adjudication-0.8.0
+stores all 20 as deaths
+"""
+use = """
+the death owner must not count a revive entry as a death; the weapon-slot icon
+is the witness, beside [domain:rounds/resurrection-mechanics]
+"""
+exceptions = """
+whether a Clove entry marks the revive itself or its expiry
+[domain:rounds/clove-revive-expiry-entry] is not settled by these frames
+"""
+phrases = ["revive entry is not a death"]
+
+[jett-blade-storm-icon]
+claim = """
+A Jett Blade Storm kill draws a thin knife in the weapon slot, narrower and
+fainter than the gun silhouettes.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-24"
+source = """
+the killfeed-icon labelling pass: several entries the player marked Bad crop were
+Blade Storm kills (e.g. 59c70f1ef720 Jett -> Jaystic at 2571.0 s), and one was a
+Deadlock ult kill; `killfeed`'s weapon-slot box landed on a portrait or a name
+"""
+use = "killfeed's weapon-slot locator must find this icon before any gallery can name it"
