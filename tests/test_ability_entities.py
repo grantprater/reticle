@@ -5,7 +5,7 @@ from pathlib import Path
 
 from reticle.adjudication.ability import (bearing_groups, build_entities,
                                           light_refusals, onset_groups,
-                                          persistence_groups)
+                                          persistence_groups, predict_ability_births)
 from reticle import lighting
 
 
@@ -266,5 +266,73 @@ class LightRefusalTests(unittest.TestCase):
         self.assertEqual(schema_prop["value"], "beam(x0, y0, theta, L, w)")
 
 
+class PredictAbilityBirthsTests(unittest.TestCase):
+    """Test cross-channel predict-update hypotheses and candidate gating."""
+
+    def test_batch_desaturation_refused_as_artefact(self):
+        casts = [
+            {"t_s": 17.0, "slot": "C", "suspect": True},
+            {"t_s": 17.0, "slot": "Q", "suspect": True},
+            {"t_s": 17.0, "slot": "E", "suspect": True},
+            {"t_s": 17.0, "slot": "X", "suspect": True},
+        ]
+        kit = {"C": "Trapwire", "Q": "Cyber Cage", "E": "Spycam", "X": "Neural Theft"}
+        res = predict_ability_births(casts, lambda t: (100.0, 100.0), [], "Cypher", kit)
+        self.assertEqual(len(res), 4)
+        for r in res:
+            self.assertEqual(r["status"], "fail:batch_desat_wipe")
+            self.assertEqual(r["reason"], "simultaneous_multi_slot_desaturation_artefact")
+            self.assertEqual(r["gated_candidates"], [])
+
+    def test_domain_non_entity_predicts_empty_candidate_set(self):
+        casts = [{"t_s": 16.5, "slot": "E", "suspect": False}]
+        kit = {"E": "Tailwind"}
+        # Clutter candidate should be ignored
+        cands = [
+            {"t_ms": 16500.0, "x": 105.0, "y": 105.0, "label_state": "clutter"},
+            {"t_ms": 16600.0, "x": 102.0, "y": 102.0, "not_ability": True},
+        ]
+        res = predict_ability_births(casts, lambda t: (100.0, 100.0), cands, "Jett", kit)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["status"], "pass:confirmed_absent")
+        self.assertEqual(res[0]["reason"], "domain_invar_no_minimap_entity")
+
+        # Non-clutter candidate is unexpected
+        cands_unexpected = [{"t_ms": 16500.0, "x": 105.0, "y": 105.0, "label_state": "named"}]
+        res_fail = predict_ability_births(casts, lambda t: (100.0, 100.0), cands_unexpected, "Jett", kit)
+        self.assertEqual(res_fail[0]["status"], "fail:unexpected_candidate")
+
+    def test_local_placement_reach_gating(self):
+        casts = [{"t_s": 27.0, "slot": "Q", "suspect": False}]
+        kit = {"Q": "Alarmbot"}
+        cands = [
+            {"t_ms": 28000.0, "x": 265.0, "y": 95.0, "component_id": "c_near"},
+            {"t_ms": 28000.0, "x": 100.0, "y": 300.0, "component_id": "c_far"},
+            {"t_ms": 40000.0, "x": 265.0, "y": 95.0, "component_id": "c_late"},
+        ]
+        res = predict_ability_births(casts, lambda t: (262.0, 93.0), cands, "Killjoy", kit)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["status"], "pass:corroborated_birth")
+        self.assertEqual([c["component_id"] for c in res[0]["gated_candidates"]], ["c_near"])
+
+    def test_caster_unobserved_marked_honestly(self):
+        casts = [{"t_s": 33.5, "slot": "E", "suspect": False}]
+        kit = {"E": "Turret"}
+        for pos in ((None, None), (float("nan"), float("nan"))):
+            res = predict_ability_births(casts, lambda t: pos, [], "Killjoy", kit)
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0]["status"], "fail:caster_unobserved")
+            self.assertEqual(res[0]["reason"], "caster_position_missing_or_nan")
+
+    def test_remote_flight_projectile(self):
+        casts = [{"t_s": 14.5, "slot": "E", "suspect": False}]
+        kit = {"E": "Recon Bolt"}
+        res = predict_ability_births(casts, lambda t: (200.0, 200.0), [], "Sova", kit)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["status"], "pass:remote_flight")
+        self.assertEqual(res[0]["reason"], "projectile_lands_remote")
+
+
 if __name__ == "__main__":
     unittest.main()
+

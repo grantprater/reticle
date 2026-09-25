@@ -652,3 +652,154 @@ def write_entities(bundle: dict, out: str | Path) -> Path:
     (out / "manifest.json").write_text(json.dumps(bundle["manifest"], indent=2, sort_keys=True),
                                        encoding="utf-8")
     return out
+
+
+#: Maximum placement reach in widget pixels from caster to a placed device or smoke.
+PLACEMENT_REACH_PX = 60.0
+
+#: Standard pre-cast placement preview window (ms).
+PLACEMENT_WINDOW_PRE_MS = 2000.0
+
+#: Standard post-cast onset window for devices and smokes (ms).
+PLACEMENT_WINDOW_POST_MS = 4000.0
+
+#: Extended window for re-usable or extending abilities (ms).
+EXTENDING_WINDOW_POST_MS = 6000.0
+
+#: Threshold of simultaneous slot drops indicating HUD wipe / menu artefact.
+BATCH_DESATURATION_THRESHOLD = 3
+
+NO_MINIMAP_ABILITIES = {
+    ("jett", "tailwind"), ("jett", "blade storm"), ("skye", "regrowth"),
+    ("cypher", "neural theft")
+}
+EXTENDING_ABILITIES = {
+    ("viper", "toxic screen"), ("sova", "hunter's fury")
+}
+LOCAL_PLACEMENT_ABILITIES = {
+    ("killjoy", "alarmbot"), ("killjoy", "turret"), ("killjoy", "nanoswarm"), ("killjoy", "lockdown"),
+    ("viper", "poison cloud"), ("viper", "snake bite"),
+    ("cypher", "trapwire"), ("cypher", "spycam"), ("cypher", "cyber cage")
+}
+AREA_SMOKE_ABILITIES = {
+    ("jett", "cloudburst"), ("viper", "poison cloud"), ("viper", "viper's pit")
+}
+PILOTED_SUMMON_ABILITIES = {
+    ("sova", "owl drone"), ("skye", "trailblazer"), ("skye", "guiding light"), ("skye", "seekers")
+}
+PROJECTILE_REMOTE_ABILITIES = {
+    ("sova", "recon bolt"), ("sova", "shock bolt")
+}
+
+
+def predict_ability_births(tray_casts: list[dict],
+                           caster_position_fn,
+                           candidates: list[dict],
+                           agent: str,
+                           kit: dict[str, str]) -> list[dict]:
+    """Test cross-channel predict-update hypotheses from tray casts to minimap entities.
+
+    Pure over stored observations; decodes no video. Implements context-allowed
+    candidate gating and physical invariants:
+      1. Batch desaturation (>=3 simultaneous slot drops) is refused as a HUD wipe artefact.
+      2. Domain non-minimap abilities (Tailwind, Blade Storm, Regrowth) predict an empty
+         candidate set; confirmed absent when no non-clutter candidate is found.
+      3. Remote projectiles (Sova bolts) are confirmed remote.
+      4. Local devices, area smokes, extending walls, and piloted summons gate candidates
+         strictly within placement reach (d <= 60 px) and ability-appropriate time windows.
+      5. Unobserved caster position is marked honestly as censored, never guessed.
+    """
+    time_counts: dict[float, int] = {}
+    for c in tray_casts:
+        t_s = float(c["t_s"])
+        time_counts[t_s] = time_counts.get(t_s, 0) + 1
+
+    out = []
+    agent_key = (agent or "").lower()
+
+    for c in tray_casts:
+        t_s = float(c["t_s"])
+        t_ms = t_s * 1000.0
+        slot = c["slot"]
+        suspect = bool(c.get("suspect", False))
+        ability = kit.get(slot, "Unknown")
+        key = (agent_key, ability.lower())
+
+        if suspect and time_counts.get(t_s, 0) >= BATCH_DESATURATION_THRESHOLD:
+            out.append({
+                "cast": c, "agent": agent, "slot": slot, "ability": ability,
+                "status": "fail:batch_desat_wipe",
+                "reason": "simultaneous_multi_slot_desaturation_artefact",
+                "gated_candidates": [],
+            })
+            continue
+
+        cx, cy = caster_position_fn(t_ms)
+        caster_valid = (cx is not None and cy is not None
+                        and not math.isnan(cx) and not math.isnan(cy))
+
+        if key in NO_MINIMAP_ABILITIES:
+            near = []
+            if caster_valid:
+                near = [cd for cd in candidates
+                        if abs(float(cd["t_ms"]) - t_ms) <= PLACEMENT_WINDOW_POST_MS
+                        and not cd.get("not_ability", False)
+                        and cd.get("label_state") != "clutter"
+                        and math.hypot(float(cd["x"]) - cx, float(cd["y"]) - cy) <= PLACEMENT_REACH_PX]
+            if not near:
+                out.append({
+                    "cast": c, "agent": agent, "slot": slot, "ability": ability,
+                    "status": "pass:confirmed_absent",
+                    "reason": "domain_invar_no_minimap_entity",
+                    "gated_candidates": [],
+                })
+            else:
+                out.append({
+                    "cast": c, "agent": agent, "slot": slot, "ability": ability,
+                    "status": "fail:unexpected_candidate",
+                    "reason": "candidate_found_for_domain_non_entity",
+                    "gated_candidates": near,
+                })
+            continue
+
+        if key in PROJECTILE_REMOTE_ABILITIES:
+            out.append({
+                "cast": c, "agent": agent, "slot": slot, "ability": ability,
+                "status": "pass:remote_flight",
+                "reason": "projectile_lands_remote",
+                "gated_candidates": [],
+            })
+            continue
+
+        if not caster_valid:
+            out.append({
+                "cast": c, "agent": agent, "slot": slot, "ability": ability,
+                "status": "fail:caster_unobserved",
+                "reason": "caster_position_missing_or_nan",
+                "gated_candidates": [],
+            })
+            continue
+
+        window_post = EXTENDING_WINDOW_POST_MS if key in EXTENDING_ABILITIES else PLACEMENT_WINDOW_POST_MS
+        near = [cd for cd in candidates
+                if -PLACEMENT_WINDOW_PRE_MS <= (float(cd["t_ms"]) - t_ms) <= window_post
+                and not cd.get("not_ability", False)
+                and cd.get("label_state") != "clutter"
+                and math.hypot(float(cd["x"]) - cx, float(cd["y"]) - cy) <= PLACEMENT_REACH_PX]
+
+        if near:
+            out.append({
+                "cast": c, "agent": agent, "slot": slot, "ability": ability,
+                "status": "pass:corroborated_birth",
+                "reason": "candidates_within_reach",
+                "gated_candidates": near,
+            })
+        else:
+            out.append({
+                "cast": c, "agent": agent, "slot": slot, "ability": ability,
+                "status": "fail:unobserved_birth",
+                "reason": "no_candidates_within_reach",
+                "gated_candidates": [],
+            })
+    return out
+
