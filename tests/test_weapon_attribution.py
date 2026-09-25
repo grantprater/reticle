@@ -243,6 +243,37 @@ class WeaponAttributionTests(unittest.TestCase):
         self.assertEqual(d["adjudication_version"], WEAPON_ADJUDICATION_VERSION)
 
 
+class CasterTests(unittest.TestCase):
+    """An ability icon names its caster; the lineup bounds the icon's names."""
+
+    def test_caster_claim_names_the_abilitys_agent(self):
+        from reticle.adjudication.weapon import caster_claim
+        c = caster_claim("death:s:1:0:killer", "Blade Storm")
+        self.assertEqual((c["agent"], c["channel"]), ("Jett", "killfeed_weapon"))
+        self.assertEqual(caster_claim("k", "Not Dead Yet")["agent"], "Clove")
+        self.assertIsNone(caster_claim("k", "Vandal"))
+        self.assertIsNone(caster_claim("k", "Environmental"))
+
+    def test_lineup_drops_abilities_no_one_there_can_cast(self):
+        from reticle.adjudication.weapon import restrict_gallery
+        g = {"names": np.array(["Vandal", "Blade Storm", "Headhunter"]),
+             "masks": np.zeros((3, 2, 2)), "aspects": np.ones(3)}
+        kept, dropped = restrict_gallery(g, {"Chamber", "Sova"})
+        self.assertEqual(list(kept["names"]), ["Vandal", "Headhunter"])
+        self.assertEqual(dropped, ["Blade Storm"])
+        self.assertEqual(len(kept["masks"]), 2)
+
+    def test_an_ability_kill_names_its_killer_without_a_portrait(self):
+        from reticle.adjudication.death import adjudicate_death
+        v = adjudicate_death(death_id="d", t_ms=1.0, side="enemy", death_cause="ability",
+                             weapon="Blade Storm")
+        self.assertEqual(v.metadata["killer_identity"]["agent"], "Jett")
+        clash = adjudicate_death(death_id="d", t_ms=1.0, side="enemy", death_cause="ability",
+                                 weapon="Blade Storm",
+                                 killfeed_claim={"channel": "killfeed_portrait", "killer": "Reyna"})
+        self.assertEqual(clash.metadata["killer_identity"]["status"], "disagreement")
+
+
 if __name__ == "__main__":
     unittest.main()
 

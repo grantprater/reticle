@@ -920,7 +920,9 @@ question = "Which weapon or ability caused this death?"
 owner = "adjudication.weapon"
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["WEAPON_ADJUDICATION_VERSION", "WEAPON_GALLERY_VERSION", "IconObservation", "WeaponVerdict", "WEAPON_TAXONOMY", "ABILITY_CANONICAL_NAMES", "MINED_NOT_GUN", "extract_icon_observation", "name_icon", "entry_weapon", "classify_killfeed_icon", "estimate_weapon_class", "load_ability_gallery", "load_weapon_gallery", "load_mined_gallery", "mined_gallery_path"]
+produces = ["WEAPON_ADJUDICATION_VERSION", "WEAPON_GALLERY_VERSION", "IconObservation", "WeaponVerdict", "WEAPON_TAXONOMY", "ABILITY_CANONICAL_NAMES", "MINED_NOT_GUN", "extract_icon_observation", "name_icon", "entry_weapon", "classify_killfeed_icon", "estimate_weapon_class", "load_ability_gallery", "load_weapon_gallery", "load_mined_gallery", "mined_gallery_path", "bind_entry", "ability_agent", "caster_claim", "restrict_gallery", "EXTRA_ABILITY_AGENTS"]
+names_agents = true
+defers_to = ["agent-identity"]
 not_for = """
 `killfeed` growing into it. The feed gives the bounding columns (wx0, wx1) and
 band bounds (y0, y1); classifying whether those pixels are an Aftershock, a

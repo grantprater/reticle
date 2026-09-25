@@ -44,7 +44,7 @@ from ..killfeed import (SECOND_LIFE_RUN_MIN, detect_second_life_badge,  # noqa: 
 from ..roster import N_SLOTS
 from .identity import (adjudicate_agent_identity, claim_from_killfeed_portrait,
                        identity_claim, identity_events, side_candidates, _channel_verdict)
-from .weapon import classify_killfeed_icon, entry_weapon
+from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 
 # 0.7.0 (2026-09-24): deaths keyed by entry onset and slot (`death_key`), not
 # list index; `reticle deaths` stores verdicts from stored data only.
@@ -52,7 +52,9 @@ from .weapon import classify_killfeed_icon, entry_weapon
 # `killfeed_weapon` descriptors, named by `adjudication.weapon.entry_weapon`.
 # 0.9.0 (2026-09-24): an entry whose icon names a revive is stored as a revive,
 # not a death (`REVIVE_ICONS`).
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.9.0"
+# 0.10.0 (2026-09-25): an ability icon is a witness of the killer (its caster,
+# `ability_agent`), and the lineup bounds which abilities an icon can name.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.10.0"
 
 #: Weapon-slot icons that mark a revive entry, which is not a death
 #: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
@@ -740,6 +742,12 @@ def adjudicate_death(
         elif killfeed_claim and killfeed_claim.get("killer"):
             killer_claims.append(identity_claim(killer_id, killfeed_claim["killer"],
                                                 channel="killfeed_portrait"))
+        # An ability icon names its caster: other pixels than the portraits, so
+        # a witness that can disagree with them. A revive's "killer" is the
+        # reviver, which the icon names the same way.
+        caster = caster_claim(killer_id, weapon) if death_cause == "ability" else None
+        if caster:
+            killer_claims.append(caster)
     killer_identity = (adjudicate_agent_identity(killer_claims) or [None])[0]
     killer = killer_identity["agent"] if killer_identity else None
 
@@ -1597,9 +1605,12 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
     hud, roster = hud_table.to_pydict(), roster_table.to_pylist()
     player_agent = (lineup.get("player") or {}).get("agent")
     entries = session_entries(hud, second_life)
+    # Both sides: an icon's caster may be on either team (a revive, a team kill).
+    agents = {r["agent"] for side in (lineup.get("sides") or {}).values()
+              for r in side if r.get("agent")}
     if weapon_observations is not None:
         for e in entries:
-            ev = entry_weapon(e, weapon_observations)
+            ev = entry_weapon(e, weapon_observations, agents=agents or None)
             e["weapon_evidence"] = ev
             if ev["status"] == "resolved":
                 e["weapon"] = ev["name"]

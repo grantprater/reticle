@@ -24,7 +24,9 @@ import numpy as np
 # layer owns them; this module names what they describe.
 from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
 
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.4.0"
+# 0.5.0 (2026-09-25): `entry_weapon` takes the match's agents and drops ability
+# exemplars no agent there can cast; `ability_agent` names an ability's caster.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.5.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -423,6 +425,47 @@ def load_mined_gallery(path: Optional[Path | str] = None) -> Optional[dict]:
     return _MINED_CACHE[key]
 
 
+#: The self entries that are an agent's own ability but not one of its four
+#: official icons [domain:rounds/clove-revive-expiry-entry].
+EXTRA_ABILITY_AGENTS = {"Clove expiry": "Clove"}
+
+
+def ability_agent(name: Optional[str]) -> Optional[str]:
+    """The agent whose ability `name` is, from `ABILITY_CANONICAL_NAMES` (its
+    asset stem is `<Agent>_<slot>`), or None for a gun or an unknown name."""
+    if name in EXTRA_ABILITY_AGENTS:
+        return EXTRA_ABILITY_AGENTS[name]
+    for stem, n in ABILITY_CANONICAL_NAMES.items():
+        if n == name:
+            return stem.rsplit("_", 1)[0]
+    return None
+
+
+def caster_claim(entity_id: str, name: Optional[str]) -> Optional[dict]:
+    """An identity claim that the ability `name` was cast by its agent, for the
+    killer entity `entity_id`; None for a gun or a name with no caster. The
+    icon is other pixels than the killer's portrait, so the claim is a witness
+    the arbiter can weigh against it; the name is decided there."""
+    from .identity import identity_claim
+    agent = ability_agent(name)
+    if agent is None:
+        return None
+    return identity_claim(entity_id, agent, channel="killfeed_weapon",
+                          source_version=WEAPON_ADJUDICATION_VERSION,
+                          evidence={"ability": name, "gallery": WEAPON_GALLERY_VERSION})
+
+
+def restrict_gallery(gallery: dict, agents) -> tuple[dict, list[str]]:
+    """The gallery without ability exemplars no agent in `agents` can cast,
+    and the names it dropped. Guns and unattributed names stay."""
+    agents = set(agents)
+    drop = sorted({str(n) for n in gallery["names"]
+                   if ability_agent(str(n)) is not None and ability_agent(str(n)) not in agents})
+    keep = np.array([str(n) not in drop for n in gallery["names"]])
+    return {k: (v[keep] if isinstance(v, np.ndarray) and len(v) == len(keep) else v)
+            for k, v in gallery.items()}, drop
+
+
 def name_icon(grid: np.ndarray, aspect: float, gallery: dict) -> dict:
     """Nearest exemplar per name; a name only when it clears every other by a margin."""
     g = gallery["masks"].reshape(len(gallery["masks"]), -1).astype(np.float32)
@@ -496,12 +539,14 @@ def bind_entry(entry: dict, observations: list[dict]) -> list[dict]:
 
 
 def entry_weapon(entry: dict, observations: list[dict],
-                 gallery: Optional[dict] = None) -> dict:
+                 gallery: Optional[dict] = None, agents=None) -> dict:
     """The weapon or ability behind one killfeed entry, from stored descriptors.
 
     The entry's rows are those `bind_entry` follows. One frame is not an
     answer: the entry is named only when ENTRY_MIN_NAMED frames name it and
-    the top name holds ENTRY_MIN_SHARE of them.
+    the top name holds ENTRY_MIN_SHARE of them. `agents`, the match's lineup
+    (both sides), drops the abilities no one there can cast before naming; the
+    names dropped are kept with the answer, which then rests on that lineup.
     """
     from ..killfeed import unpack_icon_grid
 
@@ -511,6 +556,9 @@ def entry_weapon(entry: dict, observations: list[dict],
         gallery = load_mined_gallery()
     if gallery is None:
         return dict(out, reason="no_gallery")
+    if agents:
+        gallery, dropped = restrict_gallery(gallery, agents)
+        out["restricted_to_lineup"] = dropped
     bound = bind_entry(entry, observations)
     names: dict[str, int] = {}
     for o in bound:

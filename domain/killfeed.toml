@@ -145,21 +145,23 @@ phrases = ["killstreak numeral", "kill streak badge"]
 
 [environmental-self-entry]
 claim = """
-An environmental death draws a hexagonal icon in the weapon slot, with the
-dead player's name on both sides of the entry.
+A spike detonation kill draws the spike's hexagonal icon in the weapon slot,
+with the dead player's name on both sides of the entry. It is an
+environmental death: no player killed them.
 """
 kind = "appearance"
 known = "player"
 since = "2026-09-25"
 source = """
 the killfeed-icon labelling pass, batch 3: the player named bdfdcf009dba
-Evan -> Evan at 1794.0 s Environmental; the same hexagon draws on
-96aa1ae9b96f Clove -> Clove at 721.5 s and c40d950031bb TylerMGZ -> TylerMGZ
-at 632.5 s
+Evan -> Evan at 1794.0 s Environmental, and then said these were spike
+deaths; the same hexagon draws on 96aa1ae9b96f Clove -> Clove at 721.5 s and
+c40d950031bb TylerMGZ -> TylerMGZ at 632.5 s
 """
 use = """
 a self entry (Me -> Me) is not only Clove's revive expiring
-[domain:rounds/clove-revive-expiry-entry]; the weapon-slot icon tells an
-environmental death (hexagon) from the expiry (broken butterfly)
+[domain:rounds/clove-revive-expiry-entry]; the weapon-slot icon tells a spike
+death (hexagon) from the expiry (broken butterfly); a spike death names no
+killer, and it marks a detonation, which ends the round
 """
-phrases = ["environmental death icon", "hexagon self kill"]
+phrases = ["spike death icon", "environmental death icon", "hexagon self kill"]
