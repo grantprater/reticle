@@ -994,3 +994,65 @@ class ScoreboardDimWitnessTest(unittest.TestCase):
         clash = adjudicate_death(death_id="d", t_ms=1.0, side="ally", scoreboard_claim=claim,
                                  killfeed_claim={"channel": "killfeed_portrait", "agent": "Reyna"})
         self.assertEqual((clash.status, clash.victim), ("disagreement", None))
+
+
+class ReviveEntryTest(unittest.TestCase):
+    """An entry whose icon names a revive is stored, and is not a death
+    [domain:killfeed/revive-entries]."""
+
+    LINEUP = {"sides": {
+        "ally": [{"agent": a} for a in ("Clove", "Raze", "Sova", "Reyna", "Killjoy")],
+        "enemy": [{"agent": a} for a in ("Jett", "Iso", "Skye", "Omen", "Sage")]}}
+
+    def entries(self):
+        return [
+            {"t_ms": 657500.0, "slot": 1, "side": "ally",
+             "claim": {"agent": "Clove", "killer": "Sova"},
+             "weapon_evidence": {"status": "resolved", "name": "Phantom"}},
+            {"t_ms": 658500.0, "slot": 2, "side": "ally",
+             "claim": {"agent": "Clove", "killer": "Clove"},
+             "weapon_evidence": {"status": "resolved", "name": "Not Dead Yet"}},
+        ]
+
+    def test_revive_entry_is_stored_not_counted(self):
+        from reticle.adjudication.death import revive_entry
+        es = self.entries()
+        self.assertEqual([revive_entry(e) for e in es], [False, True])
+        roster = [{"t_ms": 657000.0, "alive_ally": 5}, {"t_ms": 658000.0, "alive_ally": 4},
+                  {"t_ms": 659000.0, "alive_ally": 4}]
+        v = adjudicate_round_deaths("s", es, roster, lineup=self.LINEUP)
+        self.assertEqual([x.is_revive for x in v], [False, True])
+        self.assertEqual(v[0].victim, "Clove")
+        # The one roster drop is the death's, never the revive's.
+        self.assertTrue("roster_diff" in v[0].channels)
+        self.assertFalse("roster_diff" in v[1].channels)
+        self.assertTrue(v[1].to_dict()["is_revive"])
+
+    def test_revive_deletes_no_entity(self):
+        v = adjudicate_round_deaths("s", self.entries(), [], lineup=self.LINEUP)
+        kinds = [e["event_kind"] for e in death_verdict_to_events(v[1], "s")]
+        self.assertNotIn("entity_deleted", kinds)
+        kinds = [e["event_kind"] for e in death_verdict_to_events(v[0], "s")]
+        self.assertIn("entity_deleted", kinds)
+
+    def test_scoreboard_does_not_count_a_revive(self):
+        from reticle.adjudication.death import scoreboard_death_claims
+        es = self.entries()
+        claims = scoreboard_death_claims(es, [], {})
+        self.assertEqual(claims[1]["reason"], "revive_entry_is_not_a_death")
+
+    def test_scoreboard_refuses_an_interval_holding_a_revive(self):
+        """Skye dies, is resurrected and dies again: dim at both openings, so
+        the newly dimmed set no longer counts the interval's deaths."""
+        from reticle.adjudication.death import scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        board = ScoreboardDimWitnessTest()
+        board.ALLY = ["Skye", "Sage", "Breach", "Reyna", "Miks"]
+        rows = board.board(1000.0, dim=("Skye",)) + board.board(9000.0, dim=("Skye", "Sage"))
+        es = [{"t_ms": 3000.0, "slot": 0, "side": "ally",
+               "weapon_evidence": {"status": "resolved", "name": "Resurrection"}},
+              {"t_ms": 8000.0, "slot": 0, "side": "ally",
+               "weapon_evidence": {"status": "resolved", "name": "Vandal"}}]
+        claims = scoreboard_death_claims(es, scoreboard_openings(rows), {})
+        self.assertEqual(claims[1]["agent"], None)
+        self.assertEqual(claims[1]["reason"], "revive_in_interval")

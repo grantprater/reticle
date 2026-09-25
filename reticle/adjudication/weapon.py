@@ -24,7 +24,7 @@ import numpy as np
 # layer owns them; this module names what they describe.
 from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
 
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.3.0"
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.4.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -377,11 +377,11 @@ def estimate_weapon_class(width: int, aspect_ratio: float) -> str:
 
 
 #: The mined gallery: exemplar icons named by the player, one file per version.
-#: Built by `prototypes/weapon_icons.py gallery` from `<store>/labels/weapon_icon/`;
-#: it carries its own provenance. Held out on five sessions it named
-#: [metric:weapon_icons/gallery-heldout@corpus#seen_correct=29] player-seen icons, all
-#: correctly, and refused one.
-WEAPON_GALLERY_VERSION = "weapon-gallery-0.1.0"
+#: Built by `prototypes/weapon_icons.py gallery` from `<store>/labels/weapon_icon/`
+#: and the per-entry names in `<store>/labels/killfeed_icon/`; it carries its own
+#: provenance. 0.2.0 splits the group the player named only "Ability" into the
+#: abilities they named per entry, the revive icons among them.
+WEAPON_GALLERY_VERSION = "weapon-gallery-0.2.0"
 NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
 NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
 NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
@@ -389,9 +389,12 @@ NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons n
 #: Player names in the mined gallery that are not guns, by what they are.
 #: Chamber's Headhunter and Tour De Force draw gun silhouettes
 #: [domain:killfeed/chamber-gun-shaped-abilities]; "Ability" is a group the
-#: player named only as an ability, left to the ability gallery to name.
+#: player named only as an ability, left to the ability gallery to name. Not
+#: Dead Yet and Resurrection mark revive entries [domain:killfeed/revive-entries].
 MINED_NOT_GUN = {"Melee": "melee", "Environmental": "environmental", "Other": "other",
-                 "Ability": "ability", "Headhunter": "ability", "Tour De Force": "ability"}
+                 "Ability": "ability", "Headhunter": "ability", "Tour De Force": "ability",
+                 "Aftershock": "ability", "Orbital Strike": "ability", "Boom Bot": "ability",
+                 "Not Dead Yet": "ability", "Resurrection": "ability"}
 
 
 _MINED_CACHE: dict[str, dict] = {}
@@ -450,9 +453,8 @@ ENTRY_MIN_SHARE = 0.8         # of those, the share the top name must hold
 ENTRY_BOX_TOL = 2             # px an entry's icon box width may vary over its life
 
 
-def entry_weapon(entry: dict, observations: list[dict],
-                 gallery: Optional[dict] = None) -> dict:
-    """The weapon or ability behind one killfeed entry, from stored descriptors.
+def bind_entry(entry: dict, observations: list[dict]) -> list[dict]:
+    """The stored `killfeed_weapon` rows that belong to one killfeed entry.
 
     `entry` is a `session_entries` row (`t_first`, `t_last`, `slot`, `sig`);
     `observations` are stored `killfeed_weapon` rows. The divider column is the
@@ -461,19 +463,10 @@ def entry_weapon(entry: dict, observations: list[dict],
     it (a Spectre and a Vandal at 1906.5 s on a06f04a0059f). So the entry is
     followed frame by frame instead: it starts in the slot it appeared in, only
     ever rises one slot as an older entry expires, and takes at most one row per
-    frame, its own slot before the one above. One frame is not an answer: the
-    entry is named only when ENTRY_MIN_NAMED frames name it and the top name
-    holds ENTRY_MIN_SHARE of them.
+    frame, its own slot before the one above.
     """
     from ..checks import KF_SIG_TOL
-    from ..killfeed import unpack_icon_grid
 
-    out = {"version": WEAPON_ADJUDICATION_VERSION, "gallery": WEAPON_GALLERY_VERSION,
-           "name": None, "category": None, "status": "refused"}
-    if gallery is None:
-        gallery = load_mined_gallery()
-    if gallery is None:
-        return dict(out, reason="no_gallery")
     sig = entry.get("sig")
     by_frame: dict[float, dict[int, dict]] = {}
     for o in observations:
@@ -495,6 +488,26 @@ def entry_weapon(entry: dict, observations: list[dict],
                 if width is None:
                     width = here[s]["wx1"] - here[s]["wx0"]
                 break
+    return bound
+
+
+def entry_weapon(entry: dict, observations: list[dict],
+                 gallery: Optional[dict] = None) -> dict:
+    """The weapon or ability behind one killfeed entry, from stored descriptors.
+
+    The entry's rows are those `bind_entry` follows. One frame is not an
+    answer: the entry is named only when ENTRY_MIN_NAMED frames name it and
+    the top name holds ENTRY_MIN_SHARE of them.
+    """
+    from ..killfeed import unpack_icon_grid
+
+    out = {"version": WEAPON_ADJUDICATION_VERSION, "gallery": WEAPON_GALLERY_VERSION,
+           "name": None, "category": None, "status": "refused"}
+    if gallery is None:
+        gallery = load_mined_gallery()
+    if gallery is None:
+        return dict(out, reason="no_gallery")
+    bound = bind_entry(entry, observations)
     names: dict[str, int] = {}
     for o in bound:
         n = name_icon(unpack_icon_grid(o["grid"]), o["aspect"], gallery)["name"]

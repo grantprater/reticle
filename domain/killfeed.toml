@@ -85,7 +85,9 @@ source = """
 the killfeed-icon labelling pass (<store>/labels/killfeed_icon/): the player named
 15 entries Not Dead Yet (e.g. 9acf02f98283 MrTaco -> MrTaco at 659.0 s) and 5
 Resurrection (59c70f1ef720 sneaks -> Jett at 961.0 s); death-adjudication-0.8.0
-stores all 20 as deaths
+stores all 20 as deaths. Frames since: e37fdeca944f 592.5 s shows Clove -> Clove
+with the Not Dead Yet icon a second after Reyna kills that Clove, and
+b7d24102a6f6 1014.0 s shows Sage -> Raze with Resurrection
 """
 use = """
 the death owner must not count a revive entry as a death; the weapon-slot icon
@@ -93,7 +95,9 @@ is the witness, beside [domain:rounds/resurrection-mechanics]
 """
 exceptions = """
 whether a Clove entry marks the revive itself or its expiry
-[domain:rounds/clove-revive-expiry-entry] is not settled by these frames
+[domain:rounds/clove-revive-expiry-entry] is not settled by these frames; 7 of
+the 16 Not Dead Yet entries come 1.0-2.0 s after a named Clove death, which fits
+the revive, and the top bar never shows that death
 """
 phrases = ["revive entry is not a death"]
 

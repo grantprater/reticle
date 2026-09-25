@@ -50,7 +50,15 @@ from .weapon import classify_killfeed_icon, entry_weapon
 # list index; `reticle deaths` stores verdicts from stored data only.
 # 0.8.0 (2026-09-24): each entry's weapon and cause from the stored
 # `killfeed_weapon` descriptors, named by `adjudication.weapon.entry_weapon`.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.8.0"
+# 0.9.0 (2026-09-24): an entry whose icon names a revive is stored as a revive,
+# not a death (`REVIVE_ICONS`).
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.9.0"
+
+#: Weapon-slot icons that mark a revive entry, which is not a death
+#: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
+#: the witness; the top bar is not one for Clove, whose death it never shows
+#: when Not Dead Yet follows within two seconds.
+REVIVE_ICONS = {"Not Dead Yet": "Clove", "Resurrection": "Sage"}
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 
@@ -166,8 +174,10 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
     a Run It Back death does not dim, so second-life deaths (`second_life`
     indices, or an entry flag) are left out of the count and name nothing
     here; a dimmed agent lit again was revived, which is recorded and is not a
-    contradiction. Clove and a downed KAY/O are unknown to it, so they get no
-    rule, and a count that disagrees still refuses.
+    contradiction. A revive entry (`revive_entry`) is not a death and names
+    nothing; an interval holding one on the side refuses, since the revived
+    agent can die again and stay dim at both ends. A downed KAY/O is unknown
+    to it, and a count that disagrees still refuses.
 
     `contradicted` holds the (opening time, side) pairs whose lit count the
     roster contradicts (`reconciliation.audit_board_alive`). The board relights
@@ -190,6 +200,9 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
         if side not in ("ally", "enemy"):
             claim["reason"] = "entry_side_unknown"
             continue
+        if revive_entry(entry):
+            claim["reason"] = "revive_entry_is_not_a_death"
+            continue
         if _second_life(i, entries, second_life):
             claim["reason"] = "second_life_death_does_not_dim"
             continue
@@ -203,7 +216,7 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
         revived = was["dim"] - now["dim"]
         deaths = [j for j, e in enumerate(entries)
                   if e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) < hi["t_ms"]
-                  and not _second_life(j, entries, second_life)]
+                  and not _second_life(j, entries, second_life) and not revive_entry(e)]
         claim["evidence"] = {
             "opening_before": {"t_ms": lo["t_ms"], "frame_idx": lo["frame_idx"],
                                "dim": sorted(was["dim"])},
@@ -217,7 +230,15 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
             "observation_keys": [s["observation_key"] for s in hi["rows"]
                                  if s["team"] == side and s["agent"] in newly],
         }
-        if len(newly) != len(deaths):
+        # A revived agent can die again before the next opening and stay dim
+        # at both ends (b3b9defb6fd7 1289.5 s, Skye), so the difference no
+        # longer counts the interval's deaths.
+        revives = [float(e["t_ms"]) for e in entries if revive_entry(e)
+                   and e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) < hi["t_ms"]]
+        if revives:
+            claim["evidence"]["interval_revives"] = revives
+            claim["reason"] = "revive_in_interval"
+        elif len(newly) != len(deaths):
             claim["reason"] = (f"newly_dim_{len(newly)}_disagrees_with_"
                                f"killfeed_deaths_{len(deaths)}")
         elif len(newly) == 1:
@@ -282,6 +303,12 @@ def portrait_exemplars(verdicts: list["DeathVerdict"], entries: list[dict]) -> l
 def _second_life(i: int, entries: list[dict], second_life) -> bool:
     e = entries[i]
     return i in second_life or bool(e.get("is_second_life") or e.get("is_run_it_back"))
+
+
+def revive_entry(entry: dict) -> bool:
+    """Whether a killfeed entry is a revive rather than a death: its weapon,
+    named by `adjudication.weapon.entry_weapon`, is one of `REVIVE_ICONS`."""
+    return (entry.get("weapon_evidence") or {}).get("name") in REVIVE_ICONS
 
 
 BLUE_X_H = (95, 118)
@@ -425,6 +452,7 @@ class DeathVerdict:
     killer_location: Optional[tuple[float, float]] = None
     status: str = "abstained"  # "resolved" | "abstained" | "disagreement"
     is_second_life: bool = False
+    is_revive: bool = False
     channels: list[str] = field(default_factory=list)
     independent_channels: int = 0
     witnesses: list[dict] = field(default_factory=list)
@@ -444,6 +472,7 @@ class DeathVerdict:
             "killer_location": list(self.killer_location) if self.killer_location else None,
             "status": self.status,
             "is_second_life": self.is_second_life,
+            "is_revive": self.is_revive,
             "channels": list(self.channels),
             "independent_channels": self.independent_channels,
             "witnesses": self.witnesses,
@@ -609,6 +638,7 @@ def adjudicate_death(
     is_player_kill: bool = False,
     is_player_death: bool = False,
     is_second_life: bool = False,
+    is_revive: bool = False,
     victim_depends_on: Optional[dict] = None,
     killer_claim: Optional[dict] = None,
 ) -> DeathVerdict:
@@ -784,6 +814,7 @@ def adjudicate_death(
         killer_location=killer_location,
         status=status,
         is_second_life=is_second_life,
+        is_revive=is_revive,
         channels=sorted(set(channels)),
         independent_channels=identity["independent_channels"] if identity else 0,
         witnesses=witnesses,
@@ -1026,8 +1057,10 @@ def adjudicate_round_deaths(
                         "killer": curr_killer_agent,
                     }
 
-        # Match candidate roster shrink on the victim's side within max_dt_ms
-        shrinks = ally_shrinks if side == "ally" else enemy_shrinks
+        # Match candidate roster shrink on the victim's side within max_dt_ms;
+        # a revive removes no one, so it takes none.
+        is_revive = revive_entry(kf)
+        shrinks = [] if is_revive else ally_shrinks if side == "ally" else enemy_shrinks
         matched_shrink = None
         for si, s in enumerate(shrinks):
             if (side, si) in used_shrinks:
@@ -1164,11 +1197,16 @@ def adjudicate_round_deaths(
             is_player_kill=is_player_kill,
             is_player_death=is_player_death,
             is_second_life=is_second_life,
+            is_revive=is_revive,
         )
 
-        # Chronologically update living set for subsequent deaths (unless granted second life)
+        # Chronologically update living set for subsequent deaths: a revive
+        # returns its victim, a second life removes no one.
         if verdict.status == "resolved" and verdict.victim and verdict.side in living_agents:
-            if not verdict.is_second_life:
+            if verdict.is_revive:
+                living_agents[verdict.side].add(verdict.victim)
+                eliminated_agents[verdict.side].discard(verdict.victim)
+            elif not verdict.is_second_life:
                 living_agents[verdict.side].discard(verdict.victim)
                 eliminated_agents[verdict.side].add(verdict.victim)
 
@@ -1180,6 +1218,13 @@ def adjudicate_round_deaths(
 def death_verdict_to_events(verdict: DeathVerdict, session_id: str) -> list[dict]:
     """Convert a DeathVerdict into formal ENTITY_DELETED and IDENTITY_DISTRIBUTION events."""
     events = []
+    if verdict.is_revive:
+        # A revive deletes no entity; its portraits still name agents.
+        for key in ("identity", "killer_identity"):
+            identity = verdict.metadata.get(key)
+            if identity and identity["status"] in ("resolved", "disagreement"):
+                events.extend(identity_events([identity], session_id, verdict.t_ms))
+        return events
 
     # 1. ENTITY_DELETED event
     deletion_reason = "second_life" if verdict.is_second_life else "eliminated"
@@ -1543,7 +1588,8 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
 
     `weapon_observations` are the stored `killfeed_weapon` rows; given them,
     `adjudication.weapon.entry_weapon` names each entry's weapon or ability and
-    the entry carries its evidence. Without them no weapon is named.
+    the entry carries its evidence. Without them no weapon is named, and no
+    entry is a revive (`revive_entry`).
     """
     from ..reconciliation import audit_board_alive, contradicted_openings
     from .scoreboard import scoreboard_openings

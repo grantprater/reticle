@@ -15,6 +15,17 @@ three shared pairs stay ties, and a disagreement is stored, not voted away.
 
 Predictions are logged in the store's `notes/predictions.jsonl` under
 `weapon-icons`.
+
+    .\.venv\Scripts\python.exe prototypes\weapon_icons.py gallery
+    .\.venv\Scripts\python.exe prototypes\weapon_icons.py entries
+
+`gallery` builds the owner's gallery from two label sets: the player's group
+names (`labels/weapon_icon/`, propagated over the group) and the player's
+per-entry names (`labels/killfeed_icon/`), which override a group's name for
+that icon and add the entry's own stored descriptors (`killfeed_weapon`,
+bound by `adjudication.weapon.bind_entry`) as exemplars. A group named only
+"Ability" keeps no exemplar the player did not name. `entries` scores the
+per-entry names, leaving one session out at a time.
 """
 from __future__ import annotations
 
@@ -33,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reticle.adjudication.weapon import (  # noqa: E402
     ICON_GRID as GRID, WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION,
-    extract_icon_observation, icon_grid,
+    ENTRY_BOX_TOL, bind_entry, extract_icon_observation, icon_grid,
     mined_gallery_path, name_icon)
 from reticle.checks import KF_SIG_TOL, merge_split_tracks, track_entries  # noqa: E402
 from reticle.decode import sample_at  # noqa: E402
@@ -41,7 +52,7 @@ from reticle.killfeed import analyse_killfeed, killfeed_roi  # noqa: E402
 from reticle.profiles import get_profile  # noqa: E402
 from reticle.store import Store  # noqa: E402
 
-VERSION = "weapon-icons-proto-0.1.0"
+VERSION = "weapon-icons-proto-0.2.0"
 OUT = Store().root / "analysis" / "weapon_icons"
 OFFSETS_MS = (500.0, 1000.0, 1500.0)     # after first sight: the entry is settled
 CROP = (40, 160)                         # stored raw crop canvas, larger than any band
@@ -420,8 +431,83 @@ def held_out(have: list[dict]) -> set[str]:
     return set(sids[HELD_OUT_EVERY - 1::HELD_OUT_EVERY])
 
 
-def build_gallery(have: list[dict], bms: np.ndarray, exclude: set[str]) -> dict:
-    """Exemplars per player name, from sessions not in `exclude`, spread by group."""
+KF_LABELS = Store().root / "labels" / "killfeed_icon"
+ENTRY_FRAMES = 3                         # stored frames kept per labelled entry
+
+
+def entry_labels() -> dict[str, dict]:
+    """The player's per-entry names, last row per death key. Unsure rows and
+    bad crops (the ring was not on the icon) name nothing."""
+    last: dict[str, dict] = {}
+    for path in sorted(KF_LABELS.glob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                last[row["key"]] = row
+    return {k: r for k, r in last.items()
+            if r.get("answer") and not r.get("uncertain") and r.get("class") != "bad_crop"}
+
+
+def _entries_by_key(sid: str) -> dict[tuple[int, int], dict]:
+    from reticle.adjudication.death import session_entries
+    return {(int(e["t_first"]), e["slot"]): e for e in session_entries(_hud(sid))}
+
+
+def _key_of(key: str) -> tuple[int, int]:
+    _, _, t, slot = key.split(":")
+    return int(t), int(slot)
+
+
+def labelled_entries(labels: dict[str, dict]) -> list[dict]:
+    """Each labelled entry's stored descriptors, bound as the reader binds them,
+    kept only where the stored box is the ring the player named: a bound row
+    whose box lies elsewhere can be a neighbour's icon (e37fdeca944f 592.0 s,
+    a Vandal whose bound rows are a round icon)."""
+    from reticle.killfeed import unpack_icon_grid
+    store = Store()
+    by: dict[str, list[dict]] = defaultdict(list)
+    for lab in labels.values():
+        by[lab["session_id"]].append(lab)
+    out = []
+    for sid, labs in sorted(by.items()):
+        entries = _entries_by_key(sid)
+        obs = store.read_events("killfeed_weapon", sid)
+        for lab in labs:
+            e = entries.get(_key_of(lab["key"]))
+            bound = bind_entry(e, obs) if e is not None else []
+            x0, _, x1, _ = lab["ring"]
+            rows = [o for o in bound if abs(o["wx0"] - x0) <= ENTRY_BOX_TOL
+                    and abs(o["wx1"] - x1) <= ENTRY_BOX_TOL]
+            out.append({"key": lab["key"], "session_id": sid, "name": lab["answer"],
+                        "class": lab["class"], "bound": len(bound), "on_ring": len(rows),
+                        "grids": [unpack_icon_grid(o["grid"]) for o in rows],
+                        "aspects": [float(o["aspect"]) for o in rows]})
+    return out
+
+
+def revise_truth(have: list[dict], labels: dict[str, dict]) -> Counter:
+    """A per-entry name overrides the group's for that icon when the mined box
+    is as wide as the ring the player named; an icon left in a group named
+    only "Ability" keeps no name. Returns what changed."""
+    changed = Counter()
+    for r in have:
+        lab = labels.get(f"death:{r['session_id']}:{int(r['t_first'])}:{r['slot']}")
+        if lab is not None and abs(r["box_w"] - (lab["ring"][2] - lab["ring"][0])) > ENTRY_BOX_TOL:
+            changed["box off the ring"] += 1
+            lab = None
+        if lab is not None and lab["answer"] != r["truth"]:
+            changed[f"{r['truth']} -> {lab['answer']}"] += 1
+            r["truth"], r["truth_class"] = lab["answer"], lab["class"]
+        elif r["truth"] == "Ability":
+            changed["Ability -> None"] += 1
+            r["truth"], r["truth_class"] = None, None
+    return changed
+
+
+def build_gallery(have: list[dict], bms: np.ndarray, exclude: set[str],
+                  entries: list[dict] = ()) -> dict:
+    """Exemplars per player name, from sessions not in `exclude`, spread by group,
+    then up to ENTRY_FRAMES stored frames of each labelled entry."""
     by: dict[str, list[dict]] = defaultdict(list)
     for r in have:
         if r["truth"] and r["session_id"] not in exclude:
@@ -436,8 +522,45 @@ def build_gallery(have: list[dict], bms: np.ndarray, exclude: set[str]) -> dict:
             masks.append(bms[r["icon"]])
             aspects.append(r["aspect"])
             keys.append(icon_key(r))
+    for e in entries:
+        if e["session_id"] in exclude or not e["grids"]:
+            continue
+        n = len(e["grids"])
+        for k in sorted({int(k) for k in np.linspace(0, n - 1, min(ENTRY_FRAMES, n))}):
+            names.append(e["name"])
+            cls.append(e["class"])
+            masks.append(e["grids"][k])
+            aspects.append(e["aspects"][k])
+            keys.append(f"{e['key']}#{k}")
     return {"names": np.array(names), "classes": np.array(cls), "masks": np.array(masks),
             "aspects": np.array(aspects), "keys": np.array(keys)}
+
+
+def evaluate_entries(have: list[dict], bms: np.ndarray, entries: list[dict]) -> dict:
+    """Each labelled entry named by `entry_weapon` against a gallery built
+    without its session: the per-entry names scored leaving one session out."""
+    from reticle.adjudication.weapon import entry_weapon
+    store = Store()
+    res, rows, by_name = Counter(), [], defaultdict(Counter)
+    for sid in sorted({e["session_id"] for e in entries}):
+        g = build_gallery(have, bms, {sid}, entries)
+        ents = _entries_by_key(sid)
+        obs = store.read_events("killfeed_weapon", sid)
+        for e in (e for e in entries if e["session_id"] == sid):
+            ent = ents.get(_key_of(e["key"]))
+            v = (entry_weapon(ent, obs, gallery=g) if ent is not None
+                 else {"status": "refused", "reason": "no_entry"})
+            got = v.get("name") or ("Environmental" if v.get("category") == "environmental"
+                                    else None)
+            outcome = ("refused" if v["status"] != "resolved"
+                       else "right" if got == e["name"] else "wrong")
+            res[f"{e['class']}:{outcome}"] += 1
+            by_name[e["name"]][outcome] += 1
+            rows.append((e["key"], e["name"], got, v.get("reason"), outcome))
+    return {"by_class": dict(sorted(res.items())),
+            "by_name": {n: dict(c) for n, c in sorted(by_name.items())},
+            "wrong": [r for r in rows if r[4] == "wrong"],
+            "refused": [r for r in rows if r[4] == "refused"]}
 
 
 def write_gallery(gallery: dict, have: list[dict]) -> Path:
@@ -502,8 +625,10 @@ def accept(baseline: dict) -> dict:
 
 def evaluate(rows: list[dict], have: list[dict], bms: np.ndarray) -> dict:
     player_names(have)
+    labels = entry_labels()
+    revise_truth(have, labels)
     out_s = held_out(have)
-    gallery = build_gallery(have, bms, out_s)
+    gallery = build_gallery(have, bms, out_s, labelled_entries(labels))
     test = [r for r in have if r["session_id"] in out_s]
     for r in test:
         r["named"] = name_icon(bms[r["icon"]], r["aspect"], gallery)
@@ -565,6 +690,7 @@ def main() -> None:
     sub.add_parser("review")
     sub.add_parser("evaluate")
     sub.add_parser("gallery")
+    sub.add_parser("entries")
     ac = sub.add_parser("accept")
     ac.add_argument("baseline", type=Path, help="JSON of pre-scan portrait hashes and deaths")
     args = ap.parse_args()
@@ -602,7 +728,16 @@ def main() -> None:
     elif args.cmd == "evaluate":
         rows, bms, _ = load_all()
         have = cluster(rows, bms)
-        print(json.dumps(evaluate(rows, have, bms), indent=1))
+        res = evaluate(rows, have, bms)
+        print(json.dumps(res, indent=1))
+        from reticle import metrics
+        from reticle.adjudication.weapon import WEAPON_ADJUDICATION_VERSION as OWNER
+        metrics.record("weapon_icons", part="gallery-heldout", session="corpus",
+                       values={k: v for k, v in res.items() if isinstance(v, int)},
+                       deps={"version": VERSION, "gallery": WEAPON_GALLERY_VERSION,
+                             "mask": OWNER, "per_name": PER_NAME,
+                             "entry_frames": ENTRY_FRAMES, "held_out": res["held_out"]},
+                       context={"refusals": res["refusals"], "wrong": res["wrong"]})
     elif args.cmd == "accept":
         from reticle import metrics
         from reticle.adjudication.weapon import WEAPON_ADJUDICATION_VERSION as WAV
@@ -628,7 +763,31 @@ def main() -> None:
         rows, bms, _ = load_all()
         have = cluster(rows, bms)
         player_names(have)
-        write_gallery(build_gallery(have, bms, exclude=set()), have)
+        labels = entry_labels()
+        print("truth revised:", dict(revise_truth(have, labels)))
+        write_gallery(build_gallery(have, bms, set(), labelled_entries(labels)), have)
+    elif args.cmd == "entries":
+        rows, bms, _ = load_all()
+        have = cluster(rows, bms)
+        player_names(have)
+        labels = entry_labels()
+        print("truth revised:", dict(revise_truth(have, labels)))
+        res = evaluate_entries(have, bms, labelled_entries(labels))
+        print(json.dumps(res, indent=1))
+        from reticle import metrics
+        from reticle.adjudication.weapon import WEAPON_ADJUDICATION_VERSION as OWNER
+        values = {k.replace(":", "_"): v for k, v in res["by_class"].items()}
+        for name in ("Not Dead Yet", "Resurrection"):
+            for outcome in ("right", "wrong", "refused"):
+                values[f"{name.replace(' ', '_').lower()}_{outcome}"] = \
+                    res["by_name"].get(name, {}).get(outcome, 0)
+        metrics.record("weapon_icons", part="entries-loso", session="corpus", values=values,
+                       deps={"version": VERSION, "gallery": WEAPON_GALLERY_VERSION,
+                             "mask": OWNER, "entry_frames": ENTRY_FRAMES},
+                       context={"wrong": res["wrong"], "by_name": res["by_name"]},
+                       note="leave one session out over labels/killfeed_icon; e37fdeca944f "
+                            "592.0 s is labelled Vandal on the neighbouring entry's ring, "
+                            "and the frame shows Clove -> Clove with the Not Dead Yet icon")
     elif args.cmd == "review":
         rows, bms, _ = load_all()
         have = cluster(rows, bms)

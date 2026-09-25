@@ -2391,6 +2391,7 @@ def cmd_deaths(args) -> int:
             "killers": dict(status("killer_identity", "killer")),
             "weapons": dict(Counter((r.get("weapon_evidence") or {}).get("status", "none")
                                     for r in rows)),
+            "revives": sum(bool(r.get("is_revive")) for r in rows),
             "inputs": {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
                        "killfeed_weapon": KILLFEED_WEAPON_VERSION if weapons is not None else None,
                        "scoreboard": store.events_version("scoreboard", sid),
@@ -2398,7 +2399,8 @@ def cmd_deaths(args) -> int:
                        "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION}}
     out = store.write_events("death", sid, [head] + rows)
     store.write_events("death_identity", sid, events)
-    print(f"{sid}: {len(rows)} deaths over {len(rounds)} rounds in {res['passes']} passes; "
+    print(f"{sid}: {len(rows) - head['revives']} deaths and {head['revives']} revives over "
+          f"{len(rounds)} rounds in {res['passes']} passes; "
           f"victims {head['victims']}, killers {head['killers']} -> {out}")
     return 0
 

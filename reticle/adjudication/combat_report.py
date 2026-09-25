@@ -351,6 +351,7 @@ def bind_deaths(ps, rounds, death_rows) -> tuple[list[dict], list[dict]]:
     life -- first seen within `DEATH_LOOKBACK_MS` before the panel opens, as
     entity `<death_id>:killer`. A lone KILLED row binds to the player's lone
     kill in the round (before the panel, for a death panel), as `<death_id>`.
+    A revive entry is neither.
     Each binding publishes the death entity's name on the row's cluster with
     `depends_on` that entity: the death's name rests on the same killfeed
     portraits, so it can disagree but is never independent. Returns
@@ -358,7 +359,7 @@ def bind_deaths(ps, rounds, death_rows) -> tuple[list[dict], list[dict]]:
     """
     from .identity import identity_claim
     by_no = {r["round_no"]: r for r in rounds}
-    deaths = [d for d in death_rows if d.get("kind") == "death_verdict"]
+    deaths = [d for d in death_rows if d.get("kind") == "death_verdict" and not d.get("is_revive")]
     bindings, claims = [], []
     for p in ps:
         rnd = by_no.get(p.get("round_no"))
