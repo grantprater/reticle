@@ -5,6 +5,8 @@
 [bounded learning pilot](ENTITY_DOMAIN_LOOP_PILOT.md). It does not replace the
 active backlog or launch that pilot.
 
+Concurrent execution: [two-lane launch and handoff plan](BOOTSTRAP_PARALLEL_RUN.md).
+
 The central hypothesis: an explicit belief about a reader, a discriminating
 observation, and a recorded revision produce more useful progress per unit cost
 than adding detector complexity. Cross-channel evidence accelerates this loop
