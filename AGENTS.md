@@ -101,7 +101,11 @@ states plainly, and the player had to ask what the sentence meant.
   experiment revises the belief it tested rather than starting over. Store the
   surprise, never average it away. A prior that is never checked is a hidden
   assumption: the portrait channel assumed an entry keeps its first slot, and
-  lost every view taken after the stack rose. A prior is evidence, weighed
+  lost every view taken after the stack rose. Code that scores against a
+  gallery or candidate set names the set its context allows (the match's
+  agents, the side's five, the slot's predicted agent) and why; the full
+  set is the surprise path and must be justified, as the lineup reader's
+  29 agents are before any lineup exists. A prior is evidence, weighed
   once: a result it shaped declares that it rests on it, so the prior's
   information is never counted again as an independent witness.
 - Before a perceptual experiment, state falsifiable predictions and log them in
