@@ -311,6 +311,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from itertools import chain
 from pathlib import Path
 
 import numpy as np
@@ -1575,10 +1576,11 @@ def _longest_circular_run(hit: np.ndarray) -> int:
     if hit.all():
         return n
     best = run = 0
-    for k in range(2 * n):
-        if hit[k % n]:
+    for value in chain(hit, hit):
+        if value:
             run += 1
-            best = max(best, run)
+            if run > best:
+                best = run
         else:
             run = 0
     return min(best, n)
