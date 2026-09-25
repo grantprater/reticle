@@ -53,8 +53,7 @@ CLASSES = [
 ]
 
 
-def icon_key(r: dict) -> str:
-    return f"kf:{r['session_id']}:{int(r['t_first'])}:{r['slot']}"
+icon_key = proto.icon_key
 
 
 def groups_to_label(min_n: int) -> tuple[list[dict], np.ndarray]:

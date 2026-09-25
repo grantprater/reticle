@@ -31,7 +31,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from reticle.adjudication.weapon import extract_icon_observation  # noqa: E402
+from reticle.adjudication.weapon import (  # noqa: E402
+    ICON_GRID as GRID, WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION,
+    extract_icon_observation, icon_grid,
+    mined_gallery_path, name_icon)
 from reticle.checks import KF_SIG_TOL, merge_split_tracks, track_entries  # noqa: E402
 from reticle.decode import sample_at  # noqa: E402
 from reticle.killfeed import analyse_killfeed, killfeed_roi  # noqa: E402
@@ -41,9 +44,9 @@ from reticle.store import Store  # noqa: E402
 VERSION = "weapon-icons-proto-0.1.0"
 OUT = Store().root / "analysis" / "weapon_icons"
 OFFSETS_MS = (500.0, 1000.0, 1500.0)     # after first sight: the entry is settled
-MIN_TIGHT_W = 12                         # narrower than any gun or ability icon
-GRID = (16, 64)                          # h, w of a height-normalised icon
 CROP = (40, 160)                         # stored raw crop canvas, larger than any band
+SAME_ICON = 0.75                         # IoU joining two icons into one group
+ASPECT_TOL = 0.12                        # |log| aspect difference that keeps groups apart
 AMMO_BEFORE_MS = 3000.0                  # the kill's read must be this recent
 LABEL_LOOKBACK_MS = 90000.0              # longer than any round's live phase
 
@@ -135,14 +138,9 @@ def _same(a: dict, b: dict) -> bool:
                  or abs(a["sig"] - b["sig"]) <= KF_SIG_TOL))
 
 
-def icon_bitmap(crop: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
-    """The owner's white mask cut to its tight box, and that box height-normalised."""
-    white = extract_icon_observation(crop).white_mask
-    ys, xs = np.nonzero(white)
-    if len(xs) < 10 or xs.max() - xs.min() + 1 < MIN_TIGHT_W:
-        return None
-    tight = white[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
-    return tight, cv2.resize(tight.astype(np.uint8), GRID[::-1], interpolation=cv2.INTER_AREA)
+def icon_bitmap(crop: np.ndarray) -> tuple[np.ndarray, float] | None:
+    """The owner's white mask on the owner's grid, and the tight box's aspect."""
+    return icon_grid(extract_icon_observation(crop).white_mask)
 
 
 def mine(sid: str) -> Path:
@@ -238,8 +236,8 @@ def load_all() -> tuple[list[dict], np.ndarray, np.ndarray]:
                 if cut is None:
                     r["icon"], r["reason"] = None, "no_tight_icon"
                 else:
-                    r["tight_h"], r["tight_w"] = cut[0].shape
-                    bms.append((r["icon"], cut[1]))
+                    r["aspect"] = round(float(cut[1]), 3)
+                    bms.append((r["icon"], cut[0]))
             rows.append(r)
     grid = np.zeros((len(crops), *GRID), np.uint8)
     for i, b in bms:
@@ -247,8 +245,6 @@ def load_all() -> tuple[list[dict], np.ndarray, np.ndarray]:
     return rows, grid, np.array(crops)
 
 
-SAME_ICON = 0.75                         # IoU on the normalised grid
-ASPECT_TOL = 0.12                        # |log| of the tight aspect ratio
 
 
 def similarity(rows: list[dict], bms: np.ndarray) -> tuple[list[dict], np.ndarray]:
@@ -258,7 +254,7 @@ def similarity(rows: list[dict], bms: np.ndarray) -> tuple[list[dict], np.ndarra
     inter = b @ b.T
     area = b.sum(1)
     iou = inter / np.maximum(area[:, None] + area[None, :] - inter, 1)
-    a = np.log(np.array([r["tight_w"] / r["tight_h"] for r in have]))
+    a = np.log(np.array([r["aspect"] for r in have]))
     iou[np.abs(a[:, None] - a[None, :]) > ASPECT_TOL] = 0.0
     return have, iou
 
@@ -305,7 +301,7 @@ def score(have: list[dict]) -> list[dict]:
                     "consistent": sum(major in x for x in lab), "labelled": len(lab),
                     "profiles": dict(Counter(r["profile"] for r in rs)),
                     "sessions": len({r["session_id"] for r in rs}),
-                    "tight_w": dict(Counter(r["tight_w"] for r in rs).most_common(3))})
+                    "aspect": dict(Counter(round(r["aspect"], 1) for r in rs).most_common(3))})
     return out
 
 
@@ -381,6 +377,125 @@ def review(cases: list[dict], path: Path) -> None:
                                       for p in panels]))
 
 
+def icon_key(r: dict) -> str:
+    return f"kf:{r['session_id']}:{int(r['t_first'])}:{r['slot']}"
+
+
+LABELS = Store().root / "labels" / "weapon_icon"
+PER_NAME = 40                            # exemplars kept per name
+HELD_OUT_EVERY = 4                       # every 4th session in sorted order
+
+
+def player_names(have: list[dict]) -> None:
+    """Attach the player's group name to every icon, and mark the ones they saw.
+
+    `truth` is the name the player gave the icon's group (propagated, so it
+    rests on the grouping); `seen` is set only on icons the labeller showed.
+    """
+    last: dict[str, dict] = {}
+    for path in LABELS.glob("*.jsonl"):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                last[row["key"]] = row
+    lead = {r["cluster"]: r for r in have if r.get("leader")}
+    names, shown = {}, {}
+    for c, r in lead.items():
+        lab = last.get(icon_key(r))
+        if not lab or lab["uncertain"] or lab["mixed"] or not lab["answer"]:
+            continue
+        name = lab.get("ability") or lab["answer"]
+        names[c] = (name, lab["class"])
+        for k in [lab["key"]] + lab["members_shown"]:
+            shown[(k, c)] = name
+    # Two entries born together can end in one slot, so the key alone collides
+    # (11 of 3122 tracks); the group they were shown from settles which.
+    for r in have:
+        r["truth"], r["truth_class"] = names.get(r["cluster"], (None, None))
+        r["seen"] = shown.get((icon_key(r), r["cluster"]))
+
+
+def held_out(have: list[dict]) -> set[str]:
+    sids = sorted({r["session_id"] for r in have})
+    return set(sids[HELD_OUT_EVERY - 1::HELD_OUT_EVERY])
+
+
+def build_gallery(have: list[dict], bms: np.ndarray, exclude: set[str]) -> dict:
+    """Exemplars per player name, from sessions not in `exclude`, spread by group."""
+    by: dict[str, list[dict]] = defaultdict(list)
+    for r in have:
+        if r["truth"] and r["session_id"] not in exclude:
+            by[r["truth"]].append(r)
+    names, cls, masks, aspects, keys = [], [], [], [], []
+    for name, rs in sorted(by.items()):
+        rs = sorted(rs, key=lambda r: icon_key(r))
+        for k in np.linspace(0, len(rs) - 1, min(PER_NAME, len(rs))):
+            r = rs[int(k)]
+            names.append(name)
+            cls.append(r["truth_class"])
+            masks.append(bms[r["icon"]])
+            aspects.append(r["aspect"])
+            keys.append(icon_key(r))
+    return {"names": np.array(names), "classes": np.array(cls), "masks": np.array(masks),
+            "aspects": np.array(aspects), "keys": np.array(keys)}
+
+
+def write_gallery(gallery: dict, have: list[dict]) -> Path:
+    """The owner's mined gallery file, with what it was built from."""
+    import hashlib
+    labels = sorted(LABELS.glob("*.jsonl"))
+    provenance = {
+        "version": WEAPON_GALLERY_VERSION, "built_by": f"prototypes/weapon_icons.py {VERSION}",
+        "labels": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in labels},
+        "mask": WEAPON_ADJUDICATION_VERSION, "same_icon": SAME_ICON,
+        "aspect_tol": ASPECT_TOL, "per_name": PER_NAME,
+        "sessions": sorted({r["session_id"] for r in have}),
+        "names": dict(Counter(str(n) for n in gallery["names"])),
+    }
+    path = mined_gallery_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        raise SystemExit(f"{path} exists; bump WEAPON_GALLERY_VERSION rather than overwrite it")
+    np.savez_compressed(path, **gallery, provenance=json.dumps(provenance))
+    print(f"wrote {len(gallery['names'])} exemplars over {len(provenance['names'])} names to {path}")
+    return path
+
+
+def evaluate(rows: list[dict], have: list[dict], bms: np.ndarray) -> dict:
+    player_names(have)
+    out_s = held_out(have)
+    gallery = build_gallery(have, bms, out_s)
+    test = [r for r in have if r["session_id"] in out_s]
+    for r in test:
+        r["named"] = name_icon(bms[r["icon"]], r["aspect"], gallery)
+    acc = [r for r in test if r["named"]["name"]]
+    seen = [r for r in test if r["seen"]]
+    seen_acc = [r for r in seen if r["named"]["name"]]
+    kills = [r for r in acc if r["role"] == "player_kill" and r["ammo"].get("label")]
+    truth = [r for r in acc if r["truth"]]
+    chamber = {"Headhunter": {"Sheriff"}, "Tour De Force": {"Marshal", "Outlaw", "Operator"}}
+    confused = [r for r in acc if r["truth"] and (
+        r["named"]["name"] in chamber.get(r["truth"], ()) or
+        r["truth"] in chamber.get(r["named"]["name"], ()))]
+    wrong = [(icon_key(r), r["seen"] or r["truth"], r["named"]["name"]) for r in acc
+             if (r["seen"] or r["truth"]) and r["named"]["name"] != (r["seen"] or r["truth"])]
+    return {
+        "held_out": sorted(out_s), "gallery": len(gallery["names"]),
+        "test_icons": len(test), "accepted": len(acc),
+        "seen": len(seen), "seen_accepted": len(seen_acc),
+        "seen_correct": sum(r["named"]["name"] == r["seen"] for r in seen_acc),
+        "kills_labelled_accepted": len(kills),
+        "kills_in_ammo_set": sum(r["named"]["name"] in r["ammo"]["label"] for r in kills
+                                 if r["truth_class"] != "Not a gun"),
+        "kills_named_not_gun": sum(r["truth_class"] == "Not a gun" for r in kills),
+        "group_labelled_accepted": len(truth),
+        "group_agree": sum(r["named"]["name"] == r["truth"] for r in truth),
+        "chamber_confusions": len(confused),
+        "refusals": dict(Counter(r["named"].get("reason") for r in test if not r["named"]["name"])),
+        "wrong": wrong[:20],
+    }
+
+
 def corpus_score(rows: list[dict], have: list[dict], groups: list[dict]) -> dict:
     """The M1-M4 figures, and the kill walk against the scoreboard's K/D."""
     from reticle.checks import KNOWN_KD
@@ -409,6 +524,8 @@ def main() -> None:
     c = sub.add_parser("cluster")
     c.add_argument("--min", type=int, default=2, help="smallest group on the sheet")
     sub.add_parser("review")
+    sub.add_parser("evaluate")
+    sub.add_parser("gallery")
     args = ap.parse_args()
     _check_table()
     if args.cmd == "mine":
@@ -441,6 +558,15 @@ def main() -> None:
         big = [g for g in groups if g["n"] >= args.min]
         for k in range(0, len(big), 30):
             sheet(have, crops, big[k:k + 30], OUT / f"clusters_{k // 30}.png")
+    elif args.cmd == "evaluate":
+        rows, bms, _ = load_all()
+        have = cluster(rows, bms)
+        print(json.dumps(evaluate(rows, have, bms), indent=1))
+    elif args.cmd == "gallery":
+        rows, bms, _ = load_all()
+        have = cluster(rows, bms)
+        player_names(have)
+        write_gallery(build_gallery(have, bms, exclude=set()), have)
     elif args.cmd == "review":
         rows, bms, _ = load_all()
         have = cluster(rows, bms)

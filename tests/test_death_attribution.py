@@ -787,14 +787,20 @@ class DeathAttributionTests(unittest.TestCase):
 
     def test_adjudicate_round_deaths_icon_crop_populates_weapon_and_cause(self):
         """adjudicate_round_deaths uses icon_crop to adjudicate weapon, cause, and second life."""
-        from reticle.adjudication.weapon import load_ability_gallery, load_weapon_gallery
+        import cv2
 
-        # 1. Gun icon crop: Spectre
-        gallery = load_weapon_gallery()
-        spectre_crop = np.zeros((34, 66, 3), dtype=np.uint8)
-        if "Spectre" in gallery:
-            s = gallery["Spectre"]
-            spectre_crop[7:27, 2:64][s[:, :, 3] > 128] = 255
+        from reticle.adjudication.weapon import load_ability_gallery, load_mined_gallery
+
+        # 1. Gun icon crop: Spectre, drawn from a player-named exemplar. The
+        # store's reference/assets/weapons/Spectre.png is a Ghost silhouette.
+        mined = load_mined_gallery()
+        if mined is None or "Spectre" not in set(mined["names"]):
+            self.skipTest("mined weapon gallery not built")
+        k = list(mined["names"]).index("Spectre")
+        w = int(round(mined["aspects"][k] * 20))
+        s = cv2.resize(mined["masks"][k] * 255, (w, 20), interpolation=cv2.INTER_NEAREST)
+        spectre_crop = np.zeros((34, w + 4, 3), dtype=np.uint8)
+        spectre_crop[7:27, 2:2 + w][s > 127] = 255
 
         raw_kf = [
             {

@@ -123,6 +123,62 @@ class WeaponAttributionTests(unittest.TestCase):
         self.assertEqual(verdict.weapon_class, "smg")
         self.assertGreaterEqual(verdict.confidence, 0.70)
 
+    @staticmethod
+    def _mined(entries):
+        """A mined gallery from (name, crop) pairs, normalised the owner's way."""
+        from reticle.adjudication.weapon import icon_grid
+        names, masks, aspects = [], [], []
+        for name, crop in entries:
+            grid, aspect = icon_grid(extract_icon_observation(crop).white_mask)
+            names.append(name)
+            masks.append(grid)
+            aspects.append(aspect)
+        return {"names": np.array(names), "masks": np.array(masks), "aspects": np.array(aspects)}
+
+    @staticmethod
+    def _shape(w, notch):
+        crop = np.zeros((34, w + 4, 3), dtype=np.uint8)
+        crop[8:16, 2:2 + w] = 255              # barrel
+        crop[16:26, 2 + notch:10 + notch] = 255  # grip, placed by `notch`
+        return crop
+
+    def test_mined_gallery_names_a_gun(self):
+        """The nearest player-named exemplar names the icon when it clears the rest."""
+        mined = self._mined([("Vandal", self._shape(70, 10)), ("Phantom", self._shape(70, 50))])
+        v = classify_killfeed_icon(self._shape(70, 10), mined_gallery=mined)
+        self.assertEqual((v.status, v.name, v.category, v.weapon_class),
+                         ("resolved", "Vandal", "gun", "rifle"))
+
+    def test_mined_gallery_refuses_a_tie(self):
+        """Two names with equally close exemplars are a refusal, not a pick."""
+        from reticle.adjudication.weapon import icon_grid, name_icon
+        mined = self._mined([("Vandal", self._shape(70, 10)), ("Phantom", self._shape(70, 10))])
+        grid, aspect = icon_grid(extract_icon_observation(self._shape(70, 10)).white_mask)
+        self.assertEqual(name_icon(grid, aspect, mined)["reason"], "tie")
+
+    def test_mined_gallery_refuses_a_far_icon(self):
+        """An icon no exemplar resembles gets no name from the mined gallery."""
+        from reticle.adjudication.weapon import icon_grid, name_icon
+        mined = self._mined([("Vandal", self._shape(70, 10))])
+        block = np.zeros((34, 74, 3), dtype=np.uint8)
+        block[8:26, 2:72] = 255                # same box, half its area unlike the gun
+        grid, aspect = icon_grid(extract_icon_observation(block).white_mask)
+        self.assertEqual(name_icon(grid, aspect, mined)["reason"], "no_close_exemplar")
+
+    def test_mined_gallery_chamber_ability_is_not_a_gun(self):
+        """Headhunter draws a revolver but is an ability, not a sidearm."""
+        mined = self._mined([("Headhunter", self._shape(40, 4)), ("Sheriff", self._shape(40, 25))])
+        v = classify_killfeed_icon(self._shape(40, 4), mined_gallery=mined)
+        self.assertEqual((v.name, v.category, v.weapon_class),
+                         ("Headhunter", "ability", "ability"))
+
+    def test_mined_gallery_unnamed_ability_stays_an_ability(self):
+        """A group the player knew only as an ability never falls back to a gun class."""
+        mined = self._mined([("Ability", self._shape(70, 10))])
+        v = classify_killfeed_icon(self._shape(70, 10), mined_gallery=mined,
+                                   weapon_gallery={}, gallery={})
+        self.assertEqual((v.status, v.category, v.name), ("abstained", "ability", None))
+
     def test_weapon_verdict_serialization(self):
         """WeaponVerdict serializes cleanly with adjudication version."""
         verdict = WeaponVerdict(

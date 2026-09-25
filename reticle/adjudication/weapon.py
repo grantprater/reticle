@@ -20,7 +20,7 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.2.0"
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.3.0"
 
 #: White mask cut for killfeed line art against colored plate backgrounds.
 #: The icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -41,6 +41,7 @@ WEAPON_TAXONOMY = {
         "Shorty",
         "Frenzy",
         "Ghost",
+        "Bandit",
         "Sheriff",
     ],
     "smg": [
@@ -397,6 +398,87 @@ def estimate_weapon_class(width: int, aspect_ratio: float) -> str:
     return "gun"
 
 
+#: The mined gallery: exemplar icons named by the player, one file per version.
+#: Built by `prototypes/weapon_icons.py gallery` from `<store>/labels/weapon_icon/`;
+#: it carries its own provenance. Held out on five sessions it named
+#: [metric:weapon_icons/gallery-heldout@corpus#seen_correct=29] player-seen icons, all
+#: correctly, and refused one.
+WEAPON_GALLERY_VERSION = "weapon-gallery-0.1.0"
+ICON_GRID = (16, 64)          # h, w of a tight icon mask resized to one height
+ICON_MIN_TIGHT_W = 12         # narrower than any gun or ability icon
+NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
+NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
+NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
+
+#: Player names in the mined gallery that are not guns, by what they are.
+#: Chamber's Headhunter and Tour De Force draw gun silhouettes
+#: [domain:killfeed/chamber-gun-shaped-abilities]; "Ability" is a group the
+#: player named only as an ability, left to the ability gallery to name.
+MINED_NOT_GUN = {"Melee": "melee", "Environmental": "environmental", "Other": "other",
+                 "Ability": "ability", "Headhunter": "ability", "Tour De Force": "ability"}
+
+
+def icon_grid(white_mask: np.ndarray) -> Optional[tuple[np.ndarray, float]]:
+    """A white mask cut to its tight box and resized to ICON_GRID, with its aspect."""
+    ys, xs = np.nonzero(white_mask)
+    if len(xs) < 10 or xs.max() - xs.min() + 1 < ICON_MIN_TIGHT_W:
+        return None
+    tight = white_mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    grid = cv2.resize(tight.astype(np.uint8), ICON_GRID[::-1], interpolation=cv2.INTER_AREA)
+    return grid, tight.shape[1] / tight.shape[0]
+
+
+_MINED_CACHE: dict[str, dict] = {}
+
+
+def mined_gallery_path(store_root: Optional[Path] = None) -> Path:
+    if store_root is None:
+        from ..store import Store
+        store_root = Store().root
+    return Path(store_root) / "reference" / "weapon_gallery" / f"{WEAPON_GALLERY_VERSION}.npz"
+
+
+def load_mined_gallery(path: Optional[Path | str] = None) -> Optional[dict]:
+    """The mined, player-named exemplar gallery, or None when it is not built."""
+    path = Path(path) if path is not None else mined_gallery_path()
+    key = str(path)
+    if key not in _MINED_CACHE:
+        if not path.is_file():
+            return None
+        z = np.load(path)
+        _MINED_CACHE[key] = {k: z[k] for k in ("names", "masks", "aspects")}
+    return _MINED_CACHE[key]
+
+
+def name_icon(grid: np.ndarray, aspect: float, gallery: dict) -> dict:
+    """Nearest exemplar per name; a name only when it clears every other by a margin."""
+    g = gallery["masks"].reshape(len(gallery["masks"]), -1).astype(np.float32)
+    q = grid.reshape(-1).astype(np.float32)
+    inter = g @ q
+    iou = inter / np.maximum(g.sum(1) + q.sum() - inter, 1)
+    iou[np.abs(np.log(gallery["aspects"] / aspect)) > NAME_ASPECT_TOL] = 0.0
+    best: dict[str, float] = {}
+    for n, v in zip(gallery["names"], iou):
+        best[str(n)] = max(best.get(str(n), 0.0), float(v))
+    ranked = sorted(best.items(), key=lambda kv: -kv[1])
+    top, score = ranked[0]
+    margin = score - (ranked[1][1] if len(ranked) > 1 else 0.0)
+    out = {"best": top, "score": round(score, 3), "margin": round(margin, 3),
+           "scores": dict(ranked[:5])}
+    if score < NAME_MIN_IOU:
+        return dict(out, name=None, reason="no_close_exemplar")
+    if margin < NAME_MARGIN:
+        return dict(out, name=None, reason="tie")
+    return dict(out, name=top)
+
+
+def _gun_class(name: str) -> Optional[str]:
+    for w_c, w_list in WEAPON_TAXONOMY.items():
+        if name in w_list:
+            return w_c
+    return None
+
+
 def classify_killfeed_icon(
     obs_or_crop: IconObservation | np.ndarray,
     active_agent: Optional[str] = None,
@@ -404,11 +486,17 @@ def classify_killfeed_icon(
     weapon_gallery: Optional[dict[str, np.ndarray]] = None,
     min_score: float = 0.60,
     min_margin: float = 0.10,
+    mined_gallery: Optional[dict] = None,
+    use_mined: bool = True,
 ) -> WeaponVerdict:
     """Classify a killfeed divider icon against ability and weapon reference galleries.
 
-    When `active_agent` is provided (e.g. Breach or Raze), candidate ability templates
-    for that agent are prioritized.
+    The mined gallery answers first when it is built: a gun, melee, an
+    environmental death or a named gun-shaped ability. An icon it knows only as
+    "Ability", or refuses, falls through to the ability gallery for squarish
+    icons and the reference templates for the rest. When `active_agent` is
+    provided (e.g. Breach or Raze), candidate ability templates for that agent
+    are prioritized.
     """
     if isinstance(obs_or_crop, np.ndarray):
         obs = extract_icon_observation(obs_or_crop)
@@ -423,6 +511,29 @@ def classify_killfeed_icon(
             status="abstained",
             metadata={"reason": "empty_crop"},
         )
+
+    # 0. The mined gallery, named by the player.
+    mined = None
+    if use_mined:
+        if mined_gallery is None:
+            mined_gallery = load_mined_gallery()
+        cut = icon_grid(obs.white_mask) if mined_gallery is not None else None
+        if cut is not None:
+            mined = name_icon(cut[0], cut[1], mined_gallery)
+            n = mined["name"]
+            if n is not None and n != "Ability":
+                category = MINED_NOT_GUN.get(n, "gun")
+                return WeaponVerdict(
+                    name=n,
+                    category=category,
+                    weapon_class=_gun_class(n) or category,
+                    confidence=mined["score"],
+                    margin=mined["margin"],
+                    status="resolved",
+                    scores=mined["scores"],
+                    metadata={"source": WEAPON_GALLERY_VERSION,
+                              "width": obs.width, "aspect_ratio": obs.aspect_ratio},
+                )
 
     # 1. Check ability match if candidate or squarish dimensions
     if obs.is_ability_candidate or (obs.width <= 36 and obs.aspect_ratio <= 1.35):
@@ -577,7 +688,20 @@ def classify_killfeed_icon(
                     },
                 )
 
-    # 3. Geometric class estimation fallback for guns
+    # 3. The mined gallery knew it for an ability the ability gallery cannot name.
+    if mined is not None and mined["name"] == "Ability":
+        return WeaponVerdict(
+            name=None,
+            category="ability",
+            weapon_class="ability",
+            confidence=mined["score"],
+            margin=mined["margin"],
+            status="abstained",
+            scores=mined["scores"],
+            metadata={"reason": "unnamed_ability", "source": WEAPON_GALLERY_VERSION},
+        )
+
+    # 4. Geometric class estimation fallback for guns
     predicted_class = estimate_weapon_class(obs.width, obs.aspect_ratio)
     return WeaponVerdict(
         name=None,  # Specific weapon gun model requires template match
