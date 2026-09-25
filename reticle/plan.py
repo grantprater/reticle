@@ -2,9 +2,11 @@
 
 Every stored stream carries the stamp of the code that wrote it; `stale`
 compares each with the stamp the code carries now, per session. A stale
-reader stream needs a decode, and `scan --only <channel>` rereads only that
-channel's readers; a reader with a trial (`trial.TRIAL_READERS`) can be
-checked first on stored windows without one. A stale adjudication rereads
+reader stream needs a reread, and `scan --only <channel>` rereads only that
+channel's readers. A reader with a trial (`trial.TRIAL_READERS`) reads only
+cached ROIs: it can be checked first on stored windows, and `scan` feeds it
+from the ROI crop cache instead of decoding when a cache holds its set
+(`roi_cache.cache_for`). A stale adjudication rereads
 nothing: it reruns from storage. A stream never written is `absent`, which
 is not stale.
 
@@ -114,12 +116,15 @@ def render(plan: dict) -> str:
     for ch, sids in sorted(by_channel.items()):
         streams = sorted({s["stream"] for p in plan.values() for s in p["decode"]
                           if s["channel"] == ch})
-        lines.append(f"decode   {ch}: {', '.join(streams)} stale on {len(sids)} sessions")
+        cached = [t for (tch, t) in trials if tch == ch]
+        lines.append(f"{'reread' if cached else 'decode'}   {ch}: {', '.join(streams)} "
+                     f"stale on {len(sids)} sessions")
         for (tch, t), tsids in sorted(trials.items()):
             if tch == ch:
                 lines.append(f"  check  reticle trial {tsids[0]} --reader {t} --from cache"
                              f"   (one session, stored windows, no decode)")
-        lines.append(f"  accept reticle scan <sid> --only {ch}   for {' '.join(sids)}")
+        lines.append(f"  accept reticle scan <sid> --only {ch}   for {' '.join(sids)}"
+                     + ("   (from the ROI crop cache where one exists)" if cached else ""))
     for sid, d in derived:
         why = (f"{d['stored']} -> {d['current']}" if d["stored"] != d["current"]
                else "inputs " + ", ".join(d["inputs_moved"]))

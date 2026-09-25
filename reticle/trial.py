@@ -67,21 +67,41 @@ def targets(hud: dict, windows: str = "occupied", pad_ms: float = 2000.0) -> lis
     return t[near <= pad_ms].tolist()
 
 
+def _unstamped(row: dict) -> dict:
+    """A row without its stream's version stamp, which a reader change moves
+    on every row whether or not the reading moved."""
+    return {k: v for k, v in row.items() if not k.endswith("_version")}
+
+
 def _key(row: dict) -> str:
-    return json.dumps(row, sort_keys=True)
+    return json.dumps(_unstamped(row), sort_keys=True)
 
 
 def diff(new: list[dict], stored: list[dict], at: set[float]) -> dict:
-    """Observation rows (coverage rows aside) compared at the trial's frames."""
+    """Observation rows (coverage rows aside) compared at the trial's frames,
+    version stamps aside. Rows that differ and share an `observation_key` are
+    compared field by field in `fields`, so a change that moves one field
+    says which."""
     obs = lambda rows: [r for r in rows if r.get("kind") not in ("coverage", "summary")
                         and "t_ms" in r]
     a = [_key(r) for r in obs(new)]
     b = [_key(r) for r in obs(stored) if float(r["t_ms"]) in at]
     sa, sb = set(a), set(b)
     outside = sum(float(r["t_ms"]) not in at for r in obs(stored))
+    fields: dict[str, int] = {}
+    by_key = {r["observation_key"]: _unstamped(r) for r in obs(stored)
+              if "observation_key" in r and float(r["t_ms"]) in at}
+    for r in obs(new):
+        old = by_key.get(r.get("observation_key"))
+        if old is None:
+            continue
+        r = _unstamped(r)
+        for c in sorted(set(r) | set(old)):
+            if r.get(c) != old.get(c):
+                fields[c] = fields.get(c, 0) + 1
     return {"trial_rows": len(a), "stored_rows": len(b), "same": len(sa & sb),
             "only_trial": len(sa - sb), "only_stored": len(sb - sa),
-            "stored_outside_frames": outside,
+            "stored_outside_frames": outside, "fields": dict(sorted(fields.items())),
             "example_only_trial": sorted(sa - sb)[:2], "example_only_stored": sorted(sb - sa)[:2]}
 
 

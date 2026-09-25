@@ -95,5 +95,25 @@ class EmptyBandTests(unittest.TestCase):
         self.assertEqual((got.kill_ys, got.death_ys), ((), ()))
 
 
+class KillerNameStartTests(unittest.TestCase):
+    """The killer's portrait abuts the name's first letter, descenders included."""
+
+    def test_a_dropped_descender_does_not_split_the_name(self):
+        band = np.zeros((34, 120), np.uint8)
+        # "R e y n a": four letters on the baseline (row 23), a descender to row 26.
+        for x0, top, bottom in ((20, 12, 23), (29, 15, 23), (37, 15, 26), (45, 15, 23), (53, 15, 23)):
+            band[top:bottom, x0:x0 + 6] = 255
+        # The baseline run starts after the descender's gap: "na".
+        self.assertEqual(killfeed.killer_name_start(band, (45, 58)), 20)
+
+    def test_portrait_art_past_the_gap_is_not_the_name(self):
+        band = np.zeros((34, 120), np.uint8)
+        band[12:23, 40:46] = 255          # "N"
+        band[15:23, 48:54] = 255          # "a"
+        band[2:30, 20:28] = 255           # hair highlight: too tall for a glyph
+        band[15:23, 25:31] = 255
+        self.assertEqual(killfeed.killer_name_start(band, (40, 53)), 40)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -176,3 +176,34 @@ def run(ctx: SessionContext, readers: list, progress=None) -> int:
         if callable(fin):
             fin()
     return n
+
+
+def run_cached(ctx: SessionContext, readers: list, cache, progress=None) -> int:
+    """Drive every reader over the ROI crop cache instead of a decode.
+
+    The caller has checked, through `roi_cache.cache_for`, that each reader's
+    reads stay inside a cached set, that it wants the whole capture, and that
+    the cache was written at its rate -- so the cache's timestamps are the
+    frames `run` would have fed it, and each frame holds those pixels bit for
+    bit. Returns frames fed.
+    """
+    rois = sorted({roi for r in readers for roi in _cache_rois(r)})
+    for r in readers:
+        r.frames_from = cache.record["version"]
+    n = 0
+    for smp in cache.samples(sorted(set(cache.t_ms.tolist())), rois=rois):
+        n += 1
+        for r in readers:
+            r.feed(smp)
+        if progress is not None:
+            progress(n, smp)
+    for r in readers:
+        fin = getattr(r, "finish", None)
+        if callable(fin):
+            fin()
+    return n
+
+
+def _cache_rois(reader) -> tuple[str, ...]:
+    from .roi_cache import CACHE_SETS
+    return CACHE_SETS[reader.cache_set]

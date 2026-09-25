@@ -1271,7 +1271,9 @@ PORTRAIT_ASPECT = 2.0
 # death entry: whether it carries the Run It Back / downed badge.
 # 0.4.0 (2026-09-25): the divider that splits killer from victim moved
 # (`_band_text` line art), so the portrait crops beside it move too.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.4.0"
+# 0.5.0 (2026-09-25): the killer's crop anchors at the name's first letter,
+# descenders included (`killer_name_start`), not at the last baseline run.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.5.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -1316,6 +1318,44 @@ def _portrait_edge(on: np.ndarray, start: int, step: int, w: int,
         x += step
         steps += 1
     return None
+
+
+#: How far below the name's baseline a descender reaches, and how far above
+#: it a letter's bottom may sit, in pixels.
+NAME_DESCENDER = 5
+NAME_BASE_TOL = 2
+
+
+def killer_name_start(white_band: np.ndarray, run: tuple[int, int]) -> int:
+    """The first column of the killer's name, which the killer's portrait abuts.
+
+    `_band_text` keeps only glyphs on the name's baseline, so a descender (the
+    y of "Reyna") drops out of the text mask; the gap it leaves exceeds
+    `NAME_GAP`, `name_run` takes the last run, and the run starts mid-name
+    ("na" at a06f04a0059f 228.5 s). The portrait crop then sat on "Rey" with
+    the face left of it. This walks left from the run over glyph-sized white
+    components whose bottom reaches the name's baseline, descenders allowed,
+    each within `NAME_GAP` of the last. A cap line taken from the run fails
+    when the run is one lowercase letter (the e of "Sage", 96aa1ae9b96f
+    372.0 s). The kill/death reading keeps the baseline run.
+    """
+    wb = (white_band > 0).astype(np.uint8)
+    n, _lab, st, _ = cv2.connectedComponentsWithStats(wb, 8)
+    glyph = [i for i in range(1, n) if st[i, 4] >= MIN_COMP_AREA
+             and GLYPH_W[0] <= st[i, 2] <= GLYPH_W[1]
+             and GLYPH_H[0] <= st[i, 3] <= GLYPH_H[1] + NAME_DESCENDER]
+    inside = [i for i in glyph if st[i, 0] >= run[0] and st[i, 0] + st[i, 2] - 1 <= run[1]]
+    if not inside:
+        return run[0]
+    base = int(np.median([st[i, 1] + st[i, 3] for i in inside]))
+    rows = [i for i in glyph
+            if base - NAME_BASE_TOL <= st[i, 1] + st[i, 3] <= base + NAME_DESCENDER]
+    x = run[0]
+    while True:
+        prev = [i for i in rows if st[i, 0] < x and x - (st[i, 0] + st[i, 2]) <= NAME_GAP]
+        if not prev:
+            return x
+        x = min(int(st[i, 0]) for i in prev)
 
 
 def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
@@ -1370,7 +1410,8 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
         furniture = (green[view.y0:view.y1] | red[view.y0:view.y1]
                      | (white[view.y0:view.y1] > 0))
         wide = int(round(PORTRAIT_ASPECT * bh))
-        for role, start, step in (("killer", view.killer_run[0] - 1, -1),
+        name0 = killer_name_start(white[view.y0:view.y1], view.killer_run)
+        for role, start, step in (("killer", name0 - 1, -1),
                                   ("victim", view.victim_run[1] + 1, +1)):
             if role == "killer":
                 # In Valorant's layout [killer portrait][killer name], the killer
@@ -1623,6 +1664,12 @@ class KillfeedPortraitReader:
         self.name = "killfeed_portrait"
         self.hz = hz
         self.spans = spans
+        # Every pixel it reads is inside the `killfeed` ROI, so a pass of
+        # only such readers can be fed from the ROI crop cache
+        # (`passes.run_cached`); a trial from the cache reproduced its rows.
+        self.cache_set = "killfeed"
+        # What fed it: "video", or the cache's version (set by the runner).
+        self.frames_from = "video"
         self.rows: list[dict] = []
         self.badges: list[dict] = []
         self.weapons: list[dict] = []
@@ -1682,6 +1729,7 @@ class KillfeedPortraitReader:
             "described": len(self.rows) - sum(refused.values()),
             "refused": sum(refused.values()),
             "refused_reasons": dict(sorted(refused.items())),
+            "frames_from": self.frames_from,
         }
         rows = []
         for row in self.rows:
@@ -1715,6 +1763,7 @@ class KillfeedPortraitReader:
                   "killfeed_weapon_version": KILLFEED_WEAPON_VERSION}
         refused = Counter(r["reason"] for r in self.weapons if r["reason"])
         coverage = {**common, "kind": "coverage", "frames_offered": self.frames_offered,
+                    "frames_from": self.frames_from,
                     "observations": len(self.weapons),
                     "described": len(self.weapons) - sum(refused.values()),
                     "refused_reasons": dict(sorted(refused.items()))}

@@ -35,6 +35,10 @@ class HudReader:
         self.name = "hud"
         self.hz = args.hz
         self.spans = None
+        # Reads only the `hud` cache set's ROIs: a whole-session trial from
+        # the cache reproduced a06f04a0059f's 3811 rows (2026-09-25).
+        self.cache_set = "hud"
+        self.frames_from = "video"
 
         self.kf_mask = None
         if self.kf_roi is not None:

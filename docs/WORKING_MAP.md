@@ -84,6 +84,7 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle plan [SESSION]      # stale streams, least work
 .\.venv\Scripts\python.exe -m reticle trial SESSION --reader killfeed [--from video]
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed
+.\.venv\Scripts\python.exe -m reticle scan SESSION --only hud   # killfeed/HUD rewrite from the crop cache (--from video decodes)
 .\.venv\Scripts\python.exe -m reticle domain --check
 .\.venv\Scripts\python.exe -m reticle ownership [QUESTION] [--module M] [--check]
 .\.venv\Scripts\python.exe -m reticle.architecture [--graph]

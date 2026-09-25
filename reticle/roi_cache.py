@@ -63,6 +63,39 @@ def _cache_record(manifest: dict, profile, name: str, rects, hz: float) -> dict:
             "wh": [int(manifest["source"]["width"]), int(manifest["source"]["height"])]}
 
 
+def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiCache | None", str]:
+    """The cache that can feed this whole pass, or None and why it cannot.
+
+    A pass is fed from the cache only when EVERY reader declares a
+    `cache_set` (its reads stay inside those ROIs), wants the whole capture
+    (`spans` None) at the rate the cache was written, and one stored cache
+    holds the union of their ROIs. One reader outside that makes it a decode:
+    a pass is fed from one source.
+    """
+    need: set[str] = set()
+    for r in readers:
+        s = getattr(r, "cache_set", None)
+        if s is None:
+            return None, f"{r.name} reads outside any cached ROI set"
+        if getattr(r, "spans", None) is not None:
+            return None, f"{r.name} reads spans, and the cache holds the whole capture"
+        need |= set(CACHE_SETS[s])
+    names = [n for n, rs in CACHE_SETS.items() if need <= set(rs)]
+    if not names:
+        return None, f"no cached set holds {sorted(need)}"
+    why = "no_cache"
+    for name in sorted(names, key=lambda n: len(CACHE_SETS[n])):
+        cache, reason = RoiCache.load(store_root, manifest, profile, name)
+        if cache is None:
+            why = reason or why
+            continue
+        bad = [r.name for r in readers if float(r.hz) != float(cache.record["hz"])]
+        if bad:
+            return None, f"{', '.join(bad)} at another rate than the cache's {cache.record['hz']} Hz"
+        return cache, f"{cache.record['roi']} cache ({cache.record['version']})"
+    return None, why
+
+
 class RoiCacheWriter:
     """A reader that joins a decode pass and stores a set's crops."""
 

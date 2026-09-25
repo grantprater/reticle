@@ -79,3 +79,50 @@ class HudCacheTest(unittest.TestCase):
             (got,) = list(cache.samples([0.0]))
             for x0, y0, x1, y1 in roi_rects("hud", profile, (1920, 1080)):
                 self.assertTrue(np.array_equal(got.frame[y0:y1, x0:x1], frame[y0:y1, x0:x1]))
+
+
+class CacheFedScanTest(unittest.TestCase):
+    """`roi_cache.cache_for` feeds a pass from the cache only when every reader can be."""
+
+    def _cache(self, root, hz=2.0):
+        profile = get_profile("valorant-16x9")
+        w = RoiCacheWriter(Path(root), _manifest(), profile, "hud", hz=hz)
+        w.feed(Sample(frame_idx=0, t_ms=0.0, frame=np.zeros((1080, 1920, 3), np.uint8)))
+        w.finish()
+        return profile
+
+    def _reader(self, name, cache_set="killfeed", hz=2.0, spans=None):
+        from types import SimpleNamespace
+        return SimpleNamespace(name=name, cache_set=cache_set, hz=hz, spans=spans)
+
+    def test_cached_readers_are_fed_from_the_cache(self):
+        from reticle.roi_cache import cache_for
+        with tempfile.TemporaryDirectory() as root:
+            profile = self._cache(root)
+            cache, why = cache_for(Path(root), _manifest(), profile,
+                                   [self._reader("kp"), self._reader("hud", "hud")])
+            self.assertIsNotNone(cache, why)
+
+    def test_one_uncached_reader_makes_it_a_decode(self):
+        from reticle.roi_cache import cache_for
+        with tempfile.TemporaryDirectory() as root:
+            profile = self._cache(root)
+            for bad, reason in ((self._reader("mm", None), "outside"),
+                                (self._reader("kp", spans=[(0, 1)]), "spans"),
+                                (self._reader("kp", hz=15.0), "rate")):
+                cache, why = cache_for(Path(root), _manifest(), profile, [bad])
+                self.assertIsNone(cache)
+                self.assertIn(reason, why)
+
+
+class DiffStampTest(unittest.TestCase):
+
+    def test_a_version_bump_alone_is_not_a_difference(self):
+        old = [{"t_ms": 0.0, "observation_key": "k", "x0": 1, "stream_version": "0.1"}]
+        new = [{"t_ms": 0.0, "observation_key": "k", "x0": 1, "stream_version": "0.2"}]
+        self.assertEqual(diff(new, old, {0.0})["same"], 1)
+
+    def test_moved_fields_are_named(self):
+        old = [{"t_ms": 0.0, "observation_key": "k", "x0": 1, "x1": 5}]
+        new = [{"t_ms": 0.0, "observation_key": "k", "x0": 2, "x1": 5}]
+        self.assertEqual(diff(new, old, {0.0})["fields"], {"x0": 1})

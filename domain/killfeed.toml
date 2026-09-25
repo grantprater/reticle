@@ -165,3 +165,53 @@ death (hexagon) from the expiry (broken butterfly); a spike death names no
 killer, and it marks a detonation, which ends the round
 """
 phrases = ["spike death icon", "environmental death icon", "hexagon self kill"]
+
+[assist-panel-layout]
+claim = """
+The assist panel fills the top 18 of the entry band's 34 rows and ends one to
+three pixels left of the killer's portrait. Each assister takes about 52 px:
+a portrait cell as wide as the band is high (34 px) on a plate, then,
+when drawn, an ability icon cell about 19 px wide on translucent grey. The
+icon cell has no crisp lower edge; the portrait cell does. The killstreak
+numeral [domain:killfeed/killstreak-indicator] sits in the bottom half,
+under the panel, beside the killer's portrait; both can appear together.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-25"
+source = """
+180 entries sampled uniformly over the 20 sessions with a hud crop cache
+(`prototypes/assist_panel.py sheet`), and row and column pixel steps on
+a06f04a0059f 185.0 s and 1423.0 s, 223d636bf8d2 823.5 s, 3694746e4e54
+602.5 s and bdfdcf009dba 210.0 s
+"""
+see = ["killfeed/assist-panel"]
+
+[assist-without-icon]
+claim = """
+An assister drawn with no ability icon beside the portrait most likely
+assisted by damage; a smoke assist may also draw no icon. The player is not
+certain this is all.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-25"
+source = """
+the player, 2026-09-25, asked about a06f04a0059f 185.0 s (Killjoy and Omen
+assisting, no icons) and 7010b3d62460 877.0 s (Phoenix, no icon)
+"""
+use = "an icon-less assister is not an unread icon; label it 'No icon', not unknown"
+
+[self-yellow-frame]
+claim = """
+A killfeed portrait framed in yellow, with a left-pointing chevron, is the
+player's own, in the killer's position and in the assist panel alike.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-25"
+source = """
+the player, 2026-09-25 ("probably me assisting yes, yellow is typically
+self"), asked about 223d636bf8d2 349.0 s, b7d24102a6f6 265.5 s and
+bfad2778a372 921.5 s
+"""

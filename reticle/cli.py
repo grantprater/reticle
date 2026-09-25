@@ -936,7 +936,19 @@ def cmd_scan(args) -> int:
             sys.stdout.flush()
             last[0] = now
 
-    n_dec = passes_run(ctx, readers, progress)
+    # A pass whose readers all stay inside a cached ROI set is fed from the
+    # crop cache: the same pixels, no decode. `--from video` decodes anyway.
+    from .roi_cache import cache_for
+    cache, why = ((None, "--from video") if args.frames_from == "video"
+                  else cache_for(store.root, manifest, profile, readers))
+    if cache is None and args.frames_from == "cache":
+        raise SystemExit(f"--from cache: {why}")
+    print(f"frames     {'from ' + why if cache is not None else 'decoded (' + why + ')'}")
+    if cache is not None:
+        from .passes import run_cached
+        n_dec = run_cached(ctx, readers, cache, progress)
+    else:
+        n_dec = passes_run(ctx, readers, progress)
     sys.stdout.write("\r" + " " * 72 + "\r")
     dt = time.perf_counter() - t0
 
@@ -2462,6 +2474,8 @@ def cmd_trial(args) -> int:
         print(f"  {stream:18s} {d['same']} same, {d['only_trial']} only in trial, "
               f"{d['only_stored']} only stored; {d['stored_outside_frames']} stored rows "
               f"outside the trial's frames")
+        if d.get("fields"):
+            print(f"    moved fields (rows by observation key): {d['fields']}")
         for ex in d["example_only_trial"][:1]:
             print(f"    trial:  {ex[:240]}")
         for ex in d["example_only_stored"][:1]:
@@ -3032,6 +3046,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-scoreboard", dest="scoreboard", action="store_false",
                    help="skip context-free Tab-scoreboard rows and credit observations")
     s.set_defaults(scoreboard=True)
+    s.add_argument("--from", dest="frames_from", default="auto",
+                   choices=("auto", "cache", "video"),
+                   help="auto (default): feed the pass from the ROI crop cache when every "
+                        "reader in it reads only cached ROIs, else decode; cache: refuse to "
+                        "decode; video: always decode")
     s.add_argument("--cache-roi", choices=("killfeed", "hud"),
                    help="also store lossless crops of this ROI at the HUD rate, for "
                         "`reticle trial --from cache`; `--only roi_cache` stores only them")
