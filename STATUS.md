@@ -4,67 +4,69 @@
 computed cannot disagree with the code. Handoff INTENT is not here --
 that is a decision, not a fact, and stays in CLAUDE.md by hand.*
 
-52 sessions ingested, 411 rounds derived.
-L1 hud: 20 at `hud-0.11.0`; code is at `hud-0.11.0`
-L1 minimap: 3 at `minimap-0.1.0`, 1 at `minimap-0.2.0`, 1 at `minimap-0.3.0`; code is at `minimap-0.3.0` -- **4 STALE**, re-read with `reticle scan`
-L1 ping: 1 at `ping-0.1.0`; code is at `ping-0.1.0`
-L1 roster: 5 at `roster-0.2.0`; code is at `roster-0.2.0`
-12 of 17 exact against `checks.KNOWN_KD`.
-Plants: 204/411 rounds (50%).
+54 sessions ingested, 417 rounds derived.
+L1 hud: 20 at `hud-0.12.0`; code is at `hud-0.12.0`
+L1 minimap: 1 at `minimap-0.1.0`, 16 at `minimap-0.4.0`, 2 at `minimap-0.5.0`, 1 at `minimap-0.7.0`; code is at `minimap-0.7.0` -- **19 STALE**, re-read with `reticle scan`
+L1 ping: 19 at `ping-0.1.0`; code is at `ping-0.1.0`
+L1 roster: 19 at `roster-0.2.0`; code is at `roster-0.2.0`
+13 of 17 exact against `checks.KNOWN_KD`.
+Plants: 208/417 rounds (50%).
 
-| session | map | min | rnds | W-L | plant | K/D | known | d | geo | labels |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 0f08b3dc3777 | summit | 34 | -- | -- | -- | -- | 19/12 | -- | y | -- |
-| b3b9defb6fd7 | summit | 33 | 18 | 5-13 | 9/18 | 14/18 | 14/18 | exact | y | -- |
-| bdfdcf009dba | lotus | 37 | 19 | 12-7 | 9/19 | 17/14 | 17/14 | exact | y | enemies:300 |
-| 223d636bf8d2 | haven | 44 | 28 | 15-13 | 11/28 | 25/15 | 25/15 | exact | y | -- |
-| 9acf02f98283 | ascent | 40 | 24 | 13-11 | 13/24 | 13/16 | 13/16 | exact | y | enemies:150 |
-| b7d24102a6f6 | split | 35 | 18 | 12-6 | 8/18 | 10/12 | 10/12 | exact | y | -- |
-| 75a55a296d3b | abyss | 21 | 12 | 10-2 | 8/12 | 5/5 | 5/5 | exact | y | -- |
-| 59c70f1ef720 | ascent | 43 | 24 | 11-13 | 13/24 | 15/16 | 15/16 | exact | y | -- |
-| bfad2778a372 | split | 40 | 23 | 10-13 | 13/23 | 20/15 | 19/15 | +1/+0 | y | -- |
-| 96aa1ae9b96f | haven | 28 | 17 | 13-4 | 6/17 | 16/10 | 16/10 | exact | y | -- |
-| c40d950031bb | ascent | 16 | 8 | 7-1 | 6/8 | 2/7 | 2/7 | exact | y | -- |
-| ff636d173b07 | summit | 45 | 25 | 12-13 | 13/25 | 27/24 | 27/20 | +0/+4 | y | -- |
-| e37fdeca944f | sunset | 41 | 26 | 12-14 | 13/26 | 16/17 | 16/19 | +0/-2 | y | -- |
-| 043bafca271a | haven | 32 | 20 | 7-13 | 7/20 | 11/15 | 11/15 | exact | y | -- |
-| 3694746e4e54 | ascent | 31 | 19 | 6-13 | 8/19 | 14/17 | 14/17 | exact | y | -- |
-| a06f04a0059f | ascent | 39 | 24 | 13-11 | 12/24 | 21/22 | 19/19 | +2/+3 | y | map_mask:painted,minimap:164,mm_agent:108,mm_dynamic:255 |
-| 5822b6646448 | lotus | 37 | 23 | 11-12 | 9/23 | 13/21 | 13/21 | exact | y | map_mask:painted,minimap:299,mm_dynamic:370 |
-| c62c2b06bcfb | split | 33 | 21 | 13-8 | 12/21 | 13/14 | 13/15 | +0/-1 | y | mm_dynamic:200 |
-| 2ba870ccbd50 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| eb10db50b1fb | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| d95cfad5693a | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 79a706a7ce4c | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| c0b63335e635 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 6bb88dba5d2c | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| c7674c699ad0 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| a7ce88bf341c | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| ccff4a11ff5a | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 5abe77b9953f | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| fc9ec5c86a26 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 2f4ef4e8da23 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 5a50d1374a84 | ascent | 0 | -- | -- | -- | -- | -- | -- | y | -- |
-| ff19748eea8c | ascent | 0 | -- | -- | -- | -- | -- | -- | y | -- |
-| 463ebce3a625 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| dae6f33f3f48 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| ad6b67cdf91d | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| f1cf160b213d | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| e78e75b2d191 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 481336df9adb | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| d7213e35f40a | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| af09094c0729 | ascent | 0 | -- | -- | -- | -- | -- | -- | y | -- |
-| 33db0d21fa32 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 6ab7a9e99235 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 02cf738b1c8f | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| f9703a4b5a47 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 64d0fb783be2 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| b588ea1a6dd5 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 5a63cc4fecfc | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 587c15b07779 | lotus | 31 | 20 | 12-8 | 13/20 | 19/14 | -- | -- | y | -- |
-| b9558488a607 | ascent | 1 | -- | -- | -- | -- | -- | -- | y | -- |
-| 7010b3d62460 | lotus | 32 | 19 | 13-6 | 12/19 | 18/14 | -- | -- | y | -- |
-| a1a995e6b19b | sunset | 37 | 23 | 11-12 | 9/23 | 20/19 | -- | -- | y | -- |
-| 28f53bfddbbe | ascent | 0 | -- | -- | -- | -- | -- | -- | y | -- |
+| session | map | min | rnds | W-L | plant | K/D | known | d | verdict | geo | labels |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0f08b3dc3777 | summit | 34 | -- | -- | -- | -- | 19/12 | -- | -- | y | -- |
+| b3b9defb6fd7 | summit | 33 | 18 | 5-13 | 9/18 | 14/18 | 14/18 | exact | 14/18 r18 | y | -- |
+| bdfdcf009dba | lotus | 37 | 20 | 13-7 | 9/20 | 17/14 | 17/14 | exact | 17/14 r18 | y | enemies:300 |
+| 223d636bf8d2 | haven | 44 | 28 | 15-13 | 11/28 | 25/15 | 25/15 | exact | 25/15 r25 | y | -- |
+| 9acf02f98283 | ascent | 40 | 24 | 13-11 | 13/24 | 13/16 | 13/16 | exact | 13/16 r21 | y | enemies:150 |
+| b7d24102a6f6 | split | 35 | 19 | 13-6 | 9/19 | 10/12 | 10/12 | exact | 10/12 r17 | y | -- |
+| 75a55a296d3b | abyss | 21 | 12 | 10-2 | 8/12 | 5/5 | 5/5 | exact | 5/5 r10 | y | -- |
+| 59c70f1ef720 | ascent | 43 | 24 | 11-13 | 13/24 | 15/16 | 15/16 | exact | 15/16 r24 | y | -- |
+| bfad2778a372 | split | 40 | 23 | 10-13 | 13/23 | 20/15 | 19/15 | +1/+0 | 19/15 r21 | y | -- |
+| 96aa1ae9b96f | haven | 28 | 17 | 13-4 | 6/17 | 16/10 | 16/10 | exact | 16/10 r15 | y | -- |
+| c40d950031bb | ascent | 16 | 8 | 7-1 | 6/8 | 2/7 | 2/7 | exact | 2/7 r8 | y | -- |
+| ff636d173b07 | summit | 45 | 26 | 12-14 | 14/26 | 27/20 | 27/20 | exact | 27/20 r24 | y | -- |
+| e37fdeca944f | sunset | 41 | 26 | 12-14 | 13/26 | 16/17 | 16/19 | +0/-2 | 16/19 r25 | y | -- |
+| 043bafca271a | haven | 32 | 20 | 7-13 | 7/20 | 11/15 | 11/15 | exact | 11/15 r19 | y | -- |
+| 3694746e4e54 | ascent | 31 | 19 | 6-13 | 8/19 | 14/17 | 14/17 | exact | 14/17 r19 | y | -- |
+| a06f04a0059f | ascent | 39 | 24 | 13-11 | 12/24 | 19/19 | 19/19 | exact | 19/19 r23 | y | map_mask:painted,minimap:164,mm_agent:108,mm_dynamic:255 |
+| 5822b6646448 | lotus | 37 | 24 | 11-13 | 10/24 | 13/19 | 13/21 | +0/-2 | 13/21 r22 | y | map_mask:painted,minimap:299,mm_dynamic:370 |
+| c62c2b06bcfb | split | 33 | 21 | 13-8 | 12/21 | 13/14 | 13/15 | +0/-1 | 13/15 r18 | y | mm_dynamic:200 |
+| 2ba870ccbd50 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| eb10db50b1fb | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| d95cfad5693a | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 79a706a7ce4c | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| c0b63335e635 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 6bb88dba5d2c | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| c7674c699ad0 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| a7ce88bf341c | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| ccff4a11ff5a | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 5abe77b9953f | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| fc9ec5c86a26 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 2f4ef4e8da23 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 5a50d1374a84 | ascent | 0 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| ff19748eea8c | ascent | 0 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 463ebce3a625 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| dae6f33f3f48 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| ad6b67cdf91d | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| f1cf160b213d | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| e78e75b2d191 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 481336df9adb | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| d7213e35f40a | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| af09094c0729 | ascent | 0 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 33db0d21fa32 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 6ab7a9e99235 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 02cf738b1c8f | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| f9703a4b5a47 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 64d0fb783be2 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| b588ea1a6dd5 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 5a63cc4fecfc | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 587c15b07779 | lotus | 31 | 21 | 13-8 | 13/21 | 19/13 | -- | -- | 20/13 r19 | y | -- |
+| b9558488a607 | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 7010b3d62460 | lotus | 32 | 19 | 13-6 | 12/19 | 18/11 | -- | -- | 18/11 r18 | y | -- |
+| a1a995e6b19b | sunset | 37 | 24 | 11-13 | 10/24 | 20/19 | -- | -- | 18/19 r23 | y | -- |
+| 29eff6920e8f | ascent | 1 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| afa5bc60b935 | ascent | 2 | -- | -- | -- | -- | -- | -- | -- | y | -- |
+| 28f53bfddbbe | ascent | 0 | -- | -- | -- | -- | -- | -- | -- | y | -- |
 
-No HUD L1 (never `reticle hud`): 0f08b3dc3777, 2ba870ccbd50, eb10db50b1fb, d95cfad5693a, 79a706a7ce4c, c0b63335e635, 6bb88dba5d2c, c7674c699ad0, a7ce88bf341c, ccff4a11ff5a, 5abe77b9953f, fc9ec5c86a26, 2f4ef4e8da23, 5a50d1374a84, ff19748eea8c, 463ebce3a625, dae6f33f3f48, ad6b67cdf91d, f1cf160b213d, e78e75b2d191, 481336df9adb, d7213e35f40a, af09094c0729, 33db0d21fa32, 6ab7a9e99235, 02cf738b1c8f, f9703a4b5a47, 64d0fb783be2, b588ea1a6dd5, 5a63cc4fecfc, b9558488a607, 28f53bfddbbe
+No HUD L1 (never `reticle hud`): 0f08b3dc3777, 2ba870ccbd50, eb10db50b1fb, d95cfad5693a, 79a706a7ce4c, c0b63335e635, 6bb88dba5d2c, c7674c699ad0, a7ce88bf341c, ccff4a11ff5a, 5abe77b9953f, fc9ec5c86a26, 2f4ef4e8da23, 5a50d1374a84, ff19748eea8c, 463ebce3a625, dae6f33f3f48, ad6b67cdf91d, f1cf160b213d, e78e75b2d191, 481336df9adb, d7213e35f40a, af09094c0729, 33db0d21fa32, 6ab7a9e99235, 02cf738b1c8f, f9703a4b5a47, 64d0fb783be2, b588ea1a6dd5, 5a63cc4fecfc, b9558488a607, 29eff6920e8f, afa5bc60b935, 28f53bfddbbe
