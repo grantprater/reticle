@@ -263,6 +263,55 @@ class TerminationTests(unittest.TestCase):
 
 
 
+class OcclusionAndStackingTests(unittest.TestCase):
+    """Occluded and stacked tracks remain eligible across extended temporal gaps."""
+
+    def test_self_occlusion_extends_association_budget(self):
+        life = RoundLifetimes('R1', 0)
+        # Step 0: Ally near self (separation 10 px <= OCCLUSION_RADIUS_PX)
+        first = life.step(0, [
+            dict(detection(100), y=100),
+            dict(detection(110, family='self'), y=100),
+        ])
+        ally_id = first[0]['entity_id']
+
+        # Step 1500: Ally emerges from under self after 1.5s (> 0.75s standard budget)
+        again = life.step(1500, [
+            dict(detection(115), y=100),
+            dict(detection(110, family='self'), y=100),
+        ])
+        self.assertEqual(again[0]['entity_id'], ally_id)
+        self.assertEqual(again[0]['state'], 'continuation')
+
+    def test_ally_stack_preserves_merged_track_continuity(self):
+        life = RoundLifetimes('R1', 0)
+        # Step 0: Two allies walking together (separation 15 px <= STACK_RADIUS_PX)
+        first = life.step(0, [
+            dict(detection(100), y=100),
+            dict(detection(115), y=100),
+        ])
+        e1, e2 = first[0]['entity_id'], first[1]['entity_id']
+
+        # Step 1000: Merged stack: only one icon detected
+        life.step(1000, [dict(detection(105), y=100)])
+
+        # Step 2000: Un-stacking after 2.0s (> 0.75s standard budget)
+        split = life.step(2000, [
+            dict(detection(100), y=100),
+            dict(detection(115), y=100),
+        ])
+        self.assertEqual(len(life.entities), 2)
+        self.assertEqual({r['entity_id'] for r in split}, {e1, e2})
+
+    def test_stationary_dropout_bridges_flicker(self):
+        life = RoundLifetimes('R1', 0)
+        first = life.step(0, [dict(detection(200), y=200)])
+        # Reappears 1.8s later at almost identical position (d=1 px <= STATIONARY_RADIUS_PX)
+        again = life.step(1800, [dict(detection(201), y=200)])
+        self.assertEqual(again[0]['entity_id'], first[0]['entity_id'])
+        self.assertEqual(again[0]['state'], 'continuation')
+
+
 if __name__ == '__main__':
     unittest.main()
 

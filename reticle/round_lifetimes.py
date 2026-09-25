@@ -14,8 +14,16 @@ import math
 from .track import CLASSES, admits, association_tolerance, assign, refit_of
 from .minimap import REF_WIDGET_W
 
-ROUND_LIFETIME_VERSION = "round-lifetimes-0.8.0"
+ROUND_LIFETIME_VERSION = "round-lifetimes-0.9.0"
 MAX_ASSOCIATION_HISTORIES = 64
+
+#: Proximity thresholds for merged / occluded track states (widget px).
+#: Minimap player yellow circle and ally icon diameter is ~20 px.
+OCCLUSION_RADIUS_PX = 32.0
+STACK_RADIUS_PX = 26.0
+MERGED_BUDGET_S = 3.5
+STATIONARY_BUDGET_S = 3.0
+STATIONARY_RADIUS_PX = 16.0
 
 #: Maximum displacement across one frame for an unobserved entity to absorb a
 #: detection as a refit, in widget pixels. ROUND_ENTITIES.md measured ring fits
@@ -97,8 +105,9 @@ class RoundLifetimes:
             return []
         if any(o.get("observed_t_ms", t_ms) != t_ms for o in observations):
             raise ValueError("carried positions are not new observations")
+        me = next((o for o in observations if o["family"] == "self"), None)
         prior = [e for e in self.entities.values()
-                 if t_ms-e["last_seen_ms"] <= 1000 or e["family"] == "self"
+                 if t_ms-e["last_seen_ms"] <= MERGED_BUDGET_S*1000 or e["family"] == "self"
                  or (e["family"] in {"ally","enemy"} and e.get("appearance")
                      and t_ms-e["last_seen_ms"] < self.appearance_gap_s*1000)]
         # **Appearance is scored COMPARATIVELY, once per observation.** It is a
@@ -138,13 +147,30 @@ class RoundLifetimes:
                     motion = CLASSES["walker" if moving else "static"]
                     slack = association_tolerance(self.scale,
                                 r_a=obs.get("r"), r_b=old.get("r"))
-                    allowed = dt <= budget and admits(motion, max(0,d-slack),dt,self.scale)[0]
+                    adm = admits(motion, max(0, d-slack), dt, self.scale)[0]
+                    if moving and dt > budget:
+                        near_self_last = ent.get("near_self_at_last_seen", False)
+                        self_curr_dist = math.hypot(me["x"] - old["x"], me["y"] - old["y"]) if me else float("inf")
+                        obs_self_dist = math.hypot(me["x"] - obs["x"], me["y"] - obs["y"]) if me else float("inf")
+                        occluded_by_self = (near_self_last or self_curr_dist <= OCCLUSION_RADIUS_PX * self.scale) and (obs_self_dist <= (OCCLUSION_RADIUS_PX + 10.0) * self.scale or adm)
+
+                        near_ally_last = ent.get("near_ally_at_last_seen", False)
+                        stacked = near_ally_last and adm
+
+                        stationary = (d <= STATIONARY_RADIUS_PX * self.scale and dt <= STATIONARY_BUDGET_S)
+
+                        if (occluded_by_self or stacked) and dt <= MERGED_BUDGET_S and adm:
+                            budget = MERGED_BUDGET_S
+                        elif stationary:
+                            budget = STATIONARY_BUDGET_S
+
+                    allowed = dt <= budget and adm
                     if moving and not allowed and i in best:
                         winner, margin = best[i]
                         informative = motion.max_px_s*self.scale*dt + slack < math.sqrt(2)*REF_WIDGET_W*self.scale
                         allowed = (informative and ent["id"] == winner
                                    and margin >= APPEARANCE_MARGIN
-                                   and admits(motion,max(0,d-slack),dt,self.scale)[0])
+                                   and adm)
                     if not moving and allowed:
                         anchor = ent["anchor_observation"]
                         anchor_d = math.hypot(obs["x"]-anchor["x"], obs["y"]-anchor["y"])
@@ -262,6 +288,19 @@ class RoundLifetimes:
                 ent["observations"] += 1
                 if obs["label"] not in ent["class_history"]:
                     ent["class_history"].append(obs["label"])
+                if me:
+                    d_me = math.hypot(obs["x"] - me["x"], obs["y"] - me["y"])
+                    ent["near_self_at_last_seen"] = (d_me <= OCCLUSION_RADIUS_PX * self.scale)
+                else:
+                    ent["near_self_at_last_seen"] = False
+
+                near_ally = False
+                for other_idx, other_obs in enumerate(observations):
+                    if other_idx != i and other_obs.get("family") == "ally":
+                        if math.hypot(obs["x"] - other_obs["x"], obs["y"] - other_obs["y"]) <= STACK_RADIUS_PX * self.scale:
+                            near_ally = True
+                            break
+                ent["near_ally_at_last_seen"] = near_ally
             output.append({**obs,
                            "entity_id": ent["id"] if ent else None,
                            "name": ent["name"] if ent else None,

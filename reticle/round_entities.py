@@ -28,7 +28,7 @@ from collections import Counter
 
 from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes
 
-ROUND_ENTITY_VERSION = "round-entity-0.2.0"
+ROUND_ENTITY_VERSION = "round-entity-0.3.0"
 
 
 def _observation(icon: dict) -> dict:
