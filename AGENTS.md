@@ -91,6 +91,19 @@ states plainly, and the player had to ask what the sentence meant.
   surprises may be a tool error, so check the instrument before revising the
   system belief. A failed prediction revises the belief; record it and carry
   it into the handoff.
+- **Continue the prior; widen the search only on surprise.** Context predicts
+  most of what comes next: the last frame's state, the match's lineup, the
+  banner's type, the belief the last run left. Start every reading and every
+  experiment from that prediction, check it cheaply, and widen the search only
+  where the observation surprises it. A killfeed entry is followed where it
+  was; a smoke is sought from the agents in the match, near where their
+  abilities land; a portrait tile is placed from its banner type's anchor; an
+  experiment revises the belief it tested rather than starting over. Store the
+  surprise, never average it away. A prior that is never checked is a hidden
+  assumption: the portrait channel assumed an entry keeps its first slot, and
+  lost every view taken after the stack rose. A prior narrows where to look;
+  it is not evidence for what is found, and a result it constrained declares
+  that it rests on it.
 - Before a perceptual experiment, state falsifiable predictions and log them in
   the store's `notes/predictions.jsonl`; inspect source images before measuring.
   On the first failed perceptual approach, build the tool that asks the player.
