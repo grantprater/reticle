@@ -197,15 +197,15 @@ class ReplayScaleTests(unittest.TestCase):
     """An export replayed at the wrong widget scale is a silent wrong answer."""
 
     def test_scale_changes_which_observations_are_one_entity(self):
-        # 14 widget px in 100 ms: past the walker ceiling at both scales, but a
-        # REFIT on a 465 px widget (the resolution limit is 16 px there) and a
-        # new entity on a 331 px one (11.4 px). Replaying either at the other's
+        # 20 widget px in 100 ms: past the walker ceiling at both scales, but a
+        # REFIT on a 465 px widget (the lobe-jump limit is 24 px there) and a
+        # new entity on a 331 px one (17.1 px). Replaying either at the other's
         # scale is not a rounding difference, it is a different set of entities.
         ids = []
         for scale in (1.0, 0.7118):
             life = RoundLifetimes('R1', 0, scale)
             first = life.step(0, [detection(10)])[0]
-            ids.append(first['entity_id'] == life.step(100, [detection(24)])[0]['entity_id'])
+            ids.append(first['entity_id'] == life.step(100, [detection(30)])[0]['entity_id'])
         self.assertEqual(ids, [True, False])
 
     def test_stated_scale_is_read_not_derived(self):

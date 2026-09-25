@@ -14,8 +14,14 @@ import math
 from .track import CLASSES, admits, association_tolerance, assign, refit_of
 from .minimap import REF_WIDGET_W
 
-ROUND_LIFETIME_VERSION = "round-lifetimes-0.7.0"
+ROUND_LIFETIME_VERSION = "round-lifetimes-0.8.0"
 MAX_ASSOCIATION_HISTORIES = 64
+
+#: Maximum displacement across one frame for an unobserved entity to absorb a
+#: detection as a refit, in widget pixels. ROUND_ENTITIES.md measured ring fits
+#: jumping 10-24 px onto the teardrop lobe or ring boundary in 67 ms (exceeding
+#: the 45 px/s walker ceiling but within the physical icon diameter).
+REFIT_SEPARATION_PX = 24.0
 
 #: Readable kind per family, when a reader does not supply a better one.
 #: A raw `E0303 object?` says nothing a person can check against the frame.
@@ -185,7 +191,8 @@ class RoundLifetimes:
                         and e["view"] == obs["view"]]
                 k = refit_of(obs["x"], obs["y"],
                              [(e["last_observation"]["x"], e["last_observation"]["y"])
-                              for e in same], self.scale)
+                              for e in same], self.scale,
+                             min_separation_px=REFIT_SEPARATION_PX)
                 if k is not None:
                     refit = same[k]
                     idle.remove(refit)
@@ -193,12 +200,26 @@ class RoundLifetimes:
             # but a cheap optimum alone does not prove identity in a crowd.
             unique = j >= 0 and len(parents) == 1 and sum(
                 prior[j]["id"] in ps for ps in candidates) == 1
+            acquisition = None
+            if obs["family"] == "ally":
+                if capacity is None:
+                    acquisition = "roster_unknown"
+                elif i in accepted_allies:
+                    acquisition = "roster_slot_available_not_identity"
+                else:
+                    acquisition = "roster_count_conflict"
+
             if j >= 0:
                 ent = prior[j]
                 state = "continuation" if unique else "ambiguous_continuation"
             elif refit is not None:
                 ent = refit
                 state = "refit"
+            elif obs["family"] == "ally" and acquisition == "roster_count_conflict":
+                # Roster alive capacity: do not mint a new entity when unassigned
+                # observation exceeds living teammate count.
+                ent = None
+                state = "roster_conflict_refused"
             else:
                 eid = f"{self.round_id}:E{self.next_id:04d}"
                 self.next_id += 1
@@ -222,42 +243,39 @@ class RoundLifetimes:
                 ent["anchor_observation"] = {k:obs[k] for k in ("x", "y", "r") if k in obs}
                 self.entities[eid] = ent
                 state = "ambiguous_continuation" if parents else "first_observed"
-            gap = t_ms-ent.get("last_seen_ms",t_ms)
-            if gap > 150:
-                ent["gaps"] += 1
-            ent["max_gap_ms"] = max(ent["max_gap_ms"],gap)
-            ent["last_seen_ms"] = t_ms
-            # The fast track remains a proposal used to generate the next
-            # candidates. The association component, not this field, is the
-            # authoritative identity account and can revise the proposal later.
-            ent["last_observation"] = dict(obs)
-            if unique or (j < 0 and refit is None):
-                if known_kind(obs):
-                    ent["known_kind"] = known_kind(obs)
-                if obs.get("appearance"):
-                    old_appearance=ent.get("appearance",obs["appearance"])
-                    ent["appearance"]=[.9*a+.1*b for a,b in zip(old_appearance,obs["appearance"])]
-            ent["observations"] += 1
-            if obs["label"] not in ent["class_history"]:
-                ent["class_history"].append(obs["label"])
-            acquisition = None
-            if obs["family"] == "ally":
-                if capacity is None:
-                    acquisition = "roster_unknown"
-                elif i in accepted_allies:
-                    acquisition = "roster_slot_available_not_identity"
-                else:
-                    acquisition = "roster_count_conflict"
-            output.append({**obs, "entity_id":ent["id"], "name":ent["name"],
-                           "provisional_entity_id": ent["id"],
+            if ent is not None:
+                gap = t_ms-ent.get("last_seen_ms",t_ms)
+                if gap > 150:
+                    ent["gaps"] += 1
+                ent["max_gap_ms"] = max(ent["max_gap_ms"],gap)
+                ent["last_seen_ms"] = t_ms
+                # The fast track remains a proposal used to generate the next
+                # candidates. The association component, not this field, is the
+                # authoritative identity account and can revise the proposal later.
+                ent["last_observation"] = dict(obs)
+                if unique or (j < 0 and refit is None):
+                    if known_kind(obs):
+                        ent["known_kind"] = known_kind(obs)
+                    if obs.get("appearance"):
+                        old_appearance=ent.get("appearance",obs["appearance"])
+                        ent["appearance"]=[.9*a+.1*b for a,b in zip(old_appearance,obs["appearance"])]
+                ent["observations"] += 1
+                if obs["label"] not in ent["class_history"]:
+                    ent["class_history"].append(obs["label"])
+            output.append({**obs,
+                           "entity_id": ent["id"] if ent else None,
+                           "name": ent["name"] if ent else None,
+                           "provisional_entity_id": ent["id"] if ent else None,
                            "observation_id": observation_ids[i],
-                           "state":state,
-                           "alternatives":parents if not unique and refit is None else [],
+                           "state": state,
+                           "alternatives": parents if not unique and refit is None else [],
                            "identity_status": ("resolved" if unique or refit is not None else
-                                               "ambiguous" if parents else "provisional"),
+                                               "ambiguous" if parents else
+                                               "refused" if ent is None else "provisional"),
                            "association_component_id": component_for.get(i),
-                           "acquisition":acquisition, "origin_ms":ent["origin_ms"],
-                           "first_seen_ms":ent["first_seen_ms"]})
+                           "acquisition": acquisition,
+                           "origin_ms": ent["origin_ms"] if ent else None,
+                           "first_seen_ms": ent["first_seen_ms"] if ent else None})
         return output
 
     def association_report(self):
