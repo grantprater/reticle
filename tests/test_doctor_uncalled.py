@@ -86,6 +86,13 @@ class UncalledTests(unittest.TestCase):
         self.assertIn("wired(never=)", dead[0])
         self.assertNotIn("extra", dead[0])
 
+    def test_unicode_spelling_of_keyword_is_still_counted(self):
+        # Python normalizes identifiers before the AST check sees them.
+        (self.root / "tools" / "t.py").write_text(
+            "wired(1, ｎｅｖｅｒ = 2)\n", encoding="utf-8")
+        found = [m for _level, m in doctor.check_uncalled(self.root)]
+        self.assertFalse(any("wired(never=)" in m for m in found))
+
 
 if __name__ == "__main__":
     unittest.main()

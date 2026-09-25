@@ -879,14 +879,36 @@ def check_uncalled(base: Path | None = None) -> list[tuple[str, str]]:
     wired = _reachable(defs, top, roots, skip=RENDER_ONLY, refs=refs)
     rendered = _reachable(defs, top, roots, refs=refs) - wired
 
+    def optional_inputs(node: ast.AST) -> list[str]:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return []
+        args = node.args
+        return [arg.arg for arg, default in zip(args.kwonlyargs, args.kw_defaults)
+                if (isinstance(default, ast.Constant) and default.value is None) or
+                (isinstance(default, (ast.Tuple, ast.List, ast.Dict)) and
+                 not getattr(default, "elts", getattr(default, "keys", [1])))]
+
+    owned = {(str(entry.get("owner", "")), name)
+             for entry in data.get("_index", {}).values()
+             for name in entry.get("produces", []) or []}
+    watched = {arg for name, entries in defs.items() for module, node in entries
+               if (module, name) in owned for arg in optional_inputs(node)}
+    keyword_pattern = (re.compile(r"\b(?:" + "|".join(map(re.escape, sorted(watched))) + r")\s*=")
+                       if watched else None)
+
     # Keywords passed to each function NAME by any call anywhere -- the
     # pipeline, tools or prototypes. An input nothing supplies is dead
     # whoever calls the function.
     passed: dict[str, set[str]] = collections.defaultdict(set)
     for tree in ("reticle", "tools", "prototypes"):
         for path in (base / tree).rglob("*.py"):
+            source = path.read_text(encoding="utf-8", errors="replace")
+            # An ASCII call must spell its keyword in source. Parse non-ASCII
+            # files because Python normalizes Unicode identifiers in the AST.
+            if keyword_pattern is None or (source.isascii() and not keyword_pattern.search(source)):
+                continue
             try:
-                parsed = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+                parsed = ast.parse(source)
             except SyntaxError:
                 continue
             for n in ast.walk(parsed):
@@ -923,14 +945,9 @@ def check_uncalled(base: Path | None = None) -> list[tuple[str, str]]:
                 render.append(name)
             elif (owner, name) not in wired:
                 cold.append(name)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                args = node.args
-                for arg, default in zip(args.kwonlyargs, args.kw_defaults):
-                    empty = (isinstance(default, ast.Constant) and default.value is None) or (
-                        isinstance(default, (ast.Tuple, ast.List, ast.Dict))
-                        and not getattr(default, "elts", getattr(default, "keys", [1])))
-                    if empty and arg.arg not in passed[name]:
-                        unpassed.append(f"{name}({arg.arg}=)")
+            for arg in optional_inputs(node):
+                if arg not in passed[name]:
+                    unpassed.append(f"{name}({arg}=)")
         if cold:
             out.append((level("cold", key, cold), f"[{key}] `{owner}` produces {', '.join(cold)} and "
                               f"no CLI command reaches it -- wire it, or say "
