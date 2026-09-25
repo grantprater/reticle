@@ -73,8 +73,16 @@ def modules(root: Path | None = None, package: str = "reticle") -> dict[str, Pat
     return out
 
 
+def _parse_source(path: Path) -> ast.Module | None:
+    try:
+        return ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return None
+
+
 def sibling_imports(path: Path, package: str = "reticle",
-                    within: str = "") -> list[tuple[str, int, bool]]:
+                    within: str = "", parsed: ast.Module | None = None
+                    ) -> list[tuple[str, int, bool]]:
     """`(module, lineno, deferred)` for every same-package import in a file.
 
     `deferred` means the import sits inside a function or class body, so it
@@ -87,9 +95,8 @@ def sibling_imports(path: Path, package: str = "reticle",
     means `adjudication.ability` and `from ..ability_timeline` means the
     top-level module of that name.
     """
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-    except SyntaxError:
+    tree = parsed if parsed is not None else _parse_source(path)
+    if tree is None:
         return []
     out: list[tuple[str, int, bool]] = []
 
@@ -127,7 +134,8 @@ def sibling_imports(path: Path, package: str = "reticle",
 
 
 def foreign_imports(path: Path, tree_name: str = "prototypes",
-                    stems: frozenset[str] | None = None) -> list[tuple[str, int]]:
+                    stems: frozenset[str] | None = None,
+                    parsed: ast.Module | None = None) -> list[tuple[str, int]]:
     """`(module, lineno)` for every import that crosses into the other tree.
 
     Both spellings, because the second is how the first hides. `from
@@ -137,9 +145,8 @@ def foreign_imports(path: Path, tree_name: str = "prototypes",
     check blind to it would bless the pattern that evades it. So a bare import
     of any name that is a module in the other tree counts.
     """
-    try:
-        parsed = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-    except SyntaxError:
+    parsed = parsed if parsed is not None else _parse_source(path)
+    if parsed is None:
         return []
     if stems is None:
         stems = frozenset(p.stem for p in (ROOT / tree_name).glob("*.py"))
@@ -193,6 +200,7 @@ def verify(data: dict | None = None,
     order, index = data["_order"], data["_index"]
     paths = modules(base)
     present = set(paths)
+    parsed = {module: _parse_source(path) for module, path in paths.items()}
     out: list[tuple[str, str]] = []
 
     for module in data["_duplicated"]:
@@ -208,7 +216,8 @@ def verify(data: dict | None = None,
     used: set[tuple[str, str]] = set()
     for module in sorted(present & set(index)):
         within = module.rpartition(".")[0]
-        for target, line, deferred in sibling_imports(paths[module], within=within):
+        for target, line, deferred in sibling_imports(
+                paths[module], within=within, parsed=parsed[module]):
             if target == module or target not in index:
                 continue
             if index[target] <= index[module]:
@@ -242,7 +251,7 @@ def verify(data: dict | None = None,
     # the bare-import case pass vacuously under test.
     stems = frozenset(p.stem for p in (base / "prototypes").glob("*.py"))
     for module in sorted(present):
-        crossings = foreign_imports(paths[module], stems=stems)
+        crossings = foreign_imports(paths[module], stems=stems, parsed=parsed[module])
         if not crossings:
             continue
         if module in allowed:
