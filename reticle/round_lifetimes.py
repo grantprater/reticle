@@ -501,11 +501,101 @@ class RoundLifetimes:
         ranked.sort()
         return {i for _, _, i in ranked[:capacity]}
 
-    def finish(self, end_ms):
-        return [{**{k:v for k,v in e.items() if k != "last_observation"},
-                 "end_ms":None, "right_censored_at_ms":end_ms,
-                 "end_reason":"last observation does not establish destruction/death"}
-                for e in self.entities.values()]
+    def finish(self, end_ms, *, deaths=None, roster_drops=None):
+        """Right-censored or verified termination per entity lifetime.
+
+        Categorises entity endings into three physical regimes:
+        (1) `round_end`: observed active within 2.0 s of round close;
+        (2) `death`: ceased being observed within 2.5 s of an ally death
+            verdict or roster alive drop, carrying `death_id` or drop time;
+        (3) `last observation does not establish destruction/death`:
+            mid-round tracking loss not corroborated by any death witness.
+        """
+        if deaths is None and roster_drops is None:
+            return [{**{k: v for k, v in e.items() if k != "last_observation"},
+                     "end_ms": None, "right_censored_at_ms": end_ms,
+                     "end_reason": "last observation does not establish destruction/death"}
+                    for e in self.entities.values()]
+
+        sorted_entities = sorted(self.entities.values(), key=lambda e: -e["observations"])
+        claimed_deaths = set()
+        claimed_drops = set()
+        ent_endings = {}
+
+        for ent in sorted_entities:
+            last_t = ent["last_seen_ms"]
+            # Case 1: Active near round end (within 2.0 s of round close)
+            if end_ms - last_t <= 2000.0:
+                death_candidates = [d for d in (deaths or [])
+                                    if d.get("death_id") not in claimed_deaths
+                                    and abs(d.get("t_ms", 0.0) - last_t) <= 2000.0]
+                if death_candidates:
+                    best_d = min(death_candidates, key=lambda d: abs(d.get("t_ms", 0.0) - last_t))
+                    claimed_deaths.add(best_d.get("death_id"))
+                    ent_endings[ent["id"]] = {
+                        "end_ms": best_d.get("t_ms"),
+                        "right_censored_at_ms": None,
+                        "end_reason": "death",
+                        "death_id": best_d.get("death_id"),
+                        "death_evidence": "killfeed_verdict"
+                    }
+                else:
+                    ent_endings[ent["id"]] = {
+                        "end_ms": None,
+                        "right_censored_at_ms": end_ms,
+                        "end_reason": "round_end",
+                        "death_id": None,
+                        "death_evidence": None
+                    }
+            else:
+                # Case 2: Ceased being observed mid-round
+                death_candidates = [d for d in (deaths or [])
+                                    if d.get("death_id") not in claimed_deaths
+                                    and abs(d.get("t_ms", 0.0) - last_t) <= 2500.0]
+                if death_candidates:
+                    best_d = min(death_candidates, key=lambda d: abs(d.get("t_ms", 0.0) - last_t))
+                    claimed_deaths.add(best_d.get("death_id"))
+                    ent_endings[ent["id"]] = {
+                        "end_ms": best_d.get("t_ms"),
+                        "right_censored_at_ms": None,
+                        "end_reason": "death",
+                        "death_id": best_d.get("death_id"),
+                        "death_evidence": "killfeed_verdict"
+                    }
+                else:
+                    drop_candidates = [t for t in (roster_drops or [])
+                                       if t not in claimed_drops and abs(t - last_t) <= 2500.0]
+                    if drop_candidates:
+                        best_drop = min(drop_candidates, key=lambda t: abs(t - last_t))
+                        claimed_drops.add(best_drop)
+                        ent_endings[ent["id"]] = {
+                            "end_ms": best_drop,
+                            "right_censored_at_ms": None,
+                            "end_reason": "death",
+                            "death_id": None,
+                            "death_evidence": f"roster:alive_ally_drop:{best_drop}"
+                        }
+                    else:
+                        ent_endings[ent["id"]] = {
+                            "end_ms": None,
+                            "right_censored_at_ms": last_t,
+                            "end_reason": "last observation does not establish destruction/death",
+                            "death_id": None,
+                            "death_evidence": None
+                        }
+
+        out = []
+        for e in self.entities.values():
+            base = {k: v for k, v in e.items() if k != "last_observation"}
+            ending = ent_endings.get(e["id"], {
+                "end_ms": None,
+                "right_censored_at_ms": end_ms,
+                "end_reason": "last observation does not establish destruction/death",
+                "death_id": None,
+                "death_evidence": None
+            })
+            out.append({**base, **ending})
+        return out
 
 
 def replay_scale(meta, store_root=None):

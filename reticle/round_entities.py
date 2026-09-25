@@ -28,7 +28,7 @@ from collections import Counter
 
 from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes
 
-ROUND_ENTITY_VERSION = "round-entity-0.1.0"
+ROUND_ENTITY_VERSION = "round-entity-0.2.0"
 
 
 def _observation(icon: dict) -> dict:
@@ -67,13 +67,14 @@ def _roster_at(times: list[float], alive: list, t_ms: float):
 
 def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                       scale: float, roster: dict | None = None,
-                      source_revision: str | None = None) -> list[dict]:
+                      source_revision: str | None = None,
+                      deaths: list[dict] | None = None) -> list[dict]:
     """`round_entity` event rows for every round the stored frames reach.
 
     `events` are the session's `ally_icon` rows; `rounds` come from
-    `rounds.build_rounds`; `roster` is `{"t_ms": [...], "alive_ally": [...]}`.
-    Frames outside every round are not associated -- an entity does not
-    outlive its round.
+    `rounds.build_rounds`; `roster` is `{"t_ms": [...], "alive_ally": [...]}`;
+    `deaths` are `events/death` rows. Frames outside every round are not
+    associated -- an entity does not outlive its round.
     """
     frames = sorted((e for e in events if e["kind"] == "frame"), key=lambda e: e["t_ms"])
     icons: dict[int, list[dict]] = {}
@@ -118,7 +119,13 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                              "component": o["association_component_id"],
                              "acquisition": o["acquisition"],
                              "x": round(o["x"], 2), "y": round(o["y"], 2)})
-        for ent in life.finish(z):
+        rnd_deaths = [d for d in (deaths or [])
+                      if d.get("kind") == "death_verdict" and d.get("round_no") == rnd["round_no"]
+                      and d.get("side") == "ally"]
+        rnd_drops = [rt[i] for i in range(1, len(rt))
+                     if ra[i] is not None and ra[i-1] is not None and ra[i] < ra[i-1]
+                     and a <= rt[i] <= z]
+        for ent in life.finish(z, deaths=rnd_deaths, roster_drops=rnd_drops):
             # The entity's own `kind` is its readable kind ("ally"); the row's
             # `kind` says what the row is, so the entity's moves aside.
             body = {k: v for k, v in ent.items()

@@ -1844,11 +1844,12 @@ def cmd_lifetimes(args) -> int:
         t = store.read_roster(sid, date)
         roster = {"t_ms": t.column("t_ms").to_pylist(),
                   "alive_ally": t.column("alive_ally").to_pylist()}
+    deaths = store.read_events("death", sid) if store.has_events("death", sid) else None
     box = minimap_roi_px(get_profile(manifest["source_profile"]),
                          int(manifest["source"]["width"]),
                          int(manifest["source"]["height"]))
     rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]),
-                             roster, source_revision)
+                             roster, source_revision, deaths=deaths)
     out = store.write_events("round_entity", sid, rows)
     cov = rows[0]
     ents = [r for r in rows if r["kind"] == "entity"]

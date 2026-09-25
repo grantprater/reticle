@@ -224,5 +224,45 @@ class ReplayScaleTests(unittest.TestCase):
         self.assertAlmostEqual(scale, 0.7118, places=4)
 
 
+class TerminationTests(unittest.TestCase):
+    """Lifetime endings distinguish round survival, verified death, and unobserved loss."""
+
+    def test_entity_active_near_round_end_resolves_to_round_end(self):
+        life = RoundLifetimes('R1', 0)
+        life.step(29000, [detection(10)])
+        res = life.finish(30000, deaths=[])
+        self.assertEqual(res[0]['end_reason'], 'round_end')
+        self.assertIsNone(res[0]['end_ms'])
+        self.assertEqual(res[0]['right_censored_at_ms'], 30000)
+
+    def test_entity_midround_disappearance_near_death_resolves_to_death(self):
+        life = RoundLifetimes('R1', 0)
+        life.step(20000, [detection(10)])
+        deaths = [{'kind': 'death_verdict', 'death_id': 'death:R1:1', 't_ms': 20500, 'side': 'ally'}]
+        res = life.finish(50000, deaths=deaths)
+        self.assertEqual(res[0]['end_reason'], 'death')
+        self.assertEqual(res[0]['end_ms'], 20500)
+        self.assertEqual(res[0]['death_id'], 'death:R1:1')
+        self.assertIsNone(res[0]['right_censored_at_ms'])
+
+    def test_entity_midround_disappearance_near_roster_drop_resolves_to_death(self):
+        life = RoundLifetimes('R1', 0)
+        life.step(20000, [detection(10)])
+        res = life.finish(50000, roster_drops=[20500.0])
+        self.assertEqual(res[0]['end_reason'], 'death')
+        self.assertEqual(res[0]['end_ms'], 20500.0)
+        self.assertEqual(res[0]['death_evidence'], 'roster:alive_ally_drop:20500.0')
+
+    def test_unexplained_midround_disappearance_remains_right_censored(self):
+        life = RoundLifetimes('R1', 0)
+        life.step(10000, [detection(10)])
+        res = life.finish(50000, deaths=[])
+        self.assertEqual(res[0]['end_reason'], 'last observation does not establish destruction/death')
+        self.assertIsNone(res[0]['end_ms'])
+        self.assertEqual(res[0]['right_censored_at_ms'], 10000)
+
+
+
 if __name__ == '__main__':
     unittest.main()
+
