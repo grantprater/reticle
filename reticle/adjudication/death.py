@@ -55,7 +55,10 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # 0.10.0 (2026-09-25): an ability icon is a witness of the killer (its caster,
 # `ability_agent`), and the lineup bounds which abilities an icon can name.
 # 0.11.0 (2026-09-25): a killer the icon named labels portrait exemplars.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.11.0"
+# 0.12.0 (2026-09-25): an entry's portrait views follow it up the stack by its
+# own key (`follow_entry_portraits`), not its first slot until the next entry;
+# a refusing view abstains, and two agreeing named views name the entry.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.12.0"
 
 #: Weapon-slot icons that mark a revive entry, which is not a death
 #: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
@@ -65,17 +68,76 @@ REVIVE_ICONS = {"Not Dead Yet": "Clove", "Resurrection": "Sage"}
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 
+#: How far the killer crop's left edge and the weapon icon's box width may move
+#: between frames of one entry, and how soon the entry must be seen in its
+#: first slot for the follow to start.
+FOLLOW_X0_TOL = 4
+FOLLOW_WIDTH_TOL = 3
+FOLLOW_START_MS = 1000.0
+
+
+def follow_entry_portraits(entry: dict, portraits: list[dict],
+                           icon_width: dict | None = None) -> set[tuple[float, int]]:
+    """The (frame time, slot) pairs one killfeed entry occupies over its track.
+
+    **An entry does not keep its slot.** The stack rises as older entries
+    expire, and a newer entry arrives BELOW. Reading only the first slot until
+    the next entry lost every view after the stack rose, and ended the window
+    at a newcomer that never moved this entry: 25 of 51 nameable killers on the
+    player's uniform labels abstained on one view where up to four existed
+    (2026-09-25). Borrowing `adjudication.weapon.bind_entry` instead drifted
+    onto the next entry, which two entries with one gun share.
+
+    So the entry is followed by its own key: the killer crop's left edge (set by
+    the killer's name and the icon), the weapon icon's box width from the same
+    frame and slot (`icon_width`, when stored), and the killer's plate side. It
+    starts in its first slot within `FOLLOW_START_MS`, and each frame it stays
+    or rises one slot. A frame where both slots fit the key is ambiguous and
+    binds nothing: that surprise is where a neighbour would be taken for it.
+    """
+    icon_width = icon_width or {}
+    by: dict[float, dict[int, tuple]] = {}
+    for p in portraits:
+        if (p.get("role") == "killer" and "x0" in p
+                and entry["t_first"] <= float(p["t_ms"]) <= entry["t_last"]):
+            by.setdefault(float(p["t_ms"]), {})[p["slot"]] = (
+                p["x0"], icon_width.get((float(p["t_ms"]), p["slot"])), p.get("ally"))
+    slot, key, out = entry["slot"], None, set()
+    for t in sorted(by):
+        here = by[t]
+        if key is None:
+            if slot in here and t <= entry["t_first"] + FOLLOW_START_MS:
+                key = here[slot]
+                out.add((t, slot))
+            continue
+        fits = [s for s in (slot, slot - 1) if s in here
+                and abs(here[s][0] - key[0]) <= FOLLOW_X0_TOL and here[s][2] == key[2]
+                and (here[s][1] is None or key[1] is None
+                     or abs(here[s][1] - key[1]) <= FOLLOW_WIDTH_TOL)]
+        if len(fits) != 1:
+            continue
+        slot = fits[0]
+        key = (here[slot][0], key[1] if here[slot][1] is None else here[slot][1], key[2])
+        out.add((t, slot))
+    return out
+
+
 def attach_stored_killfeed_portraits(
     entries: list[dict], observations: list[dict], lineup: dict, gallery: dict,
     *, source_version: str, exemplars: list[dict] = (),
+    weapon_observations: list[dict] | None = None,
 ) -> list[dict]:
-    """Join raw portraits to their first entry interval without reading media.
+    """Join raw portraits to their entry without reading media.
 
-    A stack slot is only stable until the next new entry. A single named frame
-    is retained as evidence but cannot promote a victim: its appearance has no
-    within-entry repeat check. Every view must name the same admitted lineup
-    candidate before this channel publishes a name. Refused lineup slots stay
-    rivals in every comparison, including after earlier deaths.
+    An entry carrying its track (`t_first`, `t_last`, from `session_entries`)
+    takes the views `follow_entry_portraits` binds, with the icon widths from
+    `weapon_observations`; one without a track takes its first slot until the
+    next entry, at most 2 s. A single named frame is retained as evidence but
+    cannot promote a name: its appearance has no within-entry repeat check.
+    At least two views must name, and every view that names must name the same
+    admitted lineup candidate, before this channel publishes a name; a view
+    that refuses abstains. Refused lineup slots stay rivals in every comparison,
+    including after earlier deaths.
 
     `exemplars` (`portrait_exemplars`) widen each agent's references with this
     session's own labelled portraits, never the entry's own; a name one of
@@ -83,19 +145,29 @@ def attach_stored_killfeed_portraits(
     """
     out = []
     portraits = [r for r in observations if r.get("kind") == "portrait_observation"]
+    widths = {(float(o["t_ms"]), o["slot"]): o["wx1"] - o["wx0"]
+              for o in weapon_observations or []
+              if o.get("kind") == "weapon_icon_observation" and o.get("wx1") is not None}
     for i, original in enumerate(entries):
         entry = dict(original)
         start = float(entry["t_ms"])
-        end = min(start + 2000.0,
-                  float(entries[i + 1]["t_ms"]) if i + 1 < len(entries) else float("inf"))
+        slot, views = entry.get("slot"), portraits
+        if entry.get("t_last") is not None and entry.get("t_first") is not None:
+            bound = follow_entry_portraits(entry, portraits, widths)
+            views = [dict(p, slot=slot) for p in portraits
+                     if (float(p["t_ms"]), p["slot"]) in bound]
+            end = max((t for t, _ in bound), default=start) + 1.0
+        else:
+            end = min(start + 2000.0,
+                      float(entries[i + 1]["t_ms"]) if i + 1 < len(entries) else float("inf"))
         side = entry.get("side")
         killer_side = {"ally": "enemy", "enemy": "ally"}.get(side)
         entry["claim"] = _portrait_channel(
-            portraits, "victim", side, entry.get("slot"), start, end, lineup, gallery,
+            views, "victim", side, slot, start, end, lineup, gallery,
             entity_id=f"death:{int(start)}:victim", source_version=source_version,
             exemplars=exemplars)
         entry["killer_claim"] = _portrait_channel(
-            portraits, "killer", killer_side, entry.get("slot"), start, end, lineup, gallery,
+            views, "killer", killer_side, slot, start, end, lineup, gallery,
             entity_id=f"death:{int(start)}:killer", source_version=source_version,
             exemplars=exemplars)
         out.append(entry)
@@ -136,8 +208,11 @@ def _portrait_channel(portraits, role, side, slot, start, end, lineup, gallery, 
                        "depends_on": claim.get("depends_on", []),
                        "composition": view.get("composition"),
                        "evidence": claim.get("evidence", {})})
+    # A view that refuses abstains; it does not dissent. Requiring every view to
+    # name made the rule stricter the longer an entry was followed: one thin
+    # margin among ten views blocked a name four views gave.
     names = {c["agent"] for c in claims if c["agent"]}
-    unanimous = len(claims) >= 2 and len(names) == 1 and all(c["agent"] for c in claims)
+    unanimous = sum(1 for c in claims if c["agent"]) >= 2 and len(names) == 1
     reason = (None if unanimous else
               "no_stored_portrait_at_entry" if not claims else
               "portrait_single_view" if len(claims) == 1 else
@@ -1628,7 +1703,8 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
             a, z = r["t_start_ms"], r.get("t_close_ms") or r["t_end_ms"]
             entries = attach_stored_killfeed_portraits(raw, portraits, lineup, gallery,
                                                        source_version=source_version,
-                                                       exemplars=exemplars)
+                                                       exemplars=exemplars,
+                                                       weapon_observations=weapon_observations)
             window = [row for row in roster if a <= row["t_ms"] <= z]
             first = adjudicate_round_deaths(session_id, entries, window,
                                             player_agent=player_agent)

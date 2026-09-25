@@ -1056,3 +1056,32 @@ class ReviveEntryTest(unittest.TestCase):
         claims = scoreboard_death_claims(es, scoreboard_openings(rows), {})
         self.assertEqual(claims[1]["agent"], None)
         self.assertEqual(claims[1]["reason"], "revive_in_interval")
+
+
+class EntryFollowTests(unittest.TestCase):
+    """An entry rises as older ones expire; its views follow it by its key."""
+
+    def _row(self, t, slot, x0, ally=False):
+        return {"kind": "portrait_observation", "t_ms": float(t), "slot": slot,
+                "role": "killer", "x0": x0, "ally": ally}
+
+    def test_the_entry_is_followed_up_the_stack(self):
+        from reticle.adjudication.death import follow_entry_portraits
+        entry = {"t_first": 0.0, "t_last": 1500.0, "slot": 2}
+        rows = [self._row(0, 2, 133), self._row(500, 1, 133), self._row(1000, 0, 134),
+                self._row(1000, 1, 60), self._row(1500, 0, 133)]
+        self.assertEqual(follow_entry_portraits(entry, rows),
+                         {(0.0, 2), (500.0, 1), (1000.0, 0), (1500.0, 0)})
+
+    def test_a_frame_two_slots_fit_binds_nothing(self):
+        from reticle.adjudication.death import follow_entry_portraits
+        entry = {"t_first": 0.0, "t_last": 500.0, "slot": 1}
+        rows = [self._row(0, 1, 100), self._row(500, 1, 101), self._row(500, 0, 99)]
+        self.assertEqual(follow_entry_portraits(entry, rows), {(0.0, 1)})
+
+    def test_a_neighbour_with_another_icon_width_is_not_the_entry(self):
+        from reticle.adjudication.death import follow_entry_portraits
+        entry = {"t_first": 0.0, "t_last": 500.0, "slot": 1}
+        rows = [self._row(0, 1, 100), self._row(500, 1, 101), self._row(500, 0, 99)]
+        widths = {(0.0, 1): 76, (500.0, 1): 50, (500.0, 0): 77}
+        self.assertEqual(follow_entry_portraits(entry, rows, widths), {(0.0, 1), (500.0, 0)})
