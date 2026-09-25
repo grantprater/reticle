@@ -101,9 +101,9 @@ states plainly, and the player had to ask what the sentence meant.
   experiment revises the belief it tested rather than starting over. Store the
   surprise, never average it away. A prior that is never checked is a hidden
   assumption: the portrait channel assumed an entry keeps its first slot, and
-  lost every view taken after the stack rose. A prior narrows where to look;
-  it is not evidence for what is found, and a result it constrained declares
-  that it rests on it.
+  lost every view taken after the stack rose. A prior is evidence, weighed
+  once: a result it shaped declares that it rests on it, so the prior's
+  information is never counted again as an independent witness.
 - Before a perceptual experiment, state falsifiable predictions and log them in
   the store's `notes/predictions.jsonl`; inspect source images before measuring.
   On the first failed perceptual approach, build the tool that asks the player.
