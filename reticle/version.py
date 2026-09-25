@@ -165,7 +165,8 @@ SMOKE_VERSION = "smoke-0.2.0"
 # change -- those need pixels, so they re-decode.
 # 0.2.0: each row also stores its portrait thumbnail (`portrait`).
 # 0.3.0: each row also stores its name-field band median BGR (`band`).
-COMBAT_REPORT_VERSION = "combat-report-0.3.0"
+# 0.4.0: each row also stores the ALLY word correlation in the weapon slot (`slot_word`).
+COMBAT_REPORT_VERSION = "combat-report-0.4.0"
 # Panels, their rounds and per-round kill/death/assist counts, recomputed from
 # stored `combat_report` rows by `reticle combat-report`. Bump when a grouping,
 # voting or round rule in `adjudication.combat_report` changes.
@@ -174,7 +175,14 @@ COMBAT_REPORT_VERSION = "combat-report-0.3.0"
 # 0.4.0: killfeed witnesses take enemy portraits only.
 # 0.5.0: round_verdicts accessor; KILLED YOU and lone KILLED rows bind to
 #        stored death entities (`bind_deaths`) and carry death_verdict claims.
-COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.5.0"
+# 0.6.0: ALLY rows (the ALLY word) take no enemy witness, cluster apart from
+#        enemy rows, and are bounded by the ally lineup less the player.
+# 0.7.0: a panel opening up to 4 s before the killfeed reads the death is a
+#        death panel (the death flash can wash the killfeed).
+# 0.8.0: KILLED on an ALLY row (a team kill) is not a kill; an early panel
+#        that does not read the previous round's death panel stays in its own
+#        round as a death the killfeed missed.
+COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.8.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

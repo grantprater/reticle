@@ -15,6 +15,9 @@ the panel's own arithmetic and the channels already stored are the checks.
   damage against per-hit values pooled over all rows (P4, loose).
 * `flags` -- the report's per-round kills and deaths against the stored rounds
   and `checks.KNOWN_KD` (R1, R2), recorded as the `combat_report/flags` series.
+* `acceptance` -- corpus acceptance from stored products: death panels against
+  player deaths, the verdict against `checks.KNOWN_KD`, disagreeing rounds and
+  named rows, recorded as the `combat_report/acceptance` series.
 * `icons`, `weapons` -- rows grouped by the enemy's weapon icon, and each row's
   damage decomposed into per-hit values from the OTHER rows in its group
   [domain:combat_report/damage-decomposition].
@@ -645,14 +648,91 @@ def score(sid: str) -> None:
                    context={"labels": len(labels)})
 
 
+def acceptance(sid: str) -> None:
+    """Corpus acceptance from stored products only (`reticle combat-report` has
+    run): death panels against the rounds' player deaths, the verdict against
+    `checks.KNOWN_KD`, the rounds where report and killfeed disagree, and the
+    rows the arbiter named. Recorded as `combat_report/acceptance`."""
+    store = Store()
+    rounds = _rounds(sid)
+    ev = store.read_events("combat_report_round", sid)
+    if not ev or ev[0].get("combat_report_round_version") != COMBAT_REPORT_ROUND_VERSION:
+        raise SystemExit(f"{sid}: run reticle combat-report {sid} first")
+    head = ev[0]
+    ps = _panels(sid)
+    deaths = sum(r["player_deaths"] or 0 for r in rounds)
+    n_lives = sum(r.get("player_second_lives") or 0 for r in rounds)
+    death_panels = [p for p in ps if p["kind"] == "death"]
+    rows = [r for r in store.read_events("combat_report_rows", sid) if r.get("kind") == "row_entity"]
+    status = {}
+    for e in store.read_events("combat_report_identity", sid):
+        sub = (e.get("identity_distribution") or {}).get("subject_entity_id")
+        if sub:
+            status[sub] = (e.get("metadata") or {}).get("status")
+    named = sum(status.get(r["entity_id"]) == "resolved" for r in rows)
+    disagree = [r for r in ev if r["kind"] == "round"
+                and (r["kills_agree"] is False or r["deaths_agree"] is False)]
+    print(f"{sid}: death panels {len(death_panels)} / player deaths {deaths} "
+          f"(+{n_lives} second lives); panels {head['panels']} over "
+          f"{head['rounds_with_panel']}/{head['rounds']} rounds")
+    known = KNOWN_KD.get(sid)
+    print(f"  verdict K/D {head['kills_verdict']}/{head['deaths_verdict']}  known "
+          f"{'/'.join(map(str, known)) if known else '--'}")
+    for r in disagree:
+        print(f"  round {r['round_no']:>2}  {r['t_start_ms'] / 1000:7.1f}-{r['t_end_ms'] / 1000:7.1f}s  "
+              f"report K{r['kills']} D{r['deaths']}  killfeed K{r['stored_kills']} D{r['stored_deaths']}")
+    print(f"  rows named {named}/{len(rows)}; identity disagreements "
+          f"{sum(v == 'disagreement' for v in status.values())}")
+    controls = [] if not known else [
+        {"name": "verdict_kills_vs_known_kd", "observed": head["kills_verdict"], "expected": known[0], "tol": 0},
+        {"name": "verdict_deaths_vs_known_kd", "observed": head["deaths_verdict"], "expected": known[1], "tol": 0}]
+    metrics.record("combat_report", part="acceptance", session=sid,
+                   values={"death_panels": len(death_panels), "player_deaths": deaths,
+                           "second_lives": n_lives, "panels": head["panels"],
+                           "rounds_with_panel": head["rounds_with_panel"], "rounds": head["rounds"],
+                           "kills_verdict": head["kills_verdict"], "deaths_verdict": head["deaths_verdict"],
+                           "disagree_rounds": len(disagree),
+                           "kills_disagree": head["kills_disagree"], "deaths_disagree": head["deaths_disagree"],
+                           "rows": len(rows), "rows_named": named,
+                           "identity_disagreements": sum(v == "disagreement" for v in status.values())},
+                   deps={"version": COMBAT_REPORT_VERSION, "round_version": COMBAT_REPORT_ROUND_VERSION},
+                   context={"rounds_version": rounds[0].get("round_version") if rounds else None},
+                   controls=controls)
+
+
+def mine_ally(sid: str = "a06f04a0059f", t_ms: float = 1429000.0, row: int = 2) -> None:
+    """Add the ALLY word crop to the reader's template file: the tight box of
+    pixels >= `cr.DIM` in `cr.ALLY_FIELD` of an ALLY row the player labelled
+    (Miks on `a06f04a0059f` at 1429 s), with its provenance."""
+    from reticle import combat_report as cr
+    m = _manifest(sid)["source"]
+    frame = next(iter(sample_at(m["path"], [t_ms], float(m["fps"])))).frame
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    score, hx, hy = cr.locate(gray, cr.load_templates()[0])
+    field = field_at(gray, hx, hy, cr.ALLY_FIELD, ROW0 + row * PITCH)
+    ys, xs = np.nonzero(field >= cr.DIM)
+    crop = field[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    with np.load(cr.TEMPLATE_FILE, allow_pickle=False) as z:
+        keep = {k: z[k] for k in z.keys()}
+    prov = json.loads(str(keep["provenance"]))
+    prov["ALLY"] = {"session": sid, "t_ms": t_ms, "hx": hx, "hy": hy, "row": row,
+                    "field": "ally", "header_score": round(score, 3)}
+    keep["word_ally"] = crop
+    keep["provenance"] = np.array(json.dumps(prov))
+    np.savez_compressed(cr.TEMPLATE_FILE, **keep)
+    print(f"ALLY crop {crop.shape} from {sid} {t_ms / 1000:.1f}s row {row} -> {cr.TEMPLATE_FILE}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("judge", "flags", "icons", "weapons", "portraits", "witnesses", "score"):
+    for name in ("judge", "flags", "icons", "weapons", "portraits", "witnesses", "score",
+                 "acceptance", "mine-ally"):
         sub.add_parser(name).add_argument("session")
     args = ap.parse_args()
     {"judge": judge, "flags": flags, "icons": crop_icons, "weapons": weapons,
-     "portraits": portraits, "witnesses": witnesses, "score": score}[args.cmd](args.session)
+     "portraits": portraits, "witnesses": witnesses, "score": score,
+     "acceptance": acceptance, "mine-ally": mine_ally}[args.cmd](args.session)
 
 
 if __name__ == "__main__":

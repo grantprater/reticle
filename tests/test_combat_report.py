@@ -183,6 +183,29 @@ class Naming(unittest.TestCase):
         self.assertIn("outside scoreboard bound", refused[0]["reason"])
         self.assertNotIn(ps[1]["rows"][1]["entity_id"], by)   # no witness: no verdict
 
+    def test_an_ally_row_takes_no_enemy_witness_and_never_joins_an_enemy_cluster(self):
+        jett = self._thumb(1)
+        ps = [{"start_ms": 60000.0, "kind": "death", "round_no": 1,
+               "rows": [{"killed_you": True, "killed": False, "portrait": jett},
+                        {"killed_you": True, "killed": False, "portrait": jett, "ally": True}]}]
+        rounds = [dict(r) for r in ROUNDS[:1]]
+        deaths = [{"t_first": 59000.0, "t_last": 63000.0, "slot": 0}]
+        enemy = [{"agent": a} for a in ("Jett", "Iso", "Skye", "Omen", "Killjoy")]
+        ally = [{"agent": a} for a in ("Phoenix", "Jett", "Breach", "Reyna", "Miks")]
+        original = adj._killfeed_name
+        adj._killfeed_name = lambda *_a: "Jett"
+        try:
+            claims, _ = adj.name_rows("s", ps, rounds, [], deaths, [], [], enemy, {},
+                                      ally_rows=ally, player="Phoenix")
+        finally:
+            adj._killfeed_name = original
+        enemy_row, ally_row = ps[0]["rows"]
+        self.assertNotEqual(enemy_row["entity_id"], ally_row["entity_id"])
+        mine = [c for c in claims if c["entity_id"] == ally_row["entity_id"]]
+        self.assertEqual([(c["channel"], c["agent"]) for c in mine], [("ally_lineup", None)])
+        self.assertIn("ally bound of 4", mine[0]["reason"])
+        self.assertEqual(adj.ally_bound(ally[:2], "Phoenix"), ["Jett"])
+
 
 class RoundVerdicts(unittest.TestCase):
     def _stream(self, **over):

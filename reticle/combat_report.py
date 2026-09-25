@@ -70,6 +70,10 @@ THUMB_WH = (20, 27)
 #: and the adjudication decides. On `a06f04a0059f` 1430 s and `3694746e4e54`
 #: 719 s the two ally rows read G - R of 18 and 15, the six enemy rows <= 5.
 ROW_BAND = (40, 3, 175, 55)
+#: Where an ALLY row writes ALLY in place of the weapon icon. The band colour
+#: alone cannot separate ally rows: the panel is translucent, so the scene
+#: tints every row, and a panel can hold two ally rows.
+ALLY_FIELD = (60, 8, 140, 34)
 
 BIG_H = (18, 40)                         # damage digit height band, px
 SMALL_H = (6, 14)                        # hit-count digit height band, px
@@ -84,11 +88,19 @@ READ_MIN = 0.5
 
 FLAG_WORDS = {"KILLED": "flag_killed", "KILLED YOU": "flag_killed_you",
               "ASSIST": "flag_assist"}
+#: Words matched in the weapon slot, mined like the flags
+#: (`prototypes/combat_report.py mine-ally`).
+SLOT_WORDS = {"ALLY": "word_ally"}
 
 
 def load_templates(path: Path = TEMPLATE_FILE) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     with np.load(path, allow_pickle=False) as z:
         return z["header"], {w: z[k] for w, k in FLAG_WORDS.items()}
+
+
+def load_slot_words(path: Path = TEMPLATE_FILE) -> dict[str, np.ndarray]:
+    with np.load(path, allow_pickle=False) as z:
+        return {w: z[k] for w, k in SLOT_WORDS.items() if k in z}
 
 
 def provenance(path: Path = TEMPLATE_FILE) -> dict:
@@ -195,7 +207,7 @@ def thumbnail_array(encoded: str) -> np.ndarray:
     return np.frombuffer(base64.b64decode(encoded), np.uint8).reshape(h, w, 3)
 
 
-def read_rows(gray, hx, hy, tpl: ocr.Templates, words, frame=None) -> list[dict]:
+def read_rows(gray, hx, hy, tpl: ocr.Templates, words, frame=None, slot_words=None) -> list[dict]:
     """Rows below the header until one shows neither damage number."""
     rows = []
     for k in range(MAX_ROWS):
@@ -212,6 +224,7 @@ def read_rows(gray, hx, hy, tpl: ocr.Templates, words, frame=None) -> list[dict]
             "in_word": read_flag(gray, hx, hy, IN_FLAG, dy, words),
             "portrait": thumbnail(frame, hx, hy, dy) if frame is not None else None,
             "band": band(frame, hx, hy, dy) if frame is not None else None,
+            "slot_word": read_flag(gray, hx, hy, ALLY_FIELD, dy, slot_words or {}),
         })
     return rows
 
@@ -225,6 +238,7 @@ class CombatReportReader:
         self.name, self.hz, self.spans = name, hz, spans
         self.digits = digits
         self.header, self.words = load_templates()
+        self.slot_words = load_slot_words()
         self.rows: list[dict] = []
 
     def feed(self, smp) -> None:
@@ -237,7 +251,8 @@ class CombatReportReader:
         score, hx, hy = locate(gray, self.header)
         row.update({"header": round(score, 3), "hx": hx, "hy": hy, "reason": None})
         if score >= READ_MIN:
-            row["rows"] = read_rows(gray, hx, hy, self.digits, self.words, smp.frame)
+            row["rows"] = read_rows(gray, hx, hy, self.digits, self.words, smp.frame,
+                                    self.slot_words)
         self.rows.append(row)
 
     def events(self, session_id: str) -> list[dict]:

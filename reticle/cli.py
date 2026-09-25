@@ -2305,7 +2305,9 @@ def _combat_report_identity(store, sid, date, rows, rounds, death_times) -> None
         print(f"  deaths: none stored; rows stay unbound -- run `reticle deaths {sid}`")
     claims, verdicts = adj.name_rows(sid, ps, rounds, tracks("kill"), tracks("death"),
                                      portraits, board, lineup["sides"]["enemy"],
-                                     load_identity_gallery(store.root), death_rows)
+                                     load_identity_gallery(store.root), death_rows,
+                                     lineup["sides"].get("ally", []),
+                                     (lineup.get("player") or {}).get("agent"))
     events = identity_events(verdicts, sid)
     rows_named = [{"session_id": sid, "kind": "row_entity", "panel_start_ms": p["start_ms"],
                    "row": k, "entity_id": row.get("entity_id"), "cluster": row.get("cluster"),

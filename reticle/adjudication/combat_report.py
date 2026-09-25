@@ -49,7 +49,10 @@ from ..version import COMBAT_REPORT_ROUND_VERSION, COMBAT_REPORT_VERSION
 HEADER_MIN = 0.70            # header correlation that counts as a panel shown
 FLAG_MIN = 0.70              # flag-word correlation that counts as drawn
 GAP_MS = 3000.0
-DEATH_BEFORE_MS, DEATH_AFTER_MS = 5000.0, 2000.0
+#: A panel opens with the death, but the killfeed can read the death late:
+#: on `b3b9defb6fd7` at 1635 s the death flash washed the killfeed plates and
+#: the entry was first read 2.5 s after the panel opened.
+DEATH_BEFORE_MS, DEATH_AFTER_MS = 5000.0, 4000.0
 SUMMARY_WINDOW_MS = 45000.0
 ROUND_TAIL_MS = 8000.0       # a panel this long after a round's end still belongs to it
 FIELDS = ("out", "in", "out_hits", "in_hits")
@@ -86,9 +89,9 @@ def _flags(frames: list[dict], k: int) -> dict[str, bool]:
     votes: dict[str, list[bool]] = {}
     for r in frames:
         row = r["rows"][k]
-        for side in ("out_word", "in_word"):
+        for side in ("out_word", "in_word", "slot_word"):
             for w, v in row.get(side, {}).items():
-                votes.setdefault(f"{side[:-5]}:{w}", []).append(v >= FLAG_MIN)
+                votes.setdefault(f"{side.split('_')[0]}:{w}", []).append(v >= FLAG_MIN)
     return {key: sum(v) * 2 > len(v) for key, v in votes.items()}
 
 
@@ -126,6 +129,9 @@ def panels(frames: list[dict], death_times: list[float]) -> list[dict]:
                       "killed": f.get("out:KILLED", False),
                       "assist": f.get("out:ASSIST", False),
                       "killed_you": f.get("in:KILLED YOU", False),
+                      # ALLY in the weapon slot: damage to or from a teammate
+                      # [domain:combat_report/ally-damage-row].
+                      "ally": f.get("slot:ALLY", False),
                       "portrait": shown[len(shown) // 2]["rows"][k].get("portrait")}
                      for k, (vals, f) in enumerate(zip(read, flags))],
         })
@@ -143,7 +149,19 @@ def assign_rounds(ps: list[dict], rounds: list[dict]) -> None:
         p["kind"] = "death" if p["at_death"] else "summary"
         if rnd is not None and not p["at_death"] and t0 - rnd["t_start_ms"] < SUMMARY_WINDOW_MS:
             prev = [r for r in rounds if r["t_end_ms"] <= rnd["t_start_ms"]]
-            rnd = prev[-1] if prev else None
+            # A round's rows do not change between the death and its end
+            # [domain:combat_report/frozen-after-death], so the summary of a
+            # round the player died in reads that death panel's damage. A panel
+            # that reads otherwise is this round's own: a death the killfeed
+            # never counted (`c62c2b06bcfb` 1144 s, KILLED BY KILLJOY at 1:27).
+            died = [q for q in ps if q is not p and q.get("round_no") == (prev[-1]["round_no"] if prev else None)
+                    and q["kind"] == "death"]
+            dmg = lambda q: [(r["out"], r["in"]) for r in q["rows"]]
+            if prev and died and dmg(died[-1]) != dmg(p)[:len(dmg(died[-1]))]                     and any(r["killed_you"] for r in p["rows"]):
+                p["kind"] = "death"
+                p["kind_reason"] = "killed_you_without_killfeed_death"
+            else:
+                rnd = prev[-1] if prev else None
         p["round_no"] = rnd["round_no"] if rnd else None
         p["round_reason"] = None if rnd else "no round contains the panel"
 
@@ -164,7 +182,9 @@ def round_counts(ps: list[dict], rounds: list[dict]) -> list[dict]:
             # panel carries the killer, whichever panel is last.
             last = mine[-1]
             row.update({
-                "kills": sum(x["killed"] for x in last["rows"]),
+                # KILLED on an ALLY row is a team kill, which the scoreboard
+                # does not count (`043bafca271a` 1892 s).
+                "kills": sum(x["killed"] and not x.get("ally") for x in last["rows"]),
                 "assists": sum(x["assist"] for x in last["rows"]),
                 "deaths": max(sum(x["killed_you"] for x in p["rows"]) for p in mine),
                 "reason": None})
@@ -264,19 +284,22 @@ def portrait_clusters(ps: list[dict]) -> None:
     """Set `cluster` on every row in place: a row whose thumbnail correlates at
     `PORTRAIT_SAME` with a cluster's first row joins it; None without one."""
     from ..combat_report import thumbnail_array
-    reps: list[np.ndarray] = []
+    # Both teams may field one agent, so an ALLY row never joins an enemy
+    # row's cluster however alike the art.
+    reps: list[tuple[bool, np.ndarray]] = []
     for p in ps:
         for row in p["rows"]:
             if not row.get("portrait"):
                 row["cluster"] = None
                 continue
             t = thumbnail_array(row["portrait"]).astype(np.float32)
-            for i, r in enumerate(reps):
-                if _corr(r, t) >= PORTRAIT_SAME:
+            ally = bool(row.get("ally"))
+            for i, (side, r) in enumerate(reps):
+                if side == ally and _corr(r, t) >= PORTRAIT_SAME:
                     row["cluster"] = i
                     break
             else:
-                reps.append(t)
+                reps.append((ally, t))
                 row["cluster"] = len(reps) - 1
 
 
@@ -373,15 +396,23 @@ def bind_deaths(ps, rounds, death_rows) -> tuple[list[dict], list[dict]]:
     return bindings, claims
 
 
+def ally_bound(ally_rows, player) -> list[str]:
+    """Teammates an ALLY row can be: the ally lineup's named agents minus the
+    player. Guns never damage allies, so a row's weapon never narrows it."""
+    return sorted({r["agent"] for r in ally_rows if r.get("agent")} - {player})
+
+
 def name_rows(session_id, ps, rounds, kill_tracks, death_tracks, portraits, board,
-              enemy_rows, gallery, death_rows=()):
+              enemy_rows, gallery, death_rows=(), ally_rows=(), player=None):
     """Identity claims and verdicts for report rows, keyed by portrait cluster.
 
     `board` is one dict per enemy scoreboard row read: t, agent, kills, deaths.
     `kill_tracks` and `death_tracks` are the player's counted killfeed tracks;
     `portraits` the stored killfeed portrait observations. `death_rows` is the
     stored `death` stream; given it, `bind_deaths` binds KILLED YOU and lone
-    KILLED rows to death entities and sets `death_entity` on them. Each panel
+    KILLED rows to death entities and sets `death_entity` on them. An ALLY row
+    takes no enemy witness; `ally_rows` (the lineup's ally side) less `player`
+    bounds it. Each panel
     row gets `entity_id`; the name lives only in the arbiter's verdicts.
     """
     from ..killfeed import KILLFEED_PORTRAIT_VERSION
@@ -411,6 +442,17 @@ def name_rows(session_id, ps, rounds, kill_tracks, death_tracks, portraits, boar
         lone_kill = sum(r["killed"] for r in p["rows"]) == 1 and len(kills) == 1
         for k, row in enumerate(p["rows"]):
             if row["entity_id"] is None:
+                continue
+            if row.get("ally"):
+                # A teammate: no enemy witness applies. The lineup names it
+                # only when one teammate remains; a team kill in the killfeed
+                # names it through `bind_deaths`.
+                bound = ally_bound(ally_rows, player)
+                claims.append(identity_claim(
+                    row["entity_id"], bound[0] if len(bound) == 1 else None,
+                    channel="ally_lineup", observed_at_ms=p["start_ms"],
+                    evidence={"panel_start_ms": p["start_ms"], "row": k, "ally_bound": bound},
+                    reason=None if len(bound) == 1 else f"ally bound of {len(bound)}: {bound}"))
                 continue
             if row["killed_you"]:
                 name, bound, role = killer, killed, "killer"
