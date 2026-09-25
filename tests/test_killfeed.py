@@ -114,6 +114,47 @@ class KillerNameStartTests(unittest.TestCase):
         band[15:23, 25:31] = 255
         self.assertEqual(killfeed.killer_name_start(band, (40, 53)), 40)
 
+    def test_two_touching_kerned_letters_are_one_glyph(self):
+        band = np.zeros((34, 120), np.uint8)
+        # "V" and "y" of "Vyse" touch at one pixel: 17 wide, past one glyph.
+        band[12:23, 20:28] = 255
+        band[15:26, 29:36] = 255
+        band[20, 28] = 255
+        band[15:23, 38:44] = 255          # "s"
+        band[15:23, 46:52] = 255          # "e"
+        self.assertEqual(killfeed.killer_name_start(band, (38, 51)), 20)
+
+    def test_a_wide_blob_without_a_bridge_is_not_a_pair(self):
+        band = np.zeros((34, 120), np.uint8)
+        band[12:23, 18:38] = 255          # 20 wide, solid: art, not letters
+        band[15:23, 40:46] = 255
+        band[15:23, 48:54] = 255
+        self.assertEqual(killfeed.killer_name_start(band, (40, 53)), 40)
+
+
+class BandShiftTests(unittest.TestCase):
+    """The names' baseline places an entry band that padding put too low."""
+
+    @staticmethod
+    def _names(base):
+        band = np.zeros((34, 200), np.uint8)
+        for x0 in (20, 28, 36, 120, 128, 136):
+            band[base - 8:base, x0:x0 + 6] = 255
+        return band
+
+    def test_both_names_high_move_the_band_up(self):
+        self.assertEqual(killfeed.band_shift(self._names(16), (20, 41), (120, 141)), -7)
+
+    def test_names_on_the_row_move_nothing(self):
+        self.assertEqual(killfeed.band_shift(self._names(23), (20, 41), (120, 141)), 0)
+
+    def test_disagreeing_names_move_nothing(self):
+        band = self._names(23)
+        band[:, 20:42] = 0
+        for x0 in (20, 28, 36):
+            band[6:14, x0:x0 + 6] = 255   # the killer run on art, baseline 14
+        self.assertEqual(killfeed.band_shift(band, (20, 41), (120, 141)), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

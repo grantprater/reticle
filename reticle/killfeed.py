@@ -1273,7 +1273,11 @@ PORTRAIT_ASPECT = 2.0
 # (`_band_text` line art), so the portrait crops beside it move too.
 # 0.5.0 (2026-09-25): the killer's crop anchors at the name's first letter,
 # descenders included (`killer_name_start`), not at the last baseline run.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.5.0"
+# 0.6.0 (2026-09-25): two touching kerned letters ("Vy", "KA") count as one
+# glyph in that walk (`_glyph_pair`), so the crop no longer stops a pair short;
+# and the portrait rows follow the names' baseline when both names say the
+# padded entry band landed low (`band_shift`, stored per row).
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.6.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -1325,6 +1329,63 @@ def _portrait_edge(on: np.ndarray, start: int, step: int, w: int,
 NAME_DESCENDER = 5
 NAME_BASE_TOL = 2
 
+#: The most ink a column may carry where two kerned letters touch.
+PAIR_BRIDGE_PX = 2
+
+
+def _glyph_pair(lab: np.ndarray, st: np.ndarray, i: int) -> bool:
+    """Is component `i` two kerned letters that touch -- the V and y of
+    "Vyse", the K and A of "KAY/O" -- rather than portrait art? True when a
+    column of at most `PAIR_BRIDGE_PX` ink splits it into two parts each a
+    letter's width. A hidden name prints the agent's, so a touching pair
+    recurs on every entry that agent's player makes."""
+    x, y, w, h = (int(v) for v in st[i, :4])
+    if not GLYPH_W[1] < w <= 2 * GLYPH_W[1]:
+        return False
+    cols = (lab[y:y + h, x:x + w] == i).sum(axis=0)
+    return any(cols[c] <= PAIR_BRIDGE_PX and GLYPH_W[0] <= c <= GLYPH_W[1]
+               and GLYPH_W[0] <= w - c - 1 <= GLYPH_W[1] for c in range(1, w - 1))
+
+
+def _name_glyphs(white_band: np.ndarray, run: tuple[int, int] | None):
+    """The band's glyph-sized white components, and the baseline row of those
+    inside `run` (None when the run holds none)."""
+    wb = (white_band > 0).astype(np.uint8)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(wb, 8)
+    glyph = [i for i in range(1, n) if st[i, 4] >= MIN_COMP_AREA
+             and (GLYPH_W[0] <= st[i, 2] <= GLYPH_W[1] or _glyph_pair(lab, st, i))
+             and GLYPH_H[0] <= st[i, 3] <= GLYPH_H[1] + NAME_DESCENDER]
+    inside = [i for i in glyph if run and st[i, 0] >= run[0] and st[i, 0] + st[i, 2] - 1 <= run[1]]
+    base = int(np.median([st[i, 1] + st[i, 3] for i in inside])) if inside else None
+    return st, glyph, base
+
+
+#: The names' baseline row inside a correctly placed entry band: the median
+#: over 146 player-labelled killer crops, whose rows 22-24 all fit the face.
+NAME_BASE_ROW = 23
+#: How far both names' baselines must sit from `NAME_BASE_ROW` before the
+#: band is taken to be misplaced, and how closely the two must agree.
+BAND_SHIFT_MIN = 3
+BAND_SHIFT_AGREE = 1
+
+
+def band_shift(white_band: np.ndarray, killer_run, victim_run) -> int:
+    """Rows to move an entry band so its names sit on `NAME_BASE_ROW`, or 0.
+
+    `_entry_bands` pads a short plate run equally at both ends; when a slide or
+    a highlight hides only the plate's top rows, the padded band lands 7 rows
+    low and the portrait crop cuts the chin (seen on 6 of 146 labelled
+    killers). The names do not move inside an entry, so their baseline says
+    where the entry is. Both names must agree: one run on portrait art (a
+    Clove whose killer run sat on her earrings read 14 against the victim's
+    20) moves nothing.
+    """
+    kb = _name_glyphs(white_band, killer_run)[2]
+    vb = _name_glyphs(white_band, victim_run)[2]
+    if kb is None or vb is None or abs(kb - vb) > BAND_SHIFT_AGREE:
+        return 0
+    return kb - NAME_BASE_ROW if abs(kb - NAME_BASE_ROW) >= BAND_SHIFT_MIN else 0
+
 
 def killer_name_start(white_band: np.ndarray, run: tuple[int, int]) -> int:
     """The first column of the killer's name, which the killer's portrait abuts.
@@ -1337,17 +1398,14 @@ def killer_name_start(white_band: np.ndarray, run: tuple[int, int]) -> int:
     components whose bottom reaches the name's baseline, descenders allowed,
     each within `NAME_GAP` of the last. A cap line taken from the run fails
     when the run is one lowercase letter (the e of "Sage", 96aa1ae9b96f
-    372.0 s). The kill/death reading keeps the baseline run.
+    372.0 s). Two kerned letters that touch count as one glyph
+    (`_glyph_pair`); without that the walk stopped one pair short and the crop
+    cut a hidden Vyse's face in half. The kill/death reading keeps the
+    baseline run.
     """
-    wb = (white_band > 0).astype(np.uint8)
-    n, _lab, st, _ = cv2.connectedComponentsWithStats(wb, 8)
-    glyph = [i for i in range(1, n) if st[i, 4] >= MIN_COMP_AREA
-             and GLYPH_W[0] <= st[i, 2] <= GLYPH_W[1]
-             and GLYPH_H[0] <= st[i, 3] <= GLYPH_H[1] + NAME_DESCENDER]
-    inside = [i for i in glyph if st[i, 0] >= run[0] and st[i, 0] + st[i, 2] - 1 <= run[1]]
-    if not inside:
+    st, glyph, base = _name_glyphs(white_band, run)
+    if base is None:
         return run[0]
-    base = int(np.median([st[i, 1] + st[i, 3] for i in inside]))
     rows = [i for i in glyph
             if base - NAME_BASE_TOL <= st[i, 1] + st[i, 3] <= base + NAME_DESCENDER]
     x = run[0]
@@ -1404,11 +1462,15 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
         bh = view.y1 - view.y0
         if bh < 8:
             continue
-        band = crop[view.y0:view.y1]
         on = _entry_columns(green[view.y0:view.y1], red[view.y0:view.y1],
                             white[view.y0:view.y1], bh)
-        furniture = (green[view.y0:view.y1] | red[view.y0:view.y1]
-                     | (white[view.y0:view.y1] > 0))
+        # The portraits are cut from the rows the names place the entry at
+        # (`band_shift`); the columns stay read from the band as found.
+        dy = band_shift(white[view.y0:view.y1], view.killer_run, view.victim_run)
+        py0 = min(max(0, view.y0 + dy), max(0, h - bh))
+        py1 = py0 + bh
+        band = crop[py0:py1]
+        furniture = green[py0:py1] | red[py0:py1] | (white[py0:py1] > 0)
         wide = int(round(PORTRAIT_ASPECT * bh))
         name0 = killer_name_start(white[view.y0:view.y1], view.killer_run)
         for role, start, step in (("killer", name0 - 1, -1),
@@ -1442,7 +1504,7 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
             out.append({
                 "slot": view.slot, "role": role,
                 "x0": int(px0), "x1": int(px1),
-                "y0": int(view.y0), "y1": int(view.y1),
+                "y0": int(py0), "y1": int(py1), "band_shift": int(py0 - view.y0),
                 "clipped": round(1.0 - (px1 - px0) / max(1, wide), 4),
                 "art_fraction": round(float(keep.mean()) if keep.size else 0.0, 4),
                 "detail": round(appearance.detail(art), 3),
