@@ -65,6 +65,11 @@ FLAG_PAD = 3
 #: mixed (`prototypes/combat_report.py witnesses`).
 ROW_PORTRAIT = (-6, 2, 34, 56)
 THUMB_WH = (20, 27)
+#: The row's name field, right of the portrait. An ALLY row is drawn on a
+#: green band [domain:combat_report/ally-damage-row]; its median BGR is stored
+#: and the adjudication decides. On `a06f04a0059f` 1430 s and `3694746e4e54`
+#: 719 s the two ally rows read G - R of 18 and 15, the six enemy rows <= 5.
+ROW_BAND = (40, 3, 175, 55)
 
 BIG_H = (18, 40)                         # damage digit height band, px
 SMALL_H = (6, 14)                        # hit-count digit height band, px
@@ -177,6 +182,14 @@ def thumbnail(frame, hx, hy, dy) -> str | None:
     return base64.b64encode(np.ascontiguousarray(small).tobytes()).decode("ascii")
 
 
+def band(frame, hx, hy, dy) -> list[int] | None:
+    """The row band's median BGR, or None off-frame."""
+    cell = field_at(frame, hx, hy, ROW_BAND, dy)
+    if cell.shape[0] < 10 or cell.shape[1] < 10:
+        return None
+    return [int(v) for v in np.median(cell.reshape(-1, 3), axis=0)]
+
+
 def thumbnail_array(encoded: str) -> np.ndarray:
     w, h = THUMB_WH
     return np.frombuffer(base64.b64decode(encoded), np.uint8).reshape(h, w, 3)
@@ -198,6 +211,7 @@ def read_rows(gray, hx, hy, tpl: ocr.Templates, words, frame=None) -> list[dict]
             "out_word": read_flag(gray, hx, hy, OUT_FLAG, dy, words),
             "in_word": read_flag(gray, hx, hy, IN_FLAG, dy, words),
             "portrait": thumbnail(frame, hx, hy, dy) if frame is not None else None,
+            "band": band(frame, hx, hy, dy) if frame is not None else None,
         })
     return rows
 

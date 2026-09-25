@@ -164,7 +164,8 @@ SMOKE_VERSION = "smoke-0.2.0"
 # decision. Bump when an offset, a threshold, the templates or the stored fields
 # change -- those need pixels, so they re-decode.
 # 0.2.0: each row also stores its portrait thumbnail (`portrait`).
-COMBAT_REPORT_VERSION = "combat-report-0.2.0"
+# 0.3.0: each row also stores its name-field band median BGR (`band`).
+COMBAT_REPORT_VERSION = "combat-report-0.3.0"
 # Panels, their rounds and per-round kill/death/assist counts, recomputed from
 # stored `combat_report` rows by `reticle combat-report`. Bump when a grouping,
 # voting or round rule in `adjudication.combat_report` changes.
