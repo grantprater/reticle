@@ -26,21 +26,26 @@ phrases = ["ability icon in the weapon slot"]
 claim = """
 An assisted kill draws an assist panel LEFT of the killer's portrait: the
 assisting agent's portrait, with the assisting ability's icon to its right.
+The panel can hold two assisters, two portraits. Its portraits and ability
+icons are drawn smaller than the killer's and victim's portraits.
 """
 kind = "appearance"
 known = "player"
 since = "2026-09-24"
 source = """
 a06f04a0059f at 99.5 s: all three Aftershock kills by Seacow (Breach) carry a
-Deadlock portrait with the GravNet icon to its right, left of Seacow's portrait
+Deadlock portrait with the GravNet icon to its right, left of Seacow's portrait.
+The player later saw a double assist (two portraits) while reviewing a VOD, and
+noted the panel's portraits and icons are smaller than the entry's portraits
 """
 use = """
 the icons left of the killer portrait at 284.5 s on a06f04a0059f are this
 panel; `killfeed` owns the killer crop and must stop at the panel's edge
 """
 exceptions = """
-seen with an ability assist only; whether a damage assist by a gun draws a gun
-icon, and how several assisters stack, are not known
+the player has seen at most two assisters and does not know whether two is the
+limit. Whether a damage assist by a gun draws a gun icon, and how two assisters'
+portraits and icons are ordered, are not known
 """
 phrases = ["assist panel", "assist icon left of the killer"]
 

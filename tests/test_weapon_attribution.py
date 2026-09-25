@@ -179,6 +179,52 @@ class WeaponAttributionTests(unittest.TestCase):
                                    weapon_gallery={}, gallery={})
         self.assertEqual((v.status, v.category, v.name), ("abstained", "ability", None))
 
+    def _rows(self, mined, frames):
+        """Stored `killfeed_weapon` rows from (t_ms, slot, wx0, box_w, crop) tuples."""
+        from reticle.killfeed import icon_grid, icon_white_mask
+        rows = []
+        for t, slot, wx0, box_w, crop in frames:
+            grid, aspect = icon_grid(icon_white_mask(crop))
+            rows.append({"kind": "weapon_icon_observation", "t_ms": t, "slot": slot,
+                         "wx0": wx0, "wx1": wx0 + box_w, "aspect": aspect,
+                         "grid": np.packbits(grid.astype(bool)).tobytes().hex()})
+        return rows
+
+    def test_entry_weapon_follows_its_own_entry_when_the_stack_rises(self):
+        """Two entries share a divider column; when both rise a slot, each keeps its own icon."""
+        from reticle.adjudication.weapon import entry_weapon
+        spectre, vandal = self._shape(50, 5), self._shape(70, 30)
+        mined = self._mined([("Spectre", spectre), ("Vandal", vandal)])
+        frames = []
+        for k, t in enumerate(range(0, 5000, 500)):
+            up = 1 if k >= 5 else 0              # the whole stack rises at 2.5 s
+            frames += [(t, 1 - up, 200, 54, spectre), (t, 2 - up, 200, 74, vandal)]
+        rows = self._rows(mined, frames)
+        upper = entry_weapon({"t_first": 0, "t_last": 4500, "slot": 1, "sig": 200}, rows, mined)
+        lower = entry_weapon({"t_first": 0, "t_last": 4500, "slot": 2, "sig": 200}, rows, mined)
+        self.assertEqual((upper["status"], upper["name"], upper["names"]),
+                         ("resolved", "Spectre", {"Spectre": 10}))
+        self.assertEqual((lower["status"], lower["name"], lower["names"]),
+                         ("resolved", "Vandal", {"Vandal": 10}))
+
+    def test_entry_weapon_refuses_one_frame(self):
+        """A single named frame is not an answer."""
+        from reticle.adjudication.weapon import entry_weapon
+        vandal = self._shape(70, 30)
+        mined = self._mined([("Vandal", vandal)])
+        rows = self._rows(mined, [(0, 0, 200, 74, vandal)])
+        ev = entry_weapon({"t_first": 0, "t_last": 500, "slot": 0, "sig": 200}, rows, mined)
+        self.assertEqual((ev["status"], ev["reason"]), ("refused", "too_few_named"))
+
+    def test_entry_weapon_ability_group_names_the_cause_not_a_weapon(self):
+        """A group the player knew only as an ability gives the cause, with no name."""
+        from reticle.adjudication.weapon import entry_weapon
+        glyph = self._shape(40, 10)
+        mined = self._mined([("Ability", glyph)])
+        rows = self._rows(mined, [(t, 0, 200, 44, glyph) for t in (0, 500, 1000)])
+        ev = entry_weapon({"t_first": 0, "t_last": 1000, "slot": 0, "sig": 200}, rows, mined)
+        self.assertEqual((ev["status"], ev["category"], ev["name"]), ("resolved", "ability", None))
+
     def test_weapon_verdict_serialization(self):
         """WeaponVerdict serializes cleanly with adjudication version."""
         verdict = WeaponVerdict(

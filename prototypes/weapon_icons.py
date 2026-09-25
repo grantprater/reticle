@@ -461,6 +461,45 @@ def write_gallery(gallery: dict, have: list[dict]) -> Path:
     return path
 
 
+def accept(baseline: dict) -> dict:
+    """S1-S4 over the stored death streams: weapons named, player kills inside
+    their ammo labels, identities and portrait streams unchanged."""
+    import hashlib
+    from reticle.adjudication.death import DEATH_ADJUDICATION_VERSION
+    store = Store()
+    per, tot = {}, Counter()
+    for sid in hud_sessions():
+        rows = store.read_events("death", sid)
+        if not rows or rows[0].get("death_adjudication_version") != DEATH_ADJUDICATION_VERSION:
+            per[sid] = {"skipped": "no current death stream"}
+            continue
+        deaths = rows[1:]
+        hud = _hud(sid)
+        kills = [r for r in deaths if r["kf_player_kill"]]
+        labelled = [(r, a) for r in kills
+                    if (a := ammo_label(r["t_ms"], hud["t_ms"], hud["ammo_mag"],
+                                        hud["ammo_reserve"])).get("label")]
+        base = baseline.get(sid, {})
+        before = base.get("deaths") or {}
+        v = {"deaths": len(deaths),
+             "weapon_resolved": sum(r["weapon_evidence"]["status"] == "resolved" for r in deaths),
+             "kills": len(kills), "kills_named": sum(bool(r["weapon"]) for r in kills),
+             "kills_ammo_labelled": len(labelled),
+             "kills_in_ammo_set": sum(r["weapon"] in a["label"] for r, a in labelled),
+             "identity_changed": sum(before.get(r["death_id"], [r["victim"], r["killer"],
+                                                                 r["status"]])
+                                     != [r["victim"], r["killer"], r["status"]] for r in deaths),
+             "identity_compared": sum(r["death_id"] in before for r in deaths),
+             "portrait_identical": int(hashlib.sha256(
+                 store.events_path("killfeed_portrait", sid).read_bytes()).hexdigest()
+                 == base.get("portrait"))}
+        v["disagreements"] = [(r["death_id"], r["weapon"], a["label"]) for r, a in labelled
+                              if r["weapon"] not in a["label"]]
+        per[sid] = v
+        tot.update({k: x for k, x in v.items() if isinstance(x, int)})
+    return {"sessions": per, "total": dict(tot)}
+
+
 def evaluate(rows: list[dict], have: list[dict], bms: np.ndarray) -> dict:
     player_names(have)
     out_s = held_out(have)
@@ -526,6 +565,8 @@ def main() -> None:
     sub.add_parser("review")
     sub.add_parser("evaluate")
     sub.add_parser("gallery")
+    ac = sub.add_parser("accept")
+    ac.add_argument("baseline", type=Path, help="JSON of pre-scan portrait hashes and deaths")
     args = ap.parse_args()
     _check_table()
     if args.cmd == "mine":
@@ -562,6 +603,27 @@ def main() -> None:
         rows, bms, _ = load_all()
         have = cluster(rows, bms)
         print(json.dumps(evaluate(rows, have, bms), indent=1))
+    elif args.cmd == "accept":
+        from reticle import metrics
+        from reticle.adjudication.weapon import WEAPON_ADJUDICATION_VERSION as WAV
+        from reticle.killfeed import KILLFEED_WEAPON_VERSION
+        res = accept(json.loads(args.baseline.read_text(encoding="utf-8")))
+        for sid, v in res["sessions"].items():
+            print(sid, json.dumps(v))
+        t = res["total"]
+        print("total", json.dumps(t))
+        deps = {"reader": KILLFEED_WEAPON_VERSION, "owner": WAV, "gallery": WEAPON_GALLERY_VERSION}
+        for sid, v in res["sessions"].items():
+            if "skipped" not in v:
+                metrics.record("weapon_reader", part="accept", session=sid, deps=deps,
+                               values={k: x for k, x in v.items() if isinstance(x, int)},
+                               context={"disagreements": v["disagreements"]},
+                               controls=[{"name": "kills inside ammo set",
+                                          "observed": v["kills_in_ammo_set"],
+                                          "expected": v["kills_ammo_labelled"]}])
+        metrics.record("weapon_reader", part="accept", session="corpus", deps=deps, values=t,
+                       controls=[{"name": "no identity change", "observed": t["identity_changed"],
+                                  "expected": 0}])
     elif args.cmd == "gallery":
         rows, bms, _ = load_all()
         have = cluster(rows, bms)

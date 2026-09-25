@@ -44,11 +44,13 @@ from ..killfeed import (SECOND_LIFE_RUN_MIN, detect_second_life_badge,  # noqa: 
 from ..roster import N_SLOTS
 from .identity import (adjudicate_agent_identity, claim_from_killfeed_portrait,
                        identity_claim, identity_events, side_candidates, _channel_verdict)
-from .weapon import classify_killfeed_icon
+from .weapon import classify_killfeed_icon, entry_weapon
 
 # 0.7.0 (2026-09-24): deaths keyed by entry onset and slot (`death_key`), not
 # list index; `reticle deaths` stores verdicts from stored data only.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.7.0"
+# 0.8.0 (2026-09-24): each entry's weapon and cause from the stored
+# `killfeed_weapon` descriptors, named by `adjudication.weapon.entry_weapon`.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.8.0"
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 
@@ -368,7 +370,7 @@ def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[di
         pk = j in owner["kill"]
         dt = owner["death"].get(j)
         out.append({"t_ms": e["t_first"], "t_first": e["t_first"], "t_last": e["t_last"],
-                    "slot": slot, "side": "ally" if ally else "enemy" if enemy else "unknown",
+                    "slot": slot, "sig": e.get("sig"), "side": "ally" if ally else "enemy" if enemy else "unknown",
                     "victim_ally": ally, "kf_player_kill": pk, "kf_player_death": dt is not None,
                     "is_second_life": bool(dt is not None and second_life is not None
                                            and second_life_death(dt["t_first"], dt["t_last"],
@@ -417,7 +419,7 @@ class DeathVerdict:
     side: str  # "ally" or "enemy"
     victim: Optional[str] = None
     killer: Optional[str] = None
-    death_cause: str = "gun"  # "gun" | "ability" | "environmental"
+    death_cause: str = "gun"  # "gun" | "ability" | "environmental" | "melee" | "other"
     weapon: Optional[str] = None
     location: Optional[tuple[float, float]] = None
     killer_location: Optional[tuple[float, float]] = None
@@ -1528,7 +1530,8 @@ MAX_EXEMPLAR_PASSES = 4
 def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, roster_table,
                               portraits: list[dict], board_rows: list[dict], lineup: dict,
                               gallery: dict, *, source_version: str,
-                              second_life: list[dict] | None = None) -> dict:
+                              second_life: list[dict] | None = None,
+                              weapon_observations: list[dict] | None = None) -> dict:
     """Every round's deaths from stored data only; decodes no video.
 
     Per round: the stored killfeed portraits against the official art, then the
@@ -1537,6 +1540,10 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
     witness named, and the next pass also scores against those, never an
     entry's own, until the exemplar set stops changing. Returns the entries and
     verdicts per round of the last pass and the number of passes.
+
+    `weapon_observations` are the stored `killfeed_weapon` rows; given them,
+    `adjudication.weapon.entry_weapon` names each entry's weapon or ability and
+    the entry carries its evidence. Without them no weapon is named.
     """
     from ..reconciliation import audit_board_alive, contradicted_openings
     from .scoreboard import scoreboard_openings
@@ -1544,6 +1551,13 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
     hud, roster = hud_table.to_pydict(), roster_table.to_pylist()
     player_agent = (lineup.get("player") or {}).get("agent")
     entries = session_entries(hud, second_life)
+    if weapon_observations is not None:
+        for e in entries:
+            ev = entry_weapon(e, weapon_observations)
+            e["weapon_evidence"] = ev
+            if ev["status"] == "resolved":
+                e["weapon"] = ev["name"]
+                e["death_cause"] = ev["category"]
     ends = {r["t_end_ms"] for r in rounds}
     base = [(r, in_round_window(entries, r["t_start_ms"], r["t_end_ms"],
                                 r.get("t_close_ms") or r["t_end_ms"], ends)) for r in rounds]

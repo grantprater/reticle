@@ -304,6 +304,22 @@ defers_to = ["portrait-descriptor"]
 evidence = "tests/test_killfeed_portraits.py"
 
 [[entry]]
+id = "killfeed-weapon-descriptor"
+question = "What does the icon in this killfeed entry's weapon slot look like?"
+owner = "killfeed"
+role = ["detect"]
+status = "partial"
+produces = ["KILLFEED_WEAPON_VERSION", "ICON_WHITE_V_MIN", "ICON_WHITE_S_MAX", "ICON_GRID", "icon_white_mask", "icon_grid", "weapon_icon_observations", "unpack_icon_grid"]
+not_for = """
+Naming the weapon or ability. The reader stores the white mask's normalised grid,
+its aspect and the slot's box, one row per entry per frame, in the
+`killfeed_weapon` stream; `adjudication.weapon.entry_weapon` binds rows to an
+entry and names them from storage.
+"""
+consumers = ["adjudication.weapon"]
+stored_consumers = ["adjudication.death"]
+
+[[entry]]
 id = "killfeed-second-life-badge"
 question = "Does this killfeed entry carry the circular second-life badge (Run It Back, a downed KAY/O)?"
 owner = "killfeed"
@@ -904,7 +920,7 @@ question = "Which weapon or ability caused this death?"
 owner = "adjudication.weapon"
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["WEAPON_ADJUDICATION_VERSION", "WEAPON_GALLERY_VERSION", "IconObservation", "WeaponVerdict", "WEAPON_TAXONOMY", "ABILITY_CANONICAL_NAMES", "MINED_NOT_GUN", "extract_icon_observation", "icon_grid", "name_icon", "classify_killfeed_icon", "estimate_weapon_class", "load_ability_gallery", "load_weapon_gallery", "load_mined_gallery", "mined_gallery_path"]
+produces = ["WEAPON_ADJUDICATION_VERSION", "WEAPON_GALLERY_VERSION", "IconObservation", "WeaponVerdict", "WEAPON_TAXONOMY", "ABILITY_CANONICAL_NAMES", "MINED_NOT_GUN", "extract_icon_observation", "name_icon", "entry_weapon", "classify_killfeed_icon", "estimate_weapon_class", "load_ability_gallery", "load_weapon_gallery", "load_mined_gallery", "mined_gallery_path"]
 not_for = """
 `killfeed` growing into it. The feed gives the bounding columns (wx0, wx1) and
 band bounds (y0, y1); classifying whether those pixels are an Aftershock, a

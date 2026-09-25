@@ -46,7 +46,8 @@ from .scoreboard import ScoreboardReader, read_scoreboard
 from . import cone, geometry, lighting
 from .fidelity import FROZEN_WINDOWS
 from .fingerprint import fingerprint
-from .killfeed import (KILLFEED_PORTRAIT_VERSION, KillfeedPortraitReader,
+from .killfeed import (KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION,
+                       KillfeedPortraitReader,
                        KillfeedRead, analyse_killfeed, killfeed_roi,
                        me_template_path, overlay_mask, read_killfeed)
 from .belief import (BELIEF_VERSION, absent_instants, resolve,
@@ -789,9 +790,12 @@ def cmd_scan(args) -> int:
     fps = float(src["fps"])
 
     want_hud = 'hud' in channels and (args.force or not store.has_hud(sid, date))
+    # One reader writes both killfeed streams from the views it already has, so
+    # either stream going stale reruns it.
     want_portraits = ('hud' in channels and
-                      (args.force or store.events_version(
-                          "killfeed_portrait", sid) != KILLFEED_PORTRAIT_VERSION))
+                      (args.force
+                       or store.events_version("killfeed_portrait", sid) != KILLFEED_PORTRAIT_VERSION
+                       or store.events_version("killfeed_weapon", sid) != KILLFEED_WEAPON_VERSION))
     want_mm = 'minimap' in channels and (args.force or not store.has_minimap(sid, date))
     # Pings are events rather than a versioned table, but the cache key is the
     # VERSION, not the file's existence. Keying on existence made `PING_VERSION`
@@ -827,7 +831,7 @@ def cmd_scan(args) -> int:
     print(f"profile    {profile.name}")
     print(f"stages     " + ", ".join(
         ([f"hud {args.hz:g} Hz, whole capture"] if want_hud else [])
-        + ([f"killfeed portraits {args.hz:g} Hz, whole capture"]
+        + ([f"killfeed portraits and weapons {args.hz:g} Hz, whole capture"]
            if want_portraits else [])
         + ([f"minimap {args.minimap_hz:g} Hz, {len(spans)} active spans "
             f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)"] if want_mm else [])
@@ -937,6 +941,9 @@ def cmd_scan(args) -> int:
         events = kp.events(sid)
         out = store.write_events("killfeed_portrait", sid, events)
         print(f"portraits  {len(events) - 1} observations -> {out}")
+        weapons = kp.weapon_events(sid)
+        out = store.write_events("killfeed_weapon", sid, weapons)
+        print(f"weapons    {len(weapons) - 1} observations -> {out}")
     if mp is not None:
         if not mp.rows:
             raise SystemExit("decoded zero frames inside active spans "
@@ -2353,11 +2360,19 @@ def cmd_deaths(args) -> int:
     lineup = load_lineup(sid, store.root)
     if not lineup:
         raise SystemExit(f"{sid}: no stored lineup")
+    # A stale or missing weapon stream names no weapon; it never blocks deaths.
+    weapons = (store.read_events("killfeed_weapon", sid)
+               if store.events_version("killfeed_weapon", sid) == KILLFEED_WEAPON_VERSION
+               else None)
+    if weapons is None:
+        print(f"{sid}: no killfeed_weapon stream at {KILLFEED_WEAPON_VERSION}; weapons unnamed "
+              f"-- run `reticle scan {sid} --only hud`")
     res = adjudicate_session_deaths(
         sid, rounds, store.read_hud(sid, date), store.read_roster(sid, date), portraits,
         store.read_events("scoreboard", sid), lineup, load_identity_gallery(store.root),
         source_version=KILLFEED_PORTRAIT_VERSION,
-        second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION))
+        second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION),
+        weapon_observations=weapons)
     common = {"session_id": sid, "source": "death",
               "death_adjudication_version": DEATH_ADJUDICATION_VERSION}
     rows, events = [], []
@@ -2366,14 +2381,18 @@ def cmd_deaths(args) -> int:
             rows.append({**common, "kind": "death_verdict", "round_no": r["round_no"],
                          "slot": e["slot"], "t_last_ms": e["t_last"],
                          "kf_player_kill": e["kf_player_kill"],
-                         "kf_player_death": e["kf_player_death"], **v.to_dict()})
+                         "kf_player_death": e["kf_player_death"],
+                         "weapon_evidence": e.get("weapon_evidence"), **v.to_dict()})
             events.extend(death_verdict_to_events(v, sid))
     status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
                                        for r in rows)
     head = {**common, "kind": "summary", "deaths": len(rows), "passes": res["passes"],
             "victims": dict(status("identity", "victim")),
             "killers": dict(status("killer_identity", "killer")),
+            "weapons": dict(Counter((r.get("weapon_evidence") or {}).get("status", "none")
+                                    for r in rows)),
             "inputs": {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
+                       "killfeed_weapon": KILLFEED_WEAPON_VERSION if weapons is not None else None,
                        "scoreboard": store.events_version("scoreboard", sid),
                        "round": rounds[0].get("round_version") if rounds else None,
                        "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION}}

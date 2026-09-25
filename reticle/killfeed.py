@@ -303,7 +303,8 @@ Deaths per round is deliberately NOT used as a check anywhere: Sage
 resurrection and Clove self-revive both let a player die more than once in a
 round, so any such invariant would fire on legitimate footage.
 
-Owns [owns:killfeed-event], [owns:killfeed-portrait] and [owns:killfeed-second-life-badge].
+Owns [owns:killfeed-event], [owns:killfeed-portrait], [owns:killfeed-second-life-badge]
+and [owns:killfeed-weapon-descriptor].
 """
 
 from __future__ import annotations
@@ -1476,6 +1477,82 @@ def detect_second_life_badge(
         }
 
 
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.1.0"
+
+#: White mask cut for the weapon slot's line art against a coloured plate. The
+#: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
+#: bright scene reaches S 50-75 at V 185-200, and a cut of (185, 75) admitted it,
+#: inflating the tight box and splitting one Vandal into three groups on
+#: a06f04a0059f (prototypes/weapon_icons.py).
+ICON_WHITE_V_MIN = 220
+ICON_WHITE_S_MAX = 45
+ICON_GRID = (16, 64)          # h, w of a tight icon mask resized to one height
+ICON_MIN_TIGHT_W = 12         # narrower than any gun or ability icon
+
+
+def icon_white_mask(crop: np.ndarray) -> np.ndarray:
+    """The weapon slot's white line art, without the neighbouring slots' edges."""
+    h = crop.shape[0]
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    white = (hsv[:, :, 2] > ICON_WHITE_V_MIN) & (hsv[:, :, 1] < ICON_WHITE_S_MAX)
+    # A thin run along the top or bottom edge is the next entry's plate bleeding in.
+    if h >= 25 and white.any():
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(white.astype(np.uint8))
+        if n > 2:
+            max_area = stats[1:, cv2.CC_STAT_AREA].max()
+            clean = np.zeros_like(white)
+            for k in range(1, n):
+                top, ch = stats[k, cv2.CC_STAT_TOP], stats[k, cv2.CC_STAT_HEIGHT]
+                if ((top <= 1 or top + ch >= h - 1) and ch <= 3
+                        and stats[k, cv2.CC_STAT_AREA] < max_area * 0.4):
+                    continue
+                clean[labels == k] = True
+            if clean.any():
+                white = clean
+    return white
+
+
+def icon_grid(white_mask: np.ndarray) -> tuple[np.ndarray, float] | None:
+    """A white mask cut to its tight box and resized to ICON_GRID, with the box's
+    aspect; None when too little is white to be an icon."""
+    ys, xs = np.nonzero(white_mask)
+    if len(xs) < 10 or xs.max() - xs.min() + 1 < ICON_MIN_TIGHT_W:
+        return None
+    tight = white_mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    grid = cv2.resize(tight.astype(np.uint8), ICON_GRID[::-1], interpolation=cv2.INTER_AREA)
+    return grid, tight.shape[1] / tight.shape[0]
+
+
+def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
+                             views: "list[EntryView]") -> list[dict]:
+    """Each entry's weapon-slot descriptor: the packed grid and aspect, never a name.
+
+    Naming the icon is `adjudication.weapon`'s; a consumer binds these rows to an
+    entry by slot, time and divider column and asks the owner from storage.
+    """
+    x0, y0, _, _ = roi.pixels(width, height)
+    out = []
+    for v in views:
+        if v.wx1 <= v.wx0 or v.y1 <= v.y0:
+            continue
+        crop = frame[y0 + v.y0:y0 + v.y1, x0 + v.wx0:x0 + v.wx1]
+        cut = icon_grid(icon_white_mask(crop))
+        row = {"slot": v.slot, "y0": int(v.y0), "y1": int(v.y1), "wx0": int(v.wx0),
+               "wx1": int(v.wx1), "verdict": v.verdict}
+        if cut is None:
+            out.append({**row, "grid": None, "aspect": None, "reason": "no_icon"})
+        else:
+            out.append({**row, "grid": np.packbits(cut[0].astype(bool)).tobytes().hex(),
+                        "aspect": round(float(cut[1]), 4), "reason": None})
+    return out
+
+
+def unpack_icon_grid(packed: str) -> np.ndarray:
+    """A stored `grid` back to the ICON_GRID array `icon_grid` produced."""
+    bits = np.unpackbits(np.frombuffer(bytes.fromhex(packed), np.uint8))
+    return bits[:ICON_GRID[0] * ICON_GRID[1]].reshape(ICON_GRID).astype(np.uint8)
+
+
 class KillfeedPortraitReader:
     """Persist context-free portrait observations from the shared HUD pass.
 
@@ -1494,6 +1571,7 @@ class KillfeedPortraitReader:
         self.spans = spans
         self.rows: list[dict] = []
         self.badges: list[dict] = []
+        self.weapons: list[dict] = []
         self.frames_offered = 0
 
     def feed(self, smp) -> None:
@@ -1516,6 +1594,8 @@ class KillfeedPortraitReader:
                                 "slot": view.slot, "y0": int(view.y0), "y1": int(view.y1),
                                 "victim_x": int(view.victim_run[0]),
                                 "has_badge": bool(has_badge), **metrics})
+        for row in weapon_icon_observations(smp.frame, self.roi, self.w, self.h, views):
+            self.weapons.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms), **row})
         for observation in portrait_observations(
                 smp.frame, self.roi, self.w, self.h, views=views,
                 mask=self.mask, profile_name=self.profile.name):
@@ -1572,6 +1652,20 @@ class KillfeedPortraitReader:
         coverage["second_life_badges"] = sum(b["has_badge"] for b in self.badges)
         badges = [{**common, "kind": "second_life_observation", **b} for b in self.badges]
         return [coverage] + rows + badges
+
+    def weapon_events(self, session_id: str) -> list[dict]:
+        """The `killfeed_weapon` stream: a coverage row with its refusals, then
+        one descriptor row per entry per frame. Its own stamp, so the weapon
+        descriptor can change without restating the portraits."""
+        common = {"session_id": session_id, "source": "killfeed",
+                  "killfeed_weapon_version": KILLFEED_WEAPON_VERSION}
+        refused = Counter(r["reason"] for r in self.weapons if r["reason"])
+        coverage = {**common, "kind": "coverage", "frames_offered": self.frames_offered,
+                    "observations": len(self.weapons),
+                    "described": len(self.weapons) - sum(refused.values()),
+                    "refused_reasons": dict(sorted(refused.items()))}
+        return [coverage] + [{**common, "kind": "weapon_icon_observation", **r}
+                             for r in self.weapons]
 
 
 def _trusted_wx(view: "EntryView") -> int:

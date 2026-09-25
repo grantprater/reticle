@@ -20,15 +20,11 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.3.0"
+# The icon's white mask and its normalised grid are measurements, so the reader
+# layer owns them; this module names what they describe.
+from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
 
-#: White mask cut for killfeed line art against colored plate backgrounds.
-#: The icon is drawn at V >= 240 and S < 20; the translucent green plate over a
-#: bright scene reaches S 50-75 at V 185-200, and the old cut (185, 75) admitted
-#: it, inflating the tight box and splitting one Vandal into three groups on
-#: a06f04a0059f (prototypes/weapon_icons.py).
-ICON_WHITE_V_MIN = 220
-ICON_WHITE_S_MAX = 45
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.3.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -279,25 +275,7 @@ def extract_icon_observation(
             bbox=bbox,
         )
 
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    white = (hsv[:, :, 2] > ICON_WHITE_V_MIN) & (hsv[:, :, 1] < ICON_WHITE_S_MAX)
-
-    # Reject boundary line bleeds from adjacent killfeed slots
-    if h >= 25 and white.any():
-        num_labels, labels_im, stats, _ = cv2.connectedComponentsWithStats(white.astype(np.uint8))
-        if num_labels > 2:
-            max_area = stats[1:, cv2.CC_STAT_AREA].max()
-            clean_white = np.zeros_like(white)
-            for label_idx in range(1, num_labels):
-                comp_y = stats[label_idx, cv2.CC_STAT_TOP]
-                comp_h = stats[label_idx, cv2.CC_STAT_HEIGHT]
-                comp_area = stats[label_idx, cv2.CC_STAT_AREA]
-                if (comp_y <= 1 or (comp_y + comp_h >= h - 1)) and comp_h <= 3 and comp_area < max_area * 0.4:
-                    continue
-                clean_white[labels_im == label_idx] = True
-            if clean_white.any():
-                white = clean_white
-
+    white = icon_white_mask(crop)
     aspect = float(w) / float(h) if h > 0 else 0.0
     fill = float(white.sum()) / float(w * h) if (w * h) > 0 else 0.0
 
@@ -404,8 +382,6 @@ def estimate_weapon_class(width: int, aspect_ratio: float) -> str:
 #: [metric:weapon_icons/gallery-heldout@corpus#seen_correct=29] player-seen icons, all
 #: correctly, and refused one.
 WEAPON_GALLERY_VERSION = "weapon-gallery-0.1.0"
-ICON_GRID = (16, 64)          # h, w of a tight icon mask resized to one height
-ICON_MIN_TIGHT_W = 12         # narrower than any gun or ability icon
 NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
 NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
 NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
@@ -416,16 +392,6 @@ NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons n
 #: player named only as an ability, left to the ability gallery to name.
 MINED_NOT_GUN = {"Melee": "melee", "Environmental": "environmental", "Other": "other",
                  "Ability": "ability", "Headhunter": "ability", "Tour De Force": "ability"}
-
-
-def icon_grid(white_mask: np.ndarray) -> Optional[tuple[np.ndarray, float]]:
-    """A white mask cut to its tight box and resized to ICON_GRID, with its aspect."""
-    ys, xs = np.nonzero(white_mask)
-    if len(xs) < 10 or xs.max() - xs.min() + 1 < ICON_MIN_TIGHT_W:
-        return None
-    tight = white_mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
-    grid = cv2.resize(tight.astype(np.uint8), ICON_GRID[::-1], interpolation=cv2.INTER_AREA)
-    return grid, tight.shape[1] / tight.shape[0]
 
 
 _MINED_CACHE: dict[str, dict] = {}
@@ -477,6 +443,74 @@ def _gun_class(name: str) -> Optional[str]:
         if name in w_list:
             return w_c
     return None
+
+
+ENTRY_MIN_NAMED = 2           # frames that must name the entry's icon
+ENTRY_MIN_SHARE = 0.8         # of those, the share the top name must hold
+ENTRY_BOX_TOL = 2             # px an entry's icon box width may vary over its life
+
+
+def entry_weapon(entry: dict, observations: list[dict],
+                 gallery: Optional[dict] = None) -> dict:
+    """The weapon or ability behind one killfeed entry, from stored descriptors.
+
+    `entry` is a `session_entries` row (`t_first`, `t_last`, `slot`, `sig`);
+    `observations` are stored `killfeed_weapon` rows. The divider column is the
+    icon's LEFT edge in a right-aligned row, so it depends on the victim's name
+    as well as the icon, and two adjacent entries with different guns can share
+    it (a Spectre and a Vandal at 1906.5 s on a06f04a0059f). So the entry is
+    followed frame by frame instead: it starts in the slot it appeared in, only
+    ever rises one slot as an older entry expires, and takes at most one row per
+    frame, its own slot before the one above. One frame is not an answer: the
+    entry is named only when ENTRY_MIN_NAMED frames name it and the top name
+    holds ENTRY_MIN_SHARE of them.
+    """
+    from ..checks import KF_SIG_TOL
+    from ..killfeed import unpack_icon_grid
+
+    out = {"version": WEAPON_ADJUDICATION_VERSION, "gallery": WEAPON_GALLERY_VERSION,
+           "name": None, "category": None, "status": "refused"}
+    if gallery is None:
+        gallery = load_mined_gallery()
+    if gallery is None:
+        return dict(out, reason="no_gallery")
+    sig = entry.get("sig")
+    by_frame: dict[float, dict[int, dict]] = {}
+    for o in observations:
+        if (o.get("kind") == "weapon_icon_observation" and o.get("grid")
+                and entry["t_first"] <= o["t_ms"] <= entry["t_last"]
+                and (sig is None or abs(o["wx0"] - sig) <= KF_SIG_TOL)):
+            by_frame.setdefault(o["t_ms"], {})[o["slot"]] = o
+    bound, slot, width = [], entry["slot"], None
+    for t in sorted(by_frame):
+        # The whole stack rises at once, so the entry below can arrive in the
+        # slot this one just left; the icon's box width, fixed for an entry's
+        # life, tells them apart where the column cannot.
+        here = {s: o for s, o in by_frame[t].items()
+                if width is None or abs((o["wx1"] - o["wx0"]) - width) <= ENTRY_BOX_TOL}
+        for s in (slot, slot - 1):
+            if s in here:
+                slot = s
+                bound.append(here[s])
+                if width is None:
+                    width = here[s]["wx1"] - here[s]["wx0"]
+                break
+    names: dict[str, int] = {}
+    for o in bound:
+        n = name_icon(unpack_icon_grid(o["grid"]), o["aspect"], gallery)["name"]
+        if n is not None:
+            names[n] = names.get(n, 0) + 1
+    out.update(observations=len(bound), named=sum(names.values()), names=names)
+    if not bound:
+        return dict(out, reason="no_observation")
+    if out["named"] < ENTRY_MIN_NAMED:
+        return dict(out, reason="too_few_named")
+    top = max(names, key=names.get)
+    if names[top] < ENTRY_MIN_SHARE * out["named"]:
+        return dict(out, reason="frames_disagree")
+    category = MINED_NOT_GUN.get(top, "gun")
+    return dict(out, status="resolved", reason=None, category=category,
+                name=None if top == "Ability" else top)
 
 
 def classify_killfeed_icon(
