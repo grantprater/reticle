@@ -158,3 +158,25 @@ class BandShiftTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VictimSideTests(unittest.TestCase):
+    """The killer's colour behind the weapon icon decides the victim's side;
+    a warm victim portrait past a green plate once read the victim as enemy."""
+
+    def _band(self, spans):
+        green = np.zeros((34, 300), dtype=bool)
+        red = np.zeros((34, 300), dtype=bool)
+        for colour, x0, x1 in spans:
+            (green if colour == "g" else red)[:, x0:x1] = True
+        return green, red
+
+    def test_a_warm_portrait_past_the_victims_plate_is_not_the_plate(self):
+        # killer red through the icon (100..160), victim green, portrait red
+        green, red = self._band([("r", 100, 190), ("g", 190, 250), ("r", 260, 290)])
+        self.assertIs(killfeed.victim_is_ally(green, red, 0, 34, 160), False)
+        self.assertIs(killfeed.victim_is_ally(green, red, 0, 34, 160, 100), True)
+
+    def test_a_one_colour_entry_puts_the_victim_on_the_killers_side(self):
+        green, red = self._band([("g", 100, 260)])
+        self.assertIs(killfeed.victim_is_ally(green, red, 0, 34, 160, 100), True)

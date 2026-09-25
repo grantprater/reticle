@@ -1085,7 +1085,7 @@ class EntryView:
     reason: str = ""
 
 
-def victim_is_ally(green, red, a: int, z: int, wx1: int) -> bool | None:
+def victim_is_ally(green, red, a: int, z: int, wx1: int, wx0: int | None = None) -> bool | None:
     """Which team the victim was on, from the colour of the plate they sit on.
 
     Every killfeed entry is a death, so this is what turns the feed into alive
@@ -1108,6 +1108,19 @@ def victim_is_ally(green, red, a: int, z: int, wx1: int) -> bool | None:
     is drawn *over* it, which makes the plate the thing to find and the text
     beside the point.
 
+    The last wide run is not always the plate either: a victim portrait with
+    warm art (Sage's lips, Gekko's skin) forms a red run past a green plate, and
+    10 of 105 player-labelled killers read the victim's side backwards
+    (2026-09-25). The context that cannot be art is the plate behind the weapon
+    icon, `wx0..wx1`: bright, plain and always the KILLER's, running to the
+    chevron seam. Given `wx0`, the killer's colour is the one that holds at
+    least twice the other's pixels there, and the victim's plate is the first
+    run past the icon of the other colour -- or the killer's own colour when
+    none differs, a one-colour revive or team kill. The name runs are no
+    context: the killer's plate fades dark under the name, runs left of the
+    icon are the killer portrait's art, and the victim's run can land on the
+    headshot mark. The last run is kept where the icon decides no colour.
+
     Returns None when no run is wide enough to be a plate, which is the honest
     answer for a band that is half occluded.
     """
@@ -1115,7 +1128,20 @@ def victim_is_ally(green, red, a: int, z: int, wx1: int) -> bool | None:
     if wx1 >= W - MIN_PLATE_RUN:
         return None
     runs = _plate_runs(green[a:z, wx1:], red[a:z, wx1:])
-    return bool(runs[-1][0] > 0) if runs else None
+    if not runs:
+        return None
+    if wx0 is not None:
+        g, r = int(green[a:z, wx0:wx1].sum()), int(red[a:z, wx0:wx1].sum())
+        if max(g, r) >= ICON_PLATE_RATIO * min(g, r) and max(g, r) > 0:
+            killer = 1 if g > r else -1
+            other = next((run for run in runs if run[0] != killer), None)
+            return bool((other[0] if other else killer) > 0)
+    return bool(runs[-1][0] > 0)
+
+
+#: How many times the other colour's pixels the killer's colour must hold
+#: behind the weapon icon to decide it.
+ICON_PLATE_RATIO = 2
 
 
 def _plate_runs(green_band: np.ndarray, red_band: np.ndarray) -> list[tuple[int, int, int]]:
@@ -1259,7 +1285,7 @@ def analyse_killfeed(
                                killer_run=krun, victim_run=vrun,
                                kill_score=k_score, death_score=d_score,
                                verdict=verdict,
-                               victim_ally=victim_is_ally(green, red, a, z, wx1)))
+                               victim_ally=victim_is_ally(green, red, a, z, wx1, wx0)))
     return views
 
 
@@ -1277,7 +1303,9 @@ PORTRAIT_ASPECT = 2.0
 # glyph in that walk (`_glyph_pair`), so the crop no longer stops a pair short;
 # and the portrait rows follow the names' baseline when both names say the
 # padded entry band landed low (`band_shift`, stored per row).
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.6.0"
+# 0.7.0 (2026-09-25): each portrait's `ally` follows `victim_is_ally`, which
+# now reads the killer's colour behind the weapon icon.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.7.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.

@@ -52,7 +52,9 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # and forces a re-decode, since this stage needs pixels.
 # 0.13.0 (2026-09-25): the killfeed divider prefers line art, so the
 # weapon-slot box, and with it `kf_*_wx`, moves off pale plates and portraits.
-HUD_VERSION = "hud-0.13.0"
+# 0.14.0 (2026-09-25): `kf_ally_mask` / `kf_enemy_mask` read the killer's
+# plate colour behind the weapon icon, not the last run past it.
+HUD_VERSION = "hud-0.14.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits
