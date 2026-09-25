@@ -1731,7 +1731,7 @@ def cmd_rounds(args) -> int:
             r["map"] = mp
             r["session_id"] = sid
         every += rs
-        store.write_rounds(rs, sid, date)
+        store.write_rounds(rs, sid, date, KILLFEED_PORTRAIT_VERSION if second_life is not None else None)
         st_list = stalls.for_session(store, sid, date)
         _gt = gametime.build_session_gametime(sid, hud, rs, stall_list=st_list)
         won = [r["won"] for r in rs if r["won"] is not None]

@@ -35,6 +35,19 @@ def _death_stamps(store, sid: str) -> str | None:
     return (head.get("death_adjudication_version"), head.get("inputs") or {})
 
 
+def _round_stamps(store, manifest: dict) -> dict | None:
+    """The stamps a stored round table was built from, or None where the
+    session has no round table. A table written before the portrait stamp
+    was recorded reads `unrecorded`."""
+    path = store.rounds_path(manifest["session_id"], manifest["ingested_at"][:10])
+    if not path.is_file():
+        return None
+    meta = pq.read_schema(path).metadata or {}
+    get = lambda k, missing: meta.get(k.encode(), missing.encode()).decode()
+    return {"round": get("round_version", "unstamped"), "hud": get("hud_version", "unknown"),
+            "killfeed_portrait": get("killfeed_portrait_version", "unrecorded")}
+
+
 def reader_streams() -> list[tuple[str, str, str, str | None]]:
     """(stream, scan channel, current stamp, trial reader or None)."""
     from .killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
@@ -69,7 +82,7 @@ def stale(store, sessions: list[str]) -> dict:
     (storage only), and absent streams."""
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
     from .killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
-    from .version import HUD_VERSION
+    from .version import HUD_VERSION, ROUND_VERSION
     out = {}
     for sid in sessions:
         man = store.read_manifest(sid)
@@ -81,15 +94,30 @@ def stale(store, sessions: list[str]) -> dict:
             elif got != now:
                 decode.append({"stream": stream, "channel": channel, "stored": got,
                                "current": now, "trial": trial})
+        rescanned = {s["stream"] for s in decode}
+        rounds_stale = False
+        r = _round_stamps(store, man)
+        if r is not None:
+            # Second lives are read only from a current portrait stream, so a
+            # rebuild now would record the current stamp or none.
+            portrait = (KILLFEED_PORTRAIT_VERSION if store.events_version("killfeed_portrait", sid)
+                        == KILLFEED_PORTRAIT_VERSION else "none")
+            moved = [k for k, v in (("hud", HUD_VERSION), ("killfeed_portrait", portrait))
+                     if r[k] != v or k in rescanned]
+            if r["round"] != ROUND_VERSION or moved:
+                rounds_stale = True
+                derived.append({"stream": "rounds", "stored": r["round"], "current": ROUND_VERSION,
+                                "inputs_moved": moved, "command": f"reticle rounds {sid}"})
         d = _death_stamps(store, sid)
         if d is not None:
             version, inputs = d
             want = {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
-                    "killfeed_weapon": KILLFEED_WEAPON_VERSION}
+                    "killfeed_weapon": KILLFEED_WEAPON_VERSION, "round": ROUND_VERSION}
             moved = sorted(k for k, v in want.items() if inputs.get(k) not in (v, None))
-            # An input the rescan will rewrite moves too, once it has run.
-            moved += sorted(s["stream"] for s in decode if s["stream"] in want
-                            and s["stream"] not in moved)
+            # An input the rescan or the round rebuild will rewrite moves too,
+            # once it has run.
+            moved += sorted(s for s in rescanned | ({"round"} if rounds_stale else set())
+                            if s in want and s not in moved)
             if version != DEATH_ADJUDICATION_VERSION or moved:
                 derived.append({"stream": "death", "stored": version,
                                 "current": DEATH_ADJUDICATION_VERSION, "inputs_moved": moved,
@@ -125,8 +153,12 @@ def render(plan: dict) -> str:
                              f"   (one session, stored windows, no decode)")
         lines.append(f"  accept reticle scan <sid> --only {ch}   for {' '.join(sids)}"
                      + ("   (from the ROI crop cache where one exists)" if cached else ""))
-    for sid, d in derived:
+    # Grouped by command and reason, rounds before the deaths that read them.
+    grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for sid, d in sorted(derived, key=lambda x: x[1]["stream"] != "rounds"):
         why = (f"{d['stored']} -> {d['current']}" if d["stored"] != d["current"]
                else "inputs " + ", ".join(d["inputs_moved"]))
-        lines.append(f"storage  {d['command']}   ({why})")
+        grouped[(d["command"].rsplit(" ", 1)[0], why)].append(sid)
+    for (command, why), sids in grouped.items():
+        lines.append(f"storage  {command} <sid>   ({why}) for {' '.join(sids)}")
     return "\n".join(lines)

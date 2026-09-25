@@ -569,7 +569,10 @@ class Store:
         pq.write_table(table, path, compression="zstd")
         return path
 
-    def write_rounds(self, rounds: list[dict], session_id: str, date: str) -> Path:
+    def write_rounds(self, rounds: list[dict], session_id: str, date: str,
+                     killfeed_portrait_version: str | None = None) -> Path:
+        """`killfeed_portrait_version` is the stamp of the portrait stream whose
+        second-life reads split the deaths, or None where none were read."""
         n = len(rounds)
         hud_path = self.hud_path(session_id, date)
         hud_meta = (pq.read_schema(hud_path).metadata or {}) if hud_path.is_file() else {}
@@ -622,6 +625,7 @@ class Store:
                                     "round_version": ROUND_VERSION,
                                     "hud_version": source_version or "unknown",
                                     "content_key": content_key or "unknown",
+                                    "killfeed_portrait_version": killfeed_portrait_version or "none",
                                     "schema_version": str(SCHEMA_VERSION)})
         path = self.rounds_path(session_id, date)
         path.parent.mkdir(parents=True, exist_ok=True)
