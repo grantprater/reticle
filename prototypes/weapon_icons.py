@@ -281,6 +281,8 @@ def cluster(rows: list[dict], bms: np.ndarray) -> list[dict]:
     assign[lead] = np.arange(len(lead))
     for r, c, s in zip(have, assign, best.max(1)):
         r["cluster"], r["leader_iou"] = int(c), round(float(s), 3)
+    for i in lead:
+        have[i]["leader"] = True
     return have
 
 
