@@ -39,6 +39,31 @@ refits viewed in source were the same icon, with one side fitted on the lobe:
 the fit describes floor, not the portrait. The check is confounded by the
 lobe-centred fit, and that fit is the upstream defect.
 
+## Merged state, terminations, and cross-channel accumulation
+
+`RoundLifetimes` (`round-lifetimes-0.9.0`) tracks merged context under self
+(32 px), ally stacks (26 px), or stationary angles (16 px, dt <= 3.0s),
+extending eligibility to 3.5s under the kinematic gate. On `a06f04a0059f` ally
+entities dropped from 576 to 281, Round 1 retains 4 teammates, and 544 bridged
+gaps hold appearance consistency (median intersection 0.589 >= 0.50).
+Terminations (`round-entity-0.2.0`) distinguish `round_end`, verified `death`,
+and unobserved tracking loss.
+
+`session_lifetimes` (`round-entity-0.5.0`) applies a 3-pass identity architecture:
+1. Base candidate claims from official art via `AgentIdentityArbiter`.
+2. In-session minimap exemplars harvested from tracks with >= 80 observations
+   augment the candidate gallery to re-evaluate ambiguous tracks.
+3. Identity-gated death witness linkage pairs ceasing abstained tracks with
+   stored death verdicts (`depends_on=[death_id]`), strictly excluding local
+   player deaths and conflicting victims.
+4. Persistent teammate keys (`session_id:teammate:{agent}`) are assigned to
+   resolved ally tracks across all rounds.
+
+On `a06f04a0059f` (15 Hz, 24 rounds), 244 of 281 ally entities resolved
+(86.8%) with zero disagreements (Deadlock 89, Miks 67, Breach 46, Reyna 42);
+Round 1 teammates resolved 100% without error; 750 barriers cleanly abstained;
+all 24 self tracks resolved to Phoenix.
+
 ## Open, in order
 
 1. **Lobe-centred fits.** The ring fit centres on the teardrop often enough to
@@ -47,9 +72,6 @@ lobe-centred fit, and that fit is the upstream defect.
 2. **Missed icons.** Clearly drawn allies go undetected for seconds and are
    reborn; the facing gate is the likely cause, since `map_diff` now rejects
    barriers without it. Measure before removing it.
-3. **Occlusion and stacks.** An ally under the self icon or inside a stack is
-   refused, not ended: it needs a merged state that keeps it eligible.
-4. **Start and end events.** Every lifetime ends right-censored. Ends come
-   from killfeed deaths through the arbiter, domain lifetimes, and inferred
-   causes; each carries its cause class and evidence.
-5. **Names per track segment**, through `adjudication.identity`.
+3. **Player labelling pass.** Label sample of overlapping and non-overlapping
+   icons via `labelling-pass` skill to calibrate overlap refusal.
+

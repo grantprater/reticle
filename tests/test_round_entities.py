@@ -87,17 +87,54 @@ class SessionLifetimeTests(unittest.TestCase):
 
         self.assertIn("ally", ents)
         self.assertEqual(ents["ally"]["agent"], "Breach")
+        self.assertEqual(ents["ally"]["teammate_key"], "s:teammate:Breach")
         self.assertEqual(ents["ally"]["identity_status"], "resolved")
         self.assertEqual(ents["ally"]["identity_votes"], {"Breach": 2})
 
         self.assertIn("self", ents)
         self.assertEqual(ents["self"]["agent"], "Phoenix")
+        self.assertEqual(ents["self"]["teammate_key"], "s:teammate:Phoenix")
         self.assertEqual(ents["self"]["identity_status"], "resolved")
 
         self.assertIn("barrier", ents)
         self.assertIsNone(ents["barrier"]["agent"])
+        self.assertIsNone(ents["barrier"]["teammate_key"])
         self.assertEqual(ents["barrier"]["identity_status"], "abstained")
         self.assertEqual(ents["barrier"]["identity_reason"], "barrier")
+
+    def test_death_witness_names_abstained_track_with_depends_on(self):
+        import numpy as np
+
+        gallery = {name: [np.eye(4, dtype=np.float32)[i]]
+                   for i, name in enumerate(["Breach", "Deadlock", "Miks", "Reyna"])}
+        lineup = {
+            "sides": {
+                "ally": [{"slot": i, "agent": a, "best_guess": a}
+                         for i, a in enumerate(["Phoenix", "Breach", "Deadlock", "Reyna", "Miks"])]
+            },
+            "player": {"agent": "Phoenix"},
+        }
+        # Track has no confident composition (e.g. comp is uniform noise, below margin)
+        uniform_comp = [0.25, 0.25, 0.25, 0.25]
+        events = [
+            _frame(0, 0.0),
+            _icon(0, 0.0, 50.0, comp=uniform_comp),
+            _frame(1, 67.0),
+            _icon(1, 67.0, 50.5, comp=uniform_comp),
+        ]
+        deaths = [{
+            "kind": "death_verdict", "round_no": 1, "t_ms": 70.0, "side": "ally",
+            "victim": "Reyna", "death_id": "death:s:70:0", "killer": "Jett", "weapon": "Vandal"
+        }]
+        rows = session_lifetimes("s", events, ROUNDS[:1], 1.0, deaths=deaths, lineup=lineup, gallery=gallery)
+        ents = {r["family"]: r for r in rows if r["kind"] == "entity"}
+
+        self.assertIn("ally", ents)
+        self.assertEqual(ents["ally"]["agent"], "Reyna")
+        self.assertEqual(ents["ally"]["teammate_key"], "s:teammate:Reyna")
+        self.assertEqual(ents["ally"]["identity_status"], "resolved")
+        self.assertEqual(ents["ally"]["death_id"], "death:s:70:0")
+        self.assertEqual(ents["ally"]["end_reason"], "death")
 
 
 if __name__ == "__main__":

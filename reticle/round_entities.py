@@ -3,9 +3,11 @@
 `round_lifetimes.RoundLifetimes` decides which observations are one entity.
 This runs it over every round of a session from what is already stored -- the
 `ally_icon` events (ally fits, their descriptors and the player's own fit), the
-HUD's round bounds and the roster's alive count -- and writes `round_entity`
-events. Nothing here decodes video or reads pixels; agent names are bound to
-track segments through `adjudication.identity`.
+HUD's round bounds, the roster's alive count, and stored death verdicts -- and
+writes `round_entity` events. Nothing here decodes video or reads pixels; agent
+names are bound to track segments through `adjudication.identity`, augmented with
+in-session minimap exemplars and identity-gated death witnesses, assigning
+persistent teammate keys across the match.
 
 Observation mapping, and why
 -----------------------------
@@ -29,7 +31,7 @@ from collections import Counter
 
 from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes
 
-ROUND_ENTITY_VERSION = "round-entity-0.4.0"
+ROUND_ENTITY_VERSION = "round-entity-0.5.0"
 
 
 def _observation(icon: dict) -> dict:
@@ -52,8 +54,8 @@ def _self_observation(frame: dict) -> dict | None:
         return None
     x, y, r = frame["self"]
     return {"x": x, "y": y, "r": r, "box": [x - r, y - r, 2 * r, 2 * r],
-             "family": "self", "view": "minimap", "label": "self",
-             "observation_key": f"{frame['session_id']}:{frame['frame_idx']}:self"}
+            "family": "self", "view": "minimap", "label": "self",
+            "observation_key": f"{frame['session_id']}:{frame['frame_idx']}:self"}
 
 
 def _roster_at(times: list[float], alive: list, t_ms: float):
@@ -90,6 +92,7 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
               "ally_icon_revision": source_revision,
               "candidate_revision": events[0].get("candidate_revision")}
     obs_entity_map: dict[str, str] = {}
+    obs_by_ent: dict[str, list[str]] = {}
     round_records: list[dict] = []
     coverage = Counter()
     for rnd in rounds:
@@ -115,6 +118,7 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
             for o in out:
                 if o.get("observation_key") and o.get("entity_id"):
                     obs_entity_map[o["observation_key"]] = o["entity_id"]
+                    obs_by_ent.setdefault(o["entity_id"], []).append(o["observation_key"])
                 obs_rows.append({**common, "kind": "observation", "round_no": rnd["round_no"],
                                  "t_ms": f["t_ms"], "frame_idx": f["frame_idx"],
                                  "observation_key": o["observation_key"],
@@ -142,49 +146,171 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
         })
         coverage["rounds"] += 1
 
-    verdicts: dict[str, dict] = {}
     player_agent = (lineup.get("player") or {}).get("agent") if lineup else None
+    arb = None
+    verdicts: dict[str, dict] = {}
+
     if lineup and gallery:
+        import numpy as np
         from .adjudication.identity import (
             AgentIdentityArbiter,
             claims_from_ally_icons,
+            identity_claim,
         )
+
         icon_events = [e for e in events if e.get("kind") == "icon"]
+        prefix = f"{session_id}:ally_icon:"
+
+        # Pass 1: Base claims with official art gallery
         if icon_events:
-            claims = claims_from_ally_icons(
+            claims1 = claims_from_ally_icons(
                 icon_events, lineup, gallery=gallery, session_id=session_id)
-            prefix = f"{session_id}:ally_icon:"
-            track_claims = []
-            for c in claims:
+            track_claims1 = []
+            for c in claims1:
                 eid = c.get("entity_id", "")
                 obs_key = eid[len(prefix):] if eid.startswith(prefix) else eid
-                target_ent = obs_entity_map.get(obs_key)
-                if target_ent:
-                    track_claims.append({
+                tgt = obs_entity_map.get(obs_key)
+                if tgt:
+                    track_claims1.append({
                         **c,
-                        "entity_id": target_ent,
+                        "entity_id": tgt,
                         "binding_from": "round_entity",
                     })
-            if track_claims:
-                arbiter = AgentIdentityArbiter()
-                arbiter.extend(track_claims)
-                verdicts = {v["entity_id"]: v for v in arbiter.verdict()}
+            if track_claims1:
+                arb1 = AgentIdentityArbiter()
+                arb1.extend(track_claims1)
+                verdicts1 = {v["entity_id"]: v for v in arb1.verdict()}
+
+                # Pass 2: In-session minimap exemplars from confident tracks
+                icons_by_key = {e["observation_key"]: e["composition"]
+                                for e in icon_events if e.get("composition")}
+                augmented_gallery = {agent: list(vecs) for agent, vecs in gallery.items()}
+                harvested = 0
+                for eid, v in verdicts1.items():
+                    agent = v.get("agent")
+                    if agent and len(v.get("claims", [])) >= 80:
+                        ent_obs_keys = obs_by_ent.get(eid, [])
+                        comps = [icons_by_key[k] for k in ent_obs_keys if k in icons_by_key]
+                        if comps:
+                            step = max(1, len(comps) // 3)
+                            for comp in comps[::step][:3]:
+                                augmented_gallery[agent].append(np.array(comp, dtype=np.float32))
+                                harvested += 1
+
+                if harvested > 0:
+                    claims2 = claims_from_ally_icons(
+                        icon_events, lineup, gallery=augmented_gallery, session_id=session_id)
+                    track_claims2 = []
+                    for c in claims2:
+                        eid = c.get("entity_id", "")
+                        obs_key = eid[len(prefix):] if eid.startswith(prefix) else eid
+                        tgt = obs_entity_map.get(obs_key)
+                        if tgt:
+                            track_claims2.append({
+                                **c,
+                                "entity_id": tgt,
+                                "binding_from": "round_entity",
+                            })
+                    arb = AgentIdentityArbiter()
+                    arb.extend(track_claims2)
+                else:
+                    arb = arb1
+                verdicts = {v["entity_id"]: v for v in arb.verdict()}
+
+    # Pass 3: Finish entities with identity-gated death witness pairing
+    teammate_deaths = [d for d in (deaths or [])
+                       if d.get("kind") == "death_verdict" and d.get("side") == "ally"
+                       and (not player_agent or d.get("victim") != player_agent)]
+    death_by_id = {d["death_id"]: d for d in teammate_deaths if d.get("death_id")}
+    death_by_rnd: dict[int, list[dict]] = {}
+    for d in teammate_deaths:
+        death_by_rnd.setdefault(d.get("round_no"), []).append(d)
+
+    for rec in round_records:
+        rno = rec["round_no"]
+        life = rec["life"]
+        finished = life.finish(rec["z"], deaths=rec["deaths"], roster_drops=rec["drops"])
+        rec["finished"] = finished
+        rnd_deaths = death_by_rnd.get(rno, [])
+
+        # Check existing pairings from life.finish
+        for ent in finished:
+            did = ent.get("death_id")
+            if did in death_by_id:
+                d = death_by_id[did]
+                vic = d.get("victim")
+                v = verdicts.get(ent["id"])
+                p_agent = v.get("agent") if v else None
+                # Unpair impossible identity conflicts
+                if p_agent is not None and vic and p_agent != vic:
+                    ent["death_id"] = None
+                    ent["end_reason"] = "last observation does not establish destruction/death"
+                    ent["death_evidence"] = None
+                    ent["end_ms"] = None
+                    ent["right_censored_at_ms"] = ent["last_seen_ms"]
+                elif p_agent is None and vic and arb is not None:
+                    death_c = identity_claim(
+                        ent["id"], vic, channel="death_victim", reason="vanished_at_death",
+                        source_version=d.get("adjudication_version", "death-adjudication"),
+                        observed_at_ms=d.get("t_ms"),
+                        evidence={"death_id": did, "killer": d.get("killer"), "weapon": d.get("weapon")},
+                        depends_on=[did],
+                    )
+                    arb.add(death_c)
+
+        # Pair any remaining unlinked deaths with candidate tracks
+        claimed = {ent["death_id"] for ent in finished if ent.get("death_id")}
+        for d in sorted(rnd_deaths, key=lambda x: x.get("t_ms", 0)):
+            did = d.get("death_id")
+            if did in claimed:
+                continue
+            vic = d.get("victim")
+            t_d = d.get("t_ms", 0)
+            cands = []
+            for ent in finished:
+                if ent.get("family") != "ally" or ent.get("death_id"):
+                    continue
+                v = verdicts.get(ent["id"])
+                p_agent = v.get("agent") if v else None
+                if abs(ent["last_seen_ms"] - t_d) <= 3000.0 and (p_agent == vic or p_agent is None):
+                    cands.append((abs(ent["last_seen_ms"] - t_d), ent, p_agent))
+            if cands:
+                cands.sort(key=lambda x: x[0])
+                _, best_ent, p_agent = cands[0]
+                best_ent["death_id"] = did
+                best_ent["end_ms"] = t_d
+                best_ent["end_reason"] = "death"
+                best_ent["death_evidence"] = "killfeed_verdict"
+                claimed.add(did)
+                if p_agent is None and vic and arb is not None:
+                    death_c = identity_claim(
+                        best_ent["id"], vic, channel="death_victim", reason="vanished_at_death",
+                        source_version=d.get("adjudication_version", "death-adjudication"),
+                        observed_at_ms=t_d,
+                        evidence={"death_id": did, "killer": d.get("killer"), "weapon": d.get("weapon")},
+                        depends_on=[did],
+                    )
+                    arb.add(death_c)
+
+    if arb is not None:
+        verdicts = {v["entity_id"]: v for v in arb.verdict()}
 
     rows: list[dict] = []
     for rec in round_records:
         rows.extend(rec["obs_rows"])
-        finished = rec["life"].finish(rec["z"], deaths=rec["deaths"], roster_drops=rec["drops"])
-        for ent in finished:
+        for ent in rec.get("finished", []):
             eid = ent["id"]
             fam = ent.get("family")
             agent = None
             status = ent.get("identity_status", "provisional")
             reason = None
             votes = None
+            teammate_key = None
 
             if fam == "self":
                 agent = player_agent
                 status = "resolved" if player_agent else "provisional"
+                teammate_key = f"{session_id}:teammate:{player_agent}" if player_agent else None
             elif fam == "barrier":
                 status = "abstained"
                 reason = "barrier"
@@ -196,6 +322,8 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                     reason = v["reason"]
                     ch = v.get("by_channel", {}).get("minimap_portrait", {})
                     votes = ch.get("votes")
+                    if agent:
+                        teammate_key = f"{session_id}:teammate:{agent}"
                 elif lineup:
                     status = "abstained"
                     reason = "no_claims"
@@ -203,6 +331,7 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
             body = {k: v for k, v in ent.items()
                     if k not in ("appearance", "anchor_observation", "kind")}
             body["agent"] = agent
+            body["teammate_key"] = teammate_key
             body["identity_status"] = status
             if reason is not None:
                 body["identity_reason"] = reason
