@@ -2395,9 +2395,17 @@ def cmd_deaths(args) -> int:
         weapon_observations=weapons)
     common = {"session_id": sid, "source": "death",
               "death_adjudication_version": DEATH_ADJUDICATION_VERSION}
+    # A name's probability, from each naming channel's measured reliability;
+    # an annotation beside the verdict, never an input to it.
+    from .adjudication.reliability import RELIABILITY_VERSION, load as load_reliability, name_probability
+    rel = load_reliability(store.root)
     rows, events = [], []
     for r in res["rounds"]:
         for e, v in zip(r["entries"], r["verdicts"]):
+            if rel is not None:
+                for key in ("identity", "killer_identity"):
+                    if v.metadata.get(key):
+                        v.metadata[key]["p_named"] = name_probability(rel, v.metadata[key])
             rows.append({**common, "kind": "death_verdict", "round_no": r["round_no"],
                          "slot": e["slot"], "t_last_ms": e["t_last"],
                          "kf_player_kill": e["kf_player_kill"],
@@ -2416,7 +2424,8 @@ def cmd_deaths(args) -> int:
                        "killfeed_weapon": KILLFEED_WEAPON_VERSION if weapons is not None else None,
                        "scoreboard": store.events_version("scoreboard", sid),
                        "round": rounds[0].get("round_version") if rounds else None,
-                       "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION}}
+                       "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION,
+                       "reliability": RELIABILITY_VERSION if rel is not None else None}}
     out = store.write_events("death", sid, [head] + rows)
     store.write_events("death_identity", sid, events)
     print(f"{sid}: {len(rows) - head['revives']} deaths and {head['revives']} revives over "
@@ -2459,6 +2468,56 @@ def cmd_trial(args) -> int:
             print(f"    stored: {ex[:240]}")
     print("  identical to storage" if ok else "  DIFFERS from storage")
     return 0 if ok else 1
+
+
+def _latest_loso() -> dict:
+    """The per-name counts of the latest passing `weapon_icons/entries-loso` run."""
+    from . import metrics
+    rows = [r for r in metrics.load() if r.get("tool") == "weapon_icons"
+            and r.get("part") == "entries-loso" and r.get("status") == "pass"]
+    return (rows[-1].get("context") or {}).get("by_name", {}) if rows else {}
+
+
+def cmd_reliability(args) -> int:
+    """Per-channel, per-agent identity reliability from stored death verdicts,
+    scored where an independent witness named the entity. Decodes no video."""
+    from .adjudication.reliability import (RELIABILITY_VERSION, beliefs, icon_heldout_outcomes,
+                                           label_outcomes, outcomes,
+                                           write as write_reliability)
+    from .adjudication.death import DEATH_ADJUDICATION_VERSION
+    store = Store(args.store)
+    rows, used = [], []
+    for man in store.sessions():
+        d = store.read_events("death", man["session_id"])
+        if d and d[0].get("death_adjudication_version") == DEATH_ADJUDICATION_VERSION:
+            rows += d[1:]
+            used.append(man["session_id"])
+    import json
+    def last_rows(kind):
+        got = {}
+        for p in (store.root / "labels" / kind).glob("*.jsonl"):
+            for line in p.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    row = json.loads(line)
+                    got[row["key"]] = row
+        return list(got.values())
+    scored = (outcomes(rows) + label_outcomes(last_rows("feed_portrait"), rows)
+              + icon_heldout_outcomes(_latest_loso()))
+    table = beliefs(scored)
+    print(f"{len(scored)} channel claims scored over {len(used)} sessions ({RELIABILITY_VERSION})")
+    for ch, b in table["by_source"].items():
+        print(f"  {ch:32s} {b['right']:4d} right {b['wrong']:3d} wrong   mean {b['mean']:.3f}")
+    worst = sorted(((k, b) for k, b in table["agents"].items() if b["wrong"]),
+                   key=lambda kb: kb[1]["mean"])[:args.top]
+    print("least reliable (channel:agent)")
+    for k, b in worst:
+        print(f"  {k:30s} {b['right']:3d}/{b['right'] + b['wrong']:<3d} mean {b['mean']:.3f}")
+    for ch, conf in table["confusions"].items():
+        print(f"confusions {ch}: " + ", ".join(f"{k} x{n}" for k, n in list(conf.items())[:8]))
+    print("population: " + ", ".join(f"{k} {n}" for k, n in table["population"].items()))
+    out = write_reliability(store.root, table, {"death": DEATH_ADJUDICATION_VERSION, "sessions": used})
+    print(f"-> {out}")
+    return 0
 
 
 def cmd_smokes(args) -> int:
@@ -3101,6 +3160,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="frames near a stored killfeed entry, or the whole timeline")
     s.add_argument("--pad-ms", type=float, default=2000.0)
     s.set_defaults(func=cmd_trial)
+
+    s = sub.add_parser("reliability", help="identity channel reliability per agent (no video)")
+    s.add_argument("--top", type=int, default=12)
+    s.set_defaults(func=cmd_reliability)
 
     s = sub.add_parser("smokes", help="smoke tracks from stored minimap_dark rows (no video)")
     s.add_argument("session", nargs="?")

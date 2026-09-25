@@ -63,7 +63,7 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "adjudication.gallery", "adjudication.phases", "adjudication.identity",
            "adjudication.death", "adjudication.weapon", "adjudication.scoreboard",
            "adjudication.minimap_candidates", "adjudication.smokes",
-           "adjudication.combat_report",
+           "adjudication.combat_report", "adjudication.reliability",
            "ability_coverage",
            "ability_timeline", "gametime", "domain_learning"]
 

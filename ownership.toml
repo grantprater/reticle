@@ -995,3 +995,18 @@ modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
            "ability_capture", "ability_entities", "ability_gallery",
            "ability_phases", "events", "candidate_evidence",
            "plan", "trial", "roi_cache"]
+
+[[entry]]
+id = "identity-channel-reliability"
+question = "How often does each identity channel name the right agent, per agent?"
+owner = "adjudication.reliability"
+role = ["corroborate"]
+status = "partial"
+produces = ["RELIABILITY_VERSION", "REFERENCE_CHANNELS", "SOURCES", "outcomes", "label_outcomes", "icon_heldout_outcomes", "beliefs", "name_probability", "load", "table_path", "write"]
+consumers = ["cli"]
+not_for = """
+Naming anything. It scores stored claims against independent witnesses and
+keeps Beta counts; the arbiter decides names. Its numbers hold for the
+population the reference witnesses cover, not the whole feed.
+"""
+evidence = "tests/test_reliability.py"
