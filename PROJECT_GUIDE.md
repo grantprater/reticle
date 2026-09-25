@@ -1483,6 +1483,9 @@ decision, it belongs in the docstring.
   the whole point of the L0/L1 split, and it is what makes threshold sweeps
   free. `hud` is the one stage that legitimately re-decodes.
 - **Raw media is never copied.** Manifests point at where the file lives.
+  Lossless crops of a fixed reader ROI (`reticle/roi_cache.py`) are not a copy
+  of the capture (player, 2026-09-25): they let `reticle trial` rerun a reader
+  with no decode.
 - **Deaths per round is not a usable invariant** — Sage resurrect and Clove
   self-revive both let a player die twice in a round.
 - Cost rule from §3: if the expensive layer ever sees more than ~1% of frames,

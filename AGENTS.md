@@ -48,8 +48,14 @@ states plainly, and the player had to ask what the sentence meant.
 - Every independent detector/table has its own version stamp and provenance.
   Recomputable rules use stored data and must not decode video; stale cached
   geometry must be rebuilt before trusting derived measurements.
-- Raw media is never copied. New readers join shared decode passes; gate dense
-  sampling on opportunity rather than outcome. Never silently overwrite evidence.
+- Raw media is never copied; lossless crops of a fixed reader ROI
+  (`roi_cache`) are not a copy (player, 2026-09-25). New readers join shared
+  decode passes; gate dense sampling on opportunity rather than outcome. Never
+  silently overwrite evidence.
+- Run the least work that tests the change. `reticle plan` names the stale
+  streams; adjudications rerun from storage; a reader change is checked first
+  with `reticle trial` (stored windows, crop cache, no decode), and a full scan
+  is the acceptance run.
 - The HUD and minimap are semi-transparent over the void. Search inside the
   opaque structure; fit a shape rather than repairing it with a closing radius;
   never seed label files. Invoke the `labelling-pass` skill before labelling.

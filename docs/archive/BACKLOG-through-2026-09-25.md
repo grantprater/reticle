@@ -1,0 +1,4 @@
+# Backlog completed items retired 2026-09-25
+
+- **`combat-report` (2026-09-24):** `reticle scan --only combat_report` stores the panel's header score, damage, hit splits and flag-word scores at 1 Hz with no labels; `reticle combat-report` groups panels, assigns rounds and counts kills, deaths and assists from storage. Both sessions reproduce the known K/D: [metric:combat_report/flags@a06f04a0059f#deaths=19], [metric:combat_report/flags@3694746e4e54#kills=14]. Promoted from `prototypes/combat_report.py`.
+- **`combat-report-identity` (2026-09-24):** report rows are named through the identity arbiter from killfeed portraits within the scoreboard bound, by portrait cluster; a labeller (`prototypes/label_report_portraits.py`) scored it on the player's labels.

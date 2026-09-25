@@ -166,15 +166,21 @@ KILLED YOU, 320 incoming, the sum of both
 [clove-revive-expiry-entry]
 claim = """
 When Clove self-revives with Not Dead Yet and gets no kill or damaging assist
-within the ult's time window, the revive ends in death. The player believes
-the killfeed then shows the player as both killer and victim (Me -> Me).
+within the ult's 10 s window, the revive ends in death. The killfeed then
+draws Clove as both killer and victim with a broken-butterfly icon, which has
+no ring; the revive entry's Not Dead Yet butterfly sits in a ring. The expiry
+entry is a death.
 """
 kind = "lifecycle"
 known = "player"
 since = "2026-09-24"
 source = """
 a1a995e6b19b (player Clove) at 1892.5 s: a Me -> Me entry with the circular
-badge, which the killfeed reader counted as a kill; the combat report did not
+badge, which the killfeed reader counted as a kill; the combat report did not.
+The player, 2026-09-25: "C:/Users/grant/Videos/2026-08-25 18-34-40.mp4" (not
+ingested) at 13:24 is an expiry, Jayxuzii -> Jayxuzii with the broken butterfly
+on the ally plate at 806-808 s; the 10 s window is from the game wiki and fits
+that clip
 """
 use = """
 a Me -> Me entry is not a kill; on a Clove session it is most likely this

@@ -52,7 +52,7 @@ modules = ["minimap", "ocr", "killfeed", "roster", "ping", "cone", "lighting",
 
 [orchestration]
 claim = "shared decode passes, which dispatch to readers and own no reading"
-modules = ["passes"]
+modules = ["passes", "trial", "roi_cache"]
 
 [adjudication]
 claim = "pure over stored observations, with evidence and alternatives"
@@ -71,7 +71,7 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
 claim = "lifecycle events, compound episodes, review and coaching hypotheses"
 modules = ["ability_capture", "ability_entities", "ability_gallery", "round_entities",
            "ability_phases", "coaching", "review", "overlay", "status",
-           "fidelity", "doctor"]
+           "fidelity", "doctor", "plan"]
 
 [delivery]
 claim = "the command surface, and nothing else may import it"

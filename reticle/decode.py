@@ -157,6 +157,59 @@ def sample_at(path: str, targets_ms: list[float], nominal_fps: float) -> Iterato
         cap.release()
 
 
+#: Targets closer than this share one seek: decoding forward through the gap
+#: is cheaper than a seek, which lands on a keyframe and decodes forward anyway.
+SEEK_GAP_MS = 4000.0
+
+
+def windows_of(targets_ms: list[float], gap_ms: float = SEEK_GAP_MS) -> list[list[float]]:
+    """Sorted targets split into runs wherever two neighbours are over `gap_ms` apart."""
+    runs: list[list[float]] = []
+    for t in targets_ms:
+        if runs and t - runs[-1][-1] <= gap_ms:
+            runs[-1].append(t)
+        else:
+            runs.append([t])
+    return runs
+
+
+def seek_at(path: str, targets_ms: list[float], nominal_fps: float,
+            gap_ms: float = SEEK_GAP_MS) -> Iterator[Sample]:
+    """`sample_at`'s contract for scattered targets: one seek per run of
+    targets (`windows_of`) instead of one decode from the file start.
+
+    Each run seeks to its first target and grabs forward, yielding a frame at
+    the first timestamp at or after each target, as `sample_at` does, so a
+    target list taken from a stored table returns the frames that table was
+    read from. `frame_idx` comes from the decoder's position after the seek;
+    a caller holding the stored index should trust that one.
+    """
+    if any(b < a for a, b in zip(targets_ms, targets_ms[1:])):
+        raise ValueError("targets_ms must be sorted ascending")
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        raise SystemExit(f"could not open {path}")
+    try:
+        for run in windows_of(targets_ms, gap_ms):
+            if not cap.set(cv2.CAP_PROP_POS_MSEC, run[0]):
+                raise ValueError("decoder could not seek to requested window")
+            ti = 0
+            while ti < len(run):
+                if not cap.grab():
+                    break
+                t_ms = float(cap.get(cv2.CAP_PROP_POS_MSEC))
+                if t_ms < run[ti]:
+                    continue
+                ok, frame = cap.retrieve()
+                idx = int(cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
+                while ti < len(run) and run[ti] <= t_ms:
+                    if ok and frame is not None:
+                        yield Sample(frame_idx=idx, t_ms=t_ms, frame=frame)
+                    ti += 1
+    finally:
+        cap.release()
+
+
 def sample_spans(path: str, spans_ms: list[tuple[float, float]], target_hz: float,
                   nominal_fps: float) -> Iterator[Sample]:
     """Yield frames at ~`target_hz` inside `spans_ms`, in ONE sequential pass.

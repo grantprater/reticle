@@ -991,4 +991,5 @@ modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
            "artifacts", "revisions", "census", "architecture", "ownership",
            "doctor", "status", "fidelity", "overlay", "review",
            "ability_capture", "ability_entities", "ability_gallery",
-           "ability_phases", "events", "candidate_evidence"]
+           "ability_phases", "events", "candidate_evidence",
+           "plan", "trial", "roi_cache"]

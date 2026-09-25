@@ -94,10 +94,10 @@ the death owner must not count a revive entry as a death; the weapon-slot icon
 is the witness, beside [domain:rounds/resurrection-mechanics]
 """
 exceptions = """
-whether a Clove entry marks the revive itself or its expiry
-[domain:rounds/clove-revive-expiry-entry] is not settled by these frames; 7 of
-the 16 Not Dead Yet entries come 1.0-2.0 s after a named Clove death, which fits
-the revive, and the top bar never shows that death
+a Clove revive that expires draws its own entry, a death, with a broken
+butterfly and no ring [domain:rounds/clove-revive-expiry-entry]; the Not Dead
+Yet entry is the revive itself (7 of 16 come 1.0-2.0 s after a named Clove
+death, and the top bar never shows that death)
 """
 phrases = ["revive entry is not a death"]
 

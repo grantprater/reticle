@@ -744,6 +744,11 @@ def cmd_minimap(args) -> int:
     return 0
 
 
+def _roi_cache_stale(store, manifest, profile, name) -> bool:
+    from .roi_cache import RoiCache
+    return RoiCache.load(store.root, manifest, profile, name)[0] is None
+
+
 def cmd_scan(args) -> int:
     """Stages 02 HUD and 02 minimap in ONE decode of the capture.
 
@@ -821,8 +826,15 @@ def cmd_scan(args) -> int:
     want_scoreboard = ('scoreboard' in channels and args.scoreboard and
                        (args.force or store.events_version("scoreboard", sid)
                         != SCOREBOARD_VERSION))
+    # Lossless crops of a fixed ROI, so a reader change can rerun without a
+    # decode (`reticle trial --from cache`). Opt-in: it rides the HUD rate, so
+    # its crops sit on the HUD timeline's timestamps.
+    want_cache = bool(args.cache_roi) and (args.force or _roi_cache_stale(
+        store, manifest, profile, args.cache_roi))
+    if args.only == ["roi_cache"] and not args.cache_roi:
+        raise SystemExit("--only roi_cache needs --cache-roi <roi>")
     if not (want_hud or want_portraits or want_mm or want_ping or want_roster
-            or want_scoreboard or want_ally or want_dark or want_report):
+            or want_scoreboard or want_ally or want_dark or want_report or want_cache):
         print(f"cache hit  session {sid}: requested channels are current or disabled; "
               "--force to re-read")
         return 0
@@ -907,7 +919,11 @@ def cmd_scan(args) -> int:
     if want_report:
         from .combat_report import CombatReportReader
         cp = CombatReportReader(Templates.load(profile.name), hz=args.report_hz, spans=None)
-    readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, cp) if r is not None]
+    xp = None
+    if want_cache:
+        from .roi_cache import RoiCacheWriter
+        xp = RoiCacheWriter(store.root, manifest, profile, args.cache_roi, hz=args.hz)
+    readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, cp, xp) if r is not None]
 
     t0 = time.perf_counter()
     last = [t0]
@@ -1033,6 +1049,10 @@ def cmd_scan(args) -> int:
         rows = cp.events(sid)
         out = store.write_events("combat_report", sid, rows)
         print(f"combat report {rows[0]['frames']} frames, rows read in {rows[0]['rows_read']} -> {out}")
+
+    if xp is not None:
+        print(f"roi cache  {len(xp._index)} {args.cache_roi} crops, "
+              f"{xp._offset / 2**20:.0f} MB -> {xp.paths[0].parent}")
 
     if dp is not None:
         rows = dp.events(sid, geometry.key_of(sid, store.root))
@@ -2405,6 +2425,42 @@ def cmd_deaths(args) -> int:
     return 0
 
 
+def cmd_plan(args) -> int:
+    """Which stored streams the code has moved past, and the least work that
+    refreshes them: decode only the stale channels, rerun adjudications from
+    storage, and check a reader with a trial before a full scan."""
+    from .plan import render, stale
+    store = Store(args.store)
+    sids = ([_resolve_session(store, args.session)["session_id"]] if args.session
+            else [m["session_id"] for m in store.sessions()])
+    print(render(stale(store, sids)))
+    return 0
+
+
+def cmd_trial(args) -> int:
+    """One reader over part of one session, diffed against the stored streams.
+    Writes nothing. `--from cache` decodes nothing."""
+    from .trial import run
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    res = run(store, manifest, reader=args.reader, source=args.source,
+              windows=args.windows, pad_ms=args.pad_ms)
+    print(f"{res['session_id']}: {args.reader} from {args.source}, {args.windows} windows: "
+          f"{res['frames']} of {res['timeline']} timeline frames in {res['seconds']} s")
+    ok = True
+    for stream, d in res["diff"].items():
+        ok &= d["only_trial"] == 0 and d["only_stored"] == 0
+        print(f"  {stream:18s} {d['same']} same, {d['only_trial']} only in trial, "
+              f"{d['only_stored']} only stored; {d['stored_outside_frames']} stored rows "
+              f"outside the trial's frames")
+        for ex in d["example_only_trial"][:1]:
+            print(f"    trial:  {ex[:240]}")
+        for ex in d["example_only_stored"][:1]:
+            print(f"    stored: {ex[:240]}")
+    print("  identical to storage" if ok else "  DIFFERS from storage")
+    return 0 if ok else 1
+
+
 def cmd_smokes(args) -> int:
     """Smoke tracks from stored `minimap_dark` rows. Decodes no video."""
     from .adjudication.smokes import events as smoke_events
@@ -2905,7 +2961,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "round lifetimes want the minimap's 15")
     s.add_argument("--only", nargs="+",
                    choices=("hud", "minimap", "ping", "roster", "scoreboard",
-                            "ally_icon", "minimap_dark", "combat_report"),
+                            "ally_icon", "minimap_dark", "combat_report", "roi_cache"),
                    help="run only these readers through the shared pass; roster-only needs no minimap geometry")
     s.add_argument("--report-hz", type=float, default=1.0,
                    help="combat report rate, whole capture (default 1)")
@@ -2917,6 +2973,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-scoreboard", dest="scoreboard", action="store_false",
                    help="skip context-free Tab-scoreboard rows and credit observations")
     s.set_defaults(scoreboard=True)
+    s.add_argument("--cache-roi", choices=("killfeed",),
+                   help="also store lossless crops of this ROI at the HUD rate, for "
+                        "`reticle trial --from cache`; `--only roi_cache` stores only them")
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_scan)
 
@@ -3028,6 +3087,20 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("deaths", help="death verdicts per killfeed entry from stored data (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_deaths)
+
+    s = sub.add_parser("plan", help="stale stored streams and the least work that refreshes them")
+    s.add_argument("session", nargs="?")
+    s.set_defaults(func=cmd_plan)
+
+    s = sub.add_parser("trial", help="rerun one reader on stored windows and diff it (writes nothing)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--reader", default="killfeed", choices=("killfeed",))
+    s.add_argument("--from", dest="source", default="cache", choices=("cache", "video"),
+                   help="ROI crop cache (no decode) or seeks into the capture")
+    s.add_argument("--windows", default="occupied", choices=("occupied", "all"),
+                   help="frames near a stored killfeed entry, or the whole timeline")
+    s.add_argument("--pad-ms", type=float, default=2000.0)
+    s.set_defaults(func=cmd_trial)
 
     s = sub.add_parser("smokes", help="smoke tracks from stored minimap_dark rows (no video)")
     s.add_argument("session", nargs="?")
