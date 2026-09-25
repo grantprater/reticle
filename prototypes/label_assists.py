@@ -1,7 +1,7 @@
 r"""Name the assisters in killfeed entries: who, and which ability icon.
 
     .\.venv\Scripts\python.exe prototypes\label_assists.py prep [--n 140]
-    .\.venv\Scripts\python.exe prototypes\label_assists.py label
+    .\.venv\Scripts\python.exe prototypes\label_assists.py label [--redo]
     .\.venv\Scripts\python.exe prototypes\label_assists.py summary
 
 The assist panel sits left of the killer's portrait, in the band's top half
@@ -21,9 +21,15 @@ It decodes nothing.
 `label` asks, per entry, how many assisters are drawn (0, 1, 2), then for
 each, left to right: which agent (the match's ten from the lineup, or "Other
 agent"), and which ability its icon shows (that agent's kit, "No icon", or
-"Other icon"). It never shows a machine answer. U unsure, A back, Q or ESC
-save and quit; labels go to `<store>/labels/killfeed_assist/<session>.jsonl`
-keyed by death id, last row wins, resumable. An icon-less assister is most
+"Other icon", or "Can't tell"). It never shows a machine answer. U answers
+only the step it is pressed on: at the count it marks the entry unsure, at an
+agent it records an unknown agent, at an icon it records the icon `unsure`
+and keeps the agent. B marks a crop that does not show the panel
+(`reason: bad_crop`), a refusal distinct from unsure. A back, Q or ESC save
+and quit; labels go to `<store>/labels/killfeed_assist/<session>.jsonl`
+keyed by death id, last row wins, resumable. Before 2026-09-25 U discarded the
+whole entry at any step, so a row with no answer and no `reason` may have lost
+an agent the player named; `--redo` asks those again. An icon-less assister is most
 likely a damage assist [domain:killfeed/assist-without-icon], so "No icon" is
 an answer, not a refusal; the player's own portrait is framed in yellow
 [domain:killfeed/self-yellow-frame].
@@ -154,15 +160,20 @@ def _art(agent: str) -> np.ndarray | None:
     return cv2.resize(img, (72, int(72 * img.shape[0] / img.shape[1])), interpolation=cv2.INTER_AREA)
 
 
-def label(prep_path: Path = PREP) -> int:
+def label(prep_path: Path = PREP, redo: bool = False) -> int:
     import tkinter as tk
 
     z = np.load(prep_path)
     views, meta = z["views"], json.loads(str(z["meta"]))
     root_dir = Store().root / "labels" / KIND
     root_dir.mkdir(parents=True, exist_ok=True)
-    done = set(_labels())
-    order = [i for i, m in enumerate(meta) if m["death_id"] not in done]
+    last = _labels()
+    # A row with no answer and no reason came from the old U key, which
+    # discarded whatever the player had named before pressing it.
+    lost = {k for k, r in last.items() if r["answer"] is None and "reason" not in r}
+    order = [i for i, m in enumerate(meta)
+             if (m["death_id"] in lost if redo else m["death_id"] not in last)]
+    done = set(last)
     print(f"{len(done)} already done, {len(order)} to go", flush=True)
     if not order:
         return 0
@@ -170,7 +181,7 @@ def label(prep_path: Path = PREP) -> int:
     handles: dict[str, object] = {}
     # `answer` is built up over the steps of one entry: count, then per
     # assister an agent and an icon.
-    st = {"k": 0, "img": None, "art": [], "written": 0, "answer": None}
+    st = {"k": 0, "img": None, "art": [], "written": 0, "answer": None, "stage": ("count", 0)}
     root = tk.Tk()
     root.title("reticle - who assisted this kill?")
     canvas = tk.Canvas(root, highlightthickness=0, bg="#191919")
@@ -183,14 +194,14 @@ def label(prep_path: Path = PREP) -> int:
     def cur():
         return meta[order[st["k"]]]
 
-    def write(answer: dict | None):
+    def write(answer: dict | None, reason: str | None = None):
         m = cur()
         sid = m["session_id"]
         if sid not in handles:
             handles[sid] = (root_dir / f"{sid}.jsonl").open("a", encoding="utf-8")
         row = {"key": m["death_id"], "session_id": sid, "t_ms": m["t_ms"], "slot": m["slot"],
                "y0": m["y0"], "y1": m["y1"], "left": m["left"], "stratum": m["stratum"],
-               "answer": answer, "uncertain": answer is None, "by": "player"}
+               "answer": answer, "uncertain": answer is None, "reason": reason, "by": "player"}
         handles[sid].write(json.dumps(row) + "\n")
         handles[sid].flush()
         st["written"] += 1
@@ -203,10 +214,13 @@ def label(prep_path: Path = PREP) -> int:
 
     def ask_count():
         st["answer"] = {"count": None, "assisters": []}
+        st["stage"] = ("count", 0)
         clear()
         for c in (0, 1, 2):
             tk.Button(pad, text=f"{c}  ({c})", width=14, height=2,
                       command=lambda c=c: got_count(c)).grid(row=0, column=c, padx=4)
+        tk.Button(pad, text="Bad crop  (B)", width=14, height=2,
+                  command=lambda: write(None, "bad_crop")).grid(row=0, column=3, padx=4)
         prompt("How many assister portraits are in the ring?  0 / 1 / 2")
 
     def got_count(c: int):
@@ -217,6 +231,7 @@ def label(prep_path: Path = PREP) -> int:
             ask_agent(0)
 
     def ask_agent(j: int, agents=None):
+        st["stage"] = ("agent", j)
         clear()
         agents = agents or cur()["lineup"] or _all_agents()
         for k, a in enumerate(agents):
@@ -244,10 +259,11 @@ def label(prep_path: Path = PREP) -> int:
         ask_icon(j, agent)
 
     def ask_icon(j: int, agent):
+        st["stage"] = ("icon", j)
         clear()
         kit = abilities_for(agent, store_root) if agent else {}
         opts = [(f"{key}: {name}", name) for key, name in kit.items()]
-        opts += [("No icon", "none"), ("Other icon", "other")]
+        opts += [("No icon", "none"), ("Other icon", "other"), ("Can't tell  (U)", "unsure")]
         for k, (text, val) in enumerate(opts):
             tk.Button(pad, text=text, width=18, height=2,
                       command=lambda v=val: got_icon(j, v)).grid(row=k // 6, column=k % 6,
@@ -265,7 +281,7 @@ def label(prep_path: Path = PREP) -> int:
         m = cur()
         t = int(m["t_ms"]) // 1000
         status.config(text=f"  {st['k'] + 1}/{len(order)}   {m['session_id']}  {t // 60}:{t % 60:02d}"
-                           f"   {m['capture']}\n  {q}      U unsure  A back  Q quit")
+                           f"   {m['capture']}\n  {q}      U unsure  B bad crop  A back  Q quit")
 
     def show():
         i = order[st["k"]]
@@ -305,7 +321,17 @@ def label(prep_path: Path = PREP) -> int:
 
     for c in (0, 1, 2):
         root.bind(str(c), lambda e, c=c: got_count(c) if st["answer"]["count"] is None else None)
-    root.bind("u", lambda e: write(None))
+    def unsure(_e):
+        stage, j = st["stage"]
+        if stage == "icon":
+            got_icon(j, "unsure")
+        elif stage == "agent":
+            got_agent(j, None)
+        else:
+            write(None, "unsure")
+
+    root.bind("u", unsure)
+    root.bind("b", lambda e: write(None, "bad_crop"))
     root.bind("a", lambda e: step(-1))
     root.bind("q", lambda e: finish())
     root.bind("<Escape>", lambda e: finish())
@@ -317,14 +343,16 @@ def label(prep_path: Path = PREP) -> int:
 
 def summary(prep_path: Path = PREP) -> dict:
     meta = {m["death_id"]: m for m in json.loads(str(np.load(prep_path)["meta"]))}
-    labs = [r for r in _labels().values() if r["key"] in meta and not r["uncertain"]]
+    rows = [r for r in _labels().values() if r["key"] in meta]
+    labs = [r for r in rows if not r["uncertain"]]
+    refused = Counter(r.get("reason") or "lost (old U key)" for r in rows if r["uncertain"])
     by = defaultdict(Counter)
     icons = Counter()
     for r in labs:
         by[r["stratum"]][r["answer"]["count"]] += 1
         for a in r["answer"]["assisters"]:
             icons[f"{a['agent']}:{a['icon']}"] += 1
-    return {"labelled": len(labs), "count_by_stratum": {s: dict(c) for s, c in by.items()},
+    return {"labelled": len(labs), "refused": dict(refused), "count_by_stratum": {s: dict(c) for s, c in by.items()},
             "icons": dict(icons.most_common())}
 
 
@@ -332,11 +360,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["prep", "label", "summary"])
     ap.add_argument("--n", type=int, default=140)
+    ap.add_argument("--redo", action="store_true",
+                    help="ask again the entries the old U key recorded with no answer")
     args = ap.parse_args()
     if args.cmd == "prep":
         prep(args.n)
     elif args.cmd == "label":
-        return label()
+        return label(redo=args.redo)
     else:
         print(json.dumps(summary(), indent=1))
     return 0
