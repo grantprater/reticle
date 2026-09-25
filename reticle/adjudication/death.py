@@ -54,7 +54,8 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # not a death (`REVIVE_ICONS`).
 # 0.10.0 (2026-09-25): an ability icon is a witness of the killer (its caster,
 # `ability_agent`), and the lineup bounds which abilities an icon can name.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.10.0"
+# 0.11.0 (2026-09-25): a killer the icon named labels portrait exemplars.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.11.0"
 
 #: Weapon-slot icons that mark a revive entry, which is not a death
 #: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
@@ -267,7 +268,9 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
 
 #: Channels whose name may label an exemplar. The portrait channel is not one:
 #: its own output labelling its own references is a model grading itself.
-EXEMPLAR_LABEL_CHANNELS = ("scoreboard_dim", "player_hud")
+#: The ability icon's caster (`killfeed_weapon`) is one too: other pixels than
+#: the portrait, named by a gallery the player labelled.
+EXEMPLAR_LABEL_CHANNELS = ("scoreboard_dim", "player_hud", "killfeed_weapon")
 
 
 def portrait_exemplars(verdicts: list["DeathVerdict"], entries: list[dict]) -> list[dict]:
@@ -275,7 +278,7 @@ def portrait_exemplars(verdicts: list["DeathVerdict"], entries: list[dict]) -> l
 
     A death whose victim the arbiter resolved, with an INDEPENDENT claim from
     `EXEMPLAR_LABEL_CHANNELS` naming that agent, lends its victim views; a
-    killer the player HUD named lends its killer views. A claim that rests on
+    killer the player HUD or the ability icon named lends its killer views. A claim that rests on
     another verdict (`depends_on`, as elimination does) labels nothing, so an
     exemplar never carries a name that was itself inferred from portraits.
     `entries` are the attached entries the verdicts came from, in order.
