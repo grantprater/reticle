@@ -58,7 +58,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from .architecture import foreign_imports, modules
+from .architecture import _parse_source, foreign_imports, modules
 
 ROOT = Path(__file__).resolve().parent.parent
 DECLARATION = ROOT / "ownership.toml"
@@ -87,11 +87,13 @@ IDENTITY_QUESTION = "agent-identity"
 IDENTITY_EMITTER = "identity_distribution_event("
 
 
-def public_names(path: Path) -> set[str]:
+def public_names(path: Path, parsed: ast.Module | None = None) -> set[str]:
     """Top-level names a module defines: what another module may name."""
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-    except (SyntaxError, OSError):
+        tree = parsed if parsed is not None else _parse_source(path)
+    except OSError:
+        return set()
+    if tree is None:
         return set()
     out: set[str] = set()
     for node in tree.body:
@@ -104,15 +106,18 @@ def public_names(path: Path) -> set[str]:
     return out
 
 
-def imports_of(path: Path, package: str = "reticle") -> set[str]:
+def imports_of(path: Path, package: str = "reticle",
+               parsed: ast.Module | None = None) -> set[str]:
     """Sibling modules a file imports, however it spells it.
 
     Dotted for the subpackage, so `from .adjudication.ability import x` reads as
     `adjudication.ability` rather than as a module called `adjudication`.
     """
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-    except (SyntaxError, OSError):
+        tree = parsed if parsed is not None else _parse_source(path)
+    except OSError:
+        return set()
+    if tree is None:
         return set()
     out: set[str] = set()
     for node in ast.walk(tree):
@@ -136,7 +141,8 @@ def imports_of(path: Path, package: str = "reticle") -> set[str]:
 
 
 def reaches(consumer: str, owner: str, paths: dict[str, Path],
-            imports: dict[str, set[str]] | None = None) -> bool:
+            imports: dict[str, set[str]] | None = None,
+            parsed: dict[str, ast.Module | None] | None = None) -> bool:
     """Does `consumer` import `owner`, under either module's spelling?"""
     path = paths.get(consumer)
     if path is None:
@@ -144,7 +150,7 @@ def reaches(consumer: str, owner: str, paths: dict[str, Path],
     if imports is not None and consumer in imports:
         names = imports[consumer]
     else:
-        names = imports_of(path)
+        names = imports_of(path, parsed=parsed.get(consumer) if parsed is not None else None)
         if imports is not None:
             imports[consumer] = names
     tail = owner.split(".")[-1]
@@ -202,6 +208,7 @@ def verify(data: dict | None = None, root: Path | None = None
                          "there, see reticle/ownership.py")]
 
     paths = modules(base)
+    parsed = {module: _parse_source(path) for module, path in paths.items()}
     imports: dict[str, set[str]] = {}
     index = data["_index"]
     held = owners(data)
@@ -265,7 +272,7 @@ def verify(data: dict | None = None, root: Path | None = None
                                  f"owns a question is not infrastructure"))
 
         spelt = owner.replace(".", "/")
-        names = public_names(paths[owner])
+        names = public_names(paths[owner], parsed[owner])
         produces = _listed(entry, "produces")
         if not produces:
             out.append(("ERROR", f"{where} names no `produces` -- an entry "
@@ -293,7 +300,7 @@ def verify(data: dict | None = None, root: Path | None = None
                                      f"not an entry"))
                 continue
             to = str(index[other].get("owner", ""))
-            if to and not reaches(owner, to, paths, imports):
+            if to and not reaches(owner, to, paths, imports, parsed):
                 out.append(("ERROR", f"`{owner}` defers to `{other}` and no "
                                      f"longer imports `{to}` -- either it "
                                      f"restates the rule, or the declaration "
@@ -303,7 +310,7 @@ def verify(data: dict | None = None, root: Path | None = None
             if consumer not in paths:
                 out.append(("ERROR", f"{where} names consumer `{consumer}`, "
                                      f"which is not a module in reticle/"))
-            elif not reaches(consumer, owner, paths, imports):
+            elif not reaches(consumer, owner, paths, imports, parsed):
                 out.append(("WARN", f"{where} names `{consumer}` as a consumer "
                                     f"and it does not import `{owner}` -- move "
                                     f"it to `stored_consumers`, or delete it"))
@@ -312,7 +319,7 @@ def verify(data: dict | None = None, root: Path | None = None
                 out.append(("ERROR", f"{where} names stored consumer "
                                      f"`{consumer}`, which is not a module"))
 
-        reaching = bool(foreign_imports(paths[owner], stems=stems))
+        reaching = bool(foreign_imports(paths[owner], stems=stems, parsed=parsed[owner]))
         if reaching and status != "transitional":
             out.append(("ERROR", f"{where} is `{status}` and `{owner}` imports "
                                  f"the prototypes tree -- that is "
