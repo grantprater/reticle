@@ -1110,7 +1110,6 @@ def adjudicate_round_deaths(
                         entity_id=f"kf:{int(t_ms)}:victim:{slot}",
                         candidates=cands_victim,
                         gallery=gallery,
-                        margin_min=0.07,
                     )
                     v_claims.append(vc)
                 v_verdict = _channel_verdict(v_claims)
@@ -1130,7 +1129,6 @@ def adjudicate_round_deaths(
                             entity_id=f"kf:{int(t_ms)}:killer:{slot}",
                             candidates=cands_killer,
                             gallery=gallery,
-                            margin_min=0.07,
                         )
                         k_claims.append(kc)
                     k_verdict = _channel_verdict(k_claims)

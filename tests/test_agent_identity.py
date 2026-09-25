@@ -83,7 +83,7 @@ class AgentIdentityTests(unittest.TestCase):
         claims = claims_from_killfeed_portraits(
             observations, lineup, entry_id="session:1000:3", gallery=gallery)
         self.assertIsNone(claims[0]["agent"])
-        self.assertIn("portrait_margin", claims[0]["reason"])
+        self.assertIn("portrait_posterior", claims[0]["reason"])
         self.assertEqual(claims[1]["reason"], "portrait_side_unknown")
         self.assertEqual(claims[0]["entity_id"], "session:1000:3:killer")
 
@@ -376,6 +376,32 @@ class PortraitExemplarTests(unittest.TestCase):
         got = self.claim([0.5, 0.5, 0.0, 0.0], [dict(self.EX, composition=[0.5, 0.5, 0.0, 0.0])])
         self.assertEqual(got["agent"], "Breach")
         self.assertEqual(got["depends_on"], [])
+
+    def test_an_exemplar_score_is_weighed_on_its_own_scale(self):
+        """Raw, a 0.68 exemplar of Brimstone outbids Chamber's 0.46 art; as
+        likelihood ratios the two are close, so the portrait refuses."""
+        from reticle.adjudication.identity import claim_from_killfeed_portrait
+        gallery = {"Chamber": [np.array([1.0, 0.0, 0.0, 0.0])],
+                   "Brimstone": [np.array([0.0, 1.0, 0.0, 0.0])]}
+        brim = dict(self.EX, agent="Brimstone", composition=[0.14, 0.42, 0.12, 0.32])
+        got = claim_from_killfeed_portrait(
+            {"composition": [0.46, 0.42, 0.12, 0.0], "t_ms": 1000.0},
+            entity_id="death:1000:victim", candidates=["Chamber", "Brimstone"],
+            gallery=gallery, exemplars=[brim])
+        self.assertIsNone(got["agent"])
+        self.assertTrue(got["reason"].startswith("portrait_posterior"))
+        self.assertEqual(got["evidence"]["likelihood_source"], "art_or_exemplar")
+        self.assertLess(got["evidence"]["posterior"]["Brimstone"], 0.9)
+
+    def test_likelihood_ratios_are_linear_and_posteriors_sum_to_one(self):
+        from reticle.adjudication.identity import (PORTRAIT_LIKELIHOOD, portrait_llr,
+                                                   portrait_posterior)
+        art = PORTRAIT_LIKELIHOOD["art"]
+        self.assertAlmostEqual(portrait_llr("art", (art["same"] + art["diff"]) / 2), 0.0)
+        self.assertGreater(portrait_llr("exemplar", 0.9), portrait_llr("exemplar", 0.6))
+        post = portrait_posterior({"A": 2.0, "B": 0.0, "C": -1.0})
+        self.assertAlmostEqual(sum(post.values()), 1.0)
+        self.assertEqual(max(post, key=post.get), "A")
 
 
 if __name__ == "__main__":

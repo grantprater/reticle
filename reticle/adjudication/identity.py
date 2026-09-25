@@ -45,7 +45,10 @@ from ..roster import N_SLOTS
 from ..track import assign
 
 
-AGENT_IDENTITY_VERSION = "agent-identity-0.2.0"
+# 0.3.0 (2026-09-25): a killfeed portrait names on a posterior over the side's
+# admitted candidates from per-source likelihood ratios (`portrait_llr`), not
+# on the raw-score margin, so official art and exemplars share one scale.
+AGENT_IDENTITY_VERSION = "agent-identity-0.3.0"
 
 #: Borrowed from `lineup.MARGIN_MIN` and NOT refitted here. It keeps every
 #: correct player portrait on the one population with a truth --
@@ -67,6 +70,27 @@ PORTRAIT_MARGIN_MIN = 0.07
 #: The side assignment's margin gate, fitted on one five-slot lineup and
 #: provisional; `lineup`'s docstring carries the measurement.
 SIDE_MARGIN_MIN = 0.07
+
+#: Per reference source, the mean shift-penalised intersection of a killfeed
+#: portrait with its own agent's references (`same`) and with another admitted
+#: agent's (`diff`), and their common within-class variance. Fitted by
+#: `prototypes/portrait_likelihood.py` on the followed views of 865 entry roles
+#: that the reference channels (`reliability.REFERENCE_CHANNELS`) name, over
+#: the 19 sessions with a lineup, each view weighted by one over its entry's
+#: views; the player's 146 uniform killer labels were held out. Exemplars sit
+#: far higher than art for the same agent (medians 0.89 and 0.53), which is why
+#: a raw exemplar score outbid another agent's art. Per-agent means ranked
+#: held-out art worse than pooled ones (0.925 against 0.942 of entities), so
+#: the table is pooled. Outcome: `portrait-likelihood-calibration` in the
+#: store's `notes/predictions.jsonl`.
+PORTRAIT_LIKELIHOOD = {
+    "art": {"same": 0.5230, "diff": 0.2772, "var": 0.006164},
+    "exemplar": {"same": 0.8603, "diff": 0.3892, "var": 0.010014},
+}
+
+#: The posterior the best admitted agent needs, uniform prior over the side's
+#: admitted candidates. Set before scoring on the held-out labels.
+PORTRAIT_POSTERIOR_MIN = 0.9
 
 MEASURED_SURFACES = ("killfeed_portrait",)
 MINIMAP_SURFACES = ("minimap_portrait",)
@@ -445,6 +469,26 @@ def _official_scores(observed, candidates, gallery):
     return scores
 
 
+def portrait_llr(source: str, score: float) -> float:
+    """Log likelihood ratio that a portrait is agent A, from its score against
+    A's references in one source (`PORTRAIT_LIKELIHOOD`): two Gaussians with a
+    common spread, so the ratio is linear in the score."""
+    t = PORTRAIT_LIKELIHOOD[source]
+    return (t["same"] - t["diff"]) / t["var"] * (score - (t["same"] + t["diff"]) / 2.0)
+
+
+def portrait_posterior(llrs: dict) -> dict:
+    """Posterior over the scored agents under a uniform prior: each agent's
+    likelihood ratio over their sum, treating the scores as independent given
+    the true agent."""
+    if not llrs:
+        return {}
+    top = max(llrs.values())
+    weights = {a: float(np.exp(v - top)) for a, v in llrs.items()}
+    total = sum(weights.values())
+    return {a: w / total for a, w in weights.items()}
+
+
 def side_candidates(rows) -> dict:
     """Split one side's lineup rows into who may be named and who may not.
 
@@ -477,7 +521,7 @@ def side_candidates(rows) -> dict:
 
 def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
                                  rivals=(), source_version="killfeed-portrait",
-                                 margin_min=PORTRAIT_MARGIN_MIN, exemplars=(),
+                                 posterior_min=PORTRAIT_POSTERIOR_MIN, exemplars=(),
                                  exclude_entry=None) -> dict:
     """Turn one stored killfeed portrait descriptor into an identity claim.
 
@@ -487,10 +531,19 @@ def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
     ``rivals`` are admitted to the comparison and barred from the answer; see
     `side_candidates`. The descriptor stays in evidence when the match refuses.
 
+    **Scores become likelihoods before they are compared.** Each admitted
+    agent's score against the official art becomes a log likelihood ratio
+    (`portrait_llr`), and the posterior over the admitted agents
+    (`portrait_posterior`) must reach ``posterior_min``. Where the art alone
+    refuses, each agent takes the better of its art and exemplar ratios: a raw
+    exemplar score sits on a higher scale than art, and compared raw a clean
+    exemplar of one agent outbid another agent's weak art (Chamber read
+    Brimstone on `7010b3d62460`). A refusal carries the posterior.
+
     **A reader that already refused is quoted, never re-diagnosed.** The
     observation's own `reason` says what the pixels did -- no gap past the
     name, a band too short -- and computing a second reason here reports a thin
-    margin for a portrait nothing ever described.
+    posterior for a portrait nothing ever described.
     """
     stored = str(observation.get("reason") or "").strip()
     evidence = {
@@ -510,63 +563,71 @@ def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
             source_version=source_version,
             observed_at_ms=observation.get("t_ms"), evidence=evidence)
 
-    if exemplars:
-        # Exemplars are consulted only where the official art refuses, so a
-        # name the art already supports keeps its independence.
-        plain = claim_from_killfeed_portrait(
-            observation, entity_id=entity_id, candidates=candidates, gallery=gallery,
-            rivals=rivals, source_version=source_version, margin_min=margin_min)
-        if plain["agent"] is not None:
-            return plain
     admitted = list(candidates) + list(rivals)
-    sources = {}
     shifts = observation.get("shifts")
-    scores = _portrait_scores(observation.get("composition"), admitted, gallery,
-                              exemplars, exclude_entry, sources, shifts=shifts)
-    ordered = sorted(scores.items(), key=lambda pair: (-pair[1], pair[0]))
-    best = ordered[0] if ordered else (None, 0.0)
-    runner = ordered[1] if len(ordered) > 1 else (None, 0.0)
-    margin = best[1] - runner[1] if len(ordered) > 1 else 0.0
+    composition = observation.get("composition")
+    art = _portrait_scores(composition, admitted, gallery, shifts=shifts)
+    llrs = {a: portrait_llr("art", v) for a, v in art.items()}
+    reason, best, posterior = _portrait_decision(llrs, evidence["rivals"], posterior_min)
+    # Exemplars are consulted only where the official art refuses, so a name
+    # the art already supports keeps its independence.
+    used, exemplar = "art", None
+    if exemplars and reason is not None and reason.startswith("portrait_posterior"):
+        sources = {}
+        mine = _portrait_scores(composition, admitted, {}, exemplars, exclude_entry,
+                                sources, shifts=shifts)
+        ex = {a: portrait_llr("exemplar", v) for a, v in mine.items()}
+        llrs = {a: max(v, ex.get(a, -np.inf)) for a, v in llrs.items()}
+        used = "art_or_exemplar"
+        reason, best, posterior = _portrait_decision(llrs, evidence["rivals"], posterior_min)
+        # A name an exemplar decided rests on the witness that labelled it.
+        if reason is None and ex.get(best, -np.inf) > portrait_llr("art", art[best]):
+            exemplar = sources.get(best)
+    ordered = sorted(art.items(), key=lambda pair: (-pair[1], pair[0]))
     evidence.update({
         "scores": {name: round(score, 6) for name, score in ordered},
-        "best_guess": best[0],
-        "margin": round(margin, 6),
+        "best_guess": best,
+        "margin": round(ordered[0][1] - ordered[1][1], 6) if len(ordered) > 1 else 0.0,
+        "posterior": {a: round(p, 6) for a, p in sorted(posterior.items())},
+        "likelihood_source": used,
     })
     if shifts:
         evidence["shifts_evaluated"] = sorted(shifts.keys())
-
-    barred = set(evidence["rivals"])
-    if not ordered:
-        reason = "portrait_no_comparable_candidate"
-    elif best[0] in barred:
-        # The portrait looks most like a slot the LINEUP could not name. This
-        # is the honest refusal: the name exists and no witness stands behind
-        # it.
-        reason = f"portrait_best_is_refused_slot {best[0]}"
-    elif len(ordered) == 1:
-        # One admissible agent is a constraint result, not a separation. The
-        # lineup already named it; the portrait adds nothing and says so.
-        reason = "portrait_single_candidate"
-    elif margin < margin_min:
-        reason = f"portrait_margin {margin:.3f} below {margin_min}"
-    else:
-        reason = None
-    # A name an exemplar decided rests on the witness that labelled it.
-    exemplar = sources.get(best[0]) if reason is None else None
     if exemplar is not None:
         evidence["exemplar"] = {k: exemplar.get(k) for k in
                                 ("label_entity", "label_channel", "entry_t_ms", "role")}
     return identity_claim(
-        entity_id, best[0] if reason is None else None,
+        entity_id, best if reason is None else None,
         channel="killfeed_portrait", reason=reason,
         source_version=source_version,
         observed_at_ms=observation.get("t_ms"), evidence=evidence,
         depends_on=[exemplar["label_entity"]] if exemplar is not None else None)
 
 
+def _portrait_decision(llrs, barred, posterior_min):
+    """(reason or None, best agent, posterior) for one portrait's ratios."""
+    posterior = portrait_posterior(llrs)
+    if not posterior:
+        return "portrait_no_comparable_candidate", None, posterior
+    best = max(sorted(posterior), key=posterior.get)
+    if best in barred:
+        # The portrait looks most like a slot the LINEUP could not name. This
+        # is the honest refusal: the name exists and no witness stands behind
+        # it.
+        return f"portrait_best_is_refused_slot {best}", best, posterior
+    if len(posterior) == 1:
+        # One admissible agent is a constraint result, not a separation. The
+        # lineup already named it; the portrait adds nothing and says so.
+        return "portrait_single_candidate", best, posterior
+    if posterior[best] < posterior_min:
+        return (f"portrait_posterior {posterior[best]:.3f} below {posterior_min}",
+                best, posterior)
+    return None, best, posterior
+
+
 def claims_from_killfeed_portraits(observations, lineup, *, entry_id, gallery,
                                    source_version="killfeed-portrait",
-                                   margin_min=PORTRAIT_MARGIN_MIN) -> list[dict]:
+                                   posterior_min=PORTRAIT_POSTERIOR_MIN) -> list[dict]:
     """Publish one constrained portrait claim per killfeed entry role.
 
     ``entry_id`` is supplied by the killfeed entry adjudicator and must remain
@@ -611,7 +672,7 @@ def claims_from_killfeed_portraits(observations, lineup, *, entry_id, gallery,
         out.append(claim_from_killfeed_portrait(
             observation, entity_id=f"{entry_id}:{role}",
             candidates=split["named"], rivals=split["rivals"], gallery=gallery,
-            source_version=source_version, margin_min=margin_min))
+            source_version=source_version, posterior_min=posterior_min))
     return out
 
 
