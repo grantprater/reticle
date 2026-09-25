@@ -10,8 +10,10 @@ pixels repeat, entries join into players and match identity becomes an
 assignment of five names to five agents per side.
 
 `extract` reads each stored death verdict's entry from the `hud` ROI crop
-cache (killfeed ROI; no decode) at 0.5 s and 1.0 s past its onset, in its
-first slot, and cuts each name's white-text mask (`killfeed._plate_masks`)
+cache (killfeed ROI; no decode) at two of the views death adjudication
+followed (a third and two thirds through the claim's observations), each at
+the slot it was followed in -- the stack rises as older entries expire, so
+the verdict's first slot holds another entry later -- and cuts each name's white-text mask (`killfeed._plate_masks`)
 between the portrait and the weapon icon: the killer's from its portrait's
 right edge to the icon, the victim's from the icon to its portrait, keeping
 the last ink group (gaps over `killfeed.NAME_GAP`) so a headshot or wallbang
@@ -56,13 +58,20 @@ SIDS = ("043bafca271a 223d636bf8d2 3694746e4e54 5822b6646448 587c15b07779 59c70f
         "b3b9defb6fd7 b7d24102a6f6 bdfdcf009dba bfad2778a372 c40d950031bb e37fdeca944f "
         "ff636d173b07").split()
 STORE = Store()
-OFFSETS_MS = (500.0, 1000.0)
 IOU_MIN = 0.8
 #: Set from the two frames of one entry (labels-free); see `score`.
 NCC_MIN = 0.9
 TEXT_SHARE = 0.8
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 MAX_TEXT_H = 15
+#: A crop narrower than this is portrait art at the victim's bound, not a
+#: name; the shortest names seen measure about 29 px.
+MIN_NAME_W = 12
+#: The white top-hat's side: wider than a stroke, so the plate's brightness,
+#: which changes with the scene behind it, is removed and the text kept.
+TOPHAT = 7
+#: Widths of one name's crop differ by up to this much between frames.
+WIDTH_TOL = 3
 
 
 def _path(sid):
@@ -102,7 +111,7 @@ def _cut(white: np.ndarray, whiteness: np.ndarray, a: int, z: int, rows, last: b
             if g[1] - g[0] >= 3 and g[1] <= (z - a) - 2
             and np.ptp(np.where(line[:, g[0]:g[1]].any(axis=1))[0]) < MAX_TEXT_H
             and line[:, g[0]:g[1]].sum() >= TEXT_SHARE * max(1, full[:, g[0]:g[1]].sum())]
-    if not keep:
+    if not keep or keep[-1][1] - keep[-1][0] < MIN_NAME_W:
         return None
     g0, g1 = keep[-1]
     ys = np.where(line[:, g0:g1].any(axis=1))[0]
@@ -118,6 +127,24 @@ def _reference(ver: dict) -> str | None:
     return next(iter(refs)) if len(refs) == 1 else None
 
 
+def _followed(verdict: dict) -> list[tuple[float, int]]:
+    """Two (t_ms, slot) views of the entry, as death adjudication followed it;
+    the killer's claim first, the victim's where the killer has none. The
+    view's slot is the one in its `observation_key` (`sid:frame:slot:role`);
+    the observation's `evidence.slot` is the entry's first slot."""
+    meta = verdict.get("metadata") or {}
+    for key in ("killer_identity", "identity"):
+        obs = [(float(o["t_ms"]), int(o["observation_key"].split(":")[2]))
+               for c in (meta.get(key) or {}).get("claims", []) if c["channel"] == "killfeed_portrait"
+               for o in (c.get("evidence") or {}).get("observations", [])
+               if o.get("observation_key")]
+        obs = sorted(set(obs))
+        if obs:
+            picks = sorted({len(obs) // 3, (2 * len(obs)) // 3})
+            return [obs[i] for i in picks]
+    return []
+
+
 def extract(sid: str) -> list[dict]:
     man = STORE.read_manifest(sid)
     prof = get_profile(man["source_profile"])
@@ -128,12 +155,12 @@ def extract(sid: str) -> list[dict]:
     rows = [r for r in STORE.read_events("death", sid) if r.get("kind") == "death_verdict"]
     out = []
     for r in rows:
-        for k, off in enumerate(OFFSETS_MS):
-            smp = next(iter(cache.samples([float(r["t_ms"]) + off], rois="killfeed")), None)
+        for k, (t_ms, slot) in enumerate(_followed(r)):
+            smp = next(iter(cache.samples([t_ms], rois="killfeed")), None)
             if smp is None:
                 continue
             views = kf.analyse_killfeed(smp.frame, reader.roi, reader.w, reader.h, reader.mask, prof.name)
-            v = next((v for v in views if v.slot == r["slot"] and v.wx1 > v.wx0), None)
+            v = next((v for v in views if v.slot == slot and v.wx1 > v.wx0), None)
             if v is None:
                 continue
             crop = smp.frame[y0:y1, x0:x1]
@@ -165,6 +192,8 @@ def extract(sid: str) -> list[dict]:
                 me = (v.verdict == "kill" and role == "killer") or (v.verdict == "death" and role == "victim")
                 img = crop[v.y0:v.y1][:, cut[2]:cut[2] + cut[0].shape[1]]
                 out.append({"death_id": r["death_id"], "t_ms": r["t_ms"], "frame": k, "role": role,
+                            "t_view": t_ms, "slot": slot,
+                            "gap": (z - cut[2] - cut[0].shape[1]) if role == "victim" else None,
                             "team": team, "me": bool(me), "agent": ver.get("agent"),
                             "status": ver.get("status"), "reference": _reference(ver),
                             "mask": cut[0], "gray": cut[1], "image": img})
@@ -194,15 +223,22 @@ def iou(a: np.ndarray, b: np.ndarray) -> float:
     return float(best)
 
 
+def _text(g: np.ndarray) -> np.ndarray:
+    """The whiteness less the plate behind it (white top-hat)."""
+    k = np.ones((TOPHAT, TOPHAT), np.uint8)
+    return cv2.morphologyEx(g.astype(np.float32), cv2.MORPH_TOPHAT, k)
+
+
 def ncc(a: np.ndarray, b: np.ndarray) -> float:
-    """Normalised correlation of two whiteness crops, best over +-1 px
-    horizontal and +-2 px vertical shifts; 0 when their widths differ by more
-    than 1 px."""
-    if abs(a.shape[0] - b.shape[0]) > 2 or abs(a.shape[1] - b.shape[1]) > 1:
+    """Normalised correlation of two crops' text (`_text`), best over shifts
+    of up to `WIDTH_TOL` px horizontally and 2 px vertically; 0 when their
+    widths differ by more than `WIDTH_TOL`."""
+    if abs(a.shape[0] - b.shape[0]) > 2 or abs(a.shape[1] - b.shape[1]) > WIDTH_TOL:
         return 0.0
+    a, b = _text(a), _text(b)
     best = -1.0
     for dy in (-2, -1, 0, 1, 2):
-        for dx in (-1, 0, 1):
+        for dx in range(-WIDTH_TOL, WIDTH_TOL + 1):
             ya, yb = max(0, dy), max(0, -dy)
             xa, xb = max(0, dx), max(0, -dx)
             h = min(a.shape[0] - ya, b.shape[0] - yb)
@@ -218,7 +254,9 @@ def ncc(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def same_name(a: dict, b: dict) -> bool:
-    return ncc(a["gray"], b["gray"]) >= NCC_MIN
+    """One player: the same name text on the same plate side. A hidden name
+    prints the agent's, so an ally and an enemy on one agent print alike."""
+    return a["team"] == b["team"] and ncc(a["gray"], b["gray"]) >= NCC_MIN
 
 
 def clusters(items: list[dict]) -> list[list[int]]:
@@ -252,7 +290,7 @@ def score(sids: list[str]) -> dict:
             for j in range(i + 1, len(one)):
                 a, b = one[i], one[j]
                 x = ncc(a["gray"], b["gray"])
-                m = x >= NCC_MIN
+                m = x >= NCC_MIN and a["team"] == b["team"]
                 for tier, key in (("ref", "reference"), ("res", "agent")):
                     if a[key] is None or b[key] is None:
                         continue
@@ -295,7 +333,8 @@ def score(sids: list[str]) -> dict:
             continue
         ag = max(a["agents"], key=a["agents"].get)[1]
         hits = {b["sid"] for b in reps if b["sid"] != a["sid"] and b["agents"]
-                and max(b["agents"], key=b["agents"].get)[1] == ag and same_name(a, b)}
+                and max(b["agents"], key=b["agents"].get)[1] == ag
+                and ncc(a["gray"], b["gray"]) >= NCC_MIN}
         if hits:
             hidden.append((a["sid"], ag, a["n"], sorted(hits)))
     per = Counter(h[0] for h in hidden)
