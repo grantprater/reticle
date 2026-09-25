@@ -20,11 +20,15 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.1.0"
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.2.0"
 
 #: White mask cut for killfeed line art against colored plate backgrounds.
-ICON_WHITE_V_MIN = 185
-ICON_WHITE_S_MAX = 75
+#: The icon is drawn at V >= 240 and S < 20; the translucent green plate over a
+#: bright scene reaches S 50-75 at V 185-200, and the old cut (185, 75) admitted
+#: it, inflating the tight box and splitting one Vandal into three groups on
+#: a06f04a0059f (prototypes/weapon_icons.py).
+ICON_WHITE_V_MIN = 220
+ICON_WHITE_S_MAX = 45
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
