@@ -105,6 +105,62 @@ coupled only where entities interact.
   reviewed by the player, since structure found in measurement artifacts looks
   like structure found in play.
 
+## Inference architecture
+
+Agreed with the player on 2026-09-25; the route from today's agreement
+counting to the model above.
+
+**Three roles.**
+
+1. **Readers** emit calibrated likelihoods over a declared candidate set:
+   P(observation | hypothesis) for each hypothesis they scored. They never
+   decide, and never apply a prior to their own output.
+2. **Beliefs** live in named, owned variables: `name_agent[match, name]`,
+   `entry_victim[death]`, `alive[side, agent, t]`. Each has one owner in
+   `ownership.toml`, as questions do now.
+3. **Inference** combines factors -- evidence and constraints -- into
+   posteriors. A variable's value is published when its posterior is
+   confident; a refusal carries the posterior, so a consumer sees what the
+   evidence favoured and by how much.
+
+**Gating, not scoring.** A prior narrows WHICH hypotheses a reader scores (the
+side's five, the match's ten, the slot's predicted agent); it never changes a
+score. When even the best gated candidate fits poorly, the reader widens to
+the full set and records why: that is the surprise path of "Continue the
+prior". A gated likelihood table declares its scope, so inference knows the
+set it covers.
+
+**`identity_claim` becomes a factor.** It already carries a channel, an entity
+key, evidence and `depends_on`. It gains a likelihood table over its candidates
+and the scope that produced them. The arbiter keeps its interface -- claims
+in, verdicts out -- and changes its internals from agreement counting to a
+posterior per entity, then per match. Every name still passes through
+`adjudication.identity`.
+
+**Double counting becomes structural.** A factor attaches to the graph once;
+two claims from one observation are one factor, and repeated views of one
+entry are one channel's evidence, not a dozen witnesses. `depends_on` stays as
+provenance: a claim whose name rested on another verdict attaches no new
+factor for that verdict's information. The prior that gated a reader is not
+counted again in its output.
+
+**Name continuity.** A killfeed name should belong to one player, hence one
+agent, for a whole match. If stage 2 confirms it, match identity is an
+assignment of five names to five agents per side: at most 5! = 120 hypotheses,
+small enough to enumerate exactly. Every entry then informs its name's
+assignment, and the side's five-distinct-agents rule
+[domain:rounds/agent-uniqueness] couples the names.
+
+**Stages.**
+
+1. Per-source likelihood-ratio calibration of portrait scores (official art;
+   in-session exemplars), fitted on independently witnessed entries only.
+2. Measure name continuity from the killfeed crop cache.
+3. Factor form of `identity_claim`: a likelihood table and a declared scope.
+4. A per-match identity graph in the arbiter over names and agents.
+5. `agent-alive` as a time chain (deaths and revives as transitions).
+6. Readers query the belief store for their candidate sets.
+
 ## Candidate signatures
 
 Hypotheses for the player to define or reject, not domain facts:
