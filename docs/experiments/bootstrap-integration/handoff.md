@@ -67,3 +67,18 @@ C:/Users/grant/reticle/.venv/Scripts/python.exe tools/bootstrap_b_replay.py --st
 C:/Users/grant/reticle/.venv/Scripts/python.exe tools/bootstrap_compare.py --reference .experiment-store/bootstrap-integration/production-replay-001/comparison_reference.json --candidate .experiment-store/bootstrap-integration/production-replay-001/comparison_candidate.json --spec .experiment-store/bootstrap-integration/production-replay-001/comparison_spec.json --output .experiment-store/bootstrap-integration/production-replay-001/comparison_report.json
 C:/Users/grant/reticle/.venv/Scripts/python.exe -m reticle doctor
 ```
+
+## Closed (2026-09-24)
+
+The player answered the source question: the two `Me` rows are distinct kills.
+Me -> chxck first appeared at 409000 ms in slot 1 and had moved to slot 0 by
+412500 ms; Me -> Lil2Foot first appeared at 412000 ms in slot 1. Production's
+`death:a06f04a0059f:412000:1` is the right binding, and the legacy adapter's
+slot-0 key was the chxck entry after it moved up. Both entries show a Vandal
+headshot, so their dividers share a column and cannot separate them; the victim
+can. The player notes a bright white background bleeds through both entries at
+410 s. The answer is stored at `<store>/labels/killfeed_entry/a06f04a0059f.jsonl`.
+
+The learner changed no name on the development or transfer slice, so this
+answer scores production, not the learner. The branch is closed unmerged.
+`tools/bootstrap_compare.py` is the reusable piece.
