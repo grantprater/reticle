@@ -320,14 +320,69 @@ def _killfeed_name(track, portraits, role, split, gallery):
     return top[0][0]
 
 
+def bind_deaths(ps, rounds, death_rows) -> tuple[list[dict], list[dict]]:
+    """Bind report rows to stored death verdicts (`reticle deaths`), and the
+    identity claims that binding carries.
+
+    A death panel's KILLED YOU row binds to the player's death -- not a second
+    life -- first seen within `DEATH_LOOKBACK_MS` before the panel opens, as
+    entity `<death_id>:killer`. A lone KILLED row binds to the player's lone
+    kill in the round (before the panel, for a death panel), as `<death_id>`.
+    Each binding publishes the death entity's name on the row's cluster with
+    `depends_on` that entity: the death's name rests on the same killfeed
+    portraits, so it can disagree but is never independent. Returns
+    (bindings, claims); rows with no or several candidates are not bound.
+    """
+    from .identity import identity_claim
+    by_no = {r["round_no"]: r for r in rounds}
+    deaths = [d for d in death_rows if d.get("kind") == "death_verdict"]
+    bindings, claims = [], []
+    for p in ps:
+        rnd = by_no.get(p.get("round_no"))
+        if rnd is None:
+            continue
+        a, close = rnd["t_start_ms"], rnd.get("t_close_ms") or rnd["t_end_ms"]
+        mine = [d for d in deaths if d["kf_player_death"] and not d["is_second_life"]
+                and p["kind"] == "death"
+                and p["start_ms"] - DEATH_LOOKBACK_MS <= d["t_ms"] <= p["start_ms"] + 1000]
+        kills = [d for d in deaths if d["kf_player_kill"] and a <= d["t_ms"] < close
+                 and (p["kind"] != "death" or d["t_ms"] <= p["start_ms"])]
+        killed = [k for k, row in enumerate(p["rows"]) if row.get("killed")]
+        for k, row in enumerate(p["rows"]):
+            if row.get("entity_id") is None:
+                continue
+            if row.get("killed_you") and len(mine) == 1:
+                d, role, key = mine[0], "killer", "killer_identity"
+                entity = f"{d['death_id']}:killer"
+            elif row.get("killed") and len(killed) == 1 and len(kills) == 1:
+                d, role, key = kills[0], "victim", "identity"
+                entity = d["death_id"]
+            else:
+                continue
+            verdict = d["metadata"].get(key) or {}
+            name = verdict.get("agent") if verdict.get("status") == "resolved" else None
+            bindings.append({"panel_start_ms": p["start_ms"], "row": k, "role": role,
+                             "entity_id": row["entity_id"], "death_entity": entity})
+            claims.append(identity_claim(
+                row["entity_id"], name, channel="death_verdict", binding_from="combat_report",
+                observed_at_ms=p["start_ms"], depends_on=[entity],
+                source_version=d.get("death_adjudication_version"),
+                evidence={"panel_start_ms": p["start_ms"], "row": k, "role": role,
+                          "death_entity": entity},
+                reason=None if name else f"death {role} {verdict.get('status', 'unread')}"))
+    return bindings, claims
+
+
 def name_rows(session_id, ps, rounds, kill_tracks, death_tracks, portraits, board,
-              enemy_rows, gallery):
+              enemy_rows, gallery, death_rows=()):
     """Identity claims and verdicts for report rows, keyed by portrait cluster.
 
     `board` is one dict per enemy scoreboard row read: t, agent, kills, deaths.
     `kill_tracks` and `death_tracks` are the player's counted killfeed tracks;
-    `portraits` the stored killfeed portrait observations. Each panel row gets
-    `entity_id`; the name lives only in the arbiter's verdicts.
+    `portraits` the stored killfeed portrait observations. `death_rows` is the
+    stored `death` stream; given it, `bind_deaths` binds KILLED YOU and lone
+    KILLED rows to death entities and sets `death_entity` on them. Each panel
+    row gets `entity_id`; the name lives only in the arbiter's verdicts.
     """
     from ..killfeed import KILLFEED_PORTRAIT_VERSION
     from .identity import adjudicate_agent_identity, identity_claim, side_candidates
@@ -379,4 +434,9 @@ def name_rows(session_id, ps, rounds, kill_tracks, death_tracks, portraits, boar
                     row["entity_id"], next(iter(bound)), channel="scoreboard_kd",
                     binding_from="combat_report", observed_at_ms=p["start_ms"],
                     evidence=evidence))
+    bindings, bound = bind_deaths(ps, rounds, death_rows)
+    for b in bindings:
+        ps_row = next(p for p in ps if p["start_ms"] == b["panel_start_ms"])["rows"][b["row"]]
+        ps_row["death_entity"] = b["death_entity"]
+    claims += bound
     return claims, adjudicate_agent_identity(claims)

@@ -264,7 +264,7 @@ def track_entries(times, masks, dividers=None) -> list[dict]:
                 if best is None or d < best:
                     best, bi = d, ai
             if bi is None:
-                active.append({"t_first": t, "t_last": t, "slot": slot,
+                active.append({"t_first": t, "t_last": t, "slot": slot, "slot_first": slot,
                                "n_obs": 1, "sig": sig})
                 used.add(len(active) - 1)
             else:

@@ -172,7 +172,9 @@ COMBAT_REPORT_VERSION = "combat-report-0.3.0"
 # 0.2.0: per-round verdict (report where shown, else killfeed) with its source.
 # 0.3.0: rows named through adjudication.identity by portrait cluster.
 # 0.4.0: killfeed witnesses take enemy portraits only.
-COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.4.0"
+# 0.5.0: round_verdicts accessor; KILLED YOU and lone KILLED rows bind to
+#        stored death entities (`bind_deaths`) and carry death_verdict claims.
+COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.5.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

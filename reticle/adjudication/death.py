@@ -46,7 +46,9 @@ from .identity import (adjudicate_agent_identity, claim_from_killfeed_portrait,
                        identity_claim, identity_events, side_candidates, _channel_verdict)
 from .weapon import classify_killfeed_icon
 
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.6.0"
+# 0.7.0 (2026-09-24): deaths keyed by entry onset and slot (`death_key`), not
+# list index; `reticle deaths` stores verdicts from stored data only.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.7.0"
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 
@@ -315,6 +317,64 @@ def second_life_death(t_first: float, t_last: float, observations: list[dict]) -
     if not votes:
         return None
     return sum(votes) * 2 > len(votes)
+
+
+def death_key(session_id: str, t_ms: float, slot: int) -> str:
+    """A death's stable entity key: the session, the first-seen time of its
+    killfeed entry track and the slot it appeared in. Two entries cannot
+    appear in one slot of one frame, and the key does not move when detection
+    adds or drops another entry."""
+    return f"death:{session_id}:{int(float(t_ms))}:{int(slot)}"
+
+
+def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[dict]:
+    """One dict per counted killfeed entry track over the whole session, from
+    stored HUD columns only: first-seen time, the slot it appeared in, the
+    victim's plate side there, and whether it is the player's kill or death.
+
+    Tracked over the session, not per round: a death on a round's last sample
+    is a one-frame track inside the round and would be refused. The player's
+    kill and death are the tracks `rounds` counts (`merge_split_tracks`), each
+    given to the entry on screen at its onset whose divider agrees. A player death
+    that `second_life_death` calls a second life carries `is_second_life`.
+    """
+    from ..checks import KF_SIG_TOL, merge_split_tracks, track_entries
+    t = hud["t_ms"]
+    at = {x: i for i, x in enumerate(t)}
+    col = lambda c: hud.get(c) or [None] * len(t)
+    mine = {kind: merge_split_tracks([e for e in track_entries(t, hud[f"kf_{kind}_mask"],
+                                                                col(f"kf_{kind}_wx"))
+                                      if e["counted"]])
+            for kind in ("kill", "death")}
+    tracks = [e for e in track_entries(t, hud["kf_entry_mask"], col("kf_entry_wx")) if e["counted"]]
+    # A player track belongs to the entry on screen when it was first seen
+    # whose divider agrees, the latest such onset first (the attribution can
+    # come a sample after the plate), then the one that appeared in its slot.
+    owner = {"kill": {}, "death": {}}
+    for kind, seq in mine.items():
+        for k in seq:
+            fits = [j for j, e in enumerate(tracks)
+                    if e["t_first"] <= k["t_first"] <= e["t_last"]
+                    and (k.get("sig") is None or e.get("sig") is None
+                         or abs(k["sig"] - e["sig"]) <= KF_SIG_TOL)]
+            if fits:
+                owner[kind].setdefault(max(fits, key=lambda j: (
+                    tracks[j]["t_first"], tracks[j]["slot_first"] == k["slot_first"])), k)
+    out = []
+    for j, e in enumerate(tracks):
+        i, slot = at[e["t_first"]], e["slot_first"]
+        bit = lambda c: bool((hud[c][i] or 0) & (1 << slot))
+        ally, enemy = bit("kf_ally_mask"), bit("kf_enemy_mask")
+        pk = j in owner["kill"]
+        dt = owner["death"].get(j)
+        out.append({"t_ms": e["t_first"], "t_first": e["t_first"], "t_last": e["t_last"],
+                    "slot": slot, "side": "ally" if ally else "enemy" if enemy else "unknown",
+                    "victim_ally": ally, "kf_player_kill": pk, "kf_player_death": dt is not None,
+                    "is_second_life": bool(dt is not None and second_life is not None
+                                           and second_life_death(dt["t_first"], dt["t_last"],
+                                                                 second_life)),
+                    "claim": None, "location": None, "killer_location": None})
+    return out
 
 
 def stored_second_life(portrait_rows: list[dict], version: str) -> list[dict] | None:
@@ -883,7 +943,10 @@ def adjudicate_round_deaths(
     death_ids = []
     for i, kf in enumerate(killfeed_entries):
         side_i = kf.get("side") or ("ally" if kf.get("victim_ally") is True else "enemy" if kf.get("victim_ally") is False else kf.get("victim_side", "enemy"))
-        death_ids.append(f"death:{session_id}:{int(float(kf.get('t_ms', 0.0)))}:{side_i}:{i}")
+        # The stable key when the entry knows its slot; the list index only
+        # for callers that never had one, since it moves with detection.
+        death_ids.append(death_key(session_id, kf["t_ms"], kf["slot"]) if kf.get("slot") is not None
+                         else f"death:{session_id}:{int(float(kf.get('t_ms', 0.0)))}:{side_i}:{i}")
     sorted_revives = sorted(all_revives, key=lambda r: float(r.get("t_ms", 0.0)))
     applied_revives = set()
 
@@ -1456,3 +1519,60 @@ def build_match_roster_timeline(
     """Convenience helper to build a full match's living roster timeline."""
     tracker = LivingRosterTracker(lineup, starting_role=starting_role)
     return tracker.build_match_timeline(rounds)
+
+
+#: Exemplar passes before giving up on the exemplar set settling.
+MAX_EXEMPLAR_PASSES = 4
+
+
+def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, roster_table,
+                              portraits: list[dict], board_rows: list[dict], lineup: dict,
+                              gallery: dict, *, source_version: str,
+                              second_life: list[dict] | None = None) -> dict:
+    """Every round's deaths from stored data only; decodes no video.
+
+    Per round: the stored killfeed portraits against the official art, then the
+    scoreboard's dimmed rows gated on the roster (`scoreboard_death_claims`).
+    `portrait_exemplars` then takes the portraits of every death a non-portrait
+    witness named, and the next pass also scores against those, never an
+    entry's own, until the exemplar set stops changing. Returns the entries and
+    verdicts per round of the last pass and the number of passes.
+    """
+    from ..reconciliation import audit_board_alive, contradicted_openings
+    from .scoreboard import scoreboard_openings
+    from ..rounds import in_round_window
+    hud, roster = hud_table.to_pydict(), roster_table.to_pylist()
+    player_agent = (lineup.get("player") or {}).get("agent")
+    entries = session_entries(hud, second_life)
+    ends = {r["t_end_ms"] for r in rounds}
+    base = [(r, in_round_window(entries, r["t_start_ms"], r["t_end_ms"],
+                                r.get("t_close_ms") or r["t_end_ms"], ends)) for r in rounds]
+    exemplars, keys, n = [], None, 0
+    while True:
+        results = []
+        for r, raw in base:
+            a, z = r["t_start_ms"], r.get("t_close_ms") or r["t_end_ms"]
+            entries = attach_stored_killfeed_portraits(raw, portraits, lineup, gallery,
+                                                       source_version=source_version,
+                                                       exemplars=exemplars)
+            window = [row for row in roster if a <= row["t_ms"] <= z]
+            first = adjudicate_round_deaths(session_id, entries, window,
+                                            player_agent=player_agent)
+            openings = scoreboard_openings([row for row in board_rows
+                                            if a <= float(row.get("t_ms", -1)) <= z])
+            board = scoreboard_death_claims(
+                entries, openings, {i: v.victim for i, v in enumerate(first)},
+                {i for i, v in enumerate(first) if v.is_second_life},
+                contradicted_openings(audit_board_alive(openings, hud_table, roster_table)))
+            verdicts = adjudicate_round_deaths(session_id, entries, window,
+                                               player_agent=player_agent,
+                                               scoreboard_claims=board)
+            results.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts})
+        n += 1
+        harvested = portrait_exemplars([v for x in results for v in x["verdicts"]],
+                                       [e for x in results for e in x["entries"]])
+        new = {x["observation_key"] for x in harvested}
+        if new == keys or n >= MAX_EXEMPLAR_PASSES:
+            return {"rounds": results, "passes": n}
+        keys, exemplars = new, harvested
+

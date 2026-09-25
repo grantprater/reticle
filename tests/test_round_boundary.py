@@ -105,6 +105,24 @@ class SecondLife(unittest.TestCase):
 
 
 
+class SessionEntries(unittest.TestCase):
+    def test_simultaneous_entries_are_two_and_the_player_death_is_matched(self):
+        from reticle.adjudication.death import death_key, session_entries
+        t = [float(x) for x in range(0, 10001, 500)]
+        on = [6000 <= x <= 9500 for x in t]
+        hud = {"t_ms": t,
+               "kf_entry_mask": [3 if o else 0 for o in on],
+               "kf_ally_mask": [2 if o else 0 for o in on],
+               "kf_enemy_mask": [1 if o else 0 for o in on],
+               "kf_kill_mask": [1 if o else 0 for o in on],
+               "kf_death_mask": [2 if o else 0 for o in on]}
+        got = sorted(session_entries(hud), key=lambda e: e["slot"])
+        self.assertEqual([(e["slot"], e["side"], e["kf_player_kill"], e["kf_player_death"])
+                          for e in got],
+                         [(0, "enemy", True, False), (1, "ally", False, True)])
+        self.assertEqual(len({death_key("s", e["t_ms"], e["slot"]) for e in got}), 2)
+
+
 class SplitTracks(unittest.TestCase):
     def _tr(self, a, z, slot, sig):
         return {"t_first": float(a), "t_last": float(z), "slot": slot, "sig": sig, "n_obs": 2}

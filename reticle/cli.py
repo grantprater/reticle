@@ -2295,12 +2295,21 @@ def _combat_report_identity(store, sid, date, rows, rounds, death_times) -> None
              for r in store.read_events("scoreboard", sid)
              if r.get("kind") == "row_observation" and r.get("team") == "enemy"
              and r.get("portrait_agent_best")]
+    from .adjudication.death import DEATH_ADJUDICATION_VERSION
+    death_rows = store.read_events("death", sid)
+    if death_rows and death_rows[0].get("death_adjudication_version") != DEATH_ADJUDICATION_VERSION:
+        print(f"  deaths: stored at {death_rows[0].get('death_adjudication_version')}, current is "
+              f"{DEATH_ADJUDICATION_VERSION}; rows stay unbound -- run `reticle deaths {sid}`")
+        death_rows = []
+    elif not death_rows:
+        print(f"  deaths: none stored; rows stay unbound -- run `reticle deaths {sid}`")
     claims, verdicts = adj.name_rows(sid, ps, rounds, tracks("kill"), tracks("death"),
                                      portraits, board, lineup["sides"]["enemy"],
-                                     load_identity_gallery(store.root))
+                                     load_identity_gallery(store.root), death_rows)
     events = identity_events(verdicts, sid)
     rows_named = [{"session_id": sid, "kind": "row_entity", "panel_start_ms": p["start_ms"],
-                   "row": k, "entity_id": row.get("entity_id"), "cluster": row.get("cluster")}
+                   "row": k, "entity_id": row.get("entity_id"), "cluster": row.get("cluster"),
+                   "death_entity": row.get("death_entity")}
                   for p in ps for k, row in enumerate(p["rows"])]
     # A stream of formal events holds nothing else, so the row-to-entity map
     # is its own stream beside the arbiter's events.
@@ -2315,6 +2324,62 @@ def _combat_report_identity(store, sid, date, rows, rounds, death_times) -> None
     for v in verdicts:
         print(f"    {v['entity_id']}: {v['status']} {v['agent'] or ''} "
               f"{ {ch: r['votes'] for ch, r in v['by_channel'].items()} }")
+
+
+def cmd_deaths(args) -> int:
+    """Death verdicts for every round from stored data only. Decodes no video.
+
+    Writes a `death` stream (a summary with every input's stamp, then one
+    `death_verdict` row per killfeed entry keyed by `death_key`) and a
+    `death_identity` stream of the formal events."""
+    from .adjudication.death import (DEATH_ADJUDICATION_VERSION, adjudicate_session_deaths,
+                                     death_verdict_to_events, stored_second_life)
+    from .adjudication.identity import AGENT_IDENTITY_VERSION, load_identity_gallery
+    from .lineup import load_lineup
+
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    sid, date = manifest["session_id"], _date_of(manifest)
+    portraits = store.read_events("killfeed_portrait", sid)
+    if store.events_version("killfeed_portrait", sid) != KILLFEED_PORTRAIT_VERSION:
+        raise SystemExit(f"{sid}: killfeed portraits are not at {KILLFEED_PORTRAIT_VERSION} -- "
+                         f"run `reticle scan {sid} --only hud`")
+    rounds = store.read_rounds(sid, date)
+    if rounds is None:
+        raise SystemExit(f"{sid}: no stored rounds -- run `reticle rounds {sid}` first")
+    rounds = rounds.to_pylist()
+    lineup = load_lineup(sid, store.root)
+    if not lineup:
+        raise SystemExit(f"{sid}: no stored lineup")
+    res = adjudicate_session_deaths(
+        sid, rounds, store.read_hud(sid, date), store.read_roster(sid, date), portraits,
+        store.read_events("scoreboard", sid), lineup, load_identity_gallery(store.root),
+        source_version=KILLFEED_PORTRAIT_VERSION,
+        second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION))
+    common = {"session_id": sid, "source": "death",
+              "death_adjudication_version": DEATH_ADJUDICATION_VERSION}
+    rows, events = [], []
+    for r in res["rounds"]:
+        for e, v in zip(r["entries"], r["verdicts"]):
+            rows.append({**common, "kind": "death_verdict", "round_no": r["round_no"],
+                         "slot": e["slot"], "t_last_ms": e["t_last"],
+                         "kf_player_kill": e["kf_player_kill"],
+                         "kf_player_death": e["kf_player_death"], **v.to_dict()})
+            events.extend(death_verdict_to_events(v, sid))
+    status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
+                                       for r in rows)
+    head = {**common, "kind": "summary", "deaths": len(rows), "passes": res["passes"],
+            "victims": dict(status("identity", "victim")),
+            "killers": dict(status("killer_identity", "killer")),
+            "inputs": {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
+                       "scoreboard": store.events_version("scoreboard", sid),
+                       "round": rounds[0].get("round_version") if rounds else None,
+                       "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION}}
+    out = store.write_events("death", sid, [head] + rows)
+    store.write_events("death_identity", sid, events)
+    print(f"{sid}: {len(rows)} deaths over {len(rounds)} rounds in {res['passes']} passes; "
+          f"victims {head['victims']}, killers {head['killers']} -> {out}")
+    return 0
 
 
 def cmd_smokes(args) -> int:
@@ -2936,6 +3001,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("combat-report", help="combat report panels and per-round counts from stored rows (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_combat_report)
+
+    s = sub.add_parser("deaths", help="death verdicts per killfeed entry from stored data (no video)")
+    s.add_argument("session", nargs="?")
+    s.set_defaults(func=cmd_deaths)
 
     s = sub.add_parser("smokes", help="smoke tracks from stored minimap_dark rows (no video)")
     s.add_argument("session", nargs="?")
