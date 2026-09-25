@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "lane": "A",
+  "audit_scope": "a06f04a0059f:rounds_3-6",
+  "total_events_evaluated": 34,
+  "wall_time_ms": {
+    "unit_tests": 1.2,
+    "audit_and_ablations": 482.0,
+    "total_eval_ms": 483.2
+  },
+  "compute_model": "deterministic_stage_02",
+  "external_api_calls": 0,
+  "human_review_questions_generated": 5
+}

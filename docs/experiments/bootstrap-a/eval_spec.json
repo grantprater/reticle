@@ -1,0 +1,74 @@
+{
+  "spec_version": "reticle-eval-0.1.0",
+  "created_at": "2026-09-24T19:19:00Z",
+  "owner_lane": "A",
+  "target_program": "bootstrap-e8",
+  "description": "Versioned evaluation specification for independent evaluation of bootstrap candidate revisions, defining 1-to-1 event alignment, property denominators, observability rules, and leakage boundaries.",
+  "matching_criteria": {
+    "strategy": "greedy_min_time_difference",
+    "dt_max_ms": 2500.0,
+    "partition_keys": [
+      "session_id",
+      "round_no",
+      "side"
+    ]
+  },
+  "property_denominators": {
+    "presence": {
+      "description": "Denominator is all observable reference events within the evaluated contiguous windows.",
+      "penalties": {
+        "missed": "FN: reference event has no candidate match within dt_max_ms",
+        "extra": "FP: candidate event has no reference match within dt_max_ms"
+      }
+    },
+    "victim": {
+      "description": "Denominator is all matched reference events with non-null ground-truth victim.",
+      "penalties": {
+        "abstained": "candidate victim is null (counts against recall/accuracy)",
+        "conflict": "candidate victim != reference victim (counts as misattribution)"
+      }
+    },
+    "killer": {
+      "description": "Denominator is all matched reference events with non-null ground-truth killer.",
+      "penalties": {
+        "abstained": "candidate killer is null",
+        "conflict": "candidate killer != reference killer"
+      }
+    },
+    "death_cause": {
+      "description": "Denominator is all matched reference events ('gun' vs 'ability' vs 'environmental')."
+    },
+    "second_life": {
+      "description": "Denominator is all matched reference events involving second-life mechanics (e.g. Phoenix Run It Back)."
+    },
+    "whole_event": {
+      "description": "Event matched in time and all non-null reference properties correctly asserted without abstention."
+    }
+  },
+  "observability_criteria": {
+    "ally_death": "Always observable via HUD roster alive-count dimming, minimap death mark, or killfeed entry.",
+    "enemy_death": "Observable via killfeed entry or scoreboard row dimming. Non-gun kills outside team vision may have unobservable death location (explicit location abstention permitted).",
+    "abstention_policy": "Unobserved or ambiguous properties must evaluate to null with a stored reason code; guessing is forbidden."
+  },
+  "source_selection_policy": {
+    "contiguous_slices": "Evaluations must cover contiguous round windows rather than isolated cherry-picked frames.",
+    "count_agreement_insufficient": "Evaluator must enforce 1-to-1 event alignment; matching round totals with duplicate-plus-miss noise is treated as an error."
+  },
+  "leakage_checks": {
+    "transfer_partition": {
+      "session_id": "a1a995e6b19b",
+      "status": "sealed_from_learning",
+      "rule": "Neither Lane B nor any learning pipeline may use session a1a995e6b19b for training, anchor harvesting, or threshold tuning."
+    },
+    "query_instance_exclusion": "A query instance and its descendants must not be used to train or retrieve the candidate exemplar.",
+    "anchor_independence": "Every learned binding must trace to an independent non-self-derived anchor."
+  },
+  "minimum_provenance_requirements": [
+    "source_version",
+    "death_id",
+    "session_id",
+    "round_no",
+    "t_ms",
+    "witnesses"
+  ]
+}

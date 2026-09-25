@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "lane": "A",
+  "name": "bootstrap-a-task-contract",
+  "tasks": [
+    {
+      "id": "bootstrap-a-eval-engine",
+      "objective": "Build 1-to-1 event alignment evaluator with temporal tolerance bounds, property scoring, and duplicate-plus-miss cancellation detection.",
+      "files": [
+        "tools/bootstrap_a_eval.py",
+        "tests/test_bootstrap_a_eval.py"
+      ],
+      "reads": [
+        "AGENTS.md",
+        "docs/BOOTSTRAP_PARALLEL_RUN.md#A: independent evaluation",
+        "docs/EXPERIMENT_PROGRAM.md#E1",
+        "docs/EXPERIMENT_PROGRAM.md#E8",
+        "reticle/adjudication/death.py",
+        "reticle/adjudication/identity.py"
+      ],
+      "acceptance": [
+        ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_bootstrap_a_eval.py", "-q"]
+      ],
+      "evidence": [
+        "Evaluator implements 1-to-1 event alignment with temporal tolerance delta_t <= 2500ms and preserves unobserved/abstained properties.",
+        "Detects duplicate-plus-miss cancellation where round totals match but individual events diverge (reporting non-zero error).",
+        "Synthetic test cases verify evaluator mechanics without being counted as perceptual domain evidence."
+      ]
+    },
+    {
+      "id": "bootstrap-a-e1-audit",
+      "objective": "Audit death event correspondence against round totals on pinned development slice (a06f04a0059f Rounds 3-6) and measure cross-channel witness ablation.",
+      "files": [
+        "tools/bootstrap_a_eval.py",
+        "docs/experiments/bootstrap-a/audit_report.md"
+      ],
+      "reads": [
+        "docs/experiments/bootstrap-a/manifest.json",
+        "reticle/adjudication/death.py",
+        "reticle/adjudication/combat_report.py"
+      ],
+      "acceptance": [
+        ["{python}", "tools/bootstrap_a_eval.py", "--audit", "--slice", "a06f04a0059f:3-6", "--output", "docs/experiments/bootstrap-a/audit_report.md"]
+      ],
+      "evidence": [
+        "Audit 34 death opportunities across Rounds 3-6: 10 agreed, 19 single-channel rescues (16 KF rescues SB, 3 SB rescues KF), 5 abstentions.",
+        "Ablation withholding scoreboard loses Jett (284.5s), Miks (295.0s), Breach (443.0s).",
+        "Ablation withholding killfeed loses 16 resolved deaths across the slice.",
+        "Refusal reasons categorized with exact stored evidence."
+      ]
+    },
+    {
+      "id": "bootstrap-a-eval-spec",
+      "objective": "Produce versioned evaluation specification for Lane B and downstream loops, defining event matching, property denominators, observability criteria, and leakage boundaries.",
+      "files": [
+        "docs/experiments/bootstrap-a/eval_spec.json"
+      ],
+      "reads": [
+        "docs/BOOTSTRAP_PARALLEL_RUN.md#Result exchange and integration",
+        "docs/EXPERIMENT_PROGRAM.md#Define the target before measuring"
+      ],
+      "acceptance": [
+        ["{python}", "tools/bootstrap_a_eval.py", "--validate-spec", "docs/experiments/bootstrap-a/eval_spec.json"]
+      ],
+      "evidence": [
+        "Defines 1-to-1 event alignment with delta_t <= 2500ms; property denominators for presence, victim, killer, and cause.",
+        "Defines explicit abstention accounting and sealed transfer partition policy (a1a995e6b19b).",
+        "Usable by Lane B candidate without requiring Lane B to wait for manual annotation."
+      ]
+    }
+  ]
+}

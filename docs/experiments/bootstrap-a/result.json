@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "lane": "A",
+  "status": "review_pending",
+  "commit": "d7defd9",
+  "input_manifest": "docs/experiments/bootstrap-a/manifest.json",
+  "baseline_revision": "death-adjudication-0.7.0",
+  "candidate_revision": null,
+  "training_sessions": [],
+  "evaluation_sessions": [
+    "a06f04a0059f",
+    "a1a995e6b19b"
+  ],
+  "evaluation_truth_used_for_learning": false,
+  "reviewed_scope": "a06f04a0059f:rounds_3-6",
+  "metrics_artifact": "docs/experiments/bootstrap-a/audit_report.md",
+  "cost_artifact": "docs/experiments/bootstrap-a/cost.json",
+  "first_failure": {
+    "round_no": 3,
+    "t_ms": 176500.0,
+    "event_id": "death:a06f04a0059f:176500:0",
+    "failure_type": "abstention",
+    "channels_refused": {
+      "killfeed_portrait": "portrait_views_refused_or_disagree",
+      "scoreboard_dim": "newly_dim_2_disagrees_with_killfeed_deaths_3"
+    }
+  },
+  "questions": [
+    {
+      "round_no": 3,
+      "t_ms": 176500.0,
+      "question": "At 176.5s in Round 3, which enemy agent was killed in the killfeed entry?",
+      "options": [
+        "Skye",
+        "Iso",
+        "Jett",
+        "Omen",
+        "Killjoy",
+        "cannot_tell"
+      ]
+    },
+    {
+      "round_no": 3,
+      "t_ms": 183500.0,
+      "question": "At 183.5s in Round 3, which enemy agent was killed in the killfeed entry?",
+      "options": [
+        "Skye",
+        "Iso",
+        "Jett",
+        "Omen",
+        "Killjoy",
+        "cannot_tell"
+      ]
+    },
+    {
+      "round_no": 6,
+      "t_ms": 540000.0,
+      "slot": 1,
+      "question": "At 540.0s in Round 6 (slot 1), which enemy agent died?",
+      "options": [
+        "Iso",
+        "Jett",
+        "Killjoy",
+        "Omen",
+        "Skye",
+        "cannot_tell"
+      ]
+    },
+    {
+      "round_no": 6,
+      "t_ms": 540000.0,
+      "slot": 2,
+      "question": "At 540.0s in Round 6 (slot 2), which enemy agent died?",
+      "options": [
+        "Iso",
+        "Jett",
+        "Killjoy",
+        "Omen",
+        "Skye",
+        "cannot_tell"
+      ]
+    },
+    {
+      "round_no": 6,
+      "t_ms": 545000.0,
+      "question": "At 545.0s in Round 6, which enemy agent died?",
+      "options": [
+        "Iso",
+        "Jett",
+        "Killjoy",
+        "Omen",
+        "Skye",
+        "cannot_tell"
+      ]
+    }
+  ],
+  "next_action": "Relay Lane A handoff and artifacts to coordinating session; evaluate Lane B candidate revision when frozen against eval_spec.json on sealed transfer partition a1a995e6b19b."
+}

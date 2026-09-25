@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "lane": "A",
+  "name": "bootstrap-a-independent-evaluation",
+  "branch": "experiment/bootstrap-a",
+  "base_commit": "70d888fdd37327a5041ab419be6c165b96011da2",
+  "experiment_store_root": "C:/Users/grant/reticle-worktrees/store-bootstrap-a",
+  "predictions_log": "notes/predictions.jsonl",
+  "development_slice": {
+    "session_id": "a06f04a0059f",
+    "map": "ascent",
+    "profile": "valorant-16x9",
+    "rounds": [3, 4, 5, 6],
+    "t_start_ms": 161500.0,
+    "t_end_ms": 590500.0,
+    "death_opportunities": 34,
+    "source_store_files": {
+      "events/death/a06f04a0059f.jsonl": {
+        "sha256": "4c38319dc476af2308dd30f2a60be276e88390d9306184cf998766e6b2ccbe58",
+        "records": 181
+      },
+      "events/combat_report_round/a06f04a0059f.jsonl": {
+        "sha256": "5f77b1fa619b2ba2f1fb209ff17029f5b6159973d3bde10b5628d7199f5711c1",
+        "records": 48
+      }
+    }
+  },
+  "transfer_partition": {
+    "session_id": "a1a995e6b19b",
+    "map": "sunset",
+    "profile": "valorant-16x9",
+    "status": "sealed_from_learning",
+    "source_store_files": {
+      "events/death/a1a995e6b19b.jsonl": {
+        "sha256": "3e36ec488ad8e43be66f897ac22ed6ab620feaa472230c9af37808cdd280ccf0",
+        "records": 191
+      },
+      "events/combat_report_round/a1a995e6b19b.jsonl": {
+        "sha256": "ea325df59b75c7bc800733f9c3c110a4a589ad72c6097be508b5ac3f6ce98557",
+        "records": 50
+      }
+    }
+  },
+  "code_hashes": {
+    "reticle/adjudication/death.py": "eaadc74d908c8e113e12d1e1f96a46f4f043fe547b38bf6451c499f3a103b314",
+    "reticle/adjudication/combat_report.py": "f04f837fac7b20718c3f4a11c7a340b69a6ee26023d9788ca08cdc65a7c50619",
+    "reticle/adjudication/identity.py": "8ce084948108efea5aebacf49635c069d988fe63ee0744ad9e68b19f4eea6109"
+  }
+}
