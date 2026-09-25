@@ -155,3 +155,28 @@ a06f04a0059f: no panel between the Run It Back death at 1576.5 s and the real
 death at 1593.5 s; the real death's panel lists the Run It Back killer
 (vanshrana, 158 incoming) as a row without a KILLED YOU flag
 """
+
+
+[clove-revive-expiry-entry]
+claim = """
+When Clove self-revives with Not Dead Yet and gets no kill or damaging assist
+within the ult's time window, the revive ends in death. The player believes
+the killfeed then shows the player as both killer and victim (Me -> Me).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-24"
+source = """
+a1a995e6b19b (player Clove) at 1892.5 s: a Me -> Me entry with the circular
+badge, which the killfeed reader counted as a kill; the combat report did not
+"""
+use = """
+a Me -> Me entry is not a kill; on a Clove session it is most likely this
+expiry, a death rather than a second life
+"""
+exceptions = """
+the player's own abilities can also kill the player (a self-kill), which
+shows the same Me -> Me shape; tell the two apart by agent and by an ult
+cast before it, never by the entry alone
+"""
+phrases = ["clove revive expired", "me killed me"]
