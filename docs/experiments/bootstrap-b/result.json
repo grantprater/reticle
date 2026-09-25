@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "lane": "B",
+  "status": "review_pending",
+  "branch": "experiment/bootstrap-b",
+  "commit": "refs/heads/experiment/bootstrap-b",
+  "input_manifest": "C:/Users/grant/reticle-worktrees/bootstrap-b/.experiment-store/bootstrap-b/frozen-candidate/report.json",
+  "baseline_revision": "70d888fdd37327a5041ab419be6c165b96011da2",
+  "candidate_revision": "8164052e9fddde22a8b71540ba7fc389a33bec18c293dcc3a804dd9432fd7a9c",
+  "candidate_artifact": "C:/Users/grant/reticle-worktrees/bootstrap-b/.experiment-store/bootstrap-b/frozen-candidate/candidate.json",
+  "training_sessions": ["a06f04a0059f"],
+  "evaluation_sessions": ["3694746e4e54"],
+  "evaluation_truth_used_for_learning": false,
+  "reviewed_scope": "Stored development rounds 3-5, provisional transfer round 4, source images for anchor/query/random/no-proposal windows; no formal labels",
+  "metrics_artifact": "C:/Users/grant/reticle-worktrees/bootstrap-b/.experiment-store/bootstrap-b/notes/metrics.jsonl",
+  "cost_artifact": "C:/Users/grant/reticle-worktrees/bootstrap-b/.experiment-store/bootstrap-b/frozen-candidate/report.json",
+  "first_failure": "Transitive selection and association rule lineage is absent for harvested anchors; full independence remains unknown. The required labelling-pass skill was unavailable for a formal source label.",
+  "questions": ["At 06:52 in a06f04a0059f, does the top killfeed row show the player's Phoenix portrait as killer, and does it correspond to stored slot 0 at 412000 ms? Cannot tell is allowed."],
+  "next_action": "Record complete owner lineage and run controlled source review, then let the coordinator replay the frozen candidate on the sealed session."
+}
