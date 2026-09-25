@@ -1848,8 +1848,14 @@ def cmd_lifetimes(args) -> int:
     box = minimap_roi_px(get_profile(manifest["source_profile"]),
                          int(manifest["source"]["width"]),
                          int(manifest["source"]["height"]))
+    from .lineup import load_lineup
+    from .adjudication.identity import load_identity_gallery
+
+    lineup = load_lineup(sid, store.root)
+    gallery = load_identity_gallery(store.root) if lineup else None
     rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]),
-                             roster, source_revision, deaths=deaths)
+                             roster, source_revision, deaths=deaths,
+                             lineup=lineup, gallery=gallery)
     out = store.write_events("round_entity", sid, rows)
     cov = rows[0]
     ents = [r for r in rows if r["kind"] == "entity"]
@@ -1858,6 +1864,11 @@ def cmd_lifetimes(args) -> int:
     print(f"rounds     {cov.get('rounds', 0)} associated, "
           f"{cov.get('frames', 0)} frames, {cov.get('absent_frames', 0)} widget-absent")
     print(f"entities   {len(ents)}  " + "  ".join(f"{k} {v}" for k, v in sorted(by_family.items())))
+    if lineup:
+        named_allies = sum(1 for e in ents if e["family"] == "ally" and e.get("agent"))
+        total_allies = by_family.get("ally", 0)
+        print(f"identity   {named_allies} of {total_allies} ally entities resolved "
+              f"({named_allies / max(1, total_allies) * 100:.1f}%)")
     print(f"wrote      {out}")
     return 0
 

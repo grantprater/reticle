@@ -57,6 +57,48 @@ class SessionLifetimeTests(unittest.TestCase):
         self.assertEqual(marks, ["roster_count_conflict",
                                  "roster_slot_available_not_identity"])
 
+    def test_track_segments_receive_adjudicated_agent_names(self):
+        import numpy as np
+
+        def _one_hot(i, w=0.9):
+            v = np.full(4, (1.0 - w) / 3.0, dtype=np.float32)
+            v[i] = w
+            return v.tolist()
+
+        gallery = {name: [np.eye(4, dtype=np.float32)[i]]
+                   for i, name in enumerate(["Breach", "Deadlock", "Miks", "Reyna"])}
+        lineup = {
+            "sides": {
+                "ally": [{"slot": i, "agent": a, "best_guess": a}
+                         for i, a in enumerate(["Phoenix", "Breach", "Deadlock", "Reyna", "Miks"])]
+            },
+            "player": {"agent": "Phoenix"},
+        }
+        events = [
+            _frame(0, 0.0, me=(100.0, 100.0, 10)),
+            _icon(0, 0.0, 50.0, comp=_one_hot(0)),
+            _icon(0, 0.0, 200.0, reason="interior_is_map"),
+            _frame(1, 67.0, me=(100.0, 100.0, 10)),
+            _icon(1, 67.0, 50.5, comp=_one_hot(0)),
+        ]
+        events[2]["observation_key"] = "s:0:barrier"
+        rows = session_lifetimes("s", events, ROUNDS[:1], 1.0, lineup=lineup, gallery=gallery)
+        ents = {r["family"]: r for r in rows if r["kind"] == "entity"}
+
+        self.assertIn("ally", ents)
+        self.assertEqual(ents["ally"]["agent"], "Breach")
+        self.assertEqual(ents["ally"]["identity_status"], "resolved")
+        self.assertEqual(ents["ally"]["identity_votes"], {"Breach": 2})
+
+        self.assertIn("self", ents)
+        self.assertEqual(ents["self"]["agent"], "Phoenix")
+        self.assertEqual(ents["self"]["identity_status"], "resolved")
+
+        self.assertIn("barrier", ents)
+        self.assertIsNone(ents["barrier"]["agent"])
+        self.assertEqual(ents["barrier"]["identity_status"], "abstained")
+        self.assertEqual(ents["barrier"]["identity_reason"], "barrier")
+
 
 if __name__ == "__main__":
     unittest.main()
