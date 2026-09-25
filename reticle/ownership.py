@@ -135,14 +135,21 @@ def imports_of(path: Path, package: str = "reticle") -> set[str]:
     return out
 
 
-def reaches(consumer: str, owner: str, paths: dict[str, Path]) -> bool:
+def reaches(consumer: str, owner: str, paths: dict[str, Path],
+            imports: dict[str, set[str]] | None = None) -> bool:
     """Does `consumer` import `owner`, under either module's spelling?"""
     path = paths.get(consumer)
     if path is None:
         return False
+    if imports is not None and consumer in imports:
+        names = imports[consumer]
+    else:
+        names = imports_of(path)
+        if imports is not None:
+            imports[consumer] = names
     tail = owner.split(".")[-1]
     return any(name == owner or name.split(".")[-1] == tail
-               for name in imports_of(path))
+               for name in names)
 
 
 def load(path: Path | None = None) -> dict:
@@ -195,6 +202,7 @@ def verify(data: dict | None = None, root: Path | None = None
                          "there, see reticle/ownership.py")]
 
     paths = modules(base)
+    imports: dict[str, set[str]] = {}
     index = data["_index"]
     held = owners(data)
     infra = set(data.get("infrastructure", {}).get("modules", []))
@@ -285,7 +293,7 @@ def verify(data: dict | None = None, root: Path | None = None
                                      f"not an entry"))
                 continue
             to = str(index[other].get("owner", ""))
-            if to and not reaches(owner, to, paths):
+            if to and not reaches(owner, to, paths, imports):
                 out.append(("ERROR", f"`{owner}` defers to `{other}` and no "
                                      f"longer imports `{to}` -- either it "
                                      f"restates the rule, or the declaration "
@@ -295,7 +303,7 @@ def verify(data: dict | None = None, root: Path | None = None
             if consumer not in paths:
                 out.append(("ERROR", f"{where} names consumer `{consumer}`, "
                                      f"which is not a module in reticle/"))
-            elif not reaches(consumer, owner, paths):
+            elif not reaches(consumer, owner, paths, imports):
                 out.append(("WARN", f"{where} names `{consumer}` as a consumer "
                                     f"and it does not import `{owner}` -- move "
                                     f"it to `stored_consumers`, or delete it"))

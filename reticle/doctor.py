@@ -254,7 +254,16 @@ def check_promote(store: Path) -> list[tuple[str, str]]:
     if not path.is_file():
         return []
     stems = {f.stem for f in (ROOT / "prototypes").glob("*.py")}
-    pats = {s: re.compile(rf"(?<!\w){re.escape(s)}(?!\w)") for s in stems}
+    if not stems:
+        return []
+    # One scan per text, instead of one scan per prototype. Longest first
+    # keeps matching deterministic when one stem prefixes another.
+    pattern = re.compile(r"(?<!\w)(" + "|".join(
+        re.escape(s) for s in sorted(stems, key=lambda s: (-len(s), s))) + r")(?!\w)")
+
+    def mentions(text: str) -> set[str]:
+        return {m.group(1) for m in pattern.finditer(text)}
+
     used: set[str] = set()
     for f in (ROOT / "reticle").glob("*.py"):
         # This file names prototypes in its own prose and is the one module
@@ -263,7 +272,7 @@ def check_promote(store: Path) -> list[tuple[str, str]]:
         if f.name == "doctor.py":
             continue
         text = f.read_text(encoding="utf-8", errors="replace")
-        used |= {s for s, p in pats.items() if p.search(text)}
+        used |= mentions(text)
     # A decision retires the PROTOTYPE, not the row it was written on. The
     # first version skipped only the declining row, so a `"wire": "no"` written
     # today could not retire a mention from 2026-09-03 and the finding never
@@ -287,7 +296,7 @@ def check_promote(store: Path) -> list[tuple[str, str]]:
         # `ability_disc`, because the reason said the two must ship together.
         target = str(row.get("subject") or
                      " ".join(str(v) for v in row.values()))
-        declined |= {s for s, p in pats.items() if p.search(target)}
+        declined |= mentions(target)
     seen: dict[str, str] = {}
     for row in rows:
         blob = " ".join(str(v) for v in row.values())
@@ -296,8 +305,8 @@ def check_promote(store: Path) -> list[tuple[str, str]]:
         # nothing about which entry to go and read.
         tag = next((str(row[k]) for k in ("experiment", "id", "when", "date", "ts")
                     if row.get(k)), "")
-        for s, p in pats.items():
-            if s not in used and s not in declined and p.search(blob):
+        for s in mentions(blob):
+            if s not in used and s not in declined:
                 seen.setdefault(s, tag[:40])
     return [(WARN, f"`prototypes/{s}.py` is in the prediction ledger"
                    + (f" under `{tag}`" if tag else "") +
