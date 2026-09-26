@@ -16,3 +16,20 @@ spike glyph cannot give
 """
 see = ["minimap/spike-glyph", "minimap/no-spike-channel"]
 phrases = ["spike carrier marker", "spike on the roster"]
+
+[tray-after-player-death]
+claim = """
+After the player dies the HUD ability tray stops showing the player's kit: the
+death camera blanks it, then it shows the spectated teammate's kit, whose
+charges change as that teammate casts and dies. After the round ends the tray
+dims.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-09-26"
+source = "prototypes/tray_suspect_reasons.py: 1771 of 2121 suspect tray drops over 19 sessions fall at or after the player's death; 226 of 643 drops the tray reader called clean are spectated teammates' casts"
+use = """
+a tray drop is the player's cast only while the player is alive in that round;
+gate tray casts on the player's death (stored death verdicts) before binding
+anything to them
+"""
