@@ -355,3 +355,19 @@ ally icon is KAY/O downed or an Annihilation captive, which the lineup and the
 killfeed can confirm
 """
 phrases = ["portrait turns red", "downed in ult"]
+
+[skye-bird-like-ally]
+claim = """
+Skye's bird (Guiding Light) draws on the minimap with much of an ally portrait
+icon's look, enough that an ally icon reader fits it as a teammate.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-25"
+use = """
+an ally icon that moves faster than a walker or appears from Skye's position
+may be her bird, not a teammate; the lineup says whether a Skye is on the side
+at all, and a label of it is "not a portrait", never an agent
+"""
+subject = "skye:guiding-light"
+phrases = ["skye bird", "guiding light"]
