@@ -337,3 +337,21 @@ an enemy smoke can only be inferred as missing light: floor the raycast says an
 ally sees but the drawn light leaves unlit, in a smoke-sized disc
 """
 see = ["abilities/enemy-smokes-not-on-minimap", "minimap/vision-gate"]
+
+[red-portrait-states]
+claim = """
+A player's portrait turns red in two states, on the minimap and on the HUD
+ally roster alike: KAY/O downed in his ultimate, and any player pulled into
+Deadlock's ultimate (Annihilation). The red replaces the agent's own colours
+for as long as the state lasts.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-25"
+use = """
+a portrait read while red names no agent from its colours: the reader refuses
+with that reason rather than guess. The red is evidence of its own -- a red
+ally icon is KAY/O downed or an Annihilation captive, which the lineup and the
+killfeed can confirm
+"""
+phrases = ["portrait turns red", "downed in ult"]

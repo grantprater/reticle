@@ -1,0 +1,18 @@
+# The HUD's fixed widgets: the ally and enemy rosters and their markers.
+# Schema: reticle/domain.py.
+
+[spike-carrier-marker]
+claim = """
+The ally roster at the top of the HUD marks the spike carrier with a spike
+icon that overlaps the bottom-left of that teammate's portrait.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-25"
+use = """
+a roster portrait read must mask or refuse the carrier's bottom-left corner.
+The marker says which teammate carries the spike, an attribution the minimap
+spike glyph cannot give
+"""
+see = ["minimap/spike-glyph", "minimap/no-spike-channel"]
+phrases = ["spike carrier marker", "spike on the roster"]
