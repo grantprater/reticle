@@ -50,9 +50,14 @@ Terminations (`round-entity-0.2.0`) distinguish `round_end`, verified `death`,
 and unobserved tracking loss.
 
 `session_lifetimes` (`round-entity-0.5.0`) applies a 3-pass identity architecture:
-1. Base candidate claims from official art via `AgentIdentityArbiter`.
+1. Base candidate claims via `AgentIdentityArbiter`: icons carrying
+   `portrait_features` (`ally-icon-0.4.0`) are scored against references
+   rendered from minimap portrait art (`reticle ally-portrait-refs`); older
+   events fall back to the official-art composition. Each claim records its
+   `reference_source`.
 2. In-session minimap exemplars harvested from tracks with >= 80 observations
-   augment the candidate gallery to re-evaluate ambiguous tracks.
+   augment the composition gallery to re-evaluate ambiguous tracks; a frame
+   the rendered-art source scores does not use that gallery.
 3. Identity-gated death witness linkage pairs ceasing abstained tracks with
    stored death verdicts (`depends_on=[death_id]`), strictly excluding local
    player deaths and conflicting victims.
