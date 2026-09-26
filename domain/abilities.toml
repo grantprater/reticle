@@ -123,15 +123,22 @@ see = ["abilities/viper-poison-cloud"]
 
 [clove-rouse]
 claim = """
-Clove's Ruse is a tactical smoke placed in slot E. On the minimap it renders as a
-circular smoke disc.
+Clove's Ruse is a tactical smoke placed in slot E. It is never drawn on the
+minimap.
 """
-kind = "rule"
-known = "measured"
-since = "2026-09-23"
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
 subject = "clove:ruse"
-source = "prototypes/ability_hud.py measured on 28f53bfddbbe"
-use = "search for circular disc upon slot E charge drop"
+source = """
+the player, 2026-09-26, after the tray-object pass found nothing on the
+minimap on 9 of 9 answered Ruse casts. Until then this fact claimed a circular
+minimap disc, measured by prototypes/ability_hud.py on 28f53bfddbbe
+"""
+use = """
+a Ruse cast places no minimap object, so no minimap search follows a slot E
+drop; `adjudication.gallery` still scores a clove:ruse glyph, uncalled
+"""
 see = ["abilities/clove-tray-charges"]
 
 [clove-tray-charges]
@@ -534,3 +541,22 @@ Curveball; a tray label by slot names Phoenix's abilities correctly by it
 """
 see = ["abilities/signature-on-e", "abilities/phoenix-blaze"]
 subject = "phoenix:kit"
+
+[phoenix-minimap-objects]
+claim = """
+Blaze, the wall, is the only one of Phoenix's abilities drawn on the minimap.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "phoenix:kit"
+source = """
+the player, 2026-09-26; the tray-object pass found nothing on the minimap on
+every answered Hot Hands, Curveball and Run It Back cast
+"""
+use = "only a slot C drop by Phoenix can place a minimap object"
+exceptions = """
+Blaze drew its wall on only 2 of 9 answered Blaze drops; the other 7 are
+unexplained: an ability equipped and not used, or a tray misread
+"""
+see = ["abilities/phoenix-blaze", "abilities/phoenix-slots"]
