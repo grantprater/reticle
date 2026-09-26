@@ -410,25 +410,30 @@ def assign(cost: list[list[float]], forbidden: float = float("inf")) -> list[int
         p[0] = i
         j0 = 0
         minv = [INF] * (n + 1)
-        used = [False] * (n + 1)
+        # Unused columns stay ascending, so the scan meets them in the order
+        # a pass over every column does; a used column's update touches only
+        # its own entries, so the order of `done` changes no value.
+        free = list(range(1, n + 1))
+        done = []
         while True:
-            used[j0] = True
+            done.append(j0)
             i0, delta, j1 = p[j0], INF, 0
-            for j in range(1, n + 1):
-                if used[j]:
-                    continue
-                cur = a[i0 - 1][j - 1] - u[i0] - v[j]
-                if cur < minv[j]:
-                    minv[j], way[j] = cur, j0
-                if minv[j] < delta:
-                    delta, j1 = minv[j], j
-            for j in range(n + 1):
-                if used[j]:
-                    u[p[j]] += delta
-                    v[j] -= delta
-                else:
-                    minv[j] -= delta
+            row, ui = a[i0 - 1], u[i0]
+            for j in free:
+                cur = row[j - 1] - ui - v[j]
+                m = minv[j]
+                if cur < m:
+                    minv[j] = m = cur
+                    way[j] = j0
+                if m < delta:
+                    delta, j1 = m, j
+            for j in done:
+                u[p[j]] += delta
+                v[j] -= delta
+            for j in free:
+                minv[j] -= delta
             j0 = j1
+            free.remove(j0)
             if p[j0] == 0:
                 break
         while j0:
