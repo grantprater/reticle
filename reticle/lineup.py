@@ -120,9 +120,17 @@ def load_lineup(session: str, store) -> dict | None:
     from .store import Store
     from .version import SCOREBOARD_VERSION
     board_store = Store(store)
-    if board_store.events_version("scoreboard", session) == SCOREBOARD_VERSION:
+    stored = board_store.events_version("scoreboard", session)
+    if stored == SCOREBOARD_VERSION:
         openings = scoreboard_openings(board_store.read_events("scoreboard", session))
         got = lineup_with_board(got, board_side_sets(openings))
+        got["board_state"] = {"applied": True, "version": stored}
+    else:
+        # A stale or missing board leaves the top bar alone, and says so: a
+        # version bump once dropped the board silently, and a blind label test
+        # read the top bar's wrong guesses as a lineup fault.
+        got["board_state"] = {"applied": False, "reason": "no_scoreboard" if stored is None
+                        else f"stale_version {stored} != {SCOREBOARD_VERSION}"}
     return got
 
 
