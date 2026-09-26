@@ -376,7 +376,7 @@ def load_identity_gallery(store, surfaces=MEASURED_SURFACES) -> dict[str, list[n
 
 
 def _portrait_scores(composition, candidates, gallery, exemplars=(), exclude_entry=None,
-                     sources=None, shifts=None, lambda_reg=0.0015):
+                     sources=None, shifts=None, lambda_reg=0.0015, stacks=None):
     """Best intersection for each admitted agent, over official art and exemplars.
 
     `exemplars` are this session's own portraits, each labelled by a witness
@@ -428,7 +428,8 @@ def _portrait_scores(composition, candidates, gallery, exemplars=(), exclude_ent
             for dx, obs in observed_shifts:
                 if not obs.size:
                     continue
-                cand_official = _official_scores(obs, [agent], gallery).get(agent, -1.0)
+                cand_official = _official_scores(obs, [agent], gallery,
+                                                 stacks).get(agent, -1.0)
                 cand_val = cand_official
                 matched, mat = _refs(agent, obs.size)
                 values = np.minimum(obs, mat).sum(axis=1).tolist() if matched else ()
@@ -450,7 +451,7 @@ def _portrait_scores(composition, candidates, gallery, exemplars=(), exclude_ent
     observed = np.asarray(composition, dtype=np.float32).ravel()
     if not observed.size:
         return {}
-    scores = _official_scores(observed, candidates, gallery)
+    scores = _official_scores(observed, candidates, gallery, stacks)
     wanted = {str(c).lower(): c for c in candidates if c}
     for ex in exemplars:
         agent = wanted.get(str(ex["agent"]).lower())
@@ -467,24 +468,55 @@ def _portrait_scores(composition, candidates, gallery, exemplars=(), exclude_ent
     return scores
 
 
-def _official_scores(observed, candidates, gallery):
+def _official_scores(observed, candidates, gallery, stacks=None):
+    """Each agent's best intersection with its gallery references.
+
+    `stacks`, a dict a caller keeps while `gallery` stays fixed, holds each
+    agent's references stacked by dtype, so repeated calls skip restacking.
+    A row sum of a stack is bit for bit the sum of that row alone.
+    """
     scores = {}
     for agent in sorted({c for c in candidates if c}):
-        references = gallery.get(agent)
-        if references is None:
-            agent_lower = str(agent).lower()
-            for g_name, g_refs in gallery.items():
-                if str(g_name).lower() == agent_lower:
-                    references = g_refs
-                    break
-            else:
-                references = ()
-        values = [float(np.minimum(observed, np.asarray(reference)).sum())
-                  for reference in references
-                  if np.asarray(reference).size == observed.size]
+        key = (agent, observed.shape)
+        rows = None if stacks is None else stacks.get(key)
+        if rows is None:
+            rows = _gallery_rows(agent, gallery, observed.shape, observed.size)
+            if stacks is not None:
+                stacks[key] = rows
+        n, groups, loose = rows
+        values = [0.0] * n
+        for positions, matrix in groups:
+            for k, v in zip(positions, np.minimum(observed, matrix).sum(axis=1).tolist()):
+                values[k] = v
+        for k, reference in loose:
+            values[k] = float(np.minimum(observed, reference).sum())
         if values:
             scores[agent] = max(values)
     return scores
+
+
+def _gallery_rows(agent, gallery, shape, size):
+    """`agent`'s references of `size`, in order: a count, stacks by dtype
+    with their positions, and the references whose shape differs."""
+    references = gallery.get(agent)
+    if references is None:
+        agent_lower = str(agent).lower()
+        for g_name, g_refs in gallery.items():
+            if str(g_name).lower() == agent_lower:
+                references = g_refs
+                break
+        else:
+            references = ()
+    arrays = [a for a in (np.asarray(r) for r in references) if a.size == size]
+    groups, loose = {}, []
+    for k, a in enumerate(arrays):
+        if a.shape == shape:
+            groups.setdefault(a.dtype, []).append((k, a))
+        else:
+            loose.append((k, a))
+    return (len(arrays),
+            [([k for k, _ in g], np.stack([a for _, a in g])) for g in groups.values()],
+            loose)
 
 
 def portrait_llr(source: str, score: float) -> float:
@@ -885,6 +917,7 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
     frames = defaultdict(list)
     for icon in icons:
         frames[icon["frame_idx"]].append(icon)
+    stacks: dict = {}  # `gallery` is fixed for this call
     out = []
     for _frame, group in sorted(frames.items()):
         described = [i for i in group
@@ -896,7 +929,8 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
                 out.append(claim(icon, None, refuse))
         if refuse or not described:
             continue
-        scores = [_portrait_scores(i["composition"], names, gallery) for i in described]
+        scores = [_portrait_scores(i["composition"], names, gallery, stacks=stacks)
+                  for i in described]
         matrix = [[s.get(n, 0.0) for n in names] for s in scores]
         for icon, s, row in zip(described, scores,
                                 assign_side(matrix, names, 1, "ally", margin_min)):
