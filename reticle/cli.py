@@ -1882,7 +1882,10 @@ def cmd_lifetimes(args) -> int:
     # does a new identity rule or reference table: segments carry their names.
     from .adjudication.identity import AGENT_IDENTITY_VERSION, load_ally_portrait_references
 
-    refs_version = (load_ally_portrait_references(store.root) or {}).get("version")
+    table = load_ally_portrait_references(store.root) or {}
+    refs_version = table.get("version")
+    if table.get("teammate_fit"):
+        refs_version = f"{refs_version}+{table['teammate_fit'].get('version')}"
     path = store.events_path("round_entity", sid)
     stamped = None
     if path.is_file():

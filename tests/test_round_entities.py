@@ -137,5 +137,28 @@ class SessionLifetimeTests(unittest.TestCase):
         self.assertEqual(ents["ally"]["end_reason"], "death")
 
 
+    def test_a_segment_that_fits_no_teammate_is_refused(self):
+        from reticle.version import ALLY_PORTRAIT_FEATURES_VERSION
+        names = ["Breach", "Deadlock", "Miks", "Reyna"]
+        refs = {"version": "t", "features_version": ALLY_PORTRAIT_FEATURES_VERSION,
+                "margin_min": 0.5, "variance": {"g": [1.0]},
+                "agents": {n: {"g": [float(i)]} for i, n in enumerate(names)},
+                "teammate_fit": {"version": "t", "fit_max": 2.0}}
+        lineup = {"sides": {"ally": [{"slot": i, "agent": a, "best_guess": a} for i, a in
+                                     enumerate(["Phoenix"] + names)]},
+                  "player": {"agent": "Phoenix"}}
+        events = []
+        for k in range(3):
+            icon = _icon(k, 67.0 * k, 50.0 + k * 0.5)
+            icon.update(portrait_features={"g": [9.0]},
+                        portrait_features_version=ALLY_PORTRAIT_FEATURES_VERSION)
+            events += [_frame(k, 67.0 * k), icon]
+        rows = session_lifetimes("s", events, ROUNDS[:1], 1.0, lineup=lineup,
+                                 gallery={n: [] for n in names}, references=refs)
+        (ally,) = [r for r in rows if r["kind"] == "entity" and r["family"] == "ally"]
+        self.assertIsNone(ally["agent"])
+        self.assertTrue(ally["identity_reason"].startswith("not_a_teammate"))
+        self.assertEqual(ally["teammate_fit"], 36.0)
+
 if __name__ == "__main__":
     unittest.main()

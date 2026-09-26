@@ -5,7 +5,8 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from reticle.adjudication.identity import claims_from_ally_icons, rendered_art_scores
+from reticle.adjudication.identity import (claims_from_ally_icons, rendered_art_fit,
+                                           rendered_art_scores, teammate_fit_refusal)
 from reticle.minimap import (ALLY_MAP_DIFF_MIN, AllyIconReader,
                              ally_icon_descriptors)
 from reticle.version import ALLY_PORTRAIT_FEATURES_VERSION
@@ -91,6 +92,30 @@ class ClaimsFromAllyIconsTests(unittest.TestCase):
         refs = _references()
         del refs["agents"]["Miks"]
         self.assertIsNone(rendered_art_scores(_features(0), ["Breach", "Miks"], refs))
+
+    def test_an_icon_records_its_absolute_fit_to_the_closest_teammate(self):
+        refs = _references()
+        far = {"grid3_lab": [9.0, 9.0], "hog_x1": [9.0], "prof_h": [0.0]}
+        self.assertEqual(rendered_art_fit(_features(1), ["Breach", "Deadlock"], refs),
+                         (0.0, "Deadlock"))
+        fit, agent = rendered_art_fit(far, ["Breach", "Deadlock"], refs)
+        self.assertEqual(agent, "Deadlock")
+        self.assertAlmostEqual(fit, (64.0 + 64.0 + 0.0) / 3)
+        icons = [_icon(1, 0, _one_hot(0), features=_features(0))]
+        (claim,) = claims_from_ally_icons(icons, _lineup(), gallery=GALLERY,
+                                          session_id="s", references=refs)
+        self.assertEqual((claim["evidence"]["fit"], claim["evidence"]["fit_agent"]),
+                         (0.0, "Breach"))
+
+    def test_a_piece_that_fits_no_teammate_is_refused(self):
+        table = {"fit_max": 2.0}
+        reason, fit = teammate_fit_refusal([3.0, 5.0, None, 1.0], table)
+        self.assertEqual(fit, 3.0)
+        self.assertTrue(reason.startswith("not_a_teammate"))
+        self.assertEqual(teammate_fit_refusal([1.0, 1.5], table), (None, 1.25))
+        # No fitted table or no read fit: the test is not applied.
+        self.assertEqual(teammate_fit_refusal([9.0], None), (None, None))
+        self.assertEqual(teammate_fit_refusal([None], table), (None, None))
 
     def test_a_stored_refusal_is_quoted(self):
         icons = [_icon(1, 0, _one_hot(0), reason="interior_is_map")]

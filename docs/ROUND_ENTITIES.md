@@ -61,7 +61,12 @@ and unobserved tracking loss.
 3. Identity-gated death witness linkage pairs ceasing abstained tracks with
    stored death verdicts (`depends_on=[death_id]`), strictly excluding local
    player deaths and conflicting victims.
-4. Persistent teammate keys (`session_id:teammate:{agent}`) are assigned to
+4. Not a teammate (`round-entity-0.6.0`): a segment whose icons' median
+   absolute fit to the closest teammate reference exceeds `fit_max`
+   (`identity.teammate_fit_refusal`; `teammate_fit.json`, fitted on automatic
+   death bindings) is refused and records `teammate_fit`. The threshold
+   refuses gross misfits only; it separates no labelled ability icon.
+5. Persistent teammate keys (`session_id:teammate:{agent}`) are assigned to
    resolved ally tracks across all rounds.
 
 On `a06f04a0059f` (15 Hz, 24 rounds), 244 of 281 ally entities resolved

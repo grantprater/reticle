@@ -45,6 +45,10 @@ from ..roster import N_SLOTS
 from ..track import assign
 
 
+# 0.5.0 (2026-09-26): each rendered-art ally claim records its absolute
+# `fit` to the closest teammate reference (`rendered_art_fit`), and
+# `teammate_fit_refusal` refuses a piece whose icons fit no teammate at the
+# threshold fitted on automatic death bindings (`teammate_fit.json`).
 # 0.4.0 (2026-09-26): an ally icon carrying `portrait_features` is scored
 # against references rendered from minimap portrait art (`rendered_art_scores`)
 # instead of the official-art composition, which stays the fallback for events
@@ -52,7 +56,7 @@ from ..track import assign
 # 0.3.0 (2026-09-25): a killfeed portrait names on a posterior over the side's
 # admitted candidates from per-source likelihood ratios (`portrait_llr`), not
 # on the raw-score margin, so official art and exemplars share one scale.
-AGENT_IDENTITY_VERSION = "agent-identity-0.4.0"
+AGENT_IDENTITY_VERSION = "agent-identity-0.5.0"
 
 #: Borrowed from `lineup.MARGIN_MIN` and NOT refitted here. It keeps every
 #: correct player portrait on the one population with a truth --
@@ -878,7 +882,51 @@ def claims_from_minimap_icons(observations, lineup, *, gallery,
 def load_ally_portrait_references(store) -> dict | None:
     """The baked rendered-art table (`ally_portrait.build_references`), or None."""
     from ..ally_portrait import load_references
-    return load_references(store)
+    table = load_references(store)
+    if table is not None:
+        table["teammate_fit"] = load_teammate_fit(store, table)
+    return table
+
+
+TEAMMATE_FIT_FILE = "teammate_fit.json"
+
+
+def load_teammate_fit(store, references) -> dict | None:
+    """The fitted "not a teammate" threshold beside the rendered-art table,
+    or None when it was never fitted or was fitted on another calibration
+    (its `calibration_sha` must equal the table's): a stale threshold is
+    not applied."""
+    import json
+
+    from ..ally_portrait import REFERENCE_DIR
+    p = Path(store).joinpath(*REFERENCE_DIR, TEAMMATE_FIT_FILE)
+    if not p.exists():
+        return None
+    fit = json.loads(p.read_text(encoding="utf-8"))
+    if fit.get("calibration_sha") != (references.get("calibration") or {}).get("sha"):
+        return None
+    return fit
+
+
+def teammate_fit_refusal(fits, teammate_fit) -> tuple[str | None, float | None]:
+    """Refuse a piece whose icons fit NONE of the teammates' rendered art.
+
+    `fits` are the per-icon `evidence.fit` of `claims_from_ally_icons` (None
+    where unread); the piece's fit is their median. Comparative scoring
+    always favours some teammate, so an ability icon inside an ally ring or
+    a fit on bare floor takes a name unless this absolute test refuses it.
+    `teammate_fit["fit_max"]` is fitted on automatic death bindings only
+    (`teammate_fit.json`, with its provenance). Returns (reason, fit); the
+    reason is None when the piece passes or the test cannot be applied.
+    """
+    got = [f for f in fits if f is not None]
+    if not got or not teammate_fit:
+        return None, None
+    fit = float(np.median(got))
+    if fit > teammate_fit["fit_max"]:
+        return (f"not_a_teammate: fit {fit:.3f} > {teammate_fit['fit_max']:.3f} "
+                f"to every teammate's rendered art"), fit
+    return None, fit
 
 
 def rendered_art_scores(features, names, references) -> dict | None:
@@ -907,6 +955,32 @@ def rendered_art_scores(features, names, references) -> dict | None:
         total += -0.5 * (((x[None] - M) ** 2) / v + np.log(v)).mean(1)
     total -= total.mean()
     return {n: float(s) for n, s in zip(names, total)}
+
+
+def rendered_art_fit(features, names, references) -> tuple[float, str] | None:
+    """How well one icon fits its CLOSEST named reference, as an absolute
+    distance: per family the mean squared z-score under the rendered-art
+    model (the Gaussian of `rendered_art_scores` without its constant), the
+    families averaged, the minimum over `names`, with the agent that attains
+    it. `rendered_art_scores` compares the names and always favours someone;
+    this says whether anyone fits at all. None when the features or a
+    reference are missing.
+    """
+    if not features or not references:
+        return None
+    refs = references["agents"]
+    if any(n not in refs for n in names) or not names:
+        return None
+    total = np.zeros(len(names))
+    for fam, var in references["variance"].items():
+        if fam not in features:
+            return None
+        x = np.asarray(features[fam], np.float64)
+        M = np.asarray([refs[n][fam] for n in names], np.float64)
+        total += (((x[None] - M) ** 2) / np.asarray(var, np.float64)).mean(1)
+    total /= len(references["variance"])
+    i = int(np.argmin(total))
+    return float(total[i]), names[i]
 
 
 def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
@@ -994,9 +1068,11 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
             for icon in described:
                 out.append(claim(icon, None, "icon_no_descriptor"))
             continue
+        fits = ([rendered_art_fit(i.get("portrait_features"), names, references)
+                 for i in described] if source == "rendered_art" else [None] * len(described))
         matrix = [[s.get(n, 0.0) for n in names] for s in scores]
-        for icon, s, row in zip(described, scores,
-                                assign_side(matrix, names, 1, "ally", gate)):
+        for icon, s, fit, row in zip(described, scores, fits,
+                                     assign_side(matrix, names, 1, "ally", gate)):
             reason = row["reason"]
             if reason is None and row["agent"] in barred:
                 reason = f"icon_best_is_refused_slot {row['agent']}"
@@ -1006,6 +1082,8 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
                  "best_guess": row["best_guess"], "rival": row["rival"],
                  "margin": row["margin"], "margin_min": gate,
                  "reference_source": source,
+                 "fit": None if fit is None else round(fit[0], 4),
+                 "fit_agent": None if fit is None else fit[1],
                  "reference_version": (references.get("version")
                                        if source == "rendered_art" else None),
                  "icons_in_frame": len(described)}))

@@ -31,7 +31,9 @@ from collections import Counter
 
 from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes
 
-ROUND_ENTITY_VERSION = "round-entity-0.5.0"
+# 0.6.0 (2026-09-26): an ally segment whose icons fit no teammate's rendered
+# art (`identity.teammate_fit_refusal`) is refused as not a teammate.
+ROUND_ENTITY_VERSION = "round-entity-0.6.0"
 
 
 def _observation(icon: dict) -> dict:
@@ -149,6 +151,7 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
 
     player_agent = (lineup.get("player") or {}).get("agent") if lineup else None
     arb = None
+    fit_by_obs: dict[str, float | None] = {}
     verdicts: dict[str, dict] = {}
 
     if lineup and gallery:
@@ -178,6 +181,8 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                         "entity_id": tgt,
                         "binding_from": "round_entity",
                     })
+            fit_by_obs = {c["entity_id"][len(prefix):]: (c.get("evidence") or {}).get("fit")
+                          for c in claims1 if c["entity_id"].startswith(prefix)}
             if track_claims1:
                 arb1 = AgentIdentityArbiter()
                 arb1.extend(track_claims1)
@@ -318,7 +323,17 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                 status = "abstained"
                 reason = "barrier"
             elif fam == "ally":
-                if eid in verdicts:
+                fit_reason, fit = (None, None)
+                if lineup and gallery:
+                    from .adjudication.identity import teammate_fit_refusal
+                    fit_reason, fit = teammate_fit_refusal(
+                        [fit_by_obs.get(k) for k in obs_by_ent.get(eid, [])],
+                        (references or {}).get("teammate_fit"))
+                if fit is not None:
+                    ent["teammate_fit"] = round(fit, 4)
+                if fit_reason:
+                    status, reason = "abstained", fit_reason
+                elif eid in verdicts:
                     v = verdicts[eid]
                     agent = v["agent"]
                     status = v["status"]
