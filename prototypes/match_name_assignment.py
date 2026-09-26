@@ -39,11 +39,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import killfeed_name_continuity as K  # noqa: E402
 import label_feed_portraits as lfp  # noqa: E402
+from reticle.adjudication import reliability  # noqa: E402
 from reticle.adjudication.identity import (  # noqa: E402
     _portrait_scores, load_identity_gallery, portrait_llr, side_candidates)
 from reticle.lineup import load_lineup  # noqa: E402
 
 MIN_CLUSTER = 5
+#: Version switches: the other reference channels as factors, and roles with
+#: no name crop as their own fragments.
+CHANNELS = True
+UNCLUSTERED = True
 POSTERIOR_MIN = 0.9
 #: The ratio an agent takes in a view whose references it lacks.
 FLOOR_LLR = -10.0
@@ -61,8 +66,20 @@ def _views(verdict: dict) -> list[tuple[float, int]]:
                    if o.get("observation_key")})
 
 
-def role_evidence(sid: str, lineup: dict, gallery: dict) -> dict:
-    """{(death_id, role): {agent: mean art log likelihood ratio}}."""
+def channel_llr(table: dict, channel: str, agent: str, k: int) -> float:
+    """The log ratio one channel's claim gives the agent it names, among `k`
+    admitted agents: right with its reliability-table mean m, and wrong
+    evenly over the others, so log(m (k - 1) / (1 - m))."""
+    b = table["agents"].get(f"{channel}:{agent}") or table["channels"][channel]
+    m = b["mean"]
+    return float(np.log(m * max(1, k - 1) / (1.0 - m)))
+
+
+def role_evidence(sid: str, lineup: dict, gallery: dict, table: dict | None = None) -> dict:
+    """{(death_id, role): {agent: log likelihood ratio}}: the mean official-art
+    ratio over the followed views, plus each independent reference channel's
+    claim (`reliability.REFERENCE_CHANNELS`, no `depends_on`) at its measured
+    reliability when `table` is given. Each factor is attached once."""
     rows = {(float(r["t_ms"]), r["slot"], r["role"]): r
             for r in K.STORE.read_events("killfeed_portrait", sid)
             if r.get("kind") == "portrait_observation"}
@@ -84,8 +101,16 @@ def role_evidence(sid: str, lineup: dict, gallery: dict) -> dict:
                     continue
                 s = _portrait_scores(r["composition"], admitted, gallery, shifts=r.get("shifts"))
                 per.append({a: portrait_llr("art", s[a]) if a in s else FLOOR_LLR for a in admitted})
-            if per:
-                out[(v["death_id"], role)] = {a: float(np.mean([p[a] for p in per])) for a in admitted}
+            llr = ({a: float(np.mean([p[a] for p in per])) for a in admitted} if per
+                   else {a: 0.0 for a in admitted})
+            key = "killer_identity" if role == "killer" else "identity"
+            said = [c for c in ((v.get("metadata") or {}).get(key) or {}).get("claims", [])
+                    if table and c["channel"] in reliability.REFERENCE_CHANNELS
+                    and c.get("agent") in llr and not c.get("depends_on")]
+            for c in said:
+                llr[c["agent"]] += channel_llr(table, c["channel"], c["agent"], len(admitted))
+            if per or said:
+                out[(v["death_id"], role)] = llr
     return out
 
 
@@ -99,13 +124,22 @@ def assign_names(sid: str) -> dict:
     clustered, non-"Me" role on both sides."""
     lineup = load_lineup(sid, K.STORE.root)
     gallery = load_identity_gallery(K.STORE.root)
-    ev = role_evidence(sid, lineup, gallery)
+    ev = role_evidence(sid, lineup, gallery, reliability.load(K.STORE.root) if CHANNELS else None)
     player = (lineup.get("player") or {}).get("agent")
-    items = {}
+    items, me = {}, set()
     for it in K.load(sid):
-        if not it["me"]:
+        if it["me"]:
+            me.add((it["death_id"], it["role"]))
+        else:
             items.setdefault((it["death_id"], it["role"]), it)
     out = {}
+    # "Me" prints on the player's own entries; the lineup owns the player's agent.
+    for k in me:
+        out[k] = {"agent": player, "p": None, "best": player, "cluster": None, "n": len(me),
+                  "kind": "me", "team": "ally"}
+    sides = {(v["death_id"], role): (v["side"] if role == "victim" else OTHER.get(v["side"]))
+             for v in K.STORE.read_events("death", sid) if v.get("kind") == "death_verdict"
+             for role in ("killer", "victim")}
     for team in ("ally", "enemy"):
         split = side_candidates(lineup["sides"].get(team, []))
         if split["blind"]:
@@ -115,6 +149,9 @@ def assign_names(sid: str) -> dict:
         keys = [k for k, it in items.items() if it["team"] == team]
         cl = K.clusters([items[k] for k in keys])
         cl = sorted(([keys[i] for i in c] for c in cl), key=len, reverse=True)
+        # A role with no name crop stands alone on its own evidence.
+        if UNCLUSTERED:
+            cl += [[k] for k in ev if k not in items and k not in me and sides.get(k) == team]
         L = np.array([[sum(ev[k][a] for k in c if k in ev) for a in agents] for c in cl])
         big = [i for i, c in enumerate(cl) if len(c) >= MIN_CLUSTER][:len(agents)]
         marg = np.zeros((len(big), len(agents)))
