@@ -15,6 +15,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 import math
+import os
+import queue
+import threading
 
 import cv2
 import numpy as np
@@ -25,6 +28,191 @@ class Sample:
     frame_idx: int
     t_ms: float
     frame: np.ndarray  # BGR, full resolution
+
+
+# The only stream layout whose NVDEC frames are verified identical to OpenCV's:
+# every capture in the store is H.264 High, yuv420p, limited range.
+_NVDEC_LAYOUT = ("h264", "yuv420p", 1)     # 1: AVCOL_RANGE_MPEG
+# Device frames decoded ahead of the caller; each holds ~3 MB of GPU memory.
+_NVDEC_AHEAD = 16
+
+
+class _NvdecCapture:
+    """The `grab`/`retrieve`/`get` subset of `cv2.VideoCapture`, decoded on NVDEC.
+
+    OpenCV decodes every frame on the CPU, and `grab()` of a 1080p60 capture
+    costs about 8 ms of CPU per frame whether or not the frame is kept. NVDEC
+    decodes into GPU memory; a frame reaches system memory only when
+    `retrieve()` asks for it. NVDEC decodes about 590 frames/s against
+    OpenCV's 1000, at 0.2 ms of CPU a frame against 7.8. Measured 2026-09-26
+    over `sample_multi` at the scan's rates (2 Hz whole capture, 15 Hz over
+    active spans): 7010b3d62460 took 293 s of CPU against 1274, a06f04a0059f
+    429 against 1665, at equal wall time, because a thread decodes ahead while
+    the readers run.
+
+    Frames are byte-identical to OpenCV's because both run the same swscale
+    conversion: OpenCV converts yuv420p to BGR24 with SWS_BICUBIC and swscale's
+    default BT.601 matrix (it ignores the stream's BT.709 tag), and so does
+    `retrieve` after NVDEC's NV12 is repacked to yuv420p. Converting NV12
+    directly, or with the stream's own matrix, differs by up to 37 levels.
+    `t_ms` is OpenCV's formula: presentation time minus the stream start.
+    Both sessions above yielded the same indices, timestamps and SHA-1 of
+    every retrieved frame (26978 and 36456 frames), and a full `scan --force`
+    of 7010b3d62460 wrote byte-identical events and L1 tables.
+    """
+
+    def __init__(self, path: str):
+        import av
+        from av.codec.hwaccel import HWAccel
+        from av.video.reformatter import VideoReformatter
+
+        # Under hwaccel the codec reports its pixel format as "cuda", so the
+        # stream's own layout is read from a plain open first.
+        with av.open(path) as probe:
+            ctx = probe.streams.video[0].codec_context
+            layout = (ctx.name, ctx.format.name if ctx.format else None, ctx.color_range)
+        if layout != _NVDEC_LAYOUT:
+            raise RuntimeError(f"unverified layout {layout}")
+        self._container = av.open(path, hwaccel=HWAccel(
+            "cuda", allow_software_fallback=False, is_hw_owned=True))
+        try:
+            stream = self._container.streams.video[0]
+            self._start = stream.start_time or 0
+            w, h = stream.codec_context.width, stream.codec_context.height
+            self._h = h
+            # One yuv420p frame, refilled per retrieve, and one cached
+            # swscale context: a fresh context per frame costs more than the
+            # conversion.
+            self._yuv = av.VideoFrame(w, h, "yuv420p")
+            self._planes = [
+                np.frombuffer(plane, np.uint8).reshape(-1, plane.line_size)[:, :pw]
+                for plane, pw in zip(self._yuv.planes, (w, w // 2, w // 2))]
+            self._to_bgr = VideoReformatter()
+            self._tb = float(stream.time_base)
+            self._frames = self._decode(stream)
+            self._frame = None
+            self._pos = 0
+            self._t_ms = 0.0
+            # Fail here, not mid-pass, when the device cannot decode this stream.
+            self._first = next(self._frames, None)
+            if self._first is None or self._first.format.name != "cuda":
+                raise RuntimeError("NVDEC produced no device frame")
+        except BaseException:
+            self._container.close()
+            raise
+        # NVDEC decodes ahead on a thread while the caller's readers run: the
+        # decode releases the GIL, so a pass costs about the larger of the two
+        # rather than their sum (28.6 s -> 15.5 s over 4000 frames with 4 ms
+        # of GIL-bound work on every second frame). Order is unchanged.
+        self._queue = queue.Queue(maxsize=_NVDEC_AHEAD)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._produce, daemon=True)
+        self._thread.start()
+
+    def _produce(self):
+        try:
+            for frame in self._frames:
+                while not self._stop.is_set():
+                    try:
+                        self._queue.put(frame, timeout=0.1)
+                        break
+                    except queue.Full:
+                        continue
+                if self._stop.is_set():
+                    return
+            item = None
+        except BaseException as exc:      # handed to the consumer, not lost
+            item = exc
+        while not self._stop.is_set():
+            try:
+                self._queue.put(item, timeout=0.1)
+                return
+            except queue.Full:
+                continue
+
+    def _decode(self, stream):
+        import av
+        for packet in self._container.demux(stream):
+            try:
+                frames = packet.decode()
+            except av.error.InvalidDataError:
+                continue          # OpenCV's grab() skips undecodable packets too
+            yield from frames
+
+    def isOpened(self) -> bool:
+        return True
+
+    def grab(self) -> bool:
+        if self._first is not None:
+            frame, self._first = self._first, None
+        elif self._thread is None:
+            frame = None
+        else:
+            frame = self._queue.get()
+            if isinstance(frame, BaseException):
+                raise frame
+            if frame is None:
+                self._thread.join()
+                self._thread = None
+        self._frame = frame
+        if frame is None:
+            return False
+        self._pos += 1
+        self._t_ms = (0.0 if frame.pts is None
+                      else (frame.pts - self._start) * self._tb * 1000.0)
+        return True
+
+    def retrieve(self):
+        if self._frame is None:
+            return False, None
+        # Download as NV12 and split the interleaved chroma into yuv420p
+        # planes here: swscale's own NV12 path costs twice as much.
+        nv12 = self._frame.reformat(format="nv12").to_ndarray()
+        y, u, v = self._planes
+        h = self._h
+        y[...] = nv12[:h]
+        uv = nv12[h:].reshape(h // 2, -1, 2)
+        u[...] = uv[..., 0]
+        v[...] = uv[..., 1]
+        bgr = self._to_bgr.reformat(
+            self._yuv, format="bgr24", interpolation="BICUBIC",
+            src_colorspace="ITU601", dst_colorspace="ITU601").to_ndarray()
+        return True, np.ascontiguousarray(bgr)
+
+    def get(self, prop) -> float:
+        if prop == cv2.CAP_PROP_POS_MSEC:
+            return self._t_ms
+        if prop == cv2.CAP_PROP_POS_FRAMES:
+            return float(self._pos)
+        raise ValueError(f"unsupported property {prop}")
+
+    def release(self) -> None:
+        self._frame = None
+        if self._thread is not None:
+            self._stop.set()
+            self._thread.join()
+            self._thread = None
+        self._container.close()
+
+
+def open_capture(path: str):
+    """A capture read front to back: NVDEC when it is usable, else OpenCV.
+
+    `RETICLE_DECODE=cpu` forces OpenCV and `=nvdec` refuses to fall back; the
+    default, `auto`, tries NVDEC and falls back to OpenCV when PyAV has no CUDA
+    device or the stream is not the verified layout. Seeking callers stay on
+    OpenCV: its seek semantics are not reproduced here.
+    """
+    mode = os.environ.get("RETICLE_DECODE", "auto").lower()
+    if mode not in ("auto", "cpu", "nvdec"):
+        raise ValueError(f"RETICLE_DECODE must be auto, cpu or nvdec, not {mode!r}")
+    if mode != "cpu":
+        try:
+            return _NvdecCapture(path)
+        except Exception:
+            if mode == "nvdec":
+                raise
+    return cv2.VideoCapture(path)
 
 
 def _sampling_step(target_hz: float) -> float:
@@ -72,7 +260,7 @@ def sample_frames(
     correct rather than silently sampling at the wrong rate.
     """
     _sampling_step(target_hz)
-    cap = cv2.VideoCapture(path)
+    cap = open_capture(path)
     if not cap.isOpened():
         raise SystemExit(f"could not open {path}")
 
@@ -132,7 +320,7 @@ def sample_at(path: str, targets_ms: list[float], nominal_fps: float) -> Iterato
     if any(b < a for a, b in zip(targets_ms, targets_ms[1:])):
         raise ValueError("targets_ms must be sorted ascending")
 
-    cap = cv2.VideoCapture(path)
+    cap = open_capture(path)
     if not cap.isOpened():
         raise SystemExit(f"could not open {path}")
 
@@ -231,7 +419,7 @@ def sample_spans(path: str, spans_ms: list[tuple[float, float]], target_hz: floa
     if not spans:
         return
 
-    cap = cv2.VideoCapture(path)
+    cap = open_capture(path)
     if not cap.isOpened():
         raise SystemExit(f"could not open {path}")
 
@@ -325,7 +513,7 @@ def sample_multi(
     if not state:
         return
 
-    cap = cv2.VideoCapture(path)
+    cap = open_capture(path)
     if not cap.isOpened():
         raise SystemExit(f"could not open {path}")
     # The last moment anyone is interested in: past it there is nothing to do.
