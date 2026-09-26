@@ -253,9 +253,18 @@ def audit_board_alive(openings, hud, roster, join_ms: float = ROSTER_JOIN_MS):
     a death between the two reads is the expected cause, not a verdict on
     either channel.
     """
-    records, counts = [], Counter()
+    return board_alive_auditor(hud, roster, join_ms)(openings)
+
+
+def board_alive_auditor(hud, roster, join_ms: float = ROSTER_JOIN_MS):
+    """`audit_board_alive` for many opening lists of one session.
+
+    The roster's alive counts, the counted killfeed entries and the score
+    boundaries depend on the session alone; this reads them once and returns
+    a function that audits one list of openings.
+    """
     if roster is None:
-        return dict(status='missing_roster', records=records, counts={})
+        return lambda openings: dict(status='missing_roster', records=[], counts={})
     v = roster.to_pydict() if hasattr(roster, 'to_pydict') else dict(roster)
     h = hud.to_pydict() if hasattr(hud, 'to_pydict') else dict(hud or {})
     alive = dict(zip(('ally', 'enemy'), resolve(h, v)))
@@ -270,6 +279,12 @@ def audit_board_alive(openings, hud, roster, join_ms: float = ROSTER_JOIN_MS):
         i = bisect_left(ts, t)
         return min((abs(ts[k] - t) for k in (i - 1, i) if 0 <= k < len(ts)), default=None)
 
+    return lambda openings: _audit_openings(openings, alive, rt, entries, bounds,
+                                            nearest, join_ms)
+
+
+def _audit_openings(openings, alive, rt, entries, bounds, nearest, join_ms):
+    records, counts = [], Counter()
     for opening in openings:
         if not opening.get('accepted'):
             continue

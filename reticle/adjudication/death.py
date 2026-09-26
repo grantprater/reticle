@@ -1675,7 +1675,7 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
     the entry carries its evidence. Without them no weapon is named, and no
     entry is a revive (`revive_entry`).
     """
-    from ..reconciliation import audit_board_alive, contradicted_openings
+    from ..reconciliation import board_alive_auditor, contradicted_openings
     from .scoreboard import scoreboard_openings
     from ..rounds import in_round_window
     hud, roster = hud_table.to_pydict(), roster_table.to_pylist()
@@ -1691,6 +1691,7 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
             if ev["status"] == "resolved":
                 e["weapon"] = ev["name"]
                 e["death_cause"] = ev["category"]
+    audit_board = board_alive_auditor(hud_table, roster_table)
     ends = {r["t_end_ms"] for r in rounds}
     base = [(r, in_round_window(entries, r["t_start_ms"], r["t_end_ms"],
                                 r.get("t_close_ms") or r["t_end_ms"], ends)) for r in rounds]
@@ -1711,7 +1712,7 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
             board = scoreboard_death_claims(
                 entries, openings, {i: v.victim for i, v in enumerate(first)},
                 {i for i, v in enumerate(first) if v.is_second_life},
-                contradicted_openings(audit_board_alive(openings, hud_table, roster_table)))
+                contradicted_openings(audit_board(openings)))
             verdicts = adjudicate_round_deaths(session_id, entries, window,
                                                player_agent=player_agent,
                                                scoreboard_claims=board)
