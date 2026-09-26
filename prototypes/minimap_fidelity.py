@@ -57,7 +57,7 @@ def decimate(events: list[dict], k: int) -> list[dict]:
     return [e for e in events if e.get("kind") not in ("frame", "icon") or e["t_ms"] in keep]
 
 
-def build(sid: str, events: list[dict]) -> list[dict]:
+def build_entities(sid: str, events: list[dict]) -> list[dict]:
     man = STORE.read_manifest(sid)
     date = _date_of(man)
     rounds = build_rounds(STORE.read_hud(sid, date))
@@ -131,7 +131,7 @@ def main(sids: list[str], raw_out: str | None = None) -> dict:
         best = icon_best_guess(sid, events)
         for r in RATES:
             t0 = time.perf_counter()
-            c = score(sid, build(sid, decimate(events, round(15.0 / r))), best)
+            c = score(sid, build_entities(sid, decimate(events, round(15.0 / r))), best)
             c["seconds"] += time.perf_counter() - t0
             total[r] += c
         print(sid, "done", flush=True)
