@@ -16,6 +16,11 @@ each tile numbered with the match's four teammates, and writes `items.json`
 the killfeed victim or the reader's guess, so a labeller given only OUT_DIR is
 blind.
 
+`grids OUT_DIR --refs` adds, under each tile, the four candidates' own
+minimap portrait art (`<store>/reference/assets/agents/<Agent>_minimap_portrait.png`)
+numbered 1-4, so the labeller compares instead of recalling. The first blind
+pass named newer agents (Tejo, Vyse, Miks) from one salient colour.
+
 `score` compares an answers file -- {"<item>": "<agent>" | "not_portrait" |
 "other_agent" | "unsure"} -- with the player's labels: agreement on the
 player's certain answers, per class and per agent, and where they differ.
@@ -38,9 +43,28 @@ import label_death_icons as L  # noqa: E402
 PER_GRID, COLS = 30, 6
 TILE = 2 * L.HALF * L.ZOOM + L.ZOOM          # the labeller's crop size
 TEXT_H = 34
+REF = 38                                      # side of each reference portrait (a quarter of a tile)
+ART = L.STORE.root / "reference" / "assets" / "agents"
 
 
-def grids(out: Path) -> None:
+def _ref_row(mates: list[str], width: int) -> np.ndarray:
+    """The candidates' minimap portraits on a dark strip, numbered 1-4."""
+    row = np.full((REF + 14, width, 3), 24, np.uint8)
+    for i, a in enumerate(mates):
+        im = cv2.imread(str(ART / f"{a}_minimap_portrait.png"), cv2.IMREAD_UNCHANGED)
+        if im is None:
+            continue
+        if im.shape[2] == 4:
+            alpha = im[:, :, 3:4].astype(np.float32) / 255
+            im = (im[:, :, :3] * alpha + 24 * (1 - alpha)).astype(np.uint8)
+        im = cv2.resize(im, (REF, REF), interpolation=cv2.INTER_AREA)
+        x = i * (width // 4) + (width // 4 - REF) // 2
+        row[14:14 + REF, x:x + REF] = im
+        cv2.putText(row, f"{i + 1}", (x + 2, 11), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1)
+    return row
+
+
+def grids(out: Path, refs: bool = False) -> None:
     out.mkdir(parents=True, exist_ok=True)
     items = L.sample(150)
     crops = L.Crops()
@@ -59,6 +83,8 @@ def grids(out: Path) -> None:
             cv2.putText(cell, f"#{n + 1}", (3, 13), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
             cv2.putText(cell, " ".join(f"{i + 1}{a[:6]}" for i, a in enumerate(mates)), (3, 29),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.33, (200, 230, 255), 1)
+            if refs:
+                cell = np.vstack([cell, _ref_row(mates, cell.shape[1])])
             cells.append(cell)
         while len(cells) % COLS:
             cells.append(np.zeros_like(cells[0]))
@@ -98,4 +124,4 @@ def score(answers_path: Path) -> dict:
 
 if __name__ == "__main__":
     cmd, arg = sys.argv[1], Path(sys.argv[2])
-    grids(arg) if cmd == "grids" else score(arg)
+    grids(arg, "--refs" in sys.argv) if cmd == "grids" else score(arg)
