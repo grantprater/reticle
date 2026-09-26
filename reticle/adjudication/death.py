@@ -26,6 +26,7 @@ Owns [owns:death-victim].
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -42,8 +43,9 @@ from ..events import (
 from ..killfeed import (SECOND_LIFE_RUN_MIN, detect_second_life_badge,  # noqa: F401 -- re-exported
                         fit_arc)
 from ..roster import N_SLOTS
-from .identity import (adjudicate_agent_identity, claim_from_killfeed_portrait,
-                       identity_claim, identity_events, side_candidates, _channel_verdict)
+from .identity import (NAME_CLUSTER_CHANNEL, adjudicate_agent_identity,
+                       claim_from_killfeed_portrait, identity_claim, identity_events,
+                       side_candidates, _channel_verdict)
 from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 
 # 0.7.0 (2026-09-24): deaths keyed by entry onset and slot (`death_key`), not
@@ -58,7 +60,10 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # 0.12.0 (2026-09-25): an entry's portrait views follow it up the stack by its
 # own key (`follow_entry_portraits`), not its first slot until the next entry;
 # a refusing view abstains, and two agreeing named views name the entry.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.12.0"
+# 0.13.0 (2026-09-26): a final pass replaces each role's per-entry portrait
+# vote with its name cluster's claim where the cluster is named
+# (`killfeed_names`, `identity.name_cluster_claims`); fragments keep the vote.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.13.0"
 
 #: Weapon-slot icons that mark a revive entry, which is not a death
 #: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
@@ -721,11 +726,19 @@ def adjudicate_death(
     is_revive: bool = False,
     victim_depends_on: Optional[dict] = None,
     killer_claim: Optional[dict] = None,
+    victim_name_claim: Optional[dict] = None,
+    killer_name_claim: Optional[dict] = None,
 ) -> DeathVerdict:
     """Adjudicate victim identity, killer, and location for one death instant.
 
     `victim_depends_on` maps a channel to the death ids its name rested on, so
     the arbiter can refuse to count it as independent.
+
+    `victim_name_claim` and `killer_name_claim` are the roles'
+    `identity.name_cluster_claims`. A named one REPLACES the role's per-entry
+    `killfeed_portrait` vote, which abstains with the name it gave in evidence:
+    the cluster's ratio already holds this role's portrait views, and counting
+    both would weigh them twice.
 
     The killer is a second entity, `<death_id>:killer`, named by the same
     arbiter: the player HUD on a player kill, and `killer_claim`, the killer
@@ -762,6 +775,17 @@ def adjudicate_death(
             weapon = killfeed_claim["weapon"]
         if death_cause == "gun" and killfeed_claim.get("death_cause"):
             death_cause = killfeed_claim["death_cause"]
+
+    # The name cluster: this role's portrait views pooled with its name's other
+    # entries. A named cluster takes the portrait's vote.
+    replaced = {}
+    if victim_name_claim:
+        witnesses.append(victim_name_claim)
+        channels.append(NAME_CLUSTER_CHANNEL)
+        if victim_name_claim.get("agent"):
+            victim_candidates[NAME_CLUSTER_CHANNEL] = victim_name_claim["agent"]
+            for ch in [c for c in victim_candidates if c == "killfeed_portrait"]:
+                replaced[ch] = victim_candidates.pop(ch)
 
     # Scoreboard dimmed-row witness
     if scoreboard_claim:
@@ -810,13 +834,23 @@ def adjudicate_death(
     else:
         if is_player_kill and player_agent:
             killer_claims.append(identity_claim(killer_id, player_agent, channel="player_hud"))
+        named_cluster = bool(killer_name_claim and killer_name_claim.get("agent"))
         if killer_claim:
+            said = killer_claim.get("agent")
             killer_claims.append(identity_claim(
-                killer_id, killer_claim.get("agent"), channel="killfeed_portrait",
-                reason=killer_claim.get("reason"),
+                killer_id, None if named_cluster else said, channel="killfeed_portrait",
+                reason=(f"replaced_by_name_cluster: per-entry said {said}"
+                        if named_cluster else killer_claim.get("reason")),
                 source_version=killer_claim.get("source_version"),
-                evidence=killer_claim.get("evidence"),
-                depends_on=killer_claim.get("depends_on")))
+                evidence=(dict(killer_claim.get("evidence") or {}, per_entry_agent=said)
+                          if named_cluster else killer_claim.get("evidence")),
+                depends_on=None if named_cluster else killer_claim.get("depends_on")))
+        if killer_name_claim:
+            killer_claims.append(identity_claim(
+                killer_id, killer_name_claim.get("agent"), channel=NAME_CLUSTER_CHANNEL,
+                reason=killer_name_claim.get("reason"),
+                source_version=killer_name_claim.get("source_version"),
+                evidence=killer_name_claim.get("evidence")))
         elif killfeed_claim and killfeed_claim.get("killer"):
             killer_claims.append(identity_claim(killer_id, killfeed_claim["killer"],
                                                 channel="killfeed_portrait"))
@@ -866,12 +900,23 @@ def adjudicate_death(
     if killfeed_claim and killfeed_claim.get("depends_on"):
         depends.setdefault("killfeed_portrait", killfeed_claim["depends_on"])
     claims = [identity_claim(death_id, agent, channel=ch, depends_on=depends.get(ch))
+              if ch != NAME_CLUSTER_CHANNEL else
+              identity_claim(death_id, agent, channel=ch,
+                             source_version=victim_name_claim.get("source_version"),
+                             evidence=victim_name_claim.get("evidence"))
               for ch, agent in named_votes.items()]
     for w in witnesses:
         ch = w.get("channel")
-        if ch in ("killfeed_portrait", "scoreboard_dim") and ch not in named_votes:
-            claims.append(identity_claim(death_id, None, channel=ch,
-                                         reason=w.get("reason")))
+        if ch in replaced:
+            claims.append(identity_claim(
+                death_id, None, channel=ch,
+                reason=f"replaced_by_name_cluster: per-entry said {replaced[ch]}",
+                evidence={"per_entry_agent": replaced[ch]}))
+        elif (ch in ("killfeed_portrait", "scoreboard_dim", NAME_CLUSTER_CHANNEL)
+              and ch not in named_votes):
+            claims.append(identity_claim(death_id, None, channel=ch, reason=w.get("reason"),
+                                         evidence=(w.get("evidence")
+                                                   if ch == NAME_CLUSTER_CHANNEL else None)))
     identity = (adjudicate_agent_identity(claims) or [None])[0]
     status = identity["status"] if identity else "abstained"
     victim = identity["agent"] if identity else None
@@ -1266,6 +1311,8 @@ def adjudicate_round_deaths(
             side=side,
             killfeed_claim=kf_claim,
             killer_claim=kf.get("killer_claim"),
+            victim_name_claim=kf.get("name_claim"),
+            killer_name_claim=kf.get("killer_name_claim"),
             scoreboard_claim=scoreboard_claims[i] if scoreboard_claims else None,
             victim_depends_on=({"scoreboard_dim": [death_ids[j] for j in
                                 scoreboard_claims[i].get("depends_on_entries", [])]}
@@ -1660,7 +1707,9 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                               portraits: list[dict], board_rows: list[dict], lineup: dict,
                               gallery: dict, *, source_version: str,
                               second_life: list[dict] | None = None,
-                              weapon_observations: list[dict] | None = None) -> dict:
+                              weapon_observations: list[dict] | None = None,
+                              name_observations: list[dict] | None = None,
+                              reliability: dict | None = None) -> dict:
     """Every round's deaths from stored data only; decodes no video.
 
     Per round: the stored killfeed portraits against the official art, then the
@@ -1674,6 +1723,14 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
     `adjudication.weapon.entry_weapon` names each entry's weapon or ability and
     the entry carries its evidence. Without them no weapon is named, and no
     entry is a revive (`revive_entry`).
+
+    `name_observations` are the stored `killfeed_name` rows. Given them, the
+    converged pass's roles are joined into name clusters
+    (`killfeed_names.name_clusters`), the arbiter assigns each side's large
+    clusters its agents (`identity.name_cluster_claims`, weighting the
+    reference channels by the `reliability` table when given), and one final
+    pass adjudicates every round with those claims in place of the roles'
+    per-entry portrait votes. The result then carries `name_clusters`.
     """
     from ..reconciliation import board_alive_auditor, contradicted_openings
     from .scoreboard import scoreboard_openings
@@ -1722,6 +1779,84 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                                        [e for x in results for e in x["entries"]])
         new = {x["observation_key"] for x in harvested}
         if new == keys or n >= MAX_EXEMPLAR_PASSES:
-            return {"rounds": results, "passes": n}
+            break
         keys, exemplars = new, harvested
+    if name_observations is None:
+        return {"rounds": results, "passes": n}
+    claims, summary = _name_cluster_claims(session_id, results, portraits, name_observations,
+                                           lineup, gallery, reliability)
+    final = []
+    for (r, _), x in zip(base, results):
+        a, z = r["t_start_ms"], r.get("t_close_ms") or r["t_end_ms"]
+        entries = [dict(e, name_claim=claims.get(v.death_id),
+                        killer_name_claim=claims.get(f"{v.death_id}:killer"))
+                   for e, v in zip(x["entries"], x["verdicts"])]
+        window = [row for row in roster if a <= row["t_ms"] <= z]
+        first = adjudicate_round_deaths(session_id, entries, window, player_agent=player_agent)
+        openings = scoreboard_openings([row for row in board_rows
+                                        if a <= float(row.get("t_ms", -1)) <= z])
+        board = scoreboard_death_claims(
+            entries, openings, {i: v.victim for i, v in enumerate(first)},
+            {i for i, v in enumerate(first) if v.is_second_life},
+            contradicted_openings(audit_board(openings)))
+        verdicts = adjudicate_round_deaths(session_id, entries, window,
+                                           player_agent=player_agent, scoreboard_claims=board)
+        final.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts})
+    return {"rounds": final, "passes": n + 1, "name_clusters": summary}
+
+
+def _name_cluster_claims(session_id, results, portraits, name_observations, lineup,
+                         gallery, reliability) -> tuple[dict, dict]:
+    """({entity_id: name-cluster claim}, summary) from one converged pass.
+
+    Each role takes the portrait views its entry was followed through and the
+    reference-channel claims its verdict holds that rest on no other verdict;
+    the clusters and the names are their owners' (`killfeed_names`,
+    `identity.name_cluster_claims`). Revives stay out: a revive's two names sit
+    on one side, which the plate-side rule does not cover."""
+    from .identity import name_cluster_claims, name_role_evidence
+    from .killfeed_names import (KILLFEED_NAME_CLUSTER_VERSION, OTHER_SIDE, followed_views,
+                                 name_clusters, role_crops)
+    from .reliability import REFERENCE_CHANNELS
+    by_key = {r["observation_key"]: r for r in portraits
+              if r.get("kind") == "portrait_observation" and r.get("observation_key")}
+    sides = lineup.get("sides", {})
+    roles, evidence = [], {}
+    for x in results:
+        for e, v in zip(x["entries"], x["verdicts"]):
+            if v.is_revive:
+                continue
+            obs = ((e.get("killer_claim") or {}).get("evidence") or {}).get("observations")                 or ((e.get("claim") or {}).get("evidence") or {}).get("observations") or []
+            views = followed_views(obs)
+            every = sorted({(float(o["t_ms"]), o["observation_key"]) for o in obs
+                            if o.get("observation_key")})
+            for role, key, team in (("killer", "killer_identity", OTHER_SIDE.get(v.side)),
+                                    ("victim", "identity", v.side)):
+                if team is None:
+                    continue
+                eid = f"{v.death_id}:killer" if role == "killer" else v.death_id
+                roles.append({"entity_id": eid, "role": role, "team": team, "views": views})
+                split = side_candidates(sides.get(team, []))
+                admitted = split["named"] + split["rivals"]
+                rows = []
+                for _, k in every:
+                    p = by_key.get(k.rsplit(":", 1)[0] + ":" + role)
+                    if p is not None and ("ally" if p.get("ally") else "enemy") == team:
+                        rows.append(p)
+                verdict = v.metadata.get(key) or {}
+                evidence[eid] = {
+                    "portrait": name_role_evidence(rows, admitted, gallery) if admitted else None,
+                    "channels": [(c["channel"], c["agent"]) for c in verdict.get("claims", [])
+                                 if c["channel"] in REFERENCE_CHANNELS and c.get("agent")
+                                 and c.get("agent") in admitted and not c.get("depends_on")]}
+    crops = role_crops(roles, name_observations, session_id)
+    clusters = name_clusters(crops)
+    claims = name_cluster_claims(clusters, evidence, lineup, reliability=reliability,
+                                 source_version=KILLFEED_NAME_CLUSTER_VERSION)
+    summary = {"version": KILLFEED_NAME_CLUSTER_VERSION, "roles": len(roles),
+               "clusters": {t: [len(c) for c in cl] for t, cl in clusters["sides"].items()},
+               "left_out": dict(Counter(clusters["left_out"].values())),
+               "claims": len(claims), "named": sum(1 for c in claims if c["agent"]),
+               "channels_weighted": reliability is not None}
+    return {c["entity_id"]: c for c in claims}, summary
 

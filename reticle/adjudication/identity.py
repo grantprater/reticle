@@ -35,6 +35,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from copy import deepcopy
 import glob
+import itertools
 from pathlib import Path
 
 import cv2
@@ -59,7 +60,10 @@ from ..track import assign
 # 0.3.0 (2026-09-25): a killfeed portrait names on a posterior over the side's
 # admitted candidates from per-source likelihood ratios (`portrait_llr`), not
 # on the raw-score margin, so official art and exemplars share one scale.
-AGENT_IDENTITY_VERSION = "agent-identity-0.6.0"
+# 0.7.0 (2026-09-26): `name_cluster_claims` assigns each side's large killfeed
+# name clusters its agents one to one, from pooled portrait ratios and the
+# reference channels, leaving a role's own channels out of its own claim.
+AGENT_IDENTITY_VERSION = "agent-identity-0.7.0"
 
 #: Borrowed from `lineup.MARGIN_MIN` and NOT refitted here. It keeps every
 #: correct player portrait on the one population with a truth --
@@ -734,6 +738,161 @@ def claims_from_killfeed_portraits(observations, lineup, *, entry_id, gallery,
             observation, entity_id=f"{entry_id}:{role}",
             candidates=split["named"], rivals=split["rivals"], gallery=gallery,
             source_version=source_version, posterior_min=posterior_min))
+    return out
+
+
+#: A name cluster with at least this many roles takes one of its side's agents
+#: in the one-to-one assignment; a smaller one is a fragment of a name the cut
+#: split, and publishes nothing.
+NAME_CLUSTER_MIN = 5
+#: The marginal a cluster's best agent needs over every injective assignment.
+NAME_POSTERIOR_MIN = 0.9
+#: The ratio an agent takes in a view whose references it lacks.
+NAME_FLOOR_LLR = -10.0
+NAME_CLUSTER_CHANNEL = "killfeed_name_cluster"
+
+
+def name_role_evidence(views, admitted, gallery) -> dict | None:
+    """{agent: log likelihood ratio} for one entry role: the mean over its
+    followed portrait views (stored `portrait_observation` rows on the role's
+    side) of each admitted agent's official-art ratio (`portrait_llr`). None
+    when no view has a descriptor. Exemplars are left out: they rest on other
+    channels' verdicts, and pooling them would count those witnesses again."""
+    per = []
+    for r in views:
+        if r.get("reason") or r.get("composition") is None:
+            continue
+        s = _portrait_scores(r["composition"], admitted, gallery, shifts=r.get("shifts"))
+        per.append({a: portrait_llr("art", s[a]) if a in s else NAME_FLOOR_LLR for a in admitted})
+    if not per:
+        return None
+    return {a: float(np.mean([p[a] for p in per])) for a in admitted}
+
+
+def channel_llr(table, channel: str, agent: str, k: int) -> float:
+    """The log ratio one channel's claim gives the agent it names among `k`
+    admitted agents: right at its reliability-table mean m, wrong evenly over
+    the others, so log(m (k - 1) / (1 - m))."""
+    b = table["agents"].get(f"{channel}:{agent}") or table["channels"][channel]
+    m = b["mean"]
+    return float(np.log(m * max(1, k - 1) / (1.0 - m)))
+
+
+def _assignment_marginals(L: np.ndarray, big: list[int], n_agents: int) -> np.ndarray:
+    """Each big cluster's marginal over agents, summing every injective
+    assignment of the big clusters to agents weighted by its summed ratio."""
+    marg = np.zeros((len(big), n_agents))
+    if not big:
+        return marg
+    perms = list(itertools.permutations(range(n_agents), len(big)))
+    tot = np.array([sum(L[big[j], p[j]] for j in range(len(big))) for p in perms])
+    w = np.exp(tot - tot.max())
+    w /= w.sum()
+    for p, wp in zip(perms, w):
+        for j in range(len(big)):
+            marg[j, p[j]] += wp
+    return marg
+
+
+def name_cluster_claims(clusters: dict, evidence: dict, lineup: dict, *,
+                        reliability=None, source_version=None) -> list[dict]:
+    """One `killfeed_name_cluster` claim per role of each side's large name
+    clusters: a killfeed name is one player for the match, so the side's
+    agents go to its names one to one.
+
+    `clusters` is `killfeed_names.name_clusters`'s output. `evidence` maps an
+    entity id to {"portrait": `name_role_evidence` or None, "channels":
+    [(channel, agent)]}, the role's claims from `reliability.REFERENCE_CHANNELS`
+    that rest on no other verdict. A cluster's ratio for an agent is the sum
+    over its roles of the portrait ratio plus each channel's `channel_llr`
+    (channels only when a `reliability` table is given).
+
+    On each side the largest clusters, at least `NAME_CLUSTER_MIN` roles and at
+    most one per agent, take the side's agents -- the ally side without the
+    player's own, whose roles print "Me" -- and a role is named when its
+    cluster's marginal over every injective assignment reaches
+    `NAME_POSTERIOR_MIN`. A refused lineup slot enters as a rival under its
+    best guess and never takes the name (`side_candidates`); a side with a
+    blind slot names nothing. Fragments publish nothing.
+
+    **Each piece of evidence is weighed once in a role's verdict.** The claim
+    carries the role's own portrait views, so the caller REPLACES the role's
+    per-entry `killfeed_portrait` vote with it. The role's own reference
+    channels stay their own claims beside it, so they are left out of the
+    ratio this role's claim is decided on (leave one out); the other roles'
+    evidence appears nowhere else in this entity's verdict. The claim rests on
+    other roles' raw claims, not on their verdicts, so it declares no
+    `depends_on`; its members are in evidence.
+
+    Measured in `prototypes/match_name_assignment.py` (outcomes
+    `match-name-assignment` in the store's `notes/predictions.jsonl`); wired
+    for assigned clusters only, since fragments' own posteriors lost to the
+    per-entry verdicts wherever the two differed.
+    """
+    player = (lineup.get("player") or {}).get("agent")
+    sides = lineup.get("sides", {})
+    out = []
+    for team, cl in (clusters.get("sides") or {}).items():
+        split = side_candidates(sides.get(team, []))
+        if split["blind"]:
+            continue
+        agents = [a for a in split["named"] + split["rivals"]
+                  if not (team == "ally" and a == player)]
+        admitted = split["named"] + split["rivals"]
+        barred = set(split["rivals"])
+        if not agents:
+            continue
+        k = len(admitted)
+
+        def chan(eid):
+            ev = evidence.get(eid) or {}
+            row = np.zeros(len(agents))
+            if reliability is None:
+                return row
+            for ch, ag in ev.get("channels", []):
+                # The player's own agent on the ally side is no column.
+                if ag in agents:
+                    row[agents.index(ag)] += channel_llr(reliability, ch, ag, k)
+            return row
+
+        def port(eid):
+            p = (evidence.get(eid) or {}).get("portrait")
+            return np.array([p[a] for a in agents]) if p else np.zeros(len(agents))
+
+        L = np.array([sum((port(e) + chan(e) for e in c), np.zeros(len(agents))) for c in cl])
+        big = [i for i, c in enumerate(cl) if len(c) >= NAME_CLUSTER_MIN][:len(agents)]
+        base = _assignment_marginals(L, big, len(agents))
+        for j, i in enumerate(big):
+            has = [e for e in cl[i] if (evidence.get(e) or {}).get("portrait")
+                   or (evidence.get(e) or {}).get("channels")]
+            for eid in cl[i]:
+                own = chan(eid)
+                if own.any():
+                    Lo = L.copy()
+                    Lo[i] -= own
+                    post = _assignment_marginals(Lo, big, len(agents))[j]
+                else:
+                    post = base[j]
+                best = int(np.argmax(post))
+                p = float(post[best])
+                if not has:
+                    reason = "name_cluster_no_evidence"
+                elif agents[best] in barred:
+                    reason = f"name_cluster_best_is_refused_slot {agents[best]}"
+                elif p < NAME_POSTERIOR_MIN:
+                    reason = f"name_cluster_posterior {p:.3f} below {NAME_POSTERIOR_MIN}"
+                else:
+                    reason = None
+                out.append(identity_claim(
+                    eid, agents[best] if reason is None else None,
+                    channel=NAME_CLUSTER_CHANNEL, reason=reason,
+                    source_version=source_version,
+                    evidence={"side": team, "cluster": i, "n": len(cl[i]),
+                              "members": list(cl[i]), "agents": agents,
+                              "rivals": sorted(barred), "best_guess": agents[best],
+                              "posterior": {a: round(float(x), 4) for a, x in zip(agents, post)},
+                              "left_out_own_channels": bool(own.any()),
+                              "channels_weighted": reliability is not None}))
     return out
 
 

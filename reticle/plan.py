@@ -50,13 +50,15 @@ def _round_stamps(store, manifest: dict) -> dict | None:
 
 def reader_streams() -> list[tuple[str, str, str, str | None]]:
     """(stream, scan channel, current stamp, trial reader or None)."""
-    from .killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
+    from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
+                           KILLFEED_WEAPON_VERSION)
     from .version import (ALLY_ICON_VERSION, COMBAT_REPORT_VERSION, HUD_VERSION,
                           MINIMAP_DARK_VERSION, MINIMAP_VERSION, PING_VERSION,
                           ROSTER_VERSION, SCOREBOARD_VERSION)
     return [("hud", "hud", HUD_VERSION, "hud"),
             ("killfeed_portrait", "hud", KILLFEED_PORTRAIT_VERSION, "killfeed"),
             ("killfeed_weapon", "hud", KILLFEED_WEAPON_VERSION, "killfeed"),
+            ("killfeed_name", "hud", KILLFEED_NAME_VERSION, "killfeed"),
             ("minimap", "minimap", MINIMAP_VERSION, None),
             ("roster", "roster", ROSTER_VERSION, None),
             ("ping", "ping", PING_VERSION, None),
@@ -81,7 +83,8 @@ def stale(store, sessions: list[str]) -> dict:
     """Per session: stale reader streams (decode), stale adjudications
     (storage only), and absent streams."""
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
-    from .killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
+    from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
+                           KILLFEED_WEAPON_VERSION)
     from .version import HUD_VERSION, ROUND_VERSION
     out = {}
     for sid in sessions:
@@ -112,7 +115,8 @@ def stale(store, sessions: list[str]) -> dict:
         if d is not None:
             version, inputs = d
             want = {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
-                    "killfeed_weapon": KILLFEED_WEAPON_VERSION, "round": ROUND_VERSION}
+                    "killfeed_weapon": KILLFEED_WEAPON_VERSION,
+                    "killfeed_name": KILLFEED_NAME_VERSION, "round": ROUND_VERSION}
             moved = sorted(k for k, v in want.items() if inputs.get(k) not in (v, None))
             # An input the rescan or the round rebuild will rewrite moves too,
             # once it has run.

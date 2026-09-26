@@ -46,8 +46,8 @@ from .scoreboard import ScoreboardReader, read_scoreboard
 from . import cone, geometry, lighting
 from .fidelity import FROZEN_WINDOWS
 from .fingerprint import fingerprint
-from .killfeed import (KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION,
-                       KillfeedPortraitReader,
+from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
+                       KILLFEED_WEAPON_VERSION, KillfeedPortraitReader,
                        KillfeedRead, analyse_killfeed, killfeed_roi,
                        me_template_path, overlay_mask, read_killfeed)
 from .belief import (BELIEF_VERSION, absent_instants, resolve,
@@ -842,12 +842,13 @@ def cmd_scan(args) -> int:
     fps = float(src["fps"])
 
     want_hud = 'hud' in channels and (args.force or not store.has_hud(sid, date))
-    # One reader writes both killfeed streams from the views it already has, so
-    # either stream going stale reruns it.
+    # One reader writes the three killfeed streams from the views it already
+    # has, so any stream going stale reruns it.
     want_portraits = ('hud' in channels and
                       (args.force
                        or store.events_version("killfeed_portrait", sid) != KILLFEED_PORTRAIT_VERSION
-                       or store.events_version("killfeed_weapon", sid) != KILLFEED_WEAPON_VERSION))
+                       or store.events_version("killfeed_weapon", sid) != KILLFEED_WEAPON_VERSION
+                       or store.events_version("killfeed_name", sid) != KILLFEED_NAME_VERSION))
     want_mm = 'minimap' in channels and (args.force or not store.has_minimap(sid, date))
     # Pings are events rather than a versioned table, but the cache key is the
     # VERSION, not the file's existence. Keying on existence made `PING_VERSION`
@@ -892,7 +893,7 @@ def cmd_scan(args) -> int:
     print(f"profile    {profile.name}")
     print(f"stages     " + ", ".join(
         ([f"hud {args.hz:g} Hz, whole capture"] if want_hud else [])
-        + ([f"killfeed portraits and weapons {args.hz:g} Hz, whole capture"]
+        + ([f"killfeed portraits, weapons and names {args.hz:g} Hz, whole capture"]
            if want_portraits else [])
         + ([f"minimap {args.minimap_hz:g} Hz, {len(spans)} active spans "
             f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)"] if want_mm else [])
@@ -1045,6 +1046,9 @@ def cmd_scan(args) -> int:
         weapons = kp.weapon_events(sid)
         out = store.write_events("killfeed_weapon", sid, weapons)
         print(f"weapons    {len(weapons) - 1} observations -> {out}")
+        names = kp.name_events(sid)
+        out = store.write_events("killfeed_name", sid, names)
+        print(f"names      {len(names) - 1} observations -> {out}")
     if mp is not None:
         if not mp.rows:
             raise SystemExit("decoded zero frames inside active spans "
@@ -2513,18 +2517,27 @@ def cmd_deaths(args) -> int:
     if weapons is None:
         print(f"{sid}: no killfeed_weapon stream at {KILLFEED_WEAPON_VERSION}; weapons unnamed "
               f"-- run `reticle scan {sid} --only hud`")
+    # A stale or missing name stream leaves every role on its per-entry vote.
+    # The name clusters and their assignment were measured in
+    # `prototypes/killfeed_name_continuity.py` and `prototypes/match_name_assignment.py`.
+    names = (store.read_events("killfeed_name", sid)
+             if store.events_version("killfeed_name", sid) == KILLFEED_NAME_VERSION else None)
+    if names is None:
+        print(f"{sid}: no killfeed_name stream at {KILLFEED_NAME_VERSION}; no name clusters "
+              f"-- run `reticle scan {sid} --only hud --from cache`")
+    # A name's probability, from each naming channel's measured reliability.
+    # It annotates each verdict, and weighs the reference channels in the name
+    # clusters' assignment.
+    from .adjudication.reliability import RELIABILITY_VERSION, load as load_reliability, name_probability
+    rel = load_reliability(store.root)
     res = adjudicate_session_deaths(
         sid, rounds, store.read_hud(sid, date), store.read_roster(sid, date), portraits,
         store.read_events("scoreboard", sid), lineup, load_identity_gallery(store.root),
         source_version=KILLFEED_PORTRAIT_VERSION,
         second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION),
-        weapon_observations=weapons)
+        weapon_observations=weapons, name_observations=names, reliability=rel)
     common = {"session_id": sid, "source": "death",
               "death_adjudication_version": DEATH_ADJUDICATION_VERSION}
-    # A name's probability, from each naming channel's measured reliability;
-    # an annotation beside the verdict, never an input to it.
-    from .adjudication.reliability import RELIABILITY_VERSION, load as load_reliability, name_probability
-    rel = load_reliability(store.root)
     rows, events = [], []
     for r in res["rounds"]:
         for e, v in zip(r["entries"], r["verdicts"]):
@@ -2546,8 +2559,10 @@ def cmd_deaths(args) -> int:
             "weapons": dict(Counter((r.get("weapon_evidence") or {}).get("status", "none")
                                     for r in rows)),
             "revives": sum(bool(r.get("is_revive")) for r in rows),
+            "name_clusters": res.get("name_clusters"),
             "inputs": {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
                        "killfeed_weapon": KILLFEED_WEAPON_VERSION if weapons is not None else None,
+                       "killfeed_name": KILLFEED_NAME_VERSION if names is not None else None,
                        "scoreboard": store.events_version("scoreboard", sid),
                        "round": rounds[0].get("round_version") if rounds else None,
                        "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION,

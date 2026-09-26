@@ -28,7 +28,8 @@ def _killfeed_reader(ctx):
 
 
 def _killfeed_rows(reader, sid: str) -> dict[str, list[dict]]:
-    return {"killfeed_portrait": reader.events(sid), "killfeed_weapon": reader.weapon_events(sid)}
+    return {"killfeed_portrait": reader.events(sid), "killfeed_weapon": reader.weapon_events(sid),
+            "killfeed_name": reader.name_events(sid)}
 
 
 def _hud_reader(ctx):
@@ -46,7 +47,7 @@ def _hud_rows(reader, sid: str) -> dict[str, list[dict]]:
 TRIAL_READERS = {
     # reader -> (the ROI cache set its reads stay inside, build, rows, streams)
     "killfeed": ("killfeed", _killfeed_reader, _killfeed_rows,
-                 ("killfeed_portrait", "killfeed_weapon")),
+                 ("killfeed_portrait", "killfeed_weapon", "killfeed_name")),
     "hud": ("hud", _hud_reader, _hud_rows, ("hud",)),
 }
 

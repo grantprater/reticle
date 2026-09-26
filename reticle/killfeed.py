@@ -303,8 +303,8 @@ Deaths per round is deliberately NOT used as a check anywhere: Sage
 resurrection and Clove self-revive both let a player die more than once in a
 round, so any such invariant would fire on legitimate footage.
 
-Owns [owns:killfeed-event], [owns:killfeed-portrait], [owns:killfeed-second-life-badge]
-and [owns:killfeed-weapon-descriptor].
+Owns [owns:killfeed-event], [owns:killfeed-portrait], [owns:killfeed-second-life-badge],
+[owns:killfeed-weapon-descriptor] and [owns:killfeed-name-descriptor].
 """
 
 from __future__ import annotations
@@ -1739,6 +1739,132 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
     return out
 
 
+# --------------------------------------------------------------------------- names
+# 0.1.0 (2026-09-26): each entry role's whole player name, cut between its
+# portrait and the weapon icon, stored as the band's whiteness (lossless
+# uint8, zlib) for `adjudication.killfeed_names` to compare. Measured in
+# `prototypes/killfeed_name_continuity.py`.
+KILLFEED_NAME_VERSION = "killfeed-name-0.1.0"
+
+#: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
+NAME_MAX_TEXT_H = 15
+#: A group is text when this share of its ink lies on the text line; a
+#: portrait's white art runs above and below it.
+NAME_TEXT_SHARE = 0.8
+#: Narrower than this is portrait art at the victim's bound, not a name; the
+#: shortest names seen measure about 29 px.
+NAME_MIN_W = 12
+#: Words of one name sit this close; `NAME_GAP` splits "A Whif and A Lot" into
+#: five groups, and the last word alone merged it with "Whiff A Lot".
+NAME_WORD_GAP = 12
+
+
+def _name_groups(cols: np.ndarray) -> list[tuple[int, int]]:
+    xs = np.where(cols)[0]
+    if xs.size == 0:
+        return []
+    out, start = [], xs[0]
+    for a, b in zip(xs[:-1], xs[1:]):
+        if b - a > NAME_GAP:
+            out.append((int(start), int(a) + 1))
+            start = b
+    out.append((int(start), int(xs[-1]) + 1))
+    return out
+
+
+def _name_text_rows(white: np.ndarray, a: int, z: int) -> tuple[int, int] | None:
+    """The rows the killer's name occupies: the band's text line."""
+    rows = np.where((white[:, max(a, 0):max(z, 0)] > 0).sum(axis=1) >= 2)[0]
+    return (int(rows[0]), int(rows[-1]) + 1) if rows.size else None
+
+
+def _name_cut(white: np.ndarray, a: int, z: int, rows) -> tuple[int, int] | None:
+    """The name's columns inside [a, z), band-relative: the last text group and
+    the words before it (`NAME_WORD_GAP`), or None."""
+    a, z = max(a, 0), max(z, 0)
+    full = white[:, a:z] > 0
+    line = np.zeros_like(full)
+    line[max(rows[0] - 2, 0):rows[1] + 4] = full[max(rows[0] - 2, 0):rows[1] + 4]
+    keep = [g for g in _name_groups(line.any(axis=0))
+            if g[1] - g[0] >= 3 and g[1] <= (z - a) - 2
+            and np.ptp(np.where(line[:, g[0]:g[1]].any(axis=1))[0]) < NAME_MAX_TEXT_H
+            and line[:, g[0]:g[1]].sum() >= NAME_TEXT_SHARE * max(1, full[:, g[0]:g[1]].sum())]
+    if not keep:
+        return None
+    g0, g1 = keep[-1]
+    for h0, h1 in reversed(keep[:-1]):
+        if g0 - h1 > NAME_WORD_GAP:
+            break
+        g0 = h0
+    return (a + g0, a + g1) if g1 - g0 >= NAME_MIN_W else None
+
+
+def name_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
+                      views: "list[EntryView]", portraits: list[dict],
+                      mask: np.ndarray | None = None) -> list[dict]:
+    """Each entry role's player-name crop: a descriptor, never a player or agent.
+
+    The killer's name runs from its portrait to the weapon icon, the victim's
+    from the icon to its portrait (`portraits`, this frame's
+    `portrait_observations`, bounds it). Both are cut on the killer name's text
+    line and keep the last text group with the words before it, so a headshot
+    or wallbang mark is dropped. The crop is the band's whiteness (the minimum
+    over BGR) at full band height, so a consumer can remove the plate behind
+    it. `me` marks the player's own role, which prints "Me".
+    """
+    import base64
+    import zlib
+    x0, y0, x1, y1 = roi.pixels(width, height)
+    crop = frame[y0:y1, x0:x1]
+    if mask is None:
+        mask = np.ones(crop.shape[:2], dtype=bool)
+    white = None
+    bounds = {(p["slot"], p["role"]): p.get("x0") for p in portraits if "x0" in p}
+    out = []
+    for v in views:
+        if v.wx1 <= v.wx0:
+            continue
+        base = {"slot": v.slot, "y0": int(v.y0), "y1": int(v.y1)}
+        me = {"killer": v.verdict == "kill", "victim": v.verdict == "death"}
+        if not v.killer_run:
+            out.extend({**base, "role": r, "me": me[r], "gray": None,
+                        "reason": "no_killer_name_run"} for r in ("killer", "victim"))
+            continue
+        if white is None:
+            white = _plate_masks(crop, mask)[2]
+        band = white[v.y0:v.y1]
+        rows = _name_text_rows(band, *v.killer_run)
+        for role in ("killer", "victim"):
+            row = {**base, "role": role, "me": me[role]}
+            if rows is None:
+                out.append({**row, "gray": None, "reason": "no_text_line"})
+                continue
+            if role == "killer":
+                cut = _name_cut(band, 0, v.wx0 - 1, rows)
+            else:
+                z = bounds.get((v.slot, "victim"))
+                cut = _name_cut(band, v.wx1 + 1, band.shape[1] if z is None else z, rows)
+            if cut is None:
+                out.append({**row, "gray": None, "reason": "no_name_text"})
+                continue
+            gray = np.ascontiguousarray(crop[v.y0:v.y1, cut[0]:cut[1]].min(axis=2))
+            out.append({**row, "x0": int(cut[0]), "x1": int(cut[1]),
+                        "shape": [int(gray.shape[0]), int(gray.shape[1])],
+                        "gray": base64.b64encode(zlib.compress(gray.tobytes(), 6)).decode("ascii"),
+                        "reason": None})
+    return out
+
+
+def unpack_name_gray(row: dict) -> np.ndarray | None:
+    """A stored name row's `gray` back to the uint8 whiteness it was cut from."""
+    import base64
+    import zlib
+    if not row.get("gray"):
+        return None
+    h, w = row["shape"]
+    return np.frombuffer(zlib.decompress(base64.b64decode(row["gray"])), np.uint8).reshape(h, w)
+
+
 def unpack_icon_grid(packed: str) -> np.ndarray:
     """A stored `grid` back to the ICON_GRID array `icon_grid` produced."""
     bits = np.unpackbits(np.frombuffer(bytes.fromhex(packed), np.uint8))
@@ -1771,6 +1897,7 @@ class KillfeedPortraitReader:
         self.rows: list[dict] = []
         self.badges: list[dict] = []
         self.weapons: list[dict] = []
+        self.names: list[dict] = []
         self.frames_offered = 0
 
     def feed(self, smp) -> None:
@@ -1795,14 +1922,18 @@ class KillfeedPortraitReader:
                                 "has_badge": bool(has_badge), **metrics})
         for row in weapon_icon_observations(smp.frame, self.roi, self.w, self.h, views):
             self.weapons.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms), **row})
-        for observation in portrait_observations(
-                smp.frame, self.roi, self.w, self.h, views=views,
-                mask=self.mask, profile_name=self.profile.name):
+        portraits = portrait_observations(
+            smp.frame, self.roi, self.w, self.h, views=views,
+            mask=self.mask, profile_name=self.profile.name)
+        for observation in portraits:
             self.rows.append({
                 "frame_idx": int(smp.frame_idx),
                 "t_ms": float(smp.t_ms),
                 **observation,
             })
+        for row in name_observations(smp.frame, self.roi, self.w, self.h, views,
+                                     portraits, mask=self.mask):
+            self.names.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms), **row})
 
     def events(self, session_id: str) -> list[dict]:
         """Return JSONL-ready raw observations, never identity verdicts.
@@ -1867,6 +1998,24 @@ class KillfeedPortraitReader:
                     "refused_reasons": dict(sorted(refused.items()))}
         return [coverage] + [{**common, "kind": "weapon_icon_observation", **r}
                              for r in self.weapons]
+
+    def name_events(self, session_id: str) -> list[dict]:
+        """The `killfeed_name` stream: a coverage row with its refusals, then
+        one name crop per entry role per frame, keyed like the portraits
+        (`sid:frame:slot:role`). Its own stamp, so the cut can change without
+        restating the portraits."""
+        common = {"session_id": session_id, "source": "killfeed",
+                  "killfeed_name_version": KILLFEED_NAME_VERSION}
+        refused = Counter(r["reason"] for r in self.names if r["reason"])
+        coverage = {**common, "kind": "coverage", "frames_offered": self.frames_offered,
+                    "frames_from": self.frames_from,
+                    "observations": len(self.names),
+                    "described": len(self.names) - sum(refused.values()),
+                    "refused_reasons": dict(sorted(refused.items()))}
+        return [coverage] + [
+            {**common, "kind": "name_observation",
+             "observation_key": f"{session_id}:{r['frame_idx']}:{r['slot']}:{r['role']}", **r}
+            for r in self.names]
 
 
 def _trusted_wx(view: "EntryView") -> int:

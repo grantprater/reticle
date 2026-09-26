@@ -336,6 +336,40 @@ consumers = ["adjudication.weapon"]
 stored_consumers = ["adjudication.death"]
 
 [[entry]]
+id = "killfeed-name-descriptor"
+question = "What does the player name in this killfeed entry role look like?"
+owner = "killfeed"
+role = ["detect"]
+status = "partial"
+produces = ["KILLFEED_NAME_VERSION", "NAME_MAX_TEXT_H", "NAME_TEXT_SHARE", "NAME_MIN_W", "NAME_WORD_GAP", "name_observations", "unpack_name_gray"]
+not_for = """
+Deciding which roles share a name, or naming a player or agent. The reader
+stores the whole name's whiteness crop, one row per entry role per frame, in the
+`killfeed_name` stream; `adjudication.killfeed_names` joins roles into name
+clusters and `adjudication.identity` names them.
+"""
+consumers = ["adjudication.killfeed_names"]
+stored_consumers = ["adjudication.death"]
+evidence = "tests/test_killfeed_names.py"
+
+[[entry]]
+id = "killfeed-name-continuity"
+question = "Which killfeed entry roles in one match print one player's name?"
+owner = "adjudication.killfeed_names"
+role = ["assign"]
+status = "partial"
+produces = ["KILLFEED_NAME_CLUSTER_VERSION", "NCC_MIN", "TOPHAT", "WIDTH_TOL", "ncc", "followed_views", "role_crops", "name_clusters"]
+not_for = """
+Naming the cluster's agent: a cluster is a set of entity ids, and
+`identity.name_cluster_claims` assigns each side's large clusters its agents.
+Nor for choosing the views an entry is read at; those are the portrait views
+`adjudication.death` followed the entry through.
+"""
+defers_to = ["killfeed-name-descriptor"]
+consumers = ["adjudication.death"]
+evidence = "tests/test_killfeed_names.py"
+
+[[entry]]
 id = "killfeed-second-life-badge"
 question = "Does this killfeed entry carry the circular second-life badge (Run It Back, a downed KAY/O)?"
 owner = "killfeed"
@@ -739,7 +773,7 @@ question = "Which NAMED AGENT is this icon, track, row, death or ability, and wh
 owner = "adjudication.identity"
 role = ["assign", "adjudicate"]
 status = "partial"
-produces = ["AGENT_IDENTITY_VERSION", "assign_ally_pieces", "PIECE_MAX_NODES", "rendered_art_scores", "rendered_art_fit", "load_teammate_fit", "teammate_fit_refusal", "TEAMMATE_FIT_FILE", "load_ally_portrait_references", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "MINIMAP_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "claim_from_minimap_icon", "claims_from_minimap_icons", "claims_from_ally_icons", "adjudicate_agent_identity", "AgentIdentityArbiter", "identity_events", "assign_side", "SIDE_MARGIN_MIN"]
+produces = ["AGENT_IDENTITY_VERSION", "assign_ally_pieces", "PIECE_MAX_NODES", "rendered_art_scores", "rendered_art_fit", "load_teammate_fit", "teammate_fit_refusal", "TEAMMATE_FIT_FILE", "load_ally_portrait_references", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "MINIMAP_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "claim_from_minimap_icon", "claims_from_minimap_icons", "claims_from_ally_icons", "adjudicate_agent_identity", "AgentIdentityArbiter", "identity_events", "assign_side", "SIDE_MARGIN_MIN", "name_cluster_claims", "name_role_evidence", "channel_llr", "NAME_CLUSTER_MIN", "NAME_POSTERIOR_MIN", "NAME_FLOOR_LLR", "NAME_CLUSTER_CHANNEL"]
 names_agents = true
 not_for = """
 Reading pixels, inventing an entity key, or deciding roster-slot continuity. Readers
