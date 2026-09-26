@@ -468,14 +468,36 @@ def restrict_gallery(gallery: dict, agents) -> tuple[dict, list[str]]:
 
 def name_icon(grid: np.ndarray, aspect: float, gallery: dict) -> dict:
     """Nearest exemplar per name; a name only when it clears every other by a margin."""
+    return _name_icon(grid, aspect, _icon_index(gallery))
+
+
+def _icon_index(gallery: dict) -> dict:
+    """What `name_icon` reads of a gallery, prepared once for many icons:
+    the exemplar masks as float rows with their sums, and each name's
+    exemplars grouped, names in first-appearance order."""
     g = gallery["masks"].reshape(len(gallery["masks"]), -1).astype(np.float32)
+    names = [str(n) for n in gallery["names"]]
+    order = list(dict.fromkeys(names))
+    rows = {n: [] for n in order}
+    for k, n in enumerate(names):
+        rows[n].append(k)
+    perm = [k for n in order for k in rows[n]]
+    starts = np.cumsum([0] + [len(rows[n]) for n in order[:-1]])
+    return {"g": g, "g_sum": g.sum(1), "aspects": gallery["aspects"], "names": order,
+            "perm": np.array(perm, dtype=np.intp), "starts": starts.astype(np.intp)}
+
+
+def _name_icon(grid: np.ndarray, aspect: float, index: dict) -> dict:
+    g = index["g"]
     q = grid.reshape(-1).astype(np.float32)
     inter = g @ q
-    iou = inter / np.maximum(g.sum(1) + q.sum() - inter, 1)
-    iou[np.abs(np.log(gallery["aspects"] / aspect)) > NAME_ASPECT_TOL] = 0.0
-    best: dict[str, float] = {}
-    for n, v in zip(gallery["names"], iou):
-        best[str(n)] = max(best.get(str(n), 0.0), float(v))
+    iou = inter / np.maximum(index["g_sum"] + q.sum() - inter, 1)
+    iou[np.abs(np.log(index["aspects"] / aspect)) > NAME_ASPECT_TOL] = 0.0
+    # Each name's best exemplar; scores are never negative, so this is the
+    # running maximum from 0.0 over that name's exemplars.
+    tops = (np.maximum.reduceat(iou[index["perm"]], index["starts"]).tolist()
+            if index["names"] else [])
+    best: dict[str, float] = {n: max(0.0, v) for n, v in zip(index["names"], tops)}
     ranked = sorted(best.items(), key=lambda kv: -kv[1])
     top, score = ranked[0]
     margin = score - (ranked[1][1] if len(ranked) > 1 else 0.0)
@@ -561,8 +583,9 @@ def entry_weapon(entry: dict, observations: list[dict],
         out["restricted_to_lineup"] = dropped
     bound = bind_entry(entry, observations)
     names: dict[str, int] = {}
+    index = _icon_index(gallery) if bound else None
     for o in bound:
-        n = name_icon(unpack_icon_grid(o["grid"]), o["aspect"], gallery)["name"]
+        n = _name_icon(unpack_icon_grid(o["grid"]), o["aspect"], index)["name"]
         if n is not None:
             names[n] = names.get(n, 0) + 1
     out.update(observations=len(bound), named=sum(names.values()), names=names)
