@@ -27,8 +27,12 @@ objects are placed from a map view far from the caster
 agent, the slot and the ability; nothing about any detector's answer is shown.
 
 Controls (click tool orthodoxy):
-    left click     mark the object this cast made, in any panel; several
-                   marks for several objects (two Ruse clouds)
+    left click     mark the object this cast made, in any panel. The player
+                   (2026-09-26) traced each shape with several marks: the
+                   inner edge of an area (Regrowth, Recon Bolt) or along a
+                   line (one Hunter's Fury blast per panel). So marks are edge
+                   points, not one mark per object; a consumer fits a shape
+                   per panel (`tray-object-labels` outcome)
     right click    undo the last mark
     SPACE / D      save the marks and advance
     N              nothing this cast made appears on the minimap
