@@ -506,3 +506,31 @@ simultaneous smoke births are one cast from one agent; they are not evidence of
 two smoke agents, and for Omen or Astra they cannot share a cast
 """
 see = ["abilities/smoke-attribution"]
+
+[signature-on-e]
+claim = """
+An agent's signature ability is always its E slot.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-26"
+use = """
+a slot-to-ability table must put the signature on E; a source that disagrees
+is out of date for that agent
+"""
+
+[phoenix-slots]
+claim = """
+Phoenix's kit is C Blaze, Q Hot Hands, E Curveball (his signature) and X Run
+It Back. Riot moved Curveball to the signature slot; older wikis still show
+Curveball on Q and Hot Hands on E.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-26"
+use = """
+reference/abilities.json (valorant-api) already has Q Hot Hands and E
+Curveball; a tray label by slot names Phoenix's abilities correctly by it
+"""
+see = ["abilities/signature-on-e", "abilities/phoenix-blaze"]
+subject = "phoenix:kit"
