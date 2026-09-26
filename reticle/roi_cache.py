@@ -17,10 +17,20 @@ and records the source content key, profile and rectangles; `RoiCache.load`
 refuses a cache whose record disagrees with the session now, and serves a set
 from any cache whose rectangles include it. Crops are PNG, so the pixels are
 the decoder's, bit for bit.
+
+**A 15 Hz set is stored as video, not PNG.** PNG compresses each frame alone,
+so 15 Hz minimap crops over the corpus's live rounds measured about as large
+as the corpus itself. FFV1 in `bgr0` through `ffmpeg` (`CODECS`) is lossless
+-- 147 of 147 frames read back bit for bit through OpenCV, seeks included --
+at a third of PNG's size; lossless x264 was larger, since the minimap changes
+too much between frames for prediction to pay. Every FFV1 frame is a key
+frame, so a seek lands on the frame asked for.
 """
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,7 +48,26 @@ CACHE_SETS = {
     # screen centre. The spike graphic replaces the clock inside `scoreline`.
     "hud": ("scoreline", "hud_hp", "hud_ammo", "killfeed", "hud_roster", "hud_roster_enemy",
             "center"),
+    # The minimap and the ability tray at the minimap rate, written over each
+    # round from just before its barrier drop (`spans`): what was placed in the
+    # buy phase is still drawn then [domain:rounds/buy-phase-barriers].
+    "minimap": ("minimap", "hud_abilities"),
 }
+
+#: How each set's crops are stored: "png" per crop, or "ffv1" video per rect.
+CODECS = {"minimap": "ffv1"}
+
+
+def ffmpeg_path() -> str:
+    """The ffmpeg executable: on PATH, or where winget installs it."""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    import os
+    base = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet"
+    for p in sorted(base.glob("**/ffmpeg.exe")):
+        return str(p)
+    raise SystemExit("ffmpeg not found: install it (winget install Gyan.FFmpeg)")
 
 
 def roi_rects(name: str, profile, wh: tuple[int, int]) -> list[list[int]]:
@@ -52,13 +81,36 @@ def roi_rects(name: str, profile, wh: tuple[int, int]) -> list[list[int]]:
     return [[int(v) for v in by[r].pixels(*wh)] for r in CACHE_SETS[name]]
 
 
+def covers(held, wanted) -> bool:
+    """Whether cached `held` spans contain every `wanted` span; `wanted` None
+    is the whole capture, which only an unbounded cache holds."""
+    if wanted is None:
+        return False
+    return all(any(a <= s and e <= b for a, b in held) for s, e in wanted)
+
+
+def clip_spans(wanted, held) -> list[tuple[float, float]]:
+    """`wanted` spans cut to what `held` spans contain; `wanted` None is the
+    whole capture, so the result is `held` itself."""
+    if wanted is None:
+        return [(float(a), float(b)) for a, b in held]
+    out = []
+    for s, e in wanted:
+        for a, b in held:
+            lo, hi = max(s, a), min(e, b)
+            if lo < hi:
+                out.append((float(lo), float(hi)))
+    return sorted(out)
+
+
 def cache_dir(store_root: Path, name: str) -> Path:
     return Path(store_root) / "roi_cache" / name / ROI_CACHE_VERSION
 
 
-def _cache_record(manifest: dict, profile, name: str, rects, hz: float) -> dict:
+def _cache_record(manifest: dict, profile, name: str, rects, hz: float, spans=None) -> dict:
     return {"version": ROI_CACHE_VERSION, "roi": name, "rects": [list(r) for r in rects],
-            "hz": hz, "session_id": manifest["session_id"], "profile": profile.name,
+            "hz": hz, "spans": None if spans is None else [[float(a), float(b)] for a, b in spans],
+            "codec": CODECS.get(name, "png"), "session_id": manifest["session_id"], "profile": profile.name,
             "content_key": manifest["source"].get("content_key"),
             "wh": [int(manifest["source"]["width"]), int(manifest["source"]["height"])]}
 
@@ -67,18 +119,17 @@ def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiC
     """The cache that can feed this whole pass, or None and why it cannot.
 
     A pass is fed from the cache only when EVERY reader declares a
-    `cache_set` (its reads stay inside those ROIs), wants the whole capture
-    (`spans` None) at the rate the cache was written, and one stored cache
-    holds the union of their ROIs. One reader outside that makes it a decode:
-    a pass is fed from one source.
+    `cache_set` (its reads stay inside those ROIs), wants frames the cache
+    holds at the rate it was written, and one stored cache holds the union of
+    their ROIs. A cache written over `spans` feeds a reader only inside them:
+    one wanting the whole capture, or time outside, needs a decode. One reader
+    outside that makes it a decode: a pass is fed from one source.
     """
     need: set[str] = set()
     for r in readers:
         s = getattr(r, "cache_set", None)
         if s is None:
             return None, f"{r.name} reads outside any cached ROI set"
-        if getattr(r, "spans", None) is not None:
-            return None, f"{r.name} reads spans, and the cache holds the whole capture"
         need |= set(CACHE_SETS[s])
     names = [n for n, rs in CACHE_SETS.items() if need <= set(rs)]
     if not names:
@@ -92,6 +143,17 @@ def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiC
         bad = [r.name for r in readers if float(r.hz) != float(cache.record["hz"])]
         if bad:
             return None, f"{', '.join(bad)} at another rate than the cache's {cache.record['hz']} Hz"
+        held = cache.record.get("spans")
+        if held is None:
+            # A whole-capture cache samples on one stride from the start; a
+            # decode over spans restarts it at each span, on other frames.
+            out = [r.name for r in readers if getattr(r, "spans", None) is not None]
+            if out:
+                return None, f"{', '.join(out)} reads spans, and the cache holds the whole capture"
+        else:
+            out = [r.name for r in readers if not covers(held, getattr(r, "spans", None))]
+            if out:
+                return None, f"{', '.join(out)} reads outside the cache's spans"
         return cache, f"{cache.record['roi']} cache ({cache.record['version']})"
     return None, why
 
@@ -103,20 +165,41 @@ class RoiCacheWriter:
                  hz: float = 2.0, spans=None):
         wh = (int(manifest["source"]["width"]), int(manifest["source"]["height"]))
         self.rects = roi_rects(name, profile, wh)
-        self.record = _cache_record(manifest, profile, name, self.rects, hz)
+        self.record = _cache_record(manifest, profile, name, self.rects, hz, spans)
         self.name = f"roi_cache:{name}"
         self.hz, self.spans = hz, spans
         d = cache_dir(store_root, name)
         d.mkdir(parents=True, exist_ok=True)
         sid = manifest["session_id"]
+        self.codec = self.record["codec"]
         self.paths = (d / f"{sid}.bin", d / f"{sid}.idx.npy", d / f"{sid}.json")
-        self._part = self.paths[0].with_suffix(".bin.part")
-        self._fh = open(self._part, "wb")
-        # One row per frame per rectangle: t_ms, frame_idx, rect, offset, length.
+        # One row per frame per rectangle: t_ms, frame_idx, rect, offset, length;
+        # for video, offset is the frame's number in its rect's file.
         self._index: list[tuple[float, int, int, int, int]] = []
         self._offset = 0
+        if self.codec == "ffv1":
+            ff = ffmpeg_path()
+            self.videos = [d / f"{sid}.r{k}.mkv" for k in range(len(self.rects))]
+            self._procs = []
+            for (x0, y0, x1, y1), path in zip(self.rects, self.videos):
+                part = path.with_suffix(".part.mkv")
+                self._procs.append(subprocess.Popen(
+                    [ff, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24",
+                     "-s", f"{x1 - x0}x{y1 - y0}", "-r", str(hz), "-i", "-",
+                     "-c:v", "ffv1", "-level", "3", "-pix_fmt", "bgr0", str(part)],
+                    stdin=subprocess.PIPE))
+            self._count = 0
+        else:
+            self._part = self.paths[0].with_suffix(".bin.part")
+            self._fh = open(self._part, "wb")
 
     def feed(self, smp) -> None:
+        if self.codec == "ffv1":
+            for k, ((x0, y0, x1, y1), proc) in enumerate(zip(self.rects, self._procs)):
+                proc.stdin.write(np.ascontiguousarray(smp.frame[y0:y1, x0:x1]).tobytes())
+                self._index.append((float(smp.t_ms), int(smp.frame_idx), k, self._count, 0))
+            self._count += 1
+            return
         for k, (x0, y0, x1, y1) in enumerate(self.rects):
             ok, png = cv2.imencode(".png", smp.frame[y0:y1, x0:x1])
             if not ok:
@@ -127,8 +210,16 @@ class RoiCacheWriter:
             self._offset += len(b)
 
     def finish(self) -> None:
-        self._fh.close()
-        self._part.replace(self.paths[0])
+        if self.codec == "ffv1":
+            for proc, path in zip(self._procs, self.videos):
+                proc.stdin.close()
+                if proc.wait() != 0:
+                    raise RuntimeError(f"ffmpeg failed writing {path}")
+                path.with_suffix(".part.mkv").replace(path)
+            self._offset = sum(p.stat().st_size for p in self.videos)
+        else:
+            self._fh.close()
+            self._part.replace(self.paths[0])
         np.save(self.paths[1], np.array(self._index, dtype=np.float64).reshape(-1, 5))
         frames = len({t for t, *_ in self._index})
         self.paths[2].write_text(json.dumps({**self.record, "frames": frames,
@@ -207,6 +298,9 @@ class RoiCache:
             for i, t in enumerate(self.t_ms):
                 self._by_t.setdefault(float(t), []).append(i)
         w, h = self.record["wh"]
+        if self.record.get("codec") == "ffv1":
+            yield from self._video_samples(targets_ms, keep, w, h)
+            return
         with open(self.blob, "rb") as fh:
             for t in targets_ms:
                 got = [i for i in self._by_t.get(float(t), ()) if int(self.rect[i]) in keep]
@@ -220,3 +314,32 @@ class RoiCache:
                     x0, y0, x1, y1 = self.record["rects"][int(self.rect[i])]
                     frame[y0:y1, x0:x1] = crop
                 yield Sample(frame_idx=int(self.frame_idx[got[0]]), t_ms=float(t), frame=frame)
+
+    def _video_samples(self, targets_ms, keep, w, h):
+        """`samples` for an FFV1 cache: one capture per rect, read in order,
+        seeking only when a target skips frames."""
+        caps, pos = {}, {}
+        try:
+            for t in targets_ms:
+                got = [i for i in self._by_t.get(float(t), ()) if int(self.rect[i]) in keep]
+                if not got:
+                    continue
+                frame = np.zeros((h, w, 3), np.uint8)
+                for i in got:
+                    k, n = int(self.rect[i]), int(self.offset[i])
+                    if k not in caps:
+                        caps[k] = cv2.VideoCapture(str(self.blob.with_name(
+                            self.blob.name.replace(".bin", f".r{k}.mkv"))))
+                        pos[k] = 0
+                    if pos[k] != n:
+                        caps[k].set(cv2.CAP_PROP_POS_FRAMES, n)
+                    ok, crop = caps[k].read()
+                    if not ok:
+                        raise ValueError(f"cache video ended before frame {n} (rect {k})")
+                    pos[k] = n + 1
+                    x0, y0, x1, y1 = self.record["rects"][k]
+                    frame[y0:y1, x0:x1] = crop
+                yield Sample(frame_idx=int(self.frame_idx[got[0]]), t_ms=float(t), frame=frame)
+        finally:
+            for c in caps.values():
+                c.release()

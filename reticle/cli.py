@@ -744,9 +744,41 @@ def cmd_minimap(args) -> int:
     return 0
 
 
-def _roi_cache_stale(store, manifest, profile, name) -> bool:
+def _roi_cache_stale(store, manifest, profile, name, hz=None, spans=None) -> bool:
     from .roi_cache import RoiCache
-    return RoiCache.load(store.root, manifest, profile, name)[0] is None
+    cache = RoiCache.load(store.root, manifest, profile, name)[0]
+    if cache is None:
+        return True
+    want = None if spans is None else [[float(a), float(b)] for a, b in spans]
+    return ((hz is not None and float(cache.record["hz"]) != float(hz))
+            or cache.record.get("spans") != want)
+
+
+#: How long before each barrier drop a live-round cache starts: the last
+#: buy-phase second shows the starting positions and everything placed in the
+#: buy phase [domain:rounds/buy-phase-barriers].
+LIVE_LEAD_MS = 1000.0
+#: After the last round, the post-round period a live-round cache keeps.
+LAST_POST_ROUND_MS = 10000.0
+
+
+def _live_round_spans(store, sid, date) -> list[tuple[float, float]]:
+    """Each round from just before its barrier drop to the next round's start,
+    as `gametime` schedules them: the post-round period stays, since kills are
+    legal in it [domain:rounds/post-round-period]."""
+    from . import stalls
+    rs = store.read_rounds(sid, date)
+    hud = store.read_hud(sid, date)
+    if rs is None or hud is None:
+        raise SystemExit(f"--cache-live needs stored rounds and HUD for {sid}; "
+                         f"run `reticle scan {sid}` first")
+    gt = gametime.build_session_gametime(sid, hud, rs.to_pylist(),
+                                         stall_list=stalls.for_session(store, sid, date))
+    sch = gt.schedules
+    return [(max(s.t_start_ms, s.t_live_ms - LIVE_LEAD_MS),
+             max(s.t_end_ms, sch[i + 1].t_start_ms if i + 1 < len(sch)
+                 else s.t_end_ms + LAST_POST_ROUND_MS))
+            for i, s in enumerate(sch)]
 
 
 def cmd_usage(args) -> int:
@@ -843,8 +875,10 @@ def cmd_scan(args) -> int:
     # Lossless crops of a fixed ROI, so a reader change can rerun without a
     # decode (`reticle trial --from cache`). Opt-in: it rides the HUD rate, so
     # its crops sit on the HUD timeline's timestamps.
+    cache_hz = args.cache_hz or args.hz
+    cache_spans = _live_round_spans(store, sid, date) if args.cache_live else None
     want_cache = bool(args.cache_roi) and (args.force or _roi_cache_stale(
-        store, manifest, profile, args.cache_roi))
+        store, manifest, profile, args.cache_roi, cache_hz, cache_spans))
     if args.only == ["roi_cache"] and not args.cache_roi:
         raise SystemExit("--only roi_cache needs --cache-roi <roi>")
     if not (want_hud or want_portraits or want_mm or want_ping or want_roster
@@ -916,6 +950,11 @@ def cmd_scan(args) -> int:
                 med, sd=geometry.stability(sid, store.root, med.shape[:2])),
             static=med, box=minimap_roi_px(profile, *ctx.wh), hz=args.ally_hz,
             spans=spans)
+        from .roi_cache import roi_rects
+        # Its reads are `frame[box]`; they stay inside the cached set only
+        # where the box IS the profile's minimap ROI.
+        if list(ap.box) == roi_rects("minimap", profile, ctx.wh)[0]:
+            ap.cache_set = "minimap"
     dp = None
     if want_dark:
         from .minimap_dark import DarkRegionReader
@@ -937,7 +976,8 @@ def cmd_scan(args) -> int:
     xp = None
     if want_cache:
         from .roi_cache import RoiCacheWriter
-        xp = RoiCacheWriter(store.root, manifest, profile, args.cache_roi, hz=args.hz)
+        xp = RoiCacheWriter(store.root, manifest, profile, args.cache_roi, hz=cache_hz,
+                            spans=cache_spans)
     readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, cp, xp) if r is not None]
 
     t0 = time.perf_counter()
@@ -953,7 +993,17 @@ def cmd_scan(args) -> int:
 
     # A pass whose readers all stay inside a cached ROI set is fed from the
     # crop cache: the same pixels, no decode. `--from video` decodes anyway.
-    from .roi_cache import cache_for
+    from .roi_cache import RoiCache, cache_for, clip_spans
+    if args.frames_from == "cache":
+        # A cache written over rounds holds no frames outside them; asked to
+        # read from it, a span reader reads the rounds only, and says so.
+        for r in readers:
+            s = getattr(r, "cache_set", None)
+            held = (RoiCache.load(store.root, manifest, profile, s)[0] if s else None)
+            if held is not None and held.record.get("spans") is not None:
+                r.spans = clip_spans(getattr(r, "spans", None), held.record["spans"])
+                print(f"spans      {r.name} clipped to the {s} cache's "
+                      f"{len(held.record['spans'])} rounds")
     cache, why = ((None, "--from video") if args.frames_from == "video"
                   else cache_for(store.root, manifest, profile, readers))
     if cache is None and args.frames_from == "cache":
@@ -3096,9 +3146,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="auto (default): feed the pass from the ROI crop cache when every "
                         "reader in it reads only cached ROIs, else decode; cache: refuse to "
                         "decode; video: always decode")
-    s.add_argument("--cache-roi", choices=("killfeed", "hud"),
+    s.add_argument("--cache-roi", choices=("killfeed", "hud", "minimap"),
                    help="also store lossless crops of this ROI at the HUD rate, for "
                         "`reticle trial --from cache`; `--only roi_cache` stores only them")
+    s.add_argument("--cache-hz", type=float, default=None,
+                   help="rate of the ROI crops (default: the HUD rate)")
+    s.add_argument("--cache-live", action="store_true",
+                   help="store the crops over rounds only, from just before each "
+                        "barrier drop to the next round's start (gametime)")
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_scan)
 

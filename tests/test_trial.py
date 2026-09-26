@@ -126,3 +126,52 @@ class DiffStampTest(unittest.TestCase):
         old = [{"t_ms": 0.0, "observation_key": "k", "x0": 1, "x1": 5}]
         new = [{"t_ms": 0.0, "observation_key": "k", "x0": 2, "x1": 5}]
         self.assertEqual(diff(new, old, {0.0})["fields"], {"x0": 1})
+
+
+class RoundCacheTest(unittest.TestCase):
+    """A cache written over spans, and the FFV1 codec 15 Hz sets use."""
+
+    def test_span_cache_feeds_only_readers_inside_it(self):
+        from types import SimpleNamespace
+        from reticle.roi_cache import cache_for, clip_spans, covers
+        held = [[0.0, 10.0], [20.0, 30.0]]
+        self.assertTrue(covers(held, [(1.0, 9.0), (20.0, 30.0)]))
+        self.assertFalse(covers(held, [(5.0, 25.0)]))
+        self.assertFalse(covers(held, None))
+        self.assertEqual(clip_spans([(5.0, 25.0)], held), [(5.0, 10.0), (20.0, 25.0)])
+        self.assertEqual(clip_spans(None, held), [(0.0, 10.0), (20.0, 30.0)])
+        profile = get_profile("valorant-16x9")
+        with tempfile.TemporaryDirectory() as root:
+            w = RoiCacheWriter(Path(root), _manifest(), profile, "hud", hz=2.0, spans=held)
+            w.feed(Sample(frame_idx=0, t_ms=0.0, frame=np.zeros((1080, 1920, 3), np.uint8)))
+            w.finish()
+            r = lambda spans: SimpleNamespace(name="kp", cache_set="killfeed", hz=2.0, spans=spans)
+            self.assertIsNotNone(cache_for(Path(root), _manifest(), profile, [r(held)])[0])
+            for bad in (None, [(5.0, 25.0)]):
+                cache, why = cache_for(Path(root), _manifest(), profile, [r(bad)])
+                self.assertIsNone(cache)
+                self.assertIn("outside the cache's spans", why)
+
+    def test_ffv1_cache_round_trip_is_lossless(self):
+        from reticle.roi_cache import ffmpeg_path
+        try:
+            ffmpeg_path()
+        except SystemExit:
+            self.skipTest("ffmpeg not installed")
+        profile = get_profile("valorant-16x9")
+        man = _manifest()
+        rng = np.random.default_rng(2)
+        frames = [rng.integers(0, 255, (1080, 1920, 3), dtype=np.uint8) for _ in range(3)]
+        with tempfile.TemporaryDirectory() as root:
+            w = RoiCacheWriter(Path(root), man, profile, "minimap", hz=15.0, spans=[[0.0, 1000.0]])
+            for i, f in enumerate(frames):
+                w.feed(Sample(frame_idx=i, t_ms=i * 66.7, frame=f))
+            w.finish()
+            cache, why = RoiCache.load(Path(root), man, profile, "minimap")
+            self.assertIsNone(why)
+            self.assertEqual(cache.record["codec"], "ffv1")
+            # Out of order, so the reader must seek.
+            got = {s.frame_idx: s for s in cache.samples([133.4, 0.0, 66.7])}
+            for i, f in enumerate(frames):
+                for x0, y0, x1, y1 in roi_rects("minimap", profile, (1920, 1080)):
+                    self.assertTrue(np.array_equal(got[i].frame[y0:y1, x0:x1], f[y0:y1, x0:x1]))

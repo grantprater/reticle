@@ -203,6 +203,11 @@ def run_cached(ctx: SessionContext, readers: list, cache, progress=None,
     for smp in (usage.timed_frames(frames) if usage is not None else frames):
         n += 1
         for r in readers:
+            # A cache over wider spans than a reader asked for holds frames it
+            # would not have been fed.
+            spans = getattr(r, "spans", None)
+            if spans is not None and not any(a <= smp.t_ms <= b for a, b in spans):
+                continue
             if usage is None:
                 r.feed(smp)
             else:
