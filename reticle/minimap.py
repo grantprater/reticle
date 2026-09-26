@@ -46,6 +46,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from . import ally_portrait
 from .profiles import Profile
 
 # ---------------------------------------------------------------- widget scale
@@ -847,6 +848,11 @@ def self_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, fl
     return _rings(self_mask(crop), floor)
 
 
+def portrait_key(img: np.ndarray) -> np.ndarray:
+    """The pixels a portrait description excludes: the teal and self keys."""
+    return ally_mask(img) | self_mask(img)
+
+
 def ally_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]]:
     return _rings(ally_mask(crop), floor)
 
@@ -1170,7 +1176,8 @@ class AllyIconReader:
 
     Writes `ally_icon` events: one `frame` row per described frame -- so a
     frame with no icon is an observation, not a gap -- and one `icon` row per
-    icon with its descriptor. It names nobody; `adjudication.identity` joins
+    icon with its descriptor: the composition and, since 0.4.0, the
+    portrait's `ally_portrait` feature families. It names nobody; `adjudication.identity` joins
     these to the lineup from storage. A widget-absent frame is recorded as
     such and describes nothing.
     """
@@ -1212,6 +1219,12 @@ class AllyIconReader:
         _mark_barriers(found, keyed, grey, ref)
         got = ally_icon_descriptors(crop, self.floor, self.slab, self.static, occ,
                                     found=found)
+        # The portrait's feature families, on the icon's aligned window of this
+        # same crop; upright whatever it faces (`ally_portrait`).
+        for d in got:
+            img = ally_portrait.align_icon(crop, d["cx"], d["cy"])
+            d["portrait_features"] = ally_portrait.stored(
+                ally_portrait.portrait_features(img, portrait_key(img)))
         self_key = next((f"{frame['frame_idx']}:self:{i}" for i, f in enumerate(raw_self)
                          if me is not None and (f["cx"], f["cy"], f["r"]) ==
                          (me["cx"], me["cy"], me["r"])), None)
@@ -1259,6 +1272,8 @@ class AllyIconReader:
                                                         else "interior_unread" if match else
                                                         "not_selected"),
                                     "descriptor": match["composition"] if match else None,
+                                    "portrait_features": (match["portrait_features"]
+                                                          if match else None),
                                     "descriptor_pixels": match["pixels"] if match else None,
                                     "descriptor_reason": (match["reason"] if match else
                                                           "not_selected"),
@@ -1299,7 +1314,7 @@ class AllyIconReader:
         """
         from collections import Counter
 
-        from .version import ALLY_ICON_VERSION
+        from .version import ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION
 
         common = {"session_id": session_id, "source": "minimap",
                   "ally_icon_version": ALLY_ICON_VERSION, "hz": self.hz}
@@ -1323,6 +1338,7 @@ class AllyIconReader:
                                  "lobe": c["lobe"], "area": c["area"],
                                  "map_diff": c["map_diff"],
                                  "composition": c["descriptor"],
+                                 "portrait_features": c.get("portrait_features"),
                                  "pixels": c["descriptor_pixels"],
                                  "reason": reason,
                                  "candidate_key": c["candidate_key"],
@@ -1354,6 +1370,12 @@ class AllyIconReader:
                     out[k] = round(out[k], 3)
             if out["composition"] is not None:
                 out["composition"] = [round(v, 5) for v in out["composition"]]
+            # Candidates stored before 0.4.0 carry no portrait features.
+            out["portrait_features"] = out.get("portrait_features")
+            out["portrait_features_version"] = (ALLY_PORTRAIT_FEATURES_VERSION
+                                                if out["portrait_features"] else None)
+            if not out["portrait_features"]:
+                out["portrait_features_reason"] = "not_measured_by_this_revision"
             rows.append({**common, "kind": "icon",
                          "observation_key": f"{session_id}:{r['frame_idx']}:{r['index']}",
                          **out})

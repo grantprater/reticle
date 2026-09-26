@@ -285,6 +285,22 @@ furniture a portrait is drawn on rather than the portrait.
 consumers = ["killfeed", "scoreboard"]
 
 [[entry]]
+id = "ally-portrait-features"
+question = "What does this minimap ally portrait look like, and what does each agent's minimap art look like at icon size?"
+owner = "ally_portrait"
+role = ["detect"]
+status = "partial"
+produces = ["portrait_features", "align_icon", "stored", "render", "render_reference", "build_references", "load_references"]
+not_for = """
+Naming the agent: `adjudication.identity` scores these features against the
+rendered references. Nor for fitting the calibration it renders under; that is
+`prototypes/ally_portrait_calibration.py`, stored beside the table with its
+provenance. The references are rendered from art, never from a session.
+"""
+consumers = ["minimap", "adjudication.identity", "cli"]
+evidence = "tests/test_ally_icons.py"
+
+[[entry]]
 id = "killfeed-portrait"
 question = "What do the killer and victim portraits in this entry look like?"
 owner = "killfeed"
@@ -723,7 +739,7 @@ question = "Which NAMED AGENT is this icon, track, row, death or ability, and wh
 owner = "adjudication.identity"
 role = ["assign", "adjudicate"]
 status = "partial"
-produces = ["AGENT_IDENTITY_VERSION", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "MINIMAP_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "claim_from_minimap_icon", "claims_from_minimap_icons", "claims_from_ally_icons", "adjudicate_agent_identity", "AgentIdentityArbiter", "identity_events", "assign_side", "SIDE_MARGIN_MIN"]
+produces = ["AGENT_IDENTITY_VERSION", "rendered_art_scores", "load_ally_portrait_references", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "MINIMAP_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "claim_from_minimap_icon", "claims_from_minimap_icons", "claims_from_ally_icons", "adjudicate_agent_identity", "AgentIdentityArbiter", "identity_events", "assign_side", "SIDE_MARGIN_MIN"]
 names_agents = true
 not_for = """
 Reading pixels, inventing an entity key, or deciding roster-slot continuity. Readers

@@ -45,6 +45,8 @@ class CandidateEvidenceTests(unittest.TestCase):
             self.assertEqual(actual, expected)
             self.assertEqual(actual[0]["candidate_lineage"], "complete")
             self.assertEqual(len([r for r in actual if r["kind"] == "icon"]), 1)
+            icon = next(r for r in actual if r["kind"] == "icon")
+            self.assertEqual(len(icon["portrait_features"]["hog_x1"]), 32)
             self.assertTrue(all(r["baseline_descriptor"] is not None
                                 for r in batch["rows"] if r["channel"] == "ally"))
             bad = [dict(r) for r in loaded]

@@ -148,7 +148,18 @@ PING_VERSION = "ping-0.1.0"
 # baseline appearance (no occluders); the accepted view's descriptor names the
 # self and neighbor candidates it masked. Accepted rows are unchanged; the
 # stamp moves because events now carry `candidate_key`, `family` and lineage.
-ALLY_ICON_VERSION = "ally-icon-0.3.0"
+# 0.4.0: selected icons carry `portrait_features` (`ally_portrait.portrait_features`:
+# 3x3 Lab grid, native-scale edge-orientation histograms, horizontal profile)
+# with `portrait_features_version`; accepted rows are otherwise unchanged.
+ALLY_ICON_VERSION = "ally-icon-0.4.0"
+# The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
+# the alignment, the disc, `DISC_R` or any family changes: stored features and
+# the calibration fitted on them go stale together.
+ALLY_PORTRAIT_FEATURES_VERSION = "ally-portrait-features-1.0.0"
+# The baked table of references rendered from minimap portrait art
+# (`ally_portrait.build_references`) under its stored calibration. Bump when
+# the renderer or the table layout changes.
+ALLY_PORTRAIT_REFS_VERSION = "ally-portrait-refs-1.0.0"
 # Light evidence at each ability candidate's instant, written as `ability_light`
 # EVENTS by `reticle ability-light`: `lighting.raw_lit` and `lighting.raw_dark`
 # packed per frame. It stores no decision; `adjudication.ability` reads it.

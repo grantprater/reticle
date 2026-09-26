@@ -1,12 +1,14 @@
 """Ally icon descriptors and the per-frame naming of teammates."""
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 
-from reticle.adjudication.identity import claims_from_ally_icons
+from reticle.adjudication.identity import claims_from_ally_icons, rendered_art_scores
 from reticle.minimap import (ALLY_MAP_DIFF_MIN, AllyIconReader,
                              ally_icon_descriptors)
+from reticle.version import ALLY_PORTRAIT_FEATURES_VERSION
 
 #: The reference widget width, so the icon gates are unscaled.
 W = 465
@@ -21,10 +23,24 @@ def _lineup(ally=("Phoenix", "Breach", "Deadlock", "Reyna", "Miks"), player="Pho
     return {"sides": {"ally": rows}, "player": {"agent": player} if player else None}
 
 
-def _icon(frame, index, comp, reason=None):
+def _icon(frame, index, comp, reason=None, features=None):
     return {"frame_idx": frame, "t_ms": frame * 500.0, "index": index,
             "observation_key": f"s:{frame}:{index}", "cx": 10.0, "cy": 10.0, "r": 8,
-            "composition": comp, "reason": reason}
+            "composition": comp, "reason": reason, "portrait_features": features,
+            "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION if features else None}
+
+
+def _features(i):
+    """Portrait features equal to agent `i`'s reference in `_references`."""
+    return {"grid3_lab": [float(i)] * 2, "hog_x1": [float(i)], "prof_h": [0.0]}
+
+
+def _references():
+    names = ["Breach", "Deadlock", "Miks", "Reyna"]
+    return {"version": "t", "features_version": ALLY_PORTRAIT_FEATURES_VERSION,
+            "margin_min": 0.5,
+            "variance": {"grid3_lab": [1.0, 1.0], "hog_x1": [1.0], "prof_h": [1.0]},
+            "agents": {n: _features(i) for i, n in enumerate(names)}}
 
 
 def _one_hot(i, w=0.9):
@@ -49,6 +65,32 @@ class ClaimsFromAllyIconsTests(unittest.TestCase):
                                         session_id="s")
         named = [c["agent"] for c in claims if c["agent"]]
         self.assertEqual(len(named), len(set(named)))
+
+    def test_rendered_art_names_icons_that_carry_portrait_features(self):
+        refs = _references()
+        icons = [_icon(1, 0, _one_hot(3), features=_features(0)),
+                 _icon(1, 1, _one_hot(0), features=_features(3))]
+        claims = claims_from_ally_icons(icons, _lineup(), gallery=GALLERY,
+                                        session_id="s", references=refs)
+        # The features, not the contradicting composition, decide.
+        self.assertEqual([c["agent"] for c in claims], ["Breach", "Reyna"])
+        self.assertEqual({c["evidence"]["reference_source"] for c in claims},
+                         {"rendered_art"})
+        self.assertEqual(claims[0]["evidence"]["margin_min"], refs["margin_min"])
+
+    def test_a_frame_without_features_falls_back_to_the_composition(self):
+        icons = [_icon(1, 0, _one_hot(0), features=_features(3)),
+                 _icon(1, 1, _one_hot(3))]
+        claims = claims_from_ally_icons(icons, _lineup(), gallery=GALLERY,
+                                        session_id="s", references=_references())
+        self.assertEqual([c["agent"] for c in claims], ["Breach", "Reyna"])
+        self.assertEqual({c["evidence"]["reference_source"] for c in claims},
+                         {"official_art"})
+
+    def test_a_name_without_a_rendered_reference_is_not_scored_short(self):
+        refs = _references()
+        del refs["agents"]["Miks"]
+        self.assertIsNone(rendered_art_scores(_features(0), ["Breach", "Miks"], refs))
 
     def test_a_stored_refusal_is_quoted(self):
         icons = [_icon(1, 0, _one_hot(0), reason="interior_is_map")]
@@ -128,6 +170,67 @@ class AllyIconDescriptorTests(unittest.TestCase):
         self.assertEqual(rows[0]["kind"], "coverage")
         self.assertEqual([r["kind"] for r in rows[1:]], ["frame"])
         self.assertTrue(all(r["ally_icon_version"] for r in rows))
+
+    def test_the_reader_stores_the_portrait_feature_families(self):
+        class Smp:
+            frame_idx, t_ms = 4, 2000.0
+            frame = _ally_icon_crop((30, 60, 200))
+        reader = AllyIconReader(self.floor, None, self.static, (0, 0, W, W))
+        with patch("reticle.minimap.widget_drawn", return_value=True):
+            reader.feed(Smp())
+        icons = [r for r in reader.events("s") if r["kind"] == "icon"]
+        self.assertEqual(len(icons), 1)
+        pf = icons[0]["portrait_features"]
+        self.assertEqual({k: len(v) for k, v in pf.items()},
+                         {"grid3_lab": 27, "hog_x1": 32, "prof_h": 18})
+        self.assertEqual(icons[0]["portrait_features_version"],
+                         ALLY_PORTRAIT_FEATURES_VERSION)
+        # The candidate row carries the same features, so a replay keeps them.
+        cand = [c for c in reader.candidate_rows("s") if c["channel"] == "ally"
+                and c["portrait_features"] is not None]
+        self.assertEqual(cand[0]["portrait_features"], pf)
+
+    def test_a_candidate_without_features_replays_as_unmeasured(self):
+        row = {"frame_idx": 1, "t_ms": 0.0, "channel": "ally", "cx": 5.0, "cy": 5.0,
+               "r": 6, "facing": None, "cov": 1.0, "inner": 1.0, "inner_v": 1.0,
+               "lobe": 1.0, "area": 10, "map_diff": 20.0, "descriptor": [1.0],
+               "descriptor_pixels": 9, "descriptor_reason": None,
+               "candidate_key": "s:1:ally:0", "decision": {"family": "icon"},
+               "self_occluder": None}
+        rows = AllyIconReader.replay_events("s", [], [row], 15.0, "rev")
+        icon = [r for r in rows if r["kind"] == "icon"][0]
+        self.assertIsNone(icon["portrait_features"])
+        self.assertEqual(icon["portrait_features_reason"], "not_measured_by_this_revision")
+
+
+class AllyPortraitFeatureTests(unittest.TestCase):
+    def test_both_widget_sizes_align_to_one_scale(self):
+        # One disc drawn at each widget size, proportional to the width,
+        # aligns to the same radius.
+        from reticle import ally_portrait
+        radii = []
+        for width in (331, 465):
+            crop = np.zeros((width, width, 3), np.uint8)
+            r = {331: 10, 465: 14}[width]
+            cv2.circle(crop, (100, 100), r, (255, 255, 255), -1)
+            img = ally_portrait.align_icon(crop, 100.0, 100.0)
+            radii.append(np.sqrt((img[..., 0] > 127).sum() / np.pi))
+        self.assertAlmostEqual(radii[0], radii[1], delta=1.0)
+
+    def test_a_window_past_the_crop_edge_is_black(self):
+        from reticle import ally_portrait
+        crop = np.full((50, 50, 3), 200, np.uint8)
+        img = ally_portrait.align_icon(crop, 2.0, 2.0, width=331)
+        self.assertEqual(img.shape, (ally_portrait.SIDE, ally_portrait.SIDE, 3))
+        self.assertEqual(int(img[0, 0].max()), 0)
+        self.assertEqual(int(img[-1, -1].min()), 200)
+
+    def test_edge_histograms_are_unit_length(self):
+        from reticle import ally_portrait
+        rng = np.random.default_rng(0)
+        img = rng.integers(0, 255, (ally_portrait.SIDE, ally_portrait.SIDE, 3), np.uint8)
+        f = ally_portrait.portrait_features(img, np.zeros(img.shape[:2], bool))
+        self.assertAlmostEqual(float(np.linalg.norm(f["hog_x1"])), 1.0, places=5)
 
 
 if __name__ == "__main__":

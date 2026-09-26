@@ -73,7 +73,8 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                       source_revision: str | None = None,
                       deaths: list[dict] | None = None,
                       lineup: dict | None = None,
-                      gallery: dict | None = None) -> list[dict]:
+                      gallery: dict | None = None,
+                      references: dict | None = None) -> list[dict]:
     """`round_entity` event rows for every round the stored frames reach.
 
     `events` are the session's `ally_icon` rows; `rounds` come from
@@ -164,7 +165,8 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
         # Pass 1: Base claims with official art gallery
         if icon_events:
             claims1 = claims_from_ally_icons(
-                icon_events, lineup, gallery=gallery, session_id=session_id)
+                icon_events, lineup, gallery=gallery, session_id=session_id,
+                references=references)
             track_claims1 = []
             for c in claims1:
                 eid = c.get("entity_id", "")
@@ -199,7 +201,8 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
 
                 if harvested > 0:
                     claims2 = claims_from_ally_icons(
-                        icon_events, lineup, gallery=augmented_gallery, session_id=session_id)
+                        icon_events, lineup, gallery=augmented_gallery, session_id=session_id,
+                        references=references)
                     track_claims2 = []
                     for c in claims2:
                         eid = c.get("entity_id", "")

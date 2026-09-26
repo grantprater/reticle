@@ -1902,13 +1902,14 @@ def cmd_lifetimes(args) -> int:
                          int(manifest["source"]["width"]),
                          int(manifest["source"]["height"]))
     from .lineup import load_lineup
-    from .adjudication.identity import load_identity_gallery
+    from .adjudication.identity import load_ally_portrait_references, load_identity_gallery
 
     lineup = load_lineup(sid, store.root)
+    references = load_ally_portrait_references(store.root) if lineup else None
     gallery = load_identity_gallery(store.root) if lineup else None
     rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]),
                              roster, source_revision, deaths=deaths,
-                             lineup=lineup, gallery=gallery)
+                             lineup=lineup, gallery=gallery, references=references)
     out = store.write_events("round_entity", sid, rows)
     cov = rows[0]
     ents = [r for r in rows if r["kind"] == "entity"]
@@ -2899,6 +2900,17 @@ def cmd_doctor(args) -> int:
     return doctor_main(["--store", str(args.store)])
 
 
+def cmd_ally_portrait_refs(args) -> int:
+    """Bake the minimap ally-portrait references from the stored art and calibration."""
+    from . import ally_portrait
+    from .minimap import portrait_key
+    store = Store(args.store)
+    table = ally_portrait.build_references(store.root, portrait_key)
+    print(f"{table['version']}: {len(table['agents'])} agents, calibration "
+          f"{table['calibration']['version']} ({table['calibration']['sha']})")
+    return 0
+
+
 def cmd_domain(args) -> int:
     """The domain registry: what is true of the GAME, not of this pipeline.
 
@@ -3357,6 +3369,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("doctor", help="structural checks on the repo "
                        "(duplicates, unwired modules, stale geometry)")
     s.set_defaults(func=cmd_doctor)
+
+    s = sub.add_parser("ally-portrait-refs", help="bake minimap ally-portrait "
+                       "references rendered from the stored art")
+    s.set_defaults(func=cmd_ally_portrait_refs)
 
     s = sub.add_parser("domain", help="the domain registry -- what is true of "
                        "VALORANT, cited rather than restated")

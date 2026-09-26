@@ -45,10 +45,14 @@ from ..roster import N_SLOTS
 from ..track import assign
 
 
+# 0.4.0 (2026-09-26): an ally icon carrying `portrait_features` is scored
+# against references rendered from minimap portrait art (`rendered_art_scores`)
+# instead of the official-art composition, which stays the fallback for events
+# without features; each claim records its `reference_source`.
 # 0.3.0 (2026-09-25): a killfeed portrait names on a posterior over the side's
 # admitted candidates from per-source likelihood ratios (`portrait_llr`), not
 # on the raw-score margin, so official art and exemplars share one scale.
-AGENT_IDENTITY_VERSION = "agent-identity-0.3.0"
+AGENT_IDENTITY_VERSION = "agent-identity-0.4.0"
 
 #: Borrowed from `lineup.MARGIN_MIN` and NOT refitted here. It keeps every
 #: correct player portrait on the one population with a truth --
@@ -871,9 +875,44 @@ def claims_from_minimap_icons(observations, lineup, *, gallery,
     return out
 
 
+def load_ally_portrait_references(store) -> dict | None:
+    """The baked rendered-art table (`ally_portrait.build_references`), or None."""
+    from ..ally_portrait import load_references
+    return load_references(store)
+
+
+def rendered_art_scores(features, names, references) -> dict | None:
+    """Log likelihood ratio of one icon's `portrait_features` under each named
+    agent's rendered-art reference, against the names' mean.
+
+    A diagonal Gaussian per family, whose variance is the pooled within-agent
+    variance plus the art-to-game residual (`references["variance"]`); a
+    family scores its mean per-feature log likelihood, so the three families
+    weigh equally, and the families add. None when the features are missing,
+    from another feature version, or a name has no reference -- the caller
+    then falls back to the composition rather than score a short set.
+    """
+    if not features or not references:
+        return None
+    refs = references["agents"]
+    if any(n not in refs for n in names):
+        return None
+    total = np.zeros(len(names))
+    for fam, var in references["variance"].items():
+        if fam not in features:
+            return None
+        x = np.asarray(features[fam], np.float64)
+        v = np.asarray(var, np.float64)
+        M = np.asarray([refs[n][fam] for n in names], np.float64)
+        total += -0.5 * (((x[None] - M) ** 2) / v + np.log(v)).mean(1)
+    total -= total.mean()
+    return {n: float(s) for n, s in zip(names, total)}
+
+
 def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
                            source_version="ally-icon",
-                           margin_min=SIDE_MARGIN_MIN) -> list[dict]:
+                           margin_min=SIDE_MARGIN_MIN,
+                           references=None) -> list[dict]:
     """One claim per stored ally icon, each frame's icons named TOGETHER.
 
     `icons` are `ally_icon` events of kind `icon`. The icons of one frame are
@@ -883,6 +922,14 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
     is measured against an assignment the constraint permits. A refused ally
     slot enters as a rival under its best guess: it can take an icon away and
     never name one.
+
+    Two reference sources. With `references` (the rendered-art table) and a
+    frame whose described icons all carry `portrait_features` of the table's
+    feature version, the scores are `rendered_art_scores` and the margin gate
+    is the table's `margin_min`, fitted on automatic death bindings. Otherwise
+    the frame is scored by `_portrait_scores` over the official-art `gallery`
+    at `margin_min`. A frame never mixes the two, whose units differ; each
+    claim's evidence names its `reference_source`.
 
     The entity is the OBSERVATION, `<session>:ally_icon:<observation_key>`.
     Nothing here joins icons across frames; a track that does must supply its
@@ -921,7 +968,8 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
     out = []
     for _frame, group in sorted(frames.items()):
         described = [i for i in group
-                     if not i.get("reason") and i.get("composition") is not None]
+                     if not i.get("reason") and (i.get("composition") is not None
+                                                 or i.get("portrait_features"))]
         for icon in group:
             if icon not in described:
                 out.append(claim(icon, None, icon.get("reason") or "icon_no_descriptor"))
@@ -929,11 +977,26 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
                 out.append(claim(icon, None, refuse))
         if refuse or not described:
             continue
-        scores = [_portrait_scores(i["composition"], names, gallery, stacks=stacks)
-                  for i in described]
+        art = None
+        if references and all(i.get("portrait_features_version")
+                              == references.get("features_version") for i in described):
+            art = [rendered_art_scores(i.get("portrait_features"), names, references)
+                   for i in described]
+            art = None if any(s is None for s in art) else art
+        if art is not None:
+            scores, source = art, "rendered_art"
+            gate = references["margin_min"]
+        elif all(i.get("composition") is not None for i in described):
+            scores = [_portrait_scores(i["composition"], names, gallery, stacks=stacks)
+                      for i in described]
+            source, gate = "official_art", margin_min
+        else:
+            for icon in described:
+                out.append(claim(icon, None, "icon_no_descriptor"))
+            continue
         matrix = [[s.get(n, 0.0) for n in names] for s in scores]
         for icon, s, row in zip(described, scores,
-                                assign_side(matrix, names, 1, "ally", margin_min)):
+                                assign_side(matrix, names, 1, "ally", gate)):
             reason = row["reason"]
             if reason is None and row["agent"] in barred:
                 reason = f"icon_best_is_refused_slot {row['agent']}"
@@ -941,7 +1004,11 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
                 icon, row["agent"] if reason is None else None, reason,
                 {"scores": {n: round(v, 6) for n, v in sorted(s.items())},
                  "best_guess": row["best_guess"], "rival": row["rival"],
-                 "margin": row["margin"], "icons_in_frame": len(described)}))
+                 "margin": row["margin"], "margin_min": gate,
+                 "reference_source": source,
+                 "reference_version": (references.get("version")
+                                       if source == "rendered_art" else None),
+                 "icons_in_frame": len(described)}))
     return out
 
 
