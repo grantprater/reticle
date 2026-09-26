@@ -36,6 +36,7 @@ Owns [owns:scoreboard-row].
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 
 import numpy as np
 
@@ -360,18 +361,9 @@ def portrait_agent(frame: np.ndarray, box: tuple[int, int, int, int],
     x0, y0, x1, y1 = box
     win = frame[max(0, y0 - AGENT_PAD):max(0, y1 + AGENT_PAD),
                 max(0, x0 - AGENT_PAD):max(0, x1 + AGENT_PAD)]
-    scores, where = {}, {}
-    for name, (ims, masks) in icons.items():
-        best = (-1.0, None)
-        for i, (t, m) in enumerate(zip(ims, masks)):
-            if t.shape[0] > win.shape[0] or t.shape[1] > win.shape[1]:
-                continue
-            r = cv2.matchTemplate(win, t, cv2.TM_CCOEFF_NORMED, mask=m)
-            r = np.nan_to_num(r, nan=-1.0, posinf=-1.0, neginf=-1.0)
-            _, v, _, loc = cv2.minMaxLoc(r)
-            if v > best[0]:
-                best = (float(v), (i, loc))
-        scores[name], where[name] = best
+    gallery = _gpu_gallery(icons)
+    scores, where = (_art_scores_gpu(win, gallery) if gallery is not None
+                     else _art_scores_cpu(win, icons))
     ranked = sorted(scores.items(), key=lambda kv: -kv[1])
     if len(ranked) < 2 or where[ranked[0][0]] is None:
         return {**empty, "portrait_agent_reason": "portrait_box_smaller_than_art"}
@@ -389,6 +381,113 @@ def portrait_agent(frame: np.ndarray, box: tuple[int, int, int, int],
             # (`identity.assign_side`) instead of read as five argmaxes.
             "portrait_agent_scores": {k: round(v, 4) for k, v in sorted(scores.items())},
             "portrait_agent_reason": None}
+
+
+def _art_scores_cpu(win: np.ndarray, icons: dict) -> tuple[dict, dict]:
+    """Each agent's best masked TM_CCOEFF_NORMED over its scales, by OpenCV."""
+    scores, where = {}, {}
+    for name, (ims, masks) in icons.items():
+        best = (-1.0, None)
+        for i, (t, m) in enumerate(zip(ims, masks)):
+            if t.shape[0] > win.shape[0] or t.shape[1] > win.shape[1]:
+                continue
+            r = cv2.matchTemplate(win, t, cv2.TM_CCOEFF_NORMED, mask=m)
+            r = np.nan_to_num(r, nan=-1.0, posinf=-1.0, neginf=-1.0)
+            _, v, _, loc = cv2.minMaxLoc(r)
+            if v > best[0]:
+                best = (float(v), (i, loc))
+        scores[name], where[name] = best
+    return scores, where
+
+
+# `RETICLE_SCOREBOARD=cpu` forces OpenCV; `=gpu` refuses to fall back; `auto`
+# (the default) scores on the GPU when cupy and a CUDA device are present.
+_GPU_GALLERIES: dict[int, tuple[dict, object]] = {}
+
+
+def portrait_scorer() -> str:
+    """Which scorer `portrait_agent` uses in this process, for provenance."""
+    return "cupy-float64" if _gpu_gallery(None) is not None else "opencv-float32"
+
+
+def _gpu_gallery(icons: dict | None):
+    """The agent art stacked per scale on the GPU, or None to score on the CPU.
+
+    `icons=None` asks only whether the GPU path is available. The gallery is
+    built once per icons dict and kept with it.
+    """
+    mode = os.environ.get("RETICLE_SCOREBOARD", "auto").lower()
+    if mode not in ("auto", "cpu", "gpu"):
+        raise ValueError(f"RETICLE_SCOREBOARD must be auto, cpu or gpu, not {mode!r}")
+    if mode == "cpu":
+        return None
+    try:
+        import cupy as cp
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            raise RuntimeError("no CUDA device")
+    except Exception:
+        if mode == "gpu":
+            raise
+        return None
+    if icons is None:
+        return True
+    held = _GPU_GALLERIES.get(id(icons))
+    if held is not None and held[0] is icons:
+        return held[1]
+    names = list(icons)
+    per_scale = []
+    for i in range(min(len(ims) for ims, _ in icons.values())):
+        t = np.stack([icons[n][0][i] for n in names]).astype(np.float64)
+        m = np.stack([icons[n][1][i] for n in names]).astype(np.float64)
+        area = np.maximum(m.sum(axis=(1, 2)), 1)                    # (agents, 3)
+        mean = (t * m).sum(axis=(1, 2)) / area
+        tz = (t - mean[:, None, None, :]) * m                       # zero-mean art
+        per_scale.append((t.shape[1], t.shape[2], cp.asarray(tz), cp.asarray(m),
+                          cp.asarray(area), cp.asarray((tz ** 2).sum(axis=(1, 2, 3)))))
+    gallery = (names, per_scale)
+    _GPU_GALLERIES[id(icons)] = (icons, gallery)
+    return gallery
+
+
+def _art_scores_gpu(win: np.ndarray, gallery) -> tuple[dict, dict]:
+    """`_art_scores_cpu` in float64 on the GPU, every agent of a scale at once.
+
+    The same masked normalised correlation: sum((I - mean_I) * (T - mean_T))
+    over the mask, over the root of both masked variances, summed over the
+    three channels as OpenCV sums them. OpenCV accumulates in float32, so
+    scores differ from it in the fourth decimal: 9 of 4640 rounded scores on
+    7010b3d62460, by at most 0.0007, with the same best agent on 160 of 160
+    rows. A zero variance scores -1, as OpenCV's NaN does after
+    `nan_to_num`. The first maximum in row-major order wins, as in
+    `cv2.minMaxLoc`, and a later scale must beat an earlier one strictly.
+    """
+    import cupy as cp
+    names, per_scale = gallery
+    img = cp.asarray(win, dtype=cp.float64)
+    found = []
+    for i, (th, tw, tz, m, area, tnorm) in enumerate(per_scale):
+        if th > win.shape[0] or tw > win.shape[1]:
+            continue
+        v = cp.lib.stride_tricks.sliding_window_view(img, (th, tw, 3))[:, :, 0]
+        num = cp.einsum("yxijc,aijc->ayx", v, tz)
+        s1 = cp.einsum("yxijc,aijc->ayxc", v, m)
+        s2 = cp.einsum("yxijc,aijc->ayxc", v * v, m)
+        var = (s2 - s1 * s1 / area[:, None, None, :]).sum(-1)
+        den = cp.sqrt(cp.maximum(var, 0) * tnorm[:, None, None])
+        r = cp.where(den > 0, num / cp.where(den > 0, den, 1.0), -1.0)
+        flat = r.reshape(len(names), -1)
+        arg = flat.argmax(axis=1)
+        found.append((i, r.shape[2], cp.asnumpy(flat[cp.arange(len(names)), arg]),
+                      cp.asnumpy(arg)))
+    scores, where = {}, {}
+    for a, name in enumerate(names):
+        best = (-1.0, None)
+        for i, width, vals, args in found:
+            if float(vals[a]) > best[0]:
+                y, x = divmod(int(args[a]), width)
+                best = (float(vals[a]), (i, (x, y)))
+        scores[name], where[name] = best
+    return scores, where
 
 
 def portrait_observations(frame: np.ndarray, board: ScoreboardRead,
@@ -478,8 +577,10 @@ class ScoreboardReader:
     def events(self, session_id: str) -> list[dict]:
         common = {"session_id": session_id, "scoreboard_version": SCOREBOARD_VERSION,
                   "source": "scoreboard"}
+        # The two scorers agree to the third decimal, not the fourth: which
+        # one wrote these scores is provenance.
         coverage = {**common, "kind": "coverage", "frames_offered": self.frames_offered,
-                    "frames_open": self.frames_open}
+                    "frames_open": self.frames_open, "portrait_scorer": portrait_scorer()}
         return [coverage] + [{**common, "kind": "row_observation",
                               "observation_key":
                                   f"{session_id}:{r['frame_idx']}:{r['display_row']}",

@@ -2,4 +2,8 @@ numpy>=2.0
 opencv-python-headless>=4.10
 pyarrow>=17.0
 duckdb>=1.0
-av>=15.0                 # audio decode; the video path stays on OpenCV
+av>=15.0                 # audio decode, and NVDEC video decode when CUDA is present
+
+# Optional: GPU portrait scores for the scoreboard reader (scoreboard.py falls
+# back to OpenCV without it). Needs an NVIDIA GPU; about 1.5 GB with the toolkit.
+# cupy-cuda13x[ctk]>=14.0
