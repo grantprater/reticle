@@ -192,3 +192,23 @@ shows the same Me -> Me shape; tell the two apart by agent and by an ult
 cast before it, never by the entry alone
 """
 phrases = ["clove revive expired", "me killed me"]
+
+[buy-phase-barriers]
+claim = """
+A round opens with a buy phase that ends when the spawn barriers drop. The
+first round's buy phase runs about 42 s on the clock; every other round's
+about 30 s. Until the barriers drop each team is held in its spawn, so every
+teammate's minimap icon starts there, stacked with the others.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-25"
+use = """
+reticle/gametime.py owns the barrier drop per round (`t_live_ms`, from the
+HUD clock); a reader asks it, never assumes a fixed length. Tracks born before
+the drop are spawn separations, not reacquisitions
+"""
+exceptions = """
+the first round after the halftime swap also measured 42 s on a06f04a0059f
+(round 13), so the long buy phase may belong to both pistol rounds; unconfirmed
+"""
