@@ -1381,6 +1381,19 @@ when someone is in a hurry, which is when all three recorded recurrences of
 *look at the image before measuring it* happened, and a hook that gets bypassed
 also creates the belief that something is watching.
 
+Since 2026-09-26 it does run from Claude Code hooks (`.claude/settings.json`),
+which differ from a git hook in that hurry cannot skip them:
+`tools/hook_pickup.py` prints NOTES.md, the `reticle.status` header and
+doctor's summary at session start, resume and compaction, and
+`tools/hook_doctor.py` refuses to end a turn on a geometry-guard failure or a
+doctor ERROR, once per turn, and reruns doctor only when the tree changed.
+`tools/hook_no_session_url.py` blocks any call that carries a Claude session
+URL. `tools/hook_session_score.py` writes one objective row per session to
+`~/reticle-store/notes/sessions.jsonl` (turns, tool calls, edits, tests,
+commits, compactions, effort, model); it counts no corrections, because a
+phrase regex matched two of 201 recorded prompts, both wrongly, and a wrong
+count is worse than a null.
+
 It earned itself on the first run by finding a manifest contradiction nobody
 was looking for -- `2ba870ccbd50` is tagged `small-widget` and was ingested
 `valorant-16x9-bigmap`. That session is on record twice already, as a "never
