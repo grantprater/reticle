@@ -70,6 +70,7 @@ class DarkRegionReader:
     def __init__(self, floor, sgray, static, ref, box, hz=4.0, spans=None,
                  name="minimap_dark"):
         self.name, self.hz, self.spans = name, hz, spans
+        self.cv_threads = 1        # small crops: see `passes._feed`
         self.floor, self.sgray, self.static, self.ref, self.box = floor, sgray, static, ref, box
         self.rows: list[dict] = []
 

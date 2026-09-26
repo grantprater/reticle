@@ -481,6 +481,7 @@ class _MinimapPass:
         self.sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
         # Declared for `passes.Reader`.
         self.name = "minimap"
+        self.cv_threads = 1        # small crops: see `passes._feed`
         self.hz = args.minimap_hz
         self.spans = spans         # the minimap has nothing to say off-round
         self.step_ms = 1000.0 / args.minimap_hz

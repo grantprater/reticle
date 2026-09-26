@@ -169,10 +169,7 @@ def run(ctx: SessionContext, readers: list, progress=None, usage=None) -> int:
     for who, smp in (usage.timed_frames(frames) if usage is not None else frames):
         n += 1
         for name in who:
-            if usage is None:
-                by_name[name].feed(smp)
-            else:
-                usage.feed(by_name[name], smp)
+            _feed(by_name[name], smp, usage)
         if progress is not None:
             progress(n, smp)
     for r in readers:
@@ -208,10 +205,7 @@ def run_cached(ctx: SessionContext, readers: list, cache, progress=None,
             spans = getattr(r, "spans", None)
             if spans is not None and not any(a <= smp.t_ms <= b for a, b in spans):
                 continue
-            if usage is None:
-                r.feed(smp)
-            else:
-                usage.feed(r, smp)
+            _feed(r, smp, usage)
         if progress is not None:
             progress(n, smp)
     for r in readers:
@@ -222,6 +216,38 @@ def run_cached(ctx: SessionContext, readers: list, cache, progress=None,
             else:
                 usage.finish(r, fin)
     return n
+
+
+def _feed(reader, smp, usage) -> None:
+    """Feed one reader, under the OpenCV thread count it declares.
+
+    A reader whose OpenCV calls work on small crops declares `cv_threads = 1`:
+    OpenCV's pool spends more CPU starting threads on a minimap crop than the
+    work costs. Measured 2026-09-26 over every cached round frame, CPU per
+    frame with OpenCV's pool against one thread, reader state identical:
+
+        session        frames   minimap          minimap_dark
+        7010b3d62460   15705    24.5 -> 14.0 ms  39.2 -> 25.7 ms
+        a06f04a0059f   20778    23.7 -> 12.8 ms  31.4 -> 23.6 ms
+        043bafca271a   14629    14.1 ->  8.5 ms  24.7 -> 13.7 ms
+
+    Wall per frame rose by 0-11% on five of the six, and 42% (11.5 -> 16.3
+    ms) on a06f04a0059f's minimap_dark. The count is process-wide in OpenCV, so it is set around this reader's feed
+    and restored for the next reader; a toggle costs about a microsecond.
+    """
+    threads = getattr(reader, "cv_threads", None)
+    if threads is not None:
+        import cv2
+        before = cv2.getNumThreads()
+        cv2.setNumThreads(threads)
+    try:
+        if usage is None:
+            reader.feed(smp)
+        else:
+            usage.feed(reader, smp)
+    finally:
+        if threads is not None:
+            cv2.setNumThreads(before)
 
 
 def _cache_rois(reader) -> tuple[str, ...]:
