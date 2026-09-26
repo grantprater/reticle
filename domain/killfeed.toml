@@ -93,7 +93,8 @@ b7d24102a6f6 1014.0 s shows Sage -> Raze with Resurrection
 """
 use = """
 the death owner must not count a revive entry as a death; the weapon-slot icon
-is the witness, beside [domain:rounds/resurrection-mechanics]
+is one witness and the one-colour plates another (`killfeed.killer_is_ally`,
+`adjudication.death.plate_revive`), beside [domain:rounds/resurrection-mechanics]
 """
 exceptions = """
 a Clove revive that expires draws its own entry, a death, with a broken

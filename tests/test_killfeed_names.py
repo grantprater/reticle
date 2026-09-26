@@ -62,6 +62,25 @@ class NameClusterTest(unittest.TestCase):
                for i in range(6)]
         self.assertEqual(followed_views(obs), [(2000.0, 2, 12), (3000.0, 1, 14)])
 
+    def test_a_self_entry_prints_one_name_on_both_roles(self):
+        import base64
+        import zlib
+        from reticle.adjudication.killfeed_names import self_entry
+
+        def row(role, g):
+            return {"kind": "name_observation", "observation_key": f"s:10:0:{role}",
+                    "shape": None if g is None else list(g.shape),
+                    "reason": None if g is not None else "no_name_text",
+                    "gray": None if g is None else base64.b64encode(zlib.compress(g.tobytes())).decode()}
+        a, b, views = _crop(1), _crop(2), [(1000.0, 0, 10)]
+        self.assertEqual(self_entry(views, [row("killer", a), row("victim", a[:, :39])], "s"),
+                         (True, None))
+        self.assertEqual(self_entry(views, [row("killer", a), row("victim", b)], "s"),
+                         (False, None))
+        self.assertEqual(self_entry(views, [row("killer", a), row("victim", None)], "s"),
+                         (None, "victim:no_name_text"))
+        self.assertEqual(self_entry([], [], "s"), (None, "killer:no_followed_view"))
+
 
 class NameAssignmentTest(unittest.TestCase):
     enemy = ["Sova", "Sage", "Omen", "Raze", "Neon"]

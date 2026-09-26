@@ -358,7 +358,7 @@ question = "Which killfeed entry roles in one match print one player's name?"
 owner = "adjudication.killfeed_names"
 role = ["assign"]
 status = "partial"
-produces = ["KILLFEED_NAME_CLUSTER_VERSION", "NCC_MIN", "TOPHAT", "WIDTH_TOL", "ncc", "followed_views", "role_crops", "name_clusters"]
+produces = ["KILLFEED_NAME_CLUSTER_VERSION", "NCC_MIN", "TOPHAT", "WIDTH_TOL", "ncc", "followed_views", "role_crops", "self_entry", "name_clusters"]
 not_for = """
 Naming the cluster's agent: a cluster is a set of entity ids, and
 `identity.name_cluster_claims` assigns each side's large clusters its agents.

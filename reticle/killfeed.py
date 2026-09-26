@@ -472,6 +472,9 @@ class KillfeedRead:
     entry_wxs: tuple[int, ...] = ()
     # Which team each entry's victim was on, parallel to `entry_ys`.
     entry_ally: tuple[object, ...] = ()
+    # Which team each entry's killer was on, read behind the weapon icon
+    # (`killer_is_ally`), parallel to `entry_ys`.
+    entry_killer_ally: tuple[object, ...] = ()
     # Plate-coloured bands carrying none of an entry's furniture -- no icon, no
     # glyphs, no ink -- which are therefore not entries. Several at once means
     # something is painting the ROI: a respawn or camera wipe crosses it in both
@@ -526,6 +529,15 @@ class KillfeedRead:
     @property
     def enemy_mask(self) -> int:
         return mask_of_ys([y for y, al in zip(self.entry_ys, self.entry_ally) if al is False])
+
+    @property
+    def same_side_mask(self) -> int:
+        """Slots whose killer and victim plates read one side: a revive, an
+        environmental self entry or a team kill [domain:killfeed/revive-entries].
+        A slot whose killer or victim plate went unread is not in it."""
+        killers = self.entry_killer_ally or (None,) * len(self.entry_ys)
+        return mask_of_ys([y for y, al, ka in zip(self.entry_ys, self.entry_ally, killers)
+                           if al is not None and ka is not None and al == ka])
 
     @property
     def entry_dividers(self) -> int:
@@ -1081,6 +1093,9 @@ class EntryView:
     # Which team the victim was on: True ally, False enemy, None undecidable.
     # Every entry is a death, so this is what gives both teams' alive counts.
     victim_ally: bool | None = None
+    # Which team the killer was on, from the plate behind the weapon icon
+    # (`killer_is_ally`); equal to `victim_ally` on a one-colour banner.
+    killer_ally: bool | None = None
     # "kill" | "death" | "other" | "occluded" | "unparsed" | "tie"
     verdict: str = "unparsed"
     # Which guard refused, when the verdict is "unparsed": one of
@@ -1134,18 +1149,37 @@ def victim_is_ally(green, red, a: int, z: int, wx1: int, wx0: int | None = None)
     runs = _plate_runs(green[a:z, wx1:], red[a:z, wx1:])
     if not runs:
         return None
-    if wx0 is not None:
-        g, r = int(green[a:z, wx0:wx1].sum()), int(red[a:z, wx0:wx1].sum())
-        if max(g, r) >= ICON_PLATE_RATIO * min(g, r) and max(g, r) > 0:
-            killer = 1 if g > r else -1
-            other = next((run for run in runs if run[0] != killer), None)
-            return bool((other[0] if other else killer) > 0)
+    killer_ally = killer_is_ally(green, red, a, z, wx0, wx1) if wx0 is not None else None
+    if killer_ally is not None:
+        killer = 1 if killer_ally else -1
+        other = next((run for run in runs if run[0] != killer), None)
+        return bool((other[0] if other else killer) > 0)
     return bool(runs[-1][0] > 0)
 
 
 #: How many times the other colour's pixels the killer's colour must hold
 #: behind the weapon icon to decide it.
 ICON_PLATE_RATIO = 2
+
+
+def killer_is_ally(green, red, a: int, z: int, wx0: int, wx1: int) -> bool | None:
+    """Which team the killer was on, from the plate behind the weapon icon.
+
+    The plate behind the icon is the killer's, bright and plain, and runs to
+    the chevron seam (`victim_is_ally`). Its colour decides when it holds at
+    least `ICON_PLATE_RATIO` times the other colour's pixels; otherwise None.
+    A revive banner is one colour, so there this equals the victim's side
+    [domain:killfeed/revive-entries]. Measured on the player's labels before
+    it was stored: 20 of 22 revives and 2 of 72 named weapons (both
+    Environmental) read killer and victim on one side
+    (`prototypes/revive_plate_witness.py`).
+    """
+    if wx1 <= wx0:
+        return None
+    g, r = int(green[a:z, wx0:wx1].sum()), int(red[a:z, wx0:wx1].sum())
+    if max(g, r) == 0 or max(g, r) < ICON_PLATE_RATIO * min(g, r):
+        return None
+    return g > r
 
 
 def _plate_runs(green_band: np.ndarray, red_band: np.ndarray) -> list[tuple[int, int, int]]:
@@ -1291,7 +1325,8 @@ def analyse_killfeed(
                                killer_run=krun, victim_run=vrun,
                                kill_score=k_score, death_score=d_score,
                                verdict=verdict,
-                               victim_ally=victim_is_ally(green, red, a, z, wx1, wx0)))
+                               victim_ally=victim_is_ally(green, red, a, z, wx1, wx0),
+                               killer_ally=killer_is_ally(green, red, a, z, wx0, wx1)))
     return views
 
 
@@ -2071,6 +2106,7 @@ def read_killfeed(
         death_ys=tuple(v.y0 for v in deaths),
         entry_wxs=tuple(_trusted_wx(v) for v in views),
         entry_ally=tuple(v.victim_ally for v in views),
+        entry_killer_ally=tuple(v.killer_ally for v in views),
         kill_wxs=tuple(_trusted_wx(v) for v in kills),
         death_wxs=tuple(_trusted_wx(v) for v in deaths),
         unattributed=sum(1 for v in views if v.verdict in ("occluded", "tie")),

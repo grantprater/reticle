@@ -129,6 +129,27 @@ def role_crops(roles: list[dict], name_rows: list[dict], session_id: str) -> dic
     return out
 
 
+def self_entry(views: list[tuple[float, int, int]], name_rows: list[dict],
+               session_id: str) -> tuple[bool | None, str | None]:
+    """Whether one entry's killer and victim print one name, or None with the
+    unread role's reason. `views` are the entry's `followed_views`.
+
+    A self entry (a Clove revive's expiry, a spike death, a self-kill) prints
+    one name on one colour end to end [domain:rounds/clove-revive-expiry-entry],
+    as a revive banner does [domain:killfeed/revive-entries], so the plates
+    alone cannot tell them apart. Across the darker killer plate and the
+    lighter victim plate the `ncc >= NCC_MIN` rule read one name on 14 of 14
+    Not Dead Yet entries and two on 8 of 8 Resurrection entries where both
+    crops read; the victim's crop read no text on 12 of 34 one-colour banners
+    (`revive-plate-self-entry` in the store's `notes/predictions.jsonl`)."""
+    crops = role_crops([{"entity_id": r, "role": r, "team": None, "views": views}
+                        for r in ("killer", "victim")], name_rows, session_id)
+    for r in ("killer", "victim"):
+        if crops[r]["gray"] is None:
+            return None, f"{r}:{crops[r]['reason']}"
+    return ncc(crops["killer"]["gray"], crops["victim"]["gray"]) >= NCC_MIN, None
+
+
 def name_clusters(crops: dict) -> dict:
     """Per plate side, the clusters of entity ids whose crops show one name,
     largest first (ties keep entry order), with the roles left out and why.

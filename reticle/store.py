@@ -353,6 +353,10 @@ class Store:
             # in kf_entry_mask but in neither could not be read.
             "kf_ally_mask": pa.array(col("kf_ally_mask"), type=pa.int16()),
             "kf_enemy_mask": pa.array(col("kf_enemy_mask"), type=pa.int16()),
+            # Slots whose killer plate reads the victim's side: a one-colour
+            # banner, which a revive draws [domain:killfeed/revive-entries].
+            "kf_same_side_mask": pa.array([r.get("kf_same_side_mask") for r in rows],
+                                           type=pa.int16()),
             "kf_entry_wx": pa.array(col("kf_entry_wx"), type=pa.int64()),
             "kf_kill_wx": pa.array(col("kf_kill_wx"), type=pa.int64()),
             "kf_death_wx": pa.array(col("kf_death_wx"), type=pa.int64()),

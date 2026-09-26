@@ -63,7 +63,12 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # 0.13.0 (2026-09-26): a final pass replaces each role's per-entry portrait
 # vote with its name cluster's claim where the cluster is named
 # (`killfeed_names`, `identity.name_cluster_claims`); fragments keep the vote.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.13.0"
+# 0.14.0 (2026-09-26): an entry whose icon names nothing is a revive when most
+# of its views read killer and victim plates on one side and the victim's side
+# fields a reviver (`plate_revive`); a named weapon vetoes the plates, and a
+# self entry, whose killer and victim print one name, is not a revive
+# (`killfeed_names.self_entry`).
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.14.0"
 
 #: Weapon-slot icons that mark a revive entry, which is not a death
 #: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
@@ -150,9 +155,7 @@ def attach_stored_killfeed_portraits(
     """
     out = []
     portraits = [r for r in observations if r.get("kind") == "portrait_observation"]
-    widths = {(float(o["t_ms"]), o["slot"]): o["wx1"] - o["wx0"]
-              for o in weapon_observations or []
-              if o.get("kind") == "weapon_icon_observation" and o.get("wx1") is not None}
+    widths = icon_widths(weapon_observations)
     for i, original in enumerate(entries):
         entry = dict(original)
         start = float(entry["t_ms"])
@@ -166,7 +169,11 @@ def attach_stored_killfeed_portraits(
             end = min(start + 2000.0,
                       float(entries[i + 1]["t_ms"]) if i + 1 < len(entries) else float("inf"))
         side = entry.get("side")
-        killer_side = {"ally": "enemy", "enemy": "ally"}.get(side)
+        # A one-colour banner's reviver sits on the victim's side (`plate_revive`).
+        # The portrait reader stores every killer view on the victim's opposite
+        # side, so those views refuse until it reads the killer's plate itself.
+        killer_side = (side if entry.get("revive_witness") == "plates"
+                       else {"ally": "enemy", "enemy": "ally"}.get(side))
         entry["claim"] = _portrait_channel(
             views, "victim", side, slot, start, end, lineup, gallery,
             entity_id=f"death:{int(start)}:victim", source_version=source_version,
@@ -392,8 +399,61 @@ def _second_life(i: int, entries: list[dict], second_life) -> bool:
 
 def revive_entry(entry: dict) -> bool:
     """Whether a killfeed entry is a revive rather than a death: its weapon,
-    named by `adjudication.weapon.entry_weapon`, is one of `REVIVE_ICONS`."""
-    return (entry.get("weapon_evidence") or {}).get("name") in REVIVE_ICONS
+    named by `adjudication.weapon.entry_weapon`, is one of `REVIVE_ICONS`, or
+    `plate_revive` found its banner one colour (`revive_witness`)."""
+    return ((entry.get("weapon_evidence") or {}).get("name") in REVIVE_ICONS
+            or entry.get("revive_witness") == "plates")
+
+
+def plate_revive(entry: dict, sides: dict,
+                 names: tuple[bool | None, str | None] = (None, "no_name_check"),
+                 ) -> tuple[str | None, str | None]:
+    """(witness, refusal): "plates" when an entry whose icon went unnamed is a
+    revive, else None with why the plates did not decide it.
+
+    A revive banner is one colour end to end [domain:killfeed/revive-entries],
+    so its killer and victim plates read one side (`session_entries`'
+    `same_side`, a majority of the entry's views). An environmental death or a
+    team kill is one colour too, so a named weapon vetoes the plates, and the
+    victim's side must field a reviver (`REVIVE_ICONS`). A self entry is one
+    colour too, so `names`, `killfeed_names.self_entry`'s answer
+    (`entry_names`), must read two names; an unread name refuses. Without that,
+    59c70f1ef720 1849.5 s, a Clove revive's expiry whose icon went unnamed, was
+    taken for a revive. Bdfdcf009dba 1310.0 s, a Sage revive whose
+    Resurrection icon went unnamed on all six views, was stored as a death
+    until this. The refusal is None where the plates never bore on the entry:
+    two sides, an unread mask, or a named icon."""
+    ev = entry.get("weapon_evidence")
+    if not entry.get("same_side") or ev is None or ev.get("name") is not None:
+        return None, None
+    fielded = {r.get("agent") for r in sides.get(entry.get("side"), [])}
+    if not fielded & set(REVIVE_ICONS.values()):
+        return None, "no_reviver_fielded"
+    one, why = names
+    if one is None:
+        return None, why or "names_unread"
+    return (None, "self_entry") if one else ("plates", None)
+
+
+def entry_names(entry: dict, portraits: list[dict], widths: dict,
+                name_observations: list[dict] | None,
+                session_id: str) -> tuple[bool | None, str | None]:
+    """`killfeed_names.self_entry` at the views `follow_entry_portraits` binds
+    the entry to, or None with a reason when no name stream is stored."""
+    from .killfeed_names import followed_views, self_entry
+    if name_observations is None:
+        return None, "no_killfeed_name_stream"
+    bound = follow_entry_portraits(entry, portraits, widths)
+    obs = [p for p in portraits
+           if p.get("role") == "killer" and (float(p["t_ms"]), p["slot"]) in bound]
+    return self_entry(followed_views(obs), name_observations, session_id)
+
+
+def icon_widths(weapon_observations: list[dict] | None) -> dict:
+    """{(t_ms, slot): the weapon icon box's width} from `killfeed_weapon` rows."""
+    return {(float(o["t_ms"]), o["slot"]): o["wx1"] - o["wx0"]
+            for o in weapon_observations or []
+            if o.get("kind") == "weapon_icon_observation" and o.get("wx1") is not None}
 
 
 BLUE_X_H = (95, 118)
@@ -460,7 +520,11 @@ def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[di
                                                                 col(f"kf_{kind}_wx"))
                                       if e["counted"]])
             for kind in ("kill", "death")}
-    tracks = [e for e in track_entries(t, hud["kf_entry_mask"], col("kf_entry_wx")) if e["counted"]]
+    # Stored from hud-0.15.0; an older table reads no entry's plates as one side.
+    same = hud.get("kf_same_side_mask")
+    tracks = [e for e in track_entries(t, hud["kf_entry_mask"], col("kf_entry_wx"),
+                                       flags={"same_side": same} if same else None)
+              if e["counted"]]
     # A player track belongs to the entry on screen when it was first seen
     # whose divider agrees, the latest such onset first (the attribution can
     # come a sample after the plate), then the one that appeared in its slot.
@@ -484,6 +548,8 @@ def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[di
         out.append({"t_ms": e["t_first"], "t_first": e["t_first"], "t_last": e["t_last"],
                     "slot": slot, "sig": e.get("sig"), "side": "ally" if ally else "enemy" if enemy else "unknown",
                     "victim_ally": ally, "kf_player_kill": pk, "kf_player_death": dt is not None,
+                    "same_side": (None if not same else
+                                  2 * e["flag_hits"].get("same_side", 0) > e["n_obs"]),
                     "is_second_life": bool(dt is not None and second_life is not None
                                            and second_life_death(dt["t_first"], dt["t_last"],
                                                                  second_life)),
@@ -1742,12 +1808,19 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
     agents = {r["agent"] for side in (lineup.get("sides") or {}).values()
               for r in side if r.get("agent")}
     if weapon_observations is not None:
+        kf_portraits = [r for r in portraits if r.get("kind") == "portrait_observation"]
+        widths = icon_widths(weapon_observations)
         for e in entries:
             ev = entry_weapon(e, weapon_observations, agents=agents or None)
             e["weapon_evidence"] = ev
             if ev["status"] == "resolved":
                 e["weapon"] = ev["name"]
                 e["death_cause"] = ev["category"]
+            names = (entry_names(e, kf_portraits, widths, name_observations, session_id)
+                     if e.get("same_side") else (None, None))
+            e["revive_witness"], e["plate_refusal"] = (
+                ("icon", None) if ev.get("name") in REVIVE_ICONS
+                else plate_revive(e, lineup.get("sides") or {}, names))
     audit_board = board_alive_auditor(hud_table, roster_table)
     ends = {r["t_end_ms"] for r in rounds}
     base = [(r, in_round_window(entries, r["t_start_ms"], r["t_end_ms"],

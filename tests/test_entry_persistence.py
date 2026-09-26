@@ -52,6 +52,18 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual([a["refused"] for a in tracks], ["no_persistence"])
         self.assertEqual([a["counted"] for a in tracks], [False])
 
+    def test_a_flag_is_counted_in_the_slot_the_entry_held_then(self):
+        # The entry rises from slot 1 to slot 0; the flag follows it there,
+        # and a flag on the slot it left is another entry's.
+        t = steps(0.0, 8, 500.0)
+        occupied = {ts: ((1,) if ts < 2000.0 else (0,)) for ts in t}
+        flag = feed(t, {ts: ((1,) if ts < 2000.0 else (0, 1)) for ts in t})
+        tracks = track_entries(t, feed(t, occupied), flags={"same_side": flag})
+        self.assertEqual(len(tracks), 1)
+        self.assertEqual((tracks[0]["flag_hits"], tracks[0]["n_obs"]), ({"same_side": 8}, 8))
+        tracks = track_entries(t, feed(t, occupied))
+        self.assertEqual(tracks[0]["flag_hits"], {})
+
     def test_a_five_second_entry_at_native_rate_is_counted(self):
         t = steps(0.0, 600, 1000 / 60)
         occupied = {ts: (0,) for ts in t if 2000.0 <= ts <= 7000.0}

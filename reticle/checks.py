@@ -190,7 +190,7 @@ def sample_step_ms(times, default: float = 500.0) -> float:
     return float(np.median(d)) if d.size else float(default)
 
 
-def track_entries(times, masks, dividers=None) -> list[dict]:
+def track_entries(times, masks, dividers=None, flags=None) -> list[dict]:
     """Follow each entry across frames; one dict per distinct entry.
 
     Returns every track, including the ones the bars refuse, with `counted`
@@ -205,6 +205,10 @@ def track_entries(times, masks, dividers=None) -> list[dict]:
     two entries occupying the same slot in turn from one entry that stayed put.
     Pass None and the walk falls back to slot and time alone, which is what
     every stored session before hud-0.8.0 has.
+
+    `flags`, a {name: column of slot masks} parallel to `times`, counts per
+    track how many of its observations carried each flag in the slot it held
+    then (`flag_hits`); `n_obs` is the denominator.
 
     **This is where a band that appears for three frames and never again is
     refused, and it is the right place for it.** `read_killfeed` sees one frame
@@ -222,7 +226,10 @@ def track_entries(times, masks, dividers=None) -> list[dict]:
     gap = min(KF_TRACK_GAP_MS, KF_TRACK_GAP_STEPS * step)
     if dividers is None:
         dividers = [None] * len(times)
-    for t, mask, packed in zip(times, masks, dividers):
+    flags = flags or {}
+    for i, (t, mask, packed) in enumerate(zip(times, masks, dividers)):
+        flagged = lambda slot: {k: int(bool((col[i] or 0) & (1 << slot)))
+                                for k, col in flags.items()}
         keep = []
         for a in active:
             (keep if t - a["t_last"] <= gap else done).append(a)
@@ -265,9 +272,12 @@ def track_entries(times, masks, dividers=None) -> list[dict]:
                     best, bi = d, ai
             if bi is None:
                 active.append({"t_first": t, "t_last": t, "slot": slot, "slot_first": slot,
-                               "n_obs": 1, "sig": sig})
+                               "n_obs": 1, "sig": sig, "flag_hits": flagged(slot)})
                 used.add(len(active) - 1)
             else:
+                hits = active[bi]["flag_hits"]
+                for k, v in flagged(slot).items():
+                    hits[k] = hits.get(k, 0) + v
                 active[bi].update(t_last=t, slot=slot, sig=sig or active[bi]["sig"],
                                   n_obs=active[bi]["n_obs"] + 1)
                 used.add(bi)

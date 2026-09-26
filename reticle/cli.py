@@ -2549,7 +2549,10 @@ def cmd_deaths(args) -> int:
                          "slot": e["slot"], "t_last_ms": e["t_last"],
                          "kf_player_kill": e["kf_player_kill"],
                          "kf_player_death": e["kf_player_death"],
-                         "weapon_evidence": e.get("weapon_evidence"), **v.to_dict()})
+                         "weapon_evidence": e.get("weapon_evidence"),
+                         "same_side": e.get("same_side"),
+                         "revive_witness": e.get("revive_witness"),
+                         "plate_refusal": e.get("plate_refusal"), **v.to_dict()})
             events.extend(death_verdict_to_events(v, sid))
     status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
                                        for r in rows)
@@ -2559,6 +2562,9 @@ def cmd_deaths(args) -> int:
             "weapons": dict(Counter((r.get("weapon_evidence") or {}).get("status", "none")
                                     for r in rows)),
             "revives": sum(bool(r.get("is_revive")) for r in rows),
+            "revive_witnesses": dict(Counter(r["revive_witness"] for r in rows
+                                             if r.get("is_revive") and r.get("revive_witness"))),
+            "plate_refusals": dict(Counter(r["plate_refusal"] for r in rows if r.get("plate_refusal"))),
             "name_clusters": res.get("name_clusters"),
             "inputs": {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
                        "killfeed_weapon": KILLFEED_WEAPON_VERSION if weapons is not None else None,

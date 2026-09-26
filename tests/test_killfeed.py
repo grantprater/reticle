@@ -180,3 +180,25 @@ class VictimSideTests(unittest.TestCase):
     def test_a_one_colour_entry_puts_the_victim_on_the_killers_side(self):
         green, red = self._band([("g", 100, 260)])
         self.assertIs(killfeed.victim_is_ally(green, red, 0, 34, 160, 100), True)
+
+    def test_the_killer_side_is_the_plate_behind_the_icon(self):
+        kill = self._band([("r", 100, 190), ("g", 190, 250)])
+        self.assertIs(killfeed.killer_is_ally(*kill, 0, 34, 100, 160), False)
+        revive = self._band([("g", 100, 260)])
+        self.assertIs(killfeed.killer_is_ally(*revive, 0, 34, 100, 160), True)
+        # Neither colour holds twice the other behind the icon: undecided.
+        mixed = self._band([("r", 100, 130), ("g", 130, 160)])
+        self.assertIsNone(killfeed.killer_is_ally(*mixed, 0, 34, 100, 160))
+        # The plate seam stands in for an icon on an ability kill: no width.
+        self.assertIsNone(killfeed.killer_is_ally(*kill, 0, 34, 150, 150))
+
+    def test_same_side_slots_need_both_plates_read_and_equal(self):
+        read = killfeed.KillfeedRead(
+            entries=3, slots=(0, 1, 2), player_kill=False, player_death=False,
+            entry_ys=(15, 55, 95), entry_ally=(True, True, None),
+            entry_killer_ally=(True, False, None))
+        self.assertEqual(read.same_side_mask, 0b001)
+        # A read stored before the killer's plate was kept marks no slot.
+        old = killfeed.KillfeedRead(entries=1, slots=(0,), player_kill=False,
+                                    player_death=False, entry_ys=(15,), entry_ally=(True,))
+        self.assertEqual(old.same_side_mask, 0)

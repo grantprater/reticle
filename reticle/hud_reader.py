@@ -88,6 +88,7 @@ class HudReader:
             "clock_reason": r.clock_reason,
             "score_left_reason": r.score_left_reason, "score_right_reason": r.score_right_reason,
             "kf_ally_mask": kf.ally_mask, "kf_enemy_mask": kf.enemy_mask,
+            "kf_same_side_mask": kf.same_side_mask,
             "kf_entry_wx": kf.entry_dividers, "kf_kill_wx": kf.kill_dividers,
             "kf_death_wx": kf.death_dividers, "confidence": r.confidence,
             "bottom_confidence": b.confidence, "n_glyphs": r.n_glyphs,
