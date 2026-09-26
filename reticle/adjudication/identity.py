@@ -394,27 +394,45 @@ def _portrait_scores(composition, candidates, gallery, exemplars=(), exclude_ent
     if shifts:
         scores = {}
         wanted = {str(c).lower(): c for c in candidates if c}
+        # Each shift's vector, each exemplar's agent and each exemplar's vector
+        # are the same for every agent and shift; read them once per call.
+        observed_shifts = []
+        for dx_key, comp in shifts.items():
+            try:
+                dx = float(dx_key)
+            except (ValueError, TypeError):
+                dx = 0.0
+            observed_shifts.append((dx, np.asarray(comp, dtype=np.float32).ravel()))
+        by_agent: dict = {}
+        for ex in exemplars:
+            ex_agent = wanted.get(str(ex.get("agent")).lower())
+            if ex_agent is None or ex.get("entry_t_ms") == exclude_entry:
+                continue
+            by_agent.setdefault(ex_agent, []).append(ex)
+        stacks: dict = {}
+
+        def _refs(agent, size):
+            # One matrix per agent and length; a row sum of it is bit for bit
+            # the sum of that row alone.
+            if (agent, size) not in stacks:
+                pairs = [(ex, np.asarray(ex["composition"], dtype=np.float32).ravel())
+                         for ex in by_agent.get(agent, ())]
+                pairs = [(ex, ref) for ex, ref in pairs if ref.size == size]
+                stacks[(agent, size)] = ([ex for ex, _ in pairs],
+                                         np.stack([ref for _, ref in pairs]) if pairs else None)
+            return stacks[(agent, size)]
+
         for agent in sorted({c for c in candidates if c}):
             best_val = -1.0
             best_src = None
-            for dx_key, comp in shifts.items():
-                try:
-                    dx = float(dx_key)
-                except (ValueError, TypeError):
-                    dx = 0.0
-                obs = np.asarray(comp, dtype=np.float32).ravel()
+            for dx, obs in observed_shifts:
                 if not obs.size:
                     continue
                 cand_official = _official_scores(obs, [agent], gallery).get(agent, -1.0)
                 cand_val = cand_official
-                for ex in exemplars:
-                    ex_agent = wanted.get(str(ex.get("agent")).lower())
-                    if ex_agent != agent or ex.get("entry_t_ms") == exclude_entry:
-                        continue
-                    ref = np.asarray(ex["composition"], dtype=np.float32).ravel()
-                    if ref.size != obs.size:
-                        continue
-                    ex_val = float(np.minimum(obs, ref).sum())
+                matched, mat = _refs(agent, obs.size)
+                values = np.minimum(obs, mat).sum(axis=1).tolist() if matched else ()
+                for ex, ex_val in zip(matched, values):
                     if ex_val > cand_val:
                         cand_val = ex_val
                         best_src = ex
