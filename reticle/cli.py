@@ -1062,11 +1062,14 @@ def cmd_scan(args) -> int:
                                                      ap.candidate_rows(sid), ap.frames)
         batch = store.read_candidate_batch("ally_icon", sid, candidate_revision)
         candidates = batch["rows"]
+        # The batch was just read and verified against its revision; the
+        # decision write and read validate against those rows.
         store.write_decisions("ally_icon", sid, candidate_revision,
                               MINIMAP_ICON_DECISION_VERSION,
-                              ally_decisions(candidates))
+                              ally_decisions(candidates), candidates=candidates)
         decisions = store.read_decisions("ally_icon", sid, candidate_revision,
-                                         MINIMAP_ICON_DECISION_VERSION)
+                                         MINIMAP_ICON_DECISION_VERSION,
+                                         candidates=candidates)
         kept = accepted(candidates, decisions)
         # Check the previous output contract before publishing the replay.
         ap.events(sid, kept, candidate_revision)

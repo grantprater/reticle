@@ -89,8 +89,11 @@ class Store:
 
     def write_decisions(self, producer: str, session_id: str,
                         candidate_revision: str, rule_version: str,
-                        rows: list[dict]) -> Path:
-        candidates = self.read_candidates(producer, session_id, candidate_revision)
+                        rows: list[dict], candidates: list[dict] | None = None) -> Path:
+        """`candidates` are the revision's rows as `read_candidate_batch`
+        returned them; a caller holding them spares a second parse."""
+        if candidates is None:
+            candidates = self.read_candidates(producer, session_id, candidate_revision)
         validate_decisions(candidates, rows, producer)
         if any(r["rule_version"] != rule_version for r in rows):
             raise ValueError("mixed decision rule versions")
@@ -110,7 +113,9 @@ class Store:
         return path
 
     def read_decisions(self, producer: str, session_id: str,
-                       candidate_revision: str, rule_version: str) -> list[dict]:
+                       candidate_revision: str, rule_version: str,
+                       candidates: list[dict] | None = None) -> list[dict]:
+        """`candidates` as in `write_decisions`."""
         path = self.decision_revision_path(producer, session_id,
                                            candidate_revision, rule_version)
         doc = json.loads(path.read_text(encoding="utf-8"))
@@ -118,8 +123,9 @@ class Store:
                 candidate_revision, rule_version):
             raise ValueError("decision dependency mismatch")
         rows = doc["rows"]
-        validate_decisions(self.read_candidates(producer, session_id,
-                                                 candidate_revision), rows, producer)
+        if candidates is None:
+            candidates = self.read_candidates(producer, session_id, candidate_revision)
+        validate_decisions(candidates, rows, producer)
         return rows
 
     # ---------- paths ----------
