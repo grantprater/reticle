@@ -1878,16 +1878,21 @@ def cmd_lifetimes(args) -> int:
                          f"run `reticle scan {sid} --only ally_icon --ally-hz 15`")
     source_revision = hashlib.sha256(
         store.events_path("ally_icon", sid).read_bytes()).hexdigest()
-    # A new observation revision invalidates this derived association.
+    # A new observation revision invalidates this derived association, and so
+    # does a new identity rule or reference table: segments carry their names.
+    from .adjudication.identity import AGENT_IDENTITY_VERSION, load_ally_portrait_references
+
+    refs_version = (load_ally_portrait_references(store.root) or {}).get("version")
     path = store.events_path("round_entity", sid)
     stamped = None
     if path.is_file():
         with open(path, encoding="utf-8") as f:
             first = json.loads(f.readline() or "{}")
         stamped = (first.get("round_entity_version"), first.get("round_lifetime_version"),
-                   first.get("ally_icon_revision"))
-    if stamped == (ROUND_ENTITY_VERSION, ROUND_LIFETIME_VERSION,
-                   source_revision) and not args.force:
+                   first.get("ally_icon_revision"), first.get("agent_identity_version"),
+                   first.get("ally_portrait_refs_version"))
+    if stamped == (ROUND_ENTITY_VERSION, ROUND_LIFETIME_VERSION, source_revision,
+                   AGENT_IDENTITY_VERSION, refs_version) and not args.force:
         print(f"cache hit  session {sid} already has round entities at "
               f"{ROUND_ENTITY_VERSION} / {ROUND_LIFETIME_VERSION}; --force to recompute")
         return 0
@@ -1910,6 +1915,9 @@ def cmd_lifetimes(args) -> int:
     rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]),
                              roster, source_revision, deaths=deaths,
                              lineup=lineup, gallery=gallery, references=references)
+    # Stamp the rules that named the segments, so a later change recomputes.
+    rows[0]["agent_identity_version"] = AGENT_IDENTITY_VERSION
+    rows[0]["ally_portrait_refs_version"] = refs_version
     out = store.write_events("round_entity", sid, rows)
     cov = rows[0]
     ents = [r for r in rows if r["kind"] == "entity"]
