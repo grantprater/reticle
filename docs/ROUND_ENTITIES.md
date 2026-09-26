@@ -49,7 +49,7 @@ gaps hold appearance consistency (median intersection 0.589 >= 0.50).
 Terminations (`round-entity-0.2.0`) distinguish `round_end`, verified `death`,
 and unobserved tracking loss.
 
-`session_lifetimes` (`round-entity-0.7.0`) names ally track PIECES, not icons:
+`session_lifetimes` (`round-entity-0.8.0`) names ally track PIECES, not icons:
 1. Per-icon claims (`identity.claims_from_ally_icons`): icons carrying
    `portrait_features` (`ally-icon-0.4.0`) are scored against references
    rendered from minimap portrait art (`reticle ally-portrait-refs`); older
@@ -67,11 +67,20 @@ and unobserved tracking loss.
    its max-marginal gap falls under the margin gate, when its best is a
    refused lineup slot, or when its icons fit no teammate
    (`teammate_fit_refusal`, threshold fitted on automatic death bindings;
-   it refuses gross misfits only). The assignment enters
+   it refuses gross misfits only). A dead teammate draws no icon, so
+   `round_entities.ally_dead_intervals` turns the stored ally death verdicts into
+   intervals (killfeed death + `DEAD_AFTER_MS` until a revive entry names the
+   teammate or an unexplained roster rise, less `REVIVE_SLACK_MS`; a
+   second-life death bars no one), and the owner bars the teammate from every
+   piece observed inside one (`dead=`; `identity_barred` on the row). A
+   refusal the bar caused starts its reason with `alive_constraint:`. The
+   assignment enters
    `AgentIdentityArbiter` as channel `ally_track`, which decides the name.
    Each piece records `identity_evidence` (evidence sum, source, gap, fit).
-4. Killfeed deaths BIND to a segment's end (its last piece) and never name
-   anything: the killfeed stays the independent check. A pairing whose piece
+4. Killfeed deaths BIND to a segment's end (its last piece). Since 0.8.0
+   they also constrain the names (step 3), so "late icons after a death" and
+   "segments end at deaths" are consistency checks, not independent ones; the
+   player's labels and the blind labels are the independent checks. A pairing whose piece
    names another agent is undone. The in-session exemplar pass is gone.
 5. Persistent teammate keys (`session_id:teammate:{agent}`) are assigned to
    named pieces across all rounds.
@@ -79,6 +88,7 @@ and unobserved tracking loss.
 Against the player's labels, killfeed deaths and duplicate names per frame,
 the wired pieces reproduce the prototype (`prototypes/ally_track_identity.py`);
 the run is `ally-track-identity-wired` in the store's `notes/predictions.jsonl`.
+The dead-interval bar is `ally-alive-constraint-wired` there.
 
 Before 0.7.0, on `a06f04a0059f` (15 Hz, 24 rounds), 244 of 281 ally entities resolved
 (86.8%) with zero disagreements (Deadlock 89, Miks 67, Breach 46, Reyna 42);

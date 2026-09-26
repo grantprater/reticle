@@ -7,8 +7,11 @@ HUD's round bounds, the roster's alive count, and stored death verdicts -- and
 writes `round_entity` events. Nothing here decodes video or reads pixels.
 Ally segments are split where the best teammate changes and stays changed, and
 `adjudication.identity` names the pieces per round (`assign_ally_pieces`, then
-the arbiter); killfeed deaths bind to segment ends and never name them, so
-they stay the independent check. Named pieces carry persistent teammate keys.
+the arbiter). Killfeed deaths bind to segment ends, and since 0.8.0 they also
+bar a dead teammate from the pieces observed while it is dead
+(`ally_dead_intervals`), so they are no longer an independent check of the names;
+the player's labels and blind labels are. Named pieces carry persistent
+teammate keys.
 
 Observation mapping, and why
 -----------------------------
@@ -32,13 +35,16 @@ from collections import Counter
 
 from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes
 
+# 0.8.0 (2026-09-26): `ally_dead_intervals` gives `identity.assign_ally_pieces`
+# each round's killfeed dead intervals, and the owner bars a dead teammate
+# from the pieces observed inside them.
 # 0.7.0 (2026-09-26): ally segments split where the best teammate changes and
 # stays changed; `identity.assign_ally_pieces` names the pieces per round.
 # Killfeed deaths bind to segment ends and no longer name anything; the
 # in-session exemplar pass is gone.
 # 0.6.0 (2026-09-26): an ally segment whose icons fit no teammate's rendered
 # art (`identity.teammate_fit_refusal`) is refused as not a teammate.
-ROUND_ENTITY_VERSION = "round-entity-0.7.0"
+ROUND_ENTITY_VERSION = "round-entity-0.8.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
@@ -46,6 +52,17 @@ SWITCH = 5.0
 #: Roster reads either side of a frame; the largest stands, because the count
 #: drops at a death while the dying teammate's icon may still show.
 ROSTER_LAG_MS = 500.0
+#: A teammate counts as dead from its killfeed death plus this lag: its icon
+#: may still draw for a moment after the entry. Starting the interval before
+#: the death instead unnamed victims' own last pieces and lost most right
+#: labels (`ally-alive-constraint` in the store's predictions).
+DEAD_AFTER_MS = 700.0
+#: A dead interval ends this long before the revive entry or roster rise that
+#: ends it, so the returning teammate's first icons stay admissible.
+REVIVE_SLACK_MS = 700.0
+#: A roster rise this close to a revive entry is that revive, and lifts no
+#: other teammate's interval.
+REVIVE_ROSTER_MS = 3000.0
 
 
 def _observation(icon: dict) -> dict:
@@ -265,6 +282,8 @@ def _piece_bodies(body, pieces, verdicts, ids, session_id):
                "identity_evidence": {k: v[k] for k in ("evidence_sum", "reference_source",
                                                        "gap", "fit", "exact")},
                "identity_votes": v["votes"]}
+        if v.get("barred"):
+            row["identity_barred"] = v["barred"]
         if v["reason"]:
             row["identity_reason"] = v["reason"]
         if j < len(ids) - 1:
@@ -289,6 +308,44 @@ def _viterbi(E, penalty: float) -> list[int]:
     for t in range(n - 1, 0, -1):
         path.append(int(back[t][path[-1]]))
     return path[::-1]
+
+
+def ally_dead_intervals(deaths: list[dict] | None, round_ends: dict, rt: list, ra: list) -> dict:
+    """`{round: {agent: [(start_ms, end_ms, why)]}}` from the stored ally
+    `death_verdict`s, for `identity.assign_ally_pieces(dead=...)`.
+
+    `adjudication.death` decides who died and flags a revive entry
+    (`is_revive`) and a death that removes no one (`is_second_life`)
+    [domain:rounds/resurrection-mechanics]; this only turns its verdicts into
+    intervals. A named victim is dead from its death + `DEAD_AFTER_MS` until
+    a later revive entry in the round names it, or the roster's alive_ally
+    count rises with no revive entry within `REVIVE_ROSTER_MS` (a revive the
+    killfeed did not name), less `REVIVE_SLACK_MS`; otherwise until the
+    round's end (`round_ends`). A Clove expiry entry is a death
+    [domain:rounds/clove-revive-expiry-entry] and opens a new interval.
+    """
+    rows = [d for d in deaths or () if d.get("kind") == "death_verdict"
+            and d.get("side") == "ally" and d.get("victim") and d.get("round_no") in round_ends]
+    revives = [(float(d["t_ms"]), d["victim"], d["round_no"]) for d in rows if d.get("is_revive")]
+    rises = [rt[i] for i in range(1, len(rt))
+             if ra[i] is not None and ra[i - 1] is not None and ra[i] > ra[i - 1]
+             and not any(abs(rt[i] - t) <= REVIVE_ROSTER_MS for t, _, _ in revives)]
+    out: dict = {}
+    for d in rows:
+        if d.get("is_revive") or d.get("is_second_life"):
+            continue
+        t, a, r = float(d["t_ms"]), d["victim"], d["round_no"]
+        start, end = t + DEAD_AFTER_MS, round_ends[r]
+        ends = [(tr, "revive entry") for tr, ar, rr in revives if ar == a and rr == r and tr > t]
+        ends += [(tr, "roster rise") for tr in rises if start < tr < end]
+        why = f"dead from killfeed death at {t:.0f} ms"
+        if ends:
+            te, how = min(ends)
+            end = te - REVIVE_SLACK_MS
+            why += f" until {how} at {te:.0f} ms"
+        if end > start:
+            out.setdefault(r, {}).setdefault(a, []).append((start, end, why))
+    return out
 
 
 def _roster_window(times: list[float], alive: list, t_ms: float) -> list:
@@ -352,8 +409,10 @@ def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, ref
                     frames.setdefault((rno, t), set()).add(pid)
     capacity = {f: ally_capacity(_roster_window(rt, ra, f[1]) if rt else None, f in self_seen)
                 for f in frames}
+    dead = ally_dead_intervals([d for rec in round_records for d in rec["deaths"]],
+                          {rec["round_no"]: rec["z"] for rec in round_records}, rt, ra)
     assigned = assign_ally_pieces(pieces, frames, capacity,
-                                  teammate_fit=(references or {}).get("teammate_fit"))
+                                  teammate_fit=(references or {}).get("teammate_fit"), dead=dead)
     # The assignment is the piece's witness; the arbiter decides its name.
     arb = AgentIdentityArbiter()
     arb.extend(identity_claim(

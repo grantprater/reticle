@@ -520,3 +520,23 @@ class AssignAllyPiecesTests(unittest.TestCase):
         out = self.assign(pieces, {(1, 0.0): {"a"}}, teammate_fit={"fit_max": 2.0})
         self.assertIsNone(out["a"]["agent"])
         self.assertTrue(out["a"]["reason"].startswith("not_a_teammate"))
+
+    def test_a_dead_teammate_is_barred_from_pieces_observed_while_dead(self):
+        pieces = {"a": {"round": 1, "t": [1000.0, 5000.0],
+                        "claims": _piece_claims(2, {"Breach": 2, "Miks": 1})},
+                  "b": {"round": 1, "t": [500.0],
+                        "claims": _piece_claims(1, {"Breach": 2, "Miks": -2})}}
+        dead = {1: {"Breach": [(3000.0, 9000.0, "dead from killfeed death at 2300 ms")]}}
+        out = self.assign(pieces, {(1, 1000.0): {"a"}, (1, 500.0): {"b"}}, dead=dead)
+        self.assertEqual(out["a"]["agent"], "Miks")
+        self.assertEqual(out["a"]["barred"], {"Breach": "dead from killfeed death at 2300 ms"})
+        self.assertEqual(out["a"]["evidence_sum"]["Breach"], 4.0)
+        self.assertEqual(out["b"]["agent"], "Breach")
+
+    def test_a_refusal_the_bar_caused_names_the_bar(self):
+        pieces = {"a": {"round": 1, "t": [5000.0],
+                        "claims": _piece_claims(2, {"Breach": 2, "Miks": -1})}}
+        dead = {1: {"Breach": [(3000.0, 9000.0, "dead")]}}
+        out = self.assign(pieces, {(1, 5000.0): {"a"}}, dead=dead)
+        self.assertIsNone(out["a"]["agent"])
+        self.assertTrue(out["a"]["reason"].startswith("alive_constraint: Breach dead"))

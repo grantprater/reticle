@@ -188,3 +188,25 @@ class SessionLifetimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeadIntervalTests(unittest.TestCase):
+    def _death(self, t, victim, **kw):
+        return {"kind": "death_verdict", "side": "ally", "round_no": 1, "t_ms": t,
+                "victim": victim, **kw}
+
+    def test_a_death_bars_until_the_revive_entry_that_names_the_victim(self):
+        from reticle.round_entities import ally_dead_intervals
+        deaths = [self._death(1000.0, "Sage"), self._death(9000.0, "Sage", is_revive=True),
+                  self._death(2000.0, "Jett"), self._death(3000.0, "Phoenix", is_second_life=True)]
+        out = ally_dead_intervals(deaths, {1: 20000.0}, [], [])
+        self.assertEqual([s[:2] for s in out[1]["Sage"]], [(1700.0, 8300.0)])
+        self.assertEqual([s[:2] for s in out[1]["Jett"]], [(2700.0, 20000.0)])
+        self.assertNotIn("Phoenix", out[1])
+
+    def test_an_unexplained_roster_rise_ends_the_interval(self):
+        from reticle.round_entities import ally_dead_intervals
+        out = ally_dead_intervals([self._death(1000.0, "Clove")], {1: 20000.0},
+                             [0.0, 1500.0, 6000.0], [5, 4, 5])
+        self.assertEqual(out[1]["Clove"][0][:2], (1700.0, 5300.0))
+        self.assertIn("roster rise", out[1]["Clove"][0][2])

@@ -63,7 +63,11 @@ from ..track import assign
 # 0.7.0 (2026-09-26): `name_cluster_claims` assigns each side's large killfeed
 # name clusters its agents one to one, from pooled portrait ratios and the
 # reference channels, leaving a role's own channels out of its own claim.
-AGENT_IDENTITY_VERSION = "agent-identity-0.7.0"
+# 0.8.0 (2026-09-26): `assign_ally_pieces` takes `dead`, the caller's
+# per-round dead intervals, and bars a teammate from every piece observed
+# inside one of its intervals: a dead teammate draws no minimap icon. A
+# refusal the bar caused says so in its reason.
+AGENT_IDENTITY_VERSION = "agent-identity-0.8.0"
 
 #: Borrowed from `lineup.MARGIN_MIN` and NOT refitted here. It keeps every
 #: correct player portrait on the one population with a truth --
@@ -1294,7 +1298,8 @@ def _solve_pieces(comp, dom, S, edges, tight, cap, floor=-np.inf):
     return best["score"], best["pick"], nodes[0] <= PIECE_MAX_NODES
 
 
-def assign_ally_pieces(pieces, frames, capacity=None, *, teammate_fit=None) -> dict:
+def assign_ally_pieces(pieces, frames, capacity=None, *, teammate_fit=None,
+                       dead=None) -> dict:
     """Name ally track pieces TOGETHER, per round, from their icons' claims.
 
     `pieces` maps a piece id to `{"round": n, "claims": [...]}`, the
@@ -1315,10 +1320,19 @@ def assign_ally_pieces(pieces, frames, capacity=None, *, teammate_fit=None) -> d
     a piece whose best is a refused lineup slot (a rival) is refused after
     it: the rival can take a piece away and never name one.
 
+    `dead` maps a round to `{agent: [(start_ms, end_ms, why), ...]}`, the
+    intervals in which the caller's stored facts show the teammate dead
+    (`round_entities.ally_dead_intervals`). A dead teammate draws no minimap icon,
+    so an agent is inadmissible for every piece observed strictly inside one
+    of its intervals: it leaves the piece's domain, its evidence stays in
+    `evidence_sum`, and the verdict's `barred` maps it to `why`. A refused
+    piece whose barred agent had positive summed evidence names the bar in
+    its reason (`alive_constraint: ...`). Because deaths now constrain the
+    names, killfeed deaths are no longer an independent check of them.
+
     Returns `{piece_id: verdict}`; every verdict carries `agent` (None when
     refused), `status`, `reason`, `evidence_sum`, `reference_source`,
-    `gap`, `fit`, `votes` and `exact`. Killfeed deaths are not an input:
-    they stay the independent check of these names.
+    `gap`, `fit`, `votes`, `barred` and `exact`.
     """
     S, dom, out, barred, gates = {}, {}, {}, set(), []
     for pid, p in pieces.items():
@@ -1338,7 +1352,12 @@ def assign_ally_pieces(pieces, frames, capacity=None, *, teammate_fit=None) -> d
         fit_reason, fit = teammate_fit_refusal(
             [(c.get("evidence") or {}).get("fit") for c in p["claims"]], teammate_fit)
         S[pid] = dict(total)
-        dom[pid] = [] if fit_reason else sorted(total)
+        bar = {}
+        for a, spans in ((dead or {}).get(p["round"]) or {}).items():
+            why = next((w for s, e, w in spans for t in p.get("t", ()) if s < t < e), None)
+            if why is not None:
+                bar[a] = why
+        dom[pid] = [] if fit_reason else sorted(set(total) - set(bar))
         out[pid] = {"agent": None, "status": "abstained",
                     "reason": fit_reason or (None if total else
                                              f"no scored icon: {reasons.most_common(1)[0][0]}"
@@ -1346,7 +1365,7 @@ def assign_ally_pieces(pieces, frames, capacity=None, *, teammate_fit=None) -> d
                     "evidence_sum": {a: round(v, 4) for a, v in sorted(total.items())},
                     "reference_source": sources.most_common(1)[0][0] if sources else None,
                     "gap": None, "fit": None if fit is None else round(fit, 4),
-                    "votes": dict(votes), "exact": True}
+                    "votes": dict(votes), "barred": bar, "exact": True}
     gate = max(gates) if gates else SIDE_MARGIN_MIN
     cap = {f: (len(ids) if (capacity or {}).get(f) is None else capacity[f])
            for f, ids in frames.items()}
@@ -1393,6 +1412,11 @@ def assign_ally_pieces(pieces, frames, capacity=None, *, teammate_fit=None) -> d
                 v["reason"] = f"track_best_is_refused_slot {a}"
             else:
                 v["agent"], v["status"] = a, "resolved"
+    for pid, v in out.items():
+        cause = sorted(a for a in v["barred"] if S[pid].get(a, 0.0) > 0)
+        if v["agent"] is None and cause and not v["reason"].startswith("not_a_teammate"):
+            v["reason"] = ("alive_constraint: " + "; ".join(
+                f"{a} {v['barred'][a]}" for a in cause) + f" | {v['reason']}")
     return out
 
 
