@@ -638,6 +638,32 @@ def _reach(red, cx, cy, r):
     """
     h, w = red.shape
     reach = np.zeros(N_FACE)
+    rr = np.arange(r + 1, r * 1.9, 0.7)
+    if not rr.size:
+        return reach
+    # All angles at once; `_reach_loop` is the reference. Products, sums and
+    # half-to-even rounding are exact per element, so this matches it bit for bit.
+    xs = np.rint(cx + _FACE_DX[:, None] * rr).astype(np.int64)
+    ys = np.rint(cy + _FACE_DY[:, None] * rr).astype(np.int64)
+    inside = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+    # The march stops at the first step off the image.
+    before = np.cumprod(inside, axis=1).astype(bool)
+    hit = np.zeros_like(before)
+    hit[before] = red[ys[before], xs[before]] != 0
+    any_hit = hit.any(axis=1)
+    last = rr.size - 1 - np.argmax(hit[:, ::-1], axis=1)
+    reach[any_hit] = rr[last[any_hit]] - r
+    return reach
+
+
+_FACE_DX = np.array([np.cos(th) for th in _FACE_TH])
+_FACE_DY = np.array([np.sin(th) for th in _FACE_TH])
+
+
+def _reach_loop(red, cx, cy, r):
+    """The reference `_reach`, one ray and one step at a time."""
+    h, w = red.shape
+    reach = np.zeros(N_FACE)
     for k, th in enumerate(_FACE_TH):
         dx, dy = np.cos(th), np.sin(th)
         for rr in np.arange(r + 1, r * 1.9, 0.7):
@@ -801,8 +827,10 @@ def _rings(mask: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]
 
 def self_mask(crop: np.ndarray) -> np.ndarray:
     """The local player's yellow key. One definition, two consumers."""
-    b, g, r = (crop[:, :, i].astype(np.int16) for i in range(3))
-    return ((g > SELF_G_MIN) & (r > SELF_R_MIN) & ((g - b) > SELF_B_UNDER_G))
+    b, g, r = cv2.split(crop)
+    # A saturating uint8 difference is the signed one wherever it exceeds zero.
+    return ((g > SELF_G_MIN) & (r > SELF_R_MIN)
+            & (cv2.subtract(g, b) > SELF_B_UNDER_G))
 
 
 def ally_mask(crop: np.ndarray) -> np.ndarray:
@@ -810,8 +838,7 @@ def ally_mask(crop: np.ndarray) -> np.ndarray:
     game does not colour teammates individually, so identity can never come
     from colour here and has to come from tracking. See `track.assign`.
     """
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    hh, ss, vv = (hsv[:, :, i].astype(np.int16) for i in range(3))
+    hh, ss, vv = cv2.split(cv2.cvtColor(crop, cv2.COLOR_BGR2HSV))
     return ((hh > ALLY_H[0]) & (hh < ALLY_H[1])
             & (ss > ALLY_S_MIN) & (vv > ALLY_V_MIN))
 
@@ -965,10 +992,6 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
                           int(surf_r[a - a2 + yy, c - c2 + xx])))
         if f is None:
             continue
-        if gates and (f["cov"] < cov_min or f["inner_red"] > inner_max):
-            continue
-        if gates and require_facing and f["facing"] is None:
-            continue
         found.append({"cx": float(f["cx"]), "cy": float(f["cy"]), "r": int(f["r"]),
                       "cov": float(f["cov"]), "inner": float(f["inner_red"]),
                       # `inner_v` is the interior's GREY, where `inner` is the
@@ -997,8 +1020,25 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     # self ring that is not always the fragment nearest the true centre. A
     # caller asking for PROPOSALS to score is not asking how many icons there
     # are, so it must be able to decline the answer this rule gives.
+    if not gates:
+        return sorted(found, key=lambda d: -d["cov"])
+    return _gated(found, sc, cov_min=cov_min, inner_max=inner_max,
+                  require_facing=require_facing, separation_px=separation_px)
+
+
+def _gated(found: list[dict], sc: float, *, cov_min: float = ALLY_COV_MIN,
+           inner_max: float = ALLY_INNER_MAX, require_facing: bool = True,
+           separation_px: float | None = None) -> list[dict]:
+    """`icons` with `gates`, from the fits `icons` returns without them.
+
+    Every fit is made before any gate reads it, so a caller wanting both the
+    raw and the gated list fits once. Returns copies, in `icons` order.
+    """
+    found = [dict(f) for f in found
+             if not (f["cov"] < cov_min or f["inner"] > inner_max)
+             and not (require_facing and f["facing"] is None)]
     sep = MIN_ICON_SEPARATION_PX * sc if separation_px is None else float(separation_px)
-    if sep <= 0 or not gates:
+    if sep <= 0:
         return sorted(found, key=lambda d: -d["cov"])
     out: list[dict] = []
     for f in sorted(found, key=lambda d: -d["cov"]):
@@ -1027,12 +1067,17 @@ def ally_icons(crop: np.ndarray, floor: np.ndarray, *, static: np.ndarray | None
     keyed = ally_mask(crop) | self_mask(crop)
     grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
     ref = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    _mark_barriers(found, keyed, grey, ref)
+    return found if keep_barriers else [f for f in found if not f["barrier"]]
+
+
+def _mark_barriers(found: list[dict], keyed, grey, ref) -> None:
+    """Adds `map_diff` and `barrier` to each fit in place; see `ally_icons`."""
     for f in found:
         win, keep = _interior(f, keyed, found)
         f["map_diff"] = (float(np.abs(grey[win][keep] - ref[win][keep]).mean())
                          if keep.any() else None)
         f["barrier"] = f["map_diff"] is not None and f["map_diff"] < ALLY_MAP_DIFF_MIN
-    return found if keep_barriers else [f for f in found if not f["barrier"]]
 
 
 def _interior(f: dict, keyed: np.ndarray, others=(), occluders=()):
@@ -1135,6 +1180,7 @@ class AllyIconReader:
         self.name, self.hz, self.spans = name, hz, spans
         self.floor, self.slab, self.static, self.box = floor, slab, static, box
         self.sgray = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float64)
+        self.ref = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float32)
         self.frames: list[dict] = []
         self.icons: list[dict] = []
         self.candidates: list[dict] = []
@@ -1149,11 +1195,23 @@ class AllyIconReader:
             return
         # The player's icon draws over teammates with its own portrait inside.
         # Best by coverage, as `self_icons` says a single answer should be.
-        mine = self_icons(crop, self.floor, require_facing=False, support=self.slab)
+        # Each channel is fitted once; its gated list is filtered from the
+        # raw one, which is what `icons` with `gates` returns.
+        sc = widget_scale(crop.shape[1])
+        amask, smask = ally_mask(crop), self_mask(crop)
+        keyed = amask | smask
+        raw_self = icons(smask, crop, self.floor, support=self.slab, gates=False)
+        mine = _gated(raw_self, sc, require_facing=False)
         me = mine[0] if mine else None
         occ = [(me["cx"], me["cy"], me["r"])] if me else []
-        got = ally_icon_descriptors(crop, self.floor, self.slab, self.static, occ)
-        raw_self = self_icons(crop, self.floor, support=self.slab, gates=False)
+        raw = icons(amask, crop, self.floor, support=self.slab,
+                    seed="surface", gates=False)
+        found = _gated(raw, sc)
+        grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        ref = self.ref
+        _mark_barriers(found, keyed, grey, ref)
+        got = ally_icon_descriptors(crop, self.floor, self.slab, self.static, occ,
+                                    found=found)
         self_key = next((f"{frame['frame_idx']}:self:{i}" for i, f in enumerate(raw_self)
                          if me is not None and (f["cx"], f["cy"], f["r"]) ==
                          (me["cx"], me["cy"], me["r"])), None)
@@ -1171,12 +1229,7 @@ class AllyIconReader:
                                     "self_occluder": None,
                                     "self_occluder_candidate_key": None,
                                     "neighbor_candidate_keys": []})
-        raw = icons(ally_mask(crop), crop, self.floor, support=self.slab,
-                    seed="surface", gates=False)
         from . import appearance
-        keyed = ally_mask(crop) | self_mask(crop)
-        grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
-        ref = cv2.cvtColor(self.static, cv2.COLOR_BGR2GRAY).astype(np.float32)
         # Two blobs can yield an identical fit. Each descriptor claims one raw
         # fit, the first in coverage order, which is the copy both the gated
         # path and adjudication keep; the other copy stays unselected.
