@@ -1,6 +1,7 @@
 r"""Ask the player what the ally minimap pieces the arbiter cannot name show.
 
     .\.venv\Scripts\python.exe prototypes\label_unnamed_pieces.py label
+    .\.venv\Scripts\python.exe prototypes\label_unnamed_pieces.py label --redo bare_map
     .\.venv\Scripts\python.exe prototypes\label_unnamed_pieces.py score
 
 Why. About 2900 of 7900 stored ally round-entity pieces carry no name, only
@@ -24,7 +25,10 @@ refusal reason and whether the item is a control are never shown.
 Classes (the player's, 2026-09-26): 1-4 the four teammates in alphabetical
 order, 5 another agent's portrait, 6 bare map (nothing drawn), 7 spike,
 8 ability object or device, 9 X death mark, 0 other, U unsure (kept out of
-scoring). A back, Q or Esc save and quit.
+scoring). A back, Q or Esc save and quit. B between icons: the ring sits on
+bare map among other icons, where the fit snapped to a gap (the player,
+2026-09-26, after answering some of those bare map). `--redo bare_map` shows
+the items whose last answer is bare map again; the new answer wins.
 
 Labels go to `<store>/labels/unnamed_piece/<session>.jsonl`, one row per
 answer, the last row for a key winning; the tool resumes where it stopped.
@@ -53,6 +57,8 @@ KIND = "unnamed_piece"
 #: Keys 5-9 and 0, after the four teammates on 1-4.
 CLASSES = {5: "other_agent", 6: "bare_map", 7: "spike", 8: "ability_object",
            9: "x_mark", 0: "other"}
+#: Letter-keyed classes, added after the pass began.
+LETTER_CLASSES = {"b": "between_icons"}
 
 
 def _label_dir() -> Path:
@@ -76,13 +82,20 @@ def _tile(big: np.ndarray, mates: list[str]) -> np.ndarray:
     return np.vstack([big, C._ref_row(mates, big.shape[1])])
 
 
-def label() -> int:
+def label(redo: set[str] | None = None) -> int:
+    """Ask about each unanswered item, or with `redo` each item whose last
+    answer is one of those classes."""
     import tkinter as tk
 
     items = G.pick_pieces()
     done = _labels()
-    order = [i for i, p in enumerate(items) if p["piece"] not in done]
-    print(f"{len(items)} items, {len(items) - len(order)} already answered", flush=True)
+    if redo:
+        order = [i for i, p in enumerate(items)
+                 if (done.get(p["piece"]) or {}).get("class") in redo]
+        print(f"{len(order)} items to answer again (last answer {sorted(redo)})", flush=True)
+    else:
+        order = [i for i, p in enumerate(items) if p["piece"] not in done]
+        print(f"{len(items)} items, {len(items) - len(order)} already answered", flush=True)
     if not order:
         return 0
     # Cut every crop before the window opens, one session at a time: opening a
@@ -119,7 +132,8 @@ def label() -> int:
             f"{state['k'] + 1}/{len(order)}   {names[p['sid']]}   {int(s // 60)}:{s % 60:04.1f}\n"
             + "   ".join(f"{j + 1} {a}" for j, a in enumerate(p["mates"]))
             + "\n5 other agent   6 bare map   7 spike   8 ability object   9 X mark   0 other"
-            + "\nU unsure   A back   Q quit"))
+            + "\nB between icons (ring on bare map among icons)   U unsure   A back   Q quit"
+            + (f"\nlast answer: {done[p['piece']]['class']}" if redo else "")))
 
     def write(answer, cls):
         p = items[order[state["k"]]]
@@ -144,6 +158,8 @@ def label() -> int:
 
     for i in range(10):
         root.bind(str(i), lambda e, i=i: digit(i))
+    for k, cls in LETTER_CLASSES.items():
+        root.bind(k, lambda e, cls=cls: write(None, cls))
     root.bind("u", lambda e: write(None, "unsure"))
     root.bind("a", lambda e: (state.update(k=max(0, state["k"] - 1)), show()))
     root.bind("q", lambda e: root.destroy())
@@ -179,5 +195,7 @@ def score() -> dict:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["label", "score"])
+    ap.add_argument("--redo", nargs="+",
+                    help="answer again the items whose last answer is one of these classes")
     a = ap.parse_args()
-    raise SystemExit(label() if a.cmd == "label" else (score() and 0))
+    raise SystemExit(label(set(a.redo or ())) if a.cmd == "label" else (score() and 0))
