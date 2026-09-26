@@ -45,6 +45,9 @@ from ..roster import N_SLOTS
 from ..track import assign
 
 
+# 0.6.0 (2026-09-26): `assign_ally_pieces` names ally track pieces per round
+# from their icons' summed evidence under co-observation and roster capacity,
+# refusing weak, rival-slot and not-a-teammate pieces with the reason.
 # 0.5.0 (2026-09-26): each rendered-art ally claim records its absolute
 # `fit` to the closest teammate reference (`rendered_art_fit`), and
 # `teammate_fit_refusal` refuses a piece whose icons fit no teammate at the
@@ -56,7 +59,7 @@ from ..track import assign
 # 0.3.0 (2026-09-25): a killfeed portrait names on a posterior over the side's
 # admitted candidates from per-source likelihood ratios (`portrait_llr`), not
 # on the raw-score margin, so official art and exemplars share one scale.
-AGENT_IDENTITY_VERSION = "agent-identity-0.5.0"
+AGENT_IDENTITY_VERSION = "agent-identity-0.6.0"
 
 #: Borrowed from `lineup.MARGIN_MIN` and NOT refitted here. It keeps every
 #: correct player portrait on the one population with a truth --
@@ -1087,6 +1090,150 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
                  "reference_version": (references.get("version")
                                        if source == "rendered_art" else None),
                  "icons_in_frame": len(described)}))
+    return out
+
+
+#: Search nodes per component solve before `assign_ally_pieces` keeps its best
+#: and marks the component inexact.
+PIECE_MAX_NODES = 400_000
+
+
+def _solve_pieces(comp, dom, S, edges, tight, cap, floor=-np.inf):
+    """Exact maximum of summed scores over named pieces (unnamed scores 0):
+    co-observed pieces take distinct agents, and a frame's named pieces stay
+    within its capacity. Returns (score, pick, exact); pick is None when
+    nothing beats `floor`."""
+    order = sorted(comp, key=lambda p: -max([S[p][a] for a in dom[p]] + [0.0]))
+    ub = [max([S[p][a] for a in dom[p]] + [0.0]) for p in order]
+    rest = np.concatenate([np.cumsum(ub[::-1])[::-1], [0.0]])
+    best = {"score": floor, "pick": None}
+    pick, count, nodes = {}, Counter(), [0]
+
+    def visit(i, score):
+        nodes[0] += 1
+        if score + rest[i] <= best["score"] + 1e-9 or nodes[0] > PIECE_MAX_NODES:
+            return
+        if i == len(order):
+            best["score"], best["pick"] = score, dict(pick)
+            return
+        p = order[i]
+        taken = {pick[q] for q in edges[p] if pick.get(q) is not None}
+        for a in sorted(dom[p], key=lambda a: -S[p][a]):
+            if S[p][a] <= 0 or a in taken or any(count[f] + 1 > cap[f] for f in tight[p]):
+                continue
+            pick[p] = a
+            for f in tight[p]:
+                count[f] += 1
+            visit(i + 1, score + S[p][a])
+            for f in tight[p]:
+                count[f] -= 1
+        pick[p] = None
+        visit(i + 1, score)
+        del pick[p]
+
+    visit(0, 0.0)
+    return best["score"], best["pick"], nodes[0] <= PIECE_MAX_NODES
+
+
+def assign_ally_pieces(pieces, frames, capacity=None, *, teammate_fit=None) -> dict:
+    """Name ally track pieces TOGETHER, per round, from their icons' claims.
+
+    `pieces` maps a piece id to `{"round": n, "claims": [...]}`, the
+    `claims_from_ally_icons` claims of the piece's icons; `frames` maps a
+    frame key to the set of piece ids observed in it; `capacity` maps a frame
+    key to the named pieces the roster licenses there (None: uncapped),
+    which the caller asks of `round_lifetimes.ally_capacity`.
+
+    A piece's evidence is the SUM of its icons' rendered-art log ratios over
+    the side's names (`evidence.scores`). Pieces co-observed in any frame are
+    different teammates [domain:rounds/agent-uniqueness] and take distinct
+    agents; a frame names at most its capacity. Per connected component of
+    co-observation an exact branch and bound maximises the summed evidence
+    of named pieces (an unnamed piece scores 0). A named piece is refused
+    when the best solution naming it otherwise comes within the claims'
+    `margin_min` of the optimum (its max-marginal gap). Before the search,
+    `teammate_fit_refusal` refuses a piece whose icons fit no teammate, and
+    a piece whose best is a refused lineup slot (a rival) is refused after
+    it: the rival can take a piece away and never name one.
+
+    Returns `{piece_id: verdict}`; every verdict carries `agent` (None when
+    refused), `status`, `reason`, `evidence_sum`, `reference_source`,
+    `gap`, `fit`, `votes` and `exact`. Killfeed deaths are not an input:
+    they stay the independent check of these names.
+    """
+    S, dom, out, barred, gates = {}, {}, {}, set(), []
+    for pid, p in pieces.items():
+        total, sources, votes, reasons = Counter(), Counter(), Counter(), Counter()
+        for c in p["claims"]:
+            ev = c.get("evidence") or {}
+            if c.get("agent"):
+                votes[c["agent"]] += 1
+            if ev.get("scores"):
+                total.update(ev["scores"])
+                sources[ev.get("reference_source")] += 1
+                barred |= set(ev.get("rivals") or ())
+                if ev.get("margin_min") is not None:
+                    gates.append(float(ev["margin_min"]))
+            else:
+                reasons[c.get("reason")] += 1
+        fit_reason, fit = teammate_fit_refusal(
+            [(c.get("evidence") or {}).get("fit") for c in p["claims"]], teammate_fit)
+        S[pid] = dict(total)
+        dom[pid] = [] if fit_reason else sorted(total)
+        out[pid] = {"agent": None, "status": "abstained",
+                    "reason": fit_reason or (None if total else
+                                             f"no scored icon: {reasons.most_common(1)[0][0]}"
+                                             if reasons else "no icons"),
+                    "evidence_sum": {a: round(v, 4) for a, v in sorted(total.items())},
+                    "reference_source": sources.most_common(1)[0][0] if sources else None,
+                    "gap": None, "fit": None if fit is None else round(fit, 4),
+                    "votes": dict(votes), "exact": True}
+    gate = max(gates) if gates else SIDE_MARGIN_MIN
+    cap = {f: (len(ids) if (capacity or {}).get(f) is None else capacity[f])
+           for f, ids in frames.items()}
+    edges, tight = defaultdict(set), defaultdict(list)
+    for f, ids in frames.items():
+        ids = set(ids) & set(pieces)
+        for a in ids:
+            edges[a] |= ids - {a}
+            if len(ids) > cap[f]:
+                tight[a].append(f)
+    seen = set()
+    for s in sorted(pieces):
+        if s in seen:
+            continue
+        comp, stack = [], [s]
+        seen.add(s)
+        while stack:
+            u = stack.pop()
+            comp.append(u)
+            for v in edges[u]:
+                if v not in seen:
+                    seen.add(v)
+                    stack.append(v)
+        comp.sort()
+        opt, pick, exact = _solve_pieces(comp, dom, S, edges, tight, cap)
+        for p in comp:
+            v = out[p]
+            v["exact"] = exact
+            a = (pick or {}).get(p)
+            if v["reason"]:
+                continue
+            if a is None:
+                v["reason"] = ("no admissible teammate with positive evidence"
+                               if not any(S[p][x] > 0 for x in dom[p])
+                               else "constraints leave no teammate")
+                continue
+            alt = {**dom, p: [x for x in dom[p] if x != a]}
+            sc, apick, _ = _solve_pieces(comp, alt, S, edges, tight, cap, floor=opt - gate)
+            if apick is not None:
+                v["gap"] = round(opt - sc, 4)
+                v["reason"] = (f"track margin {opt - sc:.3f} < {gate:.3f}; "
+                               f"best {a}, runner-up {apick.get(p)}")
+            elif a in barred:
+                v["reason"] = f"track_best_is_refused_slot {a}"
+            else:
+                v["agent"], v["status"] = a, "resolved"
     return out
 
 

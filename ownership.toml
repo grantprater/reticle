@@ -739,7 +739,7 @@ question = "Which NAMED AGENT is this icon, track, row, death or ability, and wh
 owner = "adjudication.identity"
 role = ["assign", "adjudicate"]
 status = "partial"
-produces = ["AGENT_IDENTITY_VERSION", "rendered_art_scores", "rendered_art_fit", "load_teammate_fit", "teammate_fit_refusal", "TEAMMATE_FIT_FILE", "load_ally_portrait_references", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "MINIMAP_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "claim_from_minimap_icon", "claims_from_minimap_icons", "claims_from_ally_icons", "adjudicate_agent_identity", "AgentIdentityArbiter", "identity_events", "assign_side", "SIDE_MARGIN_MIN"]
+produces = ["AGENT_IDENTITY_VERSION", "assign_ally_pieces", "PIECE_MAX_NODES", "rendered_art_scores", "rendered_art_fit", "load_teammate_fit", "teammate_fit_refusal", "TEAMMATE_FIT_FILE", "load_ally_portrait_references", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "MINIMAP_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "claim_from_minimap_icon", "claims_from_minimap_icons", "claims_from_ally_icons", "adjudicate_agent_identity", "AgentIdentityArbiter", "identity_events", "assign_side", "SIDE_MARGIN_MIN"]
 names_agents = true
 not_for = """
 Reading pixels, inventing an entity key, or deciding roster-slot continuity. Readers

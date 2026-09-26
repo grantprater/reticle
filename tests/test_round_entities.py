@@ -102,7 +102,7 @@ class SessionLifetimeTests(unittest.TestCase):
         self.assertEqual(ents["barrier"]["identity_status"], "abstained")
         self.assertEqual(ents["barrier"]["identity_reason"], "barrier")
 
-    def test_death_witness_names_abstained_track_with_depends_on(self):
+    def test_a_death_binds_to_a_track_end_and_never_names_it(self):
         import numpy as np
 
         gallery = {name: [np.eye(4, dtype=np.float32)[i]]
@@ -130,9 +130,10 @@ class SessionLifetimeTests(unittest.TestCase):
         ents = {r["family"]: r for r in rows if r["kind"] == "entity"}
 
         self.assertIn("ally", ents)
-        self.assertEqual(ents["ally"]["agent"], "Reyna")
-        self.assertEqual(ents["ally"]["teammate_key"], "s:teammate:Reyna")
-        self.assertEqual(ents["ally"]["identity_status"], "resolved")
+        # The killfeed stays the independent check of portrait names.
+        self.assertIsNone(ents["ally"]["agent"])
+        self.assertIsNone(ents["ally"]["teammate_key"])
+        self.assertEqual(ents["ally"]["identity_status"], "abstained")
         self.assertEqual(ents["ally"]["death_id"], "death:s:70:0")
         self.assertEqual(ents["ally"]["end_reason"], "death")
 
@@ -158,7 +159,32 @@ class SessionLifetimeTests(unittest.TestCase):
         (ally,) = [r for r in rows if r["kind"] == "entity" and r["family"] == "ally"]
         self.assertIsNone(ally["agent"])
         self.assertTrue(ally["identity_reason"].startswith("not_a_teammate"))
-        self.assertEqual(ally["teammate_fit"], 36.0)
+        self.assertEqual(ally["identity_evidence"]["fit"], 36.0)
+
+    def test_a_segment_whose_best_teammate_changes_is_split_and_named_by_piece(self):
+        from reticle.version import ALLY_PORTRAIT_FEATURES_VERSION
+        names = ["Breach", "Deadlock", "Miks", "Reyna"]
+        refs = {"version": "t", "features_version": ALLY_PORTRAIT_FEATURES_VERSION,
+                "margin_min": 0.5, "variance": {"g": [1.0]},
+                "agents": {n: {"g": [float(i)]} for i, n in enumerate(names)}}
+        lineup = {"sides": {"ally": [{"slot": i, "agent": a, "best_guess": a} for i, a in
+                                     enumerate(["Phoenix"] + names)]},
+                  "player": {"agent": "Phoenix"}}
+        events = []
+        for k in range(12):
+            icon = _icon(k, 67.0 * k, 50.0 + k * 0.5)
+            icon.update(portrait_features={"g": [0.0 if k < 6 else 3.0]},
+                        portrait_features_version=ALLY_PORTRAIT_FEATURES_VERSION)
+            events += [_frame(k, 67.0 * k), icon]
+        rows = session_lifetimes("s", events, ROUNDS[:1], 1.0, lineup=lineup,
+                                 gallery={n: [] for n in names}, references=refs)
+        allies = sorted((r for r in rows if r["kind"] == "entity" and r["family"] == "ally"),
+                        key=lambda r: r["piece_index"])
+        self.assertEqual([r["agent"] for r in allies], ["Breach", "Reyna"])
+        self.assertEqual(allies[0]["segment_id"], allies[1]["segment_id"])
+        self.assertEqual(allies[0]["end_reason"], "split: best teammate changed")
+        obs = [r for r in rows if r["kind"] == "observation" and r["family"] == "ally"]
+        self.assertEqual({o["entity_id"] for o in obs}, {r["id"] for r in allies})
 
 if __name__ == "__main__":
     unittest.main()

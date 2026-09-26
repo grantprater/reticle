@@ -49,27 +49,38 @@ gaps hold appearance consistency (median intersection 0.589 >= 0.50).
 Terminations (`round-entity-0.2.0`) distinguish `round_end`, verified `death`,
 and unobserved tracking loss.
 
-`session_lifetimes` (`round-entity-0.5.0`) applies a 3-pass identity architecture:
-1. Base candidate claims via `AgentIdentityArbiter`: icons carrying
+`session_lifetimes` (`round-entity-0.7.0`) names ally track PIECES, not icons:
+1. Per-icon claims (`identity.claims_from_ally_icons`): icons carrying
    `portrait_features` (`ally-icon-0.4.0`) are scored against references
    rendered from minimap portrait art (`reticle ally-portrait-refs`); older
    events fall back to the official-art composition. Each claim records its
-   `reference_source`.
-2. In-session minimap exemplars harvested from tracks with >= 80 observations
-   augment the composition gallery to re-evaluate ambiguous tracks; a frame
-   the rendered-art source scores does not use that gallery.
-3. Identity-gated death witness linkage pairs ceasing abstained tracks with
-   stored death verdicts (`depends_on=[death_id]`), strictly excluding local
-   player deaths and conflicting victims.
-4. Not a teammate (`round-entity-0.6.0`): a segment whose icons' median
-   absolute fit to the closest teammate reference exceeds `fit_max`
-   (`identity.teammate_fit_refusal`; `teammate_fit.json`, fitted on automatic
-   death bindings) is refused and records `teammate_fit`. The threshold
-   refuses gross misfits only; it separates no labelled ability icon.
+   `reference_source` and its absolute `fit` to the closest teammate.
+2. Split: a Viterbi over the four teammates cuts each ally segment where the
+   best teammate changes and stays changed (switch cost `SWITCH` times the
+   margin gate). Each run is a piece (`<segment>/P<j>`, carrying
+   `segment_id`); observation rows point at their piece.
+3. Assign (`identity.assign_ally_pieces`): per round, pieces co-observed in a
+   frame take distinct agents, and a frame names at most the roster capacity
+   (`round_lifetimes.ally_capacity` over the reads within `ROSTER_LAG_MS`,
+   only where the player's own icon is seen). An exact branch and bound
+   maximises the summed evidence; a piece is refused, with its reason, when
+   its max-marginal gap falls under the margin gate, when its best is a
+   refused lineup slot, or when its icons fit no teammate
+   (`teammate_fit_refusal`, threshold fitted on automatic death bindings;
+   it refuses gross misfits only). The assignment enters
+   `AgentIdentityArbiter` as channel `ally_track`, which decides the name.
+   Each piece records `identity_evidence` (evidence sum, source, gap, fit).
+4. Killfeed deaths BIND to a segment's end (its last piece) and never name
+   anything: the killfeed stays the independent check. A pairing whose piece
+   names another agent is undone. The in-session exemplar pass is gone.
 5. Persistent teammate keys (`session_id:teammate:{agent}`) are assigned to
-   resolved ally tracks across all rounds.
+   named pieces across all rounds.
 
-On `a06f04a0059f` (15 Hz, 24 rounds), 244 of 281 ally entities resolved
+Against the player's labels, killfeed deaths and duplicate names per frame,
+the wired pieces reproduce the prototype (`prototypes/ally_track_identity.py`);
+the run is `ally-track-identity-wired` in the store's `notes/predictions.jsonl`.
+
+Before 0.7.0, on `a06f04a0059f` (15 Hz, 24 rounds), 244 of 281 ally entities resolved
 (86.8%) with zero disagreements (Deadlock 89, Miks 67, Breach 46, Reyna 42);
 Round 1 teammates resolved 100% without error; 750 barriers cleanly abstained;
 all 24 self tracks resolved to Phoenix.

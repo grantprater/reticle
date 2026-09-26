@@ -472,3 +472,51 @@ class BoardSideSetTests(unittest.TestCase):
                        "with_board": "Killjoy", "board_agents": board["enemy"]["agents"]},
                       got["board_disagreements"])
         self.assertEqual(got["top_bar_sides"]["enemy"][1]["agent"], "Clove")
+
+
+def _piece_claims(n, scores, rivals=(), fit=None):
+    return [{"agent": None, "reason": None,
+             "evidence": {"scores": dict(scores), "margin_min": 0.5, "rivals": list(rivals),
+                          "reference_source": "rendered_art", "fit": fit}}
+            for _ in range(n)]
+
+
+class AssignAllyPiecesTests(unittest.TestCase):
+    def setUp(self):
+        from reticle.adjudication.identity import assign_ally_pieces
+        self.assign = assign_ally_pieces
+
+    def test_co_observed_pieces_take_distinct_agents(self):
+        pieces = {"a": {"round": 1, "claims": _piece_claims(4, {"Breach": 2, "Miks": 1})},
+                  "b": {"round": 1, "claims": _piece_claims(2, {"Breach": 1, "Miks": 0.9})}}
+        out = self.assign(pieces, {(1, 0.0): {"a", "b"}})
+        self.assertEqual((out["a"]["agent"], out["b"]["agent"]), ("Breach", "Miks"))
+        self.assertEqual(out["a"]["evidence_sum"], {"Breach": 8.0, "Miks": 4.0})
+
+    def test_capacity_leaves_the_weaker_piece_unnamed(self):
+        pieces = {"a": {"round": 1, "claims": _piece_claims(4, {"Breach": 2, "Miks": -2})},
+                  "b": {"round": 1, "claims": _piece_claims(1, {"Breach": -1, "Miks": 1})}}
+        out = self.assign(pieces, {(1, 0.0): {"a", "b"}}, {(1, 0.0): 1})
+        self.assertEqual(out["a"]["agent"], "Breach")
+        self.assertIsNone(out["b"]["agent"])
+        self.assertEqual(out["b"]["reason"], "constraints leave no teammate")
+
+    def test_a_close_runner_up_is_refused_with_its_gap(self):
+        pieces = {"a": {"round": 1, "claims": _piece_claims(1, {"Breach": 0.3, "Miks": 0.1})}}
+        out = self.assign(pieces, {(1, 0.0): {"a"}})
+        self.assertIsNone(out["a"]["agent"])
+        self.assertEqual(out["a"]["gap"], 0.2)
+        self.assertIn("runner-up Miks", out["a"]["reason"])
+
+    def test_a_rival_slot_takes_a_piece_away_and_never_names_it(self):
+        pieces = {"a": {"round": 1, "claims": _piece_claims(3, {"Breach": 2, "Miks": -2},
+                                                             rivals=["Breach"])}}
+        out = self.assign(pieces, {(1, 0.0): {"a"}})
+        self.assertIsNone(out["a"]["agent"])
+        self.assertEqual(out["a"]["reason"], "track_best_is_refused_slot Breach")
+
+    def test_a_piece_that_fits_no_teammate_is_refused_before_the_search(self):
+        pieces = {"a": {"round": 1, "claims": _piece_claims(3, {"Breach": 2, "Miks": -2}, fit=9.0)}}
+        out = self.assign(pieces, {(1, 0.0): {"a"}}, teammate_fit={"fit_max": 2.0})
+        self.assertIsNone(out["a"]["agent"])
+        self.assertTrue(out["a"]["reason"].startswith("not_a_teammate"))
