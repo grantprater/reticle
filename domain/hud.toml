@@ -17,6 +17,26 @@ spike glyph cannot give
 see = ["minimap/spike-glyph", "minimap/no-spike-channel"]
 phrases = ["spike carrier marker", "spike on the roster"]
 
+[suppression-indicators]
+claim = """
+A suppressed player's HUD shows two indicators. The ability tray dims every
+slot under a countdown ring, and a suppressed-effect element appears above and
+slightly left of the ammo readout. Tejo's drone suppresses, and its effect is
+orange; KAY/O's knife shows a similar indicator. KAY/O's ult suppresses for
+4 s per pulse. Each pulse restarts the countdown while the ult lasts and the
+player stands within the ult's range, which the player believes equals its
+audio range. Allies cannot suppress, so suppression witnesses an enemy suppressor.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+source = "bdfdcf009dba near 362 s (Tejo's drone); a1a995e6b19b 1784.5-1795 s (KAY/O's ult; the count runs 4, 3, 2, 4, 3, 1)"
+use = """
+tray drops under the countdown ring are suppression, not casts; the element by
+the ammo readout is a second channel to gate on before tuning the tray reader
+"""
+see = ["hud/tray-after-player-death"]
+
 [tray-after-player-death]
 claim = """
 After the player dies the HUD ability tray stops showing the player's kit: the
