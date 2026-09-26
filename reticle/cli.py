@@ -1887,6 +1887,14 @@ def cmd_lifetimes(args) -> int:
     refs_version = table.get("version")
     if table.get("teammate_fit"):
         refs_version = f"{refs_version}+{table['teammate_fit'].get('version')}"
+    # The lineup names from the stored lineup and the scoreboard's side sets,
+    # and deaths bind to pieces: a rescan of either changes the entities
+    # without touching the ally icons, so their bytes are stamped too.
+    inputs = hashlib.sha256()
+    for part in (store.root / "lineups" / f"{sid}.json",
+                 store.events_path("scoreboard", sid), store.events_path("death", sid)):
+        inputs.update(part.read_bytes() if part.is_file() else b"-")
+    inputs_revision = inputs.hexdigest()
     path = store.events_path("round_entity", sid)
     stamped = None
     if path.is_file():
@@ -1894,9 +1902,9 @@ def cmd_lifetimes(args) -> int:
             first = json.loads(f.readline() or "{}")
         stamped = (first.get("round_entity_version"), first.get("round_lifetime_version"),
                    first.get("ally_icon_revision"), first.get("agent_identity_version"),
-                   first.get("ally_portrait_refs_version"))
+                   first.get("ally_portrait_refs_version"), first.get("inputs_revision"))
     if stamped == (ROUND_ENTITY_VERSION, ROUND_LIFETIME_VERSION, source_revision,
-                   AGENT_IDENTITY_VERSION, refs_version) and not args.force:
+                   AGENT_IDENTITY_VERSION, refs_version, inputs_revision) and not args.force:
         print(f"cache hit  session {sid} already has round entities at "
               f"{ROUND_ENTITY_VERSION} / {ROUND_LIFETIME_VERSION}; --force to recompute")
         return 0
@@ -1922,6 +1930,7 @@ def cmd_lifetimes(args) -> int:
     # Stamp the rules that named the segments, so a later change recomputes.
     rows[0]["agent_identity_version"] = AGENT_IDENTITY_VERSION
     rows[0]["ally_portrait_refs_version"] = refs_version
+    rows[0]["inputs_revision"] = inputs_revision
     out = store.write_events("round_entity", sid, rows)
     cov = rows[0]
     ents = [r for r in rows if r["kind"] == "entity"]
