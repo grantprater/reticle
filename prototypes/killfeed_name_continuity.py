@@ -72,6 +72,9 @@ MIN_NAME_W = 12
 TOPHAT = 7
 #: Widths of one name's crop differ by up to this much between frames.
 WIDTH_TOL = 3
+#: Words of one name sit this close; the reader splits groups at
+#: `killfeed.NAME_GAP`, so "A Whif and A Lot" is five groups.
+WORD_GAP = 12
 
 
 def _path(sid):
@@ -99,8 +102,8 @@ def _text_rows(white: np.ndarray, a: int, z: int) -> tuple[int, int] | None:
 
 
 def _cut(white: np.ndarray, whiteness: np.ndarray, a: int, z: int, rows, last: bool):
-    """The name's columns inside [a, z): all text groups for the killer, the last
-    one for the victim. A group is text when at least `TEXT_SHARE` of its ink
+    """The name's columns inside [a, z): the last text group and the words
+    before it (`WORD_GAP`). A group is text when at least `TEXT_SHARE` of its ink
     over the band's full height lies on the text line; a portrait's white art
     runs above and below it."""
     a, z = max(a, 0), max(z, 0)
@@ -111,9 +114,17 @@ def _cut(white: np.ndarray, whiteness: np.ndarray, a: int, z: int, rows, last: b
             if g[1] - g[0] >= 3 and g[1] <= (z - a) - 2
             and np.ptp(np.where(line[:, g[0]:g[1]].any(axis=1))[0]) < MAX_TEXT_H
             and line[:, g[0]:g[1]].sum() >= TEXT_SHARE * max(1, full[:, g[0]:g[1]].sum())]
-    if not keep or keep[-1][1] - keep[-1][0] < MIN_NAME_W:
+    if not keep:
         return None
+    # The whole name: the last text group, extended left across word gaps.
+    # The last word alone merged "A Whif and A Lot" with "Whiff A Lot".
     g0, g1 = keep[-1]
+    for h0, h1 in reversed(keep[:-1]):
+        if g0 - h1 > WORD_GAP:
+            break
+        g0 = h0
+    if g1 - g0 < MIN_NAME_W:
+        return None
     ys = np.where(line[:, g0:g1].any(axis=1))[0]
     r0, r1 = int(ys[0]), int(ys[-1]) + 1
     # The whiteness keeps the band's full height: a name's own ink rows vary
