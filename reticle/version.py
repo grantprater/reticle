@@ -50,7 +50,10 @@ ECONOMY_VERSION = "economy-0.1.0"
 # on 160 of 160 rows, margin on 159. Over the whole session's stored rows,
 # 1033 of 95294 rounded scores differ, 6 by more than 0.001 and at most by
 # 0.0047, all on weak non-best scores near 0.14; best agent and gain agree
-# on 3310 of 3310 rows, best score on 3244, margin on 3220.
+# on 3310 of 3310 rows, best score on 3244, margin on 3220. a06f04a0059f:
+# 2163 of 182439 differ, at most 0.0036; best agent on 6330 of 6330 rows,
+# second agent on 6328, gain on 6329. 043bafca271a: 480 of 205262, at most
+# 0.0010; best agent on 7120 of 7120, gain on 7119.
 SCOREBOARD_VERSION = "scoreboard-0.6.0"
 EXTRACTOR_VERSION = "l1-0.1.0"
 SEGMENTER_VERSION = "seg-0.2.0"
