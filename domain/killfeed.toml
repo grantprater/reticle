@@ -76,7 +76,9 @@ claim = """
 A revive draws a killfeed entry that is not a death. Clove's Not Dead Yet draws
 Clove's player on both sides with the ult's round icon in the weapon slot; Sage's
 Resurrection draws the Sage as killer and the revived teammate as victim with the
-Resurrection icon. Both sit on the reviving team's plate colour.
+Resurrection icon. Both sit on the reviving team's plate colour. An ally
+Resurrection banner is green end to end, and its chevron divides a darker green
+from a lighter green, where a kill's chevron divides green from red.
 """
 kind = "appearance"
 known = "player"
