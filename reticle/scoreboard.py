@@ -457,7 +457,8 @@ def _art_scores_gpu(win: np.ndarray, gallery) -> tuple[dict, dict]:
     three channels as OpenCV sums them. OpenCV accumulates in float32, so
     scores differ from it in the fourth decimal: 9 of 4640 rounded scores on
     7010b3d62460, by at most 0.0007, with the same best agent on 160 of 160
-    rows. A zero variance scores -1, as OpenCV's NaN does after
+    rows; over the whole session 1033 of 95294, at most 0.0047 on a weak
+    score, with the same best agent on 3310 of 3310 rows. A zero variance scores -1, as OpenCV's NaN does after
     `nan_to_num`. The first maximum in row-major order wins, as in
     `cv2.minMaxLoc`, and a later scale must beat an earlier one strictly.
     """

@@ -47,7 +47,10 @@ ECONOMY_VERSION = "economy-0.1.0"
 # 0.6.0: portrait art scores in float64 on the GPU when cupy is present; the
 # coverage row names the scorer. Against OpenCV's float32, 9 of 4640 rounded
 # scores on 7010b3d62460 differ by at most 0.0007; best agent and gain agree
-# on 160 of 160 rows, margin on 159.
+# on 160 of 160 rows, margin on 159. Over the whole session's stored rows,
+# 1033 of 95294 rounded scores differ, 6 by more than 0.001 and at most by
+# 0.0047, all on weak non-best scores near 0.14; best agent and gain agree
+# on 3310 of 3310 rows, best score on 3244, margin on 3220.
 SCOREBOARD_VERSION = "scoreboard-0.6.0"
 EXTRACTOR_VERSION = "l1-0.1.0"
 SEGMENTER_VERSION = "seg-0.2.0"
