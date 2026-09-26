@@ -62,6 +62,23 @@ def _intersect(a, b):
     return sum(min(x, y) for x, y in zip(a, b))
 
 
+def ally_capacity(alive_ally, self_seen: bool) -> int | None:
+    """How many ally icons the roster licenses in one frame, or None.
+
+    The living allies less the player, and only where the player's own icon
+    is observed: a spectated or absent self is unknown, so nothing is
+    subtracted and nothing is capped. `alive_ally` is one roster read or
+    several (a caller's window of reads); the largest read stands, because
+    the count drops at a death while the dying teammate's icon may still
+    show. None reads are unread, not zero.
+    """
+    reads = alive_ally if isinstance(alive_ally, (list, tuple)) else [alive_ally]
+    reads = [int(v) for v in reads if v is not None]
+    if not reads or not self_seen:
+        return None
+    return max(0, max(reads) - 1)
+
+
 def readable_kind(obs):
     """What to call this observation in English. Readers may override."""
     return obs.get("kind") or NAME_KIND.get(obs["family"], obs["family"])
@@ -187,9 +204,8 @@ class RoundLifetimes:
         assignments = assign(costs)
         output = []
         alive = None if roster is None else roster.get("alive_ally")
-        # Only subtract an observed self. Spectated/absent self is unknown.
         has_self = any(o["family"] == "self" for o in observations)
-        capacity = None if alive is None or not has_self else max(0,alive-1)
+        capacity = ally_capacity(alive, has_self)
         accepted_allies = self._fill_roster(observations, assignments, prior,
                                             candidates, capacity)
         observation_ids = []

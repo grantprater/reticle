@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from reticle.round_lifetimes import RoundLifetimes, readable_kind, replay_scale
+from reticle.round_lifetimes import (RoundLifetimes, ally_capacity, readable_kind,
+                                     replay_scale)
 
 
 def detection(x=10,family="ally",view="minimap"):
@@ -138,6 +139,18 @@ class RoundLifetimeTests(unittest.TestCase):
         self.assertNotEqual(a['entity_id'],b['entity_id'])
         with self.assertRaises(ValueError):
             RoundLifetimes('R3',0).step(100,[dict(detection(),observed_t_ms=0)])
+
+
+class AllyCapacityTests(unittest.TestCase):
+    def test_the_roster_caps_allies_only_where_self_is_seen(self):
+        self.assertEqual(ally_capacity(4, True), 3)
+        self.assertIsNone(ally_capacity(4, False))
+        self.assertIsNone(ally_capacity(None, True))
+        self.assertEqual(ally_capacity(0, True), 0)
+
+    def test_a_window_of_reads_takes_the_largest(self):
+        self.assertEqual(ally_capacity([3, None, 4, 2], True), 3)
+        self.assertIsNone(ally_capacity([None], True))
 
 
 class NameTests(unittest.TestCase):
