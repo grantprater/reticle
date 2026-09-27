@@ -776,12 +776,62 @@ has no player, so every peak on a demo is unknown; the prototype read a
 demo's player from its tags. The rows carry the round but no `live` flag:
 live minutes were an evaluation device.
 
+### The 25 sessions
+
+`reticle ult-lines` read the 25 sessions with audio features one at a time,
+and `reticle ult-cast --all --record` classed
+[metric:ult_lines/ult-cast@all-sessions#selected=624] of
+[metric:ult_lines/ult-cast@all-sessions#peaks=162134] stored peaks. On the
+[metric:ult_lines/ult-cast@all-sessions#sessions_with_lineup=19] match
+sessions with a lineup it selected
+[metric:ult_lines/ult-cast@all-sessions#lineup_selected=587] peaks:
+[metric:ult_lines/ult-cast@all-sessions#lineup_class_own=58] own,
+[metric:ult_lines/ult-cast@all-sessions#lineup_class_possible=412] possible,
+[metric:ult_lines/ult-cast@all-sessions#lineup_class_impossible=117] impossible
+and [metric:ult_lines/ult-cast@all-sessions#lineup_class_unknown=0] unknown.
+The other [metric:ult_lines/ult-cast@all-sessions#class_unknown=37] selections
+are unknown: the match without a lineup and the demos. The arbiter named all
+[metric:ult_lines/ult-cast@all-sessions#casts=507] casts. Decoding a capture's
+audio took [metric:ult_lines/ult-cast@all-sessions#decode_s_min=0.4] s to
+[metric:ult_lines/ult-cast@all-sessions#decode_s_max=31.4] s (median
+[metric:ult_lines/ult-cast@all-sessions#decode_s_median=22.5] s), and scoring
+it on the GPU took [metric:ult_lines/ult-cast@all-sessions#score_s_min=0.1] s
+to [metric:ult_lines/ult-cast@all-sessions#score_s_max=3.0] s (median
+[metric:ult_lines/ult-cast@all-sessions#score_s_median=2.2] s).
+
+Against 0.1.0's F-B detections over all 25 sessions,
+[metric:ult_lines/port-check-0.1.0@all-sessions#matched=612] selections match
+one peak for one peak, [metric:ult_lines/port-check-0.1.0@all-sessions#only_proto=0]
+detections are missing, [metric:ult_lines/port-check-0.1.0@all-sessions#round_changed=0]
+rounds changed, and [metric:ult_lines/port-check-0.1.0@all-sessions#only_port=12]
+selections are new:
+
+- Seven are Gekko's lines, which 0.1.0 did not hold, all possible: the
+  peaks the 0.2.0 "Gekko" section counts.
+- Five sit at the threshold's edge, scoring 0.04431 to 0.04432. The 0.1.0 run
+  selected at its unrounded operating point, just above the 39th-highest live
+  impossible score; the declared 0.0443 is that point rounded. Three of the
+  five are impossible and
+  [metric:ult_lines/port-check-0.1.0@all-sessions#only_port_live_impossible=1]
+  falls in live time, so the in-sample rate is
+  [metric:ult_lines/port-check-0.1.0@all-sessions#live_impossible=39] live
+  impossible peaks over
+  [metric:voice_lines/evaluate-F-B@all-matches#live_minutes=385.5] live
+  minutes, [metric:ult_lines/port-check-0.1.0@all-sessions#impossible_per_live_min=0.1012]
+  per minute against the target of 0.1. The adjudicator cannot compute this
+  rate itself: live minutes need the game-time phases and stalls, and it
+  reads only the rounds table.
+- [metric:ult_lines/port-check-0.1.0@all-sessions#class_changed=2] classes
+  changed, both on demos: the own line of 6afc32cb46b4 and aab12e41dcfc is
+  now unknown, because a session without a lineup has no player.
+
 ### What was not done in production
 
 - Casts are plain rows; the event contract has no ability-cast kind, and only
   the identity events are formal.
 - A cast is not bound to a minimap entity or a tray drop: `ability-owner`
   stays unowned, and no own line is checked against the player's tray here.
-- The threshold is 0.1.0's in-sample operating point; no session was held out.
+- The threshold is 0.1.0's in-sample operating point, rounded; no session
+  was held out, and the unrounded point was not restored.
 - The per-agent cast window, the review sheet and the witnesses stay in the
   prototype.

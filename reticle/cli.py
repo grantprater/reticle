@@ -2893,7 +2893,7 @@ def cmd_ult_cast(args) -> int:
     from .version import ULT_CAST_VERSION, ULT_LINE_VERSION
 
     store = Store(args.store)
-    pooled, sessions, stamps = Counter(), [], set()
+    pooled, sessions, stamps, timing = Counter(), [], set(), {"decode_s": [], "score_s": []}
     for sid in _sessions_arg(store, args):
         peaks = store.read_events("ult_line", sid)
         if not peaks or peaks[0].get("ult_line_version") != ULT_LINE_VERSION:
@@ -2917,11 +2917,22 @@ def cmd_ult_cast(args) -> int:
                        **{f"class_{c}": n for c, n in cov["by_class"].items()}})
         pooled.update(Counter(f"named_{r['side']}" for r in res["rows"]
                               if r.get("kind") == "cast" and r["agent"]))
+        if cov["lineup"]:
+            pooled.update({"lineup_selected": cov["selected"],
+                           **{f"lineup_class_{c}": n for c, n in cov["by_class"].items()}})
+        for k, got in timing.items():
+            if peaks[0].get(k) is not None:
+                got.append(float(peaks[0][k]))
         print(f"{sid}: {cov['selected']} of {cov['peaks']} peaks selected; {cov['by_class']}; "
               f"player {cov['player_agent']} -> {out}")
     if args.record and sessions:
         from . import metrics
         values = {"sessions": len(sessions), **dict(sorted(pooled.items()))}
+        # What the stored reads took, from each session's ult_line coverage row.
+        for k, got in timing.items():
+            if got:
+                values.update({f"{k}_min": min(got), f"{k}_median": float(np.median(got)),
+                               f"{k}_max": max(got)})
         metrics.record(tool="ult_lines", part="ult-cast",
                        session=args.session if not args.all else "all-sessions",
                        values=values,

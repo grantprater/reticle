@@ -519,14 +519,18 @@ def cmd_check_merge(F: str, sid: str) -> dict:
     return vals
 
 
-def cmd_port_check(sids: list[str]) -> dict:
+def cmd_port_check(sids: list[str], pooled: bool = False) -> dict:
     """Compare `reticle ult-cast`'s selected peaks with 0.1.0's F-B detections
     at the same threshold: counts by class, peaks only one side holds, class
     and round changes, and the largest score difference between matched peaks
-    (0.1.0 stored scores to four decimals)."""
+    (0.1.0 stored scores to four decimals). With `pooled`, one run over all
+    the sessions is recorded as `all-sessions` instead of one per session,
+    with the impossible rate per live minute at the port's threshold: 0.1.0's
+    live impossible detections plus the port's extra impossible peaks that
+    fall in live time (`match_time`), over 0.1.0's live minutes."""
     from reticle import metrics
     base = STORE / "analysis" / "voice-lines" / "0.1.0" / "detections"
-    out = {}
+    out, ctxs, deps = {}, {}, {}
     for sid in sids:
         rows = [json.loads(x) for x in (STORE / "events" / "ult_cast" / f"{sid}.jsonl")
                 .read_text(encoding="utf-8").splitlines() if x.strip()]
@@ -563,20 +567,53 @@ def cmd_port_check(sids: list[str]) -> dict:
         ctx = {"only_port": [{"template": k[0], "t_s": k[1], "score": port[k]["score"],
                               "class": port[k]["class"]} for k in sorted(only_port)],
                "only_proto": [{"template": k[0], "t_s": k[1], "score": proto[k]["score"],
-                               "class": proto[k]["class"]} for k in only_proto],
+                               "class": proto[k]["class"], "live": proto[k]["live"]}
+                              for k in only_proto],
                "class_changed": [{"template": k[0], "t_s": k[1], "was": a, "now": b}
                                  for k, a, b in changed],
                "round_changed": [{"template": k[0], "t_s": k[1], "was": a, "now": b}
                                  for k, a, b in moved],
                "ult_cast_inputs": cov.get("inputs")}
-        metrics.record("ult_lines", part="port-check-0.1.0", session=sid, values=vals,
-                       deps={"ult_cast_version": cov.get("ult_cast_version"),
-                             "ult_line_version": cov.get("inputs", {}).get("ult_line"),
-                             "base": BASE_VERSION, "threshold": cov["threshold"]},
-                       context=ctx)
+        deps = {"ult_cast_version": cov.get("ult_cast_version"),
+                "ult_line_version": cov.get("inputs", {}).get("ult_line"),
+                "base": BASE_VERSION, "threshold": cov["threshold"]}
+        if not pooled:
+            metrics.record("ult_lines", part="port-check-0.1.0", session=sid, values=vals,
+                           deps=deps, context=ctx)
         print(sid, json.dumps(vals))
-        print("  ", json.dumps(ctx))
-        out[sid] = vals
+        if any(ctx[k] for k in ("only_port", "only_proto", "class_changed", "round_changed")):
+            print("  ", json.dumps(ctx))
+        out[sid], ctxs[sid] = vals, ctx
+    if pooled and out:
+        tot = {k: sum(v[k] for v in out.values()) for k in next(iter(out.values()))
+               if k != "max_score_diff"}
+        tot["max_score_diff"] = max(v["max_score_diff"] for v in out.values())
+        tot["sessions"] = len(out)
+        base = _latest().get(("evaluate-F-B", "all-matches"), {})
+        extra = 0
+        for sid, c in ctxs.items():
+            imp = [d for d in c["only_port"] if d["class"] == "impossible"]
+            if not imp:
+                continue
+            cov = json.loads((STORE / "events" / "ult_line" / f"{sid}.jsonl")
+                             .read_text(encoding="utf-8").splitlines()[0])
+            live = match_time(sid, int(cov["n_frames"]))["live"]
+            extra += sum(bool(live[min(int(d["t_s"] / STEP), len(live) - 1)]) for d in imp)
+        gone = sum(1 for c in ctxs.values() for d in c["only_proto"]
+                   if d["class"] == "impossible" and d["live"])
+        tot["only_port_live_impossible"], tot["only_proto_live_impossible"] = extra, gone
+        extra -= gone
+        if base.get("live_minutes"):
+            tot["live_impossible"] = base["impossible_n"] + extra
+            tot["impossible_per_live_min"] = _r(tot["live_impossible"] / base["live_minutes"], 4)
+        metrics.record("ult_lines", part="port-check-0.1.0", session="all-sessions",
+                       values=tot, deps=deps,
+                       context={"sessions": sorted(out),
+                                "differing": {s: c for s, c in ctxs.items()
+                                              if any(c[k] for k in ("only_port", "only_proto",
+                                                                    "class_changed",
+                                                                    "round_changed"))}})
+        print("all-sessions", json.dumps(tot))
     return out
 
 
@@ -2259,6 +2296,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("report")
     pc = sub.add_parser("port-check")
     pc.add_argument("--sessions", nargs="+", required=True)
+    pc.add_argument("--pooled", action="store_true",
+                    help="record one run over all the sessions, not one per session")
     a = ap.parse_args(argv)
     print(f"{VERSION}: {os.environ['OMP_NUM_THREADS']} BLAS threads, Below Normal priority")
     every = match_sessions() + demo_sessions()
@@ -2284,7 +2323,7 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "report":
         cmd_report()
     elif a.cmd == "port-check":
-        cmd_port_check(a.sessions)
+        cmd_port_check(a.sessions, a.pooled)
     return 0
 
 
