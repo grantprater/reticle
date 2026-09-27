@@ -1415,3 +1415,28 @@ harvest the ult-ready lines as templates of their own: a false alarm for the
 cast templates and a witness that an ally's ultimate is ready
 """
 see = ["abilities/voice-lines-announce-casts"]
+
+[ult-ready-line-is-a-radio-reply]
+claim = """
+The wiki lists each agent's ult-ready line as one reply of the Ultimate Status
+radio command, under Radio Commands > Menu and Wheel Index > "Ultimate
+Status", beside a not-ready and an almost-ready reply, each recorded in two
+takes. No quotes page lists a ready line under the ultimate's own heading.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = """
+reference/assets/voicelines/ult_ready/index.json, harvested from all 29
+agents' wiki quotes pages by prototypes/voice_line_harvest.py ult-ready on
+2026-09-27 (docs/VOICE_LINE_ASSETS.md); whether the game also voices the
+ready line unprompted when the charge fills is not on the wiki and is
+unmeasured
+"""
+use = """
+an agent's ult-ready templates are its two ready takes; a match says the
+speaker announced a ready ultimate, and it dates the fill only if the game
+voices the line unprompted
+"""
+see = ["abilities/ult-ready-lines", "abilities/voice-lines-announce-casts"]
