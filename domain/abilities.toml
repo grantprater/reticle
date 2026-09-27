@@ -1147,3 +1147,97 @@ a brief trace after a movement ability's tray drop is the ability, not an
 enemy or a ping; ask per ability in the mechanics sheet before any reader
 assumes movement abilities draw nothing
 """
+
+[ability-description-verbs]
+claim = """
+An ability's in-game description states its input model in capitalised
+verbs: EQUIP and FIRE cast it; "HOLD FIRE to channel" channels, "to extend"
+charges a projectile, "to guide", "steer" or "bend" traces a guided path;
+ACTIVATE, REUSE, RE-USE and REACTIVATE are a second press on a placed device,
+and RE-USE "at the cost of fuel" a toggle; "take control" is a piloted
+entity; "when an enemy crosses" or "fires at enemies" is a device that
+triggers itself.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-09-26"
+subject = "abilities:descriptions"
+source = """
+the catalogue's descriptions (<store>/reference/abilities.json) read against
+the player's classifications of 2026-09-26: Nanoswarm ACTIVATE, Arc Rose
+REUSE and Razorvine ACTIVATED are the three placed-then-pressed devices;
+Turret, Shear and Trapwire name enemies and no second verb; Trailblazer, Owl
+Drone and Stealth Drone say "take control"; Regrowth says HOLD FIRE to
+channel; Poison Cloud RE-USE at the cost of fuel; Blaze and High Tide, the
+two walls the player says trace the icon's path, are the only two that say
+HOLD FIRE to bend or guide a wall. The rule was fitted on those and is a
+prediction for the other rows of docs/ABILITY_MECHANICS_SHEET.md
+"""
+use = """
+derive a per-ability input model from the description before a reader is
+written, as a hypothesis for the player to confirm; the description also
+names the second press's effect, which is the sound and the drawing to
+expect
+"""
+see = ["abilities/placed-then-activated", "abilities/ability-rules-are-unique",
+       "abilities/wall-icon-path-curve", "abilities/viper-fuel-toggle"]
+
+[minimap-icon-pale-region]
+claim = """
+Many placed abilities draw on the minimap as a compact icon with a pale
+region around it, a ring of a radius fixed per ability or a box: Harbor's
+Storm Surge and Cove, Veto's Crosscut, Chokehold and Interceptor, Deadlock's
+Sonic Sensor, and probably others.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "minimap:ability-icon"
+source = "the player, 2026-09-26; the list is the player's and is not complete"
+use = """
+read the icon and its pale ring or box as one entity: the region is part of
+the ability's signature, its shape and radius help name the ability, and it
+is neither a smoke disc nor a second entity; ask per ability which shape and
+radius
+"""
+see = ["abilities/minimap-thrown-ability-icon", "minimap/icon-extent-by-family",
+       "abilities/ability-rules-are-unique"]
+
+[wall-icon-path-curve]
+claim = """
+Two wall abilities, Phoenix's Blaze and Harbor's High Tide, travel on the
+minimap as an icon that leaves an arbitrary curve along its path; the wall is
+the curve the icon traced.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "minimap:walls"
+source = """
+the player, 2026-09-26. Both descriptions say HOLD FIRE to bend or guide the
+wall; Toxic Screen, whose description does not, draws a straight line
+"""
+use = """
+track the wall's icon from the tray drop and integrate its path instead of
+fitting a segment; the curve is arbitrary, so no template or straight-line
+fit describes it
+"""
+see = ["abilities/phoenix-blaze", "abilities/viper-toxic-screen-minimap-growth",
+       "abilities/minimap-thrown-ability-icon"]
+
+[viper-fuel-toggle]
+claim = """
+Viper's Poison Cloud and Toxic Screen turn off by a manual toggle or when
+her fuel bar runs out.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-26"
+subject = "viper:fuel"
+source = "the player, 2026-09-26"
+use = """
+a phase that ends with no tray event may be the fuel running out; the HUD's
+fuel meter, which the pipeline does not read, is the witness to ask before
+calling the end a toggle
+"""
+see = ["abilities/viper-poison-cloud-toggle", "abilities/viper-toxic-screen"]
