@@ -10,8 +10,8 @@ video: every pixel comes from the `hud` crop cache's `center` crop, frame x
 
 ## What the crop shows
 
-I inspected open, hole and far-closed samples from twelve sessions before
-measuring. The crop holds the strip whole. The ally block's last row fills its
+The inspection before measuring took open, hole and far-closed samples
+from twelve sessions. The crop holds the strip whole. The ally block's last row fills its
 top 22 rows and the enemy block's first row starts 83 rows down; between them
 lies a dark translucent band with the world showing through. The two marker
 lines sit at frame y 527 and 551. A column repeats every 21.6-21.7 px on 18
@@ -56,8 +56,8 @@ outside any run.
 | Holes | [metric:scoreboard/strip-witness@all-sessions#hole_n=841] | [metric:scoreboard/strip-witness@all-sessions#hole_present=467] | [metric:scoreboard/strip-witness@all-sessions#hole_absent=367] | [metric:scoreboard/strip-witness@all-sessions#hole_unreadable=7] |
 | Single-sample runs | [metric:scoreboard/strip-witness@all-sessions#single_n=1360] | [metric:scoreboard/strip-witness@all-sessions#single_present=1144] | [metric:scoreboard/strip-witness@all-sessions#single_absent=204] | [metric:scoreboard/strip-witness@all-sessions#single_unreadable=12] |
 
-The disagreements are mostly the slab test's, not the witness's. I checked
-each kind by eye:
+The disagreements are mostly the slab test's, not the witness's. A montage
+of each kind, checked by eye:
 
 - **Closed samples the witness reads present are boards.** A montage showed a
   board on [metric:scoreboard/strip-witness@all-sessions#inspect_closed_present_board=24]
