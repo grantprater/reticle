@@ -99,7 +99,7 @@ questions.
 |---|---|---|---|---|---|---|---|---|---|
 | C | Prowler | Grounded Object | 2 | guided path (HOLD FIRE) | ? | travelling icon [domain:abilities/fade-prowler-minimap-icon] | ? | ? | ? |
 | Q | Seize | ? | 1 | second press (RE-USE) | ? | nothing (census 1) | ? | ? | ? |
-| E | Haunt | Class 2 Projectile | 1 | second press (RE-USE) | ? | nothing (census 1) | ? | ? | a pulse scan, as Recon Bolt and the Stealth Drone [domain:abilities/pulse-scan-abilities] |
+| E | Haunt | Class 2 Projectile | 1 | second press (RE-USE) | ? | a brief ring at the pulse [domain:abilities/pulse-scan-abilities] | ? | ? | a pulse scan, as Recon Bolt and the Stealth Drone [domain:abilities/pulse-scan-abilities] |
 | X | Nightfall | ? | ? | triggers on enemies | ? | wall segments (census 1) | ? | ? | ? |
 
 ## Gekko
@@ -234,14 +234,14 @@ questions.
 |---|---|---|---|---|---|---|---|---|---|
 | C | Owl Drone | ? | 1 | piloted | piloted by the player | compact icon (census 2) | player: some; crop measured no hue shift [domain:hud/controlled-entity-view-tint] | ? | ? |
 | Q | Shock Bolt | ? | 2 | charged (HOLD FIRE) | ? | nothing [domain:abilities/sova-shock-bolt-minimap-none] | ? | ? | charged, bounce toggled [domain:abilities/sova-bolt-charge-and-bounce] |
-| E | Recon Bolt | Class 2/3/4/5 Projectile (based on charge) | 1 | charged (HOLD FIRE); triggers on enemies | ? | icon with a teal ring of the reveal range [domain:abilities/sova-recon-bolt-minimap-ring] | ? | ? | charged, bounce toggled [domain:abilities/sova-bolt-charge-and-bounce]; a pulse scan, as Haunt and the Stealth Drone [domain:abilities/pulse-scan-abilities] |
+| E | Recon Bolt | Class 2/3/4/5 Projectile (based on charge) | 1 | charged (HOLD FIRE); triggers on enemies | ? | icon with a teal ring of the reveal range, kept the whole time [domain:abilities/sova-recon-bolt-minimap-ring] | ? | ? | charged, bounce toggled [domain:abilities/sova-bolt-charge-and-bounce]; a pulse scan, 2 or 3 pulses over a few seconds [domain:abilities/pulse-scan-abilities] |
 | X | Hunter's Fury | Beam | ? | second press (RE-USED); triggers on enemies | ? | teal line from Sova [domain:abilities/sova-hunters-fury-minimap-beam] | ? | ? | ? |
 
 ## Tejo
 
 | Slot | Ability | Deployment | Charges | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| C | Stealth Drone | Possession | 1 | piloted | piloted by the player | compact icon (census 1) | brown view; teal weight unmoved [domain:hud/controlled-entity-view-tint] | ? | a pulse scan, as Recon Bolt and Haunt [domain:abilities/pulse-scan-abilities] |
+| C | Stealth Drone | Possession | 1 | piloted | piloted by the player | travelling icon; a brief ring at the pulse [domain:abilities/pulse-scan-abilities] | brown view; teal weight unmoved [domain:hud/controlled-entity-view-tint] | ? | a pulse scan, as Recon Bolt and Haunt [domain:abilities/pulse-scan-abilities] |
 | Q | Special Delivery | Class 5 Projectile | 1 | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 | E | Guided Salvo | ? | 2 | cast on FIRE | ? | rings [domain:abilities/tejo-guided-salvo-minimap-rings] | ? | ? | ? |
 | X | Armageddon | ? | ? | cast on FIRE | ? | pale region (census 1) | ? | ? | ? |

@@ -604,7 +604,8 @@ use = "the ring prior of `ability_shapes`: search round the caster"
 [sova-recon-bolt-minimap-ring]
 claim = """
 Sova's Recon Bolt is drawn on the minimap as a teal ring centred where the bolt
-lands, with the bolt's icon at the centre. The ring is the reveal range. On
+lands, with the bolt's icon at the centre, kept the whole time while the bolt
+pulses two or three times over a few seconds. The ring is the reveal range. On
 each pulse the bolt reveals the enemies in its own line of sight, and the
 whole team then sees them, through walls.
 """
@@ -1260,19 +1261,24 @@ claim = """
 Recon Bolt, Fade's Haunt and Tejo's Stealth Drone are pulse scans and work
 the same way with different ranges: the device pulses, reveals the enemies in
 its line of sight within its range, and the whole team sees them. The verb
-is scan.
+is scan. All three draw a ring of their range on the minimap: Haunt and the
+Stealth Drone a brief ring at the pulse, the Recon Bolt a ring kept the whole
+time while it pulses two or three times over a few seconds.
 """
 kind = "rule"
 known = "player"
 since = "2026-09-26"
 subject = "abilities:scans"
 source = """
-the player, 2026-09-26. The three descriptions in the catalogue all say
-"reveal"; the Stealth Drone's says it fires a pulse
+the player, 2026-09-26, twice: the class, then how each draws its ring. The
+three descriptions in the catalogue all say "reveal"; the Stealth Drone's
+says it fires a pulse
 """
 use = """
 one scan model, parametrised by range, for the three; a revealed enemy is
 the same downstream event whichever device pulsed, and the minimap ring's
-radius names the device among the lineup's scanners
+radius names the device among the lineup's scanners; a ring that lasts is
+the bolt, a ring gone within a frame or two is Haunt or the drone, so sample
+the cache densely around a Haunt or drone tray drop
 """
 see = ["abilities/sova-recon-bolt-minimap-ring", "abilities/ability-rules-are-unique"]
