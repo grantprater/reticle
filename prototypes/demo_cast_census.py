@@ -596,6 +596,98 @@ def cmd_casts(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------- bolt holds
+
+#: Sova's bow glows cyan-blue over the tray while a bolt is equipped (the
+#: reticle.tray docstring); the tray's teal bars sit below this hue band.
+GLOW_HUE = (88, 130)
+GLOW_SAT, GLOW_VAL = 120, 150
+#: A frame with more glow pixels than this shows the bow; runs merge across
+#: gaps up to GLOW_GAP_S (a single dark frame precedes some releases).
+GLOW_MIN_PX = 1000
+GLOW_GAP_S = 0.5
+HOLD_LOOKBACK_S = 20.0
+BOLTS = ("Shock Bolt", "Recon Bolt")
+
+
+def glow_px(frame, rect) -> int:
+    import cv2
+    x0, y0, x1, y1 = rect
+    hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+    h, s, v = (hsv[..., i].astype(np.int16) for i in range(3))
+    return int(((h >= GLOW_HUE[0]) & (h <= GLOW_HUE[1]) & (s > GLOW_SAT) & (v > GLOW_VAL)).sum())
+
+
+def cmd_holds(args) -> int:
+    """Each Sova bolt's hold: the bow's glow onset over the tray to the charge's drop.
+
+    The glow marks the bolt equipped, so this is equip to release; the tray
+    cannot separate the charge [domain:abilities/sova-bolt-charge-and-bounce]
+    from the hold before it.
+    """
+    reader, _name = tray_reader()
+    casts = [c for c in load_casts() if c["ability"] in BOLTS]
+    rows = []
+    for c in casts:
+        cache, _why = open_cache(c["sid"])
+        rect = cache.rect_of("hud_abilities")
+        t_drop = cast_time_ms(c)
+        tt = [float(x) for x in np.unique(cache.t_ms)
+              if t_drop - HOLD_LOOKBACK_S * 1000 <= x <= t_drop + 2000]
+        series = []
+        for smp in cache.samples(tt, rois=["hud_abilities"]):
+            _c, ok = reader.slot_counts(smp.frame)
+            series.append((float(smp.t_ms), glow_px(smp.frame, rect), bool(ok)))
+        lit = [t for t, g, _ok in series if g > GLOW_MIN_PX]
+        # The run holding the drop: walk out from the drop while lit frames
+        # stay within GLOW_GAP_S of each other.
+        start = end = None
+        near = [t for t in lit if abs(t - t_drop) <= GLOW_GAP_S * 1000]
+        if near:
+            start = end = min(near, key=lambda t: abs(t - t_drop))
+            for t in sorted((t for t in lit if t < start), reverse=True):
+                if start - t > GLOW_GAP_S * 1000:
+                    break
+                start = t
+            for t in sorted(t for t in lit if t > end):
+                if t - end > GLOW_GAP_S * 1000:
+                    break
+                end = t
+        inside = [s for s in series if start is not None and start <= s[0] <= t_drop]
+        row = {"sid": c["sid"], "ability": c["ability"], "slot": c["slot"],
+               "drop_s": round(t_drop / 1000, 2),
+               "glow_start_s": None if start is None else round(start / 1000, 2),
+               "glow_end_s": None if end is None else round(end / 1000, 2),
+               "hold_s": None if start is None else round((t_drop - start) / 1000, 2),
+               "hold_reason": None if start is not None else "no glow within 0.5 s of the drop",
+               "hold_unclean": sum(not ok for _t, _g, ok in inside),
+               "hold_samples": len(inside),
+               "glow_median_px": (int(np.median([g for _t, g, _ok in inside]))
+                                  if inside else None)}
+        rows.append(row)
+        print(row)
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "holds.json").write_text(json.dumps({"version": VERSION, "glow_hue": GLOW_HUE,
+                                                "glow_min_px": GLOW_MIN_PX,
+                                                "gap_s": GLOW_GAP_S, "rows": rows}, indent=1),
+                                    encoding="utf-8")
+    if args.record:
+        vals = {"bolts": len(rows), "held": sum(r["hold_s"] is not None for r in rows)}
+        for ab, tag in (("Shock Bolt", "shock"), ("Recon Bolt", "recon")):
+            mine = [r for r in rows if r["ability"] == ab]
+            vals[f"{tag}_bolts"] = len(mine)
+            for i, r in enumerate(sorted(mine, key=lambda r: (r["sid"], r["drop_s"])), 1):
+                vals[f"{tag}{i}_hold_s"] = r["hold_s"]
+                vals[f"{tag}{i}_drop_s"] = r["drop_s"]
+                vals[f"{tag}{i}_glow_start_s"] = r["glow_start_s"]
+        metrics.record(TOOL, part=part("holds"), session=run_session(), values=vals,
+                       deps={"version": VERSION, "glow_hue": list(GLOW_HUE),
+                             "glow_min_px": GLOW_MIN_PX, "gap_s": GLOW_GAP_S,
+                             "roi_cache": ROI_CACHE_VERSION},
+                       note="Sova bolt hold: the bow's glow onset over the tray to the charge drop")
+    return 0
+
+
 # --------------------------------------------------------------- residual
 
 #: The per-cast window, relative to the cast; the frame at BASE_S is the
@@ -1479,6 +1571,8 @@ def main(argv=None) -> int:
     c.add_argument("--record", action="store_true")
     c.add_argument("--strips", action="store_true",
                    help="render the tray crops round every drop that needs an eye")
+    c = sub.add_parser("holds", help="each Sova bolt's equip-to-release time from the tray glow")
+    c.add_argument("--record", action="store_true")
     c = sub.add_parser("residual", help="per-cast minimap residual against baked geometry")
     c.add_argument("--key", nargs="*", help="only these sid:t_ms:slot keys")
     c.add_argument("--show", action="store_true", help="print each summary (unblinds the cast)")
@@ -1497,7 +1591,7 @@ def main(argv=None) -> int:
     c.add_argument("--keys", help="comma-separated keys to play, e.g. 5,a,u,q (testing)")
     args = ap.parse_args(argv)
     configure(args.run)
-    return {"cache": cmd_cache, "casts": cmd_casts, "residual": cmd_residual,
+    return {"cache": cmd_cache, "casts": cmd_casts, "holds": cmd_holds, "residual": cmd_residual,
             "montage": cmd_montage, "read": cmd_read, "table": cmd_table,
             "label": cmd_label}[args.cmd](args)
 
