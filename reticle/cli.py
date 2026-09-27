@@ -867,7 +867,8 @@ def _scan_check(scan_once, sid, args, shards) -> int:
     print(f"check      b: {b_label} -> {root / 'b'}")
     ub = scan_once(Store(root / "b"), args.pipeline, args.workers, shards, args.cv_threads)
     if ua is None or ub is None:
-        print("check      a pass failed; nothing to compare")
+        failed = " and ".join(n for n, u in (("a", ua), ("b", ub)) if u is None)
+        print(f"check      path {failed} failed; nothing to compare")
         return 1
     entries = compare_trees(root / "a", root / "b")
     print(f"check      a = serial, b = {b_label}")
