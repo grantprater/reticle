@@ -1069,3 +1069,81 @@ ask for one cast per ability per round and three rounds per agent. A cheat
 refresh may keep the tray's bar full so the tray reads no drop; untested
 """
 see = ["hud/menu-dims-tray"]
+
+[ability-rules-are-unique]
+claim = """
+Ability mechanics are unique per ability: many are slight variants of a
+pattern, and the lifecycle, the inputs, what the minimap draws and what the
+screen overlays are decided ability by ability, not by category.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-26"
+subject = "abilities"
+source = """
+the player, 2026-09-26, after a day of questions: it was a lot to expect the
+pipeline to infer, because the specific rules are often truly unique per
+ability, from placed-then-activated devices to overlays that disturb the
+minimap and abilities that draw a dash or a teleport; a census of arbitrary
+HUD reads at one or two casts per ability cannot infer them
+"""
+use = """
+never infer one ability's rule from another's; record each from the player
+or an observation, and ask per ability through docs/ABILITY_MECHANICS_SHEET.md.
+A census verifies an answer with a targeted demo; it does not discover the rule
+"""
+see = ["abilities/placed-then-activated", "abilities/minimap-dash-or-teleport-trace", "hud/controlled-entity-view-tint"]
+
+[placed-then-activated]
+claim = """
+Some devices are placed with one press and activated with another: Vyse's
+Razorvine and Arc Rose and Killjoy's Nanoswarm. Others are placed and
+activate themselves on enemy proximity: Killjoy's Turret, Vyse's Shear and
+Cypher's Trapwire.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-26"
+subject = "abilities:placed devices"
+source = "the player, 2026-09-26"
+use = """
+the tray drop marks the placement; a manual activation is a second input
+with its own sound and, on the minimap, possibly a change of the placed
+icon, neither yet observed. Whether activation moves the tray is unobserved
+"""
+see = ["abilities/vyse-razorvine-minimap-icon", "abilities/killjoy-nanoswarm-minimap-icon", "abilities/cypher-trapwire", "abilities/ability-sound-phases"]
+
+[deadlock-annihilation-minimap]
+claim = """
+Deadlock's Annihilation draws on the minimap only when it catches a target,
+or else draws only a very brief flash; the player is unsure which.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "deadlock:annihilation"
+source = """
+the player, 2026-09-26, from the census montage of the solo demo, where the
+ult caught nothing and the blind read saw nothing
+"""
+use = """
+a solo demo cannot show the ult's drawing; sample a match cast at 10 Hz or
+faster round the fire time, which the tray drop does not give
+"""
+see = ["abilities/deadlock-ult-tray-drop-at-equip", "abilities/deadlock-gravnet-detonation-flash"]
+
+[minimap-dash-or-teleport-trace]
+claim = """
+Some abilities draw a dash or a teleport on the minimap; which ones is not
+yet recorded.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "abilities:movement"
+source = "the player, 2026-09-26"
+use = """
+a brief trace after a movement ability's tray drop is the ability, not an
+enemy or a ping; ask per ability in the mechanics sheet before any reader
+assumes movement abilities draw nothing
+"""

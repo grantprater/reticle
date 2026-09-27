@@ -108,6 +108,13 @@ states plainly, and the player had to ask what the sentence meant.
   29 agents are before any lineup exists. A prior is evidence, weighed
   once: a result it shaped declares that it rests on it, so the prior's
   information is never counted again as an independent witness.
+- **Ability mechanics are unique per ability** (player, 2026-09-26)
+  [domain:abilities/ability-rules-are-unique]: the lifecycle, inputs, minimap
+  drawing and screen overlay of one ability predict nothing about another.
+  Record each from the player or an observation in `domain/abilities.toml`,
+  never by analogy; the questions live in
+  [`docs/ABILITY_MECHANICS_SHEET.md`](docs/ABILITY_MECHANICS_SHEET.md), and a
+  census verifies an answer with a targeted demo rather than discovering it.
 - Before a perceptual experiment, state falsifiable predictions and log them in
   the store's `notes/predictions.jsonl`; inspect source images before measuring.
   On the first failed perceptual approach, build the tool that asks the player.

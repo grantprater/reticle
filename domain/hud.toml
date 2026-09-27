@@ -124,7 +124,9 @@ crop (465x485 at 15,15) 1 s before and 1-6 s after the cast: the green
 fraction rises from 0.015 to 0.64 during Trailblazer on fc02a2c1ac01 and
 the production teal weight from 0.0007 to 0.089-0.139; Owl Drone on
 aab12e41dcfc and Stealth Drone on c0b63335e635 stay under 0.02 green and
-0.005 teal
+0.005 teal. The player later listed Sova's drone with Tejo's and Skye's as
+disturbing minimap parsing; the crop measurement found no hue shift for Owl
+Drone, only a 4% darkening, a disagreement kept here
 """
 use = """
 gate every minimap and tray colour reading on the controlled-entity state,
@@ -133,3 +135,20 @@ portrait, before tuning any hue threshold; the teal detector, the residual
 and the widget-drawn check all read the void, where the tint shows
 """
 see = ["hud/menu-dims-tray", "hud/ability-timer-bar"]
+
+[neon-edge-overlay]
+claim = """
+One of Neon's abilities puts an overlay at the edge of the screen that
+disturbs minimap parsing; which ability is not yet recorded.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "hud:neon overlay"
+source = "the player, 2026-09-26, naming it beside the drone views"
+use = """
+the same gate as the controlled-entity views: know the state from the tray
+before reading the minimap's colours; the edge overlay reaches the widget's
+corner
+"""
+see = ["hud/controlled-entity-view-tint"]
