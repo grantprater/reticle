@@ -185,6 +185,15 @@ ABILITY_SHAPE_VERSION = "ability-shape-0.1.0"
 # `tray_drop` rows by `reticle tray` from the stored crops. Bump when a tray
 # constant, the drop rule or the gate changes.
 TRAY_VERSION = "tray-0.1.0"
+# Peaks of the official ultimate voice lines correlated against a capture's
+# audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
+# stores no class and no name. Bump when a template, the front end, the
+# correlation, the floor or the stored fields change -- those re-decode audio.
+ULT_LINE_VERSION = "ult-line-0.1.0"
+# Ultimate casts selected, classed and named from stored `ult_line` peaks, the
+# lineup and the rounds table by `reticle ult-cast` (`adjudication.ult_cast`).
+# Bump when the threshold, the classing or the stored fields change.
+ULT_CAST_VERSION = "ult-cast-0.1.0"
 # Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or

@@ -2826,6 +2826,121 @@ def cmd_ability_shapes(args) -> int:
     return 0
 
 
+def cmd_ult_lines(args) -> int:
+    """Peaks of the official ultimate voice lines in each capture's audio
+    (`ult_lines`). Decodes the audio stream only, in memory; no video frame."""
+    from . import ult_lines
+    from .version import ULT_LINE_VERSION
+
+    store = Store(args.store)
+    voice = store.root / ult_lines.VOICE_DIR
+    declared = ult_lines.load_manifest()
+    if args.check_manifest:
+        want = {e["name"]: e for e in declared["templates"]}
+        got = {e["name"]: e for e in ult_lines.manifest_from_assets(voice)}
+        differ = sorted(n for n in set(want) | set(got) if want.get(n) != got.get(n))
+        for n in differ:
+            print(f"  {n}: declared {want.get(n)}, the assets hold {got.get(n)}")
+        print(f"{len(want)} templates declared ({declared['key']}); "
+              f"{len(differ)} differ from {voice}")
+        return 1 if differ else 0
+    if not args.all and not args.session:
+        raise SystemExit("name a session or pass --all")
+    xp = ult_lines.array_module()
+    templates = ult_lines.build_templates(voice, declared["templates"], xp=xp)
+    print(f"{len(templates)} templates ({declared['key']}), longest "
+          f"{max(t['span_s'] for t in templates):.2f} s, on {xp.__name__}")
+    for sid in _sessions_arg(store, args):
+        man = store.read_manifest(sid)
+        src = man["source"]
+        head = (store.read_events("ult_line", sid) or [{}])[0]
+        if (not args.force and head.get("ult_line_version") == ULT_LINE_VERSION
+                and head.get("content_key") == src["content_key"]
+                and head.get("templates_key") == declared["key"] and not head.get("reason")):
+            print(f"{sid}: current at {ULT_LINE_VERSION} -- pass --force to reread")
+            continue
+        media = Path(src["path"])
+        if not media.is_file():
+            print(f"{sid}: source media has moved: {media} -- skipped, nothing written")
+            continue
+        try:
+            info, peaks = ult_lines.read_capture(str(media), templates, xp=xp)
+        except (IndexError, ValueError) as e:
+            reason = "no_audio_stream" if isinstance(e, IndexError) else str(e)
+            out = store.write_events("ult_line", sid, [{
+                "session_id": sid, "ult_line_version": ULT_LINE_VERSION,
+                "content_key": src["content_key"], "kind": "coverage", "templates": len(templates),
+                "templates_key": declared["key"], "peaks": 0, "reason": reason}])
+            print(f"{sid}: refused ({reason}) -> {out}")
+            continue
+        rows = ult_lines.observations(sid, src["content_key"], ULT_LINE_VERSION, templates,
+                                      declared["key"], info, peaks)
+        out = store.write_events("ult_line", sid, rows)
+        print(f"{sid}: {len(rows) - 1} peaks over {info['n_frames'] * ult_lines.HOP / 60:.1f} min "
+              f"(decode {info['decode_s']} s, score {info['score_s']} s, {info['backend']}) -> {out}")
+    return 0
+
+
+def cmd_ult_cast(args) -> int:
+    """Ultimate casts, their side and their round from stored voice-line peaks,
+    the lineup and the rounds table (`adjudication.ult_cast`). Decodes nothing."""
+    from .adjudication.ult_cast import THRESHOLD, adjudicate
+    from .lineup import load_lineup
+    from .version import ULT_CAST_VERSION, ULT_LINE_VERSION
+
+    store = Store(args.store)
+    pooled, sessions, stamps, timing = Counter(), [], set(), {"decode_s": [], "score_s": []}
+    for sid in _sessions_arg(store, args):
+        peaks = store.read_events("ult_line", sid)
+        if not peaks or peaks[0].get("ult_line_version") != ULT_LINE_VERSION:
+            if not args.all:
+                print(f"{sid}: no current ult_line peaks -- run `reticle ult-lines {sid}` first")
+            continue
+        man = store.read_manifest(sid)
+        table = store.read_rounds(sid, _date_of(man))
+        rounds = table.to_pylist() if table is not None else []
+        round_version = (((table.schema.metadata or {}).get(b"round_version", b"").decode()
+                          or "unstamped") if table is not None else None)
+        res = adjudicate(sid, peaks, load_lineup(sid, store.root), rounds, round_version)
+        out = store.write_events("ult_cast", sid, res["rows"])
+        store.write_events("ult_cast_identity", sid, res["events"])
+        cov = res["rows"][0]
+        sessions.append(sid)
+        stamps.add(peaks[0].get("templates_key"))
+        pooled.update({"sessions_with_lineup": int(cov["lineup"]), "peaks": cov["peaks"],
+                       "selected": cov["selected"], "casts": cov["casts"],
+                       "refusals": cov["refusals"], "player_casts": cov["by_class"]["own"],
+                       **{f"class_{c}": n for c, n in cov["by_class"].items()}})
+        pooled.update(Counter(f"named_{r['side']}" for r in res["rows"]
+                              if r.get("kind") == "cast" and r["agent"]))
+        if cov["lineup"]:
+            pooled.update({"lineup_selected": cov["selected"],
+                           **{f"lineup_class_{c}": n for c, n in cov["by_class"].items()}})
+        for k, got in timing.items():
+            if peaks[0].get(k) is not None:
+                got.append(float(peaks[0][k]))
+        print(f"{sid}: {cov['selected']} of {cov['peaks']} peaks selected; {cov['by_class']}; "
+              f"player {cov['player_agent']} -> {out}")
+    if args.record and sessions:
+        from . import metrics
+        values = {"sessions": len(sessions), **dict(sorted(pooled.items()))}
+        # What the stored reads took, from each session's ult_line coverage row.
+        for k, got in timing.items():
+            if got:
+                values.update({f"{k}_min": min(got), f"{k}_median": float(np.median(got)),
+                               f"{k}_max": max(got)})
+        metrics.record(tool="ult_lines", part="ult-cast",
+                       session=args.session if not args.all else "all-sessions",
+                       values=values,
+                       deps={"ult_line_version": ULT_LINE_VERSION,
+                             "ult_cast_version": ULT_CAST_VERSION,
+                             "threshold": THRESHOLD,
+                             "templates_key": sorted(k for k in stamps if k)},
+                       context={"session_ids": sessions})
+        print(f"recorded ult_lines/ult-cast: {values}")
+    return 0
+
+
 def cmd_ability_gallery(args) -> int:
     """Build phase galleries and score identity on held-out sessions."""
     from .ability_gallery import run
@@ -3491,6 +3606,22 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--window", type=float, default=6.0, help="seconds after each cast (default 6)")
     s.add_argument("--step", type=float, default=0.5, help="sampling interval (default 0.5 s)")
     s.set_defaults(func=cmd_ability_shapes)
+
+    s = sub.add_parser("ult-lines",
+                       help="peaks of the official ultimate voice lines in the capture's audio (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--force", action="store_true", help="reread a session whose peaks are current")
+    s.add_argument("--check-manifest", action="store_true",
+                   help="compare the declared templates with the assets, and read nothing")
+    s.set_defaults(func=cmd_ult_lines)
+
+    s = sub.add_parser("ult-cast",
+                       help="ultimate casts, side and round from stored voice-line peaks (storage only)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session with current peaks")
+    s.add_argument("--record", action="store_true", help="record the pooled counts in the metrics log")
+    s.set_defaults(func=cmd_ult_cast)
 
     s = sub.add_parser("ability-light", help="store the drawn light at ability candidates (opens media)")
     s.add_argument("session", nargs="?")

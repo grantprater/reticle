@@ -3,7 +3,8 @@
 Every stored stream carries the stamp of the code that wrote it; `stale`
 compares each with the stamp the code carries now, per session. A stale
 reader stream needs a reread, and `scan --only <channel>` rereads only that
-channel's readers. A reader with a trial (`trial.TRIAL_READERS`) reads only
+channel's readers; the `audio` channel is `ult-lines`, which decodes only
+the audio stream (`ACCEPT`). A reader with a trial (`trial.TRIAL_READERS`) reads only
 cached ROIs: it can be checked first on stored windows, and `scan` feeds it
 from the ROI crop cache instead of decoding when a cache holds its set
 (`roi_cache.cache_for`). A stale adjudication rereads
@@ -48,13 +49,17 @@ def _round_stamps(store, manifest: dict) -> dict | None:
             "killfeed_portrait": get("killfeed_portrait_version", "unrecorded")}
 
 
+#: The command that rereads a channel `scan` does not read.
+ACCEPT = {"audio": "reticle ult-lines <sid>"}
+
+
 def reader_streams() -> list[tuple[str, str, str, str | None]]:
     """(stream, scan channel, current stamp, trial reader or None)."""
     from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
                            KILLFEED_WEAPON_VERSION)
     from .version import (ALLY_ICON_VERSION, COMBAT_REPORT_VERSION, HUD_VERSION,
                           MINIMAP_DARK_VERSION, MINIMAP_VERSION, PING_VERSION,
-                          ROSTER_VERSION, SCOREBOARD_VERSION)
+                          ROSTER_VERSION, SCOREBOARD_VERSION, ULT_LINE_VERSION)
     return [("hud", "hud", HUD_VERSION, "hud"),
             ("killfeed_portrait", "hud", KILLFEED_PORTRAIT_VERSION, "killfeed"),
             ("killfeed_weapon", "hud", KILLFEED_WEAPON_VERSION, "killfeed"),
@@ -65,7 +70,8 @@ def reader_streams() -> list[tuple[str, str, str, str | None]]:
             ("ally_icon", "ally_icon", ALLY_ICON_VERSION, None),
             ("minimap_dark", "minimap_dark", MINIMAP_DARK_VERSION, None),
             ("combat_report", "combat_report", COMBAT_REPORT_VERSION, None),
-            ("scoreboard", "scoreboard", SCOREBOARD_VERSION, None)]
+            ("scoreboard", "scoreboard", SCOREBOARD_VERSION, None),
+            ("ult_line", "audio", ULT_LINE_VERSION, None)]
 
 
 def stored_stamp(store, manifest: dict, stream: str) -> str | None:
@@ -85,7 +91,7 @@ def stale(store, sessions: list[str]) -> dict:
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
     from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
                            KILLFEED_WEAPON_VERSION)
-    from .version import HUD_VERSION, ROUND_VERSION
+    from .version import HUD_VERSION, ROUND_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION
     out = {}
     for sid in sessions:
         man = store.read_manifest(sid)
@@ -126,6 +132,17 @@ def stale(store, sessions: list[str]) -> dict:
                 derived.append({"stream": "death", "stored": version,
                                 "current": DEATH_ADJUDICATION_VERSION, "inputs_moved": moved,
                                 "command": f"reticle deaths {sid}"})
+        u = store.read_events("ult_cast", sid)
+        if u:
+            version, inputs = u[0].get("ult_cast_version"), u[0].get("inputs") or {}
+            moved = sorted(k for k, v in (("ult_line", ULT_LINE_VERSION), ("round", ROUND_VERSION))
+                           if inputs.get(k) not in (v, None))
+            moved += sorted(k for k, again in (("ult_line", "ult_line" in rescanned),
+                                               ("round", rounds_stale)) if again and k not in moved)
+            if version != ULT_CAST_VERSION or moved:
+                derived.append({"stream": "ult_cast", "stored": version,
+                                "current": ULT_CAST_VERSION, "inputs_moved": moved,
+                                "command": f"reticle ult-cast {sid}"})
         out[sid] = {"decode": decode, "derived": derived, "absent": absent}
     return out
 
@@ -155,9 +172,10 @@ def render(plan: dict) -> str:
             if tch == ch:
                 lines.append(f"  check  reticle trial {tsids[0]} --reader {t} --from cache"
                              f"   (one session, stored windows, no decode)")
-        lines.append(f"  accept reticle scan <sid> --only {ch}   for {' '.join(sids)}"
+        accept = ACCEPT.get(ch, f"reticle scan <sid> --only {ch}")
+        lines.append(f"  accept {accept}   for {' '.join(sids)}"
                      + ("   (from the ROI crop cache where one exists)" if cached else ""))
-    # Grouped by command and reason, rounds before the deaths that read them.
+    # Grouped by command and reason, rounds before the adjudications that read them.
     grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
     for sid, d in sorted(derived, key=lambda x: x[1]["stream"] != "rounds"):
         why = (f"{d['stored']} -> {d['current']}" if d["stored"] != d["current"]

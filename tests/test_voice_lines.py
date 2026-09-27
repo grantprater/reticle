@@ -223,7 +223,7 @@ class HarvestTests(unittest.TestCase):
     def test_two_abilities_with_ally_casts_stop_the_harvest(self):
         rows = [{"agent": "X", "ability": "One", "section": "Ally Cast", "file": "a.mp3"},
                 {"agent": "X", "ability": "Two", "section": "Enemy Cast", "file": "b.mp3"}]
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(ValueError):
             vl.harvested_ults(rows, have=set())
 
 

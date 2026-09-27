@@ -721,3 +721,117 @@ for the player is the 0.1.0 one, unsuppressed at 0.0443.
 - The review sheet awaits the player; it shows F-B only.
 - No events, labels or `reticle/` module. Nothing was written to the store's `notes/predictions.jsonl`, `events/` or `labels/`.
 - No audio left a capture: F-B decoded each capture's audio stream in memory again to score Gekko's two lines; no video was decoded and no `roi_cache` was read.
+
+## Production (2026-09-27)
+
+The pipeline runs F-B unsuppressed at 0.0443, the configuration the 0.2.0
+verdicts chose, as a reader and an adjudicator.
+
+- **Reader.** `reticle ult-lines SESSION | --all` (`reticle/ult_lines.py`,
+  `ult-line-0.1.0`, `[owns:ult-line]`) decodes only the capture's audio
+  stream, in memory, and correlates the 58 templates that
+  `reticle/templates/ult_lines.json` declares: the 56 asset files and Gekko's
+  harvested Thrash pair, each checked against its hash. The FFTs run on the
+  GPU with cupy and fall back to numpy. It stores every peak above its
+  template's 99th-percentile floor in `events/ult_line/<sid>.jsonl`, after a
+  coverage row, and consults no lineup. Gekko is scored from scratch, so the
+  0.2.0 merge's inexactness is gone. `prototypes/voice_lines.py` and
+  `prototypes/audio_gate.py` import the template cut, the correlation, the
+  peaks, the decode and the log-mel front end from it.
+- **Adjudicator.** `reticle ult-cast SESSION | --all [--record]`
+  (`reticle/adjudication/ult_cast.py`, `ult-cast-0.1.0`, `[owns:ult-cast]`)
+  reads only stored peaks, the lineup with its board override and the rounds
+  table. It selects peaks at 0.0443 and classes them own, possible, impossible
+  or unknown by the rules of "Method as fixed". Each selected peak publishes
+  one claim through `adjudication.identity` on channel `ult_line`. The claim
+  depends on the lineup verdicts of the side its variant implies, so the
+  arbiter counts it as no independent witness. A cast row's side is the
+  variant, relative to the player [domain:abilities/ult-lines-heard-by-both-teams];
+  its name is the arbiter's verdict, and its round comes from
+  `rounds.in_round_window`. An impossible peak is a `refusal` row with its
+  reason, and its claim abstains. Cast and refusal rows go to
+  `events/ult_cast/<sid>.jsonl`; the arbiter's identity events go to
+  `events/ult_cast_identity/<sid>.jsonl`.
+- `reticle plan` names a stale `ult_line` stream under the `audio` channel,
+  with `reticle ult-lines <sid>` as its reread, and a stale `ult_cast` with
+  `reticle ult-cast <sid>`; a rescan or a round rebuild stales the casts.
+
+### Acceptance on two sessions
+
+`prototypes/voice_lines.py port-check` compares the stored selections with
+0.1.0's F-B detections at 0.0443, peak by peak.
+
+| Session | Selected | Matched in 0.1.0 | Own | Possible | Impossible | Only one side | Class or round changed | Largest score difference |
+|---|---|---|---|---|---|---|---|---|
+| 043bafca271a | [metric:ult_lines/port-check-0.1.0@043bafca271a#port_selected=49] | [metric:ult_lines/port-check-0.1.0@043bafca271a#matched=49] | [metric:ult_lines/port-check-0.1.0@043bafca271a#port_own=2] | [metric:ult_lines/port-check-0.1.0@043bafca271a#port_possible=23] | [metric:ult_lines/port-check-0.1.0@043bafca271a#port_impossible=24] | [metric:ult_lines/port-check-0.1.0@043bafca271a#only_port=0] + [metric:ult_lines/port-check-0.1.0@043bafca271a#only_proto=0] | [metric:ult_lines/port-check-0.1.0@043bafca271a#class_changed=0] + [metric:ult_lines/port-check-0.1.0@043bafca271a#round_changed=0] | [metric:ult_lines/port-check-0.1.0@043bafca271a#max_score_diff=0.0] |
+| b7d24102a6f6 | [metric:ult_lines/port-check-0.1.0@b7d24102a6f6#port_selected=33] | [metric:ult_lines/port-check-0.1.0@b7d24102a6f6#matched=33] | [metric:ult_lines/port-check-0.1.0@b7d24102a6f6#port_own=2] | [metric:ult_lines/port-check-0.1.0@b7d24102a6f6#port_possible=23] | [metric:ult_lines/port-check-0.1.0@b7d24102a6f6#port_impossible=8] | [metric:ult_lines/port-check-0.1.0@b7d24102a6f6#only_port=0] + [metric:ult_lines/port-check-0.1.0@b7d24102a6f6#only_proto=0] | [metric:ult_lines/port-check-0.1.0@b7d24102a6f6#class_changed=0] + [metric:ult_lines/port-check-0.1.0@b7d24102a6f6#round_changed=0] | [metric:ult_lines/port-check-0.1.0@b7d24102a6f6#max_score_diff=0.0] |
+
+The port reproduces 0.1.0 exactly on both sessions: the same peaks, classes
+and rounds, with scores equal to 0.1.0's four stored decimals. No Gekko peak
+reaches the threshold on either session. A second read of 043bafca271a wrote
+identical rows, timings aside.
+
+Two differences from the prototype hold by design. A session without a lineup
+has no player, so every peak on a demo is unknown; the prototype read a
+demo's player from its tags. The rows carry the round but no `live` flag:
+live minutes were an evaluation device.
+
+### The 25 sessions
+
+`reticle ult-lines` read the 25 sessions with audio features one at a time,
+and `reticle ult-cast --all --record` classed
+[metric:ult_lines/ult-cast@all-sessions#selected=624] of
+[metric:ult_lines/ult-cast@all-sessions#peaks=162134] stored peaks. On the
+[metric:ult_lines/ult-cast@all-sessions#sessions_with_lineup=19] match
+sessions with a lineup it selected
+[metric:ult_lines/ult-cast@all-sessions#lineup_selected=587] peaks:
+[metric:ult_lines/ult-cast@all-sessions#lineup_class_own=58] own,
+[metric:ult_lines/ult-cast@all-sessions#lineup_class_possible=412] possible,
+[metric:ult_lines/ult-cast@all-sessions#lineup_class_impossible=117] impossible
+and [metric:ult_lines/ult-cast@all-sessions#lineup_class_unknown=0] unknown.
+The other [metric:ult_lines/ult-cast@all-sessions#class_unknown=37] selections
+are unknown: the match without a lineup and the demos. The arbiter named all
+[metric:ult_lines/ult-cast@all-sessions#casts=507] casts. Decoding a capture's
+audio took [metric:ult_lines/ult-cast@all-sessions#decode_s_min=0.4] s to
+[metric:ult_lines/ult-cast@all-sessions#decode_s_max=31.4] s (median
+[metric:ult_lines/ult-cast@all-sessions#decode_s_median=22.5] s), and scoring
+it on the GPU took [metric:ult_lines/ult-cast@all-sessions#score_s_min=0.1] s
+to [metric:ult_lines/ult-cast@all-sessions#score_s_max=3.0] s (median
+[metric:ult_lines/ult-cast@all-sessions#score_s_median=2.2] s).
+
+Against 0.1.0's F-B detections over all 25 sessions,
+[metric:ult_lines/port-check-0.1.0@all-sessions#matched=612] selections match
+one peak for one peak, [metric:ult_lines/port-check-0.1.0@all-sessions#only_proto=0]
+detections are missing, [metric:ult_lines/port-check-0.1.0@all-sessions#round_changed=0]
+rounds changed, and [metric:ult_lines/port-check-0.1.0@all-sessions#only_port=12]
+selections are new:
+
+- Seven are Gekko's lines, which 0.1.0 did not hold, all possible: the
+  peaks the 0.2.0 "Gekko" section counts.
+- Five sit at the threshold's edge, scoring 0.04431 to 0.04432. The 0.1.0 run
+  selected at its unrounded operating point, just above the 39th-highest live
+  impossible score; the declared 0.0443 is that point rounded. Three of the
+  five are impossible and
+  [metric:ult_lines/port-check-0.1.0@all-sessions#only_port_live_impossible=1]
+  falls in live time, so the in-sample rate is
+  [metric:ult_lines/port-check-0.1.0@all-sessions#live_impossible=39] live
+  impossible peaks over
+  [metric:voice_lines/evaluate-F-B@all-matches#live_minutes=385.5] live
+  minutes, [metric:ult_lines/port-check-0.1.0@all-sessions#impossible_per_live_min=0.1012]
+  per minute against the target of 0.1. The adjudicator cannot compute this
+  rate itself: live minutes need the game-time phases and stalls, and it
+  reads only the rounds table.
+- [metric:ult_lines/port-check-0.1.0@all-sessions#class_changed=2] classes
+  changed, both on demos: the own line of 6afc32cb46b4 and aab12e41dcfc is
+  now unknown, because a session without a lineup has no player.
+
+### What was not done in production
+
+- Casts are plain rows; the event contract has no ability-cast kind, and only
+  the identity events are formal.
+- A cast is not bound to a minimap entity or a tray drop: `ability-owner`
+  stays unowned, and no own line is checked against the player's tray here.
+- The threshold is 0.1.0's in-sample operating point, rounded; no session
+  was held out, and the unrounded point was not restored.
+- The per-agent cast window, the review sheet and the witnesses stay in the
+  prototype.
