@@ -304,16 +304,25 @@ see = ["abilities/clove-ruse-batch-launch"]
 
 [ability-sound-phases]
 claim = """
-When the local player uses an ability, its equip sound is separate from its cast
-sound, and only the local player hears the equip. Some abilities also have an
-activation sound and a death or dematerialize sound.
+Every ability has an equip sound, heard by the local player only, and a cast
+or activation sound. Some also have an ongoing sound while the ability lives
+or is channelled (Hot Hands on the ground, Blaze, Regrowth looping while
+channelled), and some a deactivate or end sound. An activation can be a
+distinct sound from the cast: Guiding Light's bird vanishes and the flash
+goes off with its own sound.
 """
 kind = "rule"
 known = "player"
 since = "2026-09-06"
+source = """
+the player, 2026-09-06 (equip separate from cast, equip self-only) and
+2026-09-26 (every ability equips and casts, some deactivate, Guiding Light's
+activation; ongoing sounds for Hot Hands, Blaze and channelled Regrowth)
+"""
 use = """
-segment an ability's audio by phase before matching; an equip template and a
-cast template are different references
+segment an ability's audio by phase before matching: equip, cast, ongoing and
+end templates are different references, and an ongoing sound is a lifetime
+witness the minimap lacks for a self-buff or a channel
 """
 
 [ability-voice-line-mask]
