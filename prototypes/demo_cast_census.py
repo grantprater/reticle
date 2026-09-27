@@ -178,28 +178,16 @@ SLOTS = ("C", "Q", "E", "X")
 
 
 def tray_reader():
-    """The promoted tray reader if this checkout has it, else the prototype."""
-    try:
-        from reticle import tray
-        return tray, "reticle.tray"
-    except ImportError:
-        sys.path.insert(0, str(ROOT / "prototypes"))
-        import ability_hud
-        return ability_hud, "prototypes.ability_hud"
+    """The tray's owner, `reticle.tray`, and its version stamp."""
+    from reticle import tray
+    from reticle.version import TRAY_VERSION
+    return tray, f"reticle.tray {TRAY_VERSION}"
 
 
 def cache_grid(t_ms, t0: float, t1: float, step_s: float) -> list[float]:
-    """Cached times nearest a regular grid inside [t0, t1] (`reticle tray`'s grid)."""
-    try:
-        from reticle.cli import _cache_grid
-        return _cache_grid(t_ms, t0, t1, step_s)
-    except ImportError:
-        t = np.unique(np.asarray(t_ms, float))
-        t = t[(t >= t0) & (t <= t1)]
-        if not len(t):
-            return []
-        want = np.arange(t[0], t[-1] + 1, step_s * 1000.0)
-        return [float(x) for x in t[np.unique(np.searchsorted(t, want).clip(0, len(t) - 1))]]
+    """Cached times nearest a regular grid inside [t0, t1]: `reticle tray`'s grid."""
+    from reticle.cli import _cache_grid
+    return _cache_grid(t_ms, t0, t1, step_s)
 
 
 def kit(agent: str | None) -> dict[str, dict]:
@@ -283,6 +271,14 @@ TRAY_VERDICTS = {
     "02cf738b1c8f:Q:15.03": ("false", "Q full 13.0-15.3 s; the bow's glow lifts Q to 978"),
     "02cf738b1c8f:Q:16.53": ("false", "the glow lifts Q at the 16.03 s sample, counted clean; "
                                       "the half drop is 15.5 s"),
+    "02cf738b1c8f:E:23.07": ("real", "E full under the bow's glow to 22.07 s, empty at 22.15 s; "
+                                     "read across the refused samples"),
+    "33db0d21fa32:C:17.07": ("real", "C full to 16.23 s, empty from 16.30 s"),
+    "ad6b67cdf91d:C:14.50": ("real", "C falls from one charge to none between 14.10 and 14.17 s"),
+    "f9703a4b5a47:C:12.50": ("false", "C holds one charge 11.0-12.83 s; a dark overlay at the "
+                                      "11.50 s sample reads 0.85 and counts clean; C falls at "
+                                      "12.90 s (the 13.03 s row)"),
+    "ff19748eea8c:Q:13.03": ("real", "Q full to 12.43 s, empty at 12.70 s after a cyan gust"),
     "2ba870ccbd50:X:10.03": ("false", "X full throughout; a teal wash lifts X at 9.5 s"),
     "2ba870ccbd50:E:22.57": ("false", "a white-yellow flood 22.0-25.2 s; E reads three "
                                       "charges before and after"),
@@ -487,11 +483,10 @@ MARGIN_PX = 40
 PERSIST_N = 2
 #: A component that stays below its threshold for this long has ended.
 GONE_S = 1.0
-#: Colour rules. Teal is `ability_shapes.teal`'s (hue 75-105, sat >= 70,
-#: weighted by value) cut at this weight; white is bright and achromatic;
-#: the other hues are saturated pixels outside teal and the self key.
+#: Colour rules. Teal is `ability_shapes.teal`'s weight cut here; white is
+#: bright and achromatic; the other hues are saturated pixels outside the teal
+#: hue band (`ability_shapes.TEAL_H`) and the self key.
 TEAL_W_MIN = 0.3
-TEAL_H, TEAL_S_MIN = (75, 105), 70
 WHITE_S_MAX, WHITE_V_MIN = 40, 200
 HUE_S_MIN, HUE_V_MIN = 70, 90
 #: The art footprint grown by this many px is the support (the art's own
@@ -511,16 +506,9 @@ CLASSES = ("nothing", "dark_disc", "teal_ring", "teal_line", "wall_segments",
 
 
 def teal_weight(crop):
-    """`ability_shapes.teal` when this checkout has it; the same rule otherwise."""
-    try:
-        from reticle.ability_shapes import teal
-        return teal(crop)
-    except ImportError:
-        import cv2
-        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-        h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
-        return (((h >= TEAL_H[0]) & (h <= TEAL_H[1]) & (s >= TEAL_S_MIN))
-                .astype(np.float32) * (v / np.float32(255.0)))
+    """The ally teal's weight per pixel: `ability_shapes.teal`, its owner."""
+    from reticle.ability_shapes import teal
+    return teal(crop)
 
 
 class Geo:
@@ -543,8 +531,8 @@ class Geo:
         self.support = geometry.footprint(sid, STORE, dilate=SUPPORT_DILATE, shape=(H, W))
         if self.support is None:
             raise SystemExit(f"{sid}: no art footprint for {self.key}")
-        yy, xx = np.mgrid[0:H, 0:W]
-        self.disc = np.hypot(xx - (W - 1) / 2, yy - (H - 1) / 2) <= min(H, W) / 2
+        from reticle.ability_shapes import widget
+        _R, self.disc = widget((H, W))
         self.k3 = np.ones((3, 3), np.uint8)
         self.cv2 = cv2
 
@@ -567,6 +555,7 @@ def frame_masks(crop, geo: Geo) -> tuple[bool, dict, dict | None]:
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
     h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
     tw = teal_weight(crop) >= TEAL_W_MIN
+    from reticle.ability_shapes import TEAL_H
     in_teal = (h >= TEAL_H[0]) & (h <= TEAL_H[1])
     m = {"dark": lighting.raw_dark(crop, geo.ref) & ~off,
          "lit": lighting.raw_lit(crop, geo.ref) & ~off,
