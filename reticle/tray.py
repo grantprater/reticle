@@ -31,6 +31,17 @@ in the store's `notes/predictions.jsonl`). Across refused samples that still
 show the tray, the last clean sample is compared with the next one if it comes
 within GAP_S, and the drop says `across_gap`.
 
+Two charges. An ability with two charges draws its bar as two segments
+[domain:hud/ability-tray-charge-segments], so the fill reads 1.0, 0.5 and 0,
+and a spent charge falls by 0.5, above CAST_DROP; no charge count per
+ability is needed. The four two-charge slots on the 19 lineup sessions gave
+[metric:tray/segments@all-sessions#half_from_full=89] drops from full to half
+and [metric:tray/segments@all-sessions#empty_from_half=43] from half to empty.
+A drop that leaves the slot at its full level
+([metric:tray/segments@all-sessions#full_after=68] of 493 accepted) is added
+teal released, an ability equipped and not used (player, 2026-09-27); the
+cast owner (`ability_timeline.player_tray_casts`) decides what a drop is.
+
 What a drop is not. A drop is a transition, not a cast: after the player dies
 the tray shows a spectated teammate's kit, and its switch reads as several
 slots emptying at once. `casts` flags a drop that lands on the first refused

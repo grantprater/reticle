@@ -1460,4 +1460,25 @@ the tray gate refuses an X drop whose slot was not full (`partial_charge`);
 the four such drops on the 19 lineup sessions (fills 0.36 to 0.58) had no ult
 line, and every X drop with a line fell from a fill of 0.90 or more
 """
-see = ["abilities/deadlock-ult-tray-drop-at-equip", "abilities/phoenix-run-it-back-expiry-flash"]
+see = ["abilities/deadlock-ult-tray-drop-at-equip", "abilities/phoenix-run-it-back-expiry-flash", "abilities/ult-slot-lights-when-castable"]
+
+[ult-slot-lights-when-castable]
+claim = """
+The X slot's bar lights only while the ultimate can be cast, that is while
+every pip is lit. Until then the bar is dark and only the pips show.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-27"
+subject = "abilities:tray"
+source = """
+the player, 2026-09-27, asked whether the X bar lights only when full; the X
+fill on the 19 lineup sessions reads at or below 0.16 or between 0.8 and 1.1,
+with nothing between
+"""
+use = """
+a lit X bar is an ultimate ready: the first sample where the X fill passes
+FULL_MIN dates the charge filling, the moment the ult-ready line is voiced;
+the two-state reading is the appearance, not a reader artefact
+"""
+see = ["abilities/ult-charge-pips", "abilities/ult-ready-lines"]

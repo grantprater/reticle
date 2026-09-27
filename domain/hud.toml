@@ -177,3 +177,25 @@ a text witness for callouts beyond audio range, in an unread HUD region;
 read, it names the caller and the site and dates a ping
 """
 see = ["abilities/voice-lines-announce-casts"]
+
+[ability-tray-charge-segments]
+claim = """
+An ability with two charges draws its tray slot's bar as two segments, one
+per charge. No ability has more than two charges (2026-09-27).
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-27"
+subject = "hud:ability tray"
+source = """
+the player, 2026-09-27; the stored tray_drop rows on the 19 lineup sessions
+read Clove's Ruse, Phoenix's Hot Hands, Skye's Guiding Light and Sova's Shock
+Bolt as halves: 89 accepted drops from full to half and 43 from half to empty
+"""
+use = """
+a fill is the slot's teal over the session's p90, so a segment is 0.5 of the
+reference and a spent charge falls by 0.5, above CAST_DROP (0.25); the reader
+needs no charge count per ability, and a drop that leaves the slot at its full
+level spent nothing
+"""
+see = ["abilities/omen-tray-charges", "abilities/killjoy-tray-charges", "abilities/jett-tray-charges", "abilities/clove-tray-charges", "abilities/cypher-tray-charges"]
