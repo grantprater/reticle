@@ -1403,22 +1403,22 @@ see = ["abilities/voice-lines-announce-casts", "abilities/phoenix-run-it-back-ex
 [ult-ready-lines]
 claim = """
 An agent announces a ready ultimate with a fixed voice line of its own, not
-the cast line: the player heard Skye say her ultimate is ready on
-`c40d950031bb` at 678 s, where the sound scored 0.0441 against Skye's enemy
-cast template, just under the operating threshold. Who hears the line is
-open: the lineup names five allies without Skye and refuses enemy slot 0
-between Breach and Skye, and the ready-take scorer ranks Miks, a named ally,
-first at that instant. Whether the game voices the line unprompted when the
-charge fills is unmeasured.
+the cast line. The game voices it unprompted when the charge fills, and
+teammates hear it: the player heard Killjoy's, an ally's, on `c40d950031bb`
+at 678 s (the review of 2026-09-27 named Skye; the player corrected it to
+Killjoy the same day). The sound scored 0.0441 against Skye's enemy cast
+template and 0.0574 against Killjoy's, while Killjoy's harvested ready take
+ranked 17th of 29 agents there.
 """
 kind = "appearance"
 known = "player"
 since = "2026-09-27"
 use = """
 harvest the ult-ready lines as templates of their own: a false alarm for the
-cast templates and a witness that an ally's ultimate is ready
+cast templates, a witness that an ally's ultimate is ready, and a date for
+the fill, since the game voices the line when the charge fills
 """
-see = ["abilities/voice-lines-announce-casts"]
+see = ["abilities/voice-lines-announce-casts", "abilities/ult-ready-line-is-a-radio-reply"]
 
 [ult-ready-line-is-a-radio-reply]
 claim = """
@@ -1434,13 +1434,13 @@ subject = "abilities:audio"
 source = """
 reference/assets/voicelines/ult_ready/index.json, harvested from all 29
 agents' wiki quotes pages by prototypes/voice_line_harvest.py ult-ready on
-2026-09-27 (docs/VOICE_LINE_ASSETS.md); whether the game also voices the
-ready line unprompted when the charge fills is not on the wiki and is
-unmeasured
+2026-09-27 (docs/VOICE_LINE_ASSETS.md); the wiki does not say that the game
+also voices the ready line unprompted when the charge fills, which the
+player confirmed on 2026-09-27 (see ult-ready-lines)
 """
 use = """
 an agent's ult-ready templates are its two ready takes; a match says the
-speaker announced a ready ultimate, and it dates the fill only if the game
-voices the line unprompted
+speaker's ultimate became ready and dates the fill, since the game voices the
+line unprompted; whether the game's take is one of the wiki's two is unchecked
 """
 see = ["abilities/ult-ready-lines", "abilities/voice-lines-announce-casts"]

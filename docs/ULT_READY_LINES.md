@@ -173,9 +173,22 @@ Most collisions pair a cast template the lineup rules out, which the adjudicator
 
 The player heard a Skye ready line on `c40d950031bb` at 678.1 s. Skye's best take peaks [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_offset_s=0.33] s later at [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_score=0.0506], under the threshold, and ranks [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_rank=5] of the [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_agents_at_onset=29] agents with a stored peak within 0.5 s of it. Miks's take scores highest there, [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_top_score=0.0587], and is detected. The lineup names Miks on the player's team and no Skye among the five allies;
 it refuses enemy slot 0 between Breach and Skye (margin 0.031, below 0.07), so
-Skye is possible on the enemy side, not named. The templates say the line was
-Miks's, where the player says Skye's; [domain:abilities/ult-ready-lines] leaves
-the hearer open. The best cast peak beside it is Killjoy's enemy line at [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_cast_max=0.0574], which the adjudicator refuses as impossible. The disagreement is stored, not resolved: only the player's ear can name the speaker.
+Skye is possible on the enemy side, not named. The templates said the line was Miks's; the
+player, asked again, named Killjoy (next paragraph). The best cast peak beside it is Killjoy's enemy line at [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_cast_max=0.0574], which the adjudicator refuses as impossible. The disagreement is stored, not resolved: only the player's ear can name the speaker.
+
+**The player's answer (2026-09-27).** The speaker was Killjoy, a named ally on the
+player's side. Her ready take ranks [metric:ult_ready_lines/heard@c40d950031bb#killjoy_rank=17] of
+[metric:ult_ready_lines/heard@c40d950031bb#agents_at_onset=29] agents there, at
+[metric:ult_ready_lines/heard@c40d950031bb#killjoy_score=0.0433], while Killjoy's enemy cast template
+scores [metric:ult_ready_lines/heard@c40d950031bb#killjoy_cast_enemy_score=0.0574] at the same instant:
+the scorer fails its one labelled line, and the speaker's cast template outscores her ready take.
+Whether the take the game played is one of the wiki's two is unchecked. Across the 25 sessions only
+[metric:ult_ready_lines/heard@c40d950031bb#r4_same_agent=3] of the
+[metric:ult_ready_lines/heard@c40d950031bb#r4_collide=93] ready-cast collisions pair one agent's own two
+templates, so same-speaker cross-fire does not explain the collisions. The player also confirmed that the
+game voices the ready line unprompted when the charge fills [domain:abilities/ult-ready-lines], so a
+detected own ready line dates the fill. Next: store the X slot's fill from the tray and score own ready
+detections against it; R3 becomes testable, and the tray is the other channel that sees the same event.
 
 ### Outcomes
 
