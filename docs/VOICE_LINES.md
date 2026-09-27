@@ -831,51 +831,68 @@ selections are new:
 
 `reticle ult-cast` at `ult-cast-0.2.0` binds each own selection to the
 player's X casts, which it asks of the tray owner
-(`ability_timeline.player_tray_casts`, through `player_x_drops`), within the
-agent's cast window: 1.5 s either side of the drop, and from 20 s before it for
-Phoenix. The table and the 0.2.0 measurement behind it sit in
+(`ability_timeline.player_tray_casts` at `player-cast-0.2.0`, through
+`player_x_drops`), within the agent's cast window: 1.5 s either side of
+the drop, and from 20 s before it for Phoenix. The table and the 0.2.0 measurement behind it sit in
 `adjudication.ult_cast.CAST_WINDOW`, which the prototype imports. The rerun
 selected and classed the same [metric:ult_lines/ult-cast@all-sessions#selected=624] peaks as before;
 [metric:ult_lines/ult-cast@all-sessions#tray_sessions=19] sessions bound to the tray, the
 [metric:ult_lines/ult-cast@all-sessions#tray_unbound_no_tray_drops=5] demos had no tray drops, and the match
 without a lineup had no player's agent ([metric:ult_lines/ult-cast@all-sessions#tray_unbound_no_player_agent=1]).
 
-**Own selections.** Of [metric:ult_lines/ult-cast@all-sessions#class_own=58] own selections, [metric:ult_lines/ult-cast@all-sessions#own_witnessed=37]
-have an X cast in their window and [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed=21] do not. Every
+**Own selections.** Of [metric:ult_lines/ult-cast@all-sessions#class_own=58] own selections, [metric:ult_lines/ult-cast@all-sessions#own_witnessed=45]
+have an X cast in their window and [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed=13] do not. Every
 unwitnessed one lies within its window of an X drop the tray owner refused:
-[metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death=17] as after the player's death,
-[metric:ult_lines/ult-cast@all-sessions#own_beside_refused_cooccur_among_casts=3] as co-occurring with another
-slot's drop, and [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_phase_round_end=1] in the round's end.
-No own line stands without a tray drop beside it; the line and the tray agree
-that the ultimate fell, and the owner's gate disagrees. Each such row stores
-the refused drop and its reason as `tray_refused`; the adjudicator overrules
-nothing.
+[metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death=4] as after the player's death,
+[metric:ult_lines/ult-cast@all-sessions#own_beside_refused_cooccur_among_casts=6] as co-occurring with another
+slot's drop, [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_forced=2] as forced, and
+[metric:ult_lines/ult-cast@all-sessions#own_beside_refused_phase_round_end=1] in the round's end. No own line
+stands without a tray drop beside it. Each such row stores the refused drop
+and its reason as `tray_refused`; the adjudicator overrules nothing.
 
 | Player's agent | X casts in a round | Missed | Own selections witnessed | Unwitnessed, beside a drop refused after death |
 |---|---|---|---|---|
-| Phoenix | [metric:ult_lines/ult-cast@all-sessions#x_casts_Phoenix=11] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Phoenix=3] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Phoenix=7] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Phoenix=14], [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Phoenix=14] |
+| Phoenix | [metric:ult_lines/ult-cast@all-sessions#x_casts_Phoenix=19] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Phoenix=3] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Phoenix=15] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Phoenix=6], [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Phoenix=2] |
 | Sova | [metric:ult_lines/ult-cast@all-sessions#x_casts_Sova=19] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Sova=4] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Sova=15] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Sova=2], none |
 | Skye | [metric:ult_lines/ult-cast@all-sessions#x_casts_Skye=15] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Skye=0] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Skye=15] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Skye=3], [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Skye=1] |
-| Clove | [metric:ult_lines/ult-cast@all-sessions#x_casts_Clove=1] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Clove=1] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Clove=0] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Clove=2], [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Clove=2] |
+| Clove | [metric:ult_lines/ult-cast@all-sessions#x_casts_Clove=1] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Clove=1] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Clove=0] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Clove=2], [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Clove=1] |
 
-Two agents explain most of the disagreement, and both belong to the
-`ability-cast` owner:
+**After the gate fix (`player-cast-0.2.0`).** The gate stamped `tray-0.1.0`
+ended the player's kit at the round's first killfeed death. The series'
+record before the fix (2026-09-27 12:15) read 37 own selections witnessed
+and 21 not, 17 of the 21 beside a drop refused as after the player's death,
+and 0.826 of 46 in-round X casts with a line. Most of the 21 belonged to the
+two agents whose death the game can undo
+[domain:rounds/resurrection-mechanics], and the gate now asks which deaths
+it undid:
 
-- **Phoenix.** Every unwitnessed Phoenix line comes before an X drop refused
-  as after the player's death. Two of them are the Run it Back deaths the
-  combat report records [domain:rounds/run-it-back-in-report]: on
-  `a06f04a0059f` the line sits at 1572.0 s and the Run it Back death at
-  1576.5 s, on `5822b6646448` at 1412.6 s and 1413.5 s. The hypothesis to test:
-  a Run it Back death counts as the player's death for the gate, so the drop at
-  the ult's end falls after it and is refused.
-- **Clove.** Not Dead Yet needs Clove's death
-  [domain:abilities/clove-c-and-x-need-a-target], so a gate that refuses every
-  drop after the player's death refuses every Not Dead Yet cast. Both of her
-  unwitnessed lines follow such a drop by about a second.
+- **Phoenix.** A death the killfeed badge votes a second life is a Run It
+  Back death and no longer ends his kit; the X drop at the ult's end is his
+  cast [domain:abilities/phoenix-run-it-back-expiry-flash]
+  [domain:abilities/caster-hears-own-ult-line]. His in-round X casts rose to
+  [metric:ult_lines/ult-cast@all-sessions#x_casts_Phoenix=19] and his witnessed lines to
+  [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Phoenix=15]; no other agent's count moved. Of the
+  [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Phoenix=6] left,
+  [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_cooccur_among_casts_Phoenix=3] lie beside an X drop at
+  the ult's end that falls with another slot's drop,
+  [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_forced_Phoenix=1] beside a forced drop, and
+  [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Phoenix=2] beside a drop after a
+  death the gate keeps. On `5822b6646448` at 1412.5 s the round's combat
+  report counts a real death the killfeed missed, jay's second kill 2 s after
+  the Run It Back death [domain:rounds/run-it-back-in-report], so the second
+  life still ends the kit and the drop is the real death's. On
+  `587c15b07779` at 1540.1 s no badge read votes the death at 1551.5 s a
+  second life.
+- **Clove.** A death her own revive entry follows no longer ends her kit
+  [domain:abilities/clove-c-and-x-need-a-target]
+  [domain:killfeed/revive-entries]. On `a1a995e6b19b` the tray still does not
+  witness Not Dead Yet: the X drop at 632.5 s falls with Q and E on the death
+  screen's blank, and the owner refuses it as forced. The line at 1893.1 s has
+  no stored revive entry in its round, so her death there ends the kit.
 
-**Missed lines.** Of [metric:ult_lines/ult-cast@all-sessions#x_casts=46] X casts inside a round,
+**Missed lines.** Of [metric:ult_lines/ult-cast@all-sessions#x_casts=54] X casts inside a round,
 [metric:ult_lines/ult-cast@all-sessions#missed_lines=8] have no own selection in their window, so
-[metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.826] have one. [metric:ult_lines/ult-cast@all-sessions#missed_with_peak=4] of the
+[metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.852] have one. [metric:ult_lines/ult-cast@all-sessions#missed_with_peak=4] of the
 missed have an own-template peak in the window, below the threshold; the
 others have none above the template's floor.
 
@@ -903,10 +920,17 @@ that seven of the eight missed casts have no line:
   [metric:voice_lines/evaluate-0.2.0-F-B-unsuppressed@all-matches#floor_max=0.0159].
 - Four have no own peak above the floor.
 
-Four of the eight drops fall from a partly filled X slot, 0.36 to 0.58 of the
-session's full reading, and none of those four has a line. Whether a drop from
-a partial fill is a cast at all is the tray owner's question; these rows hand
-it the cases.
+**Partly filled X slots.** Every X cast with a line falls from a fill of
+[metric:ult_lines/x-fill@all-sessions#with_line_from_min=0.9] to [metric:ult_lines/x-fill@all-sessions#with_line_from_max=1.18] of the session's full
+reading. [metric:ult_lines/x-fill@all-sessions#below_with_line_min=4] casts fall from less, [metric:ult_lines/x-fill@all-sessions#below_from_min=0.36] to
+[metric:ult_lines/x-fill@all-sessions#below_from_max=0.58], and none of them has a line. Any threshold in
+that gap separates them in this sample, and refusing them would leave
+[metric:ult_lines/x-fill@all-sessions#fraction_if_below_refused=0.92] of the casts with a line. The gate does not
+refuse them: no domain fact says an ultimate cannot be cast before its slot
+fills, or what else empties partly lit pips, so a `partial_charge` reason
+would rest on the missing line alone, the output under test. The player is
+asked: can X be cast before every pip is lit, and what emptied the partly
+lit slot on `ff636d173b07` at 48.0 s, round 1?
 
 ### What was not done in production
 
@@ -1046,10 +1070,12 @@ Ledger rows under task `voice-lines-heldout`, kind `outcome`, 2026-09-27.
   in-sample [metric:voice_lines/heldout-0.1.0@all-matches#pooled_own_recall=0.826].
 - **H3 confirmed.** Every point picked with one session left out lies within
   [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_max_shift=0.000564] of 0.0443, inside the 0.002 asked.
-- **H4 falsified in its second clause.** [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.826] of
-  the in-round X casts have an own line, above the 0.8 asked, but the rest are
+- **H4 falsified in its second clause.** When H4 was tested, 0.826 of the
+  in-round X casts had an own line, above the 0.8 asked, but the rest are
   not Phoenix expiry drops or lines under the threshold: one missed cast has a
   line under the threshold and seven have none ("Own lines against the tray").
+  After the gate fix [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.852] have one, and the same
+  eight casts miss it.
 
 ### Recommendation
 

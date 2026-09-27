@@ -181,10 +181,20 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
 # a prior, an acceptance or the stored fields change.
 ABILITY_SHAPE_VERSION = "ability-shape-0.1.0"
-# The ability tray's charge drops, with the player-cast gate applied, written as
-# `tray_drop` rows by `reticle tray` from the stored crops. Bump when a tray
-# constant, the drop rule or the gate changes.
+# The ability tray's charge drops, written as `tray_drop` rows by `reticle
+# tray` from the stored crops. Bump when a tray constant or the drop rule
+# changes; the gate that decides which drops are the player's has its own
+# stamp, PLAYER_CAST_VERSION.
 TRAY_VERSION = "tray-0.1.0"
+# Which stored tray drops are the local player's casts, decided by
+# `ability_timeline.player_tray_casts` from stored data alone. `reticle tray`
+# stamps it beside its drops; `ult-cast` and `ability-shapes` record it among
+# their inputs. Bump when the gate's rule or its inputs change.
+# 0.1.0 was stamped as tray-0.1.0 and ended the kit at the player's first
+# killfeed death in the round.
+# 0.2.0: a Phoenix Run It Back death, and a Clove death her Not Dead Yet
+# revive follows, do not end the kit.
+PLAYER_CAST_VERSION = "player-cast-0.2.0"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the

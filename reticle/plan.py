@@ -8,8 +8,9 @@ the audio stream (`ACCEPT`). A reader with a trial (`trial.TRIAL_READERS`) reads
 cached ROIs: it can be checked first on stored windows, and `scan` feeds it
 from the ROI crop cache instead of decoding when a cache holds its set
 (`roi_cache.cache_for`). A stale adjudication rereads
-nothing: it reruns from storage. A stream never written is `absent`, which
-is not stale.
+nothing: it reruns from storage; `reticle tray` and `reticle ability-shapes`
+reread the stored crops and decode nothing. A stream never written is
+`absent`, which is not stale.
 
 A stamp is only as good as the bump: a code change that keeps its stamp is
 invisible here, as it is to `scan`'s cache check.
@@ -91,7 +92,8 @@ def stale(store, sessions: list[str]) -> dict:
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
     from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
                            KILLFEED_WEAPON_VERSION)
-    from .version import (HUD_VERSION, ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
+    from .version import (ABILITY_SHAPE_VERSION, COMBAT_REPORT_ROUND_VERSION, HUD_VERSION,
+                          PLAYER_CAST_VERSION, ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
                           ULT_LINE_VERSION)
     out = {}
     for sid in sessions:
@@ -133,21 +135,53 @@ def stale(store, sessions: list[str]) -> dict:
                 derived.append({"stream": "death", "stored": version,
                                 "current": DEATH_ADJUDICATION_VERSION, "inputs_moved": moved,
                                 "command": f"reticle deaths {sid}"})
+        deaths_stale = any(x["stream"] == "death" for x in derived)
         u = store.read_events("ult_cast", sid)
         if u:
             version, inputs = u[0].get("ult_cast_version"), u[0].get("inputs") or {}
             moved = sorted(k for k, v in (("ult_line", ULT_LINE_VERSION), ("round", ROUND_VERSION),
-                                          ("tray_drop", TRAY_VERSION), ("hud", HUD_VERSION))
+                                          ("tray_drop", TRAY_VERSION), ("hud", HUD_VERSION),
+                                          ("player_cast", PLAYER_CAST_VERSION),
+                                          ("death", DEATH_ADJUDICATION_VERSION),
+                                          ("killfeed_portrait", KILLFEED_PORTRAIT_VERSION),
+                                          ("combat_report_round", COMBAT_REPORT_ROUND_VERSION))
                            if inputs.get(k) not in (v, None))
-            # The tray binding reads the HUD only where it read tray drops.
+            # A tray binding stamped before the gate had a stamp of its own
+            # was decided by the first gate.
+            if "tray_drop" in inputs and "player_cast" not in inputs:
+                moved = sorted(moved + ["player_cast"])
+            # The tray binding reads the HUD and the gate's inputs only where it
+            # read tray drops.
             moved += sorted(k for k, again in (("ult_line", "ult_line" in rescanned),
                                                ("round", rounds_stale),
-                                               ("hud", "hud" in rescanned and "hud" in inputs))
+                                               ("hud", "hud" in rescanned and "hud" in inputs),
+                                               ("killfeed_portrait", "killfeed_portrait" in rescanned
+                                                and "killfeed_portrait" in inputs),
+                                               ("death", deaths_stale and "death" in inputs))
                             if again and k not in moved)
             if version != ULT_CAST_VERSION or moved:
                 derived.append({"stream": "ult_cast", "stored": version,
                                 "current": ULT_CAST_VERSION, "inputs_moved": moved,
                                 "command": f"reticle ult-cast {sid}"})
+        # Which drops are the player's casts is the gate's decision
+        # (`ability_timeline.player_tray_casts`, PLAYER_CAST_VERSION). `tray`
+        # stores the verdict it gave beside its drops, for the prototypes that
+        # read it, and `ability-shapes` fits a shape after each cast; a row
+        # without the gate's stamp was decided by the first gate.
+        gate = {"player_cast": ("player_cast_version", PLAYER_CAST_VERSION)}
+        for stream, stamp, current, command, want in (
+                ("tray_drop", "tray_version", TRAY_VERSION, "reticle tray", gate),
+                ("ability_shape", "ability_shape_version", ABILITY_SHAPE_VERSION,
+                 "reticle ability-shapes",
+                 {**gate, "tray_drop": ("tray_version", TRAY_VERSION)})):
+            rows = store.read_events(stream, sid)
+            if not rows:
+                continue
+            version = rows[0].get(stamp)
+            moved = sorted(k for k, (field, v) in want.items() if rows[0].get(field) != v)
+            if version != current or moved:
+                derived.append({"stream": stream, "stored": version, "current": current,
+                                "inputs_moved": moved, "command": f"{command} {sid}"})
         out[sid] = {"decode": decode, "derived": derived, "absent": absent}
     return out
 

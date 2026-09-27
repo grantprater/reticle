@@ -60,7 +60,7 @@ def _audio_references(root: Path) -> list[dict]:
     return out
 
 
-#: A drop this long before the player's first death in its round already
+#: A drop this long before the death that ends the player's kit already
 #: belongs to it: the death verdict's time is the killfeed entry, which trails
 #: the death screen that blanks the tray.
 DEATH_LEAD_MS = 1000.0
@@ -68,39 +68,97 @@ DEATH_LEAD_MS = 1000.0
 CAST_PHASES = ("round_live", "post_plant")
 
 
+def _kit_end(window: tuple, ends: set, deaths_ms, agent: str | None,
+             second_lives_ms, revives_ms, report_deaths: dict | None
+             ) -> tuple[float | None, list[list]]:
+    """(the first of the player's deaths in the round `window` that ends the
+    player's kit, or None; the deaths before it that the game undid, each as
+    [t_ms, why]). `player_tray_casts` says how a death is undone."""
+    a, z, close = window
+    inside = lambda xs: sorted(e["t_first"] for e in in_round_window(
+        [{"t_first": float(x)} for x in xs], a, z, close, ends))
+    deaths = inside(deaths_ms)
+    undone = {}
+    if agent == "Phoenix":
+        lives = set(inside(second_lives_ms))
+        counted = (report_deaths or {}).get(a)
+        if counted is None or counted <= sum(t not in lives for t in deaths):
+            undone.update({t: "run_it_back" for t in deaths if t in lives})
+    if agent == "Clove":
+        revives = inside(revives_ms)
+        for t, nxt in zip(deaths, deaths[1:] + [float("inf")]):
+            if any(t <= r < nxt for r in revives):
+                undone[t] = "not_dead_yet"
+    end = next((t for t in deaths if t not in undone), None)
+    return end, [[t, undone[t]] for t in deaths if t in undone and (end is None or t < end)]
+
+
 def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
-                      player_deaths_ms: list[float]) -> list[dict]:
+                      player_deaths_ms: list[float], *, agent: str | None = None,
+                      second_lives_ms=(), revives_ms=(),
+                      report_deaths: dict | None = None) -> list[dict]:
     """Which of a session's tray drops (`tray.drops`) are the local player's casts.
 
     The tray shows the player's kit only while the player lives; afterwards it
     shows a spectated teammate's, and the switch empties several slots at once.
     So a drop is the player's cast when it falls in a live phase, before the
-    player's first death in its round less DEATH_LEAD_MS, and is not suspect
-    once `tray.flag_suspect` is recomputed among the drops that pass, so a cast
-    is not tainted by the spectator switch after it (measured and labelled in
-    `prototypes/tray_suspect_reasons.py` and `prototypes/label_tray_objects.py`).
+    death that ends the player's kit in its round less DEATH_LEAD_MS, and is
+    not suspect once `tray.flag_suspect` is recomputed among the drops that
+    pass, so a cast is not tainted by the spectator switch after it (measured
+    and labelled in `prototypes/tray_suspect_reasons.py` and
+    `prototypes/label_tray_objects.py`).
 
     `phase_of(t_ms)` is the game phase; `rounds` are the stored round rows, and
     `rounds.in_round_window` decides the round of a drop and of a death, so a
-    death on the instant two rounds touch belongs to the round it ends. Every
-    drop comes back, with `player_cast` and the first `reason` that refused it.
+    death on the instant two rounds touch belongs to the round it ends.
+    `player_deaths_ms` are the player's killfeed deaths
+    (`rounds.player_death_times`), and `agent` is the player's agent as the
+    arbiter names it. A death ends the kit unless the game undid it, and among
+    the player's agents it undoes one for two only
+    [domain:rounds/resurrection-mechanics]:
+
+    * **Phoenix.** A death the killfeed badge calls a second life
+      (`second_lives_ms`, `rounds.player_second_life_times`) is a Run It Back
+      death, after which Phoenix returns alive. His X pips do not fall while
+      the ult runs [domain:abilities/phoenix-run-it-back-expiry-flash] and
+      fall at its end [domain:abilities/caster-hears-own-ult-line], so that
+      drop is his cast. The combat report flags KILLED YOU on the real death
+      only [domain:rounds/run-it-back-in-report]; where the round's report
+      (`report_deaths`, its KILLED YOU count keyed by the round's start)
+      counts more deaths than the killfeed's real ones, the killfeed missed a
+      real death, no instant after the second life is known to be Phoenix's,
+      and the second life still ends the kit.
+    * **Clove.** Not Dead Yet needs Clove's death
+      [domain:abilities/clove-c-and-x-need-a-target], and its killfeed entry
+      is the revive itself [domain:killfeed/revive-entries]. A death followed
+      by the player's own revive entry (`revives_ms`) before her next death in
+      the round does not end her kit, so a drop between the death and the
+      revive meets the remaining tests like any other.
+
+    Every drop comes back with `player_cast`, the first `reason` that refused
+    it, the round's `first_player_death_ms`, the `kit_end_ms` the gate used,
+    and the `undone_deaths` before it.
     """
     ends = {r["t_end_ms"] for r in rounds}
     windows = [(r["t_start_ms"], r["t_end_ms"], r["t_close_ms"]) for r in rounds]
     deaths = [{"t_first": x} for x in player_deaths_ms]
+    kit = {w: _kit_end(w, ends, player_deaths_ms, agent, second_lives_ms, revives_ms,
+                       report_deaths) for w in windows}
     rows = []
     for d in drops:
         t = d["t_ms"]
         rnd = next((w for w in windows if in_round_window([{"t_first": t}], *w, ends)), None)
         first = (min((e["t_first"] for e in in_round_window(deaths, *rnd, ends)), default=None)
                  if rnd else None)
+        end, undone = kit[rnd] if rnd else (None, [])
         phase = phase_of(t)
         reason = ("no_round" if rnd is None
-                  else "after_player_death" if first is not None and t >= first - DEATH_LEAD_MS
+                  else "after_player_death" if end is not None and t >= end - DEATH_LEAD_MS
                   else None if phase in CAST_PHASES else f"phase:{phase}")
         rows.append({**d, "phase": phase,
                      "round_ms": None if rnd is None else [float(rnd[0]), float(rnd[2])],
-                     "first_player_death_ms": first, "reason": reason})
+                     "first_player_death_ms": first, "kit_end_ms": end,
+                     "undone_deaths": undone, "reason": reason})
     keep = [r for r in rows if r["reason"] is None]
     for r, (*_x, sus) in zip(keep, tray.flag_suspect(
             [(r["t_ms"] / 1000.0, r["slot"], r["from"], r["to"], r["forced"]) for r in keep])):
@@ -109,6 +167,54 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     for r in rows:
         r["player_cast"] = r["reason"] is None
     return rows
+
+
+def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
+                       agent: str | None) -> tuple[dict, dict]:
+    """(the keyword inputs of `player_tray_casts` beyond the drops and rounds,
+    read from storage; their stamps). Decodes nothing.
+
+    The phase is `gametime`'s over the stored HUD, and the deaths are the HUD's
+    killfeed tracks. Second lives come from the stored badge reads, which only
+    a current `killfeed_portrait` stream carries
+    (`adjudication.death.stored_second_life`). Revives are the player's own
+    revive entries among the stored `death` verdicts. The report's death
+    counts are the stored `combat_report_round` rows where a report was read.
+    """
+    from . import gametime, stalls
+    from .adjudication.death import stored_second_life
+    from .killfeed import KILLFEED_PORTRAIT_VERSION
+    from .rounds import player_death_times, player_second_life_times
+    from .version import PLAYER_CAST_VERSION
+
+    hud = store.read_hud(session_id, date)
+    gt = gametime.build_session_gametime(session_id, hud, rounds,
+                                         stall_list=stalls.for_session(store, session_id, date))
+    badges = stored_second_life(store.read_events_kind(
+        "killfeed_portrait", session_id, "second_life_observation"), KILLFEED_PORTRAIT_VERSION)
+    verdicts = [r for r in store.read_events("death", session_id)
+                if r.get("kind") == "death_verdict"]
+    report = [r for r in store.read_events("combat_report_round", session_id)
+              if r.get("kind") == "round"]
+    inputs = {
+        "phase_of": lambda t: gt.game_time_at(t).phase,
+        "player_deaths_ms": player_death_times(hud),
+        "agent": agent,
+        "second_lives_ms": player_second_life_times(hud, badges),
+        "revives_ms": sorted(float(r["t_ms"]) for r in verdicts
+                             if r.get("is_revive") and r.get("kf_player_kill")),
+        "report_deaths": {float(r["t_start_ms"]): int(r["deaths"]) for r in report
+                          if r.get("verdict_source") == "combat_report"
+                          and r.get("deaths") is not None},
+    }
+    head = lambda rows, key: rows[0].get(key) if rows else None
+    stamps = {"player_cast": PLAYER_CAST_VERSION,
+              "hud": (hud.schema.metadata or {}).get(b"hud_version", b"").decode() or "unstamped",
+              "gametime": gametime.GAMETIME_VERSION,
+              "killfeed_portrait": KILLFEED_PORTRAIT_VERSION if badges is not None else None,
+              "death": head(verdicts, "death_adjudication_version"),
+              "combat_report_round": head(report, "combat_report_round_version")}
+    return inputs, stamps
 
 
 def build_timeline(root: str | Path) -> dict:

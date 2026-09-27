@@ -825,7 +825,7 @@ question = "When was an ability cast, and from which tray slot?"
 owner = "ability_timeline"
 role = ["detect", "corroborate"]
 status = "transitional"
-produces = ["build_timeline", "write_timeline", "player_tray_casts"]
+produces = ["build_timeline", "write_timeline", "player_tray_casts", "stored_gate_inputs"]
 not_for = """
 A pixel detector result. A cast claim is temporal evidence from the tray and
 audio; it does not locate the ability's entity in the world, and the audio and
@@ -833,7 +833,7 @@ tray agreeing is corroboration rather than detection.
 """
 consumers = ["cli", "adjudication.ult_cast"]
 exit = "`materialize_demo_casts` drives `ability_cast` and `ability_hud` from prototypes/."
-evidence = "tests/test_ability_timeline.py"
+evidence = "tests/test_ability_timeline.py, tests/test_tray.py, docs/VOICE_LINES.md"
 
 [[entry]]
 id = "tray-drop"

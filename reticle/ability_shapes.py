@@ -81,9 +81,9 @@ the ult, not a blast.
 Not for. Naming the caster (`ability-owner` is unowned); deciding onset or
 expiry (each call reads one crop); telling a blast from the line between
 blasts; choosing when to look. The command looks
-after the player's casts as `reticle tray` stores them (`tray_drop` rows that
-`ability_timeline.player_tray_casts` passed), for the agent the arbiter names
-in the player's slot.
+after the player's casts, the stored `tray_drop` rows that
+`ability_timeline.player_tray_casts` passes when the command asks it, for the
+agent the arbiter names in the player's slot.
 """
 from __future__ import annotations
 

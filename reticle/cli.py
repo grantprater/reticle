@@ -2712,10 +2712,11 @@ def cmd_tray(args) -> int:
     """The tray's charge drops from the stored crops, and which are the player's
     casts (`ability_timeline.player_tray_casts`). Decodes no video."""
     from . import tray
-    from .ability_timeline import player_tray_casts
-    from .rounds import player_death_times
+    from .ability_timeline import player_tray_casts, stored_gate_inputs
+    from .adjudication.ult_cast import player_agent
+    from .lineup import load_lineup
     from .roi_cache import RoiCache
-    from .version import TRAY_VERSION
+    from .version import PLAYER_CAST_VERSION, TRAY_VERSION
 
     store = Store(args.store)
     for sid in _sessions_arg(store, args):
@@ -2740,13 +2741,16 @@ def cmd_tray(args) -> int:
             counts.append([0, 0, 0, 0])
             clean.append(False)
         date = _date_of(man)
-        hud, rounds = store.read_hud(sid, date), store.read_rounds(sid, date).to_pylist()
-        gt = gametime.build_session_gametime(sid, hud, rounds,
-                                             stall_list=stalls.for_session(store, sid, date))
+        rounds = store.read_rounds(sid, date).to_pylist()
+        gate, _stamps = stored_gate_inputs(store, sid, date, rounds,
+                                           player_agent(load_lineup(sid, store.root), sid))
         rows = player_tray_casts(
             tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool)),
-            lambda t: gt.game_time_at(t).phase, rounds, player_death_times(hud))
-        common = {"session_id": sid, "tray_version": TRAY_VERSION, "step_s": args.step}
+            gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
+            second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+            report_deaths=gate["report_deaths"])
+        common = {"session_id": sid, "tray_version": TRAY_VERSION,
+                  "player_cast_version": PLAYER_CAST_VERSION, "step_s": args.step}
         why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
         out_rows = [{**common, "kind": "coverage", "samples": len(ts) - len(cache.record["spans"]),
                      "drops": len(rows), "player_casts": sum(r["player_cast"] for r in rows),
@@ -2762,9 +2766,10 @@ def cmd_ability_shapes(args) -> int:
     """The drawn minimap shape after each of the player's casts of an ability
     with a known form, from stored crops (`ability_shapes`). Decodes no video."""
     from . import ability_shapes
+    from .ability_timeline import player_tray_casts, stored_gate_inputs
     from .lineup import abilities_for, load_lineup
     from .roi_cache import RoiCache
-    from .version import TRAY_VERSION
+    from .version import PLAYER_CAST_VERSION, TRAY_VERSION
 
     store = Store(args.store)
     for sid in _sessions_arg(store, args):
@@ -2781,9 +2786,17 @@ def cmd_ability_shapes(args) -> int:
             print(f"{sid}: the arbiter names no player agent -- skipped")
             continue
         kit = abilities_for(agent, store.root)
-        casts = [d for d in drops if d.get("kind") == "drop" and d["player_cast"]
-                 and kit.get(d["slot"]) in ability_shapes.SHAPES]
         man = store.read_manifest(sid)
+        # The gate decides afresh from the stored drops, as `ult-cast` asks it,
+        # so a gate change needs no reread of the tray's crops.
+        rounds = store.read_rounds(sid, _date_of(man)).to_pylist()
+        gate, _stamps = stored_gate_inputs(store, sid, _date_of(man), rounds, agent)
+        casts = [d for d in player_tray_casts(
+                     [d for d in drops if d.get("kind") == "drop"],
+                     gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                     second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+                     report_deaths=gate["report_deaths"])
+                 if d["player_cast"] and kit.get(d["slot"]) in ability_shapes.SHAPES]
         cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
         if cache is None:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
@@ -2802,6 +2815,7 @@ def cmd_ability_shapes(args) -> int:
             return ability_shapes.seed_from_track(mt, sx, sy, t)
 
         common = {"session_id": sid, "agent": agent, "tray_version": TRAY_VERSION,
+                  "player_cast_version": PLAYER_CAST_VERSION,
                   "seed_source": "stored self position", "minimap_version": mm_version,
                   "seed_tol_ms": ability_shapes.SEED_TOL_MS}
         rows, found = [], Counter()
@@ -2881,11 +2895,11 @@ def cmd_ult_lines(args) -> int:
     return 0
 
 
-def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict]):
+def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict], agent: str | None):
     """(the X drops with the verdict `ability_timeline.player_tray_casts` gives
     each, or None; the reason for None; the input stamps) for `ult-cast`."""
+    from .ability_timeline import stored_gate_inputs
     from .adjudication.ult_cast import player_x_drops
-    from .rounds import player_death_times
     from .version import TRAY_VERSION
 
     drops = store.read_events("tray_drop", sid)
@@ -2893,23 +2907,18 @@ def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict]):
         return None, "no_tray_drops", {}
     if drops[0].get("tray_version") != TRAY_VERSION:
         return None, "tray_drops_stale", {"tray_drop": drops[0].get("tray_version")}
-    hud = store.read_hud(sid, date)
-    gt = gametime.build_session_gametime(sid, hud, rounds,
-                                         stall_list=stalls.for_session(store, sid, date))
-    x = player_x_drops(drops, lambda t: gt.game_time_at(t).phase, rounds,
-                       player_death_times(hud))
-    stamp = (hud.schema.metadata or {}).get(b"hud_version", b"").decode() or "unstamped"
-    return x, None, {"tray_drop": TRAY_VERSION, "hud": stamp,
-                     "gametime": gametime.GAMETIME_VERSION}
+    gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent)
+    return player_x_drops(drops, rounds=rounds, **gate), None, {"tray_drop": TRAY_VERSION,
+                                                                **stamps}
 
 
 def cmd_ult_cast(args) -> int:
     """Ultimate casts, their side and their round from stored voice-line peaks,
     the lineup and the rounds table (`adjudication.ult_cast`), with own lines
     bound to the player's X casts from the stored tray drops. Decodes nothing."""
-    from .adjudication.ult_cast import THRESHOLD, adjudicate
+    from .adjudication.ult_cast import THRESHOLD, adjudicate, player_agent
     from .lineup import load_lineup
-    from .version import TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION
+    from .version import PLAYER_CAST_VERSION, TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION
 
     store = Store(args.store)
     pooled, sessions, stamps, timing = Counter(), [], set(), {"decode_s": [], "score_s": []}
@@ -2925,8 +2934,10 @@ def cmd_ult_cast(args) -> int:
         rounds = table.to_pylist() if table is not None else []
         round_version = (((table.schema.metadata or {}).get(b"round_version", b"").decode()
                           or "unstamped") if table is not None else None)
-        tray_drops, tray_reason, tray_inputs = _ult_tray_drops(store, sid, _date_of(man), rounds)
-        res = adjudicate(sid, peaks, load_lineup(sid, store.root), rounds, round_version,
+        lineup = load_lineup(sid, store.root)
+        tray_drops, tray_reason, tray_inputs = _ult_tray_drops(
+            store, sid, _date_of(man), rounds, player_agent(lineup, sid))
+        res = adjudicate(sid, peaks, lineup, rounds, round_version,
                          tray_drops=tray_drops, tray_reason=tray_reason, tray_inputs=tray_inputs)
         out = store.write_events("ult_cast", sid, res["rows"])
         store.write_events("ult_cast_identity", sid, res["events"])
@@ -3005,6 +3016,7 @@ def cmd_ult_cast(args) -> int:
                        deps={"ult_line_version": ULT_LINE_VERSION,
                              "ult_cast_version": ULT_CAST_VERSION,
                              "tray_version": TRAY_VERSION,
+                             "player_cast_version": PLAYER_CAST_VERSION,
                              "threshold": THRESHOLD,
                              "templates_key": sorted(k for k in stamps if k)},
                        context={"session_ids": sessions})
