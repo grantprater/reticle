@@ -10,7 +10,7 @@ import pyarrow.parquet as pq
 from reticle.adjudication.death import DEATH_ADJUDICATION_VERSION
 from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
 from reticle.plan import reader_streams, render, stale
-from reticle.version import HUD_VERSION, ROUND_VERSION
+from reticle.version import HUD_VERSION, ROUND_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION
 
 
 class _Store:
@@ -65,6 +65,9 @@ def _current_store(root: Path) -> _Store:
                                               "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
                                               "killfeed_weapon": KILLFEED_WEAPON_VERSION,
                                               "round": ROUND_VERSION}}]
+    store.events["ult_cast:rows"] = [{"ult_cast_version": ULT_CAST_VERSION,
+                                      "inputs": {"ult_line": ULT_LINE_VERSION,
+                                                 "round": ROUND_VERSION}}]
     return store
 
 
@@ -80,9 +83,10 @@ class PlanTests(unittest.TestCase):
             store = _current_store(Path(d))
             store.table("rounds", round_version=ROUND_VERSION, hud_version=HUD_VERSION)
             derived = stale(store, ["s"])["s"]["derived"]
-            self.assertEqual([x["stream"] for x in derived], ["rounds", "death"])
+            self.assertEqual([x["stream"] for x in derived], ["rounds", "death", "ult_cast"])
             self.assertEqual(derived[0]["inputs_moved"], ["killfeed_portrait"])
             self.assertEqual(derived[1]["inputs_moved"], ["round"])
+            self.assertEqual(derived[2]["inputs_moved"], ["round"])
             text = render(stale(store, ["s"]))
             self.assertLess(text.index("reticle rounds <sid>"), text.index("reticle deaths <sid>"))
 
@@ -112,6 +116,29 @@ class PlanTests(unittest.TestCase):
             derived = stale(store, ["s"])["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("death", ["round"])])
+
+    def test_stale_voice_line_peaks_reread_the_audio_then_rerun_the_casts(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["ult_line"] = [{"v": "ult-line-0.0.1"}]
+            p = stale(store, ["s"])["s"]
+            self.assertEqual([(x["stream"], x["channel"]) for x in p["decode"]],
+                             [("ult_line", "audio")])
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in p["derived"]],
+                             [("ult_cast", ["ult_line"])])
+            text = render(stale(store, ["s"]))
+            self.assertIn("accept reticle ult-lines <sid>", text)
+            self.assertNotIn("--only audio", text)
+            self.assertIn("reticle ult-cast <sid>", text)
+
+    def test_a_round_bump_stales_the_ultimate_casts(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["ult_cast:rows"][0]["ult_cast_version"] = "ult-cast-0.0.1"
+            store.events["ult_cast:rows"][0]["inputs"]["round"] = "round-0.0.1"
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["stored"], x["inputs_moved"]) for x in derived],
+                             [("ult_cast", "ult-cast-0.0.1", ["round"])])
 
 
 if __name__ == "__main__":

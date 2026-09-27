@@ -852,6 +852,45 @@ consumers = ["cli"]
 evidence = "tests/test_tray.py, prototypes/tray_suspect_reasons.py"
 
 [[entry]]
+id = "ult-line"
+question = "Where in a capture's audio does an official ultimate voice line match, and how well?"
+owner = "ult_lines"
+role = ["detect"]
+status = "partial"
+produces = ["read_capture", "observations", "build_templates", "load_manifest",
+            "manifest_from_assets", "harvested_ults", "phat_tracks", "track_peaks",
+            "nms_peaks", "trim_floor", "decode_mono", "log_mel", "array_module"]
+not_for = """
+Whose line it was, whether that agent is in the match, or whether a peak is a
+cast. It stores every peak above each template's own floor with no class and
+no name; `ult-cast` selects, classes and names them. Two templates peaking at
+one onset both stay: cross-template suppression was measured and declined.
+"""
+consumers = ["cli"]
+stored_consumers = ["adjudication.ult_cast"]
+evidence = "tests/test_ult_lines.py, prototypes/voice_lines.py, docs/VOICE_LINES.md"
+
+[[entry]]
+id = "ult-cast"
+question = "Which ultimate was cast, by which side, when?"
+owner = "adjudication.ult_cast"
+role = ["attribute", "adjudicate"]
+status = "partial"
+names_agents = true
+produces = ["adjudicate", "template_class", "lineup_sides", "player_agent", "round_of",
+            "THRESHOLD"]
+not_for = """
+The player's tray casts (`ability-cast`), locating the ultimate's entity or
+binding it to a minimap entity (`ability-owner`), or deciding a name itself:
+each selected peak is a claim on channel `ult_line`, and the cast's agent is
+the arbiter's verdict. Its threshold was chosen on the sessions it was scored
+on, and a session without a lineup classes every peak unknown.
+"""
+defers_to = ["agent-identity"]
+consumers = ["cli"]
+evidence = "tests/test_ult_cast.py, docs/VOICE_LINES.md"
+
+[[entry]]
 id = "ability-evidence"
 question = "Which ability properties have evidence, and from which source?"
 owner = "ability_coverage"

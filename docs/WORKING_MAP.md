@@ -61,7 +61,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Naming the player's casts from audio (demo bank, transfer) | `docs/AUDIO_ABILITY_BANK.md` |
 | The audio gate: design, mined labels, formulations, predictions, results | `docs/AUDIO_GATE.md` |
 | Per-ability cast-line reference audio, harvested from the wiki | `prototypes/voice_line_harvest.py`, [`docs/VOICE_LINE_ASSETS.md`](VOICE_LINE_ASSETS.md) |
-| Ultimate voice lines as templates: whose ult, which side, when; lineup-impossible false alarms | `docs/VOICE_LINES.md`, `prototypes/voice_lines.py` |
+| Ultimate voice lines as templates: whose ult, which side, when; lineup-impossible false alarms | `reticle/ult_lines.py` (peaks), `reticle/adjudication/ult_cast.py` (casts), `docs/VOICE_LINES.md`, `prototypes/voice_lines.py` |
 | What each ability does: inputs, minimap drawing, overlay, duration (the player's sheet) | `docs/ABILITY_MECHANICS_SHEET.md` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
@@ -104,6 +104,8 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle ability-gallery
 .\.venv\Scripts\python.exe -m reticle ability-capture
 .\.venv\Scripts\python.exe -m reticle ability-phases
+.\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # decodes the audio stream only
+.\.venv\Scripts\python.exe -m reticle ult-cast SESSION      # stored peaks, lineup, rounds
 .\.venv\Scripts\python.exe -m reticle acquisition-plan REQUESTS.json
 .\.venv\Scripts\python.exe -m reticle capabilities
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID

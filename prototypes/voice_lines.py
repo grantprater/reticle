@@ -74,14 +74,18 @@ with each agent's cast window (`CAST_WINDOW`: Phoenix's pips fall at expiry).
 Every recorded part name carries `0.2.0`.
 `review` writes a sheet of 30 stratified detections with a spectrogram and an
 `ffplay` command into the source capture, at the suppressed operating point;
-`report` rewrites the "Results 0.2.0" section of `docs/VOICE_LINES.md` from
-the recorded runs and leaves 0.1.0's results and verdicts above it.
+`report` rewrote the "Results 0.2.0" section of `docs/VOICE_LINES.md` from
+the recorded runs; it now refuses, because the 0.2.0 verdicts and the
+Production section follow that section. `port-check` compares the production
+adjudicator's stored selections (`reticle ult-cast`) with 0.1.0's F-B
+detections at the same threshold and records the comparison.
 
 What it does not do
 -------------------
 It emits no events, writes nothing under `events/` or `labels/`, and `reticle/`
-does not import it. It decodes no video and writes no audio: F-B holds the
-decoded stream in memory only, and the review sheet plays the source capture.
+does not import it; it imports F-B from `reticle.ult_lines`. It decodes no
+video and writes no audio: F-B holds the decoded stream in memory only, and
+the review sheet plays the source capture.
 """
 from __future__ import annotations
 
@@ -128,6 +132,10 @@ sys.path.insert(0, str(ROOT / "prototypes"))
 with contextlib.redirect_stdout(io.StringIO()):
     import audio_gate as ag  # noqa: E402  the front end, decode, spectrogram, sessions
     import audio_bank  # noqa: E402  player_agent, tagged_agent, labels, census tables
+#: F-B's template cut, correlation and peaks live in the production reader;
+#: this prototype evaluates what `reticle ult-lines` runs.
+from reticle.ult_lines import (decode_template, harvested_ults, nms_peaks,  # noqa: E402
+                               phat_tracks, track_peaks, trim_floor)
 
 STORE = ag.STORE
 VERSION = "voice-lines-0.2.0"
@@ -220,28 +228,6 @@ def _free_gpu() -> None:
 # Templates
 # ---------------------------------------------------------------------------
 
-#: The harvest index's sections that hold an ultimate's two heard variants.
-ULT_SECTIONS = {"Ally Cast": "ally", "Enemy Cast": "enemy"}
-
-
-def harvested_ults(rows: list[dict], have: set[str]) -> dict[str, str]:
-    """{template name: file} for each agent `have` lacks, from the harvest
-    index: the first take of the one ability whose sections are `Ally Cast`
-    and `Enemy Cast`, the ultimate's ally- and enemy-heard lines (the 56 ult
-    files are byte-identical to those rows of the other agents)."""
-    out, ability = {}, {}
-    for r in sorted(rows, key=lambda r: r["file"]):
-        var = ULT_SECTIONS.get(r.get("section", ""))
-        agent = norm_agent(r["agent"])
-        if var is None or agent in have:
-            continue
-        if ability.setdefault(agent, r["ability"]) != r["ability"]:
-            raise SystemExit(f"{agent}: ally/enemy cast lines under two abilities, "
-                             f"{ability[agent]!r} and {r['ability']!r}")
-        out.setdefault(f"{agent}_ult_{var}", r["file"])
-    return out
-
-
 def template_sources() -> list[tuple[str, Path]]:
     """(name, mp3) of every ult line: `<Agent>_ult_<variant>.mp3`, then the
     harvested pair of each agent those lack (Gekko)."""
@@ -261,39 +247,6 @@ def parse_name(path) -> tuple[str, str]:
     if variant not in VARIANTS:
         raise SystemExit(f"{path.name}: unknown variant {variant!r}")
     return agent, variant
-
-
-def decode_template(path: Path) -> np.ndarray:
-    """The mp3 as 48 kHz mono float32, resampled by libswresample where needed."""
-    import av
-    xs = []
-    with av.open(str(path)) as c:
-        st = c.streams.audio[0]
-        rs = av.AudioResampler(format="flt", layout="mono", rate=RATE)
-        for fr in c.decode(st):
-            for o in rs.resample(fr):
-                xs.append(o.to_ndarray().reshape(-1))
-        for o in rs.resample(None):
-            xs.append(o.to_ndarray().reshape(-1))
-    return np.concatenate(xs).astype(np.float32)
-
-
-def trim_floor(L: np.ndarray, ok: np.ndarray, active_db: float = ACTIVE_DB,
-               floor_db: float = FLOOR_DB) -> tuple[np.ndarray, int, int]:
-    """(floored log-mel of the active span, first frame, last frame + 1).
-
-    Frames whose window reaches outside the clip leave; the span runs from the
-    first to the last frame within `active_db` of the loudest frame's power;
-    values below the span's maximum less `floor_db` rise to that floor.
-    """
-    idx = np.flatnonzero(ok)
-    if len(idx) == 0:
-        raise ValueError("no frame lies inside the clip")
-    power = 10 * np.log10(np.sum(10 ** (L[idx].astype(np.float64) / 10), axis=1) + 1e-12)
-    act = idx[power >= power.max() - active_db]
-    k0, k1 = int(act[0]), int(act[-1]) + 1
-    T = L[k0:k1].astype(np.float32)
-    return np.maximum(T, T.max() - floor_db), k0, k1
 
 
 def prepare(T: np.ndarray, per_frame: bool = False) -> np.ndarray:
@@ -416,86 +369,6 @@ def ncc_tracks(W: np.ndarray, temps: list[np.ndarray], xp=None,
         r = c / xp.sqrt(xp.maximum(var, 1e-9))
         out[j, :n - m + 1] = _np(xp.where(flat, 0.0, r).astype(xp.float32))
     return out
-
-
-def phat_tracks(x: np.ndarray, waves: list[np.ndarray], rate: int = RATE,
-                chunk: int = CHUNK, band=PHAT_BAND, hop_n: int = HOP_N, xp=None,
-                batch: int = PHAT_BATCH) -> np.ndarray:
-    """[templates, frames] GCC-PHAT of each template waveform against x: the
-    largest lag score in each hop, a perfect match reading 1.
-
-    Chunks of `chunk` samples step by `chunk` less the longest template
-    (rounded up to a hop), so every lag of every template sees its full
-    window in one chunk. Frame k holds lags [k * hop_n, (k + 1) * hop_n).
-    """
-    xp = xp or gpu()
-    J = len(waves)
-    mmax = int(math.ceil(max(len(w) for w in waves) / hop_n)) * hop_n
-    step = (chunk - mmax) // hop_n * hop_n
-    if step <= 0:
-        raise ValueError("chunk shorter than the longest template")
-    nf = chunk // 2 + 1
-    f = np.arange(nf) * rate / chunk
-    mask = xp.asarray(((f >= band[0]) & (f <= band[1])).astype(np.float32))
-    K = float(_np(mask).sum())
-    scale = chunk / (2.0 * K)
-    Y = xp.stack([xp.conj(xp.fft.rfft(xp.asarray(w, xp.float32), n=chunk)) for w in waves])
-    n_frames = len(x) // hop_n
-    out = np.full((J, n_frames), -1.0, np.float32)
-    for c0 in range(0, n_frames * hop_n, step):
-        seg = np.zeros(chunk, np.float32)
-        s = x[c0:c0 + chunk]
-        seg[:len(s)] = s
-        X = xp.fft.rfft(xp.asarray(seg))
-        f0 = c0 // hop_n
-        f1 = min(n_frames, f0 + step // hop_n)
-        nfr = f1 - f0
-        for j0 in range(0, J, batch):
-            G = X[None, :] * Y[j0:j0 + batch]
-            G = G / (xp.abs(G) + 1e-20) * mask[None, :]
-            r = xp.fft.irfft(G, n=chunk, axis=1)[:, :nfr * hop_n] * scale
-            out[j0:j0 + batch, f0:f1] = _np(r.reshape(r.shape[0], nfr, hop_n).max(axis=2))
-            del G, r
-    return out
-
-
-def nms_peaks(s: np.ndarray, m: int, floor: float) -> np.ndarray:
-    """Frames of the local maxima of s at or above floor, greedy by score, none
-    within m frames of a higher kept peak; sorted by frame."""
-    s = np.asarray(s, np.float32)
-    if len(s) == 0:
-        return np.zeros(0, np.int64)
-    left = np.r_[-np.inf, s[:-1]]
-    right = np.r_[s[1:], -np.inf]
-    cand = np.flatnonzero((s >= floor) & (s >= left) & (s > right))
-    order = cand[np.argsort(-s[cand], kind="stable")]
-    taken = np.zeros(len(s), bool)
-    keep = []
-    for k in order:
-        if not taken[k]:
-            keep.append(k)
-            taken[max(0, k - m + 1):k + m] = True
-    return np.sort(np.asarray(keep, np.int64))
-
-
-def track_peaks(tracks: np.ndarray, lengths: list[int], q: float = FLOOR_Q) -> dict:
-    """Peaks of every template's track: arrays of template index, frame and
-    score, and per template its floor, median and maximum."""
-    tpl, frm, sc = [], [], []
-    floors, med, mx = [], [], []
-    for j, s in enumerate(tracks):
-        v = s[s > -1.0]
-        fl = float(np.quantile(v, q)) if len(v) else 1.0
-        pk = nms_peaks(s, lengths[j], fl)
-        tpl.append(np.full(len(pk), j, np.int16))
-        frm.append(pk.astype(np.int32))
-        sc.append(s[pk].astype(np.float32))
-        floors.append(fl)
-        med.append(float(np.median(v)) if len(v) else np.nan)
-        mx.append(float(v.max()) if len(v) else np.nan)
-    return {"tpl": np.concatenate(tpl), "frame": np.concatenate(frm),
-            "score": np.concatenate(sc), "floor": np.asarray(floors, np.float32),
-            "median": np.asarray(med, np.float32), "max": np.asarray(mx, np.float32)}
 
 
 # ---------------------------------------------------------------------------
@@ -644,6 +517,67 @@ def cmd_check_merge(F: str, sid: str) -> dict:
         print(json.dumps(differ))
     print(json.dumps(vals))
     return vals
+
+
+def cmd_port_check(sids: list[str]) -> dict:
+    """Compare `reticle ult-cast`'s selected peaks with 0.1.0's F-B detections
+    at the same threshold: counts by class, peaks only one side holds, class
+    and round changes, and the largest score difference between matched peaks
+    (0.1.0 stored scores to four decimals)."""
+    from reticle import metrics
+    base = STORE / "analysis" / "voice-lines" / "0.1.0" / "detections"
+    out = {}
+    for sid in sids:
+        rows = [json.loads(x) for x in (STORE / "events" / "ult_cast" / f"{sid}.jsonl")
+                .read_text(encoding="utf-8").splitlines() if x.strip()]
+        cov = rows[0]
+        port = {(r["template"], round(r["t_s"], 2)): r for r in rows
+                if r.get("kind") in ("cast", "refusal")}
+        old = [json.loads(x) for x in (base / f"{sid}.jsonl").read_text(encoding="utf-8")
+               .splitlines() if x.strip()]
+        old = [r for r in old if r["formulation"] == "F-B"]
+        if {r["tau"] for r in old} - {cov["threshold"]}:
+            raise SystemExit(f"{sid}: 0.1.0 detections at {sorted({r['tau'] for r in old})}, "
+                             f"the port at {cov['threshold']}")
+        proto = {(r["template"], round(r["t_s"], 2)): r for r in old}
+        match, only_port = {}, []
+        for k, r in port.items():
+            hit = next((q for q in proto if q[0] == k[0] and abs(q[1] - k[1]) <= 0.015), None)
+            if hit is None:
+                only_port.append(k)
+            else:
+                match[k] = hit
+        only_proto = sorted(set(proto) - set(match.values()))
+        changed = [(k, proto[q]["class"], port[k]["class"]) for k, q in match.items()
+                   if proto[q]["class"] != port[k]["class"]]
+        moved = [(k, proto[q]["round"], port[k]["round"]) for k, q in match.items()
+                 if proto[q]["round"] != port[k]["round"]]
+        count = lambda rs: {c: sum(r["class"] == c for r in rs) for c in CLASSES}
+        vals = {"port_selected": len(port), "proto_detections": len(proto), "matched": len(match),
+                "only_port": len(only_port), "only_proto": len(only_proto),
+                "class_changed": len(changed), "round_changed": len(moved),
+                "max_score_diff": _r(max((abs(port[k]["score"] - proto[q]["score"])
+                                          for k, q in match.items()), default=0.0), 4),
+                **{f"port_{c}": n for c, n in count(port.values()).items()},
+                **{f"proto_{c}": n for c, n in count(proto.values()).items()}}
+        ctx = {"only_port": [{"template": k[0], "t_s": k[1], "score": port[k]["score"],
+                              "class": port[k]["class"]} for k in sorted(only_port)],
+               "only_proto": [{"template": k[0], "t_s": k[1], "score": proto[k]["score"],
+                               "class": proto[k]["class"]} for k in only_proto],
+               "class_changed": [{"template": k[0], "t_s": k[1], "was": a, "now": b}
+                                 for k, a, b in changed],
+               "round_changed": [{"template": k[0], "t_s": k[1], "was": a, "now": b}
+                                 for k, a, b in moved],
+               "ult_cast_inputs": cov.get("inputs")}
+        metrics.record("ult_lines", part="port-check-0.1.0", session=sid, values=vals,
+                       deps={"ult_cast_version": cov.get("ult_cast_version"),
+                             "ult_line_version": cov.get("inputs", {}).get("ult_line"),
+                             "base": BASE_VERSION, "threshold": cov["threshold"]},
+                       context=ctx)
+        print(sid, json.dumps(vals))
+        print("  ", json.dumps(ctx))
+        out[sid] = vals
+    return out
 
 
 def cmd_score(F: str, sids: list[str], only: list[str] | None = None) -> None:
@@ -2290,6 +2224,10 @@ def cmd_report() -> None:
     L.extend(f"- {x}" for x in NOT_DONE)
     L.append("")
     doc = DOC.read_text(encoding="utf-8")
+    kept = [m for m in ("### Verdicts at 0.2.0", "## Production") if m in doc]
+    if kept:
+        raise SystemExit(f"docs/VOICE_LINES.md holds {kept} after the results this would "
+                         f"rewrite; edit the section by hand")
     head = doc.split("## Results 0.2.0", 1)[0].rstrip() + "\n\n"
     DOC.write_text(head + "\n".join(L), encoding="utf-8", newline="\n")
     print(f"wrote {DOC}")
@@ -2319,6 +2257,8 @@ def main(argv: list[str] | None = None) -> int:
     rv.add_argument("--formulation", choices=FORMULATIONS)
     rv.add_argument("--sessions", nargs="*")
     sub.add_parser("report")
+    pc = sub.add_parser("port-check")
+    pc.add_argument("--sessions", nargs="+", required=True)
     a = ap.parse_args(argv)
     print(f"{VERSION}: {os.environ['OMP_NUM_THREADS']} BLAS threads, Below Normal priority")
     every = match_sessions() + demo_sessions()
@@ -2343,6 +2283,8 @@ def main(argv: list[str] | None = None) -> int:
         cmd_review(F, a.sessions or match_sessions())
     elif a.cmd == "report":
         cmd_report()
+    elif a.cmd == "port-check":
+        cmd_port_check(a.sessions)
     return 0
 
 
