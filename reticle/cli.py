@@ -904,6 +904,16 @@ def cmd_scan(args) -> int:
     the path for every re-read after that, which is the expensive case (a
     HUD_VERSION bump re-reads every session in the store) and the common one.
     """
+    until = getattr(args, "until", None)
+    if until is not None:
+        if not (args.check and args.check_dir):
+            raise SystemExit(
+                "--until needs --check and --check-dir: a prefix scan's streams hold only "
+                "the frames before the limit, and published into the store they would read "
+                "as whole-capture streams; --check writes them into two scratch stores "
+                "under the directory you name")
+        if not 0 < until < float("inf"):
+            raise SystemExit("--until takes a positive number of seconds")
     store = Store(args.store)
     manifest = _resolve_session(store, args.session)
     sid = manifest["session_id"]
@@ -1109,6 +1119,12 @@ def cmd_scan(args) -> int:
         if cache is None and args.frames_from == "cache":
             raise SystemExit(f"--from cache: {why}")
         print(f"frames     {'from ' + why if cache is not None else 'decoded (' + why + ')'}")
+        if until is not None:
+            # After `cache_for`: a span on a whole-capture reader would make
+            # it refuse a whole-capture cache.
+            from .pipeline import limit_to_prefix
+            cache = limit_to_prefix(readers, until * 1000.0, cache)
+            print(f"prefix     only frames observed before {until:g} s")
         return cache, why
 
     def publish(out, R, n_dec, dt):
@@ -1289,6 +1305,7 @@ def cmd_scan(args) -> int:
                           f"cache:{cache.record['version']}" if cache is not None else "video")
         usage.setup_ns = time.perf_counter_ns() - setup_t0
         usage.pipeline, usage.workers, usage.shards = pipeline, workers, dict(shards or {})
+        usage.until_s = until
         with usage.timed_pass():
             n_dec, staged = _scan_pass(R.ctx, R.readers, cache, progress, usage, pipeline,
                                        workers, shards, cv_threads)
@@ -3503,6 +3520,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--check-dir", default=None,
                    help="an empty directory for --check's two stores (default: a new "
                         "temporary directory, kept)")
+    s.add_argument("--until", type=float, default=None, metavar="SECONDS",
+                   help="offer only frames observed before SECONDS on both paths; a video "
+                        "decode stops there. Needs --check and --check-dir, since a prefix's "
+                        "streams are not the whole capture's")
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_scan)
 

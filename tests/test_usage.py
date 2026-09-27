@@ -111,6 +111,12 @@ class StagedRecordTest(unittest.TestCase):
         self.assertEqual(part("staged", 2, {"probe": 2}, cv=1),
                          "probe/cache/staged/w2/probe=2/cv1")
         self.assertEqual(part("serial", source="video"), "probe/video/serial/cv12")
+        prefix = ScanUsage(self.manifest, "profile", [Reader()], "video")
+        prefix.cv_threads, prefix.until_s = {"pass": 12}, 180.0
+        self.assertEqual(prefix.series_part(), "probe/video/serial/cv12/until180")
+        self.assertEqual(prefix.record()["until_s"], 180.0)
+        self.assertIsNone(ScanUsage(self.manifest, "profile", [Reader()],
+                                    "video").record()["until_s"])
         usage = ScanUsage(self.manifest, "profile", [Reader()], "cache:cache-test")
         usage.cv_threads = {"pass": 1}
         with tempfile.TemporaryDirectory() as d:

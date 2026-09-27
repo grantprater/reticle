@@ -58,6 +58,9 @@ them. `workers=0` runs inline, with no thread and no queue.
 
 **Shards:** see `_Shards`, whose docstring is the `shardable` contract.
 
+**A prefix:** `limit_to_prefix` limits either pass, serial or staged, on
+either source, to the frames observed before a time (`scan --until`).
+
 Infrastructure: it hands frames to readers and decides nothing about what any
 reader reads or what a stored row means.
 """
@@ -66,6 +69,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import math
 import queue
 import threading
 import time
@@ -232,6 +236,60 @@ class _Unit:
         self.ended = False
         self.busy_ns = 0
         self.thread_cpu_ns: int | None = None
+
+
+class PrefixCache:
+    """A crop cache seen up to a limit: only its frames observed before `until_ms`.
+
+    `samples` asks the cache for those timestamps alone, so reading stops at
+    the limit. `record` is the cache's, with a version that names the limit;
+    the runner copies that version into each reader's `frames_from`.
+    """
+
+    def __init__(self, cache, until_ms: float):
+        self.cache, self.until_ms = cache, float(until_ms)
+        self.record = {**cache.record,
+                       "version": f"{cache.record['version']}, t < {until_ms:g} ms"}
+        self.t_ms = cache.t_ms[cache.t_ms < self.until_ms]
+
+    def samples(self, targets_ms, rois=None):
+        return self.cache.samples([t for t in targets_ms if t < self.until_ms], rois=rois)
+
+
+def limit_to_prefix(readers: list, until_ms: float, cache=None):
+    """Offer the pass only frames observed before `until_ms`; returns its source.
+
+    Call it where spans are chosen, after `roi_cache.cache_for` has chosen
+    the source: a whole-capture reader given a span would make `cache_for`
+    refuse a whole-capture cache. Each reader's spans are cut at the limit,
+    and a whole-capture reader gets one span from 0, as new lists, since
+    readers share their span lists. Spans are closed, so each ends at the
+    float just below the limit, and a frame observed at the limit itself is
+    not offered. Inside the prefix the readers get the frames a whole pass
+    gives them: a span from 0 picks the frames no span would, and a cut span
+    keeps its phase.
+
+    **Video.** `decode.sample_multi` stops, not skips: past every reader's
+    last span end it breaks out of its loop and releases the capture
+    (decode.py:519-523, 533-534, 559-560). It grabs one frame at or past the
+    limit to learn its time and retrieves nothing past it; NVDEC may have
+    decoded up to `decode._NVDEC_AHEAD` (16) frames further on the GPU, which
+    `release` stops. `frames_from` gains the limit here: `video, t < 7000 ms`.
+
+    **Crop cache.** The returned `PrefixCache` holds only the timestamps
+    below the limit, so the cache stops reading there, while `run_cached`'s
+    span filter still decides who gets each frame and thins nothing.
+    Returns None for a decode, else the `PrefixCache` to pass instead of
+    `cache`.
+    """
+    end = math.nextafter(float(until_ms), -math.inf)
+    for r in readers:
+        spans = getattr(r, "spans", None)
+        r.spans = ([(0.0, end)] if spans is None
+                   else [(float(a), min(float(b), end)) for a, b in spans if a <= end])
+        if cache is None and hasattr(r, "frames_from"):
+            r.frames_from = f"{r.frames_from}, t < {until_ms:g} ms"
+    return None if cache is None else PrefixCache(cache, until_ms)
 
 
 def _source_items(ctx, readers: list, source):

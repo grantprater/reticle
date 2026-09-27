@@ -17,7 +17,8 @@ it did rather than what was asked: per reader the frames `offered` and
 shard) with its frames `fed` and `max_queued`; `dispatcher.wait_ns` is the
 time the dispatcher blocked on full FIFOs. A serial pass records `offered`
 and `fed` as its feed count, no `shards` and a null `wait_ns`: nothing
-queues. `load` reads both versions.
+queues. `until_s` is the prefix limit of `scan --until`, null for the whole
+capture. `load` reads both versions.
 
 **CPU time.** `cpu_ns` is the process's user and system CPU over `pass_ns`
 (`time.process_time_ns`). `dispatcher.thread_cpu_ns` is the CPU of the
@@ -136,6 +137,7 @@ class ScanUsage:
         self.shards: dict[str, int] = {}
         self.cv_threads: dict | None = None
         self.wait_ns: int | None = None
+        self.until_s: float | None = None
         self.cpu_ns: int | None = None
         self.dispatcher_cpu_ns: int | None = None
         self.code_revision = code_revision()
@@ -220,10 +222,12 @@ class ScanUsage:
             self.status, self.error = "failed", run.error
 
     def series_part(self) -> str:
-        """The metrics part: readers, source, pipeline, workers, shards, OpenCV count.
+        """The metrics part: readers, source, pipeline, workers, shards, OpenCV
+        count, prefix.
 
         `hud+killfeed_portrait/cache/staged/w1/cv1`; a serial pass names no
-        workers, and a pass with shards names each as `READER=K`.
+        workers, a pass with shards names each as `READER=K`, and a prefix
+        ends the part with `until<seconds>`.
         """
         source = "cache" if self.source.startswith("cache:") else self.source
         bits = ["+".join(sorted(self.readers)), source, self.pipeline]
@@ -233,6 +237,8 @@ class ScanUsage:
         count = (self.cv_threads or {}).get("pass")
         if count is not None:
             bits.append(f"cv{count}")
+        if self.until_s is not None:
+            bits.append(f"until{self.until_s:g}")
         return "/".join(bits)
 
     def record(self) -> dict:
@@ -255,6 +261,7 @@ class ScanUsage:
             "content_key": self.manifest["source"].get("content_key"),
             "profile": self.profile,
             "source": self.source,
+            "until_s": self.until_s,
             "bucket_upper_ns": list(BUCKET_LIMITS_NS),
             "setup_ns": self.setup_ns,
             "pass_ns": self.pass_ns,
@@ -321,7 +328,7 @@ class ScanUsage:
             deps={"usage_version": USAGE_VERSION, "source": self.source,
                   "pipeline": self.pipeline, "workers": self.workers,
                   "shards": dict(self.shards), "cv_threads": self.cv_threads,
-                  "code_revision": self.code_revision},
+                  "until_s": self.until_s, "code_revision": self.code_revision},
             context={"usage_run_id": self.run_id},
             log_path=Path(store_root) / "notes" / "metrics.jsonl",
             usage_run_id=self.run_id)

@@ -4,6 +4,7 @@ Synthetic readers over a synthetic source; no store, no media.
 """
 import contextlib
 import io
+import math
 import threading
 import time
 import unittest
@@ -16,7 +17,7 @@ import numpy as np
 from reticle.candidate_evidence import revision
 from reticle.decode import Sample
 from reticle.passes import run, run_cached
-from reticle.pipeline import FIFO_DEPTH, compare_trees, run_staged
+from reticle.pipeline import FIFO_DEPTH, compare_trees, limit_to_prefix, run_staged
 from reticle.usage import ScanUsage
 
 
@@ -414,6 +415,121 @@ class OpenCvThreadTests(unittest.TestCase):
         r.cv_threads = 1
         got = run_staged(None, [r], Cache(n=5), workers=0)
         self.assertEqual(got.cv_threads["toggled"], ["a"])
+
+
+class Capture:
+    """`cv2.VideoCapture`'s front-to-back subset at 30 fps, counting its work."""
+
+    def __init__(self, n=600):
+        self.n, self.pos, self.grabs, self.retrieved = n, -1, 0, []
+
+    def isOpened(self):
+        return True
+
+    def grab(self):
+        if self.pos + 1 >= self.n:
+            return False
+        self.pos += 1
+        self.grabs += 1
+        return True
+
+    def get(self, prop):
+        return self.pos * 1000.0 / 30.0     # frame 210 is observed at 7000.0 ms exactly
+
+    def retrieve(self):
+        self.retrieved.append(self.pos)
+        return True, np.full((2, 2, 3), self.pos % 251, np.uint8)
+
+    def release(self):
+        pass
+
+
+class PrefixTests(unittest.TestCase):
+    """`scan --until`: only frames observed before the limit, on every path."""
+
+    UNTIL = 7000.0          # the cache and the capture each hold a frame at it
+
+    def paths(self, ctx):
+        return (("serial", lambda rs, src: (run(ctx, rs) if src is None
+                                            else run_cached(ctx, rs, src))),
+                ("staged, workers 0", lambda rs, src: run_staged(ctx, rs, src, workers=0)),
+                ("staged, workers 1", lambda rs, src: run_staged(ctx, rs, src, workers=1)))
+
+    def assert_prefix_of(self, got, whole):
+        for g, w in zip(got, whole):
+            times = [t for _, t, _, _ in g.rows]
+            self.assertTrue(times)
+            self.assertLess(max(times), self.UNTIL)
+            # Frame for frame the whole pass's rows before the limit.
+            self.assertEqual([r[:3] for r in g.rows],
+                             [r[:3] for r in w.rows if r[1] < self.UNTIL])
+
+    def test_the_cache_stops_at_the_limit_and_still_never_thins(self):
+        spans = [(1000.0, 6000.0), (6200.0, 9000.0)]
+
+        def build():
+            return [Collect("whole"), Collect("slow_rate", hz=0.5, spans=spans)]
+        whole = build()
+        run_cached(None, whole, Cache())
+        for label, go in self.paths(None):
+            with self.subTest(label):
+                cache, readers = Cache(), build()
+                go(readers, limit_to_prefix(readers, self.UNTIL, cache))
+                self.assert_prefix_of(readers, whole)
+                # At 0.5 Hz a decode would thin; the cache feeds every frame
+                # inside the spans and before the limit.
+                self.assertEqual([t for _, t, _, _ in readers[1].rows],
+                                 [t for t in cache.t_ms.tolist() if t < self.UNTIL
+                                  and any(a <= t <= b for a, b in spans)])
+                # The cache read nothing at or past the limit.
+                self.assertEqual(cache.produced, int((cache.t_ms < self.UNTIL).sum()))
+                self.assertEqual(readers[0].frames_from, "cache-test, t < 7000 ms")
+        self.assertEqual(spans, [(1000.0, 6000.0), (6200.0, 9000.0)])
+
+    def test_a_video_decode_stops_at_the_limit(self):
+        ctx = SimpleNamespace(media="x.mp4", fps=30.0)
+
+        def build():
+            return [Collect("whole"), Collect("late", hz=10.0, spans=[(5000.0, 20000.0)])]
+        with patch("reticle.decode.open_capture", lambda path: Capture()):
+            whole = build()
+            run(ctx, whole)
+        for label, go in self.paths(ctx):
+            with self.subTest(label):
+                cap = Capture()
+                with patch("reticle.decode.open_capture", lambda path: cap):
+                    readers = build()
+                    self.assertIsNone(limit_to_prefix(readers, self.UNTIL))
+                    go(readers, None)
+                self.assert_prefix_of(readers, whole)
+                # Frames 0-209 fall before the limit; `sample_multi` grabs
+                # frame 210, sees 7000 ms and stops: no skip to the end.
+                self.assertEqual(cap.grabs, 211)
+                self.assertLess(max(cap.retrieved), 210)
+                self.assertEqual(readers[0].frames_from, "video, t < 7000 ms")
+
+    def test_spans_are_cut_as_new_lists(self):
+        shared = [(0.0, 3000.0), (6000.0, 9000.0), (9500.0, 10000.0)]
+        a, b = Collect("a", spans=shared), Collect("b", spans=shared)
+        limit_to_prefix([a, b], self.UNTIL)
+        self.assertEqual(shared, [(0.0, 3000.0), (6000.0, 9000.0), (9500.0, 10000.0)])
+        # Cut at the float below the limit; a span past it is dropped.
+        self.assertEqual(a.spans, [(0.0, 3000.0), (6000.0, math.nextafter(self.UNTIL, 0))])
+        self.assertIsNot(a.spans, b.spans)
+        whole = Collect("whole")
+        limit_to_prefix([whole], self.UNTIL)
+        self.assertEqual(whole.spans, [(0.0, math.nextafter(self.UNTIL, 0))])
+
+
+class UntilRefusalTests(unittest.TestCase):
+    def test_until_needs_check_and_check_dir(self):
+        from reticle.cli import cmd_scan
+        for check, check_dir in ((False, None), (False, "d"), (True, None)):
+            with self.subTest(check=check, check_dir=check_dir):
+                with self.assertRaisesRegex(SystemExit, "--check and --check-dir"):
+                    cmd_scan(SimpleNamespace(until=60.0, check=check, check_dir=check_dir))
+        with self.assertRaisesRegex(SystemExit, "positive"):
+            cmd_scan(SimpleNamespace(until=0.0, check=True, check_dir="d"))
 
 
 class ScanCheckTests(unittest.TestCase):
