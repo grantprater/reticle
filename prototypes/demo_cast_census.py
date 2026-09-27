@@ -84,6 +84,39 @@ TOOL = "demo_cast_census"
 EXTRA_DEMOS = ("2ba870ccbd50",)
 CACHE_HZ = 15.0
 IDLE = 0x40
+#: The demos the player re-recorded to the Omen protocol (standing still,
+#: spaced casts, equip-hold-cast, three of each ability) carry this tag. The
+#: first run excludes them, so its casts and numbering stay as they were read.
+PROTOCOL_TAG = "three-per-ability"
+#: Each run keeps its own output directory, metric parts and number salt, so a
+#: second run never overwrites the first's evidence or collides in `metrics`.
+RUNS = {"first": {"out": "demo-cast-census", "session": "demos", "prefix": "",
+                  "salt": "census"},
+        "rerecorded": {"out": "demo-cast-census-rerecorded", "session": "rerecorded",
+                       "prefix": "rerecorded-", "salt": "rerecorded"}}
+RUN = "first"
+
+
+def configure(run: str) -> None:
+    """Point every output path at `run`'s directory."""
+    global RUN, OUT, STRIPS, MONTAGE, KEY_FILE, BLIND_READ, UNBLINDED, TABLE
+    RUN = run
+    OUT = STORE / "analysis" / RUNS[run]["out"]
+    STRIPS = OUT / "tray_strips"
+    MONTAGE = OUT / "montage"
+    KEY_FILE = OUT / "key.json"
+    BLIND_READ = OUT / "blind_read.jsonl"
+    UNBLINDED = OUT / "unblinded.json"
+    TABLE = OUT / "table.json"
+
+
+def part(name: str) -> str:
+    """The metric part for this run: `table` in the first, `rerecorded-table` after."""
+    return RUNS[RUN]["prefix"] + name
+
+
+def run_session() -> str:
+    return RUNS[RUN]["session"]
 
 
 def idle() -> None:
@@ -114,12 +147,15 @@ def _agents() -> dict[str, str]:
 
 
 def demos() -> list[tuple[str, str]]:
-    """(session, catalogue agent) for every solo demo, in session order."""
+    """(session, catalogue agent) for every solo demo of this run, in session order."""
     names = _agents()
     out = []
     for f in sorted((STORE / "manifests").glob("*.json")):
         tags = json.loads(f.read_text(encoding="utf-8")).get("tags") or []
-        if "ability-demo" not in tags and f.stem not in EXTRA_DEMOS:
+        if RUN == "rerecorded":
+            if PROTOCOL_TAG not in tags:
+                continue
+        elif PROTOCOL_TAG in tags or ("ability-demo" not in tags and f.stem not in EXTRA_DEMOS):
             continue
         agent = next((names[t] for t in tags if t in names), None)
         out.append((f.stem, agent))
@@ -204,7 +240,7 @@ def cmd_cache(args) -> int:
             values["wall_s"] = round(wall, 1)
         if args.check:
             values.update(check_crops(sid))
-        metrics.record(TOOL, part="cache", session=sid, values=values,
+        metrics.record(TOOL, part=part("cache"), session=sid, values=values,
                        deps={"roi_cache": ROI_CACHE_VERSION, "hz": CACHE_HZ,
                              "decode": args.decode, "version": VERSION},
                        context={"agent": agent, "usage_run": use.get("run_id")},
@@ -503,7 +539,7 @@ def cmd_casts(args) -> int:
     if unjudged:
         print("look at these by eye (casts --strips):", unjudged)
     if args.record:
-        metrics.record(TOOL, part="casts", session="demos", values=tot,
+        metrics.record(TOOL, part=part("casts"), session=run_session(), values=tot,
                        deps={"reader": name, "step_s": TRAY_STEP_S, "match_s": MATCH_S,
                              "roi_cache": ROI_CACHE_VERSION, "version": VERSION},
                        note="tray drops from cached hud_abilities crops against casts/*.step0.5.*.json")
@@ -861,7 +897,7 @@ def record_residual(done: dict, casts: list[dict]) -> dict:
     vals["onset_any_hue"] = sum(any(r["components"][f"hue{d:03d}"].get("onset_s") is not None
                                     for d in HUE_BINS) for r in ok)
     print(json.dumps(vals))
-    metrics.record(TOOL, part="residual", session="demos", values=vals,
+    metrics.record(TOOL, part=part("residual"), session=run_session(), values=vals,
                    deps={"census": VERSION, "geometry": "baked (map, profile)",
                          "lighting": "reticle.lighting", "teal": "reticle.ability_shapes.teal"},
                    note="per-cast minimap residual over [-2, +12] s against the -1 s frame, "
@@ -884,7 +920,7 @@ def numbering(casts: list[dict]) -> dict[str, int]:
     """Cast number per key: a salted hash order, so a number says nothing of a demo."""
     import hashlib
     keys = sorted({cast_key(c) for c in casts},
-                  key=lambda k: hashlib.sha1(f"census:{k}".encode()).hexdigest())
+                  key=lambda k: hashlib.sha1(f"{RUNS[RUN]['salt']}:{k}".encode()).hexdigest())
     return {k: i + 1 for i, k in enumerate(keys)}
 
 
@@ -1093,10 +1129,11 @@ def cmd_read(args) -> int:
 
 
 def ledger_prior() -> dict:
-    """The census's own prediction row: the per-ability prior and its lists."""
+    """This run's prediction row: the per-ability prior and its lists."""
     for line in LEDGER.read_text(encoding="utf-8").splitlines():
         r = json.loads(line)
-        if r.get("task") == "demo-cast-census" and r.get("kind") == "prediction":
+        if (r.get("task") == "demo-cast-census" and r.get("kind") == "prediction"
+                and r.get("run", "first") == RUN):
             return r
     raise SystemExit("no demo-cast-census prediction in the ledger")
 
@@ -1256,11 +1293,11 @@ def cmd_table(args) -> int:
     TABLE.write_text(json.dumps(out, indent=1), encoding="utf-8")
     print(json.dumps(timing))
     if args.record:
-        metrics.record(TOOL, part="timing", session="demos", values=timing,
+        metrics.record(TOOL, part=part("timing"), session=run_session(), values=timing,
                        deps={"census": VERSION, "residual": "residual.json"},
                        note="residual onset and life of the first dark (teal for the Sova "
                             "rings and beam) component after each cast, seconds from the drop")
-        metrics.record(TOOL, part="table", session="demos", values=vals,
+        metrics.record(TOOL, part=part("table"), session=run_session(), values=vals,
                        deps={"census": VERSION, "blind_read": str(BLIND_READ.name),
                              "residual": "residual.json", "prior": "ledger demo-cast-census"},
                        note="blind montage classes joined to the key after every blind row "
@@ -1376,6 +1413,8 @@ def cmd_label(args) -> int:
 def main(argv=None) -> int:
     idle()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--run", default="first", choices=tuple(RUNS),
+                    help="first: the 33 demos; rerecorded: the protocol demos (own outputs)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("cache", help="write each demo's minimap crop cache")
     c.add_argument("--session", nargs="*")
@@ -1405,6 +1444,7 @@ def main(argv=None) -> int:
     c.add_argument("--dry-run", action="store_true", help="print rows; write nothing")
     c.add_argument("--keys", help="comma-separated keys to play, e.g. 5,a,u,q (testing)")
     args = ap.parse_args(argv)
+    configure(args.run)
     return {"cache": cmd_cache, "casts": cmd_casts, "residual": cmd_residual,
             "montage": cmd_montage, "read": cmd_read, "table": cmd_table,
             "label": cmd_label}[args.cmd](args)
