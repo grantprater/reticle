@@ -74,8 +74,8 @@ marks are a centre and angle truth, not a radius truth: the player traced the
 ring's inner edge, 0-15 px inside it.
 
 On every session the stored rows at the marks reproduce these counts. The Fury
-line shows on [metric:ability_shapes/production@all-sessions#fury_found=223]
-of 247 crops after the ult's drop, turning between crops, so a found beam dates
+line shows on [metric:ability_shapes/production@all-sessions#fury_found=220]
+of [metric:ability_shapes/production@all-sessions#fury_crops=221] crops after the ult's drop, turning between crops, so a found beam dates
 the ult, not a blast.
 
 Not for. Naming the caster (`ability-owner` is unowned); deciding onset or
