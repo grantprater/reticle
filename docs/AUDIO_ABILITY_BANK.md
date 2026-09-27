@@ -416,3 +416,38 @@ player: where did those bolts land?
   [domain:abilities/phoenix-run-it-back-expiry-flash]; a cast reference can be
   cut at the timer bar's start. The player proposes that labelled bar below
   the crosshair as the cast witness for the bank [domain:hud/ability-timer-bar].
+
+## Audio as the gate for the expensive passes (2026-09-26)
+
+The player's direction for the bank, once it is good enough: audio gates
+the expensive reads. The first question the audio channel answers is not
+which ability sounded but whether anything other than footsteps and gunfire
+sounded at all; any such sound calls a closer investigation of that moment.
+The closer investigation is what the other channels already know how to do
+and cannot afford everywhere: dense sampling of the minimap cache around the
+moment, for the brief ring of a Haunt or Stealth Drone pulse
+[domain:abilities/pulse-scan-abilities]; the ring and line sweeps of
+`ability_shapes`, which cost 4 s a frame; the timer-bar read
+[domain:hud/ability-timer-bar]; a census montage for the player to label.
+
+This changes what the bank is scored on. Everything above measured
+identification: the declared score names
+[metric:audio_bank/transfer_v2_rerec#verified_kit_hits=43] of the 120
+labelled match casts and plain correlation
+[metric:audio_bank/transfer_variants_v2_rerec#corr_cast_verified_kit_hits=64].
+A gate is a two-class detector, ability sound against the match's background,
+and is scored by recall on the labelled casts at a false-alarm rate per
+minute, with the fraction of the match the dense passes need not run as the
+saving. It needs a negative class the bank does not have: match audio cut
+where the tray shows no cast and the killfeed no death, which is footsteps,
+gunfire, reloads and the round's ambience. The positives are the 120
+labelled match casts and the re-recorded references.
+
+Two things the gate does not decide. An enemy's ability sounds too and
+should pass the gate, since an enemy ability is an entity to find; the gate
+says something happened, and the tray, the minimap and the lineup say whose.
+And footsteps and gunfire are not noise for the pipeline as a whole, only
+for this gate; a later channel may read them as events of their own. The
+falsifier for the direction is a gate whose recall on the labelled casts
+cannot be raised above the tray's without a false alarm every few seconds,
+in which case the tray stays the primary witness and audio only names.
