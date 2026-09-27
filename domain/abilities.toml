@@ -1444,3 +1444,20 @@ speaker's ultimate became ready and dates the fill, since the game voices the
 line unprompted; whether the game's take is one of the wiki's two is unchecked
 """
 see = ["abilities/ult-ready-lines", "abilities/voice-lines-announce-casts"]
+
+[ult-charge-pips]
+claim = """
+The pips of the tray's X slot are the ultimate charge. The ultimate can be
+cast only when every pip is lit, and the cast empties them. A drop from a
+slot that was not full is therefore not a cast.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "abilities:tray"
+use = """
+the tray gate refuses an X drop whose slot was not full (`partial_charge`);
+the four such drops on the 19 lineup sessions (fills 0.36 to 0.58) had no ult
+line, and every X drop with a line fell from a fill of 0.90 or more
+"""
+see = ["abilities/deadlock-ult-tray-drop-at-equip", "abilities/phoenix-run-it-back-expiry-flash"]
