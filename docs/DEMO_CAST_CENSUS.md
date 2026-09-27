@@ -704,3 +704,39 @@ Open these keyed montages first
 Then keyed_003 (Hunter's Fury's line turning), keyed_006 (Owl Drone: self's
 portrait turns teal while the drone flies) and keyed_010 (Trailblazer, whose
 marker stays within ~15 px of Skye).
+
+### The player's answers (2026-09-26, later)
+
+Asked the questions above the same evening, the player answered:
+
+- **Question 3, Blaze.** "I guess it might count from the wall completing, I
+  never thought about that." The census times the orange curve, the wall
+  itself, not the cast icon that runs ahead of it; 9.2 s from the drop fits
+  8 s from a wall that takes about a second to draw, and nothing confirms it
+  [domain:abilities/phoenix-blaze-duration].
+- **Question 4, the protocol.** Infinite abilities were not on. Three casts
+  of each ability in one round "is not possible unless ... over multiple
+  rounds or refresh the abilities with cheats"
+  [domain:abilities/range-one-cast-per-round]; the manifests' tags had been
+  corrected from the cooldown counters before the answer.
+- **Question 5, the Phoenix flash.** "That's when the ult expired." Decoded
+  frames show no bar at 42.8 s, the cast's flaming hands with a full RUN IT
+  BACK timer bar under the crosshair at 43.6 s, the bar nearly empty at 53.0
+  s and the effigy at 53.4 s: the ult was cast at about 43.2 s and expired
+  at 53.3 s, and the X pips never fell
+  [domain:abilities/phoenix-run-it-back-expiry-flash]. So "never cast" above
+  is wrong: the tray saw no drop. The player proposes reading that timer bar
+  for cast times and ability names [domain:hud/ability-timer-bar]. The first
+  census's Run it Back row (481336df9adb, montage 147, 34.5 s) sits where
+  the pips fell, 4.7 s after a flame; which event that flame was is unknown.
+- **Question 6.** Pick-me-up and Not Dead Yet cannot be cast in the range
+  [domain:abilities/clove-c-and-x-need-a-target].
+- **Question 7.** The 11 s Regrowth ring was one channel, held to give
+  plenty of audio [domain:abilities/skye-regrowth-no-tray-drop].
+- **Question 8.** One equip: the player toggled between the options for a
+  while before the first Shock Bolt
+  [domain:abilities/sova-bolt-charge-and-bounce]. The bolts landed right in
+  front of Sova, and a Shock Bolt has no minimap indicator
+  [domain:abilities/sova-shock-bolt-minimap-none].
+- **Questions 1 and 2** (one Ruse disc per cloud in a match; whether the
+  Recon Bolt ring is the whole reveal) are still open.

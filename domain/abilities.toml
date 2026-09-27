@@ -181,6 +181,13 @@ kind = "rule"
 known = "player"
 since = "2026-09-23"
 subject = "phoenix:blaze"
+source = """
+the player, 2026-09-23. On 6afc32cb46b4 the census times the orange wall on
+the minimap, not the cast icon that runs ahead of it, at 9.2 s from the tray
+drop (onset 0.4 s after it). Asked whether the 8 s counts from the cast or
+from the wall completing, the player guessed the completion (2026-09-26); the
+9.2 s fits a wall that takes about a second to draw, and nothing confirms it
+"""
 use = "wall lifetime after a slot C cast; replaces an approximate 4 s the wall measurement stated"
 see = ["abilities/phoenix-blaze"]
 
@@ -921,12 +928,15 @@ subject = "sova:bolts"
 source = """
 the player, 2026-09-26, answering the audio bank's question about the Sova
 demo 02cf738b1c8f at 14.5-15.5 s (one Shock Bolt, not a Recon Bolt then two
-Shock Bolts as the tray drops read; another Shock Bolt near 19 s)
+Shock Bolts as the tray drops read; another Shock Bolt near 19 s), and the
+census's question about the 12.9 s glow before the first Shock Bolt of
+aab12e41dcfc: one equip, toggling between the options for a while
 """
 use = """
-a held bolt's equip-to-release time varies with the charge, so an audio
-reference cut at a fixed offset from the tray drop may hold the hold, not the
-release; the HUD element is a witness of the bolt's phase, unread
+a held bolt's equip-to-release time varies with the charge and the toggling,
+and one equip held a bolt for 12.9 s, so an audio reference cut at a fixed
+offset from the tray drop may hold the hold, not the release; the HUD element
+is a witness of the bolt's phase, unread
 """
 see = ["abilities/sova-recon-bolt-minimap-ring"]
 
@@ -960,7 +970,9 @@ source = """
 the re-recorded Skye demo fc02a2c1ac01, a solo range demo:
 reticle.ability_shapes finds the ring round Skye on 164 cached frames from
 5.17 to 16.53 s, and reticle.tray reads no C drop in the whole capture. The
-catalogue says Regrowth "can be reused until her healing pool is depleted"
+catalogue says Regrowth "can be reused until her healing pool is depleted".
+The player: that 11 s ring was one channel, held to give plenty of audio
+(2026-09-26)
 """
 use = """
 a Regrowth channel has no tray drop to date it; date it from the ring
@@ -968,3 +980,93 @@ a Regrowth channel has no tray drop to date it; date it from the ring
 unobserved
 """
 see = ["abilities/skye-regrowth-minimap-ring"]
+
+[sova-shock-bolt-minimap-none]
+claim = """
+A Shock Bolt draws nothing on the minimap.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "sova:shock bolt"
+source = """
+the player, 2026-09-26: the protocol demo's bolts landed right in front of
+Sova, and "there's no minimap indicator for shock bolts". The census read
+nothing on all four Shock Bolt casts of 02cf738b1c8f and aab12e41dcfc
+"""
+use = """
+the tray drop and the sound are a Shock Bolt's only witnesses; do not search
+the minimap for one, and a shape found after a Q drop belongs to something
+else
+"""
+see = ["abilities/sova-bolt-charge-and-bounce", "abilities/sova-recon-bolt-minimap-ring"]
+
+[clove-c-and-x-need-a-target]
+claim = """
+Pick-me-up and Not Dead Yet cannot be cast in a solo range: Pick-me-up needs
+a fallen enemy Clove damaged or killed, and Not Dead Yet needs Clove's death.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-09-26"
+subject = "clove:pick-me-up and not dead yet"
+source = """
+the player, 2026-09-26, asked whether either can be cast in the range: "no
+they can't". The catalogue's wording predicted it, and the protocol demo
+0c6c52a65b9e holds no C or X cast
+"""
+use = """
+no demo reference will exist for either; audio references for Pick-me-up and
+Not Dead Yet must come from match casts the player labels, and a demo bank
+scores Clove's kit on Q and E alone
+"""
+see = ["abilities/clove-rouse"]
+
+[phoenix-run-it-back-expiry-flash]
+claim = """
+When Run it Back expires, the screen flashes white and then fills with flames
+as Phoenix returns to a flaming effigy of himself at the cast point. While
+the ult runs, a teal timer bar labelled RUN IT BACK sits just below the
+screen centre and drains over about 10 s; the tray's X pips do not fall.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "phoenix:run it back"
+source = """
+the player, 2026-09-26, shown the flash at 53.3 s of 6afc32cb46b4: "that's
+when the ult expired". Decoded frames: no bar at 42.8 s; the cast's flaming
+hands and the full bar at 43.6 s; the bar nearly empty at 53.0 s; the effigy
+at 53.4 s and its wisps at 53.8 s; the X pips full from 43 s to the capture's
+end at 55.7 s, and reticle.tray reads no X drop. On 481336df9adb a flame
+lies at 29.5 s and the pips fall at 34.2 s, unexplained
+"""
+use = """
+date the cast from the timer bar's start or the sound, and the expiry from
+the flash; the X pips are no witness of the cast. The first census's Run it
+Back row (481336df9adb, 34.5 s) is windowed on the pips' fall
+"""
+see = ["hud/ability-timer-bar", "abilities/phoenix-minimap-objects", "rounds/run-it-back-in-report"]
+
+[range-one-cast-per-round]
+claim = """
+A custom game without cheats returns a spent charge within a round only on
+an ability with a cooldown, so a range demo cannot cast every ability three
+times in one round. Three references need three rounds, or the cheat that
+refreshes abilities.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-09-26"
+subject = "capture:range demo"
+source = """
+the player, 2026-09-26, asked for three spaced casts per ability: "that's not
+possible unless you want me to have it be over multiple rounds or refresh
+the abilities with cheats". Ruse's cooldown counters show on the protocol
+demo's keyed_004, so a cooldown ability does return within a round
+"""
+use = """
+ask for one cast per ability per round and three rounds per agent. A cheat
+refresh may keep the tray's bar full so the tray reads no drop; untested
+"""
+see = ["hud/menu-dims-tray"]

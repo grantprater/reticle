@@ -393,10 +393,26 @@ unless named).
 | N11 | No re-recorded ability's median gain beyond +/-8 dB | **Wrong.** Shock Bolt [metric:audio_bank/transfer_ability_verified_v2_rerec#Sova_Q_gain_median=-15.3] dB. |
 
 **What follows.** Clean references help, and only where they exist: `corr`
-gains six casts, most from one right Recon Bolt. The tray cannot time casts
-under infinite abilities, so a three-per-ability bank needs the player's cast
-times, or a recording with abilities on cooldown so that each cast drops the
-tray. `prod` should lose its place as the primary; the next run should declare
+gains six casts, most from one right Recon Bolt. The demos hold one cast per ability, and a round of the range allows no more
+[domain:abilities/range-one-cast-per-round], so a three-per-ability bank needs
+three rounds per agent. `prod` should lose its place as the primary; the next run should declare
 `corr` on the cast template before it measures. The Hunter's Fury template
 needs its voice line masked or cut, and the Shock Bolt question goes to the
 player: where did those bolts land?
+
+### The player's answers (2026-09-26, later)
+
+- **Where the Shock Bolts landed:** "basically right in front of me". The
+  reference holds the release and the blast together, as guessed, and a match
+  bolt's blast lands one to two seconds later and further off. A Shock Bolt
+  draws nothing on the minimap [domain:abilities/sova-shock-bolt-minimap-none].
+- **Three casts per ability** in one round is not possible without cheats
+  [domain:abilities/range-one-cast-per-round]. The next bank asks for three
+  rounds per agent, one cast per ability per round, which keeps the tray as
+  the cast witness; a cheat refresh might leave the bar full.
+- **Pick-me-up and Not Dead Yet** will never have a demo reference
+  [domain:abilities/clove-c-and-x-need-a-target]. **Run it Back** ran from
+  about 43.2 s to 53.3 s of 6afc32cb46b4 with no tray drop
+  [domain:abilities/phoenix-run-it-back-expiry-flash]; a cast reference can be
+  cut at the timer bar's start. The player proposes that labelled bar below
+  the crosshair as the cast witness for the bank [domain:hud/ability-timer-bar].

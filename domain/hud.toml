@@ -77,3 +77,29 @@ use = """
 a same-instant fall on several slots with a dimmed tray is the menu, not a
 cast; the tray reader and `minimap.widget_drawn` both need the guard
 """
+
+[ability-timer-bar]
+claim = """
+While a timed ability of the player's runs, a teal bar labelled with the
+ability's name sits just below the screen centre and drains over the
+ability's life.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "hud:ability timer bar"
+source = """
+6afc32cb46b4 decoded at 43.6 and 53.0 s: a bar about x 833-1087, y 713-727
+of the 1920x1080 frame with RUN IT BACK printed beneath it, full at the cast
+and nearly empty 0.3 s before the expiry. The player, 2026-09-26: "reading
+the timer bar might be more consistent for getting the timing for mining the
+audio and other ability info". Which abilities show one is unobserved;
+Sova's bolts show their charge and bounce element at the same place
+"""
+use = """
+a reader of this bar names the ability from its label and dates the cast and
+the end from the bar's ends: a witness for audio references and lifetimes
+that the tray lacks for Run it Back and Regrowth. Read it from a fixed ROI of
+the capture, joining the shared decode pass
+"""
+see = ["abilities/phoenix-run-it-back-expiry-flash", "abilities/sova-bolt-charge-and-bounce"]
