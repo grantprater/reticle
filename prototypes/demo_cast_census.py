@@ -938,16 +938,17 @@ def montage_one(c: dict, casts: list[dict], cache, geo: Geo, num: int,
         tiles_b.append(im)
         tiles_k.append(kim)
     tray = np.zeros((H, W, 3), np.uint8)
-    y = 10
+    y, slot_h = 4, (H - 4) // len(tray_s)
     for s, t in zip(tray_s, tray_t):
         crop = got[t][ty0:ty1, tx0:tx1]
         ch, cw = crop.shape[:2]
-        if cw > W:
-            crop = cv2.resize(crop, (W, int(ch * W / cw)), interpolation=cv2.INTER_AREA)
+        f = min(1.0, W / cw, (slot_h - 26) / ch)
+        if f < 1.0:
+            crop = cv2.resize(crop, (int(cw * f), int(ch * f)), interpolation=cv2.INTER_AREA)
             ch, cw = crop.shape[:2]
         _label(tray, f"tray {s:+.1f} s", (6, y + 16))
         tray[y + 22:y + 22 + ch, :cw] = crop
-        y += ch + 40
+        y += slot_h
     tiles_b.append(tray)
     tiles_k.append(tray.copy())
 
