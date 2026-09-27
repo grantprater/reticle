@@ -146,13 +146,16 @@ def casts(ts, counts: np.ndarray, clean: np.ndarray | None = None) -> list[tuple
     return flag_suspect(out)
 
 
-def flag_suspect(ev: list[tuple]) -> list[tuple]:
+def flag_suspect(ev: list[tuple], quiet=None) -> list[tuple]:
     """Mark drops that co-occur across slots within SUSPECT_S, or were forced.
-    Flagged, not deleted: a player can cast twice in two seconds."""
+    Flagged, not deleted: a player can cast twice in two seconds. A drop whose
+    `quiet` entry is true is still marked but marks no other drop; the caller
+    names those drops (`ability_timeline.player_tray_casts`)."""
+    quiet = list(quiet) if quiet is not None else [False] * len(ev)
     out = []
     for i, (t, k, a, b, forced) in enumerate(ev):
         near = sum(1 for j, (t2, k2, _a, _b, _f) in enumerate(ev)
-                   if j != i and abs(t2 - t) <= SUSPECT_S and k2 != k)
+                   if j != i and not quiet[j] and abs(t2 - t) <= SUSPECT_S and k2 != k)
         out.append((t, k, a, b, bool(near) or bool(forced)))
     return out
 

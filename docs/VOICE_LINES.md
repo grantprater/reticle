@@ -979,11 +979,24 @@ pips: an X drop whose `to` fill stays above `ability_timeline.EMPTY_MAX` is
 own line at 1498.6 s rebinds to that later drop, inside Phoenix's window.
 The same gate refuses a drop that leaves any other slot at its full level
 as `equip_release`. In-round X casts fall to
-[metric:ult_lines/ult-cast@all-sessions#x_casts=48], missed lines to
-[metric:ult_lines/ult-cast@all-sessions#missed_lines=3], and
-[metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.938] of
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.4.0#x_casts=48], missed lines to
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.4.0#missed_lines=3], and
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.4.0#x_casts_with_line_fraction=0.938] of
 the casts have an own line; own selections witnessed stay
-[metric:ult_lines/ult-cast@all-sessions#own_witnessed=45].
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.4.0#own_witnessed=45].
+
+Under 0.4.0 a release still tainted a drop beside it as
+`cooccur_among_casts`: the player equips one ability and casts another, and
+the release and the cast land in one window. `player-cast-0.5.0` lets a
+release, a drop `equip_release` refuses from above the full level, taint
+nothing, and accepts four more X casts: in-round X casts rise to
+[metric:ult_lines/ult-cast@all-sessions#x_casts=52], own selections
+witnessed to [metric:ult_lines/ult-cast@all-sessions#own_witnessed=48],
+missed lines to [metric:ult_lines/ult-cast@all-sessions#missed_lines=4], and
+[metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.923] of
+the casts have an own line. Three of the four bind a line that no cast
+witnessed before; the fourth, `bfad2778a372` at 405.57 s (Skye), has no own
+peak above the floor (the gate's docstring and ledger task `tray-cooccur`).
 
 ### What was not done in production
 
@@ -1131,7 +1144,9 @@ Ledger rows under task `voice-lines-heldout`, kind `outcome`, 2026-09-27.
   eight casts miss it. Under `player-cast-0.3.0` the gate refuses four of
   them as `partial_charge`, and [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#x_casts_with_line_fraction=0.92] have one;
   under `player-cast-0.4.0`, which also refuses the X drop that did not
-  empty the slot, [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.938] do.
+  empty the slot, [metric:ult_lines/ult-cast@all-sessions-player-cast-0.4.0#x_casts_with_line_fraction=0.938] do;
+  under `player-cast-0.5.0`, which accepts four X casts a release had
+  tainted, one of them unlined, [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.923] do.
 
 ### Recommendation
 

@@ -3,8 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from reticle.ability_timeline import (EMPTY_MAX, FULL_AFTER_MIN, FULL_MIN, _step_ms,
-                                      build_timeline, player_tray_casts, write_timeline)
+from reticle.ability_timeline import (EMPTY_MAX, FULL_AFTER_MIN, FULL_LEVEL, FULL_MIN,
+                                      _step_ms, build_timeline, player_tray_casts,
+                                      write_timeline)
 
 
 class AbilityTimelineTests(unittest.TestCase):
@@ -173,8 +174,9 @@ class GateChargeTests(unittest.TestCase):
                           (81000.0, "X"): (False, "after_player_death")})
 
     def test_a_part_filled_x_drop_still_taints_a_drop_beside_it(self):
-        # It is a transition of the tray, so the co-occurrence test still sees
-        # it; the rule changes no other slot's verdict.
+        # Teal leaving a part-charged X slot is no release: a flash over the
+        # whole tray leaves the same way (96aa1ae9b96f 673.0 s), so the
+        # co-occurrence test still counts it.
         got = self._gate([_drop(20000, "X", frm=0.5), _drop(21000, "Q")])
         self.assertEqual(got[(21000.0, "Q")]["reason"], "cooccur_among_casts")
         self.assertEqual(got[(20000.0, "X")]["reason"], "cooccur_among_casts")
@@ -231,18 +233,63 @@ class GateLevelTests(unittest.TestCase):
                  _drop(50000, "C", frm=1.4, to=0.99), _drop(50500, "E"),  # co-occurring
                  _drop(81000, "Q", frm=1.4, to=0.99)]               # after the death
         got = self._gate(drops, [80000.0], agent="Sova")
+        # The release at 50 s is tainted by the cast beside it, which it does
+        # not taint in turn.
         self.assertEqual({k: (r["player_cast"], r["reason"]) for k, r in got.items()},
                          {(10000.0, "X"): (False, "partial_charge"),
                           (30000.0, "C"): (False, "forced"),
                           (50000.0, "C"): (False, "cooccur_among_casts"),
-                          (50500.0, "E"): (False, "cooccur_among_casts"),
+                          (50500.0, "E"): (True, None),
                           (81000.0, "Q"): (False, "after_player_death")})
 
-    def test_a_released_slot_still_taints_a_cast_beside_it(self):
-        # The level tests follow the co-occurrence test and change none of its verdicts.
+    def test_a_released_slot_does_not_taint_a_cast_beside_it(self):
+        # The player equips Q, which brightens its slot, then switches to E and
+        # casts it: the release and the cast land in one sample.
         got = self._gate([_drop(20000, "Q", frm=1.25, to=0.97), _drop(20000, "E")])
         self.assertEqual(got[(20000.0, "Q")]["reason"], "cooccur_among_casts")
+        self.assertTrue(got[(20000.0, "E")]["player_cast"])
+        self.assertIsNone(got[(20000.0, "E")]["reason"])
+
+    def test_an_ult_cast_beside_a_release_passes(self):
+        # 3694746e4e54: X 1.01 -> 0 at 664.52 s, the player's own ult line at
+        # 664.41 s, and C released from 1.32 to 0.99 at 665.0 s (moved into ROUND).
+        got = self._gate([_drop(64517, "X", frm=1.01), _drop(65000, "C", frm=1.32, to=0.99)])
+        self.assertTrue(got[(64517.0, "X")]["player_cast"])
+        self.assertEqual(got[(65000.0, "C")]["reason"], "cooccur_among_casts")
+
+    def test_only_a_release_from_above_the_full_level_is_quiet(self):
+        # A slot at its full level that falls to it was not brightened: the
+        # drop is `equip_release` but no release, and it taints.
+        got = self._gate([_drop(20000, "C", frm=FULL_LEVEL, to=FULL_AFTER_MIN),
+                          _drop(20000, "E")])
         self.assertEqual(got[(20000.0, "E")]["reason"], "cooccur_among_casts")
+        self.assertEqual(got[(20000.0, "C")]["reason"], "cooccur_among_casts")
+
+    def test_an_x_drop_the_charge_tests_refuse_still_taints(self):
+        # A glow over a full X slot leaving it (75a55a296d3b 720.55 s) is no release.
+        got = self._gate([_drop(20000, "X", frm=1.33, to=0.97), _drop(20500, "C", frm=1.01)])
+        self.assertEqual(got[(20500.0, "C")]["reason"], "cooccur_among_casts")
+        self.assertEqual(got[(20000.0, "X")]["reason"], "cooccur_among_casts")
+
+    def test_releases_beside_nothing_else_keep_their_own_reason(self):
+        got = self._gate([_drop(20000, "C", frm=1.4, to=0.99), _drop(20500, "Q", frm=1.3, to=0.95)])
+        self.assertEqual(got[(20000.0, "C")]["reason"], "equip_release")
+        self.assertEqual(got[(20500.0, "Q")]["reason"], "equip_release")
+
+    def test_a_menu_dim_still_refuses_every_slot(self):
+        # The menu dims every slot at one instant [domain:hud/menu-dims-tray];
+        # bars land on fractions, not on the full level, so none is a release.
+        dim = [_drop(20000, "C", frm=1.0, to=0.45), _drop(20000, "Q", frm=0.99, to=0.4),
+               _drop(20000, "E", frm=1.0, to=0.55)]
+        got = self._gate(dim)
+        self.assertEqual({k: r["reason"] for k, r in got.items()},
+                         {k: "cooccur_among_casts" for k in got})
+        # A brightened slot the dim leaves at the full level is quiet, and the
+        # other slots still taint each other and it.
+        dim[1] = _drop(20000, "Q", frm=1.3, to=0.8)
+        got = self._gate(dim)
+        self.assertEqual({k: r["reason"] for k, r in got.items()},
+                         {k: "cooccur_among_casts" for k in got})
 
 
 if __name__ == "__main__":

@@ -78,6 +78,22 @@ EMPTY_MAX = 0.2
 #: between a two-charge slot's half and full levels; a drop to at least this
 #: much is `equip_release`. `player_tray_casts` gives the measurement.
 FULL_AFTER_MIN = 0.75
+#: A full slot's fill: `tray.fills` scales each slot to its p90 clean count.
+#: An `equip_release` drop from above it is a release, which taints no drop
+#: beside it. `player_tray_casts` gives the measurement.
+FULL_LEVEL = 1.0
+
+
+def _charge_reason(drop: dict) -> str | None:
+    """The first of the charge tests that refuses `drop`, or None.
+    `player_tray_casts` gives the tests."""
+    if drop["slot"] == ULT_SLOT and drop["from"] < FULL_MIN:
+        return "partial_charge"
+    if drop["slot"] == ULT_SLOT and drop["to"] > EMPTY_MAX:
+        return "pips_lit"
+    if drop["to"] >= FULL_AFTER_MIN:
+        return "equip_release"
+    return None
 
 
 def _kit_end(window: tuple, ends: set, deaths_ms, agent: str | None,
@@ -157,12 +173,19 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
       [domain:hud/ability-tray-charge-segments]. An X drop that reaches this
       test has emptied its slot, so it refuses only C, Q and E drops.
 
-    They run after the co-occurrence test, so a drop they refuse still counts
-    as a transition of the tray beside another slot's drop, and they change no
-    verdict that test gives.
+    They name a drop only after the co-occurrence test, but that test asks them
+    first which drops are releases. A release is a C, Q or E drop that
+    `equip_release` refuses from above the full level (`from` over FULL_LEVEL,
+    1.0): the player equipped the ability, which brightens its slot, and
+    switched away. A release spends nothing, so it taints no drop beside it;
+    every other drop taints, an X drop the charge tests refuse included
+    (*A release beside a cast*, below). A drop falls by at least
+    `tray.CAST_DROP`, so one that lands at FULL_AFTER_MIN or more starts at
+    1.0 or more; the clause excludes only a slot read at its full level that
+    falls to FULL_AFTER_MIN, which was never brightened.
 
     Every test names its refusal, and a drop keeps the first that refuses it,
-    in the order the tests run: `no_round`, `after_player_death`,
+    in this order: `no_round`, `after_player_death`,
     `phase:<name>`, `forced` or `cooccur_among_casts`, `partial_charge`,
     `pips_lit`, `equip_release`.
 
@@ -187,11 +210,21 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     [metric:ult_lines/x-fill-full@all-sessions#with_line_from_mad=0.03].
     FULL_MIN sits [metric:ult_lines/x-fill-full@all-sessions#margin_below_lowest_with_line=0.1]
     under the lowest of them, more than three deviations, and far above a
-    part-charged slot's reading. No X drop the other tests pass on those
-    sessions fell from between 0.58 and 0.90, so any value in that gap gives
-    the same verdicts; the value is not fitted to the four drops it refuses
+    part-charged slot's reading. Until `player-cast-0.5.0` no X drop the other
+    tests passed on those sessions fell from between 0.58 and 0.90, so any
+    value in that gap gave the same verdicts; the value is not fitted to the
+    four drops it refused
     ([metric:ult_lines/x-fill-full@all-sessions#partial_from_min=0.36] to
     [metric:ult_lines/x-fill-full@all-sessions#partial_from_max=0.58]).
+    Since a release stopped tainting, one X drop the other tests pass falls in
+    the gap ([metric:tray/cooccur-taint@all-sessions#x_other_tests_pass_from_0_58_to_0_9=1]):
+    Phoenix's at `587c15b07779` 952.5 s, from
+    [metric:tray/cooccur-taint@all-sessions#x_partial_charge_587c15b07779_952_from=0.76]
+    to [metric:tray/cooccur-taint@all-sessions#x_partial_charge_587c15b07779_952_to=0.0],
+    with his own ult line at
+    [metric:tray/cooccur-taint@all-sessions#x_partial_charge_587c15b07779_952_line_dt_s=-9.43] s
+    from it. FULL_MIN alone refuses it now, so a value at or below its fill
+    would accept it; it is recorded here, not refitted.
 
     Those four drops, and every fill above 1, are teal added to the bar's box
     for one sample by something drawn behind or over the tray, which is
@@ -231,11 +264,16 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     after it, against
     [metric:tray/full-after-shapes@all-sessions#fury_empty_found=220] of
     [metric:tray/full-after-shapes@all-sessions#fury_empty_crops=221] after the
-    X drops that emptied the slot. On the 19 lineup sessions the two tests
-    leave [metric:tray/equip-release@all-sessions#x_casts=48] of
-    [metric:tray/equip-release@all-sessions#x_casts_before=50] X casts; no X
-    cast left falls to more than
-    [metric:tray/equip-release@all-sessions#x_to_max=0.03].
+    X drops that emptied the slot. On the 19 lineup sessions under
+    `player-cast-0.4.0` the two tests left
+    [metric:tray/equip-release@all-sessions#x_casts=48] of
+    [metric:tray/equip-release@all-sessions#x_casts_before=50] X casts, none
+    falling to more than
+    [metric:tray/equip-release@all-sessions#x_to_max=0.03]. The gate now
+    passes [metric:tray/cooccur-taint@all-sessions#x_casts=52] (*A release
+    beside a cast*, below), the highest landing at
+    [metric:tray/cooccur-taint@all-sessions#x_to_max=0.13] (`bfad2778a372`
+    405.57 s), under EMPTY_MAX.
 
     *The full level* is read from `to` as well. A two-charge slot's bar reads
     1, 0.5 or 0 of its reference [domain:hud/ability-tray-charge-segments], and
@@ -269,11 +307,48 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     0.95), whose view tints the screen [domain:hud/controlled-entity-view-tint],
     and Regrowth at `e37fdeca944f` 364.6 s (1.31 to 1.0). The tray and the
     labels disagree on those two, and the gate refuses both.
-    Because the tests follow the co-occurrence test, a release still taints a
-    cast beside it in another slot:
+
+    *A release beside a cast.* The player equips one ability, switches to
+    another and casts it, and the release and the cast land within
+    `tray.SUSPECT_S`, often in one sample. Under `player-cast-0.4.0` the release tainted the
+    cast:
     [metric:tray/equip-release@all-sessions#cooccur_beside_charge_refusals_only=58]
-    drops that emptied their slot are refused as co-occurring with nothing but
-    drops these tests refuse.
+    drops the charge tests pass were refused as co-occurring with nothing but
+    drops those tests refuse. On `3694746e4e54` at 664.52 s the X slot emptied
+    0.11 s after the player's own ult line, beside C released from
+    [metric:tray/cooccur-taint@all-sessions#example_3694746e4e54_664_c_from=1.32]
+    to [metric:tray/cooccur-taint@all-sessions#example_3694746e4e54_664_c_to=0.99].
+    The 58 had [metric:tray/cooccur-taint@all-sessions#partners=68] partners:
+    [metric:tray/cooccur-taint@all-sessions#partners_equip_release=58]
+    releases, from
+    [metric:tray/cooccur-taint@all-sessions#release_from_min=1.08] to
+    [metric:tray/cooccur-taint@all-sessions#release_from_max=1.96], and
+    [metric:tray/cooccur-taint@all-sessions#partners_partial_charge=6]
+    `partial_charge` and
+    [metric:tray/cooccur-taint@all-sessions#partners_pips_lit=4] `pips_lit` X
+    drops. Those X drops are teal leaving the ult slot, and teal leaves the
+    whole tray the same way: on `96aa1ae9b96f` at 673.0 s
+    [metric:tray/cooccur-taint@all-sessions#flash_96aa1ae9b96f_673_slots=4]
+    slots fell in one sample, E from
+    [metric:tray/cooccur-taint@all-sessions#flash_96aa1ae9b96f_673_e_from=0.88]
+    to 0 beside C and Q falling to their full level and a part-charged X. So
+    only a release is quiet, and the gate passes
+    [metric:tray/cooccur-taint@all-sessions#accepted_of_58=48] of the 58,
+    [metric:tray/cooccur-taint@all-sessions#accepted_of_58_X=4] of them X
+    casts. None has a partner that landed below
+    [metric:tray/cooccur-taint@all-sessions#accepted_partner_to_min=0.78] or
+    fell from below
+    [metric:tray/cooccur-taint@all-sessions#accepted_partner_from_min=1.08],
+    and [metric:tray/cooccur-taint@all-sessions#accepted_in_same_sample_group_3plus=0]
+    lie in a sample where three or more slots fell. The settings menu dims
+    every slot at one instant [domain:hud/menu-dims-tray]; the
+    [metric:tray/cooccur-taint@all-sessions#demo_menu_drops=18] demo drops it
+    covers all read the tray as not drawn
+    ([metric:tray/cooccur-taint@all-sessions#demo_menu_drops_forced=18]
+    `forced`). A dim that left the bars drawn would lower every slot at once,
+    and each slot it leaves below the full level is no release and still
+    taints the others. No labelled drop changes its verdict
+    ([metric:tray/cooccur-taint@all-sessions#labels_verdict_changed=0]).
 
     Every drop comes back with `player_cast`, the first `reason` that refused
     it, the round's `first_player_death_ms`, the `kit_end_ms` the gate used,
@@ -300,22 +375,14 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
                      "first_player_death_ms": first, "kit_end_ms": end,
                      "undone_deaths": undone, "reason": reason})
     keep = [r for r in rows if r["reason"] is None]
-    for r, (*_x, sus) in zip(keep, tray.flag_suspect(
-            [(r["t_ms"] / 1000.0, r["slot"], r["from"], r["to"], r["forced"]) for r in keep])):
-        if sus:
-            r["reason"] = "forced" if r["forced"] else "cooccur_among_casts"
-    # After the co-occurrence test, so a drop these tests refuse still counts
-    # as a transition of the tray beside another slot's drop. The first test
-    # that refuses a drop names it.
-    for r in keep:
-        if r["reason"] is not None:
-            continue
-        if r["slot"] == ULT_SLOT and r["from"] < FULL_MIN:
-            r["reason"] = "partial_charge"
-        elif r["slot"] == ULT_SLOT and r["to"] > EMPTY_MAX:
-            r["reason"] = "pips_lit"
-        elif r["to"] >= FULL_AFTER_MIN:
-            r["reason"] = "equip_release"
+    # The charge tests read first, because the co-occurrence test asks them
+    # which drops are releases; a drop still keeps the first reason in order.
+    charge = [_charge_reason(r) for r in keep]
+    quiet = [why == "equip_release" and r["from"] > FULL_LEVEL for r, why in zip(keep, charge)]
+    for r, why, (*_x, sus) in zip(keep, charge, tray.flag_suspect(
+            [(r["t_ms"] / 1000.0, r["slot"], r["from"], r["to"], r["forced"]) for r in keep],
+            quiet=quiet)):
+        r["reason"] = ("forced" if r["forced"] else "cooccur_among_casts") if sus else why
     for r in rows:
         r["player_cast"] = r["reason"] is None
     return rows
