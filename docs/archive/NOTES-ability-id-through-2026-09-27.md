@@ -1,4 +1,4 @@
-# Reticle handoff paragraphs retired on 2026-09-27
+# Reticle handoff paragraphs retired from the ability-identification branch on 2026-09-27
 
 Moved out of `NOTES.md` when it passed its word limit; the metric tokens and
 facts were current when written.
