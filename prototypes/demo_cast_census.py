@@ -84,6 +84,10 @@ TOOL = "demo_cast_census"
 EXTRA_DEMOS = ("2ba870ccbd50",)
 CACHE_HZ = 15.0
 IDLE = 0x40
+BELOW_NORMAL = 0x4000
+#: `CENSUS_PRIORITY=below_normal` runs this process and its scans at Below
+#: Normal when the player allows it; Idle is the default.
+PRIORITY = BELOW_NORMAL if os.environ.get("CENSUS_PRIORITY") == "below_normal" else IDLE
 #: The demos the player re-recorded to the Omen protocol (standing still,
 #: spaced casts, equip-hold-cast, three of each ability) carry this tag. The
 #: first run excludes them, so its casts and numbering stay as they were read.
@@ -120,7 +124,7 @@ def run_session() -> str:
 
 
 def idle() -> None:
-    """Run this process at Idle priority: the CPU is shared with the player's jobs.
+    """Run this process at Idle (or `PRIORITY`): the CPU is shared with the player's jobs.
 
     The handle types are declared: with ctypes' default `int`, the pseudo-handle
     of `GetCurrentProcess` reaches `SetPriorityClass` truncated to 32 bits on
@@ -132,8 +136,8 @@ def idle() -> None:
     k.GetCurrentProcess.restype = ctypes.c_void_p
     k.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
     k.GetPriorityClass.argtypes = [ctypes.c_void_p]
-    if not k.SetPriorityClass(k.GetCurrentProcess(), IDLE):
-        raise SystemExit("could not lower this process to Idle priority")
+    if not k.SetPriorityClass(k.GetCurrentProcess(), PRIORITY):
+        raise SystemExit(f"could not lower this process to priority class {PRIORITY:#x}")
 
 
 def _man(sid: str) -> dict:
@@ -216,7 +220,7 @@ def cmd_cache(args) -> int:
                 cmd.append("--force")
             t0 = time.perf_counter()
             p = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True,
-                               creationflags=IDLE if os.name == "nt" else 0)
+                               creationflags=PRIORITY if os.name == "nt" else 0)
             wall = time.perf_counter() - t0
             if p.returncode != 0:
                 refusals[sid] = {"agent": agent, "returncode": p.returncode,
@@ -386,6 +390,38 @@ TRAY_VERDICTS = {
     "b9558488a607:X:14.50": ("false", "X full 13.0-15.3 s; a pale blue flash lifts X at 14.03 s"),
     "f1cf160b213d:E:22.57": ("false", "E full from 21.82 s to 23.3 s; a blue streak lifts E"),
     "f9703a4b5a47:X:19.07": ("false", "a blue-teal wash 17.98-18.48 s; X stays full"),
+    # The re-recorded protocol demos (run `rerecorded`); no stored cast cache,
+    # so every drop is judged. `menu`: every slot falls at one instant as the
+    # menu opens [domain:hud/menu-dims-tray].
+    "0c6c52a65b9e:Q:9.03": ("real", "Q full to 8.90 s, empty at 8.97 s; the icon dims from 9.6 s"),
+    "0c6c52a65b9e:E:17.57": ("real", "E falls from two charges to one at 17.23 s; a cooldown "
+                                     "count appears over E"),
+    "0c6c52a65b9e:E:24.57": ("real", "E falls from one charge to none at 24.57 s"),
+    "0c6c52a65b9e:C:44.05": ("menu", "CLOSE SETTINGS covers the tray 44.05-44.32 s; C full "
+                                     "again at 44.38 s"),
+    "0c6c52a65b9e:X:44.05": ("menu", "CLOSE SETTINGS covers the tray 44.05-44.32 s; X full "
+                                     "again at 44.38 s"),
+    "6afc32cb46b4:C:7.50": ("real", "C full to 7.00 s, empty at 7.08 s"),
+    "6afc32cb46b4:Q:22.57": ("real", "Q full to 22.15 s, empty at 22.23 s"),
+    "6afc32cb46b4:E:30.57": ("real", "E falls from two charges to one at 30.57 s"),
+    "6afc32cb46b4:E:38.05": ("real", "E falls from one charge to none at 37.63 s"),
+    "6afc32cb46b4:X:54.05": ("false", "an orange flash 53.25-54.7 s lifts and lowers X to 0.7; "
+                                      "X full again at 54.88 s"),
+    "6afc32cb46b4:X:56.05": ("menu", "all four bars and icons dim at 55.68 s and stay dim to "
+                                     "the end"),
+    "aab12e41dcfc:C:6.52": ("real", "C full to 6.32 s, empty at 6.38 s"),
+    "aab12e41dcfc:Q:18.07": ("false", "Q holds both charges 16.6-29.5 s; the bow's glow over Q "
+                                      "lifts it to 934 at 17.48 s"),
+    "aab12e41dcfc:Q:29.57": ("real", "Q falls from two charges to one at 29.57 s under the glow"),
+    "aab12e41dcfc:Q:38.05": ("real", "Q falls from one charge to none at 37.57 s under the glow"),
+    "aab12e41dcfc:E:44.05": ("real", "E full to 43.22 s, empty at 43.30 s under the glow; a "
+                                     "cooldown count appears over E"),
+    "aab12e41dcfc:X:51.55": ("real", "X bar and pips full to 50.87 s, empty at 50.93 s; the "
+                                     "X icon flashes with each blast after"),
+    "fc02a2c1ac01:Q:19.57": ("real", "Q full to 19.07 s, empty at 19.15 s; the green "
+                                     "possession tint follows"),
+    "fc02a2c1ac01:E:30.07": ("real", "E falls from two charges to one at 30.07 s"),
+    "fc02a2c1ac01:E:35.05": ("real", "E falls from one charge to none at 34.63 s"),
 }
 #: Stored casts no drop here matched, judged the same way.
 STORED_VERDICTS = {
@@ -476,7 +512,8 @@ def cmd_casts(args) -> int:
             m["stored_cache"] = st is not None
             v = TRAY_VERDICTS.get(vkey(sid, m["slot"], m["t_ms"] / 1000.0))
             m["tray_verdict"], m["tray_verdict_reason"] = v if v else (None, None)
-            m["census"] = m["tray_verdict"] != "false"
+            # `menu`: the whole tray dims as the menu opens [domain:hud/menu-dims-tray].
+            m["census"] = m["tray_verdict"] not in ("false", "menu")
             if needs_eye(m) and v is None:
                 unjudged.append(vkey(sid, m["slot"], m["t_ms"] / 1000.0))
         miss = []
@@ -511,6 +548,7 @@ def cmd_casts(args) -> int:
     tot.update({
         "eyed": len(eyed),
         "eyed_false": sum(m["tray_verdict"] == "false" for m in eyed),
+        "eyed_menu": sum(m["tray_verdict"] == "menu" for m in eyed),
         "added_real": sum(m["stored_cache"] and m["stored"] is None
                           and m["tray_verdict"] == "real" for m in rows),
         "added_false": sum(m["stored_cache"] and m["stored"] is None
@@ -520,6 +558,8 @@ def cmd_casts(args) -> int:
                                     for m in rows),
         "no_stored_cache_false": sum(not m["stored_cache"] and m["tray_verdict"] == "false"
                                      for m in rows),
+        "no_stored_cache_menu": sum(not m["stored_cache"] and m["tray_verdict"] == "menu"
+                                    for m in rows),
         "matched_false": sum(m["stored"] is not None and m["tray_verdict"] == "false"
                              for m in rows),
         "missing_false": sum(x["tray_verdict"] == "false" for p in per.values()
@@ -528,6 +568,16 @@ def cmd_casts(args) -> int:
         "stays_full_false": sum(m["to"] >= 0.8 and m["tray_verdict"] == "false" for m in rows),
         "census": sum(m["census"] for m in rows),
         "unjudged": len(unjudged)})
+    # The protocol asks for three casts of every ability; count what the tray shows.
+    n_cast = Counter(f"{m['agent']}:{m['ability']}" for m in rows if m["census"])
+    kit_names = [f"{a}:{v['name']}" for _s, a in demos() if _s in per
+                 for v in kit(a).values() if v.get("name")]
+    tot.update({"kit_abilities": len(kit_names),
+                "abilities_cast": sum(n_cast[k] > 0 for k in kit_names),
+                "abilities_cast_3": sum(n_cast[k] >= 3 for k in kit_names),
+                "menu_demos": len({m["sid"] for m in rows if m["tray_verdict"] == "menu"})})
+    for k in kit_names:
+        print(f"  {k:<28} tray casts {n_cast[k]}")
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "casts.json").write_text(json.dumps({"version": VERSION, "source_reader": name,
                                                 "step_s": TRAY_STEP_S, "match_s": MATCH_S,
@@ -1119,6 +1169,8 @@ def cmd_read(args) -> int:
                                     "desc": r["desc"].strip(),
                                     "self_ring": bool(r.get("self_ring", False)),
                                     "seen_before": bool(r.get("seen_before", False)),
+                                    # How many new objects the cast drew, where countable.
+                                    "count": r.get("count"),
                                     "by": "claude-blind", "at": at, "version": VERSION}) + "\n")
         have = blind_rows()
         print(f"added {len(rows)}; read {len(have)} of {len(nums)}")
