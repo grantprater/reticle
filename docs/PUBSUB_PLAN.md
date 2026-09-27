@@ -101,3 +101,22 @@ Decisions and their evidence are appended here as the work proceeds.
   map built on it would have missed readers and passes that the store's data
   already carries. The other session asked for this; the evidence was the
   store's `hud-0.15.0` rows against master's `hud-0.12.0` code.
+- 2026-09-27, critique: every change the design's critic asked for is applied
+  (design, section 6). The staged publish with run records (L6, `publish.py`)
+  left the scope, since it exceeds what the plan asks; design finding 1,
+  publish in place without a run id, stays filed as open work.
+- 2026-09-27, prototype: `scan --check` runs the staged path before the serial
+  one, so the staged threads meet the lazily filled module caches (`_ME_CACHE`,
+  `_REG`) cold. Steps 1 and 2 ran serial first and so never tested that race
+  (prototype, finding 1).
+- 2026-09-27, timings: a check's timing rows may be appended to the store's
+  `notes/usage.jsonl` and `notes/metrics.jsonl`, because they are notes about
+  a run, not derived data. `tools/pubsub_notes_append.py` appends them and
+  refuses a run id the store already holds, so a document can cite a check's
+  times without the check publishing any stream into the store.
+- 2026-09-27, L1 reframed: the staged pipeline, with today's `sample_multi` as
+  its source, already moves retrieve and conversion off the reader threads;
+  step 4 tests that. The selecting decode producer (`_Selector`) and its
+  deeper queue become a further lever, unbuilt.
+- 2026-09-27, measurement: the runs of design steps 3 and 4 did not run and
+  wait for the player; design section 3 lists them.

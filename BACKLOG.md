@@ -28,14 +28,17 @@ Steps 1 to 5 are done ([archive](docs/archive/BACKLOG-through-2026-09-26.md)).
 
 **Remaining identity drift to retire:** `Lineup.player` still combines the tray, self icon and top bar itself before publishing claims (the `player-agent` exit).
 
+**Pub/sub branch `pubsub-20260927` (2026-09-27, unmerged).** (1) The measurement runs ([design](docs/PUBSUB_DESIGN.md) steps 3 and 4) wait for the player; step 3 answers whether reader threads run in parallel under the GIL. (2) Publish writes in place with no run id: a minimap zero-rows exit fires after the killfeed writes. (3) `events_version` reads the first row, so a truncated events file reads as current. (4) Usage records omit contention and backend. (5) `--until` drops frames with negative timestamps. (6) Unbuilt: L1's selecting producer, L2, L5, L7. (7) Merging the two sessions' `NOTES.md` needs a decision.
+
 ## Completed
 
-- **`demo-cast-census` (2026-09-26):** crop caches for 33 demos; of 147 drops, 19 are the menu and 55 of 128 casts draw nothing; 15 observed facts; a labelling tool.
-- **`audio-ability-bank` (2026-09-26):** demo references name 39 of 120 labelled match casts, 64 by correlation after re-recording; not wired.
-- **`ability-shape-wiring` (2026-09-26):** `reticle tray` and `reticle ability-shapes` store the player's casts and drawn shapes from the crop cache; on the player's marks Fury 21/21, Regrowth 14/16, Recon Bolt 8/8.
-- **`revive-plate-witness` (2026-09-26):** a one-colour banner with an unnamed icon, a fielded reviver and two names is a revive (`death-adjudication-0.14.0`).
-- **`plan-derived-chain` (2026-09-25):** `plan` stales the round table on a moved HUD or portrait input and the deaths behind it; each round table records its portrait stamp. Rebuilding all 20 changed no round.
+Full entries: [09-27 archive](docs/archive/BACKLOG-through-2026-09-27.md).
 
+- **`pubsub-prototype` (2026-09-27):** staged equals serial; untimed.
+- **`demo-cast-census` (2026-09-26):** demo census.
+- **`audio-ability-bank` (2026-09-26):** audio references.
+- **`ability-shape-wiring` (2026-09-26):** tray and shapes.
+- **`revive-plate-witness` (2026-09-26):** revive banners.
 
 ## Deferred
 

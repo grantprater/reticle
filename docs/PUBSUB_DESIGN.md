@@ -438,3 +438,6 @@ Before steps 3 and 4, changes 2 and 6 were made and L1 reframed:
   for files steps 1, 2 and 2a proved.
 - **Section 3's table** gives `--until` in seconds, as built; the flag refuses to run without `--check`
   and `--check-dir`. Section 3's opening and open question 1 follow the reframe.
+
+The measurement phase has not run. Section 3 lists its runs, step 3's from the crop cache and step 4's
+video prefix; they wait for the player, and until they run no document quotes a time.

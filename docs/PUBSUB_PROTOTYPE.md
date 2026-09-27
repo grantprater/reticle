@@ -13,6 +13,7 @@ decoded video. The critique's changes are in the design, section 6.
 | `reticle/cli.py` | `scan --pipeline`, `--workers`, `--shard`, `--cv-threads`, `--check`, `--check-dir` |
 | `reticle/minimap.py` | `AllyIconReader.shardable`: the lists its shards append to |
 | `tests/test_pipeline.py` | Step 0, on synthetic readers and a synthetic cache |
+| `tools/pubsub_notes_append.py` | Appends each check's usage and pass rows to the store's notes so a document can cite them; tested on a synthetic store only |
 
 The dispatcher, the calling thread, reads the source and offers each frame
 read-only; each reader, or each shard of one, feeds on its own thread behind a
@@ -128,6 +129,6 @@ job, and none of the eight run ids appears in the store's `notes/`.
 
 ## Not done
 
-No `publish.py` or L6, no `_Selector`, no look-ahead (L1, L2), no `--until`,
-no timing (step 3), no transport (step 4). One session only; the whole cached
-session, not five minutes.
+No `publish.py` or L6, no `_Selector`, no look-ahead (L1, L2), no `--until`
+(added later, in `fa07570`), no timing (step 3), no transport (step 4). One
+session only; the whole cached session, not five minutes.
