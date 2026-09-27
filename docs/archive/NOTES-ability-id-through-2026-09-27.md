@@ -22,3 +22,15 @@ From the voice-lines paragraph, shortened on 2026-09-27 (later); the sentences a
 - The X bar lights only when the ult is castable [domain:abilities/ult-slot-lights-when-castable] (player).
 
 - The player's review ([doc](docs/VOICE_LINES.md)): every row below or beside the threshold is no ult line, as the scores predicted (an ult-ready line, speech, a drone).
+
+From the voice-lines paragraph, shortened on 2026-09-27 (evening); the sentences as they stood:
+
+- while her enemy cast template scores [metric:ult_ready_lines/heard@c40d950031bb#killjoy_cast_enemy_score=0.0574]
+
+- The shape refits kept every found count (G3, G6).
+
+- [metric:voice_line_harvest/ult-ready@wiki#agents_with_ult_asset_covered=28] of 28
+
+- onset [metric:voice_lines/evaluate-F-B@all-matches#onset_median_s=-0.43] s from the drop with interquartile range [metric:voice_lines/evaluate-F-B@all-matches#onset_iqr_s=0.442]
+
+- The player's review: every row below or beside the threshold is no ult line ([doc](docs/VOICE_LINES.md)).
