@@ -60,6 +60,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | What each demo cast draws on the minimap (census, player questions) | `docs/DEMO_CAST_CENSUS.md` |
 | Naming the player's casts from audio (demo bank, transfer) | `docs/AUDIO_ABILITY_BANK.md` |
 | The audio gate: design, mined labels, formulations, predictions, results | `docs/AUDIO_GATE.md` |
+| Ultimate voice lines as templates: whose ult, which side, when; lineup-impossible false alarms | `docs/VOICE_LINES.md`, `prototypes/voice_lines.py` |
 | What each ability does: inputs, minimap drawing, overlay, duration (the player's sheet) | `docs/ABILITY_MECHANICS_SHEET.md` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
