@@ -2799,15 +2799,11 @@ def cmd_ability_shapes(args) -> int:
         sx, sy = mm.column("self_x").to_pylist(), mm.column("self_y").to_pylist()
 
         def seed_at(t):
-            if not len(mt):
-                return None
-            i = int(np.abs(mt - t).argmin())
-            if abs(mt[i] - t) > 100 or sx[i] is None:
-                return None
-            return float(sx[i]), float(sy[i])
+            return ability_shapes.seed_from_track(mt, sx, sy, t)
 
         common = {"session_id": sid, "agent": agent, "tray_version": TRAY_VERSION,
-                  "seed_source": "stored self position", "minimap_version": mm_version}
+                  "seed_source": "stored self position", "minimap_version": mm_version,
+                  "seed_tol_ms": ability_shapes.SEED_TOL_MS}
         rows, found = [], Counter()
         for c in casts:
             ability = kit[c["slot"]]

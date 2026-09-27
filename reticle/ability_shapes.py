@@ -69,7 +69,7 @@ Regrowth and [metric:ability_shapes/marks@tray-object-marks#recon_found=8] of
 of the 10 panels a second before the cast. A blast's angle is within 3 deg of
 the marks on [metric:ability_shapes/marks@tray-object-marks#fury_angle_3deg=14]
 of 21, within 4.1 deg on 20; a seeded blast starts at the stored self position,
-stored by `minimap-0.1.0` to `0.5.0` against the current `0.7.0`. The
+the nearest within SEED_TOL_MS of the crop. The
 marks are a centre and angle truth, not a radius truth: the player traced the
 ring's inner edge, 0-15 px inside it.
 
@@ -92,6 +92,15 @@ import numpy as np
 
 from .version import ABILITY_SHAPE_VERSION
 
+#: How far, in ms, a seed may be taken from a stored self position. The
+#: refreshed self track (`minimap-0.7.0`, 2026-09-27) stores single-frame
+#: gaps: on the shape crops of 13 sessions the nearest row within 100 ms had
+#: no position on a third of them while a row beside it did (the median null
+#: run is one row at 15 Hz). The track runs at most `minimap.RUN_PX` widget
+#: px/s, so a seed a quarter second off errs by about 11 px, inside the
+#: seeded ring's 0.1R search.
+SEED_TOL_MS = 250.0
+
 #: The shape each ability draws, and where its search starts.
 SHAPES = {"Regrowth": ("ring", "caster"),
           "Recon Bolt": ("ring", "free"),
@@ -110,6 +119,28 @@ SUPPORT_DILATE = 9
 #: A beam is fired across the map: at least this fraction of its drawn run lies
 #: on the support, or it is teal scenery seen through the widget.
 BEAM_ON_MAP = 0.35
+
+
+def seed_from_track(t_ms, sx, sy, t: float,
+                    tol_ms: float = SEED_TOL_MS) -> tuple[float, float] | None:
+    """The stored self position nearest `t`, or None.
+
+    `t_ms`, `sx`, `sy` are the minimap table's columns. A row without a
+    position is skipped and the nearest row that has one within `tol_ms` wins,
+    so a single-frame gap in the track leaves no crop unseeded, while a span
+    where the reader refused, or nobody was looking, still returns None. Every
+    caller that seeds a shape from the track uses this, so the tolerance is
+    one number.
+    """
+    t_ms = np.asarray(t_ms, float)
+    if not len(t_ms):
+        return None
+    dist = np.abs(t_ms - t)
+    near = np.flatnonzero(dist <= tol_ms)
+    for i in near[np.argsort(dist[near], kind="stable")]:
+        if sx[i] is not None and sy[i] is not None:
+            return float(sx[i]), float(sy[i])
+    return None
 
 
 def teal(crop: np.ndarray) -> np.ndarray:

@@ -114,5 +114,30 @@ class RefusalTest(unittest.TestCase):
                          S.ABILITY_SHAPE_VERSION)
 
 
+class SeedTest(unittest.TestCase):
+    """The seed comes from the nearest stored self position within the tolerance."""
+
+    T = [0.0, 67.0, 133.0, 200.0, 267.0, 333.0, 400.0]
+
+    def test_the_row_at_the_crop_time_wins(self):
+        sx = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+        self.assertEqual(S.seed_from_track(self.T, sx, sx, 133.0), (3.0, 3.0))
+
+    def test_a_single_frame_gap_is_bridged_by_its_neighbour(self):
+        sx = [1.0, 2.0, None, 4.0, 5.0, 6.0, 7.0]
+        self.assertEqual(S.seed_from_track(self.T, sx, sx, 133.0), (2.0, 2.0))
+
+    def test_a_span_without_a_position_gives_none(self):
+        sx = [None] * 7
+        self.assertIsNone(S.seed_from_track(self.T, sx, sx, 200.0))
+        sx = [1.0, None, None, None, None, None, None, None]
+        self.assertIsNone(S.seed_from_track(self.T + [467.0], sx, sx, 400.0))
+
+    def test_a_crop_far_from_every_row_gives_none(self):
+        sx = [1.0] * 7
+        self.assertIsNone(S.seed_from_track(self.T, sx, sx, 400.0 + S.SEED_TOL_MS + 1))
+        self.assertIsNone(S.seed_from_track([], [], [], 0.0))
+
+
 if __name__ == "__main__":
     unittest.main()
