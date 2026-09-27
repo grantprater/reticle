@@ -28,13 +28,13 @@ Steps 1 to 5 are done ([archive](docs/archive/BACKLOG-through-2026-09-26.md)).
 
 **Remaining identity drift to retire:** `Lineup.player` still combines the tray, self icon and top bar itself before publishing claims (the `player-agent` exit).
 
-**Pub/sub branch `pubsub-20260927` (2026-09-27, unmerged).** (1) The measurement runs ([design](docs/PUBSUB_DESIGN.md) steps 3 and 4) wait for the player; step 3 answers whether reader threads run in parallel under the GIL. (2) Publish writes in place with no run id: a minimap zero-rows exit fires after the killfeed writes. (3) `events_version` reads the first row, so a truncated events file reads as current. (4) Usage records omit contention and backend. (5) `--until` drops frames with negative timestamps. (6) Unbuilt: L1's selecting producer, L2, L5, L7. (7) Merging the two sessions' `NOTES.md` needs a decision.
+**Pub/sub branch `pubsub-20260927` (2026-09-27, unmerged).** (1) The [measurements](docs/PUBSUB_MEASUREMENTS.md) leave the shard question open: the check's serial path ignores `--cv-threads`, so the shards at one OpenCV thread were compared with a serial reader on the pool of 12; fix the flag, rerun the ally-icon check with both paths at one thread, and run a process-based shard, which settles the GIL. The staged path's first scoreboard call ran cold; give `--check` a warm-up call. (2) Publish writes in place with no run id: a minimap zero-rows exit fires after the killfeed writes. (3) `events_version` reads the first row, so a truncated events file reads as current. (4) Usage records omit contention and backend. (5) `--until` drops frames with negative timestamps. (6) Unbuilt: L1's selecting producer, L2, L5, L7. (7) Merging the two sessions' `NOTES.md` needs a decision.
 
 ## Completed
 
 Full entries: [09-27 archive](docs/archive/BACKLOG-through-2026-09-27.md).
 
-- **`pubsub-prototype` (2026-09-27):** staged equals serial; untimed.
+- **`pubsub-prototype` (2026-09-27):** staged equals serial; timed on the cache and a video prefix.
 - **`demo-cast-census` (2026-09-26):** demo census.
 - **`audio-ability-bank` (2026-09-26):** audio references.
 - **`ability-shape-wiring` (2026-09-26):** tray and shapes.

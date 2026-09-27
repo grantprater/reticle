@@ -130,5 +130,7 @@ Decisions and their evidence are appended here as the work proceeds.
   its source, already moves retrieve and conversion off the reader threads;
   step 4 tests that. The selecting decode producer (`_Selector`) and its
   deeper queue become a further lever, unbuilt.
-- 2026-09-27, measurement: the runs of design steps 3 and 4 did not run and
-  wait for the player; design section 3 lists them.
+- 2026-09-27, measurement: the runs of design steps 3 and 4 ran later that
+  day, started by the player; the results and their rows are in
+  `docs/PUBSUB_MEASUREMENTS.md`. Two of them are confounded, since the
+  check's serial path ignores `--cv-threads`, and are filed as open work.
