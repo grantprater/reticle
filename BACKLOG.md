@@ -28,7 +28,7 @@ Steps 1 to 5 are done ([archive](docs/archive/BACKLOG-through-2026-09-26.md)).
 
 **Remaining identity drift to retire:** `Lineup.player` still combines the tray, self icon and top bar itself before publishing claims (the `player-agent` exit).
 
-**Pub/sub branch `pubsub-20260927` (2026-09-27, unmerged).** (1) The [measurements](docs/PUBSUB_MEASUREMENTS.md) leave the shard question open: the check's serial path ignores `--cv-threads`; fix it, rerun the ally-icon check with both paths at one thread, then try a process shard. Give `--check` a warm-up call. (2) Publish writes in place with no run id: a minimap zero-rows exit fires after the killfeed writes. (3) `events_version` reads the first row, so a truncated events file reads as current. (4) Usage records omit contention and backend. (5) `--until` drops frames with negative timestamps. (6) Unbuilt: L1's selecting producer, L2, L5, L7. (7) Merging the two sessions' `NOTES.md` needs a decision.
+**Pub/sub branch `pubsub-20260927` (2026-09-27, unmerged).** (1) The [measurements](docs/PUBSUB_MEASUREMENTS.md) leave shards open: the check's serial path ignores `--cv-threads`; fix it, rerun ally-icon at one thread on both paths, then try a process shard; warm up `--check`. (2) Publish writes in place with no run id: a minimap zero-rows exit fires after the killfeed writes. (3) `events_version` reads the first row, so a truncated events file reads as current. (4) Usage records omit contention and backend. (5) `--until` drops frames with negative timestamps. (6) Unbuilt: L1's selecting producer, L2, L5, L7. (7) Merging the two sessions' `NOTES.md` needs a decision.
 
 ## Completed
 
