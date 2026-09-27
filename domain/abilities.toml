@@ -124,8 +124,8 @@ see = ["abilities/viper-poison-cloud"]
 [clove-rouse]
 claim = """
 Clove's Ruse is her smoke, placed in slot E. Each cloud is drawn on the
-caster's minimap as a bounded dark disc, and Ruse is the only Clove ability
-that draws anything there.
+caster's minimap as a bounded dark disc that marks where the cloud was placed,
+and Ruse is the only Clove ability that draws anything there.
 """
 kind = "appearance"
 known = "player"
@@ -139,11 +139,13 @@ the map, after the tray-object pass found nothing on 9 of 9 answered match
 casts; that answer is retracted. Before that the fact claimed a circular disc
 measured by prototypes/ability_hud.py on the same demo. Why the nine match
 casts showed nothing is open: a placement out of the montage's frames, or an
-equip without a cast
+equip without a cast. Asked again later that day whether matches too leave
+one disc per cloud, the player said yes, and that the disc is the indicator
+of the smoke's placement
 """
 use = """
 a slot E drop on Clove is followed by a minimap search for dark discs, one
-per cloud; `adjudication.smokes` may attribute a Clove smoke to Ruse
+per cloud, and each disc's centre is that cloud's position; `adjudication.smokes` may attribute a Clove smoke to Ruse
 """
 see = ["abilities/clove-tray-charges"]
 
@@ -602,17 +604,28 @@ use = "the ring prior of `ability_shapes`: search round the caster"
 [sova-recon-bolt-minimap-ring]
 claim = """
 Sova's Recon Bolt is drawn on the minimap as a teal ring centred where the bolt
-lands, with the bolt's icon at the centre.
+lands, with the bolt's icon at the centre. The ring is the reveal range. On
+each pulse the bolt reveals the enemies in its own line of sight, and the
+whole team then sees them, through walls.
 """
 kind = "appearance"
-known = "observed"
+known = "player"
 since = "2026-09-26"
 subject = "sova:recon-bolt"
 source = """
 the player's tray-object marks on 8 panels of 6 casts: one mark on the bolt
-and the rest on the ring round it, 27-97 px from the stored self position.
+and the rest on the ring round it, 27-97 px from the stored self position;
+the player, 2026-09-26, asked whether the ring is the whole reveal: the ring
+is the range, the scan itself does not pass through walls, and the revealed
+enemies are shown through walls to everyone on Sova's team.
 """
-use = "the free ring of `ability_shapes`: the bolt flies, so search the whole widget"
+use = """
+the free ring of `ability_shapes`: the bolt flies, so search the whole widget;
+the ring's radius is the reveal range, fixed for the ability, so it is a prior
+for the fit and a check on a found ring; an enemy icon appearing inside the
+ring during the pulse is a reveal, not a sighting
+"""
+see = ["abilities/pulse-scan-abilities"]
 
 [sova-hunters-fury-minimap-beam]
 claim = """
@@ -1241,3 +1254,25 @@ fuel meter, which the pipeline does not read, is the witness to ask before
 calling the end a toggle
 """
 see = ["abilities/viper-poison-cloud-toggle", "abilities/viper-toxic-screen"]
+
+[pulse-scan-abilities]
+claim = """
+Recon Bolt, Fade's Haunt and Tejo's Stealth Drone are pulse scans and work
+the same way with different ranges: the device pulses, reveals the enemies in
+its line of sight within its range, and the whole team sees them. The verb
+is scan.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-26"
+subject = "abilities:scans"
+source = """
+the player, 2026-09-26. The three descriptions in the catalogue all say
+"reveal"; the Stealth Drone's says it fires a pulse
+"""
+use = """
+one scan model, parametrised by range, for the three; a revealed enemy is
+the same downstream event whichever device pulsed, and the minimap ring's
+radius names the device among the lineup's scanners
+"""
+see = ["abilities/sova-recon-bolt-minimap-ring", "abilities/ability-rules-are-unique"]

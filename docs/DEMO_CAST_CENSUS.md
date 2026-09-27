@@ -762,3 +762,16 @@ widget-drawn check read the same void. Frames were cut from the captures
 with ffmpeg at the cached minimap rectangle, 1 s before the cast and 1 to 6
 s after it; the tint is gated on nothing yet, and the montages the player
 labels still carry it.
+
+### The player's answers on the two open questions (2026-09-26, evening)
+
+- **Ruse leaves one disc per cloud in matches too.** The disc is the
+  indicator of the smoke's placement [domain:abilities/clove-rouse]. Why the
+  nine match casts of the tray-object pass showed nothing stays open.
+- **The Recon Bolt ring is the reveal range**, drawn round the bolt's icon
+  [domain:abilities/sova-recon-bolt-minimap-ring]. The scan does not pass
+  through walls; the enemies it sees on a pulse are shown through walls to
+  everyone on Sova's team. Recon Bolt, Fade's Haunt and Tejo's Stealth Drone
+  are the same pulse scan with different ranges
+  [domain:abilities/pulse-scan-abilities], so one scan model with a range
+  parameter serves all three, and the ring's radius names the device.
