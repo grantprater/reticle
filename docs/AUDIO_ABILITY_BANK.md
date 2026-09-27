@@ -1,7 +1,8 @@
 # Naming the player's abilities from audio
 
 Date: 2026-09-26. Status: experiment; declined for wiring. Prototype:
-[`prototypes/audio_bank.py`](../prototypes/audio_bank.py) (`audio-bank-0.1.0`).
+[`prototypes/audio_bank.py`](../prototypes/audio_bank.py) (`audio-bank-0.1.0`;
+`audio-bank-0.2.0` for the re-recorded references at the end).
 Ledger: the store's `notes/predictions.jsonl`, task `audio-ability-bank`.
 Outputs: the store's `analysis/audio-bank/` (features, score caches, plots).
 
@@ -221,3 +222,181 @@ second witness to the tray, not a reader.
 - **Recordings.** The player will re-record Sova, Phoenix, Skye and Clove to
   the Omen protocol of `b9558488a607`, Pick-me-up and Not Dead Yet included.
   Rebuild the bank from those before any threshold is read again.
+
+## Re-recorded references (2026-09-26)
+
+The player recorded Sova (`aab12e41dcfc`), Phoenix (`6afc32cb46b4`), Skye
+(`fc02a2c1ac01`) and Clove (`0c6c52a65b9e`) to the Omen protocol: standing
+still, casts spaced, equip-hold-cast, three casts of each ability.
+`audio-bank-0.2.0` widens every window to 3 s either side of the drop, keeps
+the 8 s context, and gives each reference its phases
+[domain:abilities/ability-sound-phases]: equip, cast, and an ongoing template
+from 1.0 s to 2.8 s after the cast, offered when its sound stands 3 dB above
+the context. The drops come from the demo cast census
+(`analysis/demo-cast-census-rerecorded/casts.json`).
+
+**What the tray gave.** The census eye-check called
+[metric:audio_bank/build_v2#census_casts=15] drops real, and the bank keeps those. It
+called [metric:audio_bank/build_v2#census_excluded_census_false=2] false (Sova's held
+Shock Bolt, which the bow's glow lifts, and an orange flash over Phoenix's X)
+and [metric:audio_bank/build_v2#census_excluded_menu=3] the settings menu
+[domain:hud/menu-dims-tray]; those stay out. The four clips carry the
+`infinite-abilities` tag, and the tray dropped for fifteen of the protocol's
+forty-eight casts. Regrowth, Seekers, Run it Back, Pick-me-up and Not Dead Yet
+therefore have no new reference, and eight abilities have one. The census
+sessions give no reject windows, because a tray-quiet window in those clips is
+not quiet.
+
+**Instrument check.** With the old references 0.2.0 reproduces 0.1.0 on the
+same 120 verified casts: [metric:audio_bank/transfer_v2#verified_kit_hits=39] under the
+primary and [metric:audio_bank/transfer_variants_v2#corr_cast_verified_kit_hits=58] under
+`corr`, every agent and ability alike. On two demos and one match, the stored
+frames and the cast-phase scores equal 0.1.0's exactly.
+
+**Four banks, one query set.** Each bank is scored on the same 120 verified
+match casts with the same scores.
+
+- *old*: 0.1.0's references.
+- *new* (`--bank-sessions`): the four agents take only their re-recorded
+  references. A slot without one leaves the kit, so Skye and Clove choose
+  between two slots and Phoenix among three.
+- *slot* (`--bank-slot`): only the slots the census holds change; the kit
+  keeps four slots.
+- *both* (`--bank-add`): old and new references together.
+
+| Bank | `prod` (primary) | `corr` | `prod_abs` | `corr` ongoing | Open set accepted (correct) | `corr`, all tray casts |
+|---|---|---|---|---|---|---|
+| old | [metric:audio_bank/transfer_v2#verified_kit_hits=39] | [metric:audio_bank/transfer_variants_v2#corr_cast_verified_kit_hits=58] | [metric:audio_bank/transfer_variants_v2#prod_abs_cast_verified_kit_hits=52] | [metric:audio_bank/transfer_variants_v2#corr_ongoing_verified_kit_hits=43] | [metric:audio_bank/transfer_v2#verified_open_accepted=4] ([metric:audio_bank/transfer_v2#verified_open_correct=0]) | [metric:audio_bank/transfer_variants_v2#corr_cast_tray_kit_hits=252] |
+| new | [metric:audio_bank/transfer_v2_rerec#verified_kit_hits=43] | [metric:audio_bank/transfer_variants_v2_rerec#corr_cast_verified_kit_hits=64] | [metric:audio_bank/transfer_variants_v2_rerec#prod_abs_cast_verified_kit_hits=62] | [metric:audio_bank/transfer_variants_v2_rerec#corr_ongoing_verified_kit_hits=29] | [metric:audio_bank/transfer_v2_rerec#verified_open_accepted=3] ([metric:audio_bank/transfer_v2_rerec#verified_open_correct=1]) | [metric:audio_bank/transfer_variants_v2_rerec#corr_cast_tray_kit_hits=285] |
+| slot | [metric:audio_bank/transfer_v2_slot#verified_kit_hits=36] | [metric:audio_bank/transfer_variants_v2_slot#corr_cast_verified_kit_hits=64] | [metric:audio_bank/transfer_variants_v2_slot#prod_abs_cast_verified_kit_hits=59] | [metric:audio_bank/transfer_variants_v2_slot#corr_ongoing_verified_kit_hits=29] | [metric:audio_bank/transfer_v2_slot#verified_open_accepted=3] ([metric:audio_bank/transfer_v2_slot#verified_open_correct=1]) | [metric:audio_bank/transfer_variants_v2_slot#corr_cast_tray_kit_hits=272] |
+| both | [metric:audio_bank/transfer_v2_both#verified_kit_hits=39] | [metric:audio_bank/transfer_variants_v2_both#corr_cast_verified_kit_hits=63] | [metric:audio_bank/transfer_variants_v2_both#prod_abs_cast_verified_kit_hits=58] | [metric:audio_bank/transfer_variants_v2_both#corr_ongoing_verified_kit_hits=36] | [metric:audio_bank/transfer_v2_both#verified_open_accepted=3] ([metric:audio_bank/transfer_v2_both#verified_open_correct=1]) | [metric:audio_bank/transfer_variants_v2_both#corr_cast_tray_kit_hits=276] |
+
+The first five columns count the 120 verified casts; the last counts all 483
+`player_cast` drops. Per ability, kit hits on the verified casts:
+
+| Ability | New references (drop, s) | Verified n | `prod` old | `prod` new | `prod` slot | `corr` old | `corr` new | `corr` slot | `corr` both | Gain old (dB) | Gain new (dB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Sova C Owl Drone | 6.5 | [metric:audio_bank/transfer_ability_verified_v2#Sova_C_n=8] | [metric:audio_bank/confusion_verified_v2#prod_cast_Sova_C_hits=1] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Sova_C_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Sova_C_hits=0] | [metric:audio_bank/confusion_verified_v2#corr_cast_Sova_C_hits=8] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Sova_C_hits=5] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Sova_C_hits=5] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Sova_C_hits=7] | [metric:audio_bank/transfer_ability_verified_v2#Sova_C_gain_median=-1.6] | [metric:audio_bank/transfer_ability_verified_v2_rerec#Sova_C_gain_median=1.9] |
+| Sova Q Shock Bolt | 29.6, 38.1 | [metric:audio_bank/transfer_ability_verified_v2#Sova_Q_n=8] | [metric:audio_bank/confusion_verified_v2#prod_cast_Sova_Q_hits=5] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Sova_Q_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Sova_Q_hits=0] | [metric:audio_bank/confusion_verified_v2#corr_cast_Sova_Q_hits=5] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Sova_Q_hits=5] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Sova_Q_hits=5] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Sova_Q_hits=5] | [metric:audio_bank/transfer_ability_verified_v2#Sova_Q_gain_median=-12.0] | [metric:audio_bank/transfer_ability_verified_v2_rerec#Sova_Q_gain_median=-15.3] |
+| Sova E Recon Bolt | 44.1 | [metric:audio_bank/transfer_ability_verified_v2#Sova_E_n=8] | [metric:audio_bank/confusion_verified_v2#prod_cast_Sova_E_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Sova_E_hits=3] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Sova_E_hits=3] | [metric:audio_bank/confusion_verified_v2#corr_cast_Sova_E_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Sova_E_hits=6] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Sova_E_hits=6] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Sova_E_hits=4] | [metric:audio_bank/transfer_ability_verified_v2#Sova_E_gain_median=5.6] | [metric:audio_bank/transfer_ability_verified_v2_rerec#Sova_E_gain_median=0.4] |
+| Sova X Hunter's Fury | 51.6 | [metric:audio_bank/transfer_ability_verified_v2#Sova_X_n=8] | [metric:audio_bank/confusion_verified_v2#prod_cast_Sova_X_hits=6] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Sova_X_hits=6] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Sova_X_hits=6] | [metric:audio_bank/confusion_verified_v2#corr_cast_Sova_X_hits=6] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Sova_X_hits=6] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Sova_X_hits=6] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Sova_X_hits=6] | [metric:audio_bank/transfer_ability_verified_v2#Sova_X_gain_median=-1.8] | [metric:audio_bank/transfer_ability_verified_v2_rerec#Sova_X_gain_median=1.7] |
+| Phoenix C Blaze | 7.5 | [metric:audio_bank/transfer_ability_verified_v2#Phoenix_C_n=9] | [metric:audio_bank/confusion_verified_v2#prod_cast_Phoenix_C_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Phoenix_C_hits=9] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Phoenix_C_hits=4] | [metric:audio_bank/confusion_verified_v2#corr_cast_Phoenix_C_hits=1] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Phoenix_C_hits=3] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Phoenix_C_hits=1] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Phoenix_C_hits=0] | [metric:audio_bank/transfer_ability_verified_v2#Phoenix_C_gain_median=-2.7] | [metric:audio_bank/transfer_ability_verified_v2_rerec#Phoenix_C_gain_median=2.0] |
+| Phoenix Q Hot Hands | 22.6 | [metric:audio_bank/transfer_ability_verified_v2#Phoenix_Q_n=9] | [metric:audio_bank/confusion_verified_v2#prod_cast_Phoenix_Q_hits=6] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Phoenix_Q_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Phoenix_Q_hits=0] | [metric:audio_bank/confusion_verified_v2#corr_cast_Phoenix_Q_hits=6] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Phoenix_Q_hits=4] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Phoenix_Q_hits=4] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Phoenix_Q_hits=6] | [metric:audio_bank/transfer_ability_verified_v2#Phoenix_Q_gain_median=-3.8] | [metric:audio_bank/transfer_ability_verified_v2_rerec#Phoenix_Q_gain_median=0.6] |
+| Phoenix E Curveball | 30.6, 38.1 | [metric:audio_bank/transfer_ability_verified_v2#Phoenix_E_n=9] | [metric:audio_bank/confusion_verified_v2#prod_cast_Phoenix_E_hits=4] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Phoenix_E_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Phoenix_E_hits=0] | [metric:audio_bank/confusion_verified_v2#corr_cast_Phoenix_E_hits=7] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Phoenix_E_hits=9] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Phoenix_E_hits=9] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Phoenix_E_hits=9] | [metric:audio_bank/transfer_ability_verified_v2#Phoenix_E_gain_median=-1.5] | [metric:audio_bank/transfer_ability_verified_v2_rerec#Phoenix_E_gain_median=3.6] |
+| Phoenix X Run it Back | none | [metric:audio_bank/transfer_ability_verified_v2#Phoenix_X_n=9] | [metric:audio_bank/confusion_verified_v2#prod_cast_Phoenix_X_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Phoenix_X_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Phoenix_X_hits=5] | [metric:audio_bank/confusion_verified_v2#corr_cast_Phoenix_X_hits=2] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Phoenix_X_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Phoenix_X_hits=5] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Phoenix_X_hits=2] | [metric:audio_bank/transfer_ability_verified_v2#Phoenix_X_gain_median=-7.4] | - |
+| Skye C Regrowth | none | [metric:audio_bank/transfer_ability_verified_v2#Skye_C_n=9] | [metric:audio_bank/confusion_verified_v2#prod_cast_Skye_C_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Skye_C_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Skye_C_hits=0] | [metric:audio_bank/confusion_verified_v2#corr_cast_Skye_C_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Skye_C_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Skye_C_hits=0] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Skye_C_hits=0] | [metric:audio_bank/transfer_ability_verified_v2#Skye_C_gain_median=21.4] | - |
+| Skye Q Trailblazer | 19.6 | [metric:audio_bank/transfer_ability_verified_v2#Skye_Q_n=9] | [metric:audio_bank/confusion_verified_v2#prod_cast_Skye_Q_hits=6] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Skye_Q_hits=9] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Skye_Q_hits=1] | [metric:audio_bank/confusion_verified_v2#corr_cast_Skye_Q_hits=8] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Skye_Q_hits=9] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Skye_Q_hits=7] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Skye_Q_hits=8] | [metric:audio_bank/transfer_ability_verified_v2#Skye_Q_gain_median=-3.1] | [metric:audio_bank/transfer_ability_verified_v2_rerec#Skye_Q_gain_median=0.3] |
+| Skye E Guiding Light | 30.1, 35.1 | [metric:audio_bank/transfer_ability_verified_v2#Skye_E_n=9] | [metric:audio_bank/confusion_verified_v2#prod_cast_Skye_E_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Skye_E_hits=8] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Skye_E_hits=0] | [metric:audio_bank/confusion_verified_v2#corr_cast_Skye_E_hits=7] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Skye_E_hits=8] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Skye_E_hits=7] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Skye_E_hits=7] | [metric:audio_bank/transfer_ability_verified_v2#Skye_E_gain_median=-0.5] | [metric:audio_bank/transfer_ability_verified_v2_rerec#Skye_E_gain_median=2.9] |
+| Skye X Seekers | none | [metric:audio_bank/transfer_ability_verified_v2#Skye_X_n=9] | [metric:audio_bank/confusion_verified_v2#prod_cast_Skye_X_hits=6] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Skye_X_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Skye_X_hits=9] | [metric:audio_bank/confusion_verified_v2#corr_cast_Skye_X_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Skye_X_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Skye_X_hits=0] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Skye_X_hits=0] | [metric:audio_bank/transfer_ability_verified_v2#Skye_X_gain_median=23.1] | - |
+| Clove C Pick-me-up | none | [metric:audio_bank/transfer_ability_verified_v2#Clove_C_n=5] | [metric:audio_bank/confusion_verified_v2#prod_cast_Clove_C_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Clove_C_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Clove_C_hits=0] | [metric:audio_bank/confusion_verified_v2#corr_cast_Clove_C_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Clove_C_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Clove_C_hits=0] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Clove_C_hits=0] | - | - |
+| Clove Q Meddle | 9.0 | [metric:audio_bank/transfer_ability_verified_v2#Clove_Q_n=1] | [metric:audio_bank/confusion_verified_v2#prod_cast_Clove_Q_hits=1] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Clove_Q_hits=1] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Clove_Q_hits=1] | [metric:audio_bank/confusion_verified_v2#corr_cast_Clove_Q_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Clove_Q_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Clove_Q_hits=0] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Clove_Q_hits=0] | [metric:audio_bank/transfer_ability_verified_v2#Clove_Q_gain_median=-6.8] | [metric:audio_bank/transfer_ability_verified_v2_rerec#Clove_Q_gain_median=-5.7] |
+| Clove E Ruse | 17.6, 24.6 | [metric:audio_bank/transfer_ability_verified_v2#Clove_E_n=9] | [metric:audio_bank/confusion_verified_v2#prod_cast_Clove_E_hits=4] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Clove_E_hits=7] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Clove_E_hits=7] | [metric:audio_bank/confusion_verified_v2#corr_cast_Clove_E_hits=8] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Clove_E_hits=9] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Clove_E_hits=9] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Clove_E_hits=9] | [metric:audio_bank/transfer_ability_verified_v2#Clove_E_gain_median=-5.1] | [metric:audio_bank/transfer_ability_verified_v2_rerec#Clove_E_gain_median=-0.4] |
+| Clove X Not Dead Yet | none | [metric:audio_bank/transfer_ability_verified_v2#Clove_X_n=1] | [metric:audio_bank/confusion_verified_v2#prod_cast_Clove_X_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Clove_X_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#prod_cast_Clove_X_hits=0] | [metric:audio_bank/confusion_verified_v2#corr_cast_Clove_X_hits=0] | [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Clove_X_hits=0] | [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Clove_X_hits=0] | [metric:audio_bank/confusion_verified_v2_both#corr_cast_Clove_X_hits=0] | - | - |
+
+**What changed.**
+
+1. **A right reference transfers.** Recon Bolt, whose 0.1.0 reference was a
+   Shock Bolt, rises from [metric:audio_bank/confusion_verified_v2#corr_cast_Sova_E_hits=0]
+   to [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Sova_E_hits=6] of 8 under
+   `corr`. Curveball, Trailblazer, Guiding Light and Ruse each gain one or two.
+2. **The declared score does not improve.** Coverage is one-sided: a reference whose
+   loud cells any loud query covers scores high against everything. In the new
+   bank the one Blaze reference
+   names every Phoenix cast Blaze: Hot Hands
+   [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Phoenix_Q_as_C=9], Curveball
+   [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Phoenix_E_as_C=8], Run it Back
+   [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Phoenix_X_as_C=9] of 9, so its
+   Blaze hits are no recognition. In the slot bank the old Seekers references,
+   which hold no Seekers cast (the answers above), take Skye's casts. In
+   the both bank the old references win every `prod` verdict they won
+   before.
+3. **Two losses.** Owl Drone falls from
+   [metric:audio_bank/confusion_verified_v2#corr_cast_Sova_C_hits=8] to
+   [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Sova_C_hits=5] of 8 under
+   `corr`; under `prod` all
+   [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Sova_C_as_X=8] go to Hunter's
+   Fury, whose cast template holds Sova's voice line
+   [domain:abilities/ability-voice-line-mask]. Hot Hands falls from
+   [metric:audio_bank/confusion_verified_v2#corr_cast_Phoenix_Q_hits=6] to
+   [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Phoenix_Q_hits=4].
+4. **The ongoing phase does not name abilities.** The rule offered an ongoing
+   template on [metric:audio_bank/build_v2#census_ongoing_templates=12] of the
+   [metric:audio_bank/build_v2#census_casts=15] new references, both Shock Bolts and
+   both Curveballs among them, and `corr` on it falls from
+   [metric:audio_bank/transfer_variants_v2#corr_ongoing_verified_kit_hits=43] to
+   [metric:audio_bank/transfer_variants_v2_rerec#corr_ongoing_verified_kit_hits=29].
+   Recon Bolt's scan pulses, a rhythmic sound, fall under the 3 dB rise and get
+   none.
+5. **The open set still refuses.** Every bank accepts three or four of the 120
+   verified casts at the demo-reject threshold.
+6. **The new references sit at the match level.** On the verified casts with a
+   reference the median gain is [metric:audio_bank/gain_v2_rerec#median=0.7] dB,
+   quartiles [metric:audio_bank/gain_v2_rerec#q25=-1.7] to
+   [metric:audio_bank/gain_v2_rerec#q75=2.5], and
+   [metric:audio_bank/gain_v2_rerec#within_3db=54] of
+   [metric:audio_bank/gain_v2_rerec#n=87] lie within 3 dB; the old references
+   give [metric:audio_bank/gain_v2#median=-1.9] dB,
+   [metric:audio_bank/gain_v2#q25=-5.2] to [metric:audio_bank/gain_v2#q75=1.8],
+   and [metric:audio_bank/gain_v2#within_3db=41] of
+   [metric:audio_bank/gain_v2#n=114]. Shock Bolt is the exception (below).
+
+**Within the new demos.** Leave-one-cast-out can ask only the four abilities
+with two drops: [metric:audio_bank/retrieve_within_v2_rerec#answerable=8] of
+[metric:audio_bank/retrieve_within_v2_rerec#n=15] casts. The primary names
+[metric:audio_bank/retrieve_within_v2_rerec#kit_hits=6] and `corr`
+[metric:audio_bank/retrieve_within_variants_v2_rerec#corr_cast_kit_hits=8]. With the old
+demos as references too, all [metric:audio_bank/retrieve_within_v2_both#answerable=15]
+are answerable across sessions: the primary names
+[metric:audio_bank/retrieve_within_v2_both#kit_hits=12] and `corr`
+[metric:audio_bank/retrieve_within_variants_v2_both#corr_cast_kit_hits=13]; `corr` misses
+Recon Bolt, whose old reference is a Shock Bolt, and Meddle.
+
+**References that still look wrong** (sheets `sheet-census-sova-phoenix.png`,
+`sheet-census-skye-clove.png` under `analysis/audio-bank/0.2.0/plots/`):
+
+- *Shock Bolt*, 29.6 s and 38.1 s. Both cast templates sit on a loud
+  broadband wall at the release. Match Shock Bolts are quieter at the drop and
+  loud one to two seconds later
+  (`explain-3694746e4e54_322567_Q_corr_cast_v2_slot.png`), and the median gain
+  is [metric:audio_bank/transfer_ability_verified_v2_rerec#Sova_Q_gain_median=-15.3] dB.
+  I guess the demo bolts burst near the player, so the template holds release
+  and blast together.
+- *Hunter's Fury*, 51.6 s. The cast template holds Sova's voice line, which
+  draws Owl Drone casts that carry one
+  (`explain-043bafca271a_1479017_C_corr_cast_v2_slot.png`).
+- *Guiding Light*, 35.1 s. The equip template sits at 32.05 s on the first
+  Guiding Light's activation, not on this cast's equip. The cast template is
+  right.
+
+One reference checks out against another channel: Recon Bolt's equip onset,
+2.93 s before the drop, falls on the start of the bow's glow that the census
+times from the tray (`holds.json`). Blaze, Hot Hands, Curveball, Trailblazer,
+Meddle and Ruse look as the sound phases predict: an onset at the drop, then a
+tail.
+
+**Predictions** (ledger task `audio-ability-bank`, tag `rerecorded`; "new"
+unless named).
+
+| ID | Prediction | Outcome |
+|---|---|---|
+| P0 | Old references reproduce 39 and 58 of 120 | **Confirmed.** |
+| N1 | Primary >= 48 of 120 | **Wrong.** [metric:audio_bank/transfer_v2_rerec#verified_kit_hits=43]; slot [metric:audio_bank/transfer_v2_slot#verified_kit_hits=36]. |
+| N2 | `corr` >= 66 of 120 | **Wrong, narrowly.** [metric:audio_bank/transfer_variants_v2_rerec#corr_cast_verified_kit_hits=64]. |
+| N3 | Primary per agent: Sova >= 14, Phoenix >= 12, Skye >= 14, Clove >= 6 | **Wrong for Sova ([metric:audio_bank/transfer_v2_rerec#verified_Sova_kit_hits=9]) and Phoenix ([metric:audio_bank/transfer_v2_rerec#verified_Phoenix_kit_hits=9]); confirmed for Skye ([metric:audio_bank/transfer_v2_rerec#verified_Skye_kit_hits=17]) and Clove ([metric:audio_bank/transfer_v2_rerec#verified_Clove_kit_hits=8]),** whose kits the new bank narrows. |
+| N4 | Recon Bolt >= 1 and >= 3 of 8 under `corr`, >= 3 under the primary | **Confirmed.** [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Sova_E_hits=6] and [metric:audio_bank/confusion_verified_v2_rerec#prod_cast_Sova_E_hits=3]. |
+| N5 | Regrowth rises from 0 of 9 | **Untested.** The census holds no Regrowth drop. |
+| N6 | Blaze <= 2 of 9 under `corr` | **Wrong, narrowly.** [metric:audio_bank/confusion_verified_v2_rerec#corr_cast_Phoenix_C_hits=3]; slot [metric:audio_bank/confusion_verified_v2_slot#corr_cast_Phoenix_C_hits=1]. |
+| N7 | Pick-me-up >= 2 of 5 under `corr` | **Untested.** Its only drop lies under the menu. |
+| N8 | Ongoing offered on Hot Hands, Blaze, Regrowth; not on Shock Bolt, Curveball | **Wrong in its second half.** Offered on the one Hot Hands and one Blaze, and on both Shock Bolts and both Curveballs; no Regrowth reference. |
+| N9 | `prod` ongoing names >= 14 of the 27 Hot Hands, Blaze and Regrowth casts | **Wrong.** [metric:audio_bank/confusion_verified_v2_rerec#prod_ongoing_Phoenix_Q_hits=0] + [metric:audio_bank/confusion_verified_v2_rerec#prod_ongoing_Phoenix_C_hits=7] + [metric:audio_bank/confusion_verified_v2_rerec#prod_ongoing_Skye_C_hits=0]. |
+| N10 | Open set accepts fewer than 20 of 120 | **Confirmed.** [metric:audio_bank/transfer_v2_rerec#verified_open_accepted=3]. |
+| N11 | No re-recorded ability's median gain beyond +/-8 dB | **Wrong.** Shock Bolt [metric:audio_bank/transfer_ability_verified_v2_rerec#Sova_Q_gain_median=-15.3] dB. |
+
+**What follows.** Clean references help, and only where they exist: `corr`
+gains six casts, most from one right Recon Bolt. The tray cannot time casts
+under infinite abilities, so a three-per-ability bank needs the player's cast
+times, or a recording with abilities on cooldown so that each cast drops the
+tray. `prod` should lose its place as the primary; the next run should declare
+`corr` on the cast template before it measures. The Hunter's Fury template
+needs its voice line masked or cut, and the Shock Bolt question goes to the
+player: where did those bolts land?
