@@ -38,9 +38,9 @@ from the player's kills and deaths (`events/death`), round starts, barrier
 drops, round ends and plants (`rounds`, `gametime`) and tray drops the
 owner refused; buy phase from `gametime`; background from the rest of the live
 round (`classify_blocks`). Live time is `round_live` plus `post_plant` while the
-player lives: after the player's first death in a round the tray, the HUD and
-the audio all follow a spectated teammate (`ability_timeline.player_tray_casts`
-draws the same line). Stalled spans (`reticle.stalls`) leave every count.
+player lives: after the player's first death in a round the tray shows a
+spectated teammate's kit [domain:hud/tray-after-player-death], and
+`ability_timeline.player_tray_casts` draws the same line. Stalled spans (`reticle.stalls`) leave every count.
 
 `fit` scores each match session with a model fitted on the others:
 F0 loudness (rank of RMS and of spectral flux, the larger), F1 the bank's
@@ -1445,7 +1445,7 @@ def smoke_eval(F: str, d: dict, tau: float) -> dict:
 #: holds only demos; events/minimap_dark holds 4 Hz masks whose onsets are the
 #: smoke tracks; ability_shape fits start from the player's own tray casts.
 WITNESSES = {
-    "ping": "events/ping: every stored ping, any teammate, its first frame",
+    "ping": "events/ping: every stored minimap ping of the player's team, its first frame",
     "ability_shape": "events/ability_shape: first found crop per own tray cast "
                      "(Regrowth ring, Recon Bolt ring, Hunter's Fury line)",
     "smoke": "events/smoke over events/minimap_dark: observed smoke-track onsets",
@@ -1986,7 +1986,8 @@ def cmd_report() -> None:
             "- Live time is `round_live` and `post_plant` from gametime, ended "
             f"{DEATH_LEAD_MS / 1000:.0f} s before the player's first death in the round "
             "(`rounds.player_death_times`); stalls are excluded everywhere. Frames after the "
-            "death stay unlabelled: the dead player hears the spectated teammate.",
+            "death stay unlabelled: the tray then shows a spectated teammate's kit "
+            "[domain:hud/tray-after-player-death], so no drop there is the player's cast.",
             f"- Own cast: {CAST_WIN[0]} s to +{CAST_WIN[1]} s around the drop, including the "
             "player's labels. Background keeps "
             f"{BG_GAP_CAST:.0f} s from casts and from every tray drop in live time, "
@@ -2170,7 +2171,8 @@ def cmd_report() -> None:
             f"{tok(rows, 'tray-blind', 'demos', f'{Fb}_{rg}_fired')}, rank "
             f"{tok(rows, 'tray-blind', 'demos', f'{Fb}_{rg}_rank')}. The demos hold one "
             "Regrowth cast, not the two P4 assumed: the player read the drop on "
-            "`6ab7a9e99235` at 27.6 s as the settings menu dimming the tray.",
+            "`6ab7a9e99235` at 27.6 s as the in-game menu dimming the tray "
+            "[domain:hud/menu-dims-tray].",
             f"- **P5.** {Fb}'s median onset minus drop is {t('loso', f'{Fb}_onset_median_s')} s; "
             f"the median absolute offset {t('loso', f'{Fb}_onset_abs_median_s')} s.",
             f"- **P6.** On `{S}`, {tok(rows, 'smokes', S, 'onsets_live')} of "
