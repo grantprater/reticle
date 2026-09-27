@@ -41,3 +41,18 @@ reticle/geometry.py resolves every path; doctor enforces the boundary, with
 prototypes/minimap_geometry.py and prototypes/clip_preflight.py the only
 exceptions
 """
+
+[game-audio-track-only]
+claim = """
+From 2026-09-27 the OBS profile records only the game's audio track. Earlier
+captures carry the desktop mix: six match sessions include podcast speech, and
+teammates on voice chat are audible, both of which the ultimate voice-line
+matcher took for lines (rows 22, 23 and 25 of the 0.1.0 review sheet).
+"""
+kind = "codec"
+known = "player"
+since = "2026-09-27"
+use = """
+score audio false alarms separately for captures before and after this date;
+the first game-audio capture is the probe
+"""

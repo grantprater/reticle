@@ -1399,3 +1399,19 @@ own ult casts are free labels for a line matcher, and the tray drop dates
 the cast within half a second except where the pips fall at expiry
 """
 see = ["abilities/voice-lines-announce-casts", "abilities/phoenix-run-it-back-expiry-flash"]
+
+[ult-ready-lines]
+claim = """
+An agent announces a ready ultimate with a fixed voice line of its own, heard
+by the player for an ally: Skye says her ultimate is ready on `c40d950031bb`
+at 678 s. It is not the cast line, and it scored 0.0441 against Skye's enemy
+cast template, just under the operating threshold.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-27"
+use = """
+harvest the ult-ready lines as templates of their own: a false alarm for the
+cast templates and a witness that an ally's ultimate is ready
+"""
+see = ["abilities/voice-lines-announce-casts"]

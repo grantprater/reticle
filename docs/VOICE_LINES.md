@@ -835,3 +835,33 @@ selections are new:
   was held out, and the unrounded point was not restored.
 - The per-agent cast window, the review sheet and the witnesses stay in the
   prototype.
+
+## The player's review (2026-09-27)
+
+The player listened to the 0.1.0 sheet (`analysis/voice-lines/0.1.0/review/index.html`),
+thirty rows: six own, fourteen possible, five borderline just below the
+threshold and five impossible above it. The verdicts are stored beside the
+sheet in `player_review.jsonl`.
+
+- **Every row below or beside the threshold is not an ultimate line, as the
+  scores predicted.** The five borderline rows (scores 0.0431 to 0.0441,
+  under the 0.0443 the adjudicator selects at) are an ally's ult-ready line
+  (Skye on `c40d950031bb` at 678.1 s, which fired Skye's enemy template and,
+  at 678.5 s, Sage's ally template), people talking in-game (`587c15b07779`
+  1291.6 s, `b7d24102a6f6` 233.2 s) and a teammate on voice (`59c70f1ef720`
+  173.8 s). The five impossible rows above the threshold are false alarms as
+  classed; the one the player could name is a drone sound taken for Yoru's
+  ally line (`9acf02f98283` 2304.9 s).
+- **The twenty own and possible rows were not disputed.** They are not
+  recorded as confirmed: the player commented on rows 21 to 30 only.
+- **Three confounds are now named:** ult-ready lines, which are fixed assets
+  of their own and so both a false alarm for the cast templates and a state
+  witness (an ally's ultimate is ready); speech, from the podcast track and
+  from teammates on voice, which the OBS change removes from captures made
+  after 2026-09-27 [domain:capture/game-audio-track-only]; and ability sounds
+  such as a drone.
+
+What follows from it: harvest the ult-ready lines as templates of their own
+and score them like the cast lines; measure the false-alarm rate again on the
+first capture with the game audio alone; and when a template fires beside a
+tray drop or a minimap event, prefer that witness over the score.
