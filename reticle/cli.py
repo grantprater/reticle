@@ -2881,15 +2881,39 @@ def cmd_ult_lines(args) -> int:
     return 0
 
 
+def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict]):
+    """(the X drops with the verdict `ability_timeline.player_tray_casts` gives
+    each, or None; the reason for None; the input stamps) for `ult-cast`."""
+    from .adjudication.ult_cast import player_x_drops
+    from .rounds import player_death_times
+    from .version import TRAY_VERSION
+
+    drops = store.read_events("tray_drop", sid)
+    if not drops:
+        return None, "no_tray_drops", {}
+    if drops[0].get("tray_version") != TRAY_VERSION:
+        return None, "tray_drops_stale", {"tray_drop": drops[0].get("tray_version")}
+    hud = store.read_hud(sid, date)
+    gt = gametime.build_session_gametime(sid, hud, rounds,
+                                         stall_list=stalls.for_session(store, sid, date))
+    x = player_x_drops(drops, lambda t: gt.game_time_at(t).phase, rounds,
+                       player_death_times(hud))
+    stamp = (hud.schema.metadata or {}).get(b"hud_version", b"").decode() or "unstamped"
+    return x, None, {"tray_drop": TRAY_VERSION, "hud": stamp,
+                     "gametime": gametime.GAMETIME_VERSION}
+
+
 def cmd_ult_cast(args) -> int:
     """Ultimate casts, their side and their round from stored voice-line peaks,
-    the lineup and the rounds table (`adjudication.ult_cast`). Decodes nothing."""
+    the lineup and the rounds table (`adjudication.ult_cast`), with own lines
+    bound to the player's X casts from the stored tray drops. Decodes nothing."""
     from .adjudication.ult_cast import THRESHOLD, adjudicate
     from .lineup import load_lineup
-    from .version import ULT_CAST_VERSION, ULT_LINE_VERSION
+    from .version import TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION
 
     store = Store(args.store)
     pooled, sessions, stamps, timing = Counter(), [], set(), {"decode_s": [], "score_s": []}
+    missed_best, witnessed_scores, missed_detail = [], [], {}
     for sid in _sessions_arg(store, args):
         peaks = store.read_events("ult_line", sid)
         if not peaks or peaks[0].get("ult_line_version") != ULT_LINE_VERSION:
@@ -2901,7 +2925,9 @@ def cmd_ult_cast(args) -> int:
         rounds = table.to_pylist() if table is not None else []
         round_version = (((table.schema.metadata or {}).get(b"round_version", b"").decode()
                           or "unstamped") if table is not None else None)
-        res = adjudicate(sid, peaks, load_lineup(sid, store.root), rounds, round_version)
+        tray_drops, tray_reason, tray_inputs = _ult_tray_drops(store, sid, _date_of(man), rounds)
+        res = adjudicate(sid, peaks, load_lineup(sid, store.root), rounds, round_version,
+                         tray_drops=tray_drops, tray_reason=tray_reason, tray_inputs=tray_inputs)
         out = store.write_events("ult_cast", sid, res["rows"])
         store.write_events("ult_cast_identity", sid, res["events"])
         cov = res["rows"][0]
@@ -2916,11 +2942,44 @@ def cmd_ult_cast(args) -> int:
         if cov["lineup"]:
             pooled.update({"lineup_selected": cov["selected"],
                            **{f"lineup_class_{c}": n for c, n in cov["by_class"].items()}})
+        if cov["tray"]["bound"]:
+            # Own lines against the tray, pooled and by the player's agent.
+            a = cov["player_agent"]
+            got = {"x_casts": cov["tray"]["player_x_casts"] - cov["tray"]["casts_outside_round"],
+                   "own_witnessed": cov["own_witnessed"],
+                   "own_unwitnessed": cov["own_unwitnessed"],
+                   "missed_lines": cov["missed_lines"],
+                   "missed_with_peak": cov["missed_with_peak"]}
+            pooled.update({"tray_sessions": 1, "x_casts_outside_round":
+                           cov["tray"]["casts_outside_round"], **got,
+                           **{f"{k}_{a}": n for k, n in got.items()},
+                           **{f"own_beside_refused_{why.replace(':', '_')}": n
+                              for why, n in cov["own_beside_refused_drop"].items()},
+                           **{f"own_beside_refused_{why.replace(':', '_')}_{a}": n
+                              for why, n in cov["own_beside_refused_drop"].items()}})
+            missed_best += [r["best_peak"]["score"] for r in res["rows"]
+                            if r.get("kind") == "missed_line" and r["best_peak"]]
+            # Each missed cast: the drop's X fill before it, and the best own peak.
+            for r in res["rows"]:
+                if r.get("kind") == "missed_line":
+                    key = f"missed_{sid}_{int(r['cast_t_ms'] // 1000)}"
+                    missed_detail[f"{key}_from"] = r["tray"]["from"]
+                    if r["best_peak"]:
+                        missed_detail[f"{key}_best"] = r["best_peak"]["score"]
+                        missed_detail[f"{key}_dt_s"] = r["best_peak"]["dt_s"]
+            witnessed_scores += [r["score"] for r in res["rows"]
+                                 if r.get("kind") == "cast" and r.get("tray_witness")]
+        else:
+            pooled.update({f"tray_unbound_{cov['tray']['reason']}": 1})
         for k, got in timing.items():
             if peaks[0].get(k) is not None:
                 got.append(float(peaks[0][k]))
         print(f"{sid}: {cov['selected']} of {cov['peaks']} peaks selected; {cov['by_class']}; "
-              f"player {cov['player_agent']} -> {out}")
+              f"player {cov['player_agent']}; tray "
+              + (f"{cov['own_witnessed']} own witnessed, {cov['own_unwitnessed']} not, "
+                 f"{cov['missed_lines']} missed ({cov['missed_with_peak']} with a peak)"
+                 if cov["tray"]["bound"] else f"unbound ({cov['tray']['reason']})")
+              + f" -> {out}")
     if args.record and sessions:
         from . import metrics
         values = {"sessions": len(sessions), **dict(sorted(pooled.items()))}
@@ -2929,11 +2988,23 @@ def cmd_ult_cast(args) -> int:
             if got:
                 values.update({f"{k}_min": min(got), f"{k}_median": float(np.median(got)),
                                f"{k}_max": max(got)})
+        # The share of in-round X casts with an own line, and the best own-template
+        # peak under each missed cast against the witnessed own lines' scores.
+        if values.get("x_casts"):
+            values["x_casts_with_line_fraction"] = round(
+                1.0 - values["missed_lines"] / values["x_casts"], 3)
+        values.update(missed_detail)
+        for name, got in (("missed_best", missed_best), ("witnessed_score", witnessed_scores)):
+            if got:
+                q = np.quantile(got, [0.0, 0.25, 0.5, 0.75, 1.0])
+                values.update({f"{name}_{k}": round(float(x), 4) for k, x in
+                               zip(("min", "q25", "median", "q75", "max"), q)})
         metrics.record(tool="ult_lines", part="ult-cast",
                        session=args.session if not args.all else "all-sessions",
                        values=values,
                        deps={"ult_line_version": ULT_LINE_VERSION,
                              "ult_cast_version": ULT_CAST_VERSION,
+                             "tray_version": TRAY_VERSION,
                              "threshold": THRESHOLD,
                              "templates_key": sorted(k for k in stamps if k)},
                        context={"session_ids": sessions})

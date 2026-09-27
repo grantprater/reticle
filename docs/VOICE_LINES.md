@@ -739,9 +739,9 @@ verdicts chose, as a reader and an adjudicator.
   `prototypes/audio_gate.py` import the template cut, the correlation, the
   peaks, the decode and the log-mel front end from it.
 - **Adjudicator.** `reticle ult-cast SESSION | --all [--record]`
-  (`reticle/adjudication/ult_cast.py`, `ult-cast-0.1.0`, `[owns:ult-cast]`)
-  reads only stored peaks, the lineup with its board override and the rounds
-  table. It selects peaks at 0.0443 and classes them own, possible, impossible
+  (`reticle/adjudication/ult_cast.py`, `ult-cast-0.2.0`, `[owns:ult-cast]`)
+  reads only stored peaks, the lineup with its board override, the rounds
+  table and the tray drops. It selects peaks at 0.0443 and classes them own, possible, impossible
   or unknown by the rules of "Method as fixed". Each selected peak publishes
   one claim through `adjudication.identity` on channel `ult_line`. The claim
   depends on the lineup verdicts of the side its variant implies, so the
@@ -749,12 +749,14 @@ verdicts chose, as a reader and an adjudicator.
   variant, relative to the player [domain:abilities/ult-lines-heard-by-both-teams];
   its name is the arbiter's verdict, and its round comes from
   `rounds.in_round_window`. An impossible peak is a `refusal` row with its
-  reason, and its claim abstains. Cast and refusal rows go to
-  `events/ult_cast/<sid>.jsonl`; the arbiter's identity events go to
+  reason, and its claim abstains. Own casts carry their tray witness, and an X
+  cast with no own line is a `missed_line` row ("Own lines against the tray").
+  Cast, refusal and missed-line rows go to `events/ult_cast/<sid>.jsonl`; the arbiter's identity events go to
   `events/ult_cast_identity/<sid>.jsonl`.
 - `reticle plan` names a stale `ult_line` stream under the `audio` channel,
   with `reticle ult-lines <sid>` as its reread, and a stale `ult_cast` with
-  `reticle ult-cast <sid>`; a rescan or a round rebuild stales the casts.
+  `reticle ult-cast <sid>`; a rescan, a round rebuild or new tray drops stale
+  the casts.
 
 ### Acceptance on two sessions
 
@@ -825,16 +827,99 @@ selections are new:
   changed, both on demos: the own line of 6afc32cb46b4 and aab12e41dcfc is
   now unknown, because a session without a lineup has no player.
 
+### Own lines against the tray
+
+`reticle ult-cast` at `ult-cast-0.2.0` binds each own selection to the
+player's X casts, which it asks of the tray owner
+(`ability_timeline.player_tray_casts`, through `player_x_drops`), within the
+agent's cast window: 1.5 s either side of the drop, and from 20 s before it for
+Phoenix. The table and the 0.2.0 measurement behind it sit in
+`adjudication.ult_cast.CAST_WINDOW`, which the prototype imports. The rerun
+selected and classed the same [metric:ult_lines/ult-cast@all-sessions#selected=624] peaks as before;
+[metric:ult_lines/ult-cast@all-sessions#tray_sessions=19] sessions bound to the tray, the
+[metric:ult_lines/ult-cast@all-sessions#tray_unbound_no_tray_drops=5] demos had no tray drops, and the match
+without a lineup had no player's agent ([metric:ult_lines/ult-cast@all-sessions#tray_unbound_no_player_agent=1]).
+
+**Own selections.** Of [metric:ult_lines/ult-cast@all-sessions#class_own=58] own selections, [metric:ult_lines/ult-cast@all-sessions#own_witnessed=37]
+have an X cast in their window and [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed=21] do not. Every
+unwitnessed one lies within its window of an X drop the tray owner refused:
+[metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death=17] as after the player's death,
+[metric:ult_lines/ult-cast@all-sessions#own_beside_refused_cooccur_among_casts=3] as co-occurring with another
+slot's drop, and [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_phase_round_end=1] in the round's end.
+No own line stands without a tray drop beside it; the line and the tray agree
+that the ultimate fell, and the owner's gate disagrees. Each such row stores
+the refused drop and its reason as `tray_refused`; the adjudicator overrules
+nothing.
+
+| Player's agent | X casts in a round | Missed | Own selections witnessed | Unwitnessed, beside a drop refused after death |
+|---|---|---|---|---|
+| Phoenix | [metric:ult_lines/ult-cast@all-sessions#x_casts_Phoenix=11] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Phoenix=3] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Phoenix=7] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Phoenix=14], [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Phoenix=14] |
+| Sova | [metric:ult_lines/ult-cast@all-sessions#x_casts_Sova=19] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Sova=4] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Sova=15] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Sova=2], none |
+| Skye | [metric:ult_lines/ult-cast@all-sessions#x_casts_Skye=15] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Skye=0] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Skye=15] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Skye=3], [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Skye=1] |
+| Clove | [metric:ult_lines/ult-cast@all-sessions#x_casts_Clove=1] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Clove=1] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Clove=0] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Clove=2], [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Clove=2] |
+
+Two agents explain most of the disagreement, and both belong to the
+`ability-cast` owner:
+
+- **Phoenix.** Every unwitnessed Phoenix line comes before an X drop refused
+  as after the player's death. Two of them are the Run it Back deaths the
+  combat report records [domain:rounds/run-it-back-in-report]: on
+  `a06f04a0059f` the line sits at 1572.0 s and the Run it Back death at
+  1576.5 s, on `5822b6646448` at 1412.6 s and 1413.5 s. The hypothesis to test:
+  a Run it Back death counts as the player's death for the gate, so the drop at
+  the ult's end falls after it and is refused.
+- **Clove.** Not Dead Yet needs Clove's death
+  [domain:abilities/clove-c-and-x-need-a-target], so a gate that refuses every
+  drop after the player's death refuses every Not Dead Yet cast. Both of her
+  unwitnessed lines follow such a drop by about a second.
+
+**Missed lines.** Of [metric:ult_lines/ult-cast@all-sessions#x_casts=46] X casts inside a round,
+[metric:ult_lines/ult-cast@all-sessions#missed_lines=8] have no own selection in their window, so
+[metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.826] have one. [metric:ult_lines/ult-cast@all-sessions#missed_with_peak=4] of the
+missed have an own-template peak in the window, below the threshold; the
+others have none above the template's floor.
+
+| Session | Cast (s) | Agent | X fill before the drop | Best own peak | Onset minus drop (s) |
+|---|---|---|---|---|---|
+| `3694746e4e54` | 1062 | Sova | [metric:ult_lines/ult-cast@all-sessions#missed_3694746e4e54_1062_from=1.33] | none | - |
+| `587c15b07779` | 1297 | Phoenix | [metric:ult_lines/ult-cast@all-sessions#missed_587c15b07779_1297_from=1.0] | [metric:ult_lines/ult-cast@all-sessions#missed_587c15b07779_1297_best=0.04404] | [metric:ult_lines/ult-cast@all-sessions#missed_587c15b07779_1297_dt_s=-5.42] |
+| `59c70f1ef720` | 2425 | Sova | [metric:ult_lines/ult-cast@all-sessions#missed_59c70f1ef720_2425_from=1.02] | none | - |
+| `7010b3d62460` | 1108 | Phoenix | [metric:ult_lines/ult-cast@all-sessions#missed_7010b3d62460_1108_from=0.43] | [metric:ult_lines/ult-cast@all-sessions#missed_7010b3d62460_1108_best=0.014911] | [metric:ult_lines/ult-cast@all-sessions#missed_7010b3d62460_1108_dt_s=-3.247] |
+| `9acf02f98283` | 2196 | Sova | [metric:ult_lines/ult-cast@all-sessions#missed_9acf02f98283_2196_from=1.0] | [metric:ult_lines/ult-cast@all-sessions#missed_9acf02f98283_2196_best=0.039844] | [metric:ult_lines/ult-cast@all-sessions#missed_9acf02f98283_2196_dt_s=-0.203] |
+| `a1a995e6b19b` | 1140 | Clove | [metric:ult_lines/ult-cast@all-sessions#missed_a1a995e6b19b_1140_from=0.37] | none | - |
+| `c40d950031bb` | 769 | Sova | [metric:ult_lines/ult-cast@all-sessions#missed_c40d950031bb_769_from=0.58] | none | - |
+| `ff636d173b07` | 48 | Phoenix | [metric:ult_lines/ult-cast@all-sessions#missed_ff636d173b07_48_from=0.36] | [metric:ult_lines/ult-cast@all-sessions#missed_ff636d173b07_48_best=0.016446] | [metric:ult_lines/ult-cast@all-sessions#missed_ff636d173b07_48_dt_s=-19.687] |
+
+The witnessed own lines score from [metric:ult_lines/ult-cast@all-sessions#witnessed_score_min=0.0627] up, median
+[metric:ult_lines/ult-cast@all-sessions#witnessed_score_median=0.2065]; the best peaks under missed casts run from
+[metric:ult_lines/ult-cast@all-sessions#missed_best_min=0.0149] to [metric:ult_lines/ult-cast@all-sessions#missed_best_max=0.044]. Read one by one, they say
+that seven of the eight missed casts have no line:
+
+- One is a line under the threshold: `9acf02f98283`'s peak sits 0.2 s before
+  the drop, where own lines sit.
+- One is speech: `587c15b07779`'s peak at 1291.6 s is the row the player
+  judged people talking in-game ("The player's review").
+- Two sit at the noise floor, beside the highest template floor of
+  [metric:voice_lines/evaluate-0.2.0-F-B-unsuppressed@all-matches#floor_max=0.0159].
+- Four have no own peak above the floor.
+
+Four of the eight drops fall from a partly filled X slot, 0.36 to 0.58 of the
+session's full reading, and none of those four has a line. Whether a drop from
+a partial fill is a cast at all is the tray owner's question; these rows hand
+it the cases.
+
 ### What was not done in production
 
 - Casts are plain rows; the event contract has no ability-cast kind, and only
   the identity events are formal.
-- A cast is not bound to a minimap entity or a tray drop: `ability-owner`
-  stays unowned, and no own line is checked against the player's tray here.
-- The threshold is 0.1.0's in-sample operating point, rounded; no session
-  was held out, and the unrounded point was not restored.
-- The per-agent cast window, the review sheet and the witnesses stay in the
-  prototype.
+- A cast is not bound to a minimap entity: `ability-owner` stays unowned. Own
+  lines are bound to the tray since `ult-cast-0.2.0` (above), and the tray's
+  refusals are stored, not changed.
+- The threshold is 0.1.0's in-sample operating point, rounded, and the
+  unrounded point was not restored; "Held-out threshold" tests it on sessions
+  it was not chosen on.
+- The review sheet and the witnesses stay in the prototype; the per-agent
+  cast window moved to `adjudication.ult_cast`.
 
 ## The player's review (2026-09-27)
 
@@ -865,3 +950,126 @@ What follows from it: harvest the ult-ready lines as templates of their own
 and score them like the cast lines; measure the false-alarm rate again on the
 first capture with the game audio alone; and when a template fires beside a
 tray drop or a minimap event, prefer that witness over the score.
+
+## Held-out threshold (2026-09-27)
+
+`prototypes/voice_lines.py heldout` tests whether 0.0443, chosen on the 19
+lineup sessions it was scored on, holds on sessions it was not chosen on. It
+reads stored data only: the reader's peaks in `events/ult_line`, the classes
+`adjudication.ult_cast` gives them from the lineup, the live mask of
+`match_time`, and the player's X casts, which `ult_cast.player_x_drops` asks
+of the tray owner. Each split picks its operating point as 0.1.0 did: the
+lowest score at which live impossible peaks fall to 0.1 per live minute or
+fewer. An X cast inside a round counts as found when an own-class peak at or
+above the point lies within the agent's cast window. Predictions H1 to H4 were
+logged before the run, under task `voice-lines-heldout`.
+
+The casts are the tray owner's: [metric:voice_lines/heldout-0.1.0@all-matches#x_casts=46] X casts on the 19 sessions. The
+0.2.0 prototype counted 45, because it also dropped the drops the tray reader
+flags suspect; the one cast between the two sets, `ff636d173b07` at 48.0 s,
+has no own line. Both sets hold [metric:voice_lines/heldout-0.1.0@all-matches#pooled_own_hits=38] found casts, so
+in-sample recall reads [metric:voice_lines/heldout-0.1.0@all-matches#pooled_own_recall=0.826] here against 0.2.0's
+[metric:voice_lines/evaluate-0.2.0-F-B-unsuppressed@all-matches#own_recall_agent_window=0.844].
+
+### The pooled point
+
+Over all 19 sessions, [metric:voice_lines/heldout-0.1.0@all-matches#live_minutes=385.5] live minutes, the operating point is
+[metric:voice_lines/heldout-0.1.0@all-matches#pooled_tau=0.044322], where [metric:voice_lines/heldout-0.1.0@all-matches#pooled_impossible_n=38] impossible peaks run at
+[metric:voice_lines/heldout-0.1.0@all-matches#pooled_impossible_per_min=0.0986] per live minute: 0.1.0's 0.099 is this
+unrounded point. At the declared 0.0443 one more peak passes,
+[metric:voice_lines/heldout-0.1.0@all-matches#impossible_n_at_threshold=39] at [metric:voice_lines/heldout-0.1.0@all-matches#impossible_per_min_at_threshold=0.1012] per
+live minute, as the Production section found; own recall is
+[metric:voice_lines/heldout-0.1.0@all-matches#own_recall_at_threshold=0.826] at both.
+
+### Two halves
+
+The sorted session ids alternate into half A, [metric:voice_lines/heldout-0.1.0@all-matches#sessions_a=10] sessions, and
+half B, [metric:voice_lines/heldout-0.1.0@all-matches#sessions_b=9]. Each column picks the point on one half and scores
+the other; the run's context lists the halves.
+
+| | Picked on A, scored on B | Picked on B, scored on A |
+|---|---|---|
+| Operating point | [metric:voice_lines/heldout-0.1.0@all-matches#tau_a=0.044322] | [metric:voice_lines/heldout-0.1.0@all-matches#tau_b=0.044166] |
+| Impossible per live min where picked | [metric:voice_lines/heldout-0.1.0@all-matches#train_impossible_per_min_a=0.0996] | [metric:voice_lines/heldout-0.1.0@all-matches#train_impossible_per_min_b=0.0976] |
+| Held-out impossible peaks | [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_n_a=19] in [metric:voice_lines/heldout-0.1.0@all-matches#heldout_live_minutes_a=194.7] min | [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_n_b=21] in [metric:voice_lines/heldout-0.1.0@all-matches#heldout_live_minutes_b=190.8] min |
+| Held-out impossible per live min | [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_a=0.0976] | [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_b=0.1101] |
+| 95% Poisson interval | [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_lo_a=0.0588] to [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_hi_a=0.1524] | [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_lo_b=0.0681] to [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_hi_b=0.1683] |
+| Own recall where picked | [metric:voice_lines/heldout-0.1.0@all-matches#train_own_recall_a=0.8] | [metric:voice_lines/heldout-0.1.0@all-matches#train_own_recall_b=0.857] |
+| Held-out own recall | [metric:voice_lines/heldout-0.1.0@all-matches#heldout_own_hits_a=18] of [metric:voice_lines/heldout-0.1.0@all-matches#heldout_casts_a=21], [metric:voice_lines/heldout-0.1.0@all-matches#heldout_own_recall_a=0.857] | [metric:voice_lines/heldout-0.1.0@all-matches#heldout_own_hits_b=20] of [metric:voice_lines/heldout-0.1.0@all-matches#heldout_casts_b=25], [metric:voice_lines/heldout-0.1.0@all-matches#heldout_own_recall_b=0.8] |
+
+### Each session left out
+
+Picking the point on the other 18 sessions moves it between
+[metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_min=0.043736] and [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_max=0.044519], median [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_median=0.044332]; no
+session moves it further than [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_max_shift=0.000564] from 0.0443. Scored on
+the session left out and pooled, [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n=44] impossible peaks run
+at [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_per_min=0.1141] per live minute (95% Poisson interval
+[metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_per_min_lo=0.0829] to [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_per_min_hi=0.1532]), and own
+recall is [metric:voice_lines/heldout-0.1.0@all-matches#loo_own_recall=0.826].
+
+| Session | Live minutes | Point picked on the other 18 | Held-out impossible peaks | Podcast |
+|---|---|---|---|---|
+| `043bafca271a` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_043bafca271a=18.1] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_043bafca271a=0.044519] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_043bafca271a=0] | [metric:voice_lines/evaluate-F-B@043bafca271a#podcast=0] |
+| `223d636bf8d2` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_223d636bf8d2=23.4] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_223d636bf8d2=0.044332] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_223d636bf8d2=1] | [metric:voice_lines/evaluate-F-B@223d636bf8d2#podcast=0] |
+| `3694746e4e54` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_3694746e4e54=17.2] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_3694746e4e54=0.044519] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_3694746e4e54=0] | [metric:voice_lines/evaluate-F-B@3694746e4e54#podcast=0] |
+| `5822b6646448` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_5822b6646448=22.5] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_5822b6646448=0.043736] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_5822b6646448=12] | [metric:voice_lines/evaluate-F-B@5822b6646448#podcast=1] |
+| `587c15b07779` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_587c15b07779=17.7] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_587c15b07779=0.044519] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_587c15b07779=0] | [metric:voice_lines/evaluate-F-B@587c15b07779#podcast=0] |
+| `59c70f1ef720` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_59c70f1ef720=26.4] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_59c70f1ef720=0.044166] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_59c70f1ef720=5] | [metric:voice_lines/evaluate-F-B@59c70f1ef720#podcast=1] |
+| `7010b3d62460` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_7010b3d62460=20.2] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_7010b3d62460=0.044519] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_7010b3d62460=0] | [metric:voice_lines/evaluate-F-B@7010b3d62460#podcast=0] |
+| `75a55a296d3b` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_75a55a296d3b=9.4] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_75a55a296d3b=0.044332] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_75a55a296d3b=0] | [metric:voice_lines/evaluate-F-B@75a55a296d3b#podcast=0] |
+| `96aa1ae9b96f` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_96aa1ae9b96f=15.0] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_96aa1ae9b96f=0.044332] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_96aa1ae9b96f=0] | [metric:voice_lines/evaluate-F-B@96aa1ae9b96f#podcast=0] |
+| `9acf02f98283` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_9acf02f98283=22.8] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_9acf02f98283=0.044332] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_9acf02f98283=1] | [metric:voice_lines/evaluate-F-B@9acf02f98283#podcast=1] |
+| `a06f04a0059f` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_a06f04a0059f=24.7] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_a06f04a0059f=0.044322] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_a06f04a0059f=2] | [metric:voice_lines/evaluate-F-B@a06f04a0059f#podcast=1] |
+| `a1a995e6b19b` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_a1a995e6b19b=21.7] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_a1a995e6b19b=0.044519] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_a1a995e6b19b=0] | [metric:voice_lines/evaluate-F-B@a1a995e6b19b#podcast=0] |
+| `b3b9defb6fd7` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_b3b9defb6fd7=18.8] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_b3b9defb6fd7=0.044519] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_b3b9defb6fd7=0] | [metric:voice_lines/evaluate-F-B@b3b9defb6fd7#podcast=0] |
+| `b7d24102a6f6` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_b7d24102a6f6=20.6] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_b7d24102a6f6=0.044166] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_b7d24102a6f6=4] | [metric:voice_lines/evaluate-F-B@b7d24102a6f6#podcast=1] |
+| `bdfdcf009dba` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_bdfdcf009dba=21.8] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_bdfdcf009dba=0.044322] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_bdfdcf009dba=2] | [metric:voice_lines/evaluate-F-B@bdfdcf009dba#podcast=0] |
+| `bfad2778a372` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_bfad2778a372=24.2] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_bfad2778a372=0.044519] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_bfad2778a372=0] | [metric:voice_lines/evaluate-F-B@bfad2778a372#podcast=0] |
+| `c40d950031bb` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_c40d950031bb=8.9] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_c40d950031bb=0.044049] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_c40d950031bb=6] | [metric:voice_lines/evaluate-F-B@c40d950031bb#podcast=1] |
+| `e37fdeca944f` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_e37fdeca944f=23.6] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_e37fdeca944f=0.044519] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_e37fdeca944f=0] | [metric:voice_lines/evaluate-F-B@e37fdeca944f#podcast=0] |
+| `ff636d173b07` | [metric:voice_lines/heldout-0.1.0@all-matches#loo_live_minutes_ff636d173b07=28.5] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_ff636d173b07=0.043752] | [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_ff636d173b07=11] | [metric:voice_lines/evaluate-F-B@ff636d173b07#podcast=0] |
+
+The false alarms gather in a few sessions. [metric:voice_lines/heldout-0.1.0@all-matches#loo_sessions_over_rate=5]
+sessions exceed 0.1 per live minute when left out, and four of them are podcast
+sessions; `5822b6646448` and `ff636d173b07` alone hold
+[metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_5822b6646448=12] and [metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_n_ff636d173b07=11].
+
+### Outcomes
+
+Ledger rows under task `voice-lines-heldout`, kind `outcome`, 2026-09-27.
+
+- **H1 confirmed.** Held-out impossible rates of
+  [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_a=0.0976] and [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_b=0.1101]
+  per live minute, both inside 0.07 to 0.14.
+- **H2 confirmed.** Held-out own recall of [metric:voice_lines/heldout-0.1.0@all-matches#heldout_own_recall_a=0.857] and
+  [metric:voice_lines/heldout-0.1.0@all-matches#heldout_own_recall_b=0.8], within 0.1 of 0.844 and of this cast set's
+  in-sample [metric:voice_lines/heldout-0.1.0@all-matches#pooled_own_recall=0.826].
+- **H3 confirmed.** Every point picked with one session left out lies within
+  [metric:voice_lines/heldout-0.1.0@all-matches#loo_tau_max_shift=0.000564] of 0.0443, inside the 0.002 asked.
+- **H4 falsified in its second clause.** [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.826] of
+  the in-round X casts have an own line, above the 0.8 asked, but the rest are
+  not Phoenix expiry drops or lines under the threshold: one missed cast has a
+  line under the threshold and seven have none ("Own lines against the tray").
+
+### Recommendation
+
+Keep THRESHOLD at 0.0443. Both halves pick points beside it, [metric:voice_lines/heldout-0.1.0@all-matches#tau_a=0.044322] and
+[metric:voice_lines/heldout-0.1.0@all-matches#tau_b=0.044166], and both held-out rates lie within Poisson noise of the 0.1
+target. Restoring the unrounded [metric:voice_lines/heldout-0.1.0@all-matches#pooled_tau=0.044322] would drop one impossible
+peak over [metric:voice_lines/heldout-0.1.0@all-matches#live_minutes=385.5] live minutes and no own line. Leaving each
+session out raises the pooled rate from [metric:voice_lines/heldout-0.1.0@all-matches#pooled_impossible_per_min=0.0986] to
+[metric:voice_lines/heldout-0.1.0@all-matches#loo_impossible_per_min=0.1141]: that is the optimism of picking in-sample, and
+its interval still covers 0.1. What does not transfer is the rate per session,
+which no single threshold can hold: the podcast sessions carry most false
+alarms. The next gain comes from the game-only audio track
+[domain:capture/game-audio-track-only] and from the ult-ready templates
+[domain:abilities/ult-ready-lines], not from moving the threshold.
+
+### What the held-out run did not do
+
+- No threshold changed; THRESHOLD stays 0.0443 until the orchestrator decides.
+- One split per scheme: two alternating halves and each session left out. No
+  repeated random split, and no split by map, agent or podcast.
+- Held-out own recall rests on [metric:voice_lines/heldout-0.1.0@all-matches#x_casts=46] casts of four agents, one of them
+  Clove's.
+- Nothing was decoded, and nothing was written under `events/` or `labels/`.

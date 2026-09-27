@@ -91,7 +91,8 @@ def stale(store, sessions: list[str]) -> dict:
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
     from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
                            KILLFEED_WEAPON_VERSION)
-    from .version import HUD_VERSION, ROUND_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION
+    from .version import (HUD_VERSION, ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
+                          ULT_LINE_VERSION)
     out = {}
     for sid in sessions:
         man = store.read_manifest(sid)
@@ -135,10 +136,14 @@ def stale(store, sessions: list[str]) -> dict:
         u = store.read_events("ult_cast", sid)
         if u:
             version, inputs = u[0].get("ult_cast_version"), u[0].get("inputs") or {}
-            moved = sorted(k for k, v in (("ult_line", ULT_LINE_VERSION), ("round", ROUND_VERSION))
+            moved = sorted(k for k, v in (("ult_line", ULT_LINE_VERSION), ("round", ROUND_VERSION),
+                                          ("tray_drop", TRAY_VERSION), ("hud", HUD_VERSION))
                            if inputs.get(k) not in (v, None))
+            # The tray binding reads the HUD only where it read tray drops.
             moved += sorted(k for k, again in (("ult_line", "ult_line" in rescanned),
-                                               ("round", rounds_stale)) if again and k not in moved)
+                                               ("round", rounds_stale),
+                                               ("hud", "hud" in rescanned and "hud" in inputs))
+                            if again and k not in moved)
             if version != ULT_CAST_VERSION or moved:
                 derived.append({"stream": "ult_cast", "stored": version,
                                 "current": ULT_CAST_VERSION, "inputs_moved": moved,

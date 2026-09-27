@@ -831,7 +831,7 @@ A pixel detector result. A cast claim is temporal evidence from the tray and
 audio; it does not locate the ability's entity in the world, and the audio and
 tray agreeing is corroboration rather than detection.
 """
-consumers = ["cli"]
+consumers = ["cli", "adjudication.ult_cast"]
 exit = "`materialize_demo_casts` drives `ability_cast` and `ability_hud` from prototypes/."
 evidence = "tests/test_ability_timeline.py"
 
@@ -878,17 +878,25 @@ role = ["attribute", "adjudicate"]
 status = "partial"
 names_agents = true
 produces = ["adjudicate", "template_class", "lineup_sides", "player_agent", "round_of",
-            "THRESHOLD"]
+            "THRESHOLD", "cast_window", "CAST_WINDOW", "OWN_WINDOW_S", "player_x_drops",
+            "in_window", "nearest_cast"]
 not_for = """
-The player's tray casts (`ability-cast`), locating the ultimate's entity or
-binding it to a minimap entity (`ability-owner`), or deciding a name itself:
-each selected peak is a claim on channel `ult_line`, and the cast's agent is
-the arbiter's verdict. Its threshold was chosen on the sessions it was scored
-on, and a session without a lineup classes every peak unknown.
+Deciding which tray drops are the player's casts. It asks `ability-cast`
+(`ability_timeline.player_tray_casts`, through `player_x_drops`), binds each
+own line to the nearest X cast within the agent's cast window as a
+`tray_witness`, writes a `missed_line` row for an X cast with no own line, and
+stores the owner's refusal beside an unwitnessed own line without overruling
+it. The cast window binds and selects nothing. Nor is it for locating the
+ultimate's entity or binding it to a minimap entity (`ability-owner`), or for
+deciding a name itself: each selected peak is a claim on channel `ult_line`,
+and the cast's agent is the arbiter's verdict. Its threshold was chosen on the
+sessions it was scored on and held out on two halves and each session left
+out (docs/VOICE_LINES.md, "Held-out threshold"); a session without a lineup
+classes every peak unknown.
 """
-defers_to = ["agent-identity"]
+defers_to = ["agent-identity", "ability-cast"]
 consumers = ["cli"]
-evidence = "tests/test_ult_cast.py, docs/VOICE_LINES.md"
+evidence = "tests/test_ult_cast.py, docs/VOICE_LINES.md, prototypes/voice_lines.py"
 
 [[entry]]
 id = "ability-evidence"

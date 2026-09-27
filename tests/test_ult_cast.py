@@ -154,5 +154,123 @@ class AdjudicationTests(unittest.TestCase):
         self.assertEqual({r["agent"] for r in res["rows"][1:]}, {"Jett", "Sage"})
 
 
+def _cast(t_ms, reason=None, **tray):
+    """One X drop as `player_x_drops` returns it: the player's cast unless the
+    owner gave a reason to refuse it."""
+    return {"t_ms": t_ms, "slot": "X", "from": 1.0, "to": 0.0, "suspect": False,
+            "forced": False, "cooccur": False, "across_gap": False,
+            "player_cast": reason is None, "reason": reason, **tray}
+
+
+class TrayBindingTests(unittest.TestCase):
+    """Own lines bound to the player's X casts, and X casts with no own line."""
+
+    def setUp(self):
+        self.lu = _lineup("s", ALLY, ENEMY)            # the player is Sova
+        self.peaks = _stored(_peak(50.0, "Sova", "ally", 0.20),     # witnessed own line
+                             _peak(150.0, "Sova", "ally", 0.10),    # own line, no drop
+                             _peak(69.6, "Sova", "ally", 0.03),     # under the threshold
+                             _peak(90.3, "Jett", "ally", 0.03))     # another template
+        self.casts = [_cast(50400.0), _cast(70000.0), _cast(90000.0, **{"from": 0.36}),
+                      _cast(150500.0, "after_player_death")]
+        self.res = uc.adjudicate("s", self.peaks, self.lu, ROUNDS, "round-test",
+                                 tray_drops=self.casts, tray_inputs={"tray_drop": "tray-test"})
+        self.own = {r["t_s"]: r for r in self.res["rows"]
+                    if r["kind"] == "cast" and r["class"] == "own"}
+        self.missed = {r["cast_t_ms"]: r for r in self.res["rows"] if r["kind"] == "missed_line"}
+
+    def test_an_own_line_beside_a_drop_is_witnessed_by_the_nearest_cast(self):
+        self.assertEqual(self.own[50.0]["tray_witness"], {"dt_s": -0.4, "cast_t_ms": 50400.0})
+        self.assertIsNone(self.own[50.0]["tray_witness_reason"])
+
+    def test_an_own_line_without_a_drop_has_no_witness_and_says_why(self):
+        self.assertIsNone(self.own[150.0]["tray_witness"])
+        self.assertEqual(self.own[150.0]["tray_witness_reason"], "no_x_cast_in_window")
+
+    def test_an_unwitnessed_own_line_keeps_the_drop_the_owner_refused(self):
+        self.assertEqual(self.own[150.0]["tray_refused"],
+                         {"dt_s": -0.5, "drop_t_ms": 150500.0, "reason": "after_player_death"})
+        self.assertNotIn("tray_refused", self.own[50.0])
+        self.assertNotIn(150500.0, self.missed)      # a refused drop is no cast to miss
+        self.assertEqual(self.res["rows"][0]["own_beside_refused_drop"],
+                         {"after_player_death": 1})
+
+    def test_a_drop_without_a_line_keeps_the_best_peak_under_the_threshold(self):
+        r = self.missed[70000.0]
+        self.assertEqual((r["round"], r["player_agent"], r["template"]), (1, "Sova", "Sova_ult_ally"))
+        self.assertEqual(r["best_peak"]["score"], 0.03)
+        self.assertEqual(r["best_peak"]["dt_s"], -0.4)
+        self.assertIsNone(r["best_peak_reason"])
+        self.assertLess(r["best_peak"]["score"], uc.THRESHOLD)
+
+    def test_a_drop_without_any_own_peak_is_null_with_its_reason(self):
+        r = self.missed[90000.0]
+        self.assertIsNone(r["best_peak"])            # Jett's peak is not the own template
+        self.assertEqual(r["best_peak_reason"], "no_peak_above_floor")
+        self.assertEqual(r["tray"]["from"], 0.36)    # the drop's reading, kept as evidence
+
+    def test_the_coverage_row_counts_the_binding(self):
+        cov = self.res["rows"][0]
+        self.assertEqual((cov["own_witnessed"], cov["own_unwitnessed"]), (1, 1))
+        self.assertEqual((cov["missed_lines"], cov["missed_with_peak"]), (2, 1))
+        self.assertEqual((cov["tray"]["x_drops"], cov["tray"]["player_x_casts"]), (4, 3))
+        self.assertEqual(cov["inputs"]["tray_drop"], "tray-test")
+        self.assertEqual(cov["by_class"]["own"], 2)  # missed lines are no selection
+
+    def test_phoenix_binds_a_line_from_twenty_seconds_before_the_drop(self):
+        lu = _lineup("s", ["Phoenix", "Jett", "Sage", "Omen", "Raze"], ENEMY)
+        res = uc.adjudicate("s", _stored(_peak(50.0, "Phoenix", "ally", 0.2)), lu, ROUNDS,
+                            "round-test", tray_drops=[_cast(62600.0)])
+        own = next(r for r in res["rows"] if r.get("class") == "own")
+        self.assertEqual(own["tray_witness"], {"dt_s": -12.6, "cast_t_ms": 62600.0})
+        self.assertEqual(res["rows"][0]["missed_lines"], 0)
+        # Any other agent's window is 1.5 s either side.
+        res = uc.adjudicate("s", _stored(_peak(50.0, "Sova", "ally", 0.2)), self.lu, ROUNDS,
+                            "round-test", tray_drops=[_cast(62600.0)])
+        self.assertEqual(res["rows"][0]["missed_lines"], 1)
+        self.assertEqual(uc.cast_window("Phoenix"), (-20.0, 1.5))
+        self.assertEqual(uc.cast_window("Sova"), (-1.5, 1.5))
+
+    def test_a_cast_outside_every_round_is_counted_not_missed(self):
+        res = uc.adjudicate("s", self.peaks, self.lu, ROUNDS, "round-test",
+                            tray_drops=[_cast(5000.0)])
+        self.assertEqual(res["rows"][0]["missed_lines"], 0)
+        self.assertEqual(res["rows"][0]["tray"]["casts_outside_round"], 1)
+
+    def test_without_tray_drops_nothing_binds_and_the_reason_is_stored(self):
+        res = uc.adjudicate("s", self.peaks, self.lu, ROUNDS, "round-test",
+                            tray_reason="tray_drops_stale")
+        own = [r for r in res["rows"] if r.get("class") == "own"]
+        self.assertTrue(all(r["tray_witness"] is None for r in own))
+        self.assertEqual({r["tray_witness_reason"] for r in own}, {"tray_drops_stale"})
+        self.assertFalse(any(r["kind"] == "missed_line" for r in res["rows"]))
+        self.assertEqual(res["rows"][0]["tray"]["reason"], "tray_drops_stale")
+
+    def test_without_the_players_agent_no_cast_is_missed(self):
+        res = uc.adjudicate("s", self.peaks, None, ROUNDS, "round-test", tray_drops=self.casts)
+        self.assertEqual(res["rows"][0]["tray"], {"bound": False, "reason": "no_player_agent",
+                                                  "x_drops": 4, "player_x_casts": 3,
+                                                  "casts_outside_round": 0,
+                                                  "window_s": [-1.5, 1.5]})
+        self.assertEqual(res["rows"][0]["missed_lines"], 0)
+
+    def test_the_tray_owner_decides_which_drops_are_the_players_casts(self):
+        stored = [{"kind": "coverage"},
+                  {"kind": "drop", "t_ms": 50000.0, "slot": "X", "from": 1.0, "to": 0.0,
+                   "suspect": False, "forced": False, "cooccur": False, "across_gap": False,
+                   "player_cast": False, "reason": "stale"},
+                  {"kind": "drop", "t_ms": 65000.0, "slot": "X", "from": 1.0, "to": 0.0,
+                   "suspect": False, "forced": False, "cooccur": False, "across_gap": False,
+                   "player_cast": True, "reason": None},
+                  {"kind": "drop", "t_ms": 40000.0, "slot": "E", "from": 1.0, "to": 0.0,
+                   "suspect": False, "forced": False, "cooccur": False, "across_gap": False,
+                   "player_cast": True, "reason": None}]
+        got = uc.player_x_drops(stored, lambda t: "round_live", ROUNDS, [60000.0])
+        # The owner, not the stored flag: 50 s is a cast, 65 s falls after the death,
+        # and the E drop is not the ultimate.
+        self.assertEqual([(r["t_ms"], r["player_cast"], r["reason"]) for r in got],
+                         [(50000.0, True, None), (65000.0, False, "after_player_death")])
+
+
 if __name__ == "__main__":
     unittest.main()

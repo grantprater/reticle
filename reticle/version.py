@@ -191,9 +191,11 @@ TRAY_VERSION = "tray-0.1.0"
 # correlation, the floor or the stored fields change -- those re-decode audio.
 ULT_LINE_VERSION = "ult-line-0.1.0"
 # Ultimate casts selected, classed and named from stored `ult_line` peaks, the
-# lineup and the rounds table by `reticle ult-cast` (`adjudication.ult_cast`).
-# Bump when the threshold, the classing or the stored fields change.
-ULT_CAST_VERSION = "ult-cast-0.1.0"
+# lineup and the rounds table by `reticle ult-cast` (`adjudication.ult_cast`),
+# with own lines bound to the player's X casts from `tray_drop`. Bump when the
+# threshold, the classing, the cast window or the stored fields change.
+# 0.2.0: `tray_witness` on own casts and `missed_line` rows.
+ULT_CAST_VERSION = "ult-cast-0.2.0"
 # Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or

@@ -6,6 +6,7 @@ r"""Match the official ultimate voice lines against the match audio: whose ult, 
     .\.venv\Scripts\python.exe prototypes\voice_lines.py evaluate [--formulations F ...] [--sessions SID ...] [--dry]
     .\.venv\Scripts\python.exe prototypes\voice_lines.py review [--formulation F]
     .\.venv\Scripts\python.exe prototypes\voice_lines.py report
+    .\.venv\Scripts\python.exe prototypes\voice_lines.py heldout [--dry]
 
 Purpose
 -------
@@ -80,6 +81,15 @@ Production section follow that section. `port-check` compares the production
 adjudicator's stored selections (`reticle ult-cast`) with 0.1.0's F-B
 detections at the same threshold and records the comparison.
 
+`heldout` tests the production threshold on sessions it was not chosen on,
+from storage alone: the reader's `ult_line` peaks, the lineup classes of
+`adjudication.ult_cast`, the live mask of `match_time`, and the player's X
+casts that `ult_cast.player_x_drops` asks of the tray owner. It chooses the
+operating point on half of the lineup sessions and scores the other half, both
+ways, then leaves each session out in turn, and records `heldout-0.1.0`. The
+cast window per agent (`CAST_WINDOW`) lives in `adjudication.ult_cast`, which
+binds own lines to the tray with it; this file imports it.
+
 What it does not do
 -------------------
 It emits no events, writes nothing under `events/` or `labels/`, and `reticle/`
@@ -136,6 +146,9 @@ with contextlib.redirect_stdout(io.StringIO()):
 #: this prototype evaluates what `reticle ult-lines` runs.
 from reticle.ult_lines import (decode_template, harvested_ults, nms_peaks,  # noqa: E402
                                phat_tracks, track_peaks, trim_floor)
+#: The own-line window per agent lives with the adjudicator that binds own
+#: lines to the tray; 0.2.0 measured it here.
+from reticle.adjudication.ult_cast import CAST_WINDOW, OWN_WINDOW_S, cast_window  # noqa: E402
 
 STORE = ag.STORE
 VERSION = "voice-lines-0.2.0"
@@ -170,8 +183,9 @@ PHAT_BATCH = 8
 MIN_RMS_DB = 1.0
 #: Peaks at or above this quantile of the template's track are kept.
 FLOOR_Q = 0.99
-#: A detection is an own cast's when within this of the tray drop, seconds.
-OWN_WIN = 1.5
+#: A detection is an own cast's when within this of the tray drop, seconds
+#: (`adjudication.ult_cast.OWN_WINDOW_S`).
+OWN_WIN = OWN_WINDOW_S
 #: How far before an own X drop the lead witness looks for the own line (s).
 LEAD_WIN = 20.0
 #: Cross-template suppression: at one onset only the best-scoring template
@@ -186,12 +200,11 @@ SUPPRESS_S = 1.2
 SUPPRESS_SWEEP = (0.3, 0.6, 1.2, 2.5)
 #: How far the window evidence looks for a stronger true detection, seconds.
 OFFSET_PROBE_S = 5.0
-#: Own recall window per agent: (earliest, latest) onset minus tray drop, s.
-#: Run it Back's pips fall at expiry, not at the cast
-#: [domain:abilities/phoenix-run-it-back-expiry-flash], and the caster hears
-#: the line at the cast [domain:abilities/caster-hears-own-ult-line]. Every
-#: other agent keeps (-OWN_WIN, OWN_WIN). No stored tray cast is re-dated.
-CAST_WINDOW = {"Phoenix": (-20.0, OWN_WIN)}
+#: Own recall window per agent, (earliest, latest) onset minus tray drop in s:
+#: `CAST_WINDOW` and `cast_window`, imported from `adjudication.ult_cast`.
+#: Phoenix reaches back 20 s, since Run it Back's pips fall at expiry
+#: [domain:abilities/phoenix-run-it-back-expiry-flash]; every other agent keeps
+#: (-OWN_WIN, OWN_WIN). No stored tray cast is re-dated.
 #: The operating point: impossible detections per live minute.
 OP_RATE = 0.1
 #: A second common threshold for the per-session impossible rates (P5).
@@ -865,7 +878,7 @@ def match_time(sid: str, n_frames: int) -> dict:
         g = gt.game_time_at((j + 0.5) * STEP * 1000.0)
         phase[j], stalled[j] = g.phase, g.is_stalled
     live = np.isin(phase, CAST_PHASES) & ~stalled
-    return {"live": live, "stalled": stalled, "rounds": rrows,
+    return {"live": live, "stalled": stalled, "rounds": rrows, "gametime": gt, "hud": hud,
             "provenance": {"rounds": rrows[0].get("round_version") if rrows else None,
                            "gametime": gametime.GAMETIME_VERSION,
                            "stalls": "reticle.stalls" if stall_list is not None else None}}
@@ -938,11 +951,6 @@ def session_detections(F: str, ctx: dict) -> dict | None:
             "agent": np.array([a for a, _v in agents], object)[j],
             "variant": np.array([v for _a, v in agents], object)[j],
             "floor": pk["floor"], "lengths": pk["lengths"]}
-
-
-def cast_window(agent: str | None) -> tuple[float, float]:
-    """(earliest, latest) onset minus tray drop at which an own line counts."""
-    return CAST_WINDOW.get(agent, (-OWN_WIN, OWN_WIN))
 
 
 def best_near(d: dict, casts: list[dict], cls: str = "own", lo: float = -OWN_WIN,
@@ -2271,6 +2279,184 @@ def cmd_report() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Commands: heldout
+# ---------------------------------------------------------------------------
+
+#: The held-out run's recorded part.
+HELDOUT_PART = "heldout-0.1.0"
+
+
+def poisson_interval(k: int, level: float = 0.95) -> tuple[float, float]:
+    """The exact (Garwood) interval of a Poisson mean given `k` counts."""
+    a = (1.0 - level) / 2.0
+
+    def cdf(n, mu):             # P(X <= n)
+        term = total = math.exp(-mu)
+        for i in range(1, n + 1):
+            term *= mu / i
+            total += term
+        return total
+
+    def solve(f, lo, hi):
+        for _ in range(200):
+            mid = (lo + hi) / 2.0
+            lo, hi = (mid, hi) if f(mid) else (lo, mid)
+        return (lo + hi) / 2.0
+
+    top = 10.0 * k + 20.0
+    lower = 0.0 if k == 0 else solve(lambda mu: 1.0 - cdf(k - 1, mu) < a, 0.0, top)
+    upper = solve(lambda mu: cdf(k, mu) > a, 0.0, top)
+    return lower, upper
+
+
+def heldout_session(sid: str) -> dict | None:
+    """What the held-out threshold needs of one match session, from storage:
+    the live impossible scores, the live minutes, and per X cast inside a round
+    the best own-class score within the player's agent's window. None for a
+    session without a lineup."""
+    from reticle import lineup
+    from reticle.adjudication import ult_cast as uc
+    from reticle.rounds import player_death_times
+    from reticle.store import Store
+    from reticle.version import TRAY_VERSION, ULT_LINE_VERSION
+    store = Store(STORE)
+    with contextlib.redirect_stdout(io.StringIO()):
+        lu = lineup.load_lineup(sid, STORE)
+    sides = uc.lineup_sides(lu, sid)
+    if sides is None:
+        return None
+    player = uc.player_agent(lu, sid)
+    rows = store.read_events("ult_line", sid)
+    if not rows or rows[0].get("ult_line_version") != ULT_LINE_VERSION:
+        raise SystemExit(f"{sid}: no current ult_line peaks; run `reticle ult-lines {sid}`")
+    drops = store.read_events("tray_drop", sid)
+    if not drops or drops[0].get("tray_version") != TRAY_VERSION:
+        raise SystemExit(f"{sid}: no current tray drops; run `reticle tray {sid}`")
+    peaks = [r for r in rows if r.get("kind") == "peak"]
+    tm = match_time(sid, int(rows[0]["n_frames"]))
+    gt, rr = tm["gametime"], tm["rounds"]
+    casts = [c for c in uc.player_x_drops(drops, lambda t: gt.game_time_at(t).phase, rr,
+                                          player_death_times(tm["hud"]))
+             if c["player_cast"] and uc.round_of(c["t_ms"], rr) is not None]
+    t = np.array([p["frame"] for p in peaks], np.float64) * HOP
+    score = np.array([p["score"] for p in peaks], np.float64)
+    cls = np.array([uc.template_class(norm_agent(p["agent"]), p["variant"], sides, player)[0]
+                    for p in peaks], object)
+    live = tm["live"][np.clip((t / STEP).astype(np.int64), 0, len(tm["live"]) - 1)]
+    window = uc.cast_window(player)
+    own_t, own_s = t[cls == "own"] * 1000.0, score[cls == "own"]
+    best = np.array([max((s_ for o, s_ in zip(own_t, own_s)
+                          if uc.in_window(o, float(c["t_ms"]), window)), default=-np.inf)
+                     for c in casts], np.float64)
+    return {"sid": sid, "player": player, "live_min": float(tm["live"].sum()) * STEP / 60.0,
+            "imp": score[live & (cls == "impossible")], "best": best,
+            "provenance": {"ult_line": rows[0].get("ult_line_version"),
+                           "tray_drop": drops[0].get("tray_version"), **tm["provenance"],
+                           "lineup": (lu or {}).get("version")}}
+
+
+def heldout_tau(ss: list[dict]) -> float:
+    """The operating point over `ss`: the lowest threshold with at most OP_RATE
+    live impossible selections per live minute, pooled."""
+    return operating_tau(np.concatenate([s["imp"] for s in ss]),
+                         sum(s["live_min"] for s in ss))
+
+
+def heldout_score(ss: list[dict], tau: float) -> dict:
+    """Live impossible selections and own recall within each agent's window, at tau."""
+    n_imp = int(sum(int((s["imp"] >= tau).sum()) for s in ss))
+    live = sum(s["live_min"] for s in ss)
+    best = np.concatenate([s["best"] for s in ss])
+    lo, hi = poisson_interval(n_imp)
+    return {"impossible_n": n_imp, "live_minutes": live, "impossible_per_min": n_imp / live,
+            "impossible_per_min_lo": lo / live, "impossible_per_min_hi": hi / live,
+            "casts": int(len(best)), "own_hits": int((best >= tau).sum()),
+            "own_recall": float((best >= tau).mean()) if len(best) else float("nan")}
+
+
+def cmd_heldout(dry: bool) -> dict:
+    """The production threshold's operating point chosen on some lineup sessions
+    and scored on the others: two alternating halves, both ways, and each
+    session left out in turn. Stored data only; nothing is decoded."""
+    from reticle import metrics
+    from reticle.adjudication import ult_cast as uc
+    from reticle.version import TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION
+    ss = [x for x in (heldout_session(sid) for sid in sorted(match_sessions())) if x]
+    by = {s["sid"]: s for s in ss}
+    sids = sorted(by)
+    half = {"a": [by[x] for x in sids[0::2]], "b": [by[x] for x in sids[1::2]]}
+    other = {"a": "b", "b": "a"}
+    v = {"sessions": len(ss), "live_minutes": _r(sum(s["live_min"] for s in ss), 1),
+         "x_casts": int(sum(len(s["best"]) for s in ss)), "threshold": uc.THRESHOLD}
+
+    tau = heldout_tau(ss)
+    for name, at in (("pooled", tau), ("at_threshold", uc.THRESHOLD)):
+        r = heldout_score(ss, at)
+        key = (lambda k: f"pooled_{k}") if name == "pooled" else (lambda k: f"{k}_at_threshold")
+        v.update({key("impossible_n"): r["impossible_n"],
+                  key("impossible_per_min"): _r(r["impossible_per_min"], 4),
+                  key("own_hits"): r["own_hits"], key("own_recall"): _r(r["own_recall"])})
+    v["pooled_tau"] = round(tau, 6)
+
+    # Two folds: choose on one half, score the other.
+    for f in ("a", "b"):
+        train, test = half[f], half[other[f]]
+        t_f = heldout_tau(train)
+        tr, te = heldout_score(train, t_f), heldout_score(test, t_f)
+        v.update({f"tau_{f}": round(t_f, 6), f"sessions_{f}": len(train),
+                  f"train_live_minutes_{f}": _r(tr["live_minutes"], 1),
+                  f"train_impossible_n_{f}": tr["impossible_n"],
+                  f"train_impossible_per_min_{f}": _r(tr["impossible_per_min"], 4),
+                  f"train_own_recall_{f}": _r(tr["own_recall"]),
+                  f"heldout_live_minutes_{f}": _r(te["live_minutes"], 1),
+                  f"heldout_impossible_n_{f}": te["impossible_n"],
+                  f"heldout_impossible_per_min_{f}": _r(te["impossible_per_min"], 4),
+                  f"heldout_impossible_per_min_lo_{f}": _r(te["impossible_per_min_lo"], 4),
+                  f"heldout_impossible_per_min_hi_{f}": _r(te["impossible_per_min_hi"], 4),
+                  f"heldout_casts_{f}": te["casts"], f"heldout_own_hits_{f}": te["own_hits"],
+                  f"heldout_own_recall_{f}": _r(te["own_recall"])})
+
+    # Leave one session out.
+    loo_tau, loo = [], []
+    for s in ss:
+        t_s = heldout_tau([x for x in ss if x is not s])
+        r = heldout_score([s], t_s)
+        loo_tau.append(t_s)
+        loo.append(r)
+        v[f"loo_tau_{s['sid']}"] = round(t_s, 6)
+        v[f"loo_impossible_n_{s['sid']}"] = r["impossible_n"]
+        v[f"loo_live_minutes_{s['sid']}"] = _r(r["live_minutes"], 1)
+    n_imp = sum(r["impossible_n"] for r in loo)
+    live = sum(r["live_minutes"] for r in loo)
+    hits, casts = sum(r["own_hits"] for r in loo), sum(r["casts"] for r in loo)
+    lo, hi = poisson_interval(n_imp)
+    v.update({"loo_tau_min": round(min(loo_tau), 6),
+              "loo_tau_median": round(float(np.median(loo_tau)), 6),
+              "loo_tau_max": round(max(loo_tau), 6),
+              "loo_tau_max_shift": round(max(abs(x - uc.THRESHOLD) for x in loo_tau), 6),
+              "loo_impossible_n": n_imp, "loo_impossible_per_min": _r(n_imp / live, 4),
+              "loo_impossible_per_min_lo": _r(lo / live, 4),
+              "loo_impossible_per_min_hi": _r(hi / live, 4),
+              "loo_own_hits": hits, "loo_own_recall": _r(hits / casts) if casts else None,
+              "loo_sessions_over_rate": sum(r["impossible_per_min"] > OP_RATE for r in loo)})
+    print(json.dumps(v, indent=1))
+    if not dry:
+        metrics.record("voice_lines", part=HELDOUT_PART, session="all-matches", values=v,
+                       deps={"version": VERSION, "ult_line_version": ULT_LINE_VERSION,
+                             "tray_version": TRAY_VERSION, "ult_cast_version": ULT_CAST_VERSION,
+                             "heldout": metrics.fingerprint(
+                                 heldout_session, heldout_tau, heldout_score, operating_tau,
+                                 poisson_interval, match_time, OP_RATE=OP_RATE,
+                                 CAST_WINDOW={k: list(w) for k, w in CAST_WINDOW.items()})},
+                       context={"fold_a": sids[0::2], "fold_b": sids[1::2],
+                                "folds": "sorted session ids alternated; tau_a is chosen on "
+                                         "fold_a and scored on fold_b, tau_b the reverse",
+                                "provenance": {s["sid"]: s["provenance"] for s in ss}})
+        print(f"recorded voice_lines/{HELDOUT_PART}@all-matches")
+    return v
+
+
+# ---------------------------------------------------------------------------
 # Command line
 # ---------------------------------------------------------------------------
 
@@ -2298,6 +2484,8 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--sessions", nargs="+", required=True)
     pc.add_argument("--pooled", action="store_true",
                     help="record one run over all the sessions, not one per session")
+    ho = sub.add_parser("heldout")
+    ho.add_argument("--dry", action="store_true", help="print only; record nothing")
     a = ap.parse_args(argv)
     print(f"{VERSION}: {os.environ['OMP_NUM_THREADS']} BLAS threads, Below Normal priority")
     every = match_sessions() + demo_sessions()
@@ -2324,6 +2512,8 @@ def main(argv: list[str] | None = None) -> int:
         cmd_report()
     elif a.cmd == "port-check":
         cmd_port_check(a.sessions, a.pooled)
+    elif a.cmd == "heldout":
+        cmd_heldout(a.dry)
     return 0
 
 

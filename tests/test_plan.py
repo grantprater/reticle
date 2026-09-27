@@ -10,7 +10,8 @@ import pyarrow.parquet as pq
 from reticle.adjudication.death import DEATH_ADJUDICATION_VERSION
 from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
 from reticle.plan import reader_streams, render, stale
-from reticle.version import HUD_VERSION, ROUND_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION
+from reticle.version import (HUD_VERSION, ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
+                            ULT_LINE_VERSION)
 
 
 class _Store:
@@ -139,6 +140,19 @@ class PlanTests(unittest.TestCase):
             derived = stale(store, ["s"])["s"]["derived"]
             self.assertEqual([(x["stream"], x["stored"], x["inputs_moved"]) for x in derived],
                              [("ult_cast", "ult-cast-0.0.1", ["round"])])
+
+    def test_older_tray_drops_or_a_hud_rescan_stale_the_casts_bound_to_them(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["ult_cast:rows"][0]["inputs"].update(tray_drop="tray-0.0.1",
+                                                              hud=HUD_VERSION)
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
+                             [("ult_cast", ["tray_drop"])])
+            store.events["ult_cast:rows"][0]["inputs"]["tray_drop"] = TRAY_VERSION
+            store.table("hud", hud_version="hud-0.0.1")
+            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            self.assertEqual(derived["ult_cast"]["inputs_moved"], ["hud", "round"])
 
 
 if __name__ == "__main__":

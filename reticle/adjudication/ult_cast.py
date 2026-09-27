@@ -5,8 +5,9 @@ r"""Which ultimate was cast, by which side, when: from stored voice-line peaks.
 Owns [owns:ult-cast].
 
 Reads storage only: the `ult_line` peaks `ult_lines` stored, the lineup with
-its board override (`lineup.load_lineup`), and the rounds table. It decodes
-nothing, so a change here reruns in seconds.
+its board override (`lineup.load_lineup`), the rounds table, and the tray's
+`tray_drop` rows with the HUD table that dates the player's deaths and the game
+phase. It decodes nothing, so a change here reruns in seconds.
 
 **Selection.** A peak is selected when its score reaches THRESHOLD, 0.0443,
 formulation F-B's operating point in `prototypes/voice_lines.py`
@@ -16,8 +17,15 @@ lineup-impossible detections fall to a tenth per live minute
 the player's own ultimates are found at
 [metric:voice_lines/evaluate-F-B@all-matches#own_recall=0.667]. It was chosen
 on the same 19 match sessions it is scored on, so those two numbers are fitted
-values, not held-out ones. Every peak above it stays: two templates that peak
-at one onset are two selections (`docs/VOICE_LINES.md`, "Verdicts at 0.2.0").
+values. Held out, it stands: picked on either alternate half, the point is
+[metric:voice_lines/heldout-0.1.0@all-matches#tau_a=0.044322] or
+[metric:voice_lines/heldout-0.1.0@all-matches#tau_b=0.044166], and the other
+half's impossible rate is
+[metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_a=0.0976]
+or [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_b=0.1101]
+per live minute (`docs/VOICE_LINES.md`, "Held-out threshold"). Every peak above
+it stays: two templates that peak at one onset are two selections
+(`docs/VOICE_LINES.md`, "Verdicts at 0.2.0").
 
 **Classing** (`template_class`), against the lineup's identity verdicts:
 
@@ -42,6 +50,22 @@ and `depends_on` the lineup's slot verdicts of the variant's side, because the
 class rests on them. A cast row's `agent` is the arbiter's verdict and nothing
 else. The formal identity events go to their own stream, since a stream of
 formal events holds nothing else.
+
+**The tray.** The adjudicator asks `ability_timeline.player_tray_casts` which
+stored tray drops are the player's casts (`player_x_drops`) and keeps the X
+slot's drops with the owner's verdict; it restates none of the tray's rules.
+An own selection binds to the nearest X cast whose drop lies within the
+player's agent's cast window (`cast_window`): its `tray_witness` holds onset
+minus drop, `dt_s`, and the drop's time, or is null with a reason. An
+unwitnessed own line also stores the nearest X drop the owner refused within
+the window, with the owner's reason (`tray_refused`), so the two channels'
+disagreement is kept, not settled here. An X cast inside a round with no own
+selection in its window is a `missed_line` row: the cast, its round, the
+player's agent, and the best stored peak of the own template within the
+window, which lies below THRESHOLD, or null with `no_peak_above_floor` when the
+reader stored none there. The window binds two observations of one cast; it
+selects nothing. A session without current tray drops, or without the player's
+agent, binds nothing and says why in its coverage row.
 """
 from __future__ import annotations
 
@@ -58,6 +82,25 @@ THRESHOLD = 0.0443
 CHANNEL = "ult_line"
 VARIANTS = ("ally", "enemy")
 CLASSES = ("own", "possible", "impossible", "unknown")
+#: The tray slot that holds the ultimate.
+ULT_SLOT = "X"
+#: An own line binds to an X cast when its onset minus the drop lies in the
+#: player's agent's window, in seconds. Every agent: OWN_WINDOW_S either side,
+#: since onset minus drop has a median of
+#: [metric:voice_lines/evaluate-0.2.0-F-B-unsuppressed@all-matches#onset_median_s=-0.43] s.
+#: Phoenix: from 20 s before, because Run it Back's pips fall at expiry
+#: [domain:abilities/phoenix-run-it-back-expiry-flash] while the caster hears
+#: the line at the cast [domain:abilities/caster-hears-own-ult-line]. With
+#: these windows the 0.2.0 prototype found
+#: [metric:voice_lines/evaluate-0.2.0-F-B-unsuppressed@all-matches#own_recall_agent_window=0.844]
+#: of the player's X casts at THRESHOLD, against
+#: [metric:voice_lines/evaluate-0.2.0-F-B-unsuppressed@all-matches#own_recall=0.667]
+#: with 1.5 s for every agent. `prototypes/voice_lines.py` imports both.
+OWN_WINDOW_S = 1.5
+CAST_WINDOW = {"Phoenix": (-20.0, OWN_WINDOW_S)}
+#: The fields `tray.drops` writes. The stored gate's fields stay behind, so the
+#: owner decides afresh on the rounds this adjudicator reads.
+DROP_FIELDS = ("t_ms", "slot", "from", "to", "suspect", "forced", "cooccur", "across_gap")
 
 
 def _norm(agent):
@@ -134,11 +177,52 @@ def round_of(t_ms: float, rounds: list[dict]) -> int | None:
     return None
 
 
+def cast_window(agent: str | None) -> tuple[float, float]:
+    """(earliest, latest) onset minus X drop, in seconds, at which an own line
+    of `agent` binds to the drop."""
+    return CAST_WINDOW.get(agent, (-OWN_WINDOW_S, OWN_WINDOW_S))
+
+
+def player_x_drops(drop_rows: list[dict], phase_of, rounds: list[dict],
+                   player_deaths_ms: list[float]) -> list[dict]:
+    """The X-slot drops among a session's stored `tray_drop` rows, each with the
+    `player_cast` and `reason` that `ability_timeline.player_tray_casts` gives
+    it. Every slot's drops go in, because the owner's co-occurrence test reads
+    them all."""
+    from ..ability_timeline import player_tray_casts
+    drops = [{k: r[k] for k in DROP_FIELDS if k in r} for r in drop_rows
+             if r.get("kind") == "drop"]
+    return [r for r in player_tray_casts(drops, phase_of, rounds, player_deaths_ms)
+            if r["slot"] == ULT_SLOT]
+
+
+def in_window(onset_ms: float, cast_ms: float, window: tuple[float, float]) -> bool:
+    """Whether onset minus drop lies in `window` (seconds)."""
+    return window[0] <= (onset_ms - cast_ms) / 1000.0 <= window[1]
+
+
+def nearest_cast(t_ms: float, casts_ms: list[float],
+                 window: tuple[float, float]) -> dict | None:
+    """The X cast nearest a line's onset among those whose onset minus drop lies
+    in `window`, as {dt_s, cast_t_ms}, or None."""
+    near = [(abs(t_ms - c), c) for c in casts_ms if in_window(t_ms, c, window)]
+    if not near:
+        return None
+    c = min(near)[1]
+    return {"dt_s": round((t_ms - c) / 1000.0, 3), "cast_t_ms": c}
+
+
 def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
                rounds: list[dict], round_version: str | None,
-               threshold: float = THRESHOLD) -> dict:
+               threshold: float = THRESHOLD, tray_drops: list[dict] | None = None,
+               tray_reason: str | None = "no_tray_drops",
+               tray_inputs: dict | None = None) -> dict:
     """The session's stored rows, its claims, the arbiter's verdicts and the
-    formal identity events, from stored peaks, the lineup and the rounds."""
+    formal identity events, from stored peaks, the lineup and the rounds.
+
+    `tray_drops` are the X drops with the owner's verdict from
+    `player_x_drops`, or None with `tray_reason`; `tray_inputs` are their
+    stamps for the coverage row."""
     cover = next((r for r in peak_rows if r.get("kind") == "coverage"), {}) or {}
     peaks = [r for r in peak_rows if r.get("kind") == "peak"]
     sides = lineup_sides(lineup, session_id)
@@ -164,6 +248,13 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
     verdicts = adjudicate_agent_identity(claims)
     by_id = {v["entity_id"]: v for v in verdicts}
     common = {"session_id": session_id, "ult_cast_version": ULT_CAST_VERSION}
+    window = cast_window(player)
+    if tray_drops is not None and player is None:
+        tray_reason = "no_player_agent"
+    bind = tray_drops is not None and player is not None
+    tray_casts = [c for c in tray_drops if c["player_cast"]] if bind else []
+    casts_ms = [float(c["t_ms"]) for c in tray_casts]
+    refused = {float(c["t_ms"]): c["reason"] for c in tray_drops or [] if not c["player_cast"]}
     rows, events = [], []
     for eid, m in meta.items():
         p, v = m["peak"], by_id[eid]
@@ -180,9 +271,46 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
                          "agent": v["agent"] if v["status"] == "resolved" else None,
                          "identity_status": v["status"], "identity_reason": v["reason"],
                          "class_reason": m["reason"]})
+            if m["class"] == "own":
+                w = nearest_cast(m["t_ms"], casts_ms, window) if bind else None
+                rows[-1]["tray_witness"] = w
+                rows[-1]["tray_witness_reason"] = (
+                    None if w else "no_x_cast_in_window" if bind else tray_reason)
+                if bind and w is None:
+                    r = nearest_cast(m["t_ms"], list(refused), window)
+                    rows[-1]["tray_refused"] = None if r is None else {
+                        "dt_s": r["dt_s"], "drop_t_ms": r["cast_t_ms"],
+                        "reason": refused[r["cast_t_ms"]]}
         events += identity_events([v], session_id, m["t_ms"])
 
-    by_class = Counter(r["class"] for r in rows)
+    # The player's X casts inside a round with no own selection in their window.
+    missed, outside = [], 0
+    own_tpl = f"{player}_ult_ally"
+    own_ms = [r["t_ms"] for r in rows if r["kind"] == "cast" and r["class"] == "own"]
+    own_peaks = [p for p in peaks if p["template"] == own_tpl]
+    for c in tray_casts:
+        t = float(c["t_ms"])
+        rnd = round_of(t, rounds)
+        if rnd is None:
+            outside += 1
+            continue
+        if any(in_window(o, t, window) for o in own_ms):
+            continue
+        inside = [p for p in own_peaks if in_window(p["t_s"] * 1000.0, t, window)]
+        best = max(inside, key=lambda p: (p["score"], -p["t_s"]), default=None)
+        missed.append({
+            **common, "kind": "missed_line", "t_ms": t, "cast_t_ms": t, "round": rnd,
+            "player_agent": player, "template": own_tpl, "window_s": list(window),
+            "tray": {k: c.get(k) for k in ("from", "to", "suspect", "cooccur", "forced",
+                                           "across_gap")},
+            "best_peak": None if best is None else {
+                "score": best["score"], "floor": best.get("floor"), "t_s": best["t_s"],
+                "dt_s": round(best["t_s"] - t / 1000.0, 3)},
+            "best_peak_reason": None if best else "no_peak_above_floor"})
+    rows += missed
+
+    by_class = Counter(r["class"] for r in rows if r["kind"] in ("cast", "refusal"))
+    own_rows = [r for r in rows if r["kind"] == "cast" and r["class"] == "own"]
     coverage = {**common, "kind": "coverage", "threshold": threshold,
                 "inputs": {"ult_line": source,
                            "lineup": (lineup or {}).get("version"),
@@ -196,6 +324,19 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
                 "by_class": {c: by_class.get(c, 0) for c in CLASSES},
                 "casts": sum(r["kind"] == "cast" for r in rows),
                 "refusals": sum(r["kind"] == "refusal" for r in rows),
-                "rounds": len(rounds)}
+                "rounds": len(rounds),
+                "tray": {"bound": bind, "reason": None if bind else tray_reason,
+                         "x_drops": len(tray_drops) if tray_drops is not None else None,
+                         "player_x_casts": (sum(c["player_cast"] for c in tray_drops)
+                                            if tray_drops is not None else None),
+                         "casts_outside_round": outside, "window_s": list(window)},
+                "own_witnessed": sum(r["tray_witness"] is not None for r in own_rows),
+                "own_unwitnessed": sum(r["tray_witness"] is None for r in own_rows),
+                "own_beside_refused_drop": dict(sorted(Counter(
+                    r["tray_refused"]["reason"] for r in own_rows
+                    if r.get("tray_refused")).items())),
+                "missed_lines": len(missed),
+                "missed_with_peak": sum(r["best_peak"] is not None for r in missed)}
+    coverage["inputs"].update(tray_inputs or {})
     return {"rows": [coverage] + rows, "claims": claims, "verdicts": verdicts,
             "events": events}
