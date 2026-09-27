@@ -1302,10 +1302,11 @@ with their lines, and reloads; the allies-only caveat followed
 """
 exceptions = """
 Open, per the player (2026-09-27): whether the player's own agent's cast
-lines are heard (fairly sure yes); whether each cast has one line (thought
-so) at a fixed offset from the cast (not sure). Falsifiers: an own cast on a
-demo with no line; two lines for one ability in one match; a line-to-tray
-drop offset that varies by more than the tray's 0.5 s step
+lines are heard (fairly sure yes); whether the line sits at a fixed offset
+from the cast (not sure). The wiki answered whether each cast has one line:
+it does not (abilities/cast-lines-vary). Falsifiers: an own cast on a demo
+with no line; a line-to-tray drop offset that varies by more than the
+tray's 0.5 s step
 """
 use = """
 a voice line is a fixed game asset, so match it as a template instead of
@@ -1330,3 +1331,27 @@ an end witness for a device entity the minimap may not show ending; a
 reload is background for the gate and a weapon event for a later channel
 """
 see = ["abilities/voice-lines-announce-casts", "abilities/ability-sound-phases"]
+
+[cast-lines-vary]
+claim = """
+An ability's cast is announced by one of several recorded lines, not one
+fixed line: the wiki lists more than one distinct cast line for 60 of
+81 abilities with a cast section (median 2, up to 7), for example
+Recon Bolt's "Revealing area", "Scanning ahead", "There they are" and
+"Found them".
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = """
+reference/assets/voicelines/casts/index.json, harvested from each agent's
+wiki quotes page by prototypes/voice_line_harvest.py on 2026-09-27
+(docs/VOICE_LINE_ASSETS.md); whether the game plays every listed line, and
+with what weights, is unmeasured
+"""
+use = """
+a template set per ability holds every listed line; a match on any of them
+names the ability, and the line text is not a stable key for the cast
+"""
+see = ["abilities/voice-lines-announce-casts"]

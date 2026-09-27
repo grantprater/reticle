@@ -96,3 +96,10 @@ e.g. `KAY/O`); `--dry-run` lists what would be fetched without downloading.
 A rerun only pulls lines missing from `index.json` -- the wiki adding a line
 to an existing ability is the one case it will fetch again under the same
 ability/section, since only the source URL is deduplicated.
+
+## What the counts say
+
+The wiki lists more than one distinct cast line for 60 of the 81 abilities
+with a cast section, median 2 and up to 7 [domain:abilities/cast-lines-vary],
+so a template set for an ability holds every listed line and a match on any
+of them names the ability.
