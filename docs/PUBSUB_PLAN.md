@@ -66,6 +66,18 @@ usage record is a single-reader pass, and the fused cost is an estimate
 built from separate records (`composite`). Scans also ran four at a time,
 so the ally-icon records carry contention.
 
+### Outcomes against the measurements
+
+Read from [`PUBSUB_MEASUREMENTS.md`](PUBSUB_MEASUREMENTS.md), design steps 3 and 4.
+
+1. Held from the crop cache; refuted on NVDEC video, where the read-ahead already hides about half
+   of each 2 Hz gap and the staged pass ran slower; and on OpenCV's pool no serial pass is one thread.
+2. Refuted: the crop-cache HUD pass gained, and the video prefix lost.
+3. Not tested; ally_icon reaches about three cores on either path, which points at fewer
+   operations per pixel.
+4. Held: the staged HUD pass ran close to its reader sum, which bounds threads, queues and
+   handoffs together.
+
 ## Rules the design must honour
 
 From `AGENTS.md` and `docs/WORKING_MAP.md`:

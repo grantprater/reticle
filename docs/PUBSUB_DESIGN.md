@@ -439,5 +439,13 @@ Before steps 3 and 4, changes 2 and 6 were made and L1 reframed:
 - **Section 3's table** gives `--until` in seconds, as built; the flag refuses to run without `--check`
   and `--check-dir`. Section 3's opening and open question 1 follow the reframe.
 
-The measurement phase has not run. Section 3 lists its runs, step 3's from the crop cache and step 4's
-video prefix; they wait for the player, and until they run no document quotes a time.
+The measurement phase ran on 2026-09-27 as five `scan --check` runs at `fbc3143`, m1 to m5, each
+byte-equal between paths; [`PUBSUB_MEASUREMENTS.md`](PUBSUB_MEASUREMENTS.md) reads their records, which
+`tools/pubsub_notes_append.py` copied into `<store>/notes/`. They depart from section 3's list: each ran
+as a check into temporary stores, and path a, the serial pass, ran on OpenCV's default pool, so no
+serial ally_icon of this phase ran at one thread. Usage run ids, path a (serial) then path b: m1 (hud, workers 0)
+`2d6b227969e64a4880d827b32d688d10`, `921108c1adb245eeaa3bf1ab982f1801`; m2 (hud, workers 1)
+`9d49200011e6490aa057a431b4976262`, `cf98e5c94cbc498a9d31606849edb4c7`; m3 (ally_icon, two shards)
+`5ed78255d8074eca9d89ed00c0e54807`, `09a489d4eeb34375872e42b1332a5db2`; m4 (ally_icon, three shards)
+`df2f19726d0a45d6a39b80f9919c0a10`, `b1feb3beca2e41c098aacd37c25b6745`; m5 (hud and scoreboard, the
+first 180 s of video, workers 1) `4dd06395f7904478a8c23101af4bfbb5`, `5d2e53c974af4c06b5478587ef6de27c`.
