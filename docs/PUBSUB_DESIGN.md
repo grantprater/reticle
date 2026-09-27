@@ -359,3 +359,11 @@ A separate critic read this design against the code. The verdict: go for steps 0
 | 6 | One OpenCV count per run moves the ladder's T_r | L3 states the count (one thread at W >= 1); step 3 adds a scoreboard serial at that count against `R[a06f04a0059f 09:52:39Z]` | deferred to step 3 |
 | 7 | The shard row rests on a contended figure | Section 2: the row is an upper bound; step 3's serial ally_icon gates step 2's claim | steps 0-2 (text), step 3 (gate) |
 | 8 | `_ME_CACHE` unlisted; a lost message fails the run | L3 lists the shared module dicts; section 1 says the reason lands in `status` | steps 0-2 |
+
+Steps 0 to 2 ran on `c40d950031bb` from the crop cache, and every `--check` found its files equal
+(`docs/PUBSUB_PROTOTYPE.md`). Usage run ids, path a (serial) then path b: step 1 at workers 1
+`d80a02bb3a184e35ad47bcd138d87fcd`, `dc1a4505a3c444628895d07a8ff70072`; step 1 at workers 0
+`bb7059832e274dfb9b78fe96fef7f18e`, `c0e5a77d433b4eb3936124b2ed115c62`; step 2 (two ally_icon
+shards) `a9bb1e5d129e4a3e844eb96c52634a00`, `e26f78d2cb9e49eeadf220e73ff87dd4`; step 2a (one OpenCV
+thread) `8e5ff11d1a8344af8fe555184d2db684`, `1046bf3706534646a8c250d3a5b3f358`. The records sit in
+each check's own stores, outside `<store>`, so no `metric:` token cites them.
