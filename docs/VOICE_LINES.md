@@ -835,27 +835,31 @@ player's X casts, which it asks of the tray owner
 `player_x_drops`), within the agent's cast window: 1.5 s either side of
 the drop, and from 20 s before it for Phoenix. The table and the 0.2.0 measurement behind it sit in
 `adjudication.ult_cast.CAST_WINDOW`, which the prototype imports. The rerun
-selected and classed the same [metric:ult_lines/ult-cast@all-sessions#selected=624] peaks as before;
-[metric:ult_lines/ult-cast@all-sessions#tray_sessions=19] sessions bound to the tray, the
-[metric:ult_lines/ult-cast@all-sessions#tray_unbound_no_tray_drops=5] demos had no tray drops, and the match
-without a lineup had no player's agent ([metric:ult_lines/ult-cast@all-sessions#tray_unbound_no_player_agent=1]).
+selected and classed the same [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#selected=624] peaks as before;
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#tray_sessions=19] sessions bound to the tray, the
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#tray_unbound_no_tray_drops=5] demos had no tray drops, and the match
+without a lineup had no player's agent ([metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#tray_unbound_no_player_agent=1]).
+The figures from here to "Partly filled X slots" are that run's, under
+`player-cast-0.2.0`, kept citable as `all-sessions-player-cast-0.2.0`; the
+`partial_charge` rule of `player-cast-0.3.0` changes only the X casts and
+the missed lines, as that paragraph gives.
 
-**Own selections.** Of [metric:ult_lines/ult-cast@all-sessions#class_own=58] own selections, [metric:ult_lines/ult-cast@all-sessions#own_witnessed=45]
-have an X cast in their window and [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed=13] do not. Every
+**Own selections.** Of [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#class_own=58] own selections, [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_witnessed=45]
+have an X cast in their window and [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_unwitnessed=13] do not. Every
 unwitnessed one lies within its window of an X drop the tray owner refused:
-[metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death=4] as after the player's death,
-[metric:ult_lines/ult-cast@all-sessions#own_beside_refused_cooccur_among_casts=6] as co-occurring with another
-slot's drop, [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_forced=2] as forced, and
-[metric:ult_lines/ult-cast@all-sessions#own_beside_refused_phase_round_end=1] in the round's end. No own line
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_beside_refused_after_player_death=4] as after the player's death,
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_beside_refused_cooccur_among_casts=6] as co-occurring with another
+slot's drop, [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_beside_refused_forced=2] as forced, and
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_beside_refused_phase_round_end=1] in the round's end. No own line
 stands without a tray drop beside it. Each such row stores the refused drop
 and its reason as `tray_refused`; the adjudicator overrules nothing.
 
 | Player's agent | X casts in a round | Missed | Own selections witnessed | Unwitnessed, beside a drop refused after death |
 |---|---|---|---|---|
-| Phoenix | [metric:ult_lines/ult-cast@all-sessions#x_casts_Phoenix=19] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Phoenix=3] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Phoenix=15] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Phoenix=6], [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Phoenix=2] |
-| Sova | [metric:ult_lines/ult-cast@all-sessions#x_casts_Sova=19] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Sova=4] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Sova=15] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Sova=2], none |
-| Skye | [metric:ult_lines/ult-cast@all-sessions#x_casts_Skye=15] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Skye=0] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Skye=15] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Skye=3], [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Skye=1] |
-| Clove | [metric:ult_lines/ult-cast@all-sessions#x_casts_Clove=1] | [metric:ult_lines/ult-cast@all-sessions#missed_lines_Clove=1] | [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Clove=0] | [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Clove=2], [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Clove=1] |
+| Phoenix | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#x_casts_Phoenix=19] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_lines_Phoenix=3] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_witnessed_Phoenix=15] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_unwitnessed_Phoenix=6], [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_beside_refused_after_player_death_Phoenix=2] |
+| Sova | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#x_casts_Sova=19] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_lines_Sova=4] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_witnessed_Sova=15] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_unwitnessed_Sova=2], none |
+| Skye | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#x_casts_Skye=15] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_lines_Skye=0] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_witnessed_Skye=15] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_unwitnessed_Skye=3], [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_beside_refused_after_player_death_Skye=1] |
+| Clove | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#x_casts_Clove=1] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_lines_Clove=1] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_witnessed_Clove=0] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_unwitnessed_Clove=2], [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_beside_refused_after_player_death_Clove=1] |
 
 **After the gate fix (`player-cast-0.2.0`).** The gate stamped `tray-0.1.0`
 ended the player's kit at the round's first killfeed death. The series'
@@ -870,13 +874,13 @@ it undid:
   Back death and no longer ends his kit; the X drop at the ult's end is his
   cast [domain:abilities/phoenix-run-it-back-expiry-flash]
   [domain:abilities/caster-hears-own-ult-line]. His in-round X casts rose to
-  [metric:ult_lines/ult-cast@all-sessions#x_casts_Phoenix=19] and his witnessed lines to
-  [metric:ult_lines/ult-cast@all-sessions#own_witnessed_Phoenix=15]; no other agent's count moved. Of the
-  [metric:ult_lines/ult-cast@all-sessions#own_unwitnessed_Phoenix=6] left,
-  [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_cooccur_among_casts_Phoenix=3] lie beside an X drop at
+  [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#x_casts_Phoenix=19] and his witnessed lines to
+  [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_witnessed_Phoenix=15]; no other agent's count moved. Of the
+  [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_unwitnessed_Phoenix=6] left,
+  [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_beside_refused_cooccur_among_casts_Phoenix=3] lie beside an X drop at
   the ult's end that falls with another slot's drop,
-  [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_forced_Phoenix=1] beside a forced drop, and
-  [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death_Phoenix=2] beside a drop after a
+  [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_beside_refused_forced_Phoenix=1] beside a forced drop, and
+  [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#own_beside_refused_after_player_death_Phoenix=2] beside a drop after a
   death the gate keeps. On `5822b6646448` at 1412.5 s the round's combat
   report counts a real death the killfeed missed, jay's second kill 2 s after
   the Run It Back death [domain:rounds/run-it-back-in-report], so the second
@@ -890,26 +894,26 @@ it undid:
   screen's blank, and the owner refuses it as forced. The line at 1893.1 s has
   no stored revive entry in its round, so her death there ends the kit.
 
-**Missed lines.** Of [metric:ult_lines/ult-cast@all-sessions#x_casts=54] X casts inside a round,
-[metric:ult_lines/ult-cast@all-sessions#missed_lines=8] have no own selection in their window, so
-[metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.852] have one. [metric:ult_lines/ult-cast@all-sessions#missed_with_peak=4] of the
+**Missed lines.** Of [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#x_casts=54] X casts inside a round,
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_lines=8] have no own selection in their window, so
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#x_casts_with_line_fraction=0.852] have one. [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_with_peak=4] of the
 missed have an own-template peak in the window, below the threshold; the
 others have none above the template's floor.
 
 | Session | Cast (s) | Agent | X fill before the drop | Best own peak | Onset minus drop (s) |
 |---|---|---|---|---|---|
-| `3694746e4e54` | 1062 | Sova | [metric:ult_lines/ult-cast@all-sessions#missed_3694746e4e54_1062_from=1.33] | none | - |
-| `587c15b07779` | 1297 | Phoenix | [metric:ult_lines/ult-cast@all-sessions#missed_587c15b07779_1297_from=1.0] | [metric:ult_lines/ult-cast@all-sessions#missed_587c15b07779_1297_best=0.04404] | [metric:ult_lines/ult-cast@all-sessions#missed_587c15b07779_1297_dt_s=-5.42] |
-| `59c70f1ef720` | 2425 | Sova | [metric:ult_lines/ult-cast@all-sessions#missed_59c70f1ef720_2425_from=1.02] | none | - |
-| `7010b3d62460` | 1108 | Phoenix | [metric:ult_lines/ult-cast@all-sessions#missed_7010b3d62460_1108_from=0.43] | [metric:ult_lines/ult-cast@all-sessions#missed_7010b3d62460_1108_best=0.014911] | [metric:ult_lines/ult-cast@all-sessions#missed_7010b3d62460_1108_dt_s=-3.247] |
-| `9acf02f98283` | 2196 | Sova | [metric:ult_lines/ult-cast@all-sessions#missed_9acf02f98283_2196_from=1.0] | [metric:ult_lines/ult-cast@all-sessions#missed_9acf02f98283_2196_best=0.039844] | [metric:ult_lines/ult-cast@all-sessions#missed_9acf02f98283_2196_dt_s=-0.203] |
-| `a1a995e6b19b` | 1140 | Clove | [metric:ult_lines/ult-cast@all-sessions#missed_a1a995e6b19b_1140_from=0.37] | none | - |
-| `c40d950031bb` | 769 | Sova | [metric:ult_lines/ult-cast@all-sessions#missed_c40d950031bb_769_from=0.58] | none | - |
-| `ff636d173b07` | 48 | Phoenix | [metric:ult_lines/ult-cast@all-sessions#missed_ff636d173b07_48_from=0.36] | [metric:ult_lines/ult-cast@all-sessions#missed_ff636d173b07_48_best=0.016446] | [metric:ult_lines/ult-cast@all-sessions#missed_ff636d173b07_48_dt_s=-19.687] |
+| `3694746e4e54` | 1062 | Sova | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_3694746e4e54_1062_from=1.33] | none | - |
+| `587c15b07779` | 1297 | Phoenix | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_587c15b07779_1297_from=1.0] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_587c15b07779_1297_best=0.04404] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_587c15b07779_1297_dt_s=-5.42] |
+| `59c70f1ef720` | 2425 | Sova | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_59c70f1ef720_2425_from=1.02] | none | - |
+| `7010b3d62460` | 1108 | Phoenix | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_7010b3d62460_1108_from=0.43] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_7010b3d62460_1108_best=0.014911] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_7010b3d62460_1108_dt_s=-3.247] |
+| `9acf02f98283` | 2196 | Sova | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_9acf02f98283_2196_from=1.0] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_9acf02f98283_2196_best=0.039844] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_9acf02f98283_2196_dt_s=-0.203] |
+| `a1a995e6b19b` | 1140 | Clove | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_a1a995e6b19b_1140_from=0.37] | none | - |
+| `c40d950031bb` | 769 | Sova | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_c40d950031bb_769_from=0.58] | none | - |
+| `ff636d173b07` | 48 | Phoenix | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_ff636d173b07_48_from=0.36] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_ff636d173b07_48_best=0.016446] | [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_ff636d173b07_48_dt_s=-19.687] |
 
-The witnessed own lines score from [metric:ult_lines/ult-cast@all-sessions#witnessed_score_min=0.0627] up, median
-[metric:ult_lines/ult-cast@all-sessions#witnessed_score_median=0.2065]; the best peaks under missed casts run from
-[metric:ult_lines/ult-cast@all-sessions#missed_best_min=0.0149] to [metric:ult_lines/ult-cast@all-sessions#missed_best_max=0.044]. Read one by one, they say
+The witnessed own lines score from [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#witnessed_score_min=0.0627] up, median
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#witnessed_score_median=0.2065]; the best peaks under missed casts run from
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_best_min=0.0149] to [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#missed_best_max=0.044]. Read one by one, they say
 that seven of the eight missed casts have no line:
 
 - One is a line under the threshold: `9acf02f98283`'s peak sits 0.2 s before
@@ -920,17 +924,55 @@ that seven of the eight missed casts have no line:
   [metric:voice_lines/evaluate-0.2.0-F-B-unsuppressed@all-matches#floor_max=0.0159].
 - Four have no own peak above the floor.
 
-**Partly filled X slots.** Every X cast with a line falls from a fill of
-[metric:ult_lines/x-fill@all-sessions#with_line_from_min=0.9] to [metric:ult_lines/x-fill@all-sessions#with_line_from_max=1.18] of the session's full
-reading. [metric:ult_lines/x-fill@all-sessions#below_with_line_min=4] casts fall from less, [metric:ult_lines/x-fill@all-sessions#below_from_min=0.36] to
-[metric:ult_lines/x-fill@all-sessions#below_from_max=0.58], and none of them has a line. Any threshold in
-that gap separates them in this sample, and refusing them would leave
-[metric:ult_lines/x-fill@all-sessions#fraction_if_below_refused=0.92] of the casts with a line. The gate does not
-refuse them: no domain fact says an ultimate cannot be cast before its slot
-fills, or what else empties partly lit pips, so a `partial_charge` reason
-would rest on the missing line alone, the output under test. The player is
-asked: can X be cast before every pip is lit, and what emptied the partly
-lit slot on `ff636d173b07` at 48.0 s, round 1?
+**Partly filled X slots.** Under `player-cast-0.2.0` every X cast with a
+line fell from a fill of [metric:ult_lines/x-fill@all-sessions#with_line_from_min=0.9] to [metric:ult_lines/x-fill@all-sessions#with_line_from_max=1.18] of the session's full
+reading, and [metric:ult_lines/x-fill@all-sessions#below_with_line_min=4] casts fell from less, [metric:ult_lines/x-fill@all-sessions#below_from_min=0.36] to
+[metric:ult_lines/x-fill@all-sessions#below_from_max=0.58], none of them with a line. The player answered the
+question this paragraph asked: the X pips are the ultimate charge, the
+ultimate is cast only when every pip is lit, and the cast empties them
+[domain:abilities/ult-charge-pips]. The gate (`player-cast-0.3.0`) refuses
+an X drop whose `from` fill is under 0.80 as `partial_charge`;
+`ability_timeline.player_tray_casts` holds the tolerance and the
+measurements behind it. The binding rerun (`reticle ult-cast --all
+--record`, storage only) refused exactly the four. In-round X casts fell
+to [metric:ult_lines/ult-cast@all-sessions#x_casts=50], missed lines to [metric:ult_lines/ult-cast@all-sessions#missed_lines=4], and [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.92] of
+the casts have an own line; own selections witnessed stay
+[metric:ult_lines/ult-cast@all-sessions#own_witnessed=45] of [metric:ult_lines/ult-cast@all-sessions#class_own=58], and no own line lies beside a
+`partial_charge` drop. Recomputed from the stored drops, the rule moved no
+verdict outside the X slot (ledger `tray-gate`, G5).
+
+None of the four was a charge that emptied. Each is teal added to the X
+bar's box for one sample by something behind the semi-transparent tray, on
+a slot that was not full before or after it; the stored crops show it, and
+`reticle tray` reads them the same way, drop for drop. A slot short of full
+lights only its lit pips and reads near zero; a full one also lights the
+bar and reads near 1.
+
+| Session | Drop (s) | X before | X spike | X after | The stored crop |
+|---|---|---|---|---|---|
+| `ff636d173b07` | 48.0 | [metric:tray/x-fill-states@six-sessions#ff636d173b07_48_x_before=0.08] | [metric:tray/x-fill-states@six-sessions#ff636d173b07_48_x_from=0.36] | [metric:tray/x-fill-states@six-sessions#ff636d173b07_48_x_at=0.0] | round 1, every pip unlit; the map's teal trim crosses the bar at 47.55 s |
+| `7010b3d62460` | 1108.0 | [metric:tray/x-fill-states@six-sessions#7010b3d62460_1108_x_before=0.0] | [metric:tray/x-fill-states@six-sessions#7010b3d62460_1108_x_from=0.43] | [metric:tray/x-fill-states@six-sessions#7010b3d62460_1108_x_at=0.0] | no pip lit; a teal surface behind the slot at 1107.5 s |
+| `a1a995e6b19b` | 1140.5 | [metric:tray/x-fill-states@six-sessions#a1a995e6b19b_1140_x_before=0.08] | [metric:tray/x-fill-states@six-sessions#a1a995e6b19b_1140_x_from=0.37] | [metric:tray/x-fill-states@six-sessions#a1a995e6b19b_1140_x_at=0.06] | pips part lit; a green glow behind Q and X at 1140.05 s |
+| `c40d950031bb` | 769.5 | [metric:tray/x-fill-states@six-sessions#c40d950031bb_769_x_before=0.07] | [metric:tray/x-fill-states@six-sessions#c40d950031bb_769_x_from=0.58] | [metric:tray/x-fill-states@six-sessions#c40d950031bb_769_x_at=0.12] | pips part lit; Sova's glowing bow behind the slot at 769.0 s |
+
+So what "emptied" the slot on `ff636d173b07` at 48.0 s was the trim leaving
+the box: the slot held no charge in round 1. The tray was drawn and not
+dimmed (C, Q and E read the same at 47.55 s and 48.0 s), the player was
+alive (no killfeed death of the player in round 1), and the player played
+Phoenix, so none of [domain:hud/menu-dims-tray],
+[domain:hud/tray-after-player-death] and
+[domain:abilities/deadlock-ult-tray-drop-at-equip] applies. On
+`c40d950031bb` the shape fitter drew no Hunter's Fury beam on any of the 13
+crops after 769.5 s, which agrees; a refit under `player-cast-0.3.0` will drop
+those 13 crops.
+
+A fill above 1 is a full slot with teal added, never more charge. The lined
+cast's 1.18 (`75a55a296d3b` 1011.5 s) is a teal glow behind the X icon on
+the last clean sample before the cast, over a slot that read a median of
+[metric:tray/x-fill-states@six-sessions#75a55a296d3b_1011_x_prior10_median=0.96] on the ten samples before. The unlined cast
+on `3694746e4e54` at 1062.0 s is no cast: Sova's bow lifted a full slot to
+[metric:tray/x-fill-states@six-sessions#3694746e4e54_1062_x_from=1.33] and it still read [metric:tray/x-fill-states@six-sessions#3694746e4e54_1062_x_at=1.08] after the "drop". The gate
+does not yet test the rule's other half, that the cast empties the pips.
 
 ### What was not done in production
 
@@ -1074,8 +1116,9 @@ Ledger rows under task `voice-lines-heldout`, kind `outcome`, 2026-09-27.
   in-round X casts had an own line, above the 0.8 asked, but the rest are
   not Phoenix expiry drops or lines under the threshold: one missed cast has a
   line under the threshold and seven have none ("Own lines against the tray").
-  After the gate fix [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.852] have one, and the same
-  eight casts miss it.
+  After the gate fix [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#x_casts_with_line_fraction=0.852] have one, and the same
+  eight casts miss it. Under `player-cast-0.3.0` the gate refuses four of
+  them as `partial_charge`, and [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.92] have one.
 
 ### Recommendation
 

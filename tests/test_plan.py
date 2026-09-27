@@ -185,6 +185,24 @@ class PlanTests(unittest.TestCase):
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("ability_shape", ["tray_drop"])])
 
+    def test_rows_the_gate_before_partial_charge_decided_are_stale(self):
+        old = "player-cast-0.2.0"
+        self.assertNotEqual(old, PLAYER_CAST_VERSION)
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["ult_cast:rows"][0]["inputs"].update(tray_drop=TRAY_VERSION,
+                                                              hud=HUD_VERSION, player_cast=old)
+            store.events["tray_drop:rows"] = [{"tray_version": TRAY_VERSION,
+                                               "player_cast_version": old}]
+            store.events["ability_shape:rows"] = [{"ability_shape_version": ABILITY_SHAPE_VERSION,
+                                                   "tray_version": TRAY_VERSION,
+                                                   "player_cast_version": old}]
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["stored"], x["inputs_moved"]) for x in derived],
+                             [("ult_cast", ULT_CAST_VERSION, ["player_cast"]),
+                              ("tray_drop", TRAY_VERSION, ["player_cast"]),
+                              ("ability_shape", ABILITY_SHAPE_VERSION, ["player_cast"])])
+
 
 if __name__ == "__main__":
     unittest.main()

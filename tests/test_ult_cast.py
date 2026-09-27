@@ -171,7 +171,7 @@ class TrayBindingTests(unittest.TestCase):
                              _peak(150.0, "Sova", "ally", 0.10),    # own line, no drop
                              _peak(69.6, "Sova", "ally", 0.03),     # under the threshold
                              _peak(90.3, "Jett", "ally", 0.03))     # another template
-        self.casts = [_cast(50400.0), _cast(70000.0), _cast(90000.0, **{"from": 0.36}),
+        self.casts = [_cast(50400.0), _cast(70000.0), _cast(90000.0, **{"from": 0.97}),
                       _cast(150500.0, "after_player_death")]
         self.res = uc.adjudicate("s", self.peaks, self.lu, ROUNDS, "round-test",
                                  tray_drops=self.casts, tray_inputs={"tray_drop": "tray-test"})
@@ -207,7 +207,7 @@ class TrayBindingTests(unittest.TestCase):
         r = self.missed[90000.0]
         self.assertIsNone(r["best_peak"])            # Jett's peak is not the own template
         self.assertEqual(r["best_peak_reason"], "no_peak_above_floor")
-        self.assertEqual(r["tray"]["from"], 0.36)    # the drop's reading, kept as evidence
+        self.assertEqual(r["tray"]["from"], 0.97)    # the drop's reading, kept as evidence
 
     def test_the_coverage_row_counts_the_binding(self):
         cov = self.res["rows"][0]

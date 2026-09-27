@@ -66,6 +66,11 @@ def _audio_references(root: Path) -> list[dict]:
 DEATH_LEAD_MS = 1000.0
 #: The phases whose drops can be the player's casts (`gametime`'s names).
 CAST_PHASES = ("round_live", "post_plant")
+#: The ultimate's slot; `tray` reads slot 3 as the ultimate.
+ULT_SLOT = tray.SLOT_KEYS[3]
+#: The least `from` fill of an X slot that the gate reads as full; an X drop
+#: from less is `partial_charge`. `player_tray_casts` gives the measurement.
+FULL_MIN = 0.8
 
 
 def _kit_end(window: tuple, ends: set, deaths_ms, agent: str | None,
@@ -135,6 +140,69 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
       the round does not end her kit, so a drop between the death and the
       revive meets the remaining tests like any other.
 
+    A drop that passes those tests can still fail one more, and only in the X
+    slot. The X slot's pips are the ultimate charge: the ultimate is cast only
+    when every pip is lit, and the cast empties them
+    [domain:abilities/ult-charge-pips]. So an X drop from a slot that was not
+    full is refused as `partial_charge`. The test runs after the co-occurrence
+    test, so a part-filled X drop still counts as a transition of the tray
+    beside another slot's drop, and the rule changes no other slot's verdict.
+
+    *Full* is read from the drop's own `from`: the slot's teal count on the
+    last clean sample before the drop over the slot's p90 clean count in the
+    session (`tray.fills`), so no per-agent constant enters. The reading has
+    two states. A full slot also lights the bar under its pips and reads about
+    1; a slot short of full lights only its lit pips. On six sessions' stored
+    crops, [metric:tray/x-fill-states@six-sessions#not_full=9685] of
+    [metric:tray/x-fill-states@six-sessions#clean_samples=11747] clean samples
+    read 0.2 or less (99th percentile at most
+    [metric:tray/x-fill-states@six-sessions#not_full_p99_max=0.164]),
+    [metric:tray/x-fill-states@six-sessions#full=1998] read 0.8 to 1.1, and
+    [metric:tray/x-fill-states@six-sessions#between=39] fell between. The slot
+    was full when `from` reaches FULL_MIN, 0.80. The
+    [metric:ult_lines/x-fill-full@all-sessions#x_casts_with_line=46] in-round
+    X casts with an own ult line on the 19 lineup sessions fell from
+    [metric:ult_lines/x-fill-full@all-sessions#with_line_from_min=0.9] to
+    [metric:ult_lines/x-fill-full@all-sessions#with_line_from_max=1.18],
+    median [metric:ult_lines/x-fill-full@all-sessions#with_line_from_median=0.98]
+    with a median absolute deviation of
+    [metric:ult_lines/x-fill-full@all-sessions#with_line_from_mad=0.03].
+    FULL_MIN sits [metric:ult_lines/x-fill-full@all-sessions#margin_below_lowest_with_line=0.1]
+    under the lowest of them, more than three deviations, and far above a
+    part-charged slot's reading. No X drop the other tests pass on those
+    sessions fell from between 0.58 and 0.90, so any value in that gap gives
+    the same verdicts; the value is not fitted to the four drops it refuses
+    ([metric:ult_lines/x-fill-full@all-sessions#partial_from_min=0.36] to
+    [metric:ult_lines/x-fill-full@all-sessions#partial_from_max=0.58]).
+
+    Those four drops, and every fill above 1, are teal added to the bar's box
+    for one sample by something drawn behind or over the tray, which is
+    semi-transparent. On `ff636d173b07` in round 1, every X pip unlit, the
+    map's teal trim crossed the box at 47.55 s: the slot read
+    [metric:tray/x-fill-states@six-sessions#ff636d173b07_48_x_before=0.08],
+    [metric:tray/x-fill-states@six-sessions#ff636d173b07_48_x_from=0.36] and
+    [metric:tray/x-fill-states@six-sessions#ff636d173b07_48_x_at=0.0], and the
+    trim's leaving read as a drop. On `c40d950031bb` at 769.0 s Sova's glowing
+    bow lifted a part-lit slot from
+    [metric:tray/x-fill-states@six-sessions#c40d950031bb_769_x_before=0.07]
+    to [metric:tray/x-fill-states@six-sessions#c40d950031bb_769_x_from=0.58]
+    and it fell back to
+    [metric:tray/x-fill-states@six-sessions#c40d950031bb_769_x_at=0.12].
+    Nothing emptied either slot. The lined cast's 1.18 (`75a55a296d3b`
+    1010.5 s) is a teal glow behind the X icon on the last sample before the
+    cast, over a slot that read a median of
+    [metric:tray/x-fill-states@six-sessions#75a55a296d3b_1011_x_prior10_median=0.96]
+    on the ten samples before. A fill above 1 is a full slot plus added teal,
+    never more charge, and the teal can lift a part-charged slot past FULL_MIN
+    only by adding most of a full bar in one sample; none of the four did.
+
+    The gate does not test the rule's other half, that the cast empties the
+    pips. `3694746e4e54` at 1062.0 s passes as a cast: the bow's glow lifted a
+    full slot to [metric:tray/x-fill-states@six-sessions#3694746e4e54_1062_x_from=1.33],
+    and the slot still read
+    [metric:tray/x-fill-states@six-sessions#3694746e4e54_1062_x_at=1.08] after
+    the "drop".
+
     Every drop comes back with `player_cast`, the first `reason` that refused
     it, the round's `first_player_death_ms`, the `kit_end_ms` the gate used,
     and the `undone_deaths` before it.
@@ -164,6 +232,11 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
             [(r["t_ms"] / 1000.0, r["slot"], r["from"], r["to"], r["forced"]) for r in keep])):
         if sus:
             r["reason"] = "forced" if r["forced"] else "cooccur_among_casts"
+    # After the co-occurrence test, so a part-filled X drop still counts as a
+    # transition of the tray beside another slot's drop.
+    for r in keep:
+        if r["reason"] is None and r["slot"] == ULT_SLOT and r["from"] < FULL_MIN:
+            r["reason"] = "partial_charge"
     for r in rows:
         r["player_cast"] = r["reason"] is None
     return rows

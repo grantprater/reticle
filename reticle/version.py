@@ -194,7 +194,9 @@ TRAY_VERSION = "tray-0.1.0"
 # killfeed death in the round.
 # 0.2.0: a Phoenix Run It Back death, and a Clove death her Not Dead Yet
 # revive follows, do not end the kit.
-PLAYER_CAST_VERSION = "player-cast-0.2.0"
+# 0.3.0: an X drop from a slot that was not full (a `from` fill below
+# `ability_timeline.FULL_MIN`) is refused as `partial_charge`.
+PLAYER_CAST_VERSION = "player-cast-0.3.0"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the
