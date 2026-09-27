@@ -688,6 +688,217 @@ def cmd_holds(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------- shape sweep
+
+#: Found frames closer than this join one run; a run needs PERSIST_N frames.
+SWEEP_GAP_S = 0.5
+#: A run belongs to a tray cast of its ability when the run starts this many
+#: seconds after the cast's drop (a shape can show while the ability is held).
+SWEEP_MATCH_S = (-1.0, 6.0)
+
+
+def sweep_values(runs_out: list[dict], swept: list[dict], casts: list[dict]) -> Counter:
+    """Per shape ability: its runs, the runs no tray cast explains, and the
+    tray casts of that ability in the swept demos."""
+    vals = Counter()
+    for sw in swept:
+        for ab in sw["abilities"]:
+            tag = ab.lower().replace("'", "").replace(" ", "_")
+            mine = [r for r in runs_out if r["sid"] == sw["sid"] and r["ability"] == ab]
+            vals[f"{tag}_runs"] += len(mine)
+            vals[f"{tag}_runs_tray_unseen"] += sum(r["tray_cast_s"] is None for r in mine)
+            vals[f"{tag}_tray_casts"] += sum(c["sid"] == sw["sid"] and c["ability"] == ab
+                                             for c in casts)
+    by_tag = Counter()
+    for r in sorted(runs_out, key=lambda r: (r["sid"], r["start_s"])):
+        tag = r["ability"].lower().replace("'", "").replace(" ", "_")
+        by_tag[tag] += 1
+        vals[f"{tag}{by_tag[tag]}_start_s"] = r["start_s"]
+        vals[f"{tag}{by_tag[tag]}_end_s"] = r["end_s"]
+        vals[f"{tag}{by_tag[tag]}_frames"] = r["frames"]
+    return vals
+
+
+def cmd_sweep(args) -> int:
+    """Fit the shape owner's models on every cached frame of each demo.
+
+    A cast that spends no charge never moves the tray, so the census cannot
+    see it. `reticle.ability_shapes` [owns:ability-shape] knows three drawn
+    shapes; this asks it at every cached frame and lists each run of found
+    frames beside the tray casts of the same ability. `--reuse` counts the
+    runs a previous sweep stored, so recording needs no second fit.
+    """
+    from reticle import minimap
+    from reticle.ability_shapes import SHAPES, SUPPORT_DILATE as SHAPE_DILATE, fit_shape
+    from reticle.version import ABILITY_SHAPE_VERSION
+    casts = load_casts()
+    if args.reuse:
+        stored = json.loads((OUT / "sweep.json").read_text(encoding="utf-8"))
+        # A sweep stored before `--every` existed fitted every frame. One
+        # stored before `swept` existed names only the demos that produced a
+        # run; a swept demo with none is then missing.
+        runs_out, every = stored["runs"], stored.get("every", 1)
+        swept = stored.get("swept") or [
+            {"sid": sid, "agent": agent,
+             "abilities": [v["name"] for v in kit(agent).values() if v.get("name") in SHAPES]}
+            for sid, agent in demos() if any(r["sid"] == sid for r in runs_out)]
+        for r in runs_out:
+            print(r)
+    else:
+        want = set(args.session or [])
+        runs_out, swept, every = [], [], args.every
+        for sid, agent in demos():
+            if want and sid not in want:
+                continue
+            abilities = [v["name"] for v in kit(agent).values() if v.get("name") in SHAPES]
+            if not abilities:
+                continue
+            cache, why = open_cache(sid)
+            if cache is None:
+                print(f"{sid}: no cache ({why})")
+                continue
+            geo = Geo(sid)
+            x0, y0, x1, y1 = cache.rect_of("minimap")
+            support = geometry.footprint(sid, STORE, dilate=SHAPE_DILATE,
+                                         shape=(y1 - y0, x1 - x0))
+            tt = [float(x) for x in np.unique(cache.t_ms)][::every]
+            found = {ab: [] for ab in abilities}
+            t_start = time.perf_counter()
+            for smp in cache.samples(tt, rois=["minimap"]):
+                crop = smp.frame[y0:y1, x0:x1]
+                if not minimap.widget_drawn(crop, geo.sgray, geo.floor):
+                    continue
+                selfs = minimap.self_icons(crop, geo.floor, require_facing=False)
+                me = max(selfs, key=lambda s: s["cov"]) if selfs else None
+                seed = None if me is None else (float(me["cx"]), float(me["cy"]))
+                for ab in abilities:
+                    f = fit_shape(crop, ab, seed, support)
+                    if f.get("found"):
+                        found[ab].append(float(smp.t_ms))
+            for ab in abilities:
+                runs, cur = [], []
+                for t in found[ab]:
+                    if cur and t - cur[-1] > SWEEP_GAP_S * 1000:
+                        runs.append(cur)
+                        cur = []
+                    cur.append(t)
+                if cur:
+                    runs.append(cur)
+                runs = [r for r in runs if len(r) >= PERSIST_N]
+                mine = [cast_time_ms(c) for c in casts if c["sid"] == sid and c["ability"] == ab]
+                for r in runs:
+                    hit = [t for t in mine
+                           if SWEEP_MATCH_S[0] * 1000 <= r[0] - t <= SWEEP_MATCH_S[1] * 1000]
+                    row = {"sid": sid, "agent": agent, "ability": ab,
+                           "start_s": round(r[0] / 1000, 2), "end_s": round(r[-1] / 1000, 2),
+                           "frames": len(r),
+                           "tray_cast_s": round(hit[0] / 1000, 2) if hit else None}
+                    runs_out.append(row)
+                    print(row)
+            swept.append({"sid": sid, "agent": agent, "abilities": abilities,
+                          "frames": len(tt)})
+            print(f"{sid} {agent}: {len(tt)} frames in {time.perf_counter() - t_start:.0f} s")
+        OUT.mkdir(parents=True, exist_ok=True)
+        (OUT / "sweep.json").write_text(json.dumps(
+            {"version": VERSION, "ability_shapes": ABILITY_SHAPE_VERSION, "gap_s": SWEEP_GAP_S,
+             "every": every, "persist_n": PERSIST_N, "swept": swept, "runs": runs_out},
+            indent=1), encoding="utf-8")
+    vals = sweep_values(runs_out, swept, casts)
+    print(json.dumps(vals))
+    if args.record:
+        metrics.record(TOOL, part=part("sweep"), session=run_session(), values=dict(vals),
+                       deps={"ability_shapes": ABILITY_SHAPE_VERSION, "gap_s": SWEEP_GAP_S,
+                             "every": every, "sessions": sorted(sw["sid"] for sw in swept),
+                             "persist_n": PERSIST_N, "roi_cache": ROI_CACHE_VERSION},
+                       note="runs of frames where reticle.ability_shapes finds its shape, "
+                            "every Nth cached frame, against the tray casts of that ability")
+    return 0
+
+
+# --------------------------------------------------------------- disc lifetimes
+
+#: Smokes drawn as bounded dark discs; each disc's life is read at its centre.
+DISC_ABILITIES = ("Ruse", "Dark Cover", "Cloudburst")
+DISC_MIN_PX = 150
+DISC_PROBE_PX = 8
+DISC_MAX_S = 40.0
+
+
+def cmd_discs(args) -> int:
+    """Each smoke disc's life: from the drop to the last frame its centre is dark.
+
+    The disc is the new `lighting.raw_dark` blob between the frames 1 s before
+    and 1 s after the drop; its life ends at the first drawn frame where under
+    half of a DISC_PROBE_PX disc at its centre reads dark. Frames with the
+    widget not drawn are skipped, so the menu's dim does not extend a life.
+    The residual's windows end at the next drop; this does not.
+    """
+    import cv2
+
+    from reticle import lighting, minimap
+    casts = [c for c in load_casts() if c["ability"] in DISC_ABILITIES]
+    rows = []
+    for c in casts:
+        cache, _why = open_cache(c["sid"])
+        geo = Geo(c["sid"])
+        x0, y0, x1, y1 = cache.rect_of("minimap")
+        tt = np.unique(cache.t_ms)
+        t0 = cast_time_ms(c)
+        pick = lambda t: float(tt[int(np.abs(tt - t).argmin())])
+        fr = {float(s.t_ms): s.frame[y0:y1, x0:x1]
+              for s in cache.samples(sorted({pick(t0 - 1000), pick(t0 + 1000)}), rois=["minimap"])}
+        before, after = fr[pick(t0 - 1000)], fr[pick(t0 + 1000)]
+        new = lighting.raw_dark(after, geo.ref) & ~lighting.raw_dark(before, geo.ref)
+        n, _lab, st, cen = cv2.connectedComponentsWithStats(new.astype(np.uint8))
+        blobs = sorted(((int(st[i, 4]), float(cen[i, 0]), float(cen[i, 1])) for i in range(1, n)
+                        if st[i, 4] >= DISC_MIN_PX), reverse=True)
+        row = {"sid": c["sid"], "ability": c["ability"], "drop_s": round(t0 / 1000, 2),
+               "new_blobs": len(blobs)}
+        if not blobs:
+            rows.append({**row, "life_s": None, "reason": "no new dark blob at +1 s"})
+            print(rows[-1])
+            continue
+        area, cx, cy = blobs[0]
+        yy, xx = np.mgrid[0:y1 - y0, 0:x1 - x0]
+        probe = (xx - cx) ** 2 + (yy - cy) ** 2 <= DISC_PROBE_PX ** 2
+        seq = [float(t) for t in tt if t0 <= t <= t0 + DISC_MAX_S * 1000]
+        first = last = end = None
+        for smp in cache.samples(seq, rois=["minimap"]):
+            crop = smp.frame[y0:y1, x0:x1]
+            if not minimap.widget_drawn(crop, geo.sgray, geo.floor):
+                continue
+            on = float(lighting.raw_dark(crop, geo.ref)[probe].mean()) >= 0.5
+            if on:
+                first = first if first is not None else float(smp.t_ms)
+                last = float(smp.t_ms)
+            elif first is not None:
+                end = float(smp.t_ms)
+                break
+        rows.append({**row, "area_px": area, "cx": round(cx, 1), "cy": round(cy, 1),
+                     "first_s": None if first is None else round((first - t0) / 1000, 3),
+                     "last_s": None if last is None else round((last - t0) / 1000, 3),
+                     "life_s": None if end is None else round((last - t0) / 1000, 3),
+                     "reason": None if end is not None else "still dark at the window's end"})
+        print(rows[-1])
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "discs.json").write_text(json.dumps({"version": VERSION, "rows": rows}, indent=1),
+                                    encoding="utf-8")
+    if args.record:
+        vals = {"discs": len(rows), "ended": sum(r["life_s"] is not None for r in rows)}
+        for i, r in enumerate(sorted(rows, key=lambda r: (r["sid"], r["drop_s"])), 1):
+            tag = r["ability"].lower().replace(" ", "_")
+            vals[f"{tag}{i}_drop_s"] = r["drop_s"]
+            vals[f"{tag}{i}_life_s"] = r["life_s"]
+            vals[f"{tag}{i}_blobs"] = r["new_blobs"]
+        metrics.record(TOOL, part=part("discs"), session=run_session(), values=vals,
+                       deps={"version": VERSION, "probe_px": DISC_PROBE_PX,
+                             "min_px": DISC_MIN_PX, "lighting": "reticle.lighting.raw_dark",
+                             "roi_cache": ROI_CACHE_VERSION},
+                       note="smoke disc life: the drop to the last drawn frame with its "
+                            "centre dark, read at every cached frame")
+    return 0
+
+
 # --------------------------------------------------------------- residual
 
 #: The per-cast window, relative to the cast; the frame at BASE_S is the
@@ -1214,6 +1425,9 @@ FRAME_NAMES = ("-1", "0", "+0.5", "+1", "+2", "+4", "+8")
 TIMED = {"Viper:Poison Cloud": "poison_cloud", "Omen:Dark Cover": "dark_cover",
          "Jett:Cloudburst": "cloudburst", "Clove:Ruse": "ruse",
          "Sova:Recon Bolt": "recon_bolt", "Sova:Hunter's Fury": "hunters_fury"}
+#: Timed after the first run only: Blaze's wall is orange (the 30-60 degree
+#: hue bin), so its life is that component's.
+TIMED_LATER = {"Phoenix:Blaze": "blaze"}
 #: A blind description that names the settings menu over the drop frame.
 SETTINGS_COVER = re.compile(r"settings menu (covers|hides)")
 PLAYER_TRAY_LABELS = STORE / "labels" / "tray_object"
@@ -1318,6 +1532,51 @@ def ability_of(c: dict) -> str:
     return f"{c['agent']}:{c['ability']}"
 
 
+FIRST_TABLE = STORE / "analysis" / RUNS["first"]["out"] / "table.json"
+
+
+def compare_first(table: dict, rows: list[dict], casts: dict, have: dict) -> tuple[dict, list]:
+    """Each kit ability of this run's demos: the first census's majority beside
+    this run's blind votes, and the Ruse discs against the charges spent."""
+    first = json.loads(FIRST_TABLE.read_text(encoding="utf-8"))["abilities"]
+    lines = []
+    for _sid, agent in demos():
+        order = sorted(kit(agent).items(), key=lambda kv: SLOTS.index(kv[0])
+                       if kv[0] in SLOTS else len(SLOTS))
+        for slot, v in order:
+            ab = f"{agent}:{v['name']}"
+            old, new = first.get(ab) or {}, table.get(ab) or {}
+            votes = dict(new.get("votes", {}))
+            maj = old.get("majority")
+            lines.append({"ab": ab, "slot": slot, "old_majority": maj, "old_n": old.get("n", 0),
+                          "old_votes": old.get("votes", {}), "new_n": new.get("n", 0),
+                          "new_votes": votes, "new_majority": new.get("majority"),
+                          "agree": votes.get(maj, 0) if maj not in (None, "split") else 0})
+    both = [c for c in lines if c["old_n"] and c["new_n"]]
+    judged = [c for c in both if c["old_majority"] != "split"]
+    vals = {"compare_kit": len(lines),
+            "compare_both": len(both),
+            "compare_new_only": sum(c["new_n"] > 0 and not c["old_n"] for c in lines),
+            "compare_old_only": sum(c["old_n"] > 0 and not c["new_n"] for c in lines),
+            "compare_neither": sum(not c["old_n"] and not c["new_n"] for c in lines),
+            "compare_majority_agree": sum(c["new_majority"] == c["old_majority"] for c in judged),
+            "compare_judged": len(judged),
+            "compare_casts": sum(c["new_n"] for c in judged),
+            "compare_casts_agree": sum(c["agree"] for c in judged)}
+    # Ruse: one bounded disc per cloud [domain:abilities/clove-rouse]; a drop
+    # of `from - to` of the bar spends that share of the slot's charges.
+    ruse = [x for x in rows if x["ab"] == "Clove:Ruse"]
+    ch = str(kit("Clove").get("E", {}).get("charges") or "1")
+    ch = int(ch) if ch.isdigit() else 1
+    spent = {x["num"]: round((casts[x["key"]]["from"] - casts[x["key"]]["to"]) * ch)
+             for x in ruse}
+    counts = {x["num"]: (have.get(x["num"]) or {}).get("count") for x in ruse}
+    vals.update({"ruse_casts": len(ruse), "ruse_spent": sum(spent.values()),
+                 "ruse_discs": sum(v or 0 for v in counts.values()),
+                 "ruse_count_eq_spent": sum(counts[n] == spent[n] for n in spent)})
+    return vals, lines
+
+
 def cmd_table(args) -> int:
     """Open the key, join the blind read, the residual and the prior per ability."""
     nums = blind_nums()
@@ -1420,12 +1679,18 @@ def cmd_table(args) -> int:
             "abilities": len(table)}
     for cls in CLASSES:
         vals[f"blind_{cls}"] = sum(x["blind"] == cls for x in read)
+    compare = None
+    if RUN != "first":
+        cvals, compare = compare_first(table, rows, casts, have)
+        vals.update(cvals)
     out = {"version": VERSION, "values": vals, "rows": rows,
            "abilities": {ab: {**t, "votes": dict(t["votes"]), "onset": dict(t["onset"]),
                               "gone": dict(t["gone"]), "residual": dict(t["residual"])}
                          for ab, t in sorted(table.items())},
            "disagree_residual": [x for x in read if x["blind"] != x["residual"]],
            "disagree_prior": [x for x in read if x["blind"] != x["prior"]]}
+    if compare is not None:
+        out["compare_first"] = compare
     TABLE.write_text(json.dumps(out, indent=1), encoding="utf-8")
     print(json.dumps(vals))
     print("| ability | slot | n | blind votes | onset | gone by | residual | prior | player (matches) |")
@@ -1435,13 +1700,22 @@ def cmd_table(args) -> int:
         print(f"| {ab} | {t['slot']} | {t['n']} | {fmt(t['votes'])} | {fmt(t['onset'])} | "
               f"{fmt(t['gone'])} | {fmt(t['residual'])} | {t['prior']} | "
               f"{fmt(t['player_tray_objects'])} |")
+    if compare is not None:
+        print("\n| ability | slot | first census (n) | first votes | here n | blind here | "
+              "agree with first |")
+        print("|---|---|---|---|---|---|---|")
+        for c in compare:
+            print(f"| {c['ab']} | {c['slot']} | {c['old_majority']} ({c['old_n']}) | "
+                  f"{fmt(c['old_votes'])} | {c['new_n']} | {fmt(c['new_votes'])} | "
+                  f"{c['agree']} of {c['new_n']} |")
     # The residual's own timing for the abilities the ledger's C6 and C7 name,
     # a witness beside the montage frames, which sample only seven instants.
     timing = {}
     for x in rows:
-        tag = TIMED.get(x["ab"])
+        tag = TIMED.get(x["ab"]) or (TIMED_LATER.get(x["ab"]) if RUN != "first" else None)
         comp = (res.get(x["key"], {}).get("components") or {}).get(
-            "teal_all" if tag in ("recon_bolt", "hunters_fury") else "dark") or {}
+            "teal_all" if tag in ("recon_bolt", "hunters_fury")
+            else "hue030" if tag == "blaze" else "dark") or {}
         if tag and comp.get("onset_s") is not None:
             p = f"{tag}_{x['num']:03d}"
             timing.update({f"{p}_onset_s": round(comp["onset_s"], 3),
@@ -1587,6 +1861,15 @@ def main(argv=None) -> int:
                    help="render the tray crops round every drop that needs an eye")
     c = sub.add_parser("holds", help="each Sova bolt's equip-to-release time from the tray glow")
     c.add_argument("--record", action="store_true")
+    c = sub.add_parser("sweep", help="the shape owner's fits on every cached frame, "
+                                     "beside the tray casts (run after the blind read)")
+    c.add_argument("--session", nargs="*")
+    c.add_argument("--every", type=int, default=1, help="fit every Nth cached frame")
+    c.add_argument("--reuse", action="store_true",
+                   help="count the runs stored in sweep.json instead of fitting again")
+    c.add_argument("--record", action="store_true")
+    c = sub.add_parser("discs", help="each smoke disc's life at its centre (after the blind read)")
+    c.add_argument("--record", action="store_true")
     c = sub.add_parser("residual", help="per-cast minimap residual against baked geometry")
     c.add_argument("--key", nargs="*", help="only these sid:t_ms:slot keys")
     c.add_argument("--show", action="store_true", help="print each summary (unblinds the cast)")
@@ -1605,7 +1888,9 @@ def main(argv=None) -> int:
     c.add_argument("--keys", help="comma-separated keys to play, e.g. 5,a,u,q (testing)")
     args = ap.parse_args(argv)
     configure(args.run)
-    return {"cache": cmd_cache, "casts": cmd_casts, "holds": cmd_holds, "residual": cmd_residual,
+    return {"cache": cmd_cache, "casts": cmd_casts, "holds": cmd_holds, "sweep": cmd_sweep,
+            "discs": cmd_discs,
+            "residual": cmd_residual,
             "montage": cmd_montage, "read": cmd_read, "table": cmd_table,
             "label": cmd_label}[args.cmd](args)
 
