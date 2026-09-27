@@ -67,8 +67,8 @@ marks this finds
 Regrowth and [metric:ability_shapes/marks@tray-object-marks#recon_found=8] of
 8 Recon Bolt panels, and [metric:ability_shapes/marks@tray-object-marks#pre_found=0]
 of the 10 panels a second before the cast. A blast's angle is within 3 deg of
-the marks on [metric:ability_shapes/marks@tray-object-marks#fury_angle_3deg=14]
-of 21, within 4.1 deg on 20; a seeded blast starts at the stored self position,
+the marks on [metric:ability_shapes/marks@tray-object-marks#fury_angle_3deg=19]
+of 21, within 4.1 deg on [metric:ability_shapes/marks@tray-object-marks#fury_angle_4deg=19]; a seeded blast starts at the stored self position,
 the nearest within SEED_TOL_MS of the crop. The
 marks are a centre and angle truth, not a radius truth: the player traced the
 ring's inner edge, 0-15 px inside it.
