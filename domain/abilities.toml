@@ -611,3 +611,284 @@ a new angle on some crops (043bafca271a 805.5 s); which drawn lines are blasts
 and which an aim is not asked.
 """
 use = "the beam prior of `ability_shapes`: sweep the angle from the caster"
+
+[minimap-aim-preview]
+claim = """
+While the player holds an aimed ability before casting it, the player's own
+minimap draws its aim from the player's icon: a teal or red band, rectangle,
+line or diamond. The shape vanishes at the cast or within about 1 s of it; it
+belongs to the equipped ability, not to an object the cast leaves.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "minimap:aim-preview"
+source = """
+the demo cast census's blind read of montages
+<store>/analysis/demo-cast-census/montage/keyed_NNN.png, the frame 1 s before
+each tray drop: red rectangles on casts 004 (a7ce88bf341c 31.567 s), 133
+(a7ce88bf341c 36.55 s) and 135 (5abe77b9953f 29.067 s); a red band to +0.5 s on
+030 (b588ea1a6dd5 28.067 s); teal lines on 089 (afa5bc60b935 37.017 s) and 106
+(6bb88dba5d2c 22.067 s); teal bands on 099 (to +0.5 s), 116 and 130; a teal
+rectangle to 0 s on 140 (2f4ef4e8da23 32.5 s); a teal diamond on 141
+"""
+use = """
+a teal or red shape from self before a drop, gone within 1 s after it, is the
+aim, not the cast's object; a held preview can reappear seconds after an
+unrelated drop
+"""
+exceptions = """
+Killjoy's Lockdown and Vyse's Steel Garden draw a teal ring r~90-100 px with a
+tinted interior before their drop (casts 137 and 092), which may be the same
+kind of preview
+"""
+
+[minimap-thrown-ability-icon]
+claim = """
+Many thrown or sent abilities travel on the caster's minimap as a round dark
+icon, about 16-24 px, carrying the ability's white glyph and for some a teal
+rim. The icon leaves the caster's icon within 0.5 s of the tray drop and
+vanishes when the ability lands or expires; some leave a disc, line or icon
+where they land.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "minimap:ability-icon"
+source = """
+the demo cast census's blind read of montages
+<store>/analysis/demo-cast-census/montage/keyed_NNN.png on 18 casts: Paranoia
+(003, 130), FLASH/drive (080, 081), Undercut (116), Leer (093, 103), Guiding
+Light (039, 117), GATECRASH (120, 128), Prowler (126, 129), Stealth Drone (125),
+Wingman (009), Trailblazer (087), Boom Bot (035), High Tide (019)
+"""
+use = """
+after a tray drop, seek a new dark icon with a white glyph near the caster
+before seeking a disc; its path gives the throw's direction
+"""
+see = ["abilities/omen-paranoia-minimap-icon", "abilities/kayo-flashdrive-minimap-icon",
+       "abilities/reyna-leer-minimap-icon", "abilities/skye-guiding-light-minimap-icon",
+       "abilities/yoru-gatecrash-minimap-icon", "abilities/fade-prowler-minimap-icon"]
+
+[omen-dark-cover-minimap-phases]
+claim = """
+A Dark Cover shows on Omen's minimap in two phases: first a black target icon,
+about 20-24 px, with a white ring, from 0.5 s after the tray drop; then, from 2
+to 4 s after it, a dark grey disc about 24-28 px in the same place.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "omen:dark cover"
+source = """
+the demo cast census's blind read of montages keyed_036 (e78e75b2d191 20.067 s),
+keyed_051 (b9558488a607 55.05 s), keyed_112 (b9558488a607 47.05 s) and keyed_127
+(e78e75b2d191 26.067 s) under <store>/analysis/demo-cast-census/montage/. The
+disc persists to +8 s on every cast. Harbor's Cove (keyed_107) showed the same
+two phases once.
+"""
+use = "a dark icon near where a Dark Cover lands is its first phase, not another object"
+see = ["abilities/omen-dark-cover"]
+
+[omen-paranoia-minimap-icon]
+claim = """
+Omen's Paranoia travels on his minimap as a dark icon, about 14-20 px, with a
+white swirl glyph. It leaves his icon 0.5 s after the tray drop, is 40-70 px
+away by 1 s, and is gone by 2 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "omen:paranoia"
+source = """
+the demo cast census's blind read of montages keyed_003 (b9558488a607 37.017 s)
+and keyed_130 (e78e75b2d191 16.033 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[viper-toxic-screen-minimap-growth]
+claim = """
+A Toxic Screen draws a lavender-blue line on Viper's minimap that grows from
+her icon along the aim from 0.5 s after the tray drop, to about 170-180 px by
+2 s, and stays. Seconds later the line turns yellow or green from Viper's end.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "viper:toxic screen"
+source = """
+the demo cast census's blind read of montages keyed_089 (afa5bc60b935 37.017 s)
+and keyed_106 (6bb88dba5d2c 22.067 s) under
+<store>/analysis/demo-cast-census/montage/; both show a teal or cyan aim line
+1 s before the drop
+"""
+see = ["abilities/viper-toxic-screen", "abilities/minimap-aim-preview"]
+
+[fade-prowler-minimap-icon]
+claim = """
+A Prowler shows on Fade's minimap as a small teal chevron at her icon at the
+tray drop, then as a dark teal-rimmed icon with a white arrow glyph that moves
+off, about 45 px by 2 s, and is gone by 4 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "fade:prowler"
+source = """
+the demo cast census's blind read of montages keyed_126 (5abe77b9953f 11.033 s)
+and keyed_129 (5abe77b9953f 6.517 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[kayo-flashdrive-minimap-icon]
+claim = """
+KAY/O's FLASH/drive travels on his minimap as a dark icon, about 20 px, with a
+white spiky glyph: 30-40 px from his icon 0.5 s after the tray drop, 55-75 px
+by 1 s, gone by 2 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "kay/o:flash/drive"
+source = """
+the demo cast census's blind read of montages keyed_080 (463ebce3a625 13.033 s)
+and keyed_081 (463ebce3a625 17.567 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[reyna-leer-minimap-icon]
+claim = """
+Reyna's Leer shows on her minimap as a dark icon, about 18 px, with a white
+minus glyph, about 25 px from her icon, from 0.5 s to 2 s after the tray drop;
+it is gone by 4 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "reyna:leer"
+source = """
+the demo cast census's blind read of montages keyed_093 (af09094c0729 6.0 s)
+and keyed_103 (af09094c0729 14.033 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[tejo-guided-salvo-minimap-rings]
+claim = """
+A Guided Salvo draws a faint red ring outline, about 26 px, on Tejo's minimap
+at each target from the tray drop; the rings are gone 2-4 s later.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "tejo:guided salvo"
+source = """
+the demo cast census's blind read of montages keyed_037 (c0b63335e635 16.533 s)
+and keyed_100 (c0b63335e635 17.067 s) under
+<store>/analysis/demo-cast-census/montage/: one ring after the first drop, two
+after the second drop 0.53 s later
+"""
+
+[skye-guiding-light-minimap-icon]
+claim = """
+Skye's Guiding Light flies on her minimap as a dark teal-rimmed icon with a
+white bird glyph: it leaves her icon 0.5 s after the tray drop, is about 100 px
+away by 2 s, and is gone by 4 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "skye:guiding light"
+source = """
+the demo cast census's blind read of montages keyed_039 (6ab7a9e99235 22.067 s)
+and keyed_117 (6ab7a9e99235 17.567 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[yoru-gatecrash-minimap-icon]
+claim = """
+Yoru's GATECRASH travels on his minimap as a dark icon, about 20 px, with a
+white star glyph: it leaves his icon 0.5 s after the tray drop, is 100-110 px
+away by 4 s, and is gone by 8 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "yoru:gatecrash"
+source = """
+the demo cast census's blind read of montages keyed_120 (5a63cc4fecfc 26.067 s)
+and keyed_128 (5a63cc4fecfc 18.567 s) under
+<store>/analysis/demo-cast-census/montage/; on 128 the next drop comes before
+8 s
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[vyse-razorvine-minimap-icon]
+claim = """
+A Razorvine shows on Vyse's minimap as a dark icon, about 16-20 px, with a white
+glyph, 30-35 px from her icon from 0.5 s after the tray drop; it stays in place
+to at least 2 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "vyse:razorvine"
+source = """
+the demo cast census's blind read of montages keyed_023 (64d0fb783be2 11.5 s;
+stays to +4 s, gone at +8 s) and keyed_043 (64d0fb783be2 5.55 s; stays to +2 s,
+gone at +4 s) under <store>/analysis/demo-cast-census/montage/
+"""
+
+[killjoy-nanoswarm-minimap-icon]
+claim = """
+A Nanoswarm shows on Killjoy's minimap as a dark icon with a white triangle glyph
+from 1 s after the tray drop, and stays.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "killjoy:nanoswarm"
+source = """
+the demo cast census's blind read of montages keyed_020 (dae6f33f3f48 8.5 s)
+and keyed_047 (dae6f33f3f48 5.55 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+
+[astra-nebula-minimap-disc]
+claim = """
+When Astra turns a star into a Nebula, the star's yellow icon on her minimap
+becomes a dark grey disc, about 28 px, at the tray drop, and the disc stays.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "astra:nebula"
+source = """
+the demo cast census's blind read of montages keyed_063 (c7674c699ad0 23.567 s)
+and keyed_142 (c7674c699ad0 26.067 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+use = "a Nebula disc appears where a star icon was, not where Astra stands"
+
+[viper-poison-cloud-emitter-outline]
+claim = """
+After Viper throws a Poison Cloud, her minimap draws a faint circle outline,
+about 28-30 px, where the emitter lands, before and after the cloud's filled
+dark disc.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "viper:poison cloud"
+source = """
+the demo cast census's blind read of montages keyed_022 (6bb88dba5d2c 9.5 s:
+outline at +2 s, dark disc at +4 s, outline again at +8 s) and keyed_074
+(afa5bc60b935 18.567 s: outline at +1 to +4 s, dark disc at +8 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+use = "the outline marks an emitter that is off; it is not a cloud phase"
+see = ["abilities/viper-poison-cloud-toggle", "abilities/viper-poison-cloud-fixed"]

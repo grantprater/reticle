@@ -39,10 +39,14 @@ player correct each class on the keyed montage.
 
 What it does not do
 -------------------
-It writes no events and no labels. It names no enemy or ally ability: a solo
-demo has one player. It does not fit shapes; `reticle.ability_shapes` owns
-that for the three forms it knows. The residual's hue bins follow the world's
-tint through the translucent widget, so a hue-only class is weak evidence.
+It writes no events, and writes labels only as the player answers in `label`.
+It keeps the settings menu's false drops (the dim overlay reads as a fall on
+every slot at once) in the census and counts them apart, because the eye check
+judged only drops the two tray readers disagreed on. It names no enemy or ally
+ability: a solo demo has one player. It does not fit shapes;
+`reticle.ability_shapes` owns that for the three forms it knows. The
+residual's hue bins follow the world's tint through the translucent widget,
+so a hue-only class is weak evidence.
 
 Rests on: the baked `(map, profile)` geometry (`reticle.geometry`,
 `reticle.lighting`, `passes.SessionContext.floor`), `reticle.tray`,
@@ -55,6 +59,7 @@ import argparse
 import ctypes
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -1013,6 +1018,12 @@ UNBLINDED = OUT / "unblinded.json"
 TABLE = OUT / "table.json"
 LEDGER = STORE / "notes" / "predictions.jsonl"
 FRAME_NAMES = ("-1", "0", "+0.5", "+1", "+2", "+4", "+8")
+#: Abilities whose residual timing the table records, for the ledger's C6 and C7.
+TIMED = {"Viper:Poison Cloud": "poison_cloud", "Omen:Dark Cover": "dark_cover",
+         "Jett:Cloudburst": "cloudburst", "Clove:Ruse": "ruse",
+         "Sova:Recon Bolt": "recon_bolt", "Sova:Hunter's Fury": "hunters_fury"}
+#: A blind description that names the settings menu over the drop frame.
+SETTINGS_COVER = re.compile(r"settings menu (covers|hides)")
 PLAYER_TRAY_LABELS = STORE / "labels" / "tray_object"
 
 
@@ -1176,7 +1187,30 @@ def cmd_table(args) -> int:
     early_n = [x for x in drawn if x["ab"] not in late_ok]
     early = [x for x in early_n if x["onset_frame"] in ("-1", "0", "+0.5", "+1")]
     self_rows = [x for x in read if x["self_ability"]]
+    # The blind description, written before the key, names a settings menu
+    # over the drop; such a drop is a tray misread, not a cast (see the doc).
+    menu = [x for x in read if SETTINGS_COVER.search(x["desc"] or "")]
+    kept = [x for x in read if x not in menu]
+    # Drops of two or more slots at one sample: one screen event, not casts.
+    at: Counter = Counter((x["sid"], cast_time_ms(casts[x["key"]])) for x in rows)
+    multi = [x for x in rows if at[(x["sid"], cast_time_ms(casts[x["key"]]))] > 1]
+    both = [x for x in read if x["residual"] is not None]
     vals = {"montages": len(nums), "read": len(read),
+            "settings_cover": len(menu),
+            "settings_cover_suspect": sum(bool(x["suspect"]) for x in menu),
+            # Both witnesses agreed on these, so step 2's eye check never saw them.
+            "settings_cover_stored": sum(casts[x["key"]].get("stored") is not None for x in menu),
+            "suspect": sum(bool(x["suspect"]) for x in read),
+            "same_instant_drops": len(multi),
+            "same_instant_settings": sum(x in menu for x in multi),
+            "kept": len(kept),
+            "kept_nothing": sum(x["blind"] == "nothing" for x in kept),
+            "kept_drawn": sum(x["blind"] not in ("nothing", "unsure") for x in kept),
+            "kept_agree_prior": sum(x["blind"] == x["prior"] for x in kept),
+            "agree_residual_drawn": sum((x["blind"] == "nothing") == (x["residual"] == "nothing")
+                                        for x in both if x["blind"] != "unsure"),
+            "residual_drawn_rows": sum(x["blind"] != "unsure" for x in both),
+            "residual_nothing": sum(x["residual"] == "nothing" for x in both),
             "blind_nothing": sum(x["blind"] == "nothing" for x in read),
             "blind_unsure": sum(x["blind"] == "unsure" for x in read),
             "blind_drawn": len(drawn), "drawn_by_1s": len(early), "drawn_timed": len(early_n),
@@ -1206,7 +1240,26 @@ def cmd_table(args) -> int:
         print(f"| {ab} | {t['slot']} | {t['n']} | {fmt(t['votes'])} | {fmt(t['onset'])} | "
               f"{fmt(t['gone'])} | {fmt(t['residual'])} | {t['prior']} | "
               f"{fmt(t['player_tray_objects'])} |")
+    # The residual's own timing for the abilities the ledger's C6 and C7 name,
+    # a witness beside the montage frames, which sample only seven instants.
+    timing = {}
+    for x in rows:
+        tag = TIMED.get(x["ab"])
+        comp = (res.get(x["key"], {}).get("components") or {}).get(
+            "teal_all" if tag in ("recon_bolt", "hunters_fury") else "dark") or {}
+        if tag and comp.get("onset_s") is not None:
+            p = f"{tag}_{x['num']:03d}"
+            timing.update({f"{p}_onset_s": round(comp["onset_s"], 3),
+                           f"{p}_life_s": round(comp["life_s"], 3),
+                           f"{p}_censored": int(bool(comp.get("censored")))})
+    out["timing"] = timing
+    TABLE.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print(json.dumps(timing))
     if args.record:
+        metrics.record(TOOL, part="timing", session="demos", values=timing,
+                       deps={"census": VERSION, "residual": "residual.json"},
+                       note="residual onset and life of the first dark (teal for the Sova "
+                            "rings and beam) component after each cast, seconds from the drop")
         metrics.record(TOOL, part="table", session="demos", values=vals,
                        deps={"census": VERSION, "blind_read": str(BLIND_READ.name),
                              "residual": "residual.json", "prior": "ledger demo-cast-census"},
