@@ -782,24 +782,24 @@ live minutes were an evaluation device.
 
 `reticle ult-lines` read the 25 sessions with audio features one at a time,
 and `reticle ult-cast --all --record` classed
-[metric:ult_lines/ult-cast@all-sessions#selected=624] of
-[metric:ult_lines/ult-cast@all-sessions#peaks=162134] stored peaks. On the
-[metric:ult_lines/ult-cast@all-sessions#sessions_with_lineup=19] match
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#selected=624] of
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#peaks=162134] stored peaks. On the
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#sessions_with_lineup=19] match
 sessions with a lineup it selected
-[metric:ult_lines/ult-cast@all-sessions#lineup_selected=587] peaks:
-[metric:ult_lines/ult-cast@all-sessions#lineup_class_own=58] own,
-[metric:ult_lines/ult-cast@all-sessions#lineup_class_possible=412] possible,
-[metric:ult_lines/ult-cast@all-sessions#lineup_class_impossible=117] impossible
-and [metric:ult_lines/ult-cast@all-sessions#lineup_class_unknown=0] unknown.
-The other [metric:ult_lines/ult-cast@all-sessions#class_unknown=37] selections
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#lineup_selected=587] peaks:
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#lineup_class_own=58] own,
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#lineup_class_possible=412] possible,
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#lineup_class_impossible=117] impossible
+and [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#lineup_class_unknown=0] unknown.
+The other [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#class_unknown=37] selections
 are unknown: the match without a lineup and the demos. The arbiter named all
-[metric:ult_lines/ult-cast@all-sessions#casts=507] casts. Decoding a capture's
-audio took [metric:ult_lines/ult-cast@all-sessions#decode_s_min=0.4] s to
-[metric:ult_lines/ult-cast@all-sessions#decode_s_max=31.4] s (median
-[metric:ult_lines/ult-cast@all-sessions#decode_s_median=22.5] s), and scoring
-it on the GPU took [metric:ult_lines/ult-cast@all-sessions#score_s_min=0.1] s
-to [metric:ult_lines/ult-cast@all-sessions#score_s_max=3.0] s (median
-[metric:ult_lines/ult-cast@all-sessions#score_s_median=2.2] s).
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#casts=507] casts. Decoding a capture's
+audio took [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#decode_s_min=0.4] s to
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#decode_s_max=31.4] s (median
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#decode_s_median=22.5] s), and scoring
+it on the GPU took [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#score_s_min=0.1] s
+to [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#score_s_max=3.0] s (median
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#score_s_median=2.2] s).
 
 Against 0.1.0's F-B detections over all 25 sessions,
 [metric:ult_lines/port-check-0.1.0@all-sessions#matched=612] selections match
@@ -935,9 +935,9 @@ an X drop whose `from` fill is under 0.80 as `partial_charge`;
 `ability_timeline.player_tray_casts` holds the tolerance and the
 measurements behind it. The binding rerun (`reticle ult-cast --all
 --record`, storage only) refused exactly the four. In-round X casts fell
-to [metric:ult_lines/ult-cast@all-sessions#x_casts=50], missed lines to [metric:ult_lines/ult-cast@all-sessions#missed_lines=4], and [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.92] of
+to [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#x_casts=50], missed lines to [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#missed_lines=4], and [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#x_casts_with_line_fraction=0.92] of
 the casts have an own line; own selections witnessed stay
-[metric:ult_lines/ult-cast@all-sessions#own_witnessed=45] of [metric:ult_lines/ult-cast@all-sessions#class_own=58], and no own line lies beside a
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#own_witnessed=45] of [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#class_own=58], and no own line lies beside a
 `partial_charge` drop. Recomputed from the stored drops, the rule moved no
 verdict outside the X slot (ledger `tray-gate`, G5).
 
@@ -972,7 +972,18 @@ the last clean sample before the cast, over a slot that read a median of
 [metric:tray/x-fill-states@six-sessions#75a55a296d3b_1011_x_prior10_median=0.96] on the ten samples before. The unlined cast
 on `3694746e4e54` at 1062.0 s is no cast: Sova's bow lifted a full slot to
 [metric:tray/x-fill-states@six-sessions#3694746e4e54_1062_x_from=1.33] and it still read [metric:tray/x-fill-states@six-sessions#3694746e4e54_1062_x_at=1.08] after the "drop". The gate
-does not yet test the rule's other half, that the cast empties the pips.
+`player-cast-0.4.0` tests the rule's other half, that the cast empties the
+pips: an X drop whose `to` fill stays above `ability_timeline.EMPTY_MAX` is
+`pips_lit`. It refuses this drop and one more, a dip on `7010b3d62460` at
+1509.55 s (1.03 to 0.76), 1.5 s before the slot fell from 0.99 to 0; the
+own line at 1498.6 s rebinds to that later drop, inside Phoenix's window.
+The same gate refuses a drop that leaves any other slot at its full level
+as `equip_release`. In-round X casts fall to
+[metric:ult_lines/ult-cast@all-sessions#x_casts=48], missed lines to
+[metric:ult_lines/ult-cast@all-sessions#missed_lines=3], and
+[metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.938] of
+the casts have an own line; own selections witnessed stay
+[metric:ult_lines/ult-cast@all-sessions#own_witnessed=45].
 
 ### What was not done in production
 
@@ -1118,7 +1129,9 @@ Ledger rows under task `voice-lines-heldout`, kind `outcome`, 2026-09-27.
   line under the threshold and seven have none ("Own lines against the tray").
   After the gate fix [metric:ult_lines/ult-cast@all-sessions-player-cast-0.2.0#x_casts_with_line_fraction=0.852] have one, and the same
   eight casts miss it. Under `player-cast-0.3.0` the gate refuses four of
-  them as `partial_charge`, and [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.92] have one.
+  them as `partial_charge`, and [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#x_casts_with_line_fraction=0.92] have one;
+  under `player-cast-0.4.0`, which also refuses the X drop that did not
+  empty the slot, [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.938] do.
 
 ### Recommendation
 

@@ -196,7 +196,11 @@ TRAY_VERSION = "tray-0.1.0"
 # revive follows, do not end the kit.
 # 0.3.0: an X drop from a slot that was not full (a `from` fill below
 # `ability_timeline.FULL_MIN`) is refused as `partial_charge`.
-PLAYER_CAST_VERSION = "player-cast-0.3.0"
+# 0.4.0: an X drop that does not empty the slot (a `to` fill above
+# `ability_timeline.EMPTY_MAX`) is refused as `pips_lit`, and a drop that
+# leaves any other slot at its full level (a `to` fill at or above
+# `ability_timeline.FULL_AFTER_MIN`) as `equip_release`.
+PLAYER_CAST_VERSION = "player-cast-0.4.0"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the

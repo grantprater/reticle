@@ -71,6 +71,13 @@ ULT_SLOT = tray.SLOT_KEYS[3]
 #: The least `from` fill of an X slot that the gate reads as full; an X drop
 #: from less is `partial_charge`. `player_tray_casts` gives the measurement.
 FULL_MIN = 0.8
+#: The most `to` fill of an X slot that the gate reads as emptied; an X drop
+#: to more is `pips_lit`. `player_tray_casts` gives the measurement.
+EMPTY_MAX = 0.2
+#: The least `to` fill that the gate reads as the slot's full level, midway
+#: between a two-charge slot's half and full levels; a drop to at least this
+#: much is `equip_release`. `player_tray_casts` gives the measurement.
+FULL_AFTER_MIN = 0.75
 
 
 def _kit_end(window: tuple, ends: set, deaths_ms, agent: str | None,
@@ -140,13 +147,24 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
       the round does not end her kit, so a drop between the death and the
       revive meets the remaining tests like any other.
 
-    A drop that passes those tests can still fail one more, and only in the X
-    slot. The X slot's pips are the ultimate charge: the ultimate is cast only
-    when every pip is lit, and the cast empties them
-    [domain:abilities/ult-charge-pips]. So an X drop from a slot that was not
-    full is refused as `partial_charge`. The test runs after the co-occurrence
-    test, so a part-filled X drop still counts as a transition of the tray
-    beside another slot's drop, and the rule changes no other slot's verdict.
+    A drop that passes those tests must still have spent a charge, and three
+    more tests ask whether it did, in this order:
+
+    * `partial_charge`: an X drop from a slot that was not full, and
+    * `pips_lit`: an X drop that left the slot short of empty, both by
+      [domain:abilities/ult-charge-pips];
+    * `equip_release`: a drop that left its slot at the full level
+      [domain:hud/ability-tray-charge-segments]. An X drop that reaches this
+      test has emptied its slot, so it refuses only C, Q and E drops.
+
+    They run after the co-occurrence test, so a drop they refuse still counts
+    as a transition of the tray beside another slot's drop, and they change no
+    verdict that test gives.
+
+    Every test names its refusal, and a drop keeps the first that refuses it,
+    in the order the tests run: `no_round`, `after_player_death`,
+    `phase:<name>`, `forced` or `cooccur_among_casts`, `partial_charge`,
+    `pips_lit`, `equip_release`.
 
     *Full* is read from the drop's own `from`: the slot's teal count on the
     last clean sample before the drop over the slot's p90 clean count in the
@@ -196,12 +214,66 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     never more charge, and the teal can lift a part-charged slot past FULL_MIN
     only by adding most of a full bar in one sample; none of the four did.
 
-    The gate does not test the rule's other half, that the cast empties the
-    pips. `3694746e4e54` at 1062.0 s passes as a cast: the bow's glow lifted a
-    full slot to [metric:tray/x-fill-states@six-sessions#3694746e4e54_1062_x_from=1.33],
-    and the slot still read
+    *Emptied* is read from the drop's own `to`, on the same scale: the slot
+    emptied when `to` is at most EMPTY_MAX, 0.2, the ceiling of the unlit
+    reading above. Of the X casts with an own ult line above,
+    [metric:ult_lines/x-fill-full@all-sessions#with_line_to_zero=45] fell to 0
+    and one to [metric:ult_lines/x-fill-full@all-sessions#with_line_to_max=0.76]:
+    `7010b3d62460` at 1509.55 s, 1.5 s before the same slot fell from 0.99 to
+    0, the drop that stays the cast. `3694746e4e54` at 1062.0 s fails too: the
+    bow's glow lifted a full slot to
+    [metric:tray/x-fill-states@six-sessions#3694746e4e54_1062_x_from=1.33], and
+    the slot still read
     [metric:tray/x-fill-states@six-sessions#3694746e4e54_1062_x_at=1.08] after
-    the "drop".
+    the "drop". The shape fitter found Hunter's Fury's line on
+    [metric:tray/full-after-shapes@all-sessions#fury_full_after_found=3] of
+    [metric:tray/full-after-shapes@all-sessions#fury_full_after_crops=13] crops
+    after it, against
+    [metric:tray/full-after-shapes@all-sessions#fury_empty_found=220] of
+    [metric:tray/full-after-shapes@all-sessions#fury_empty_crops=221] after the
+    X drops that emptied the slot. On the 19 lineup sessions the two tests
+    leave [metric:tray/equip-release@all-sessions#x_casts=48] of
+    [metric:tray/equip-release@all-sessions#x_casts_before=50] X casts; no X
+    cast left falls to more than
+    [metric:tray/equip-release@all-sessions#x_to_max=0.03].
+
+    *The full level* is read from `to` as well. A two-charge slot's bar reads
+    1, 0.5 or 0 of its reference [domain:hud/ability-tray-charge-segments], and
+    FULL_AFTER_MIN, 0.75, lies midway between the half and full levels, so a
+    drop to at least that much left the slot full. No drop the other tests
+    pass on the 19 lineup sessions landed between
+    [metric:tray/equip-release@all-sessions#to_half_max=0.53] and
+    [metric:tray/equip-release@all-sessions#to_full_min=0.76], so any value in
+    that gap gives the same verdicts. Of the
+    [metric:tray/equip-release@all-sessions#accepted_before=493] drops the
+    gate passed without `pips_lit` and `equip_release`, the full-level test
+    refuses [metric:tray/equip-release@all-sessions#equip_release=75], every
+    one from a fill of
+    [metric:tray/equip-release@all-sessions#equip_release_from_min=1.05] or
+    more: teal over a full slot, released without a charge spent. A cut at
+    0.9 would pass [metric:tray/equip-release@all-sessions#equip_release_0_75_to_0_9=8]
+    of them, and the landings between 0.75 and 0.9 behave like those above:
+    [metric:tray/equip-release@all-sessions#landings_0_75_to_0_9_then_fall=5]
+    of the [metric:tray/equip-release@all-sessions#landings_0_75_to_0_9=9]
+    there, and [metric:tray/equip-release@all-sessions#landings_at_0_9_then_fall=23]
+    of the [metric:tray/equip-release@all-sessions#landings_at_0_9=68] at 0.9
+    or more, are followed within 5 s by a drop of the same slot: the release,
+    then the cast.
+
+    The player named what 120 gated drops drew on the minimap
+    (`labels/tray_object`). The tests refuse
+    [metric:tray/equip-release@all-sessions#labels_refused_nothing_on_minimap=21]
+    that drew nothing and
+    [metric:tray/equip-release@all-sessions#labels_refused_object=2] that drew
+    an object, both Skye's: Trailblazer at `b3b9defb6fd7` 1627.0 s (1.45 to
+    0.95), whose view tints the screen [domain:hud/controlled-entity-view-tint],
+    and Regrowth at `e37fdeca944f` 364.6 s (1.31 to 1.0). The tray and the
+    labels disagree on those two, and the gate refuses both.
+    Because the tests follow the co-occurrence test, a release still taints a
+    cast beside it in another slot:
+    [metric:tray/equip-release@all-sessions#cooccur_beside_charge_refusals_only=58]
+    drops that emptied their slot are refused as co-occurring with nothing but
+    drops these tests refuse.
 
     Every drop comes back with `player_cast`, the first `reason` that refused
     it, the round's `first_player_death_ms`, the `kit_end_ms` the gate used,
@@ -232,11 +304,18 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
             [(r["t_ms"] / 1000.0, r["slot"], r["from"], r["to"], r["forced"]) for r in keep])):
         if sus:
             r["reason"] = "forced" if r["forced"] else "cooccur_among_casts"
-    # After the co-occurrence test, so a part-filled X drop still counts as a
-    # transition of the tray beside another slot's drop.
+    # After the co-occurrence test, so a drop these tests refuse still counts
+    # as a transition of the tray beside another slot's drop. The first test
+    # that refuses a drop names it.
     for r in keep:
-        if r["reason"] is None and r["slot"] == ULT_SLOT and r["from"] < FULL_MIN:
+        if r["reason"] is not None:
+            continue
+        if r["slot"] == ULT_SLOT and r["from"] < FULL_MIN:
             r["reason"] = "partial_charge"
+        elif r["slot"] == ULT_SLOT and r["to"] > EMPTY_MAX:
+            r["reason"] = "pips_lit"
+        elif r["to"] >= FULL_AFTER_MIN:
+            r["reason"] = "equip_release"
     for r in rows:
         r["player_cast"] = r["reason"] is None
     return rows

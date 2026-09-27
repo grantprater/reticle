@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from reticle.ability_timeline import (FULL_MIN, _step_ms, build_timeline, player_tray_casts,
-                                      write_timeline)
+from reticle.ability_timeline import (EMPTY_MAX, FULL_AFTER_MIN, FULL_MIN, _step_ms,
+                                      build_timeline, player_tray_casts, write_timeline)
 
 
 class AbilityTimelineTests(unittest.TestCase):
@@ -65,8 +65,8 @@ class AbilityTimelineTests(unittest.TestCase):
         self.assertEqual(_step_ms("casts/demo.step0.5.84229831.json"), 500.0)
 
 
-def _drop(t, slot, forced=False, frm=1.0):
-    return {"t_ms": float(t), "slot": slot, "from": frm, "to": 0.0, "forced": forced,
+def _drop(t, slot, forced=False, frm=1.0, to=0.0):
+    return {"t_ms": float(t), "slot": slot, "from": frm, "to": to, "forced": forced,
             "suspect": forced, "cooccur": False}
 
 
@@ -178,6 +178,71 @@ class GateChargeTests(unittest.TestCase):
         got = self._gate([_drop(20000, "X", frm=0.5), _drop(21000, "Q")])
         self.assertEqual(got[(21000.0, "Q")]["reason"], "cooccur_among_casts")
         self.assertEqual(got[(20000.0, "X")]["reason"], "cooccur_among_casts")
+
+
+class GateLevelTests(unittest.TestCase):
+    """A cast spends a charge: the X slot empties (`pips_lit`) and no slot is
+    left at its full level (`equip_release`)."""
+
+    def _gate(self, drops, deaths=(), **kw):
+        rows = player_tray_casts(drops, lambda t: "round_live", ROUND, list(deaths), **kw)
+        return {(r["t_ms"], r["slot"]): r for r in rows}
+
+    def _one(self, slot, frm, to):
+        return self._gate([_drop(20000, slot, frm=frm, to=to)])[(20000.0, slot)]
+
+    def test_a_drop_that_spends_a_charge_passes(self):
+        for slot, frm, to in (("X", 1.0, 0.0), ("X", 1.18, EMPTY_MAX), ("C", 1.0, 0.0),
+                              ("C", 1.43, 0.0), ("E", 0.5, 0.0), ("Q", 1.05, 0.53)):
+            got = self._one(slot, frm, to)
+            self.assertTrue(got["player_cast"], (slot, frm, to))
+            self.assertIsNone(got["reason"])
+
+    def test_a_two_charge_slot_spending_one_charge_passes(self):
+        # Two segments read 1.0, 0.5 and 0: a spent charge falls to the half level.
+        got = self._gate([_drop(20000, "Q", frm=1.0, to=0.5), _drop(40000, "Q", frm=0.5)])
+        self.assertTrue(got[(20000.0, "Q")]["player_cast"])
+        self.assertTrue(got[(40000.0, "Q")]["player_cast"])
+
+    def test_a_drop_to_the_full_level_is_equip_release(self):
+        for slot, frm, to in (("C", 1.4, 0.99), ("Q", 1.43, 0.8), ("E", 1.05, FULL_AFTER_MIN),
+                              ("Q", 1.6, 1.19)):
+            got = self._one(slot, frm, to)
+            self.assertFalse(got["player_cast"], (slot, frm, to))
+            self.assertEqual(got["reason"], "equip_release")
+            self.assertEqual(got["to"], to)            # the reading stays as evidence
+
+    def test_an_x_drop_that_does_not_empty_is_pips_lit(self):
+        for frm, to in ((1.03, 0.76), (1.0, 0.21), (1.33, 1.08)):
+            got = self._one("X", frm, to)
+            self.assertFalse(got["player_cast"], (frm, to))
+            # 1.33 to 1.08 also leaves the slot full; the X test comes first.
+            self.assertEqual(got["reason"], "pips_lit")
+
+    def test_a_dip_before_the_cast_leaves_the_emptying_drop_as_the_cast(self):
+        # 7010b3d62460: X 1.03 -> 0.76 at 1509.55 s, then 0.99 -> 0 at 1511.05 s.
+        got = self._gate([_drop(20000, "X", frm=1.03, to=0.76), _drop(21500, "X", frm=0.99)])
+        self.assertEqual(got[(20000.0, "X")]["reason"], "pips_lit")
+        self.assertTrue(got[(21500.0, "X")]["player_cast"])
+
+    def test_a_drop_refused_earlier_keeps_its_reason(self):
+        drops = [_drop(10000, "X", frm=0.58, to=0.3),              # partial_charge first
+                 _drop(30000, "C", frm=1.4, to=0.99, forced=True),  # forced first
+                 _drop(50000, "C", frm=1.4, to=0.99), _drop(50500, "E"),  # co-occurring
+                 _drop(81000, "Q", frm=1.4, to=0.99)]               # after the death
+        got = self._gate(drops, [80000.0], agent="Sova")
+        self.assertEqual({k: (r["player_cast"], r["reason"]) for k, r in got.items()},
+                         {(10000.0, "X"): (False, "partial_charge"),
+                          (30000.0, "C"): (False, "forced"),
+                          (50000.0, "C"): (False, "cooccur_among_casts"),
+                          (50500.0, "E"): (False, "cooccur_among_casts"),
+                          (81000.0, "Q"): (False, "after_player_death")})
+
+    def test_a_released_slot_still_taints_a_cast_beside_it(self):
+        # The level tests follow the co-occurrence test and change none of its verdicts.
+        got = self._gate([_drop(20000, "Q", frm=1.25, to=0.97), _drop(20000, "E")])
+        self.assertEqual(got[(20000.0, "Q")]["reason"], "cooccur_among_casts")
+        self.assertEqual(got[(20000.0, "E")]["reason"], "cooccur_among_casts")
 
 
 if __name__ == "__main__":
