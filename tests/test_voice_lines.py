@@ -145,6 +145,104 @@ class PeakTests(unittest.TestCase):
         assert (imp >= tau2).sum() == 2
 
 
+# ---------------------------------------------------------------- 0.2.0: suppression
+
+class SuppressionTests(unittest.TestCase):
+
+    def test_the_best_template_at_one_onset_stands(self):
+        t = np.array([10.0, 10.3, 10.9, 12.0, 10.1])
+        j = np.array([0, 1, 2, 1, 0])
+        score = np.array([0.5, 0.9, 0.4, 0.3, 0.45])
+        keep, by = vl.suppress(t, j, score, window=0.6)
+        assert keep.tolist() == [False, True, False, True, False]
+        assert by.tolist() == [1, -1, 1, -1, 1]
+
+
+    def test_a_dropped_peak_drops_nothing(self):
+        keep, by = vl.suppress(np.array([0.0, 1.0, 2.0]), np.array([0, 1, 2]),
+                               np.array([0.9, 0.8, 0.7]), window=1.0)
+        assert keep.tolist() == [True, False, True]
+        assert by.tolist() == [-1, 0, -1]
+
+
+    def test_peaks_of_one_template_never_drop_each_other(self):
+        keep, _by = vl.suppress(np.array([0.0, 0.5]), np.array([3, 3]),
+                                np.array([0.9, 0.8]), window=1.0)
+        assert keep.tolist() == [True, True]
+
+
+    def test_suppression_filters_every_per_peak_array(self):
+        n = 4
+        d = {"t": np.array([0.0, 0.2, 5.0, 9.0]), "j": np.array([0, 1, 0, 1]),
+             "score": np.array([0.3, 0.6, 0.5, 0.1]), "cls": np.array(["a", "b", "c", "d"], object),
+             "live": np.ones(n, bool), "dt": np.full(n, np.nan),
+             "agent": np.array(["A", "B", "A", "B"], object),
+             "variant": np.array(["ally"] * n, object), "names": ["A_ult_ally", "B_ult_ally"],
+             "sid": "x"}
+        out = vl.apply_suppression(d, 1.0)
+        assert out["t"].tolist() == [0.2, 5.0, 9.0]
+        assert out["cls"].tolist() == ["b", "c", "d"]
+        assert out["kept"].tolist() == [False, True, True, True]
+        assert out["dropped_by"].tolist() == [1, -1, -1, -1]
+        assert vl.apply_suppression(d, None) is d
+
+
+# ---------------------------------------------------------------- 0.2.0: cast windows
+
+class CastWindowTests(unittest.TestCase):
+
+    def test_phoenix_counts_a_line_long_before_the_drop(self):
+        d = {"t": np.array([87.4, 250.0]), "score": np.array([0.3, 0.2]),
+             "cls": np.array(["own", "own"], object)}
+        casts = [{"t": 100.0}]
+        best, _lag = vl.best_near(d, casts)
+        assert best[0] == -np.inf
+        lo, hi = vl.cast_window("Phoenix")
+        best, lag = vl.best_near(d, casts, lo=lo, hi=hi)
+        assert best[0] == 0.3 and abs(lag[0] + 12.6) < 1e-9
+        assert vl.cast_window("Sova") == (-vl.OWN_WIN, vl.OWN_WIN)
+
+
+# ---------------------------------------------------------------- 0.2.0: Gekko and merging
+
+class HarvestTests(unittest.TestCase):
+
+    def test_the_ult_pair_comes_from_the_ally_and_enemy_cast_sections(self):
+        rows = [
+            {"agent": "Gekko", "ability": "Thrash", "section": "Ally Cast", "file": "G__t__ally-cast__2.mp3"},
+            {"agent": "Gekko", "ability": "Thrash", "section": "Ally Cast", "file": "G__t__ally-cast__1.mp3"},
+            {"agent": "Gekko", "ability": "Thrash", "section": "Enemy Cast", "file": "G__t__enemy-cast__1.mp3"},
+            {"agent": "Gekko", "ability": "Thrash", "section": "Ally Recast", "file": "G__t__ally-recast__1.mp3"},
+            {"agent": "Gekko", "ability": "Wingman", "section": "Cast", "file": "G__w__cast__1.mp3"},
+            {"agent": "Sova", "ability": "Hunter's Fury", "section": "Ally Cast", "file": "S__h__ally-cast__1.mp3"}]
+        got = vl.harvested_ults(rows, have={"Sova"})
+        assert got == {"Gekko_ult_ally": "G__t__ally-cast__1.mp3",
+                       "Gekko_ult_enemy": "G__t__enemy-cast__1.mp3"}
+
+
+    def test_two_abilities_with_ally_casts_stop_the_harvest(self):
+        rows = [{"agent": "X", "ability": "One", "section": "Ally Cast", "file": "a.mp3"},
+                {"agent": "X", "ability": "Two", "section": "Enemy Cast", "file": "b.mp3"}]
+        with self.assertRaises(SystemExit):
+            vl.harvested_ults(rows, have=set())
+
+
+    def test_merged_peaks_renumber_templates(self):
+        base = {"names": np.array(["A", "B"]), "tpl": np.array([0, 1, 1], np.int16),
+                "frame": np.array([5, 7, 9]), "score": np.array([0.1, 0.2, 0.3], np.float32),
+                "floor": np.array([0.01, 0.02]), "median": np.array([0.0, 0.0]),
+                "max": np.array([0.1, 0.3])}
+        new = {"tpl": np.array([0, 0], np.int16), "frame": np.array([3, 4]),
+               "score": np.array([0.5, 0.6], np.float32), "floor": np.array([0.05]),
+               "median": np.array([0.0]), "max": np.array([0.6])}
+        m = vl.merge_peaks(new, ["G"], base, ["A", "B", "G"])
+        assert m["tpl"].tolist() == [0, 1, 1, 2, 2]
+        assert m["frame"].tolist() == [5, 7, 9, 3, 4]
+        assert np.allclose(m["floor"], [0.01, 0.02, 0.05])
+        with self.assertRaises(SystemExit):
+            vl.merge_peaks(new, ["G"], base, ["A", "C"])
+
+
 # ---------------------------------------------------------------- rounds
 
 class RoundTests(unittest.TestCase):
@@ -164,6 +262,21 @@ class RoundTests(unittest.TestCase):
         assert vl.round_of(103.0, rows) == 1        # the post-round period is the round's
         assert vl.round_of(150.0, rows) == 2
         assert vl.round_of(300.0, rows) is None
+
+
+    def test_removals_count_the_cast_hits_suppression_costs(self):
+        d = {"sid": "s", "t": np.array([10.0, 10.3]), "j": np.array([0, 1]),
+             "score": np.array([0.2, 0.35]), "cls": np.array(["own", "possible"], object),
+             "live": np.ones(2, bool), "agent": np.array(["Sova", "Fade"], object),
+             "variant": np.array(["ally", "enemy"], object),
+             "names": ["Sova_ult_ally", "Fade_ult_enemy"]}
+        ctxs = {"s": {"sides": {}, "demo": False, "rounds": [], "own": [{"t": 10.2}],
+                      "player": "Sova"}}
+        v, rows = vl.removals([d], ctxs, tau=0.1, window=1.2)
+        assert (v["removed_own"], v["removed_own_by_true"], v["removed_own_at_cast"]) == (1, 1, 1)
+        assert (v["own_hits_unsuppressed"], v["own_hits_suppressed"], v["own_hits_lost"]) == (1, 0, 1)
+        assert v["own_hits_agent_window_lost"] == 1
+        assert rows[0]["dropped_by"] == "Fade_ult_enemy" and rows[0]["in_own_cast_window"]
 
 
 if __name__ == "__main__":

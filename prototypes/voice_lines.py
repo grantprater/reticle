@@ -1,7 +1,8 @@
 r"""Match the official ultimate voice lines against the match audio: whose ult, on which side?
 
     .\.venv\Scripts\python.exe prototypes\voice_lines.py templates
-    .\.venv\Scripts\python.exe prototypes\voice_lines.py score --formulation F-A|F-B|F-C [--sessions SID ...]
+    .\.venv\Scripts\python.exe prototypes\voice_lines.py score --formulation F-A|F-B|F-C [--sessions SID ...] [--templates NAME ...]
+    .\.venv\Scripts\python.exe prototypes\voice_lines.py check-merge --formulation F --session SID
     .\.venv\Scripts\python.exe prototypes\voice_lines.py evaluate [--formulations F ...] [--sessions SID ...] [--dry]
     .\.venv\Scripts\python.exe prototypes\voice_lines.py review [--formulation F]
     .\.venv\Scripts\python.exe prototypes\voice_lines.py report
@@ -11,7 +12,9 @@ Purpose
 The game announces an ultimate cast with a fixed voice line, one for the
 caster's allies and one for the caster's enemies
 [domain:abilities/voice-lines-announce-casts]. The store holds the official
-lines, `reference/assets/voicelines/<Agent>_ult_{ally,enemy}.mp3`. Which
+lines, `reference/assets/voicelines/<Agent>_ult_{ally,enemy}.mp3`, and for
+the agent those lack (Gekko) the harvest index's `Ally Cast` and `Enemy Cast`
+takes of his ultimate (`voicelines/casts/`). Which
 variant fires carries the caster's side, so a matched line names an agent, a
 side and a time. `docs/VOICE_LINES.md` is the design this file implements and
 the store's `notes/predictions.jsonl` holds its predictions (task
@@ -50,6 +53,10 @@ at k * 10 ms: the line's onset. Peaks are local maxima at or above the
 99th percentile of that template's track on that session, suppressed within
 one template length of a higher peak.
 
+0.2.0 keeps 0.1.0's stored peaks for the 56 templates it shares, scores
+only Gekko's two (`score --templates`) and merges them per session;
+`check-merge` rescores one session in full and compares.
+
 `evaluate` classes every template per session from the identity arbiter's
 lineup (`reticle.lineup.load_lineup`, `agent_identity` verdicts): `own` is the
 player's agent's ally variant; `possible` an ally variant of a named ally or
@@ -60,9 +67,15 @@ ally slot, and an enemy variant of an agent not on a fully named enemy side;
 label. The operating point is the lowest threshold at which impossible
 detections run at most `OP_RATE` per live minute (round_live and post_plant,
 dead or alive, stalls excluded), pooled over the match sessions with a lineup.
+0.2.0 evaluates two configurations: the stored peaks as they are, and after
+cross-template suppression, where at one onset only the best-scoring template
+stands (`SUPPRESS_S`). Own recall is reported with the fixed 1.5 s window and
+with each agent's cast window (`CAST_WINDOW`: Phoenix's pips fall at expiry).
+Every recorded part name carries `0.2.0`.
 `review` writes a sheet of 30 stratified detections with a spectrogram and an
-`ffplay` command into the source capture; `report` rewrites the Results
-section of `docs/VOICE_LINES.md` from the recorded runs.
+`ffplay` command into the source capture, at the suppressed operating point;
+`report` rewrites the "Results 0.2.0" section of `docs/VOICE_LINES.md` from
+the recorded runs and leaves 0.1.0's results and verdicts above it.
 
 What it does not do
 -------------------
@@ -117,11 +130,19 @@ with contextlib.redirect_stdout(io.StringIO()):
     import audio_bank  # noqa: E402  player_agent, tagged_agent, labels, census tables
 
 STORE = ag.STORE
-VERSION = "voice-lines-0.1.0"
-OUT = STORE / "analysis" / "voice-lines" / VERSION.rsplit("-", 1)[1]
+VERSION = "voice-lines-0.2.0"
+#: Every recorded part name carries this; 0.1.0 recorded bare names
+#: (`evaluate-F-B`), which docs/VOICE_LINES.md's 0.1.0 section cites.
+TAG = VERSION.rsplit("-", 1)[1]
+OUT = STORE / "analysis" / "voice-lines" / TAG
 TEMPL, SCORES, DETS = OUT / "templates", OUT / "scores", OUT / "detections"
 REPORT, REVIEW = OUT / "report", OUT / "review"
+#: 0.1.0's peaks: 0.2.0 scores only the templates they lack and keeps the rest.
+BASE_VERSION = "voice-lines-0.1.0"
+BASE_SCORES = STORE / "analysis" / "voice-lines" / "0.1.0" / "scores"
 VOICE = STORE / "reference" / "assets" / "voicelines"
+#: The harvested cast lines and their index (prototypes/voice_line_harvest.py).
+CASTS = VOICE / "casts"
 DOC = ROOT / "docs" / "VOICE_LINES.md"
 
 #: The session features' front end (`audio_gate`), which templates must share.
@@ -145,6 +166,24 @@ FLOOR_Q = 0.99
 OWN_WIN = 1.5
 #: How far before an own X drop the lead witness looks for the own line (s).
 LEAD_WIN = 20.0
+#: Cross-template suppression: at one onset only the best-scoring template
+#: stands. A stored peak falls when a higher standing peak of another template
+#: lies within this many seconds. Chosen from 0.1.0's F-B detections at its
+#: operating point: each of the 18 impossible detections with a stronger own
+#: or possible detection of another template within 5 s sat within 1.11 s of
+#: it, and none lay between 1.11 s and 5 s. `suppression-0.2.0-<F>` records
+#: the same offsets on 0.2.0's detections, and the report cites them.
+SUPPRESS_S = 1.2
+#: Windows swept beside SUPPRESS_S, seconds.
+SUPPRESS_SWEEP = (0.3, 0.6, 1.2, 2.5)
+#: How far the window evidence looks for a stronger true detection, seconds.
+OFFSET_PROBE_S = 5.0
+#: Own recall window per agent: (earliest, latest) onset minus tray drop, s.
+#: Run it Back's pips fall at expiry, not at the cast
+#: [domain:abilities/phoenix-run-it-back-expiry-flash], and the caster hears
+#: the line at the cast [domain:abilities/caster-hears-own-ult-line]. Every
+#: other agent keeps (-OWN_WIN, OWN_WIN). No stored tray cast is re-dated.
+CAST_WINDOW = {"Phoenix": (-20.0, OWN_WIN)}
 #: The operating point: impossible detections per live minute.
 OP_RATE = 0.1
 #: A second common threshold for the per-session impossible rates (P5).
@@ -181,13 +220,43 @@ def _free_gpu() -> None:
 # Templates
 # ---------------------------------------------------------------------------
 
-def template_files() -> list[Path]:
-    return sorted(VOICE.glob("*_ult_*.mp3"))
+#: The harvest index's sections that hold an ultimate's two heard variants.
+ULT_SECTIONS = {"Ally Cast": "ally", "Enemy Cast": "enemy"}
 
 
-def parse_name(path: Path) -> tuple[str, str]:
-    """(agent, variant) from `<Agent>_ult_<variant>.mp3`; KAY/O is spelled KAY_O."""
-    stem = path.stem
+def harvested_ults(rows: list[dict], have: set[str]) -> dict[str, str]:
+    """{template name: file} for each agent `have` lacks, from the harvest
+    index: the first take of the one ability whose sections are `Ally Cast`
+    and `Enemy Cast`, the ultimate's ally- and enemy-heard lines (the 56 ult
+    files are byte-identical to those rows of the other agents)."""
+    out, ability = {}, {}
+    for r in sorted(rows, key=lambda r: r["file"]):
+        var = ULT_SECTIONS.get(r.get("section", ""))
+        agent = norm_agent(r["agent"])
+        if var is None or agent in have:
+            continue
+        if ability.setdefault(agent, r["ability"]) != r["ability"]:
+            raise SystemExit(f"{agent}: ally/enemy cast lines under two abilities, "
+                             f"{ability[agent]!r} and {r['ability']!r}")
+        out.setdefault(f"{agent}_ult_{var}", r["file"])
+    return out
+
+
+def template_sources() -> list[tuple[str, Path]]:
+    """(name, mp3) of every ult line: `<Agent>_ult_<variant>.mp3`, then the
+    harvested pair of each agent those lack (Gekko)."""
+    out = {p.stem: p for p in VOICE.glob("*_ult_*.mp3")}
+    idx = CASTS / "index.json"
+    if idx.is_file():
+        have = {n.rsplit("_ult_", 1)[0] for n in out}
+        rows = json.loads(idx.read_text(encoding="utf-8"))
+        out.update({n: CASTS / f for n, f in harvested_ults(rows, have).items()})
+    return sorted(out.items())
+
+
+def parse_name(path) -> tuple[str, str]:
+    """(agent, variant) from `<Agent>_ult_<variant>[.mp3]`; KAY/O is spelled KAY_O."""
+    stem = Path(path).stem
     agent, variant = stem.rsplit("_ult_", 1)
     if variant not in VARIANTS:
         raise SystemExit(f"{path.name}: unknown variant {variant!r}")
@@ -239,22 +308,27 @@ def prepare(T: np.ndarray, per_frame: bool = False) -> np.ndarray:
 
 
 def cmd_templates() -> dict:
-    """Decode the 56 lines, store their log-mel and metadata, record the set."""
+    """Decode the ult lines, store their log-mel and metadata, record the set."""
     TEMPL.mkdir(parents=True, exist_ok=True)
     meta = []
-    for p in template_files():
-        agent, variant = parse_name(p)
+    same = 0
+    for name, p in template_sources():
+        agent, variant = parse_name(name)
         x = decode_template(p)
         L, ok, _rms = ag.logmel(x, np.ones(len(x), bool), RATE)
         T, k0, k1 = trim_floor(L, ok)
         rate, ch = source_format(p)
-        rec = {"name": p.stem, "agent": agent, "variant": variant, "file": p.name,
+        base = BASE_SCORES.parent / "templates" / f"{name}.npz"
+        if base.is_file():
+            same += int(np.array_equal(np.load(base)["L"], T))
+        rec = {"name": name, "agent": agent, "variant": variant,
+               "file": p.relative_to(VOICE).as_posix(),
                "sha256": hashlib.sha256(p.read_bytes()).hexdigest()[:16],
                "source_rate": rate, "source_channels": ch, "resampled": rate != RATE or ch != 1,
                "n_samples": len(x), "duration_s": round(len(x) / RATE, 3),
                "k0": k0, "k1": k1, "frames": k1 - k0,
                "onset_s": round(k0 * HOP, 3), "span_s": round((k1 - k0) * HOP, 3)}
-        np.savez_compressed(TEMPL / f"{p.stem}.npz", L=T, raw=L[k0:k1].astype(np.float32),
+        np.savez_compressed(TEMPL / f"{name}.npz", L=T, raw=L[k0:k1].astype(np.float32),
                             version=VERSION, meta=json.dumps(rec))
         meta.append(rec)
     (TEMPL / "templates.json").write_text(json.dumps(
@@ -268,9 +342,14 @@ def cmd_templates() -> dict:
             "duration_min_s": min(m["duration_s"] for m in meta),
             "duration_max_s": max(m["duration_s"] for m in meta),
             "span_min_s": min(m["span_s"] for m in meta),
-            "span_max_s": max(m["span_s"] for m in meta)}
+            "span_max_s": max(m["span_s"] for m in meta),
+            "identical_to_0_1_0": same,
+            "harvested": sum(m["file"].startswith("casts/") for m in meta)}
+    for m in meta:
+        if m["file"].startswith("casts/"):
+            vals[f"{m['name']}_span_s"] = m["span_s"]
     from reticle import metrics
-    metrics.record("voice_lines", part="templates", session="all", values=vals,
+    metrics.record("voice_lines", part=f"templates-{TAG}", session="all", values=vals,
                    deps={"version": VERSION, "prep": metrics.fingerprint(
                        trim_floor, decode_template, ACTIVE_DB=ACTIVE_DB, FLOOR_DB=FLOOR_DB)},
                    context={"dir": str(TEMPL)})
@@ -460,18 +539,129 @@ def score_path(F: str, sid: str) -> Path:
     return SCORES / F / f"{sid}.npz"
 
 
-def cmd_score(F: str, sids: list[str]) -> None:
-    """Score every template on each session in turn; store the peaks."""
+def base_path(F: str, sid: str) -> Path:
+    return BASE_SCORES / F / f"{sid}.npz"
+
+
+def merge_peaks(new: dict, new_names: list[str], base: dict, names: list[str]) -> dict:
+    """One peak set over `names`: the templates in `new_names` from `new`, every
+    other one from `base` (a 0.1.0 peak file), template indices renumbered."""
+    bnames = [str(n) for n in base["names"]]
+    missing = [n for n in names if n not in new_names and n not in bnames]
+    if missing:
+        raise SystemExit(f"neither scored nor in the base peaks: {missing}")
+    src = {n: ("new", new_names.index(n)) if n in new_names else ("base", bnames.index(n))
+           for n in names}
+    tpl, frm, sc = [], [], []
+    per = {k: [] for k in ("floor", "median", "max")}
+    for j, n in enumerate(names):
+        which, i = src[n]
+        z = new if which == "new" else base
+        m = z["tpl"] == i
+        tpl.append(np.full(int(m.sum()), j, np.int16))
+        frm.append(z["frame"][m].astype(np.int32))
+        sc.append(z["score"][m].astype(np.float32))
+        for k in per:
+            per[k].append(float(z[k][i]))
+    return {"tpl": np.concatenate(tpl), "frame": np.concatenate(frm),
+            "score": np.concatenate(sc),
+            **{k: np.asarray(v, np.float32) for k, v in per.items()}}
+
+
+def template_waves(temps: list[dict]) -> list[np.ndarray]:
+    """Each template's kept span as a 48 kHz waveform, for F-B."""
+    out = []
+    for t in temps:
+        y = decode_template(VOICE / t["file"])
+        out.append(y[t["k0"] * HOP_N:t["k1"] * HOP_N])
+    return out
+
+
+def session_tracks(F: str, sid: str, f: dict, temps: list[dict],
+                   waves: list[np.ndarray] | None) -> tuple[np.ndarray, dict]:
+    """[templates, frames] score tracks of one session, aligned to its log-mel
+    frames, and what it took. F-B decodes the capture's audio in memory."""
+    n = len(f["L"])
+    info = {"n_frames": n}
+    if F == "F-B":
+        td = time.time()
+        x, filled, rate = ag.decode_mono(_manifest(sid)["source"]["path"])
+        info["decode_s"] = round(time.time() - td, 1)
+        if rate != RATE:
+            raise SystemExit(f"{sid}: audio at {rate} Hz, templates at {RATE}")
+        info["filled_fraction"] = round(float(filled.mean()), 4)
+        del filled
+        tracks = phat_tracks(x, waves)
+        del x
+        if tracks.shape[1] != n:
+            info["frames_waveform"] = int(tracks.shape[1])
+            tr = np.full((len(temps), n), -1.0, np.float32)
+            k = min(n, tracks.shape[1])
+            tr[:, :k] = tracks[:, :k]
+            tracks = tr
+    else:
+        W = session_matrix(f, F)
+        tracks = ncc_tracks(W, [t["T"] for t in temps])
+        del W
+    return tracks, info
+
+
+def cmd_check_merge(F: str, sid: str) -> dict:
+    """Rescore every template on one session in memory and compare its peaks
+    with the stored file, which merged newly scored templates onto 0.1.0's."""
     from reticle import metrics
     temps = load_line_templates(F)
+    f = session_features(sid)
+    waves = template_waves(temps) if F == "F-B" else None
+    tracks, info = session_tracks(F, sid, f, temps, waves)
+    full = track_peaks(tracks, [len(t["T"]) for t in temps])
+    del tracks
+    _free_gpu()
+    stored = load_peaks(F, sid)
+    if [str(n) for n in stored["names"]] != [t["name"] for t in temps]:
+        raise SystemExit("stored template order differs")
+    a = sorted(zip(full["tpl"].tolist(), full["frame"].tolist(), full["score"].tolist()))
+    b = sorted(zip(stored["tpl"].tolist(), stored["frame"].tolist(), stored["score"].tolist()))
+    same = [x[:2] for x in a] == [x[:2] for x in b]
+    vals = {"peaks_full": len(a), "peaks_stored": len(b), "same_peaks": int(same),
+            "max_score_diff": float(max(abs(x[2] - y[2]) for x, y in zip(a, b))) if same else None,
+            "max_floor_diff": _r(float(np.max(np.abs(full["floor"] - stored["floor"]))), 6)}
+    differ = {}
+    if not same:
+        fa, fb = {x[:2] for x in a}, {x[:2] for x in b}
+        vals["peaks_only_full"] = len(fa - fb)
+        vals["peaks_only_stored"] = len(fb - fa)
+        for j, t in enumerate(temps):
+            if {x for x in fa if x[0] == j} != {x for x in fb if x[0] == j}:
+                differ[t["name"]] = round(float(abs(full["floor"][j] - stored["floor"][j])), 6)
+        vals["templates_differing"] = len(differ)
+        odd = [x[2] for x in a if x[:2] in fa - fb] + [x[2] for x in b if x[:2] in fb - fa]
+        vals["differing_peak_max_score"] = _r(float(max(odd)), 4)
+    metrics.record("voice_lines", part=part("merge-check", F), session=sid, values=vals,
+                   deps={"version": VERSION, "score": _score_fp(F)},
+                   context={**info, "differing_floor_diff": differ})
+    if differ:
+        print(json.dumps(differ))
+    print(json.dumps(vals))
+    return vals
+
+
+def cmd_score(F: str, sids: list[str], only: list[str] | None = None) -> None:
+    """Score the templates on each session in turn and store the peaks. With
+    `only`, score just those templates and take every other one's peaks from
+    0.1.0's file for that session: a template's peaks depend on its own track
+    alone (its floor is its own 99th percentile), so the merge equals a full
+    rescoring up to FFT rounding."""
+    from reticle import metrics
+    temps_all = load_line_templates(F)
+    names = [t["name"] for t in temps_all]
+    temps = [t for t in temps_all if only is None or t["name"] in only]
+    if only is not None and len(temps) != len(set(only)):
+        raise SystemExit(f"unknown templates: {sorted(set(only) - set(names))}")
     lengths = [len(t["T"]) for t in temps]
+    lengths_all = [len(t["T"]) for t in temps_all]
     (SCORES / F).mkdir(parents=True, exist_ok=True)
-    waves = None
-    if F == "F-B":
-        waves = []
-        for t in temps:
-            y = decode_template(VOICE / t["file"])
-            waves.append(y[t["k0"] * HOP_N:t["k1"] * HOP_N])
+    waves = template_waves(temps) if F == "F-B" else None
     t_all = time.time()
     n_peaks = 0
     walls = {}
@@ -479,44 +669,34 @@ def cmd_score(F: str, sids: list[str]) -> None:
         t0 = time.time()
         f = session_features(sid)
         n = len(f["L"])
-        info = {"n_frames": n}
-        if F == "F-B":
-            td = time.time()
-            x, filled, rate = ag.decode_mono(_manifest(sid)["source"]["path"])
-            info["decode_s"] = round(time.time() - td, 1)
-            if rate != RATE:
-                raise SystemExit(f"{sid}: audio at {rate} Hz, templates at {RATE}")
-            info["filled_fraction"] = round(float(filled.mean()), 4)
-            del filled
-            tracks = phat_tracks(x, waves)
-            del x
-            if tracks.shape[1] != n:
-                info["frames_waveform"] = int(tracks.shape[1])
-                tr = np.full((len(temps), n), -1.0, np.float32)
-                k = min(n, tracks.shape[1])
-                tr[:, :k] = tracks[:, :k]
-                tracks = tr
-        else:
-            W = session_matrix(f, F)
-            tracks = ncc_tracks(W, [t["T"] for t in temps])
-            del W
+        tracks, info = session_tracks(F, sid, f, temps, waves)
         pk = track_peaks(tracks, lengths)
         del tracks
         _free_gpu()
         n_peaks += len(pk["score"])
+        if only is not None:
+            bz = np.load(base_path(F, sid))
+            if str(bz["version"]) != BASE_VERSION or str(bz["content_key"]) != str(f["content_key"]):
+                raise SystemExit(f"{base_path(F, sid)}: not {BASE_VERSION} peaks of this capture")
+            pk = merge_peaks(pk, [t["name"] for t in temps], {k: bz[k] for k in bz.files}, names)
+            info["scored"] = [t["name"] for t in temps]
+            info["from_base"] = BASE_VERSION
         walls[sid] = round(time.time() - t0, 1)
         info["wall_s"] = walls[sid]
-        np.savez_compressed(score_path(F, sid), **pk, names=np.array([t["name"] for t in temps]),
-                            lengths=np.asarray(lengths, np.int32), hop_s=HOP, n_frames=n,
+        np.savez_compressed(score_path(F, sid), **pk, names=np.array(names),
+                            lengths=np.asarray(lengths_all, np.int32), hop_s=HOP, n_frames=n,
                             floor_q=FLOOR_Q, formulation=F, version=VERSION,
                             content_key=str(f["content_key"]), info=json.dumps(info))
         print(f"  {F} {sid}: {len(pk['score'])} peaks, {info}")
-    metrics.record("voice_lines", part=f"score-{F}", session=_label(sids),
+    metrics.record("voice_lines", part=f"score-{TAG}-{F}", session=_label(sids),
                    values={"sessions": len(sids), "peaks": n_peaks,
+                           "templates_scored": len(temps),
                            "wall_s": round(time.time() - t_all, 1),
                            "wall_s_max": max(walls.values()) if walls else None},
                    deps={"version": VERSION, "score": _score_fp(F)},
-                   context={"walls": walls, "threads": os.environ.get("OMP_NUM_THREADS")})
+                   context={"walls": walls, "threads": os.environ.get("OMP_NUM_THREADS"),
+                            "scored": [t["name"] for t in temps],
+                            "base": None if only is None else str(BASE_SCORES)})
 
 
 def _score_fp(F: str) -> str:
@@ -789,18 +969,74 @@ def session_detections(F: str, ctx: dict) -> dict | None:
             "floor": pk["floor"], "lengths": pk["lengths"]}
 
 
-def best_near(d: dict, casts: list[dict], cls: str = "own") -> tuple[np.ndarray, np.ndarray]:
-    """Per cast, the highest score of a `cls` detection within OWN_WIN and its
-    onset minus the drop (-inf and NaN where none)."""
+def cast_window(agent: str | None) -> tuple[float, float]:
+    """(earliest, latest) onset minus tray drop at which an own line counts."""
+    return CAST_WINDOW.get(agent, (-OWN_WIN, OWN_WIN))
+
+
+def best_near(d: dict, casts: list[dict], cls: str = "own", lo: float = -OWN_WIN,
+              hi: float = OWN_WIN) -> tuple[np.ndarray, np.ndarray]:
+    """Per cast, the highest score of a `cls` detection with onset minus drop
+    in [lo, hi], and that offset (-inf and NaN where none)."""
     best = np.full(len(casts), -np.inf)
     lag = np.full(len(casts), np.nan)
     m = d["cls"] == cls
     for i, c in enumerate(casts):
-        w = m & (np.abs(d["t"] - c["t"]) <= OWN_WIN)
+        dt = d["t"] - c["t"]
+        w = m & (dt >= lo) & (dt <= hi)
         if w.any():
             k = np.flatnonzero(w)[np.argmax(d["score"][w])]
             best[i], lag[i] = d["score"][k], d["t"][k] - c["t"]
     return best, lag
+
+
+def suppress(t: np.ndarray, j: np.ndarray, score: np.ndarray,
+             window: float) -> tuple[np.ndarray, np.ndarray]:
+    """(keep mask, the index of the peak that dropped each dropped peak or -1).
+
+    Greedy by score: a peak stands unless a standing, higher peak of another
+    template lies within `window` seconds; it is then dropped by the highest
+    such peak. A dropped peak drops nothing, and peaks of one template never
+    drop each other (their own NMS already spaced them). Above any threshold
+    the result equals suppression among the peaks above it, because only
+    higher peaks decide a peak's fate.
+    """
+    import bisect
+    t = np.asarray(t, np.float64)
+    order = np.argsort(-np.asarray(score, np.float64), kind="stable")
+    keep = np.zeros(len(t), bool)
+    by = np.full(len(t), -1, np.int64)
+    ts: list[float] = []
+    idx: list[int] = []
+    for i in order:
+        a = bisect.bisect_left(ts, t[i] - window)
+        b = bisect.bisect_right(ts, t[i] + window)
+        rivals = [idx[q] for q in range(a, b) if j[idx[q]] != j[i]]
+        if rivals:
+            by[i] = max(rivals, key=lambda k: (score[k], -k))
+            continue
+        keep[i] = True
+        q = bisect.bisect_right(ts, t[i])
+        ts.insert(q, float(t[i]))
+        idx.insert(q, int(i))
+    return keep, by
+
+
+#: The per-peak arrays of a session's detections.
+PER_PEAK = ("t", "j", "score", "cls", "live", "dt", "agent", "variant")
+
+
+def apply_suppression(d: dict, window: float | None) -> dict:
+    """The detections cross-template suppression leaves; `kept` and `dropped_by`
+    index the unsuppressed peaks."""
+    if window is None:
+        return d
+    keep, by = suppress(d["t"], d["j"], d["score"], window)
+    out = dict(d)
+    for k in PER_PEAK:
+        out[k] = d[k][keep]
+    out["kept"], out["dropped_by"] = keep, by
+    return out
 
 
 def operating_tau(imp_scores: np.ndarray, live_min: float, rate: float = OP_RATE) -> float:
@@ -855,10 +1091,12 @@ def sweep(ds: list[dict], ctxs: dict, n: int = 300) -> dict:
     live = [d for d in ds if ctxs[d["sid"]]["sides"] is not None]
     pooled = np.concatenate([d["score"][d["live"]] for d in live]) if live else np.zeros(0)
     taus = np.unique(np.quantile(pooled, 1 - np.geomspace(0.9, 1e-5, n))) if len(pooled) else []
-    casts = [(d, [c for c in ctxs[d["sid"]]["own"]]) for d in ds
+    casts = [(d, ctxs[d["sid"]]["own"], cast_window(ctxs[d["sid"]]["player"])) for d in ds
              if ctxs[d["sid"]]["player"] is not None and not ctxs[d["sid"]]["demo"]]
-    best = np.concatenate([best_near(d, cs)[0] for d, cs in casts]) if casts else np.zeros(0)
-    out = {k: [] for k in ("tau", "impossible", "possible", "own", "recall")}
+    best = np.concatenate([best_near(d, cs)[0] for d, cs, _w in casts]) if casts else np.zeros(0)
+    best_aw = (np.concatenate([best_near(d, cs, lo=w[0], hi=w[1])[0] for d, cs, w in casts])
+               if casts else np.zeros(0))
+    out = {k: [] for k in ("tau", "impossible", "possible", "own", "recall", "recall_agent")}
     for tau in taus:
         r = rates_at(live, ctxs, tau)
         out["tau"].append(float(tau))
@@ -866,6 +1104,7 @@ def sweep(ds: list[dict], ctxs: dict, n: int = 300) -> dict:
         out["possible"].append(r["possible_per_min"])
         out["own"].append(r["own_per_min"])
         out["recall"].append(float((best >= tau).mean()) if len(best) else float("nan"))
+        out["recall_agent"].append(float((best_aw >= tau).mean()) if len(best_aw) else float("nan"))
     return {k: np.asarray(v) for k, v in out.items()}
 
 
@@ -933,6 +1172,28 @@ def summarise(F: str, ds: list[dict], ctxs: dict, tau: float | None = None) -> d
               "onset_q25_s": _q(lag, 0.25), "onset_q75_s": _q(lag, 0.75)})
     if len(lag):
         v["onset_iqr_s"] = _r(np.quantile(lag, 0.75) - np.quantile(lag, 0.25))
+    # The same casts with each agent's cast window (CAST_WINDOW).
+    b_aw = [best_near(d, ctxs[d["sid"]]["own"], lo=cast_window(ctxs[d["sid"]]["player"])[0],
+                      hi=cast_window(ctxs[d["sid"]]["player"])[1])[0] for d in matches]
+    b_aw = np.concatenate(b_aw) if b_aw else np.zeros(0)
+    hit_aw = b_aw >= tau
+    v.update({"own_hits_agent_window": int(hit_aw.sum()),
+              "own_recall_agent_window": _r(hit_aw.mean()) if len(hit_aw) else None,
+              "verified_hits_agent_window": int((hit_aw & ver).sum()),
+              "verified_recall_agent_window": _r((hit_aw & ver).sum() / ver.sum())
+              if ver.any() else None})
+    for a in sorted(set(agent_of)):
+        m = agent_of == a
+        v[f"own_recall_agent_window_{a}"] = _r(hit_aw[m].mean())
+        if (m & ver).any():
+            v[f"verified_recall_agent_window_{a}"] = _r(hit_aw[m & ver].mean())
+    for a, (lo, hi) in CAST_WINDOW.items():
+        # Chance that an own detection at this agent's live rate lands in the window.
+        da = [d for d in matches if ctxs[d["sid"]]["player"] == a]
+        mins = sum(ctxs[d["sid"]]["live_min"] for d in da)
+        n_own = sum(int(((d["cls"] == "own") & d["live"] & (d["score"] >= tau)).sum()) for d in da)
+        if mins:
+            v[f"agent_window_chance_{a}"] = _r(1.0 - math.exp(-n_own / mins * (hi - lo) / 60.0))
     lagv = l_all[hit & ver]
     v.update({"onset_verified_n": int(len(lagv)), "onset_verified_median_s": _q(lagv, 0.5)})
     if len(lagv):
@@ -965,6 +1226,8 @@ def summarise(F: str, ds: list[dict], ctxs: dict, tau: float | None = None) -> d
         pod[grp + "5"][0] += n_imp5
         pod[grp + "5"][1] += c["live_min"]
         b, _l = best_near(d, c["own"])
+        lo, hi = cast_window(c["player"])
+        b_w, _l = best_near(d, c["own"], lo=lo, hi=hi)
         per[d["sid"]] = {
             "live_minutes": _r(c["live_min"], 1), "podcast": int(c["podcast"]),
             "impossible_n": n_imp, "impossible_per_min": _r(n_imp / c["live_min"], 3),
@@ -975,6 +1238,7 @@ def summarise(F: str, ds: list[dict], ctxs: dict, tau: float | None = None) -> d
             "possible_per_min": _r(int((d["cls"][k] == "possible").sum()) / c["live_min"], 3),
             "enemy_ally_ratio": _r(enemy / ally) if ally else None,
             "own_casts": len(c["own"]), "own_hits": int((b >= tau).sum()),
+            "own_hits_agent_window": int((b_w >= tau).sum()),
             "templates_impossible": c["classes"].count("impossible"),
             "templates_possible": c["classes"].count("possible"),
             "board_applied": int(bool((c["sides"] or {}).get("board", {}).get("applied"))),
@@ -1011,6 +1275,152 @@ def summarise(F: str, ds: list[dict], ctxs: dict, tau: float | None = None) -> d
     v["impossible_beside_true_n"] = near
     v["impossible_beside_true_fraction"] = _r(near / total) if total else None
     return {"values": v, "per_session": per, "tau": tau}
+
+
+def _lineup_matches(ds: list[dict], ctxs: dict) -> list[dict]:
+    return [d for d in ds if ctxs[d["sid"]]["sides"] is not None and not ctxs[d["sid"]]["demo"]]
+
+
+def window_offsets(ds: list[dict], ctxs: dict, tau: float) -> tuple[np.ndarray, int]:
+    """(onset of each live impossible detection at tau minus that of the highest
+    own or possible detection at tau of another template that outscores it
+    within OFFSET_PROBE_S, the number of live impossible detections)."""
+    offs, n_imp = [], 0
+    for d in _lineup_matches(ds, ctxs):
+        k = d["score"] >= tau
+        tru = np.flatnonzero(k & np.isin(d["cls"], ["own", "possible"]))
+        for i in np.flatnonzero(k & d["live"] & (d["cls"] == "impossible")):
+            n_imp += 1
+            w = tru[(np.abs(d["t"][tru] - d["t"][i]) <= OFFSET_PROBE_S)
+                    & (d["score"][tru] > d["score"][i]) & (d["j"][tru] != d["j"][i])]
+            if len(w):
+                b = w[np.argmax(d["score"][w])]
+                offs.append(float(d["t"][i] - d["t"][b]))
+    return np.asarray(offs), n_imp
+
+
+def removals(ds0: list[dict], ctxs: dict, tau: float, window: float) -> tuple[dict, list[dict]]:
+    """What suppression at `window` removes from the unsuppressed live
+    detections at tau, by class and by the class of the peak that removed it.
+    A removed possible or own detection that was the only one of its agent and
+    variant in its round (unsuppressed, at tau) would be a real loss. For the
+    player's tray casts it also counts the hits at tau the rule costs, under
+    the fixed and the per-agent cast window."""
+    v = {f"removed_{c}": 0 for c in CLASSES}
+    v.update({"removed_possible_alone": 0, "removed_own_alone": 0, "removed_own_at_cast": 0,
+              "own_hits_unsuppressed": 0, "own_hits_suppressed": 0,
+              "own_hits_agent_window_unsuppressed": 0, "own_hits_agent_window_suppressed": 0,
+              "removed_possible_by_impossible": 0, "removed_possible_by_true": 0,
+              "removed_possible_by_unknown": 0, "removed_own_by_impossible": 0,
+              "removed_own_by_true": 0, "removed_own_by_unknown": 0})
+    rows = []
+    for d in _lineup_matches(ds0, ctxs):
+        c = ctxs[d["sid"]]
+        keep, by = suppress(d["t"], d["j"], d["score"], window)
+        k = (d["score"] >= tau) & d["live"]
+        ki = np.flatnonzero(k)
+        rr = [round_of(t, c["rounds"]) for t in d["t"][ki]]
+        u = round_unique([f"{a}_{w}" for a, w in zip(d["agent"][ki], d["variant"][ki])], rr)
+        alone = np.zeros(len(d["t"]), bool)
+        alone[ki] = u
+        casts = c["own"] if c.get("player") else []
+        lo, hi = cast_window(c.get("player"))
+        at_cast = np.zeros(len(d["t"]), bool)
+        if casts:
+            dk = {**d, "cls": np.where(keep, d["cls"], "dropped")}
+            for key, (a, b_) in (("own_hits", (-OWN_WIN, OWN_WIN)),
+                                 ("own_hits_agent_window", (lo, hi))):
+                v[f"{key}_unsuppressed"] += int((best_near(d, casts, lo=a, hi=b_)[0] >= tau).sum())
+                v[f"{key}_suppressed"] += int((best_near(dk, casts, lo=a, hi=b_)[0] >= tau).sum())
+            for cst in casts:
+                dt = d["t"] - cst["t"]
+                at_cast |= (dt >= lo) & (dt <= hi)
+        for i in np.flatnonzero(k & ~keep):
+            cl, b = str(d["cls"][i]), int(by[i])
+            v[f"removed_{cl}"] += 1
+            bc = str(d["cls"][b])
+            kind = "impossible" if bc == "impossible" else "true" if bc in ("own", "possible") else "unknown"
+            if cl in ("possible", "own"):
+                v[f"removed_{cl}_by_{kind}"] += 1
+                v[f"removed_{cl}_alone"] += int(alone[i])
+                if cl == "own":
+                    v["removed_own_at_cast"] += int(at_cast[i])
+                rows.append({"session_id": d["sid"], "t_s": round(float(d["t"][i]), 2),
+                             "template": d["names"][d["j"][i]], "class": cl,
+                             "score": round(float(d["score"][i]), 4), "alone_in_round": bool(alone[i]),
+                             "in_own_cast_window": bool(at_cast[i]) if cl == "own" else None,
+                             "dropped_by": d["names"][d["j"][b]], "dropped_by_class": bc,
+                             "dropped_by_score": round(float(d["score"][b]), 4),
+                             "offset_s": round(float(d["t"][i] - d["t"][b]), 2)})
+    v["own_hits_lost"] = v["own_hits_unsuppressed"] - v["own_hits_suppressed"]
+    v["own_hits_agent_window_lost"] = (v["own_hits_agent_window_unsuppressed"]
+                                       - v["own_hits_agent_window_suppressed"])
+    return v, rows
+
+
+def suppression_stats(F: str, ds0: list[dict], ctxs: dict, tau0: float, tau1: float,
+                      windows: tuple = ()) -> tuple[dict, dict]:
+    """The window evidence (offsets at the unsuppressed operating point), what
+    SUPPRESS_S removes at the suppressed operating point, and a sweep of other
+    windows, each at its own operating point."""
+    offs, n_imp = window_offsets(ds0, ctxs, tau0)
+    a = np.abs(offs)
+    v = {"window_s": SUPPRESS_S, "tau_unsuppressed": _r(tau0, 4), "tau_suppressed": _r(tau1, 4),
+         "offsets_impossible_n": n_imp, "offsets_n": int(len(a)),
+         "offsets_abs_median_s": _q(a, 0.5), "offsets_abs_q90_s": _q(a, 0.9),
+         "offsets_abs_max_s": _r(a.max(), 2) if len(a) else None}
+    edges = (0.0, 0.3, 0.6, 1.2, 2.5, OFFSET_PROBE_S)
+    key = lambda x: f"{x:g}".replace(".", "p")
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        m = (a <= hi) & ((a > lo) if lo > 0 else (a >= 0))
+        v[f"offsets_{key(lo)}_to_{key(hi)}_s"] = int(m.sum())
+    rem, rows = removals(ds0, ctxs, tau1, SUPPRESS_S)
+    v.update(rem)
+    for w in windows:
+        dsw = [apply_suppression(d, w) for d in ds0]
+        sw = summarise(F, dsw, ctxs)["values"]
+        rw, _rows = removals(ds0, ctxs, sw["tau_op"], w)
+        wk = "w" + key(w)
+        for k in ("tau_op", "impossible_n", "possible_per_min", "own_recall",
+                  "own_recall_agent_window", "verified_recall", "round_unique_fraction",
+                  "round_unique_fraction_possible", "impossible_beside_true_fraction"):
+            v[f"{wk}_{k}"] = sw[k]
+        v[f"{wk}_removed_possible_alone"] = rw["removed_possible_alone"]
+        v[f"{wk}_removed_own_alone"] = rw["removed_own_alone"]
+        v[f"{wk}_own_hits_agent_window_lost"] = rw["own_hits_agent_window_lost"]
+    return v, {"offsets_s": [round(float(x), 2) for x in offs], "removed": rows}
+
+
+def gekko_table(ds: list[dict], ctxs: dict, tau: float, agent: str = "Gekko") -> tuple[dict, list]:
+    """The added agent's two lines on the match sessions: per class, sessions
+    and live detections at tau; per session where a line is possible or fires,
+    its class, detections and highest live peak."""
+    v, rows = {}, []
+    for w in VARIANTS:
+        name = f"{agent}_ult_{w}"
+        tally = {c: [0, 0] for c in CLASSES}
+        for d in ds:
+            c = ctxs[d["sid"]]
+            if c["demo"] or name not in d["names"]:
+                continue
+            j = d["names"].index(name)
+            cl = c["classes"][j]
+            mj = (d["j"] == j) & d["live"]
+            m = mj & (d["score"] >= tau)
+            tally[cl][0] += 1
+            tally[cl][1] += int(m.sum())
+            if cl in ("own", "possible") or m.any():
+                v[f"{d['sid']}_{w}_class"] = cl
+                v[f"{d['sid']}_{w}_n"] = int(m.sum())
+                v[f"{d['sid']}_{w}_max_score"] = _r(float(d["score"][mj].max()), 4) if mj.any() else None
+                rows += [{"session_id": d["sid"], "template": name, "class": cl,
+                          "t_s": round(float(d["t"][i]), 2), "score": round(float(d["score"][i]), 4),
+                          "round": round_of(float(d["t"][i]), c["rounds"])}
+                         for i in np.flatnonzero(m)]
+        for cl, (ns, nd) in tally.items():
+            v[f"{w}_{cl}_sessions"] = ns
+            v[f"{w}_{cl}_n"] = nd
+    return v, rows
 
 
 def agent_table(F: str, ds: list[dict], ctxs: dict, tau: float) -> dict:
@@ -1138,12 +1548,13 @@ def witnesses(F: str, ds: list[dict], ctxs: dict, tau: float) -> dict:
     return v
 
 
-def write_detections(F: str, ds: list[dict], ctxs: dict, tau: float) -> int:
-    """detections/<sid>.jsonl: one row per peak at or above tau; rows of the
-    other formulations already there stay."""
+def write_detections(F: str, ds0: list[dict], ds1: list[dict], ctxs: dict, tau: float) -> int:
+    """detections/<sid>.jsonl: one row per unsuppressed peak at or above tau,
+    marked `suppressed` with the peak that dropped it; rows of the other
+    formulations already there stay."""
     DETS.mkdir(parents=True, exist_ok=True)
     total = 0
-    for d in ds:
+    for d, d1 in zip(ds0, ds1):
         c = ctxs[d["sid"]]
         p = DETS / f"{d['sid']}.jsonl"
         keep = []
@@ -1158,7 +1569,12 @@ def write_detections(F: str, ds: list[dict], ctxs: dict, tau: float) -> int:
                    "tau": round(tau, 4), "t_s": round(t, 2), "template": d["names"][d["j"][i]],
                    "agent": str(d["agent"][i]), "variant": str(d["variant"][i]),
                    "score": round(float(d["score"][i]), 4), "class": str(d["cls"][i]),
-                   "live": bool(d["live"][i]), "round": round_of(t, c["rounds"])}
+                   "live": bool(d["live"][i]), "round": round_of(t, c["rounds"]),
+                   "suppressed": not bool(d1["kept"][i]), "window_s": SUPPRESS_S}
+            b = int(d1["dropped_by"][i])
+            if b >= 0:
+                row["dropped_by"] = d["names"][d["j"][b]]
+                row["dropped_by_score"] = round(float(d["score"][b]), 4)
             if np.isfinite(d["dt"][i]):
                 row["own_cast_dt_s"] = round(float(d["dt"][i]), 2)
                 near = min(own_by_t.values(), key=lambda x: abs(x["t"] - t))
@@ -1175,6 +1591,8 @@ def write_detections(F: str, ds: list[dict], ctxs: dict, tau: float) -> int:
 
 #: The reference categorical order, slots 1 to 3 (validated, light surface).
 COLOURS = {"F-A": "#2a78d6", "F-B": "#eb6834", "F-C": "#1baf7a"}
+#: A reference curve (F-B without suppression, as 0.1.0 measured it).
+REFERENCE = "#8a8984"
 
 
 def _bgr(h: str) -> tuple[int, int, int]:
@@ -1187,7 +1605,10 @@ def plot_curves(curves: dict, ykey: str, ylabel: str, ymax: float | None, title:
     `xmax`), one line per formulation, direct labels, the operating rate
     dashed. `ymax` None scales y to the curves within the x range."""
     import cv2
-    W, H, l, r, t, b = 960, 600, 80, 150, 64, 60
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    wide = max(cv2.getTextSize(str(F), font, 0.5, 1)[0][0] for F in curves)
+    W, H, l, t, b = 960, 600, 80, 64, 60
+    r = max(150, 76 + wide)
     img = np.full((H, W, 3), _bgr("#fcfcfb"), np.uint8)
     ink, ink2, grid = _bgr("#0b0b0b"), _bgr("#52514e"), _bgr("#e6e5e0")
     xmin = 0.003
@@ -1220,7 +1641,7 @@ def plot_curves(curves: dict, ykey: str, ylabel: str, ymax: float | None, title:
     cv2.putText(img, ylabel, (l, t - 14), font, 0.5, ink2, 1, cv2.LINE_AA)
     marks = []
     for n, (F, c) in enumerate(curves.items()):
-        col = _bgr(COLOURS.get(F, "#52514e"))
+        col = _bgr(COLOURS.get(F, REFERENCE))
         o = np.argsort(c["impossible"])
         pts = np.array([[px(u), py(v)] for u, v in zip(c["impossible"][o], c[ykey][o])
                         if np.isfinite(u) and np.isfinite(v) and 0 < u <= xmax], np.int32)
@@ -1260,87 +1681,123 @@ def _deps(F: str) -> dict:
     from reticle import metrics
     return {"version": VERSION, "score": _score_fp(F), "evaluate": metrics.fingerprint(
         template_class, lineup_sides, own_x_casts, demo_x_casts, match_time, operating_tau,
-        rates_at, best_near, summarise, round_unique, round_of, witnesses,
-        OP_RATE=OP_RATE, OWN_WIN=OWN_WIN, P5_RATE=P5_RATE)}
+        rates_at, best_near, summarise, round_unique, round_of, witnesses, suppress,
+        cast_window, removals, window_offsets, gekko_table,
+        OP_RATE=OP_RATE, OWN_WIN=OWN_WIN, P5_RATE=P5_RATE, SUPPRESS_S=SUPPRESS_S,
+        CAST_WINDOW={k: list(v) for k, v in CAST_WINDOW.items()})}
+
+
+def part(kind: str, F: str | None = None, *extra: str) -> str:
+    """A recorded part name carrying the version: `evaluate-0.2.0-F-B`."""
+    return "-".join([kind, TAG, *([F] if F else []), *extra])
 
 
 def cmd_evaluate(formulations: list[str], sids: list[str], dry: bool) -> dict:
-    """Operating points, rates, recall, timing, round invariant, witnesses and
-    curves per formulation; records the metrics unless dry."""
+    """Per formulation, the templates without and with cross-template
+    suppression, each at its own operating point: rates, own recall with the
+    fixed and the per-agent cast window, timing, the round invariant, what
+    suppression removes, witnesses, Gekko's lines and curves. Records the
+    metrics unless dry; a subset of the matches is scored at the recorded
+    all-matches thresholds."""
     from reticle import metrics
     full = set(sids) >= set(match_sessions())
+    suffix = "" if full else "-subset"
+    label = "all-matches" if full else _label(sids)
     ctxs, results, curves, ops = {}, {}, {}, {}
     latest = _latest()
     for F in formulations:
-        ds = []
+        ds0 = []
         for sid in sids:
             pk = load_peaks(F, sid)
             if pk is None:
                 print(f"  {F} {sid}: no scores")
                 continue
             if sid not in ctxs:
-                names = [str(n) for n in pk["names"]]
-                ctxs[sid] = session_context(sid, int(pk["n_frames"]), names)
-            ds.append(session_detections(F, ctxs[sid]))
-        if not ds:
+                ctxs[sid] = session_context(sid, int(pk["n_frames"]), [str(n) for n in pk["names"]])
+            ds0.append(session_detections(F, ctxs[sid]))
+        if not ds0:
             continue
-        tau = None
+        tau0 = tau1 = None
         if not full:
-            tau = latest.get((f"evaluate-{F}", "all-matches"), {}).get("tau_op")
-            print(f"{F}: a subset of the matches, evaluated at the recorded all-matches "
-                  f"threshold {tau}" if tau is not None else
-                  f"{F}: a subset, no recorded threshold; computing one")
-        s = summarise(F, ds, ctxs, tau)
-        tau = s["tau"]
-        w = witnesses(F, ds, ctxs, tau)
-        ag_tab = agent_table(F, ds, ctxs, tau)
-        c = sweep(ds, ctxs)
-        curves[F] = c
-        ops[F] = (s["values"]["impossible_per_min"], s["values"]["possible_per_min"])
-        results[F] = {"values": s["values"], "per_session": s["per_session"], "witness": w,
-                      "agents": ag_tab}
-        print(f"{F}: " + json.dumps(s["values"]))
+            tau0 = latest.get((part("evaluate", F, "unsuppressed"), "all-matches"), {}).get("tau_op")
+            tau1 = latest.get((part("evaluate", F), "all-matches"), {}).get("tau_op")
+            print(f"{F}: a subset of the matches, at the recorded all-matches thresholds "
+                  f"{tau0} (unsuppressed) and {tau1}")
+        ds1 = [apply_suppression(d, SUPPRESS_S) for d in ds0]
+        s0 = summarise(F, ds0, ctxs, tau0)
+        s1 = summarise(F, ds1, ctxs, tau1)
+        tau0, tau1 = s0["tau"], s1["tau"]
+        sup, sup_ctx = suppression_stats(F, ds0, ctxs, tau0, tau1, SUPPRESS_SWEEP if full else ())
+        w = witnesses(F, ds1, ctxs, tau1)
+        ag_tab = agent_table(F, ds1, ctxs, tau1)
+        gk, gk_rows = gekko_table(ds1, ctxs, tau1)
+        curves[F] = sweep(ds1, ctxs)
+        ops[F] = s1["values"]
+        if F == "F-B":
+            curves["F-B unsuppressed"] = sweep(ds0, ctxs)
+            ops["F-B unsuppressed"] = s0["values"]
+        results[F] = {"unsuppressed": s0["values"], "values": s1["values"],
+                      "per_session": s1["per_session"], "suppression": sup,
+                      "suppression_rows": sup_ctx, "witness": w, "agents": ag_tab,
+                      "gekko": gk, "gekko_rows": gk_rows}
+        print(f"{F} unsuppressed: " + json.dumps(s0["values"]))
+        print(f"{F} suppressed: " + json.dumps(s1["values"]))
+        print(f"{F} suppression: " + json.dumps(sup))
+        print(f"{F} gekko: " + json.dumps(gk))
         print(f"{F} witnesses: " + json.dumps(w))
-        for sid, pv in s["per_session"].items():
+        for sid, pv in s1["per_session"].items():
             print(f"  {sid}: " + json.dumps(pv))
         if dry:
             continue
-        n_rows = write_detections(F, ds, ctxs, tau)
-        suffix = "" if full else "-subset"
-        label = "all-matches" if full else _label(sids)
+        n_rows = write_detections(F, ds0, ds1, ctxs, tau1)
         deps = _deps(F)
-        metrics.record("voice_lines", part=f"evaluate-{F}{suffix}", session=label,
-                       values={**s["values"], "detection_rows": n_rows}, deps=deps,
-                       context={"sessions": sorted(s["per_session"]),
-                                "podcast": podcast_sessions()})
-        for sid, pv in s["per_session"].items():
-            metrics.record("voice_lines", part=f"evaluate-{F}{suffix}", session=sid, values=pv,
-                           deps=deps, context={"tau": tau, "provenance": _jsonable(
+        ctx_run = {"sessions": sorted(s1["per_session"]), "podcast": podcast_sessions(),
+                   "window_s": SUPPRESS_S, "cast_window": {k: list(v) for k, v in CAST_WINDOW.items()}}
+        metrics.record("voice_lines", part=part("evaluate", F, "unsuppressed") + suffix,
+                       session=label, values=s0["values"], deps=deps, context=ctx_run)
+        metrics.record("voice_lines", part=part("evaluate", F) + suffix, session=label,
+                       values={**s1["values"], "detection_rows": n_rows}, deps=deps, context=ctx_run)
+        for sid, pv in s1["per_session"].items():
+            metrics.record("voice_lines", part=part("evaluate", F) + suffix, session=sid, values=pv,
+                           deps=deps, context={"tau": tau1, "provenance": _jsonable(
                                ctxs[sid]["provenance"])})
-        metrics.record("voice_lines", part=f"witness-{F}{suffix}", session=label, values=w,
+        metrics.record("voice_lines", part=part("suppression", F) + suffix, session=label,
+                       values=sup, deps=deps, context=_jsonable(sup_ctx))
+        metrics.record("voice_lines", part=part("witness", F) + suffix, session=label, values=w,
                        deps=deps, context={"heard": [list(h) for h in HEARD]})
-        metrics.record("voice_lines", part=f"agents-{F}{suffix}", session=label, values=ag_tab,
-                       deps=deps)
+        metrics.record("voice_lines", part=part("agents", F) + suffix, session=label,
+                       values=ag_tab, deps=deps)
+        metrics.record("voice_lines", part=part("gekko", F) + suffix, session=label, values=gk,
+                       deps=deps, context={"detections": gk_rows})
     if not dry and ctxs:
         REPORT.mkdir(parents=True, exist_ok=True)
         tag = "" if full else "_subset"
         if curves:
-            plot_curves(curves, "possible", "possible-template detections per live minute",
-                        None,
-                        "Possible against impossible detections, 19 match sessions with a lineup"
-                        if full else "Possible against impossible detections, subset",
-                        REPORT / f"curves_possible{tag}.png", ops)
-            plot_curves(curves, "recall", "own ult recall (accepted X casts)", 1.0,
-                        "Own ult recall against impossible detections",
-                        REPORT / f"curves_own_recall{tag}.png",
-                        {F: (results[F]["values"]["impossible_per_min"],
-                             results[F]["values"]["own_recall"] or 0) for F in results})
-        (REPORT / f"evaluate{tag}.json").write_text(json.dumps(
-            {"version": VERSION, "sessions": sids, "results": results,
+            pos = {k: {"impossible": c["impossible"], "y": c["possible"]} for k, c in curves.items()}
+            plot_curves(pos, "y", "possible-template detections per live minute", None,
+                        "Possible against impossible detections, 0.2.0, "
+                        + ("19 match sessions with a lineup" if full else "subset"),
+                        REPORT / f"curves_possible{tag}.png",
+                        {k: (o["impossible_per_min"], o["possible_per_min"]) for k, o in ops.items()})
+            rec = {k: {"impossible": c["impossible"], "y": c["recall_agent"]}
+                   for k, c in curves.items() if k in FORMULATIONS}
+            rops = {k: (o["impossible_per_min"], o["own_recall_agent_window"] or 0)
+                    for k, o in ops.items() if k in FORMULATIONS}
+            if "F-B unsuppressed" in curves:
+                ref = "F-B unsuppressed, 1.5 s window"
+                c0 = curves["F-B unsuppressed"]
+                rec[ref] = {"impossible": c0["impossible"], "y": c0["recall"]}
+                rops[ref] = (ops["F-B unsuppressed"]["impossible_per_min"],
+                             ops["F-B unsuppressed"]["own_recall"] or 0)
+            plot_curves(rec, "y", "own ult recall, each agent's cast window", 1.0,
+                        "Own ult recall against impossible detections, 0.2.0",
+                        REPORT / f"curves_own_recall{tag}.png", rops)
+        (REPORT / f"evaluate{tag}.json").write_text(json.dumps(_jsonable(
+            {"version": VERSION, "sessions": sids, "window_s": SUPPRESS_S, "results": results,
              "curves": {F: {k: [None if not np.isfinite(x) else round(float(x), 5) for x in a]
                             for k, a in c.items()} for F, c in curves.items()},
-             "lineups": {sid: _jsonable(c["sides"]) for sid, c in ctxs.items()},
-             "players": {sid: [c["player"], c["player_why"]] for sid, c in ctxs.items()}},
+             "lineups": {sid: c["sides"] for sid, c in ctxs.items()},
+             "players": {sid: [c["player"], c["player_why"]] for sid, c in ctxs.items()}}),
             indent=1), encoding="utf-8")
         if full:
             lin = [c for c in ctxs.values() if c["sides"] is not None and not c["demo"]]
@@ -1352,11 +1809,12 @@ def cmd_evaluate(formulations: list[str], sids: list[str], dry: bool) -> dict:
                     "enemy_complete": sum(c["sides"]["enemy"]["complete"] for c in lin),
                     "player_known": sum(c["player"] is not None for c in ctxs.values()
                                         if not c["demo"]),
+                    "templates": len(next(iter(ctxs.values()))["classes"]),
                     "templates_impossible_median": float(np.median(
                         [c["classes"].count("impossible") for c in lin])),
                     "templates_possible_median": float(np.median(
                         [c["classes"].count("possible") for c in lin]))}
-            metrics.record("voice_lines", part="lineup", session="all-matches", values=vals,
+            metrics.record("voice_lines", part=part("lineup"), session="all-matches", values=vals,
                            deps={"version": VERSION, "classes": metrics.fingerprint(
                                template_class, lineup_sides)})
             print("lineup: " + json.dumps(vals))
@@ -1365,7 +1823,11 @@ def cmd_evaluate(formulations: list[str], sids: list[str], dry: bool) -> dict:
 
 def _jsonable(x):
     if isinstance(x, dict):
-        return {k: _jsonable(v) for k, v in x.items()}
+        return {str(k): _jsonable(v) for k, v in x.items()}
+    if isinstance(x, np.ndarray):
+        return _jsonable(x.tolist())
+    if isinstance(x, np.bool_):
+        return bool(x)
     if isinstance(x, (list, tuple)):
         return [_jsonable(v) for v in x]
     if isinstance(x, (np.integer,)):
@@ -1406,10 +1868,12 @@ def spectrogram_png(sid: str, t: float, span: float, out: Path, before: float = 
     return out
 
 
-def review_rows(F: str, sids: list[str], tau: float, seed: int = 0) -> list[dict]:
-    """30 detections in the strata of STRATA: own-class, possible ally,
-    possible enemy and impossible at or above tau, drawn at random with a fixed
-    seed, and the highest possible or own peaks just below tau."""
+def review_rows(F: str, sids: list[str], tau: float, seed: int = 0,
+                window: float | None = SUPPRESS_S) -> list[dict]:
+    """30 detections in the strata of STRATA, after cross-template suppression
+    at `window`: own-class, possible ally, possible enemy and impossible at or
+    above tau, drawn at random with a fixed seed, and the highest possible or
+    own peaks just below tau."""
     rng = np.random.default_rng(seed)
     pool = {k: [] for k, _n in STRATA}
     names_len = {}
@@ -1421,7 +1885,7 @@ def review_rows(F: str, sids: list[str], tau: float, seed: int = 0) -> list[dict
         ctx = session_context(sid, int(pk["n_frames"]), names)
         if ctx["demo"]:
             continue
-        d = session_detections(F, ctx)
+        d = apply_suppression(session_detections(F, ctx), window)
         for j, n in enumerate(names):
             names_len[n] = int(pk["lengths"][j])
         for i in range(len(d["t"])):
@@ -1460,10 +1924,12 @@ def review_rows(F: str, sids: list[str], tau: float, seed: int = 0) -> list[dict
 def cmd_review(F: str, sids: list[str]) -> Path:
     """The review sheet: 30 stratified detections at the operating point."""
     from reticle import metrics
-    tau = _latest().get((f"evaluate-{F}", "all-matches"), {}).get("tau_op")
+    tau = _latest().get((part("evaluate", F), "all-matches"), {}).get("tau_op")
     if tau is None:
         raise SystemExit(f"no recorded operating point for {F}; run evaluate first")
     rows = review_rows(F, sids, tau)
+    files = {m["name"]: m["file"] for m in json.loads(
+        (TEMPL / "templates.json").read_text(encoding="utf-8"))["templates"]}
     out = REVIEW
     out.mkdir(parents=True, exist_ok=True)
     feats = {}
@@ -1475,7 +1941,7 @@ def cmd_review(F: str, sids: list[str]) -> Path:
             feats[sid] = ag.load_features(sid)
         png = spectrogram_png(sid, t, r["span_s"], out / f"{n:03d}_{sid}_{t:.1f}.png", f=feats[sid])
         ss = max(0.0, round(t - 1.0, 1))
-        mp3 = VOICE / f"{r['template']}.mp3"
+        mp3 = VOICE / files[r["template"]]
         items.append({**r, "rank": n + 1, "clock": f"{int(t // 60)}:{t % 60:04.1f}",
                       "png": png.name,
                       "play": f'ffplay -ss {ss} -t 5 -nodisp -autoexit "{r["capture"]}"',
@@ -1498,7 +1964,8 @@ def cmd_review(F: str, sids: list[str]) -> Path:
         "<style>body{font:14px sans-serif;background:#fcfcfb;color:#0b0b0b;margin:16px}"
         "td{border-bottom:1px solid #e6e5e0;padding:6px;vertical-align:top}"
         "code{font-size:12px;user-select:all}</style>"
-        f"<h1>Ultimate voice lines, {F}, operating threshold {tau}</h1>"
+        f"<h1>Ultimate voice lines {TAG}, {F}, operating threshold {tau}, "
+        f"one template per onset within {SUPPRESS_S} s</h1>"
         "<p>Each row is a moment the named agent's ultimate line matched the match audio. "
         "The class says what the lineup allows: <b>own</b> is the player's agent's ally line, "
         "<b>possible</b> a named ally's ally line or a named enemy's enemy line, "
@@ -1510,12 +1977,12 @@ def cmd_review(F: str, sids: list[str]) -> Path:
         "and which variant.</p><table><tr><th>#</th><th>stratum</th><th>session</th>"
         "<th>onset</th><th>template</th><th>spectrogram</th><th>listen</th>"
         f"<th>heard</th></tr>{trs}</table>", encoding="utf-8")
-    metrics.record("voice_lines", part="review", session="all-matches",
+    metrics.record("voice_lines", part=part("review"), session="all-matches",
                    values={"rows": len(items), "formulation_tau": tau,
                            **{f"rows_{k}": sum(it["stratum"] == k for it in items)
                               for k, _n in STRATA},
                            "sessions": len({it["session_id"] for it in items})},
-                   deps={"version": VERSION, "formulation": F},
+                   deps={"version": VERSION, "formulation": F, "window_s": SUPPRESS_S},
                    context={"sheet": str(out / "sheet.json")})
     print(f"{len(items)} rows -> {out / 'index.html'}")
     return out / "index.html"
@@ -1533,226 +2000,297 @@ def tok(rows: dict, part: str, session: str, key: str) -> str:
     return f"[metric:voice_lines/{part}@{session}#{key}={v}]"
 
 
-#: The Results section's closing list: what this prototype leaves undone.
+#: The 0.2.0 section's closing list: what this version leaves undone.
 NOT_DONE = (
-    "No events, labels or `reticle/` module: a matched line is not yet an "
-    "identity claim, and nothing is wired until the player has judged the review sheet.",
-    "No verdict on P0 to P6; the measured values stand beside them for the orchestrator.",
-    "One pooled threshold per formulation; no threshold per template, per session or per "
-    "agent, and no calibration of each template's own null distribution.",
-    "Only the 56 ultimate lines; the ability and callout lines "
-    "[domain:abilities/voice-lines-announce-casts] and Gekko's ult line (no asset) are "
-    "not matched.",
-    "No cross-template suppression: two templates may both fire on one line, and the "
-    "impossible rate counts such cross-talk as false alarms.",
-    "The review sheet awaits the player; no row of it is judged here. It shows the "
-    "formulation with the highest own recall only.",
-    "Own recall keeps the fixed 1.5 s window for every agent. Phoenix's X drops trail "
-    "the own line by seconds (Witnesses); no recall with a window per agent is reported "
-    "as an operating result, and nothing here re-dates a Phoenix cast.",
-    "The own line is tested on four of the player's agents only: Clove has one own X "
-    "cast on the matches and none on its demo (`0c6c52a65b9e`).",
-    "No audio left a capture: no WAV and no clips. F-B decoded each capture's audio "
-    "stream in memory with PyAV; no video was decoded and no `roi_cache` was read.",
-    "Nothing was written to the store's `notes/predictions.jsonl`, `events/` or `labels/`.",
-    "The tests run under `unittest`; the venv has no pytest.",
+    "No verdicts; the measured values stand beside P0 to P6 for the orchestrator.",
+    "The suppression window was chosen on the same 19 sessions it is scored on; no session "
+    "was held out. Suppression compares raw scores across templates; no template's scores "
+    "are calibrated against its own null distribution.",
+    "Only Phoenix has a cast window of its own; no other agent's window was fitted, and no "
+    "stored tray cast was re-dated. The wider window's chance of a hit is reported, not "
+    "subtracted.",
+    "Gekko: one take of each variant; his recast lines and the other harvested cast lines "
+    "are not matched, and no witness was matched to his detections, so they are counts "
+    "against the lineup only.",
+    "Suppression's own-line losses were counted, not examined: no removed detection was "
+    "listened to, and no rule keeps an own line that a tray cast witnesses.",
+    "The review sheet awaits the player; it shows F-B only.",
+    "No events, labels or `reticle/` module. Nothing was written to the store's "
+    "`notes/predictions.jsonl`, `events/` or `labels/`.",
+    "No audio left a capture: F-B decoded each capture's audio stream in memory again to "
+    "score Gekko's two lines; no video was decoded and no `roi_cache` was read.",
 )
 
 
 def cmd_report() -> None:
-    """Rewrite the Results section of docs/VOICE_LINES.md from the recorded runs."""
+    """Rewrite the "Results 0.2.0" section of docs/VOICE_LINES.md from the
+    recorded runs; everything before it, 0.1.0's results and verdicts, stays."""
     rows = _latest()
-    Fs = [F for F in FORMULATIONS if (f"evaluate-{F}", "all-matches") in rows]
-    T = lambda part, session, key: tok(rows, part, session, key)
-    E = lambda F, key, s="all-matches": T(f"evaluate-{F}", s, key)
-    Wt = lambda F, key: T(f"witness-{F}", "all-matches", key)
-    L = []
-    L.append("## Results\n")
+    Fs = [F for F in FORMULATIONS if (part("evaluate", F), "all-matches") in rows]
+    if not Fs:
+        raise SystemExit("no recorded 0.2.0 evaluation")
+    T = lambda pt, session, key: tok(rows, pt, session, key)
+    E = lambda F, key, sid="all-matches": T(part("evaluate", F), sid, key)
+    U = lambda F, key: T(part("evaluate", F, "unsuppressed"), "all-matches", key)
+    O = lambda F, key: T(f"evaluate-{F}", "all-matches", key)
+    SP = lambda F, key: T(part("suppression", F), "all-matches", key)
+    Wt = lambda F, key: T(part("witness", F), "all-matches", key)
+    G = lambda F, key: T(part("gekko", F), "all-matches", key)
+    TP = lambda key: T(part("templates"), "all", key)
+    odd = rows.get((part("merge-check", "F-B"), "043bafca271a"), {}).get("differing_peak_max_score")
+    tau_b = rows.get((part("evaluate", "F-B"), "all-matches"), {}).get("tau_op")
+    merge_vs_tau = "" if odd is None or tau_b is None else (
+        f", {'below' if odd < tau_b else 'at or above'} F-B's operating threshold "
+        f"{E('F-B', 'tau_op')}")
+    L = ["## Results 0.2.0\n"]
     L.append("Generated by `python prototypes/voice_lines.py report` from the runs recorded in "
-             "the store's `notes/metrics.jsonl` (`voice-lines-0.1.0`); every figure cites its "
-             "run. Outputs sit under `<store>/analysis/voice-lines/0.1.0/`.\n")
-    L.append("### What ran\n")
-    L.append(f"- Templates: {T('templates', 'all', 'templates')} lines of "
-             f"{T('templates', 'all', 'agents')} agents, {T('templates', 'all', 'resampled')} "
-             f"resampled to 48 kHz mono; kept spans {T('templates', 'all', 'span_min_s')} s to "
-             f"{T('templates', 'all', 'span_max_s')} s ({T('templates', 'all', 'frames_min')} to "
-             f"{T('templates', 'all', 'frames_max')} frames).")
-    L.append(f"- Lineups: {T('lineup', 'all-matches', 'with_lineup')} of "
-             f"{T('lineup', 'all-matches', 'match_sessions')} match sessions have one, the "
-             f"scoreboard constraint applied on {T('lineup', 'all-matches', 'board_applied')}; "
-             f"the arbiter names {T('lineup', 'all-matches', 'ally_named')} ally and "
-             f"{T('lineup', 'all-matches', 'enemy_named')} enemy slots, and the enemy side is "
-             f"complete on {T('lineup', 'all-matches', 'enemy_complete')}. A session classes a "
-             f"median of {T('lineup', 'all-matches', 'templates_impossible_median')} templates "
-             f"impossible and {T('lineup', 'all-matches', 'templates_possible_median')} possible. "
-             f"The player's agent is known on {T('lineup', 'all-matches', 'player_known')} matches.")
-    for F in Fs:
-        L.append(f"- {F}: {T(f'score-{F}', 'all', 'sessions')} sessions scored in "
-                 f"{T(f'score-{F}', 'all', 'wall_s')} s (slowest session "
-                 f"{T(f'score-{F}', 'all', 'wall_s_max')} s), "
-                 f"{T(f'score-{F}', 'all', 'peaks')} peaks kept.")
-    L.append("")
-    L.append("### Operating points\n")
-    L.append(f"Pooled over the {E(Fs[0], 'sessions') if Fs else '-'} match sessions with a "
-             f"lineup, {E(Fs[0], 'live_minutes') if Fs else '-'} live minutes. The threshold "
-             "is the lowest at which impossible templates fire at most 0.1 times per live "
-             "minute. \"Complete\" is 1 when the threshold lies above every template's stored "
-             "floor, so no peak below the floor was lost.\n")
-    L.append("| | " + " | ".join(Fs) + " |")
-    L.append("|---|" + "---|" * len(Fs))
+             "the store's `notes/metrics.jsonl` under part names that carry `0.2.0`; the 0.1.0 "
+             "columns cite 0.1.0's runs. Outputs sit under "
+             "`<store>/analysis/voice-lines/0.2.0/`. Three changes, each measured at the same "
+             "impossible rate as 0.1.0: at most 0.1 impossible detections per live minute.\n")
+    L.append("### What changed\n")
+    L.append(f"- **Gekko.** The 56 ult files lack him. His ultimate's two heard lines come from "
+             f"the harvest index, the `Ally Cast` and `Enemy Cast` takes of Thrash "
+             f"(`casts/Gekko__thrash__ally-cast__1.mp3`, `casts/Gekko__thrash__enemy-cast__1.mp3`); "
+             f"the other agents' rows of those two sections are byte-identical to their ult files. "
+             f"The templates span {TP('Gekko_ult_ally_span_s')} s and {TP('Gekko_ult_enemy_span_s')} s. "
+             f"{TP('identical_to_0_1_0')} of the other 56 templates are identical to 0.1.0's, so "
+             f"their stored peaks stand and only Gekko's two were scored, one session at a time: "
+             f"F-B in {T(part('score', 'F-B'), 'all', 'wall_s')} s over "
+             f"{T(part('score', 'F-B'), 'all', 'sessions')} sessions, decoding each capture's "
+             f"audio again in memory. On `043bafca271a` a full rescoring of all "
+             f"{T(part('lineup'), 'all-matches', 'templates')} templates gives the same peaks as "
+             f"the merged file under F-A (same peaks "
+             f"{T(part('merge-check', 'F-A'), '043bafca271a', 'same_peaks')}, where 1 is the same; "
+             f"largest score difference "
+             f"{T(part('merge-check', 'F-A'), '043bafca271a', 'max_score_diff')}). Under F-B it "
+             f"does not (same peaks {T(part('merge-check', 'F-B'), '043bafca271a', 'same_peaks')}): "
+             f"the merged Gekko peaks come from a shorter chunk step than a full rescoring uses, "
+             f"and the FFT rounds differently. {T(part('merge-check', 'F-B'), '043bafca271a', 'templates_differing')} "
+             f"templates differ, both Gekko's, with "
+             f"{T(part('merge-check', 'F-B'), '043bafca271a', 'peaks_only_full')} peaks found only "
+             f"by the full rescoring and "
+             f"{T(part('merge-check', 'F-B'), '043bafca271a', 'peaks_only_stored')} only in the "
+             f"merged file, of {T(part('merge-check', 'F-B'), '043bafca271a', 'peaks_stored')}; "
+             f"the p99 floor moves by at most "
+             f"{T(part('merge-check', 'F-B'), '043bafca271a', 'max_floor_diff')}, and the highest "
+             f"of the differing peaks scores "
+             f"{T(part('merge-check', 'F-B'), '043bafca271a', 'differing_peak_max_score')}"
+             f"{merge_vs_tau}.")
+    L.append(f"- **Cross-template suppression.** At one onset only the best-scoring template "
+             f"stands: a stored peak falls when a higher standing peak of another template lies "
+             f"within {SUPPRESS_S} s. Only higher peaks decide a peak's fate, so the rule is the "
+             f"same above any threshold. The window comes from the offsets between an impossible "
+             f"detection and the stronger own or possible detection it sits beside: at 0.2.0's "
+             f"unsuppressed F-B operating point, {SP('F-B', 'offsets_n')} of "
+             f"{SP('F-B', 'offsets_impossible_n')} impossible detections have one within 5 s; "
+             f"{SP('F-B', 'offsets_0_to_0p3_s')} lie within 0.3 s, "
+             f"{SP('F-B', 'offsets_0p3_to_0p6_s')} within 0.3 to 0.6 s, "
+             f"{SP('F-B', 'offsets_0p6_to_1p2_s')} within 0.6 to 1.2 s, "
+             f"{SP('F-B', 'offsets_1p2_to_2p5_s')} within 1.2 to 2.5 s and "
+             f"{SP('F-B', 'offsets_2p5_to_5_s')} within 2.5 to 5 s (median "
+             f"{SP('F-B', 'offsets_abs_median_s')} s, largest {SP('F-B', 'offsets_abs_max_s')} s). "
+             f"{SUPPRESS_S} s is the smallest tenth of a second that holds all of them, with none "
+             f"out to 5 s; the choice was made on 0.1.0's F-B detections, which lack only Gekko's "
+             f"two lines. F-A and F-C have {SP('F-A', 'offsets_n')} and {SP('F-C', 'offsets_n')} "
+             f"such offsets of {SP('F-A', 'offsets_impossible_n')} and "
+             f"{SP('F-C', 'offsets_impossible_n')}; their false alarms are not cross-talk "
+             f"(\"Detections by agent\" below).")
+    L.append("- **A cast window per agent.** Own recall counts an own line with onset minus "
+             "tray drop from -20 s to +1.5 s for Phoenix, whose Run it Back pips fall at expiry "
+             "[domain:abilities/phoenix-run-it-back-expiry-flash] while the caster hears the "
+             "line at the cast [domain:abilities/caster-hears-own-ult-line]; every other agent "
+             "keeps -1.5 s to +1.5 s. No stored tray cast is re-dated. Both recalls are "
+             "reported.\n")
+    L.append("### Operating points, 0.1.0 against 0.2.0\n")
+    L.append("Pooled over the match sessions with a lineup. \"0.2.0 unsuppressed\" adds only "
+             "Gekko's two templates to 0.1.0; \"0.2.0\" adds suppression. Each column sits at "
+             "its own operating threshold. 0.1.0 did not measure the per-agent window (-).\n")
     rows_def = (
-        ("Threshold", "tau_op"), ("Complete", "complete"),
-        ("Impossible detections", "impossible_n"), ("Impossible per live min", "impossible_per_min"),
-        ("False alarms per template per live min", "false_per_template_min"),
+        ("Threshold", "tau_op"), ("Impossible detections", "impossible_n"),
+        ("Impossible per live min", "impossible_per_min"),
         ("Possible per live min", "possible_per_min"),
         ("Possible ally-variant per live min", "possible_ally_per_min"),
         ("Possible enemy-variant per live min", "possible_enemy_per_min"),
         ("Own-template per live min", "own_per_min"),
-        ("Expected false possible per live min", "expected_false_possible_per_min"),
-        ("Own X casts", "own_casts"), ("Own recall", "own_recall"),
-        ("Verified X casts", "verified_casts"), ("Verified recall", "verified_recall"),
-        ("Own agent's enemy variant at an own cast", "own_enemy_variant_hits"),
+        ("Own recall, 1.5 s window", "own_recall"),
+        ("Verified recall, 1.5 s window", "verified_recall"),
+        ("Own recall, each agent's window", "own_recall_agent_window"),
+        ("Verified recall, each agent's window", "verified_recall_agent_window"),
         ("Onset minus drop, median (s)", "onset_median_s"),
-        ("Onset minus drop, 25th percentile (s)", "onset_q25_s"),
-        ("Onset minus drop, 75th percentile (s)", "onset_q75_s"),
         ("Onset minus drop, IQR (s)", "onset_iqr_s"),
         ("Enemy to ally ratio, median session", "enemy_ally_ratio_median"),
-        ("Sessions with an ally-variant detection", "enemy_ally_sessions"),
-        ("Enemy to ally ratio, pooled", "enemy_ally_ratio_pooled"),
         ("Detections alone for their line in their round", "round_unique_fraction"),
         ("... possible and own only", "round_unique_fraction_possible"),
         ("Impossible beside a higher possible or own detection", "impossible_beside_true_fraction"),
-    )
-    for label, key in rows_def:
-        L.append(f"| {label} | " + " | ".join(E(F, key) for F in Fs) + " |")
-    L.append("")
-    agents = sorted({k.split("_", 2)[2] for F in Fs
-                     for k in rows.get((f"evaluate-{F}", "all-matches"), {})
-                     if k.startswith("own_recall_")})
-    if agents:
-        L.append("Own recall by the player's agent (accepted X casts; verified in brackets):\n")
-        L.append("| Agent | " + " | ".join(Fs) + " |")
-        L.append("|---|" + "---|" * len(Fs))
-        for a in agents:
-            L.append(f"| {a} | " + " | ".join(
-                f"{E(F, f'own_recall_{a}')} of {E(F, f'own_casts_{a}')} "
-                f"({E(F, f'verified_recall_{a}')} of {E(F, f'verified_casts_{a}')})"
-                for F in Fs) + " |")
-        L.append("")
-    L.append("### Curves\n")
-    L.append("- `<store>/analysis/voice-lines/0.1.0/report/curves_possible.png`: possible-template "
-             "detections against impossible-template detections per live minute, one line per "
-             "formulation, the operating point marked.")
-    L.append("- `<store>/analysis/voice-lines/0.1.0/report/curves_own_recall.png`: own ult recall "
-             "against the same axis.")
-    L.append("- `<store>/analysis/voice-lines/0.1.0/review/index.html`: the review sheet.\n")
-    L.append("### Per session\n")
-    sids = sorted({s for (p, s) in rows if p == f"evaluate-{Fs[0]}" and s != "all-matches"},
-                  key=lambda s: (-(rows[(f"evaluate-{Fs[0]}", s)].get("podcast") or 0), s)) if Fs else []
+        ("Podcast to rest impossible ratio", "podcast_ratio"),
+        ("... at the 1/min threshold", "podcast_ratio_at_p5"))
     for F in Fs:
-        L.append(f"{F} at its operating threshold; the impossible rate is also given at the "
-                 f"common threshold where the pooled impossible rate is 1 per live minute "
-                 f"({E(F, 'tau_p5')}). (podcast) marks the sessions the audio gate's speech cut "
-                 "named.\n")
-        L.append("| Session | Live min | Impossible/min | Impossible/min at 1/min threshold | "
-                 "Possible ally | Possible enemy | Own | Own X casts found | Enemy/ally | "
-                 "Alone in round |")
-        L.append("|---|---|---|---|---|---|---|---|---|---|")
-        for s in sids:
-            pod = " (podcast)" if rows.get((f"evaluate-{F}", s), {}).get("podcast") else ""
-            L.append(f"| `{s}`{pod} | {E(F, 'live_minutes', s)} | {E(F, 'impossible_per_min', s)} | "
-                     f"{E(F, 'impossible_per_min_at_p5', s)} | {E(F, 'possible_ally_n', s)} | "
-                     f"{E(F, 'possible_enemy_n', s)} | {E(F, 'own_n', s)} | "
-                     f"{E(F, 'own_hits', s)} of {E(F, 'own_casts', s)} | "
-                     f"{E(F, 'enemy_ally_ratio', s)} | {E(F, 'round_unique_fraction', s)} |")
-        L.append("")
-        L.append(f"Podcast sessions ({E(F, 'podcast_sessions')}) against the rest: "
-                 f"{E(F, 'podcast_impossible_per_min')} and {E(F, 'rest_impossible_per_min')} "
-                 f"impossible per live minute at the operating threshold, ratio "
-                 f"{E(F, 'podcast_ratio')}; {E(F, 'podcast_impossible_per_min_at_p5')} and "
-                 f"{E(F, 'rest_impossible_per_min_at_p5')} at the 1/min threshold, ratio "
-                 f"{E(F, 'podcast_ratio_at_p5')}.\n")
-    L.append("### Detections by agent\n")
-    for F in Fs[:1] + [x for x in Fs[1:] if x == "F-B"]:
-        tab = rows.get((f"agents-{F}", "all-matches"), {})
-        names = sorted({k.rsplit("_", 2)[0] for k in tab if k.endswith("_n")})
-        L.append(f"{F} at its operating threshold: live detections by class, and the number of "
-                 "sessions in which the template is of that class. Lines with no detection and "
-                 "no possible session are left out.\n")
-        L.append("| Line | Own (sessions) | Possible (sessions) | Impossible (sessions) |")
+        L.append(f"{F}:\n")
+        L.append("| | 0.1.0 | 0.2.0 unsuppressed | 0.2.0 |")
         L.append("|---|---|---|---|")
-        for n in names:
-            vals = [tab.get(f"{n}_{c}_n", 0) for c in ("own", "possible", "impossible")]
-            ses = [tab.get(f"{n}_{c}_sessions", 0) for c in ("own", "possible")]
-            if not any(vals) and not any(ses):
-                continue
-            cell = lambda c: (f"{T(f'agents-{F}', 'all-matches', f'{n}_{c}_n')} "
-                              f"({T(f'agents-{F}', 'all-matches', f'{n}_{c}_sessions')})")
-            L.append(f"| {n} | {cell('own')} | {cell('possible')} | {cell('impossible')} |")
+        for label, key in rows_def:
+            L.append(f"| {label} | {O(F, key)} | {U(F, key)} | {E(F, key)} |")
         L.append("")
-    L.append("### Witnesses\n")
-    L.append("Agreement is consistency, not accuracy. Each witness below observes the cast "
-             "through another channel than the audio it checks.\n")
+    L.append("### What suppression removes\n")
     for F in Fs:
-        L.append(f"- {F}. The tray's own X drops are the recall above. The line the player "
-                 f"heard on `043bafca271a` at 1870.1 s (Vyse): the enemy variant scores "
-                 f"{Wt(F, 'heard_043bafca271a_Vyse_enemy_score')}, onset "
-                 f"{Wt(F, 'heard_043bafca271a_Vyse_enemy_dt_s')} s from the heard time, "
-                 f"detected {Wt(F, 'heard_043bafca271a_Vyse_enemy_detected')} (1 is detected); "
-                 f"the ally variant scores {Wt(F, 'heard_043bafca271a_Vyse_ally_score')}. "
-                 f"Spectated X drops (a teammate's kit on the tray after the player's death, "
-                 f"neither forced nor co-occurring): {Wt(F, 'spectated_x_with_ally_line')} of "
-                 f"{Wt(F, 'spectated_x_drops')} have a possible ally-variant detection within "
-                 f"1.5 s ({Wt(F, 'spectated_x_fraction')}; chance {Wt(F, 'spectated_x_chance')}). "
-                 f"Demos: {Wt(F, 'demo_x_hits')} of {Wt(F, 'demo_x_casts')} own X casts found, "
-                 f"other templates firing {Wt(F, 'demo_other_per_min')} times per capture minute "
-                 f"over {Wt(F, 'demo_minutes')} minutes. The lineup: on "
-                 f"{Wt(F, 'board_disagreements')} slots the scoreboard overrode the top bar's "
-                 f"agent; on those slots' sides the board's agent's line fires "
-                 f"{Wt(F, 'board_agent_lines')} times in live time and the top bar's "
-                 f"{Wt(F, 'top_bar_agent_lines')}. Of {Wt(F, 'impossible_live')} live impossible "
-                 f"detections, {Wt(F, 'impossible_top_bar_proposed')} name an agent the top bar "
-                 f"proposed on that side, a lineup conflict rather than a plain false alarm.")
-        agents_lead = sorted({k.split("_")[1] for k in rows.get((f"witness-{F}", "all-matches"), {})
-                              if k.startswith("lead_") and k.endswith("_casts")})
-        if agents_lead:
-            L.append(f"  Own X drops against the own line anywhere from 20 s before to 1.5 s "
-                     f"after the drop, by the player's agent (hits of casts; median, 25th and "
-                     f"75th percentile of onset minus drop in s; chance of a hit at that "
-                     f"agent's own-line rate): " + "; ".join(
-                         f"{a} {Wt(F, f'lead_{a}_hits')} of {Wt(F, f'lead_{a}_casts')}, "
-                         f"{Wt(F, f'lead_{a}_median_s')} ({Wt(F, f'lead_{a}_q25_s')} to "
-                         f"{Wt(F, f'lead_{a}_q75_s')}), chance {Wt(F, f'lead_{a}_chance')}"
-                         for a in agents_lead) + ".")
+        L.append(f"- {F}, at the suppressed operating threshold {SP(F, 'tau_suppressed')}: from the "
+                 f"unsuppressed live detections it removes {SP(F, 'removed_impossible')} impossible, "
+                 f"{SP(F, 'removed_possible')} possible, {SP(F, 'removed_own')} own and "
+                 f"{SP(F, 'removed_unknown')} unknown. Of the possible ones, "
+                 f"{SP(F, 'removed_possible_by_true')} fell to a higher possible or own line, "
+                 f"{SP(F, 'removed_possible_by_impossible')} to a higher impossible line and "
+                 f"{SP(F, 'removed_possible_by_unknown')} to an unknown one; "
+                 f"{SP(F, 'removed_possible_alone')} were the only detection of their agent and "
+                 f"variant in their round, so each is a real loss if its line was spoken. Of the "
+                 f"own ones, {SP(F, 'removed_own_by_true')} fell to a possible line, "
+                 f"{SP(F, 'removed_own_by_impossible')} to an impossible one, "
+                 f"{SP(F, 'removed_own_alone')} were alone in their round, and "
+                 f"{SP(F, 'removed_own_at_cast')} lay in the cast window of one of the player's "
+                 f"tray casts. At the same threshold the rule costs "
+                 f"{SP(F, 'own_hits_lost')} of {SP(F, 'own_hits_unsuppressed')} cast hits with the "
+                 f"1.5 s window and {SP(F, 'own_hits_agent_window_lost')} of "
+                 f"{SP(F, 'own_hits_agent_window_unsuppressed')} with each agent's window.")
     L.append("")
-    L.append("### Outcomes\n")
-    L.append("Measured values beside each prediction; the orchestrator judges them.\n")
+    L.append("Other windows, each at its own operating threshold (losses as above):\n")
+    for F in Fs:
+        L.append(f"{F}:\n")
+        L.append("| Window (s) | Threshold | Possible per live min | Own recall, 1.5 s | "
+                 "Own recall, agent window | Alone in round | Impossible beside a true line | "
+                 "Possible lost | Own lost | Cast hits lost, agent window |")
+        L.append("|---|---|---|---|---|---|---|---|---|---|")
+        for w in SUPPRESS_SWEEP:
+            k = "w" + f"{w:g}".replace(".", "p")
+            L.append(f"| {w:g} | {SP(F, k + '_tau_op')} | {SP(F, k + '_possible_per_min')} | "
+                     f"{SP(F, k + '_own_recall')} | {SP(F, k + '_own_recall_agent_window')} | "
+                     f"{SP(F, k + '_round_unique_fraction')} | "
+                     f"{SP(F, k + '_impossible_beside_true_fraction')} | "
+                     f"{SP(F, k + '_removed_possible_alone')} | {SP(F, k + '_removed_own_alone')} | "
+                     f"{SP(F, k + '_own_hits_agent_window_lost')} |")
+        L.append("")
+    agents = sorted({k.rsplit("_", 1)[1] for F in Fs
+                     for k in rows.get((part("evaluate", F), "all-matches"), {})
+                     if k.startswith("own_recall_agent_window_")})
+    L.append("### Own recall by the player's agent\n")
+    L.append("At the 0.2.0 operating threshold: accepted X casts found with the 1.5 s window, "
+             "then with each agent's window; verified casts in brackets.\n")
+    L.append("| Agent | Casts (verified) | " + " | ".join(Fs) + " |")
+    L.append("|---|---|" + "---|" * len(Fs))
+    for a in agents:
+        L.append(f"| {a} | {E(Fs[0], f'own_casts_{a}')} ({E(Fs[0], f'verified_casts_{a}')}) | "
+                 + " | ".join(f"{E(F, f'own_recall_{a}')} to {E(F, f'own_recall_agent_window_{a}')} "
+                              f"({E(F, f'verified_recall_{a}')} to "
+                              f"{E(F, f'verified_recall_agent_window_{a}')})" for F in Fs) + " |")
+    L.append("")
+    for a in CAST_WINDOW:
+        L.append(f"The chance that an own line at the {a} sessions' live rate lands in {a}'s "
+                 f"{CAST_WINDOW[a][1] - CAST_WINDOW[a][0]:g} s window: "
+                 + ", ".join(f"{F} {E(F, f'agent_window_chance_{a}')}" for F in Fs) + ".\n")
+    L.append("### Gekko\n")
+    for F in Fs:
+        tab = rows.get((part("gekko", F), "all-matches"), {})
+        L.append(f"- {F} at its 0.2.0 threshold, live detections: the ally line is possible on "
+                 f"{G(F, 'ally_possible_sessions')} session, firing {G(F, 'ally_possible_n')} "
+                 f"times, and impossible on {G(F, 'ally_impossible_sessions')}, firing "
+                 f"{G(F, 'ally_impossible_n')} times; the enemy line is possible on "
+                 f"{G(F, 'enemy_possible_sessions')} sessions, firing {G(F, 'enemy_possible_n')} "
+                 f"times, and impossible on {G(F, 'enemy_impossible_sessions')}, firing "
+                 f"{G(F, 'enemy_impossible_n')} times.")
+        sess = sorted({k.split("_", 1)[0] for k in tab if k.endswith("_class")})
+        for sid in sess:
+            for w in VARIANTS:
+                if f"{sid}_{w}_class" in tab:
+                    top = (f"highest live peak {G(F, f'{sid}_{w}_max_score')}"
+                           if tab.get(f"{sid}_{w}_max_score") is not None
+                           else "no live peak above the template's p99 floor")
+                    L.append(f"  - `{sid}`, {w} line: class {G(F, f'{sid}_{w}_class')}, "
+                             f"{G(F, f'{sid}_{w}_n')} live detections, {top}.")
+    L.append("")
+    L.append("### Detections by agent\n")
+    L.append("Live detections at each 0.2.0 threshold of the lines that fire as impossible, "
+             "with the sessions where the line is impossible:\n")
+    L.append("| Line | " + " | ".join(Fs) + " |")
+    L.append("|---|" + "---|" * len(Fs))
+    names = sorted({k.rsplit("_", 2)[0] for F in Fs
+                    for k, v in rows.get((part("agents", F), "all-matches"), {}).items()
+                    if k.endswith("_impossible_n") and v})
+    for n in names:
+        L.append(f"| {n} | " + " | ".join(
+            f"{T(part('agents', F), 'all-matches', f'{n}_impossible_n')} "
+            f"({T(part('agents', F), 'all-matches', f'{n}_impossible_sessions')})" for F in Fs) + " |")
+    L.append("")
+    F = "F-B" if "F-B" in Fs else Fs[0]
+    L.append(f"### Per session, {F} 0.2.0\n")
+    L.append("(podcast) marks the sessions the audio gate's speech cut named. Own X casts found: "
+             "1.5 s window, then each agent's window.\n")
+    L.append("| Session | Live min | Impossible/min | Impossible/min at 1/min threshold | "
+             "Possible ally | Possible enemy | Own | Own X casts found | Enemy/ally | Alone in round |")
+    L.append("|---|---|---|---|---|---|---|---|---|---|")
+    sids = sorted({sid for (pt, sid) in rows if pt == part("evaluate", F) and sid != "all-matches"},
+                  key=lambda x: (-(rows[(part("evaluate", F), x)].get("podcast") or 0), x))
+    for sid in sids:
+        pod = " (podcast)" if rows[(part("evaluate", F), sid)].get("podcast") else ""
+        L.append(f"| `{sid}`{pod} | {E(F, 'live_minutes', sid)} | {E(F, 'impossible_per_min', sid)} | "
+                 f"{E(F, 'impossible_per_min_at_p5', sid)} | {E(F, 'possible_ally_n', sid)} | "
+                 f"{E(F, 'possible_enemy_n', sid)} | {E(F, 'own_n', sid)} | "
+                 f"{E(F, 'own_hits', sid)}, {E(F, 'own_hits_agent_window', sid)} of "
+                 f"{E(F, 'own_casts', sid)} | {E(F, 'enemy_ally_ratio', sid)} | "
+                 f"{E(F, 'round_unique_fraction', sid)} |")
+    L.append("")
+    L.append(f"### Witnesses, {F} 0.2.0\n")
+    L.append(f"- The line the player heard on `043bafca271a` at 1870.1 s (Vyse): the enemy "
+             f"variant scores {Wt(F, 'heard_043bafca271a_Vyse_enemy_score')}, onset "
+             f"{Wt(F, 'heard_043bafca271a_Vyse_enemy_dt_s')} s from the heard time, detected "
+             f"{Wt(F, 'heard_043bafca271a_Vyse_enemy_detected')} (1 is detected).")
+    L.append(f"- Spectated X drops: {Wt(F, 'spectated_x_with_ally_line')} of "
+             f"{Wt(F, 'spectated_x_drops')} have a possible ally-variant detection within 1.5 s "
+             f"(chance {Wt(F, 'spectated_x_chance')}).")
+    L.append(f"- Demos: {Wt(F, 'demo_x_hits')} of {Wt(F, 'demo_x_casts')} own X casts found; "
+             f"other templates fire {Wt(F, 'demo_other_per_min')} times per capture minute.")
+    L.append(f"- The lineup: on {Wt(F, 'board_disagreements')} slots the scoreboard overrode "
+             f"the top bar; the board's agent's line fires {Wt(F, 'board_agent_lines')} times on "
+             f"those sides and the top bar's {Wt(F, 'top_bar_agent_lines')}. Of "
+             f"{Wt(F, 'impossible_live')} live impossible detections, "
+             f"{Wt(F, 'impossible_top_bar_proposed')} name an agent the top bar proposed on that "
+             f"side.")
+    L.append("")
+    L.append("### Outcomes at 0.2.0\n")
+    L.append("The measured values beside each prediction, at the 0.2.0 operating point; no "
+             "verdicts.\n")
     L.append("| Id | Prediction (abridged) | " + " | ".join(Fs) + " |")
     L.append("|---|---|" + "---|" * len(Fs))
     pred = (
-        ("P0", "own ally line within 1.5 s of >= 0.8 of accepted X casts at 0.1 impossible/min",
-         lambda F: f"recall {E(F, 'own_recall')}; verified {E(F, 'verified_recall')}"),
-        ("P1", "possible detections 0.3 to 1.5 per live min at that point",
-         lambda F: f"{E(F, 'possible_per_min')} (with own {E(F, 'possible_or_own_per_min')})"),
-        ("P2", "F-A matches or beats F-B on own recall at the same impossible rate",
-         lambda F: f"own recall {E(F, 'own_recall')} at {E(F, 'impossible_per_min')}/min"),
-        ("P3", "enemy-variant detections >= half the ally-variant on the median session",
-         lambda F: f"median {E(F, 'enemy_ally_ratio_median')} over {E(F, 'enemy_ally_sessions')} sessions"),
-        ("P4", ">= 0.95 of detections alone for their agent and variant in their round",
+        ("P0", "own ally line within 1.5 s of >= 0.8 of accepted X casts",
+         lambda F: f"{E(F, 'own_recall')}; each agent's window {E(F, 'own_recall_agent_window')}"),
+        ("P1", "possible detections 0.3 to 1.5 per live min",
+         lambda F: f"{E(F, 'possible_per_min')}"),
+        ("P2", "F-A matches or beats F-B on own recall",
+         lambda F: f"{E(F, 'own_recall')} at {E(F, 'impossible_per_min')}/min"),
+        ("P3", "enemy-variant >= half the ally-variant detections, median session",
+         lambda F: f"{E(F, 'enemy_ally_ratio_median')} over {E(F, 'enemy_ally_sessions')} sessions"),
+        ("P4", ">= 0.95 of detections alone for their line in their round",
          lambda F: f"{E(F, 'round_unique_fraction')} of {E(F, 'round_n')}"),
-        ("P5", "podcast sessions >= 2x the impossible rate of the rest at a common threshold",
-         lambda F: f"{E(F, 'podcast_ratio')} at the operating point; {E(F, 'podcast_ratio_at_p5')} at 1/min"),
+        ("P5", "podcast sessions >= 2x the impossible rate of the rest",
+         lambda F: f"{E(F, 'podcast_ratio')}; {E(F, 'podcast_ratio_at_p5')} at 1/min"),
         ("P6", "own onset minus drop IQR <= 0.5 s",
-         lambda F: f"IQR {E(F, 'onset_iqr_s')}, median {E(F, 'onset_median_s')}, n {E(F, 'onset_n')}"),
-    )
+         lambda F: f"{E(F, 'onset_iqr_s')}, n {E(F, 'onset_n')}"))
     for pid, text, cell in pred:
         L.append(f"| {pid} | {text} | " + " | ".join(cell(F) for F in Fs) + " |")
     L.append("")
-    L.append("### What was not done\n")
+    L.append("### Curves and review\n")
+    L.append("- `<store>/analysis/voice-lines/0.2.0/report/curves_possible.png`: possible against "
+             "impossible detections per live minute, each formulation with suppression, F-B "
+             "without it in grey.")
+    L.append("- `<store>/analysis/voice-lines/0.2.0/report/curves_own_recall.png`: own recall with "
+             "each agent's window, and F-B without suppression with the 1.5 s window in grey.")
+    L.append(f"- `<store>/analysis/voice-lines/0.2.0/review/index.html`: "
+             f"{T(part('review'), 'all-matches', 'rows')} rows at the F-B 0.2.0 threshold "
+             f"{T(part('review'), 'all-matches', 'formulation_tau')}, stratified as in 0.1.0.\n")
+    L.append("### What was not done in 0.2.0\n")
     L.extend(f"- {x}" for x in NOT_DONE)
     L.append("")
-    doc = DOC.read_text(encoding="utf-8") if DOC.is_file() else "# Voice lines\n\n"
-    head = doc.split("## Results", 1)[0].rstrip() + "\n\n"
+    doc = DOC.read_text(encoding="utf-8")
+    head = doc.split("## Results 0.2.0", 1)[0].rstrip() + "\n\n"
     DOC.write_text(head + "\n".join(L), encoding="utf-8", newline="\n")
     print(f"wrote {DOC}")
 
@@ -1768,10 +2306,15 @@ def main(argv: list[str] | None = None) -> int:
     sc = sub.add_parser("score")
     sc.add_argument("--formulation", required=True, choices=FORMULATIONS)
     sc.add_argument("--sessions", nargs="*")
+    sc.add_argument("--templates", nargs="*",
+                    help="score only these; every other template's peaks come from 0.1.0")
     ev = sub.add_parser("evaluate")
     ev.add_argument("--formulations", nargs="*", choices=FORMULATIONS)
     ev.add_argument("--sessions", nargs="*")
     ev.add_argument("--dry", action="store_true", help="print only; record and write nothing")
+    mc = sub.add_parser("check-merge")
+    mc.add_argument("--formulation", required=True, choices=FORMULATIONS)
+    mc.add_argument("--session", required=True)
     rv = sub.add_parser("review")
     rv.add_argument("--formulation", choices=FORMULATIONS)
     rv.add_argument("--sessions", nargs="*")
@@ -1782,7 +2325,9 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "templates":
         cmd_templates()
     elif a.cmd == "score":
-        cmd_score(a.formulation, a.sessions or every)
+        cmd_score(a.formulation, a.sessions or every, a.templates)
+    elif a.cmd == "check-merge":
+        cmd_check_merge(a.formulation, a.session)
     elif a.cmd == "evaluate":
         have = [F for F in FORMULATIONS if (SCORES / F).is_dir()]
         cmd_evaluate(a.formulations or have, a.sessions or every, a.dry)
@@ -1790,8 +2335,8 @@ def main(argv: list[str] | None = None) -> int:
         F = a.formulation
         if F is None:
             rows = _latest()
-            got = [(rows[(f"evaluate-{x}", "all-matches")].get("own_recall") or 0, x)
-                   for x in FORMULATIONS if (f"evaluate-{x}", "all-matches") in rows]
+            got = [(rows[(part("evaluate", x), "all-matches")].get("own_recall_agent_window") or 0, x)
+                   for x in FORMULATIONS if (part("evaluate", x), "all-matches") in rows]
             if not got:
                 raise SystemExit("no recorded evaluation; run evaluate first")
             F = max(got)[1]
