@@ -929,3 +929,42 @@ reference cut at a fixed offset from the tray drop may hold the hold, not the
 release; the HUD element is a witness of the bolt's phase, unread
 """
 see = ["abilities/sova-recon-bolt-minimap-ring"]
+
+[clove-ruse-minimap-duration]
+claim = """
+Each Ruse cloud's disc stays drawn on the caster's minimap about 15 seconds,
+from the placement that spends its charge.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-09-26"
+subject = "clove:ruse"
+source = """
+prototypes/demo_cast_census.py `discs` on the re-recorded Clove demo
+0c6c52a65b9e: drops at 17.23 and 24.57 s each draw one new disc, dark at its
+centre from the drop to 14.9 s after it, on every cached frame (about 14 Hz)
+"""
+use = "expected lifetime of a Ruse disc; a Clove dark disc much older is another object"
+see = ["abilities/clove-rouse", "abilities/clove-tray-charges"]
+
+[skye-regrowth-no-tray-drop]
+claim = """
+Channelling Regrowth with no one to heal moves no tray bar: Skye's C bar
+stays full while the minimap draws the Regrowth ring.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-09-26"
+subject = "skye:regrowth"
+source = """
+the re-recorded Skye demo fc02a2c1ac01, a solo range demo:
+reticle.ability_shapes finds the ring round Skye on 164 cached frames from
+5.17 to 16.53 s, and reticle.tray reads no C drop in the whole capture. The
+catalogue says Regrowth "can be reused until her healing pool is depleted"
+"""
+use = """
+a Regrowth channel has no tray drop to date it; date it from the ring
+(`ability_shapes`) or its sound. Whether healing an ally moves the bar is
+unobserved
+"""
+see = ["abilities/skye-regrowth-minimap-ring"]

@@ -3,6 +3,8 @@
 Measured 2026-09-26 by `prototypes/demo_cast_census.py`. The outputs live in
 `<store>/analysis/demo-cast-census/`. The census asks the player to confirm
 it. It is not a detector.
+The four demos re-recorded to the Omen protocol have their own section,
+[the re-recorded protocol demos](#the-re-recorded-protocol-demos-2026-09-26).
 
 ## Question
 
@@ -449,3 +451,256 @@ Shown the montages named above, the player answered the same day:
   two Q drops for that one cast; whether charging moves a bar is unmeasured.
 - **Recordings.** The player will re-record Sova, Phoenix, Skye and Clove to
   the Omen protocol and then run the labelling pass.
+
+## The re-recorded protocol demos (2026-09-26)
+
+The player re-recorded four demos to the Omen protocol: standing still, casts
+spaced, equip-hold-cast, three of each ability, Pick-me-up and Not Dead Yet
+included. The census ran on them with `--run rerecorded`. The outputs live in
+`<store>/analysis/demo-cast-census-rerecorded/`, and every count below is
+recorded under a part named `rerecorded-*`.
+
+| session | agent | capture file | length | cached frames |
+|---|---|---|---|---|
+| `aab12e41dcfc` | Sova | `C:\Users\grant\Videos\2026-09-26 19-39-06.mp4` | 65.7 s | [metric:demo_cast_census/rerecorded-cache@aab12e41dcfc#frames=904] |
+| `6afc32cb46b4` | Phoenix | `C:\Users\grant\Videos\2026-09-26 19-41-03.mp4` | 59.0 s | [metric:demo_cast_census/rerecorded-cache@6afc32cb46b4#frames=812] |
+| `fc02a2c1ac01` | Skye | `C:\Users\grant\Videos\2026-09-26 19-42-54.mp4` | 46.8 s | [metric:demo_cast_census/rerecorded-cache@fc02a2c1ac01#frames=638] |
+| `0c6c52a65b9e` | Clove | `C:\Users\grant\Videos\2026-09-26 19-44-34.mp4` | 46.8 s | [metric:demo_cast_census/rerecorded-cache@0c6c52a65b9e#frames=637] |
+
+The steps were the first census's, one process at a time: the whole-capture
+crop cache at 15 Hz with NVDEC, `reticle.tray` drops judged by eye, the
+residual, the montages, the blind read and the table. Six sampled crops per
+demo matched the decoded frame (on Sova,
+[metric:demo_cast_census/rerecorded-cache@aab12e41dcfc#rects_identical=6] of
+[metric:demo_cast_census/rerecorded-cache@aab12e41dcfc#rects_checked=6]). The
+first steps ran at Idle priority and the later ones at Below Normal with four
+threads, as the player allowed for this session. Three steps are new: `holds`
+times each Sova bolt from the bow's glow over the tray, `sweep` asks
+`reticle.ability_shapes` for its shapes on every cached frame, and `discs`
+reads each smoke disc's life at its centre.
+
+### In brief
+
+- **Fifteen casts, not 48.** Each charge falls once and never refills, so no
+  ability shows three casts on the tray.
+- **The classes repeat.** On the eleven abilities both censuses saw, the blind
+  majority here equals the first census's on ten, and on fourteen of fifteen
+  casts. The one change is Recon Bolt, whose first-census drop was no Recon
+  Bolt.
+- **Ruse draws one disc per cloud**
+  [domain:abilities/clove-ruse-minimap-duration].
+- **Regrowth spends no charge,** so the tray never sees it
+  [domain:abilities/skye-regrowth-no-tray-drop]; the shape sweep finds its
+  ring round Skye.
+- **Four abilities were never cast:** Pick-me-up, Not Dead Yet, Run it Back
+  and Seekers.
+
+### Predictions and outcomes
+
+I logged nine predictions (task `demo-cast-census`, run `rerecorded`) before
+the cache was built and appended the outcomes after the key opened.
+
+| | prediction (confidence) | outcome |
+|---|---|---|
+| R1 | three casts per ability, 12 per demo, 48 in all, and one menu drop at each session's end (0.5) | **wrong**: [metric:demo_cast_census/rerecorded-casts@rerecorded#census=15] casts, and a menu drop on [metric:demo_cast_census/rerecorded-casts@rerecorded#menu_demos=2] demos |
+| R2 | on the first census's eleven abilities, the blind class equals its class on at least 80% (0.7) | **right**: [metric:demo_cast_census/rerecorded-table@rerecorded#agree_prior=15] of [metric:demo_cast_census/rerecorded-table@rerecorded#prior_rows=15] |
+| R3 | every Ruse reads `dark_disc`, one disc per cloud, the count equal to the charges spent (0.8) | **right**: [metric:demo_cast_census/rerecorded-table@rerecorded#ruse_count_eq_spent=2] of [metric:demo_cast_census/rerecorded-table@rerecorded#ruse_casts=2] |
+| R4 | Pick-me-up and Not Dead Yet read nothing on 6 of 6 (0.8) | **untested**: neither was cast |
+| R5 | Blaze reads `wall_segments` on 3 of 3 (0.7) | **right** on the one cast |
+| R6 | a teal ring round the bolt within 4 s on 3 of 3 Recon Bolts (0.75) | **right** on the one cast |
+| R7 | each bolt's hold shows as the bow's glow, 0.5-4 s on all six, with a false glow drop (0.5) | **wrong**: three bolts, two holds outside the range; the false drop came |
+| R8 | Regrowth reads `teal_ring` on 3 of 3; Seekers `compact_icon` on 3 of 3 (0.6) | **untested** by the blind read: no drop for either |
+| R9 | blind nothing on 18-24 of 48; residual nothing on at most 12 (0.7) | **wrong** as worded; right in rate |
+
+**R1.** `reticle.tray` found
+[metric:demo_cast_census/rerecorded-casts@rerecorded#drops=20] drops. No
+stored cast cache exists for these sessions, so I judged every drop by eye
+from its tray strip
+([metric:demo_cast_census/rerecorded-casts@rerecorded#eyed=20]):
+[metric:demo_cast_census/rerecorded-casts@rerecorded#eyed_false=2] were false
+and [metric:demo_cast_census/rerecorded-casts@rerecorded#eyed_menu=3] were the
+settings menu, which leaves 15 casts. They cover
+[metric:demo_cast_census/rerecorded-casts@rerecorded#abilities_cast=11] of the
+[metric:demo_cast_census/rerecorded-casts@rerecorded#kit_abilities=16] kit
+abilities, and
+[metric:demo_cast_census/rerecorded-casts@rerecorded#abilities_cast_3=0] reach
+three. Every charge fell once and none refilled: Ruse, Curveball, Guiding
+Light and Shock Bolt spent both charges; Meddle, Blaze, Hot Hands, Owl Drone,
+Recon Bolt, Trailblazer and Hunter's Fury spent one. Over the spent signature
+slots the tray prints a cooldown count ("40" over Ruse, "50" over Recon Bolt
+and Guiding Light), which fits the catalogue's restocks (Ruse 40 s, Recon Bolt
+60 s). The manifests carry the tag `infinite-abilities`; the tray contradicts
+it. The minimap agrees with the tray: a 1 Hz contact sheet of each demo shows
+one Owl Drone, one Recon ring, one Hunter's Fury line, one Blaze wall, two
+Ruse discs and one Regrowth ring, and no second copy of any.
+
+The menu dimmed the tray [domain:hud/menu-dims-tray] and raised a drop on two
+demos. On Clove at 44.05 s a CLOSE SETTINGS button covers the tray, and C and
+X fall together; on Phoenix every bar and icon dims at 55.68 s and stays dim
+to the end. Sova opens the menu at about 61 s, but every bar was already
+empty, so nothing fell. Skye's capture ends on black with no menu. Of the two
+false drops, the bow's glow lifted Sova's Q at 18.07 s, and a white flash and
+flames over the screen (53.25-54.5 s) washed Phoenix's X at 54.05 s; the X
+pips stay full through it.
+
+**R7.** Sova's bow glows cyan over the tray while a bolt is up. `holds` finds
+the glow run that holds each bolt's drop
+([metric:demo_cast_census/rerecorded-holds@rerecorded#held=3] of
+[metric:demo_cast_census/rerecorded-holds@rerecorded#bolts=3] bolts). The
+first Shock Bolt's glow runs
+[metric:demo_cast_census/rerecorded-holds@rerecorded#shock1_hold_s=12.9] s
+before its drop, the second's
+[metric:demo_cast_census/rerecorded-holds@rerecorded#shock2_hold_s=5.67] s,
+and the Recon Bolt's
+[metric:demo_cast_census/rerecorded-holds@rerecorded#recon1_hold_s=2.18] s.
+Two of three lie outside 0.5-4 s, and three bolts are not six. The glow
+raised the one false Q drop, as predicted. The glow marks the bow raised; it
+cannot split the equip from the charge
+[domain:abilities/sova-bolt-charge-and-bounce], so a 12.9 s glow may hold
+several equips or a long aim.
+
+**R2 and the comparison with the first census.** Against the first census's
+blind majority per ability, the blind read here agrees on
+[metric:demo_cast_census/rerecorded-table@rerecorded#compare_majority_agree=10]
+of [metric:demo_cast_census/rerecorded-table@rerecorded#compare_judged=11]
+abilities and on
+[metric:demo_cast_census/rerecorded-table@rerecorded#compare_casts_agree=14]
+of [metric:demo_cast_census/rerecorded-table@rerecorded#compare_casts=15]
+casts. The cast numbers are this run's montages.
+
+| ability (slot) | first census: class (n) | here: class (n) | agreement | casts here |
+|---|---|---|---|---|
+| Clove: Meddle (Q) | nothing (1) | nothing (1) | 1 of 1 | 012 |
+| Clove: Ruse (E) | dark_disc (1) | dark_disc (2) | 2 of 2 | 001, 004 |
+| Clove: Pick-me-up (C) | not cast | not cast | | |
+| Clove: Not Dead Yet (X) | not cast | not cast | | |
+| Phoenix: Blaze (C) | wall_segments (1) | wall_segments (1) | 1 of 1 | 013 |
+| Phoenix: Hot Hands (Q) | nothing (1) | nothing (1) | 1 of 1 | 007 |
+| Phoenix: Curveball (E) | nothing (2) | nothing (2) | 2 of 2 | 002, 009 |
+| Phoenix: Run it Back (X) | nothing (1) | not cast | | |
+| Sova: Owl Drone (C) | compact_icon (1) | compact_icon (1) | 1 of 1 | 006 |
+| Sova: Shock Bolt (Q) | nothing (2) | nothing (2) | 2 of 2 | 005, 008 |
+| Sova: Recon Bolt (E) | unsure (1) | teal_ring (1) | 0 of 1 | 011 |
+| Sova: Hunter's Fury (X) | teal_line (1) | teal_line (1) | 1 of 1 | 003 |
+| Skye: Regrowth (C) | unsure (1, menu) | no drop; the sweep finds a ring | | |
+| Skye: Trailblazer (Q) | compact_icon (1) | compact_icon (1) | 1 of 1 | 010 |
+| Skye: Guiding Light (E) | compact_icon (2) | compact_icon (2) | 2 of 2 | 014, 015 |
+| Skye: Seekers (X) | unsure (1, menu) | not cast | | |
+
+The Recon Bolt row does not dispute Recon Bolt's class: the player answered
+that the first census's Recon Bolt drop (`02cf738b1c8f` 23.067 s) was no
+Recon Bolt at all.
+
+**R3.** Both Ruse drops spent one charge each
+([metric:demo_cast_census/rerecorded-table@rerecorded#ruse_spent=2] in all)
+and drew one bounded dark disc each
+([metric:demo_cast_census/rerecorded-table@rerecorded#ruse_discs=2])
+[domain:abilities/clove-rouse]. The first census saw two discs at once, a
+batch launch [domain:abilities/clove-ruse-batch-launch]; here the player
+placed one cloud per drop. `discs` finds each disc dark at its centre from the
+drop to
+[metric:demo_cast_census/rerecorded-discs@rerecorded#ruse1_life_s=14.9] and
+[metric:demo_cast_census/rerecorded-discs@rerecorded#ruse2_life_s=14.9] s
+after it, uncensored: the residual's windows end at the next drop, `discs`
+does not.
+
+**R5 and R6.** Blaze (013) draws a dark icon that leaves Phoenix trailing an
+orange curve; the icon goes by +1 s and the curve stays. The residual's orange
+component starts at
+[metric:demo_cast_census/rerecorded-timing@rerecorded#blaze_013_onset_s=0.417]
+s and lasts
+[metric:demo_cast_census/rerecorded-timing@rerecorded#blaze_013_life_s=9.233]
+s, uncensored, against the 8 s of [domain:abilities/phoenix-blaze-duration].
+The wall builds as it travels, so the 8 s may count from its end. The Recon
+Bolt (011) draws a teal ring with the bolt's crosshair icon at its centre
+[domain:abilities/sova-recon-bolt-minimap-ring]; the residual's teal
+component starts at
+[metric:demo_cast_census/rerecorded-timing@rerecorded#recon_bolt_011_onset_s=0.817]
+s and lasts
+[metric:demo_cast_census/rerecorded-timing@rerecorded#recon_bolt_011_life_s=3.467]
+s. Hunter's Fury (003) draws its teal line from
+[metric:demo_cast_census/rerecorded-timing@rerecorded#hunters_fury_003_onset_s=-0.067]
+s for
+[metric:demo_cast_census/rerecorded-timing@rerecorded#hunters_fury_003_life_s=8.25]
+s, turning between frames [domain:abilities/sova-hunters-fury-minimap-beam].
+
+**R8.** Regrowth never moved the tray, so it has no montage. `sweep` asked
+`reticle.ability_shapes` for Regrowth's ring on all
+[metric:demo_cast_census/rerecorded-cache@fc02a2c1ac01#frames=638] cached
+Skye frames. It finds
+[metric:demo_cast_census/rerecorded-sweep@rerecorded#regrowth_runs=1] run,
+from [metric:demo_cast_census/rerecorded-sweep@rerecorded#regrowth1_start_s=5.17]
+to [metric:demo_cast_census/rerecorded-sweep@rerecorded#regrowth1_end_s=16.53]
+s on [metric:demo_cast_census/rerecorded-sweep@rerecorded#regrowth1_frames=164]
+frames, and
+[metric:demo_cast_census/rerecorded-sweep@rerecorded#regrowth_runs_tray_unseen=1]
+run that no tray cast explains. A crop sheet at 0.2 s steps shows the ring at
+16.4 s and gone at 16.6 s. One run of 11 s may be one channel or three with
+gaps under 0.5 s [domain:abilities/skye-regrowth-minimap-ring]. The fit took
+about 4 s a frame, 43 minutes for this demo, mostly on the whole-widget
+search that frames without the ring fall back to, so I swept no other demo.
+
+**R4 and the casts that never came.** The tray fell on Pick-me-up and Not
+Dead Yet only under the menu. The catalogue says Pick-me-up absorbs "a fallen
+enemy that Clove damaged or killed" and Not Dead Yet acts "after dying"; a
+solo range demo offers neither, which would explain it. Run it Back's and
+Seekers' pips stay full to the end.
+
+**R9.** The blind read calls nothing on
+[metric:demo_cast_census/rerecorded-table@rerecorded#blind_nothing=6] of
+[metric:demo_cast_census/rerecorded-table@rerecorded#read=15] casts: 40%,
+inside the predicted 37.5-50%, but not 18-24, because 15 casts are not 48.
+The residual calls nothing on
+[metric:demo_cast_census/rerecorded-table@rerecorded#residual_nothing=1],
+within the bar of 12. Its class agrees with the blind class on
+[metric:demo_cast_census/rerecorded-table@rerecorded#agree_residual=3] of
+[metric:demo_cast_census/rerecorded-table@rerecorded#residual_rows=15], and on
+drawn against nothing on
+[metric:demo_cast_census/rerecorded-table@rerecorded#agree_residual_drawn=10];
+as in the first census, it says drawn almost everywhere and calls compact
+icons `dark_disc`. The next drop cut
+[metric:demo_cast_census/rerecorded-residual@rerecorded#end_next_cast=9] of
+the fifteen residual windows. Every drawn cast showed its object by +1 s
+([metric:demo_cast_census/rerecorded-table@rerecorded#drawn_by_1s=9] of
+[metric:demo_cast_census/rerecorded-table@rerecorded#drawn_timed=9]).
+
+### The blind read
+
+The montages and the key work as in the first census, and I read all fifteen
+before the key opened. The read is blind to the key, not to the tray, whose
+glyphs name the slot. A flash hid the widget on two montages (002 and 009,
+both Curveball). On two, the +8 s frame lies after the next drop and shows
+that cast's object (008 shows the Recon ring, 011 the Fury line); I read those
+frames as the next cast's.
+
+### Questions for the player
+
+Open these keyed montages first
+(`<store>/analysis/demo-cast-census-rerecorded/montage/keyed_NNN.png`):
+
+1. **keyed_004, Clove's second Ruse** (`0c6c52a65b9e`,
+   `C:\Users\grant\Videos\2026-09-26 19-44-34.mp4`, 24.57 s). One new disc
+   beside the first; by +8 s the first has gone. Is one disc per cloud what a
+   match shows too?
+2. **keyed_011, Sova's Recon Bolt** (`aab12e41dcfc`,
+   `C:\Users\grant\Videos\2026-09-26 19-39-06.mp4`, 43.3 s). The ring shows
+   at +1 and +2 s and is gone by +4 s. Is that the bolt's whole reveal?
+3. **keyed_013, Phoenix's Blaze** (`6afc32cb46b4`,
+   `C:\Users\grant\Videos\2026-09-26 19-41-03.mp4`, 7.08 s). The orange curve
+   lasts 9.2 s. Does the 8 s count from the cast or from the wall's end?
+4. **The protocol.** The tray shows each charge spent once and a cooldown
+   count after it, against the manifests' `infinite-abilities` tag. Were
+   infinite abilities on, and did you try three casts of each?
+5. **Phoenix 53.25-54.5 s** (`6afc32cb46b4`). A white flash, then flames over
+   the screen; the X pips stay full. Was that Run it Back?
+6. **Pick-me-up and Not Dead Yet.** Can either be cast in the range without
+   an enemy to absorb or a death?
+7. **Skye 5.2-16.5 s** (`fc02a2c1ac01`,
+   `C:\Users\grant\Videos\2026-09-26 19-42-54.mp4`). One Regrowth ring for 11
+   s: one channel, or three?
+8. **Sova's first Shock Bolt** (`aab12e41dcfc`, glow 16.67-29.57 s). Did you
+   equip once and hold for 12.9 s, or equip more than once?
+
+Then keyed_003 (Hunter's Fury's line turning), keyed_006 (Owl Drone: self's
+portrait turns teal while the drone flies) and keyed_010 (Trailblazer, whose
+marker stays within ~15 px of Skye).
