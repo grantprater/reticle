@@ -1182,6 +1182,11 @@ class AllyIconReader:
     such and describes nothing.
     """
 
+    #: `feed` reads no state an earlier frame wrote and only appends to these
+    #: lists, so `pipeline` may split the reader into shards and merge them
+    #: back in producer order (`pipeline._Shards`).
+    shardable = ("frames", "icons", "candidates")
+
     def __init__(self, floor, slab, static, box, hz=ALLY_DESCRIPTOR_HZ,
                  spans=None, name="ally_icon"):
         self.name, self.hz, self.spans = name, hz, spans
