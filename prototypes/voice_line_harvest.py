@@ -2,6 +2,7 @@
 
     .\\.venv\\Scripts\\python.exe prototypes\\voice_line_harvest.py harvest [--agents A,B] [--dry-run]
     .\\.venv\\Scripts\\python.exe prototypes\\voice_line_harvest.py report
+    .\\.venv\\Scripts\\python.exe prototypes\\voice_line_harvest.py ult-ready [--agents A,B] [--dry-run] [--record]
 
 Why this exists
 ----------------
@@ -73,6 +74,22 @@ than failing the run. `index.json` records one entry per downloaded file
 file name, its byte count, and the fetch time) and is also the skip list: a
 source url already in it is never re-fetched, so a second run only pulls
 what a first run missed.
+
+Ult-ready lines (`ult-ready`)
+-----------------------------
+No page lists a ready line under its ultimate's heading. Every agent's page
+lists it as one reply of the Ultimate Status radio command, under Radio
+Commands > Menu and Wheel Index > "Ultimate Status", beside a not-ready and an
+almost-ready reply, each with two takes (all 29 pages, 2026-09-27).
+`section_items` finds a heading by name at any level; `ult_status_state`
+names each reply by its words, and a take whose wiki file name
+(`SkyeUltReady1.mp3`) names another reply is refused, not guessed. The ready
+takes go to `voicelines/ult_ready/<Agent>__ultimate-status__<n>.mp3`, n
+counting the ready takes in page order, with an `index.json` of the cast
+index's record schema; `ability` is the agent's ultimate as the cast index
+names it. A url already indexed is skipped, a file already present is kept,
+and a file that holds another take refuses the new one: nothing is
+overwritten. `--record` records the counts as `voice_line_harvest/ult-ready`.
 """
 
 from __future__ import annotations
@@ -94,8 +111,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ability_reference as ar  # noqa: E402  (reuse _text/_slug/UA, same tree)
 
 STORE = Path.home() / "reticle-store"
-CASTS = STORE / "reference" / "assets" / "voicelines" / "casts"
+VOICE = STORE / "reference" / "assets" / "voicelines"
+CASTS = VOICE / "casts"
 INDEX = CASTS / "index.json"
+ULT_READY = VOICE / "ult_ready"
+ULT_READY_INDEX = ULT_READY / "index.json"
 
 API = "https://valorant.fandom.com/api.php"
 UA = ar.UA
@@ -134,6 +154,16 @@ HEAD_RE = re.compile(
     re.S)
 AUDIO_SRC_RE = re.compile(r'<audio[^>]+src="([^"]+)"')
 MAIN_ARTICLE_RE = re.compile(r'Main article:\s*<a href="/wiki/([^"#]+)')
+#: A heading at any level, anchored on its edit link as HEAD_RE is.
+ANY_HEAD_RE = re.compile(
+    r'<h([2-5])>(?:<span id="[^"]*"></span>)?'
+    r'<span class="mw-headline"[^>]*>(.*?)</span><span class="mw-editsection"',
+    re.S)
+#: The heading that lists the ult-ready line on every agent's page: one reply
+#: of the Ultimate Status radio command (Radio Commands > Menu and Wheel Index).
+ULT_STATUS_SECTION = "Ultimate Status"
+#: The reply each of the wiki's file-name tags names.
+STATUS_TAGS = {"UltReady": "ready", "UltAlmost": "almost", "UltDown": "not"}
 
 
 class HarvestError(RuntimeError):
@@ -399,15 +429,15 @@ def _ext(url: str) -> str:
 # ---------------------------------------------------------------- harvest
 
 
-def load_index() -> list[dict]:
-    if INDEX.exists():
-        return json.loads(INDEX.read_text(encoding="utf-8"))
+def load_index(path: Path = INDEX) -> list[dict]:
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
     return []
 
 
-def save_index(rows: list[dict]) -> None:
-    CASTS.mkdir(parents=True, exist_ok=True)
-    INDEX.write_text(json.dumps(rows, indent=1, ensure_ascii=False), encoding="utf-8")
+def save_index(rows: list[dict], path: Path = INDEX) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows, indent=1, ensure_ascii=False), encoding="utf-8")
 
 
 def harvest_agent(agent: str, rows: list[dict], seen_urls: set[str],
@@ -524,6 +554,205 @@ def harvest(agents: list[str] | None = None, dry_run: bool = False) -> list[dict
     return summaries
 
 
+# ---------------------------------------------------------------- ult-ready
+
+
+def section_items(html: str, name: str) -> list[dict]:
+    """The lines with audio under every heading called `name`, at any level,
+    up to the next heading of the same or a higher level. An item is
+    {"heading": the heading path, "section", "text", "urls"}."""
+    heads = list(ANY_HEAD_RE.finditer(html))
+    path: dict[int, str] = {}
+    items = []
+    for i, h in enumerate(heads):
+        level = int(h.group(1))
+        title = ar._text(h.group(2)).strip()
+        path = {k: v for k, v in path.items() if k < level}
+        path[level] = title
+        if title.lower() != name.lower():
+            continue
+        end = next((m.start() for m in heads[i + 1:] if int(m.group(1)) <= level), len(html))
+        for b in _li_blocks(html[h.end():end]):
+            urls = AUDIO_SRC_RE.findall(b)
+            if urls:
+                items.append({"heading": " / ".join(path[k] for k in sorted(path)),
+                              "section": title, "text": _line_text(b), "urls": urls})
+    return items
+
+
+def ult_status_state(text: str) -> str | None:
+    """Which Ultimate Status reply a line is, by its words: `ready`, `almost`
+    or `not`; None for a line that says nothing of readiness."""
+    t = text.lower().replace("\u2019", "'")
+    if "ready" not in t:
+        return None
+    if "almost" in t:
+        return "almost"
+    if re.search(r"\bnot\b|n't\b", t):
+        return "not"
+    return "ready"
+
+
+def status_tag(url: str) -> str | None:
+    """The reply the wiki's file name names (`SkyeUltReady1.mp3` is `ready`)."""
+    name = urllib.parse.unquote(url.split("/revision")[0].rsplit("/", 1)[-1]).lower()
+    return next((s for tag, s in STATUS_TAGS.items() if tag.lower() in name), None)
+
+
+def ultimate_names(cast_rows: list[dict]) -> dict[str, str]:
+    """{agent: its ultimate}: the ability whose lines the cast index files
+    under the ultimate's two heard sections (`reticle.ult_lines.ULT_SECTIONS`)."""
+    from reticle.ult_lines import ULT_SECTIONS
+    return {r["agent"]: r["ability"] for r in sorted(cast_rows, key=lambda r: r["file"])
+            if r.get("section") in ULT_SECTIONS}
+
+
+def harvest_ult_ready(agents: list[str] | None = None, dry_run: bool = False,
+                      dest_dir: Path = ULT_READY) -> list[dict]:
+    """Download each agent's ult-ready takes to `dest_dir`; one summary per agent.
+
+    The ready reply under ULT_STATUS_SECTION, each take named
+    `<Agent>__<section slug>__<n>.<ext>` with n counting the ready takes in
+    page order, seen or not, so a name stays with its take across runs.
+    """
+    _lower_priority()
+    index = dest_dir / "index.json"
+    rows = load_index(index)
+    seen = {r["source_url"] for r in rows}
+    claimed = {r["file"]: r["source_url"] for r in rows}
+    ults = ultimate_names(load_index(INDEX))
+    targets = agents or AGENT_ORDER
+    summaries = []
+    for i, agent in enumerate(targets, 1):
+        print(f"[{i}/{len(targets)}] {agent} ...")
+        s = {"agent": agent, "page": None, "error": None, "headings": [], "ready": 0,
+             "other_replies": 0, "refused": [], "downloaded": 0, "bytes": 0}
+        summaries.append(s)
+        s["page"] = page = _resolve_quotes_page(agent)
+        if page is None:
+            s["error"] = "no Quotes page found"
+            print(f"   {s['error']}", file=sys.stderr)
+            continue
+        try:
+            html = _api_parse(page)
+        except HarvestError as e:
+            s["error"] = str(e)
+            print(f"   {s['error']}", file=sys.stderr)
+            continue
+        n = 0
+        for item in section_items(html, ULT_STATUS_SECTION):
+            if item["heading"] not in s["headings"]:
+                s["headings"].append(item["heading"])
+            if ult_status_state(item["text"]) != "ready":
+                s["other_replies"] += 1
+                continue
+            for url in item["urls"]:
+                tag = status_tag(url)
+                if tag not in (None, "ready"):
+                    s["refused"].append(f"{url}: the words say ready, the file name says {tag}")
+                    continue
+                n += 1
+                s["ready"] += 1
+                fname = (f"{agent.replace('/', '-')}__{_fileslug(ULT_STATUS_SECTION)}"
+                         f"__{n}.{_ext(url)}")
+                if url in seen:
+                    continue
+                if fname in claimed:
+                    s["refused"].append(f"{url}: {fname} already holds {claimed[fname]}")
+                    continue
+                dest = dest_dir / fname
+                if dry_run:
+                    print(f"   [dry-run] would fetch {fname} <- {url}")
+                    continue
+                if dest.exists() and dest.stat().st_size > 0:
+                    nbytes = dest.stat().st_size      # present: kept, never overwritten
+                else:
+                    try:
+                        nbytes = _download_asset(url, dest)
+                    except HarvestError as e:
+                        s["refused"].append(f"{url}: {e}")
+                        continue
+                    print(f"   {fname} ({nbytes} bytes)")
+                seen.add(url)
+                claimed[fname] = url
+                rows.append({
+                    "agent": agent, "ability": ults.get(agent), "section": item["section"],
+                    "line": item["text"], "source_url": url, "wiki_page": page,
+                    "file": fname, "bytes": nbytes,
+                    "fetched": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                })
+                s["downloaded"] += 1
+                s["bytes"] += nbytes
+        if not dry_run:
+            save_index(rows, index)
+    return summaries
+
+
+def _median(v: list[float]) -> float:
+    v = sorted(v)
+    m = len(v) // 2
+    return float(v[m]) if len(v) % 2 else (v[m - 1] + v[m]) / 2
+
+
+def ult_ready_counts(rows: list[dict], ult_agents: set[str]) -> dict:
+    """The harvest's counts. A line is a distinct text, a file one take;
+    `ult_agents` are the agents with an official ult asset, spelled as its
+    files spell them (KAY_O)."""
+    lines: dict[str, set[str]] = {}
+    files: dict[str, int] = {}
+    for r in rows:
+        a = r["agent"].replace("/", "_")
+        lines.setdefault(a, set()).add(r["line"])
+        files[a] = files.get(a, 0) + 1
+    nl = [len(v) for v in lines.values()] or [0]
+    nf = list(files.values()) or [0]
+    return {"agents": len(lines), "agents_listed": len(AGENT_ORDER),
+            "lines": sum(nl), "files": len(rows), "bytes": sum(r["bytes"] for r in rows),
+            "lines_per_agent_min": min(nl), "lines_per_agent_median": _median(nl),
+            "lines_per_agent_max": max(nl), "files_per_agent_min": min(nf),
+            "files_per_agent_median": _median(nf), "files_per_agent_max": max(nf),
+            "agents_with_ult_asset": len(ult_agents),
+            "agents_with_ult_asset_covered": len(ult_agents & set(lines))}
+
+
+def _sha(path: Path) -> str | None:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16] if path.is_file() else None
+
+
+def report_ult_ready(record: bool = False, summaries: list[dict] | None = None) -> dict:
+    """Print the ult-ready index per agent; with `record`, record its counts."""
+    rows = load_index(ULT_READY_INDEX)
+    ult_agents = {p.stem.rsplit("_ult_", 1)[0] for p in VOICE.glob("*_ult_*.mp3")}
+    values = ult_ready_counts(rows, ult_agents)
+    by: dict[str, list[dict]] = {}
+    for r in rows:
+        by.setdefault(r["agent"], []).append(r)
+    for agent in AGENT_ORDER:
+        rs = by.get(agent, [])
+        texts = sorted({r["line"] for r in rs})
+        print(f"{agent:<10} {len(rs)} takes  {' | '.join(texts) or '--- none ---'}")
+    missing = sorted(ult_agents - {a.replace("/", "_") for a in by})
+    print(f"\n{values['files']} files, {values['lines']} lines, {values['agents']} agents; "
+          f"{values['agents_with_ult_asset_covered']} of {values['agents_with_ult_asset']} "
+          f"agents with an ult asset; missing {missing or 'none'}")
+    if record:
+        from reticle import metrics
+        refused = [x for s in summaries or [] for x in s["refused"]]
+        metrics.record(
+            "voice_line_harvest", part="ult-ready", session="wiki", values=values,
+            deps={"section": ULT_STATUS_SECTION,
+                  "index_sha256": _sha(ULT_READY_INDEX),
+                  "code": metrics.fingerprint(section_items, ult_status_state, status_tag,
+                                              harvest_ult_ready, ult_ready_counts)},
+            context={"api": API, "index": str(ULT_READY_INDEX), "missing": missing,
+                     "refused": refused,
+                     "headings": sorted({h for s in summaries or [] for h in s["headings"]})},
+            note="ult-ready lines, one reply of the Ultimate Status radio command")
+        print("recorded voice_line_harvest/ult-ready@wiki")
+    return values
+
+
 # ---------------------------------------------------------------- report
 
 
@@ -557,11 +786,23 @@ def report(summaries: list[dict] | None = None) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("cmd", choices=("harvest", "report"))
+    ap.add_argument("cmd", choices=("harvest", "report", "ult-ready"))
     ap.add_argument("--agents", help="comma-separated subset, wiki-agent spelling")
     ap.add_argument("--dry-run", action="store_true", help="list what would be fetched, fetch nothing")
+    ap.add_argument("--record", action="store_true",
+                    help="ult-ready: record the counts in the store's notes/metrics.jsonl")
     a = ap.parse_args(argv)
 
+    if a.cmd == "ult-ready":
+        agents = [x.strip() for x in a.agents.split(",")] if a.agents else None
+        summaries = harvest_ult_ready(agents=agents, dry_run=a.dry_run)
+        for s in summaries:
+            for x in s["refused"]:
+                print(f"   refused {s['agent']}: {x}", file=sys.stderr)
+        print()
+        report_ult_ready(record=a.record and not a.dry_run and agents is None,
+                         summaries=summaries)
+        return 0
     if a.cmd == "harvest":
         agents = [x.strip() for x in a.agents.split(",")] if a.agents else None
         harvest(agents=agents, dry_run=a.dry_run)

@@ -103,3 +103,37 @@ The wiki lists more than one distinct cast line for 60 of the 81 abilities
 with a cast section, median 2 and up to 7 [domain:abilities/cast-lines-vary],
 so a template set for an ability holds every listed line and a match on any
 of them names the ability.
+
+## Ult-ready lines
+
+Date: 2026-09-27. Command: `voice_line_harvest.py ult-ready --record`.
+Outputs: the store's `reference/assets/voicelines/ult_ready/` (one MP3 per
+take, `<Agent>__ultimate-status__<n>.mp3`) and its `index.json`, with the
+cast index's record schema. `ability` names the agent's ultimate as the cast
+index names it.
+
+No quotes page lists a ready line under its ultimate's heading. Every page
+lists it as one reply of the Ultimate Status radio command, under Radio
+Commands > Menu and Wheel Index > "Ultimate Status", beside a "not ready" and
+an "almost ready" reply, two takes each
+[domain:abilities/ult-ready-line-is-a-radio-reply]. The harvest keeps the
+ready reply. Its words name the reply, and the take's wiki file name
+(`SkyeUltReady1.mp3`) must name the same reply or the take is refused; the
+run refused none. The wording varies: "My ult's ready.", "My ultimate is
+ready.", "Ultimate ready." (Deadlock, Harbor), "Thrash is ready." (Gekko).
+
+| Count | Value |
+|---|---|
+| Agents with a ready line | [metric:voice_line_harvest/ult-ready@wiki#agents=29] of [metric:voice_line_harvest/ult-ready@wiki#agents_listed=29] |
+| Agents with an official ult asset covered | [metric:voice_line_harvest/ult-ready@wiki#agents_with_ult_asset_covered=28] of [metric:voice_line_harvest/ult-ready@wiki#agents_with_ult_asset=28] |
+| Distinct lines | [metric:voice_line_harvest/ult-ready@wiki#lines=29] |
+| Files (takes) | [metric:voice_line_harvest/ult-ready@wiki#files=58], [metric:voice_line_harvest/ult-ready@wiki#bytes=2156754] bytes |
+| Lines per agent, min / median / max | [metric:voice_line_harvest/ult-ready@wiki#lines_per_agent_min=1] / [metric:voice_line_harvest/ult-ready@wiki#lines_per_agent_median=1.0] / [metric:voice_line_harvest/ult-ready@wiki#lines_per_agent_max=1] |
+| Takes per agent, min / median / max | [metric:voice_line_harvest/ult-ready@wiki#files_per_agent_min=2] / [metric:voice_line_harvest/ult-ready@wiki#files_per_agent_median=2.0] / [metric:voice_line_harvest/ult-ready@wiki#files_per_agent_max=2] |
+
+Not fetched: the "not ready" and "almost ready" replies. `ult-ready
+--agents A,B` restricts a run and `--dry-run` fetches nothing; `--record`
+records only a run over every agent. A rerun skips indexed urls and keeps
+files already present; a take whose name another take already holds is
+refused, so nothing is overwritten. `prototypes/ult_ready_lines.py` scores
+these takes against the match audio ([ULT_READY_LINES.md](ULT_READY_LINES.md)).
