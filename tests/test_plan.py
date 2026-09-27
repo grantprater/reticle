@@ -10,8 +10,8 @@ import pyarrow.parquet as pq
 from reticle.adjudication.death import DEATH_ADJUDICATION_VERSION
 from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
 from reticle.plan import reader_streams, render, stale
-from reticle.version import (HUD_VERSION, ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
-                            ULT_LINE_VERSION)
+from reticle.version import (ABILITY_SHAPE_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
+                            ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION)
 
 
 class _Store:
@@ -145,7 +145,8 @@ class PlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
             store.events["ult_cast:rows"][0]["inputs"].update(tray_drop="tray-0.0.1",
-                                                              hud=HUD_VERSION)
+                                                              hud=HUD_VERSION,
+                                                              player_cast=PLAYER_CAST_VERSION)
             derived = stale(store, ["s"])["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("ult_cast", ["tray_drop"])])
@@ -153,6 +154,36 @@ class PlanTests(unittest.TestCase):
             store.table("hud", hud_version="hud-0.0.1")
             derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
             self.assertEqual(derived["ult_cast"]["inputs_moved"], ["hud", "round"])
+
+
+    def test_casts_bound_before_the_gate_had_its_own_stamp_are_stale(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["ult_cast:rows"][0]["inputs"].update(tray_drop=TRAY_VERSION,
+                                                              hud=HUD_VERSION)
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
+                             [("ult_cast", ["player_cast"])])
+            store.events["ult_cast:rows"][0]["inputs"]["player_cast"] = PLAYER_CAST_VERSION
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+
+    def test_a_gate_change_stales_the_stored_verdicts_and_the_shapes(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["tray_drop:rows"] = [{"tray_version": TRAY_VERSION}]
+            store.events["ability_shape:rows"] = [{"ability_shape_version": ABILITY_SHAPE_VERSION,
+                                                   "tray_version": TRAY_VERSION}]
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"], x["command"]) for x in derived],
+                             [("tray_drop", ["player_cast"], "reticle tray s"),
+                              ("ability_shape", ["player_cast"], "reticle ability-shapes s")])
+            for stream in ("tray_drop", "ability_shape"):
+                store.events[stream + ":rows"][0]["player_cast_version"] = PLAYER_CAST_VERSION
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            store.events["ability_shape:rows"][0]["tray_version"] = "tray-0.0.1"
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
+                             [("ability_shape", ["tray_drop"])])
 
 
 if __name__ == "__main__":

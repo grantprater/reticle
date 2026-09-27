@@ -184,15 +184,16 @@ def cast_window(agent: str | None) -> tuple[float, float]:
 
 
 def player_x_drops(drop_rows: list[dict], phase_of, rounds: list[dict],
-                   player_deaths_ms: list[float]) -> list[dict]:
+                   player_deaths_ms: list[float], **gate) -> list[dict]:
     """The X-slot drops among a session's stored `tray_drop` rows, each with the
     `player_cast` and `reason` that `ability_timeline.player_tray_casts` gives
     it. Every slot's drops go in, because the owner's co-occurrence test reads
-    them all."""
+    them all. `gate` carries the owner's other inputs, as
+    `ability_timeline.stored_gate_inputs` reads them."""
     from ..ability_timeline import player_tray_casts
     drops = [{k: r[k] for k in DROP_FIELDS if k in r} for r in drop_rows
              if r.get("kind") == "drop"]
-    return [r for r in player_tray_casts(drops, phase_of, rounds, player_deaths_ms)
+    return [r for r in player_tray_casts(drops, phase_of, rounds, player_deaths_ms, **gate)
             if r["slot"] == ULT_SLOT]
 
 
