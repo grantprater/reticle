@@ -428,3 +428,24 @@ quit, and the label directory stayed absent. No label row exists.
   since every Cypher drop is a settings-menu drop.
 - **The residual's hue bins follow the world.** The widget is translucent, so
   a screen tint passes through it; a hue-only class is weak evidence.
+
+## The player's answers (2026-09-26)
+
+Shown the montages named above, the player answered the same day:
+
+- **keyed_034, Ruse.** The two discs are Ruse clouds, perfectly bounded, and
+  Ruse is the only Clove ability that draws anything. The earlier answer that
+  Ruse never draws is retracted, and [domain:abilities/clove-rouse] now says
+  so; the census's prior was wrong and its blind read right. Why the
+  tray-object pass found nothing on nine match casts stays open.
+- **The Skye demo `6ab7a9e99235` at 28 s.** The ultimate was equipped, not
+  cast, and the session ended: the same-instant C and X drops at 28.0 s are
+  the menu dimming the tray [domain:hud/menu-dims-tray], one more of the
+  settings-menu drops. At 22 s the cast was Guiding Light, the hawk.
+- **The Sova demo `02cf738b1c8f` 14.5-15.5 s.** One Shock Bolt, another near
+  19 s; no Recon Bolt. Both bolts are charged before release and have a
+  toggleable bounce count shown in a HUD element just below screen centre
+  [domain:abilities/sova-bolt-charge-and-bounce]. The tray read an E drop and
+  two Q drops for that one cast; whether charging moves a bar is unmeasured.
+- **Recordings.** The player will re-record Sova, Phoenix, Skye and Clove to
+  the Omen protocol and then run the labelling pass.

@@ -201,3 +201,23 @@ second witness to the tray, not a reader.
    references are the one change the results point to.
 4. Does your game volume or audio mix differ between the demos and the
    matches? The median gain says no, but the spread per cast is wide.
+
+## The player's answers (2026-09-26)
+
+- **Skye `6ab7a9e99235`.** 22 s was Guiding Light (the hawk), so the E
+  reference is right; 28 s was the ultimate equipped and not cast while the
+  session ended, so the X reference at 22.5 s is no Seekers cast and the
+  Regrowth reference at 28.0 s is the menu dimming the tray
+  [domain:hud/menu-dims-tray]. The bank holds no Regrowth, which is why it
+  transfers [metric:audio_bank/confusion_verified#corr_cast_Skye_C_hits=0] of
+  9.
+- **Sova `02cf738b1c8f`.** 14.5-15.5 s was one Shock Bolt, another near 19 s.
+  The bank's only Recon Bolt reference is a Shock Bolt, which is why Recon
+  Bolt transfers [metric:audio_bank/confusion_verified#corr_cast_Sova_E_hits=0]
+  of 8 and Owl Drone wins. Both bolts are charged before release and their
+  bounce count toggled, with a HUD element below screen centre showing the
+  state [domain:abilities/sova-bolt-charge-and-bounce]: a template at a fixed
+  offset from the drop may hold the charge, not the release.
+- **Recordings.** The player will re-record Sova, Phoenix, Skye and Clove to
+  the Omen protocol of `b9558488a607`, Pick-me-up and Not Dead Yet included.
+  Rebuild the bank from those before any threshold is read again.

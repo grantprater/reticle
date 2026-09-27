@@ -53,3 +53,27 @@ a tray drop is the player's cast only while the player is alive in that round;
 gate tray casts on the player's death (stored death verdicts) before binding
 anything to them
 """
+
+[menu-dims-tray]
+claim = """
+Opening the in-game menu (settings, or ending a session) dims the whole
+screen, tray included. The ability tray's charge bars read as a fall on every
+slot at one instant, and the minimap is dimmed but still passes the
+widget-drawn check.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "hud:menu-overlay"
+source = """
+the demo cast census, 2026-09-26: 19 of 147 tray drops on the solo demos show
+the dimmed tray (montages keyed_016, keyed_010; store
+analysis/demo-cast-census/), all on the same instant across slots; the player
+confirmed one, the Skye demo 6ab7a9e99235 at 28 s, as the menu opened to end
+the session. The widget-drawn defect was seen earlier on 6bb88dba5d2c at
+44.0 s
+"""
+use = """
+a same-instant fall on several slots with a dimmed tray is the menu, not a
+cast; the tray reader and `minimap.widget_drawn` both need the guard
+"""

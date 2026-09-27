@@ -123,21 +123,27 @@ see = ["abilities/viper-poison-cloud"]
 
 [clove-rouse]
 claim = """
-Clove's Ruse is a tactical smoke placed in slot E. It is never drawn on the
-minimap.
+Clove's Ruse is her smoke, placed in slot E. Each cloud is drawn on the
+caster's minimap as a bounded dark disc, and Ruse is the only Clove ability
+that draws anything there.
 """
 kind = "appearance"
 known = "player"
 since = "2026-09-26"
 subject = "clove:ruse"
 source = """
-the player, 2026-09-26, after the tray-object pass found nothing on the
-minimap on 9 of 9 answered Ruse casts. Until then this fact claimed a circular
-minimap disc, measured by prototypes/ability_hud.py on 28f53bfddbbe
+the player, 2026-09-26, shown the demo cast census montage keyed_034
+(28f53bfddbbe, 14.5 s): two discs, "perfectly bounded", confirmed as Ruse
+clouds. Earlier the same day the player had answered that Ruse never shows on
+the map, after the tray-object pass found nothing on 9 of 9 answered match
+casts; that answer is retracted. Before that the fact claimed a circular disc
+measured by prototypes/ability_hud.py on the same demo. Why the nine match
+casts showed nothing is open: a placement out of the montage's frames, or an
+equip without a cast
 """
 use = """
-a Ruse cast places no minimap object, so no minimap search follows a slot E
-drop; `adjudication.gallery` still scores a clove:ruse glyph, uncalled
+a slot E drop on Clove is followed by a minimap search for dark discs, one
+per cloud; `adjudication.smokes` may attribute a Clove smoke to Ruse
 """
 see = ["abilities/clove-tray-charges"]
 
@@ -892,3 +898,25 @@ outline at +2 s, dark disc at +4 s, outline again at +8 s) and keyed_074
 """
 use = "the outline marks an emitter that is off; it is not a cloud phase"
 see = ["abilities/viper-poison-cloud-toggle", "abilities/viper-poison-cloud-fixed"]
+
+[sova-bolt-charge-and-bounce]
+claim = """
+Sova's Recon Bolt and Shock Bolt are charged before release, and their bounce
+count is toggled; a HUD element just below the screen centre shows the charge
+and the bounce setting while a bolt is held.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-26"
+subject = "sova:bolts"
+source = """
+the player, 2026-09-26, answering the audio bank's question about the Sova
+demo 02cf738b1c8f at 14.5-15.5 s (one Shock Bolt, not a Recon Bolt then two
+Shock Bolts as the tray drops read; another Shock Bolt near 19 s)
+"""
+use = """
+a held bolt's equip-to-release time varies with the charge, so an audio
+reference cut at a fixed offset from the tray drop may hold the hold, not the
+release; the HUD element is a witness of the bolt's phase, unread
+"""
+see = ["abilities/sova-recon-bolt-minimap-ring"]
