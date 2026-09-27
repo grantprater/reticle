@@ -199,3 +199,27 @@ needs no charge count per ability, and a drop that leaves the slot at its full
 level spent nothing
 """
 see = ["abilities/omen-tray-charges", "abilities/killjoy-tray-charges", "abilities/jett-tray-charges", "abilities/clove-tray-charges", "abilities/cypher-tray-charges"]
+
+[scoreboard-round-history-strip]
+claim = """
+Between the ally and enemy blocks of the Tab scoreboard, in the vertical
+middle, the game draws two lines of round markers: black dots that turn
+yellow. They are a mark of the open board that does not depend on the
+translucent team slabs.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-27"
+subject = "hud:scoreboard"
+source = """
+the player, 2026-09-27, asking how the pipeline recognises an open scoreboard;
+`reticle.scoreboard` sees the strip only as red marks that can join the enemy
+slab, and keys the board on the two slabs instead
+"""
+use = """
+an independent witness of the open board for cross-referencing the slab
+test: score it first on the samples the slab test closes between two open
+samples of one Tab hold; which dots are black and which yellow is a round
+history the reader may later read, once the colours are labelled
+"""
+see = ["rounds/scoreboard-dead-dimmed"]

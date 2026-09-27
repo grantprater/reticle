@@ -64,6 +64,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Ultimate voice lines as templates: whose ult, which side, when; lineup-impossible false alarms | `reticle/ult_lines.py` (peaks), `reticle/adjudication/ult_cast.py` (casts), `docs/VOICE_LINES.md`, `prototypes/voice_lines.py` |
 | Ult-ready voice lines: who announced a ready ultimate; false alarms and collisions for the cast lines | `prototypes/ult_ready_lines.py`, [`docs/ULT_READY_LINES.md`](ULT_READY_LINES.md) |
 | What each ability does: inputs, minimap drawing, overlay, duration (the player's sheet) | `docs/ABILITY_MECHANICS_SHEET.md` |
+| The state of every ability (charges, equipped, active, castable) and the detectors it conditions: design | `docs/ABILITY_STATE_MODEL.md` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
