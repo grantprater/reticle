@@ -1289,10 +1289,9 @@ def cmd_scan(args) -> int:
                           f"cache:{cache.record['version']}" if cache is not None else "video")
         usage.setup_ns = time.perf_counter_ns() - setup_t0
         usage.pipeline, usage.workers, usage.shards = pipeline, workers, dict(shards or {})
-        pass_t0 = time.perf_counter_ns()
-        n_dec, staged = _scan_pass(R.ctx, R.readers, cache, progress, usage, pipeline,
-                                   workers, shards, cv_threads)
-        usage.pass_ns = time.perf_counter_ns() - pass_t0
+        with usage.timed_pass():
+            n_dec, staged = _scan_pass(R.ctx, R.readers, cache, progress, usage, pipeline,
+                                       workers, shards, cv_threads)
         publish_t0 = time.perf_counter_ns()
         sys.stdout.write("\r" + " " * 72 + "\r")
         dt = time.perf_counter() - t0

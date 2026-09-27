@@ -19,6 +19,22 @@ time the dispatcher blocked on full FIFOs. A serial pass records `offered`
 and `fed` as its feed count, no `shards` and a null `wait_ns`: nothing
 queues. `load` reads both versions.
 
+**CPU time.** `cpu_ns` is the process's user and system CPU over `pass_ns`
+(`time.process_time_ns`). `dispatcher.thread_cpu_ns` is the CPU of the
+thread that ran the pass, the one that reads the source, and each worker
+thread measures its own (`time.thread_time_ns`, read in the thread at its
+start and end) under `readers[<name>].shards`; `readers[<name>].thread_cpu_ns`
+sums a reader's shards. A serial pass, and a staged one at `workers` 0,
+feeds on the dispatcher thread, so that thread's CPU covers source and
+readers together and each reader's `thread_cpu_ns` is null with a
+`thread_cpu_reason`. Each shard's `busy_ns` is the wall its feeds took on
+that thread. A worker whose CPU is close to its `busy_ns` computed while it
+fed; one far below waited inside `feed`, for the GIL or for a core. Across
+workers, CPU summing to about the workers' walls means they ran in
+parallel, and CPU summing to one thread's wall means one ran at a time.
+Windows counts thread and process CPU in clock ticks of about 15.6 ms, so a
+figure under a few ticks says little.
+
 **Citing a scan.** `write_metric` appends a `scan_usage` pass row whose part
 names the readers and then how the pass ran (`series_part`), so each
 configuration is its own series: QUOTED compares a citation with the latest
@@ -29,6 +45,10 @@ pass time of a staged HUD pass from the crop cache at one worker as
     [metric:scan_usage/hud+killfeed_portrait/cache/staged/w1/cv1@c40d950031bb#pass_s=<seconds>]
 
 with `<seconds>` the row's `pass_s` at the precision the prose states. The
+row's other fields cite the same way: `source_s`, `cpu_s`,
+`dispatcher_cpu_s`, `dispatcher_wait_s` (staged at one worker or more), and
+per reader `feed_s_<reader>` and, when known, `thread_cpu_s_<reader>`, the
+reader's name with every character outside `[A-Za-z0-9_]` made `_`. The
 serial pass of the same readers is the series
 `scan_usage/hud+killfeed_portrait/cache/serial/cv12` on this machine's
 OpenCV pool. `reticle/quoted.py` lists this module in `EXAMPLE_ONLY`, so
@@ -39,17 +59,21 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from datetime import datetime, timezone
+from contextlib import contextmanager
 import json
 from pathlib import Path
+import re
 import subprocess
 import threading
-from time import perf_counter_ns
+from time import perf_counter_ns, process_time_ns, thread_time_ns
 from uuid import uuid4
 
 
 USAGE_VERSION = "scan-usage-2"
 #: Versions `load` reads; each later one only adds keys.
 USAGE_VERSIONS = ("scan-usage-1", USAGE_VERSION)
+#: Why a reader's own thread CPU is null when it fed on the dispatcher thread.
+INLINE_REASON = "fed on the dispatcher thread; see dispatcher.thread_cpu_ns"
 BUCKET_LIMITS_NS = (100_000, 500_000, 1_000_000, 2_000_000,
                     5_000_000, 10_000_000, 50_000_000, 100_000_000)
 
@@ -100,7 +124,8 @@ class ScanUsage:
         self.readers = {r.name: {"hz": r.hz,
                                  "spans": len(r.spans) if r.spans is not None else None,
                                  "feed": CallTimes(), "finish_ns": 0,
-                                 "offered": None, "fed": None, "shards": []}
+                                 "offered": None, "fed": None, "shards": [],
+                                 "thread_cpu_ns": None, "thread_cpu_reason": INLINE_REASON}
                         for r in readers}
         self.frames = CallTimes()
         self.setup_ns = 0
@@ -111,11 +136,28 @@ class ScanUsage:
         self.shards: dict[str, int] = {}
         self.cv_threads: dict | None = None
         self.wait_ns: int | None = None
+        self.cpu_ns: int | None = None
+        self.dispatcher_cpu_ns: int | None = None
         self.code_revision = code_revision()
         self.status = "completed"
         self.error: str | None = None
         # Shards of one reader share its name, and so its `CallTimes`.
         self._lock = threading.Lock()
+
+    @contextmanager
+    def timed_pass(self):
+        """Time the pass on the calling thread, the dispatcher.
+
+        Sets `pass_ns` (wall), `cpu_ns` (the process's CPU) and the
+        dispatcher's `thread_cpu_ns` over the same span, on failure too.
+        """
+        wall, cpu, own = perf_counter_ns(), process_time_ns(), thread_time_ns()
+        try:
+            yield self
+        finally:
+            self.pass_ns = perf_counter_ns() - wall
+            self.cpu_ns = process_time_ns() - cpu
+            self.dispatcher_cpu_ns = thread_time_ns() - own
 
     def timed_frames(self, frames):
         iterator = iter(frames)
@@ -148,8 +190,10 @@ class ScanUsage:
         """Copy what a staged pass did, a `pipeline.StagedRun`, into the record.
 
         The workers, shards and OpenCV count that ran, frames offered and fed
-        per reader, each FIFO's count and depth, the dispatcher's wait, and
-        the status. `workers` 0 queues nothing, so its wait stays null.
+        per reader, each FIFO's count and depth, each worker thread's CPU and
+        busy wall, the dispatcher's wait, and the status. `workers` 0 queues
+        nothing and starts no thread, so its wait and its readers' thread
+        CPU stay null.
         """
         self.pipeline = "staged"
         self.workers = run.workers
@@ -160,8 +204,18 @@ class ScanUsage:
             r["offered"] = run.offered.get(name, 0)
             r["fed"] = run.fed.get(name, 0)
             r["shards"] = [{"label": u["label"], "fed": u["fed"],
-                            "max_queued": u["max_queued"]}
+                            "max_queued": u["max_queued"],
+                            "thread_cpu_ns": u.get("thread_cpu_ns"),
+                            "busy_ns": u.get("busy_ns")}
                            for u in run.units if u["reader"] == name]
+            cpus = [u["thread_cpu_ns"] for u in r["shards"]]
+            if not run.workers:
+                r["thread_cpu_ns"], r["thread_cpu_reason"] = None, INLINE_REASON
+            elif not cpus or None in cpus:
+                r["thread_cpu_ns"] = None
+                r["thread_cpu_reason"] = "a worker thread of this reader never ran"
+            else:
+                r["thread_cpu_ns"], r["thread_cpu_reason"] = sum(cpus), None
         if run.status != "completed":
             self.status, self.error = "failed", run.error
 
@@ -206,7 +260,8 @@ class ScanUsage:
             "pass_ns": self.pass_ns,
             "publish_ns": self.publish_ns,
             "source_calls": self.frames.record(),
-            "dispatcher": {"wait_ns": self.wait_ns},
+            "cpu_ns": self.cpu_ns,
+            "dispatcher": {"thread_cpu_ns": self.dispatcher_cpu_ns, "wait_ns": self.wait_ns},
             # Serial: every frame offered is fed inline, one feed call each.
             "readers": {name: {"hz": r["hz"], "spans": r["spans"],
                                 "feed": r["feed"].record(),
@@ -214,6 +269,8 @@ class ScanUsage:
                                 "offered": (r["feed"].count if r["offered"] is None
                                             else r["offered"]),
                                 "fed": r["feed"].count if r["fed"] is None else r["fed"],
+                                "thread_cpu_ns": r["thread_cpu_ns"],
+                                "thread_cpu_reason": r["thread_cpu_reason"],
                                 "shards": [dict(u) for u in r["shards"]]}
                         for name, r in self.readers.items()},
             "pass_other_ns": max(0, self.pass_ns - source_ns - feed_ns - finish_ns),
@@ -226,6 +283,29 @@ class ScanUsage:
             out.write(json.dumps(self.record(), separators=(",", ":")) + "\n")
         return path
 
+    def metric_values(self) -> dict:
+        """The `pass` row's values, in seconds; see the module docstring.
+
+        A value the record holds as null is left out, so no citation can
+        quote it.
+        """
+        def s(ns):
+            return round(ns / 1e9, 3)
+        values = {"pass_s": s(self.pass_ns), "source_s": s(self.frames.total_ns),
+                  "frames": self.frames.count}
+        if self.cpu_ns is not None:
+            values["cpu_s"] = s(self.cpu_ns)
+        if self.dispatcher_cpu_ns is not None:
+            values["dispatcher_cpu_s"] = s(self.dispatcher_cpu_ns)
+        if self.wait_ns is not None:
+            values["dispatcher_wait_s"] = s(self.wait_ns)
+        for name, r in sorted(self.readers.items()):
+            field = re.sub(r"\W", "_", name)
+            values[f"feed_s_{field}"] = s(r["feed"].total_ns)
+            if r["thread_cpu_ns"] is not None:
+                values[f"thread_cpu_s_{field}"] = s(r["thread_cpu_ns"])
+        return values
+
     def write_metric(self, store_root: Path) -> dict:
         """One `pass` row in `notes/metrics.jsonl` naming this record's run_id.
 
@@ -237,9 +317,7 @@ class ScanUsage:
         return metrics.record(
             "scan_usage", part=self.series_part(),
             session=self.manifest["session_id"],
-            values={"pass_s": round(self.pass_ns / 1e9, 3),
-                    "source_s": round(self.frames.total_ns / 1e9, 3),
-                    "frames": self.frames.count},
+            values=self.metric_values(),
             deps={"usage_version": USAGE_VERSION, "source": self.source,
                   "pipeline": self.pipeline, "workers": self.workers,
                   "shards": dict(self.shards), "cv_threads": self.cv_threads,
@@ -272,12 +350,18 @@ def format_usage(row: dict) -> str:
              f"  source {row['source_calls']['count']} frames, "
              f"{sec(row['source_calls']['total_ns'])}  "
              f"other {sec(row['pass_other_ns'])}"]
+    if row.get("cpu_ns") is not None:
+        own = (row.get("dispatcher") or {}).get("thread_cpu_ns")
+        parts.append(f"  cpu {sec(row['cpu_ns'])}"
+                     + (f"  dispatcher thread {sec(own)}" if own is not None else ""))
     for name, reader in sorted(row["readers"].items(),
                                key=lambda item: item[1]["feed"]["total_ns"],
                                reverse=True):
         feed = reader["feed"]
         slow = sum(feed["buckets"][6:])
+        own = reader.get("thread_cpu_ns")
         parts.append(f"  {name:<16} {feed['count']:>6} calls  "
                      f"feed {sec(feed['total_ns'])}  finish {sec(reader['finish_ns'])}  "
-                     f">10ms {slow}  max {sec(feed['max_ns'])}")
+                     f">10ms {slow}  max {sec(feed['max_ns'])}"
+                     + (f"  thread cpu {sec(own)}" if own is not None else ""))
     return "\n".join(parts)

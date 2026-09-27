@@ -101,8 +101,10 @@ class StagedRun:
     and exception, `exception` holds it, and no reader was finished, so the
     caller publishes nothing. `finished` maps each reader with a `finish` to
     what it returned. `units` lists each worker's FIFO, one per reader or
-    shard: its `label`, `reader`, frames `fed` and `max_queued` (None when
-    `workers` is 0, which queues nothing).
+    shard: its `label`, `reader`, frames `fed`, `max_queued`, `busy_ns` (the
+    wall its feeds took) and `thread_cpu_ns` (its thread's CPU, read inside
+    the thread at start and end). With `workers` 0 nothing queues and no
+    thread starts, so `max_queued` and `thread_cpu_ns` are None.
     """
 
     frames: int = 0
@@ -228,6 +230,8 @@ class _Unit:
         self.fed = 0
         self.max_queued = 0
         self.ended = False
+        self.busy_ns = 0
+        self.thread_cpu_ns: int | None = None
 
 
 def _source_items(ctx, readers: list, source):
@@ -308,6 +312,8 @@ def run_staged(ctx, readers: list, source=None, workers: int = 1,
     sem = threading.BoundedSemaphore(max(1, workers))
 
     def feed_unit(unit: _Unit, pos: int, smp) -> None:
+        start = time.perf_counter_ns()
+
         def call(reader):
             if inline:
                 _feed(reader, smp, usage)
@@ -320,8 +326,10 @@ def run_staged(ctx, readers: list, source=None, workers: int = 1,
         else:
             unit.shards.feed(unit.k, pos, call)
         unit.fed += 1
+        unit.busy_ns += time.perf_counter_ns() - start
 
     def work(unit: _Unit) -> None:
+        own = time.thread_time_ns()
         try:
             while True:
                 try:
@@ -338,6 +346,8 @@ def run_staged(ctx, readers: list, source=None, workers: int = 1,
         except BaseException as exc:          # handed to the dispatcher, not lost
             errors.append((unit.label, exc))
             stop.set()
+        finally:
+            unit.thread_cpu_ns = time.thread_time_ns() - own
 
     def put(unit: _Unit, item) -> None:
         start = time.perf_counter_ns()
@@ -442,7 +452,9 @@ def run_staged(ctx, readers: list, source=None, workers: int = 1,
     result.fed = {name: sum(u.fed for u in us) for name, us in units.items()}
     result.max_queued = {u.label: u.max_queued for u in every}
     result.units = [{"label": u.label, "reader": u.reader.name, "fed": u.fed,
-                     "max_queued": None if inline else u.max_queued} for u in every]
+                     "max_queued": None if inline else u.max_queued,
+                     "busy_ns": u.busy_ns, "thread_cpu_ns": u.thread_cpu_ns}
+                    for u in every]
     lost = {name: (offered.get(name, 0), result.fed[name]) for name in units
             if offered.get(name, 0) != result.fed[name]}
     if errors:
