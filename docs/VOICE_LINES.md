@@ -682,6 +682,35 @@ The measured values beside each prediction, at the 0.2.0 operating point; no ver
 - `<store>/analysis/voice-lines/0.2.0/report/curves_own_recall.png`: own recall with each agent's window, and F-B without suppression with the 1.5 s window in grey.
 - `<store>/analysis/voice-lines/0.2.0/review/index.html`: [metric:voice_lines/review-0.2.0@all-matches#rows=30] rows at the F-B 0.2.0 threshold [metric:voice_lines/review-0.2.0@all-matches#formulation_tau=0.0395], stratified as in 0.1.0.
 
+### Verdicts at 0.2.0 (2026-09-27)
+
+Judged by the orchestrator; the ledger rows are `voice-lines` observations
+and a decision of 2026-09-27.
+
+- **Cross-template suppression declined.** At the same false-alarm rate it
+  lowers own recall from 0.667 to 0.6 and possible detections per live
+  minute from 0.986 to 0.944, and it removes 36 lone detections and 4
+  tray-witnessed own lines. Skye's own line at `b7d24102a6f6` 908.5 s falls
+  under Chamber's enemy line: two ultimates at one onset are real, and the
+  echoes the rule removes cost less than the casts it loses. The reader
+  stays unsuppressed; a rule that protects a witnessed line, or calibrates
+  scores per template, may be tried later.
+- **The per-agent cast window stands.** Own recall 0.844 unsuppressed, with
+  Phoenix 0.9 once his cast is dated from the line rather than the expiry
+  drop: P0's hypothesis holds, and the fixed window was the instrument's
+  error, as the 0.1.0 verdict said.
+- **Gekko's harvested lines behave.** They fire on the four sessions where a
+  lineup places him and never on the 34 session-sides where it does not.
+- **The merged Gekko peaks are inexact** below the threshold (largest
+  differing peak 0.0323 against 0.0395). The port rescoring from scratch
+  removes the merge.
+
+Decision: port the matcher now. A reader stores every peak above the
+per-template floor as a raw observation; an adjudicator classes peaks by
+the lineup at the 0.1.0 operating point, publishes identity claims per side
+and emits ultimate-cast events. Windows serve evaluation only. The sheet
+for the player is the 0.1.0 one, unsuppressed at 0.0443.
+
 ### What was not done in 0.2.0
 
 - No verdicts; the measured values stand beside P0 to P6 for the orchestrator.
