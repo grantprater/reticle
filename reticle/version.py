@@ -200,7 +200,10 @@ TRAY_VERSION = "tray-0.1.0"
 # `ability_timeline.EMPTY_MAX`) is refused as `pips_lit`, and a drop that
 # leaves any other slot at its full level (a `to` fill at or above
 # `ability_timeline.FULL_AFTER_MIN`) as `equip_release`.
-PLAYER_CAST_VERSION = "player-cast-0.4.0"
+# 0.5.0: a release, a drop `equip_release` refuses from above
+# `ability_timeline.FULL_LEVEL`, taints no drop beside it; an X drop the
+# charge tests refuse still does.
+PLAYER_CAST_VERSION = "player-cast-0.5.0"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the

@@ -17,7 +17,7 @@ From the voice-lines paragraph, shortened on 2026-09-27 (later); the sentences a
 
 - and the gate (`player-cast-0.2.0`) keeps the kit through a Run it Back death the badge votes a second life and a Clove death her revive entry follows:
 
-- [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_cooccur_among_casts=6] lie beside drops refused as co-occurring and [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death=4] beside a death the killfeed missed or no badge read undid.
+- [metric:ult_lines/ult-cast@all-sessions-player-cast-0.4.0#own_beside_refused_cooccur_among_casts=6] lie beside drops refused as co-occurring and [metric:ult_lines/ult-cast@all-sessions#own_beside_refused_after_player_death=4] beside a death the killfeed missed or no badge read undid.
 
 - The X bar lights only when the ult is castable [domain:abilities/ult-slot-lights-when-castable] (player).
 

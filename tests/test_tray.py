@@ -71,6 +71,13 @@ class TrayReadTest(unittest.TestCase):
         self.assertFalse(tray.drawn(np.zeros(4)))
         self.assertTrue(tray.drawn(np.array([0.0, 0.0, 0.5, 0.0])))
 
+    def test_a_quiet_drop_is_marked_but_marks_no_other(self):
+        ev = [(20.0, "Q", 1.25, 0.97, False), (20.0, "E", 1.0, 0.0, False),
+              (30.0, "C", 1.0, 0.0, False)]
+        self.assertEqual([s for *_x, s in tray.flag_suspect(ev)], [True, True, False])
+        got = tray.flag_suspect(ev, quiet=[True, False, False])
+        self.assertEqual([s for *_x, s in got], [True, False, False])
+
 
 class PlayerCastGateTest(unittest.TestCase):
     def _drop(self, t, slot, forced=False):
