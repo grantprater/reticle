@@ -93,24 +93,35 @@ reader cost 9.61 ms a call alone (`R[c40d950031bb 06:34:24Z].heaviest_ms_per_cal
 beside five (`R[c40d950031bb 02:35:45Z]`). If uncontended ally_icon halves, the floor is the scoreboard's
 220.8 s and two shards buy nothing on a06f. Step 3's serial ally_icon gates step 2's sharding claim.
 
-### L1. The decode thread selects and converts
+### L1. Decode overlaps the readers
 
-- **Mechanism.** Move `sample_multi`'s selection (decode.py:461-560) into a `_Selector` shared with the
-  producer thread (decode.py:112). The producer grabs every frame, drops unwanted ones on the device,
-  runs today's `retrieve` (NV12 download, plane split, swscale; decode.py:165-180) on wanted ones and
-  queues `(want, Sample)`. Its queue then holds wanted frames only: 32 cover 16 s at 2 Hz in about 200
-  MB. Today's 16 raw frames (`_NVDEC_AHEAD`, decode.py:37) span half the 30-frame gap between 2 Hz
-  samples of a 60 fps capture, so the decoder stalls while readers run. `RoiCache.samples` moves there
-  too.
+- **Mechanism.** The staged pipeline, as built, takes the source off the reader threads: its dispatcher
+  thread runs today's `sample_multi` (decode.py:461-560), with its selection and `retrieve` (NV12
+  download, plane split, swscale; decode.py:165-180), or `RoiCache.samples`, and queues each wanted
+  frame into its readers' FIFOs, 8 deep, while they feed on their own threads (section 1). At W = 1 no
+  two readers feed at once, so a staged pass at W = 1 against the serial one isolates this overlap from
+  L3; step 4 runs that test on video.
 - **Prediction.** a06f: 848.1 to 674.2 s. Lone passes gain
   `G[scoreboard/video/match/b1].speedup_overlap.median` 1.736 on video and
   `G[hud/cache/match/b1].speedup_overlap.median` 1.979 from the crop cache.
-- **Constraints.** The selector sees every grabbed frame in order; `frame_idx` counts grabs; `next_t`
-  advances only after a successful retrieve (decode.py:551-556); one FIFO feeds the dispatcher.
-- **Falsifier, 120 s of video** (to revise before measuring: reconcile with step 4's 180 s x 3, section
-  6). `scan --only scoreboard` over a 60 s prefix of c40d950031bb, serial and
-  staged: rows byte-equal, and the dispatcher's wait under a tenth of the serial source time. Falsified
-  if the pass shrinks by less than half the smaller of the serial source and reader times.
+- **Constraints.** `frame_idx` counts grabs; `next_t` advances only after a successful retrieve
+  (decode.py:551-556); one dispatcher feeds every FIFO in producer order.
+- **Falsifier, step 4** (at most 180 s of video a path). `scan --only hud scoreboard --from video
+  --until S` on c40d950031bb, serial and staged at W = 1: files byte-equal. Falsified if the staged pass
+  shrinks by less than half the smaller of the serial source and reader times (the serial path's
+  `source_s`, and the sum of its `feed_s_<reader>`). The staged path feeds at one OpenCV thread and the
+  serial one on the default pool (L3), so the test errs against L1; a miss is read against step 4's
+  one-thread scoreboard figure.
+- **A further lever, unbuilt: the `_Selector`.** Move `sample_multi`'s selection into a `_Selector`
+  shared with the NVDEC producer thread (decode.py:112). The producer grabs every frame, drops unwanted
+  ones on the device, runs `retrieve` on wanted ones and queues `(want, Sample)`: 32 wanted frames cover
+  16 s at 2 Hz in about 200 MB, where today's 16 raw frames (`_NVDEC_AHEAD`, decode.py:37) span half the
+  30-frame gap between 2 Hz samples of a 60 fps capture. `RoiCache.samples` would move there too. The
+  selector must see every grabbed frame in order, and one queue feeds the dispatcher. It takes
+  conversion off the dispatcher, so it can shorten only a pass the source paces. **Falsifier, no new
+  video:** step 4's staged record. If the dispatcher blocked on full FIFOs for a tenth of the pass or
+  more (`dispatcher_wait_s` against `pass_s`), the readers set the pace and the selector stays unbuilt;
+  otherwise the producer's timers (open question 1) bound what it can save.
 
 ### L2. Convert ROI windows, not the frame
 
@@ -126,10 +137,10 @@ beside five (`R[c40d950031bb 02:35:45Z]`). If uncontended ally_icon halves, the 
   (usage.py:59-67).
 - **Falsifier, no video.** Random yuv420p planes through PyAV's reformatter: each padded window must
   equal the same window of the full conversion byte for byte, or L2 is dropped. Time both.
-- **To revise before measuring.** With every default reader the path never fires: the scoreboard,
-  roster, lineup, combat_report, minimap, ping and minimap_dark declare no `cache_set` (cli.py:939-977;
-  finding 9), so step 4's third path is its second plus 180 s of decode. Run L2 as `--only hud` over the
-  prefix, or drop it and rest on the no-video falsifier (section 6).
+- **Untested on video.** With every default reader the path never fires: the scoreboard, roster,
+  lineup, combat_report, minimap, ping and minimap_dark declare no `cache_set` (cli.py:939-977; finding
+  9), and step 4's scoreboard wants every frame its HUD readers want, at their rate and span. L2 leaves
+  step 4 and rests on its no-video falsifier until those readers declare their sets (section 6).
 
 ### L3. Readers run concurrently
 
@@ -161,9 +172,11 @@ beside five (`R[c40d950031bb 02:35:45Z]`). If uncontended ally_icon halves, the 
   beside eight scans (`R[7010b3d62460 07:05:55Z].readers_s`), and cost follows pixels
   (`per_pixel["ally_icon/cache/match/b3"].reader_ratio` 2.375 against `meta.pixel_ratio_bigmap_over_std`
   2.071). Each shard therefore gets one OpenCV thread; parallelism comes from shards. Every staged
-  pass at W >= 1 runs at one OpenCV thread, set once. The scoreboard and ally_icon were timed on the
-  default pool, and `_feed` reports wall up 0-42% at one thread (passes.py:229-235), so this count moves
-  the ladder's T_r; step 3 measures it (to revise before measuring, section 6).
+  pass at W >= 1 runs at one OpenCV thread (`STAGED_CV_THREADS`, pipeline.py:91), set once and restored
+  after; at W = 0 it keeps `_feed`'s per-reader toggles and the default pool, as the serial pass does.
+  The scoreboard and ally_icon were timed on the default pool, and `_feed` reports wall up 0-42% at one
+  thread (passes.py:229-235), so this count moves the ladder's T_r. Step 3 measures ally_icon at one
+  thread from the crop cache; the scoreboard reads no crop cache, so step 4's staged path measures it.
 - **Shared module state.** Two lazily filled module dicts are read across threads: `_ME_CACHE`
   (killfeed.py:766-799) by the hud and portrait threads, and `_REG` (ally_portrait.py:85-92) by every
   ally_icon shard. Each fills with a deterministic value, so a race computes it twice and changes
@@ -253,7 +266,7 @@ adjudication), and a live path needs incremental forms this branch does not buil
 
 The largest lever is L3 with shards, and the crop cache tests it cheapest: no decode, the real readers,
 and ally_icon, the reader that sets the bound. L1 comes with it, since crop decode moves to the producer.
-L1 and L2 on video follow on one short prefix.
+L1 on video follows on one short prefix; L2 rests on its no-video falsifier.
 
 | Module | Layer (`architecture.toml`) | `ownership.toml` | Role |
 |---|---|---|---|
@@ -261,7 +274,7 @@ L1 and L2 on video follow on one short prefix.
 | `reticle/publish.py` (deferred, L6) | source | a new entry, `scan-run`: "Which run wrote this stored stream, and did that run finish?"; produces `PUBLISH_VERSION`, `Stager`, `commit`, `recover`, `run_of`; `not_for` staleness (plan's), observations and names | staging, run record, commit, roll-forward |
 | `reticle/decode.py` | source | `[infrastructure]`, as now | `_Selector` out of `sample_multi`; the selecting, converting producer; ROI conversion |
 | `reticle/usage.py` | foundation | `[infrastructure]`, as now | `scan-usage-2` |
-| `reticle/cli.py` | delivery | none | `scan --pipeline {serial,staged} --workers W --shard READER=K --until MS --check`; the publish block (cli.py:1029-1180) becomes `_publish_scan(out_store, ...)`, and the ally-icon chain stays in `cli` as a callback, so `pipeline` imports nothing above its layer. `cmd_scan` reaches both new modules (UNWIRED, UNCALLED); no new name repeats a `prototypes/` one (DUPLICATE) |
+| `reticle/cli.py` | delivery | none | `scan --pipeline {serial,staged} --workers W --shard READER=K --until SECONDS --check`; the publish block (cli.py:1029-1180) becomes `_publish_scan(out_store, ...)`, and the ally-icon chain stays in `cli` as a callback, so `pipeline` imports nothing above its layer. `cmd_scan` reaches both new modules (UNWIRED, UNCALLED); no new name repeats a `prototypes/` one (DUPLICATE) |
 
 **Steps.** Each is one Idle-priority process with OMP, MKL and OpenBLAS at one thread, beside nothing
 heavy of ours; W = 1 may keep two threads busy, W = 0 one. Nothing reaches the real store before steps 1,
@@ -284,15 +297,55 @@ heavy of ours; W = 1 may keep two threads busy, W = 0 one. Nothing reaches the r
    the same candidate revision id (a content address), and byte-equal decisions and events. 2a: five
    minutes of cached crops at OpenCV's default pool and at one thread give equal revision ids, or the
    finding is filed before step 3. Concurrency correctness runs at W = 2 on those five minutes.
-3. **Timing** (to revise before measuring, section 6), once the player grants cores: steps 1 and 2 at
-   W = 1 to 4, against lone records `R[c40d950031bb 06:34:24Z]` (ally_icon, readers 74.3 s),
-   `R[c40d950031bb 19:08:23Z]` (hud, 8.7 s) and `R[c40d950031bb 12:11:54Z]` (killfeed_portrait, 8.0 s).
-   A serial miss measures code drift first.
-4. **Video, c40d950031bb** (to revise before measuring, section 6): every default reader over the
-   shortest prefix (`--until`, at most 180 s) that stored tables say holds an open board, a killfeed
-   entry and an active span, on three paths: serial `passes.run`, staged with the selecting producer
-   (L1), and staged with ROI conversion (L2). At most 540 s of video in all, on NVDEC when the player's
-   jobs leave it free. Accept: byte-equal files across the three, and producer timings in each record.
+3. **Timing from the crop cache, c40d950031bb,** once the player grants cores; W = 3 keeps up to four
+   threads busy. The runs, one at a time:
+
+   ```
+   reticle scan c40d950031bb --only hud --from cache --pipeline staged --workers 0 --force
+   reticle scan c40d950031bb --only hud --from cache --pipeline staged --workers 1 --force
+   reticle scan c40d950031bb --only ally_icon --ally-hz 15 --from cache --pipeline serial --cv-threads 1 --force
+   reticle scan c40d950031bb --only ally_icon --ally-hz 15 --from cache --pipeline staged --workers 2 --shard ally_icon=2 --force
+   reticle scan c40d950031bb --only ally_icon --ally-hz 15 --from cache --pipeline staged --workers 3 --shard ally_icon=3 --check --check-dir DIR
+   reticle scan c40d950031bb --only ally_icon --ally-hz 15 --from cache --pipeline staged --workers 3 --shard ally_icon=3 --force
+   ```
+
+   The HUD pair, ally_icon at one OpenCV thread and ally_icon in two shards write only files that steps
+   1, 2 and 2a found byte-equal to the store's own copies; three shards are unproven, so that
+   configuration passes `--check` before it runs in the store. The runs publish into the store because
+   QUOTED reads only `<store>/notes/metrics.jsonl`, so the rule above holds them until step 4 passes,
+   unless the player lifts it for these files. Compare against lone records `R[c40d950031bb 06:34:24Z]`
+   (ally_icon, readers 74.3 s), `R[c40d950031bb 19:08:23Z]` (hud, 8.7 s) and
+   `R[c40d950031bb 12:11:54Z]` (killfeed_portrait, 8.0 s). A serial miss measures code drift first. The
+   scoreboard at one OpenCV thread needs video, so step 4 measures it.
+
+   **Reading rule for the GIL.** For a staged reader, `thread_cpu_s_<reader>` against `feed_s_<reader>`:
+   near equal, its threads computed through their feeds; far below, they waited in `feed`, for the GIL
+   or a core. For the pass, `cpu_s` against `pass_s`: near 1 at W >= 2 means the workers took turns, and
+   near the count of busy threads means they ran at once; a reader whose added shards leave the pass near
+   1 holds the GIL and moves to process shards (L3). A serial pass, or one at W = 0, charges all its CPU
+   to the dispatcher (`dispatcher_cpu_s`). Windows counts CPU in clock ticks, so a figure of a few ticks
+   says little. The figures stay in the usage and metrics records; this document quotes one only
+   through its token, `[metric:scan_usage/<part>@c40d950031bb#<field>=<value>]`, whose part names the
+   readers, source, pipeline, workers, shards and OpenCV count (`ally_icon/cache/staged/w2/ally_icon=2/cv1`;
+   usage.py).
+4. **Video, c40d950031bb:** `--only hud scoreboard` (hud, killfeed_portrait and the scoreboard) over the
+   shortest prefix, at most 180 s, that stored tables say holds an open board and a killfeed entry, on
+   two paths over the same frames: serial `passes.run`, and staged at W = 1 with today's `sample_multi`
+   as its source (L1):
+
+   ```
+   reticle scan c40d950031bb --only hud scoreboard --from video --until S --pipeline staged --workers 1 --check --check-dir DIR
+   ```
+
+   The scoreboard runs on a prefix as on the whole capture: it keeps no state across frames and has no
+   finish (scoreboard.py:535-577), so its rows before the limit are the whole pass's, and it carries L1's
+   video prediction. At most 360 s of video in all, on NVDEC when the player's jobs leave it free.
+   `--until` takes seconds, refuses to run without `--check` and `--check-dir`, and ends the decode at
+   the limit (`pipeline.limit_to_prefix`). Accept: byte-equal files, and each path's usage record with
+   its `until_s`. The staged path feeds at one OpenCV thread (L3); critique 6's scoreboard serial at that
+   count needs video, so it folds into this prefix instead of a third decode: the staged path's
+   `feed_s_scoreboard` against the serial path's, over the same frames, is its cost at one thread, read
+   by step 3's rule.
 
 **The equality test.** `--check` builds the readers twice against the real store's inputs, runs path A
 (today's `passes.run` or `run_cached`, untouched) and path B (`pipeline.run_staged`), publishes each
@@ -333,7 +386,7 @@ scans) and `status`, written on failure too. Each completed scan also appends a 
 
 | # | Question | Cheapest experiment |
 |---|---|---|
-| 1 | How much NVDEC source time is conversion, how much wait? | the producer's timers over L1's 60 s prefix |
+| 1 | How much NVDEC source time is conversion, how much wait? | the producer's timers over step 4's prefix |
 | 2 | Is the scoreboard's slowest bucket the open board? | its 630 calls of 50 ms or more (`R[a06f04a0059f 09:52:39Z].heaviest_buckets`) against `frames_open` in a06f's stored scoreboard coverage row; no compute |
 | 3 | Which parallel framework does this OpenCV build use, and do concurrent `parallel_for` calls serialize? | `cv2.getBuildInformation()`; no compute |
 | 4 | Does PyAV release the GIL in `decode` and `reformat`? | the producer alone and beside a pure-Python spinner, over L1's prefix |
@@ -367,3 +420,21 @@ Steps 0 to 2 ran on `c40d950031bb` from the crop cache, and every `--check` foun
 shards) `a9bb1e5d129e4a3e844eb96c52634a00`, `e26f78d2cb9e49eeadf220e73ff87dd4`; step 2a (one OpenCV
 thread) `8e5ff11d1a8344af8fe555184d2db684`, `1046bf3706534646a8c250d3a5b3f358`. The records sit in
 each check's own stores, outside `<store>`, so no `metric:` token cites them.
+
+Before steps 3 and 4, changes 2 and 6 were made and L1 reframed:
+
+- **Change 2.** Step 4 runs two paths, serial and staged at W = 1, over one prefix of at most 180 s,
+  with `--only hud scoreboard`: the scoreboard keeps no state across frames, so it runs on a prefix, and
+  it carries L1's video prediction. L1's falsifier is step 4, not a separate 60 s prefix. L2 leaves
+  step 4, where no frame would fire it, and rests on its no-video falsifier.
+- **Change 6.** L3 states the count: one OpenCV thread at W >= 1; at W = 0, `_feed`'s toggles on the
+  default pool. The scoreboard reads no crop cache, so its serial at one thread folds into step 4's
+  staged path instead of costing a third decode.
+- **L1.** The staged pipeline, with today's `sample_multi` as its source, already takes decode and
+  conversion off the reader threads; step 4 tests that. The `_Selector` and its deeper queue become a
+  further lever, unbuilt, falsified from step 4's record.
+- **Step 3** lists its runs and the reading rule for the GIL. Its runs publish into the store, since
+  QUOTED reads only `<store>/notes/metrics.jsonl`; that waits for step 4 unless the player lifts the rule
+  for files steps 1, 2 and 2a proved.
+- **Section 3's table** gives `--until` in seconds, as built; the flag refuses to run without `--check`
+  and `--check-dir`. Section 3's opening and open question 1 follow the reframe.
