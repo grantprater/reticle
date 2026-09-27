@@ -270,12 +270,95 @@ def match(mine: list[dict], stored: list[list]) -> tuple[list, list, list]:
     return out, added, missing
 
 
+#: A drop is looked at by eye when the stored cast cache disagrees with it, or
+#: when its slot starts above CHECK_FROM or stays above CHECK_TO of the slot's
+#: reference: a wash or glow over the tray, not a spent charge.
+CHECK_FROM, CHECK_TO = 1.05, 0.7
+#: Verdicts read from the cached tray crops (`casts --strips` renders them to
+#: OUT/tray_strips/tray_<sid>_<t>.png), keyed `sid:slot:t` with t the 2 Hz drop
+#: time in seconds. `false`: the slot's bar never fell. The census reads every
+#: drop not judged false.
+TRAY_VERDICTS = {
+    "02cf738b1c8f:E:14.50": ("false", "E full 13.0-15.3 s; the bow's cyan glow lifts E"),
+    "02cf738b1c8f:Q:15.03": ("false", "Q full 13.0-15.3 s; the bow's glow lifts Q to 978"),
+    "02cf738b1c8f:Q:16.53": ("false", "the glow lifts Q at the 16.03 s sample, counted clean; "
+                                      "the half drop is 15.5 s"),
+    "2ba870ccbd50:X:10.03": ("false", "X full throughout; a teal wash lifts X at 9.5 s"),
+    "2ba870ccbd50:E:22.57": ("false", "a white-yellow flood 22.0-25.2 s; E reads three "
+                                      "charges before and after"),
+    "29eff6920e8f:C:12.03": ("real", "C full to 11.83 s, empty at 11.90 s"),
+    "29eff6920e8f:Q:24.57": ("real", "Q falls from two charges to one at 24.57 s"),
+    "29eff6920e8f:Q:33.55": ("real", "Q falls from one charge to none at 33.40 s"),
+    "29eff6920e8f:E:41.52": ("real", "E full to 41.45 s, empty at 41.52 s"),
+    "29eff6920e8f:X:45.55": ("real", "X full to 45.20 s, empty at 45.27 s"),
+    "afa5bc60b935:C:7.50": ("real", "C full to 7.00 s, empty at 7.08 s"),
+    "afa5bc60b935:Q:18.57": ("real", "Q bar full to 18.07 s, grey at 18.15 s; the icon stays "
+                                     "white while the cloud is out"),
+    "afa5bc60b935:E:37.02": ("real", "E full to 36.88 s, empty at 36.95 s"),
+    "afa5bc60b935:X:90.52": ("real", "X bar and pips empty from 90.15 s; all four icons dim at "
+                                     "once, 3 s before the capture ends"),
+    "2f4ef4e8da23:E:29.57": ("false", "E empty before and after; a white-teal wave over the tray"),
+    "2f4ef4e8da23:X:32.50": ("real", "X full with pips at 32.07 s, empty at 33.13 s once the "
+                                     "overlay clears"),
+    "5a63cc4fecfc:E:25.57": ("false", "E holds one charge 24.2-25.8 s; a teal ghost lifts E at "
+                                      "25.07 s; the drop is 25.9 s"),
+    "6ab7a9e99235:E:17.57": ("real", "E falls from two charges to one between 17.23 and 17.32 s"),
+    "6bb88dba5d2c:X:42.55": ("false", "a green screen wash; X stays full until 44.0 s"),
+    "ad6b67cdf91d:C:7.00": ("real", "C falls from two charges to one at 6.6 s"),
+    "ad6b67cdf91d:C:12.50": ("false", "C holds one charge 11.0-13.3 s; teal sweeps over the tray"),
+    "ad6b67cdf91d:X:38.05": ("false", "a green wash 36.5-37.9 s; X stays full until 45.0 s"),
+    "b9558488a607:X:14.50": ("false", "X full 13.0-15.3 s; a pale blue flash lifts X at 14.03 s"),
+    "f1cf160b213d:E:22.57": ("false", "E full from 21.82 s to 23.3 s; a blue streak lifts E"),
+    "f9703a4b5a47:X:19.07": ("false", "a blue-teal wash 17.98-18.48 s; X stays full"),
+}
+#: Stored casts no drop here matched, judged the same way.
+STORED_VERDICTS = {
+    "481336df9adb:X:29.50": ("false", "X full through 30.2 s under orange flame; X falls at 34.5 s"),
+    "6ab7a9e99235:X:22.50": ("false", "X full 21.1-23.2 s; E falls at 21.73 s, which both read"),
+    "ad6b67cdf91d:Q:12.50": ("false", "Q full 11.0-13.3 s; teal sweeps over the tray"),
+    "e78e75b2d191:E:18.50": ("false", "E holds both charges 17.1-19.2 s under the purple "
+                                      "placement view; E falls at 19.8 s"),
+}
+STRIPS = OUT / "tray_strips"
+
+
+def vkey(sid: str, slot: str, t_s: float) -> str:
+    return f"{sid}:{slot}:{t_s:.2f}"
+
+
+def needs_eye(c: dict) -> bool:
+    return c["stored"] is None or c["from"] > CHECK_FROM or c["to"] >= CHECK_TO
+
+
+def tray_strip(cache, reader, t_s: float, path: Path) -> None:
+    """The cached tray crops from t-1.5 s to t+0.8 s, each with its slot counts."""
+    import cv2
+    t0 = t_s * 1000.0
+    tt = np.unique(cache.t_ms)
+    sel = [float(x) for x in tt[(tt >= t0 - 1500) & (tt <= t0 + 800)]]
+    tx0, ty0, tx1, ty1 = cache.rect_of("hud_abilities")
+    rows = []
+    for smp in cache.samples(sel, rois=["hud_abilities"]):
+        c, ok = reader.slot_counts(smp.frame)
+        crop = smp.frame[ty0:ty1, tx0:tx1]
+        pad = np.zeros((crop.shape[0], 330, 3), np.uint8)
+        _label(pad, f"{smp.t_ms / 1000:6.2f}s {'' if ok else 'UNCLEAN'}", (4, 20), 0.55)
+        _label(pad, " ".join(f"{k}{v}" for k, v in zip(SLOTS, c)), (4, 45), 0.55)
+        rows.append(np.hstack([pad, crop]))
+    half = (len(rows) + 1) // 2
+    left, right = rows[:half], rows[half:]
+    right += [np.zeros_like(rows[0])] * (len(left) - len(right))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(path), np.hstack([np.vstack(left), np.vstack(right)]))
+
+
 def cmd_casts(args) -> int:
     """Tray drops from the cached crops, compared with the stored cast caches."""
     reader, name = tray_reader()
     rows, per = [], {}
     tot = {"demos": 0, "drops": 0, "suspect": 0, "stored": 0, "matched": 0, "added": 0,
            "missing": 0, "refined": 0}
+    unjudged = []
     for sid, agent in demos():
         got = read_tray(sid, reader)
         if "refused" in got:
@@ -313,11 +396,28 @@ def cmd_casts(args) -> int:
             mine[i]["stored"] = st[j]
         for i in added:
             mine[i]["stored"] = None
+        for m in mine:
+            m["stored_cache"] = st is not None
+            v = TRAY_VERDICTS.get(vkey(sid, m["slot"], m["t_ms"] / 1000.0))
+            m["tray_verdict"], m["tray_verdict_reason"] = v if v else (None, None)
+            m["census"] = m["tray_verdict"] != "false"
+            if needs_eye(m) and v is None:
+                unjudged.append(vkey(sid, m["slot"], m["t_ms"] / 1000.0))
+        miss = []
+        for j in missing:
+            v = STORED_VERDICTS.get(vkey(sid, st[j][1], st[j][0]))
+            miss.append({"stored": st[j], "tray_verdict": v[0] if v else None,
+                         "tray_verdict_reason": v[1] if v else None})
+            if v is None:
+                unjudged.append("stored " + vkey(sid, st[j][1], st[j][0]))
+        if args.strips:
+            for t_s in ([m["t_ms"] / 1000.0 for m in mine if needs_eye(m)]
+                        + [st[j][0] for j in missing]):
+                tray_strip(got["cache"], reader, t_s, STRIPS / f"tray_{sid}_{t_s:.2f}.png")
         per[sid] = {"agent": agent, "drops": len(mine), "stored": None if st is None else len(st),
                     "matched": len(pairs), "added": [mine[i]["t_ms"] / 1000.0 for i in added],
                     "added_slots": [mine[i]["slot"] for i in added],
-                    "missing": [st[j] for j in missing] if st else [],
-                    "samples": len(ts), "clean": int(clean.sum())}
+                    "missing": miss, "samples": len(ts), "clean": int(clean.sum())}
         tot["demos"] += 1
         tot["drops"] += len(mine)
         tot["suspect"] += sum(m["suspect"] for m in mine)
@@ -331,12 +431,37 @@ def cmd_casts(args) -> int:
         print(f"{sid} {agent:<9} drops {len(mine):2d} stored {'-' if st is None else len(st):>2} "
               f"matched {len(pairs):2d} added {per[sid]['added']} {per[sid]['added_slots']} "
               f"missing {per[sid]['missing']}")
+    eyed = [m for m in rows if needs_eye(m)]
+    tot.update({
+        "eyed": len(eyed),
+        "eyed_false": sum(m["tray_verdict"] == "false" for m in eyed),
+        "added_real": sum(m["stored_cache"] and m["stored"] is None
+                          and m["tray_verdict"] == "real" for m in rows),
+        "added_false": sum(m["stored_cache"] and m["stored"] is None
+                           and m["tray_verdict"] == "false" for m in rows),
+        "no_stored_cache_demos": sum(p["stored"] is None for p in per.values()),
+        "no_stored_cache_real": sum(not m["stored_cache"] and m["tray_verdict"] == "real"
+                                    for m in rows),
+        "no_stored_cache_false": sum(not m["stored_cache"] and m["tray_verdict"] == "false"
+                                     for m in rows),
+        "matched_false": sum(m["stored"] is not None and m["tray_verdict"] == "false"
+                             for m in rows),
+        "missing_false": sum(x["tray_verdict"] == "false" for p in per.values()
+                             for x in p["missing"]),
+        "stays_full": sum(m["to"] >= 0.8 for m in rows),
+        "stays_full_false": sum(m["to"] >= 0.8 and m["tray_verdict"] == "false" for m in rows),
+        "census": sum(m["census"] for m in rows),
+        "unjudged": len(unjudged)})
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "casts.json").write_text(json.dumps({"version": VERSION, "source_reader": name,
                                                 "step_s": TRAY_STEP_S, "match_s": MATCH_S,
+                                                "check": {"from_above": CHECK_FROM,
+                                                          "to_at_least": CHECK_TO},
                                                 "per_demo": per, "casts": rows}, indent=1),
                                     encoding="utf-8")
     print(tot)
+    if unjudged:
+        print("look at these by eye (casts --strips):", unjudged)
     if args.record:
         metrics.record(TOOL, part="casts", session="demos", values=tot,
                        deps={"reader": name, "step_s": TRAY_STEP_S, "match_s": MATCH_S,
@@ -824,6 +949,8 @@ def main(argv=None) -> int:
                    help="record the metric for a cache already written")
     c = sub.add_parser("casts", help="tray drops at 2 Hz from the cached tray crops")
     c.add_argument("--record", action="store_true")
+    c.add_argument("--strips", action="store_true",
+                   help="render the tray crops round every drop that needs an eye")
     c = sub.add_parser("residual", help="per-cast minimap residual against baked geometry")
     c.add_argument("--key", nargs="*", help="only these sid:t_ms:slot keys")
     c.add_argument("--show", action="store_true", help="print each summary (unblinds the cast)")
