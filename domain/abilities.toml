@@ -1289,7 +1289,8 @@ Agents announce casts aloud in fixed voice lines that name the ability's
 class ("dropping a smoke", "blocking sight", "barrier created", "time to
 hunt"), and ults with a line of their own ("adapt or die"). The local player
 hears these cast lines for allies only; an enemy's cast sounds but is not
-announced. Callouts ("enemy spotted mid") and "reloading" are lines too.
+announced, except an ultimate, whose enemy variant is heard
+(abilities/ult-lines-heard-by-both-teams). Callouts ("enemy spotted mid") and "reloading" are lines too.
 """
 kind = "appearance"
 known = "player"
@@ -1302,11 +1303,11 @@ with their lines, and reloads; the allies-only caveat followed
 """
 exceptions = """
 Open, per the player (2026-09-27): whether the player's own agent's cast
-lines are heard (fairly sure yes); whether the line sits at a fixed offset
-from the cast (not sure). The wiki answered whether each cast has one line:
-it does not (abilities/cast-lines-vary). Falsifiers: an own cast on a demo
-with no line; a line-to-tray drop offset that varies by more than the
-tray's 0.5 s step
+Measured for ultimates (abilities/caster-hears-own-ult-line): the caster
+hears their own line, about 0.4 s before the tray's charge falls, with a
+0.44 s interquartile range. The wiki answered whether each cast has one
+line: it does not (abilities/cast-lines-vary). Open for the other
+abilities: whether own cast lines are heard, and at what offset
 """
 use = """
 a voice line is a fixed game asset, so match it as a template instead of
@@ -1355,3 +1356,46 @@ a template set per ability holds every listed line; a match on any of them
 names the ability, and the line text is not a stable key for the cast
 """
 see = ["abilities/voice-lines-announce-casts"]
+
+[ult-lines-heard-by-both-teams]
+claim = """
+An ultimate's cast line is heard by every player in the match: the caster's
+allies hear the ally variant and the enemies hear the enemy variant, with no
+range limit that shows in a match.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = """
+prototypes/voice_lines.py on 19 lineup sessions, 2026-09-27: at a tenth of a
+lineup-impossible detection per live minute, enemy-variant detections equal
+ally-variant detections on the median session (docs/VOICE_LINES.md)
+"""
+use = """
+the variant names the caster's side, so an ult line is an event witness for
+the whole lobby: agent, side and time of every ultimate cast
+"""
+see = ["abilities/voice-lines-announce-casts", "abilities/caster-hears-own-ult-line"]
+
+[caster-hears-own-ult-line]
+claim = """
+The caster hears their own ultimate's ally line, about 0.4 s before the
+tray's ultimate charge falls.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = """
+prototypes/voice_lines.py, 2026-09-27: the player's own line found on Skye
+15 of 15 and Sova 15 of 19 ult casts on the matches and 2 of 3 on demos,
+onset median -0.43 s from the tray drop, interquartile range 0.44 s
+(docs/VOICE_LINES.md); Phoenix 0 of 10 within 1.5 s because Run it Back's
+pips fall at expiry, 8 of 10 with the line 12.6 s before the drop
+"""
+use = """
+own ult casts are free labels for a line matcher, and the tray drop dates
+the cast within half a second except where the pips fall at expiry
+"""
+see = ["abilities/voice-lines-announce-casts", "abilities/phoenix-run-it-back-expiry-flash"]

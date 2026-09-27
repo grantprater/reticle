@@ -400,6 +400,47 @@ Measured values beside each prediction; the orchestrator judges them.
 | P5 | podcast sessions >= 2x the impossible rate of the rest at a common threshold | [metric:voice_lines/evaluate-F-A@all-matches#podcast_ratio=1.499] at the operating point; [metric:voice_lines/evaluate-F-A@all-matches#podcast_ratio_at_p5=0.956] at 1/min | [metric:voice_lines/evaluate-F-B@all-matches#podcast_ratio=3.965] at the operating point; [metric:voice_lines/evaluate-F-B@all-matches#podcast_ratio_at_p5=3.338] at 1/min | [metric:voice_lines/evaluate-F-C@all-matches#podcast_ratio=2.062] at the operating point; [metric:voice_lines/evaluate-F-C@all-matches#podcast_ratio_at_p5=1.246] at 1/min |
 | P6 | own onset minus drop IQR <= 0.5 s | IQR [metric:voice_lines/evaluate-F-A@all-matches#onset_iqr_s=0.464], median [metric:voice_lines/evaluate-F-A@all-matches#onset_median_s=-0.425], n [metric:voice_lines/evaluate-F-A@all-matches#onset_n=18] | IQR [metric:voice_lines/evaluate-F-B@all-matches#onset_iqr_s=0.442], median [metric:voice_lines/evaluate-F-B@all-matches#onset_median_s=-0.43], n [metric:voice_lines/evaluate-F-B@all-matches#onset_n=30] | IQR [metric:voice_lines/evaluate-F-C@all-matches#onset_iqr_s=0.393], median [metric:voice_lines/evaluate-F-C@all-matches#onset_median_s=-0.375], n [metric:voice_lines/evaluate-F-C@all-matches#onset_n=20] |
 
+### Verdicts (2026-09-27)
+
+Judged by the orchestrator against the falsifiers logged before the run;
+the ledger rows are `voice-lines` outcomes of 2026-09-27. F-B, the whitened
+waveform correlation, is the formulation judged.
+
+- **P0 falsified as stated, and the reason is the instrument.** Own recall
+  within 1.5 s of the tray drop is 0.667, under the 0.8 asked. The shortfall
+  is Phoenix: Run it Back's pips fall at expiry, not at the cast
+  [domain:abilities/phoenix-run-it-back-expiry-flash], so 0 of 10 sit in the
+  window and 8 of 10 have the line 12.6 s earlier. Skye 15 of 15, Sova 15 of
+  19 and 2 of 3 demo casts say the caster hears their own line
+  [domain:abilities/caster-hears-own-ult-line]. A per-agent cast time, from
+  the timer bar or from the line itself, is the fix.
+- **P1 confirmed.** 0.968 possible detections per live minute.
+- **P2 falsified.** F-B beats F-A by 0.267 of own recall at the same false
+  alarm rate; the whitened correlation wins.
+- **P3 confirmed.** Enemy variants fire as often as ally variants, median
+  ratio 1.0 [domain:abilities/ult-lines-heard-by-both-teams].
+- **P4 confirmed.** 0.996 of detections are the only one for their agent and
+  variant in their round.
+- **P5 confirmed for F-B** (3.97 times the false alarms on the podcast
+  sessions), not for F-A (1.5). The waveform matcher hears speech; the
+  capture's own game-audio track matters.
+- **P6 confirmed.** Onset 0.43 s before the drop with a 0.44 s interquartile
+  range: the line's timing is fixed.
+
+Surprises stored: the Phoenix lead; the lineup's scoreboard override
+confirmed by the lines (the board's agent fires 11 times where it overrode
+the top bar, the top bar's agent never); 0.447 of F-B's false alarms sit
+within 1.5 s of a stronger true detection, so suppressing all but the best
+template at one onset should halve them; the Vyse line the player heard
+at `043bafca271a` 1870.1 s is found as the enemy variant 0.93 s early.
+
+Decision: promotion deferred (`wire: no` for now). First suppress
+cross-template detections at one onset and date each agent's cast with its
+own window, then port the matcher as an ult-cast reader with its own owner
+that publishes identity claims per side. The next audio experiment matches
+the 528 harvested cast lines [domain:abilities/cast-lines-vary] as allies'
+cast templates. The review sheet awaits the player.
+
 ### What was not done
 
 - No events, labels or `reticle/` module: a matched line is not yet an identity claim, and nothing is wired until the player has judged the review sheet.
