@@ -2729,8 +2729,12 @@ def cmd_tray(args) -> int:
         if cache is None:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
             continue
+        spans = cache.record.get("spans")
+        if not spans:
+            print(f"{sid}: the crop cache has no round spans (a whole-capture cache) -- skipped")
+            continue
         ts, counts, clean = [], [], []
-        for a, b in cache.record["spans"]:
+        for a, b in spans:
             for smp in cache.samples(_cache_grid(cache.t_ms, a, b, args.step), rois=["hud_abilities"]):
                 c, ok = tray.slot_counts(smp.frame)
                 ts.append(float(smp.t_ms))
