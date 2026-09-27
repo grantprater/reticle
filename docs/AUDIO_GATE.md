@@ -44,8 +44,14 @@ Every label comes from a stored table with its version, never from the video.
   analysis column for footsteps, not a training class.
 
 Stalled spans (`reticle.stalls`) are excluded from every count. The player
-reports that some captures carry unrelated background audio and no voice
-(2026-09-26); per-session unexplained rates will show which.
+reports (2026-09-26, correcting an earlier answer) that some match
+sessions, none of the ability demos and not most matches, carry podcast
+audio: continuous speech for minutes at a time, pulled in from another
+application. Agent voice lines are speech too, but last one to three
+seconds inside own-cast windows, so speech is not subtracted from the
+gate. F4's per-session speech fraction identifies the podcast sessions,
+every score is reported with and without them, and F2 is also fitted with
+them removed from the training folds (F2c).
 
 ## Formulations, scored identically
 
