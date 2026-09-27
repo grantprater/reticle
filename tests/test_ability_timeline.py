@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from reticle.ability_timeline import (_step_ms, build_timeline, player_tray_casts,
+from reticle.ability_timeline import (FULL_MIN, _step_ms, build_timeline, player_tray_casts,
                                       write_timeline)
 
 
@@ -132,6 +132,52 @@ class GateDeathTests(unittest.TestCase):
                          agent="Clove", revives_ms=[61000.0])
         self.assertEqual(got[(50500.0, "X")]["reason"], "after_player_death")
         self.assertEqual(got[(62000.0, "E")]["reason"], "after_player_death")
+
+
+class GateChargeTests(unittest.TestCase):
+    """The ultimate casts only from a full X slot (`partial_charge`)."""
+
+    def _gate(self, drops, deaths=(), **kw):
+        rows = player_tray_casts(drops, lambda t: "round_live", ROUND, list(deaths), **kw)
+        return {(r["t_ms"], r["slot"]): r for r in rows}
+
+    def test_a_part_filled_x_drop_is_refused(self):
+        got = self._gate([_drop(20000, "X", frm=0.36)])[(20000.0, "X")]
+        self.assertFalse(got["player_cast"])
+        self.assertEqual(got["reason"], "partial_charge")
+        self.assertEqual(got["from"], 0.36)          # the reading stays as evidence
+
+    def test_a_full_x_drop_passes(self):
+        # Full within the reading's spread, and a fill above 1 is still full.
+        for frm in (FULL_MIN, 0.9, 1.0, 1.18):
+            got = self._gate([_drop(20000, "X", frm=frm)])[(20000.0, "X")]
+            self.assertTrue(got["player_cast"], frm)
+            self.assertIsNone(got["reason"])
+
+    def test_the_rule_leaves_other_slots_alone(self):
+        got = self._gate([_drop(20000, "Q", frm=0.4), _drop(40000, "C", frm=0.5)])
+        self.assertTrue(got[(20000.0, "Q")]["player_cast"])
+        self.assertTrue(got[(40000.0, "C")]["player_cast"])
+
+    def test_the_refusal_stays_apart_from_the_others(self):
+        drops = [_drop(10000, "X", frm=0.4),                  # partial_charge
+                 _drop(30000, "X", frm=0.4, forced=True),     # forced first
+                 _drop(50000, "X", frm=0.4), _drop(50500, "E"),  # co-occurring
+                 _drop(81000, "X", frm=0.4)]                  # after the death
+        got = self._gate(drops, [80000.0], agent="Sova")
+        self.assertEqual({k: (r["player_cast"], r["reason"]) for k, r in got.items()},
+                         {(10000.0, "X"): (False, "partial_charge"),
+                          (30000.0, "X"): (False, "forced"),
+                          (50000.0, "X"): (False, "cooccur_among_casts"),
+                          (50500.0, "E"): (False, "cooccur_among_casts"),
+                          (81000.0, "X"): (False, "after_player_death")})
+
+    def test_a_part_filled_x_drop_still_taints_a_drop_beside_it(self):
+        # It is a transition of the tray, so the co-occurrence test still sees
+        # it; the rule changes no other slot's verdict.
+        got = self._gate([_drop(20000, "X", frm=0.5), _drop(21000, "Q")])
+        self.assertEqual(got[(21000.0, "Q")]["reason"], "cooccur_among_casts")
+        self.assertEqual(got[(20000.0, "X")]["reason"], "cooccur_among_casts")
 
 
 if __name__ == "__main__":
