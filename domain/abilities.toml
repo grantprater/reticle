@@ -123,21 +123,29 @@ see = ["abilities/viper-poison-cloud"]
 
 [clove-rouse]
 claim = """
-Clove's Ruse is a tactical smoke placed in slot E. It is never drawn on the
-minimap.
+Clove's Ruse is her smoke, placed in slot E. Each cloud is drawn on the
+caster's minimap as a bounded dark disc that marks where the cloud was placed,
+and Ruse is the only Clove ability that draws anything there.
 """
 kind = "appearance"
 known = "player"
 since = "2026-09-26"
 subject = "clove:ruse"
 source = """
-the player, 2026-09-26, after the tray-object pass found nothing on the
-minimap on 9 of 9 answered Ruse casts. Until then this fact claimed a circular
-minimap disc, measured by prototypes/ability_hud.py on 28f53bfddbbe
+the player, 2026-09-26, shown the demo cast census montage keyed_034
+(28f53bfddbbe, 14.5 s): two discs, "perfectly bounded", confirmed as Ruse
+clouds. Earlier the same day the player had answered that Ruse never shows on
+the map, after the tray-object pass found nothing on 9 of 9 answered match
+casts; that answer is retracted. Before that the fact claimed a circular disc
+measured by prototypes/ability_hud.py on the same demo. Why the nine match
+casts showed nothing is open: a placement out of the montage's frames, or an
+equip without a cast. Asked again later that day whether matches too leave
+one disc per cloud, the player said yes, and that the disc is the indicator
+of the smoke's placement
 """
 use = """
-a Ruse cast places no minimap object, so no minimap search follows a slot E
-drop; `adjudication.gallery` still scores a clove:ruse glyph, uncalled
+a slot E drop on Clove is followed by a minimap search for dark discs, one
+per cloud, and each disc's centre is that cloud's position; `adjudication.smokes` may attribute a Clove smoke to Ruse
 """
 see = ["abilities/clove-tray-charges"]
 
@@ -175,6 +183,13 @@ kind = "rule"
 known = "player"
 since = "2026-09-23"
 subject = "phoenix:blaze"
+source = """
+the player, 2026-09-23. On 6afc32cb46b4 the census times the orange wall on
+the minimap, not the cast icon that runs ahead of it, at 9.2 s from the tray
+drop (onset 0.4 s after it). Asked whether the 8 s counts from the cast or
+from the wall completing, the player guessed the completion (2026-09-26); the
+9.2 s fits a wall that takes about a second to draw, and nothing confirms it
+"""
 use = "wall lifetime after a slot C cast; replaces an approximate 4 s the wall measurement stated"
 see = ["abilities/phoenix-blaze"]
 
@@ -298,16 +313,25 @@ see = ["abilities/clove-ruse-batch-launch"]
 
 [ability-sound-phases]
 claim = """
-When the local player uses an ability, its equip sound is separate from its cast
-sound, and only the local player hears the equip. Some abilities also have an
-activation sound and a death or dematerialize sound.
+Every ability has an equip sound, heard by the local player only, and a cast
+or activation sound. Some also have an ongoing sound while the ability lives
+or is channelled (Hot Hands on the ground, Blaze, Regrowth looping while
+channelled), and some a deactivate or end sound. An activation can be a
+distinct sound from the cast: Guiding Light's bird vanishes and the flash
+goes off with its own sound.
 """
 kind = "rule"
 known = "player"
 since = "2026-09-06"
+source = """
+the player, 2026-09-06 (equip separate from cast, equip self-only) and
+2026-09-26 (every ability equips and casts, some deactivate, Guiding Light's
+activation; ongoing sounds for Hot Hands, Blaze and channelled Regrowth)
+"""
 use = """
-segment an ability's audio by phase before matching; an equip template and a
-cast template are different references
+segment an ability's audio by phase before matching: equip, cast, ongoing and
+end templates are different references, and an ongoing sound is a lifetime
+witness the minimap lacks for a self-buff or a channel
 """
 
 [ability-voice-line-mask]
@@ -580,17 +604,29 @@ use = "the ring prior of `ability_shapes`: search round the caster"
 [sova-recon-bolt-minimap-ring]
 claim = """
 Sova's Recon Bolt is drawn on the minimap as a teal ring centred where the bolt
-lands, with the bolt's icon at the centre.
+lands, with the bolt's icon at the centre, kept the whole time while the bolt
+pulses two or three times over a few seconds. The ring is the reveal range. On
+each pulse the bolt reveals the enemies in its own line of sight, and the
+whole team then sees them, through walls.
 """
 kind = "appearance"
-known = "observed"
+known = "player"
 since = "2026-09-26"
 subject = "sova:recon-bolt"
 source = """
 the player's tray-object marks on 8 panels of 6 casts: one mark on the bolt
-and the rest on the ring round it, 27-97 px from the stored self position.
+and the rest on the ring round it, 27-97 px from the stored self position;
+the player, 2026-09-26, asked whether the ring is the whole reveal: the ring
+is the range, the scan itself does not pass through walls, and the revealed
+enemies are shown through walls to everyone on Sova's team.
 """
-use = "the free ring of `ability_shapes`: the bolt flies, so search the whole widget"
+use = """
+the free ring of `ability_shapes`: the bolt flies, so search the whole widget;
+the ring's radius is the reveal range, fixed for the ability, so it is a prior
+for the fit and a check on a found ring; an enemy icon appearing inside the
+ring during the pulse is a reveal, not a sighting
+"""
+see = ["abilities/pulse-scan-abilities"]
 
 [sova-hunters-fury-minimap-beam]
 claim = """
@@ -611,3 +647,686 @@ a new angle on some crops (043bafca271a 805.5 s); which drawn lines are blasts
 and which an aim is not asked.
 """
 use = "the beam prior of `ability_shapes`: sweep the angle from the caster"
+
+[minimap-aim-preview]
+claim = """
+While the player holds an aimed ability before casting it, the player's own
+minimap draws its aim from the player's icon: a teal or red band, rectangle,
+line or diamond. The shape vanishes at the cast or within about 1 s of it; it
+belongs to the equipped ability, not to an object the cast leaves.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "minimap:aim-preview"
+source = """
+the demo cast census's blind read of montages
+<store>/analysis/demo-cast-census/montage/keyed_NNN.png, the frame 1 s before
+each tray drop: red rectangles on casts 004 (a7ce88bf341c 31.567 s), 133
+(a7ce88bf341c 36.55 s) and 135 (5abe77b9953f 29.067 s); a red band to +0.5 s on
+030 (b588ea1a6dd5 28.067 s); teal lines on 089 (afa5bc60b935 37.017 s) and 106
+(6bb88dba5d2c 22.067 s); teal bands on 099 (to +0.5 s), 116 and 130; a teal
+rectangle to 0 s on 140 (2f4ef4e8da23 32.5 s); a teal diamond on 141
+"""
+use = """
+a teal or red shape from self before a drop, gone within 1 s after it, is the
+aim, not the cast's object; a held preview can reappear seconds after an
+unrelated drop
+"""
+exceptions = """
+Killjoy's Lockdown and Vyse's Steel Garden draw a teal ring r~90-100 px with a
+tinted interior before their drop (casts 137 and 092), which may be the same
+kind of preview
+"""
+
+[minimap-thrown-ability-icon]
+claim = """
+Many thrown or sent abilities travel on the caster's minimap as a round dark
+icon, about 16-24 px, carrying the ability's white glyph and for some a teal
+rim. The icon leaves the caster's icon within 0.5 s of the tray drop and
+vanishes when the ability lands or expires; some leave a disc, line or icon
+where they land.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "minimap:ability-icon"
+source = """
+the demo cast census's blind read of montages
+<store>/analysis/demo-cast-census/montage/keyed_NNN.png on 18 casts: Paranoia
+(003, 130), FLASH/drive (080, 081), Undercut (116), Leer (093, 103), Guiding
+Light (039, 117), GATECRASH (120, 128), Prowler (126, 129), Stealth Drone (125),
+Wingman (009), Trailblazer (087), Boom Bot (035), High Tide (019)
+"""
+use = """
+after a tray drop, seek a new dark icon with a white glyph near the caster
+before seeking a disc; its path gives the throw's direction
+"""
+see = ["abilities/omen-paranoia-minimap-icon", "abilities/kayo-flashdrive-minimap-icon",
+       "abilities/reyna-leer-minimap-icon", "abilities/skye-guiding-light-minimap-icon",
+       "abilities/yoru-gatecrash-minimap-icon", "abilities/fade-prowler-minimap-icon"]
+
+[omen-dark-cover-minimap-phases]
+claim = """
+A Dark Cover shows on Omen's minimap in two phases: first a black target icon,
+about 20-24 px, with a white ring, from 0.5 s after the tray drop; then, from 2
+to 4 s after it, a dark grey disc about 24-28 px in the same place.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "omen:dark cover"
+source = """
+the demo cast census's blind read of montages keyed_036 (e78e75b2d191 20.067 s),
+keyed_051 (b9558488a607 55.05 s), keyed_112 (b9558488a607 47.05 s) and keyed_127
+(e78e75b2d191 26.067 s) under <store>/analysis/demo-cast-census/montage/. The
+disc persists to +8 s on every cast. Harbor's Cove (keyed_107) showed the same
+two phases once.
+"""
+use = "a dark icon near where a Dark Cover lands is its first phase, not another object"
+see = ["abilities/omen-dark-cover"]
+
+[omen-paranoia-minimap-icon]
+claim = """
+Omen's Paranoia travels on his minimap as a dark icon, about 14-20 px, with a
+white swirl glyph. It leaves his icon 0.5 s after the tray drop, is 40-70 px
+away by 1 s, and is gone by 2 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "omen:paranoia"
+source = """
+the demo cast census's blind read of montages keyed_003 (b9558488a607 37.017 s)
+and keyed_130 (e78e75b2d191 16.033 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[viper-toxic-screen-minimap-growth]
+claim = """
+A Toxic Screen draws a lavender-blue line on Viper's minimap that grows from
+her icon along the aim from 0.5 s after the tray drop, to about 170-180 px by
+2 s, and stays. Seconds later the line turns yellow or green from Viper's end.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "viper:toxic screen"
+source = """
+the demo cast census's blind read of montages keyed_089 (afa5bc60b935 37.017 s)
+and keyed_106 (6bb88dba5d2c 22.067 s) under
+<store>/analysis/demo-cast-census/montage/; both show a teal or cyan aim line
+1 s before the drop
+"""
+see = ["abilities/viper-toxic-screen", "abilities/minimap-aim-preview"]
+
+[fade-prowler-minimap-icon]
+claim = """
+A Prowler shows on Fade's minimap as a small teal chevron at her icon at the
+tray drop, then as a dark teal-rimmed icon with a white arrow glyph that moves
+off, about 45 px by 2 s, and is gone by 4 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "fade:prowler"
+source = """
+the demo cast census's blind read of montages keyed_126 (5abe77b9953f 11.033 s)
+and keyed_129 (5abe77b9953f 6.517 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[kayo-flashdrive-minimap-icon]
+claim = """
+KAY/O's FLASH/drive travels on his minimap as a dark icon, about 20 px, with a
+white spiky glyph: 30-40 px from his icon 0.5 s after the tray drop, 55-75 px
+by 1 s, gone by 2 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "kay/o:flash/drive"
+source = """
+the demo cast census's blind read of montages keyed_080 (463ebce3a625 13.033 s)
+and keyed_081 (463ebce3a625 17.567 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[reyna-leer-minimap-icon]
+claim = """
+Reyna's Leer shows on her minimap as a dark icon, about 18 px, with a white
+minus glyph, about 25 px from her icon, from 0.5 s to 2 s after the tray drop;
+it is gone by 4 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "reyna:leer"
+source = """
+the demo cast census's blind read of montages keyed_093 (af09094c0729 6.0 s)
+and keyed_103 (af09094c0729 14.033 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[tejo-guided-salvo-minimap-rings]
+claim = """
+A Guided Salvo draws a faint red ring outline, about 26 px, on Tejo's minimap
+at each target from the tray drop; the rings are gone 2-4 s later.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "tejo:guided salvo"
+source = """
+the demo cast census's blind read of montages keyed_037 (c0b63335e635 16.533 s)
+and keyed_100 (c0b63335e635 17.067 s) under
+<store>/analysis/demo-cast-census/montage/: one ring after the first drop, two
+after the second drop 0.53 s later
+"""
+
+[skye-guiding-light-minimap-icon]
+claim = """
+Skye's Guiding Light flies on her minimap as a dark teal-rimmed icon with a
+white bird glyph: it leaves her icon 0.5 s after the tray drop, is about 100 px
+away by 2 s, and is gone by 4 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "skye:guiding light"
+source = """
+the demo cast census's blind read of montages keyed_039 (6ab7a9e99235 22.067 s)
+and keyed_117 (6ab7a9e99235 17.567 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[yoru-gatecrash-minimap-icon]
+claim = """
+Yoru's GATECRASH travels on his minimap as a dark icon, about 20 px, with a
+white star glyph: it leaves his icon 0.5 s after the tray drop, is 100-110 px
+away by 4 s, and is gone by 8 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "yoru:gatecrash"
+source = """
+the demo cast census's blind read of montages keyed_120 (5a63cc4fecfc 26.067 s)
+and keyed_128 (5a63cc4fecfc 18.567 s) under
+<store>/analysis/demo-cast-census/montage/; on 128 the next drop comes before
+8 s
+"""
+see = ["abilities/minimap-thrown-ability-icon"]
+
+[vyse-razorvine-minimap-icon]
+claim = """
+A Razorvine shows on Vyse's minimap as a dark icon, about 16-20 px, with a white
+glyph, 30-35 px from her icon from 0.5 s after the tray drop; it stays in place
+to at least 2 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "vyse:razorvine"
+source = """
+the demo cast census's blind read of montages keyed_023 (64d0fb783be2 11.5 s;
+stays to +4 s, gone at +8 s) and keyed_043 (64d0fb783be2 5.55 s; stays to +2 s,
+gone at +4 s) under <store>/analysis/demo-cast-census/montage/
+"""
+
+[killjoy-nanoswarm-minimap-icon]
+claim = """
+A Nanoswarm shows on Killjoy's minimap as a dark icon with a white triangle glyph
+from 1 s after the tray drop, and stays.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "killjoy:nanoswarm"
+source = """
+the demo cast census's blind read of montages keyed_020 (dae6f33f3f48 8.5 s)
+and keyed_047 (dae6f33f3f48 5.55 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+
+[astra-nebula-minimap-disc]
+claim = """
+When Astra turns a star into a Nebula, the star's yellow icon on her minimap
+becomes a dark grey disc, about 28 px, at the tray drop, and the disc stays.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "astra:nebula"
+source = """
+the demo cast census's blind read of montages keyed_063 (c7674c699ad0 23.567 s)
+and keyed_142 (c7674c699ad0 26.067 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+use = "a Nebula disc appears where a star icon was, not where Astra stands"
+
+[viper-poison-cloud-emitter-outline]
+claim = """
+After Viper throws a Poison Cloud, her minimap draws a faint circle outline,
+about 28-30 px, where the emitter lands, before and after the cloud's filled
+dark disc.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "viper:poison cloud"
+source = """
+the demo cast census's blind read of montages keyed_022 (6bb88dba5d2c 9.5 s:
+outline at +2 s, dark disc at +4 s, outline again at +8 s) and keyed_074
+(afa5bc60b935 18.567 s: outline at +1 to +4 s, dark disc at +8 s) under
+<store>/analysis/demo-cast-census/montage/
+"""
+use = "the outline marks an emitter that is off; it is not a cloud phase"
+see = ["abilities/viper-poison-cloud-toggle", "abilities/viper-poison-cloud-fixed"]
+
+[sova-bolt-charge-and-bounce]
+claim = """
+Sova's Recon Bolt and Shock Bolt are charged before release, and their bounce
+count is toggled; a HUD element just below the screen centre shows the charge
+and the bounce setting while a bolt is held.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-26"
+subject = "sova:bolts"
+source = """
+the player, 2026-09-26, answering the audio bank's question about the Sova
+demo 02cf738b1c8f at 14.5-15.5 s (one Shock Bolt, not a Recon Bolt then two
+Shock Bolts as the tray drops read; another Shock Bolt near 19 s), and the
+census's question about the 12.9 s glow before the first Shock Bolt of
+aab12e41dcfc: one equip, toggling between the options for a while
+"""
+use = """
+a held bolt's equip-to-release time varies with the charge and the toggling,
+and one equip held a bolt for 12.9 s, so an audio reference cut at a fixed
+offset from the tray drop may hold the hold, not the release; the HUD element
+is a witness of the bolt's phase, unread
+"""
+see = ["abilities/sova-recon-bolt-minimap-ring"]
+
+[clove-ruse-minimap-duration]
+claim = """
+Each Ruse cloud's disc stays drawn on the caster's minimap about 15 seconds,
+from the placement that spends its charge.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-09-26"
+subject = "clove:ruse"
+source = """
+prototypes/demo_cast_census.py `discs` on the re-recorded Clove demo
+0c6c52a65b9e: drops at 17.23 and 24.57 s each draw one new disc, dark at its
+centre from the drop to 14.9 s after it, on every cached frame (about 14 Hz)
+"""
+use = "expected lifetime of a Ruse disc; a Clove dark disc much older is another object"
+see = ["abilities/clove-rouse", "abilities/clove-tray-charges"]
+
+[skye-regrowth-no-tray-drop]
+claim = """
+Channelling Regrowth with no one to heal moves no tray bar: Skye's C bar
+stays full while the minimap draws the Regrowth ring.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-09-26"
+subject = "skye:regrowth"
+source = """
+the re-recorded Skye demo fc02a2c1ac01, a solo range demo:
+reticle.ability_shapes finds the ring round Skye on 164 cached frames from
+5.17 to 16.53 s, and reticle.tray reads no C drop in the whole capture. The
+catalogue says Regrowth "can be reused until her healing pool is depleted".
+The player: that 11 s ring was one channel, held to give plenty of audio
+(2026-09-26)
+"""
+use = """
+a Regrowth channel has no tray drop to date it; date it from the ring
+(`ability_shapes`) or its sound. Whether healing an ally moves the bar is
+unobserved
+"""
+see = ["abilities/skye-regrowth-minimap-ring"]
+
+[sova-shock-bolt-minimap-none]
+claim = """
+A Shock Bolt draws nothing on the minimap.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "sova:shock bolt"
+source = """
+the player, 2026-09-26: the protocol demo's bolts landed right in front of
+Sova, and a Shock Bolt has no minimap indicator. The census read
+nothing on all four Shock Bolt casts of 02cf738b1c8f and aab12e41dcfc
+"""
+use = """
+the tray drop and the sound are a Shock Bolt's only witnesses; do not search
+the minimap for one, and a shape found after a Q drop belongs to something
+else
+"""
+see = ["abilities/sova-bolt-charge-and-bounce", "abilities/sova-recon-bolt-minimap-ring"]
+
+[clove-c-and-x-need-a-target]
+claim = """
+Pick-me-up and Not Dead Yet cannot be cast in a solo range: Pick-me-up needs
+a fallen enemy Clove damaged or killed, and Not Dead Yet needs Clove's death.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-09-26"
+subject = "clove:pick-me-up and not dead yet"
+source = """
+the player, 2026-09-26, asked whether either can be cast in the range: neither can. The
+catalogue's wording predicted it, and the protocol demo
+0c6c52a65b9e holds no C or X cast
+"""
+use = """
+no demo reference will exist for either; audio references for Pick-me-up and
+Not Dead Yet must come from match casts the player labels, and a demo bank
+scores Clove's kit on Q and E alone
+"""
+see = ["abilities/clove-rouse"]
+
+[phoenix-run-it-back-expiry-flash]
+claim = """
+When Run it Back expires, the screen flashes white and then fills with flames
+as Phoenix returns to a flaming effigy of himself at the cast point. While
+the ult runs, a teal timer bar labelled RUN IT BACK sits just below the
+screen centre and drains over about 10 s; the tray's X pips do not fall.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "phoenix:run it back"
+source = """
+the player, 2026-09-26, shown the flash at 53.3 s of 6afc32cb46b4: the ult expired there.
+Decoded frames: no bar at 42.8 s; the cast's flaming
+hands and the full bar at 43.6 s; the bar nearly empty at 53.0 s; the effigy
+at 53.4 s and its wisps at 53.8 s; the X pips full from 43 s to the capture's
+end at 55.7 s, and reticle.tray reads no X drop. On 481336df9adb a flame
+lies at 29.5 s and the pips fall at 34.2 s, unexplained
+"""
+use = """
+date the cast from the timer bar's start or the sound, and the expiry from
+the flash; the X pips are no witness of the cast. The first census's Run it
+Back row (481336df9adb, 34.5 s) is windowed on the pips' fall
+"""
+see = ["hud/ability-timer-bar", "abilities/phoenix-minimap-objects", "rounds/run-it-back-in-report"]
+
+[range-one-cast-per-round]
+claim = """
+A custom game without cheats returns a spent charge within a round only on
+an ability with a cooldown, so a range demo cannot cast every ability three
+times in one round. Three references need three rounds, or the cheat that
+refreshes abilities.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-09-26"
+subject = "capture:range demo"
+source = """
+the player, 2026-09-26, asked for three spaced casts per ability: not possible, except over
+several rounds or by refreshing the abilities with cheats. Ruse's cooldown counters show on the protocol
+demo's keyed_004, so a cooldown ability does return within a round
+"""
+use = """
+ask for one cast per ability per round and three rounds per agent. A cheat
+refresh may keep the tray's bar full so the tray reads no drop; untested
+"""
+see = ["hud/menu-dims-tray"]
+
+[ability-rules-are-unique]
+claim = """
+Ability mechanics are unique per ability: many are slight variants of a
+pattern, and the lifecycle, the inputs, what the minimap draws and what the
+screen overlays are decided ability by ability, not by category.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-26"
+subject = "abilities"
+source = """
+the player, 2026-09-26, after a day of questions: it was a lot to expect the
+pipeline to infer, because the specific rules are often truly unique per
+ability, from placed-then-activated devices to overlays that disturb the
+minimap and abilities that draw a dash or a teleport; a census of arbitrary
+HUD reads at one or two casts per ability cannot infer them
+"""
+use = """
+never infer one ability's rule from another's; record each from the player
+or an observation, and ask per ability through docs/ABILITY_MECHANICS_SHEET.md.
+A census verifies an answer with a targeted demo; it does not discover the rule
+"""
+see = ["abilities/placed-then-activated", "abilities/minimap-dash-or-teleport-trace", "hud/controlled-entity-view-tint"]
+
+[placed-then-activated]
+claim = """
+Some devices are placed with one press and activated with another: Vyse's
+Razorvine and Arc Rose and Killjoy's Nanoswarm. Others are placed and
+activate themselves on enemy proximity: Killjoy's Turret, Vyse's Shear and
+Cypher's Trapwire.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-26"
+subject = "abilities:placed devices"
+source = "the player, 2026-09-26"
+use = """
+the tray drop marks the placement; a manual activation is a second input
+with its own sound and, on the minimap, possibly a change of the placed
+icon, neither yet observed. Whether activation moves the tray is unobserved
+"""
+see = ["abilities/vyse-razorvine-minimap-icon", "abilities/killjoy-nanoswarm-minimap-icon", "abilities/cypher-trapwire", "abilities/ability-sound-phases"]
+
+[deadlock-annihilation-minimap]
+claim = """
+Deadlock's Annihilation draws on the minimap only when it catches a target,
+or else draws only a very brief flash; the player is unsure which.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "deadlock:annihilation"
+source = """
+the player, 2026-09-26, from the census montage of the solo demo, where the
+ult caught nothing and the blind read saw nothing
+"""
+use = """
+a solo demo cannot show the ult's drawing; sample a match cast at 10 Hz or
+faster round the fire time, which the tray drop does not give
+"""
+see = ["abilities/deadlock-ult-tray-drop-at-equip", "abilities/deadlock-gravnet-detonation-flash"]
+
+[minimap-dash-or-teleport-trace]
+claim = """
+Some abilities draw a dash or a teleport on the minimap; which ones is not
+yet recorded.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "abilities:movement"
+source = "the player, 2026-09-26"
+use = """
+a brief trace after a movement ability's tray drop is the ability, not an
+enemy or a ping; ask per ability in the mechanics sheet before any reader
+assumes movement abilities draw nothing
+"""
+
+[ability-description-verbs]
+claim = """
+An ability's in-game description states its input model in capitalised
+verbs: EQUIP and FIRE cast it; "HOLD FIRE to channel" channels, "to extend"
+charges a projectile, "to guide", "steer" or "bend" traces a guided path;
+ACTIVATE, REUSE, RE-USE and REACTIVATE are a second press on a placed device,
+and RE-USE "at the cost of fuel" a toggle; "take control" is a piloted
+entity; "when an enemy crosses" or "fires at enemies" is a device that
+triggers itself.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-09-26"
+subject = "abilities:descriptions"
+source = """
+the catalogue's descriptions (<store>/reference/abilities.json) read against
+the player's classifications of 2026-09-26: Nanoswarm ACTIVATE, Arc Rose
+REUSE and Razorvine ACTIVATED are the three placed-then-pressed devices;
+Turret, Shear and Trapwire name enemies and no second verb; Trailblazer, Owl
+Drone and Stealth Drone say "take control"; Regrowth says HOLD FIRE to
+channel; Poison Cloud RE-USE at the cost of fuel; Blaze and High Tide, the
+two walls the player says trace the icon's path, are the only two that say
+HOLD FIRE to bend or guide a wall. The rule was fitted on those and is a
+prediction for the other rows of docs/ABILITY_MECHANICS_SHEET.md
+"""
+use = """
+derive a per-ability input model from the description before a reader is
+written, as a hypothesis for the player to confirm; the description also
+names the second press's effect, which is the sound and the drawing to
+expect
+"""
+see = ["abilities/placed-then-activated", "abilities/ability-rules-are-unique",
+       "abilities/wall-icon-path-curve", "abilities/viper-fuel-toggle"]
+
+[minimap-icon-pale-region]
+claim = """
+Many placed abilities draw on the minimap as a compact icon with a pale
+region around it, a ring of a radius fixed per ability or a box: Harbor's
+Storm Surge and Cove, Veto's Crosscut, Chokehold and Interceptor, Deadlock's
+Sonic Sensor, and probably others.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "minimap:ability-icon"
+source = "the player, 2026-09-26; the list is the player's and is not complete"
+use = """
+read the icon and its pale ring or box as one entity: the region is part of
+the ability's signature, its shape and radius help name the ability, and it
+is neither a smoke disc nor a second entity; ask per ability which shape and
+radius
+"""
+see = ["abilities/minimap-thrown-ability-icon", "minimap/icon-extent-by-family",
+       "abilities/ability-rules-are-unique"]
+
+[wall-icon-path-curve]
+claim = """
+Two wall abilities, Phoenix's Blaze and Harbor's High Tide, travel on the
+minimap as an icon that leaves an arbitrary curve along its path; the wall is
+the curve the icon traced.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "minimap:walls"
+source = """
+the player, 2026-09-26. Both descriptions say HOLD FIRE to bend or guide the
+wall; Toxic Screen, whose description does not, draws a straight line
+"""
+use = """
+track the wall's icon from the tray drop and integrate its path instead of
+fitting a segment; the curve is arbitrary, so no template or straight-line
+fit describes it
+"""
+see = ["abilities/phoenix-blaze", "abilities/viper-toxic-screen-minimap-growth",
+       "abilities/minimap-thrown-ability-icon"]
+
+[viper-fuel-toggle]
+claim = """
+Viper's Poison Cloud and Toxic Screen turn off by a manual toggle or when
+her fuel bar runs out.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-26"
+subject = "viper:fuel"
+source = "the player, 2026-09-26"
+use = """
+a phase that ends with no tray event may be the fuel running out; the HUD's
+fuel meter, which the pipeline does not read, is the witness to ask before
+calling the end a toggle
+"""
+see = ["abilities/viper-poison-cloud-toggle", "abilities/viper-toxic-screen"]
+
+[pulse-scan-abilities]
+claim = """
+Recon Bolt, Fade's Haunt and Tejo's Stealth Drone are pulse scans and work
+the same way with different ranges: the device pulses, reveals the enemies in
+its line of sight within its range, and the whole team sees them. The verb
+is scan. All three draw a ring of their range on the minimap: Haunt and the
+Stealth Drone a brief ring at the pulse, the Recon Bolt a ring kept the whole
+time while it pulses two or three times over a few seconds.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-26"
+subject = "abilities:scans"
+source = """
+the player, 2026-09-26, twice: the class, then how each draws its ring. The
+three descriptions in the catalogue all say "reveal"; the Stealth Drone's
+says it fires a pulse
+"""
+use = """
+one scan model, parametrised by range, for the three; a revealed enemy is
+the same downstream event whichever device pulsed, and the minimap ring's
+radius names the device among the lineup's scanners; a ring that lasts is
+the bolt, a ring gone within a frame or two is Haunt or the drone, so sample
+the cache densely around a Haunt or drone tray drop
+"""
+see = ["abilities/sova-recon-bolt-minimap-ring", "abilities/ability-rules-are-unique"]
+
+[voice-lines-announce-casts]
+claim = """
+Agents announce casts aloud in fixed voice lines that name the ability's
+class ("dropping a smoke", "blocking sight", "barrier created", "time to
+hunt"), and ults with a line of their own ("adapt or die"). The local player
+hears these cast lines for allies only; an enemy's cast sounds but is not
+announced. Callouts ("enemy spotted mid") and "reloading" are lines too.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = """
+the player's review of six unexplained audio-gate detections
+(docs/AUDIO_GATE.md, "The player's review"): every row held allies' casts
+with their lines, and reloads; the allies-only caveat followed
+"""
+exceptions = """
+Open, per the player (2026-09-27): whether the player's own agent's cast
+lines are heard (fairly sure yes); whether each cast has one line (thought
+so) at a fixed offset from the cast (not sure). Falsifiers: an own cast on a
+demo with no line; two lines for one ability in one match; a line-to-tray
+drop offset that varies by more than the tray's 0.5 s step
+"""
+use = """
+a voice line is a fixed game asset, so match it as a template instead of
+classifying it as speech; a matched line names an ally, the ability class
+and the cast's time, which the gate cannot; an enemy cast leaves only the
+ability sound to match
+"""
+see = ["abilities/ability-sound-phases", "abilities/ability-voice-line-mask"]
+
+[device-destroyed-sounds]
+claim = """
+A destroyed device sounds its destruction, and its owner may announce it
+("scout destroyed"); a reload sounds and may be announced ("reloading").
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = "the player's review of unexplained audio-gate detections, 2026-09-27"
+use = """
+an end witness for a device entity the minimap may not show ending; a
+reload is background for the gate and a weapon event for a later channel
+"""
+see = ["abilities/voice-lines-announce-casts", "abilities/ability-sound-phases"]

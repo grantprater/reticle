@@ -53,3 +53,127 @@ a tray drop is the player's cast only while the player is alive in that round;
 gate tray casts on the player's death (stored death verdicts) before binding
 anything to them
 """
+
+[menu-dims-tray]
+claim = """
+Opening the in-game menu (settings, or ending a session) dims the whole
+screen, tray included. The ability tray's charge bars read as a fall on every
+slot at one instant, and the minimap is dimmed but still passes the
+widget-drawn check.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "hud:menu-overlay"
+source = """
+the demo cast census, 2026-09-26: 19 of 147 tray drops on the solo demos show
+the dimmed tray (montages keyed_016, keyed_010; store
+analysis/demo-cast-census/), all on the same instant across slots; the player
+confirmed one, the Skye demo 6ab7a9e99235 at 28 s, as the menu opened to end
+the session. The widget-drawn defect was seen earlier on 6bb88dba5d2c at
+44.0 s
+"""
+use = """
+a same-instant fall on several slots with a dimmed tray is the menu, not a
+cast; the tray reader and `minimap.widget_drawn` both need the guard
+"""
+
+[ability-timer-bar]
+claim = """
+While a timed ability of the player's runs, a teal bar labelled with the
+ability's name sits just below the screen centre and drains over the
+ability's life.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-26"
+subject = "hud:ability timer bar"
+source = """
+6afc32cb46b4 decoded at 43.6 and 53.0 s: a bar about x 833-1087, y 713-727
+of the 1920x1080 frame with RUN IT BACK printed beneath it, full at the cast
+and nearly empty 0.3 s before the expiry. The player, 2026-09-26, proposes reading the timer bar as the more
+consistent timing witness for mining audio and other ability information.
+Which abilities show one is unobserved;
+Sova's bolts show their charge and bounce element at the same place
+"""
+use = """
+a reader of this bar names the ability from its label and dates the cast and
+the end from the bar's ends: a witness for audio references and lifetimes
+that the tray lacks for Run it Back and Regrowth. Read it from a fixed ROI of
+the capture, joining the shared decode pass
+"""
+see = ["abilities/phoenix-run-it-back-expiry-flash", "abilities/sova-bolt-charge-and-bounce"]
+
+[controlled-entity-view-tint]
+claim = """
+While the player controls Skye's Trailblazer the whole view is tinted green,
+and while in Tejo's Stealth Drone it is tinted brown; the semi-transparent
+minimap and tray show the tint through their void and along their edges.
+Sova's Owl Drone view is not tinted.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "hud:controlled entity view"
+source = """
+the player, labelling the census montages (2026-09-26): the Skye dog showed
+a processing issue, a green overlay that rimmed much of the minimap in
+orange and spread distortions through the parse; Tejo's drone has an
+overlay too, and possibly Sova's to a lesser extent. Measured on the minimap
+crop (465x485 at 15,15) 1 s before and 1-6 s after the cast: the green
+fraction rises from 0.015 to 0.64 during Trailblazer on fc02a2c1ac01 and
+the production teal weight from 0.0007 to 0.089-0.139; Owl Drone on
+aab12e41dcfc and Stealth Drone on c0b63335e635 stay under 0.02 green and
+0.005 teal. The player later listed Sova's drone with Tejo's and Skye's as
+disturbing minimap parsing; the crop measurement found no hue shift for Owl
+Drone, only a 4% darkening, a disagreement kept here
+"""
+use = """
+gate every minimap and tray colour reading on the controlled-entity state,
+witnessed by the tray's Q drop (Skye) or C drop (Tejo) and the self
+portrait, before tuning any hue threshold; the teal detector, the residual
+and the widget-drawn check all read the void, where the tint shows
+"""
+see = ["hud/menu-dims-tray", "hud/ability-timer-bar"]
+
+[neon-edge-overlay]
+claim = """
+One of Neon's abilities puts an overlay at the edge of the screen that
+disturbs minimap parsing; which ability is not yet recorded.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "hud:neon overlay"
+source = "the player, 2026-09-26, naming it beside the drone views"
+use = """
+the same gate as the controlled-entity views: know the state from the tray
+before reading the minimap's colours; the edge overlay reaches the widget's
+corner
+"""
+see = ["hud/controlled-entity-view-tint"]
+
+[chat-broadcasts-callouts]
+claim = """
+A callout ping ("enemy spotted B") also prints in the chat box as a
+highlighted team message, and the print does not need the caller within
+audio range.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-27"
+subject = "hud:chat box"
+source = """
+the player, 2026-09-27, on Jett's "enemy spotted b" in the audio gate's
+review: the heard line may match a chat broadcast; no reader parses the
+chat box
+"""
+exceptions = """
+Whether the heard line and the printed message coincide is unchecked:
+falsified by a heard callout with no highlighted message within 1 s
+"""
+use = """
+a text witness for callouts beyond audio range, in an unread HUD region;
+read, it names the caller and the site and dates a ping
+"""
+see = ["abilities/voice-lines-announce-casts"]

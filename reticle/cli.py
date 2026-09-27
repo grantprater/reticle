@@ -36,6 +36,7 @@ from collections import Counter
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -783,17 +784,103 @@ def _live_round_spans(store, sid, date) -> list[tuple[float, float]]:
 
 
 def cmd_usage(args) -> int:
-    """Show completed scan cost records, including source and reader time."""
+    """Show scan cost records, completed and failed, with source and reader time."""
     from .usage import load, format_usage
 
     store = Store(args.store)
     rows = load(store.root, args.session)
     if not rows:
-        print("no completed scan usage records")
+        print("no scan usage records")
         return 0
     for row in rows[-args.limit:]:
         print(json.dumps(row, indent=2) if args.json else format_usage(row))
     return 0
+
+
+def _parse_shards(specs) -> dict[str, int]:
+    """`--shard NAME=N` values as a map; N below 2 is no shard."""
+    out = {}
+    for spec in specs or ():
+        name, _, k = spec.partition("=")
+        if not name or not k.isdigit() or int(k) < 1:
+            raise SystemExit(f"--shard takes NAME=N with N a positive count, not {spec!r}")
+        out[name] = int(k)
+    return {name: k for name, k in out.items() if k > 1}
+
+
+def _scan_pass(ctx, readers, cache, progress, usage, pipeline, workers, shards, cv_threads):
+    """One pass over the chosen source: `(frames, None)` serial, `(frames, StagedRun)` staged.
+
+    The serial path is `passes.run` or `run_cached`, untouched; `cv_threads`
+    sets OpenCV's process-wide count around it and `_feed`'s per-reader
+    toggles still apply. The staged path is `pipeline.run_staged`.
+    """
+    import cv2
+
+    if pipeline == "serial":
+        before = cv2.getNumThreads()
+        if cv_threads is not None:
+            cv2.setNumThreads(cv_threads)
+        usage.cv_threads = {"pass": cv2.getNumThreads(),
+                            "toggled": sorted(r.name for r in readers
+                                              if getattr(r, "cv_threads", None) is not None)}
+        try:
+            if cache is not None:
+                from .passes import run_cached
+                return run_cached(ctx, readers, cache, progress, usage=usage), None
+            return passes_run(ctx, readers, progress, usage=usage), None
+        finally:
+            if cv_threads is not None:
+                cv2.setNumThreads(before)
+    from .pipeline import run_staged
+    got = run_staged(ctx, readers, cache, workers=1 if workers is None else workers,
+                     shards=shards, usage=usage, progress=progress, cv_threads=cv_threads)
+    usage.staged_run(got)
+    return got.frames, got
+
+
+def _scan_check(scan_once, sid, args, shards) -> int:
+    """Run the requested path and the serial one into two temporary stores.
+
+    Path a is today's serial pass on OpenCV's own pool; path b is the pass
+    the flags ask for. Path b runs first, so its threads meet the lazily
+    filled module caches (`killfeed._ME_CACHE`, `ally_portrait._REG`) cold
+    rather than filled by the serial pass. Both read the store's manifest,
+    crop cache and inputs and write only under the check directory, which is
+    kept so each path's usage record stays readable. Every written file is
+    compared byte for byte; where Parquet bytes differ the rows are compared
+    too, to say where the tables part. Exits non-zero unless every file is
+    byte-equal.
+    """
+    import tempfile
+    from .pipeline import compare_trees
+
+    root = (Path(args.check_dir) if args.check_dir
+            else Path(tempfile.mkdtemp(prefix=f"reticle-check-{sid}-")))
+    if root.exists() and any(root.iterdir()):
+        raise SystemExit(f"--check-dir {root} is not empty")
+    b_label = (f"{args.pipeline}, workers {1 if args.workers is None else args.workers}"
+               if args.pipeline == "staged" else "serial")
+    b_label += (f", shards {shards}" if shards else "")
+    b_label += (f", OpenCV threads {args.cv_threads}" if args.cv_threads is not None else "")
+    print(f"check      b: {b_label} -> {root / 'b'}")
+    ub = scan_once(Store(root / "b"), args.pipeline, args.workers, shards, args.cv_threads)
+    print(f"check      a: serial -> {root / 'a'}")
+    ua = scan_once(Store(root / "a"))
+    if ua is None or ub is None:
+        failed = " and ".join(n for n, u in (("a", ua), ("b", ub)) if u is None)
+        print(f"check      path {failed} failed; nothing to compare")
+        return 1
+    entries = compare_trees(root / "a", root / "b")
+    print(f"check      a = serial, b = {b_label}")
+    for e in entries:
+        print(f"{e['verdict']:<10} {e['path']}  {e['detail']}")
+    rows = [e for e in entries if e["rows_differ"]]
+    equal = sum(e["verdict"] == "equal" for e in entries)
+    print(f"check      {len(entries)} files, {equal} equal, "
+          f"{len(rows)} with row differences; usage a {ua.run_id}, b {ub.run_id} "
+          f"(under {root})")
+    return 1 if equal < len(entries) or not entries else 0
 
 
 def cmd_scan(args) -> int:
@@ -817,6 +904,16 @@ def cmd_scan(args) -> int:
     the path for every re-read after that, which is the expensive case (a
     HUD_VERSION bump re-reads every session in the store) and the common one.
     """
+    until = getattr(args, "until", None)
+    if until is not None:
+        if not (args.check and args.check_dir):
+            raise SystemExit(
+                "--until needs --check and --check-dir: a prefix scan's streams hold only "
+                "the frames before the limit, and published into the store they would read "
+                "as whole-capture streams; --check writes them into two scratch stores "
+                "under the directory you name")
+        if not 0 < until < float("inf"):
+            raise SystemExit("--until takes a positive number of seconds")
     store = Store(args.store)
     manifest = _resolve_session(store, args.session)
     sid = manifest["session_id"]
@@ -830,6 +927,20 @@ def cmd_scan(args) -> int:
             f"source media has moved: {media}\n"
             "the manifest records where it was at ingest time"
         )
+    shards = _parse_shards(args.shard)
+    if args.pipeline == "serial" and (shards or args.workers is not None):
+        raise SystemExit("--workers and --shard need --pipeline staged")
+    if args.check:
+        import cv2
+        if args.cache_roi:
+            raise SystemExit("--check writes nothing into the store, and --cache-roi "
+                             "writes crops there")
+        if args.pipeline == "serial" and args.cv_threads in (None, cv2.getNumThreads()):
+            raise SystemExit("--check compares the serial pass with the pass the flags ask "
+                             "for, and these flags ask for the serial pass again; name "
+                             "--pipeline staged or another --cv-threads")
+        # The check re-reads every requested stream, current or not.
+        args.force = True
     channels = set(args.only or ('hud', 'minimap', 'ping', 'roster', 'scoreboard',
                                  'ally_icon', 'minimap_dark', 'combat_report'))
     # IDENTITY RIDES EVERY SCAN. The top bar is drawn on every frame, so naming
@@ -883,6 +994,10 @@ def cmd_scan(args) -> int:
         store, manifest, profile, args.cache_roi, cache_hz, cache_spans))
     if args.only == ["roi_cache"] and not args.cache_roi:
         raise SystemExit("--only roi_cache needs --cache-roi <roi>")
+    if (args.check and (want_hud or want_portraits) and killfeed_roi(profile) is not None
+            and store.read_kf_mask(sid) is None):
+        raise SystemExit("--check: no stored killfeed mask, and the HUD readers would "
+                         "decode the capture to measure one")
     if not (want_hud or want_portraits or want_mm or want_ping or want_roster
             or want_scoreboard or want_ally or want_dark or want_report or want_cache):
         print(f"cache hit  session {sid}: requested channels are current or disabled; "
@@ -904,282 +1019,323 @@ def cmd_scan(args) -> int:
         + ([f"minimap dark {args.dark_hz:g} Hz, active spans"] if want_dark else [])
         + ([f"combat report {args.report_hz:g} Hz, whole capture"] if want_report else [])))
 
-    setup_t0 = time.perf_counter_ns()
-    hp = _HudPass(store, manifest, profile, args) if want_hud else None
-    mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
+    def build_readers():
+        """The pass's readers, built from the store's inputs; the prints are theirs."""
+        hp = _HudPass(store, manifest, profile, args) if want_hud else None
+        mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
 
-    ctx = SessionContext(store=store, manifest=manifest, profile=profile, spans=spans)
-    kp = (KillfeedPortraitReader(
-              profile, ctx.wh, mask=ctx.kf_mask(), hz=args.hz, spans=None)
-          if want_portraits else None)
-    # Pings ride whatever pass is already happening -- they never justify a
-    # decode of their own, which is why this is on by default and why it takes
-    # the floor mask the minimap half has already paid for rather than
-    # deriving a second one. It cannot move the HUD or minimap numbers:
-    # `sample_multi` advances each reader's phase only when that reader is in
-    # `want`, so a third reader adds retrieved frames and changes nobody
-    # else's. That is an argument; the check is in `reticle metrics`.
-    pp = None
-    if want_ping:
-        pp = PingReader(
-            floor=mp.floor if mp is not None else ctx.floor(),
-            box=minimap_roi_px(profile, *ctx.wh),
-            sgray=mp.sgray if mp is not None else ctx.sgray(),
-            hz=args.ping_hz,
-            spans=spans,
-        )
-
-    # The roster rides the HUD's frames: same ROIs, same rate, same whole-capture
-    # span, so `sample_multi` serves one retrieval to both and this costs a
-    # Laplacian per frame and no decode at all. That is the point of the
-    # registry -- a reader that cannot justify opening the file joins a pass
-    # that was happening anyway.
-    rp = (RosterReader(profile, ctx.wh, hz=args.hz, spans=None)
-          if want_roster else None)
-    sp = (ScoreboardReader(profile.name, hz=args.hz, spans=None,
-                           min_confidence=args.min_confidence,
-                           min_margin=args.min_margin, icons_root=store.root)
-          if want_scoreboard else None)
-
-    lp = (LineupReader(profile, ctx.wh, store.root, name=f"lineup:{sid}")
-          if want_lineup else None)
-    ap = None
-    if want_ally:
-        med = ctx.map_reference()
-        ap = AllyIconReader(
-            floor=mp.floor if mp is not None else ctx.floor(),
-            slab=mp.slab if mp is not None else slab_mask(
-                med, sd=geometry.stability(sid, store.root, med.shape[:2])),
-            static=med, box=minimap_roi_px(profile, *ctx.wh), hz=args.ally_hz,
-            spans=spans)
-        from .roi_cache import roi_rects
-        # Its reads are `frame[box]`; they stay inside the cached set only
-        # where the box IS the profile's minimap ROI.
-        if list(ap.box) == roi_rects("minimap", profile, ctx.wh)[0]:
-            ap.cache_set = "minimap"
-    dp = None
-    if want_dark:
-        from .minimap_dark import DarkRegionReader
-        geo = geometry.path_of(sid, store.root)
-        with np.load(geo) as z:
-            dark_ref = lighting.reference(z)
-        if dark_ref is None:
-            print("minimap dark skipped: geometry has no lighting reference")
-        else:
-            dp = DarkRegionReader(
+        ctx = SessionContext(store=store, manifest=manifest, profile=profile, spans=spans)
+        kp = (KillfeedPortraitReader(
+                  profile, ctx.wh, mask=ctx.kf_mask(), hz=args.hz, spans=None)
+              if want_portraits else None)
+        # Pings ride whatever pass is already happening -- they never justify a
+        # decode of their own, which is why this is on by default and why it takes
+        # the floor mask the minimap half has already paid for rather than
+        # deriving a second one. It cannot move the HUD or minimap numbers:
+        # `sample_multi` advances each reader's phase only when that reader is in
+        # `want`, so a third reader adds retrieved frames and changes nobody
+        # else's. That is an argument; the check is in `reticle metrics`.
+        pp = None
+        if want_ping:
+            pp = PingReader(
                 floor=mp.floor if mp is not None else ctx.floor(),
+                box=minimap_roi_px(profile, *ctx.wh),
                 sgray=mp.sgray if mp is not None else ctx.sgray(),
-                static=ctx.map_reference(), ref=dark_ref,
-                box=minimap_roi_px(profile, *ctx.wh), hz=args.dark_hz, spans=spans)
-    cp = None
-    if want_report:
-        from .combat_report import CombatReportReader
-        cp = CombatReportReader(Templates.load(profile.name), hz=args.report_hz, spans=None)
-    xp = None
-    if want_cache:
-        from .roi_cache import RoiCacheWriter
-        xp = RoiCacheWriter(store.root, manifest, profile, args.cache_roi, hz=cache_hz,
-                            spans=cache_spans)
-    readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, cp, xp) if r is not None]
+                hz=args.ping_hz,
+                spans=spans,
+            )
 
-    t0 = time.perf_counter()
-    last = [t0]
+        # The roster rides the HUD's frames: same ROIs, same rate, same whole-capture
+        # span, so `sample_multi` serves one retrieval to both and this costs a
+        # Laplacian per frame and no decode at all. That is the point of the
+        # registry -- a reader that cannot justify opening the file joins a pass
+        # that was happening anyway.
+        rp = (RosterReader(profile, ctx.wh, hz=args.hz, spans=None)
+              if want_roster else None)
+        sp = (ScoreboardReader(profile.name, hz=args.hz, spans=None,
+                               min_confidence=args.min_confidence,
+                               min_margin=args.min_margin, icons_root=store.root)
+              if want_scoreboard else None)
 
-    def progress(n, smp):
-        now = time.perf_counter()
-        if now - last[0] >= 2.0:
-            pct = (smp.t_ms / src["duration_ms"] * 100) if src["duration_ms"] else 0.0
-            sys.stdout.write(f"\r{n:>7d} frames  {_fmt_hms(smp.t_ms)}  {pct:5.1f}%")
-            sys.stdout.flush()
-            last[0] = now
+        lp = (LineupReader(profile, ctx.wh, store.root, name=f"lineup:{sid}")
+              if want_lineup else None)
+        ap = None
+        if want_ally:
+            med = ctx.map_reference()
+            ap = AllyIconReader(
+                floor=mp.floor if mp is not None else ctx.floor(),
+                slab=mp.slab if mp is not None else slab_mask(
+                    med, sd=geometry.stability(sid, store.root, med.shape[:2])),
+                static=med, box=minimap_roi_px(profile, *ctx.wh), hz=args.ally_hz,
+                spans=spans)
+            from .roi_cache import roi_rects
+            # Its reads are `frame[box]`; they stay inside the cached set only
+            # where the box IS the profile's minimap ROI.
+            if list(ap.box) == roi_rects("minimap", profile, ctx.wh)[0]:
+                ap.cache_set = "minimap"
+        dp = None
+        if want_dark:
+            from .minimap_dark import DarkRegionReader
+            geo = geometry.path_of(sid, store.root)
+            with np.load(geo) as z:
+                dark_ref = lighting.reference(z)
+            if dark_ref is None:
+                print("minimap dark skipped: geometry has no lighting reference")
+            else:
+                dp = DarkRegionReader(
+                    floor=mp.floor if mp is not None else ctx.floor(),
+                    sgray=mp.sgray if mp is not None else ctx.sgray(),
+                    static=ctx.map_reference(), ref=dark_ref,
+                    box=minimap_roi_px(profile, *ctx.wh), hz=args.dark_hz, spans=spans)
+        cp = None
+        if want_report:
+            from .combat_report import CombatReportReader
+            cp = CombatReportReader(Templates.load(profile.name), hz=args.report_hz, spans=None)
+        xp = None
+        if want_cache:
+            from .roi_cache import RoiCacheWriter
+            xp = RoiCacheWriter(store.root, manifest, profile, args.cache_roi, hz=cache_hz,
+                                spans=cache_spans)
+        readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, cp, xp) if r is not None]
+        return SimpleNamespace(hp=hp, kp=kp, mp=mp, pp=pp, rp=rp, sp=sp, lp=lp, ap=ap,
+                               dp=dp, cp=cp, xp=xp, ctx=ctx, readers=readers)
 
-    # A pass whose readers all stay inside a cached ROI set is fed from the
-    # crop cache: the same pixels, no decode. `--from video` decodes anyway.
-    from .roi_cache import RoiCache, cache_for, clip_spans
-    if args.frames_from == "cache":
-        # A cache written over rounds holds no frames outside them; asked to
-        # read from it, a span reader reads the rounds only, and says so.
-        for r in readers:
-            s = getattr(r, "cache_set", None)
-            held = (RoiCache.load(store.root, manifest, profile, s)[0] if s else None)
-            if held is not None and held.record.get("spans") is not None:
-                r.spans = clip_spans(getattr(r, "spans", None), held.record["spans"])
-                print(f"spans      {r.name} clipped to the {s} cache's "
-                      f"{len(held.record['spans'])} rounds")
-    cache, why = ((None, "--from video") if args.frames_from == "video"
-                  else cache_for(store.root, manifest, profile, readers))
-    if cache is None and args.frames_from == "cache":
-        raise SystemExit(f"--from cache: {why}")
-    print(f"frames     {'from ' + why if cache is not None else 'decoded (' + why + ')'}")
-    from .usage import ScanUsage
-    usage = ScanUsage(manifest, profile.name, readers,
-                      f"cache:{cache.record['version']}" if cache is not None else "video")
-    usage.setup_ns = time.perf_counter_ns() - setup_t0
-    pass_t0 = time.perf_counter_ns()
-    if cache is not None:
-        from .passes import run_cached
-        n_dec = run_cached(ctx, readers, cache, progress, usage=usage)
-    else:
-        n_dec = passes_run(ctx, readers, progress, usage=usage)
-    usage.pass_ns = time.perf_counter_ns() - pass_t0
-    publish_t0 = time.perf_counter_ns()
-    sys.stdout.write("\r" + " " * 72 + "\r")
-    dt = time.perf_counter() - t0
+    def choose_source(readers):
+        # A pass whose readers all stay inside a cached ROI set is fed from the
+        # crop cache: the same pixels, no decode. `--from video` decodes anyway.
+        from .roi_cache import RoiCache, cache_for, clip_spans
+        if args.frames_from == "cache":
+            # A cache written over rounds holds no frames outside them; asked to
+            # read from it, a span reader reads the rounds only, and says so.
+            for r in readers:
+                s = getattr(r, "cache_set", None)
+                held = (RoiCache.load(store.root, manifest, profile, s)[0] if s else None)
+                if held is not None and held.record.get("spans") is not None:
+                    r.spans = clip_spans(getattr(r, "spans", None), held.record["spans"])
+                    print(f"spans      {r.name} clipped to the {s} cache's "
+                          f"{len(held.record['spans'])} rounds")
+        cache, why = ((None, "--from video") if args.frames_from == "video"
+                      else cache_for(store.root, manifest, profile, readers))
+        if cache is None and args.frames_from == "cache":
+            raise SystemExit(f"--from cache: {why}")
+        print(f"frames     {'from ' + why if cache is not None else 'decoded (' + why + ')'}")
+        if until is not None:
+            # After `cache_for`: a span on a whole-capture reader would make
+            # it refuse a whole-capture cache.
+            from .pipeline import limit_to_prefix
+            cache = limit_to_prefix(readers, until * 1000.0, cache)
+            print(f"prefix     only frames observed before {until:g} s")
+        return cache, why
 
-    if hp is not None:
-        if not hp.rows:
-            raise SystemExit("decoded zero frames -- is the file readable?")
-        out = store.write_hud(hp.rows, _FP(src, sid), profile.name, date)
-        ev = player_events(
-            [r["t_ms"] for r in hp.rows],
-            [r["kf_kill_mask"] for r in hp.rows],
-            [r["kf_death_mask"] for r in hp.rows],
-            [r["kf_kill_wx"] for r in hp.rows],
-            [r["kf_death_wx"] for r in hp.rows],
-        )
-        print(f"HUD        {len(hp.rows)} rows -> {out}")
-        print(f"           tracked entries: {ev['kills']} kills, {ev['deaths']} deaths")
-    if kp is not None:
-        events = kp.events(sid)
-        out = store.write_events("killfeed_portrait", sid, events)
-        print(f"portraits  {len(events) - 1} observations -> {out}")
-        weapons = kp.weapon_events(sid)
-        out = store.write_events("killfeed_weapon", sid, weapons)
-        print(f"weapons    {len(weapons) - 1} observations -> {out}")
-        names = kp.name_events(sid)
-        out = store.write_events("killfeed_name", sid, names)
-        print(f"names      {len(names) - 1} observations -> {out}")
-    if mp is not None:
-        if not mp.rows:
-            raise SystemExit("decoded zero frames inside active spans "
-                             "-- is segmentation right?")
-        out = store.write_minimap(mp.rows, _FP(src, sid), profile.name, date)
-        got = sum(1 for r in mp.rows if r["self_x"] is not None)
-        print(f"minimap    {len(mp.rows)} rows -> {out}")
-        print(f"           widget absent {mp.n_absent}/{len(mp.rows)} "
-              f"({mp.n_absent / len(mp.rows) * 100:.1f}%)")
-        print(f"           self raw {got}/{len(mp.rows)} "
-              f"({got / len(mp.rows) * 100:.1f}%)")
-    if ap is not None:
-        from .adjudication.minimap_candidates import (
-            MINIMAP_ICON_DECISION_VERSION, accepted, ally_decisions)
-        candidate_revision = store.write_candidates("ally_icon", sid,
-                                                     ap.candidate_rows(sid), ap.frames)
-        batch = store.read_candidate_batch("ally_icon", sid, candidate_revision)
-        candidates = batch["rows"]
-        # The batch was just read and verified against its revision; the
-        # decision write and read validate against those rows.
-        store.write_decisions("ally_icon", sid, candidate_revision,
-                              MINIMAP_ICON_DECISION_VERSION,
-                              ally_decisions(candidates), candidates=candidates)
-        decisions = store.read_decisions("ally_icon", sid, candidate_revision,
-                                         MINIMAP_ICON_DECISION_VERSION,
-                                         candidates=candidates)
-        kept = accepted(candidates, decisions)
-        # Check the previous output contract before publishing the replay.
-        ap.events(sid, kept, candidate_revision)
-        events = AllyIconReader.replay_events(sid, batch["frames"], kept, ap.hz,
-                                               candidate_revision)
-        out = store.write_events("ally_icon", sid, events)
-        cov = events[0]
-        print(f"ally icons {cov['frames']} frames, {cov['icons']} icons, "
-              f"{cov['described']} described -> {out}")
-        print(f"           refused {cov['refused_reasons']}")
-    if lp is not None:
-        import json
-        result = lp.finish()[0]
-        out = store.root / "lineups" / f"{sid}.json"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps({**result, "session": sid}, indent=2),
-                       encoding="utf-8")
-        named = {side: [r["agent"] for r in rows if r["agent"]]
-                 for side, rows in result["sides"].items()}
-        print(f"lineup     {result['frames']} frames -> {out}")
-        for side in ("ally", "enemy"):
-            got = named[side]
-            print(f"           {side} {len(got)}/5 named"
-                  + (f": {', '.join(got)}" if got else
-                     " -- no slot separated from its runner-up"))
-    if rp is not None:
-        if not rp.rows:
-            raise SystemExit("decoded zero frames -- is the file readable?")
-        out = store.write_roster(rp.rows, _FP(src, sid), profile.name, date)
-        n = len(rp.rows)
-        both = sum(1 for r in rp.rows
-                   if r["alive_ally"] is not None and r["alive_enemy"] is not None)
-        five = sum(1 for r in rp.rows if r["alive_ally"] == 5 and r["alive_enemy"] == 5)
-        over = sum(1 for r in rp.rows
-                   if (r["alive_ally"] or 0) > 5 or (r["alive_enemy"] or 0) > 5)
-        # An empty bar is DRAWN AND EMPTY (the team is wiped) or NOT DRAWN, and
-        # per-slot detail cannot separate them -- so this reader refuses, and
-        # `roster.resolve()` answers it later from the scoreline, which is not
-        # available in a roster-only pass. What is printed is therefore the size
-        # of the population this table defers rather than a defect rate, and
-        # `(0,0)` no longer occurs here at all (roster-split-0.2.0).
-        zero = sum(1 for r in rp.rows
-                   if r["alive_ally"] == 0 and r["alive_enemy"] == 0)
-        defer = sum(1 for r in rp.rows
-                    if r["alive_ally"] is None or r["alive_enemy"] is None)
-        if defer:
-            print(f"           {defer} rows defer to the HUD gate "
-                  f"({defer / n * 100:.1f}%) -- `reticle audit` resolves them")
-        print(f"roster     {n} rows -> {out}")
-        print(f"           answered {both}/{n} ({both / n * 100:.1f}%), "
-              f"5v5 on {five} ({five / n * 100:.1f}%)")
-        if zero:
-            print(f"           {zero} rows read 0/0 ({zero / n * 100:.1f}%) "
-                  f"-- ambiguous roster absence/zero counts; see roster.py")
-        # `over` is a HARD invariant -- a team cannot field six -- so it is
-        # printed even when zero. A count above five is not a bad reading to
-        # weigh, it is proof the split rule is wrong, and a reader that only
-        # reports what it accepted cannot be audited.
-        if over:
-            print(f"           !! {over} rows report MORE THAN FIVE alive "
-                  f"-- the split rule is wrong, do not use this table")
+    def publish(out, R, n_dec, dt):
+        """Write the readers' streams into `out`; inputs still come from `store`."""
+        hp, kp, mp, pp, rp, sp, lp, ap, dp, cp, xp = (
+            R.hp, R.kp, R.mp, R.pp, R.rp, R.sp, R.lp, R.ap, R.dp, R.cp, R.xp)
+        if hp is not None:
+            if not hp.rows:
+                raise SystemExit("decoded zero frames -- is the file readable?")
+            path = out.write_hud(hp.rows, _FP(src, sid), profile.name, date)
+            ev = player_events(
+                [r["t_ms"] for r in hp.rows],
+                [r["kf_kill_mask"] for r in hp.rows],
+                [r["kf_death_mask"] for r in hp.rows],
+                [r["kf_kill_wx"] for r in hp.rows],
+                [r["kf_death_wx"] for r in hp.rows],
+            )
+            print(f"HUD        {len(hp.rows)} rows -> {path}")
+            print(f"           tracked entries: {ev['kills']} kills, {ev['deaths']} deaths")
+        if kp is not None:
+            events = kp.events(sid)
+            path = out.write_events("killfeed_portrait", sid, events)
+            print(f"portraits  {len(events) - 1} observations -> {path}")
+            weapons = kp.weapon_events(sid)
+            path = out.write_events("killfeed_weapon", sid, weapons)
+            print(f"weapons    {len(weapons) - 1} observations -> {path}")
+            names = kp.name_events(sid)
+            path = out.write_events("killfeed_name", sid, names)
+            print(f"names      {len(names) - 1} observations -> {path}")
+        if mp is not None:
+            if not mp.rows:
+                raise SystemExit("decoded zero frames inside active spans "
+                                 "-- is segmentation right?")
+            path = out.write_minimap(mp.rows, _FP(src, sid), profile.name, date)
+            got = sum(1 for r in mp.rows if r["self_x"] is not None)
+            print(f"minimap    {len(mp.rows)} rows -> {path}")
+            print(f"           widget absent {mp.n_absent}/{len(mp.rows)} "
+                  f"({mp.n_absent / len(mp.rows) * 100:.1f}%)")
+            print(f"           self raw {got}/{len(mp.rows)} "
+                  f"({got / len(mp.rows) * 100:.1f}%)")
+        if ap is not None:
+            from .adjudication.minimap_candidates import (
+                MINIMAP_ICON_DECISION_VERSION, accepted, ally_decisions)
+            candidate_revision = out.write_candidates("ally_icon", sid,
+                                                      ap.candidate_rows(sid), ap.frames)
+            batch = out.read_candidate_batch("ally_icon", sid, candidate_revision)
+            candidates = batch["rows"]
+            # The batch was just read and verified against its revision; the
+            # decision write and read validate against those rows.
+            out.write_decisions("ally_icon", sid, candidate_revision,
+                                MINIMAP_ICON_DECISION_VERSION,
+                                ally_decisions(candidates), candidates=candidates)
+            decisions = out.read_decisions("ally_icon", sid, candidate_revision,
+                                           MINIMAP_ICON_DECISION_VERSION,
+                                           candidates=candidates)
+            kept = accepted(candidates, decisions)
+            # Check the previous output contract before publishing the replay.
+            ap.events(sid, kept, candidate_revision)
+            events = AllyIconReader.replay_events(sid, batch["frames"], kept, ap.hz,
+                                                   candidate_revision)
+            path = out.write_events("ally_icon", sid, events)
+            cov = events[0]
+            print(f"ally icons {cov['frames']} frames, {cov['icons']} icons, "
+                  f"{cov['described']} described -> {path}")
+            print(f"           refused {cov['refused_reasons']}")
+        if lp is not None:
+            import json
+            result = lp.finish()[0]
+            out_path = out.root / "lineups" / f"{sid}.json"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps({**result, "session": sid}, indent=2),
+                                encoding="utf-8")
+            named = {side: [r["agent"] for r in rows if r["agent"]]
+                     for side, rows in result["sides"].items()}
+            print(f"lineup     {result['frames']} frames -> {out_path}")
+            for side in ("ally", "enemy"):
+                got = named[side]
+                print(f"           {side} {len(got)}/5 named"
+                      + (f": {', '.join(got)}" if got else
+                         " -- no slot separated from its runner-up"))
+        if rp is not None:
+            if not rp.rows:
+                raise SystemExit("decoded zero frames -- is the file readable?")
+            path = out.write_roster(rp.rows, _FP(src, sid), profile.name, date)
+            n = len(rp.rows)
+            both = sum(1 for r in rp.rows
+                       if r["alive_ally"] is not None and r["alive_enemy"] is not None)
+            five = sum(1 for r in rp.rows if r["alive_ally"] == 5 and r["alive_enemy"] == 5)
+            over = sum(1 for r in rp.rows
+                       if (r["alive_ally"] or 0) > 5 or (r["alive_enemy"] or 0) > 5)
+            # An empty bar is DRAWN AND EMPTY (the team is wiped) or NOT DRAWN, and
+            # per-slot detail cannot separate them -- so this reader refuses, and
+            # `roster.resolve()` answers it later from the scoreline, which is not
+            # available in a roster-only pass. What is printed is therefore the size
+            # of the population this table defers rather than a defect rate, and
+            # `(0,0)` no longer occurs here at all (roster-split-0.2.0).
+            zero = sum(1 for r in rp.rows
+                       if r["alive_ally"] == 0 and r["alive_enemy"] == 0)
+            defer = sum(1 for r in rp.rows
+                        if r["alive_ally"] is None or r["alive_enemy"] is None)
+            if defer:
+                print(f"           {defer} rows defer to the HUD gate "
+                      f"({defer / n * 100:.1f}%) -- `reticle audit` resolves them")
+            print(f"roster     {n} rows -> {path}")
+            print(f"           answered {both}/{n} ({both / n * 100:.1f}%), "
+                  f"5v5 on {five} ({five / n * 100:.1f}%)")
+            if zero:
+                print(f"           {zero} rows read 0/0 ({zero / n * 100:.1f}%) "
+                      f"-- ambiguous roster absence/zero counts; see roster.py")
+            # `over` is a HARD invariant -- a team cannot field six -- so it is
+            # printed even when zero. A count above five is not a bad reading to
+            # weigh, it is proof the split rule is wrong, and a reader that only
+            # reports what it accepted cannot be audited.
+            if over:
+                print(f"           !! {over} rows report MORE THAN FIVE alive "
+                      f"-- the split rule is wrong, do not use this table")
 
-    if cp is not None:
-        rows = cp.events(sid)
-        out = store.write_events("combat_report", sid, rows)
-        print(f"combat report {rows[0]['frames']} frames, rows read in {rows[0]['rows_read']} -> {out}")
+        if cp is not None:
+            rows = cp.events(sid)
+            path = out.write_events("combat_report", sid, rows)
+            print(f"combat report {rows[0]['frames']} frames, rows read in {rows[0]['rows_read']} -> {path}")
 
-    if xp is not None:
-        print(f"roi cache  {len(xp._index)} {args.cache_roi} crops, "
-              f"{xp._offset / 2**20:.0f} MB -> {xp.paths[0].parent}")
+        if xp is not None:
+            print(f"roi cache  {len(xp._index)} {args.cache_roi} crops, "
+                  f"{xp._offset / 2**20:.0f} MB -> {xp.paths[0].parent}")
 
-    if dp is not None:
-        rows = dp.events(sid, geometry.key_of(sid, store.root))
-        out = store.write_events("minimap_dark", sid, rows)
-        print(f"minimap dark {rows[0]['frames']} frames, {rows[0]['unobserved']} unobserved -> {out}")
+        if dp is not None:
+            rows = dp.events(sid, geometry.key_of(sid, store.root))
+            path = out.write_events("minimap_dark", sid, rows)
+            print(f"minimap dark {rows[0]['frames']} frames, {rows[0]['unobserved']} unobserved -> {path}")
 
-    if pp is not None:
-        pp.finish()
-        out = store.write_events("ping", sid, pp.events(sid))
-        by: dict[str, int] = {}
-        for kind, *_r in pp.hits:
-            by[kind] = by.get(kind, 0) + 1
-        print(f"ping       {len(pp.hits)} confirmed -> {out}")
-        print(f"           " + (", ".join(f"{k} x{v}" for k, v in sorted(by.items()))
-                                or "none"))
-        # Both refusal counts are printed on purpose. A detector that reports
-        # only what it accepted cannot be audited, and `unconfirmed` in
-        # particular is a population -- runs cut off by a span end, the death
-        # screen or the M key -- whose size says how much of the session this
-        # reader could not measure at all.
-        print(f"           {len(pp.unconfirmed)} unconfirmed (observation "
-              f"stopped), {len(pp.rejected)} refused on lifetime, "
-              f"{pp.n_absent} frames widget-absent")
-    if sp is not None:
-        out = store.write_events("scoreboard", sid, sp.events(sid))
-        accepted = sum(r["credits"] is not None for r in sp.rows)
-        candidates = sum(r["credits_candidate"] is not None for r in sp.rows)
-        print(f"scoreboard {sp.frames_open}/{sp.frames_offered} frames open, "
-              f"{accepted}/{candidates} credit candidates gated -> {out}")
-    print(f"one pass   {n_dec} frames retrieved in {dt:.1f}s")
-    usage.publish_ns = time.perf_counter_ns() - publish_t0
-    try:
-        usage.write(store.root)
-    except OSError as exc:
-        print(f"usage log could not be written: {exc}", file=sys.stderr)
+        if pp is not None:
+            pp.finish()
+            path = out.write_events("ping", sid, pp.events(sid))
+            by: dict[str, int] = {}
+            for kind, *_r in pp.hits:
+                by[kind] = by.get(kind, 0) + 1
+            print(f"ping       {len(pp.hits)} confirmed -> {path}")
+            print(f"           " + (", ".join(f"{k} x{v}" for k, v in sorted(by.items()))
+                                    or "none"))
+            # Both refusal counts are printed on purpose. A detector that reports
+            # only what it accepted cannot be audited, and `unconfirmed` in
+            # particular is a population -- runs cut off by a span end, the death
+            # screen or the M key -- whose size says how much of the session this
+            # reader could not measure at all.
+            print(f"           {len(pp.unconfirmed)} unconfirmed (observation "
+                  f"stopped), {len(pp.rejected)} refused on lifetime, "
+                  f"{pp.n_absent} frames widget-absent")
+        if sp is not None:
+            path = out.write_events("scoreboard", sid, sp.events(sid))
+            accepted = sum(r["credits"] is not None for r in sp.rows)
+            candidates = sum(r["credits_candidate"] is not None for r in sp.rows)
+            print(f"scoreboard {sp.frames_open}/{sp.frames_offered} frames open, "
+                  f"{accepted}/{candidates} credit candidates gated -> {path}")
+        print(f"one pass   {n_dec} frames retrieved in {dt:.1f}s")
+
+    def scan_once(out, pipeline="serial", workers=None, shards=None, cv_threads=None):
+        """Build, choose the source, run one pass and publish into `out`.
+
+        Returns the usage record, or None when a staged pass failed; the failed
+        record is written with its reason and nothing is published."""
+        setup_t0 = time.perf_counter_ns()
+        R = build_readers()
+        t0 = time.perf_counter()
+        last = [t0]
+
+        def progress(n, smp):
+            now = time.perf_counter()
+            if now - last[0] >= 2.0:
+                pct = (smp.t_ms / src["duration_ms"] * 100) if src["duration_ms"] else 0.0
+                sys.stdout.write(f"\r{n:>7d} frames  {_fmt_hms(smp.t_ms)}  {pct:5.1f}%")
+                sys.stdout.flush()
+                last[0] = now
+
+        cache, why = choose_source(R.readers)
+        from .usage import ScanUsage
+        usage = ScanUsage(manifest, profile.name, R.readers,
+                          f"cache:{cache.record['version']}" if cache is not None else "video")
+        usage.setup_ns = time.perf_counter_ns() - setup_t0
+        usage.pipeline, usage.workers, usage.shards = pipeline, workers, dict(shards or {})
+        usage.until_s = until
+        with usage.timed_pass():
+            n_dec, staged = _scan_pass(R.ctx, R.readers, cache, progress, usage, pipeline,
+                                       workers, shards, cv_threads)
+        publish_t0 = time.perf_counter_ns()
+        sys.stdout.write("\r" + " " * 72 + "\r")
+        dt = time.perf_counter() - t0
+        if staged is not None and staged.status != "completed":
+            print(f"pass failed  {staged.error}; nothing published", file=sys.stderr)
+            try:
+                usage.write(out.root)
+            except OSError as exc:
+                print(f"usage log could not be written: {exc}", file=sys.stderr)
+            return None
+        publish(out, R, n_dec, dt)
+        usage.publish_ns = time.perf_counter_ns() - publish_t0
+        try:
+            usage.write(out.root)
+            usage.write_metric(out.root)
+        except OSError as exc:
+            print(f"usage log could not be written: {exc}", file=sys.stderr)
+        print(f"usage      run {usage.run_id} ({pipeline}"
+              + (f", workers {workers}" if workers is not None else "")
+              + (f", shards {shards}" if shards else "") + ")")
+        return usage
+
+    if args.check:
+        return _scan_check(scan_once, sid, args, shards)
+    usage = scan_once(store, args.pipeline, args.workers, shards, args.cv_threads)
+    if usage is None:
+        return 1
     print(f"\nnext: reticle verify {sid}")
     return 0
 
@@ -3290,7 +3446,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_hud)
 
-    s = sub.add_parser("usage", help="completed VOD scan timings by session and reader")
+    s = sub.add_parser("usage", help="VOD scan timings, completed and failed, by session and reader")
     s.add_argument("session", nargs="?", help="filter by VOD session id")
     s.add_argument("--limit", type=int, default=5, help="latest records (default 5)")
     s.add_argument("--json", action="store_true", help="show full timing buckets")
@@ -3348,6 +3504,26 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--cache-live", action="store_true",
                    help="store the crops over rounds only, from just before each "
                         "barrier drop to the next round's start (gametime)")
+    s.add_argument("--pipeline", choices=("serial", "staged"), default="serial",
+                   help="serial (default): every reader in turn per frame; staged: each "
+                        "reader on its own thread behind a FIFO (reticle/pipeline.py)")
+    s.add_argument("--workers", type=int, default=None,
+                   help="staged: feeds that run at once (default 1); 0 runs inline")
+    s.add_argument("--shard", action="append", default=[], metavar="NAME=N",
+                   help="staged: split a reader that declares `shardable` N ways")
+    s.add_argument("--cv-threads", type=int, default=None,
+                   help="OpenCV threads for the pass (default: serial keeps OpenCV's pool, "
+                        "staged uses 1)")
+    s.add_argument("--check", action="store_true",
+                   help="run the serial pass and this one into two temporary stores and "
+                        "compare every file; writes nothing into the store")
+    s.add_argument("--check-dir", default=None,
+                   help="an empty directory for --check's two stores (default: a new "
+                        "temporary directory, kept)")
+    s.add_argument("--until", type=float, default=None, metavar="SECONDS",
+                   help="offer only frames observed before SECONDS on both paths; a video "
+                        "decode stops there. Needs --check and --check-dir, since a prefix's "
+                        "streams are not the whole capture's")
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_scan)
 

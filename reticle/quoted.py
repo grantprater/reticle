@@ -78,8 +78,9 @@ HISTORY = ()
 SCAN_DIRS = ("", "docs", "reticle", "prototypes", "tools")
 SCAN_SUFFIXES = (".py", ".md")
 
-#: This module quotes the citation form in its own docstring as an EXAMPLE.
-EXAMPLE_ONLY = frozenset({"reticle/quoted.py", "tests/test_quoted.py"})
+#: This module quotes the citation form in its own docstring as an EXAMPLE;
+#: `usage` shows a scan's series the same way.
+EXAMPLE_ONLY = frozenset({"reticle/quoted.py", "tests/test_quoted.py", "reticle/usage.py"})
 
 #: A quoted figure is prose, so it is rounded. Compare at the precision the
 #: prose actually states rather than demanding the stored float back.
