@@ -2,6 +2,8 @@
 
 Synthetic readers over a synthetic source; no store, no media.
 """
+import contextlib
+import io
 import threading
 import time
 import unittest
@@ -88,13 +90,25 @@ class Candidates:
     def feed(self, smp):
         i = smp.frame_idx
         self.frames.append({"frame_idx": i, "t_ms": smp.t_ms, "from": self.frames_from})
-        for k in range(i % 2):
+        for k in range((i // 30) % 2):
             self.candidates.append({"key": f"{i}:self:{k}", "v": int(smp.frame[0, 0, 0])})
         for k in range((i // 30) % 4):
             self.candidates.append({"key": f"{i}:ally:{k}", "v": k * int(smp.frame.sum())})
 
     def doc(self):
         return {"frames": self.frames, "rows": self.candidates}
+
+
+class Painting(Candidates):
+    """Breaks the shard contract in place: writes into an array it holds."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.canvas = np.zeros(4, np.uint8)
+
+    def feed(self, smp):
+        self.canvas[0] += 1
+        super().feed(smp)
 
 
 class Counting(Candidates):
@@ -179,6 +193,27 @@ class StagedEqualsSerialTests(unittest.TestCase):
                              [t for t in Cache().t_ms.tolist()
                               if any(a <= t <= b for a, b in spans)])
 
+    def test_workers_0_feeds_in_the_serial_order_on_video(self):
+        # `passes.run` feeds in the order of the set `sample_multi` yields,
+        # here the reverse of the list's; inline feeding must match it.
+        log = []
+
+        class Logs(Collect):
+            def feed(self, smp):
+                log.append(self.name)
+                super().feed(smp)
+
+        def sample_multi(path, fps, req):
+            for i in range(3):
+                yield ("b", "a"), Sample(i, i * 500.0, np.full((2, 2, 3), i, np.uint8))
+        ctx = SimpleNamespace(media="x.mp4", fps=60.0)
+        with patch("reticle.decode.sample_multi", sample_multi):
+            run(ctx, [Logs("a"), Logs("b")])
+            serial, log[:] = list(log), []
+            run_staged(ctx, [Logs("a"), Logs("b")], None, workers=0)
+        self.assertEqual(serial, ["b", "a"] * 3)
+        self.assertEqual(log, serial)
+
     def test_a_video_source_feeds_whoever_sample_multi_names(self):
         frames = [(frozenset({"a"}), 0), (frozenset({"a", "b"}), 1), (frozenset({"b"}), 2),
                   (frozenset({"a", "b"}), 3)]
@@ -202,6 +237,11 @@ class ShardTests(unittest.TestCase):
         serial = Candidates()
         run_cached(None, [serial], Cache(n=60))
         self.assertTrue(serial.candidates)
+        # Frames with both kinds, so a sort within a frame moves a candidate.
+        kinds = {}
+        for c in serial.candidates:
+            kinds.setdefault(c["key"].split(":")[0], set()).add(c["key"].split(":")[1])
+        self.assertTrue(any(k == {"self", "ally"} for k in kinds.values()))
         want = revision(serial.doc())
         # A sort by key would move the id: the test can see a reordering.
         by_key = {"frames": serial.frames,
@@ -230,6 +270,26 @@ class ShardTests(unittest.TestCase):
     def test_a_shard_that_rebinds_other_state_is_refused(self):
         with self.assertRaisesRegex(ValueError, "rebound `n`"):
             run_staged(None, [Counting()], Cache(), workers=1, shards={"cands": 2})
+
+    def test_a_shard_that_writes_into_a_held_array_fails_and_the_flag_returns(self):
+        for workers in (0, 2):
+            with self.subTest(workers=workers):
+                r = Painting()
+                got = within(30, lambda: run_staged(None, [r], Cache(), workers=workers,
+                                                    shards={"cands": 2}))
+                self.assertEqual(got.status, "failed")
+                self.assertIn("read-only", str(got.exception))
+                self.assertTrue(r.canvas.flags.writeable)
+        # Unsharded, the same reader owns its array and may write it.
+        r = Painting()
+        self.assertEqual(run_staged(None, [r], Cache(n=5), workers=1).status, "completed")
+        self.assertEqual(r.canvas[0], 5)
+
+    def test_units_record_each_shards_frames(self):
+        got = run_staged(None, [Candidates()], Cache(n=9), workers=2, shards={"cands": 2})
+        self.assertEqual([(u["label"], u["fed"]) for u in got.units],
+                         [("cands#0", 5), ("cands#1", 4)])
+        self.assertTrue(all(u["max_queued"] is not None for u in got.units))
 
     def test_shards_share_their_readers_usage(self):
         manifest = {"session_id": "s", "source": {"content_key": "k"}}
@@ -267,6 +327,25 @@ class FailureTests(unittest.TestCase):
                 self.assertEqual(got.status, "failed")
                 self.assertIsInstance(got.exception, ValueError)
                 self.assertIn("read-only", str(got.exception))
+
+    def test_a_failure_during_setup_joins_the_workers_and_restores_the_count(self):
+        before = cv2.getNumThreads()
+
+        class Broken:
+            def timed_frames(self, frames):
+                raise RuntimeError("usage broke after the workers started")
+        with self.assertRaisesRegex(RuntimeError, "workers started"):
+            within(30, lambda: run_staged(None, [Collect("a"), Collect("b")], Cache(),
+                                          workers=2, usage=Broken()))
+        self.assertFalse(any(t.name.startswith("reader:") for t in threading.enumerate()))
+        self.assertEqual(cv2.getNumThreads(), before)
+        # A second shard refused after the first froze its reader's array.
+        held = Painting()
+        with self.assertRaisesRegex(ValueError, "shardable"):
+            run_staged(None, [held, Collect("a")], Cache(), workers=1,
+                       shards={"cands": 2, "a": 2})
+        self.assertTrue(held.canvas.flags.writeable)
+        self.assertEqual(cv2.getNumThreads(), before)
 
     def test_a_raising_source_fails_the_run_and_stops_the_workers(self):
         class Broken(Cache):
@@ -335,6 +414,46 @@ class OpenCvThreadTests(unittest.TestCase):
         r.cv_threads = 1
         got = run_staged(None, [r], Cache(n=5), workers=0)
         self.assertEqual(got.cv_threads["toggled"], ["a"])
+
+
+class ScanCheckTests(unittest.TestCase):
+    """`scan --check`: path b runs first, and only byte-equal files pass."""
+
+    def check(self, write_b):
+        import tempfile
+        from pathlib import Path
+
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        from reticle.cli import _scan_check
+
+        order = []
+
+        def scan_once(out, pipeline="serial", workers=None, shards=None, cv_threads=None):
+            label = out.root.name
+            order.append(label)
+            table = pa.table({"t": [1.0, 2.0]})
+            if label == "b":
+                table = write_b(table)
+            (out.root / "l1").mkdir(parents=True)
+            pq.write_table(table, out.root / "l1" / "t.parquet")
+            return SimpleNamespace(run_id=f"run-{label}")
+
+        with tempfile.TemporaryDirectory() as d:
+            args = SimpleNamespace(check_dir=str(Path(d) / "check"), pipeline="staged",
+                                   workers=1, cv_threads=None)
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = _scan_check(scan_once, "s", args, {})
+        return code, order
+
+    def test_the_staged_path_runs_first(self):
+        code, order = self.check(lambda t: t)
+        self.assertEqual((code, order), (0, ["b", "a"]))
+
+    def test_metadata_alone_fails_the_check(self):
+        code, _ = self.check(lambda t: t.replace_schema_metadata({b"m": b"1"}))
+        self.assertEqual(code, 1)
 
 
 class CompareTreesTests(unittest.TestCase):

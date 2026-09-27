@@ -69,5 +69,54 @@ class UsageTest(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text())["kind"], "vod_scan")
 
 
+class StagedRecordTest(unittest.TestCase):
+    """What a staged pass did reaches the record; each configuration is a series."""
+
+    manifest = {"session_id": "s", "source": {"content_key": "key"}}
+
+    def test_a_staged_pass_records_offered_fed_and_each_shard(self):
+        from reticle.pipeline import StagedRun
+        usage = ScanUsage(self.manifest, "profile", [Reader()], "cache:cache-test")
+        usage.staged_run(StagedRun(
+            frames=5, workers=2, shards={"probe": 2}, cv_threads={"pass": 1, "toggled": []},
+            offered={"probe": 5}, fed={"probe": 5}, wait_ns=7,
+            units=[{"label": "probe#0", "reader": "probe", "fed": 3, "max_queued": 2},
+                   {"label": "probe#1", "reader": "probe", "fed": 2, "max_queued": 1}]))
+        row = usage.record()
+        self.assertEqual(row["readers"]["probe"]["offered"], 5)
+        self.assertEqual([u["fed"] for u in row["readers"]["probe"]["shards"]], [3, 2])
+        self.assertEqual(row["dispatcher"]["wait_ns"], 7)
+        self.assertEqual((row["pipeline"], row["workers"], row["shards"]),
+                         ("staged", 2, {"probe": 2}))
+
+    def test_a_serial_pass_records_its_feeds_and_no_queue(self):
+        reader = Reader()
+        usage = ScanUsage(self.manifest, "profile", [reader], "cache:cache-test")
+        run_cached(None, [reader], Cache(), usage=usage)
+        row = usage.record()
+        self.assertEqual((row["readers"]["probe"]["offered"], row["readers"]["probe"]["fed"]),
+                         (3, 3))
+        self.assertEqual(row["readers"]["probe"]["shards"], [])
+        self.assertIsNone(row["dispatcher"]["wait_ns"])
+
+    def test_each_configuration_is_its_own_metrics_series(self):
+        def part(pipeline, workers=None, shards=None, cv=12, source="cache:cache-test"):
+            usage = ScanUsage(self.manifest, "profile", [Reader()], source)
+            usage.pipeline, usage.workers = pipeline, workers
+            usage.shards, usage.cv_threads = dict(shards or {}), {"pass": cv}
+            return usage.series_part()
+        self.assertEqual(part("serial"), "probe/cache/serial/cv12")
+        self.assertEqual(part("staged", 1, cv=1), "probe/cache/staged/w1/cv1")
+        self.assertEqual(part("staged", 2, {"probe": 2}, cv=1),
+                         "probe/cache/staged/w2/probe=2/cv1")
+        self.assertEqual(part("serial", source="video"), "probe/video/serial/cv12")
+        usage = ScanUsage(self.manifest, "profile", [Reader()], "cache:cache-test")
+        usage.cv_threads = {"pass": 1}
+        with tempfile.TemporaryDirectory() as d:
+            row = usage.write_metric(Path(d))
+        self.assertEqual((row["tool"], row["part"], row["session"]),
+                         ("scan_usage", "probe/cache/serial/cv1", "s"))
+
+
 if __name__ == "__main__":
     unittest.main()

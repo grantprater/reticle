@@ -784,13 +784,13 @@ def _live_round_spans(store, sid, date) -> list[tuple[float, float]]:
 
 
 def cmd_usage(args) -> int:
-    """Show completed scan cost records, including source and reader time."""
+    """Show scan cost records, completed and failed, with source and reader time."""
     from .usage import load, format_usage
 
     store = Store(args.store)
     rows = load(store.root, args.session)
     if not rows:
-        print("no completed scan usage records")
+        print("no scan usage records")
         return 0
     for row in rows[-args.limit:]:
         print(json.dumps(row, indent=2) if args.json else format_usage(row))
@@ -835,21 +835,22 @@ def _scan_pass(ctx, readers, cache, progress, usage, pipeline, workers, shards, 
     from .pipeline import run_staged
     got = run_staged(ctx, readers, cache, workers=1 if workers is None else workers,
                      shards=shards, usage=usage, progress=progress, cv_threads=cv_threads)
-    usage.workers = got.workers
-    usage.cv_threads = got.cv_threads
-    if got.status != "completed":
-        usage.status, usage.error = "failed", got.error
+    usage.staged_run(got)
     return got.frames, got
 
 
 def _scan_check(scan_once, sid, args, shards) -> int:
-    """Run the serial path and the requested one into two temporary stores.
+    """Run the requested path and the serial one into two temporary stores.
 
     Path a is today's serial pass on OpenCV's own pool; path b is the pass
-    the flags ask for. Both read the store's manifest, crop cache and inputs
-    and write only under the check directory, which is kept so each path's
-    usage record stays readable. Every written file is compared byte for
-    byte, Parquet tables also row for row. Exits non-zero on a row difference.
+    the flags ask for. Path b runs first, so its threads meet the lazily
+    filled module caches (`killfeed._ME_CACHE`, `ally_portrait._REG`) cold
+    rather than filled by the serial pass. Both read the store's manifest,
+    crop cache and inputs and write only under the check directory, which is
+    kept so each path's usage record stays readable. Every written file is
+    compared byte for byte; where Parquet bytes differ the rows are compared
+    too, to say where the tables part. Exits non-zero unless every file is
+    byte-equal.
     """
     import tempfile
     from .pipeline import compare_trees
@@ -862,10 +863,10 @@ def _scan_check(scan_once, sid, args, shards) -> int:
                if args.pipeline == "staged" else "serial")
     b_label += (f", shards {shards}" if shards else "")
     b_label += (f", OpenCV threads {args.cv_threads}" if args.cv_threads is not None else "")
-    print(f"check      a: serial -> {root / 'a'}")
-    ua = scan_once(Store(root / "a"))
     print(f"check      b: {b_label} -> {root / 'b'}")
     ub = scan_once(Store(root / "b"), args.pipeline, args.workers, shards, args.cv_threads)
+    print(f"check      a: serial -> {root / 'a'}")
+    ua = scan_once(Store(root / "a"))
     if ua is None or ub is None:
         failed = " and ".join(n for n, u in (("a", ua), ("b", ub)) if u is None)
         print(f"check      path {failed} failed; nothing to compare")
@@ -875,10 +876,11 @@ def _scan_check(scan_once, sid, args, shards) -> int:
     for e in entries:
         print(f"{e['verdict']:<10} {e['path']}  {e['detail']}")
     rows = [e for e in entries if e["rows_differ"]]
-    print(f"check      {len(entries)} files, {sum(e['verdict'] == 'equal' for e in entries)} equal, "
+    equal = sum(e["verdict"] == "equal" for e in entries)
+    print(f"check      {len(entries)} files, {equal} equal, "
           f"{len(rows)} with row differences; usage a {ua.run_id}, b {ub.run_id} "
           f"(under {root})")
-    return 1 if rows or not entries else 0
+    return 1 if equal < len(entries) or not entries else 0
 
 
 def cmd_scan(args) -> int:
@@ -919,9 +921,14 @@ def cmd_scan(args) -> int:
     if args.pipeline == "serial" and (shards or args.workers is not None):
         raise SystemExit("--workers and --shard need --pipeline staged")
     if args.check:
+        import cv2
         if args.cache_roi:
             raise SystemExit("--check writes nothing into the store, and --cache-roi "
                              "writes crops there")
+        if args.pipeline == "serial" and args.cv_threads in (None, cv2.getNumThreads()):
+            raise SystemExit("--check compares the serial pass with the pass the flags ask "
+                             "for, and these flags ask for the serial pass again; name "
+                             "--pipeline staged or another --cv-threads")
         # The check re-reads every requested stream, current or not.
         args.force = True
     channels = set(args.only or ('hud', 'minimap', 'ping', 'roster', 'scoreboard',
@@ -3423,7 +3430,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--force", action="store_true", help="re-read even on a cache hit")
     s.set_defaults(func=cmd_hud)
 
-    s = sub.add_parser("usage", help="completed VOD scan timings by session and reader")
+    s = sub.add_parser("usage", help="VOD scan timings, completed and failed, by session and reader")
     s.add_argument("session", nargs="?", help="filter by VOD session id")
     s.add_argument("--limit", type=int, default=5, help="latest records (default 5)")
     s.add_argument("--json", action="store_true", help="show full timing buckets")

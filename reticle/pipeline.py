@@ -46,8 +46,10 @@ fails the run rather than writing a refusal; the reason lands in `status`.
 threads that toggle races, so a staged pass with `workers >= 1` sets the
 count once for the pass -- one thread unless the caller names another --
 restores it afterwards, and refuses a reader that declares a different count.
-`workers=0` feeds inline through `passes._feed`, toggles included, and so
-reproduces the serial path exactly.
+`workers=0` feeds inline through `passes._feed`, toggles included, in the
+serial path's order: list order on the cache, as `run_cached` feeds, and the
+order of the frozenset `sample_multi` yields on video, as `passes.run` feeds.
+It therefore reproduces the serial path exactly on either source.
 
 **Workers.** `workers` caps how many feeds run at once, through a semaphore;
 every reader or shard still gets its own thread and FIFO, so `workers=1`
@@ -70,6 +72,8 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import numpy as np
 
 from .passes import _cache_rois, _feed
 
@@ -96,7 +100,9 @@ class StagedRun:
     `status` is "completed" or "failed"; on failure `error` names the reader
     and exception, `exception` holds it, and no reader was finished, so the
     caller publishes nothing. `finished` maps each reader with a `finish` to
-    what it returned.
+    what it returned. `units` lists each worker's FIFO, one per reader or
+    shard: its `label`, `reader`, frames `fed` and `max_queued` (None when
+    `workers` is 0, which queues nothing).
     """
 
     frames: int = 0
@@ -111,6 +117,7 @@ class StagedRun:
     cv_threads: dict = field(default_factory=dict)
     wait_ns: int = 0
     max_queued: dict[str, int] = field(default_factory=dict)
+    units: list[dict] = field(default_factory=list)
 
     def raise_for_status(self) -> None:
         if self.exception is not None:
@@ -140,8 +147,13 @@ class _Shards:
     canonical JSON with lists in order. A sort by key would change it, since
     `feed` appends a frame's self candidates before its ally ones, each by raw
     index. A shard that rebinds any other attribute, or appends outside
-    `feed`, breaks the promise, and the merge raises. `finish`, if the reader
-    has one, runs once, on the merged original.
+    `feed`, breaks the promise, and the merge raises. The copies share every
+    other attribute, so an in-place write escapes that check: every ndarray
+    the reader holds (`AllyIconReader`'s `floor`, `slab`, `static`) turns
+    read-only for the pass, and a write into one raises at once; `release`
+    restores the flags it cleared. A dict, set or undeclared list mutated in
+    place stays invisible to the merge; the contract forbids it.
+    `finish`, if the reader has one, runs once, on the merged original.
     """
 
     def __init__(self, reader, k: int):
@@ -161,6 +173,17 @@ class _Shards:
         # Per shard: (producer position, list lengths before, lengths after).
         self.marks: list[list[tuple[int, tuple, tuple]]] = [[] for _ in range(k)]
         self.offered = 0
+        self.frozen: list[np.ndarray] = []
+        for value in vars(reader).values():
+            if isinstance(value, np.ndarray) and value.flags.writeable:
+                value.setflags(write=False)
+                self.frozen.append(value)
+
+    def release(self) -> None:
+        """Make writeable again the arrays `__init__` made read-only."""
+        for value in self.frozen:
+            value.setflags(write=True)
+        self.frozen = []
 
     def route(self) -> int:
         k = self.offered % len(self.copies)
@@ -216,8 +239,10 @@ def _source_items(ctx, readers: list, source):
     if source is None:
         from .decode import sample_multi
         req = {r.name: (r.hz, r.spans) for r in readers}
+        by_name = {r.name: r for r in readers}
         items = sample_multi(str(ctx.media), ctx.fps, req)
-        return items, lambda item: (item[1], [r for r in readers if r.name in item[0]])
+        # `passes.run`'s order: the frozenset's, not the list's.
+        return items, lambda item: (item[1], [by_name[name] for name in item[0]])
     rois = sorted({roi for r in readers for roi in _cache_rois(r)})
     for r in readers:
         r.frames_from = source.record["version"]
@@ -274,14 +299,9 @@ def run_staged(ctx, readers: list, source=None, workers: int = 1,
 
     result = StagedRun(workers=workers, shards=dict(shards))
     items, split = _source_items(ctx, readers, source)
-    # Shards are copied only now, after `_source_items` has set `frames_from`.
-    sharded = {r.name: _Shards(r, shards[r.name]) for r in readers if r.name in shards}
+    sharded: dict[str, _Shards] = {}
     units: dict[str, list[_Unit]] = {}
-    for r in readers:
-        s = sharded.get(r.name)
-        units[r.name] = ([_Unit(f"{r.name}#{k}", r, s, k, depth) for k in range(len(s.copies))]
-                         if s is not None else [_Unit(r.name, r, None, 0, depth)])
-    every = [u for us in units.values() for u in us]
+    every: list[_Unit] = []
     offered: Counter = Counter()
     stop = threading.Event()
     errors: list[tuple[str, BaseException]] = []
@@ -342,18 +362,31 @@ def run_staged(ctx, readers: list, source=None, workers: int = 1,
             result.wait_ns += time.perf_counter_ns() - start
 
     before_threads = cv2.getNumThreads()
-    if pass_threads is not None:
-        cv2.setNumThreads(pass_threads)
-    result.cv_threads = {"pass": cv2.getNumThreads(),
-                         "toggled": sorted(declared) if inline else []}
-    if not inline:
-        for u in every:
-            u.thread = threading.Thread(target=work, args=(u,), daemon=True,
-                                        name=f"reader:{u.label}")
-            u.thread.start()
-    timed = usage.timed_frames(items) if usage is not None else items
+    timed = None
     n = 0
     try:
+        # Setup sits inside the try: an exception or an interrupt here still
+        # stops and joins the workers started so far, releases the shards'
+        # arrays and restores the OpenCV count. Shards are copied only now,
+        # after `_source_items` has set `frames_from`.
+        for r in readers:
+            if r.name in shards:
+                sharded[r.name] = _Shards(r, shards[r.name])
+            s = sharded.get(r.name)
+            units[r.name] = ([_Unit(f"{r.name}#{k}", r, s, k, depth)
+                              for k in range(len(s.copies))]
+                             if s is not None else [_Unit(r.name, r, None, 0, depth)])
+        every.extend(u for us in units.values() for u in us)
+        if pass_threads is not None:
+            cv2.setNumThreads(pass_threads)
+        result.cv_threads = {"pass": cv2.getNumThreads(),
+                             "toggled": sorted(declared) if inline else []}
+        if not inline:
+            for u in every:
+                u.thread = threading.Thread(target=work, args=(u,), daemon=True,
+                                            name=f"reader:{u.label}")
+                u.thread.start()
+        timed = usage.timed_frames(items) if usage is not None else items
         try:
             for item in timed:
                 smp, wanting = split(item)
@@ -398,13 +431,18 @@ def run_staged(ctx, readers: list, source=None, workers: int = 1,
             if not all(u.ended for u in every):
                 stop.set()
             for u in every:
-                u.thread.join()
+                if u.thread is not None:
+                    u.thread.join()
+        for s in sharded.values():
+            s.release()
         cv2.setNumThreads(before_threads)
 
     result.frames = n
     result.offered = dict(offered)
     result.fed = {name: sum(u.fed for u in us) for name, us in units.items()}
     result.max_queued = {u.label: u.max_queued for u in every}
+    result.units = [{"label": u.label, "reader": u.reader.name, "fed": u.fed,
+                     "max_queued": None if inline else u.max_queued} for u in every]
     lost = {name: (offered.get(name, 0), result.fed[name]) for name in units
             if offered.get(name, 0) != result.fed[name]}
     if errors:

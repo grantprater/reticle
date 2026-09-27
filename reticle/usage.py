@@ -1,13 +1,38 @@
 """Operational scan timings, separate from observation and accuracy evidence.
 
-One JSON line records a scan. Source time is shared by all readers; reader
-feed times are exclusive. Buckets retain call frequencies without a
+One JSON line records a scan. Source time is shared by all readers. In a
+serial pass the source and every reader's feed run one after another on one
+thread, so their times exclude each other and sum to at most the pass. In a
+staged pass the readers feed on their own threads while the source reads, so
+their times overlap it and each other, may sum past the pass, and
+`pass_other_ns` clamps to 0. Buckets retain call frequencies without a
 per-frame file or unbounded in-memory samples.
 
 `scan-usage-2` adds how the pass ran: `pipeline` (`serial` or `staged`),
 `workers`, `shards`, `cv_threads`, `code_revision` (HEAD's short sha and
 whether the tree differs from it) and `error`; `status` says `failed` when a
-staged pass ended on a reader's exception. `load` reads both versions.
+staged pass ended on a reader's exception. A staged pass also records what
+it did rather than what was asked: per reader the frames `offered` and
+`fed`, and under `shards` each worker's FIFO (one per reader, or one per
+shard) with its frames `fed` and `max_queued`; `dispatcher.wait_ns` is the
+time the dispatcher blocked on full FIFOs. A serial pass records `offered`
+and `fed` as its feed count, no `shards` and a null `wait_ns`: nothing
+queues. `load` reads both versions.
+
+**Citing a scan.** `write_metric` appends a `scan_usage` pass row whose part
+names the readers and then how the pass ran (`series_part`), so each
+configuration is its own series: QUOTED compares a citation with the latest
+pass row of its series and ignores `deps`, and a serial rerun must not
+become the row a staged figure is checked against. A document cites the
+pass time of a staged HUD pass from the crop cache at one worker as
+
+    [metric:scan_usage/hud+killfeed_portrait/cache/staged/w1/cv1@c40d950031bb#pass_s=<seconds>]
+
+with `<seconds>` the row's `pass_s` at the precision the prose states. The
+serial pass of the same readers is the series
+`scan_usage/hud+killfeed_portrait/cache/serial/cv12` on this machine's
+OpenCV pool. `reticle/quoted.py` lists this module in `EXAMPLE_ONLY`, so
+the example above is not read as a citation.
 """
 
 from __future__ import annotations
@@ -74,7 +99,8 @@ class ScanUsage:
         self.source = source
         self.readers = {r.name: {"hz": r.hz,
                                  "spans": len(r.spans) if r.spans is not None else None,
-                                 "feed": CallTimes(), "finish_ns": 0}
+                                 "feed": CallTimes(), "finish_ns": 0,
+                                 "offered": None, "fed": None, "shards": []}
                         for r in readers}
         self.frames = CallTimes()
         self.setup_ns = 0
@@ -84,6 +110,7 @@ class ScanUsage:
         self.workers = None
         self.shards: dict[str, int] = {}
         self.cv_threads: dict | None = None
+        self.wait_ns: int | None = None
         self.code_revision = code_revision()
         self.status = "completed"
         self.error: str | None = None
@@ -117,6 +144,43 @@ class ScanUsage:
         finally:
             self.readers[reader.name]["finish_ns"] += perf_counter_ns() - start
 
+    def staged_run(self, run) -> None:
+        """Copy what a staged pass did, a `pipeline.StagedRun`, into the record.
+
+        The workers, shards and OpenCV count that ran, frames offered and fed
+        per reader, each FIFO's count and depth, the dispatcher's wait, and
+        the status. `workers` 0 queues nothing, so its wait stays null.
+        """
+        self.pipeline = "staged"
+        self.workers = run.workers
+        self.shards = dict(run.shards)
+        self.cv_threads = run.cv_threads
+        self.wait_ns = run.wait_ns if run.workers else None
+        for name, r in self.readers.items():
+            r["offered"] = run.offered.get(name, 0)
+            r["fed"] = run.fed.get(name, 0)
+            r["shards"] = [{"label": u["label"], "fed": u["fed"],
+                            "max_queued": u["max_queued"]}
+                           for u in run.units if u["reader"] == name]
+        if run.status != "completed":
+            self.status, self.error = "failed", run.error
+
+    def series_part(self) -> str:
+        """The metrics part: readers, source, pipeline, workers, shards, OpenCV count.
+
+        `hud+killfeed_portrait/cache/staged/w1/cv1`; a serial pass names no
+        workers, and a pass with shards names each as `READER=K`.
+        """
+        source = "cache" if self.source.startswith("cache:") else self.source
+        bits = ["+".join(sorted(self.readers)), source, self.pipeline]
+        if self.pipeline == "staged":
+            bits.append(f"w{1 if self.workers is None else self.workers}")
+        bits += [f"{name}={k}" for name, k in sorted(self.shards.items())]
+        count = (self.cv_threads or {}).get("pass")
+        if count is not None:
+            bits.append(f"cv{count}")
+        return "/".join(bits)
+
     def record(self) -> dict:
         feed_ns = sum(r["feed"].total_ns for r in self.readers.values())
         finish_ns = sum(r["finish_ns"] for r in self.readers.values())
@@ -142,9 +206,15 @@ class ScanUsage:
             "pass_ns": self.pass_ns,
             "publish_ns": self.publish_ns,
             "source_calls": self.frames.record(),
+            "dispatcher": {"wait_ns": self.wait_ns},
+            # Serial: every frame offered is fed inline, one feed call each.
             "readers": {name: {"hz": r["hz"], "spans": r["spans"],
                                 "feed": r["feed"].record(),
-                                "finish_ns": r["finish_ns"]}
+                                "finish_ns": r["finish_ns"],
+                                "offered": (r["feed"].count if r["offered"] is None
+                                            else r["offered"]),
+                                "fed": r["feed"].count if r["fed"] is None else r["fed"],
+                                "shards": [dict(u) for u in r["shards"]]}
                         for name, r in self.readers.items()},
             "pass_other_ns": max(0, self.pass_ns - source_ns - feed_ns - finish_ns),
         }
@@ -165,7 +235,7 @@ class ScanUsage:
         """
         from . import metrics
         return metrics.record(
-            "scan_usage", part="+".join(sorted(self.readers)),
+            "scan_usage", part=self.series_part(),
             session=self.manifest["session_id"],
             values={"pass_s": round(self.pass_ns / 1e9, 3),
                     "source_s": round(self.frames.total_ns / 1e9, 3),
@@ -193,7 +263,10 @@ def format_usage(row: dict) -> str:
     def sec(ns):
         return f"{ns / 1e9:.3f}s"
 
-    parts = [f"{row['recorded_at']}  {row['session_id']}  {row['source']}",
+    status = row.get("status", "completed")
+    parts = [f"{row['recorded_at']}  {row['session_id']}  {row['source']}"
+             + (f"  {row.get('pipeline')}" if row.get("pipeline") else "")
+             + (f"  {status}: {row.get('error')}" if status != "completed" else ""),
              f"  setup {sec(row['setup_ns'])}  pass {sec(row['pass_ns'])}  "
              f"publish {sec(row['publish_ns'])}",
              f"  source {row['source_calls']['count']} frames, "
