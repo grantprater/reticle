@@ -235,13 +235,35 @@ Measured values beside each prediction; the player judges them.
 - **P6.** On `a06f04a0059f`, [metric:audio_gate/smokes@a06f04a0059f#onsets_live=22] of [metric:audio_gate/smokes@a06f04a0059f#onsets=27] observed smoke onsets fall in live time. F2 has a detection within 1.5 s of [metric:audio_gate/smokes@a06f04a0059f#F2_fraction_within_1_5=0.296] of all onsets and [metric:audio_gate/smokes@a06f04a0059f#F2_fraction_within_1_5_live=0.273] of the live ones; chance is [metric:audio_gate/smokes@a06f04a0059f#F2_chance_live=0.238].
 - **P7.** The player named no sessions; the tagger's speech fraction stands in. Of the [metric:audio_gate/loso@all-matches#podcast_k=6] sessions above the cut, [metric:audio_gate/loso@all-matches#F2_podcast_in_top_k=3] are among the [metric:audio_gate/loso@all-matches#podcast_k=6] with the most F2 unexplained detections per minute at recall 0.5, where every session shares one pooled threshold; the rank correlation of speech fraction with that rate is [metric:audio_gate/loso@all-matches#F2_speech_spearman=0.265]. F0 reads [metric:audio_gate/loso@all-matches#F0_podcast_in_top_k=2] of [metric:audio_gate/loso@all-matches#podcast_k=6] and [metric:audio_gate/loso@all-matches#F0_speech_spearman=0.338].
 
+### Verdicts (2026-09-27)
+
+Judged by the orchestrator against the falsifiers written before the run;
+the ledger rows are `audio-gate` outcomes of 2026-09-27.
+
+- **P0 confirmed.** The ammo rule is a gunfire witness.
+- **P1 confirmed as stated, weakly.** Loudness never reaches 0.8 but reaches
+  0.717 at 10 per minute: a poor gate, not no gate.
+- **P2 falsified.** 0.483 is below the 0.5 falsifier.
+- **P3 falsified.** A background-only density does not find casts.
+- **P4 confirmed**, on the one Regrowth demo cast that exists.
+- **P5 confirmed.** The gate dates a cast to within 50 ms.
+- **P6 falsified.** Smoke onsets are at chance.
+- **P7 not supported.** Half the podcast sessions are among the noisiest.
+
+Decision: the gate stays a prototype (`wire: no`). It is not a switch for
+the expensive passes on its own. Its next use is as one of two witnesses
+for births of others' abilities beside a minimap change gate, after the
+timer bar and cooldown counters are read as cast witnesses; the unnamed
+ally piece association is the lead. The review sheet awaits the player.
+
 ### What was not done
 
 - No events, labels or `reticle/` module: the gate stays a prototype until the player has judged the review sheet.
-- No verdict on P0 to P7; the measured values stand beside them for the player.
+- The implementation gave no verdict on P0 to P7; the orchestrator's verdicts are above.
 - No recall per agent or per ability, and no threshold per session or per map: one pooled threshold per gate.
 - Teammates' and enemies' abilities stay unlabelled inside background; the witness table bounds their share of the unexplained detections only where a minimap table dates them.
 - F4 was not fine-tuned, and its background classes are a fixed list, not fitted.
 - No audio left a capture: no WAV and no clips; the review sheet plays the source with `ffplay`. No video was decoded and no `roi_cache` was read.
-- Nothing was appended to the store's `notes/predictions.jsonl`.
+- The implementation appended nothing to the store's `notes/predictions.jsonl`;
+  the orchestrator appended the verdicts and the wiring decision.
 - The tests run under `unittest`; the venv has no pytest.
