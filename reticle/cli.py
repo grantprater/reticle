@@ -2693,6 +2693,143 @@ def cmd_smokes(args) -> int:
     return 0
 
 
+def _cache_grid(t_ms, t0: float, t1: float, step_s: float) -> list[float]:
+    """Cached times nearest a regular grid inside [t0, t1]."""
+    t = np.unique(np.asarray(t_ms, float))
+    t = t[(t >= t0) & (t <= t1)]
+    if not len(t):
+        return []
+    want = np.arange(t[0], t[-1] + 1, step_s * 1000.0)
+    return [float(x) for x in t[np.unique(np.searchsorted(t, want).clip(0, len(t) - 1))]]
+
+
+def _sessions_arg(store: Store, args) -> list[str]:
+    return ([s["session_id"] for s in store.sessions()] if args.all
+            else [_resolve_session(store, args.session)["session_id"]])
+
+
+def cmd_tray(args) -> int:
+    """The tray's charge drops from the stored crops, and which are the player's
+    casts (`ability_timeline.player_tray_casts`). Decodes no video."""
+    from . import tray
+    from .ability_timeline import player_tray_casts
+    from .rounds import player_death_times
+    from .roi_cache import RoiCache
+    from .version import TRAY_VERSION
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        man = store.read_manifest(sid)
+        src = man["source"]
+        if (int(src["width"]), int(src["height"])) != (1920, 1080):
+            print(f"{sid}: tray geometry is measured at 1920x1080 -- skipped")
+            continue
+        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
+        if cache is None:
+            print(f"{sid}: no minimap crop cache ({why}) -- skipped")
+            continue
+        ts, counts, clean = [], [], []
+        for a, b in cache.record["spans"]:
+            for smp in cache.samples(_cache_grid(cache.t_ms, a, b, args.step), rois=["hud_abilities"]):
+                c, ok = tray.slot_counts(smp.frame)
+                ts.append(float(smp.t_ms))
+                counts.append(c)
+                clean.append(ok)
+            # A refused row between spans: no drop is read across two rounds.
+            ts.append((ts[-1] if ts else 0.0) + 10.0)
+            counts.append([0, 0, 0, 0])
+            clean.append(False)
+        date = _date_of(man)
+        hud, rounds = store.read_hud(sid, date), store.read_rounds(sid, date).to_pylist()
+        gt = gametime.build_session_gametime(sid, hud, rounds,
+                                             stall_list=stalls.for_session(store, sid, date))
+        rows = player_tray_casts(
+            tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool)),
+            lambda t: gt.game_time_at(t).phase, rounds, player_death_times(hud))
+        common = {"session_id": sid, "tray_version": TRAY_VERSION, "step_s": args.step}
+        why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
+        out_rows = [{**common, "kind": "coverage", "samples": len(ts) - len(cache.record["spans"]),
+                     "drops": len(rows), "player_casts": sum(r["player_cast"] for r in rows),
+                     "refused_reasons": dict(sorted(why_not.items()))}]
+        out_rows += [{**common, "kind": "drop", **r} for r in rows]
+        out = store.write_events("tray_drop", sid, out_rows)
+        print(f"{sid}: {len(rows)} drops, {out_rows[0]['player_casts']} the player's casts; "
+              f"refused {dict(why_not)} -> {out}")
+    return 0
+
+
+def cmd_ability_shapes(args) -> int:
+    """The drawn minimap shape after each of the player's casts of an ability
+    with a known form, from stored crops (`ability_shapes`). Decodes no video."""
+    from . import ability_shapes
+    from .lineup import abilities_for, load_lineup
+    from .roi_cache import RoiCache
+    from .version import TRAY_VERSION
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        drops = store.read_events("tray_drop", sid)
+        if not drops or drops[0].get("tray_version") != TRAY_VERSION:
+            print(f"{sid}: no current tray drops -- run `reticle tray {sid}` first")
+            continue
+        lu = load_lineup(sid, store.root) or {}
+        slot = (lu.get("player") or {}).get("slot")
+        verdict = next((v for v in lu.get("agent_identity") or []
+                        if v["entity_id"] == f"{sid}:ally:slot:{slot}"), None)
+        agent = verdict["agent"] if verdict and verdict["status"] == "resolved" else None
+        if agent is None:
+            print(f"{sid}: the arbiter names no player agent -- skipped")
+            continue
+        kit = abilities_for(agent, store.root)
+        casts = [d for d in drops if d.get("kind") == "drop" and d["player_cast"]
+                 and kit.get(d["slot"]) in ability_shapes.SHAPES]
+        man = store.read_manifest(sid)
+        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
+        if cache is None:
+            print(f"{sid}: no minimap crop cache ({why}) -- skipped")
+            continue
+        x0, y0, x1, y1 = cache.rect_of("minimap")
+        support = geometry.footprint(sid, store.root, dilate=ability_shapes.SUPPORT_DILATE,
+                                     shape=(y1 - y0, x1 - x0))
+        if support is None:
+            print(f"{sid}: no art footprint for this map -- no beam is checked against the map")
+        mm = store.read_minimap(sid, _date_of(man))
+        mm_version = (mm.schema.metadata or {}).get(b"minimap_version", b"").decode() or None
+        mt = np.asarray(mm.column("t_ms").to_pylist(), float)
+        sx, sy = mm.column("self_x").to_pylist(), mm.column("self_y").to_pylist()
+
+        def seed_at(t):
+            if not len(mt):
+                return None
+            i = int(np.abs(mt - t).argmin())
+            if abs(mt[i] - t) > 100 or sx[i] is None:
+                return None
+            return float(sx[i]), float(sy[i])
+
+        common = {"session_id": sid, "agent": agent, "tray_version": TRAY_VERSION,
+                  "seed_source": "stored self position", "minimap_version": mm_version}
+        rows, found = [], Counter()
+        for c in casts:
+            ability = kit[c["slot"]]
+            times = _cache_grid(cache.t_ms, c["t_ms"], c["t_ms"] + args.window * 1000.0, args.step)
+            got = {float(smp.t_ms): smp.frame[y0:y1, x0:x1]
+                   for smp in cache.samples(times, rois=["minimap"])}
+            for t in times:
+                seed = seed_at(t)
+                row = ability_shapes.fit_shape(got.get(t), ability, seed, support)
+                rows.append({**common, "kind": "shape", "cast_t_ms": c["t_ms"],
+                             "slot": c["slot"], "t_ms": t, "seed": seed, **row})
+                found[(ability, row["found"])] += 1
+        out_rows = [{**common, "kind": "coverage", "casts": len(casts),
+                     "ability_shape_version": ability_shapes.ABILITY_SHAPE_VERSION,
+                     "observations": len(rows),
+                     "found": {f"{a}:{f}": n for (a, f), n in sorted(found.items(), key=str)}}]
+        out = store.write_events("ability_shape", sid, out_rows + rows)
+        print(f"{sid}: {agent}, {len(casts)} casts with a shape model, {len(rows)} crops; "
+              f"{out_rows[0]['found']} -> {out}")
+    return 0
+
+
 def cmd_ability_gallery(args) -> int:
     """Build phase galleries and score identity on held-out sessions."""
     from .ability_gallery import run
@@ -3344,6 +3481,20 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("smokes", help="smoke tracks from stored minimap_dark rows (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_smokes)
+
+    s = sub.add_parser("tray", help="the tray's charge drops and the player's casts, from stored crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--step", type=float, default=0.5, help="tray sampling interval (default 0.5 s)")
+    s.set_defaults(func=cmd_tray)
+
+    s = sub.add_parser("ability-shapes",
+                       help="the drawn minimap shape after the player's casts, from stored crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--window", type=float, default=6.0, help="seconds after each cast (default 6)")
+    s.add_argument("--step", type=float, default=0.5, help="sampling interval (default 0.5 s)")
+    s.set_defaults(func=cmd_ability_shapes)
 
     s = sub.add_parser("ability-light", help="store the drawn light at ability candidates (opens media)")
     s.add_argument("session", nargs="?")

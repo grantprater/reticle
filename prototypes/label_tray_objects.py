@@ -65,14 +65,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import ability_mined_references as amr  # noqa: E402
 import tray_suspect_reasons as tsr  # noqa: E402
-from reticle.adjudication.weapon import ABILITY_CANONICAL_NAMES  # noqa: E402
+from reticle.lineup import abilities_for  # noqa: E402
 from reticle.store import Store  # noqa: E402
 
 STORE = Store()
 KIND = "tray_object"
 SLOTS = ("C", "Q", "E", "X")
-#: The tray's slots in order, as the ability stems name them.
-STEMS = ("Grenade", "Ability1", "Ability2", "Ultimate")
 PANELS_S = (-1.0, 0.0, 1.5, 3.0)
 #: The 2x2 grid of native minimaps is 970 px tall; scaled to fit a 1080p screen.
 DISPLAY_SCALE = 0.85
@@ -103,11 +101,16 @@ def _player_agent(sid: str) -> str | None:
 
 
 def ability_name(agent: str | None, slot: str) -> str:
-    """The ability in tray slot `slot` (a letter of `SLOTS`) of `agent`'s kit."""
+    """The ability in tray slot `slot` of `agent`'s kit, from the lineup owner.
+
+    Until 2026-09-26 this read the art's asset stems, whose Ability1/Ability2
+    order is not the slot order for Phoenix [domain:abilities/phoenix-slots]:
+    his Q rows are labelled Curveball and his E rows Hot Hands. The stored
+    `slot` is right; derive the name from it.
+    """
     if agent is None:
         return f"slot {slot}"
-    stem = f"{agent.replace('/', '_')}_{STEMS[SLOTS.index(slot)]}"
-    return ABILITY_CANONICAL_NAMES.get(stem, f"{agent} {slot}")
+    return abilities_for(agent, STORE.root).get(slot, f"{agent} {slot}")
 
 
 def sample(n: int, work: Path = tsr.WORK) -> list[dict]:
@@ -116,7 +119,7 @@ def sample(n: int, work: Path = tsr.WORK) -> list[dict]:
     for f in sorted(work.glob("*.pkl")):
         d = pickle.loads(f.read_bytes())
         agent = _player_agent(d["sid"])
-        rows = [dict(r, sid=d["sid"]) for r in tsr.drops(d)]
+        rows = [dict(r, sid=d["sid"]) for r in tsr.drop_rows(d)]
         for r in tsr.gated(rows, live_only=True):
             if r["phase"] != "live" or r["suspect_gated"]:
                 continue

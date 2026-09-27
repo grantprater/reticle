@@ -825,14 +825,31 @@ question = "When was an ability cast, and from which tray slot?"
 owner = "ability_timeline"
 role = ["detect", "corroborate"]
 status = "transitional"
-produces = ["build_timeline", "write_timeline"]
+produces = ["build_timeline", "write_timeline", "player_tray_casts"]
 not_for = """
 A pixel detector result. A cast claim is temporal evidence from the tray and
 audio; it does not locate the ability's entity in the world, and the audio and
 tray agreeing is corroboration rather than detection.
 """
+consumers = ["cli"]
 exit = "`materialize_demo_casts` drives `ability_cast` and `ability_hud` from prototypes/."
 evidence = "tests/test_ability_timeline.py"
+
+[[entry]]
+id = "tray-drop"
+question = "When did a slot of the ability tray lose a charge, and is the reading trustworthy?"
+owner = "tray"
+role = ["detect"]
+status = "partial"
+produces = ["slot_counts", "fills", "drawn", "casts", "flag_suspect", "drops"]
+not_for = """
+Whose cast it was. After the player dies the tray shows a spectated teammate's
+kit, so a drop is a transition, not the player's cast; `ability-cast`
+(`ability_timeline.player_tray_casts`) decides that. An undrawn tray is a
+refusal, never zero charges.
+"""
+consumers = ["cli"]
+evidence = "tests/test_tray.py, prototypes/tray_suspect_reasons.py"
 
 [[entry]]
 id = "ability-evidence"
@@ -1007,6 +1024,23 @@ via scale-selective local contrast and linear/wall segment extraction.
 """
 evidence = "tests/test_minimap_discs.py, tests/test_minimap_walls.py, tools/ability_pov_benchmark.py, tools/ability_wall_benchmark.py"
 
+[[entry]]
+id = "ability-shape"
+question = "Where is the drawn minimap shape of a cast whose ability draws a known form: Regrowth's ring, Recon Bolt's ring, a Hunter's Fury blast?"
+owner = "ability_shapes"
+role = ["detect"]
+status = "partial"
+produces = ["fit_shape", "fit_ring", "fit_beam", "longest_segment", "on_map"]
+not_for = """
+Finding abilities of unknown kind (`ability-detection` proposes those); naming
+the caster (`ability-owner`); an onset or expiry, since each call reads one
+crop; and deciding when to look, which the cast does. A widened fit is kept
+beside the seeded one only when it clears acceptance. The map's footprint
+places a beam; it never masks the teal, because the shapes are drawn over the
+void too.
+"""
+consumers = ["cli"]
+evidence = "tests/test_ability_shapes.py, prototypes/ability_shape_eval.py"
 
 
 [[entry]]

@@ -554,7 +554,7 @@ def ability_label(agent: str, key: str, store) -> str | None:
 #: fill gate the same sessions vote 22/22 correct and refuse the rest.
 GLYPH_FILL = (0.04, 0.45)
 
-#: Tray cell, in source pixels. `prototypes/ability_hud` owns the geometry.
+#: Tray cell, in source pixels. `reticle.tray` owns the slot geometry.
 TRAY_TOP, TRAY_BOTTOM, TRAY_HALF_W = 974, 1031, 30
 
 
@@ -603,11 +603,7 @@ def tray_shapes(frame: np.ndarray) -> dict[str, np.ndarray]:
     nearest neighbour, and confidence computed from garbage is worse than
     silence.
     """
-    import sys
-    root = Path(__file__).resolve().parent.parent
-    if str(root / "prototypes") not in sys.path:
-        sys.path.insert(0, str(root / "prototypes"))
-    from ability_hud import SLOT_X0, SLOT_DX, SLOT_KEYS
+    from .tray import SLOT_DX, SLOT_KEYS, SLOT_X0
     cell = (TRAY_BOTTOM - TRAY_TOP) * 2 * TRAY_HALF_W
     out = {}
     for i, key in enumerate(SLOT_KEYS):

@@ -23,7 +23,6 @@ items = [
   "cold:fact-subject:by_subject",
   "cold:frame-primitive:frame_columns",
   "cold:map-geometry:reference_for_key",
-  "cold:player-agent:abilities_for",
   "cold:portrait-descriptor:agrees",
   "cold:round-bounds:round_events",
   "render:capture-stall:stalled_at",

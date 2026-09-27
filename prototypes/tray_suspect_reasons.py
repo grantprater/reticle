@@ -113,7 +113,7 @@ def collect_session(sid: str) -> dict:
             "spans": cache.record["spans"], "rounds": stored_rounds(sid)}
 
 
-def drops(d: dict) -> list[dict]:
+def drop_rows(d: dict) -> list[dict]:
     """Every `ability_hud.casts` drop, with its derived reason and context."""
     ts, counts, clean = d["ts"], d["counts"], d["clean"]
     deaths = player_deaths(d["sid"])
@@ -174,7 +174,7 @@ def kind(r: dict) -> str:
 
 def report(work: Path) -> dict:
     data = [pickle.loads(f.read_bytes()) for f in sorted(work.glob("*.pkl"))]
-    rows = [dict(r, sid=d["sid"]) for d in data for r in drops(d)]
+    rows = [dict(r, sid=d["sid"]) for d in data for r in drop_rows(d)]
     sus = [r for r in rows if r["suspect"]]
     out = {"sessions": len(data), "drops": len(rows), "suspect": len(sus),
            "reason": dict(Counter(("forced" if r["forced"] else "") + ("+cooccur" if r["cooccur"] else "")
@@ -218,7 +218,7 @@ def montage(work: Path, out_png: Path, n: int = 4, only: str | None = None) -> N
     rng = np.random.default_rng(7)
     by = {}
     for sid, d in data.items():
-        for r in drops(d):
+        for r in drop_rows(d):
             if r["suspect"] and (only is None or kind(r) == only):
                 by.setdefault(kind(r), []).append((sid, r))
     tiles = []

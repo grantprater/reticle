@@ -17,7 +17,9 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from . import tray
 from .ability_coverage import build_inventory
+from .rounds import in_round_window
 from .store import DEFAULT_STORE
 
 
@@ -56,6 +58,57 @@ def _audio_references(root: Path) -> list[dict]:
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         })
     return out
+
+
+#: A drop this long before the player's first death in its round already
+#: belongs to it: the death verdict's time is the killfeed entry, which trails
+#: the death screen that blanks the tray.
+DEATH_LEAD_MS = 1000.0
+#: The phases whose drops can be the player's casts (`gametime`'s names).
+CAST_PHASES = ("round_live", "post_plant")
+
+
+def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
+                      player_deaths_ms: list[float]) -> list[dict]:
+    """Which of a session's tray drops (`tray.drops`) are the local player's casts.
+
+    The tray shows the player's kit only while the player lives; afterwards it
+    shows a spectated teammate's, and the switch empties several slots at once.
+    So a drop is the player's cast when it falls in a live phase, before the
+    player's first death in its round less DEATH_LEAD_MS, and is not suspect
+    once `tray.flag_suspect` is recomputed among the drops that pass, so a cast
+    is not tainted by the spectator switch after it (measured and labelled in
+    `prototypes/tray_suspect_reasons.py` and `prototypes/label_tray_objects.py`).
+
+    `phase_of(t_ms)` is the game phase; `rounds` are the stored round rows, and
+    `rounds.in_round_window` decides the round of a drop and of a death, so a
+    death on the instant two rounds touch belongs to the round it ends. Every
+    drop comes back, with `player_cast` and the first `reason` that refused it.
+    """
+    ends = {r["t_end_ms"] for r in rounds}
+    windows = [(r["t_start_ms"], r["t_end_ms"], r["t_close_ms"]) for r in rounds]
+    deaths = [{"t_first": x} for x in player_deaths_ms]
+    rows = []
+    for d in drops:
+        t = d["t_ms"]
+        rnd = next((w for w in windows if in_round_window([{"t_first": t}], *w, ends)), None)
+        first = (min((e["t_first"] for e in in_round_window(deaths, *rnd, ends)), default=None)
+                 if rnd else None)
+        phase = phase_of(t)
+        reason = ("no_round" if rnd is None
+                  else "after_player_death" if first is not None and t >= first - DEATH_LEAD_MS
+                  else None if phase in CAST_PHASES else f"phase:{phase}")
+        rows.append({**d, "phase": phase,
+                     "round_ms": None if rnd is None else [float(rnd[0]), float(rnd[2])],
+                     "first_player_death_ms": first, "reason": reason})
+    keep = [r for r in rows if r["reason"] is None]
+    for r, (*_x, sus) in zip(keep, tray.flag_suspect(
+            [(r["t_ms"] / 1000.0, r["slot"], r["from"], r["to"], r["forced"]) for r in keep])):
+        if sus:
+            r["reason"] = "forced" if r["forced"] else "cooccur_among_casts"
+    for r in rows:
+        r["player_cast"] = r["reason"] is None
+    return rows
 
 
 def build_timeline(root: str | Path) -> dict:
