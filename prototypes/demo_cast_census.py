@@ -921,6 +921,16 @@ def next_cast_ms(c: dict, casts: list[dict]) -> float | None:
     return min(later) if later else None
 
 
+def menu_ms(c: dict) -> float | None:
+    """The demo's first menu drop after this cast: the menu dims the minimap
+    too [domain:hud/menu-dims-tray], so a window ends there."""
+    rows = json.loads((OUT / "casts.json").read_text(encoding="utf-8"))["casts"]
+    t0 = cast_time_ms(c)
+    later = [cast_time_ms(o) for o in rows if o["sid"] == c["sid"]
+             and o.get("tray_verdict") == "menu" and cast_time_ms(o) > t0]
+    return min(later) if later else None
+
+
 def residual_one(c: dict, casts: list[dict], cache, geo: Geo) -> dict:
     """Feature series and summary for one cast, streamed from the cache."""
     t0 = cast_time_ms(c)
@@ -938,6 +948,9 @@ def residual_one(c: dict, casts: list[dict], cache, geo: Geo) -> dict:
     ends = [(t0 + WINDOW_S[1] * 1000, "window_end"), (t_last, "end_of_file")]
     if nxt is not None:
         ends.append((nxt, "next_cast"))
+    menu = menu_ms(c)
+    if menu is not None:
+        ends.append((menu, "menu"))
     t_end_ms, end_reason = min(ends)
     mont_t = [float(win[np.abs(win - (t0 + s * 1000)).argmin()]) if len(win) else None
               for s in MONTAGE_S]
@@ -1031,7 +1044,8 @@ def record_residual(done: dict, casts: list[dict]) -> dict:
     vals = {"casts": len(keys), "rows": len(rows), "refused": len(rows) - len(ok),
             "hidden_at_cast": sum(r["hidden_at_cast"] for r in ok),
             "end_next_cast": sum(r["end_reason"] == "next_cast" for r in ok),
-            "end_of_file": sum(r["end_reason"] == "end_of_file" for r in ok)}
+            "end_of_file": sum(r["end_reason"] == "end_of_file" for r in ok),
+            "end_menu": sum(r["end_reason"] == "menu" for r in ok)}
     for cls in CLASSES:
         vals[f"class_{cls}"] = sum(r["residual_class"] == cls for r in ok)
     for comp in ("dark", "teal", "teal_all", "white"):
