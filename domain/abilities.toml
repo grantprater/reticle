@@ -1402,10 +1402,14 @@ see = ["abilities/voice-lines-announce-casts", "abilities/phoenix-run-it-back-ex
 
 [ult-ready-lines]
 claim = """
-An agent announces a ready ultimate with a fixed voice line of its own, heard
-by the player for an ally: Skye says her ultimate is ready on `c40d950031bb`
-at 678 s. It is not the cast line, and it scored 0.0441 against Skye's enemy
-cast template, just under the operating threshold.
+An agent announces a ready ultimate with a fixed voice line of its own, not
+the cast line: the player heard Skye say her ultimate is ready on
+`c40d950031bb` at 678 s, where the sound scored 0.0441 against Skye's enemy
+cast template, just under the operating threshold. Who hears the line is
+open: the lineup names five allies without Skye and refuses enemy slot 0
+between Breach and Skye, and the ready-take scorer ranks Miks, a named ally,
+first at that instant. Whether the game voices the line unprompted when the
+charge fills is unmeasured.
 """
 kind = "appearance"
 known = "player"

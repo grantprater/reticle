@@ -41,11 +41,12 @@ witness that the speaker's ultimate is ready. The prototype is
   the agent's longer take (`voice_lines.suppress`).
 - **Classing.** Each agent is classed per session from the identity arbiter's
   lineup, by asking `voice_lines.template_class` for both cast variants:
-  `own` (the player's agent), `ally_named`, `enemy_named`, `absent` (the
-  lineup puts the agent on neither complete side) and `unknown`. A ready line
-  has no side variant, and the lineup names the agent of the one line the
-  player heard on the enemy side (see "The heard line"). Only `absent` is
-  therefore a false alarm. The literal ally-side classing, which counts an
+  `own` (the player's agent), `ally_named` and `enemy_named` (that side's cast
+  template is possible: the agent is named there or is a refused slot's
+  candidate), `absent` (the lineup puts the agent on neither complete side) and
+  `unknown`. A ready line has no side variant, and the lineup leaves the agent
+  of the one line the player heard possible on the enemy side (see "The heard
+  line"). Only `absent` is therefore a false alarm. The literal ally-side classing, which counts an
   enemy's line as impossible, gets its own threshold beside it.
 - **Operating point.** The cast lines' rule (`voice_lines.operating_tau`): the
   lowest threshold at which `absent` detections in live time run at most
@@ -170,7 +171,11 @@ Most collisions pair a cast template the lineup rules out, which the adjudicator
 
 ### The heard line
 
-The player heard a Skye ready line on `c40d950031bb` at 678.1 s. Skye's best take peaks [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_offset_s=0.33] s later at [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_score=0.0506], under the threshold, and ranks [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_rank=5] of the [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_agents_at_onset=29] agents with a stored peak within 0.5 s of it. Miks's take scores highest there, [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_top_score=0.0587], and is detected. The complete lineup names Skye on the enemy side and Miks on the player's team, so the templates say the line was Miks's, where the player says Skye's and [domain:abilities/ult-ready-lines] says an ally's. The best cast peak beside it is Killjoy's enemy line at [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_cast_max=0.0574], which the adjudicator refuses as impossible. The disagreement is stored, not resolved: only the player's ear can name the speaker.
+The player heard a Skye ready line on `c40d950031bb` at 678.1 s. Skye's best take peaks [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_offset_s=0.33] s later at [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_score=0.0506], under the threshold, and ranks [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_rank=5] of the [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_agents_at_onset=29] agents with a stored peak within 0.5 s of it. Miks's take scores highest there, [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_top_score=0.0587], and is detected. The lineup names Miks on the player's team and no Skye among the five allies;
+it refuses enemy slot 0 between Breach and Skye (margin 0.031, below 0.07), so
+Skye is possible on the enemy side, not named. The templates say the line was
+Miks's, where the player says Skye's; [domain:abilities/ult-ready-lines] leaves
+the hearer open. The best cast peak beside it is Killjoy's enemy line at [metric:ult_ready_lines/evaluate-0.1.0@all-matches#heard_c40d950031bb_cast_max=0.0574], which the adjudicator refuses as impossible. The disagreement is stored, not resolved: only the player's ear can name the speaker.
 
 ### Outcomes
 
