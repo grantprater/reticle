@@ -152,3 +152,28 @@ before reading the minimap's colours; the edge overlay reaches the widget's
 corner
 """
 see = ["hud/controlled-entity-view-tint"]
+
+[chat-broadcasts-callouts]
+claim = """
+A callout ping ("enemy spotted B") also prints in the chat box as a
+highlighted team message, and the print does not need the caller within
+audio range.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-27"
+subject = "hud:chat box"
+source = """
+the player, 2026-09-27, on Jett's "enemy spotted b" in the audio gate's
+review: the heard line may match a chat broadcast; no reader parses the
+chat box
+"""
+exceptions = """
+Whether the heard line and the printed message coincide is unchecked:
+falsified by a heard callout with no highlighted message within 1 s
+"""
+use = """
+a text witness for callouts beyond audio range, in an unread HUD region;
+read, it names the caller and the site and dates a ping
+"""
+see = ["abilities/voice-lines-announce-casts"]

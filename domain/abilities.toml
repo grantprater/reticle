@@ -1282,3 +1282,51 @@ the bolt, a ring gone within a frame or two is Haunt or the drone, so sample
 the cache densely around a Haunt or drone tray drop
 """
 see = ["abilities/sova-recon-bolt-minimap-ring", "abilities/ability-rules-are-unique"]
+
+[voice-lines-announce-casts]
+claim = """
+Agents announce casts aloud in fixed voice lines that name the ability's
+class ("dropping a smoke", "blocking sight", "barrier created", "time to
+hunt"), and ults with a line of their own ("adapt or die"). The local player
+hears these cast lines for allies only; an enemy's cast sounds but is not
+announced. Callouts ("enemy spotted mid") and "reloading" are lines too.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = """
+the player's review of six unexplained audio-gate detections
+(docs/AUDIO_GATE.md, "The player's review"): every row held allies' casts
+with their lines, and reloads; the allies-only caveat followed
+"""
+exceptions = """
+Open, per the player (2026-09-27): whether the player's own agent's cast
+lines are heard (fairly sure yes); whether each cast has one line (thought
+so) at a fixed offset from the cast (not sure). Falsifiers: an own cast on a
+demo with no line; two lines for one ability in one match; a line-to-tray
+drop offset that varies by more than the tray's 0.5 s step
+"""
+use = """
+a voice line is a fixed game asset, so match it as a template instead of
+classifying it as speech; a matched line names an ally, the ability class
+and the cast's time, which the gate cannot; an enemy cast leaves only the
+ability sound to match
+"""
+see = ["abilities/ability-sound-phases", "abilities/ability-voice-line-mask"]
+
+[device-destroyed-sounds]
+claim = """
+A destroyed device sounds its destruction, and its owner may announce it
+("scout destroyed"); a reload sounds and may be announced ("reloading").
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = "the player's review of unexplained audio-gate detections, 2026-09-27"
+use = """
+an end witness for a device entity the minimap may not show ending; a
+reload is background for the gate and a weapon event for a later channel
+"""
+see = ["abilities/voice-lines-announce-casts", "abilities/ability-sound-phases"]

@@ -256,6 +256,39 @@ for births of others' abilities beside a minimap change gate, after the
 timer bar and cooldown counters are read as cast witnesses; the unnamed
 ally piece association is the lead. The review sheet awaits the player.
 
+### The player's review (2026-09-27)
+
+The player listened to six of the 40 unexplained rows in
+`analysis/audio-gate/0.1.0/review/F2/index.html` and stopped, calling the
+problem hard and the source rich. Every row held allies' casts with their
+voice lines, and reloads; none was a false alarm. Paraphrased:
+
+| Row | Session | Capture | Onset (s) | Heard |
+|---|---|---|---|---|
+| 2 | `b7d24102a6f6` | `2026-08-24 12-37-04.mp4` | 252.7 | Skye's bird, then Regrowth, then a reload |
+| 3 | `7010b3d62460` | `2026-09-07 19-46-44.mp4` | 1587.1 | a Skye flash and a Chamber callout; muddled |
+| 6 | `59c70f1ef720` | `2026-08-24 13-58-11.mp4` | 2343.5 | Clove's smoke line and the smoke's sound, an enemy-spotted callout, Sova's drone going out at the end |
+| 9 | `c62c2b06bcfb` | `2026-08-26 13-18-48.mp4` | 1357.7 | Skye's dog, Sage's wall with its line, Skye's heal, Omen's reload line and the reload |
+| 10 | `043bafca271a` | `2026-08-25 13-59-44.mp4` | 1870.1 | a death, a reload, Vyse's ult line and activation, then a flash |
+| 15 | `e37fdeca944f` | `2026-08-25 13-17-45.mp4` | 289.9 | Skye's dog with its line, Sage's orb, Jett's smoke line, Raze's grenade, a Jett callout, destruction sounds, Skye's scout-destroyed line, Jett's reload line |
+
+Two consequences. The gate's unexplained detections are ability events,
+so the target is naming them, not suppressing them. And the game announces
+casts in fixed voice lines [domain:abilities/voice-lines-announce-casts]
+and ends devices with sounds and lines [domain:abilities/device-destroyed-sounds]:
+these are fixed assets, so the next experiment matches them as templates
+rather than classifying speech. The lines are allies' only, so a matched
+line names an ally's cast and an enemy's cast leaves only the ability
+sound; whether the player's own lines are heard, and whether a line sits
+at a fixed offset from the cast, are open (the fact's exceptions). A
+callout also prints in the chat box [domain:hud/chat-broadcasts-callouts],
+which no reader parses. F1 was plain normalised correlation on log-mel, which
+the magnitude envelope governs and occlusion and HRTF change; a whitened,
+phase-transform correlation on the decoded waveform is untested. The player's evaluation criterion for all of this
+work is the full-round event stream, everything identified and localised
+and behaving by the game's invariants; the annotated match, not a recall
+number, is the review.
+
 ### What was not done
 
 - No events, labels or `reticle/` module: the gate stays a prototype until the player has judged the review sheet.
