@@ -43,6 +43,29 @@ Stated before the baseline is read, so the baseline can refute them.
    inside what an in-process queue or a local broker carries; the design
    question is the boundary, not the broker.
 
+### Outcomes against the baseline
+
+Read from `docs/PUBSUB_PERFORMANCE_BASELINE.md` and `docs/pubsub_baseline.json`.
+
+1. Confirmed. `passes.run` fetches a frame, runs every wanting reader, then
+   fetches the next. The NVDEC read-ahead hides nothing on 2 Hz passes: its
+   queue is shorter than the gap between samples, so the decoder stalls while
+   readers run (`same_session_source`).
+2. Half right. On crop-cache passes the ally-icon reader dominates, but the
+   HUD pass splits evenly between cache reads and the reader, and the largest
+   overlap gains are on video-source passes with a heavy reader
+   (`composite_summary`).
+3. Refuted in its second half. The ally-icon reader dominates, but its cost
+   scales with pixels, not calls, so batching calls would save little. The
+   scoreboard's cost is a whole-frame colour conversion before it checks
+   whether the board is open, which a cheaper gate removes (`per_pixel`).
+4. Untested. No record measures a transport; the prototype must.
+
+A fact the predictions missed: no full scan has ever been recorded. Every
+usage record is a single-reader pass, and the fused cost is an estimate
+built from separate records (`composite`). Scans also ran four at a time,
+so the ally-icon records carry contention.
+
 ## Rules the design must honour
 
 From `AGENTS.md` and `docs/WORKING_MAP.md`:

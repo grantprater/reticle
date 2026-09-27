@@ -217,7 +217,7 @@ which feeds one reader from `seek_at` or the cache and writes nothing. `acquisit
   `test_plan`, `test_acquisition`.
 - `doctor` (`doctor.py:971`) fails only on an ERROR. A new module must pass LAYER (placed in
   `architecture.toml`; imports its layer or lower, or a blessed `[[exception]]`; never
-  `prototypes/`), OWNERSHIP (an entry whose owner carries `[owns:id]`, or a line in
+  `prototypes/`), OWNERSHIP (an entry whose owner docstring carries the owns token, or a line in
   `[infrastructure]`), UNWIRED and UNCALLED (reached from a `cmd_*`; `uncalled_debt.toml` only
   shrinks), DUPLICATE, SESSION_STATIC, QUOTED, DOMAIN, PROMOTE and HANDOFF.
 - Placement: a transport that decides nothing belongs in the `orchestration` layer ("shared decode
