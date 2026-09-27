@@ -91,9 +91,9 @@ subject = "hud:ability timer bar"
 source = """
 6afc32cb46b4 decoded at 43.6 and 53.0 s: a bar about x 833-1087, y 713-727
 of the 1920x1080 frame with RUN IT BACK printed beneath it, full at the cast
-and nearly empty 0.3 s before the expiry. The player, 2026-09-26: "reading
-the timer bar might be more consistent for getting the timing for mining the
-audio and other ability info". Which abilities show one is unobserved;
+and nearly empty 0.3 s before the expiry. The player, 2026-09-26, proposes reading the timer bar as the more
+consistent timing witness for mining audio and other ability information.
+Which abilities show one is unobserved;
 Sova's bolts show their charge and bounce element at the same place
 """
 use = """
@@ -103,3 +103,33 @@ that the tray lacks for Run it Back and Regrowth. Read it from a fixed ROI of
 the capture, joining the shared decode pass
 """
 see = ["abilities/phoenix-run-it-back-expiry-flash", "abilities/sova-bolt-charge-and-bounce"]
+
+[controlled-entity-view-tint]
+claim = """
+While the player controls Skye's Trailblazer the whole view is tinted green,
+and while in Tejo's Stealth Drone it is tinted brown; the semi-transparent
+minimap and tray show the tint through their void and along their edges.
+Sova's Owl Drone view is not tinted.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-26"
+subject = "hud:controlled entity view"
+source = """
+the player, labelling the census montages (2026-09-26): the Skye dog showed
+a processing issue, a green overlay that rimmed much of the minimap in
+orange and spread distortions through the parse; Tejo's drone has an
+overlay too, and possibly Sova's to a lesser extent. Measured on the minimap
+crop (465x485 at 15,15) 1 s before and 1-6 s after the cast: the green
+fraction rises from 0.015 to 0.64 during Trailblazer on fc02a2c1ac01 and
+the production teal weight from 0.0007 to 0.089-0.139; Owl Drone on
+aab12e41dcfc and Stealth Drone on c0b63335e635 stay under 0.02 green and
+0.005 teal
+"""
+use = """
+gate every minimap and tray colour reading on the controlled-entity state,
+witnessed by the tray's Q drop (Skye) or C drop (Tejo) and the self
+portrait, before tuning any hue threshold; the teal detector, the residual
+and the widget-drawn check all read the void, where the tint shows
+"""
+see = ["hud/menu-dims-tray", "hud/ability-timer-bar"]

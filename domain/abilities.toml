@@ -991,7 +991,7 @@ since = "2026-09-26"
 subject = "sova:shock bolt"
 source = """
 the player, 2026-09-26: the protocol demo's bolts landed right in front of
-Sova, and "there's no minimap indicator for shock bolts". The census read
+Sova, and a Shock Bolt has no minimap indicator. The census read
 nothing on all four Shock Bolt casts of 02cf738b1c8f and aab12e41dcfc
 """
 use = """
@@ -1011,8 +1011,8 @@ known = "player"
 since = "2026-09-26"
 subject = "clove:pick-me-up and not dead yet"
 source = """
-the player, 2026-09-26, asked whether either can be cast in the range: "no
-they can't". The catalogue's wording predicted it, and the protocol demo
+the player, 2026-09-26, asked whether either can be cast in the range: neither can. The
+catalogue's wording predicted it, and the protocol demo
 0c6c52a65b9e holds no C or X cast
 """
 use = """
@@ -1034,8 +1034,8 @@ known = "player"
 since = "2026-09-26"
 subject = "phoenix:run it back"
 source = """
-the player, 2026-09-26, shown the flash at 53.3 s of 6afc32cb46b4: "that's
-when the ult expired". Decoded frames: no bar at 42.8 s; the cast's flaming
+the player, 2026-09-26, shown the flash at 53.3 s of 6afc32cb46b4: the ult expired there.
+Decoded frames: no bar at 42.8 s; the cast's flaming
 hands and the full bar at 43.6 s; the bar nearly empty at 53.0 s; the effigy
 at 53.4 s and its wisps at 53.8 s; the X pips full from 43 s to the capture's
 end at 55.7 s, and reticle.tray reads no X drop. On 481336df9adb a flame
@@ -1060,9 +1060,8 @@ known = "player"
 since = "2026-09-26"
 subject = "capture:range demo"
 source = """
-the player, 2026-09-26, asked for three spaced casts per ability: "that's not
-possible unless you want me to have it be over multiple rounds or refresh
-the abilities with cheats". Ruse's cooldown counters show on the protocol
+the player, 2026-09-26, asked for three spaced casts per ability: not possible, except over
+several rounds or by refreshing the abilities with cheats. Ruse's cooldown counters show on the protocol
 demo's keyed_004, so a cooldown ability does return within a round
 """
 use = """

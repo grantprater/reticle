@@ -709,17 +709,16 @@ marker stays within ~15 px of Skye).
 
 Asked the questions above the same evening, the player answered:
 
-- **Question 3, Blaze.** "I guess it might count from the wall completing, I
-  never thought about that." The census times the orange curve, the wall
+- **Question 3, Blaze.** The player guesses the 8 s may count from the wall
+  completing, and had not thought about it. The census times the orange curve, the wall
   itself, not the cast icon that runs ahead of it; 9.2 s from the drop fits
   8 s from a wall that takes about a second to draw, and nothing confirms it
   [domain:abilities/phoenix-blaze-duration].
-- **Question 4, the protocol.** Infinite abilities were not on. Three casts
-  of each ability in one round "is not possible unless ... over multiple
-  rounds or refresh the abilities with cheats"
+- **Question 4, the protocol.** Infinite abilities were not on. Three casts of each ability in one round is not possible, except over several
+  rounds or by refreshing the abilities with cheats
   [domain:abilities/range-one-cast-per-round]; the manifests' tags had been
   corrected from the cooldown counters before the answer.
-- **Question 5, the Phoenix flash.** "That's when the ult expired." Decoded
+- **Question 5, the Phoenix flash.** The ult expired there. Decoded
   frames show no bar at 42.8 s, the cast's flaming hands with a full RUN IT
   BACK timer bar under the crosshair at 43.6 s, the bar nearly empty at 53.0
   s and the effigy at 53.4 s: the ult was cast at about 43.2 s and expired
@@ -740,3 +739,26 @@ Asked the questions above the same evening, the player answered:
   [domain:abilities/sova-shock-bolt-minimap-none].
 - **Questions 1 and 2** (one Ruse disc per cloud in a match; whether the
   Recon Bolt ring is the whole reveal) are still open.
+
+### The Trailblazer view tints the minimap (2026-09-26)
+
+Labelling montage keyed_010, the player found the minimap rimmed in orange
+with cyan patches spreading from +0.5 to +4 s: the view while Skye controls
+Trailblazer is green, and the semi-transparent widget shows it through the
+void and along the floor's edges [domain:hud/controlled-entity-view-tint].
+On the minimap crop the green fraction rises from
+[metric:demo_cast_census/drone-tint@fc02a2c1ac01#green_before=0.015] to
+[metric:demo_cast_census/drone-tint@fc02a2c1ac01#green_during=0.643], and
+the mean weight of `ability_shapes.teal`, the production detector behind the
+ring and line fits, from
+[metric:demo_cast_census/drone-tint@fc02a2c1ac01#teal_mean_before=0.0007] to
+[metric:demo_cast_census/drone-tint@fc02a2c1ac01#teal_mean_during=0.0887],
+so a fit during the drone would find teal everywhere. Sova's Owl Drone
+([metric:demo_cast_census/drone-tint@aab12e41dcfc#green_during=0.004]) and
+Tejo's Stealth Drone, whose view is brown
+([metric:demo_cast_census/drone-tint@c0b63335e635#green_during=0.002]),
+leave the teal weight under 0.005. The residual's "other hue" class and the
+widget-drawn check read the same void. Frames were cut from the captures
+with ffmpeg at the cached minimap rectangle, 1 s before the cast and 1 to 6
+s after it; the tint is gated on nothing yet, and the montages the player
+labels still carry it.

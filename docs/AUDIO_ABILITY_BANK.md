@@ -402,7 +402,7 @@ player: where did those bolts land?
 
 ### The player's answers (2026-09-26, later)
 
-- **Where the Shock Bolts landed:** "basically right in front of me". The
+- **Where the Shock Bolts landed:** right in front of Sova. The
   reference holds the release and the blast together, as guessed, and a match
   bolt's blast lands one to two seconds later and further off. A Shock Bolt
   draws nothing on the minimap [domain:abilities/sova-shock-bolt-minimap-none].
