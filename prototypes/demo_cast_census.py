@@ -2,14 +2,52 @@ r"""What each ability cast draws on the minimap in the solo demos: a census.
 
     .\.venv\Scripts\python.exe prototypes\demo_cast_census.py cache [--session S] [--check]
     .\.venv\Scripts\python.exe prototypes\demo_cast_census.py casts [--record]
-    .\.venv\Scripts\python.exe prototypes\demo_cast_census.py residual [--key K ...]
+    .\.venv\Scripts\python.exe prototypes\demo_cast_census.py residual [--key K ...] [--record]
     .\.venv\Scripts\python.exe prototypes\demo_cast_census.py montage
+    .\.venv\Scripts\python.exe prototypes\demo_cast_census.py read [--add ROWS.jsonl]
+    .\.venv\Scripts\python.exe prototypes\demo_cast_census.py table [--record]
+    .\.venv\Scripts\python.exe prototypes\demo_cast_census.py label [--dry-run]
 
-`cache` gives each of the 33 solo demos the production whole-capture minimap
-crop cache (`reticle scan <sid> --only roi_cache --cache-roi minimap
---cache-hz 15`, NVDEC, Idle priority, one scan at a time) and checks three
-samples per demo against decoded frames. The rest of this file reads only
-those crops. Findings and the appearance table: `docs/DEMO_CAST_CENSUS.md`.
+Why this exists
+---------------
+The minimap channel needs to know what the player's own cast draws, and for
+how long, before it can bind a drawn object to a cast. The domain facts
+covered a dozen abilities; the solo demos exercise over a hundred. This is
+a census of those casts for the player to confirm, not a detector.
+
+What each step does
+-------------------
+`cache` gives each solo demo the production whole-capture minimap crop cache
+(`reticle scan <sid> --only roi_cache --cache-roi minimap --cache-hz 15`,
+NVDEC, Idle priority, one scan at a time) and checks three samples per demo
+against decoded frames. Everything after it reads only those crops.
+
+`casts` reads the tray at 2 Hz with `reticle.tray`, its owner, compares the
+drops with the stored cast caches, and keeps the verdicts I gave, by eye from
+the tray strips, on every doubtful drop (`TRAY_VERDICTS`). A drop judged a
+wash over a full bar leaves the census. `reticle tray` cannot run here: it
+needs the HUD and rounds tables a demo lacks.
+
+`residual` measures, per cast, what changed on the minimap against the -1 s
+frame, on baked geometry only, and summarises each component's onset, peak
+and censored lifetime. Its class is a crude rule fixed before the blind read.
+
+`montage` draws a blind and a keyed image per cast; `read` appends the blind
+read; `table` opens the key only after every blind row exists and tabulates
+per ability against the residual and the ledger's prior; `label` lets the
+player correct each class on the keyed montage.
+
+What it does not do
+-------------------
+It writes no events and no labels. It names no enemy or ally ability: a solo
+demo has one player. It does not fit shapes; `reticle.ability_shapes` owns
+that for the three forms it knows. The residual's hue bins follow the world's
+tint through the translucent widget, so a hue-only class is weak evidence.
+
+Rests on: the baked `(map, profile)` geometry (`reticle.geometry`,
+`reticle.lighting`, `passes.SessionContext.floor`), `reticle.tray`,
+`ability_shapes.teal`, and `minimap.widget_drawn`/`self_icons`. Findings and
+the appearance table: `docs/DEMO_CAST_CENSUS.md`.
 """
 from __future__ import annotations
 
@@ -20,6 +58,7 @@ import os
 import subprocess
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -492,6 +531,8 @@ HUE_S_MIN, HUE_V_MIN = 70, 90
 #: The art footprint grown by this many px is the support (the art's own
 #: search dilation, `ability_shapes.SUPPORT_DILATE`).
 SUPPORT_DILATE = 9
+#: White and hue are read on the baked floor eroded this many px.
+FLOOR_ERODE = 2
 HUE_BINS = tuple(range(0, 360, 30))
 COMPONENTS = (("dark", "lit", "teal", "teal_all", "white")
               + tuple(f"hue{d:03d}" for d in HUE_BINS))
@@ -534,6 +575,10 @@ class Geo:
         from reticle.ability_shapes import widget
         _R, self.disc = widget((H, W))
         self.k3 = np.ones((3, 3), np.uint8)
+        # The floor's anti-aliased rim lets the world's tint through and moves
+        # with the camera; white and hue are read inside it.
+        self.floor_in = cv2.erode(self.floor.astype(np.uint8), self.k3,
+                                  iterations=FLOOR_ERODE).astype(bool)
         self.cv2 = cv2
 
 
@@ -557,12 +602,16 @@ def frame_masks(crop, geo: Geo) -> tuple[bool, dict, dict | None]:
     tw = teal_weight(crop) >= TEAL_W_MIN
     from reticle.ability_shapes import TEAL_H
     in_teal = (h >= TEAL_H[0]) & (h <= TEAL_H[1])
+    lit = lighting.raw_lit(crop, geo.ref) & ~off
+    # White and the other hues are read on the baked floor only: the void
+    # shows the world through the widget, and the world changes every frame.
+    on_floor = geo.floor_in & ~off
     m = {"dark": lighting.raw_dark(crop, geo.ref) & ~off,
-         "lit": lighting.raw_lit(crop, geo.ref) & ~off,
+         "lit": lit,
          "teal": tw & keep,
          "teal_all": tw & geo.disc & ~off,
-         "white": (s < WHITE_S_MAX) & (v >= WHITE_V_MIN) & keep}
-    sat = (s >= HUE_S_MIN) & (v >= HUE_V_MIN) & ~in_teal & ~minimap.self_mask(crop) & keep
+         "white": (s < WHITE_S_MAX) & (v >= WHITE_V_MIN) & on_floor & ~lit}
+    sat = (s >= HUE_S_MIN) & (v >= HUE_V_MIN) & ~in_teal & ~minimap.self_mask(crop) & on_floor
     deg = h.astype(np.int32) * 2
     for d in HUE_BINS:
         m[f"hue{d:03d}"] = sat & (deg >= d) & (deg < d + 30)
@@ -677,7 +726,9 @@ def cast_time_ms(c: dict) -> float:
 
 
 def load_casts() -> list[dict]:
-    return json.loads((OUT / "casts.json").read_text(encoding="utf-8"))["casts"]
+    """The census casts: every drop not judged a wash over a full bar."""
+    rows = json.loads((OUT / "casts.json").read_text(encoding="utf-8"))["casts"]
+    return [c for c in rows if c["census"]]
 
 
 def next_cast_ms(c: dict, casts: list[dict]) -> float | None:
@@ -784,7 +835,34 @@ def cmd_residual(args) -> int:
             print(f"{cast_key(c)}  {time.perf_counter() - t:5.1f}s  frames {r.get('frames')}",
                   flush=True)
         out_p.write_text(json.dumps(done, indent=1, default=float), encoding="utf-8")
+    if args.record:
+        record_residual(done, casts)
     return 0
+
+
+def record_residual(done: dict, casts: list[dict]) -> dict:
+    """Counts over the stored residual rows, recorded as `residual@demos`."""
+    keys = {cast_key(c) for c in casts}
+    rows = [r for k, r in done.items() if k in keys]
+    ok = [r for r in rows if "residual_class" in r]
+    vals = {"casts": len(keys), "rows": len(rows), "refused": len(rows) - len(ok),
+            "hidden_at_cast": sum(r["hidden_at_cast"] for r in ok),
+            "end_next_cast": sum(r["end_reason"] == "next_cast" for r in ok),
+            "end_of_file": sum(r["end_reason"] == "end_of_file" for r in ok)}
+    for cls in CLASSES:
+        vals[f"class_{cls}"] = sum(r["residual_class"] == cls for r in ok)
+    for comp in ("dark", "teal", "teal_all", "white"):
+        vals[f"onset_{comp}"] = sum(r["components"][comp].get("onset_s") is not None for r in ok)
+    vals["onset_any_hue"] = sum(any(r["components"][f"hue{d:03d}"].get("onset_s") is not None
+                                    for d in HUE_BINS) for r in ok)
+    print(json.dumps(vals))
+    metrics.record(TOOL, part="residual", session="demos", values=vals,
+                   deps={"census": VERSION, "geometry": "baked (map, profile)",
+                         "lighting": "reticle.lighting", "teal": "reticle.ability_shapes.teal"},
+                   note="per-cast minimap residual over [-2, +12] s against the -1 s frame, "
+                        "censored at the next drop, end of file or widget not drawn; "
+                        "white and hue on the eroded baked floor")
+    return vals
 
 
 # ---------------------------------------------------------------- montage
@@ -925,6 +1003,322 @@ def cmd_montage(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- blind read
+
+BLIND_READ = OUT / "blind_read.jsonl"
+#: Written by `table`, the first command that opens the key: `read --add`
+#: refuses afterwards, so every blind row predates the key.
+UNBLINDED = OUT / "unblinded.json"
+TABLE = OUT / "table.json"
+LEDGER = STORE / "notes" / "predictions.jsonl"
+FRAME_NAMES = ("-1", "0", "+0.5", "+1", "+2", "+4", "+8")
+PLAYER_TRAY_LABELS = STORE / "labels" / "tray_object"
+
+
+def blind_nums() -> list[int]:
+    return sorted(int(p.stem.split("_")[1]) for p in MONTAGE.glob("blind_*.png"))
+
+
+def blind_rows() -> dict[int, dict]:
+    """The blind read, last row per cast number winning."""
+    out: dict[int, dict] = {}
+    if BLIND_READ.is_file():
+        for line in BLIND_READ.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                r = json.loads(line)
+                out[int(r["num"])] = r
+    return out
+
+
+def check_read_row(r: dict, nums: set[int]) -> str | None:
+    """Why a blind row is malformed, or None."""
+    if int(r.get("num", -1)) not in nums:
+        return "no such montage"
+    if r.get("class") not in CLASSES:
+        return f"class not in {CLASSES}"
+    drawn = r["class"] not in ("nothing", "unsure")
+    if drawn and r.get("onset_frame") not in FRAME_NAMES:
+        return f"onset_frame not in {FRAME_NAMES}"
+    if drawn and r.get("gone_by_frame") not in FRAME_NAMES + ("persists",):
+        return "gone_by_frame must name a frame or persists"
+    if not drawn and (r.get("onset_frame") or r.get("gone_by_frame")):
+        return "nothing and unsure carry no onset or end"
+    if not isinstance(r.get("desc"), str) or not r["desc"].strip():
+        return "desc is required"
+    return None
+
+
+def cmd_read(args) -> int:
+    """List the unread blind montages, or append validated blind rows."""
+    nums = blind_nums()
+    have = blind_rows()
+    if args.add:
+        if UNBLINDED.is_file():
+            raise SystemExit(f"the key was opened ({UNBLINDED.name}); a row now is not blind")
+        rows = [json.loads(x) for x in Path(args.add).read_text(encoding="utf-8").splitlines()
+                if x.strip()]
+        bad = [(r.get("num"), why) for r in rows
+               if (why := check_read_row(r, set(nums))) is not None]
+        again = [r["num"] for r in rows if int(r["num"]) in have and not args.redo]
+        if bad or again:
+            raise SystemExit(f"refused: malformed {bad}; already read {again}")
+        at = time.strftime("%Y-%m-%dT%H:%M:%S")
+        with open(BLIND_READ, "a", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps({"num": int(r["num"]), "class": r["class"],
+                                    "onset_frame": r.get("onset_frame"),
+                                    "gone_by_frame": r.get("gone_by_frame"),
+                                    "desc": r["desc"].strip(),
+                                    "self_ring": bool(r.get("self_ring", False)),
+                                    "seen_before": bool(r.get("seen_before", False)),
+                                    "by": "claude-blind", "at": at, "version": VERSION}) + "\n")
+        have = blind_rows()
+        print(f"added {len(rows)}; read {len(have)} of {len(nums)}")
+        return 0
+    todo = [n for n in nums if n not in have]
+    print(f"read {len(have)} of {len(nums)}; next: {' '.join(f'{n:03d}' for n in todo[:args.n])}")
+    return 0
+
+
+def ledger_prior() -> dict:
+    """The census's own prediction row: the per-ability prior and its lists."""
+    for line in LEDGER.read_text(encoding="utf-8").splitlines():
+        r = json.loads(line)
+        if r.get("task") == "demo-cast-census" and r.get("kind") == "prediction":
+            return r
+    raise SystemExit("no demo-cast-census prediction in the ledger")
+
+
+def player_tray_objects() -> dict[str, Counter]:
+    """The player's tray-object answers per 'Agent:Ability', from match sessions.
+
+    Another population (matches, not demos), and another question: whether the
+    cast put an object on the minimap. It is read only after the blind read.
+    """
+    out: dict[str, Counter] = {}
+    for p in PLAYER_TRAY_LABELS.glob("*.jsonl"):
+        last = {}
+        for line in p.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                r = json.loads(line)
+                last[r["key"]] = r
+        for r in last.values():
+            out.setdefault(f"{r['agent']}:{r['ability']}", Counter())[r["class"]] += 1
+    return out
+
+
+def ability_of(c: dict) -> str:
+    return f"{c['agent']}:{c['ability']}"
+
+
+def cmd_table(args) -> int:
+    """Open the key, join the blind read, the residual and the prior per ability."""
+    nums = blind_nums()
+    have = blind_rows()
+    missing = [n for n in nums if n not in have]
+    if missing and not args.partial:
+        raise SystemExit(f"{len(missing)} montages unread; the key stays shut")
+    if not UNBLINDED.is_file():
+        UNBLINDED.write_text(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                         "read": len(have), "montages": len(nums)}),
+                             encoding="utf-8")
+    key = json.loads(KEY_FILE.read_text(encoding="utf-8"))["key"]
+    casts = {cast_key(c): c for c in load_casts()}
+    res_p = OUT / "residual.json"
+    res = json.loads(res_p.read_text(encoding="utf-8")) if res_p.is_file() else {}
+    led = ledger_prior()
+    prior, selfs = led["per_ability"], set(led["self_abilities"])
+    rows = []
+    for n in nums:
+        k = key[f"{n:03d}"]
+        c, b, r = casts[k], have.get(n), res.get(k, {})
+        ab = ability_of(c)
+        rows.append({"num": n, "key": k, "sid": c["sid"], "agent": c["agent"],
+                     "slot": c["slot"], "ability": c["ability"], "ab": ab,
+                     "blind": b["class"] if b else None,
+                     "onset_frame": b and b.get("onset_frame"),
+                     "gone_by_frame": b and b.get("gone_by_frame"),
+                     "desc": b and b["desc"], "self_ring": bool(b and b.get("self_ring")),
+                     "seen_before": bool(b and b.get("seen_before")),
+                     "residual": r.get("residual_class"),
+                     "residual_refused": r.get("refused"),
+                     "prior": prior.get(ab, {}).get("class"),
+                     "self_ability": ab in selfs, "suspect": c["suspect"]})
+    player = player_tray_objects()
+    table: dict[str, dict] = {}
+    for x in rows:
+        t = table.setdefault(x["ab"], {"agent": x["agent"], "slot": x["slot"],
+                                       "ability": x["ability"], "n": 0, "votes": Counter(),
+                                       "onset": Counter(), "gone": Counter(),
+                                       "residual": Counter(), "prior": x["prior"],
+                                       "agree_residual": 0, "agree_prior": 0,
+                                       "self_ring": 0, "nums": []})
+        t["n"] += 1
+        t["nums"].append(x["num"])
+        t["votes"][x["blind"]] += 1
+        t["residual"][x["residual"] or f"refused:{x['residual_refused']}"] += 1
+        if x["onset_frame"]:
+            t["onset"][x["onset_frame"]] += 1
+        if x["gone_by_frame"]:
+            t["gone"][x["gone_by_frame"]] += 1
+        t["agree_residual"] += x["blind"] == x["residual"]
+        t["agree_prior"] += x["blind"] == x["prior"]
+        t["self_ring"] += x["self_ring"]
+    for ab, t in table.items():
+        t["player_tray_objects"] = dict(player.get(ab, {}))
+        top, k = t["votes"].most_common(1)[0]
+        t["majority"] = top if k * 2 > t["n"] else "split"
+    read = [x for x in rows if x["blind"] is not None]
+    drawn = [x for x in read if x["blind"] not in ("nothing", "unsure")]
+    # C2's stated exceptions: a toggle after the throw, and pips empty at equip.
+    late_ok = {"Viper:Poison Cloud", "Deadlock:Annihilation"}
+    early_n = [x for x in drawn if x["ab"] not in late_ok]
+    early = [x for x in early_n if x["onset_frame"] in ("-1", "0", "+0.5", "+1")]
+    self_rows = [x for x in read if x["self_ability"]]
+    vals = {"montages": len(nums), "read": len(read),
+            "blind_nothing": sum(x["blind"] == "nothing" for x in read),
+            "blind_unsure": sum(x["blind"] == "unsure" for x in read),
+            "blind_drawn": len(drawn), "drawn_by_1s": len(early), "drawn_timed": len(early_n),
+            "self_casts": len(self_rows),
+            "self_blind_nothing": sum(x["blind"] == "nothing" for x in self_rows),
+            "self_residual_nothing": sum(x["residual"] == "nothing" for x in self_rows),
+            "agree_residual": sum(x["blind"] == x["residual"] for x in read),
+            "residual_rows": sum(x["residual"] is not None for x in read),
+            "agree_prior": sum(x["blind"] == x["prior"] for x in read),
+            "prior_rows": sum(x["prior"] is not None for x in read),
+            "self_ring": sum(x["self_ring"] for x in read),
+            "abilities": len(table)}
+    for cls in CLASSES:
+        vals[f"blind_{cls}"] = sum(x["blind"] == cls for x in read)
+    out = {"version": VERSION, "values": vals, "rows": rows,
+           "abilities": {ab: {**t, "votes": dict(t["votes"]), "onset": dict(t["onset"]),
+                              "gone": dict(t["gone"]), "residual": dict(t["residual"])}
+                         for ab, t in sorted(table.items())},
+           "disagree_residual": [x for x in read if x["blind"] != x["residual"]],
+           "disagree_prior": [x for x in read if x["blind"] != x["prior"]]}
+    TABLE.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print(json.dumps(vals))
+    print("| ability | slot | n | blind votes | onset | gone by | residual | prior | player (matches) |")
+    print("|---|---|---|---|---|---|---|---|---|")
+    fmt = lambda d: ", ".join(f"{k} {v}" for k, v in sorted(d.items(), key=lambda kv: -kv[1]))
+    for ab, t in sorted(table.items()):
+        print(f"| {ab} | {t['slot']} | {t['n']} | {fmt(t['votes'])} | {fmt(t['onset'])} | "
+              f"{fmt(t['gone'])} | {fmt(t['residual'])} | {t['prior']} | "
+              f"{fmt(t['player_tray_objects'])} |")
+    if args.record:
+        metrics.record(TOOL, part="table", session="demos", values=vals,
+                       deps={"census": VERSION, "blind_read": str(BLIND_READ.name),
+                             "residual": "residual.json", "prior": "ledger demo-cast-census"},
+                       note="blind montage classes joined to the key after every blind row "
+                            "was written; agreement with the residual class and the prior")
+    return 0
+
+
+# ---------------------------------------------------------------- label tool
+
+LABEL_KIND = "demo_cast_class"
+#: Digit keys, in CLASSES order; unsure is U, as in every labeller here.
+LABEL_KEYS = {str(i): cls for i, cls in enumerate(CLASSES[:-1])}
+
+
+def label_rows() -> dict[str, dict]:
+    out = {}
+    for p in (STORE / "labels" / LABEL_KIND).glob("*.jsonl"):
+        for line in p.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                r = json.loads(line)
+                out[r["key"]] = r
+    return out
+
+
+def cmd_label(args) -> int:
+    """The player's check of each cast's class on the KEYED montage.
+
+    Digits pick a class, U unsure, A back one cast, Q or ESC quit. Rows append
+    to `<store>/labels/demo_cast_class/<sid>.jsonl`, keyed sid:t_ms:slot; the
+    last row for a key wins, so A then a new answer corrects one. Answered
+    casts are skipped, so a pass resumes. `--dry-run` prints each row instead
+    of writing it, and `--keys` plays a key sequence and quits.
+    """
+    import base64
+    import tkinter as tk
+
+    import cv2
+    nums = blind_nums()
+    key = json.loads(KEY_FILE.read_text(encoding="utf-8"))["key"]
+    casts = {cast_key(c): c for c in load_casts()}
+    done = label_rows()
+    order = [n for n in nums if key[f"{n:03d}"] not in done]
+    print(f"{len(nums)} casts, {len(nums) - len(order)} answered", flush=True)
+    if not order:
+        return 0
+    root = tk.Tk()
+    root.title("What did this cast draw on the minimap?")
+    scale = min(1.0, (root.winfo_screenheight() - 160) / 1010)
+    canvas = tk.Canvas(root, highlightthickness=0)
+    canvas.pack()
+    info = tk.Label(root, font=("Consolas", 12), justify="left", anchor="w")
+    info.pack(fill="x")
+    state = {"k": 0, "img": None, "wrote": 0}
+    help_ = "   ".join(f"{d} {c}" for d, c in LABEL_KEYS.items()) + "   U unsure   A back   Q quit"
+
+    def show():
+        if state["k"] >= len(order):
+            root.destroy()
+            return
+        n = order[state["k"]]
+        c = casts[key[f"{n:03d}"]]
+        im = cv2.imread(str(MONTAGE / f"keyed_{n:03d}.png"))
+        if scale < 1.0:
+            im = cv2.resize(im, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        img = tk.PhotoImage(data=base64.b64encode(cv2.imencode(".png", im)[1].tobytes()))
+        state["img"] = img                         # keep a reference, or Tk blanks it
+        canvas.configure(width=im.shape[1], height=im.shape[0])
+        canvas.delete("all")
+        canvas.create_image(0, 0, image=img, anchor="nw")
+        info.configure(text=(f"{state['k'] + 1}/{len(order)}   cast {n:03d}   {c['agent']}  "
+                             f"{c['slot']}  {c['ability']}   {c['sid']}  "
+                             f"{cast_time_ms(c) / 1000:.2f} s\n{help_}"))
+
+    def write(cls):
+        n = order[state["k"]]
+        k = key[f"{n:03d}"]
+        c = casts[k]
+        row = {"key": k, "session_id": c["sid"], "t_ms": c["t_ms"], "t_cast_ms": cast_time_ms(c),
+               "slot": c["slot"], "agent": c["agent"], "ability": c["ability"], "num": n,
+               "class": cls, "uncertain": cls == "unsure", "by": "player",
+               "compared_against_derived": True, "shown": f"montage/keyed_{n:03d}.png",
+               "version": VERSION, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        if args.dry_run:
+            print("dry run, not written:", json.dumps(row), flush=True)
+        else:
+            d = STORE / "labels" / LABEL_KIND
+            d.mkdir(parents=True, exist_ok=True)
+            with open(d / f"{c['sid']}.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(row) + "\n")
+        state["wrote"] += 1
+        state["k"] += 1
+        show()
+
+    def back():
+        state["k"] = max(0, state["k"] - 1)
+        show()
+
+    handlers = {d: (lambda cls=cls: write(cls)) for d, cls in LABEL_KEYS.items()}
+    handlers.update({"u": lambda: write("unsure"), "a": back, "q": root.destroy,
+                     "Escape": root.destroy})
+    for k, fn in handlers.items():
+        root.bind(f"<{k}>" if k == "Escape" else k, lambda e, fn=fn: fn())
+    show()
+    if args.keys:
+        seq = args.keys.split(",")
+        for i, k in enumerate(seq):
+            root.after(400 * (i + 1), handlers[k.lower() if k != "Escape" else k])
+    root.mainloop()
+    print(f"{state['wrote']} answers {'shown' if args.dry_run else 'written'}")
+    return 0
+
+
 def main(argv=None) -> int:
     idle()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -944,10 +1338,22 @@ def main(argv=None) -> int:
     c.add_argument("--key", nargs="*", help="only these sid:t_ms:slot keys")
     c.add_argument("--show", action="store_true", help="print each summary (unblinds the cast)")
     c.add_argument("--fresh", action="store_true")
+    c.add_argument("--record", action="store_true", help="record the counts as residual@demos")
     sub.add_parser("montage", help="blind and keyed montages per cast")
+    c = sub.add_parser("read", help="list unread blind montages or append blind rows")
+    c.add_argument("--add", help="a JSONL file of blind rows to validate and append")
+    c.add_argument("--redo", action="store_true", help="allow a second row for a cast")
+    c.add_argument("-n", type=int, default=20, help="how many unread numbers to list")
+    c = sub.add_parser("table", help="open the key and tabulate per ability")
+    c.add_argument("--partial", action="store_true", help="tabulate before every cast is read")
+    c.add_argument("--record", action="store_true")
+    c = sub.add_parser("label", help="the player's class per cast on the keyed montage")
+    c.add_argument("--dry-run", action="store_true", help="print rows; write nothing")
+    c.add_argument("--keys", help="comma-separated keys to play, e.g. 5,a,u,q (testing)")
     args = ap.parse_args(argv)
     return {"cache": cmd_cache, "casts": cmd_casts, "residual": cmd_residual,
-            "montage": cmd_montage}[args.cmd](args)
+            "montage": cmd_montage, "read": cmd_read, "table": cmd_table,
+            "label": cmd_label}[args.cmd](args)
 
 
 if __name__ == "__main__":
