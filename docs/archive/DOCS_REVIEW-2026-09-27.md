@@ -174,7 +174,8 @@ The ten most misleading, and what they now say:
 | `docs/archive/MINIMAP_MINING_PROPOSAL-2026-09-10.md` | new archive file | (archive) | The appearance plan's superseded mining section |
 | `docs/archive/BACKLOG-through-2026-09-23.md` | links repointed | 0 | Eight links now reach the archived findings and contracts |
 
-Totals: live words fell from 121,263 to 105,043, a cut of 16,220. Broken
+Totals: live words fell from 121,263 to 105,043, a cut of 16,220, and section
+7's fold leaves 107,332. Broken
 relative links fell from 47 on master (8 machine-local `teststore/` links and
 39 root-relative links inside archived handoffs) to 39; the pass added none.
 
@@ -212,11 +213,6 @@ relative links fell from 47 on master (8 machine-local `teststore/` links and
 - **The HTML pages** still require the raycast cone where the domain names the
   drawn light, and treat a missing teleport sound as certain.
 - **NOTES** still carries open items that belong in BACKLOG.
-- **Ten documents added on master on 2026-09-26 and 09-27** were
-  registered but not audited by this pass: ABILITY_MECHANICS_SHEET,
-  AUDIO_ABILITY_BANK, AUDIO_GATE, DEMO_CAST_CENSUS, PUBSUB_DESIGN,
-  PUBSUB_MEASUREMENTS, PUBSUB_PERFORMANCE_BASELINE, PUBSUB_PIPELINE_MAP,
-  PUBSUB_PLAN and PUBSUB_PROTOTYPE.
 
 ## 5. Decisions for the player
 
@@ -276,5 +272,37 @@ modules and an archived NOTES file cite `combat_report/round-summary`, a fact
 that never existed.
 
 **Scope.** The 2026-09-23 streamlining plan kept a documentation registry out
-of its own scope. This register asks four fields per document, reports
-findings rather than gates, and never registers the archive.
+of its own scope; this one reports findings, not gates.
+
+## 7. Documents added on master after the scan
+
+A second audit read the ten documents master gained on 2026-09-26 and 09-27.
+The six pub/sub documents held about 16,700 words, about 14% restating one
+another, and the copies disagreed: from the same records, the plan called
+prediction 2 "half right" and the baseline document "refuted".
+
+**Folded.** The design gained the plan's goal, a Status section, one
+predictions table stating both verdicts and the later refutation, ladder
+outcomes, the `--check` runbook and two prototype findings. The measurements
+gained a condensed baseline naming `tools/pubsub_baseline.py`, and the equality
+checks of steps 0 to 2 with every run id. NOTES.md links the other four, so
+none moved to the archive; each gained a status line.
+
+**Register.** The plan is `implemented`; the map, baseline and prototype are
+`superseded`; the design's `remains` adds L4, L6, `_publish_scan` and the
+unbuilt usage fields. The working map links the census and both audio
+documents, which only the handoff reached. The mechanics sheet drops its
+claim of a regenerator; the census records the player's labels.
+
+**Decisions for the player.**
+
+- **Archive the plan, map, baseline and prototype** when NOTES.md drops its
+  links, retiring about 7,200 live words. NOTES.md:5 and BACKLOG.md:31 still
+  call the branch unmerged.
+- **The mechanics sheet omits domain facts:** Dark Cover's 15.0 s
+  (`abilities/omen-dark-cover`) against a `?`; Fast Lane's two lines
+  (`abilities/neon-fast-lane`) against "wall segments"; the player's 171
+  labels against its census column. Edit the cells, or commit a
+  generator.
+- **Left:** the design's stale `cli.py` and `usage.py` line references, and
+  full capture paths in DEMO_CAST_CENSUS and AUDIO_GATE.
