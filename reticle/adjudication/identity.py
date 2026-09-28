@@ -67,7 +67,10 @@ from ..track import assign
 # per-round dead intervals, and bars a teammate from every piece observed
 # inside one of its intervals: a dead teammate draws no minimap icon. A
 # refusal the bar caused says so in its reason.
-AGENT_IDENTITY_VERSION = "agent-identity-0.8.0"
+# 0.9.0 (2026-09-28): a portrait name an exemplar decided depends on the death
+# that labelled the exemplar at the shift that set the winning score; it had
+# named the exemplar of the last shift where any exemplar beat the art.
+AGENT_IDENTITY_VERSION = "agent-identity-0.9.0"
 
 #: Borrowed from `lineup.MARGIN_MIN` and NOT refitted here. It keeps every
 #: correct player portrait on the one population with a truth --
@@ -449,16 +452,18 @@ def _portrait_scores(composition, candidates, gallery, exemplars=(), exclude_ent
                     continue
                 cand_official = _official_scores(obs, [agent], gallery,
                                                  stacks).get(agent, -1.0)
-                cand_val = cand_official
+                cand_val, cand_src = cand_official, None
                 matched, mat = _refs(agent, obs.size)
                 values = np.minimum(obs, mat).sum(axis=1).tolist() if matched else ()
                 for ex, ex_val in zip(matched, values):
                     if ex_val > cand_val:
                         cand_val = ex_val
-                        best_src = ex
+                        cand_src = ex
                 penalized = cand_val - lambda_reg * (dx ** 2)
                 if penalized > best_val:
-                    best_val = penalized
+                    # The exemplar recorded is the one at the shift that set
+                    # the score, not the last shift an exemplar beat the art.
+                    best_val, best_src = penalized, cand_src
             if best_val >= 0.0:
                 scores[agent] = best_val
                 if sources is not None and best_src is not None:
@@ -608,6 +613,15 @@ def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
     exemplar score sits on a higher scale than art, and compared raw a clean
     exemplar of one agent outbid another agent's weak art (Chamber read
     Brimstone on `7010b3d62460`). A refusal carries the posterior.
+
+    Two stricter rules were measured and refused (2026-09-28, store
+    `notes/predictions.jsonl`, `exemplar-scale-only` and
+    `exemplar-agrees-with-art`). Letting exemplars decide alone, only when
+    every admitted agent has one, let Chamber exemplars outbid Raze, Jett and
+    Sage killers whose art ranked them first. Letting exemplars only confirm
+    the art's leader handed the name to confident art errors the exemplars
+    had vetoed: `5822b6646448`'s Sage faces rank Reyna first on the art and
+    Sage first on the exemplars. Both raised disagreements over the corpus.
 
     **A reader that already refused is quoted, never re-diagnosed.** The
     observation's own `reason` says what the pixels did -- no gap past the
