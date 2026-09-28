@@ -259,7 +259,11 @@ PLAYER_CAST_VERSION = "player-cast-0.5.0"
 # the verdicts of the gate, the deaths and the tray fills of the crop cache.
 # Bump when a level threshold, a transition, a charge rule or the stored
 # fields change.
-ABILITY_STATE_VERSION = "ability-state-0.1.0"
+# 0.2.0: the wiki harvest gives the charge count where no domain fact does
+# (`charge_priors`); state rows name their `charges_source`, and the coverage
+# row lists the conflicts, the slots without a count and the half readings
+# against each count.
+ABILITY_STATE_VERSION = "ability-state-0.2.0"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the

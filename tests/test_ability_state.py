@@ -1,6 +1,7 @@
 """The local player's kit as a state per slot (`adjudication.ability_state`),
 on a synthetic round: record shapes, charges, an equip, an ult, a death, the
-unread values and determinism."""
+unread values, the charge prior from facts and the wiki harvest, and
+determinism."""
 from __future__ import annotations
 
 import json
@@ -45,7 +46,7 @@ def _drop(t, slot, f, to):
             "cooccur": False, "across_gap": False}
 
 
-def _run(deaths=(50000.0,)):
+def _run(deaths=(50000.0,), params=None):
     ts = [i * STEP for i in range(int(64000 / STEP))]
     fills = [[_fill(s, t) for s in st.SLOTS] for t in ts]
     drops = [_drop(20000.0, "E", 1.0, 0.5), _drop(32000.0, "Q", 1.5, 1.0),
@@ -58,7 +59,8 @@ def _run(deaths=(50000.0,)):
     rows = st.adjudicate("s", drops=drops, gate_rows=gate, kits=kits, phase_of=_phase,
                          samples={"t_ms": ts, "fills": fills, "drawn": [True] * len(ts),
                                   "clean": [True] * len(ts)},
-                         agent=agent, params=st.slot_parameters(AGENT, KIT, FACTS),
+                         agent=agent,
+                         params=params or st.slot_parameters(AGENT, KIT, FACTS),
                          inputs={"tray_drop": "tray-test", "player_cast": "gate-test"})
     return rows
 
@@ -224,6 +226,149 @@ class InvariantTest(unittest.TestCase):
 class DeterminismTest(unittest.TestCase):
     def test_two_runs_store_the_same_rows(self):
         self.assertEqual(json.dumps(_run(), sort_keys=True), json.dumps(_run(), sort_keys=True))
+
+
+#: A wiki harvest in the shape of `reference/abilities.json`: Tester's E
+#: disagrees with the fact, KAY/O's Q is not a count, Pooler's C is a pool
+#: by fact and its E exceeds the two-charge bound.
+CATALOGUE = {"source": {"wiki": "test"}, "harvested": "2026-09-04", "agents": {
+    "Tester": {"abilities": [
+        {"name": "Widget", "slot": "Grenade", "key": "C", "charges": "1"},
+        {"name": "Lamp", "slot": "Ability1", "key": "Q", "charges": "2"},
+        {"name": "Twin Shot", "slot": "Ability2", "key": "E", "charges": "1"},
+        {"name": "Finale", "slot": "Ultimate", "key": "X", "charges": "Weapon Equip"},
+        {"name": "Idle", "slot": "Passive", "key": None, "charges": None}]},
+    "KAY/O": {"abilities": [
+        {"name": "FRAG/ment", "slot": "Grenade", "key": "C", "charges": "1"},
+        {"name": "FLASH/drive", "slot": "Ability1", "key": "Q", "charges": "2 (shared charges)"},
+        {"name": "ZERO/point", "slot": "Ability2", "key": "E", "charges": None}]},
+    "Pooler": {"abilities": [
+        {"name": "Regrow", "slot": "Grenade", "key": "C", "charges": "1"},
+        {"name": "Big Pack", "slot": "Ability2", "key": "E", "charges": "3"}]}}}
+POOL = {"abilities/pooler-regrow-resource-bar": Fact(
+    domain="abilities", id="pooler-regrow-resource-bar", kind="rule", known="player",
+    since="2026-09-27", subject="pooler:regrow",
+    claim="Pooler's Regrow in slot C draws on a pool drawn as a resource bar, not as charges.")}
+
+
+class PriorTest(unittest.TestCase):
+    def test_a_fact_outranks_the_catalogue_and_records_the_conflict(self):
+        e = st.charge_priors(FACTS, catalogue=CATALOGUE)[("tester", "E")]
+        self.assertEqual((e["max_charges"], e["source"], e["fact"]),
+                         (2, "player", "abilities/tester-tray-charges"))
+        self.assertEqual(e["conflict"], {"kind": "count", "player": 2, "catalogue": 1,
+                                         "fact": "abilities/tester-tray-charges"})
+        p = st.slot_parameters(AGENT, KIT, FACTS, catalogue=CATALOGUE)
+        self.assertEqual((p["E"]["max_charges"], p["E"]["max_charges_source"]), (2, "player"))
+        self.assertEqual(p["E"]["max_charges_conflict"]["catalogue"], 1)
+
+    def test_the_catalogue_fills_a_slot_without_a_fact(self):
+        p = st.slot_parameters(AGENT, KIT, FACTS, catalogue=CATALOGUE)
+        self.assertEqual((p["C"]["max_charges"], p["C"]["max_charges_source"]), (1, "catalogue"))
+        self.assertEqual((p["Q"]["max_charges"], p["Q"]["max_charges_source"]), (2, "catalogue"))
+        self.assertIsNone(p["C"]["max_charges_fact"])
+        self.assertIsNone(p["C"]["max_charges_reason"])
+        self.assertEqual(p["C"]["max_charges_catalogue"]["path"], st.CATALOGUE_PATH)
+        self.assertEqual(p["C"]["max_charges_catalogue"]["harvested"], "2026-09-04")
+        self.assertIsNone(p["C"]["max_charges_conflict"])
+
+    def test_the_harvest_slots_map_to_the_tray_keys(self):
+        pri = st.charge_priors({}, catalogue=CATALOGUE)
+        self.assertEqual({s for a, s in pri if a == "tester"}, set(st.SLOTS))
+        self.assertEqual(pri[("tester", "C")]["catalogue"]["slot"], "Grenade")
+        self.assertEqual(pri[("tester", "Q")]["catalogue"]["slot"], "Ability1")
+        self.assertEqual(pri[("tester", "E")]["catalogue"]["slot"], "Ability2")
+        self.assertEqual(pri[("tester", "X")]["catalogue"]["slot"], "Ultimate")
+        self.assertFalse(any("Idle" == (v["catalogue"] or {}).get("ability") for v in pri.values()))
+        self.assertEqual(st.slot_parameters(AGENT, KIT, {}, catalogue=CATALOGUE)["X"]
+                         ["max_charges_reason"], "ult_slot:read_as_castable")
+
+    def test_a_string_that_is_not_a_count_gives_a_reason(self):
+        pri = st.charge_priors({}, catalogue=CATALOGUE)
+        self.assertEqual(pri[("tester", "X")]["reason"], "catalogue_non_numeric")
+        self.assertEqual(pri[("kayo", "Q")]["reason"], "catalogue_non_numeric")
+        self.assertEqual(pri[("kayo", "E")]["reason"], "catalogue_missing")
+        # The lineup's asset spelling and the harvest's name key alike.
+        p = st.slot_parameters("KAY_O", {"C": "FRAG/ment", "Q": "FLASH/drive"}, {},
+                               catalogue=CATALOGUE)
+        self.assertEqual((p["C"]["max_charges"], p["C"]["max_charges_source"]), (1, "catalogue"))
+        self.assertIsNone(p["Q"]["max_charges"])
+        self.assertEqual(p["Q"]["max_charges_reason"], "no-fact:kayo:Q:max_charges")
+        self.assertEqual(p["Q"]["max_charges_prior_reason"], "catalogue_non_numeric")
+
+    def test_no_catalogue_or_no_entry_is_stated(self):
+        p = st.slot_parameters(AGENT, KIT, FACTS)
+        self.assertIsNone(p["C"]["max_charges"])
+        self.assertEqual(p["C"]["max_charges_prior_reason"], "no_fact")
+        self.assertEqual(p["E"]["max_charges"], 2)
+        q = st.slot_parameters("Stranger", {"C": "Thing"}, FACTS, catalogue=CATALOGUE)
+        self.assertEqual(q["C"]["max_charges_reason"], "no-fact:stranger:C:max_charges")
+        self.assertEqual(q["C"]["max_charges_prior_reason"], "catalogue_missing")
+
+    def test_a_pool_fact_and_the_two_charge_bound_refuse_the_catalogue(self):
+        pri = st.charge_priors(POOL, catalogue=CATALOGUE)
+        c = pri[("pooler", "C")]
+        self.assertEqual((c["max_charges"], c["source"], c["reason"]), (None, None, "resource_bar"))
+        self.assertEqual(c["conflict"]["kind"], "resource_bar")
+        self.assertEqual(c["conflict"]["catalogue"], 1)
+        e = pri[("pooler", "E")]
+        self.assertEqual((e["max_charges"], e["reason"]), (None, "catalogue_above_max_charges"))
+        self.assertEqual(e["conflict"]["catalogue"], 3)
+        p = st.slot_parameters("Pooler", {"C": "Regrow", "E": "Big Pack"}, POOL,
+                               catalogue=CATALOGUE)
+        self.assertEqual(p["C"]["max_charges_prior_reason"],
+                         "resource_bar:abilities/pooler-regrow-resource-bar")
+
+    def test_a_catalogue_naming_another_ability_is_not_used(self):
+        p = st.slot_parameters(AGENT, {**KIT, "C": "Gizmo"}, FACTS, catalogue=CATALOGUE)
+        self.assertIsNone(p["C"]["max_charges"])
+        self.assertEqual(p["C"]["max_charges_prior_reason"],
+                         "catalogue-names-another-ability:Widget")
+
+    def test_state_rows_name_their_source_and_coverage_lists_the_conflicts(self):
+        rows = _run(params=st.slot_parameters(AGENT, KIT, FACTS, catalogue=CATALOGUE))
+        c = _state_at(rows, "C", 10000.0)
+        self.assertEqual((c["charges"], c["charges_source"]), (1, "catalogue"))
+        self.assertEqual(_state_at(rows, "E", 10000.0)["charges_source"], "player")
+        self.assertIsNone(_state_at(rows, "X", 10000.0)["charges_source"])
+        self.assertEqual(_state_at(rows, "C", 55000.0)["charges_source"], "catalogue")
+        (cast,) = _verdicts(rows, "E", "cast")
+        self.assertEqual(cast["before"]["charges_source"], "player")
+        cov = rows[0]
+        self.assertEqual(cov["charges_source"], {"C": "catalogue", "Q": "catalogue",
+                                                 "E": "player", "X": None})
+        self.assertEqual([(x["slot"], x["kind"]) for x in cov["charge_conflicts"]],
+                         [("E", "count")])
+        self.assertEqual(cov["slots_without_count"], [])
+        self.assertGreater(cov["charges_source_readable_slot_samples"]["catalogue"], 0)
+        # E reads half after its cast: two charges draw a segment there.
+        self.assertGreater(cov["segments"]["E"]["agree"], 0)
+        self.assertEqual(cov["segments_disagree"], 0)
+
+    def test_the_prior_never_overwrites_a_half_reading(self):
+        # Without the fact, the catalogue's one Twin Shot meets a half bar.
+        rows = _run(params=st.slot_parameters(AGENT, KIT, {}, catalogue=CATALOGUE))
+        e = _state_at(rows, "E", 26000.0)
+        self.assertEqual(e["level"], 0.5)
+        self.assertIsNone(e["charges"])
+        self.assertEqual(e["charges_reason"], "level_0.5_on_a_1_charge_slot")
+        self.assertEqual(e["charges_source"], "catalogue")
+        cov = rows[0]
+        self.assertGreater(cov["segments"]["E"]["disagree"], 0)
+        self.assertEqual(cov["segments"]["E"]["agree"], 0)
+        self.assertEqual(cov["segments_disagree"],
+                         cov["invariants"]["1_level_outside_the_segments"])
+
+    def test_a_slot_without_a_count_is_listed(self):
+        cov = _run()[0]
+        self.assertEqual([(x["slot"], x["prior_reason"]) for x in cov["slots_without_count"]],
+                         [("C", "no_fact"), ("Q", "no_fact")])
+        self.assertEqual(cov["charge_conflicts"], [])
+
+    def test_the_prior_is_deterministic(self):
+        params = st.slot_parameters(AGENT, KIT, FACTS, catalogue=CATALOGUE)
+        self.assertEqual(json.dumps(_run(params=params), sort_keys=True),
+                         json.dumps(_run(params=params), sort_keys=True))
 
 
 if __name__ == "__main__":
