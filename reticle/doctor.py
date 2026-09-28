@@ -721,23 +721,55 @@ def check_quoted(store: Path) -> list[tuple[str, str]]:
     return out
 
 
+NOTES_MAX_WORDS = 1000
 BACKLOG_MAX_WORDS = 1500
 BACKLOG_MAX_COMPLETED = 5
+BACKLOG_MAX_OPEN = 3
+
+#: The queue's section, up to the next second-level heading.
+AGREED_ORDER = re.compile(r"(?ms)^## Agreed order[^\n]*\n(.*?)(?=^## |\Z)")
+NUMBERED_ITEM = re.compile(r"\d+\.\s+\*\*")
+
+
+def backlog_open_items(backlog: str) -> list[str] | None:
+    """The first line of each open item under `## Agreed order`; None without one.
+
+    A numbered item counts on every line it starts, blank line or not; a bold
+    lead counts only at a paragraph's start, so wrapped prose that happens to
+    open with bold text is not an item.
+    """
+    section = AGREED_ORDER.search(backlog)
+    if section is None:
+        return None
+    items, previous = [], ""
+    for line in section.group(1).splitlines():
+        if NUMBERED_ITEM.match(line) or (not previous.strip() and line.startswith("**")):
+            items.append(line)
+        previous = line
+    return items
 
 
 def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
-    """Warn on the small, exact handoff and active-queue conventions.
+    """Warn on the small, exact handoff and queue conventions.
 
     `NOTES.md` and `BACKLOG.md` are bounded working documents, not logs. Both
-    have size limits, and `BACKLOG.md` keeps at most five completed entries;
-    older ones move to a dated file under `docs/archive/`.
+    have size limits, `BACKLOG.md` holds at most three open items under
+    `## Agreed order`, and it keeps at most five completed entries; older ones
+    move to a dated file under `docs/archive/`.
+
+    **The open-item count keyed on `## Active:` headings until 2026-09-27.**
+    `BACKLOG.md` dropped them on 2026-09-23, so from then the limit and every
+    contract check tied to an active task passed on nothing. It now reads the
+    section the queue actually uses, and a missing section is a finding
+    rather than zero items. `docs/tasks.json` is optional: absent, its checks
+    are skipped.
     """
     root = root or ROOT
     out = []
     notes_path = root / "NOTES.md"
     backlog_path = root / "BACKLOG.md"
     contracts_path = root / "docs" / "tasks.json"
-    for path in (notes_path, backlog_path, contracts_path):
+    for path in (notes_path, backlog_path):
         if not path.is_file():
             return [(WARN, f"missing handoff file: {path.relative_to(root)}")]
     notes = notes_path.read_text(encoding="utf-8")
@@ -746,12 +778,17 @@ def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
         out.append((WARN, f"NOTES.md has {len(headings)} Picking up headings; expected one"))
     lines = len(notes.splitlines())
     words = len(notes.split())
-    if lines > 100 or words > 1000:
-        out.append((WARN, f"NOTES.md has {lines} lines and {words} words; limits are 100 and 1000"))
+    if lines > 100 or words > NOTES_MAX_WORDS:
+        out.append((WARN, f"NOTES.md has {lines} lines and {words} words; limits are "
+                          f"100 and {NOTES_MAX_WORDS}"))
     backlog = backlog_path.read_text(encoding="utf-8")
-    active = re.findall(r"(?m)^## Active: ([a-z0-9-]+)\s*$", backlog)
-    if len(active) > 3:
-        out.append((WARN, f"BACKLOG.md has {len(active)} active tasks; limit is three"))
+    items = backlog_open_items(backlog)
+    if items is None:
+        out.append((WARN, "BACKLOG.md has no `## Agreed order` heading, so no open "
+                          "item is counted"))
+    elif len(items) > BACKLOG_MAX_OPEN:
+        out.append((WARN, f"BACKLOG.md has {len(items)} open items under Agreed order; "
+                          f"limit is three"))
     lines, words = len(backlog.splitlines()), len(backlog.split())
     if lines > 150 or words > BACKLOG_MAX_WORDS:
         out.append((WARN, f"BACKLOG.md has {lines} lines and {words} words; limits are "
@@ -761,6 +798,8 @@ def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
     if n_done > BACKLOG_MAX_COMPLETED:
         out.append((WARN, f"BACKLOG.md lists {n_done} completed tasks; keep the latest "
                           f"{BACKLOG_MAX_COMPLETED} and archive the rest under docs/archive/"))
+    if not contracts_path.is_file():
+        return out
     try:
         contracts = json.loads(contracts_path.read_text(encoding="utf-8"))
         tasks = contracts["tasks"]
@@ -772,14 +811,6 @@ def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
                 path = root / read.split("#", 1)[0]
                 if not path.is_file():
                     out.append((WARN, f"contract {task['id']} has missing read: {read}"))
-        for task_id in active:
-            if task_id not in ids:
-                out.append((WARN, f"active task {task_id} has no contract"))
-                continue
-            task = next(item for item in tasks if item["id"] == task_id)
-            for declared in task.get("files", []):
-                if not (root / declared).is_file():
-                    out.append((WARN, f"active task {task_id} has missing owning file: {declared}"))
     except (ValueError, KeyError, TypeError) as exc:
         out.append((WARN, f"invalid docs/tasks.json: {exc}"))
     return out
