@@ -68,7 +68,11 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # fields a reviver (`plate_revive`); a named weapon vetoes the plates, and a
 # self entry, whose killer and victim print one name, is not a revive
 # (`killfeed_names.self_entry`).
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.14.0"
+# 0.15.0 (2026-09-28): an entry track ends where its victim plate's side flips
+# (`checks.track_entries` given `sides`), unless it has read a one-colour
+# banner; the player's death at 59c70f1ef720 moves from the enemy-victim entry
+# at 1619.5 s to the ally-victim one at 1625.0 s.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.15.0"
 
 #: Weapon-slot icons that mark a revive entry, which is not a death
 #: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
@@ -522,8 +526,13 @@ def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[di
             for kind in ("kill", "death")}
     # Stored from hud-0.15.0; an older table reads no entry's plates as one side.
     same = hud.get("kf_same_side_mask")
+    # The victim plate's side and the same-side mask let `track_entries` split
+    # two entries that held one slot in turn and keep a revive whole.
+    sides = (list(zip(hud["kf_ally_mask"], hud["kf_enemy_mask"], same or [None] * len(t)))
+             if hud.get("kf_ally_mask") and hud.get("kf_enemy_mask") else None)
     tracks = [e for e in track_entries(t, hud["kf_entry_mask"], col("kf_entry_wx"),
-                                       flags={"same_side": same} if same else None)
+                                       flags={"same_side": same} if same else None,
+                                       sides=sides)
               if e["counted"]]
     # A player track belongs to the entry on screen when it was first seen
     # whose divider agrees, the latest such onset first (the attribution can
