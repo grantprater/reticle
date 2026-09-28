@@ -73,6 +73,97 @@ That inverts the obvious assumption -- that a deliberate demo clip is the ideal
 place to read casts. It is the worst place. The tray is a REAL-MATCH instrument,
 and the 17 ingested matches are where it works. If a controlled clip is ever
 wanted for cast timing, it has to be recorded with infinite abilities OFF.
+
+What the reader's own definitions recorded (moved to `reticle.tray`, 2026-09-26)
+--------------------------------------------------------------------------------
+Kept verbatim from the function docstrings this file defined until the
+promotion; `reticle.tray` carries the current rule.
+
+`slot_counts`
+-------------
+Teal pixel count per charge bar, and whether the frame is trustworthy.
+
+The second value is False when a screen-wide green effect is bleeding into
+the tray. It is decided per frame from the guard rows, not per slot, because
+the contaminating effects seen so far cover a large part of the screen.
+
+`fills`
+-------
+Counts as a fraction of each slot's own reference level.
+
+Relative, not absolute -- the tray is composited over live scenery, and
+CLAUDE.md's one never-wrong rule is to measure inside the structure and
+compare relatively.
+
+The reference is the **p90 of that slot's non-trivial CLEAN samples**, not
+the maximum. The maximum was the first thing tried and it was wrong: one
+green screen effect at `a06f04a0059f` t=664.5 doubled it, so every ordinary
+full bar then read as 0.50 and the levels collapsed. p90 over clean frames
+is unmoved by a handful of contaminated ones while still landing on "full",
+which is a slot's most common state by a wide margin.
+
+`drawn`
+-------
+Is the tray rendered at all in this frame?
+
+Refuses rather than reporting zero charges. The death screen, the buy menu
+and the settings overlay all blank it, and a confident `0` there would be
+the `hp`-as-a-death-signal defect repeated in a new widget.
+
+`casts`
+-------
+Charge drops: (t, slot, from_fill, to_fill, suspect), skipping unusable frames.
+
+**Slot 3 IS read, corrected 2026-09-05.** This loop ran `range(3)` on the
+belief that the ultimate's pips could not be read as a fill. *for ult
+the tray cast should be the pips going hollow* -- and rendered, that is what
+happens, except the pips do not merely hollow, they DESATURATE from teal to
+grey along with the bar beneath them. So the existing teal mask reads them
+with no new geometry at all. Measured on `02cf738b1c8f`, slot X goes
+**909 raw teal px -> 0 between 28.0s and 28.5s**, against a first Hunter's
+Fury label at **28.2s**.
+
+It is not observable in every clip, and that is a property of the recording
+rather than of the widget: on `6bb88dba5d2c` and `2ba870ccbd50` the X bar
+stays full straight through a labelled ult, which is what an ult being
+recharged looks like. The module's own rule applies -- **a missing drop is
+no evidence, never "no cast"**.
+
+The all-spent exception
+-----------------------
+`drawn()` refuses a frame where every slot reads near zero, to avoid the
+`hp`-as-a-death-signal defect. That is right for a death screen and wrong
+for the one state this corpus ends in: a player who has deliberately spent
+EVERYTHING. Sova's ult lands exactly there -- C, Q and E were already empty,
+so the frame the ult drop occurs in is refused and `prev` is reset, and the
+drop is never compared.
+
+So a slot emptying on the FIRST refused frame after a drawn one is still
+evaluated -- and flagged `suspect`, because the alternative reading (the
+widget genuinely vanished at that instant) cannot be excluded from the
+fill alone. Flagged rather than dropped is this module's existing treatment
+of an ambiguous drop, and the same call CLAUDE.md makes for Run It Back
+deaths and wallbangs: a category on the event, decided per metric later.
+A chrome-based structural test for "is the tray rendered" was measured and
+does NOT separate cleanly (bright scenery scores like tray outlines), so no
+threshold is invented here.
+
+`flag_suspect`
+--------------
+Mark drops that co-occur across slots. They are probably not casts.
+
+**A dead player spectates, so the main view is not theirs** -- CLAUDE.md's
+standing defect, and the tray inherits it: on the death screen the tray
+switches to the spectated teammate's kit, with different abilities at
+different charges, and the switch reads as several slots emptying at once.
+Seen at `a06f04a0059f` 850.0-852.0, four "casts" in two seconds, and again
+around 689.
+
+Flagged rather than deleted, because a player genuinely can cast twice in
+two seconds and silently dropping those would cost real events with no way
+to notice. `suspect` is a column, not a filter -- the same treatment
+CLAUDE.md gives Run It Back deaths and wallbangs: a category on the event,
+decided per metric later.
 """
 from __future__ import annotations
 
@@ -89,57 +180,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 STORE = Path.home() / "reticle-store"
 
-#: Measured at 1920x1080. Slot 3 is the ultimate.
-SLOT_X0, SLOT_DX = 789, 113
-BAR_Y0, BAR_Y1 = 1032, 1052
-BAR_HALF = 38
-SLOT_KEYS = ("C", "Q", "E", "X")
-
-#: The tray's teal. Same family as `reticle.minimap.ALLY_H`, widened slightly
-#: because the bar is drawn brighter than an ally ring.
-TEAL_H = (70, 100)
-TEAL_S_MIN, TEAL_V_MIN = 80, 120
-
-#: Below this fraction of the slot's own reference, on EVERY slot at once, the
-#: tray is not drawn -- death screen, buy menu, settings overlay.
-DRAWN_MIN_FRAC = 0.12
-
-#: Rows immediately above and below the bar. The bar is a band of FIXED height
-#: with sharp edges; a screen-wide green ability tint is not. If the guard rows
-#: are as teal as the bar rows, the mask is measuring the world and the frame is
-#: refused. Found at `a06f04a0059f` t=664.5, where a green screen effect flooded
-#: the C and Q boxes to 1520 px against a true full bar of ~780 -- CLAUDE.md's
-#: one never-wrong rule: measure inside the structure, require coverage, compare
-#: relatively.
-GUARD_Y = ((1008, 1028), (1056, 1076))
-GUARD_MAX_RATIO = 0.6
-
-#: A fall of at least this much of a slot's maximum, between consecutive
-#: samples, is a spent charge. A two-charge slot steps by ~0.5 and a one-charge
-#: slot by ~1.0, so 0.25 sits in an empty gap rather than on a fitted edge.
-CAST_DROP = 0.25
-
-
-def slot_counts(frame) -> tuple[list[int], bool]:
-    """Teal pixel count per charge bar, and whether the frame is trustworthy.
-
-    The second value is False when a screen-wide green effect is bleeding into
-    the tray. It is decided per frame from the guard rows, not per slot, because
-    the contaminating effects seen so far cover a large part of the screen.
-    """
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
-    teal = ((h > TEAL_H[0]) & (h < TEAL_H[1]) & (s > TEAL_S_MIN) & (v > TEAL_V_MIN))
-    out, bleed = [], 0.0
-    for k in range(4):
-        cx = SLOT_X0 + SLOT_DX * k
-        sl = slice(cx - BAR_HALF, cx + BAR_HALF)
-        out.append(int(teal[BAR_Y0:BAR_Y1, sl].sum()))
-        bar = teal[BAR_Y0:BAR_Y1, sl].mean()
-        g = max(teal[a:b, sl].mean() for a, b in GUARD_Y)
-        if bar > 0.05:
-            bleed = max(bleed, g / bar)
-    return out, bleed <= GUARD_MAX_RATIO
+# Promoted to `reticle.tray` on 2026-09-26 and re-exported here, so the prototypes
+# that measured against this reader keep running and the two never drift.
+# `casts` now bridges refused samples that still show the tray (`GAP_S`),
+# which this file's own reader never did; the measurements behind every
+# constant stay in this docstring.
+from reticle.tray import (  # noqa: E402,F401
+    BAR_HALF, BAR_Y0, BAR_Y1, CAST_DROP, DRAWN_MIN_FRAC, GAP_S, GUARD_MAX_RATIO, GUARD_Y,
+    SLOT_DX, SLOT_KEYS, SLOT_X0, SUSPECT_S, TEAL_H, TEAL_S_MIN, TEAL_V_MIN,
+    casts, drawn, fills, flag_suspect, slot_counts)
 
 
 def scan(sid, t_from=None, t_to=None, step_s=0.5):
@@ -167,128 +216,6 @@ def scan(sid, t_from=None, t_to=None, step_s=0.5):
     cap.release()
     a = np.array(rows, dtype=float) if rows else np.zeros((0, 5))
     return ts, a[:, :4], a[:, 4].astype(bool) if len(a) else np.zeros(0, bool)
-
-
-def fills(counts, clean=None):
-    """Counts as a fraction of each slot's own reference level.
-
-    Relative, not absolute -- the tray is composited over live scenery, and
-    CLAUDE.md's one never-wrong rule is to measure inside the structure and
-    compare relatively.
-
-    The reference is the **p90 of that slot's non-trivial CLEAN samples**, not
-    the maximum. The maximum was the first thing tried and it was wrong: one
-    green screen effect at `a06f04a0059f` t=664.5 doubled it, so every ordinary
-    full bar then read as 0.50 and the levels collapsed. p90 over clean frames
-    is unmoved by a handful of contaminated ones while still landing on "full",
-    which is a slot's most common state by a wide margin.
-    """
-    if not len(counts):
-        return counts
-    ref = np.ones(counts.shape[1])
-    for k in range(counts.shape[1]):
-        col = counts[:, k]
-        sel = col[clean] if clean is not None and clean.any() else col
-        sel = sel[sel > 0.05 * max(col.max(), 1.0)]
-        ref[k] = np.percentile(sel, 90) if len(sel) else 1.0
-    return counts / np.maximum(ref, 1.0)
-
-
-def drawn(f_row) -> bool:
-    """Is the tray rendered at all in this frame?
-
-    Refuses rather than reporting zero charges. The death screen, the buy menu
-    and the settings overlay all blank it, and a confident `0` there would be
-    the `hp`-as-a-death-signal defect repeated in a new widget.
-    """
-    return bool((f_row > DRAWN_MIN_FRAC).any())
-
-
-def casts(ts, counts, clean=None):
-    """Charge drops: (t, slot, from_fill, to_fill, suspect), skipping unusable frames.
-
-    **Slot 3 IS read, corrected 2026-09-05.** This loop ran `range(3)` on the
-    belief that the ultimate's pips could not be read as a fill. *for ult
-    the tray cast should be the pips going hollow* -- and rendered, that is what
-    happens, except the pips do not merely hollow, they DESATURATE from teal to
-    grey along with the bar beneath them. So the existing teal mask reads them
-    with no new geometry at all. Measured on `02cf738b1c8f`, slot X goes
-    **909 raw teal px -> 0 between 28.0s and 28.5s**, against a first Hunter's
-    Fury label at **28.2s**.
-
-    It is not observable in every clip, and that is a property of the recording
-    rather than of the widget: on `6bb88dba5d2c` and `2ba870ccbd50` the X bar
-    stays full straight through a labelled ult, which is what an ult being
-    recharged looks like. The module's own rule applies -- **a missing drop is
-    no evidence, never "no cast"**.
-
-    The all-spent exception
-    -----------------------
-    `drawn()` refuses a frame where every slot reads near zero, to avoid the
-    `hp`-as-a-death-signal defect. That is right for a death screen and wrong
-    for the one state this corpus ends in: a player who has deliberately spent
-    EVERYTHING. Sova's ult lands exactly there -- C, Q and E were already empty,
-    so the frame the ult drop occurs in is refused and `prev` is reset, and the
-    drop is never compared.
-
-    So a slot emptying on the FIRST refused frame after a drawn one is still
-    evaluated -- and flagged `suspect`, because the alternative reading (the
-    widget genuinely vanished at that instant) cannot be excluded from the
-    fill alone. Flagged rather than dropped is this module's existing treatment
-    of an ambiguous drop, and the same call CLAUDE.md makes for Run It Back
-    deaths and wallbangs: a category on the event, decided per metric later.
-    A chrome-based structural test for "is the tray rendered" was measured and
-    does NOT separate cleanly (bright scenery scores like tray outlines), so no
-    threshold is invented here.
-    """
-    f = fills(counts, clean)
-    out = []
-    prev = None
-    for i, (t, row) in enumerate(zip(ts, f)):
-        if not drawn(row) or (clean is not None and not clean[i]):
-            if prev is not None and (clean is None or clean[i]):
-                for k in range(4):
-                    if prev[k] - row[k] >= CAST_DROP:
-                        out.append((t, SLOT_KEYS[k], round(float(prev[k]), 2),
-                                    round(float(row[k]), 2), True))
-            prev = None                    # a gap is not a drop
-            continue
-        if prev is not None:
-            for k in range(4):
-                if prev[k] - row[k] >= CAST_DROP:
-                    out.append((t, SLOT_KEYS[k], round(float(prev[k]), 2),
-                                round(float(row[k]), 2), False))
-        prev = row
-    return flag_suspect(out)
-
-
-#: Two slots dropping within this window is not two casts -- it is the tray
-#: changing whose it is.
-SUSPECT_S = 1.5
-
-
-def flag_suspect(ev):
-    """Mark drops that co-occur across slots. They are probably not casts.
-
-    **A dead player spectates, so the main view is not theirs** -- CLAUDE.md's
-    standing defect, and the tray inherits it: on the death screen the tray
-    switches to the spectated teammate's kit, with different abilities at
-    different charges, and the switch reads as several slots emptying at once.
-    Seen at `a06f04a0059f` 850.0-852.0, four "casts" in two seconds, and again
-    around 689.
-
-    Flagged rather than deleted, because a player genuinely can cast twice in
-    two seconds and silently dropping those would cost real events with no way
-    to notice. `suspect` is a column, not a filter -- the same treatment
-    CLAUDE.md gives Run It Back deaths and wallbangs: a category on the event,
-    decided per metric later.
-    """
-    out = []
-    for i, (t, k, a, b, forced) in enumerate(ev):
-        near = sum(1 for j, (t2, k2, _a, _b, _f) in enumerate(ev)
-                   if j != i and abs(t2 - t) <= SUSPECT_S and k2 != k)
-        out.append((t, k, a, b, bool(near) or bool(forced)))
-    return out
 
 
 def main() -> int:

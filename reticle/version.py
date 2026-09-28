@@ -177,6 +177,14 @@ ALLY_PORTRAIT_REFS_VERSION = "ally-portrait-refs-1.0.0"
 # packed per frame. It stores no decision; `adjudication.ability` reads it.
 # 0.2.0: stores raw_dark alongside raw_lit to distinguish opaque objects from viewcones.
 ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
+# One observation of an ability's drawn minimap shape (a ring or a beam), fitted
+# by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
+# a prior, an acceptance or the stored fields change.
+ABILITY_SHAPE_VERSION = "ability-shape-0.1.0"
+# The ability tray's charge drops, with the player-cast gate applied, written as
+# `tray_drop` rows by `reticle tray` from the stored crops. Bump when a tray
+# constant, the drop rule or the gate changes.
+TRAY_VERSION = "tray-0.1.0"
 # Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or
