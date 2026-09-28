@@ -326,7 +326,12 @@ COMBAT_REPORT_VERSION = "combat-report-0.4.0"
 #        track use the at-death window (5 s before to 4 s after the panel
 #        opens, `near_death`) instead of 6 s before to 1 s after; a KILLED
 #        YOU row binds only when it is the panel's one KILLED YOU row.
-COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.9.0"
+# 0.10.0: the killer's killfeed portrait names a KILLED YOU row only as the
+#        panel's one KILLED YOU row; in a panel with more, a row binds by the
+#        portrait cluster an earlier death panel of the round bound, and the
+#        one row left to the one death left in the window; a death opens at
+#        most one death panel, so a repeated read with no later death reopens.
+COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.10.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

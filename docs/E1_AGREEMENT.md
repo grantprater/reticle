@@ -58,10 +58,23 @@ at 0.9.0; `223d636bf8d2` holds only its 0.8.0 row,
 The narrower lookback exposed four panels from killed, revived and killed-again
 rounds (`a1a995e6b19b` 638 s, `b3b9defb6fd7` 891 s and 1308 s, `b7d24102a6f6`
 1912 s). Each shows two KILLED YOU rows, and the old rule bound both to the
-later death's killer: one wrong binding each. A row now binds only as its
-panel's one KILLED YOU row, so those rows bind neither. `reticle combat-report`
+later death's killer: one wrong binding each. At 0.9.0 a row bound only as its
+panel's one KILLED YOU row, so those rows bound neither. `reticle combat-report`
 reran from storage on 20 sessions with no round row, panel or verdict changed.
 Ledger: `e1-binding-window-2026-09-28`, `e1-double-binding-2026-09-28`.
+
+The report is cumulative over a round, so in each of those panels an earlier
+death panel of the round had already bound the first killer's portrait
+cluster. At combat-report-round-0.10.0 such a row binds by that cluster, and
+the one row left binds to the one death left in the panel's window; all eight
+rows bind. The killer's killfeed portrait now names a KILLED YOU row only as
+its panel's one KILLED YOU row, as the binding does: the old claim named both
+rows of each panel after the later killer, and dropping it turns
+`b7d24102a6f6` cluster 4 from a Raze verdict into a Reyna and Raze
+disagreement. A death also opens at most one death panel: `5822b6646448`
+round 12 and `587c15b07779` round 16 each showed one death's report, hid it and
+showed it again, and each second showing is now a reopen. Ledger:
+`e1-report-naming-2026-09-28`.
 
 No flagged round hid a duplicate beside a miss: each held the deaths the
 channels counted, and the errors were bindings.
@@ -120,10 +133,13 @@ the death flash washes the killfeed plates.
 
 1. The recorded corpus replay at scoreboard-0.9.0 under a new pin, after the
    scoreboard rescan; `043bafca271a` and `223d636bf8d2` have no 0.9.0 row.
-2. Bind the right row in a two-killer panel, with `depends_on` the killfeed
-   portraits.
-3. Two bindings the 5 s lookback lost (`5822b6646448` round 12, `59c70f1ef720`
-   round 16): the death stream's onset sits 5.5 s before the panel, and on
-   `59c70f1ef720` the HUD death time is 6 s after the onset, a question for the
-   death owner.
-4. A two-read rule for the scoreboard player row, predicted before it is built.
+   The pin names combat-report-round-0.9.0, so the replay refuses the 0.10.0
+   streams until the new pin.
+2. One binding the 5 s lookback lost (`59c70f1ef720` round 16): the death
+   stream's onset sits 5.5 s before the panel, and the HUD death time is 6 s
+   after the onset, a question for the death owner. The other,
+   `5822b6646448` round 12, was a second death panel for one death, now a
+   reopen.
+3. A two-read rule for the scoreboard player row, predicted before it is built.
+4. The player's review of the rows the cluster rule binds; the rule rests on
+   the earlier panel's binding and the portrait clustering being right.
