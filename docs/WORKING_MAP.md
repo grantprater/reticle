@@ -51,6 +51,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Which documents are live, their status, and what reaches them | `documents.toml`, `reticle/documents.py`, `doctor` DOCS |
 | VOD scan cost and reader call frequencies | `reticle usage [SESSION]`, `reticle/usage.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
+| The experiment program, and E1: can agreeing channels hide a wrong event? | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |
 | Ability entity inference and minimal capture plan | `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` |
 | What each demo cast draws on the minimap (census, player questions) | [DEMO_CAST_CENSUS.md](DEMO_CAST_CENSUS.md) |

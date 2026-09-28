@@ -30,19 +30,19 @@ Steps 1 to 5 are done ([archive](docs/archive/BACKLOG-through-2026-09-26.md)).
 
 **Pub/sub branch `pubsub-20260927` (2026-09-27, unmerged).** (1) The [measurements](docs/PUBSUB_MEASUREMENTS.md) leave shards open: the check's serial path ignores `--cv-threads`; fix it, rerun ally-icon at one thread on both paths, then a process shard; warm up `--check`. (2) Publish writes in place with no run id: a minimap zero-rows exit fires after the killfeed writes. (3) `events_version` reads the first row, so a truncated events file reads as current. (4) Usage omits contention and backend. (5) `--until` drops negative timestamps. (6) Unbuilt: L1's selecting producer, L2, L5, L7. (7) Merging the two `NOTES.md` needs a decision.
 
-**E1: can agreement conceal a wrong event history? (next, 2026-09-27).** First experiment of [the experiment program](docs/EXPERIMENT_PROGRAM.md): the combat report, killfeed and scoreboard are all in production and its falsifier is concrete. From storage only, list every round where the three channels disagree, by the stored reason; then seed rounds whose totals agree, bind each death to its source witness, identity and life episode, and withhold each channel in turn. Belief, falsifier and acceptance: ledger entry `e1-agreement-2026-09-27`.
-Acceptance: `.\.venv\Scripts\python.exe prototypes\e1_agreement.py --replay` writes both lists from storage with no decode and records `e1_agreement/replay` through `reticle.metrics`.
-Evidence: the player reviews the seeded agreeing rounds against source before anything is promoted; any source error there refutes agreement as an acceptance test. Stop at the first upstream identity failure; promote no oracle candidate or all-null output.
+**E1 follow-ups (next, 2026-09-28).** E1 [found](docs/E1_AGREEMENT.md) unbound deaths under agreeing totals; the owner fix (`combat-report-round-0.9.0`) also dropped wrong bindings. In order: (1) the player reviews the seeded rounds (`analysis/e1-agreement/agreeing.json`) against source; (2) the corpus replay at scoreboard-0.9.0 under a new pin; (3) bind the right row of a two-killer panel, `depends_on` the killfeed portraits; (4) two bindings the 5 s lookback lost (`5822b6646448` round 12, `59c70f1ef720` round 16; ask the death owner); (5) a two-read rule for the scoreboard player row, predicted first.
+Acceptance: `.\.venv\Scripts\python.exe prototypes\e1_agreement.py --replay` under the new pin records `e1_agreement/replay` for the corpus with no decode.
+Evidence: the player finds each seeded round's deaths and bindings in source, or names the first failure; promote nothing before.
 
 ## Completed
 
-Full entries: [09-27 archive](docs/archive/BACKLOG-through-2026-09-27.md).
+Full entries: [09-27 archive](docs/archive/BACKLOG-through-2026-09-27.md), [09-28 archive](docs/archive/BACKLOG-through-2026-09-28.md).
 
+- **`e1-agreement` (2026-09-28):** agreeing totals hid unbound deaths; one owner fix ([findings](docs/E1_AGREEMENT.md)).
 - **`pubsub-prototype` (2026-09-27):** staged equals serial; timed on the cache and a video prefix.
 - **`demo-cast-census` (2026-09-26):** demo census.
 - **`audio-ability-bank` (2026-09-26):** audio references.
 - **`ability-shape-wiring` (2026-09-26):** tray and shapes.
-- **`revive-plate-witness` (2026-09-26):** revive banners.
 
 ## Deferred
 
