@@ -79,7 +79,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .passes import _cache_rois, _feed
+from .passes import _cache_rois, _feed, cache_backend
 
 #: Frames each reader's or shard's FIFO holds; see the module docstring.
 FIFO_DEPTH = 8
@@ -293,7 +293,7 @@ def limit_to_prefix(readers: list, until_ms: float, cache=None):
     return None if cache is None else PrefixCache(cache, until_ms)
 
 
-def _source_items(ctx, readers: list, source):
+def _source_items(ctx, readers: list, source, usage=None):
     """The chosen source's items, and its rule for who wants each one.
 
     `source` None decodes the capture through `sample_multi`; anything else
@@ -303,12 +303,17 @@ def _source_items(ctx, readers: list, source):
         from .decode import sample_multi
         req = {r.name: (r.hz, r.spans) for r in readers}
         by_name = {r.name: r for r in readers}
-        items = sample_multi(str(ctx.media), ctx.fps, req)
+        backend = {}
+        if usage is not None:
+            usage.decode_backend = backend      # filled when the capture opens
+        items = sample_multi(str(ctx.media), ctx.fps, req, info=backend)
         # `passes.run`'s order: the frozenset's, not the list's.
         return items, lambda item: (item[1], [by_name[name] for name in item[0]])
     rois = sorted({roi for r in readers for roi in _cache_rois(r)})
     for r in readers:
         r.frames_from = source.record["version"]
+    if usage is not None:
+        usage.decode_backend = cache_backend(source)
     items = source.samples(sorted(set(source.t_ms.tolist())), rois=rois)
 
     def want(smp):
@@ -361,7 +366,7 @@ def run_staged(ctx, readers: list, source=None, workers: int = 1,
                              f"{pass_threads}: {other}")
 
     result = StagedRun(workers=workers, shards=dict(shards))
-    items, split = _source_items(ctx, readers, source)
+    items, split = _source_items(ctx, readers, source, usage)
     sharded: dict[str, _Shards] = {}
     units: dict[str, list[_Unit]] = {}
     every: list[_Unit] = []

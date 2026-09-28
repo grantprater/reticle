@@ -204,7 +204,7 @@ class StagedEqualsSerialTests(unittest.TestCase):
                 log.append(self.name)
                 super().feed(smp)
 
-        def sample_multi(path, fps, req):
+        def sample_multi(path, fps, req, info=None):
             for i in range(3):
                 yield ("b", "a"), Sample(i, i * 500.0, np.full((2, 2, 3), i, np.uint8))
         ctx = SimpleNamespace(media="x.mp4", fps=60.0)
@@ -219,7 +219,7 @@ class StagedEqualsSerialTests(unittest.TestCase):
         frames = [(frozenset({"a"}), 0), (frozenset({"a", "b"}), 1), (frozenset({"b"}), 2),
                   (frozenset({"a", "b"}), 3)]
 
-        def sample_multi(path, fps, req):
+        def sample_multi(path, fps, req, info=None):
             for who, i in frames:
                 yield who, Sample(i, i * 500.0, np.full((2, 2, 3), i, np.uint8))
         ctx = SimpleNamespace(media="x.mp4", fps=60.0)
