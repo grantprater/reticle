@@ -842,10 +842,16 @@ def _scan_pass(ctx, readers, cache, progress, usage, pipeline, workers, shards, 
 def _scan_check(scan_once, sid, args, shards) -> int:
     """Run the requested path and the serial one into two temporary stores.
 
-    Path a is today's serial pass on OpenCV's own pool; path b is the pass
-    the flags ask for. Path b runs first, so its threads meet the lazily
-    filled module caches (`killfeed._ME_CACHE`, `ally_portrait._REG`) cold
-    rather than filled by the serial pass. Both read the store's manifest,
+    Path a is the serial pass; path b is the pass the flags ask for. Against
+    a staged path b, path a runs at b's `--cv-threads`, so the two paths
+    differ in staging alone and the timings compare like with like. Without
+    the flag path a keeps OpenCV's own pool while a threaded path b runs at
+    `pipeline.STAGED_CV_THREADS`, so a timing check names the count. Against
+    a serial path b at a count, path a is the serial pass on the pool, so
+    the check compares the count with the pool rather than a pass with
+    itself. Path b runs first, so its threads meet the lazily filled module
+    caches (`killfeed._ME_CACHE`, `ally_portrait._REG`) cold rather than
+    filled by the serial pass. Both read the store's manifest,
     crop cache and inputs and write only under the check directory, which is
     kept so each path's usage record stays readable. Every written file is
     compared byte for byte; where Parquet bytes differ the rows are compared
@@ -865,14 +871,16 @@ def _scan_check(scan_once, sid, args, shards) -> int:
     b_label += (f", OpenCV threads {args.cv_threads}" if args.cv_threads is not None else "")
     print(f"check      b: {b_label} -> {root / 'b'}")
     ub = scan_once(Store(root / "b"), args.pipeline, args.workers, shards, args.cv_threads)
-    print(f"check      a: serial -> {root / 'a'}")
-    ua = scan_once(Store(root / "a"))
+    a_threads = args.cv_threads if args.pipeline == "staged" else None
+    a_label = "serial" + (f", OpenCV threads {a_threads}" if a_threads is not None else "")
+    print(f"check      a: {a_label} -> {root / 'a'}")
+    ua = scan_once(Store(root / "a"), cv_threads=a_threads)
     if ua is None or ub is None:
         failed = " and ".join(n for n, u in (("a", ua), ("b", ub)) if u is None)
         print(f"check      path {failed} failed; nothing to compare")
         return 1
     entries = compare_trees(root / "a", root / "b")
-    print(f"check      a = serial, b = {b_label}")
+    print(f"check      a = {a_label}, b = {b_label}")
     for e in entries:
         print(f"{e['verdict']:<10} {e['path']}  {e['detail']}")
     rows = [e for e in entries if e["rows_differ"]]

@@ -566,7 +566,7 @@ class UntilRefusalTests(unittest.TestCase):
 class ScanCheckTests(unittest.TestCase):
     """`scan --check`: path b runs first, and only byte-equal files pass."""
 
-    def check(self, write_b):
+    def check(self, write_b, pipeline="staged", cv_threads=None, threads=None):
         import tempfile
         from pathlib import Path
 
@@ -580,6 +580,8 @@ class ScanCheckTests(unittest.TestCase):
         def scan_once(out, pipeline="serial", workers=None, shards=None, cv_threads=None):
             label = out.root.name
             order.append(label)
+            if threads is not None:
+                threads[label] = (pipeline, cv_threads)
             table = pa.table({"t": [1.0, 2.0]})
             if label == "b":
                 table = write_b(table)
@@ -588,8 +590,9 @@ class ScanCheckTests(unittest.TestCase):
             return SimpleNamespace(run_id=f"run-{label}")
 
         with tempfile.TemporaryDirectory() as d:
-            args = SimpleNamespace(check_dir=str(Path(d) / "check"), pipeline="staged",
-                                   workers=1, cv_threads=None)
+            args = SimpleNamespace(check_dir=str(Path(d) / "check"), pipeline=pipeline,
+                                   workers=1 if pipeline == "staged" else None,
+                                   cv_threads=cv_threads)
             with contextlib.redirect_stdout(io.StringIO()):
                 code = _scan_check(scan_once, "s", args, {})
         return code, order
@@ -597,6 +600,18 @@ class ScanCheckTests(unittest.TestCase):
     def test_the_staged_path_runs_first(self):
         code, order = self.check(lambda t: t)
         self.assertEqual((code, order), (0, ["b", "a"]))
+
+    def test_the_serial_path_takes_the_staged_paths_opencv_count(self):
+        threads = {}
+        self.check(lambda t: t, cv_threads=1, threads=threads)
+        self.assertEqual(threads, {"b": ("staged", 1), "a": ("serial", 1)})
+
+    def test_a_serial_check_at_a_count_compares_with_the_pool(self):
+        # Asked for the serial pass at one thread, the check compares it with
+        # the serial pass on OpenCV's own pool, not with itself.
+        threads = {}
+        self.check(lambda t: t, pipeline="serial", cv_threads=1, threads=threads)
+        self.assertEqual(threads, {"b": ("serial", 1), "a": ("serial", None)})
 
     def test_metadata_alone_fails_the_check(self):
         code, _ = self.check(lambda t: t.replace_schema_metadata({b"m": b"1"}))
