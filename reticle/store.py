@@ -19,6 +19,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -55,9 +56,106 @@ def _last_line(f, block: int = 1 << 16) -> bytes:
     return buf
 
 
+#: Store paths whose files are immutable revisions, named by their content:
+#: a commit keeps an equal file already there and refuses a different one.
+IMMUTABLE_DIRS = ("candidates/", "decisions/")
+RUN_RECORD_VERSION = "scan-run-1"
+
+
+def _remove_empty(directory: Path) -> None:
+    try:
+        directory.rmdir()
+    except OSError:
+        pass            # absent, or other runs still stage there
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 class Store:
     def __init__(self, root: str | Path = DEFAULT_STORE):
         self.root = Path(root).resolve()
+
+    # ---------------------------------------------------------- staged runs
+
+    def staging(self, run_id: str) -> "Store":
+        """An empty scratch store at `<root>/staging/<run_id>/` for one publish.
+
+        A scan writes every stream here and `commit_staged` moves them into
+        the store together, so a publish that fails part way leaves the
+        store as it was.
+        """
+        staged = Store(self.root / "staging" / run_id)
+        if staged.root.exists():
+            raise ValueError(f"staging for run {run_id} already exists: {staged.root}")
+        staged.root.mkdir(parents=True)
+        return staged
+
+    def commit_staged(self, staged: "Store", run_id: str, session_id: str) -> dict:
+        """Move a staged publish into the store and append its run record.
+
+        First, before anything moves, every staged immutable revision
+        (`IMMUTABLE_DIRS`) is checked against the store: an equal file is
+        kept, a different one refuses the whole run. Then each file moves
+        into place with `os.replace`, and `notes/runs.jsonl` gains the run
+        record: `run_id` (the scan's usage run id), the session, and per
+        file its store path, sha256 and bytes. A move that fails part way
+        writes a `partial` record naming the files moved and those still in
+        staging, keeps the staging directory, and raises; nothing rolls it
+        forward yet.
+        """
+        files = sorted(p for p in staged.root.rglob("*") if p.is_file())
+        moves, kept = [], []
+        for src in files:
+            rel = src.relative_to(staged.root).as_posix()
+            dst = self.root / rel
+            if rel.startswith(IMMUTABLE_DIRS) and dst.exists():
+                if dst.read_bytes() != src.read_bytes():
+                    shutil.rmtree(staged.root)
+                    _remove_empty(staged.root.parent)
+                    raise ValueError(f"immutable revision differs from the stored one: {rel}; "
+                                     f"run {run_id} published nothing")
+                kept.append(rel)
+                continue
+            moves.append((rel, src, dst, _sha256(src), src.stat().st_size))
+        record = {"version": RUN_RECORD_VERSION, "run_id": run_id, "session_id": session_id,
+                  "status": "committed",
+                  "files": [{"path": rel, "sha256": sha, "bytes": n}
+                            for rel, _, _, sha, n in moves],
+                  "kept": kept}
+        moved = []
+        try:
+            for rel, src, dst, _, _ in moves:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(src, dst)
+                moved.append(rel)
+        except OSError as exc:
+            record.update(status="partial", moved=moved, error=str(exc),
+                          staging=str(staged.root))
+            self._append_run(record)
+            raise
+        record["committed_at"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        self._append_run(record)
+        shutil.rmtree(staged.root)
+        _remove_empty(staged.root.parent)
+        return record
+
+    def discard_staged(self, staged: "Store") -> None:
+        """Remove a staged publish that will not commit."""
+        shutil.rmtree(staged.root, ignore_errors=True)
+        _remove_empty(staged.root.parent)
+
+    def _append_run(self, record: dict) -> None:
+        path = self.root / "notes" / "runs.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, separators=(",", ":")) + "\n")
 
     # Candidate revisions are immutable; accepted views are separate outputs.
     def candidate_revision_path(self, producer: str, session_id: str,

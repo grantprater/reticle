@@ -839,6 +839,38 @@ def _scan_pass(ctx, readers, cache, progress, usage, pipeline, workers, shards, 
     return got.frames, got
 
 
+def _publish_staged(out, publish, usage, session_id: str) -> dict:
+    """Publish a scan's streams into `out` whole or not at all; the run record.
+
+    `publish(staged)` writes every stream into a scratch store under
+    `out/staging/<run_id>/`, and `Store.commit_staged` moves them into
+    `out` together, with the usage record's `run_id` as the run's. A
+    publish that stops part way -- a reader with zero rows exits after
+    another has written -- leaves `out` as it was, and the usage record is
+    written as `failed` with the reason before the exit goes on. A commit
+    that fails is recorded the same way (see `Store.commit_staged`).
+    """
+    def failed(stage, exc):
+        usage.status, usage.error = "failed", f"{stage}: {exc}"
+        try:
+            usage.write(out.root)
+        except OSError as err:
+            print(f"usage log could not be written: {err}", file=sys.stderr)
+
+    staged = out.staging(usage.run_id)
+    try:
+        publish(staged)
+    except BaseException as exc:
+        out.discard_staged(staged)
+        failed("publish", exc)
+        raise
+    try:
+        return out.commit_staged(staged, usage.run_id, session_id)
+    except BaseException as exc:
+        failed("commit", exc)
+        raise
+
+
 def _scan_check(scan_once, sid, args, shards) -> int:
     """Run the requested path and the serial one into two temporary stores.
 
@@ -1136,7 +1168,9 @@ def cmd_scan(args) -> int:
         return cache, why
 
     def publish(out, R, n_dec, dt):
-        """Write the readers' streams into `out`; inputs still come from `store`."""
+        """Write the readers' streams into `out`, a staging store that
+        `_publish_staged` commits whole; inputs still come from `store`, so
+        each path printed below is the stream's place in staging."""
         hp, kp, mp, pp, rp, sp, lp, ap, dp, cp, xp = (
             R.hp, R.kp, R.mp, R.pp, R.rp, R.sp, R.lp, R.ap, R.dp, R.cp, R.xp)
         if hp is not None:
@@ -1329,8 +1363,11 @@ def cmd_scan(args) -> int:
             except OSError as exc:
                 print(f"usage log could not be written: {exc}", file=sys.stderr)
             return None
-        publish(out, R, n_dec, dt)
+        run = _publish_staged(out, lambda staged: publish(staged, R, n_dec, dt), usage, sid)
         usage.publish_ns = time.perf_counter_ns() - publish_t0
+        print(f"published  run {run['run_id']}: {len(run['files'])} files moved from staging "
+              f"into {out.root}" + (f", {len(run['kept'])} equal revisions kept"
+                                   if run["kept"] else ""))
         try:
             usage.write(out.root)
             usage.write_metric(out.root)
