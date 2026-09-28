@@ -1222,6 +1222,19 @@ tagged `small-widget` and ingested `valorant-16x9-bigmap` on its first run;
 [the prototypes archive](docs/archive/PROTOTYPES-through-2026-09-23.md) records on 2026-09-07
 that the tag was wrong.
 
+Since 2026-09-26 it does run from Claude Code hooks (`.claude/settings.json`),
+which differ from a git hook in that hurry cannot skip them:
+`tools/hook_pickup.py` prints NOTES.md, the `reticle.status` header and
+doctor's summary at session start, resume and compaction, and
+`tools/hook_doctor.py` refuses to end a turn on a geometry-guard failure or a
+doctor ERROR, once per turn, and reruns doctor only when the tree changed.
+`tools/hook_no_session_url.py` blocks any call that carries a Claude session
+URL. `tools/hook_session_score.py` writes one objective row per session to
+`~/reticle-store/notes/sessions.jsonl` (turns, tool calls, edits, tests,
+commits, compactions, effort, model); it counts no corrections, because a
+phrase regex matched two of 201 recorded prompts, both wrongly, and a wrong
+count is worse than a null.
+
 *Added 2026-09-05, after a review found the duplicate. The first version of
 this note claimed the rule was already here when it was not, which is the
 failure mode the note itself is about.*

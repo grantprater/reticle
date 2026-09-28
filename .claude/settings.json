@@ -3,25 +3,28 @@
     "commit": "",
     "sessionUrl": false
   },
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
-    "ANTHROPIC_API_KEY": "",
-    "ANTHROPIC_MODEL": "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK": "1",
-    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
-    "ENABLE_TOOL_SEARCH": "false",
-    "CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT": "1"
-  },
   "hooks": {
-    "PostToolUse": [
+    "SessionStart": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "/c/Users/grant/reticle/.venv/Scripts/python.exe /c/Users/grant/reticle/tools/guard_geometry.py --hook",
+            "command": "\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\" \"$CLAUDE_PROJECT_DIR/tools/hook_pickup.py\"",
             "timeout": 60,
-            "statusMessage": "Checking the art-derived geometry path"
+            "statusMessage": "Reading the handoff, status and doctor"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\" \"$CLAUDE_PROJECT_DIR/tools/hook_no_session_url.py\"",
+            "timeout": 10
           }
         ]
       }
@@ -31,8 +34,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/c/Users/grant/reticle/.venv/Scripts/python.exe /c/Users/grant/reticle/tools/guard_geometry.py >/dev/null 2>&1 || echo '{\"systemMessage\": \"GEOMETRY GUARD FAILED: the art-derived map path is broken. Run .venv/Scripts/python.exe tools/guard_geometry.py in ~/reticle to see what.\"}'",
-            "timeout": 60
+            "command": "\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\" \"$CLAUDE_PROJECT_DIR/tools/hook_doctor.py\"",
+            "timeout": 60,
+            "statusMessage": "Geometry guard and doctor"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\" \"$CLAUDE_PROJECT_DIR/tools/hook_session_score.py\"",
+            "timeout": 30
           }
         ]
       }

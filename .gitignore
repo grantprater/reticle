@@ -9,3 +9,4 @@ __pycache__/
 overlay_*.mp4
 STATUS.md
 .cache/
+.claude/doctor.ok
