@@ -732,24 +732,45 @@ BACKLOG_MAX_OPEN = 3
 #: The queue's section, up to the next second-level heading.
 AGREED_ORDER = re.compile(r"(?ms)^## Agreed order[^\n]*\n(.*?)(?=^## |\Z)")
 NUMBERED_ITEM = re.compile(r"\d+\.\s+\*\*")
+#: An open item's contract: a source line inside its paragraph that opens with
+#: the label and says something after it.
+CONTRACT_LINES = {label: re.compile(rf"\s*{label}:\s*\S") for label in ("Acceptance", "Evidence")}
 
 
-def backlog_open_items(backlog: str) -> list[str] | None:
-    """The first line of each open item under `## Agreed order`; None without one.
+def backlog_open_blocks(backlog: str) -> list[list[str]] | None:
+    """The source lines of each open item under `## Agreed order`; None without one.
 
-    A numbered item counts on every line it starts, blank line or not; a bold
-    lead counts only at a paragraph's start, so wrapped prose that happens to
-    open with bold text is not an item.
+    A numbered item starts on every line it opens, blank line or not; a bold
+    lead starts one only at a paragraph's start, so wrapped prose that happens
+    to open with bold text is not an item. An item runs to the next blank line
+    or the next item.
     """
     section = AGREED_ORDER.search(backlog)
     if section is None:
         return None
-    items, previous = [], ""
+    blocks, current, previous = [], None, ""
     for line in section.group(1).splitlines():
         if NUMBERED_ITEM.match(line) or (not previous.strip() and line.startswith("**")):
-            items.append(line)
+            current = [line]
+            blocks.append(current)
+        elif not line.strip():
+            current = None
+        elif current is not None:
+            current.append(line)
         previous = line
-    return items
+    return blocks
+
+
+def backlog_open_items(backlog: str) -> list[str] | None:
+    """The first line of each open item under `## Agreed order`; None without one."""
+    blocks = backlog_open_blocks(backlog)
+    return None if blocks is None else [block[0] for block in blocks]
+
+
+def _item_title(line: str) -> str:
+    """An item's bold lead, or its first line when it has none, cut to 40 characters."""
+    bold = re.search(r"\*\*(.+?)\*\*", line)
+    return (bold.group(1) if bold else line).strip()[:40].rstrip()
 
 
 def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
@@ -764,14 +785,20 @@ def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
     `BACKLOG.md` dropped them on 2026-09-23, so from then the limit and every
     contract check tied to an active task passed on nothing. It now reads the
     section the queue actually uses, and a missing section is a finding
-    rather than zero items. `docs/tasks.json` is optional: absent, its checks
-    are skipped.
+    rather than zero items.
+
+    **Each open item carries its own contract** (2026-09-27): an `Acceptance:`
+    line names the one command that must exist and pass when the item closes,
+    and an `Evidence:` line says what a reviewer must see first. Both open a
+    source line inside the item's paragraph. They replace `docs/tasks.json`,
+    which this check no longer reads. Items without them draw ONE finding
+    that counts them and names three, so a queue written before the rule
+    does not bury every other finding.
     """
     root = root or ROOT
     out = []
     notes_path = root / "NOTES.md"
     backlog_path = root / "BACKLOG.md"
-    contracts_path = root / "docs" / "tasks.json"
     for path in (notes_path, backlog_path):
         if not path.is_file():
             return [(WARN, f"missing handoff file: {path.relative_to(root)}")]
@@ -785,13 +812,22 @@ def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
         out.append((WARN, f"NOTES.md has {lines} lines and {words} words; limits are "
                           f"100 and {NOTES_MAX_WORDS}"))
     backlog = backlog_path.read_text(encoding="utf-8")
-    items = backlog_open_items(backlog)
-    if items is None:
+    blocks = backlog_open_blocks(backlog)
+    if blocks is None:
         out.append((WARN, "BACKLOG.md has no `## Agreed order` heading, so no open "
                           "item is counted"))
-    elif len(items) > BACKLOG_MAX_OPEN:
-        out.append((WARN, f"BACKLOG.md has {len(items)} open items under Agreed order; "
-                          f"limit is three"))
+    else:
+        if len(blocks) > BACKLOG_MAX_OPEN:
+            out.append((WARN, f"BACKLOG.md has {len(blocks)} open items under Agreed order; "
+                              f"limit is three"))
+        bare = [block[0] for block in blocks
+                if not all(any(rule.match(line) for line in block[1:])
+                           for rule in CONTRACT_LINES.values())]
+        if bare:
+            named = ", ".join(f'"{_item_title(line)}"' for line in bare[:3])
+            out.append((WARN, f"BACKLOG.md: {len(bare)} of {len(blocks)} open items carry "
+                              f"no Acceptance: or Evidence: line -- {named}; write both on "
+                              f"each item, and on every new one"))
     lines, words = len(backlog.splitlines()), len(backlog.split())
     if lines > 150 or words > BACKLOG_MAX_WORDS:
         out.append((WARN, f"BACKLOG.md has {lines} lines and {words} words; limits are "
@@ -801,21 +837,6 @@ def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
     if n_done > BACKLOG_MAX_COMPLETED:
         out.append((WARN, f"BACKLOG.md lists {n_done} completed tasks; keep the latest "
                           f"{BACKLOG_MAX_COMPLETED} and archive the rest under docs/archive/"))
-    if not contracts_path.is_file():
-        return out
-    try:
-        contracts = json.loads(contracts_path.read_text(encoding="utf-8"))
-        tasks = contracts["tasks"]
-        ids = {task["id"] for task in tasks}
-        if len(ids) != len(tasks):
-            out.append((WARN, "docs/tasks.json has duplicate task IDs"))
-        for task in tasks:
-            for read in task.get("reads", []):
-                path = root / read.split("#", 1)[0]
-                if not path.is_file():
-                    out.append((WARN, f"contract {task['id']} has missing read: {read}"))
-    except (ValueError, KeyError, TypeError) as exc:
-        out.append((WARN, f"invalid docs/tasks.json: {exc}"))
     return out
 
 
