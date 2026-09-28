@@ -57,13 +57,36 @@ ECONOMY_VERSION = "economy-0.1.0"
 # 0.7.0: one `sample` row per frame offered, open or closed, naming the test
 # that closed it (`scoreboard.CLOSE_REASONS`); the coverage row counts them.
 # No verdict changes.
-SCOREBOARD_VERSION = "scoreboard-0.7.0"
-# Stored versions whose row verdicts the current reader reproduces. A consumer
-# of VERDICTS (the lineup constraining its top bar by the board) accepts these;
-# `reticle plan` still names the rescan that adds the newer fields. 0.7.0 adds
+# 0.8.0: where the round-history strip witness reads present, the blocks are
+# the slab runs that meet its marker lines, not the tallest runs; a block the
+# strip does not bound is refused (`green_not_at_strip`, `red_not_at_strip`,
+# `red_short_at_strip`). Absent or unreadable strip: 0.7.0 exactly. Sample
+# and row events carry `anchor`, `strip` and `edges`. One decode of
+# [metric:scoreboard/anchored@a06f04a0059f#frames_decoded=300] frames of a06f04a0059f
+# (docs/SCOREBOARD_PRESENCE.md, "Anchoring on the strip"): of 100 boards the
+# strip saw and 0.7.0 closed, [metric:scoreboard/anchored@a06f04a0059f#closed_present_opened_five_each=70] open, all at the board.
+# Of 100 it opened, [metric:scoreboard/anchored@a06f04a0059f#open_present_off_board_before=55] had enemy rows off the board:
+# [metric:scoreboard/anchored@a06f04a0059f#open_present_off_board_moved_onto_board=35] now sit on it (portrait median
+# [metric:scoreboard/anchored@a06f04a0059f#moved_enemy_portrait_median_before=0.518] -> [metric:scoreboard/anchored@a06f04a0059f#moved_enemy_portrait_median_after=0.91]) and
+# [metric:scoreboard/anchored@a06f04a0059f#open_present_off_board_refused=20] are refused. Of [metric:scoreboard/anchored@a06f04a0059f#open_present_at_board_before=45] at the
+# board, [metric:scoreboard/anchored@a06f04a0059f#open_present_at_board_changed=3] are refused where the enemy slab's top rows fail
+# the red test and the rest are unchanged. Frames without the strip:
+# [metric:scoreboard/anchored@a06f04a0059f#absent_equal_070=100] of 100 unchanged.
+SCOREBOARD_VERSION = "scoreboard-0.8.0"
+# Stored versions whose accepted openings the current reader does not
+# contradict. A consumer of VERDICTS (the lineup constraining its top bar by
+# the board) accepts these; `reticle plan` still names the rescan. 0.7.0 adds
 # rows and a reason and changes no verdict, so without this the bump refused
 # the board on every stored session and named 122 of 190 lineup slots.
-SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", SCOREBOARD_VERSION)
+# 0.8.0 rewrites the enemy rows of most boards 0.7.0 opened off the board,
+# and the openings gate refuses those boards: every accepted stored opening
+# on the 19 lineup sessions ([metric:scoreboard/stored-openings@all-sessions#accepted_at_board=6018]) has its enemy rows at
+# the board, [metric:scoreboard/stored-openings@all-sessions#accepted_off_board=0] off it. At the accepted ones in the sample,
+# 0.8.0 writes the same rows on [metric:scoreboard/anchored@a06f04a0059f#stored_accepted_same=41], the same reads 6 px higher on
+# [metric:scoreboard/anchored@a06f04a0059f#stored_accepted_moved_same_reads=1], and refuses [metric:scoreboard/anchored@a06f04a0059f#stored_accepted_refused_now=3]; it names no other agent in any. So
+# 0.6.0 and 0.7.0 stay applied, and the openings 0.8.0 adds wait for the
+# rescan.
+SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", SCOREBOARD_VERSION)
 # The round-history strip as a second presence witness of the Tab board, read
 # by `scoreboard_strip` from the hud crop cache's `center` crop and written as
 # `scoreboard_strip` rows by `reticle strip`. 0.1.0 ports the rule and

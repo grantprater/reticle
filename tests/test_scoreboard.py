@@ -234,7 +234,7 @@ class CloseReasonTests(unittest.TestCase):
 
     def test_every_reason_is_declared(self):
         from reticle.scoreboard import CLOSE_REASONS
-        self.assertEqual(len(set(CLOSE_REASONS)), 9)
+        self.assertEqual(len(set(CLOSE_REASONS)), 12)
 
     def test_the_reader_stores_a_sample_row_per_frame_offered(self):
         closed = ScoreboardRead(False, reason="red_short")
@@ -251,6 +251,90 @@ class CloseReasonTests(unittest.TestCase):
                          [(0, False, "red_short"), (30, False, "red_short"),
                           (60, False, "red_short")])
         self.assertEqual({s["scoreboard_version"] for s in samples}, {SCOREBOARD_VERSION})
+
+
+class StripAnchorTests(unittest.TestCase):
+    """Where the round-history strip is present, the blocks are the runs that
+    meet its marker lines; where it is not, the tallest runs, as at 0.7.0.
+
+    The frames are drawn in pixels at 1920x1080 and read by the real colour
+    test and the real strip witness; only the digit reader is stubbed."""
+
+    GREEN, RED, WORLD, BAND = (70, 120, 70), (60, 60, 130), (50, 80, 140), (90, 90, 90)
+    X0, X1 = 572, 1348            # the table's columns
+    RECT = (883, 486, 1037, 594)  # the profile's centre ROI at 1920x1080
+
+    def frame(self, lines=True, ally=(340, 510), enemy=(568, 738), world=(738, 1000),
+              green_band=0):
+        from reticle import scoreboard_strip as strip
+        f = np.full((1080, 1920, 3), 40, np.uint8)
+        f[ally[1]:enemy[0] if enemy else 568, self.X0:self.X1] = self.BAND
+        f[ally[0]:ally[1] + green_band, self.X0:self.X1] = self.GREEN
+        if enemy:
+            f[enemy[0]:enemy[1], self.X0:self.X1] = self.RED
+        if world:
+            f[world[0]:world[1], :] = self.WORLD   # warm floor passes the red test
+        if lines:
+            for y in strip.ROW_Y:
+                for k in range(6):
+                    x = self.RECT[0] + 12 + 22 * k
+                    f[y:y + 2, x:x + 2] = 30
+        return f
+
+    def read(self, frame, rect=RECT):
+        detail = (0, None, 1.0, 1.0, 0)
+        with patch("reticle.scoreboard._read_cell_detail", return_value=detail):
+            return read_scoreboard(frame, object(), 0, 0, rect)
+
+    def test_world_below_the_enemy_block_is_cut_off_at_the_board(self):
+        board = self.read(self.frame())
+        self.assertEqual((board.open_, board.anchor, board.strip), (True, "strip", "present"))
+        self.assertEqual(board.edges, ("run", "strip"))
+        self.assertEqual([(r.team, r.y0, r.y1) for r in board.rows],
+                         [("ally", 340 + 34 * k, 374 + 34 * k) for k in range(5)]
+                         + [("enemy", 568 + 34 * k, 602 + 34 * k) for k in range(5)])
+
+    def test_without_the_strip_the_tallest_run_decides_as_at_0_7_0(self):
+        board = self.read(self.frame(lines=False))
+        self.assertEqual((board.open_, board.reason, board.anchor, board.strip),
+                         (False, "red_tall", "tallest_run", "absent"))
+        # Not consulted at all: the same verdict, with no strip verdict.
+        board = self.read(self.frame(), rect=None)
+        self.assertEqual((board.open_, board.reason, board.anchor, board.strip),
+                         (False, "red_tall", "tallest_run", None))
+
+    def test_a_taller_world_run_no_longer_takes_the_enemy_rows(self):
+        # The floor is its own red run, taller than the enemy block: at 0.7.0
+        # it took the enemy rows off the board.
+        world = (800, 1080)
+        old = self.read(self.frame(lines=False, world=world))
+        self.assertTrue(old.open_)
+        self.assertEqual(old.rows[5].y0, 1080 - 170)
+        board = self.read(self.frame(world=world))
+        self.assertEqual((board.open_, board.anchor, board.edges), (True, "strip", ("run", "run")))
+        self.assertEqual((board.rows[5].y0, board.rows[9].y1), (568, 738))
+        # Rows on a run that ends where the ally height puts it keep the 0.7.0 place.
+        same = self.read(self.frame(lines=False, world=None))
+        self.assertEqual([(r.y0, r.y1) for r in same.rows], [(r.y0, r.y1) for r in board.rows])
+
+    def test_a_strip_with_no_slab_run_beside_it_refuses(self):
+        board = self.read(self.frame(enemy=None, world=(800, 1080)))
+        self.assertEqual((board.open_, board.reason, board.anchor), (False, "red_not_at_strip", "strip"))
+        board = self.read(self.frame(ally=(300, 480)))
+        self.assertEqual((board.open_, board.reason), (False, "green_not_at_strip"))
+        board = self.read(self.frame(enemy=(568, 640), world=None))
+        self.assertEqual((board.open_, board.reason), (False, "red_short_at_strip"))
+
+    def test_a_green_band_is_cut_off_at_the_upper_line(self):
+        board = self.read(self.frame(green_band=30))   # green world across the upper line
+        self.assertEqual((board.open_, board.edges), (True, ("strip", "strip")))
+        self.assertEqual((board.rows[0].y0, board.rows[4].y1), (340, 510))
+
+    def test_the_strip_rectangle_is_the_profile_roi_at_the_measured_size(self):
+        from reticle.scoreboard import strip_rect
+        self.assertEqual(strip_rect("valorant-16x9", 1920, 1080), self.RECT)
+        self.assertIsNone(strip_rect("valorant-16x9", 2560, 1440))
+        self.assertIsNone(strip_rect("no-such-profile", 1920, 1080))
 
 
 if __name__ == "__main__":
