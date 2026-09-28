@@ -2890,14 +2890,16 @@ def cmd_ability_state(args) -> int:
     the stored `tray_drop` rows, the gate's verdicts on them, the deaths, and
     the tray fills reread from the stored `hud_abilities` crops on the grid
     `reticle tray` sampled, which carry what the drops cannot (the level
-    between drops, an equip, a lit X bar, every rise). Decodes no video."""
+    between drops, an equip, a lit X bar, every rise). The wiki harvest
+    (`reference/abilities.json`) is the charge prior where no domain fact
+    gives a count (`charge_priors`). Decodes no video."""
     import json
     import time
 
     from . import domain, tray
     from .ability_timeline import kit_windows, player_tray_casts, stored_gate_inputs
-    from .adjudication.ability_state import (adjudicate, player_agent_verdict, player_kit,
-                                             slot_parameters)
+    from .adjudication.ability_state import (CATALOGUE_PATH, adjudicate, player_agent_verdict,
+                                             player_kit, slot_parameters)
     from .adjudication.ult_cast import DROP_FIELDS
     from .lineup import load_lineup
     from .roi_cache import RoiCache
@@ -2905,6 +2907,15 @@ def cmd_ability_state(args) -> int:
 
     store = Store(args.store)
     facts = domain.load()
+    # The charge prior: the harvest, stamped by its date, or its stated absence.
+    cat_file = store.root / CATALOGUE_PATH
+    catalogue = (json.loads(cat_file.read_text(encoding="utf-8")) if cat_file.is_file()
+                 else None)
+    cat_stamp = (f"{CATALOGUE_PATH}@{catalogue.get('harvested')}" if catalogue is not None
+                 else f"absent:{CATALOGUE_PATH}")
+    if catalogue is None:
+        print(f"no charge prior: {cat_file} is absent; slots without a fact stay unread "
+              f"and the kit names no ability")
     done = []
     for sid in _sessions_arg(store, args):
         t0 = time.perf_counter()
@@ -2948,8 +2959,9 @@ def cmd_ability_state(args) -> int:
         kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
                            second_lives_ms=gate["second_lives_ms"],
                            revives_ms=gate["revives_ms"], report_deaths=gate["report_deaths"])
-        kit = player_kit(agent["agent"], store.root)
-        inputs = {**stamps, "tray_drop": cov["tray_version"],
+        # The kit's names come from the same harvest (`lineup.abilities_for`).
+        kit = player_kit(agent["agent"], store.root) if catalogue is not None else {}
+        inputs = {**stamps, "tray_drop": cov["tray_version"], "catalogue": cat_stamp,
                   "tray_drop_player_cast": cov.get("player_cast_version"),
                   "tray_fill": TRAY_VERSION, "roi_cache": cache.record.get("version"),
                   "round": round_version, "lineup": (lineup or {}).get("version"),
@@ -2963,7 +2975,7 @@ def cmd_ability_state(args) -> int:
             sid, drops=drops, gate_rows=gate_rows, kits=kits, phase_of=gate["phase_of"],
             samples={"t_ms": [t for t, r in zip(ts, real) if r], "fills": fills[keep],
                      "drawn": [tray.drawn(f) for f in fills[keep]], "clean": clean[keep]},
-            agent=agent, params=slot_parameters(agent["agent"], kit, facts),
+            agent=agent, params=slot_parameters(agent["agent"], kit, facts, catalogue=catalogue),
             inputs=inputs, checks=checks)
         rows[0]["checks"]["wall_s"] = round(time.perf_counter() - t0, 1)
         out = store.write_events("ability_state", sid, rows)
@@ -2971,7 +2983,10 @@ def cmd_ability_state(args) -> int:
         print(f"{sid}: {agent['agent']} ({agent['status']}); {c['readable_slot_samples']} of "
               f"{c['slot_samples']} slot-samples readable; {c['by_transition']}; surprises "
               f"{c['surprises']}; reread mismatch {reread_mismatch}, gate mismatch "
-              f"{checks['gate_stored_mismatch']}; {rows[0]['checks']['wall_s']} s -> {out}")
+              f"{checks['gate_stored_mismatch']}; counts from {c['charges_source']}, "
+              f"conflicts {len(c['charge_conflicts'])}, without a count "
+              f"{[x['slot'] for x in c['slots_without_count']]}; "
+              f"{rows[0]['checks']['wall_s']} s -> {out}")
         done.append((sid, rows))
     if args.record and done:
         from . import metrics
@@ -2982,7 +2997,7 @@ def cmd_ability_state(args) -> int:
                        deps={"ability_state_version": ABILITY_STATE_VERSION,
                              "tray_version": TRAY_VERSION,
                              "player_cast_version": PLAYER_CAST_VERSION},
-                       context={"labels": "labels/tray_object",
+                       context={"labels": "labels/tray_object", "catalogue": cat_stamp,
                                 "sessions": [sid for sid, _ in done]})
         print(json.dumps(values, indent=1))
     return 0
@@ -2990,12 +3005,14 @@ def cmd_ability_state(args) -> int:
 
 def _ability_state_values(store, done) -> dict:
     """The quoted numbers of one `ability-state --record` run: coverage, the
-    unreadable reasons, the invariant counts, and the player's labels."""
+    unreadable reasons, the invariant counts, the charge counts' sources and
+    conflicts, the half readings against each count, and the player's labels."""
     import json
 
     from .adjudication.ability_state import EQUIP_MIN, score_labels
     pooled, invariants, unread, reasons = Counter(), Counter(), Counter(), Counter()
     labelled = []
+    sources, slot_source, conflicts, without, segments = Counter(), {}, {}, {}, {}
     for sid, rows in done:
         c = rows[0]
         # Where an equipped slot's fill sits: the stored releases' `from`.
@@ -3012,6 +3029,25 @@ def _ability_state_values(store, done) -> dict:
         pooled.update({f"surprise_{k}": v for k, v in c["surprises"].items()})
         unread.update(c["unreadable_slot_samples"])
         reasons.update(c["charges_unread_readable_slot_samples"])
+        # Where each count came from, per distinct agent and slot.
+        sources.update(c["charges_source_readable_slot_samples"])
+        who = c["agent"].get("agent")
+        for slot, src in c["charges_source"].items():
+            if who and src:
+                slot_source[f"{who}:{slot}"] = src
+        for x in c["charge_conflicts"]:
+            conflicts[f"{who}:{x['slot']}"] = (f"{who}:{x['slot']}:{x['kind']}:player={x['player']}"
+                                               f":catalogue={x['catalogue']}:{x['fact']}")
+        for x in c["slots_without_count"]:
+            if who:
+                without[f"{who}:{x['slot']}"] = f"{who}:{x['slot']}:{x['prior_reason'] or x['reason']}"
+        for slot, seg in c["segments"].items():
+            k = f"{who}:{slot}"
+            got = segments.setdefault(k, {"max_charges": seg["max_charges"],
+                                          "source": seg["source"], "half_samples": 0,
+                                          "agree": 0, "disagree": 0, "unscored": 0})
+            for f in ("half_samples", "agree", "disagree", "unscored"):
+                got[f] += seg[f]
         for k, v in c["invariants"].items():
             if isinstance(v, int):
                 invariants[k] += v
@@ -3029,6 +3065,20 @@ def _ability_state_values(store, done) -> dict:
     values["unreadable_fraction"] = round(1 - values["readable_fraction"], 4)
     values.update({f"charges_unread_{k}": v for k, v in sorted(reasons.items())})
     values.update({f"invariant_{k}": v for k, v in sorted(invariants.items())})
+    values.update({
+        "charges_source_player": sources.get("player", 0),
+        "charges_source_catalogue": sources.get("catalogue", 0),
+        "slots_source_player": sum(v == "player" for v in slot_source.values()),
+        "slots_source_catalogue": sum(v == "catalogue" for v in slot_source.values()),
+        "charge_conflicts": len(conflicts),
+        "charge_conflict_slots": [conflicts[k] for k in sorted(conflicts)],
+        "slots_without_count": len(without),
+        "slots_without_count_names": [without[k] for k in sorted(without)],
+        "segments_agree": sum(v["agree"] for v in segments.values()),
+        "segments_disagree": sum(v["disagree"] for v in segments.values()),
+        "segments_unscored": sum(v["unscored"] for v in segments.values()),
+        "segments_by_slot": {k: segments[k] for k in sorted(segments)
+                             if segments[k]["half_samples"]}})
     casts = [lab for lab in labelled if lab["transition"] == "cast"]
     values.update({"labels": len(labelled), "labels_cast": len(casts),
                    "labels_cast_held_before": sum(bool(lab["held_before"]) for lab in casts),
