@@ -118,6 +118,17 @@ class PlanTests(unittest.TestCase):
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("death", ["round"])])
 
+    def test_a_newer_scoreboard_or_identity_rule_stales_the_deaths(self):
+        """`7010b3d62460`'s deaths read scoreboard-0.6.0 after the stream moved
+        to 0.9.0, and `plan` called them current."""
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["death:rows"][0]["inputs"].update(
+                scoreboard="scoreboard-0.0.1", agent_identity="agent-identity-0.0.1")
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
+                             [("death", ["agent_identity", "scoreboard"])])
+
     def test_stale_voice_line_peaks_reread_the_audio_then_rerun_the_casts(self):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))

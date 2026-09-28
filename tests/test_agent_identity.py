@@ -393,6 +393,18 @@ class PortraitExemplarTests(unittest.TestCase):
         self.assertEqual(got["evidence"]["likelihood_source"], "art_or_exemplar")
         self.assertLess(got["evidence"]["posterior"]["Brimstone"], 0.9)
 
+    def test_the_recorded_exemplar_is_the_one_at_the_winning_shift(self):
+        """A later shift where another exemplar beats the art, at a lower
+        penalised score, must not take the provenance."""
+        from reticle.adjudication.identity import _portrait_scores
+        at_zero = dict(self.EX, composition=[1.0, 0.0, 0.0, 0.0], label_entity="death:S:100:ally:0")
+        at_four = dict(self.EX, composition=[0.0, 1.0, 0.0, 0.0], label_entity="death:S:200:ally:0")
+        sources = {}
+        scores = _portrait_scores(None, ["Deadlock"], {}, [at_zero, at_four], sources=sources,
+                                  shifts={"0": [1.0, 0.0, 0.0, 0.0], "4": [0.0, 1.0, 0.0, 0.0]})
+        self.assertAlmostEqual(scores["Deadlock"], 1.0)
+        self.assertEqual(sources["Deadlock"]["label_entity"], "death:S:100:ally:0")
+
     def test_likelihood_ratios_are_linear_and_posteriors_sum_to_one(self):
         from reticle.adjudication.identity import (PORTRAIT_LIKELIHOOD, portrait_llr,
                                                    portrait_posterior)
