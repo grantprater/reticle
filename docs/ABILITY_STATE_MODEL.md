@@ -394,8 +394,8 @@ The player confirmed one Recon Bolt charge
 Guiding Light [domain:abilities/phoenix-curveball-charges]
 [domain:abilities/skye-guiding-light-charges], and named the two restock
 kinds, a timer or kills, per ability [domain:abilities/recharge-kinds]. The
-first run's rows are relabelled `all-sessions-before-e-facts` and the rerun records under
-`all-sessions`.
+first run's rows are relabelled `all-sessions-before-e-facts` and this run's
+`all-sessions-three-e-facts`.
 
 Before the rerun the five A1 misses were read in the crops. The two on
 `c40d950031bb` (595 s, 912 s) follow Sova's deaths at 592.5 s and 908.5 s:
@@ -408,15 +408,39 @@ cast; the player's label there is `nothing_on_minimap`. A half bar on a
 one-charge slot is the instrument, and the tray's icons say whose kit is
 shown, a witness for deaths the killfeed misses.
 
-With the facts, [metric:ability_state/step1@all-sessions#labels_cast_held_before=93] of 94 labelled
+With the facts, [metric:ability_state/step1@all-sessions-three-e-facts#labels_cast_held_before=93] of 94 labelled
 casts held a charge or a lit bar before (S1 asked 93: the two Phoenix and two
 Skye E casts read one charge of two, and the Sova E drop is not confirmed);
-[metric:ability_state/step1@all-sessions#invariant_1_cast_charge_unconfirmed=9] casts are
+[metric:ability_state/step1@all-sessions-three-e-facts#invariant_1_cast_charge_unconfirmed=9] casts are
 unconfirmed (S3 asked at most 20, from 44), a level outside the segments on
-[metric:ability_state/step1@all-sessions#invariant_1_level_outside_the_segments=2] readings (S2
+[metric:ability_state/step1@all-sessions-three-e-facts#invariant_1_level_outside_the_segments=2] readings (S2
 asked 1 to 39; `59c70f1ef720` 2429 s is the glow, `9acf02f98283` 210 s is the whole tray dimmed in a buy phase, every slot at 0.6 of full), and
-[metric:ability_state/step1@all-sessions#invariant_surprises=78] surprises
-([metric:ability_state/step1@all-sessions#surprise_level_fell_without_a_cast=60] refused drops
+[metric:ability_state/step1@all-sessions-three-e-facts#invariant_surprises=78] surprises
+([metric:ability_state/step1@all-sessions-three-e-facts#surprise_level_fell_without_a_cast=60] refused drops
 whose level fell). The run records no `step1-scores` row; the first run's
 scores stand. S1 to S3 held (ledger). Seven slots have no charge fact: Sova and Skye C and Q, Phoenix Q,
 Clove C and Q; Iso's kit joins when `4f207c0c4e39` is ingested.
+
+### Rerun with the seven remaining counts (2026-09-27, late)
+
+The player gave the seven counts left: Owl Drone one
+[domain:abilities/sova-owl-drone-charges], Shock Bolt two
+[domain:abilities/sova-shock-bolt-charges], Trailblazer one
+[domain:abilities/skye-trailblazer-charges], Hot Hands one
+[domain:abilities/phoenix-hot-hands-charges], Pick-me-up one, castable only
+within 10 s of a kill or damaging assist
+[domain:abilities/clove-pick-me-up-charges], Meddle one
+[domain:abilities/clove-meddle-charges], none recharging within a round.
+Regrowth is a pool drawn as a resource bar, not charges
+[domain:abilities/skye-regrowth-resource-bar], so Skye's C stays a no-fact
+slot until the model reads a pool; Viper's fuel is one bar two abilities
+drain, refilled at a constant rate while idle
+[domain:abilities/viper-fuel-bar-recharges]. The rerun records under
+`all-sessions`: [metric:ability_state/step1@all-sessions#labels_cast_held_before=93] of 94 labelled
+casts held a charge before,
+[metric:ability_state/step1@all-sessions#invariant_1_cast_charge_unconfirmed=9] unconfirmed
+(five on `c62c2b06bcfb`, which has no lineup, so no fact names its agent; four whose slot read empty just before the labelled cast: Sova E `59c70f1ef720` 2429.0 s, Sova C `9acf02f98283` 610.1 s, Phoenix Q `a06f04a0059f` 1412.6 s, Skye Q `b7d24102a6f6` 650.0 s), a level outside the segments on
+[metric:ability_state/step1@all-sessions#invariant_1_level_outside_the_segments=14] readings
+(Phoenix:Q 1, Skye:Q 1, Sova:C 10, Sova:E 2), [metric:ability_state/step1@all-sessions#invariant_surprises=78] surprises
+([metric:ability_state/step1@all-sessions#surprise_level_fell_without_a_cast=60] refused drops
+whose level fell). S4 failed; S5 held (ledger).
