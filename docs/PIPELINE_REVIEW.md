@@ -2,7 +2,8 @@
 
 2026-09-09. Status: implementation in progress through the P3 foundation.
 This review governs the next pipeline increments; the development-workflow
-history remains in [ARCHITECTURE_PLAN.md](ARCHITECTURE_PLAN.md). The detailed
+history remains in [the archived architecture plan](archive/ARCHITECTURE_PLAN-2026-09-09.md):
+A1-A4 finished on 2026-09-07, and A5 and A6 were never resumed. The detailed
 resolver contract remains in [ADJUDICATION_DESIGN.md](ADJUDICATION_DESIGN.md).
 
 ## Assessment and evidence boundary

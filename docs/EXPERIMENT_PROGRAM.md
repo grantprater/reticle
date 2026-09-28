@@ -1,11 +1,13 @@
 # Experiments toward a complete observable event record
 
+Status (2026-09-27): proposed; no module or command implements it.
+
 2026-09-24. Proposed experiments, not measured results. This design extends
 [pipeline acceptance](PIPELINE_REVIEW.md) and the
-[bounded learning pilot](ENTITY_DOMAIN_LOOP_PILOT.md). It does not replace the
+[bounded learning pilot](archive/ENTITY_DOMAIN_LOOP_PILOT-2026-09-24.md). It does not replace the
 active backlog or launch that pilot.
 
-Concurrent execution: [two-lane launch and handoff plan](BOOTSTRAP_PARALLEL_RUN.md).
+Concurrent execution: [two-lane launch and handoff plan](archive/BOOTSTRAP_PARALLEL_RUN-2026-09-24.md).
 
 The central hypothesis: an explicit belief about a reader, a discriminating
 observation, and a recorded revision produce more useful progress per unit cost

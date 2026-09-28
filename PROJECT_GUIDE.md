@@ -1605,8 +1605,12 @@ Moved verbatim from the root `CLAUDE.md` on 2026-09-23, when the root guidance w
   hid two real violations until this check existed.
 - **WHO MAY DECIDE A QUESTION IS DECLARED IN `ownership.toml`, AND VERIFIED.**
   One entry per question, naming the owner, what it produces, what it defers to,
-  and -- the field to read second -- what it is `not_for`. The negative boundary
-  is what stops a module being selected because its NAME matched: `roster` owns
+  and -- the field to read second -- what it is `not_for`. The word *identity*
+  means seven things here -- an agent in a roster slot, an icon being the local
+  player, an observation continuing a track, components belonging to one
+  ability, an ability's owner, a killfeed entry's victim, and a media file
+  being one session -- and modules are named after those words. The negative
+  boundary is what stops a module being selected because its NAME matched: `roster` owns
   alive counts and not agent identity, `minimap` owns where the self icon is and
   not which agent the player is, and `track` owns what a proposed identity may
   DO over time and owns no identity at all. Two faults paid for it -- a packed

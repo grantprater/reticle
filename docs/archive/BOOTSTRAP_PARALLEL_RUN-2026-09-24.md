@@ -1,7 +1,14 @@
 # Two concurrent bootstrap experiments
 
-Status: prepared, not launched. Start after the user's readiness signal.
-Parent: [experiment program](EXPERIMENT_PROGRAM.md).
+Status (2026-09-27): both lanes ran on 2026-09-24 and closed unmerged. Lane A
+ran on branch `experiment/bootstrap-a`, lane B on `experiment/bootstrap-b`, and
+their integration on `experiment/bootstrap-integration`, whose
+`docs/experiments/bootstrap-integration/handoff.md` and `result.json` record the
+outcome: the learner changed no name on the development or transfer slice, so
+the player's answer scored production, not the learner. That branch names
+`tools/bootstrap_compare.py` as the reusable piece. The plan below stands as
+prepared.
+Parent: [experiment program](../EXPERIMENT_PROGRAM.md).
 
 ## Split and first checkpoint
 

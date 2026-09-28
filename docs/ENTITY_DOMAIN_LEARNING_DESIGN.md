@@ -3,7 +3,8 @@
 Date: 2026-09-23
 Status: accepted direction; bounded foundation implementation authorized.
 
-Next pilot handoff: [ENTITY_DOMAIN_LOOP_PILOT.md](ENTITY_DOMAIN_LOOP_PILOT.md).
+The [first pilot](archive/ENTITY_DOMAIN_LOOP_PILOT-2026-09-24.md) ran as bootstrap
+lane B on 2026-09-24 and closed unmerged; the learner changed no name.
 Launch waits for the user's scan-fix readiness confirmation.
 
 ## Purpose

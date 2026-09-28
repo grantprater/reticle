@@ -4,7 +4,7 @@
 sequence diagnostic/review loop. Full entity recognition remains incomplete.
 
 Appearance-reader follow-up, 2026-09-09:
-[MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) specifies the
+[MINIMAP_APPEARANCE_MATCHING.md](../MINIMAP_APPEARANCE_MATCHING.md) specifies the
 proposed shared-centre portrait/shape fit and subsequent region/animation work.
 It owns that implementation sequence; this document retains association,
 cross-channel correction and sequence-review responsibilities.

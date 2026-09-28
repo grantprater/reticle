@@ -42,7 +42,7 @@ The immediate target is the confuser inventory below: naming the other things
 the self key holds. The self-ring fragmentation that opened this plan is fixed
 and shipped in `minimap-0.5.0`.
 
-This extends [MINIMAP_DETECTION_PLAN.md](MINIMAP_DETECTION_PLAN.md) and implements
+This extends [the minimap detection plan](archive/MINIMAP_DETECTION_PLAN-2026-09-09.md) and implements
 the visual hypothesis-testing portion of
 [ABILITY_ENTITY_INFERENCE_DESIGN.md](ABILITY_ENTITY_INFERENCE_DESIGN.md).
 Those documents own temporal association, origins, attribution and collection.
@@ -222,7 +222,7 @@ How the gate is allowed to be used:
   and the mechanical doors on Ascent and Lotus still do. Scoring a channel
   against it and calling the result precision implies a truth that is not there.
 - **Unknown light is never counted as unlit.** That rule is already in
-  `MINIMAP_DETECTION_PLAN.md`, and it is what keeps this gate from refusing on
+  [the minimap detection plan](archive/MINIMAP_DETECTION_PLAN-2026-09-09.md), and it is what keeps this gate from refusing on
   pixels that simply could not be classified.
 
 **The safe direction of error is the opposite of the entity model's.**

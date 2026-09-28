@@ -42,15 +42,16 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | HUD, killfeed, roster | `ocr.py`, `killfeed.py`, `roster.py` |
 | Rounds and phase boundaries | `rounds.py`, `scoreboard.py` |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py` |
+| Which stored minimap fits become icons, and what a candidate record carries | `candidate_evidence.py`, `adjudication/minimap_candidates.py`, [MINIMAP_CANDIDATE_CONTRACT.md](MINIMAP_CANDIDATE_CONTRACT.md) |
 | Position belief and its evidence | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
 | Which icon is which: the occluder inventory, the glyph track G1-G5, and portrait/shape/region/animation matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
 | Current mining critique, minimal-label extraction design, and deterministic/YOLO comparison | [MINIMAP_MINING_REVIEW.md](MINIMAP_MINING_REVIEW.md) |
 | What else lives in a colour key | `prototypes/key_collision.py`, off existing label sheets, no decode |
 | Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py` |
 | What is true of the GAME, cited not restated | `domain/*.toml`, `reticle/domain.py`, `reticle domain` |
-| First entity/domain loop after scan fixes | [ENTITY_DOMAIN_LOOP_PILOT.md](ENTITY_DOMAIN_LOOP_PILOT.md) (prepared; waits for readiness) |
+| The first entity/domain learning pilot | Ran 2026-09-24 as bootstrap lane B and closed unmerged; the learner changed no name ([archive](archive/ENTITY_DOMAIN_LOOP_PILOT-2026-09-24.md)) |
 | Review proposed domain knowledge over stored evidence | `reticle/domain_learning.py`, `tools/domain_hypothesis.py`, [ENTITY_DOMAIN_LEARNING_DESIGN.md](ENTITY_DOMAIN_LEARNING_DESIGN.md) |
-| WHICH MODULE MAY DECIDE A QUESTION, and what it is not for | `reticle ownership <question>`, `ownership.toml`, [OWNERSHIP_INDEX.md](OWNERSHIP_INDEX.md) |
+| WHICH MODULE MAY DECIDE A QUESTION, and what it is not for | `reticle ownership <question>`, `ownership.toml`, the `reticle/ownership.py` docstring |
 | The layering, and which upward edges are blessed | `architecture.toml`, `reticle/architecture.py` |
 | A figure quoted in prose, and the run behind it | `reticle/quoted.py`, `reticle/metrics.py` |
 | VOD scan cost and reader call frequencies | `reticle usage [SESSION]`, `reticle/usage.py` |
@@ -66,8 +67,9 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
 | Visual debugging | `overlay.py`, `glance.py`, `refine.py` |
 
-Contiguous minimap correction and review: [MINIMAP_DETECTION_PLAN.md](MINIMAP_DETECTION_PLAN.md),
-`tools/minimap_sequence_summary.py`, and `tools/minimap_sequence_review.py`.
+Contiguous minimap correction and review: `tools/minimap_sequence_summary.py`
+and `tools/minimap_sequence_review.py`. The plan behind them is finished and
+[archived](archive/MINIMAP_DETECTION_PLAN-2026-09-09.md).
 
 Cutting a frozen evaluation window on a new session starts at
 `tools/wipe_scout.py`: it locates the instants where the per-frame killfeed
