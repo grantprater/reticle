@@ -160,7 +160,7 @@ def round_window_of(t_ms: float, kits: list[dict]) -> dict | None:
                 None)
 
 
-def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
+def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                       player_deaths_ms: list[float], *, agent: str | None = None,
                       second_lives_ms=(), revives_ms=(),
                       report_deaths: dict | None = None, kit_changes_ms=(),
@@ -240,8 +240,14 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     1.0 or more; the clause excludes only a slot read at its full level that
     falls to FULL_AFTER_MIN, which was never brightened.
 
+    A capture with no rounds table (`rounds` None: a solo demo or a range
+    capture) has no round to place a drop in, no phase and no deaths the gate
+    reads, so every drop is refused as `no_rounds` and stored rather than
+    guessed into a round. An empty table is not a missing one: its drops are
+    `no_round`.
+
     Every test names its refusal, and a drop keeps the first that refuses it,
-    in this order: `no_round`, `after_player_death`, `after_kit_change`,
+    in this order: `no_rounds`, `no_round`, `after_player_death`, `after_kit_change`,
     `phase:<name>`, `forced` or `cooccur_among_casts`, `partial_charge`,
     `pips_lit`, `equip_release`.
 
@@ -410,6 +416,10 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     it, the round's `first_player_death_ms`, the `kit_end_ms` the gate used,
     the `undone_deaths` before it, and the round's `kit_change_ms`.
     """
+    if rounds is None:
+        return [{**d, "phase": None, "round_ms": None, "first_player_death_ms": None,
+                 "kit_end_ms": None, "undone_deaths": [], "kit_change_ms": None,
+                 "reason": "no_rounds", "player_cast": False} for d in drops]
     ends = {r["t_end_ms"] for r in rounds}
     deaths = [{"t_first": x} for x in player_deaths_ms]
     kits = kit_windows(rounds, player_deaths_ms, agent=agent, second_lives_ms=second_lives_ms,

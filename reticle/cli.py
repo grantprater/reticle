@@ -2973,13 +2973,23 @@ def _sessions_arg(store: Store, args) -> list[str]:
             else [_resolve_session(store, args.session)["session_id"]])
 
 
+def _tray_spans(cache) -> list[list[float]]:
+    """The spans `reticle tray` reads: the cache's round spans, or the whole
+    cached capture as one span where the cache holds the whole capture (a demo
+    or range capture, which has no rounds)."""
+    spans = cache.record.get("spans")
+    if spans:
+        return spans
+    return [[float(np.min(cache.t_ms)), float(np.max(cache.t_ms))]] if len(cache.t_ms) else []
+
+
 def _tray_samples(cache, step_s: float) -> tuple[list, list, list, list]:
-    """The tray's slot counts on the crop cache's grid, span by span:
-    (times, counts, clean, real). A refused row separates two spans, so no
-    drop is read across two rounds; `real` is False on it."""
+    """The tray's slot counts on the crop cache's grid, span by span
+    (`_tray_spans`): (times, counts, clean, real). A refused row separates two
+    spans, so no drop is read across two rounds; `real` is False on it."""
     from . import tray
     ts, counts, clean, real = [], [], [], []
-    for a, b in cache.record["spans"]:
+    for a, b in _tray_spans(cache):
         for smp in cache.samples(_cache_grid(cache.t_ms, a, b, step_s), rois=["hud_abilities"]):
             c, ok = tray.slot_counts(smp.frame)
             ts.append(float(smp.t_ms))
@@ -3014,25 +3024,29 @@ def cmd_tray(args) -> int:
         if cache is None:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
             continue
-        spans = cache.record.get("spans")
-        if not spans:
-            print(f"{sid}: the crop cache has no round spans (a whole-capture cache) -- skipped")
-            continue
-        ts, counts, clean, _real = _tray_samples(cache, args.step)
+        ts, counts, clean, real = _tray_samples(cache, args.step)
+        drops = tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool))
         date = _date_of(man)
-        rounds = store.read_rounds(sid, date).to_pylist()
-        gate, stamps = stored_gate_inputs(store, sid, date, rounds,
-                                          player_agent(load_lineup(sid, store.root), sid))
-        rows = player_tray_casts(
-            tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool)),
-            gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
-            second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
-            report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-            kit_returns_ms=gate["kit_returns_ms"])
+        table = store.read_rounds(sid, date)
+        if table is None:
+            # No rounds table (a demo or range capture): the gate refuses every
+            # drop as `no_rounds`, and reads no HUD, deaths or kit witness.
+            rows = player_tray_casts(drops, None, None, [])
+            stamps = {"tray_kit": "no_rounds"}
+        else:
+            rounds = table.to_pylist()
+            gate, stamps = stored_gate_inputs(store, sid, date, rounds,
+                                              player_agent(load_lineup(sid, store.root), sid))
+            rows = player_tray_casts(
+                drops, gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+                report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+                kit_returns_ms=gate["kit_returns_ms"])
         common = {"session_id": sid, "tray_version": TRAY_VERSION,
                   "player_cast_version": PLAYER_CAST_VERSION, "step_s": args.step}
         why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
-        out_rows = [{**common, "kind": "coverage", "samples": len(ts) - len(cache.record["spans"]),
+        out_rows = [{**common, "kind": "coverage", "samples": sum(real),
+                     "spans": "rounds" if cache.record.get("spans") else "whole_capture",
                      "tray_kit": stamps["tray_kit"],
                      "drops": len(rows), "player_casts": sum(r["player_cast"] for r in rows),
                      "refused_reasons": dict(sorted(why_not.items()))}]
@@ -3459,7 +3473,11 @@ def cmd_ability_shapes(args) -> int:
         man = store.read_manifest(sid)
         # The gate decides afresh from the stored drops, as `ult-cast` asks it,
         # so a gate change needs no reread of the tray's crops.
-        rounds = store.read_rounds(sid, _date_of(man)).to_pylist()
+        table = store.read_rounds(sid, _date_of(man))
+        if table is None:
+            print(f"{sid}: no rounds table, so every tray drop is `no_rounds` -- skipped")
+            continue
+        rounds = table.to_pylist()
         gate, _stamps = stored_gate_inputs(store, sid, _date_of(man), rounds, agent)
         casts = [d for d in player_tray_casts(
                      [d for d in drops if d.get("kind") == "drop"],
