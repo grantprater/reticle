@@ -1683,3 +1683,85 @@ subject = "iso:double tap"
 source = "player, 2026-09-27 (chat)"
 use = "adjudication.ability_state.charge_facts: max_charges for (iso, E); a level rise on Iso's E within a round is a misread, not a restock; the channel bar is a separate widget from the slot"
 see = ["abilities/recharge-kinds"]
+
+[catalogue-charge-counts-confirmed]
+claim = """
+The charge counts that the wiki harvest of 2026-09-04 (reference/abilities.json)
+gives for slots C, Q and E are the game's counts: where an entry's `charges`
+is a number, the ability holds that many charges. An entry with no number
+gives no count: Astra's Nova Pulse and Nebula and Reyna's Dismiss carry none,
+and Reyna's Devour carries the text "2 (shared charges)".
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-28"
+subject = "abilities:charges"
+source = """
+player, 2026-09-28 (chat), answering the catalogue-prior report, which listed
+the harvest's counts and the seven C, Q and E slots without one (Astra Q and
+E, Reyna Q and E, Brimstone E, Chamber Q and Skye C)
+"""
+use = """
+adjudication.ability_state.charge_priors: a numeric harvest count for C, Q or
+E takes the source `catalogue-confirmed` with this fact and keeps its pointer
+to the harvest entry; a per-ability domain fact still outranks it and records
+a conflict. A harvest of another date is a prior again (source `catalogue`)
+"""
+see = ["abilities/ability-rules-are-unique", "abilities/brimstone-sky-smoke-charges",
+       "abilities/chamber-headhunter-charges", "abilities/astra-stars-shared",
+       "abilities/skye-regrowth-resource-bar"]
+
+[brimstone-sky-smoke-charges]
+claim = """
+Brimstone has three Sky Smoke charges in slot E.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-28"
+subject = "brimstone:sky smoke"
+source = "player, 2026-09-28 (chat), confirming the wiki harvest (charges 3)"
+use = """
+adjudication.ability_state.charge_facts: max_charges for (brimstone, E). The
+tray's drawing of three charges is unobserved, so the state model keeps the
+count and refuses the segment reading [domain:hud/ability-tray-charge-segments]
+"""
+see = ["abilities/catalogue-charge-counts-confirmed", "hud/ability-tray-charge-segments"]
+
+[chamber-headhunter-charges]
+claim = """
+Chamber has eight Headhunter charges in slot Q.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-28"
+subject = "chamber:headhunter"
+source = "player, 2026-09-28 (chat), confirming the wiki harvest (charges 8)"
+use = """
+adjudication.ability_state.charge_facts: max_charges for (chamber, Q). The
+tray's drawing of eight charges is unobserved, so the state model keeps the
+count and refuses the segment reading [domain:hud/ability-tray-charge-segments]
+"""
+see = ["abilities/catalogue-charge-counts-confirmed", "hud/ability-tray-charge-segments"]
+
+[astra-stars-shared]
+claim = """
+Astra's Gravity Well in slot C, Nova Pulse in slot Q and Nebula (with
+Dissipate) in slot E each expend her stars, which she places from Astral Form:
+one pool that the three slots share, not a count per slot.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-28"
+subject = "astra:stars"
+source = """
+player, 2026-09-28 (chat), answering the catalogue-prior report. The wiki
+harvest gives Gravity Well one charge and Nova Pulse and Nebula none
+"""
+use = """
+adjudication.ability_state.shared_pool_facts: Astra's C, Q and E take no
+charge count (reason `shared_pool`), and the harvest's one Gravity Well is a
+`shared_pool` conflict. How the tray draws the shared pool is unobserved: no
+session plays Astra
+"""
+see = ["abilities/catalogue-charge-counts-confirmed", "abilities/astra-nebula-minimap-disc",
+       "abilities/skye-regrowth-resource-bar"]

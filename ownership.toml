@@ -877,10 +877,11 @@ role = ["adjudicate", "lifecycle"]
 status = "partial"
 names_agents = true
 produces = ["adjudicate", "invariant_violations", "score_labels", "charge_facts",
-            "pool_facts", "charge_priors", "duration_facts", "slot_parameters",
-            "charges_of", "player_agent_verdict", "player_kit", "STOOD_FOR",
-            "READABLE_PHASES", "HALF_MIN", "LEVEL_FULL_MIN", "X_LIT_MIN", "EQUIP_MIN",
-            "MAX_CHARGES_ANY", "CATALOGUE_PATH", "CATALOGUE_SLOTS"]
+            "pool_facts", "shared_pool_facts", "charge_priors", "duration_facts",
+            "slot_parameters", "charges_of", "player_agent_verdict", "player_kit",
+            "STOOD_FOR", "READABLE_PHASES", "HALF_MIN", "LEVEL_FULL_MIN", "X_LIT_MIN",
+            "EQUIP_MIN", "MAX_SEGMENTS_READ", "SEGMENTS_UNOBSERVED", "CONFIRM_FACT",
+            "CATALOGUE_PATH", "CATALOGUE_SLOTS"]
 not_for = """
 Deciding which drop is the player's cast: step 1 of docs/ABILITY_STATE_MODEL.md
 consumes the gate's verdicts (`ability-cast`) and names the state each refusal
@@ -889,8 +890,11 @@ naming the player's agent, which is the identity arbiter's verdict carried with
 its provenance (`agent-identity`, through `ult-cast` and `player-agent`), nor
 for guessing a charge count that neither a domain fact nor the wiki harvest
 gives, nor a regain of charges the tray does not show: those stay null with
-their reason. The harvest is a prior: it never overrules a domain fact, which
-records the conflict, nor a reading, which stands against any count. It builds
+their reason. The harvest's counts, even where a fact confirms them
+(`catalogue-confirmed`), never overrule a per-ability domain fact, which
+records the conflict, nor a reading, which stands against any count; nor is a
+count above the two segments the reader interprets clamped or read by segment
+until a session shows how the tray draws it. It builds
 no entity, reads no timer bar or audio, and says nothing of allies or enemies.
 """
 defers_to = ["agent-identity", "player-agent", "ult-cast", "ability-cast", "tray-drop",

@@ -3405,8 +3405,11 @@ def _ability_state_values(store, done) -> dict:
     values.update({
         "charges_source_player": sources.get("player", 0),
         "charges_source_catalogue": sources.get("catalogue", 0),
+        "charges_source_catalogue_confirmed": sources.get("catalogue-confirmed", 0),
         "slots_source_player": sum(v == "player" for v in slot_source.values()),
         "slots_source_catalogue": sum(v == "catalogue" for v in slot_source.values()),
+        "slots_source_catalogue_confirmed": sum(v == "catalogue-confirmed"
+                                                for v in slot_source.values()),
         "charge_conflicts": len(conflicts),
         "charge_conflict_slots": [conflicts[k] for k in sorted(conflicts)],
         "slots_without_count": len(without),
