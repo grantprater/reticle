@@ -204,5 +204,26 @@ class PlanTests(unittest.TestCase):
                               ("ability_shape", ABILITY_SHAPE_VERSION, ["player_cast"])])
 
 
+    def test_a_strip_or_board_change_stales_the_strip_then_the_openings(self):
+        from reticle.adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
+        from reticle.roi_cache import ROI_CACHE_VERSION
+        from reticle.version import SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["scoreboard_strip:rows"] = [{"scoreboard_strip_version": SCOREBOARD_STRIP_VERSION,
+                                                      "roi_cache_version": ROI_CACHE_VERSION}]
+            store.events["scoreboard_presence:rows"] = [
+                {"scoreboard_presence_version": SCOREBOARD_AGENT_VERSION,
+                 "scoreboard_strip_version": SCOREBOARD_STRIP_VERSION,
+                 "scoreboard_version": SCOREBOARD_VERSION}]
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            store.events["scoreboard_strip:rows"][0]["roi_cache_version"] = "roi-cache-0.0.1"
+            store.events["scoreboard_presence:rows"][0]["scoreboard_version"] = "scoreboard-0.0.1"
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"], x["command"]) for x in derived],
+                             [("scoreboard_strip", ["roi_cache"], "reticle strip s"),
+                              ("scoreboard_presence", ["scoreboard"], "reticle openings s")])
+
+
 if __name__ == "__main__":
     unittest.main()

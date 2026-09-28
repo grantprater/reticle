@@ -152,6 +152,106 @@ class PortraitBandTests(unittest.TestCase):
         self.assertEqual(portrait_observations(self.frame(), board), [])
 
 
+class CloseReasonTests(unittest.TestCase):
+    """Each refusal branch of `read_scoreboard` names itself; open reads name none."""
+
+    def read(self, green, red):
+        frame = np.zeros(green.shape + (3,), np.uint8)
+        detail = (0, None, 1.0, 1.0, 0)
+        with patch("reticle.scoreboard._slabs", return_value=(green, red)), \
+                patch("reticle.scoreboard._read_cell_detail", return_value=detail):
+            return read_scoreboard(frame, object(), 0, 0)
+
+    def masks(self):
+        return np.zeros((400, 700), bool), np.zeros((400, 700), bool)
+
+    def test_an_open_board_carries_no_reason(self):
+        green, red = self.masks()
+        green[10:110, 50:650] = True
+        red[150:250, 50:650] = True
+        board = self.read(green, red)
+        self.assertTrue(board.open_)
+        self.assertIsNone(board.reason)
+
+    def test_a_black_frame_has_no_green_rows(self):
+        board = read_scoreboard(np.zeros((1080, 1920, 3), np.uint8), object())
+        self.assertEqual((board.open_, board.reason), (False, "green_no_rows"))
+
+    def test_green_blocks_outside_the_height_band(self):
+        green, red = self.masks()
+        green[10:60, 50:650] = True                     # 50 rows < MIN_BLOCK_H
+        self.assertEqual(self.read(green, red).reason, "green_short")
+        green, red = self.masks()
+        green[10:350, 50:650] = True                    # 340 rows > MAX_BLOCK_H
+        self.assertEqual(self.read(green, red).reason, "green_tall")
+
+    def test_red_blocks_below_the_ally_block(self):
+        green, red = self.masks()
+        green[10:110, 50:650] = True
+        red[30:108, 50:650] = True                      # only inside the ally block
+        self.assertEqual(self.read(green, red).reason, "red_no_rows")
+        red[160:190, 50:650] = True                     # 30 rows below it
+        self.assertEqual(self.read(green, red).reason, "red_short")
+        green, red = self.masks()
+        green[10:110, 50:650] = True
+        red[110:395, 50:650] = True                     # 285 rows is in band ...
+        self.assertIsNone(self.read(green, red).reason)
+        green = np.zeros((500, 700), bool)
+        red = np.zeros_like(green)
+        green[10:110, 50:650] = True
+        red[110:420, 50:650] = True                     # ... 310 rows is not
+        self.assertEqual(self.read(green, red).reason, "red_tall")
+
+    def test_enemy_rows_anchored_into_the_ally_block(self):
+        green, red = self.masks()
+        green[10:110, 50:650] = True
+        red[110:200, 50:650] = True     # 90 rows ending 90 below: anchored at 100
+        board = self.read(green, red)
+        self.assertEqual((board.open_, board.reason), (False, "enemy_overlaps_ally"))
+
+    def test_a_block_of_wide_rows_with_no_dense_column(self):
+        green = np.zeros((400, 1920), bool)
+        red = np.zeros_like(green)
+        # Every row holds 520 green pixels, in one of three disjoint places,
+        # so each column is green on a third of the block's rows.
+        for y in range(10, 110):
+            k = y % 3
+            green[y, 600 * k:600 * k + 520] = True
+        red[150:250, 50:650] = True
+        board = self.read(green, red)
+        self.assertEqual((board.open_, board.reason), (False, "no_dense_columns"))
+
+    def test_a_narrow_table(self):
+        green, red = self.masks()
+        # A 400 px dense core; every third row is wide enough to count, and
+        # the blocks merge across the gaps, but the wings are not dense.
+        green[10:110, 150:550] = True
+        green[10:110:3, 20:150] = True
+        green[10:110:3, 550:680] = True
+        red[150:250, 50:650] = True
+        board = self.read(green, red)
+        self.assertEqual((board.open_, board.reason), (False, "table_narrow"))
+
+    def test_every_reason_is_declared(self):
+        from reticle.scoreboard import CLOSE_REASONS
+        self.assertEqual(len(set(CLOSE_REASONS)), 9)
+
+    def test_the_reader_stores_a_sample_row_per_frame_offered(self):
+        closed = ScoreboardRead(False, reason="red_short")
+        with patch("reticle.scoreboard.Templates.load", return_value=object()), \
+                patch("reticle.scoreboard.read_scoreboard", return_value=closed):
+            reader = ScoreboardReader("test")
+            for i in range(3):
+                reader.feed(types.SimpleNamespace(
+                    frame=np.zeros((30, 600, 3), np.uint8), frame_idx=30 * i, t_ms=500.0 * i))
+        events = reader.events("s")
+        self.assertEqual(events[0]["closed_reasons"], {"red_short": 3})
+        samples = [e for e in events if e["kind"] == "sample"]
+        self.assertEqual([(s["frame_idx"], s["open"], s["reason"]) for s in samples],
+                         [(0, False, "red_short"), (30, False, "red_short"),
+                          (60, False, "red_short")])
+        self.assertEqual({s["scoreboard_version"] for s in samples}, {SCOREBOARD_VERSION})
+
 
 if __name__ == "__main__":
     unittest.main()

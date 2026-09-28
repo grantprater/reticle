@@ -54,7 +54,15 @@ ECONOMY_VERSION = "economy-0.1.0"
 # 2163 of 182439 differ, at most 0.0036; best agent on 6330 of 6330 rows,
 # second agent on 6328, gain on 6329. 043bafca271a: 480 of 205262, at most
 # 0.0010; best agent on 7120 of 7120, gain on 7119.
-SCOREBOARD_VERSION = "scoreboard-0.6.0"
+# 0.7.0: one `sample` row per frame offered, open or closed, naming the test
+# that closed it (`scoreboard.CLOSE_REASONS`); the coverage row counts them.
+# No verdict changes.
+SCOREBOARD_VERSION = "scoreboard-0.7.0"
+# The round-history strip as a second presence witness of the Tab board, read
+# by `scoreboard_strip` from the hud crop cache's `center` crop and written as
+# `scoreboard_strip` rows by `reticle strip`. 0.1.0 ports the rule and
+# constants of `prototypes/scoreboard_strip.py` at its 0.2.0.
+SCOREBOARD_STRIP_VERSION = "scoreboard-strip-0.1.0"
 EXTRACTOR_VERSION = "l1-0.1.0"
 SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the
