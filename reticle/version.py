@@ -358,4 +358,11 @@ ROSTER_VERSION = "roster-0.2.0"
 # by whether the SCORELINE reads on that frame rather than by how dark the bar
 # is, so a wiped team answers 0 and an absent HUD refuses. `roster.resolve()`
 # does the second, over stored data, because `scan --only roster` runs no HUD.
-ROSTER_SPLIT_VERSION = "roster-split-0.2.0"
+#
+# 0.3.1 (2026-09-28) adds `CRISP_FLOOR`: a bar whose crispest slot is below 13
+# holds no portrait, so a wiped bar over detailed scenery reads 0 (HUD drawn)
+# or None rather than 1 (docs/BOARD_ALIVE_SETS.md). 0.3.0 names a rule the
+# store's metrics log measured the same day and never shipped: `DETAIL_FLOOR`
+# raised to 13 per split, which also counted 0 on bars holding a red portrait
+# beside crisp teammates.
+ROSTER_SPLIT_VERSION = "roster-split-0.3.1"
