@@ -1409,10 +1409,10 @@ Moved verbatim from the root `CLAUDE.md` on 2026-09-23, when the root guidance w
   twenty-four, each restatement free to drift, while facts the player supplied
   once got no consumer and were lost. `doctor`'s DOMAIN check makes a citation
   resolving to no fact an ERROR, and reports every fact nothing cites plus every
-  file that restates a fact through one of its declared `phrases`; a fact with
-  no `phrases` is not checked for restatement. Only `docs/archive/` is exempt, as dated
-  history; `NOTES.md` and `BACKLOG.md` are bounded working documents and are
-  checked (amended 2026-09-23). Read one with
+  file that restates a fact through one of its `phrases`; a fact with no
+  `phrases` is not checked for restatement. In `docs/archive/`, dated history,
+  DOMAIN checks citations and skips restatements; `NOTES.md` and `BACKLOG.md`,
+  bounded working documents, are checked (amended 2026-09-23). Read one with
   `reticle domain [DOMAIN] [--id ID]`. Pipeline accuracy is NOT a domain fact --
   outcomes belong in `notes/predictions.jsonl`. Facts carry a dependency graph
   too: a GIVEN fact (`player`, `observed`) rests on nothing and may not declare
