@@ -200,12 +200,28 @@ level spent nothing
 """
 see = ["abilities/omen-tray-charges", "abilities/killjoy-tray-charges", "abilities/jett-tray-charges", "abilities/clove-tray-charges", "abilities/cypher-tray-charges"]
 
+[scoreboard-tab-hold]
+claim = """
+The Tab scoreboard opens while the player holds Tab and closes when they
+release it. Every opening and closing in a capture is the player's own
+action; the game never opens or closes the board by itself.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+see = ["hud/scoreboard-round-history-strip"]
+
 [scoreboard-round-history-strip]
 claim = """
 Between the ally and enemy blocks of the Tab scoreboard, in the vertical
-middle, the game draws two lines of round markers: black dots that turn
-yellow. They are a mark of the open board that does not depend on the
-translucent team slabs.
+middle, the game draws two lines of round markers. On the left, each round
+of the half has a circle with an X through it, green when the allies won the
+round and red when the enemies did, placed by the round's position in the
+half from left to right; unplayed rounds show black dots. On the right, a
+yellow dot marks where the opponents' round total stands, moving from the
+centre to the right (the player's reading, offered as what it seems). The
+strip is a mark of the open board that does not depend on the translucent
+team slabs.
 """
 kind = "appearance"
 known = "player"

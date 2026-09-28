@@ -34,3 +34,11 @@ From the voice-lines paragraph, shortened on 2026-09-27 (evening); the sentences
 - onset [metric:voice_lines/evaluate-F-B@all-matches#onset_median_s=-0.43] s from the drop with interquartile range [metric:voice_lines/evaluate-F-B@all-matches#onset_iqr_s=0.442]
 
 - The player's review: every row below or beside the threshold is no ult line ([doc](docs/VOICE_LINES.md)).
+
+- The restamp under 0.5.0 reproduces the recount and adds [metric:ability_shapes/production@all-sessions#casts_added=36] shape casts; Recon Bolt draws on [metric:ability_shapes/production@all-sessions#added_recon_found_frac=0.333] of their crops against [metric:ability_shapes/production@all-sessions#old_recon_found_frac=0.292] before (R1 failed only on its mixed baseline).
+
+- the four were added teal over an unlit slot
+
+- from [metric:ult_lines/ult-cast@all-sessions-player-cast-0.1.0#own_witnessed=37]
+
+- (`ability-shape-0.1.0`); on the player's marks Fury [metric:ability_shapes/marks@tray-object-marks#fury_found=21] of 21, Regrowth [metric:ability_shapes/marks@tray-object-marks#regrowth_found=14] of 16, Recon Bolt [metric:ability_shapes/marks@tray-object-marks#recon_found=8] of 8.

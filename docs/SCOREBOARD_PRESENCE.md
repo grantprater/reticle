@@ -78,7 +78,10 @@ of each kind, checked by eye:
   holes the witness reads the board at both neighbours and nothing between;
   two montages of such crops showed a board on
   [metric:scoreboard/strip-witness@all-sessions#inspect_hole_absent_board=1] of [metric:scoreboard/strip-witness@all-sessions#inspect_hole_absent=48].
-  The board left the screen for under a second inside one Tab hold.
+  The board left the screen for under a second inside one Tab hold: the
+  player holds Tab to open the board and releases it to close, and the game
+  never opens or closes it [domain:hud/scoreboard-tab-hold], so each such
+  hole is a release and a re-press.
 
 ## Predictions
 
@@ -110,8 +113,14 @@ of each kind, checked by eye:
 - `read_scoreboard` returns no reason when it closes a board, so its misses
   cannot be read from storage. Store the branch that closed each sample before
   tuning the slab test.
-- Ask the player what closes the board for under a second inside a hold: a
-  Tab re-press, or something the game does.
+- The player reads the strip as round outcomes: a circle with an X per round
+  of the half, green for an ally win and red for an enemy win, and a yellow
+  dot on the right for the opponents' round total
+  [domain:hud/scoreboard-round-history-strip]. The witness's teal and red
+  icons are those circles. Read them as a round-outcome witness and
+  cross-check them against the scoreline; the yellow-green dot the witness
+  finds in one column per board is not yet reconciled with one dot on the
+  right, and the crop shows only the middle columns.
 - The witness misses a board where world detail runs along a marker line and
   where a player card covers the strip; it cannot read a band over a black
   world at all.
