@@ -176,7 +176,7 @@ states plainly, and the player had to ask what the sentence meant.
   one home, `AGENTS.md`, and command lists one, `docs/WORKING_MAP.md`; other
   files point to them (DOCS).
 
-Only the dated files under `docs/archive/` are exempt from DOMAIN and QUOTED.
+QUOTED skips `docs/archive/`; DOMAIN checks only citations there.
 `NOTES.md` and `BACKLOG.md` are checked like any other document.
 
 ## Running

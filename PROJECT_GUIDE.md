@@ -1465,16 +1465,15 @@ Moved verbatim from the root `CLAUDE.md` on 2026-09-23, when the root guidance w
   and is cited, never restated.
 - **WHICH DOCUMENTS ARE LIVE IS DECLARED IN `documents.toml`, AND CHECKED.**
   Undeclared documents rotted the ways the other declarations were built to
-  stop. A committed `STATUS.md` fell behind the
-  version stamps it reported. `docs/OWNERSHIP_INDEX.md` listed four unowned
-  questions after `ownership.toml` had narrowed them to one. A design still
-  called itself proposed after `reticle/belief.py` implemented part of it.
-  HANDOFF kept counting `## Active:` headings
-  after `BACKLOG.md` dropped them on 2026-09-23, so its task checks never fired.
-  `doctor`'s DOCS check reports an unregistered document, an entry naming no
-  file, a document no route reaches, a status its fields do not support,
-  and an eager document past its word budget. The 2026-09-23 streamlining plan
-  kept a documentation registry out of its scope and put its guidance in
-  existing files. This register asks four fields per document, never
-  registers the archive, and blocks only on a broken entry; everything else
-  is a finding.
+  stop. A committed `STATUS.md` fell behind the version stamps it reported.
+  `docs/OWNERSHIP_INDEX.md` listed four unowned questions after
+  `ownership.toml` had narrowed them to one. A design still called itself
+  proposed after `reticle/belief.py` implemented part of it. HANDOFF kept
+  counting `## Active:` headings after `BACKLOG.md` dropped them on 2026-09-23,
+  so its task checks never fired. `doctor`'s DOCS check reports an unregistered
+  document, an entry naming no file, a document no route reaches, a status its
+  fields do not support, and an eager document past its word budget. The
+  2026-09-23 streamlining plan kept a documentation registry out of its scope
+  and put its guidance in existing files. This register asks four fields per
+  document, never registers the archive, and blocks only on a broken entry;
+  everything else is a finding.
