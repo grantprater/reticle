@@ -135,7 +135,10 @@ def diff_table(new: list[dict], stored: dict, at: set[float]) -> dict:
 
 
 def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
-        windows: str = "occupied", pad_ms: float = 2000.0) -> dict:
+        windows: str = "occupied", pad_ms: float = 2000.0,
+        between: tuple[float, float] | None = None) -> dict:
+    """`between` (t0_ms, t1_ms), inclusive, bounds the trial to one slice of
+    the timeline, such as a round; the diff compares only frames inside it."""
     from .decode import seek_at
     from .passes import SessionContext
     from .profiles import get_profile
@@ -149,6 +152,8 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
     ctx = SessionContext(store=store, manifest=manifest, profile=profile)
     hud = store.read_hud(sid, manifest["ingested_at"][:10]).to_pydict()
     want = targets(hud, windows, pad_ms)
+    if between is not None:
+        want = [t for t in want if between[0] <= t <= between[1]]
     stored_idx = dict(zip(hud["t_ms"], hud["frame_idx"]))
     r = build(ctx)
     t0 = time.perf_counter()
@@ -175,5 +180,5 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
     diffs = {s: (diff_table(rows[s], hud, at) if s == "hud"
                  else diff(rows[s], store.read_events(s, sid), at)) for s in streams}
     return {"session_id": sid, "reader": reader, "source": source, "windows": windows,
-            "pad_ms": pad_ms, "timeline": len(hud["t_ms"]), "frames": n,
+            "pad_ms": pad_ms, "between": between, "timeline": len(hud["t_ms"]), "frames": n,
             "seconds": round(seconds, 1), "diff": diffs, "rows": rows}
