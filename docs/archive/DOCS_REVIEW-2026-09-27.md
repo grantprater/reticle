@@ -137,6 +137,8 @@ The ten most misleading, and what they now say:
   `[a-z0-9-]` rejects the underscore in `combat_report`, so every
   `[domain:combat_report/...]` token goes unvalidated and uncounted, and doctor
   lists those facts as cited by nothing while five files cite them.
+- **The underscore fix** on `docs-register-20260927` exposes a citation
+  to `combat_report/round-summary`, a fact that never existed.
 - **ORPHAN** skips BACKLOG, the archive, `tools/`, `tests/`,
   `reticle/adjudication/`, `.claude/skills/` and the prediction ledger, so it
   calls tested and skill-cited prototypes orphans.
@@ -210,6 +212,11 @@ relative links fell from 47 on master (8 machine-local `teststore/` links and
 - **The HTML pages** still require the raycast cone where the domain names the
   drawn light, and treat a missing teleport sound as certain.
 - **NOTES** still carries open items that belong in BACKLOG.
+- **Ten documents added on master on 2026-09-26 and 09-27** were
+  registered but not audited by this pass: ABILITY_MECHANICS_SHEET,
+  AUDIO_ABILITY_BANK, AUDIO_GATE, DEMO_CAST_CENSUS, PUBSUB_DESIGN,
+  PUBSUB_MEASUREMENTS, PUBSUB_PERFORMANCE_BASELINE, PUBSUB_PIPELINE_MAP,
+  PUBSUB_PLAN and PUBSUB_PROTOTYPE.
 
 ## 5. Decisions for the player
 
@@ -236,6 +243,38 @@ relative links fell from 47 on master (8 machine-local `teststore/` links and
 
 ## 6. The construct
 
-Another agent is adding a documentation register and a doctor DOCS check on
-branch `docs-register-20260927`. That branch holds their design; this report
-does not restate it.
+Branch `docs-register-20260927` declares the documents themselves and checks
+them.
+
+**The register.** `documents.toml` holds one `[[document]]` per live
+document. Four fields are required: `path`, `kind`, `status` and `since`.
+Seven are optional: `eager`, `budget_words`, `implemented_by`,
+`superseded_by`, `generated_by`, `remains` and `waits_for`.
+`reticle/documents.py` reads it and validates each entry. The archive is never
+registered.
+
+**DOCS.** `doctor` reports two ERRORs: a schema fault, and an entry naming no
+file. It reports as WARNs a live document with no entry; a document that no
+Markdown link reaches from an eager document, `README.md`, a skill or a module
+that names it; a superseded document without a registered successor; a partial
+or implemented one whose `implemented_by` targets do not resolve; and an eager
+document past its word budget.
+
+**HANDOFF.** The check counted `## Active:` headings, which BACKLOG dropped on
+2026-09-23. It now counts the open items under `## Agreed order`, and found
+twelve on master against a limit of three. A missing section is a finding; an
+absent `docs/tasks.json` is skipped.
+
+**QUOTED.** Its docstring promised to exempt `docs/archive/`, but `quoted.py`
+named `HISTORY_PREFIXES` without importing it, so the check scanned the
+archive. It now skips it: three stale quotes in an archived NOTES file left the
+findings, and uncited series rose from 124 to 141.
+
+**DOMAIN.** The citation pattern refused the underscore in `combat_report`.
+Allowing it removes six facts from the uncited list and exposes an ERROR: three
+modules and an archived NOTES file cite `combat_report/round-summary`, a fact
+that never existed.
+
+**Scope.** The 2026-09-23 streamlining plan kept a documentation registry out
+of its own scope. This register asks four fields per document, reports
+findings rather than gates, and never registers the archive.
