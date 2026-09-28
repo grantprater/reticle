@@ -1482,3 +1482,64 @@ FULL_MIN dates the charge filling, the moment the ult-ready line is voiced;
 the two-state reading is the appearance, not a reader artefact
 """
 see = ["abilities/ult-charge-pips", "abilities/ult-ready-lines"]
+
+[sova-recon-bolt-charges]
+claim = """
+Sova has one Recon Bolt charge in slot E.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "sova:recon bolt"
+source = """
+player, 2026-09-27 (chat). The wiki harvest (reference/abilities.json,
+2026-09-04) agrees: Uses 1, Restock 60 seconds. The tray reads the slot half
+for a stretch after casts on c40d950031bb (595 s, 912 s) and a labelled cast
+fell from a half bar on 59c70f1ef720 (2429.0 s); the player doubts an
+immediate half refill, so those readings are unexplained, not a second charge.
+"""
+use = "adjudication.ability_state.charge_facts: max_charges for (sova, E)"
+see = ["abilities/recharge-kinds", "abilities/ability-rules-are-unique"]
+
+[phoenix-curveball-charges]
+claim = """
+Phoenix has two Curveball charges in slot E.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "phoenix:curveball"
+source = "player, 2026-09-27 (chat); the wiki harvest agrees (charges 2, restock 2 kills)"
+use = "adjudication.ability_state.charge_facts: max_charges for (phoenix, E)"
+see = ["abilities/phoenix-tray-charges", "abilities/recharge-kinds"]
+
+[skye-guiding-light-charges]
+claim = """
+Skye has two Guiding Light charges in slot E.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "skye:guiding light"
+source = "player, 2026-09-27 (chat); the wiki harvest agrees (charges 2, restock 60 seconds)"
+use = "adjudication.ability_state.charge_facts: max_charges for (skye, E)"
+see = ["abilities/recharge-kinds"]
+
+[recharge-kinds]
+claim = """
+An ability that comes back within a round restocks in one of two ways: over
+time after use, or on kills. Which abilities restock, and how, is a fact per
+ability. The wiki harvest of 2026-09-04 lists a restock only on signature
+abilities: a timer on sixteen (20 to 60 seconds) and kills on four (Curveball,
+Gatecrash, Refract, Tailwind); the basics carry none and are bought.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "abilities:tray"
+source = """
+player, 2026-09-27 (chat): "There are two kinds of recharges as well, time and
+kills." The counts are from reference/abilities.json (infobox Restock).
+"""
+use = "the ability state model's recharge transition needs the kind per ability before it dates a refill"
+see = ["abilities/ability-rules-are-unique", "abilities/omen-dark-cover-restock"]
