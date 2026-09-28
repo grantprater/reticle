@@ -1,5 +1,9 @@
 # Architecture and development efficiency
 
+Status (2026-09-27): archived. A1-A4 finished on 2026-09-07; A5 (partial) and
+A6 (deferred) were never resumed, and the task contracts A4 built retired to
+[tasks-through-2026-09-23.json](tasks-through-2026-09-23.json).
+
 ## Current pipeline direction -- 2026-09-09
 
 [PIPELINE_REVIEW.md](../PIPELINE_REVIEW.md) is the current critique and revised

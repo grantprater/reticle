@@ -336,8 +336,8 @@ at 15 Hz while holding presence recall at 1.0000 at 5 Hz and above, and left
 11**, so reference fidelity still fails the reviewed truth and P3 is still not
 accepted on this property. The survivors need either the adjudicator's
 persistence rule or the blur signature in `BACKLOG.md`, whose threshold must be
-fitted away from these windows. `HUD_VERSION` is `hud-0.12.0`; 19 sessions are
-stale. The post-change run is `notes/p3-fidelity-20260909-after.json`.
+fitted away from these windows. `HUD_VERSION` was `hud-0.12.0` and 19 sessions
+were stale on 2026-09-09. The post-change run is `notes/p3-fidelity-20260909-after.json`.
 
 `reticle/capabilities.py` therefore declares exactly one thing --
 `hud.killfeed_entry_presence` at 5, 10, 15 Hz and native, regime `standard` --
