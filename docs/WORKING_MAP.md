@@ -53,6 +53,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | WHICH MODULE MAY DECIDE A QUESTION, and what it is not for | `reticle ownership <question>`, `ownership.toml`, [OWNERSHIP_INDEX.md](OWNERSHIP_INDEX.md) |
 | The layering, and which upward edges are blessed | `architecture.toml`, `reticle/architecture.py` |
 | A figure quoted in prose, and the run behind it | `reticle/quoted.py`, `reticle/metrics.py` |
+| Which documents are live, their status, and what reaches them | `documents.toml`, `reticle/documents.py`, `doctor` DOCS |
 | VOD scan cost and reader call frequencies | `reticle usage [SESSION]`, `reticle/usage.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |

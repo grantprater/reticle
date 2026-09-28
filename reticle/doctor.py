@@ -47,7 +47,7 @@ import json
 import re
 from pathlib import Path
 
-from reticle import architecture, domain, metrics, ownership, quoted
+from reticle import architecture, documents, domain, metrics, ownership, quoted
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -178,6 +178,9 @@ def _reticle_imports(path: Path) -> set[str]:
             # `from .minimap import x` (level 1) or `from reticle.minimap import x`
             if n.level == 1:
                 out.add(n.module.split(".")[0])
+            elif n.module == "reticle":
+                # `from reticle import documents` -- this file's own spelling.
+                out.update(a.name for a in n.names)
             elif n.module.startswith("reticle."):
                 out.add(n.module.split(".")[1])
         elif isinstance(n, ast.ImportFrom) and n.level == 1 and n.module is None:
@@ -816,6 +819,31 @@ def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
     return out
 
 
+def check_documents(root: Path | None = None) -> list[tuple[str, str]]:
+    """Which documents are live, and whether any route still reaches them.
+
+    `reticle/documents.py` owns the schema of `documents.toml` and the checks.
+    A register that breaks its schema, or an entry naming no file, is an ERROR:
+    a declaration that points at nothing. An unregistered document, one no
+    route reaches, a status its fields do not support, and an eager document
+    past its budget are WARNs, for ORPHAN's reason: a document written today
+    looks exactly like one abandoned, and only a person knows which.
+    HANDOFF's limits for `NOTES.md` and `BACKLOG.md` enter the pickup total
+    from here, so they keep one home.
+    """
+    base = root or ROOT
+    if not (base / documents.DECLARATION).is_file():
+        return [(WARN, f"{documents.DECLARATION} is absent -- which documents are "
+                       f"live is declared there; see reticle/documents.py")]
+    try:
+        docs = documents.load(base)
+    except documents.RegisterError as exc:
+        return [(ERROR, problem) for problem in exc.problems]
+    limits = {"NOTES.md": NOTES_MAX_WORDS, "BACKLOG.md": BACKLOG_MAX_WORDS}
+    return [(ERROR if level == ERROR else WARN, message)
+            for level, message in documents.verify(base, docs, handoff_limits=limits)]
+
+
 #: Modules whose calls do not count as wiring: they render or diagnose what
 #: the pipeline produced, so a producer reached only through them feeds no
 #: stored answer. `overlay` is where `resolve_lobe` and the lifecycle hid.
@@ -1000,7 +1028,7 @@ def check_uncalled(base: Path | None = None) -> list[tuple[str, str]]:
 
 
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
-    checks = (("HANDOFF", check_handoff),
+    checks = (("HANDOFF", check_handoff), ("DOCS", check_documents),
               ("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("UNCALLED", check_uncalled),
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),

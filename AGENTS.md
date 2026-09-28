@@ -160,6 +160,12 @@ states plainly, and the player had to ask what the sentence meant.
   and defers to `agent-identity`. OWNERSHIP makes an undeclared name producer,
   or an identity event built outside the arbiter, an ERROR, and the event
   validator rejects the event.
+- **Documents are declared** in `documents.toml`. Register each document, with
+  its kind, status and date, in the commit that creates it. A plan becomes
+  `implemented`, naming `implemented_by`, or `superseded`, naming
+  `superseded_by`, and then moves to `docs/archive/` with a date. Rules have
+  one home, `AGENTS.md`, and command lists one, `docs/WORKING_MAP.md`; other
+  files point to them (DOCS).
 
 Only the dated files under `docs/archive/` are exempt from DOMAIN and QUOTED.
 `NOTES.md` and `BACKLOG.md` are checked like any other document.
