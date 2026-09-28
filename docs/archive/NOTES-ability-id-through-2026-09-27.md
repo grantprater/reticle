@@ -42,3 +42,13 @@ From the voice-lines paragraph, shortened on 2026-09-27 (evening); the sentences
 - from [metric:ult_lines/ult-cast@all-sessions-player-cast-0.1.0#own_witnessed=37]
 
 - (`ability-shape-0.1.0`); on the player's marks Fury [metric:ability_shapes/marks@tray-object-marks#fury_found=21] of 21, Regrowth [metric:ability_shapes/marks@tray-object-marks#regrowth_found=14] of 16, Recon Bolt [metric:ability_shapes/marks@tray-object-marks#recon_found=8] of 8.
+
+- The [metric:ult_lines/x-fill@all-sessions#x_casts_with_line=46] X casts with a line fall from fills of [metric:ult_lines/x-fill@all-sessions#with_line_from_min=0.9] or more; the 4 from part-filled slots have none; X casts only from a full slot [domain:abilities/ult-charge-pips], so `player-cast-0.3.0` refuses an X drop from a fill under 0.80 (`partial_charge`): in-round X casts [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#x_casts=50] from 54, casts with a line [metric:ult_lines/ult-cast@all-sessions-player-cast-0.3.0#x_casts_with_line_fraction=0.92] (G4).
+
+- `player-cast-0.4.0` refuses a drop that leaves its slot at 0.75 or more (`equip_release`, [metric:tray/equip-release@all-sessions#equip_release=75] of 493) and an X drop that leaves pips lit (`pips_lit`, 2): in-round X casts [metric:ult_lines/ult-cast@all-sessions-player-cast-0.4.0#x_casts=48], casts with a line [metric:ult_lines/ult-cast@all-sessions-player-cast-0.4.0#x_casts_with_line_fraction=0.938], witnessed 45 unchanged (T1 held).
+
+- Cross-template suppression is declined ([results](docs/VOICE_LINES.md)).
+
+- The probe `1a090b300cf1` has its score floor within the desktop sessions' range (p99 [metric:ult_lines/probe@1a090b300cf1#score_p99=0.0327] against 0.029 to 0.040).
+
+- The combined presence leaves [metric:scoreboard/openings@all-sessions#holes=1381] one-sample gaps that no witness sees a board in.

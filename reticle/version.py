@@ -58,6 +58,12 @@ ECONOMY_VERSION = "economy-0.1.0"
 # that closed it (`scoreboard.CLOSE_REASONS`); the coverage row counts them.
 # No verdict changes.
 SCOREBOARD_VERSION = "scoreboard-0.7.0"
+# Stored versions whose row verdicts the current reader reproduces. A consumer
+# of VERDICTS (the lineup constraining its top bar by the board) accepts these;
+# `reticle plan` still names the rescan that adds the newer fields. 0.7.0 adds
+# rows and a reason and changes no verdict, so without this the bump refused
+# the board on every stored session and named 122 of 190 lineup slots.
+SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", SCOREBOARD_VERSION)
 # The round-history strip as a second presence witness of the Tab board, read
 # by `scoreboard_strip` from the hud crop cache's `center` crop and written as
 # `scoreboard_strip` rows by `reticle strip`. 0.1.0 ports the rule and
