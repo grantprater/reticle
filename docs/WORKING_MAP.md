@@ -1,7 +1,7 @@
 # Reticle working map
 
-Use this as a routing index when picking up work. It is intentionally short;
-the linked source is authoritative for detail. It routes by SUBSYSTEM; to route
+Use this as a routing index; the linked source is authoritative for
+detail. It routes by SUBSYSTEM; to route
 by the question itself -- *which agent died*, *where is the player* -- ask
 `reticle ownership`, which also says what the owner it names is NOT for.
 
@@ -84,6 +84,7 @@ Always use the repository venv:
 
 ```powershell
 .\.venv\Scripts\python.exe -m reticle doctor
+.\.venv\Scripts\python.exe -m reticle verify --tier fast   # default sanity check
 .\.venv\Scripts\python.exe -m reticle status
 .\.venv\Scripts\python.exe -m reticle plan [SESSION]      # stale streams, least work
 .\.venv\Scripts\python.exe -m reticle trial SESSION --reader killfeed [--from video]
@@ -121,8 +122,8 @@ path through `reticle/geometry.py` rather than joining a session id onto
 For stored-data changes, prefer `segment`, `audit`, `coach`, or `sql`
 as appropriate. `segment`/`audit` reuse stored L1. `scan --only hud` rereads
 the crop cache (`roi_cache`) and decodes only with `--from video`; `hud`,
-`board` and `overlay` open the source video. Run a targeted test file
-first, then the full suite when the change crosses module boundaries.
+`board` and `overlay` open the source video. Run a targeted test file,
+then `verify --tier fast`, then the full suite across module boundaries.
 `refine` previews stored windows; `--execute` reads only their merged intervals
 and writes separate dense evidence. It requires current provenance and a cached
 killfeed mask. Repeat `--review-id` to combine windows; limits refuse, not truncate.

@@ -144,11 +144,24 @@ N_SLOTS = 5
 #: pill beneath it. The pill is deliberately excluded -- it is the weaker
 #: signal and it fails against bright scenery.
 ART_FRAC = 0.62
-#: Mean |Laplacian| below which NOTHING on the bar is crisp, so no split can be
-#: called occupied. Permissive on purpose: it exists to resolve the all-dead
-#: case, not to decide what counts as a portrait. Measured band is 4.53 (dead)
+#: Mean |Laplacian| below which a slot is too blurred to be called occupied, so
+#: no split that includes it wins. Permissive on purpose: it exists to resolve
+#: the all-dead case, not to decide what counts as a portrait. Measured band is
+#: 4.53 (dead)
 #: to 18.87 (alive); this sits well inside it and nowhere near either edge.
 DETAIL_FLOOR = 9.0
+#: Mean |Laplacian| the bar's crispest slot must reach before any slot counts
+#: as a portrait (roster-split-0.3.1). An empty panel dims the scene behind it
+#: rather than hiding it, so an empty slot over detailed scenery reaches 12,
+#: clears `DETAIL_FLOOR`, and a wiped bar read 1
+#: [metric:roster_split/bar-floor#wiped_read_1_before=32]. On the scoreboard's
+#: openings, no side the board and roster agree on shows a lit portrait on a
+#: bar whose crispest slot sits below 13
+#: [metric:roster_split/bar-floor#lit_bar_max_below_13_agree=0].
+#: It gates the BAR, not each split: a red portrait (KAY/O downed, an
+#: Annihilation captive [domain:minimap/red-portrait-states]) reads 9-12 beside
+#: crisp teammates, and a per-split floor of 13 counted such bars as 0.
+CRISP_FLOOR = 13.0
 
 
 def roster_rois(profile: Profile, w: int, h: int):
@@ -222,12 +235,30 @@ def alive_from_detail(detail: list[float], pack_right: bool,
     and only a near-black bar reached 0 -- the exact inverse of what the
     docstring above describes, and it cost the audit its most informative
     windows, since a wipe is a round outcome.
+
+    A WIPED BAR OVER SCENERY (roster-split-0.3.1, 2026-09-28)
+    -----------------------------------------------------------
+    The scoreboard dimmed all five rows while this read 1. The source crops
+    show those bars empty, with scenery behind the innermost slot at 10-12
+    against 3-8 elsewhere; the ratio among five scenery slots cleared 1.0. So
+    a bar with no slot at `CRISP_FLOOR` holds no portrait, and falls to the
+    `hud_drawn` answer above. A per-split floor of 13 fixed the same bars but
+    also counted 0 where a red portrait sat beside crisp teammates
+    (a1a995e6b19b 1640 s, three alive); gating the whole bar leaves any bar
+    with a crisp portrait to the ratio, exactly as before.
+    Two defects remain open. A bar holding one drawn portrait the board has
+    dimmed still reads 1 (KAY/O on 4f207c0c4e39, and ff636d173b07); and
+    scenery behind the first EMPTY slot of a partly filled bar can still count
+    as one more portrait (4f207c0c4e39 2170.5 s reads 4 of 3), because only a
+    feature beyond detail separates it from a red portrait.
     """
     if not detail or len(detail) != N_SLOTS:
         return None
     # Occupied slots run inward from the scoreline: allies pack right, enemies
     # pack left. Order the slots so index 0 is always the innermost.
     seq = list(reversed(detail)) if pack_right else list(detail)
+    if max(seq) < CRISP_FLOOR:            # nothing crisp: wiped, or not drawn
+        return 0 if hud_drawn else None
     best, best_gap = None, 1.0
     for n in range(1, N_SLOTS + 1):
         occ, emp = seq[:n], seq[n:]

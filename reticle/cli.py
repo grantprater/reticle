@@ -10,6 +10,7 @@
     reticle minimap [SESSION]                 stage 02: player position off the minimap
     reticle glyphs  VIDEO                     mine digit templates from footage
     reticle verify  [SESSION]                 check HUD reads against domain invariants
+    reticle verify  --tier fast               known answers on a few sessions, no decode
     reticle overlay [SESSION]                 render detections onto the video
     reticle kd      [SESSION]                 running K/D per round, to check against the scoreboard
     reticle board   [SESSION]                 read the Tab scoreboard and score our K/D against it
@@ -839,13 +840,51 @@ def _scan_pass(ctx, readers, cache, progress, usage, pipeline, workers, shards, 
     return got.frames, got
 
 
+def _publish_staged(out, publish, usage, session_id: str) -> dict:
+    """Publish a scan's streams into `out` whole or not at all; the run record.
+
+    `publish(staged)` writes every stream into a scratch store under
+    `out/staging/<run_id>/`, and `Store.commit_staged` moves them into
+    `out` together, with the usage record's `run_id` as the run's. A
+    publish that stops part way -- a reader with zero rows exits after
+    another has written -- leaves `out` as it was, and the usage record is
+    written as `failed` with the reason before the exit goes on. A commit
+    that fails is recorded the same way (see `Store.commit_staged`).
+    """
+    def failed(stage, exc):
+        usage.status, usage.error = "failed", f"{stage}: {exc}"
+        try:
+            usage.write(out.root)
+        except OSError as err:
+            print(f"usage log could not be written: {err}", file=sys.stderr)
+
+    staged = out.staging(usage.run_id)
+    try:
+        publish(staged)
+    except BaseException as exc:
+        out.discard_staged(staged)
+        failed("publish", exc)
+        raise
+    try:
+        return out.commit_staged(staged, usage.run_id, session_id)
+    except BaseException as exc:
+        failed("commit", exc)
+        raise
+
+
 def _scan_check(scan_once, sid, args, shards) -> int:
     """Run the requested path and the serial one into two temporary stores.
 
-    Path a is today's serial pass on OpenCV's own pool; path b is the pass
-    the flags ask for. Path b runs first, so its threads meet the lazily
-    filled module caches (`killfeed._ME_CACHE`, `ally_portrait._REG`) cold
-    rather than filled by the serial pass. Both read the store's manifest,
+    Path a is the serial pass; path b is the pass the flags ask for. Against
+    a staged path b, path a runs at b's `--cv-threads`, so the two paths
+    differ in staging alone and the timings compare like with like. Without
+    the flag path a keeps OpenCV's own pool while a threaded path b runs at
+    `pipeline.STAGED_CV_THREADS`, so a timing check names the count. Against
+    a serial path b at a count, path a is the serial pass on the pool, so
+    the check compares the count with the pool rather than a pass with
+    itself. Path b runs first, so its threads meet the lazily filled module
+    caches (`killfeed._ME_CACHE`, `ally_portrait._REG`) cold rather than
+    filled by the serial pass. Both read the store's manifest,
     crop cache and inputs and write only under the check directory, which is
     kept so each path's usage record stays readable. Every written file is
     compared byte for byte; where Parquet bytes differ the rows are compared
@@ -865,14 +904,16 @@ def _scan_check(scan_once, sid, args, shards) -> int:
     b_label += (f", OpenCV threads {args.cv_threads}" if args.cv_threads is not None else "")
     print(f"check      b: {b_label} -> {root / 'b'}")
     ub = scan_once(Store(root / "b"), args.pipeline, args.workers, shards, args.cv_threads)
-    print(f"check      a: serial -> {root / 'a'}")
-    ua = scan_once(Store(root / "a"))
+    a_threads = args.cv_threads if args.pipeline == "staged" else None
+    a_label = "serial" + (f", OpenCV threads {a_threads}" if a_threads is not None else "")
+    print(f"check      a: {a_label} -> {root / 'a'}")
+    ua = scan_once(Store(root / "a"), cv_threads=a_threads)
     if ua is None or ub is None:
         failed = " and ".join(n for n, u in (("a", ua), ("b", ub)) if u is None)
         print(f"check      path {failed} failed; nothing to compare")
         return 1
     entries = compare_trees(root / "a", root / "b")
-    print(f"check      a = serial, b = {b_label}")
+    print(f"check      a = {a_label}, b = {b_label}")
     for e in entries:
         print(f"{e['verdict']:<10} {e['path']}  {e['detail']}")
     rows = [e for e in entries if e["rows_differ"]]
@@ -1128,7 +1169,9 @@ def cmd_scan(args) -> int:
         return cache, why
 
     def publish(out, R, n_dec, dt):
-        """Write the readers' streams into `out`; inputs still come from `store`."""
+        """Write the readers' streams into `out`, a staging store that
+        `_publish_staged` commits whole; inputs still come from `store`, so
+        each path printed below is the stream's place in staging."""
         hp, kp, mp, pp, rp, sp, lp, ap, dp, cp, xp = (
             R.hp, R.kp, R.mp, R.pp, R.rp, R.sp, R.lp, R.ap, R.dp, R.cp, R.xp)
         if hp is not None:
@@ -1321,8 +1364,11 @@ def cmd_scan(args) -> int:
             except OSError as exc:
                 print(f"usage log could not be written: {exc}", file=sys.stderr)
             return None
-        publish(out, R, n_dec, dt)
+        run = _publish_staged(out, lambda staged: publish(staged, R, n_dec, dt), usage, sid)
         usage.publish_ns = time.perf_counter_ns() - publish_t0
+        print(f"published  run {run['run_id']}: {len(run['files'])} files moved from staging "
+              f"into {out.root}" + (f", {len(run['kept'])} equal revisions kept"
+                                   if run["kept"] else ""))
         try:
             usage.write(out.root)
             usage.write_metric(out.root)
@@ -1427,7 +1473,13 @@ def cmd_verify(args) -> int:
 
     Reads stored L1 -- it never touches video. The invariants themselves live in
     checks.py so this and the dashboard agree on what counts as a fault.
+
+    `--tier fast` runs the fixed checks of `tiers.FAST` instead: known answers
+    on a few sessions from storage and the crop cache, the default sanity
+    check between the unit tests and a corpus run.
     """
+    if getattr(args, "tier", None):
+        return _verify_tier(args)
     store = Store(args.store)
     manifest = _resolve_session(store, args.session)
     sid = manifest["session_id"]
@@ -1502,6 +1554,32 @@ def cmd_verify(args) -> int:
     else:
         print(f"FAULTS     {r['violations']} violations -- see timestamps above")
     return 0
+
+
+def _verify_tier(args) -> int:
+    """Print each check of one verification tier; exit 1 unless all pass."""
+    from . import tiers
+
+    store = Store(args.store)
+    t0 = time.perf_counter()
+    print(f"tier {args.tier}: {len(tiers.TIERS[args.tier])} declared checks, storage and "
+          f"crop cache only")
+    for sid in dict.fromkeys(c.session for c in tiers.TIERS[args.tier]):
+        print(f"  {sid}  {store.read_manifest(sid)['source']['path']}")
+    print()
+    results = tiers.run(store, args.tier, only=args.only)
+    for r in results:
+        print(f"{r['status']:<6} {r['id']}  [{r['kind']}]  {r['seconds']} s")
+        print(f"       measured {r['measured']}   known {r['known']}")
+        print(f"       source   {r['source']}")
+        if r["detail"]:
+            for line in str(r["detail"]).splitlines():
+                print(f"       {line}")
+    n = Counter(r["status"] for r in results)
+    print()
+    print(f"{n['PASS']} pass, {n['FAIL']} fail, {n['STALE']} stale of {len(results)} "
+          f"in {time.perf_counter() - t0:.1f} s")
+    return 0 if n["PASS"] == len(results) else 1
 
 
 # --------------------------------------------------------------------------- board
@@ -2973,13 +3051,23 @@ def _sessions_arg(store: Store, args) -> list[str]:
             else [_resolve_session(store, args.session)["session_id"]])
 
 
+def _tray_spans(cache) -> list[list[float]]:
+    """The spans `reticle tray` reads: the cache's round spans, or the whole
+    cached capture as one span where the cache holds the whole capture (a demo
+    or range capture, which has no rounds)."""
+    spans = cache.record.get("spans")
+    if spans:
+        return spans
+    return [[float(np.min(cache.t_ms)), float(np.max(cache.t_ms))]] if len(cache.t_ms) else []
+
+
 def _tray_samples(cache, step_s: float) -> tuple[list, list, list, list]:
-    """The tray's slot counts on the crop cache's grid, span by span:
-    (times, counts, clean, real). A refused row separates two spans, so no
-    drop is read across two rounds; `real` is False on it."""
+    """The tray's slot counts on the crop cache's grid, span by span
+    (`_tray_spans`): (times, counts, clean, real). A refused row separates two
+    spans, so no drop is read across two rounds; `real` is False on it."""
     from . import tray
     ts, counts, clean, real = [], [], [], []
-    for a, b in cache.record["spans"]:
+    for a, b in _tray_spans(cache):
         for smp in cache.samples(_cache_grid(cache.t_ms, a, b, step_s), rois=["hud_abilities"]):
             c, ok = tray.slot_counts(smp.frame)
             ts.append(float(smp.t_ms))
@@ -3014,25 +3102,29 @@ def cmd_tray(args) -> int:
         if cache is None:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
             continue
-        spans = cache.record.get("spans")
-        if not spans:
-            print(f"{sid}: the crop cache has no round spans (a whole-capture cache) -- skipped")
-            continue
-        ts, counts, clean, _real = _tray_samples(cache, args.step)
+        ts, counts, clean, real = _tray_samples(cache, args.step)
+        drops = tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool))
         date = _date_of(man)
-        rounds = store.read_rounds(sid, date).to_pylist()
-        gate, stamps = stored_gate_inputs(store, sid, date, rounds,
-                                          player_agent(load_lineup(sid, store.root), sid))
-        rows = player_tray_casts(
-            tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool)),
-            gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
-            second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
-            report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-            kit_returns_ms=gate["kit_returns_ms"])
+        table = store.read_rounds(sid, date)
+        if table is None:
+            # No rounds table (a demo or range capture): the gate refuses every
+            # drop as `no_rounds`, and reads no HUD, deaths or kit witness.
+            rows = player_tray_casts(drops, None, None, [])
+            stamps = {"tray_kit": "no_rounds"}
+        else:
+            rounds = table.to_pylist()
+            gate, stamps = stored_gate_inputs(store, sid, date, rounds,
+                                              player_agent(load_lineup(sid, store.root), sid))
+            rows = player_tray_casts(
+                drops, gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+                report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+                kit_returns_ms=gate["kit_returns_ms"])
         common = {"session_id": sid, "tray_version": TRAY_VERSION,
                   "player_cast_version": PLAYER_CAST_VERSION, "step_s": args.step}
         why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
-        out_rows = [{**common, "kind": "coverage", "samples": len(ts) - len(cache.record["spans"]),
+        out_rows = [{**common, "kind": "coverage", "samples": sum(real),
+                     "spans": "rounds" if cache.record.get("spans") else "whole_capture",
                      "tray_kit": stamps["tray_kit"],
                      "drops": len(rows), "player_casts": sum(r["player_cast"] for r in rows),
                      "refused_reasons": dict(sorted(why_not.items()))}]
@@ -3459,7 +3551,11 @@ def cmd_ability_shapes(args) -> int:
         man = store.read_manifest(sid)
         # The gate decides afresh from the stored drops, as `ult-cast` asks it,
         # so a gate change needs no reread of the tray's crops.
-        rounds = store.read_rounds(sid, _date_of(man)).to_pylist()
+        table = store.read_rounds(sid, _date_of(man))
+        if table is None:
+            print(f"{sid}: no rounds table, so every tray drop is `no_rounds` -- skipped")
+            continue
+        rounds = table.to_pylist()
         gate, _stamps = stored_gate_inputs(store, sid, _date_of(man), rounds, agent)
         casts = [d for d in player_tray_casts(
                      [d for d in drops if d.get("kind") == "drop"],
@@ -4255,8 +4351,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", default=None)
     s.set_defaults(func=cmd_glyphs)
 
-    s = sub.add_parser("verify", help="check HUD reads against domain invariants")
+    s = sub.add_parser("verify", help="check HUD reads against domain invariants, "
+                                      "or run a verification tier")
     s.add_argument("session", nargs="?")
+    s.add_argument("--tier", choices=("fast",), default=None,
+                   help="known answers on a few fixed sessions from storage and the crop "
+                        "cache, no decode: the default sanity check")
+    s.add_argument("--only", default=None, help="with --tier, run the one check with this id")
     s.set_defaults(func=cmd_verify)
 
     s = sub.add_parser("board", help="read the Tab scoreboard and score our K/D against it")
