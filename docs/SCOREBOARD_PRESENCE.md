@@ -187,7 +187,9 @@ miss only where some witness saw the board at that sample.
   bound refused. Measure it against the stored close reasons.
 - Rescan the scoreboard (`scoreboard-0.7.0`) to store a `sample` row per
   frame; the openings now infer closed samples from the offered frames.
-  `lineup.load_lineup` applies no board until then.
+  `lineup.load_lineup` applies the stored 0.6.0 boards meanwhile: 0.7.0 changed
+  no verdict, so `version.SCOREBOARD_VERDICT_COMPATIBLE` names it, and
+  `board_state.current` says the stamp is behind.
 - The player reads the strip as round outcomes: a circle with an X per round
   of the half, green for an ally win and red for an enemy win, and a yellow
   dot on the right for the opponents' round total
@@ -195,7 +197,9 @@ miss only where some witness saw the board at that sample.
   icons are those circles. Read them as a round-outcome witness and
   cross-check them against the scoreline; the yellow-green dot the witness
   finds in one column per board is not yet reconciled with one dot on the
-  right, and the crop shows only the middle columns.
+  right, and the crop shows only the middle columns. Read and measured in
+  [SCOREBOARD_ROUND_MARKS.md](SCOREBOARD_ROUND_MARKS.md): the strip is
+  match-long and the dot is the earliest match-winning round per team.
 - The witness misses a board where world detail runs along a marker line and
   where a player card covers the strip; it cannot read a band over a black
   world at all.
