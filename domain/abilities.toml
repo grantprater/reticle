@@ -1531,9 +1531,7 @@ An ability that comes back within a round restocks in one of two ways: over
 time after use, or on kills. Which abilities restock, and how, is a fact per
 ability. The wiki harvest of 2026-09-04 lists a restock only on signature
 abilities: a timer on sixteen (20 to 60 seconds) and kills on four (Curveball,
-Gatecrash, Refract, Tailwind); the basics carry none and are bought. Iso
-restocks Double Tap a third way, by shooting the orb a kill or damaging assist
-spawns during the channel [abilities/iso-double-tap-charges].
+Gatecrash, Refract, Tailwind); the basics carry none and are bought.
 """
 kind = "rule"
 known = "player"
@@ -1672,15 +1670,16 @@ see = ["abilities/recharge-kinds"]
 
 [iso-double-tap-charges]
 claim = """
-Iso has one Double Tap charge in slot E. Double Tap is channeled and grants a
-one-hit shield; the charge restocks when Iso shoots the orb that spawns from an
-enemy Iso killed or got a damaging assist on while the channel ran. This is a
-third restock kind beside time and kills.
+Iso has one Double Tap charge in slot E; it does not recharge within a round.
+Double Tap is channeled and grants a one-hit shield. The channel time is drawn
+as a resource bar on screen; shooting the orb that spawns from an enemy Iso
+killed or got a damaging assist on during the channel refreshes the channel
+time, not the charge.
 """
 kind = "rule"
 known = "player"
 since = "2026-09-27"
 subject = "iso:double tap"
 source = "player, 2026-09-27 (chat)"
-use = "adjudication.ability_state.charge_facts: max_charges for (iso, E); a level rise on Iso's E within a round follows a kill or damaging assist during the channel and a shot orb, so it is a restock, not a misread"
+use = "adjudication.ability_state.charge_facts: max_charges for (iso, E); a level rise on Iso's E within a round is a misread, not a restock; the channel bar is a separate widget from the slot"
 see = ["abilities/recharge-kinds"]
