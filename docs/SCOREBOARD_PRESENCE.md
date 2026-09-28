@@ -335,6 +335,37 @@ rows and one 2 px lower with the same reads and agents
 run confirms, and the reader differs from 0.8.0 on
 [metric:scoreboard/line-confirm@a06f04a0059f#noicons_changed_total=12] frames, the `red_overlap` boards.
 
+### Held out on a second map
+
+`bfad2778a372`, another map, held the rule out with nothing refitted: one
+CPU decode of the seeded selection's [metric:scoreboard/holdout@bfad2778a372#closed_present_n=50] closed_present and
+[metric:scoreboard/holdout@bfad2778a372#open_present_n=50] open_present frames (`random.Random(20260927)`), every centre
+crop and strip verdict equal to the stored ones ([metric:scoreboard/holdout@bfad2778a372#crop_equal=100],
+[metric:scoreboard/holdout@bfad2778a372#strip_equal=100]).
+
+| Frames | 0.7.0 open | 0.8.0 open | 0.9.0 open | `red_run` | `red_overlap` | `portraits` | 0.8.0 opens unchanged |
+|---|---|---|---|---|---|---|---|
+| Strip present, 0.7.0 closed | [metric:scoreboard/holdout@bfad2778a372#closed_present_070_open=0] | [metric:scoreboard/holdout@bfad2778a372#closed_present_080_open=18] | [metric:scoreboard/holdout@bfad2778a372#closed_present_090_open=28] | [metric:scoreboard/holdout@bfad2778a372#closed_present_090_confirm_red_run=18] | [metric:scoreboard/holdout@bfad2778a372#closed_present_090_confirm_red_overlap=2] | [metric:scoreboard/holdout@bfad2778a372#closed_present_090_confirm_portraits=8] | [metric:scoreboard/holdout@bfad2778a372#closed_present_080_open_090_unchanged=18] |
+| Strip present, 0.7.0 open | [metric:scoreboard/holdout@bfad2778a372#open_present_070_open=50] | [metric:scoreboard/holdout@bfad2778a372#open_present_080_open=39] | [metric:scoreboard/holdout@bfad2778a372#open_present_090_open=50] | [metric:scoreboard/holdout@bfad2778a372#open_present_090_confirm_red_run=39] | [metric:scoreboard/holdout@bfad2778a372#open_present_090_confirm_red_overlap=10] | [metric:scoreboard/holdout@bfad2778a372#open_present_090_confirm_portraits=1] | [metric:scoreboard/holdout@bfad2778a372#open_present_080_open_090_unchanged=39] |
+
+Every board 0.9.0 opens has its enemy rows at the board. Of the
+[metric:scoreboard/holdout@bfad2778a372#open_present_070_at_board=37] boards whose 0.7.0 enemy rows sat at the board, 0.9.0 keeps the
+reads on [metric:scoreboard/holdout@bfad2778a372#open_present_070_at_board_090_same_reads=37] and the rows on [metric:scoreboard/holdout@bfad2778a372#open_present_070_at_board_090_same_rows=36]; one moves 2 px. It
+moves all [metric:scoreboard/holdout@bfad2778a372#open_present_070_off_board=13] boards 0.7.0 read off the board onto it
+([metric:scoreboard/holdout@bfad2778a372#open_present_070_off_board_090_at_board=13]). A montage of the [metric:scoreboard/holdout@bfad2778a372#changed_viewed=21] boards 0.9.0 reads
+differently from 0.8.0, viewed by eye, shows the five enemy boxes on the
+five enemy rows on all of them. The predicted 40 closed_present opens fail:
+0.9.0 closes [metric:scoreboard/holdout@bfad2778a372#closed_present_090_closed_green_tall=9] as `green_tall`, and
+[metric:scoreboard/holdout@bfad2778a372#closed_present_090_closed_red_short_at_strip=7] + [metric:scoreboard/holdout@bfad2778a372#closed_present_090_closed_red_not_at_strip=6] at the strip. The run kept no image of the
+closed boards, so why those strip refusals fail both confirmations is
+unmeasured.
+
+The table's left edge is wrong on [metric:scoreboard/holdout@bfad2778a372#open_x0_wrong=9] of the [metric:scoreboard/holdout@bfad2778a372#open_090=78] boards 0.9.0
+opens, [metric:scoreboard/holdout@bfad2778a372#open_x0_wrong_changed=1] of them new: `red_overlap` confirms 69030 with its left edge at
+frame x 38. No weakest enemy portrait on those boards scores above
+[metric:scoreboard/holdout@bfad2778a372#open_x0_wrong_enemy_min_max=0.4514], so the openings gate refuses each (`row_refused`). The right
+edge lies past the board on [metric:scoreboard/holdout@bfad2778a372#open_x1_wrong=31] of the [metric:scoreboard/holdout@bfad2778a372#open_090=78].
+
 ### What still fails
 
 The table's left edge. Where the world left of the board passes the green
@@ -351,7 +382,8 @@ hold; SA1 holds across sessions but not on a06f04a0059f's own frames, where
 the enemy edge lay within 2 px on [metric:scoreboard/strip-geometry@a06f04a0059f#enemy_start_within_2px=29] of
 [metric:scoreboard/strip-geometry@a06f04a0059f#enemy_start_measured=35], not 0.95; SA3 and SA4 fail on the refusals
 0.9.0 now recovers; SA7 holds except for an ally portrait threshold set
-above what open boards score. SA8 to SA12 are in the ledger.
+above what open boards score. SA8 to SA12 and the holdout's SH1 to SH3 are
+in the ledger.
 
 ## Predictions
 
@@ -384,9 +416,9 @@ above what open boards score. SA8 to SA12 are in the ledger.
   columns, and a green world beside the board moves them (see "What still
   fails"). Ask what else observes the table's columns before tuning the
   green test.
-- Hold the anchor out on a second session: decode a seeded selection of
-  another map (50 frames per group from `notes/scoreboard-strip-samples.jsonl`,
-  `random.Random(20260927)`) and compare, fitting nothing.
+- Keep an image of every board the holdout refuses at the strip, and view
+  them before changing either confirmation: on `bfad2778a372` the run kept
+  none (see "Held out on a second map").
 - Rescan the scoreboard (`scoreboard-0.9.0`) to store a `sample` row per
   frame and the anchored rows; the openings now infer closed samples from
   the offered frames. `lineup.load_lineup` applies the stored 0.6.0 and 0.7.0
