@@ -8,7 +8,7 @@ ran. Writing this, I ran no scan and decoded nothing.
 ## Before staging: the usage-record baseline
 
 `tools/pubsub_baseline.py` reads the store's `scan-usage-1` records in `<store>/notes/usage.jsonl`, up to
-its cutoff of 2026-09-27T08:58, and writes [`pubsub_baseline.json`](pubsub_baseline.json), whose keys the
+its cutoff of 2026-09-27T08:58Z, and writes [`pubsub_baseline.json`](pubsub_baseline.json), whose keys the
 design cites; the [baseline](PUBSUB_PERFORMANCE_BASELINE.md) reads it at length. Usage logging landed in
 `89bc726`. Every record but one ran a single reader (`scan --only`), and none a full fused scan.
 `composite` estimates one per session from separate records, taking decode from the crop-cache write's
