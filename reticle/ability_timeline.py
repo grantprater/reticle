@@ -123,21 +123,32 @@ def _kit_end(window: tuple, ends: set, deaths_ms, agent: str | None,
 
 def kit_windows(rounds: list[dict], player_deaths_ms: list[float], *,
                 agent: str | None = None, second_lives_ms=(), revives_ms=(),
-                report_deaths: dict | None = None) -> list[dict]:
+                report_deaths: dict | None = None, kit_changes_ms=(),
+                kit_returns_ms=()) -> list[dict]:
     """Per stored round, in order: its `window` (start, end, close), the
-    `kit_end_ms` that ends the player's kit in it or None, and the
-    `undone_deaths` before that end, each as [t_ms, why]. The deaths and the
-    rules that undo one are `player_tray_casts`'s; the gate reads its kit ends
-    from here, and `adjudication.ability_state` asks the same question for
-    every tray sample."""
+    `kit_end_ms` that ends the player's kit in it or None, the
+    `undone_deaths` before that end, each as [t_ms, why], the
+    `kit_change_ms`, the round's first stored kit change
+    (`adjudication.tray_kit`), or None, and the `kit_return_ms`, the first
+    stored return to the player's kit after that change in the round, or None.
+    The deaths and the rules that undo one are `player_tray_casts`'s; the gate
+    reads its kit ends from here, and `adjudication.ability_state` asks the
+    same question for every tray sample. The kit change is a second witness,
+    kept apart from the killfeed's end."""
     ends = {r["t_end_ms"] for r in rounds}
+    changes = [{"t_first": float(t)} for t in kit_changes_ms]
+    returns = [{"t_first": float(t)} for t in kit_returns_ms]
     out = []
     for r in rounds:
         w = (r["t_start_ms"], r["t_end_ms"], r["t_close_ms"])
         end, undone = _kit_end(w, ends, player_deaths_ms, agent, second_lives_ms,
                                revives_ms, report_deaths)
+        change = min((c["t_first"] for c in in_round_window(changes, *w, ends)), default=None)
+        back = (None if change is None else
+                min((c["t_first"] for c in in_round_window(returns, *w, ends)
+                     if c["t_first"] > change), default=None))
         out.append({"round_no": r.get("round_no"), "window": w, "kit_end_ms": end,
-                    "undone_deaths": undone})
+                    "undone_deaths": undone, "kit_change_ms": change, "kit_return_ms": back})
     return out
 
 
@@ -152,7 +163,8 @@ def round_window_of(t_ms: float, kits: list[dict]) -> dict | None:
 def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
                       player_deaths_ms: list[float], *, agent: str | None = None,
                       second_lives_ms=(), revives_ms=(),
-                      report_deaths: dict | None = None) -> list[dict]:
+                      report_deaths: dict | None = None, kit_changes_ms=(),
+                      kit_returns_ms=()) -> list[dict]:
     """Which of a session's tray drops (`tray.drops`) are the local player's casts.
 
     The tray shows the player's kit only while the player lives; afterwards it
@@ -191,6 +203,22 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
       the round does not end her kit, so a drop between the death and the
       revive meets the remaining tests like any other.
 
+    The tray itself is the second witness. `kit_changes_ms` are the stored kit
+    changes (`adjudication.tray_kit`): the first sample of a round at which the
+    tray's icons show another agent's kit after the player's. A drop at or
+    after the round's first change, and before the tray returns to the
+    player's kit in the round (`kit_returns_ms`), is `after_kit_change`,
+    tested after the killfeed's `after_player_death`, so each refusal names
+    its witness. A return inside a round comes where the rounds table closes
+    a round late or a teammate revives the player; the tray shows the
+    player's kit again either way. A
+    capture whose killfeed prints no entry for the player (`4f207c0c4e39`)
+    has only this one. The kit change trails the death by the death camera.
+    The drops between the player's last own-kit sample and the change fall
+    while the tray is dark or several slots fall at once, and on the three
+    sessions of docs/TRAY_KIT_WITNESS.md the `forced` and co-occurrence tests
+    refused every one, so the change needs no lead.
+
     A drop that passes those tests must still have spent a charge, and three
     more tests ask whether it did, in this order:
 
@@ -213,7 +241,7 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     falls to FULL_AFTER_MIN, which was never brightened.
 
     Every test names its refusal, and a drop keeps the first that refuses it,
-    in this order: `no_round`, `after_player_death`,
+    in this order: `no_round`, `after_player_death`, `after_kit_change`,
     `phase:<name>`, `forced` or `cooccur_among_casts`, `partial_charge`,
     `pips_lit`, `equip_release`.
 
@@ -380,12 +408,13 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
 
     Every drop comes back with `player_cast`, the first `reason` that refused
     it, the round's `first_player_death_ms`, the `kit_end_ms` the gate used,
-    and the `undone_deaths` before it.
+    the `undone_deaths` before it, and the round's `kit_change_ms`.
     """
     ends = {r["t_end_ms"] for r in rounds}
     deaths = [{"t_first": x} for x in player_deaths_ms]
     kits = kit_windows(rounds, player_deaths_ms, agent=agent, second_lives_ms=second_lives_ms,
-                       revives_ms=revives_ms, report_deaths=report_deaths)
+                       revives_ms=revives_ms, report_deaths=report_deaths,
+                       kit_changes_ms=kit_changes_ms, kit_returns_ms=kit_returns_ms)
     rows = []
     for d in drops:
         t = d["t_ms"]
@@ -394,14 +423,17 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
         first = (min((e["t_first"] for e in in_round_window(deaths, *rnd, ends)), default=None)
                  if rnd else None)
         end, undone = (k["kit_end_ms"], k["undone_deaths"]) if k else (None, [])
+        change, back = (k["kit_change_ms"], k["kit_return_ms"]) if k else (None, None)
         phase = phase_of(t)
         reason = ("no_round" if rnd is None
                   else "after_player_death" if end is not None and t >= end - DEATH_LEAD_MS
+                  else "after_kit_change" if (change is not None and t >= change
+                                              and (back is None or t < back))
                   else None if phase in CAST_PHASES else f"phase:{phase}")
         rows.append({**d, "phase": phase,
                      "round_ms": None if rnd is None else [float(rnd[0]), float(rnd[2])],
                      "first_player_death_ms": first, "kit_end_ms": end,
-                     "undone_deaths": undone, "reason": reason})
+                     "undone_deaths": undone, "kit_change_ms": change, "reason": reason})
     keep = [r for r in rows if r["reason"] is None]
     # The charge tests read first, because the co-occurrence test asks them
     # which drops are releases; a drop still keeps the first reason in order.
@@ -427,9 +459,14 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     (`adjudication.death.stored_second_life`). Revives are the player's own
     revive entries among the stored `death` verdicts. The report's death
     counts are the stored `combat_report_round` rows where a report was read.
+    The kit changes are the stored `tray_kit` rows
+    (`adjudication.tray_kit.stored_kit_witness`), used only where they are
+    current and name the same player agent; otherwise the list is empty and
+    the stamp says why.
     """
     from . import gametime, stalls
     from .adjudication.death import stored_second_life
+    from .adjudication.tray_kit import stored_kit_witness
     from .killfeed import KILLFEED_PORTRAIT_VERSION
     from .rounds import player_death_times, player_second_life_times
     from .version import PLAYER_CAST_VERSION
@@ -454,13 +491,17 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
                           if r.get("verdict_source") == "combat_report"
                           and r.get("deaths") is not None},
     }
+    kit = stored_kit_witness(store.read_events("tray_kit", session_id), agent=agent)
+    inputs["kit_changes_ms"] = kit["kit_changes_ms"]
+    inputs["kit_returns_ms"] = kit["kit_returns_ms"]
     head = lambda rows, key: rows[0].get(key) if rows else None
     stamps = {"player_cast": PLAYER_CAST_VERSION,
               "hud": (hud.schema.metadata or {}).get(b"hud_version", b"").decode() or "unstamped",
               "gametime": gametime.GAMETIME_VERSION,
               "killfeed_portrait": KILLFEED_PORTRAIT_VERSION if badges is not None else None,
               "death": head(verdicts, "death_adjudication_version"),
-              "combat_report_round": head(report, "combat_report_round_version")}
+              "combat_report_round": head(report, "combat_report_round_version"),
+              "tray_kit": kit["version"] if kit["reason"] is None else kit["reason"]}
     return inputs, stamps
 
 

@@ -2865,17 +2865,19 @@ def cmd_tray(args) -> int:
         ts, counts, clean, _real = _tray_samples(cache, args.step)
         date = _date_of(man)
         rounds = store.read_rounds(sid, date).to_pylist()
-        gate, _stamps = stored_gate_inputs(store, sid, date, rounds,
-                                           player_agent(load_lineup(sid, store.root), sid))
+        gate, stamps = stored_gate_inputs(store, sid, date, rounds,
+                                          player_agent(load_lineup(sid, store.root), sid))
         rows = player_tray_casts(
             tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool)),
             gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
             second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
-            report_deaths=gate["report_deaths"])
+            report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+            kit_returns_ms=gate["kit_returns_ms"])
         common = {"session_id": sid, "tray_version": TRAY_VERSION,
                   "player_cast_version": PLAYER_CAST_VERSION, "step_s": args.step}
         why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
         out_rows = [{**common, "kind": "coverage", "samples": len(ts) - len(cache.record["spans"]),
+                     "tray_kit": stamps["tray_kit"],
                      "drops": len(rows), "player_casts": sum(r["player_cast"] for r in rows),
                      "refused_reasons": dict(sorted(why_not.items()))}]
         out_rows += [{**common, "kind": "drop", **r} for r in rows]
@@ -2883,6 +2885,174 @@ def cmd_tray(args) -> int:
         print(f"{sid}: {len(rows)} drops, {out_rows[0]['player_casts']} the player's casts; "
               f"refused {dict(why_not)} -> {out}")
     return 0
+
+
+def _tray_frames(cache, step_s: float):
+    """(cache span index, Sample) on the crop cache's grid, span by span: the
+    grid `reticle tray` samples, so a kit sample and a fill share an instant."""
+    for si, (a, b) in enumerate(cache.record["spans"]):
+        for smp in cache.samples(_cache_grid(cache.t_ms, a, b, step_s), rois=["hud_abilities"]):
+            yield si, smp
+
+
+def cmd_tray_kit(args) -> int:
+    """Whose kit the tray shows, per sample of the stored `hud_abilities`
+    crops (`adjudication.tray_kit`), the slot icons scored against the
+    catalogue's (`tray_icons`). Decodes no video."""
+    import time
+
+    from . import tray, tray_icons
+    from .adjudication.tray_kit import adjudicate, candidate_sets, read_sample
+    from .lineup import load_lineup
+    from .roi_cache import RoiCache
+    from .version import TRAY_KIT_VERSION, TRAY_VERSION
+
+    store = Store(args.store)
+    icons = tray_icons.load_slot_icons(store.root)
+    all_agents = sorted(icons)
+    ref_key = tray_icons.reference_key(store.root)
+    parameters = {"ICON_PX": tray_icons.ICON_PX, "ICON_CY": tray_icons.ICON_CY,
+                  "SHIFT_PX": tray_icons.SHIFT_PX, "step_s": args.step,
+                  "rate": f"the crop cache's grid every {args.step} s inside its round spans, "
+                          f"the grid `reticle tray` and `reticle ability-state` read"}
+    done = []
+    for sid in _sessions_arg(store, args):
+        t0 = time.perf_counter()
+        man = store.read_manifest(sid)
+        src = man["source"]
+        if (int(src["width"]), int(src["height"])) != (1920, 1080):
+            print(f"{sid}: tray geometry is measured at 1920x1080 -- skipped")
+            continue
+        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
+        if cache is None or not cache.record.get("spans"):
+            print(f"{sid}: no minimap crop cache with round spans ({why}) -- skipped")
+            continue
+        lineup = load_lineup(sid, store.root)
+        sets = candidate_sets(lineup, sid)
+        ts, span_of, counts, clean, patches = [], [], [], [], []
+        for si, smp in _tray_frames(cache, args.step):
+            c, ok = tray.slot_counts(smp.frame)
+            ts.append(float(smp.t_ms))
+            span_of.append(si)
+            counts.append(c)
+            clean.append(ok)
+            patches.append([np.clip(p, 0, 255).astype(np.uint8)
+                            for p in tray_icons.slot_patches(smp.frame)])
+        t_read = time.perf_counter() - t0
+        fills = tray.fills(np.asarray(counts, float), np.asarray(clean, bool))
+        samples = []
+        for i, t in enumerate(ts):
+            got: dict = {}
+            p = [x.astype(np.float32) for x in patches[i]]
+
+            def score(agents, p=p, got=got):
+                new = [a for a in agents if a not in got]
+                if new:
+                    got.update(zip(new, tray_icons.slot_scores(p, icons, new)))
+                return np.array([got[a] for a in agents])
+
+            drawn = tray.drawn(fills[i])
+            samples.append({"t_ms": t, "cache_span": span_of[i], "drawn": drawn,
+                            **read_sample(drawn, score, sets, all_agents)})
+        inputs = {"roi_cache": cache.record.get("version"), "tray_fill": TRAY_VERSION,
+                  "lineup": (lineup or {}).get("version"),
+                  "board_state": (lineup or {}).get("board_state"),
+                  "catalogue": f"reference/abilities.json#{ref_key}"}
+        res = adjudicate(sid, samples, sets, inputs, parameters)
+        cov = res["rows"][0]
+        cov["checks"] = {"cache_read_s": round(t_read, 1),
+                         "wall_s": round(time.perf_counter() - t0, 1)}
+        out = store.write_events("tray_kit", sid, res["rows"])
+        store.write_events("tray_kit_identity", sid, res["events"])
+        print(f"{sid}: player {cov['player_agent']}; {cov['named']} of {cov['samples']} samples "
+              f"named {cov['named_by_agent']}; refused {cov['refused']}; {cov['spans']} spans, "
+              f"{cov['kit_changes']} kit changes, {cov['kit_returns']} returns; "
+              f"{cov['checks']['wall_s']} s -> {out}")
+        done.append((sid, man, res["rows"]))
+    if args.record and done:
+        from . import metrics
+        for sid, man, rows in done:
+            values = _tray_kit_values(store, sid, man, rows, args.at)
+            metrics.record(tool="tray_kit", part="witness", session=sid, values=values,
+                           deps={"tray_kit_version": TRAY_KIT_VERSION,
+                                 "tray_version": TRAY_VERSION,
+                                 "catalogue": rows[0]["inputs"]["catalogue"]},
+                           context={"at_s": list(args.at or [])})
+            print(f"recorded tray_kit/witness@{sid}: {json.dumps(values)}")
+    return 0
+
+
+def _tray_kit_values(store, sid: str, man: dict, rows: list[dict], at_s) -> dict:
+    """The quoted numbers of one `tray-kit --record` run: coverage, the
+    reading at the instants asked for, and, where the killfeed witnesses the
+    player's deaths, each death's delay to the first sample of another kit and
+    the kit changes while the player lives (`ability_timeline.kit_windows`)."""
+    from .ability_timeline import DEATH_LEAD_MS, kit_windows, round_window_of, stored_gate_inputs
+    cov = rows[0]
+    samples = [r for r in rows if r.get("kind") == "sample"]
+    step = float(cov["parameters"]["step_s"])
+    values = {"samples": cov["samples"], "named": cov["named"], "spans": cov["spans"],
+              "spans_own": cov["spans_own"], "spans_other": cov["spans_other"],
+              "kit_changes": cov["kit_changes"], "kit_returns": cov["kit_returns"],
+              **{f"named_{k.replace('/', '_')}": v for k, v in cov["named_by_agent"].items()},
+              **{f"set_{k}": v for k, v in cov["named_by_set"].items()},
+              **{f"refused_{k}": v for k, v in cov["refused"].items()}}
+    t = np.array([s["t_ms"] for s in samples])
+    for s_at in at_s or []:
+        s = samples[int(np.argmin(np.abs(t - s_at * 1000.0)))]
+        key = f"at_{str(s_at).replace('.', '_')}_s"
+        values[key] = s["kit_agent"] or f"refused_{s['reason']}"
+        values[f"{key}_t_ms"] = s["t_ms"]
+    player = cov["player_agent"]
+    date = _date_of(man)
+    rounds = store.read_rounds(sid, date).to_pylist()
+    gate, _stamps = stored_gate_inputs(store, sid, date, rounds, player)
+    values["killfeed_deaths"] = len(gate["player_deaths_ms"])
+    if not gate["player_deaths_ms"] or player is None:
+        return values
+    # The killfeed's kit ends alone: the witness is scored against the
+    # channel it does not read.
+    kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                       second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+                       report_deaths=gate["report_deaths"])
+    other = [s for s in samples if s["kit_agent"] and s["kit_agent"] != player]
+    changes = [r for r in rows if r.get("kind") == "kit_change"]
+    delays, unseen, live_ms, early = [], [], 0.0, []
+    for s in samples:
+        k = round_window_of(s["t_ms"], kits)
+        if k is not None and (k["kit_end_ms"] is None
+                              or s["t_ms"] < k["kit_end_ms"] - DEATH_LEAD_MS):
+            live_ms += step * 1000.0
+    for k in kits:
+        end = k["kit_end_ms"]
+        if end is None:
+            continue
+        _a, _z, close = k["window"]
+        inside = [s["t_ms"] for s in other if end - DEATH_LEAD_MS <= s["t_ms"] <= close]
+        if inside:
+            delays.append((min(inside) - end) / 1000.0)
+        else:
+            unseen.append(end)
+    for c in changes:
+        k = round_window_of(c["kit_change_ms"], kits)
+        if k is not None and (k["kit_end_ms"] is None
+                              or c["kit_change_ms"] < k["kit_end_ms"] - DEATH_LEAD_MS):
+            early.append(c["kit_change_ms"])
+    values.update({"kill_ends": len(delays) + len(unseen),
+                   "kill_ends_with_other_kit": len(delays),
+                   "kill_ends_without_other_kit": len(unseen),
+                   "kill_ends_without_other_kit_t_s": [round(x / 1000.0, 2) for x in unseen],
+                   "live_min": round(live_ms / 60000.0, 2),
+                   "changes_while_alive": len(early),
+                   "changes_while_alive_per_live_min": round(
+                       len(early) / max(live_ms / 60000.0, 1e-9), 4),
+                   "changes_while_alive_t_s": [round(x / 1000.0, 1) for x in early]})
+    if delays:
+        q = np.quantile(delays, [0.0, 0.25, 0.5, 0.75, 1.0])
+        values.update({f"delay_s_{n}": round(float(x), 2)
+                       for n, x in zip(("min", "q25", "median", "q75", "max"), q)})
+        values["delays_s"] = [round(d, 2) for d in sorted(delays)]
+    return values
 
 
 def cmd_ability_state(args) -> int:
@@ -2900,6 +3070,7 @@ def cmd_ability_state(args) -> int:
     from .ability_timeline import kit_windows, player_tray_casts, stored_gate_inputs
     from .adjudication.ability_state import (CATALOGUE_PATH, adjudicate, player_agent_verdict,
                                              player_kit, slot_parameters)
+    from .adjudication.tray_kit import stored_kit_witness
     from .adjudication.ult_cast import DROP_FIELDS
     from .lineup import load_lineup
     from .roi_cache import RoiCache
@@ -2955,10 +3126,15 @@ def cmd_ability_state(args) -> int:
             [{k: r[k] for k in DROP_FIELDS} for r in drops], gate["phase_of"], rounds,
             gate["player_deaths_ms"], agent=gate["agent"],
             second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
-            report_deaths=gate["report_deaths"])
+            report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+            kit_returns_ms=gate["kit_returns_ms"])
         kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
                            second_lives_ms=gate["second_lives_ms"],
-                           revives_ms=gate["revives_ms"], report_deaths=gate["report_deaths"])
+                           revives_ms=gate["revives_ms"], report_deaths=gate["report_deaths"],
+                           kit_changes_ms=gate["kit_changes_ms"],
+                           kit_returns_ms=gate["kit_returns_ms"])
+        spectated = stored_kit_witness(store.read_events("tray_kit", sid),
+                                       agent=agent["agent"])["other_spans"]
         # The kit's names come from the same harvest (`lineup.abilities_for`).
         kit = player_kit(agent["agent"], store.root) if catalogue is not None else {}
         inputs = {**stamps, "tray_drop": cov["tray_version"], "catalogue": cat_stamp,
@@ -2976,7 +3152,7 @@ def cmd_ability_state(args) -> int:
             samples={"t_ms": [t for t, r in zip(ts, real) if r], "fills": fills[keep],
                      "drawn": [tray.drawn(f) for f in fills[keep]], "clean": clean[keep]},
             agent=agent, params=slot_parameters(agent["agent"], kit, facts, catalogue=catalogue),
-            inputs=inputs, checks=checks)
+            inputs=inputs, checks=checks, spectated=spectated)
         rows[0]["checks"]["wall_s"] = round(time.perf_counter() - t0, 1)
         out = store.write_events("ability_state", sid, rows)
         c = rows[0]
@@ -3027,6 +3203,7 @@ def _ability_state_values(store, done) -> dict:
                        "gate_stored_mismatch": c["checks"]["gate_stored_mismatch"]})
         pooled.update({f"transition_{k}": v for k, v in c["by_transition"].items()})
         pooled.update({f"surprise_{k}": v for k, v in c["surprises"].items()})
+        pooled.update({f"kit_witness_{k}": v for k, v in c.get("kit_witness", {}).items()})
         unread.update(c["unreadable_slot_samples"])
         reasons.update(c["charges_unread_readable_slot_samples"])
         # Where each count came from, per distinct agent and slot.
@@ -3062,6 +3239,10 @@ def _ability_state_values(store, done) -> dict:
     values["readable_fraction"] = round(values["readable_slot_samples"]
                                         / max(values["slot_samples"], 1), 4)
     values.update({f"unreadable_{k}": v for k, v in sorted(unread.items())})
+    # The kit reasons again under names a citation can carry (an identifier).
+    values.update({f"unreadable_{k.replace(':', '_')}": unread.get(k, 0)
+                   for k in ("kit_frozen:after_player_death", "kit:spectating",
+                             "owner_dead:kit_witness")})
     values["unreadable_fraction"] = round(1 - values["readable_fraction"], 4)
     values.update({f"charges_unread_{k}": v for k, v in sorted(reasons.items())})
     values.update({f"invariant_{k}": v for k, v in sorted(invariants.items())})
@@ -3125,7 +3306,8 @@ def cmd_ability_shapes(args) -> int:
                      [d for d in drops if d.get("kind") == "drop"],
                      gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
                      second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
-                     report_deaths=gate["report_deaths"])
+                     report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+                     kit_returns_ms=gate["kit_returns_ms"])
                  if d["player_cast"] and kit.get(d["slot"]) in ability_shapes.SHAPES]
         cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
         if cache is None:
@@ -4023,6 +4205,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--all", action="store_true", help="every session")
     s.add_argument("--step", type=float, default=0.5, help="tray sampling interval (default 0.5 s)")
     s.set_defaults(func=cmd_tray)
+
+    s = sub.add_parser("tray-kit",
+                       help="whose kit the tray shows, from its slot icons in stored crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--step", type=float, default=0.5, help="sampling interval (default 0.5 s)")
+    s.add_argument("--record", action="store_true",
+                   help="record each session's numbers in notes/metrics.jsonl")
+    s.add_argument("--at", type=float, nargs="*", default=[],
+                   help="instants (s) whose reading --record stores")
+    s.set_defaults(func=cmd_tray_kit)
 
     s = sub.add_parser("ability-state",
                        help="the player's kit as a state per slot, from stored drops and crops (no video)")

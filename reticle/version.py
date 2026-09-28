@@ -252,7 +252,18 @@ TRAY_VERSION = "tray-0.1.0"
 # 0.5.0: a release, a drop `equip_release` refuses from above
 # `ability_timeline.FULL_LEVEL`, taints no drop beside it; an X drop the
 # charge tests refuse still does.
-PLAYER_CAST_VERSION = "player-cast-0.5.0"
+# 0.6.0: the first change from the player's kit to another agent's in a round,
+# stored by `reticle tray-kit`, ends the kit too, until the tray returns to the
+# player's kit; a drop between the two is refused as `after_kit_change`. A
+# session without current `tray_kit` rows is decided as under 0.5.0.
+PLAYER_CAST_VERSION = "player-cast-0.6.0"
+# Whose kit the ability tray shows, per sample of the stored `hud_abilities`
+# crops: the slot icons scored against the catalogue's (`tray_icons`) and read
+# against the candidate sets the lineup allows (`adjudication.tray_kit`),
+# written as `tray_kit` rows by `reticle tray-kit`, with the arbiter's identity
+# events as `tray_kit_identity`. Bump when the icon geometry, a threshold, the
+# candidate-set rule, the span rule or the stored fields change.
+TRAY_KIT_VERSION = "tray-kit-0.1.0"
 # The kit of the local player as a state per slot (charges, equipped,
 # castable, owner alive), written as `ability_state` rows by `reticle
 # ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,
@@ -263,7 +274,11 @@ PLAYER_CAST_VERSION = "player-cast-0.5.0"
 # (`charge_priors`); state rows name their `charges_source`, and the coverage
 # row lists the conflicts, the slots without a count and the half readings
 # against each count.
-ABILITY_STATE_VERSION = "ability-state-0.2.0"
+# 0.3.0: the kit witness (`adjudication.tray_kit`). A sample inside a span of
+# another agent's kit is unreadable as `kit:spectating:<agent>`, and after the
+# round's first kit change as `owner_dead:kit_witness`, where the tray's own
+# kit rather than a killfeed entry says the owner is dead.
+ABILITY_STATE_VERSION = "ability-state-0.3.0"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the

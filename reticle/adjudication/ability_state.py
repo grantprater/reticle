@@ -22,10 +22,15 @@ state names what the refusal stood for (`STOOD_FOR`). The design's later steps
 invert the dependency, so that the gate publishes claims and this model
 decides the transition; the gate's stored verdicts are then the regression
 set. The player's kit ends where the gate's does (`ability_timeline.kit_windows`,
-`DEATH_LEAD_MS`). The agent is the identity arbiter's verdict on the player's
-slot as the lineup stores it (`adjudication.ult_cast.player_agent`), carried
-with its provenance and never decided here; the slots' abilities are
-`lineup.abilities_for`'s.
+`DEATH_LEAD_MS`). Two witnesses end it, each under its own reason: the
+killfeed's death (`kit_frozen:after_player_death`) and the kit witness
+(`adjudication.tray_kit`), whose icons show another agent's kit
+(`kit:spectating:<agent>`) and whose first change in a round makes the owner
+dead from then on (`owner_dead:kit_witness`) where the killfeed prints no
+death (docs/TRAY_KIT_WITNESS.md). The agent is the identity arbiter's
+verdict on the player's slot as the lineup stores it
+(`adjudication.ult_cast.player_agent`), carried with its provenance and never
+decided here; the slots' abilities are `lineup.abilities_for`'s.
 
 **The reading, per readable sample and slot.** A sample is readable when it
 lies in a round, before the kit ends, in a phase whose tray is the player's
@@ -113,6 +118,7 @@ from ..ability_timeline import (CAST_PHASES, DEATH_LEAD_MS, FULL_AFTER_MIN,
                                 FULL_MIN, ULT_SLOT, round_window_of)
 from ..version import ABILITY_STATE_VERSION
 from .identity import AGENT_IDENTITY_VERSION
+from .tray_kit import spectated_agent
 
 SLOTS = tray.SLOT_KEYS
 #: The phases whose tray is the player's kit: the gate's cast phases and the
@@ -120,8 +126,9 @@ SLOTS = tray.SLOT_KEYS
 #: [domain:hud/tray-after-player-death].
 READABLE_PHASES = ("buy_phase",) + tuple(CAST_PHASES)
 #: The reasons a sample is unreadable, in the order they are tested.
-UNREADABLE_REASONS = ("no_round", "kit_frozen:after_player_death", "phase",
-                      "tray_not_drawn", "guard_rows_flooded")
+UNREADABLE_REASONS = ("no_round", "kit_frozen:after_player_death", "kit:spectating",
+                      "owner_dead:kit_witness", "phase", "tray_not_drawn",
+                      "guard_rows_flooded")
 #: The most fill of a C, Q or E slot read as an empty bar: inside the sparse
 #: gap between the empty level (0 to 0.1) and the half level (from 0.35).
 HALF_MIN = 0.25
@@ -173,6 +180,7 @@ STOOD_FOR = {
                    "its owner alive, in a live phase"),
     "no_round": ("none", "unreadable: outside every round"),
     "after_player_death": ("none", "kit frozen: the tray shows no kit of the player's"),
+    "after_kit_change": ("none", "kit frozen: the tray's icons show another agent's kit"),
     "phase:buy_phase": ("unresolved", "the buy phase: a fall the gate does not read as a cast"),
     "phase": ("none", "unreadable: a phase whose tray is not the player's kit"),
     "forced": ("none", "unreadable: the tray is not drawn on the drop's sample"),
@@ -435,24 +443,34 @@ def player_agent_verdict(lineup: dict | None, session_id: str) -> dict:
             "board_state": (lineup or {}).get("board_state")}
 
 
-def _context(ts, drawn, clean, kits, phase_of) -> list[dict]:
-    """Per sample: its round, the owner's state and why it is unreadable."""
+def _context(ts, drawn, clean, kits, phase_of, spectated=()) -> list[dict]:
+    """Per sample: its round, the owner's state and why it is unreadable.
+    `spectated` are the stored spans of another agent's kit, (t_first_ms,
+    t_last_ms, agent) (`adjudication.tray_kit.stored_kit_witness`); each kit
+    window's `kit_change_ms` is the round's first kit change, and the owner is
+    dead by it until the `kit_return_ms` after it, if any."""
     out = []
     for t, dr, ok in zip(ts, drawn, clean):
         k = round_window_of(t, kits)
         end = k["kit_end_ms"] if k else None
         frozen = end is not None and t >= end - DEATH_LEAD_MS
+        change, back = (k.get("kit_change_ms"), k.get("kit_return_ms")) if k else (None, None)
+        changed = change is not None and t >= change and (back is None or t < back)
+        seen = spectated_agent(t, spectated)
         phase = phase_of(t)
         undone = [u for u in (k["undone_deaths"] if k else []) if u[0] <= t]
         why = ("no_round" if k is None
                else "kit_frozen:after_player_death" if frozen
+               else f"kit:spectating:{seen}" if seen
+               else "owner_dead:kit_witness" if changed
                else f"phase:{phase}" if phase not in READABLE_PHASES
                else "tray_not_drawn" if not dr
                else "guard_rows_flooded" if not ok else None)
         out.append({"t": float(t), "round": k["round_no"] if k else None,
-                    "phase": phase, "unreadable": why,
-                    "owner_alive": None if k is None else not frozen,
+                    "phase": phase, "unreadable": why, "spectating": seen,
+                    "owner_alive": None if k is None else not (frozen or changed),
                     "owner_life": (None if k is None else "dead" if frozen
+                                   else "dead:kit_witness" if changed
                                    else f"after_undone_death:{undone[-1][1]}" if undone
                                    else "first")})
     return out
@@ -606,7 +624,7 @@ def _verdict(common, slot, t, transition, *, reason=None, stood_for=None, claims
 
 def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
                kits: list[dict], phase_of, samples: dict, agent: dict, params: dict,
-               inputs: dict, checks: dict | None = None) -> list[dict]:
+               inputs: dict, checks: dict | None = None, spectated=()) -> list[dict]:
     """The session's coverage, claim, verdict and state rows.
 
     `drops` are the stored `tray_drop` drop rows and `gate_rows` the gate's
@@ -615,10 +633,11 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
     (no separator rows): `t_ms`, `fills` (n x 4), `drawn` and `clean`;
     `agent` is `player_agent_verdict`; `params` is `slot_parameters`;
     `inputs` are the input stamps; `checks` are the reproduction checks the
-    caller measured. Deterministic in its inputs."""
+    caller measured; `spectated` are the stored spans of another agent's kit
+    (`_context`). Deterministic in its inputs."""
     ts = [float(t) for t in samples["t_ms"]]
     fills = np.asarray(samples["fills"], float).reshape(len(ts), len(SLOTS))
-    ctx = _context(ts, samples["drawn"], samples["clean"], kits, phase_of)
+    ctx = _context(ts, samples["drawn"], samples["clean"], kits, phase_of, spectated)
     at = {t: i for i, t in enumerate(ts)}
     common = {"session_id": session_id, "ability_state_version": ABILITY_STATE_VERSION}
     death_src = {k: inputs.get(k) for k in ("hud", "death", "killfeed_portrait",
@@ -634,7 +653,8 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
         return cid
 
     def ctx_at(t):
-        return ctx[at[t]] if t in at else _context([t], [True], [True], kits, phase_of)[0]
+        return (ctx[at[t]] if t in at
+                else _context([t], [True], [True], kits, phase_of, spectated)[0])
 
     for k, slot in enumerate(SLOTS):
         par = params[slot]
@@ -744,17 +764,35 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
                     reason=why, stood_for="the kit is kept", claims=[cid],
                     agreed=["undone_death"], before=_snap(states, before(t_u, rnd), ts),
                     after=_snap(states, after(t_u, rnd), ts), owner_alive=True))
-            if kw["kit_end_ms"] is None:
+            change = kw.get("kit_change_ms")
+            if kw["kit_end_ms"] is None and change is None:
                 continue
-            end = float(kw["kit_end_ms"])
-            frozen = end - DEATH_LEAD_MS
-            cid = claim(slot, end, "kit_end", "owner_death", frozen,
-                        {"stream": "death", "kit_end_ms": end, "frozen_from_ms": frozen,
-                         "round": rnd}, death_src)
+            # The killfeed's end and the kit witness's change are separate
+            # claims; the killfeed's dates the verdict where it exists, and a
+            # change before its freeze disagrees with it.
+            ids, agreed, disagreed = [], [], []
+            if kw["kit_end_ms"] is not None:
+                end = float(kw["kit_end_ms"])
+                frozen = end - DEATH_LEAD_MS
+                ids.append(claim(slot, end, "kit_end", "owner_death", frozen,
+                                 {"stream": "death", "kit_end_ms": end,
+                                  "frozen_from_ms": frozen, "round": rnd}, death_src))
+                agreed.append("kit_end")
+            if change is not None:
+                change = float(change)
+                ids.append(claim(slot, change, "tray_kit", "kit_change", change,
+                                 {"stream": "tray_kit", "kit_change_ms": change, "round": rnd},
+                                 inputs.get("tray_kit")))
+                (disagreed if kw["kit_end_ms"] is not None and change < frozen
+                 else agreed).append("tray_kit")
+            if kw["kit_end_ms"] is None:
+                end, frozen = change, change
             verdicts.append(_verdict(
-                common, slot, end, "owner_death", stood_for="the kit freezes until the round ends",
-                claims=[cid], agreed=["kit_end"], before=_snap(states, before(frozen, rnd), ts),
-                owner_alive=False))
+                common, slot, end, "owner_death",
+                reason=None if kw["kit_end_ms"] is not None else "owner_dead:kit_witness",
+                stood_for="the kit freezes until the round ends",
+                claims=ids, agreed=agreed, disagreed=disagreed,
+                before=_snap(states, before(frozen, rnd), ts), owner_alive=False))
 
         records += _records(slot, par, states, ts, agent, common)
 
@@ -802,13 +840,17 @@ def _records(slot, par, states, ts, agent, common) -> list[dict]:
 def _coverage(rows, ctx, params, agent, inputs, checks, common, n_drops) -> dict:
     states = [r for r in rows if r["kind"] == "state"]
     verdicts = [r for r in rows if r["kind"] == "verdict"]
-    unread, by_phase = Counter(), Counter()
+    unread, by_phase, by_kit = Counter(), Counter(), Counter()
     for r in states:
         why = r["unreadable_reason"]
         if why:
-            unread["phase" if why.startswith("phase:") else why] += r["samples"]
+            unread["phase" if why.startswith("phase:")
+                   else "kit:spectating" if why.startswith("kit:spectating:")
+                   else why] += r["samples"]
             if why.startswith("phase:"):
                 by_phase[why] += r["samples"]
+            if why.startswith("kit:spectating:"):
+                by_kit[why] += r["samples"]
     cqe_readable = [r for r in states if r["readable"] and r["slot"] != ULT_SLOT]
     cov = {**common, "kind": "coverage",
            "tray_version": inputs.get("tray_drop"),
@@ -825,6 +867,16 @@ def _coverage(rows, ctx, params, agent, inputs, checks, common, n_drops) -> dict
            "readable_slot_samples": sum(r["samples"] for r in states if r["readable"]),
            "unreadable_slot_samples": dict(sorted(unread.items())),
            "unreadable_by_phase": dict(sorted(by_phase.items())),
+           "unreadable_by_kit": dict(sorted(by_kit.items())),
+           # Samples (not slot-samples) the kit witness puts in another
+           # agent's kit, and how many of them the killfeed already froze.
+           "kit_witness": {
+               "samples_spectating": sum(c["spectating"] is not None for c in ctx),
+               "samples_spectating_killfeed_frozen": sum(
+                   c["spectating"] is not None
+                   and c["unreadable"] == "kit_frozen:after_player_death" for c in ctx),
+               "samples_after_kit_change_only": sum(
+                   c["owner_life"] == "dead:kit_witness" for c in ctx)},
            "charges_unread_readable_slot_samples": dict(sorted(Counter(
                ("no-fact" if (r["charges_reason"] or "").startswith("no-fact")
                 else r["charges_reason"]) for r in cqe_readable for _ in range(r["samples"])

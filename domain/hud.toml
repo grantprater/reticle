@@ -54,6 +54,33 @@ gate tray casts on the player's death (stored death verdicts) before binding
 anything to them
 """
 
+[tray-slot-icons]
+claim = """
+Each ability tray slot draws its ability's official icon above the charge bar:
+the white glyph of the game's icon, about 48 px across at 1920x1080 on both
+the standard and the big-minimap layout, dimmed while the ability is
+unavailable. A spectated teammate's tray draws that teammate's icons, and the
+tray returns to the player's own kit in the seconds after the round ends,
+before the next round begins.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-27"
+subject = "hud:ability tray"
+source = """
+measured 2026-09-27 with `reticle tray-kit` on the stored hud_abilities crops
+of four sessions (docs/TRAY_KIT_WITNESS.md): the catalogue icons matched at
+48 px (scale 0.375 of the 128 px icon) fit best on all three sessions scanned,
+one of them on the big-minimap layout; every return to the player's kit after
+a spectated one fell between the rounds table's round end and the next
+round's start, except in rounds whose end the table sets at the close
+"""
+use = """
+the icons name whose kit the tray shows; normalised cross-correlation of the
+icon's alpha channel reads a lit and a dimmed icon alike
+"""
+see = ["hud/tray-after-player-death"]
+
 [menu-dims-tray]
 claim = """
 Opening the in-game menu (settings, or ending a session) dims the whole

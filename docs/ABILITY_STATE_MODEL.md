@@ -325,6 +325,15 @@ in the round-end and inter-round phases
 and with the tray undrawn or its guard rows flooded
 ([metric:ability_state/step1-scores@all-sessions#unreadable_undrawn_or_flooded_fraction=0.0371]).
 
+**Whose kit.** A match with no killfeed death left the spectated kit's bars
+read as the player's: on the Iso match `4f207c0c4e39`
+[metric:ability_state/step1@4f207c0c4e39-before-kit-witness#invariant_1_level_outside_the_segments=433]
+samples showed a half level on a one-charge slot. The tray kit witness
+([TRAY_KIT_WITNESS.md](TRAY_KIT_WITNESS.md)) reads the slot icons, and the
+state now marks another agent's kit `kit:spectating:<agent>` and the rest of
+the witnessed death `owner_dead:kit_witness`; the half levels fall to
+[metric:ability_state/step1@4f207c0c4e39#invariant_1_level_outside_the_segments=0].
+
 **Charges.** Among the played agents, facts give a count only for Blaze
 [domain:abilities/phoenix-tray-charges] and Ruse
 [domain:abilities/clove-tray-charges]. Sova's C, Q and E, Skye's C, Q and
