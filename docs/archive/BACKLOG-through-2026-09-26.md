@@ -14,3 +14,4 @@ Completed entries moved out of `BACKLOG.md` to keep its five latest.
 **Ability shapes (next, 2026-09-26).** (1) The seeds read a stale self position (`minimap-0.1.0` to `0.5.0`): refresh it, asking before any decode. (2) A bridged tray drop 0.5 s early refuses a real cast as co-occurring (`75a55a296d3b` 274.1 s). (3) Ask the player which Fury lines are blasts. (4) Test `unnamed-piece-barrier-fury` from the stored labels and shape rows.
 
 - **`revive-plate-witness` (2026-09-26):** a one-colour banner with an unnamed icon, a fielded reviver and two names is a revive (`death-adjudication-0.14.0`).
+- **`ability-shape-wiring` (2026-09-26):** `reticle tray` and `reticle ability-shapes` store the player's casts and drawn shapes from the crop cache; on the player's marks Fury 21/21, Regrowth 14/16, Recon Bolt 8/8.
