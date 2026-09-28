@@ -15,9 +15,9 @@ Panels and rounds
 -----------------
 * A **panel episode** is a run of frames with the header found, split at gaps
   over `GAP_MS` (a reopen with N, or the round summary later).
-* An episode that starts at a player death (`rounds.player_death_times`) is a
-  new **death panel**. Two rounds can read identically (one 160 headshot each),
-  so a death always starts a new panel.
+* An episode that opens at a player death (`rounds.player_death_times`, in
+  `near_death`'s window) is a new **death panel**. Two rounds can read
+  identically (one 160 headshot each), so a death always starts a new panel.
 * Any other episode is a **reopen** of the previous panel when its damage
   numbers match it (damage reads are stable across frames; hit counts are
   not), else a new **summary panel** [domain:combat_report/round-summary].
@@ -51,11 +51,24 @@ FLAG_MIN = 0.70              # flag-word correlation that counts as drawn
 GAP_MS = 3000.0
 #: A panel opens with the death, but the killfeed can read the death late:
 #: on `b3b9defb6fd7` at 1635 s the death flash washed the killfeed plates and
-#: the entry was first read 2.5 s after the panel opened.
+#: the entry was first read 2.5 s after the panel opened. One window serves
+#: every rule that ties a panel to a death (`near_death`).
 DEATH_BEFORE_MS, DEATH_AFTER_MS = 5000.0, 4000.0
 SUMMARY_WINDOW_MS = 45000.0
 ROUND_TAIL_MS = 8000.0       # a panel this long after a round's end still belongs to it
 FIELDS = ("out", "in", "out_hits", "in_hits")
+
+
+def near_death(t0: float, death_ms: float) -> bool:
+    """Whether a death read at `death_ms` belongs to a panel opening at `t0`:
+    from `DEATH_BEFORE_MS` before it opens to `DEATH_AFTER_MS` after. The
+    at-death call, the death binding and the killer's killfeed track all use
+    it; when binding kept its own window, 2 panels called at-death on
+    `223d636bf8d2` and `c40d950031bb` bound no death. The death stream's
+    onset can precede the HUD death time by up to 6 s, so a panel called
+    at-death can still miss its death verdict (`59c70f1ef720` 1625 s,
+    `5822b6646448` 1093 s)."""
+    return t0 - DEATH_BEFORE_MS <= death_ms <= t0 + DEATH_AFTER_MS
 
 
 def episodes(frames: list[dict]) -> list[list[dict]]:
@@ -115,7 +128,7 @@ def panels(frames: list[dict], death_times: list[float]) -> list[dict]:
         if not read:
             continue
         t0 = e[0]["t_ms"]
-        at_death = any(t0 - DEATH_BEFORE_MS <= d <= t0 + DEATH_AFTER_MS for d in death_times)
+        at_death = any(near_death(t0, d) for d in death_times)
         dmg = [(o, i) for o, i, _, _ in read]
         if out and not at_death and dmg == [(o, i) for o, i, _, _ in out[-1]["read"]]:
             out[-1]["reopens"].append(t0)
@@ -271,7 +284,6 @@ PORTRAIT_SAME = 0.8
 #: No kill happens this early in a round, so reads before it are "before".
 BUY_PHASE_MS = 25000.0
 KF_SLACK_MS = 500.0
-DEATH_LOOKBACK_MS = 6000.0
 
 
 def _corr(a, b) -> float:
@@ -348,10 +360,17 @@ def bind_deaths(ps, rounds, death_rows) -> tuple[list[dict], list[dict]]:
     identity claims that binding carries.
 
     A death panel's KILLED YOU row binds to the player's death -- not a second
-    life -- first seen within `DEATH_LOOKBACK_MS` before the panel opens, as
-    entity `<death_id>:killer`. A lone KILLED row binds to the player's lone
-    kill in the round (before the panel, for a death panel), as `<death_id>`.
-    A revive entry is neither.
+    life -- first seen in the panel's `near_death` window, the one `panels`
+    calls it at-death by, as entity `<death_id>:killer`, and only when the
+    panel carries exactly one KILLED YOU row: a death has one killer. On
+    `a1a995e6b19b` round 7 KAY/O killed the player at 632.5 s, a revive
+    followed at 634 s and Deadlock killed the player at 638 s; the panel at
+    638 s showed both killers, and with one death in its window both rows
+    bound to Deadlock. The rule also leaves the right row unbound in such a
+    panel (`b3b9defb6fd7` 891 s and 1308 s, `b7d24102a6f6` 1912 s: killed,
+    revived, killed again). A lone KILLED row binds to the player's lone
+    kill in the round (before the panel, for a death panel), as
+    `<death_id>`. A revive entry is neither.
     Each binding publishes the death entity's name on the row's cluster with
     `depends_on` that entity: the death's name rests on the same killfeed
     portraits, so it can disagree but is never independent. Returns
@@ -368,14 +387,15 @@ def bind_deaths(ps, rounds, death_rows) -> tuple[list[dict], list[dict]]:
         a, close = rnd["t_start_ms"], rnd.get("t_close_ms") or rnd["t_end_ms"]
         mine = [d for d in deaths if d["kf_player_death"] and not d["is_second_life"]
                 and p["kind"] == "death"
-                and p["start_ms"] - DEATH_LOOKBACK_MS <= d["t_ms"] <= p["start_ms"] + 1000]
+                and near_death(p["start_ms"], d["t_ms"])]
         kills = [d for d in deaths if d["kf_player_kill"] and a <= d["t_ms"] < close
                  and (p["kind"] != "death" or d["t_ms"] <= p["start_ms"])]
         killed = [k for k, row in enumerate(p["rows"]) if row.get("killed")]
+        killed_you = [k for k, row in enumerate(p["rows"]) if row.get("killed_you")]
         for k, row in enumerate(p["rows"]):
             if row.get("entity_id") is None:
                 continue
-            if row.get("killed_you") and len(mine) == 1:
+            if row.get("killed_you") and len(killed_you) == 1 and len(mine) == 1:
                 d, role, key = mine[0], "killer", "killer_identity"
                 entity = f"{d['death_id']}:killer"
             elif row.get("killed") and len(killed) == 1 and len(kills) == 1:
@@ -437,7 +457,7 @@ def name_rows(session_id, ps, rounds, kill_tracks, death_tracks, portraits, boar
         kills = [t for t in kill_tracks if a <= t["t_first"] < close
                  and (p["kind"] != "death" or t["t_first"] <= p["start_ms"])]
         death = [t for t in death_tracks if p["kind"] == "death"
-                 and p["start_ms"] - DEATH_LOOKBACK_MS <= t["t_first"] <= p["start_ms"] + 1000]
+                 and near_death(p["start_ms"], t["t_first"])]
         victims = {_killfeed_name(t, portraits, "victim", split, gallery) for t in kills} - {None}
         killer = _killfeed_name(death[-1], portraits, "killer", split, gallery) if death else None
         lone_kill = sum(r["killed"] for r in p["rows"]) == 1 and len(kills) == 1

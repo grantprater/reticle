@@ -207,6 +207,43 @@ class Naming(unittest.TestCase):
         self.assertEqual(adj.ally_bound(ally[:2], "Phoenix"), ["Jett"])
 
 
+class DeathBinding(unittest.TestCase):
+    """`bind_deaths` binds in the window `panels` calls a panel at-death by."""
+
+    def _bind(self, death_ms, rows=1):
+        frames = _run(60000, 64000, [_row("0", str(160 - k), ih="100", killed_you=0.99)
+                                     for k in range(rows)])
+        (p,) = adj.panels(frames, death_times=[death_ms])
+        adj.assign_rounds([p], ROUNDS)
+        for k, row in enumerate(p["rows"]):
+            row["entity_id"] = f"combat_report:s:portrait:{k}"
+        death = {"kind": "death_verdict", "death_id": "d1", "t_ms": death_ms,
+                 "kf_player_death": True, "kf_player_kill": False, "is_second_life": False,
+                 "is_revive": False, "death_adjudication_version": "test",
+                 "metadata": {"killer_identity": {"status": "resolved", "agent": "Jett"}}}
+        bindings, _ = adj.bind_deaths([p], ROUNDS, [death])
+        return p, bindings
+
+    def test_a_death_the_killfeed_reads_late_binds_to_its_panel(self):
+        # The death flash can delay the killfeed 2.5 s past the panel
+        # (`b3b9defb6fd7` 1635 s); the panel is at-death, so it must bind.
+        p, bindings = self._bind(62500.0)
+        self.assertEqual(p["kind"], "death")
+        self.assertEqual([b["death_entity"] for b in bindings], ["d1:killer"])
+
+    def test_two_killed_you_rows_with_one_death_bind_neither(self):
+        # `a1a995e6b19b` round 7: killed, revived, killed again; the panel
+        # shows both killers and only the second death is in its window.
+        p, bindings = self._bind(62500.0, rows=2)
+        self.assertEqual(sum(r["killed_you"] for r in p["rows"]), 2)
+        self.assertEqual(bindings, [])
+
+    def test_a_death_past_the_window_neither_calls_nor_binds_the_panel(self):
+        p, bindings = self._bind(65000.0)
+        self.assertFalse(p["at_death"])
+        self.assertEqual(bindings, [])
+
+
 class RoundVerdicts(unittest.TestCase):
     def _stream(self, **over):
         from reticle.version import COMBAT_REPORT_ROUND_VERSION

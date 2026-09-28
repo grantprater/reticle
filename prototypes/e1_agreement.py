@@ -12,8 +12,8 @@ runner asks whether a round whose totals agree can still hold a duplicate
 beside a miss, or a death bound to the wrong witness, identity or life.
 
 Decodes no video. Every input is a stored product at the stamp the ledger
-entry `e1-agreement-2026-09-27` pins; a session whose stamps differ is
-refused with the stamp named, never read. A channel whose stream is absent
+entry `LEDGER_ID` (`e1-agreement-2026-09-28`) pins; a session whose stamps
+differ is refused with the stamp named, never read. A channel whose stream is absent
 is a missing channel, recorded as such per round, not a refusal.
 
 `--replay` writes, under the store's `analysis/e1-agreement/`:
@@ -30,6 +30,11 @@ is a missing channel, recorded as such per round, not a refusal.
   names beside the killfeed victims'; and what changes when a corroborating
   channel is withheld.
 * `<session>.json` -- the per-session detail both lists are cut from.
+
+A `--session` run writes the two lists as `disagreements.<suffix>.json` and
+`agreeing.<suffix>.json`, so it never overwrites the corpus files: the
+suffix is the session id for one session, else the count and a hash of the
+sorted ids (the file lists them).
 
 Withholding. The killfeed is the source of every event and cannot be
 withheld from the event list; the corroborating channels can. The report
@@ -51,6 +56,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import hashlib
 import json
 import sys
 import time
@@ -65,7 +71,7 @@ from reticle.store import Store  # noqa: E402
 
 TOOL = "e1_agreement"
 VERSION = "e1-agreement-0.1.0"
-LEDGER_ID = "e1-agreement-2026-09-27"
+LEDGER_ID = "e1-agreement-2026-09-28"
 CORPUS_SESSION = "pinned-18"
 #: A scoreboard read serves a round's boundary when it falls between the
 #: previous round's close and this round's first possible kill
@@ -333,8 +339,10 @@ def seed_round(no: int, death_rows: list[dict], panels: list[dict],
     `panels` are the round's panels after `adjudication.combat_report.name_rows`
     set `entity_id` and `death_entity` on their rows. A death panel whose
     KILLED YOU row carries no `death_entity` is an UNBOUND panel; a player
-    death no death panel opened at is an UNPANELLED death. Either in a round
-    whose totals agree is a duplicate beside a miss, and the round is flagged.
+    death no death panel opened at, by the owner's window
+    (`adjudication.combat_report.near_death`), is an UNPANELLED death. Either
+    in a round whose totals agree is a duplicate beside a miss, and the round
+    is flagged.
     """
     mine = [d for d in death_rows if d.get("round_no") == no and not d.get("is_revive")]
     revives = [d for d in death_rows if d.get("round_no") == no and d.get("is_revive")]
@@ -366,8 +374,7 @@ def seed_round(no: int, death_rows: list[dict], panels: list[dict],
                and not any(r.get("death_entity") for r in p["rows"] if r.get("killed_you"))]
     real = [d for d in deaths if not d["second_life"]]
     unpanelled = [d["death_id"] for d in real
-                  if not any(d["t_ms"] - 1000 <= p["start_ms"] <= d["t_ms"] + adj.DEATH_LOOKBACK_MS
-                             for p in death_panels)]
+                  if not any(adj.near_death(p["start_ms"], d["t_ms"]) for p in death_panels)]
     # The report's KILLED rows, named by the arbiter, beside the killfeed victims.
     last = panels[-1] if panels else None
     report_names = []
@@ -718,8 +725,11 @@ def replay(sessions: list[str] | None, *, record: bool, withhold: bool) -> int:
                            note="E1 replay from storage: three channels' per-round K/D, the seeded "
                                 "agreeing rounds bound to witness, identity and life, channels withheld")
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+    suffix = "" if not sessions else f".{sessions[0]}" if len(sessions) == 1 else (
+        f".{len(sessions)}-sessions-"
+        + hashlib.sha1(",".join(sorted(sessions)).encode()).hexdigest()[:8])
     for name, rows in (("disagreements", disagreements), ("agreeing", agreeing)):
-        (out / f"{name}.json").write_text(
+        (out / f"{name}{suffix}.json").write_text(
             json.dumps({"version": VERSION, "at": stamp, "ledger": LEDGER_ID, "sessions": sids,
                         "refused": refused, "reasons": dict(reasons), "rows": rows},
                        indent=1, default=float), encoding="utf-8")
