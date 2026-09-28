@@ -56,8 +56,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DOMAIN_DIR = ROOT / "domain"
 
 #: The one reference form. Both halves are the file stem and the table name, so
-#: a citation is resolvable by eye as well as by this module.
-CITE = re.compile(r"\[domain:([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)\]")
+#: a citation is resolvable by eye as well as by this module. A file stem may
+#: carry an underscore: until 2026-09-27 the pattern refused one, so every
+#: `combat_report` citation went unchecked and its facts read as uncited.
+CITE = re.compile(r"\[domain:([a-z0-9][a-z0-9_-]*)/([a-z0-9][a-z0-9-]*)\]")
 
 #: What kind of thing the fact is. Not decoration: a `measurement` may be
 #: superseded by a better one, while a `rule` is the game's behaviour and can
