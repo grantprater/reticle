@@ -15,3 +15,7 @@ Completed entries moved out of `BACKLOG.md` to keep its five latest.
 
 - **`revive-plate-witness` (2026-09-26):** a one-colour banner with an unnamed icon, a fielded reviver and two names is a revive (`death-adjudication-0.14.0`).
 - **`ability-shape-wiring` (2026-09-26):** `reticle tray` and `reticle ability-shapes` store the player's casts and drawn shapes from the crop cache; on the player's marks Fury 21/21, Regrowth 14/16, Recon Bolt 8/8.
+
+## Combat report error list (2026-09-24, moved 2026-09-27)
+
+(2) the killfeed error list the report exposed: deaths never seen (`5822b6646448` 1415.5 s: the real death after a Run It Back, read in slot 2, never marked the player's death, an assist portrait on its left), an ability kill (molly), a kill of an enemy on a second life counted, a Me -> Me entry counted as a kill (likely Clove's revive expiring [domain:rounds/clove-revive-expiry-entry], or a self-kill), a split track `merge_split_tracks` did not join, and a post-round kill put in the next round where rounds touch (`a1a995e6b19b` 1064.5 s);
