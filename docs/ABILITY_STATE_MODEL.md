@@ -289,14 +289,14 @@ carrying `charges`, `charges_range`, `level`, `mode`, `castable`, `pips`,
 `owner_alive`, `readable` and `until_ms`, each null with a reason when unread.
 
 **Instruments.** The reread reproduces the stored drops on all
-[metric:ability_state/step1@all-sessions#sessions=20] sessions
-([metric:ability_state/step1@all-sessions#drops_reread_mismatch=0]
-mismatches over [metric:ability_state/step1@all-sessions#drops=3228] drops).
+[metric:ability_state/step1@all-sessions-before-e-facts#sessions=20] sessions
+([metric:ability_state/step1@all-sessions-before-e-facts#drops_reread_mismatch=0]
+mismatches over [metric:ability_state/step1@all-sessions-before-e-facts#drops=3228] drops).
 The gate, refactored to publish `kit_windows` and `round_window_of`,
 reproduces every stored verdict
-([metric:ability_state/step1@all-sessions#gate_stored_mismatch=0]
+([metric:ability_state/step1@all-sessions-before-e-facts#gate_stored_mismatch=0]
 mismatches), and each of its
-[metric:ability_state/step1@all-sessions#transition_cast=493] kept casts is a
+[metric:ability_state/step1@all-sessions-before-e-facts#transition_cast=493] kept casts is a
 `cast` transition.
 
 **Levels.** The first run read C, Q and E as full at the gate's
@@ -308,16 +308,16 @@ times, [metric:ability_state/level-edges@all-sessions#x_unlit_without_a_drop_to_
 of them to a fill of 0.5-0.8. The state now reads at the fills' density
 minima (`LEVEL_FULL_MIN`, `X_LIT_MIN`); surprises fell from
 [metric:ability_state/step1-scores@all-sessions#first_run_invariant_surprises=111]
-to [metric:ability_state/step1@all-sessions#invariant_surprises=78] and the
+to [metric:ability_state/step1@all-sessions-before-e-facts#invariant_surprises=78] and the
 dark flickers to
-[metric:ability_state/step1@all-sessions#surprise_x_bar_went_dark_without_a_drop=2].
+[metric:ability_state/step1@all-sessions-before-e-facts#surprise_x_bar_went_dark_without_a_drop=2].
 An equip reads from `EQUIP_MIN`, where
-[metric:ability_state/step1@all-sessions#release_from_at_equip_min=120] of
-[metric:ability_state/step1@all-sessions#release_drops=121] stored releases
+[metric:ability_state/step1@all-sessions-before-e-facts#release_from_at_equip_min=120] of
+[metric:ability_state/step1@all-sessions-before-e-facts#release_drops=121] stored releases
 start.
 
-**Readability.** [metric:ability_state/step1@all-sessions#unreadable_fraction=0.4213]
-of [metric:ability_state/step1@all-sessions#slot_samples=222368]
+**Readability.** [metric:ability_state/step1@all-sessions-before-e-facts#unreadable_fraction=0.4213]
+of [metric:ability_state/step1@all-sessions-before-e-facts#slot_samples=222368]
 slot-samples are unreadable: after the player's death
 ([metric:ability_state/step1-scores@all-sessions#unreadable_kit_frozen_fraction=0.3564]),
 in the round-end and inter-round phases
@@ -334,7 +334,7 @@ of [metric:ability_state/step1-scores@all-sessions#readable_cqe_slot_samples=965
 readable C, Q and E slot-samples store `charges` null with a `no-fact`
 reason and keep only the range the level bounds. `c62c2b06bcfb` has no
 lineup, so its agent is null and
-[metric:ability_state/step1@all-sessions#charges_unread_no_player_agent=3528]
+[metric:ability_state/step1@all-sessions-before-e-facts#charges_unread_no_player_agent=3528]
 slot-samples carry `no_player_agent`. A half bar need not be one charge of
 two: Sova's Recon Bolt, one charge in the official reference
 (`reference/abilities.json`), reads half for a stretch after a cast on
@@ -342,9 +342,9 @@ two: Sova's Recon Bolt, one charge in the official reference
 domain fact, and step 1 does not read it.
 
 **Labels.** Of the player's tray-cast labels the gate accepts,
-[metric:ability_state/step1@all-sessions#labels_cast_held_before=89] of
-[metric:ability_state/step1@all-sessions#labels_cast=94]
-([metric:ability_state/step1@all-sessions#a1_held_fraction=0.9468]) held a
+[metric:ability_state/step1@all-sessions-before-e-facts#labels_cast_held_before=89] of
+[metric:ability_state/step1@all-sessions-before-e-facts#labels_cast=94]
+([metric:ability_state/step1@all-sessions-before-e-facts#a1_held_fraction=0.9468]) held a
 charge or a lit bar just before. The five others fell from a half bar on a
 slot with no fact (Phoenix E twice, Skye E twice, Sova E once), which the
 model will not call one charge. The other labels become `unequip`, `none` or
@@ -355,14 +355,14 @@ model will not call one charge. The other labels become `unequip`, `none` or
 sessions: a cast without a charge, an X cast from an unlit bar or leaving it
 lit, a release that lowered the level, a frozen kit that changed, and a half
 bar on a one-charge slot.
-[metric:ability_state/step1@all-sessions#invariant_1_cast_charge_unconfirmed=44]
+[metric:ability_state/step1@all-sessions-before-e-facts#invariant_1_cast_charge_unconfirmed=44]
 casts leave the charge unconfirmed: a half bar on a slot with no fact.
 Entities (invariant 4) and range rounds (invariant 6) wait for later steps.
 The surprises left are
-[metric:ability_state/step1@all-sessions#surprise_level_fell_without_a_cast=60]
+[metric:ability_state/step1@all-sessions-before-e-facts#surprise_level_fell_without_a_cast=60]
 refused drops whose level fell, co-occurrence and buy-phase refusals where a
 state-deciding model and the gate would first disagree, and
-[metric:ability_state/step1@all-sessions#surprise_level_fell_without_a_drop=16]
+[metric:ability_state/step1@all-sessions-before-e-facts#surprise_level_fell_without_a_drop=16]
 level falls the reader stored no drop for.
 
 **Cost.** [metric:ability_state/step1-scores@all-sessions#run_wall_s=1266.8] s
@@ -373,8 +373,10 @@ The predictions and outcomes are in the store's ledger, task
 
 ### What step 2 needs
 
-- Charge facts for the ten slots above, and each ability's recharge kind,
-  from the mechanics sheet; until then a half bar reads `[0, 2]`.
+- Charge facts for the seven slots still without one (the ten above less
+  Sova's, Phoenix's and Skye's E), and each ability's recharge kind
+  [domain:abilities/recharge-kinds], from the mechanics sheet; until then a
+  half bar reads `[0, 2]`.
 - A pip reader for the X slot: the tray counts teal, not pips, so `pips`
   stays null and `castable` is the only ult reading.
 - The timer bar reader, to date `until_ms`. Step 1 dates an active span only
@@ -384,3 +386,37 @@ The predictions and outcomes are in the store's ledger, task
 - Own audio bound to the `cast` transition rather than to a drop.
 - Labels for the refused drops whose level fell, scored before the model
   decides casts in place of the gate.
+
+### Rerun with the E-slot charge facts (2026-09-27)
+
+The player confirmed one Recon Bolt charge
+[domain:abilities/sova-recon-bolt-charges] and two each of Curveball and
+Guiding Light [domain:abilities/phoenix-curveball-charges]
+[domain:abilities/skye-guiding-light-charges], and named the two restock
+kinds, a timer or kills, per ability [domain:abilities/recharge-kinds]. The
+first run's rows are relabelled `all-sessions-before-e-facts` and the rerun records under
+`all-sessions`.
+
+Before the rerun the five A1 misses were read in the crops. The two on
+`c40d950031bb` (595 s, 912 s) follow Sova's deaths at 592.5 s and 908.5 s:
+the tray then shows the spectated teammate's kit, Phoenix's Curveball at one
+charge of two, and the gate had forced the drops `after_player_death`. The
+one on `59c70f1ef720` (2429.0 s) is the bow's glow over the E slot while
+Recon Bolt restocks (countdown 33 to 13 s) after Hunter's Fury at 2425 s: the
+glow read as a fill of 0.42 and its passing as a drop the gate accepted as a
+cast; the player's label there is `nothing_on_minimap`. A half bar on a
+one-charge slot is the instrument, and the tray's icons say whose kit is
+shown, a witness for deaths the killfeed misses.
+
+With the facts, [metric:ability_state/step1@all-sessions#labels_cast_held_before=93] of 94 labelled
+casts held a charge or a lit bar before (S1 asked 93: the two Phoenix and two
+Skye E casts read one charge of two, and the Sova E drop is not confirmed);
+[metric:ability_state/step1@all-sessions#invariant_1_cast_charge_unconfirmed=9] casts are
+unconfirmed (S3 asked at most 20, from 44), a level outside the segments on
+[metric:ability_state/step1@all-sessions#invariant_1_level_outside_the_segments=2] readings (S2
+asked 1 to 39; `59c70f1ef720` 2429 s is the glow, `9acf02f98283` 210 s is the whole tray dimmed in a buy phase, every slot at 0.6 of full), and
+[metric:ability_state/step1@all-sessions#invariant_surprises=78] surprises
+([metric:ability_state/step1@all-sessions#surprise_level_fell_without_a_cast=60] refused drops
+whose level fell). The run records no `step1-scores` row; the first run's
+scores stand. S1 to S3 held (ledger). Seven slots have no charge fact: Sova and Skye C and Q, Phoenix Q,
+Clove C and Q; Iso's kit joins when `4f207c0c4e39` is ingested.
