@@ -23,7 +23,7 @@ live queue.
 
 ## Module routing
 
-Current cross-pipeline review and delivery gates:
+The 2026-09-09 cross-pipeline review and delivery gates:
 [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md). It distinguishes implemented foundations
 from proposed semantics, acquisition policy and acceptance requirements.
 
@@ -71,9 +71,8 @@ count and the adjudicated one disagree, which is where a camera wipe is,
 without opening the video.
 
 Module names above are relative to `reticle/` unless a directory is shown.
-Minimap work also requires `prototypes/CLAUDE.md` and the domain notes kept
-outside this public repository. Do not recreate attribution or private quotes
-in repository files. The root `CLAUDE.md` explains the private notes location.
+Minimap work also requires `prototypes/CLAUDE.md` and the private domain notes
+in `~/reticle-notes/`, which AGENTS.md describes.
 
 ## Commands for a focused handoff
 
@@ -113,48 +112,18 @@ path through `reticle/geometry.py` rather than joining a session id onto
 `doctor`'s COVERAGE check reports it.
 
 For stored-data changes, prefer `segment`, `audit`, `coach`, or `sql`
-as appropriate. `segment`/`audit` reuse stored L1; `hud`,
-`scan`, `board`, and `overlay` need source pixels. Run a targeted test file
+as appropriate. `segment`/`audit` reuse stored L1. `scan --only hud` rereads
+the crop cache (`roi_cache`) and decodes only with `--from video`; `hud`,
+`board` and `overlay` open the source video. Run a targeted test file
 first, then the full suite when the change crosses module boundaries.
 `refine` previews stored windows; `--execute` reads only their merged intervals
 and writes separate dense evidence. It requires current provenance and a cached
 killfeed mask. Repeat `--review-id` to combine windows; limits refuse, not truncate.
 
-## Rules that protect comparability
+## Rules
 
-- Separate raw observations from pure adjudication. Store what a detector read,
-  when and where it read it, quality/refusal, producer version, and provenance;
-  derive entities, intervals, and coaching hypotheses in later versioned steps.
-- If a rule can be recomputed from stored data, do not decode video. Keep its
-  own stamp and dependency boundary; unrelated detector changes must not
-  restamp it.
-- Give each independent detector or observation table its own version stamp.
-  A shared decode pass is an execution optimization, not a shared definition.
-- Unknown stays `null` with a reason. Refusal, missing widget, stale input, and
-  terminal state must remain distinguishable from a real zero.
-- Record evidence and disagreements before promoting an inference. Agreement
-  between channels is consistency, not proof of detector accuracy.
-- Fix a bad detection by cross-referencing another channel before tuning the
-  one that produced it; see the global constraint in the root `CLAUDE.md`.
-- Stored timestamps are observation times. A delayed detector answer must not
-  silently become the event's inferred origin.
-- Never use stored-data bounds or a model's own output as independent evidence;
-  inspect source windows for unresolved cases.
-- Keep private attribution outside this repository and never put session URLs in
-  files or commits.
-
-## Small architecture recommendations
-
-Keep the pipeline as `raw observation -> adjudication -> lifecycle event ->
-compound episode -> review/coaching hypothesis`. Make adjudication pure over
-stored observations wherever possible, with explicit alternatives and evidence
-links. This permits cheap threshold/rule experiments and correction rebuilds.
-
-Use task-local notes or small focused docs linked from this map. Do not grow a
-single eagerly loaded context file with measured results, transient status, or
-duplicated detector prose; those belong beside the owning module or in the
-implementation plan/backlog.
-
-Treat review windows as pointers into source media plus provenance, not exported
-clips or conclusions. Keep no-contact opportunities and unresolved cases so
-coverage does not collapse to only dramatic outcomes.
+The global rules live in AGENTS.md under
+[Global constraints](../AGENTS.md#global-constraints), and this map does not
+restate them. They protect the pipeline spine `raw observation -> adjudication
+-> lifecycle event -> compound episode -> review/coaching hypothesis`, which
+`architecture.toml` declares as layers.

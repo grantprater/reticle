@@ -1,18 +1,21 @@
 # Reticle — VOD analysis
 
-Stages 00–02 of the pipeline in the design doc: fingerprint a capture, decode it
+Stages 00–02 of the pipeline in the design doc (linked at the top of
+[PROJECT_GUIDE.md](PROJECT_GUIDE.md)): fingerprint a capture, decode it
 into L1 primitives, gate it into spans, read the scoreline off the HUD, and
 write the whole thing to a Parquet event store you can query with DuckDB.
 
 Stage 02 includes scoreline, ammo, HP/shield, attributed killfeed, roster and
 minimap readers. Coverage and validation vary; use `status` and `doctor` rather
-than assuming every session is current. The pure economy ledger is implemented,
-but credit observations and reliable POV/phase detection remain missing. The
-coaching layer now extracts player kill/death observations
+than assuming every session is current. The pure economy ledger is implemented
+and the scoreboard reader stores credit reads; reliable POV and phase detection
+remain missing. The coaching layer now extracts player kill/death observations
 from stored reads and evaluates an exploratory state-probability baseline when
 enough independent sessions are available.
 
-The review and prioritized roadmap are in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+[BACKLOG.md](BACKLOG.md) orders the work. [docs/WORKING_MAP.md](docs/WORKING_MAP.md)
+routes a task to its code and holds the command list, and [AGENTS.md](AGENTS.md)
+holds the rules every change follows.
 
 The first economy slice accepts explicit adjudicated facts and writes or prints
 a versioned ledger; it does not decode footage or infer missing purchases:
@@ -35,7 +38,6 @@ booleans are `null`. See `tests/test_economy.py` for an executable example.
 .\.venv\Scripts\python.exe -m reticle coach c40d950031bb
 .\.venv\Scripts\python.exe -m reticle audit
 .\.venv\Scripts\python.exe -m reticle scan 587c15b07779 --only roster
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
 `coach` uses existing L1 only; it does not decode footage. The default bundle is
@@ -54,7 +56,8 @@ adequate data. It excludes stale inputs, unconfirmed/terminal roster states,
 missing clocks and uncertain boundaries. It uses no inferred plant timestamp,
 economy, side or POV. Estimates are exploratory; state changes are not causal
 effects or player credit. When coverage is insufficient, probabilities stay null
-and events remain available for review. Clips are not yet exported/refined.
+and events remain available for review. Clips are not exported; `refine` writes
+dense evidence for selected review windows.
 
 `audit` compares score transitions and roster changes with killfeed observations
 from stored data, reporting exact disagreement windows without changing rounds.
@@ -77,12 +80,26 @@ python -m venv .venv
 
 Run everything as `.\.venv\Scripts\python.exe -m reticle <command>`.
 
+## Quickstart
+
+```
+.\.venv\Scripts\python.exe -m reticle doctor
+.\.venv\Scripts\python.exe -m reticle status
+.\.venv\Scripts\python.exe -m reticle plan [SESSION]
+.\.venv\Scripts\python.exe -m reticle scan SESSION --only hud
+.\.venv\Scripts\python.exe -m unittest discover -s tests -q
+```
+
+The working map's
+[commands for a focused handoff](docs/WORKING_MAP.md#commands-for-a-focused-handoff)
+list the rest.
+
 ## Try it without a VOD
 
 ```
-python -m reticle synth --out .\fixtures\synthetic_capture
-python -m reticle --store .\teststore ingest .\fixtures\synthetic_capture.mp4
-python -m reticle --store .\teststore inspect --spans 10
+.\.venv\Scripts\python.exe -m reticle synth --out .\fixtures\synthetic_capture
+.\.venv\Scripts\python.exe -m reticle --store .\teststore ingest .\fixtures\synthetic_capture.mp4
+.\.venv\Scripts\python.exe -m reticle --store .\teststore inspect --spans 10
 ```
 
 `synth` renders a clip that carries the *signal structure* the segmenter keys
@@ -97,30 +114,23 @@ calibrate thresholds against it.
 change, or HUD layout-setting change.
 
 ```
-python -m reticle probe "D:\vods\match.mp4" --n 8
+.\.venv\Scripts\python.exe -m reticle probe "D:\vods\match.mp4" --n 8
 ```
 
 That writes annotated frames. Open them. If `minimap` isn't on the minimap,
 edit the fractions in `profiles.py` and run it again. Everything downstream is
 wrong until this is right.
 
-Two things worth checking on a new capture before anything else:
-
-* **Is the frame cropped?** The crosshair must sit at the centre of the frame
-  (960, 540 at 1080p). If it sits elsewhere, OBS is compositing a larger render
-  onto a smaller canvas at 1:1 and part of the HUD is not in the file at all.
-  Fix the OBS scaling; `valorant-16x9-crop75` exists only to salvage captures
-  already recorded that way.
-* **What minimap settings were used?** Rotation, per-side orientation and
-  "keep player centered" all change what the minimap ROI contains, and only
-  fixed + always_same + uncentered gives a constant minimap -> world transform.
-  `probe` prints the profile's assumption; override per capture with
-  `ingest --minimap-mode "fixed/per_side/uncentered"`, recorded in the manifest.
+Before ingesting a new capture, work through the pre-ingest checklist in
+[PROJECT_GUIDE.md](PROJECT_GUIDE.md#before-ingesting-any-new-capture): the
+crosshair position (a cropped frame loses HUD), the minimap settings, which
+`probe` prints and `ingest --minimap-mode` records in the manifest, and the
+rest of the capture settings.
 
 **2 — Ingest.**
 
 ```
-python -m reticle ingest "D:\vods\match.mp4"
+.\.venv\Scripts\python.exe -m reticle ingest "D:\vods\match.mp4"
 ```
 
 Decodes at 5 Hz by default and writes L1 + spans. Re-running the same file is a
@@ -130,14 +140,14 @@ look at a long capture before committing to a full pass.
 **3 — Calibrate the thresholds.**
 
 ```
-python -m reticle segment --all --show-signals
+.\.venv\Scripts\python.exe -m reticle segment --all --show-signals
 ```
 
 This recomputes spans **from stored L1 without touching the video** — the point
 of the L0/L1 split in §7. It's milliseconds, so you can sweep thresholds freely:
 
 ```
-python -m reticle segment --minimap-dchange 4 --active-motion 0.02
+.\.venv\Scripts\python.exe -m reticle segment --minimap-dchange 4 --active-motion 0.02
 ```
 
 `--show-signals` prints percentiles for each column the classifier thresholds
@@ -146,20 +156,19 @@ on. You're looking for a bimodal split; put the threshold in the valley.
 **4 — Read the HUD (stage 02).**
 
 ```
-python -m reticle hud
-python -m reticle verify
+.\.venv\Scripts\python.exe -m reticle hud
+.\.venv\Scripts\python.exe -m reticle verify
 ```
 
 `hud` re-opens the source the manifest points at and reads the top-centre
 scoreline off each sampled frame, writing L1 HUD reads. It needs pixels, so
-unlike `segment` it cannot recompute from stored L1 — it is the one stage that
-forces a re-decode.
+unlike `segment` it cannot recompute from stored L1. Once a session has a crop
+cache, `scan SESSION --only hud` rereads the HUD from it without decoding
+(`--from video` forces a decode).
 
-Nothing here is a model. The HUD is structured data rendered as pixels, so it is
-parsed against templated regions: threshold, connected components, filter by
-glyph geometry, normalise to a fixed grid, nearest labelled template. Fields the
-extractor cannot read stay **null** rather than being guessed, and every value is
-range-checked before it is returned — a clock of 7:41 is a misread, not a fact.
+Stage 02 is deterministic and leaves an unread field null rather than guessed;
+[AGENTS.md](AGENTS.md#global-constraints) states both rules, and PROJECT_GUIDE.md's
+conventions give the method.
 
 `verify` checks the result against domain invariants — the clock tracks real
 time, scores never fall, resets coincide with a score change. No labels are
@@ -169,8 +178,8 @@ needed for any of that, and a violation localises the extraction fault in time.
 file, because what matters is how this build renders at this resolution:
 
 ```
-python -m reticle glyphs "D:\vods\match.mp4"          # writes a montage
-python -m reticle glyphs "D:\vods\match.mp4" --label "0131..."
+.\.venv\Scripts\python.exe -m reticle glyphs "D:\vods\match.mp4"          # writes a montage
+.\.venv\Scripts\python.exe -m reticle glyphs "D:\vods\match.mp4" --label "0131..."
 ```
 
 Open the montage, read the clusters left to right, and pass one character per
@@ -182,7 +191,7 @@ and the geometry constants in `ocr.py` would need re-deriving.
 **5 — Check the result against reality.**
 
 ```
-python -m reticle frames --every 30
+.\.venv\Scripts\python.exe -m reticle frames --every 30
 ```
 
 Dumps frames named with the label the baseline assigned. Skim them. The ones
@@ -192,8 +201,8 @@ classifier eventually gets fitted on.
 ## Querying
 
 ```
-python -m reticle sql                          # list views and columns
-python -m reticle sql "SELECT state, round(sum(duration_ms)/1000,1) secs
+.\.venv\Scripts\python.exe -m reticle sql                          # list views and columns
+.\.venv\Scripts\python.exe -m reticle sql "SELECT state, round(sum(duration_ms)/1000,1) secs
                        FROM spans GROUP BY state"
 ```
 
@@ -247,18 +256,8 @@ docstring defines each field.
 
 Default store is `~/reticle-store`; override with `--store`.
 
-Conventions from §7 that are actually enforced:
-
-- **Raw media is never copied.** The manifest points at where the file lives.
-  Move the file and `frames` will tell you it's gone.
-- **Wide and denormalised** — identity and version columns sit inline on every
-  row rather than in a join table.
-- **Versioned** — every row carries `extractor_version`, `schema_version`,
-  `source_profile`, `session_id`, `content_key`. Bump `EXTRACTOR_VERSION` in
-  `version.py` and the next ingest re-decodes; bump `SEGMENTER_VERSION` and only
-  spans recompute.
-- **Idempotent** — sessions are keyed by a sampled content digest, so identity
-  survives a rename and a re-run costs nothing.
+The store's conventions are in the `reticle/store.py` docstring, and the version
+stamps that drive recompute are in PROJECT_GUIDE.md's conventions.
 
 ## Known gaps
 
@@ -267,12 +266,11 @@ Conventions from §7 that are actually enforced:
 - `content_key` is a sampled digest (size + head/mid/tail), not a full hash. It
   identifies files; it does not detect corruption.
 - 16:9 only. Other aspect ratios need their own profile.
-- Single-file, single-process. No queue, no parallelism — at a few games that
-  isn't the bottleneck; decode is.
+- Single process. A staged `scan` feeds readers on worker threads
+  (`pipeline.run_staged`); the usage log records how each pass ran.
 
 ## Cost check
 
-The doc's stage-01 rule is that the expensive layer should see well under 1% of
-frames. `inspect` prints the funnel with your capture's real numbers so you can
-see what fraction of a match actually survives gating before anything expensive
-would run.
+`inspect` prints the stage-01 funnel with your capture's real numbers, so you
+can see what fraction of a match survives gating before anything expensive
+runs; PROJECT_GUIDE.md's conventions state the cost rule.

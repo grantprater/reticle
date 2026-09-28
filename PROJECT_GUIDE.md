@@ -371,7 +371,7 @@ document has been circling:
   things historically did not: the static map was a per-session median and
   `active` spans came from segmenting the whole file. The first is now removed:
   readers load baked `(map, profile)` geometry before streaming and session
-  pixels may only size, place and orient the widget
+  pixels may only size and place the widget
   [domain:capture/session-pixels-are-not-the-map]. `active` span derivation remains the
   future-context obstacle, and the round-phase detector is the first candidate.
 
@@ -1103,7 +1103,7 @@ somebody else's pass and calls the same function. Verified both ways return 14 p
 
 One constraint is now an invariant: **a reader never builds a median**. It reads
 the baked `(map, profile)` reference and streams in one phase. Session pixels
-may measure only the widget's dimensions, placement and orientation
+may measure only the widget's dimensions and placement
 [domain:capture/session-pixels-are-not-the-map]; `doctor` rejects cache APIs and
 capture medians outside the two exceptions AGENTS.md names.
 
@@ -1316,7 +1316,8 @@ decision, it belongs in the docstring.
   (`roi_cache`), and `--from video` decodes.
 - **`segment` must never open the video.** Recomputing spans from stored L1 is
   the whole point of the L0/L1 split, and it is what makes threshold sweeps
-  free. `hud` needs pixels, and reads them from the crop cache when one exists.
+  free. The `hud` command re-opens the source; `scan --only hud` reads the crop
+  cache instead.
 - **Raw media is never copied.** Manifests point at where the file lives.
   Lossless crops of a fixed reader ROI (`reticle/roi_cache.py`) are not a copy
   of the capture (player, 2026-09-25): they let `reticle trial` rerun a reader
