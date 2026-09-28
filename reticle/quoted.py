@@ -55,6 +55,7 @@ import re
 from pathlib import Path
 
 from reticle import metrics
+from reticle.domain import HISTORY_PREFIXES
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -67,7 +68,9 @@ CITE = re.compile(
     r"#(?P<field>[A-Za-z_][A-Za-z0-9_]*)"
     r"=(?P<value>[^\]]+)\]")
 
-#: Dated records live under HISTORY_PREFIXES. See the docstring.
+#: Dated records live under HISTORY_PREFIXES, which `domain` defines for both
+#: checks. See the docstring. The name was cited here and never imported, so
+#: until 2026-09-27 QUOTED scanned the archive it promised to exempt.
 HISTORY = ()
 
 #: Where prose lives. `domain/` holds no figures and `tests/` asserts its own.
@@ -118,7 +121,8 @@ def scan_files(root: Path | None = None) -> list[Path]:
             if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
                 continue
             name = path.relative_to(base).as_posix()
-            if name in HISTORY or name in EXAMPLE_ONLY:
+            if (name in HISTORY or name.startswith(HISTORY_PREFIXES)
+                    or name in EXAMPLE_ONLY):
                 continue
             if name in out_names:
                 continue

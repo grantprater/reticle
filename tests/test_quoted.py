@@ -172,6 +172,17 @@ class ExemptionTests(unittest.TestCase):
                                 "#recall=0.771]"})
             self.assertEqual(len(quoted.citations(tree.root)), 1)
 
+    def test_the_archive_is_exempt(self):
+        # The docstring promised this while the check scanned the archive: a
+        # dated record quoting a number that later moved was reported stale.
+        with contextlib.ExitStack() as stack:
+            tree = Tree(stack, {"docs/archive/NOTES-2026-09-01.md":
+                                "[metric:proposal_audit/acquisition@d95"
+                                "#recall=0.771]",
+                                "docs/a.md": "no citations here"})
+            self.assertEqual(quoted.citations(tree.root), [])
+            self.assertEqual([m for m in tree.messages() if "stale" in m], [])
+
     def test_a_recorded_series_nothing_cites_is_reported_once(self):
         with contextlib.ExitStack() as stack:
             tree = Tree(stack, {"docs/a.md": "no citations here"})
