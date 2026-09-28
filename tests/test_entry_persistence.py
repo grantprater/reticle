@@ -125,6 +125,68 @@ class TrackGapTests(unittest.TestCase):
         self.assertEqual(len(tracks), 1)
 
 
+class PlateSideTests(unittest.TestCase):
+    """One entry's victim never changes team: a flipped plate is a new entry."""
+
+    # The shape at 59c70f1ef720 slot 0: an enemy-victim entry 1619.5-1624.0 s,
+    # one empty sample, then an ally-victim entry 1625.0-1629.0 s, dividers
+    # 250 and 253, within KF_SIG_TOL and within the track gap.
+    def shape(self):
+        t = steps(1_619_500.0, 20, 500.0)
+        first = [ts for ts in t if ts <= 1_624_000.0]
+        second = [ts for ts in t if ts >= 1_625_000.0]
+        masks = feed(t, {ts: (0,) for ts in first + second})
+        wx = [250 if ts in first else 253 if ts in second else 0 for ts in t]
+        return t, masks, wx, first, second
+
+    def test_a_flip_across_a_missed_sample_starts_a_new_track(self):
+        t, masks, wx, first, second = self.shape()
+        sides = [(0, 1) if ts in first else (1, 0) if ts in second else (0, 0) for ts in t]
+        tracks = track_entries(t, masks, wx, sides=sides)
+        self.assertEqual([(a["t_first"], a["t_last"], a["side"]) for a in tracks],
+                         [(first[0], first[-1], "enemy"), (second[0], second[-1], "ally")])
+        self.assertEqual([a["counted"] for a in tracks], [True, True])
+
+    def test_without_sides_the_walk_is_unchanged(self):
+        t, masks, wx, first, second = self.shape()
+        tracks = track_entries(t, masks, wx)
+        self.assertEqual([(a["t_first"], a["t_last"]) for a in tracks],
+                         [(first[0], second[-1])])
+        self.assertNotIn("side", tracks[0])
+
+    def test_a_stable_side_does_not_split(self):
+        t, masks, wx, first, second = self.shape()
+        sides = [(0, 1) if ts in first + second else (0, 0) for ts in t]
+        tracks = track_entries(t, masks, wx, sides=sides)
+        self.assertEqual([(a["t_first"], a["t_last"], a["side"]) for a in tracks],
+                         [(first[0], second[-1], "enemy")])
+
+    def test_an_unread_side_rules_nothing_out(self):
+        # A sample whose plate went unread (neither bit) keeps the track, and
+        # the track keeps the last side it read.
+        t, masks, wx, first, second = self.shape()
+        sides = [(0, 1) if ts in first else (0, 0) for ts in t]
+        tracks = track_entries(t, masks, wx, sides=sides)
+        self.assertEqual([(a["t_first"], a["t_last"], a["side"]) for a in tracks],
+                         [(first[0], second[-1], "enemy")])
+
+    def test_a_one_colour_banner_does_not_split_on_its_flicker(self):
+        # bdfdcf009dba 1884-1886 s: a revive's plate reads ally with the
+        # same-side flag, then enemy, then ally again, divider 328 throughout.
+        t = steps(0.0, 12, 500.0)
+        on = t[1:10]
+        masks = feed(t, {ts: (0,) for ts in on})
+        wx = [328 if ts in on else 0 for ts in t]
+        flicker = [(1, 0, 1), (1, 0, 1), (0, 1, 0), (1, 0, 1), (0, 1, 0),
+                   (1, 0, 1), (0, 1, 0), (1, 0, 1), (1, 0, 1)]
+        sides = [flicker[on.index(ts)] if ts in on else (0, 0, 0) for ts in t]
+        tracks = track_entries(t, masks, wx, sides=sides)
+        self.assertEqual([(a["t_first"], a["t_last"]) for a in tracks], [(on[0], on[-1])])
+        # Without the same-side mask the flicker sheds a track at each flip.
+        tracks = track_entries(t, masks, wx, sides=[p[:2] for p in sides])
+        self.assertGreater(len(tracks), 1)
+
+
 class EntryPresenceTests(unittest.TestCase):
     """The count of record: what persisted, not what one frame held."""
 
