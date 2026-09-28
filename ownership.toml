@@ -420,12 +420,12 @@ question = "What does a scoreboard row say, and which row is the local player?"
 owner = "scoreboard"
 role = ["detect", "attribute"]
 status = "partial"
-produces = ["read_scoreboard", "ScoreboardRead", "portrait_observations"]
+produces = ["read_scoreboard", "ScoreboardRead", "portrait_observations", "strip_rect"]
 not_for = """
 Cross-round player identity. Rows compact and reorder, so a row POSITION is not
 a player; the marked local row is the only attribution this owns.
 """
-evidence = "tests/test_scoreboard.py"
+evidence = "tests/test_scoreboard.py, docs/SCOREBOARD_PRESENCE.md"
 
 [[entry]]
 id = "scoreboard-strip"
@@ -439,7 +439,7 @@ Reading a row, naming an agent, or deciding when the board opened. The strip is
 one presence witness; `scoreboard-presence` reconciles it with the slab test.
 The circles it counts as marks are round outcomes, which it does not read.
 """
-consumers = ["cli"]
+consumers = ["cli", "scoreboard"]
 stored_consumers = ["adjudication.scoreboard"]
 evidence = "tests/test_scoreboard_strip.py, docs/SCOREBOARD_PRESENCE.md, prototypes/scoreboard_strip.py"
 

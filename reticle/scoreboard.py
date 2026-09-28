@@ -15,6 +15,14 @@ Rows are found from the slab row-profile rather than assumed at fixed offsets,
 because the table is centred but the frame it sits on is not fixed and the
 number of visible rows changes while it animates in.
 
+The world shows through the slabs and around them, and warm walls, sky and
+floor pass the red test, so the tallest red run is often the world below the
+board. Where the round-history strip witness (`scoreboard_strip`) sees its
+two marker lines, the blocks are instead the runs that meet the strip: the
+ally block ends just above the upper line and the enemy block begins just
+below the lower one. A block the strip does not bound is refused. Where the
+strip is absent or unreadable, the tallest runs decide, as they did at 0.7.0.
+
 The local player's row is the one the game outlines in yellow, and its name
 renders as the literal string "Me" -- the same convention the killfeed uses.
 The outline is what this keys on: it needs no template and no name reading.
@@ -64,6 +72,18 @@ MIN_BLOCK_H, MAX_BLOCK_H = 90, 300
 # The local player's row is tinted, which breaks its team's colour run in two.
 # Runs separated by less than this are the same block.
 BLOCK_GAP = 44
+# Where the strip's marker lines (`scoreboard_strip.ROW_Y`) bound the blocks.
+# Measured as the slab colour test's edge in the stored centre crop on the 19
+# lineup sessions, at every sample the strip reads present and the slab test
+# open: the ally slab ends at frame y 510 (median, [metric:scoreboard/strip-geometry@all-sessions#ally_end_median=510.0]),
+# 17 rows above the upper line, and the enemy slab begins at y 568 (median, [metric:scoreboard/strip-geometry@all-sessions#enemy_start_median=568.0]),
+# 17 rows below the lower line. Each edge lies within 2 px of that place on
+# [metric:scoreboard/strip-geometry@all-sessions#ally_end_within_2px_frac=0.946] and
+# [metric:scoreboard/strip-geometry@all-sessions#enemy_start_within_2px_frac=0.941] of the samples that show it
+# (y 508 is the ally edge on some sessions). The tolerance is twice that spread.
+STRIP_ALLY_GAP = 17
+STRIP_ENEMY_GAP = 17
+STRIP_TOL = 4
 
 # Digit envelope for this table specifically. The area floor has to stay low:
 # a "1" here is a 3x10 stroke of only 13 lit pixels, and an 18-pixel floor
@@ -94,18 +114,27 @@ HL_LINE_FRAC = 0.55
 HL_SEARCH = 3
 
 #: Why `read_scoreboard` closed a board, one per refusal branch, in the order
-#: it tests them. A slab block is the tallest run of frame rows holding more
-#: than MIN_TABLE_W slab pixels; `no_rows` means no such row, `short` and
-#: `tall` a run outside MIN_BLOCK_H-MAX_BLOCK_H. Enemy rows whose height
+#: it tests them. A slab block is a run of frame rows holding more than
+#: MIN_TABLE_W slab pixels: the tallest such run, or where the strip is
+#: present the run that meets the strip. `no_rows` means no such row, `short`
+#: and `tall` a run outside MIN_BLOCK_H-MAX_BLOCK_H. Enemy rows whose height
 #: differs from the ally block's are re-anchored, not refused; the refusal is
 #: the overlap that re-anchoring can cause.
 CLOSE_REASONS = (
     "green_no_rows", "green_short", "green_tall",   # the ally block
     "red_no_rows", "red_short", "red_tall",         # the enemy block, below it
+    "green_not_at_strip",                           # strip present; no green run meets its upper line
+    "red_not_at_strip",                             # strip present; no red run meets its lower line
+    "red_short_at_strip",                           # the red run from the strip is shorter than MIN_BLOCK_H
     "enemy_overlaps_ally",                          # anchored enemy rows rise into the ally block
     "no_dense_columns",                             # no column of the ally block is half green
     "table_narrow",                                 # its dense columns span under MIN_TABLE_W
 )
+
+#: Which rule placed the blocks: the tallest runs (0.7.0, and wherever the
+#: strip is absent, unreadable or not consulted), or the runs that meet the
+#: strip's marker lines.
+ANCHORS = ("tallest_run", "strip")
 
 
 @dataclass(frozen=True)
@@ -136,6 +165,11 @@ class ScoreboardRead:
 
     A closed read names the test that closed it in `reason`, one per refusal
     branch of `read_scoreboard` (`CLOSE_REASONS`); an open one carries None.
+    `anchor` names the rule that placed the blocks (`ANCHORS`), `strip` the
+    strip witness's verdict at this frame (None when it was not consulted),
+    and `edges`, on the strip rule, which edge placed each block: the ally
+    block's own end (`run`) or the upper line (`strip`), and the enemy run's
+    bottom (`run`) or the lower line (`strip`).
     """
 
     open_: bool
@@ -143,6 +177,9 @@ class ScoreboardRead:
     x0: int = 0
     x1: int = 0
     reason: str | None = None
+    anchor: str | None = None
+    strip: str | None = None
+    edges: tuple[str, str] | None = None
 
     @property
     def player(self) -> Row | None:
@@ -164,32 +201,29 @@ def _block(mask: np.ndarray, merge_gap: int = BLOCK_GAP) -> tuple[int, int] | No
     return _block_why(mask, merge_gap)[0]
 
 
+def _runs(mask: np.ndarray, merge_gap: int) -> list[list[int]]:
+    """Runs `[start, end)` of frame rows holding more than MIN_TABLE_W slab
+    pixels, joining runs `merge_gap` rows apart or closer."""
+    on = (mask.sum(axis=1) > MIN_TABLE_W).astype(np.int8)
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], on, [0]))))
+    merged: list[list[int]] = []
+    for a, z in zip(edges[::2].tolist(), edges[1::2].tolist()):
+        if merged and a - merged[-1][1] <= merge_gap:
+            merged[-1][1] = z
+        else:
+            merged.append([a, z])
+    return merged
+
+
 def _block_why(mask: np.ndarray, merge_gap: int = BLOCK_GAP
                ) -> tuple[tuple[int, int] | None, str | None]:
     """`_block`, and why it found none: `no_rows` when no frame row holds more
     than MIN_TABLE_W slab pixels, `short` or `tall` when the tallest run falls
     outside MIN_BLOCK_H-MAX_BLOCK_H."""
-    counts = mask.sum(axis=1)
-    on = counts > MIN_TABLE_W
-    runs, i, n = [], 0, len(on)
-    while i < n:
-        if not on[i]:
-            i += 1
-            continue
-        j = i
-        while j < n and on[j]:
-            j += 1
-        runs.append([i, j])
-        i = j
     # Join runs the player's tinted row split apart. Only the ally block can
     # contain that row. On the enemy colour, merging nearby runs can swallow
     # the red round-history marks between the teams and shift all five rows.
-    merged: list[list[int]] = []
-    for run in runs:
-        if merged and run[0] - merged[-1][1] <= merge_gap:
-            merged[-1][1] = run[1]
-        else:
-            merged.append(run)
+    merged = _runs(mask, merge_gap)
     best = None
     for a, z in merged:
         if best is None or (z - a) > (best[1] - best[0]):
@@ -201,6 +235,64 @@ def _block_why(mask: np.ndarray, merge_gap: int = BLOCK_GAP
     if best[1] - best[0] > MAX_BLOCK_H:
         return None, "tall"
     return best, None
+
+
+def strip_rect(profile_name: str, width: int, height: int) -> tuple[int, int, int, int] | None:
+    """The frame rectangle the strip witness reads for this profile, or None
+    where the profile has no such ROI or the frame is not the size the strip
+    was measured at: its marker lines are frame rows at that size, and this
+    reader does not scale its own pixel constants either."""
+    from . import scoreboard_strip as strip
+    from .profiles import PROFILES
+
+    profile = PROFILES.get(profile_name)
+    if profile is None or (width, height) != strip.MEASURED_WH:
+        return None
+    roi = next((r for r in profile.rois if r.name == strip.ROI), None)
+    return None if roi is None else roi.pixels(width, height)
+
+
+def _strip_blocks(green: np.ndarray, red: np.ndarray, rows: tuple[int, int]):
+    """The ally and enemy blocks bounded by the strip's marker lines `rows`,
+    as `(ally, enemy, edges, reason)`; `reason` names the refusal.
+
+    The ally block is the merged green run that reaches within STRIP_TOL of
+    its measured end above the upper line. Where the run goes on into the
+    band, the world there passed the green test and the line ends the block.
+    The enemy block is the red run that reaches the rows just below the lower
+    line, at least MIN_BLOCK_H tall from the block's top, with the ally
+    block's height. Its rows sit on the run's bottom where that bottom lies
+    where the ally height puts it, as the tallest-run rule placed them;
+    elsewhere the world below passed the red test, or the slab failed it,
+    and the line places them."""
+    ally_end = rows[0] - STRIP_ALLY_GAP
+    near = [r for r in _runs(green, BLOCK_GAP)
+            if r[0] < ally_end + STRIP_TOL and r[1] > ally_end - STRIP_TOL]
+    if not near:
+        return None, None, None, "green_not_at_strip"
+    a, z = min(near, key=lambda r: abs(r[1] - ally_end))
+    ally_edge = "run" if z <= ally_end + STRIP_TOL else "strip"
+    ally = (a, z if ally_edge == "run" else ally_end)
+    if ally[1] - ally[0] < MIN_BLOCK_H:
+        return None, None, None, "green_short"
+    if ally[1] - ally[0] > MAX_BLOCK_H:
+        return None, None, None, "green_tall"
+    team_h = ally[1] - ally[0]
+    top = rows[1] + STRIP_ENEMY_GAP
+    below = red.copy()
+    below[:ally[1]] = False
+    near = [r for r in _runs(below, 0)
+            if r[0] <= top + STRIP_TOL and r[1] > top + STRIP_TOL]
+    if not near:
+        return ally, None, None, "red_not_at_strip"
+    a, z = near[0]
+    if a >= top - STRIP_TOL:
+        top = a
+    if z - top < MIN_BLOCK_H:
+        return ally, None, None, "red_short_at_strip"
+    if abs(z - (top + team_h)) <= STRIP_TOL:
+        return ally, (z - team_h, z), (ally_edge, "run"), None
+    return ally, (top, top + team_h), (ally_edge, "strip"), None
 
 
 def _split(block: tuple[int, int]) -> list[tuple[int, int]]:
@@ -254,49 +346,68 @@ def read_scoreboard(
     templates: Templates,
     min_confidence: float = 0.80,
     min_margin: float = 0.04,
+    strip_rect: tuple[int, int, int, int] | None = None,
 ) -> ScoreboardRead:
     """Read every row's K/D/A, and say which row is the local player's.
 
-    A closed board says which test closed it (`ScoreboardRead.reason`)."""
+    `strip_rect` is the frame rectangle the round-history strip witness reads
+    (`strip_rect()`); where it reads the strip present, the blocks are the
+    runs that meet the strip's marker lines. Without it, or where the strip
+    is absent or unreadable, they are the tallest runs. A closed board says
+    which test closed it (`ScoreboardRead.reason`)."""
     H, W = frame.shape[:2]
     green, red = _slabs(frame)
-    ally, why = _block_why(green)
-    if ally is None:
-        return ScoreboardRead(False, reason=f"green_{why}")
-    # The ally block always sits above the enemy one, so the enemy block is
-    # searched for BELOW it. The translucent ally slab over a purple backdrop
-    # also passes the red test: at 1999000 ms of a06f04a0059f the tallest red
-    # run lay inside the ally block, and five enemy rows were read off the
-    # ally portraits. A faint real enemy slab now closes the board instead.
-    below = red.copy()
-    below[:ally[1]] = False
-    enemy, why = _block_why(below, merge_gap=0)
-    if enemy is None:
-        return ScoreboardRead(False, reason=f"red_{why}")
-    # The red match-history strip can be connected to the enemy slab by its
-    # own marks, so even an unmerged red run may begin too high. Both teams use
-    # the same five-row geometry in one animation state; anchor the enemy rows
-    # at the bottom of the red slab and take their height from the ally block.
-    team_h = ally[1] - ally[0]
-    if enemy[1] - enemy[0] != team_h:
-        enemy = (enemy[1] - team_h, enemy[1])
+    seen = None
+    if strip_rect is not None:
+        from . import scoreboard_strip as strip
+
+        sx0, sy0, sx1, sy1 = strip_rect
+        seen = strip.read_strip(frame[sy0:sy1, sx0:sx1], strip_rect)["verdict"]
+    closed = {"strip": seen}
+    if seen == "present":
+        closed["anchor"] = "strip"
+        ally, enemy, edges, why = _strip_blocks(green, red, strip.ROW_Y)
+        if why is not None:
+            return ScoreboardRead(False, reason=why, **closed)
+    else:
+        closed["anchor"], edges = "tallest_run", None
+        ally, why = _block_why(green)
+        if ally is None:
+            return ScoreboardRead(False, reason=f"green_{why}", **closed)
+        # The ally block always sits above the enemy one, so the enemy block is
+        # searched for BELOW it. The translucent ally slab over a purple backdrop
+        # also passes the red test: at 1999000 ms of a06f04a0059f the tallest red
+        # run lay inside the ally block, and five enemy rows were read off the
+        # ally portraits. A faint real enemy slab now closes the board instead.
+        below = red.copy()
+        below[:ally[1]] = False
+        enemy, why = _block_why(below, merge_gap=0)
+        if enemy is None:
+            return ScoreboardRead(False, reason=f"red_{why}", **closed)
+        # The red match-history strip can be connected to the enemy slab by its
+        # own marks, so even an unmerged red run may begin too high. Both teams use
+        # the same five-row geometry in one animation state; anchor the enemy rows
+        # at the bottom of the red slab and take their height from the ally block.
+        team_h = ally[1] - ally[0]
+        if enemy[1] - enemy[0] != team_h:
+            enemy = (enemy[1] - team_h, enemy[1])
     # Anchoring can lift the enemy rows into the ally block when the two
     # geometries disagree: a short red run at the ally bottom (a06f04a0059f
     # 305500 ms), or an ally block that swallowed the history strip
     # (7010b3d62460 102000 ms). Nothing here knows which block is right, so
     # the board is not read.
     if enemy[0] < ally[1]:
-        return ScoreboardRead(False, reason="enemy_overlaps_ally")
+        return ScoreboardRead(False, reason="enemy_overlaps_ally", **closed)
 
     # Table edges from the ally block's own dense columns, which are cleaner
     # than a whole-frame profile that also catches the team bars up top.
     dense = np.where(green[ally[0]:ally[1]].mean(axis=0) > 0.5)[0]
     if dense.size == 0:
-        return ScoreboardRead(False, reason="no_dense_columns")
+        return ScoreboardRead(False, reason="no_dense_columns", **closed)
     x0, x1 = int(dense.min()), int(dense.max())
     tw = x1 - x0
     if tw < MIN_TABLE_W:
-        return ScoreboardRead(False, reason="table_narrow")
+        return ScoreboardRead(False, reason="table_narrow", **closed)
 
     bands = [(a, z, "ally") for a, z in _split(ally)]
     bands += [(a, z, "enemy") for a, z in _split(enemy)]
@@ -342,7 +453,7 @@ def read_scoreboard(
                         credits_confidence=credit_conf,
                         credits_margin=credit_margin,
                         credits_candidate=credit_candidate))
-    return ScoreboardRead(True, tuple(rows), x0, x1)
+    return ScoreboardRead(True, tuple(rows), x0, x1, edges=edges, **closed)
 
 
 #: Search around the portrait box for the agent drawing, in pixels and in
@@ -570,6 +681,7 @@ class ScoreboardReader:
                  min_confidence: float = 0.80, min_margin: float = 0.04,
                  icons_root=None):
         self.name, self.hz, self.spans = "scoreboard", hz, spans
+        self.profile_name = profile_name
         self.templates = Templates.load(profile_name)
         self.icons = load_agent_icons(icons_root) if icons_root is not None else {}
         self.min_confidence, self.min_margin = min_confidence, min_margin
@@ -583,10 +695,14 @@ class ScoreboardReader:
 
     def feed(self, sample) -> None:
         self.frames_offered += 1
+        h, w = sample.frame.shape[:2]
         board = read_scoreboard(sample.frame, self.templates,
-                                self.min_confidence, self.min_margin)
+                                self.min_confidence, self.min_margin,
+                                strip_rect(self.profile_name, w, h))
         self.samples.append({"frame_idx": int(sample.frame_idx), "t_ms": float(sample.t_ms),
-                             "open": board.open_, "reason": board.reason})
+                             "open": board.open_, "reason": board.reason,
+                             "anchor": board.anchor, "strip": board.strip,
+                             "edges": None if board.edges is None else list(board.edges)})
         if not board.open_:
             return
         self.frames_open += 1
@@ -595,7 +711,7 @@ class ScoreboardReader:
         for index, row in enumerate(board.rows):
             self.rows.append({
                 "frame_idx": int(sample.frame_idx), "t_ms": float(sample.t_ms),
-                "display_row": index, "team": row.team,
+                "display_row": index, "team": row.team, "anchor": board.anchor,
                 "row_y0": row.y0, "row_y1": row.y1,
                 "table_x0": board.x0, "table_x1": board.x1,
                 "kills": row.kills, "deaths": row.deaths, "assists": row.assists,
@@ -621,9 +737,11 @@ class ScoreboardReader:
         # The two scorers agree to the third decimal, not the fourth: which
         # one wrote these scores is provenance.
         closed = Counter(s["reason"] for s in self.samples if not s["open"])
+        anchors = Counter(s["anchor"] for s in self.samples if s["open"])
         coverage = {**common, "kind": "coverage", "frames_offered": self.frames_offered,
                     "frames_open": self.frames_open, "portrait_scorer": portrait_scorer(),
-                    "closed_reasons": dict(sorted(closed.items()))}
+                    "closed_reasons": dict(sorted(closed.items())),
+                    "open_anchors": dict(sorted(anchors.items()))}
         return ([coverage]
                 + [{**common, "kind": "row_observation",
                     "observation_key": f"{session_id}:{r['frame_idx']}:{r['display_row']}",
