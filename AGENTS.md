@@ -8,9 +8,9 @@ the single root guidance for every agent; `CLAUDE.md` imports it.
 ## Start here
 
 Use [`docs/WORKING_MAP.md`](docs/WORKING_MAP.md) for task routing. Read
-`NOTES.md` for the single current handoff, then the selected `BACKLOG.md` task
-and its contract in `docs/tasks.json`. Read the relevant section of
-`PROJECT_GUIDE.md` before changing a subsystem. Minimap and prototype work
+`NOTES.md` for the single current handoff, then the `BACKLOG.md` task, then the
+owning module docstring and the relevant section of `PROJECT_GUIDE.md` before
+changing a subsystem. Minimap and prototype work
 also requires `prototypes/CLAUDE.md`; domain attribution and private quotes
 remain in `~/reticle-notes/`, outside this public repo.
 

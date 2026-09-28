@@ -219,6 +219,24 @@ median, and short spans get absorbed into their neighbours.
 On the synthetic fixture it recovers the script exactly. On Valorant it is
 unverified.
 
+## Scan usage
+
+`reticle scan` appends one record per completed scan to
+`<store>/notes/usage.jsonl`. `reticle usage [SESSION]` shows recent records,
+and `--json` adds the full timing buckets. A record names the session, source,
+profile, frame source, reader rates and active spans, and counts the frames and
+each reader's `feed` calls. Source time is the shared wait for the next decoded
+frame or cached crop; it belongs to the pass, so count it once when comparing
+readers. Reader time covers each `feed` and `finish` call, setup and publication
+bracket the pass, and the rest of the pass is dispatch, progress display and
+instrumentation. The buckets store call-duration frequencies, with boundaries in
+nanoseconds under `bucket_upper_ns`; a call on a boundary enters the next
+bucket, and no per-frame timing or pixel is kept. Cache hits, standalone
+commands and `trial` write no record. Compare records with similar source,
+rates, spans and reader sets, since disk cache and machine load also move wall
+time. This measures the VOD scan, not an LLM session; the `reticle/usage.py`
+docstring defines each field.
+
 ## Store layout
 
 ```

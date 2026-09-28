@@ -1,6 +1,6 @@
 # Prototype and minimap work
 
-Read the root [AGENTS.md](../AGENTS.md), the selected [task contract](../docs/tasks.json), the relevant [working-map route](../docs/WORKING_MAP.md), and the owning module docstring. The historical experiments and domain discussion moved to [the dated prototype archive](../docs/archive/PROTOTYPES-through-2026-09-23.md). Its former headings remain searchable but do not set today's queue.
+Read the root [AGENTS.md](../AGENTS.md), then `NOTES.md` and the `BACKLOG.md` task, then the relevant [working-map route](../docs/WORKING_MAP.md), the owning module docstring and the relevant `PROJECT_GUIDE.md` section. The historical experiments and domain discussion moved to [the dated prototype archive](../docs/archive/PROTOTYPES-through-2026-09-23.md). Its former headings remain searchable but do not set today's queue.
 
 Use baked `(map, profile)` geometry through `reticle/geometry.py`. Session pixels may size and place the widget only. The minimap is translucent over the void; fit objects inside the opaque structure and preserve unobserved/refused states. Never seed label files. Review source images before measuring and invoke `labelling-pass` before labeling. Keep attribution and private domain notes in `~/reticle-notes/` outside this repository.
 

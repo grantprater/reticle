@@ -8,24 +8,18 @@ by the question itself -- *which agent died*, *where is the player* -- ask
 ## Start here
 
 1. `git status --short` — preserve existing work and avoid overwriting it.
-2. Read the eager root [`AGENTS.md`](../AGENTS.md) (or equivalent `CLAUDE.md`),
-   [NOTES.md](../NOTES.md), and the selected active task in
-   [BACKLOG.md](../BACKLOG.md). Its single executable definition is in
-   [tasks.json](tasks.json).
+2. Read the eager root [`AGENTS.md`](../AGENTS.md), which `CLAUDE.md` imports,
+   then [NOTES.md](../NOTES.md), then the task in [BACKLOG.md](../BACKLOG.md).
 3. Run `.\.venv\Scripts\python.exe -m reticle doctor` and inspect status
    with `.\.venv\Scripts\python.exe -m reticle status`.
-4. Follow the selected contract's `reads`, the owning module docstring, and the
-   relevant [PROJECT_GUIDE.md](../PROJECT_GUIDE.md) section. Read design plans
-   only when that task needs their rationale or acceptance boundary.
+4. Read the owning module docstring and the relevant
+   [PROJECT_GUIDE.md](../PROJECT_GUIDE.md) section; read a design plan only when
+   the task needs its rationale or acceptance boundary.
 
-`NOTES.md` holds current execution state; `BACKLOG.md` orders work; contracts
-specify commands and evidence requirements. Historical handoffs and completed
-arguments live in [docs/archive/](archive/). The product and architecture plans
-retain design rationale, not a competing live queue.
-
-For the next three bounded tasks, record accepted or blocked outcome, selected
-required reading volume, measured corrections, and whether the real output was
-reviewed. Leave unmeasured time and token claims unknown.
+`NOTES.md` holds current execution state and `BACKLOG.md` orders work.
+Historical handoffs, completed arguments and the retired task contracts live in
+[docs/archive/](archive/). The design plans retain rationale, not a competing
+live queue.
 
 ## Module routing
 
