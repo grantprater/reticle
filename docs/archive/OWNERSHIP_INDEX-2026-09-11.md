@@ -1,7 +1,7 @@
 # The ownership index
 
-Who is allowed to decide a question, declared in [`ownership.toml`](../ownership.toml)
-and checked by [`reticle/ownership.py`](../reticle/ownership.py).
+Who is allowed to decide a question, declared in [`ownership.toml`](../../ownership.toml)
+and checked by [`reticle/ownership.py`](../../reticle/ownership.py).
 
     .\.venv\Scripts\python.exe -m reticle ownership which agent died
     .\.venv\Scripts\python.exe -m reticle ownership --module track

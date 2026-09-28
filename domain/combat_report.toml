@@ -37,20 +37,30 @@ source = "a06f04a0059f deaths at 184 s and 301 s"
 
 [frozen-after-death]
 claim = """
-The rows do not change between the death and the round's end. At the round's
-end the status line gives way to a TIME / ABILITY / AMOUNT section and the
-panel grows upward. In the next buy phase the previous round's report can show
-again, beside the Tab scoreboard or alone, including for a round the player
-survived.
+The rows do not change between the death and the round's end.
 """
 kind = "lifecycle"
 known = "observed"
 since = "2026-09-24"
 source = """
-a06f04a0059f: death at 184 s read identically at 187, 200, 215 and 229 s and
-grew at 232.5 s (round 3 ends 232.0 s); round 5, which the player survived,
-shows its report alone in buy phase at 486-491 s and beside Tab at 127, 1370
-and 1429 s. What opens it in buy phase (Tab, N, or the game) is not yet known.
+a06f04a0059f: death at 184 s read identically at 187, 200, 215 and 229 s.
+"""
+
+[round-summary]
+claim = """
+At the round's end the status line gives way to a TIME / ABILITY / AMOUNT
+section and the panel grows upward into a round summary. In the next buy phase
+the previous round's summary can show again, beside the Tab scoreboard or
+alone, including for a round the player survived.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-09-24"
+source = """
+a06f04a0059f: the panel frozen since the death at 184 s grew at 232.5 s
+(round 3 ends 232.0 s); round 5, which the player survived, shows its summary
+alone in buy phase at 486-491 s and beside Tab at 127, 1370 and 1429 s. What
+opens it in buy phase (Tab, N, or the game) is not yet known.
 """
 
 [survived-round-rows]

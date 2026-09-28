@@ -6,7 +6,8 @@ nothing here is inferred from a sibling ability. A cell holds a value only
 where a source says it, with the domain fact or the census beside it; every
 other cell is `?`. Replace a `?` with the answer, or answer in chat by agent
 and ability; each answer becomes a fact in `domain/abilities.toml` or
-`domain/hud.toml`, and this sheet is regenerated from them.
+`domain/hud.toml`. No script writes this sheet: whoever records a fact edits
+its cell by hand, from those files, the catalogue or the census.
 
 Columns. *Deployment* and *charges* come from the catalogue
 (`<store>/reference/abilities.json`, web-sourced, sometimes wrong).

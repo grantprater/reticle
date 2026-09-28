@@ -1,14 +1,79 @@
 # Pub/sub design: a staged scan over the store as the log
 
-Design for the [plan](PUBSUB_PLAN.md), built on the [map](PUBSUB_PIPELINE_MAP.md) and the
-[baseline](PUBSUB_PERFORMANCE_BASELINE.md). I read the code at `a065949`, ran no scan, opened no media
-and changed no code.
+This document designs the staged scan and holds the queue of its open work. The [plan](PUBSUB_PLAN.md)
+ran its six phases on 2026-09-27; its goal and the outcomes of its predictions live here now. The design rests on the
+[map](PUBSUB_PIPELINE_MAP.md) and the [baseline](PUBSUB_PERFORMANCE_BASELINE.md), two snapshots of the
+serial pass, and the [measurements](PUBSUB_MEASUREMENTS.md) time the staged pass against it. Writing
+sections 1 to 6, I read the code at `a065949`, ran no scan, opened no media and changed no code.
 
 **Citations.** No metrics row holds a scan's usage record, so QUOTED cannot check these figures; each
 names its key in [`pubsub_baseline.json`](pubsub_baseline.json). Shorthand: `C[s]` is session `s`'s
 `composite` entry; `S` is `composite_summary.core`; `G[b]` and `B[b]` are `groups[b]` and
 `batch_totals[b]`; `R[s t]` is session `s`'s `records.rows` row recorded at `t` on 2026-09-26. Derived
 figures show their arithmetic; none comes from a docstring.
+
+## Goal
+
+Model the pipeline as publishers and subscribers: each stage consumes messages from the stage before it
+and publishes what it produces, with the store as the durable log. The first question is performance:
+where a scan's time goes, and how much a decoupled design recovers. The work records the correctness and
+architecture findings it meets (section 4) and fixes one only when the fix is small and verified. The
+player set the constraints: keep decoding to a minimum, test the least that verifies a change, and work on
+a branch, never on master.
+
+## Status (2026-09-27)
+
+The branch merged to master at `e518f8e`, and `scan` keeps `--pipeline serial` as its default. The
+`reticle/pipeline.py` docstring states the rules as built.
+
+**Built.**
+- `run_staged`: the dispatcher reads the source and offers each frame read-only, and each reader or shard
+  feeds on its own thread behind a FIFO of 8 frames; `--workers` caps the feeds that run at once. This is
+  L3, and L1 without its selecting producer.
+- `_Shards` and the `shardable` contract, which `AllyIconReader` alone declares.
+- `scan --check` (`_scan_check` in `cli.py`, over `pipeline.compare_trees`) and `--check-dir`.
+- `scan --until` (`pipeline.limit_to_prefix`), and one OpenCV count per staged pass
+  (`STAGED_CV_THREADS`, `--cv-threads`).
+- `scan-usage-2` as the `reticle/usage.py` docstring lists it, with process and per-thread CPU, and a
+  `scan_usage` pass row per scan in `notes/metrics.jsonl`, so QUOTED can cite a scan (finding 11).
+- `tools/pubsub_notes_append.py`, which copies a check's rows into the store's notes, and
+  `tests/test_pipeline.py`, step 0.
+
+**Unbuilt.**
+- L1's selecting producer (`_Selector`) and its deeper queue, which its own rule keeps unbuilt
+  ([measurements](PUBSUB_MEASUREMENTS.md), the design's ladder).
+- L2, window conversion; L4, the shared per-frame results; L5, the open-board gate; L7, one scheduler.
+- L6, the staged atomic publish: `reticle/publish.py`, run records and the `scan-run` owner. Findings 1
+  and 2 stay open with it.
+- `_publish_scan`, which section 3 names: `--check` runs today's publish block into each temporary store
+  instead.
+- The usage fields section 3 proposes and `scan-usage-2` lacks: `transport`, `decode_backend`, the OMP,
+  MKL and OpenBLAS counts, `decode_ns`, `convert_ns`, `stall_ns`, each reader's `wait_ns`, `overlap`,
+  `stage_ns`, `commit_ns`, `priority` and `concurrent_scans`. Finding 7's backend and contention stay open.
+
+**Open work.**
+1. Price the shards against one thread. `--check`'s serial path ignores `--cv-threads` and runs on
+   OpenCV's pool: make it honour the flag, rerun ally_icon at one thread on both paths, then judge process
+   shards by section 3's rule for the GIL.
+2. Warm up `--check`: path b runs first, against cold caches (measurements, answer 5).
+3. `--until` gives a whole-capture reader one span from 0, so it drops frames with negative timestamps.
+4. Choose among the unbuilt levers. On video at 2 Hz decode sets the floor; from the crop cache, ally_icon
+   wants fewer operations per pixel.
+
+## The plan's predictions
+
+The plan stated four predictions before anyone read the baseline. The plan and the baseline document each
+recorded outcomes against the usage records, in one commit (`fcede4e`); the measurements, taken later on
+the staged pass, recorded a second set.
+
+| # | Prediction | Against the baseline | Against the measurements (later) |
+|---|---|---|---|
+| 1 | A pass is one thread, so decode and reader time add; a pipeline bounds the pass by the larger | Held on the consumer thread. Both documents read the NVDEC read-ahead as hiding no reader time on 2 Hz passes (`same_session_source`); the baseline document allowed that those records decoded on OpenCV | Held from the crop cache. Refuted on NVDEC video: the read-ahead already hides about half of each 2 Hz gap, and the staged pass ran slower. On OpenCV's pool no serial pass is one thread |
+| 2 | Crop-cache passes gain little; the gain lives in video passes | The two disagree. The plan said half right: ally_icon dominates crop-cache passes, the HUD pass splits evenly between cache reads and its reader, and the largest overlap gains lie in video passes with a heavy reader (`composite_summary`). The baseline document said refuted: the gain follows the balance of source and reader time, not the source kind, so hud from the cache gains most and the video crop-cache write little | Refuted: the crop-cache HUD pass gained, and the video prefix lost |
+| 3 | One reader dominates at a fixed per-call cost, so batching its calls helps | Its second half fails in both: ally_icon dominates, but its cost scales with pixels, and the scoreboard pays a whole-frame colour conversion before it checks for an open board (`per_pixel`). Batching helps neither | Not tested; ally_icon reaches about three cores on either path, which points at fewer operations per pixel |
+| 4 | The transport is not the cost | Untested; `groups.*.retrieved_fps` bounds the message rate | Held: the staged HUD pass ran close to its reader sum, which bounds threads, queues and handoffs together |
+
+The later measurements refute prediction 2 whichever baseline verdict one reads.
 
 ## 1. Model
 
@@ -70,14 +135,16 @@ shards and W cores for readers, a pass takes at least `max(decode, max_r T_r / K
 **The ladder on a06f04a0059f** (38.7 min, `C[a06f04a0059f].vod_min`; the five `core` readers; `decode_s`
 173.9, `readers.scoreboard.s` 220.8, `readers.ally_icon.s` 391.3):
 
-| Step | Pass bound | Speedup | Keys and arithmetic |
-|---|---|---|---|
-| Serial today | 848.1 s | 1 | `core.serial_s` |
-| L1: decode overlaps readers | 674.2 s | 1.258 | `core.overlap_bound_s`, `core.overlap_speedup` |
-| L3: a thread per reader, free cores or W = 3 | 391.3 s | 2.168 | `core.parallel_bound_s`, `core.parallel_speedup`; max(391.3, 674.2 / 3) |
-| + ally_icon in two shards (upper bound) | 224.7 s | at most 3.77 | max(173.9, 220.8, 391.3 / 2, 674.2 / 3) |
-| + L5, if closed boards cost 40.1 to 158.0 s | 195.6 to 211.4 s | 4.0 to 4.3 | reader sum 516.2 to 634.1 s, over W = 3 |
-| + three shards at W = 4 | toward 173.9 s | up to 4.88 | `decode_s`; 2321 s of video in 173.9 s is 13.3x real time |
+The last column records what the measurements found on c40d950031bb; nobody reran a06f.
+
+| Step | Pass bound | Speedup | Keys and arithmetic | Outcome |
+|---|---|---|---|---|
+| Serial today | 848.1 s | 1 | `core.serial_s` | not rerun |
+| L1: decode overlaps readers | 674.2 s | 1.258 | `core.overlap_bound_s`, `core.overlap_speedup` | crop cache: 1.80 on the HUD pass at one worker (m2); NVDEC video: refuted, since the read-ahead already hides about half of each 2 Hz gap, so this row overstates the gain |
+| L3: a thread per reader, free cores or W = 3 | 391.3 s | 2.168 | `core.parallel_bound_s`, `core.parallel_speedup`; max(391.3, 674.2 / 3) | the HUD pair at two workers did not run |
+| + ally_icon in two shards (upper bound) | 224.7 s | at most 3.77 | max(173.9, 220.8, 391.3 / 2, 674.2 / 3) | refuted by its falsifier: 1.05 (m3), against the serial pool rather than one thread |
+| + L5, if closed boards cost 40.1 to 158.0 s | 195.6 to 211.4 s | 4.0 to 4.3 | reader sum 516.2 to 634.1 s, over W = 3 | unbuilt |
+| + three shards at W = 4 | toward 173.9 s | up to 4.88 | `decode_s`; 2321 s of video in 173.9 s is 13.3x real time | three shards at W = 3 gave 1.19 (m4), against the pool |
 
 The corpus agrees (`S.overlap_speedup.median` 1.269, `S.parallel_speedup.median` 2.168; ally_icon
 heaviest on 17 of 19 sessions, `S.heaviest`). Four caveats bound the table. The ally-icon figure ran
@@ -347,20 +414,35 @@ heavy of ours; W = 1 may keep two threads busy, W = 0 one. Nothing reaches the r
    `feed_s_scoreboard` against the serial path's, over the same frames, is its cost at one thread, read
    by step 3's rule.
 
-**The equality test.** `--check` builds the readers twice against the real store's inputs, runs path A
-(today's `passes.run` or `run_cached`, untouched) and path B (`pipeline.run_staged`), publishes each
-through `_publish_scan` into its own temporary `Store`, and compares the trees by relative path and
-sha256. On a difference it prints the first differing observation key or Parquet column, as `trial.diff`
-and `trial.diff_table` do, and exits non-zero. It writes nothing into the store: each path's usage
-record goes to its own temporary store.
+**The equality test.** The design had `--check` build the readers twice against the real store's
+inputs, run path A (today's `passes.run` or `run_cached`, untouched) and path B (`pipeline.run_staged`),
+publish each through `_publish_scan` into its own temporary `Store`, and compare the trees by relative
+path and sha256, printing the first differing observation key or Parquet column, as `trial.diff` and
+`trial.diff_table` do. As built, no `_publish_scan` exists (Status); each path runs today's publish block
+into its own store:
 
-**Usage record `scan-usage-2`** adds `code_revision` (HEAD, dirty flag), `pipeline`, `transport`,
-`decode_backend` (`nvdec`, `opencv`, `cache`), `threads` (W, shards, the OpenCV, OMP, MKL and OpenBLAS
-counts), `process_cpu_ns`, each thread's `thread_cpu_ns`, the producer's `decode_ns`, `convert_ns` and
+    python -m reticle scan <session> --only <readers> --from cache \
+        --pipeline staged --workers N [--shard NAME=K] --check [--check-dir DIR]
+
+`--check` runs the requested pass into `DIR/b`, then today's serial pass into `DIR/a`, two fresh stores,
+and compares every file they write (`pipeline.compare_trees`): bytes, then Parquet rows when bytes
+differ, naming the first column and row, or the first JSONL line, where two files part. It exits 0 only
+when the paths wrote at least one file and every file is byte-equal. Both paths read the store and write
+nothing there, each keeping its usage and metric rows in its own `notes/`. Path a takes no `--cv-threads`
+and runs on OpenCV's default pool. The check refuses two paths that are the same serial pass,
+`--cache-roi`, and, with no stored killfeed mask, HUD readers, which would decode to measure one. It does
+not force `--from cache`; without it both paths decode.
+
+**Usage record `scan-usage-2`, as proposed,** adds `code_revision` (HEAD, dirty flag), `pipeline`,
+`transport`, `decode_backend` (`nvdec`, `opencv`, `cache`), `threads` (W, shards, the OpenCV, OMP, MKL and
+OpenBLAS counts), `process_cpu_ns`, each thread's `thread_cpu_ns`, the producer's `decode_ns`, `convert_ns` and
 `stall_ns`, the dispatcher's `wait_ns`, each reader's `busy_ns` and `wait_ns`, `overlap` (busy over pass
 time), each stream's `stage_ns`, `commit_ns`, `priority`, `concurrent_scans` (from a registry of running
 scans) and `status`, written on failure too. Each completed scan also appends a `pass` row to
-`notes/metrics.jsonl` naming its usage `run_id`, so QUOTED can cite the measure phase.
+`notes/metrics.jsonl` naming its usage `run_id`, so QUOTED can cite the measure phase. Shipped:
+`code_revision`, `pipeline`, the W, shard and OpenCV counts (as `workers`, `shards` and `cv_threads`),
+process CPU (as `cpu_ns`), each thread's `thread_cpu_ns`, the dispatcher's `wait_ns`, each shard's
+`busy_ns`, `status` with `error`, and the `pass` row. The rest never shipped (Status).
 
 ## 4. Findings
 
@@ -381,6 +463,8 @@ scans) and `status`, written on failure too. Each completed scan also appends a 
 | 13 | The composite mixes rates, backends and contention | Medium | ally_icon at about nine feeds a second (20778, `R[a06f04a0059f 07:10:33Z].heaviest_buckets`) against a 2 Hz default (minimap.py:1119); seven concurrent scans; decode before NVDEC (`G[roi_cache:minimap/video/match/b1].after_nvdec_commit`) | name rate and backend per composite reader; one uncontended fused scan per profile | no |
 | 14 | The killfeed mask calibration exists twice; its file is unstamped and written in place | Low | passes.py:96-126 and hud_reader.py:40-60 each seek 40 times; store.py:403-407 | one owner, an atomic write, a stamp | no; `--check` refuses without the mask |
 | 15 | The crop cache allocates a full black frame per sample | Low | roi_cache.py:309, 327; crop decode and paste take half of a hud reread (`G[hud/cache/match/b1].share_source.median` 0.502) | a ring of reused frames, as deep as the frames in flight | measured by producer timers |
+| 16 | This OpenCV build defaults to 12 threads: serial passes record 12 in `cv_threads`, staged passes at one worker or more record 1, so the two paths compare across counts | Medium | the usage rows of steps 1 and 2; measurements, answer 1 | compare at one count (Status, open work 1) | recorded per pass |
+| 17 | Other jobs write `notes/metrics.jsonl`, `notes/usage.jsonl` and a session's `l1/minimap` during the day, so a proof that the store did not change must say whose rows moved | Low | the store's listings before step 1 and after step 2a | name the writer of every moved row | by hand |
 
 ## 5. Open questions
 
@@ -413,13 +497,9 @@ A separate critic read this design against the code. The verdict: go for steps 0
 | 7 | The shard row rests on a contended figure | Section 2: the row is an upper bound; step 3's serial ally_icon gates step 2's claim | steps 0-2 (text), step 3 (gate) |
 | 8 | `_ME_CACHE` unlisted; a lost message fails the run | L3 lists the shared module dicts; section 1 says the reason lands in `status` | steps 0-2 |
 
-Steps 0 to 2 ran on `c40d950031bb` from the crop cache, and every `--check` found its files equal
-(`docs/PUBSUB_PROTOTYPE.md`). Usage run ids, path a (serial) then path b: step 1 at workers 1
-`d80a02bb3a184e35ad47bcd138d87fcd`, `dc1a4505a3c444628895d07a8ff70072`; step 1 at workers 0
-`bb7059832e274dfb9b78fe96fef7f18e`, `c0e5a77d433b4eb3936124b2ed115c62`; step 2 (two ally_icon
-shards) `a9bb1e5d129e4a3e844eb96c52634a00`, `e26f78d2cb9e49eeadf220e73ff87dd4`; step 2a (one OpenCV
-thread) `8e5ff11d1a8344af8fe555184d2db684`, `1046bf3706534646a8c250d3a5b3f358`. The records sit in
-each check's own stores, outside `<store>`, so no `metric:` token cites them.
+Steps 0 to 2 ran on `c40d950031bb` from the crop cache, and every `--check` found its files equal; the
+[measurements](PUBSUB_MEASUREMENTS.md#equality-checks-steps-0-to-2) list the runs, their hashes and their
+usage run ids.
 
 Before steps 3 and 4, changes 2 and 6 were made and L1 reframed:
 
@@ -440,12 +520,7 @@ Before steps 3 and 4, changes 2 and 6 were made and L1 reframed:
   and `--check-dir`. Section 3's opening and open question 1 follow the reframe.
 
 The measurement phase ran on 2026-09-27 as five `scan --check` runs at `fbc3143`, m1 to m5, each
-byte-equal between paths; [`PUBSUB_MEASUREMENTS.md`](PUBSUB_MEASUREMENTS.md) reads their records, which
-`tools/pubsub_notes_append.py` copied into `<store>/notes/`. They depart from section 3's list: each ran
-as a check into temporary stores, and path a, the serial pass, ran on OpenCV's default pool, so no
-serial ally_icon of this phase ran at one thread. Usage run ids, path a (serial) then path b: m1 (hud, workers 0)
-`2d6b227969e64a4880d827b32d688d10`, `921108c1adb245eeaa3bf1ab982f1801`; m2 (hud, workers 1)
-`9d49200011e6490aa057a431b4976262`, `cf98e5c94cbc498a9d31606849edb4c7`; m3 (ally_icon, two shards)
-`5ed78255d8074eca9d89ed00c0e54807`, `09a489d4eeb34375872e42b1332a5db2`; m4 (ally_icon, three shards)
-`df2f19726d0a45d6a39b80f9919c0a10`, `b1feb3beca2e41c098aacd37c25b6745`; m5 (hud and scoreboard, the
-first 180 s of video, workers 1) `4dd06395f7904478a8c23101af4bfbb5`, `5d2e53c974af4c06b5478587ef6de27c`.
+byte-equal between paths; [`PUBSUB_MEASUREMENTS.md`](PUBSUB_MEASUREMENTS.md) lists their usage run ids and
+reads their records, which `tools/pubsub_notes_append.py` copied into `<store>/notes/`. They depart from
+section 3's list: each ran as a check into temporary stores, and path a, the serial pass, ran on OpenCV's
+default pool, so no serial ally_icon of this phase ran at one thread.

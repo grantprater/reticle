@@ -1,6 +1,13 @@
 # Match-wide temporal adjudication
 
-Date: 2026-09-09. Status: proposed design; no runtime behavior changed.
+Date: 2026-09-09. Status (2026-09-27): partly built. The position belief ships as
+`belief.resolve` (`belief-0.2.0`, `reticle/belief.py`); `minimap-0.6.0` stores a
+`widget_drawn` column; and `reticle/adjudication/` holds per-question
+adjudicators (death, identity, scoreboard, combat report, killfeed names,
+smokes and others), each writing its own versioned events. The graph solver
+this design proposes -- the `schema`, `adapters`, `rules`, `factors/`,
+`graph`, `solve`, `project` and `requests` modules -- and `reticle adjudicate`
+were never built.
 
 ## Objective
 
@@ -43,7 +50,8 @@ Inspected `reconciliation.py`, `round_lifetimes.py`, `minimap_lifecycle.py`,
   continuity. Expiring association anchors cannot establish that an entity died.
 - The artifact registry already supports explicit dependencies. Readers and
   refinement already provide a shared-decode boundary worth preserving.
-- `minimap.resolve_track` (2026-09-09, `belief-0.1.0`) supplies the position
+- `belief.resolve` (born as `minimap.resolve_track` on 2026-09-09, `belief-0.1.0`;
+  moved to `reticle/belief.py` at `belief-0.2.0`) supplies the position
   half of "render interpolation and prediction distinctly from observed
   coordinates" below. Each sampled instant gets a `Fix` carrying
   `observed`/`interpolated`/`held`/`unresolved`, a physical radius, and a
@@ -435,7 +443,9 @@ shared errors. Track missed candidate generation separately from wrong resolutio
 
 Promote each milestone only after its real command and annotated source windows
 demonstrate the intended gain at matched coverage with no unexplained regression.
-Set numeric thresholds from the measured baseline before tuning. Runtime tests
+The shared perceptual acceptance rules, numeric budgets set before tuning among
+them, are in the minimap
+[evaluation contract](MINIMAP_APPEARANCE_MATCHING.md#evaluation-contract). Runtime tests
 and mathematical invariants cannot substitute for perceptual accuracy checks.
 
 ## The position belief: a full accounting
@@ -444,7 +454,7 @@ One question: **where is the local player at a sampled instant, and how
 tightly.** Existence, identity, bearing and ownership are separate answers this
 one must not absorb. The families above are general; this section grounds them
 in what bears on this question, what is stored today, and what each would
-change. It is the target `minimap.resolve_track` is measured against, not a
+change. It is the target `belief.resolve` is measured against, not a
 description of what it does.
 
 ### What answers it today
@@ -485,7 +495,7 @@ two rows below.
 
 | Evidence | Constraint on the belief | Status |
 |---|---|---|
-| Widget drawn | Separates "refused" from "nobody was looking"; only the latter forbids a belief | **BLOCKED -- L1 writes the same NULL for both.** Interim ally cross-reference recovers 2016 of 2676 |
+| Widget drawn | Separates "refused" from "nobody was looking"; only the latter forbids a belief | Stored since `minimap-0.6.0` as the `widget_drawn` column. Before it, L1 wrote the same NULL for both, and an interim ally cross-reference recovered 2016 of 2676 |
 | Stalled capture | Those frames are not observations and must not count either way | `doctor` reports it per session |
 | Sampling tier and gaps | A belief must never inflate observed coverage | Coverage is reported separately by `fidelity-check` |
 
@@ -501,7 +511,10 @@ two rows below.
 
 ### What self identity unblocks
 
-The session does not record which player is self. That single gap withholds
+*Status 2026-09-27: `Lineup.player` in `reticle/lineup.py` now names the
+player's agent; its ownership entry, `player-agent`, is still transitional.*
+
+The session did not record which player is self. That single gap withholds
 per-player alive state, self death, killfeed self-participation and scoreboard
 row association -- so the layer's whole account of death currently rests on
 widget absence, which is a proxy for the death screen and not the event. The
@@ -604,9 +617,9 @@ consequences worth holding:
 
      Both tests are measurable only on BRACKETED refusals -- the isolated
      ones -- so the long runs remain untested either way.
-3. A `widget_drawn` column, folded into the re-decode that rebuilds the 18
-   sessions still on `minimap-0.4.0`.
-4. Self identity, which unblocks death.
+3. ~~A `widget_drawn` column.~~ DONE, `minimap-0.6.0`.
+4. Self identity, which unblocks death. `Lineup.player` supplies it; the
+   `player-agent` ownership entry is still transitional.
 5. Ping and killfeed corroboration.
 
 Steps 1 and 2 are recomputable from stored data. Step 3 needs a re-decode, and

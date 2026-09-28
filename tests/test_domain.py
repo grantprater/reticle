@@ -120,6 +120,24 @@ class CitationTests(unittest.TestCase):
             found = domain.citations(tree.root)
         self.assertEqual(found, {"minimap/vision-gate": ["docs/plan.md"]})
 
+    def test_a_file_stem_with_an_underscore_is_cited_and_checked(self):
+        # `combat_report` citations once matched nothing: their facts read as
+        # uncited and a citation to a missing fact passed.
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            tree = RegistryTree(stack, files={
+                "docs/plan.md": "[domain:combat_report/vision-gate] and "
+                                "[domain:combat_report/ghost]"})
+            (tree.root / "domain" / "minimap.toml").rename(
+                tree.root / "domain" / "combat_report.toml")
+            found = domain.citations(tree.root)
+            problems = tree.validate()
+        self.assertEqual(sorted(found), ["combat_report/ghost",
+                                         "combat_report/vision-gate"])
+        self.assertTrue(any(level == "ERROR" and "combat_report/ghost" in m
+                            for level, m in problems))
+        self.assertFalse(any("nothing cites" in m for _level, m in problems))
+
     def test_a_citation_to_no_fact_is_an_error(self):
         import contextlib
         with contextlib.ExitStack() as stack:

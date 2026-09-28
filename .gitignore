@@ -7,4 +7,5 @@ frames_*/
 __pycache__/
 *.pyc
 overlay_*.mp4
+STATUS.md
 .cache/

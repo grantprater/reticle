@@ -1,0 +1,263 @@
+# Which documents are live, and what each one is. DECLARED, never derived.
+#
+# One [[document]] per live document: `path`, `kind`, `status` and `since`
+# (the date it took its status). A design or plan that code realises names
+# `implemented_by`; a superseded one names `superseded_by`; `remains` and
+# `waits_for` say in one sentence what is open and what starts it.
+#
+# Schema and the checks: `reticle/documents.py`, run by `doctor` as DOCS.
+# `docs/archive/` is dated history and is never registered.
+
+# --- read at pickup ------------------------------------------------------------
+
+[[document]]
+path = "AGENTS.md"
+kind = "rules"
+status = "live"
+since = "2026-09-26"
+eager = true
+budget_words = 1800
+
+[[document]]
+path = "docs/WORKING_MAP.md"
+kind = "routing"
+status = "live"
+since = "2026-09-26"
+eager = true
+budget_words = 1100
+
+[[document]]
+path = "PROJECT_GUIDE.md"
+kind = "reference"
+status = "live"
+since = "2026-09-25"
+eager = true
+budget_words = 14300
+
+[[document]]
+path = "NOTES.md"
+kind = "handoff"
+status = "live"
+since = "2026-09-27"
+eager = true
+
+[[document]]
+path = "BACKLOG.md"
+kind = "handoff"
+status = "live"
+since = "2026-09-27"
+eager = true
+
+# --- landing pages, rules and references ----------------------------------------
+
+[[document]]
+path = "README.md"
+kind = "reference"
+status = "live"
+since = "2026-09-09"
+
+[[document]]
+path = ".claude/skills/labelling-pass/SKILL.md"
+kind = "rules"
+status = "live"
+since = "2026-09-12"
+
+[[document]]
+path = "prototypes/CLAUDE.md"
+kind = "rules"
+status = "live"
+since = "2026-09-23"
+
+[[document]]
+path = "docs/MINIMAP_CANDIDATE_CONTRACT.md"
+kind = "reference"
+status = "live"
+since = "2026-09-23"
+implemented_by = ["owns:minimap-icon-disposition"]
+
+[[document]]
+path = "docs/ROUND_ENTITIES.md"
+kind = "reference"
+status = "live"
+since = "2026-09-26"
+implemented_by = ["owns:round-entity-session", "cmd:lifetimes"]
+
+[[document]]
+path = "docs/ABILITY_MECHANICS_SHEET.md"
+kind = "reference"
+status = "live"
+since = "2026-09-26"
+
+# --- designs and plans ------------------------------------------------------------
+
+[[document]]
+path = "docs/ABILITY_ENTITY_INFERENCE_DESIGN.md"
+kind = "design"
+status = "partial"
+since = "2026-09-23"
+implemented_by = ["owns:ability-hypothesis", "owns:ability-phase", "owns:ability-appearance", "owns:capture-queue"]
+remains = "Annotation and new capture have not run."
+
+[[document]]
+path = "docs/ADJUDICATION_DESIGN.md"
+kind = "design"
+status = "partial"
+since = "2026-09-27"
+implemented_by = ["owns:position-belief", "cmd:belief"]
+remains = "The graph solver and `reticle adjudicate` were never built."
+
+[[document]]
+path = "docs/BEHAVIOUR_MODEL_DESIGN.md"
+kind = "design"
+status = "partial"
+since = "2026-09-27"
+implemented_by = ["owns:killfeed-name-continuity", "owns:identity-channel-reliability"]
+remains = "Everything beyond name continuity and the reliability table."
+
+[[document]]
+path = "docs/ECONOMY_AND_PREDICTION_DESIGN.md"
+kind = "design"
+status = "partial"
+since = "2026-09-27"
+implemented_by = ["owns:credit-ledger", "owns:scoreboard-row-agent", "cmd:economy"]
+remains = "Automatic ledger derivation and prediction integration."
+
+[[document]]
+path = "docs/ENTITY_DOMAIN_LEARNING_DESIGN.md"
+kind = "design"
+status = "partial"
+since = "2026-09-27"
+implemented_by = ["owns:domain-hypothesis", "cmd:domain-hypothesis"]
+remains = "Tracklets, families, automatic hypotheses and consumer wiring."
+
+[[document]]
+path = "docs/EXPERIMENT_PROGRAM.md"
+kind = "plan"
+status = "proposed"
+since = "2026-09-27"
+remains = "E1 selected 2026-09-27 as the next task; E2-E9 wait on it."
+waits_for = "prototypes/e1_agreement.py and its first replay."
+
+[[document]]
+path = "docs/IMPLEMENTATION_PLAN.md"
+kind = "plan"
+status = "partial"
+since = "2026-09-09"
+implemented_by = ["owns:coaching-state", "cmd:coach", "cmd:refine"]
+remains = "The detector and coaching expansion milestones."
+
+[[document]]
+path = "docs/MINIMAP_APPEARANCE_MATCHING.md"
+kind = "design"
+status = "partial"
+since = "2026-09-10"
+implemented_by = ["owns:self-position"]
+remains = "Steps 4 to 6."
+
+[[document]]
+path = "docs/MINIMAP_MINING_REVIEW.md"
+kind = "design"
+status = "proposed"
+since = "2026-09-10"
+waits_for = "Wiring the proposal pool, which lives only in prototypes/mine_icons.py."
+
+[[document]]
+path = "docs/PIPELINE_REVIEW.md"
+kind = "plan"
+status = "partial"
+since = "2026-09-09"
+implemented_by = ["owns:reader-capability", "owns:evidence-plan", "cmd:acquisition-plan"]
+remains = "P3 beyond its foundation, then P4 and P5."
+
+[[document]]
+path = "docs/PUBSUB_PLAN.md"
+kind = "plan"
+status = "implemented"
+since = "2026-09-27"
+implemented_by = ["reticle/pipeline.py", "tools/pubsub_baseline.py", "tools/pubsub_notes_append.py"]
+
+[[document]]
+path = "docs/PUBSUB_DESIGN.md"
+kind = "design"
+status = "partial"
+since = "2026-09-27"
+implemented_by = ["reticle/pipeline.py"]
+remains = "L1's selecting producer, L2, L4, L5, L6, L7, `_publish_scan` and the proposed usage fields, which its Status section lists."
+
+# --- findings: one outcome on one date --------------------------------------------
+
+[[document]]
+path = "docs/ALLY_MINIMAP_IDENTITY.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-23"
+
+[[document]]
+path = "docs/AUDIO_ABILITY_BANK.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-26"
+
+[[document]]
+path = "docs/AUDIO_GATE.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-27"
+
+[[document]]
+path = "docs/BOARD_ALIVE_SETS.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-23"
+
+[[document]]
+path = "docs/DEMO_CAST_CENSUS.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-26"
+
+[[document]]
+path = "docs/IDENTITY_EXEMPLAR_LOOP.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-23"
+
+[[document]]
+path = "docs/PUBSUB_MEASUREMENTS.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-27"
+
+# Superseded, and live only while NOTES.md links them; archive them after.
+[[document]]
+path = "docs/PUBSUB_PERFORMANCE_BASELINE.md"
+kind = "findings"
+status = "superseded"
+since = "2026-09-27"
+superseded_by = "docs/PUBSUB_MEASUREMENTS.md"
+
+[[document]]
+path = "docs/PUBSUB_PIPELINE_MAP.md"
+kind = "findings"
+status = "superseded"
+since = "2026-09-27"
+superseded_by = "docs/PUBSUB_DESIGN.md"
+
+[[document]]
+path = "docs/PUBSUB_PROTOTYPE.md"
+kind = "findings"
+status = "superseded"
+since = "2026-09-27"
+superseded_by = "docs/PUBSUB_DESIGN.md"
+
+[[document]]
+path = "docs/ROSTER_FINDINGS.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-07"
+
+[[document]]
+path = "docs/SCOREBOARD_LINEUP.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-23"

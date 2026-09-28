@@ -47,7 +47,7 @@ import json
 import re
 from pathlib import Path
 
-from reticle import architecture, domain, metrics, ownership, quoted
+from reticle import architecture, documents, domain, metrics, ownership, quoted
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -178,6 +178,9 @@ def _reticle_imports(path: Path) -> set[str]:
             # `from .minimap import x` (level 1) or `from reticle.minimap import x`
             if n.level == 1:
                 out.add(n.module.split(".")[0])
+            elif n.module == "reticle":
+                # `from reticle import documents` -- this file's own spelling.
+                out.update(a.name for a in n.names)
             elif n.module.startswith("reticle."):
                 out.add(n.module.split(".")[1])
         elif isinstance(n, ast.ImportFrom) and n.level == 1 and n.module is None:
@@ -721,23 +724,82 @@ def check_quoted(store: Path) -> list[tuple[str, str]]:
     return out
 
 
+NOTES_MAX_WORDS = 1000
 BACKLOG_MAX_WORDS = 1500
 BACKLOG_MAX_COMPLETED = 5
+BACKLOG_MAX_OPEN = 3
+
+#: The queue's section, up to the next second-level heading.
+AGREED_ORDER = re.compile(r"(?ms)^## Agreed order[^\n]*\n(.*?)(?=^## |\Z)")
+NUMBERED_ITEM = re.compile(r"\d+\.\s+\*\*")
+#: An open item's contract: a source line inside its paragraph that opens with
+#: the label and says something after it.
+CONTRACT_LINES = {label: re.compile(rf"\s*{label}:\s*\S") for label in ("Acceptance", "Evidence")}
+
+
+def backlog_open_blocks(backlog: str) -> list[list[str]] | None:
+    """The source lines of each open item under `## Agreed order`; None without one.
+
+    A numbered item starts on every line it opens, blank line or not; a bold
+    lead starts one only at a paragraph's start, so wrapped prose that happens
+    to open with bold text is not an item. An item runs to the next blank line
+    or the next item.
+    """
+    section = AGREED_ORDER.search(backlog)
+    if section is None:
+        return None
+    blocks, current, previous = [], None, ""
+    for line in section.group(1).splitlines():
+        if NUMBERED_ITEM.match(line) or (not previous.strip() and line.startswith("**")):
+            current = [line]
+            blocks.append(current)
+        elif not line.strip():
+            current = None
+        elif current is not None:
+            current.append(line)
+        previous = line
+    return blocks
+
+
+def backlog_open_items(backlog: str) -> list[str] | None:
+    """The first line of each open item under `## Agreed order`; None without one."""
+    blocks = backlog_open_blocks(backlog)
+    return None if blocks is None else [block[0] for block in blocks]
+
+
+def _item_title(line: str) -> str:
+    """An item's bold lead, or its first line when it has none, cut to 40 characters."""
+    bold = re.search(r"\*\*(.+?)\*\*", line)
+    return (bold.group(1) if bold else line).strip()[:40].rstrip()
 
 
 def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
-    """Warn on the small, exact handoff and active-queue conventions.
+    """Warn on the small, exact handoff and queue conventions.
 
     `NOTES.md` and `BACKLOG.md` are bounded working documents, not logs. Both
-    have size limits, and `BACKLOG.md` keeps at most five completed entries;
-    older ones move to a dated file under `docs/archive/`.
+    have size limits, `BACKLOG.md` holds at most three open items under
+    `## Agreed order`, and it keeps at most five completed entries; older ones
+    move to a dated file under `docs/archive/`.
+
+    **The open-item count keyed on `## Active:` headings until 2026-09-27.**
+    `BACKLOG.md` dropped them on 2026-09-23, so from then the limit and every
+    contract check tied to an active task passed on nothing. It now reads the
+    section the queue actually uses, and a missing section is a finding
+    rather than zero items.
+
+    **Each open item carries its own contract** (2026-09-27): an `Acceptance:`
+    line names the one command that must exist and pass when the item closes,
+    and an `Evidence:` line says what a reviewer must see first. Both open a
+    source line inside the item's paragraph. They replace `docs/tasks.json`,
+    which this check no longer reads. Items without them draw ONE finding
+    that counts them and names three, so a queue written before the rule
+    does not bury every other finding.
     """
     root = root or ROOT
     out = []
     notes_path = root / "NOTES.md"
     backlog_path = root / "BACKLOG.md"
-    contracts_path = root / "docs" / "tasks.json"
-    for path in (notes_path, backlog_path, contracts_path):
+    for path in (notes_path, backlog_path):
         if not path.is_file():
             return [(WARN, f"missing handoff file: {path.relative_to(root)}")]
     notes = notes_path.read_text(encoding="utf-8")
@@ -746,12 +808,26 @@ def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
         out.append((WARN, f"NOTES.md has {len(headings)} Picking up headings; expected one"))
     lines = len(notes.splitlines())
     words = len(notes.split())
-    if lines > 100 or words > 1000:
-        out.append((WARN, f"NOTES.md has {lines} lines and {words} words; limits are 100 and 1000"))
+    if lines > 100 or words > NOTES_MAX_WORDS:
+        out.append((WARN, f"NOTES.md has {lines} lines and {words} words; limits are "
+                          f"100 and {NOTES_MAX_WORDS}"))
     backlog = backlog_path.read_text(encoding="utf-8")
-    active = re.findall(r"(?m)^## Active: ([a-z0-9-]+)\s*$", backlog)
-    if len(active) > 3:
-        out.append((WARN, f"BACKLOG.md has {len(active)} active tasks; limit is three"))
+    blocks = backlog_open_blocks(backlog)
+    if blocks is None:
+        out.append((WARN, "BACKLOG.md has no `## Agreed order` heading, so no open "
+                          "item is counted"))
+    else:
+        if len(blocks) > BACKLOG_MAX_OPEN:
+            out.append((WARN, f"BACKLOG.md has {len(blocks)} open items under Agreed order; "
+                              f"limit is three"))
+        bare = [block[0] for block in blocks
+                if not all(any(rule.match(line) for line in block[1:])
+                           for rule in CONTRACT_LINES.values())]
+        if bare:
+            named = ", ".join(f'"{_item_title(line)}"' for line in bare[:3])
+            out.append((WARN, f"BACKLOG.md: {len(bare)} of {len(blocks)} open items carry "
+                              f"no Acceptance: or Evidence: line -- {named}; write both on "
+                              f"each item, and on every new one"))
     lines, words = len(backlog.splitlines()), len(backlog.split())
     if lines > 150 or words > BACKLOG_MAX_WORDS:
         out.append((WARN, f"BACKLOG.md has {lines} lines and {words} words; limits are "
@@ -761,28 +837,32 @@ def check_handoff(root: Path | None = None) -> list[tuple[str, str]]:
     if n_done > BACKLOG_MAX_COMPLETED:
         out.append((WARN, f"BACKLOG.md lists {n_done} completed tasks; keep the latest "
                           f"{BACKLOG_MAX_COMPLETED} and archive the rest under docs/archive/"))
-    try:
-        contracts = json.loads(contracts_path.read_text(encoding="utf-8"))
-        tasks = contracts["tasks"]
-        ids = {task["id"] for task in tasks}
-        if len(ids) != len(tasks):
-            out.append((WARN, "docs/tasks.json has duplicate task IDs"))
-        for task in tasks:
-            for read in task.get("reads", []):
-                path = root / read.split("#", 1)[0]
-                if not path.is_file():
-                    out.append((WARN, f"contract {task['id']} has missing read: {read}"))
-        for task_id in active:
-            if task_id not in ids:
-                out.append((WARN, f"active task {task_id} has no contract"))
-                continue
-            task = next(item for item in tasks if item["id"] == task_id)
-            for declared in task.get("files", []):
-                if not (root / declared).is_file():
-                    out.append((WARN, f"active task {task_id} has missing owning file: {declared}"))
-    except (ValueError, KeyError, TypeError) as exc:
-        out.append((WARN, f"invalid docs/tasks.json: {exc}"))
     return out
+
+
+def check_documents(root: Path | None = None) -> list[tuple[str, str]]:
+    """Which documents are live, and whether any route still reaches them.
+
+    `reticle/documents.py` owns the schema of `documents.toml` and the checks.
+    A register that breaks its schema, or an entry naming no file, is an ERROR:
+    a declaration that points at nothing. An unregistered document, one no
+    route reaches, a status its fields do not support, and an eager document
+    past its budget are WARNs, for ORPHAN's reason: a document written today
+    looks exactly like one abandoned, and only a person knows which.
+    HANDOFF's limits for `NOTES.md` and `BACKLOG.md` enter the pickup total
+    from here, so they keep one home.
+    """
+    base = root or ROOT
+    if not (base / documents.DECLARATION).is_file():
+        return [(WARN, f"{documents.DECLARATION} is absent -- which documents are "
+                       f"live is declared there; see reticle/documents.py")]
+    try:
+        docs = documents.load(base)
+    except documents.RegisterError as exc:
+        return [(ERROR, problem) for problem in exc.problems]
+    limits = {"NOTES.md": NOTES_MAX_WORDS, "BACKLOG.md": BACKLOG_MAX_WORDS}
+    return [(ERROR if level == ERROR else WARN, message)
+            for level, message in documents.verify(base, docs, handoff_limits=limits)]
 
 
 #: Modules whose calls do not count as wiring: they render or diagnose what
@@ -969,7 +1049,7 @@ def check_uncalled(base: Path | None = None) -> list[tuple[str, str]]:
 
 
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
-    checks = (("HANDOFF", check_handoff),
+    checks = (("HANDOFF", check_handoff), ("DOCS", check_documents),
               ("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("UNCALLED", check_uncalled),
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),

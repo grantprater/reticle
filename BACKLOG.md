@@ -1,6 +1,6 @@
 # Reticle task queue
 
-`docs/tasks.json` defines executable checks; this file orders work and says why a task is active. Historical arguments and completed items are in [the dated backlog archive](docs/archive/BACKLOG-through-2026-09-23.md).
+This file orders work and says why a task is active; each open item carries an `Acceptance:` command and an `Evidence:` standard. Historical arguments and completed items are in [the dated backlog archive](docs/archive/BACKLOG-through-2026-09-23.md).
 
 ## Agreed order (2026-09-23)
 
@@ -29,6 +29,10 @@ Steps 1 to 5 are done ([archive](docs/archive/BACKLOG-through-2026-09-26.md)).
 **Remaining identity drift to retire:** `Lineup.player` still combines the tray, self icon and top bar itself before publishing claims (the `player-agent` exit).
 
 **Pub/sub branch `pubsub-20260927` (2026-09-27, unmerged).** (1) The [measurements](docs/PUBSUB_MEASUREMENTS.md) leave shards open: the check's serial path ignores `--cv-threads`; fix it, rerun ally-icon at one thread on both paths, then a process shard; warm up `--check`. (2) Publish writes in place with no run id: a minimap zero-rows exit fires after the killfeed writes. (3) `events_version` reads the first row, so a truncated events file reads as current. (4) Usage omits contention and backend. (5) `--until` drops negative timestamps. (6) Unbuilt: L1's selecting producer, L2, L5, L7. (7) Merging the two `NOTES.md` needs a decision.
+
+**E1: can agreement conceal a wrong event history? (next, 2026-09-27).** First experiment of [the experiment program](docs/EXPERIMENT_PROGRAM.md): the combat report, killfeed and scoreboard are all in production and its falsifier is concrete. From storage only, list every round where the three channels disagree, by the stored reason; then seed rounds whose totals agree, bind each death to its source witness, identity and life episode, and withhold each channel in turn. Belief, falsifier and acceptance: ledger entry `e1-agreement-2026-09-27`.
+Acceptance: `.\.venv\Scripts\python.exe prototypes\e1_agreement.py --replay` writes both lists from storage with no decode and records `e1_agreement/replay` through `reticle.metrics`.
+Evidence: the player reviews the seeded agreeing rounds against source before anything is promoted; any source error there refutes agreement as an acceptance test. Stop at the first upstream identity failure; promote no oracle candidate or all-null output.
 
 ## Completed
 

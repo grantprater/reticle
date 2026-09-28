@@ -1,8 +1,8 @@
 # Reticle
 
 Vision-based mechanical analysis pipeline for Valorant — measuring the layer of
-play the match API structurally cannot see. Python 3.14, four deps, single
-process, no ML frameworks.
+play the match API structurally cannot see. Python 3.14, the dependencies in
+`requirements.txt`, single process, no ML frameworks.
 
 **Design doc** (the authority on stage numbering and intent):
 https://claude.ai/code/artifact/d7c7173f-dc5e-4c1e-9dcc-acded5a486cb
@@ -33,12 +33,13 @@ For task-specific code and validation entry points, start with
 [`docs/WORKING_MAP.md`](docs/WORKING_MAP.md). It routes to the authorities below
 without repeating detector results or live handoff state.
 
-Detector state and the minimap live in **`prototypes/CLAUDE.md`**, which
-loads when a session touches that directory.
+Current detector state lives in module docstrings; the detector history and the
+minimap domain notes up to 2026-09-23 are in
+[the prototypes archive](docs/archive/PROTOTYPES-through-2026-09-23.md).
 
-The current handoff and the live defect list are in **`NOTES.md`** — read it
-when picking up unfinished work, or when you need to know what state a
-session left things in. It is deliberately not loaded here.
+The current handoff is in **`NOTES.md`** and open work in **`BACKLOG.md`**;
+read them when picking up unfinished work, or when you need to know what state
+a session left things in. Neither is loaded here.
 
 - [Where the detector detail lives](#where-the-detector-detail-lives)
 - [Running](#running)
@@ -61,22 +62,22 @@ session left things in. It is deliberately not loaded here.
 
 ## Where the detector detail lives
 
-Moved to **`prototypes/CLAUDE.md`** on 2026-08-26, which loads when a session
-touches that directory — 671 lines of detector state, 63% of whose measured
-figures already appeared in a module docstring. This index is what remains
-eager, because it is what you need before you know which file to open.
+The detector state moved to `prototypes/CLAUDE.md` on 2026-08-26 and, on
+2026-09-23, to [the prototypes archive](docs/archive/PROTOTYPES-through-2026-09-23.md);
+module docstrings hold what is current. This index is what remains eager,
+because it is what you need before you know which file to open.
 
-Read `prototypes/CLAUDE.md` before any minimap work. It holds the arc of the
-enemy and portrait detectors, the colour-free channel's numbers, and **the
+Read the archive's minimap sections before minimap work. They hold the arc of
+the enemy and portrait detectors, the colour-free channel's numbers, and **the
 domain notes on the minimap, which are not recoverable from the pixels or the
-code** — the single least replaceable thing in this repo.
+code**.
 
     minimap_geometry.py   the static map, classified. ONE npz per
                           (map, profile) -- see `reticle/geometry.py` for the
                           key; every other minimap module resolves through it.
                           STAMPED: `--all` rebuilds every key when this changes
     minimap_icons.py      floor_mask (the opaque slab) and the red mask
-    minimap_ring_fit.py   the SHIPPED enemy finder, 80.8% / 54.6%. Fits a CIRCLE
+    minimap_ring_fit.py   the enemy finder, 80.8% / 54.6%; no enemy reader ships. Fits a CIRCLE
     minimap_dynamic.py    the colour-free channel — ability glyphs a red mask
                           cannot see. `searchable` is the map mask; read its
                           docstring before touching the searchable area
@@ -90,12 +91,14 @@ code** — the single least replaceable thing in this repo.
 Three facts from that directory are load-bearing enough to keep here, because
 each one is a mistake that has already been made more than once:
 
-* **the widget is SEMI-TRANSPARENT over the void**, and every content-based
+* **the widget is SEMI-TRANSPARENT over the void** [domain:minimap/transparency],
+  and every content-based
   approach that ignored it drowned in the world moving behind it — five variants
   in `minimap_position.py`, then the searchable area five more times on
   2026-08-26. Search what is opaque;
 * **a closing radius that reconnects a broken rim is the radius that merges
-  adjacent icons.** Met and lost to four times. Fit a shape, do not repair one;
+  adjacent icons.** Met and lost to four times. Fit a shape, do not repair one
+  [domain:minimap/fit-not-repair];
 * **never seed a label file.** Seeding `minimap_agent` with provisional rows made
   the labeller skip them as done, and the number that came back was scoring my
   own clustering against itself.
@@ -113,14 +116,13 @@ attributed half -- direct quotes, decisions, personal detail, and the domain
 knowledge as it was originally given -- lives in a separate private repository:
 
     ~/reticle-notes/
-        DOMAIN.md    the game/domain knowledge, with attribution and dates
-        QUOTES.md    quotes, decisions, standing preferences
+        DOMAIN.md    the game/domain knowledge, quotes, decisions and standing
+                     preferences, with attribution and dates
         archive/     the four docs verbatim as they stood at the split
 
-**Read it when picking up domain work.** `prototypes/CLAUDE.md` calls that
-material *the single least replaceable thing in this repo* -- not recoverable
-from the pixels, not derivable from the code -- and moving it out did not make
-it less load-bearing, only easier to forget.
+**Read it when picking up domain work.** That material is not recoverable from
+the pixels or derivable from the code, and moving it out did not make it less
+load-bearing, only easier to forget.
 
 **What stayed here is the FACT; what moved is the ATTRIBUTION.** "Yoru's fake
 teleport plays the sound without the displacement" is a property of the game and
@@ -145,11 +147,8 @@ different thing -- they are the design documents themselves, and they stay.)
 
 ## Running
 
-Always via the venv interpreter — there is no console script:
-
-```
-.\.venv\Scripts\python.exe -m reticle <command>
-```
+Always via the venv interpreter; there is no console script. The command list
+is in [the working map](docs/WORKING_MAP.md#commands-for-a-focused-handoff).
 
 Default store is `~/reticle-store` (outside this repo); override with `--store`.
 `fixtures/`, `teststore/`, `probe_*/`, `frames_*/` are gitignored scratch.
@@ -171,7 +170,7 @@ needs anything rebuilt.
 
 ## Pipeline status
 
-**Per-session status is generated: `reticle status`, or read `STATUS.md`.** It
+**Per-session status is generated: `reticle status`.** It
 computes sessions, store version, rounds, W-L, plant rate and every K/D against
 `checks.KNOWN_KD`, so those numbers cannot drift from the code. The stage table
 below is design state -- what is built -- which nothing in the store implies, so
@@ -182,12 +181,10 @@ Stage numbers are the design doc's §3 stages, not release versions.
 **A round runs from the CLOCK RESET to the SCORE INCREMENT (`round-0.2.0`,
 2026-09-07), and rounds are deliberately NOT contiguous.** The score updates the
 moment a round is DECIDED — the wipe — so using it as the next round's start put
-that start ~6 s before the previous round's clock even expired. Two independent
-channels fixed it: the clock reads median 6.0 s at the old start over 281 rounds
-(exactly 6.0 on 17 of 18 sessions, 95% under 15 s), and on the two sessions with
-a roster both teams return to 5 a median of 7.0 s later at a buy-phase clock of
-28.0 s. The END did not move; the ~7.5 s gap between one round's end and the
-next one's start is the post-round period. Kills there are legal and count
+that start ~6 s before the previous round's clock even expired;
+[ROSTER_FINDINGS.md](docs/ROSTER_FINDINGS.md) measures it on the clock and the
+roster (*the round start MOVED to the clock reset*). The gap between one round's
+end and the next one's start is the post-round period. Kills there are legal and count
 [domain:rounds/post-round-period], so since `round-0.4.0` an event landing in it
 belongs to the round just decided; the last round closes one median gap after
 its end. At match end the scoreline gives way to the end screen, so the deciding
@@ -222,7 +219,10 @@ repeated credit reads and accepts separately supplied, channel-attributed identi
 claims. Display-row indices are local to an opening and are never treated as stable
 identity because the top roster compacts when an agent dies.
 
-Not built: **main-view detection**, **combat report**. Cross-channel identity
+Not built: **main-view detection**. The **combat report** reader
+(`reticle/combat_report.py`) stores what each sampled frame of the post-death
+panel shows, and `adjudication.combat_report` recomputes panels, rounds and
+kills from those rows. Cross-channel identity
 claim production from roster portraits, minimap icons, and killfeed portraits is
 still incomplete in the production pipeline.
 
@@ -230,20 +230,21 @@ still incomplete in the production pipeline.
 `reticle minimap <session>` writes `l1/minimap` at 15 Hz over active spans —
 self is a filtered track, validated against two independent ground truths
 (the X mark a death leaves, and the map's physical chokepoints; see
-`prototypes/CLAUDE.md`). Ally positions are still per-frame candidates with
-no identity across frames — that, plus the visibility (dA/ds) computation
-this was always gating, is the next step; see `NOTES.md`.
+[the prototypes archive](docs/archive/PROTOTYPES-through-2026-09-23.md)). Ally
+icons now carry identity: `round_entities.session_lifetimes` joins them into
+per-round lifetimes and `adjudication.identity.assign_ally_pieces` names each
+piece from its portrait art ([ROUND_ENTITIES.md](docs/ROUND_ENTITIES.md)). The
+visibility (dA/ds) computation this was gating is still unbuilt.
 
 §2 calls the homography trivial, and `MinimapMode.has_static_homography`
 records per session whether a single constant transform exists — true for
 every capture from 2026-08-23 evening on.
 
-The **combat report** (the post-death panel, right of centre) is the richest
-unread surface in the game: per enemy it shows outgoing damage, incoming damage,
-the hit breakdown, and kill / killed-you flags. That is engagement-level data
-the killfeed cannot give. Two things to settle before building it: the panel's
-height and vertical position vary with the number of enemy rows, so it needs
-detection rather than a fixed ROI; and the banner name changes between deaths
+The **combat report** [domain:combat_report/panel-layout], shown at each of the
+player's deaths [domain:combat_report/appears-on-death], gives engagement-level
+data the killfeed cannot. Its reader places every field relative to the panel
+header, because the panel moves with its row count. The banner name changes
+between deaths
 (`Chef`, then `Harbinger` on one session), which may mean it follows the
 spectated player rather than the local one.
 
@@ -310,8 +311,8 @@ Three things follow, and they re-rank work:
 * **`reticle/overlay.py` is the vehicle and it already exists**, with the right
   discipline built in: *this module draws; it decides nothing*, every value
   comes from calling the real extractor. It covers the killfeed, scoreline and
-  bottom HUD. It does NOT yet draw a single minimap entity. Extending it to the
-  minimap channel is the concrete form of this north star;
+  bottom HUD, and since 2026-09-06 the minimap channel too (`--no-minimap` turns
+  it off). Extending it across that channel is the concrete form of this north star;
 * **"as they evolve" means the overlay must render TRACKS, not per-frame
   detections.** An entity that flickers, swaps identity, or teleports between
   frames is visible instantly in a video and nearly invisible in an aggregate.
@@ -370,7 +371,8 @@ document has been circling:
   things historically did not: the static map was a per-session median and
   `active` spans came from segmenting the whole file. The first is now removed:
   readers load baked `(map, profile)` geometry before streaming and session
-  pixels may only size/place the widget. `active` span derivation remains the
+  pixels may only size and place the widget
+  [domain:capture/session-pixels-are-not-the-map]. `active` span derivation remains the
   future-context obstacle, and the round-phase detector is the first candidate.
 
 Nothing here is scheduled. It is recorded so that the next person choosing
@@ -554,7 +556,8 @@ are not misreads at all -- they are frames with nothing to read.
 
 The killfeed and the scoreboard answer different questions, and where they
 disagree the killfeed is often the one worth keeping. A death inside Phoenix's
-Run It Back never reaches the scoreboard, and a Kayo ult down may not either —
+Run It Back never reaches the scoreboard, and a Kayo ult down may not either
+[domain:rounds/resurrection-mechanics] —
 but both are duels that were lost, and §4's metrics are about duels, not about
 the end-of-match tally. the position (2026-08-25): **perfectly matching the
 scoreboard is not the goal.**
@@ -585,7 +588,8 @@ is also its own coachable category, the same argument as wallbangs above.
 
 ## Open design question: engagements without a kill
 
-The killfeed only fires when someone dies, so keying stage 03 on it alone would
+The killfeed fires on deaths and revives [domain:killfeed/revive-entries] and
+never on a duel nobody died in, so keying stage 03 on it alone would
 measure a biased subset. Counted from the store, shots fired outnumber killfeed
 events **2.6 to 1** (400 shot bursts against 153 attributed entries across the
 six sessions, and that is a floor — 2 Hz sampling collapses any burst shorter
@@ -640,54 +644,14 @@ scrubbing an overlay video, and it is the right tool whenever the question is
 
 ## Asking myself a perceptual question
 
-`reticle/glance.py` is one fixed encoding for every perceptual question in this
-repo, and `prototypes/glance_cams.py` is the first thing built on it. Read its
-module docstring before building a new debug view; the short version is why it
-exists at all:
-
-**`notes/predictions.jsonl` says claims about what a rendered image contains
-were 5 of 5 WRONG at a mean stated confidence of 0.85.** Five-for-five wrong is
-not a bandwidth failure -- bandwidth failures produce uncertainty, not confident
-wrongness. Two things cause it, and only one of them is about pixels:
-
-* **acuity against feature size.** The enemy rim is 1-4 px; a whole 1080p frame
-  arrives downsampled to roughly a thousand tokens, so the thing this project
-  measures is below the delivered sensory floor. The fix is magnification at a
-  STATED factor, not a bigger image. A 200x200 crop at 4x costs about what the
-  full frame costs and resolves the rim;
-* **nothing pooled.** Every debug view here was bespoke -- the killfeed contact
-  sheet in a scratch script, `label_dynamic`'s panel layout, `paint_map`'s -- so
-  an error rate on killfeed bands said nothing about minimap glyphs and
-  calibration restarted at n=1 in every module. A fixed encoding is what makes
-  `reticle.glance calibration` a table that gets sharper across domains.
-
-**A sheet is a backdrop plus ringed items, each answered from a closed set.**
-That is the whole grammar; `present`, `which_of_k`, `boundary`, `count`,
-`correspond` and `ordering` are layouts over it, not six renderers. Invariants
-are enforced in code rather than remembered: INTER_NEAREST with the factor
-printed, a 10-source-pixel scale bar on every panel, the candidate ringed in
-every panel, off-source padding filled magenta so "no data" and "nothing here"
-cannot be confused, and structural colour reserved for the QUESTION (amber
-covered, magenta no-data, matching `overlay.py`) while domain colour stays for
-the answer.
-
-**The control is the mechanism.** Each sheet plants items whose answer is
-already known, shuffled in; the footer says how many and never which. Miss one
-and the sheet is scored VOID and its other answers are DISCARDED, not doubted --
-the finding is then that this question cannot be read at this magnification, and
-the next move is a labeller, not a threshold.
-
-    .\.venv\Scripts\python.exe -m reticle.glance --self-test      # 8 sheets, all six kinds
-    .\.venv\Scripts\python.exe -m reticle.glance calibration      # pooled, by domain and band
-
-**Controls must be someone else's labels.** `truth_source` is required and
-`answer()` refuses a `claude-*` provenance outright -- a control built from my
-own prior claim is the `minimap_agent` seeding mistake in a new costume. The cam
-sheets drew theirs from the 79 `enemy` and 31 `question` marks, placed long
-before the question existed. Be honest about what that buys: controls from a
-DIFFERENT population establish a floor (can this be read at 6x at all), never a
-ceiling (is the open class separable) -- the same trap as *0 of 55 hand-marked
-icons have aspect >= 2.0*.
+`reticle/glance.py` is one fixed encoding for every perceptual question this
+repo asks: a sheet of ringed items, each answered from a closed set, with
+planted controls that void the sheet when missed. Its module docstring gives
+the reasons, the grammar, the invariants and the control rule;
+`prototypes/glance_cams.py` is the first thing built on it. A VOID sheet means
+the question cannot be read at that magnification, and the next move is a
+labeller, not a threshold. The cam sheets drew their controls from the 79
+`enemy` and 31 `question` marks, placed long before the question existed.
 
 Two loads on 2026-08-27, and the pair is the argument. The **cam** sheets came
 back VALID at 8 of 8 controls and closed a queued task in minutes by finding it
@@ -707,62 +671,28 @@ layout regressions in this module are correctness bugs, not cosmetics.
 ## Runs are compared, not just printed
 
 `reticle/metrics.py` stores each run's summary and prints the **diff**, so a
-run where nothing moved prints one line and a moved number is loud. The token
-saving is the small half. The two real ones:
+quiet run prints one line and a moved number is loud. Its module docstring
+gives the two kinds of dependency (invalidating `deps`, explanatory
+`context`), the four verdicts, the pass-only baseline and the commands;
+`fingerprint`, `wilson` and `bootstrap_ci` give their own reasons, including
+why every interval must be deterministic.
 
-**The control is derived, not declared.** `version.py` already promises a
-version is bumped when a column's MEANING changes. Read as a contract that is
-checkable: if nothing a number depends on changed, the number must not change
-either. Same deps and a different value is not a result -- it is an unversioned
-edit or nondeterminism, and it is reported `BROKEN`. That is the standing
-"confirm a known number comes back" check, enforced in code instead of carried
-by hand, which is how it had drifted to the wrong row of a table for weeks.
-
-**Comparability belongs to the dependency chain, not the field.** `recall`
-keeps its name and its dtype across a class split and stops being the same
-quantity -- the queued `ability` split is exactly that. So every record splits
-what it was computed from into two kinds, and putting a field in the wrong one
-is the only way to get this wrong quietly:
-
-    deps      INVALIDATING -- code fingerprint, class list, sampling rule, the
-              fit session, whether a painted mask was seeded. Different deps is
-              not a comparison; no delta is shown at all.
-    context   EXPLANATORY -- label counts, pool size. Different context is a
-              comparison, and it is the interesting one. Labels arriving is the
-              main legitimate reason a number here moves.
-
-Collapse the two and it fails either way: everything invalidating and each code
-touch resets the baseline, nothing invalidating and you get confident false
-comparisons. Deps are **fingerprinted from function source** (`metrics.
-fingerprint`) rather than listed, because a hand-kept list rots in the silent
-direction -- add a knob, forget the list, and every later diff crosses a
-boundary it should have refused.
-
-**A moved number now carries whether the move CLEARS ITS OWN NOISE**
-(2026-09-06). `metrics.wilson(k, n)` for anything k-of-n, `bootstrap_ci` for
+**A moved number carries whether the move CLEARS ITS OWN NOISE**
+(2026-09-06). `metrics.wilson(k, n)` covers anything k-of-n and `bootstrap_ci`
 anything else, passed to `record(ci={...})`; a `CHANGED` verdict then prints
-both intervals and says `SEPARATED` or `within noise`.
+both intervals and says `SEPARATED` or `within noise`. **It applies to CHANGED
+only.** On `BROKEN` the deps AND context are identical, so the number had no
+licence to move at all, and an interval there would excuse exactly the small
+unversioned edit the check exists to catch. Reproducibility and significance
+are different questions and only one of them is about sampling. `--self-test`
+asserts a CI never softens `BROKEN`.
 
-**It applies to CHANGED only, and that is the whole design.** The obvious
-version -- let `BROKEN` fire only past the interval -- is wrong and was written
-into the plan before being caught: on `BROKEN` the deps AND context are
-identical, so the number had no licence to move at all, and an interval there
-would excuse exactly the small unversioned edit the check exists to catch.
-Reproducibility and significance are different questions and only one of them
-is about sampling. `--self-test` asserts a CI never softens `BROKEN`.
-
-Two traps, both live here:
-
-* **the interval must be DETERMINISTIC.** A resampled CI recorded into the log
-  would move run to run with identical deps and trip `BROKEN` every time --
-  the module failing its own check. `wilson` is closed-form; `bootstrap_ci`
-  takes a fixed `seed` and the docstring says not to vary it;
-* **n is the number of INDEPENDENT units, not of observations.** `roster_alive`
-  reports 43/48 probes agreeing and that is not 48 samples -- six probes inside
-  one round share a roster state, so it records the ROUND rate instead: 6/8,
-  95% CI **[41%, 93%]**. And this is why pixel counts must never be fed to
-  `wilson`: `floor_mask_eval` compares masks over ~225k spatially correlated
-  pixels, where an interval would come out microscopic and be badly wrong.
+**n is the number of INDEPENDENT units, not of observations.** `roster_alive`
+reports 43/48 probes agreeing and that is not 48 samples -- six probes inside
+one round share a roster state, so it records the ROUND rate instead: 6/8,
+95% CI **[41%, 93%]**. And this is why pixel counts must never be fed to
+`wilson`: `floor_mask_eval` compares masks over ~225k spatially correlated
+pixels, where an interval would come out microscopic and be badly wrong.
 
 **First retroactive read, and it corrects a claim already written down.**
 `NOTES.md` records the ability channel's current best as *worse than the 0.49 @
@@ -773,18 +703,6 @@ old number was simply too weak to be worse than. The detector clearing the
 0.252 class baseline IS established (no overlap). Note the test is conservative
 in one direction: non-overlap implies a real difference, overlap does not
 disprove one, so read it as *not shown* rather than *not there*.
-
-**Only `pass` runs are ever a baseline, and that gate is structural** --
-`baseline()` has no flag to include a `broken` or `cannot-answer` run. A broken
-run allowed to become the new normal would re-baseline the fault and the check
-would never fire again: the seeding mistake in a third costume, after
-`minimap_agent` and `answer()`'s refusal of `claude-*` provenance.
-
-```
-reticle metrics                              # every series; quiet ones stay quiet
-reticle metrics --tool enemy_detect --verbose
-.\.venv\Scripts\python.exe -m reticle.metrics --self-test   # all four verdicts
-```
 
 Wired in so far: `enemy_detect_eval.py`, and `dynamic_eval.py` for the held-out
 fit, the pool composition, and the painted mask. A new eval should record too;
@@ -807,7 +725,7 @@ one `metrics.record()` at the end is the whole cost.
   precisely because of `TEXT_V_MIN`.
 - **No list of killfeed icons is needed, and none was used.** Valorant draws
   marks between the weapon and the victim name (headshot, wallbang) and in the
-  weapon slot itself (abilities). Rather than enumerate them — which would never
+  weapon slot itself (abilities) [domain:killfeed/ability-kill-icon]. Rather than enumerate them — which would never
   finish, since each patch can add more — `killfeed.py` keys on what a *name*
   is: several glyphs rather than one solid shape, with names on both sides of
   the divider. That handles unseen icons for free.
@@ -816,7 +734,7 @@ one `metrics.record()` at the end is the whole cost.
   game, `bfad2778a372` has an enemy Phoenix, and both are now fully explained by
   the same rule, stated below. Do not tune the extractor against either.
 
-  The rule, from **Sage and Clove revive after a real death and that
+  The rule [domain:rounds/resurrection-mechanics]: **Sage and Clove revive after a real death and that
   death counts; Phoenix and Kayo grant the second life before the fact — Run It
   Back ends in a self-kill or a real kill and then returns the player, Kayo can be
   downed and either finished or picked back up — and those never counted.** It
@@ -825,22 +743,11 @@ one `metrics.record()` at the end is the whole cost.
   ~12 sampled frames is either barely caught or about to be split in two. If a
   new capture reads badly, count these first — 7 of 290 across the set now.
 
-  **CORRECTED 2026-09-07: the claim that long tracks are gone was FALSE.** This
-  used to read *"the divider ended that and there are now none anywhere, so one
-  appearing again is a signal that something upstream broke"*. Counted over all
-  18 sessions: the entry lifetime is a hard constant at **median 10 samples and
-  4.5 s on every one of them**, and against it **154 of 2859 counted tracks
-  exceed 12 samples and 83 exceed 16, to a maximum of 38**. They were there the
-  whole time and nothing had asked.
-
-  **But long does NOT mean merged, and assuming it did is a mistake already made
-  here.** One over-long track was confirmed a real merge by rendering
-  (`587c15b07779` 775.5 s, 19 samples, swallowing a visible `Phoenix -> Fade`
-  entry at 781.0 s). The very next one tested — the corpus maximum, 38 samples
-  on `59c70f1ef720` at 2197-2215 s — is a SINGLE genuine entry on a **frozen
-  frame**, every stored HUD column identical for 17 s. `reticle audit` reports
-  both populations and marks which tracks sit on a frozen frame; 77 of the 83
-  are unexplained candidates rather than a defect rate.
+  Long tracks exist too, and long does not mean merged: 154 of 2859 counted
+  tracks exceed 12 samples. [ROSTER_FINDINGS.md](docs/ROSTER_FINDINGS.md)
+  (*Two tracker defects* and *`over_long` is not a merge detector*) gives the
+  counts, the one merge confirmed by rendering and the single entry on a frozen
+  frame; `reticle audit` reports both populations and marks frozen-frame tracks.
 - **Fixed at `hud-0.8.0`: the entry tracker could not tell a merge from a
   split.** Matching by nearest slot merged consecutive entries reusing a vacated
   slot; matching by most-recently-seen shattered genuine doubles and scored
@@ -871,16 +778,17 @@ one `metrics.record()` at the end is the whole cost.
   frames, and this one is **player-initiated and can happen at any moment in a
   round**, which the death screen cannot.
 
-  **The shipped minimap position reader has no widget guard of any kind** --
-  not `drawn()`, not even `usable()`; `cmd_minimap` reads every frame inside an
-  active span. Measured over all 27757 frames of `a06f04a0059f` at 15 Hz:
+  **The shipped minimap position reader had no widget guard of any kind** until
+  `minimap-0.2.0` adopted `minimap.widget_drawn`; before it, `cmd_minimap` read
+  every frame inside an active span. Measured over all 27757 frames of
+  `a06f04a0059f` at 15 Hz:
 
         usable()  refuses    614  (2.2%)
         drawn()   refuses   1394  (5.0%)
         the gap             780  (2.8%) -- kept by usable(), refused by drawn()
         harvested from those frames:  3605 self candidates, 4178 ally
 
-  So **5% of the shipped position track is built on frames with no widget in
+  So **5% of the shipped position track was built on frames with no widget in
   them**, and adopting `usable()` alone would recover under half of that. The
   detections are not few: widget-absent frames yield 2.6 self candidates each,
   because `self_rings` is looking at open scenery.
@@ -888,7 +796,8 @@ one `metrics.record()` at the end is the whole cost.
   Closing it moves stored numbers, which is why it was measured first rather
   than patched -- but 5% is far past the level at which the position track's
   validation (the X-mark and chokepoint ground truths) can be assumed to still
-  hold. Re-run those after the guard lands.
+  hold, so both were re-run against the guard (`reticle/version.py`,
+  `minimap-0.2.0`).
 - **A dead player spectates, so the main view is not theirs.** Found while
   checking ally rendering: `9acf02f98283` 24:50 shows the combat report, "SWITCH
   PLAYER", and a teammate's first-person model. Nothing currently detects this
@@ -925,8 +834,8 @@ one `metrics.record()` at the end is the whole cost.
    `ingest --minimap-mode "fixed/always_same/uncentered"`; it lands in the
    manifest.
 6. **Label the map.** the player is labelling maps for future captures. Geometry
-   should be shared between sessions on the same map rather than re-derived per
-   session, and nothing currently knows which map a capture is.
+   is shared between sessions on the same map: `geometry.map_of` reads the
+   `map:` tag, and `doctor`'s COVERAGE check reports a session without one.
 7. **Keep the enemy highlight on, and record its colour** as an `outline:<c>`
    tag at ingest. Valorant outlines enemy models in a colour the player picks --
    red on every capture so far, but yellow and at least one other exist -- so it
@@ -973,9 +882,8 @@ one `metrics.record()` at the end is the whole cost.
     thresholding intact, and every approach tried topped out at 77-79% of frames
     that provably contain a visible enemy. A larger widget should move all of it.
     Record the size per session -- geometry and icon thresholds both scale with it.
-12. **Record in 4:4:4 if the encoder allows it, and record which was used.**
-    Measured 2026-08-26 (see "4:2:0 chroma subsampling costs a fifth of the
-    detector" above): 4:2:0 alone destroys 34% of enemy-rim pixels and 22% of
+11. **Record in 4:4:4 if the encoder allows it, and record which was used.**
+    Measured 2026-08-26 [domain:capture/chroma-420]: 4:2:0 alone destroys 34% of enemy-rim pixels and 22% of
     detections, on identical frames. The enemy rim is 1-4 px of pure chroma, so
     half-resolution chroma averages it away before the file exists — and no
     algorithm recovers what was never written. This is the same class of
@@ -988,9 +896,9 @@ one `metrics.record()` at the end is the whole cost.
     reference capture, because a controlled A/B needs an undegraded source and
     it is the only one that exists.
 
-13. **The minimap has NO opacity setting. ANSWERED by the player, and do not ask
+12. **The minimap has NO opacity setting. ANSWERED by the player, and do not ask
    again.** Valorant does not expose one, so the widget being semi-transparent
-   over the void is a permanent property of the problem, not a capture setting
+   over the void [domain:minimap/transparency] is a permanent property of the problem, not a capture setting
    that could be fixed. Every approach must be built to survive it.
 
    **Recorded here because it has now been asked twice.** the player answered it once
@@ -1007,37 +915,16 @@ one `metrics.record()` at the end is the whole cost.
 seems to carry the most information, the way human memory over-weights novel or
 emotionally volatile events -- is there a core idea there?
 
-There is, and the naive version was tried and failed the same day. **Novelty in
-INPUT space is the wrong measure, because noise is maximally novel.** Onset
-sampling was exactly that, and against the existing labels it selected 68%
-artefacts and would have gutted the ability class (8 rows against 45). The
-useful reading of "emotionally volatile" is not *new* -- it is **surprise
-weighted by consequence**, which is a real quantity: prioritised experience
-replay ranks memories by prediction error, and information gain is only defined
-relative to something you care about. This project's stake function is written
-down as the endstate, which is why writing it down paid for itself.
+There is, and the naive version was tried and failed the same day: onset
+sampling, novelty in INPUT space, selected 68% artefacts against the existing
+labels and would have gutted the ability class (8 rows against 45). The module
+docstring and its `stake` block give what survives -- surprise weighted by
+consequence, measured as calibration gap, runs and a Bonferroni-corrected
+change point, with stake set by a claim's level and the cost of being wrong.
 
-What survives and is measurable is defined on the MODEL's behaviour, not the
-input's strangeness:
-
-    acc / gap    am I right, and am I right at the confidence I claim
-    runs z       do outcomes CLUSTER (structure -- chase the run of wrongs)
-                 or ALTERNATE (irreducible -- log aleatoric and stop tuning)
-    change point has the error rate SHIFTED, i.e. have my assumptions lapsed
-
-**The third is the one worth having.** Every expensive failure in this project
-is a regime boundary where an assumption silently stopped applying: the death
-screen where `usable()` lapsed, buy phase against live play, the halftime side
-swap, 4:2:0 chroma. Each looked like ordinary noise until somebody looked.
-**Sample where the error rate CHANGES, not where it is high** -- a stable 30%
-teaches nothing new, a jump to 30% is a boundary.
-
-**It refuses rather than guesses, and that is load-bearing.** A staleness
-detector that hallucinates staleness is worse than none, so the change point is
-Bonferroni-corrected for the number of splits searched and returns `None` below
-5 scored outcomes a side. Measured in `--self-test` over 2000 coin-flip
-sequences of n=30: **corrected fires 0.8%, uncorrected would fire 19.9%.** A
-real change (15 right then 15 wrong) is caught at exactly #15.
+Measured in `--self-test` over 2000 coin-flip sequences of n=30: **corrected
+fires 0.8%, uncorrected would fire 19.9%.** A real change (15 right then 15
+wrong) is caught at exactly #15.
 
 First read, 39 predictions: no regime change anywhere, and every domain except
 `minimap` and `rounds` is underpowered for one. `geometry` is overconfident by
@@ -1048,9 +935,7 @@ constants** rather than predictions about what running existing code will do.
 
 **Stake: what it costs to be wrong, which is not what accuracy measures.**
 predicting a file's word count has a different salience to predicting
-whether your ontology was correct. The first attempt to show that ran the wrong
-test -- accuracy by level -- and found nothing, because cost was not in the log
-at all. That absence was the gap. With cost recorded, over 33 backfilled rows:
+whether your ontology was correct. With cost recorded, over 33 backfilled rows:
 
     level         n    acc     gap   mean cost
     ontology      8   0.38   -0.46         2.1
@@ -1059,20 +944,10 @@ at all. That absence was the gap. With cost recorded, over 33 backfilled rows:
 
 Cost orders as predicted, an order of magnitude apart. **The gap column is the
 finding nobody was looking for**: the claims that cost the most are the ones I
-am most overconfident about. Two wrong ontology claims cost a session each
-(*the bomb sites are correctly classified*, *the class list is complete at six*)
-against a wrong value claim costing a requote.
-
-`level` is a priori and nearly SYNTACTIC -- readable off the claim's grammar --
-so it cannot be quietly under-rated for a claim about to fail. `cost` is a
-posteriori and ORDINAL, anchored to things that happened here rather than to
-minutes, because an absolute scale would be false precision. **Stake is reported
-as a percentile within this log, never as an absolute**: the point that
-comparison is inevitably relative, which is the right resolution rather than a
-dodge, since every decision this feeds is a ranking. `stake()` is explicitly a
-prior to be replaced -- once enough rows carry an observed cost, fit
-`level x rests_on -> cost` from history, exactly as the calibration table
-replaced asking how confident I felt.
+am most overconfident about. Stake is reported as a percentile within this
+log, never as an absolute, because every decision it feeds is a ranking.
+`stake()` is a prior, to be replaced by a fit of `level x rests_on -> cost`
+once enough rows carry an observed cost.
 
 Caveat, load-bearing: those rows are `level_by: claude-retro`, my own labelling
 of my own claims after the outcomes were known. It is the hypothesis the
@@ -1198,8 +1073,8 @@ match. Without it, widening the plant test grew a third "bomb site" on Split --
 10921 px of brown void -- and nothing noticed, because that npz was stale and
 the two maps in use were fine. **Run `minimap_geometry.py --all` whenever that
 file changes.** Keying geometry per (map, profile) is what made that
-affordable: it is 11 builds rather than one per session, and 5 minutes end to
-end, so the stamp stops being a thing people defer.
+affordable: it is one build per (map, profile) rather than one per session, and
+about 5 minutes end to end, so the stamp stops being a thing people defer.
 
 **A new reader joins the PASS. Recorded 2026-09-05, and it is an architectural
 rule rather than an optimisation:**
@@ -1222,14 +1097,15 @@ from, so exploratory phase is an argument for the rule and not an exemption
 from it.
 
 The shape that satisfies it: detection is a function over frames
-(`ping_scan._detect`), `scan()` decodes for itself and calls it, and a
-`Reader` accumulates frames from somebody else's pass and calls the same
-function. Verified both ways return 14 pings and the same four classes.
+(`reticle/ping.py` `sightings`, grouped by `Grouper` and `resolve`), a standalone
+scan decodes for itself and calls it, and `PingReader` accumulates frames from
+somebody else's pass and calls the same function. Verified both ways return 14 pings and the same four classes.
 
 One constraint is now an invariant: **a reader never builds a median**. It reads
 the baked `(map, profile)` reference and streams in one phase. Session pixels
-may measure widget dimensions/placement only; `doctor` rejects cache APIs and
-capture medians outside the geometry builder and dimension-only preflight.
+may measure only the widget's dimensions and placement
+[domain:capture/session-pixels-are-not-the-map]; `doctor` rejects cache APIs and
+capture medians outside the two exceptions AGENTS.md names.
 
 **ALIGN THE WINDOW TO THE QUESTION BEFORE READING ANYTHING OUT OF IT. This is
 now the most repeated mistake in this codebase -- FOUR times on 2026-09-06
@@ -1240,12 +1116,8 @@ Every instance is the same shape: a CORRECT reader, measured over the wrong
 span, producing a confident number about a question nobody asked.
 
     probing "starts at 5" from 6% into a round      5/22  -> 40/40
-      -- the roster is not drawn for the new round yet. **The cause was
-         measured and fixed at `round-0.2.0` (2026-09-07): the round START was
-         the previous round's SCORE INCREMENT**, which is ~6 s before that
-         round's clock expires — median exactly 6.0 s on 17 of 18 sessions over
-         281 rounds. It is now the CLOCK RESET, which lands at a buy-phase
-         clock of median 28.0 s. See the section below
+      -- the roster is not drawn for the new round yet; `round-0.2.0` moved
+         the round start to the clock reset (see *Pipeline status*)
     a refinement window butted against a run's end  0.32-0.43 -> 0.00-0.06
       -- `t1` is the MEASURED end, up to a sample period early, so the window
          read the object's own tail as evidence against it
@@ -1256,7 +1128,8 @@ span, producing a confident number about a question nobody asked.
       -- an entry stays on screen for seconds, so `t_first` lands inside the
          next round's window
 
-And the one already recorded before today, in `prototypes/CLAUDE.md`: an
+And the one already recorded before today, now in
+[the prototypes archive](docs/archive/PROTOTYPES-through-2026-09-23.md): an
 ability series read against the whole decoded axis rather than its own query
 window reported `detect` firing on 75.5% of frames at the median query and
 75.7% at the max, across 53 queries -- uniformity that reads as a finding and
@@ -1327,66 +1200,27 @@ That is the `built_by` stamp lesson with the stamp missing: the ARTEFACT was
 versioned, the CODE PATH was not.
 
 **CORRECTED 2026-09-06: they had ALREADY diverged when the paragraph above was
-written, and it said they had not.** `minimap_icons` gained `sat < 20`, a
-largest-component rule and `BRIDGE` on 2026-08-27; the promotion on 2026-09-02
-copied the *older* branch, so the shipped reader ran a gate the prototype had
-already measured and replaced five days earlier. Nine lines against sixty-one.
-Reconciled -- one `floor_mask` and one tint rule
-(`SITE_*`, promoted out of `minimap_geometry.PLANT_*`), scored against the
-two paintings by `prototypes/floor_mask_eval.py`:
+written, and it said they had not.** The `floor_mask` docstring in
+`reticle/minimap.py` records the fork, the reconciled gate and its IoU against
+the two paintings. The slab-only gate looked correct and was not -- the player,
+shown the two blobs it lost: *why would floor mask exclude bomb sites? Those are
+part of the floor.* The tint is paint ON the floor.
 
-    gate                       Ascent IoU   Lotus IoU   recall
-    sat<60, bare dilation         57.8%       74.0%      100%  (a superset)
-    sat<20 slab only              74.8%       75.5%     94.9% / 96.8%
-    sat<20 slab | sites           78.8%       77.9%      100% / 100%   <- shipped
+**Rebuilt 2026-09-07, and the store is now keyed per (map, profile)**; the 36
+per-session npz held only 5 distinct geometries.
 
-**Two lessons, and the second is the one that generalises.** The check written
-to catch this could not see it: `git grep -h "^def "` matches the whole
-signature line, and the two were `floor_mask(med)` and
-`floor_mask(med, dilate=9)`. **Match on the NAME, in both trees.** And the
-slab-only middle row looked correct and was not -- the player, shown the two blobs
-it lost: *why would floor mask exclude bomb sites? Those are part of the
-floor.* The tint is paint ON the floor. A rendering property is not a
-different surface, and the old threshold's real fault was catching the sites
-and the void with one number.
-
-**Rebuilt 2026-09-07, and the store is now keyed per (map, profile).** The 36
-session npz held 5 distinct geometries; there are 11 keys today, covering 50
-sessions where 36 had one. `doctor` is 2 findings / 0 errors.
-
-**It is checkable rather than remembered -- `reticle doctor`, added
-2026-09-06.** The grep this line used to recommend is kept below because the
-way it FAILED is the lesson:
-
-    git grep -h "^def " reticle/ prototypes/ | sort | uniq -d   # DOES NOT WORK
-
-It matches the whole signature line, so it passed clean for ten days across
-`floor_mask(med)` and `floor_mask(med, dilate=9)`. **Match on the NAME**, which
-is what `doctor` does, with a small allowlist for genuinely local helpers
-(`load`, `render`, `summarise`) that has to be edited to grow.
-
-`doctor` is the repo's half of `status`: `status` says what is in the store,
-`doctor` says what shape the codebase is in. Seven checks, each a fault that has
-actually happened here -- a name defined in both trees (ERROR), a `reticle/`
-module no CLI command reaches, a prototype named by no code and no doc, a
-geometry npz whose `built_by` is stale (ERROR), a shade that is stale or absent,
-a session that reaches no geometry or a key nothing has built, and a manifest
-whose tags contradict its profile. (The sixth used to be a donor shared across widget sizes; the
-(map, profile) key makes that unrepresentable, so the check was replaced rather
-than kept passing.) Only an ERROR fails
-the command; a checker that fails on everything gets ignored.
-
-Run it when picking work UP. It is deliberately not a git hook: a hook fires
-when someone is in a hurry, which is when all three recorded recurrences of
-*look at the image before measuring it* happened, and a hook that gets bypassed
-also creates the belief that something is watching.
-
-It earned itself on the first run by finding a manifest contradiction nobody
-was looking for -- `2ba870ccbd50` is tagged `small-widget` and was ingested
-`valorant-16x9-bigmap`. That session is on record twice already, as a "never
-re-scan" hazard and as a geometry failure `prototypes/CLAUDE.md` calls
-*unexplained*. A wrong-profile ingest would explain it. Which of the tag or the
-profile is wrong is NOT decided, and the check does not guess.
+**It is checkable rather than remembered: `reticle doctor`, added 2026-09-06.**
+It matches definitions by NAME in both trees, with a small allowlist for
+genuinely local helpers that has to be edited to grow. Its docstring records
+why the `git grep` meant to catch the fork passed clean for ten days, and why
+doctor runs at pickup rather than as a git hook. `doctor` is the repo's half of
+`status`: `status` says what is in the store, `doctor` says what shape the
+codebase is in. Its checks are listed in `doctor.run`, each a fault that has
+actually happened here; only an ERROR fails the command, since a checker that
+fails on everything gets ignored. Its manifest check found `2ba870ccbd50`
+tagged `small-widget` and ingested `valorant-16x9-bigmap` on its first run;
+[the prototypes archive](docs/archive/PROTOTYPES-through-2026-09-23.md) records on 2026-09-07
+that the tag was wrong.
 
 *Added 2026-09-05, after a review found the duplicate. The first version of
 this note claimed the rule was already here when it was not, which is the
@@ -1478,16 +1312,19 @@ decision, it belongs in the docstring.
   not from a font file, and committed as `.npz` keyed by profile.
 - **Version stamps drive recompute.** Bump `EXTRACTOR_VERSION` → re-decode;
   `SEGMENTER_VERSION` → spans recompute from stored L1 in milliseconds;
-  `HUD_VERSION` → re-read (needs pixels, so it re-decodes).
+  `HUD_VERSION` → re-read from pixels: `scan --only hud` rereads the crop cache
+  (`roi_cache`), and `--from video` decodes.
 - **`segment` must never open the video.** Recomputing spans from stored L1 is
   the whole point of the L0/L1 split, and it is what makes threshold sweeps
-  free. `hud` is the one stage that legitimately re-decodes.
+  free. The `hud` command re-opens the source; `scan --only hud` reads the crop
+  cache instead.
 - **Raw media is never copied.** Manifests point at where the file lives.
   Lossless crops of a fixed reader ROI (`reticle/roi_cache.py`) are not a copy
   of the capture (player, 2026-09-25): they let `reticle trial` rerun a reader
   with no decode.
 - **Deaths per round is not a usable invariant** — Sage resurrect and Clove
-  self-revive both let a player die twice in a round.
+  self-revive both let a player die twice in a round
+  [domain:rounds/resurrection-mechanics].
 - Cost rule from §3: if the expensive layer ever sees more than ~1% of frames,
   stage 01 is wrong. Fix gating before buying compute.
 - **Commit whenever a result is verified. Standing authorisation -- no need to
@@ -1572,9 +1409,10 @@ Moved verbatim from the root `CLAUDE.md` on 2026-09-23, when the root guidance w
   twenty-four, each restatement free to drift, while facts the player supplied
   once got no consumer and were lost. `doctor`'s DOMAIN check makes a citation
   resolving to no fact an ERROR, and reports every fact nothing cites plus every
-  file that still restates one. Only `docs/archive/` is exempt, as dated
-  history; `NOTES.md` and `BACKLOG.md` are bounded working documents and are
-  checked (amended 2026-09-23). Read one with
+  file that restates a fact through one of its `phrases`; a fact with no
+  `phrases` is not checked for restatement. In `docs/archive/`, dated history,
+  DOMAIN checks citations and skips restatements; `NOTES.md` and `BACKLOG.md`,
+  bounded working documents, are checked (amended 2026-09-23). Read one with
   `reticle domain [DOMAIN] [--id ID]`. Pipeline accuracy is NOT a domain fact --
   outcomes belong in `notes/predictions.jsonl`. Facts carry a dependency graph
   too: a GIVEN fact (`player`, `observed`) rests on nothing and may not declare
@@ -1605,8 +1443,12 @@ Moved verbatim from the root `CLAUDE.md` on 2026-09-23, when the root guidance w
   hid two real violations until this check existed.
 - **WHO MAY DECIDE A QUESTION IS DECLARED IN `ownership.toml`, AND VERIFIED.**
   One entry per question, naming the owner, what it produces, what it defers to,
-  and -- the field to read second -- what it is `not_for`. The negative boundary
-  is what stops a module being selected because its NAME matched: `roster` owns
+  and -- the field to read second -- what it is `not_for`. The word *identity*
+  means seven things here -- an agent in a roster slot, an icon being the local
+  player, an observation continuing a track, components belonging to one
+  ability, an ability's owner, a killfeed entry's victim, and a media file
+  being one session -- and modules are named after those words. The negative
+  boundary is what stops a module being selected because its NAME matched: `roster` owns
   alive counts and not agent identity, `minimap` owns where the self icon is and
   not which agent the player is, and `track` owns what a proposed identity may
   DO over time and owns no identity at all. Two faults paid for it -- a packed
@@ -1616,7 +1458,22 @@ Moved verbatim from the root `CLAUDE.md` on 2026-09-23, when the root guidance w
   own docstring with an `[owns:<id>]` token, so a stale entry, a renamed
   output, an unplaced new module, a `defers_to` whose import went away, and a
   `shipped` owner still reaching `prototypes/` are all ERRORs in `doctor`'s
-  OWNERSHIP check. A question nothing owns is declared too, with what blocks it:
-  `death-victim` is the product and prints on every run. Route with
+  OWNERSHIP check. A question nothing owns is declared too, with what blocks it,
+  and `doctor` prints it on every run: today only `ability-owner`, since
+  `adjudication.death` owns `death-victim`. Route with
   `reticle ownership <question>`; the argument stays in the owner's docstring
   and is cited, never restated.
+- **WHICH DOCUMENTS ARE LIVE IS DECLARED IN `documents.toml`, AND CHECKED.**
+  Undeclared documents rotted the ways the other declarations were built to
+  stop. A committed `STATUS.md` fell behind the version stamps it reported.
+  `docs/OWNERSHIP_INDEX.md` listed four unowned questions after
+  `ownership.toml` had narrowed them to one. A design still called itself
+  proposed after `reticle/belief.py` implemented part of it. HANDOFF kept
+  counting `## Active:` headings after `BACKLOG.md` dropped them on 2026-09-23,
+  so its task checks never fired. `doctor`'s DOCS check reports an unregistered
+  document, an entry naming no file, a document no route reaches, a status its
+  fields do not support, and an eager document past its word budget. The
+  2026-09-23 streamlining plan kept a documentation registry out of its scope
+  and put its guidance in existing files. This register asks four fields per
+  document, never registers the archive, and blocks only on a broken entry;
+  everything else is a finding.

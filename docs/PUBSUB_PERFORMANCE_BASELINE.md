@@ -1,8 +1,12 @@
 # Pub/sub performance baseline
 
+Status (2026-09-27): superseded. `tools/pubsub_baseline.py` wrote the JSON this document reads. The
+[measurements](PUBSUB_MEASUREMENTS.md#before-staging-the-usage-record-baseline) condense it and correct
+section 2: on NVDEC the read-ahead hides about half of each 2 Hz gap.
+
 Where a scan's time goes today, and how much a decoupled, pipelined pass could
 recover, read from the scan usage log (`<store>/notes/usage.jsonl`,
-`scan-usage-1`; [USAGE.md](USAGE.md)) on 2026-09-27 for
+`scan-usage-1`; [the scan usage notes](../README.md#scan-usage)) on 2026-09-27 for
 [PUBSUB_PLAN.md](PUBSUB_PLAN.md). No scan ran and no media was opened.
 
 **The figures live in [`pubsub_baseline.json`](pubsub_baseline.json).** QUOTED
