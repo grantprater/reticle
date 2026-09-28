@@ -114,6 +114,18 @@ class CacheFedScanTest(unittest.TestCase):
                 self.assertIsNone(cache)
                 self.assertIn(reason, why)
 
+    def test_the_roster_reader_rides_the_hud_cache(self):
+        from reticle.roi_cache import CACHE_SETS, cache_for
+        from reticle.roster import RosterReader
+        reader = RosterReader(get_profile("valorant-16x9"), (1920, 1080))
+        self.assertEqual(reader.cache_set, "hud")
+        # Both ROIs it reads are in the set it declares.
+        self.assertLessEqual({"hud_roster", "hud_roster_enemy"}, set(CACHE_SETS["hud"]))
+        with tempfile.TemporaryDirectory() as root:
+            profile = self._cache(root)
+            cache, why = cache_for(Path(root), _manifest(), profile, [reader])
+            self.assertIsNotNone(cache, why)
+
 
 class DiffStampTest(unittest.TestCase):
 
