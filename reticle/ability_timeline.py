@@ -121,6 +121,34 @@ def _kit_end(window: tuple, ends: set, deaths_ms, agent: str | None,
     return end, [[t, undone[t]] for t in deaths if t in undone and (end is None or t < end)]
 
 
+def kit_windows(rounds: list[dict], player_deaths_ms: list[float], *,
+                agent: str | None = None, second_lives_ms=(), revives_ms=(),
+                report_deaths: dict | None = None) -> list[dict]:
+    """Per stored round, in order: its `window` (start, end, close), the
+    `kit_end_ms` that ends the player's kit in it or None, and the
+    `undone_deaths` before that end, each as [t_ms, why]. The deaths and the
+    rules that undo one are `player_tray_casts`'s; the gate reads its kit ends
+    from here, and `adjudication.ability_state` asks the same question for
+    every tray sample."""
+    ends = {r["t_end_ms"] for r in rounds}
+    out = []
+    for r in rounds:
+        w = (r["t_start_ms"], r["t_end_ms"], r["t_close_ms"])
+        end, undone = _kit_end(w, ends, player_deaths_ms, agent, second_lives_ms,
+                               revives_ms, report_deaths)
+        out.append({"round_no": r.get("round_no"), "window": w, "kit_end_ms": end,
+                    "undone_deaths": undone})
+    return out
+
+
+def round_window_of(t_ms: float, kits: list[dict]) -> dict | None:
+    """The entry of `kit_windows` whose round holds the instant `t_ms`, by
+    `rounds.in_round_window`, or None."""
+    ends = {k["window"][1] for k in kits}
+    return next((k for k in kits if in_round_window([{"t_first": t_ms}], *k["window"], ends)),
+                None)
+
+
 def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
                       player_deaths_ms: list[float], *, agent: str | None = None,
                       second_lives_ms=(), revives_ms=(),
@@ -355,17 +383,17 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     and the `undone_deaths` before it.
     """
     ends = {r["t_end_ms"] for r in rounds}
-    windows = [(r["t_start_ms"], r["t_end_ms"], r["t_close_ms"]) for r in rounds]
     deaths = [{"t_first": x} for x in player_deaths_ms]
-    kit = {w: _kit_end(w, ends, player_deaths_ms, agent, second_lives_ms, revives_ms,
-                       report_deaths) for w in windows}
+    kits = kit_windows(rounds, player_deaths_ms, agent=agent, second_lives_ms=second_lives_ms,
+                       revives_ms=revives_ms, report_deaths=report_deaths)
     rows = []
     for d in drops:
         t = d["t_ms"]
-        rnd = next((w for w in windows if in_round_window([{"t_first": t}], *w, ends)), None)
+        k = round_window_of(t, kits)
+        rnd = k["window"] if k else None
         first = (min((e["t_first"] for e in in_round_window(deaths, *rnd, ends)), default=None)
                  if rnd else None)
-        end, undone = kit[rnd] if rnd else (None, [])
+        end, undone = (k["kit_end_ms"], k["undone_deaths"]) if k else (None, [])
         phase = phase_of(t)
         reason = ("no_round" if rnd is None
                   else "after_player_death" if end is not None and t >= end - DEATH_LEAD_MS

@@ -218,6 +218,13 @@ TRAY_VERSION = "tray-0.1.0"
 # `ability_timeline.FULL_LEVEL`, taints no drop beside it; an X drop the
 # charge tests refuse still does.
 PLAYER_CAST_VERSION = "player-cast-0.5.0"
+# The kit of the local player as a state per slot (charges, equipped,
+# castable, owner alive), written as `ability_state` rows by `reticle
+# ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,
+# the verdicts of the gate, the deaths and the tray fills of the crop cache.
+# Bump when a level threshold, a transition, a charge rule or the stored
+# fields change.
+ABILITY_STATE_VERSION = "ability-state-0.1.0"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the
