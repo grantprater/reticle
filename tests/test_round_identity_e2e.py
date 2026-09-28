@@ -36,6 +36,23 @@ from prototypes.round_identity_eval import (
     load_minimap_labels,
     load_round_bounds,
 )
+from prototypes.round_identity_fixture import fixture_path
+
+#: Killfeed ROI crops of every view each round 4 entry occupies, in the store so
+#: every worktree reads them; `prototypes/round_identity_fixture.py` builds
+#: them from the hud ROI cache. Without them `extract_round_killfeed_entries`
+#: reads one video frame per entry, and one view cannot carry a name through
+#: `_channel_verdict`, so the death tests skip.
+#:
+#: The ally oracle is the source's. Seacow is Breach (the player,
+#: [domain:killfeed/ability-kill-icon]) and kills Jett at 284.5 s and Iso at
+#: 332.5 s; the 295.0 s victim is Miks, as the player answered in the
+#: death-refusals review and the stored lineup names in ally slot 4. The ally
+#: slot order is the stored lineup's. Enemy slots 0 and 4 are refused there,
+#: and it names slot 2 Clove where the killfeed shows Killjoy.
+KF_FIXTURE = fixture_path(Store(), "a06f04a0059f", 4, "killfeed")
+NEEDS_KF_FIXTURE = unittest.skipUnless(
+    KF_FIXTURE.is_file(), f"needs {KF_FIXTURE}: run prototypes/round_identity_fixture.py")
 
 
 class RoundIdentityE2ETests(unittest.TestCase):
@@ -196,16 +213,17 @@ class RoundIdentityE2ETests(unittest.TestCase):
             self.assertIn("distribution", event["identity_distribution"])
             self.assertEqual(event["metadata"]["status"], "resolved")
 
-    def test_round4_death_attribution_and_events(self):
-        """Cross-channel death adjudication attributes victim, killer, location, and valid schema events."""
+    def _round4_deaths(self):
+        """Death verdicts from the killfeed fixture, the roster and the
+        minimap tracks, against the source's lineup."""
         oracle_lineup = {
             "sides": {
                 "ally": [
                     {"slot": 0, "agent": "Phoenix", "best_guess": "Phoenix", "margin": 0.2, "reason": None},
-                    {"slot": 1, "agent": "Raze", "best_guess": "Raze", "margin": 0.2, "reason": None},
+                    {"slot": 1, "agent": "Breach", "best_guess": "Breach", "margin": 0.2, "reason": None},
                     {"slot": 2, "agent": "Deadlock", "best_guess": "Deadlock", "margin": 0.2, "reason": None},
                     {"slot": 3, "agent": "Reyna", "best_guess": "Reyna", "margin": 0.2, "reason": None},
-                    {"slot": 4, "agent": "Clove", "best_guess": "Clove", "margin": 0.2, "reason": None},
+                    {"slot": 4, "agent": "Miks", "best_guess": "Miks", "margin": 0.2, "reason": None},
                 ],
                 "enemy": [
                     {"slot": 0, "agent": "Skye", "best_guess": "Skye", "margin": 0.2, "reason": None},
@@ -257,97 +275,50 @@ class RoundIdentityE2ETests(unittest.TestCase):
             lineup=oracle_lineup,
             gallery=self.gallery,
         )
+        return death_verdicts, terminating_tracks
+
+    @NEEDS_KF_FIXTURE
+    def test_round4_death_attribution_and_events(self):
+        """Cross-channel death adjudication names each victim and killer as the source shows them."""
+        death_verdicts, tracks = self._round4_deaths()
 
         self.assertEqual(len(death_verdicts), 7)
         resolved_deaths = [d for d in death_verdicts if d.status == "resolved"]
         self.assertEqual(len(resolved_deaths), 7)
 
-        # Gun kills requirement: Zero abstentions on death location and killer location
-        for dv in death_verdicts:
-            self.assertIsNotNone(dv.location, f"Gun kill {dv.death_id} must have non-null victim death location")
-            self.assertIsNotNone(dv.killer_location, f"Gun kill {dv.death_id} must have non-null killer location")
+        # Victim and killer as the killfeed draws them (source review, 2026-09-28).
+        # Jett's victim vote is thin: the reader reads her white hair as name
+        # text and cuts the box past her portrait (clipped 0.76), so 3 of 10
+        # views name her and 7 refuse.
+        expected = [
+            (281500.0, "ally", "Deadlock", "Killjoy"),
+            (283500.0, "ally", "Reyna", "Omen"),
+            (284500.0, "enemy", "Jett", "Breach"),
+            (295000.0, "ally", "Miks", "Killjoy"),
+            (295500.0, "enemy", "Skye", "Phoenix"),
+            (301000.0, "ally", "Phoenix", "Omen"),
+            (332500.0, "enemy", "Iso", "Breach"),
+        ]
+        for t_ms, side, victim, killer in expected:
+            d = next(d for d in death_verdicts if abs(d.t_ms - t_ms) < 1.0)
+            with self.subTest(t_ms=t_ms):
+                self.assertEqual(d.side, side)
+                self.assertEqual(d.status, "resolved")
+                self.assertEqual(d.victim, victim)
+                self.assertEqual(d.killer, killer)
+                self.assertIn("killfeed_portrait", d.channels)
+                self.assertIn("roster_diff", d.channels)
 
-        # Verify Deadlock's death at 281500 ms
-        deadlock_death = next(d for d in death_verdicts if abs(d.t_ms - 281500.0) < 1.0)
-        self.assertEqual(deadlock_death.victim, "Deadlock")
-        self.assertEqual(deadlock_death.killer, "Killjoy")
-        self.assertAlmostEqual(deadlock_death.location[0], 137.8, delta=1.0)
-        self.assertAlmostEqual(deadlock_death.location[1], 201.1, delta=1.0)
-        self.assertAlmostEqual(deadlock_death.killer_location[0], 112.0, delta=1.0)
-        self.assertAlmostEqual(deadlock_death.killer_location[1], 229.4, delta=1.0)
-
-        # Verify Reyna's death at 283500 ms
-        reyna_death = next(d for d in death_verdicts if abs(d.t_ms - 283500.0) < 1.0)
-        self.assertEqual(reyna_death.victim, "Reyna")
-        self.assertEqual(reyna_death.killer, "Omen")
-        self.assertAlmostEqual(reyna_death.location[0], 296.8, delta=1.0)
-        self.assertAlmostEqual(reyna_death.location[1], 236.5, delta=1.0)
-        self.assertAlmostEqual(reyna_death.killer_location[0], 202.4, delta=1.0)
-        self.assertAlmostEqual(reyna_death.killer_location[1], 270.9, delta=1.0)
-
-        # Verify Jett's death at 284500 ms
-        jett_death = next(d for d in death_verdicts if abs(d.t_ms - 284500.0) < 1.0)
-        self.assertEqual(jett_death.side, "enemy")
-        self.assertEqual(jett_death.status, "resolved")
-        self.assertEqual(jett_death.victim, "Jett")
-        self.assertEqual(jett_death.killer, "Raze")
-        self.assertAlmostEqual(jett_death.location[0], 137.5, delta=1.0)
-        self.assertAlmostEqual(jett_death.location[1], 201.1, delta=1.0)
-        self.assertAlmostEqual(jett_death.killer_location[0], 116.4, delta=1.0)
-        self.assertAlmostEqual(jett_death.killer_location[1], 191.0, delta=1.0)
-        self.assertIn("killfeed_portrait", jett_death.channels)
-        self.assertIn("roster_diff", jett_death.channels)
-
-        # Verify Clove's death at 295000 ms
-        clove_death = next(d for d in death_verdicts if abs(d.t_ms - 295000.0) < 1.0)
-        self.assertEqual(clove_death.side, "ally")
-        self.assertEqual(clove_death.status, "resolved")
-        self.assertEqual(clove_death.victim, "Clove")
-        self.assertEqual(clove_death.killer, "Killjoy")
-        self.assertAlmostEqual(clove_death.location[0], 244.9, delta=1.0)
-        self.assertAlmostEqual(clove_death.location[1], 153.9, delta=1.0)
-        self.assertAlmostEqual(clove_death.killer_location[0], 232.1, delta=1.0)
-        self.assertAlmostEqual(clove_death.killer_location[1], 271.7, delta=1.0)
-        self.assertIn("killfeed_portrait", clove_death.channels)
-        self.assertIn("roster_diff", clove_death.channels)
-
-        # Verify Skye's death at 295500 ms
+        # Skye's minimap track ends where she was last labelled; no other death
+        # has a location witness here.
         skye_death = next(d for d in death_verdicts if abs(d.t_ms - 295500.0) < 1.0)
-        self.assertEqual(skye_death.side, "enemy")
-        self.assertEqual(skye_death.status, "resolved")
-        self.assertEqual(skye_death.victim, "Skye")
-        self.assertEqual(skye_death.killer, "Phoenix")
-        self.assertAlmostEqual(skye_death.location[0], 274.7, delta=1.0)
-        self.assertAlmostEqual(skye_death.location[1], 237.4, delta=1.0)
-        self.assertAlmostEqual(skye_death.killer_location[0], 280.1, delta=1.0)
-        self.assertAlmostEqual(skye_death.killer_location[1], 334.7, delta=1.0)
+        skye_track = next(tr for tr in tracks if tr["agent"] == "Skye")
+        self.assertEqual(skye_death.location, skye_track["location"])
         self.assertGreaterEqual(skye_death.independent_channels, 2)
-        self.assertIn("killfeed_portrait", skye_death.channels)
         self.assertIn("minimap_track", skye_death.channels)
-        self.assertIn("roster_diff", skye_death.channels)
 
-        # Verify Phoenix's player death at 301000 ms
         player_death = next(d for d in death_verdicts if abs(d.t_ms - 301000.0) < 1.0)
-        self.assertEqual(player_death.side, "ally")
-        self.assertEqual(player_death.status, "resolved")
-        self.assertEqual(player_death.victim, "Phoenix")
-        self.assertEqual(player_death.killer, "Omen")
-        self.assertAlmostEqual(player_death.location[0], 274.1, delta=1.0)
-        self.assertAlmostEqual(player_death.location[1], 342.4, delta=1.0)
-        self.assertAlmostEqual(player_death.killer_location[0], 255.8, delta=1.0)
-        self.assertAlmostEqual(player_death.killer_location[1], 231.7, delta=1.0)
         self.assertIn("player_hud", player_death.channels)
-        self.assertIn("killfeed_portrait", player_death.channels)
-        self.assertIn("roster_diff", player_death.channels)
-
-        # Verify Iso's death at 332500 ms
-        iso_death = next(d for d in death_verdicts if abs(d.t_ms - 332500.0) < 1.0)
-        self.assertEqual(iso_death.victim, "Iso")
-        self.assertEqual(iso_death.killer, "Raze")
-        self.assertAlmostEqual(iso_death.location[0], 326.5, delta=1.0)
-        self.assertAlmostEqual(iso_death.location[1], 145.6, delta=1.0)
-        self.assertAlmostEqual(iso_death.killer_location[0], 365.1, delta=1.0)
-        self.assertAlmostEqual(iso_death.killer_location[1], 142.0, delta=1.0)
 
         # Emit and validate formal events schema
         death_events = []
@@ -358,13 +329,8 @@ class RoundIdentityE2ETests(unittest.TestCase):
         self.assertEqual(len(death_events), 21)
         errors = validate_event_rows(death_events)
         self.assertEqual(len(errors), 0)
-
-        # Every ENTITY_DELETED event must carry non-null location and killer_location
         del_events = [e for e in death_events if e["event_kind"] == "entity_deleted"]
         self.assertEqual(len(del_events), 7)
-        for de in del_events:
-            self.assertIsNotNone(de["metadata"].get("location"), f"Deleted event {de['entity_id']} must have location")
-            self.assertIsNotNone(de["metadata"].get("killer_location"), f"Deleted event {de['entity_id']} must have killer_location")
 
         # Check Skye's deletion and identity events
         skye_del_event = next(
@@ -373,10 +339,7 @@ class RoundIdentityE2ETests(unittest.TestCase):
         )
         self.assertEqual(skye_del_event["deletion_reason"], "eliminated")
         self.assertEqual(skye_del_event["metadata"]["killer"], "Phoenix")
-        self.assertAlmostEqual(skye_del_event["metadata"]["location"][0], 274.7, delta=1.0)
-        self.assertAlmostEqual(skye_del_event["metadata"]["location"][1], 237.4, delta=1.0)
-        self.assertAlmostEqual(skye_del_event["metadata"]["killer_location"][0], 280.1, delta=1.0)
-        self.assertAlmostEqual(skye_del_event["metadata"]["killer_location"][1], 334.7, delta=1.0)
+        self.assertEqual(tuple(skye_del_event["metadata"]["location"]), skye_track["location"])
 
         # The identity event comes from the arbiter, keyed by the death.
         skye_id_event = next(
@@ -387,6 +350,24 @@ class RoundIdentityE2ETests(unittest.TestCase):
         self.assertEqual(skye_id_event["identity_distribution"]["distribution"], {"Skye": 1.0})
         self.assertEqual(skye_id_event["source_channel"], "adjudication.identity")
 
+    @NEEDS_KF_FIXTURE
+    @unittest.expectedFailure
+    def test_round4_gun_kill_locations(self):
+        """Every gun kill should carry a death and a killer location.
+
+        Expected to fail: no channel this harness feeds observes where anyone
+        died or stood, and `reticle deaths` stores no location either. The
+        coordinates this test once asserted came from the 2026-09-12 fixture,
+        which recorded no source for them (Jett's matched Deadlock's X mark to
+        0.3 px), and the death-round4 contract refused fixture locations.
+        """
+        death_verdicts, _ = self._round4_deaths()
+        for dv in death_verdicts:
+            self.assertIsNotNone(dv.location, f"{dv.death_id} has no death location")
+            self.assertIsNotNone(dv.killer_location, f"{dv.death_id} has no killer location")
+
+
+    @NEEDS_KF_FIXTURE
     def test_round4_living_roster_timeline_and_slot_tracking(self):
         """Verify the complete Round 4 living roster timeline, survivor inward packing, and slot mapping."""
         from reticle.adjudication.death import build_round_roster_timeline, LivingRosterTracker
@@ -395,10 +376,10 @@ class RoundIdentityE2ETests(unittest.TestCase):
             "sides": {
                 "ally": [
                     {"slot": 0, "agent": "Phoenix"},
-                    {"slot": 1, "agent": "Raze"},
+                    {"slot": 1, "agent": "Breach"},
                     {"slot": 2, "agent": "Deadlock"},
                     {"slot": 3, "agent": "Reyna"},
-                    {"slot": 4, "agent": "Clove"},
+                    {"slot": 4, "agent": "Miks"},
                 ],
                 "enemy": [
                     {"slot": 0, "agent": "Skye"},
@@ -443,8 +424,8 @@ class RoundIdentityE2ETests(unittest.TestCase):
         # Allies in slots 0..4, Enemies in slots 0..4
         snap0 = timeline[0]
         self.assertEqual(snap0.ally_alive, 5)
-        self.assertEqual(snap0.ally_agents, ["Phoenix", "Raze", "Deadlock", "Reyna", "Clove"])
-        self.assertEqual(snap0.ally_slots, {"Phoenix": 0, "Raze": 1, "Deadlock": 2, "Reyna": 3, "Clove": 4})
+        self.assertEqual(snap0.ally_agents, ["Phoenix", "Breach", "Deadlock", "Reyna", "Miks"])
+        self.assertEqual(snap0.ally_slots, {"Phoenix": 0, "Breach": 1, "Deadlock": 2, "Reyna": 3, "Miks": 4})
         self.assertEqual(snap0.enemy_alive, 5)
         self.assertEqual(snap0.enemy_agents, ["Skye", "Iso", "Killjoy", "Omen", "Jett"])
         self.assertEqual(snap0.enemy_slots, {"Skye": 0, "Iso": 1, "Killjoy": 2, "Omen": 3, "Jett": 4})
@@ -454,16 +435,16 @@ class RoundIdentityE2ETests(unittest.TestCase):
         snap1 = timeline[1]
         self.assertEqual(snap1.event, "death:Deadlock")
         self.assertEqual(snap1.ally_alive, 4)
-        self.assertEqual(snap1.ally_agents, ["Phoenix", "Raze", "Reyna", "Clove"])
-        self.assertEqual(snap1.ally_slots, {"Phoenix": 1, "Raze": 2, "Reyna": 3, "Clove": 4})
+        self.assertEqual(snap1.ally_agents, ["Phoenix", "Breach", "Reyna", "Miks"])
+        self.assertEqual(snap1.ally_slots, {"Phoenix": 1, "Breach": 2, "Reyna": 3, "Miks": 4})
 
         # Snapshot 2: Reyna dies (ally, slot 3) at 283.5s -> 3v5
         # Allies pack right: slots 2..4 (slots 0, 1 empty!)
         snap2 = timeline[2]
         self.assertEqual(snap2.event, "death:Reyna")
         self.assertEqual(snap2.ally_alive, 3)
-        self.assertEqual(snap2.ally_agents, ["Phoenix", "Raze", "Clove"])
-        self.assertEqual(snap2.ally_slots, {"Phoenix": 2, "Raze": 3, "Clove": 4})
+        self.assertEqual(snap2.ally_agents, ["Phoenix", "Breach", "Miks"])
+        self.assertEqual(snap2.ally_slots, {"Phoenix": 2, "Breach": 3, "Miks": 4})
 
         # Snapshot 3: Jett dies (enemy, slot 4) at 284.5s -> 3v4
         # Enemies pack left: slots 0..3 (slot 4 empty!)
@@ -473,13 +454,13 @@ class RoundIdentityE2ETests(unittest.TestCase):
         self.assertEqual(snap3.enemy_agents, ["Skye", "Iso", "Killjoy", "Omen"])
         self.assertEqual(snap3.enemy_slots, {"Skye": 0, "Iso": 1, "Killjoy": 2, "Omen": 3})
 
-        # Snapshot 4: Clove dies (ally) at 295.0s -> 2v4
+        # Snapshot 4: Miks dies (ally) at 295.0s -> 2v4
         # Allies pack right: slots 3..4
         snap4 = timeline[4]
-        self.assertEqual(snap4.event, "death:Clove")
+        self.assertEqual(snap4.event, "death:Miks")
         self.assertEqual(snap4.ally_alive, 2)
-        self.assertEqual(snap4.ally_agents, ["Phoenix", "Raze"])
-        self.assertEqual(snap4.ally_slots, {"Phoenix": 3, "Raze": 4})
+        self.assertEqual(snap4.ally_agents, ["Phoenix", "Breach"])
+        self.assertEqual(snap4.ally_slots, {"Phoenix": 3, "Breach": 4})
 
         # Snapshot 5: Skye dies (enemy, slot 0) at 295.5s -> 2v3
         # Enemies pack left: slots 0..2 (slots 3, 4 empty!)
@@ -490,12 +471,12 @@ class RoundIdentityE2ETests(unittest.TestCase):
         self.assertEqual(snap5.enemy_slots, {"Iso": 0, "Killjoy": 1, "Omen": 2})
 
         # Snapshot 6: Phoenix dies (ally, slot 0) at 301.0s -> 1v3
-        # 1 ally survivor (Raze) packs right to innermost slot 4!
+        # 1 ally survivor (Breach) packs right to innermost slot 4!
         snap6 = timeline[6]
         self.assertEqual(snap6.event, "death:Phoenix")
         self.assertEqual(snap6.ally_alive, 1)
-        self.assertEqual(snap6.ally_agents, ["Raze"])
-        self.assertEqual(snap6.ally_slots, {"Raze": 4})
+        self.assertEqual(snap6.ally_agents, ["Breach"])
+        self.assertEqual(snap6.ally_slots, {"Breach": 4})
 
         # Snapshot 7: Iso dies (enemy, slot 1) at 332.5s -> 1v2
         # Enemies pack left: slots 0..1
