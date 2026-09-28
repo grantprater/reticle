@@ -1169,11 +1169,13 @@ def cmd_scan(args) -> int:
               f"stopped), {len(pp.rejected)} refused on lifetime, "
               f"{pp.n_absent} frames widget-absent")
     if sp is not None:
-        out = store.write_events("scoreboard", sid, sp.events(sid))
+        events = sp.events(sid)
+        out = store.write_events("scoreboard", sid, events)
         accepted = sum(r["credits"] is not None for r in sp.rows)
         candidates = sum(r["credits_candidate"] is not None for r in sp.rows)
         print(f"scoreboard {sp.frames_open}/{sp.frames_offered} frames open, "
               f"{accepted}/{candidates} credit candidates gated -> {out}")
+        print(f"           closed by {events[0]['closed_reasons']}")
     print(f"one pass   {n_dec} frames retrieved in {dt:.1f}s")
     usage.publish_ns = time.perf_counter_ns() - publish_t0
     try:
@@ -1439,6 +1441,110 @@ def cmd_board(args) -> int:
         print(f"\nfirst divergence at {_fmt_hms(worst)} -- the error is in or before that round")
     elif tracked is not None:
         print("\nno divergence at any opening")
+    return 0
+
+
+def cmd_strip(args) -> int:
+    """The round-history strip at every cached frame, from the hud crop cache's
+    centre crop (`scoreboard_strip`): a second witness that the Tab board is
+    on screen. Decodes no video."""
+    from . import scoreboard_strip as strip
+    from .roi_cache import RoiCache
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        man = store.read_manifest(sid)
+        src = man["source"]
+        if (int(src["width"]), int(src["height"])) != strip.MEASURED_WH:
+            print(f"{sid}: the strip is measured at 1920x1080 -- skipped")
+            continue
+        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "hud")
+        if cache is None:
+            print(f"{sid}: no hud crop cache ({why}) -- skipped")
+            continue
+        rect = cache.rect_of(strip.ROI)
+        reads = [(f, t, strip.read_strip(crop, rect)) for f, t, crop in cache.crops(strip.ROI)]
+        rows = strip.strip_events(sid, reads, rect, cache.record["version"])
+        out = store.write_events("scoreboard_strip", sid, rows)
+        print(f"{sid}: {rows[0]['frames']} frames, {rows[0]['verdicts']} -> {out}")
+    return 0
+
+
+def _presence_counts(samples: list[dict], on=None) -> dict:
+    """Open samples, holds, single-sample holds and one-sample holes under one
+    reading of presence (`adjudication.scoreboard.presence_runs`)."""
+    from .adjudication.scoreboard import presence_runs
+
+    runs = presence_runs(samples, on)
+    test = on or (lambda s: s["present"])
+    return {"samples_open": sum(1 for s in samples if test(s)), "runs": len(runs),
+            "runs_single_sample": sum(r["single"] for r in runs),
+            "holes": sum(len(r["holes"]) for r in runs),
+            "runs_with_hole": sum(1 for r in runs if r["holes"])}
+
+
+def cmd_openings(args) -> int:
+    """Scoreboard openings from storage, the slab test's rows and the strip's
+    reconciled sample by sample (`adjudication.scoreboard`). Stores one
+    `scoreboard_presence` row per sample, with what each witness said and the
+    opening's verdict, and a coverage row counting holds, holes and
+    disagreements under the slab test alone and combined. Decodes nothing."""
+    from .adjudication.scoreboard import (SCOREBOARD_AGENT_VERSION, board_presence,
+                                          presence_runs, scoreboard_openings)
+    from .version import SCOREBOARD_STRIP_VERSION
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        board = store.read_events("scoreboard", sid)
+        if not board:
+            print(f"{sid}: no scoreboard rows -- skipped")
+            continue
+        strip = store.read_events("scoreboard_strip", sid)
+        stored_strip = strip[0].get("scoreboard_strip_version") if strip else None
+        if stored_strip != SCOREBOARD_STRIP_VERSION:
+            print(f"{sid}: strip rows {'absent' if stored_strip is None else 'at ' + stored_strip}, "
+                  f"current is {SCOREBOARD_STRIP_VERSION} -- run `reticle strip {sid}`; skipped")
+            continue
+        presence = board_presence(board, strip)
+        samples = presence["samples"]
+        openings = scoreboard_openings(board, strip_rows=strip)
+        by_frame = {int(o["frame_idx"]): o for o in openings}
+        hold = {}
+        for k, run in enumerate(presence_runs(samples)):
+            for s in samples[run["a"]:run["z"] + 1]:
+                hold[s["frame_idx"]] = k
+        common = {"session_id": sid, "scoreboard_presence_version": SCOREBOARD_AGENT_VERSION,
+                  "scoreboard_version": board[0].get("scoreboard_version"),
+                  "scoreboard_strip_version": stored_strip, "source": "scoreboard_presence"}
+        rows = []
+        for s in samples:
+            o = by_frame.get(s["frame_idx"])
+            rows.append({**common, "kind": "sample", **s, "hold": hold.get(s["frame_idx"]),
+                         "opening_accepted": None if o is None else o["accepted"],
+                         "opening_reason": None if o is None else o["reason"]})
+        witness = Counter(s["witness"] for s in samples)
+        unreadable = Counter(s["slab"] for s in samples if s["witness"] == "unreadable")
+        closed = Counter(s["slab_reason"] for s in samples if s["slab"] == "closed")
+        coverage = {**common, "kind": "coverage", "samples": len(samples),
+                    "slab_closed_from": presence["slab_closed_from"],
+                    "slab": _presence_counts(samples, lambda s: s["slab"] == "open"),
+                    "combined": _presence_counts(samples),
+                    "witness": dict(sorted(witness.items())),
+                    "unreadable_slab_open": unreadable.get("open", 0),
+                    "unreadable_slab_closed": unreadable.get("closed", 0),
+                    "slab_closed_reasons": {str(k): v for k, v in sorted(
+                        closed.items(), key=lambda kv: str(kv[0]))},
+                    "openings": len(openings),
+                    "openings_accepted": sum(o["accepted"] for o in openings),
+                    "openings_strip_only": sum(o["reason"] == "strip_only_no_rows"
+                                               for o in openings)}
+        out = store.write_events("scoreboard_presence", sid, [coverage] + rows)
+        a, b = coverage["slab"], coverage["combined"]
+        print(f"{sid}: open {a['samples_open']} -> {b['samples_open']}, holds {a['runs']} -> "
+              f"{b['runs']}, single {a['runs_single_sample']} -> {b['runs_single_sample']}, "
+              f"holes {a['holes']} -> {b['holes']}; accepted {coverage['openings_accepted']}; "
+              f"slab_only {witness.get('slab_only', 0)}, strip_only {witness.get('strip_only', 0)}, "
+              f"unreadable {witness.get('unreadable', 0)} -> {out}")
     return 0
 
 
@@ -3581,6 +3687,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--min-confidence", type=float, default=0.80)
     s.add_argument("--min-margin", type=float, default=0.04)
     s.set_defaults(func=cmd_board)
+
+    s = sub.add_parser("strip", help="the scoreboard's round-history strip at every cached frame, "
+                                     "from stored crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.set_defaults(func=cmd_strip)
+
+    s = sub.add_parser("openings", help="scoreboard openings from the slab test and the strip "
+                                        "together, from storage (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.set_defaults(func=cmd_openings)
 
     s = sub.add_parser("kd", help="running K/D per round, to check against the scoreboard")
     s.add_argument("session", nargs="?")

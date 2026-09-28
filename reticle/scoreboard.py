@@ -35,6 +35,7 @@ Owns [owns:scoreboard-row].
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 import os
 
@@ -92,6 +93,20 @@ HL_LINE_FRAC = 0.55
 # row they belong to rather than the two beside it.
 HL_SEARCH = 3
 
+#: Why `read_scoreboard` closed a board, one per refusal branch, in the order
+#: it tests them. A slab block is the tallest run of frame rows holding more
+#: than MIN_TABLE_W slab pixels; `no_rows` means no such row, `short` and
+#: `tall` a run outside MIN_BLOCK_H-MAX_BLOCK_H. Enemy rows whose height
+#: differs from the ally block's are re-anchored, not refused; the refusal is
+#: the overlap that re-anchoring can cause.
+CLOSE_REASONS = (
+    "green_no_rows", "green_short", "green_tall",   # the ally block
+    "red_no_rows", "red_short", "red_tall",         # the enemy block, below it
+    "enemy_overlaps_ally",                          # anchored enemy rows rise into the ally block
+    "no_dense_columns",                             # no column of the ally block is half green
+    "table_narrow",                                 # its dense columns span under MIN_TABLE_W
+)
+
 
 @dataclass(frozen=True)
 class Row:
@@ -117,12 +132,17 @@ class Row:
 
 @dataclass(frozen=True)
 class ScoreboardRead:
-    """One frame's scoreboard, or `open_` False when none is on screen."""
+    """One frame's scoreboard, or `open_` False when none is on screen.
+
+    A closed read names the test that closed it in `reason`, one per refusal
+    branch of `read_scoreboard` (`CLOSE_REASONS`); an open one carries None.
+    """
 
     open_: bool
     rows: tuple[Row, ...] = ()
     x0: int = 0
     x1: int = 0
+    reason: str | None = None
 
     @property
     def player(self) -> Row | None:
@@ -141,6 +161,14 @@ def _slabs(frame: np.ndarray):
 
 def _block(mask: np.ndarray, merge_gap: int = BLOCK_GAP) -> tuple[int, int] | None:
     """The tallest run of frame rows that are slab across a table's width."""
+    return _block_why(mask, merge_gap)[0]
+
+
+def _block_why(mask: np.ndarray, merge_gap: int = BLOCK_GAP
+               ) -> tuple[tuple[int, int] | None, str | None]:
+    """`_block`, and why it found none: `no_rows` when no frame row holds more
+    than MIN_TABLE_W slab pixels, `short` or `tall` when the tallest run falls
+    outside MIN_BLOCK_H-MAX_BLOCK_H."""
     counts = mask.sum(axis=1)
     on = counts > MIN_TABLE_W
     runs, i, n = [], 0, len(on)
@@ -167,8 +195,12 @@ def _block(mask: np.ndarray, merge_gap: int = BLOCK_GAP) -> tuple[int, int] | No
         if best is None or (z - a) > (best[1] - best[0]):
             best = (a, z)
     if best is None:
-        return None
-    return best if MIN_BLOCK_H <= best[1] - best[0] <= MAX_BLOCK_H else None
+        return None, "no_rows"
+    if best[1] - best[0] < MIN_BLOCK_H:
+        return None, "short"
+    if best[1] - best[0] > MAX_BLOCK_H:
+        return None, "tall"
+    return best, None
 
 
 def _split(block: tuple[int, int]) -> list[tuple[int, int]]:
@@ -223,12 +255,14 @@ def read_scoreboard(
     min_confidence: float = 0.80,
     min_margin: float = 0.04,
 ) -> ScoreboardRead:
-    """Read every row's K/D/A, and say which row is the local player's."""
+    """Read every row's K/D/A, and say which row is the local player's.
+
+    A closed board says which test closed it (`ScoreboardRead.reason`)."""
     H, W = frame.shape[:2]
     green, red = _slabs(frame)
-    ally = _block(green)
+    ally, why = _block_why(green)
     if ally is None:
-        return ScoreboardRead(False)
+        return ScoreboardRead(False, reason=f"green_{why}")
     # The ally block always sits above the enemy one, so the enemy block is
     # searched for BELOW it. The translucent ally slab over a purple backdrop
     # also passes the red test: at 1999000 ms of a06f04a0059f the tallest red
@@ -236,9 +270,9 @@ def read_scoreboard(
     # ally portraits. A faint real enemy slab now closes the board instead.
     below = red.copy()
     below[:ally[1]] = False
-    enemy = _block(below, merge_gap=0)
+    enemy, why = _block_why(below, merge_gap=0)
     if enemy is None:
-        return ScoreboardRead(False)
+        return ScoreboardRead(False, reason=f"red_{why}")
     # The red match-history strip can be connected to the enemy slab by its
     # own marks, so even an unmerged red run may begin too high. Both teams use
     # the same five-row geometry in one animation state; anchor the enemy rows
@@ -252,17 +286,17 @@ def read_scoreboard(
     # (7010b3d62460 102000 ms). Nothing here knows which block is right, so
     # the board is not read.
     if enemy[0] < ally[1]:
-        return ScoreboardRead(False)
+        return ScoreboardRead(False, reason="enemy_overlaps_ally")
 
     # Table edges from the ally block's own dense columns, which are cleaner
     # than a whole-frame profile that also catches the team bars up top.
     dense = np.where(green[ally[0]:ally[1]].mean(axis=0) > 0.5)[0]
     if dense.size == 0:
-        return ScoreboardRead(False)
+        return ScoreboardRead(False, reason="no_dense_columns")
     x0, x1 = int(dense.min()), int(dense.max())
     tw = x1 - x0
     if tw < MIN_TABLE_W:
-        return ScoreboardRead(False)
+        return ScoreboardRead(False, reason="table_narrow")
 
     bands = [(a, z, "ally") for a, z in _split(ally)]
     bands += [(a, z, "enemy") for a, z in _split(enemy)]
@@ -542,11 +576,17 @@ class ScoreboardReader:
         self.frames_offered = 0
         self.frames_open = 0
         self.rows: list[dict] = []
+        # One per frame offered, open or closed, with the test that closed it:
+        # a closed board is an observation too, and a second presence witness
+        # (`scoreboard_strip`) is reconciled with it sample by sample.
+        self.samples: list[dict] = []
 
     def feed(self, sample) -> None:
         self.frames_offered += 1
         board = read_scoreboard(sample.frame, self.templates,
                                 self.min_confidence, self.min_margin)
+        self.samples.append({"frame_idx": int(sample.frame_idx), "t_ms": float(sample.t_ms),
+                             "open": board.open_, "reason": board.reason})
         if not board.open_:
             return
         self.frames_open += 1
@@ -580,9 +620,12 @@ class ScoreboardReader:
                   "source": "scoreboard"}
         # The two scorers agree to the third decimal, not the fourth: which
         # one wrote these scores is provenance.
+        closed = Counter(s["reason"] for s in self.samples if not s["open"])
         coverage = {**common, "kind": "coverage", "frames_offered": self.frames_offered,
-                    "frames_open": self.frames_open, "portrait_scorer": portrait_scorer()}
-        return [coverage] + [{**common, "kind": "row_observation",
-                              "observation_key":
-                                  f"{session_id}:{r['frame_idx']}:{r['display_row']}",
-                              **r} for r in self.rows]
+                    "frames_open": self.frames_open, "portrait_scorer": portrait_scorer(),
+                    "closed_reasons": dict(sorted(closed.items()))}
+        return ([coverage]
+                + [{**common, "kind": "row_observation",
+                    "observation_key": f"{session_id}:{r['frame_idx']}:{r['display_row']}",
+                    **r} for r in self.rows]
+                + [{**common, "kind": "sample", **s} for s in self.samples])

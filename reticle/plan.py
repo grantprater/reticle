@@ -90,10 +90,13 @@ def stale(store, sessions: list[str]) -> dict:
     """Per session: stale reader streams (decode), stale adjudications
     (storage only), and absent streams."""
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
+    from .adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
     from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
                            KILLFEED_WEAPON_VERSION)
+    from .roi_cache import ROI_CACHE_VERSION
     from .version import (ABILITY_SHAPE_VERSION, COMBAT_REPORT_ROUND_VERSION, HUD_VERSION,
-                          PLAYER_CAST_VERSION, ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
+                          PLAYER_CAST_VERSION, ROUND_VERSION, SCOREBOARD_STRIP_VERSION,
+                          SCOREBOARD_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
                           ULT_LINE_VERSION)
     out = {}
     for sid in sessions:
@@ -169,11 +172,19 @@ def stale(store, sessions: list[str]) -> dict:
         # read it, and `ability-shapes` fits a shape after each cast; a row
         # without the gate's stamp was decided by the first gate.
         gate = {"player_cast": ("player_cast_version", PLAYER_CAST_VERSION)}
+        # The round-history strip rereads the stored centre crops; the
+        # openings rerun from the slab test's rows and the strip's.
+        strip = {"scoreboard_strip": ("scoreboard_strip_version", SCOREBOARD_STRIP_VERSION)}
         for stream, stamp, current, command, want in (
                 ("tray_drop", "tray_version", TRAY_VERSION, "reticle tray", gate),
                 ("ability_shape", "ability_shape_version", ABILITY_SHAPE_VERSION,
                  "reticle ability-shapes",
-                 {**gate, "tray_drop": ("tray_version", TRAY_VERSION)})):
+                 {**gate, "tray_drop": ("tray_version", TRAY_VERSION)}),
+                ("scoreboard_strip", "scoreboard_strip_version", SCOREBOARD_STRIP_VERSION,
+                 "reticle strip", {"roi_cache": ("roi_cache_version", ROI_CACHE_VERSION)}),
+                ("scoreboard_presence", "scoreboard_presence_version", SCOREBOARD_AGENT_VERSION,
+                 "reticle openings",
+                 {**strip, "scoreboard": ("scoreboard_version", SCOREBOARD_VERSION)})):
             rows = store.read_events(stream, sid)
             if not rows:
                 continue

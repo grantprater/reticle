@@ -428,6 +428,22 @@ a player; the marked local row is the only attribution this owns.
 evidence = "tests/test_scoreboard.py"
 
 [[entry]]
+id = "scoreboard-strip"
+question = "Is the Tab scoreboard on screen at this cached frame, by its round-history strip?"
+owner = "scoreboard_strip"
+role = ["detect"]
+status = "partial"
+produces = ["read_strip", "strip_events"]
+not_for = """
+Reading a row, naming an agent, or deciding when the board opened. The strip is
+one presence witness; `scoreboard-presence` reconciles it with the slab test.
+The circles it counts as marks are round outcomes, which it does not read.
+"""
+consumers = ["cli"]
+stored_consumers = ["adjudication.scoreboard"]
+evidence = "tests/test_scoreboard_strip.py, docs/SCOREBOARD_PRESENCE.md, prototypes/scoreboard_strip.py"
+
+[[entry]]
 id = "hud-scan"
 question = "What does one shared HUD decode pass see in this frame?"
 owner = "hud_reader"
@@ -1028,6 +1044,22 @@ one accepted opening; the row ordinal reorders as scores change and is never a
 key. Which death a dimmed row belongs to is `death-victim`'s call.
 """
 evidence = "tests/test_death_attribution.py"
+
+[[entry]]
+id = "scoreboard-presence"
+question = "Is the Tab scoreboard on screen at this sample, by the slab test and the round-history strip together, and when did the player hold Tab?"
+owner = "adjudication.scoreboard"
+role = ["adjudicate", "corroborate"]
+status = "partial"
+produces = ["board_presence", "presence_runs"]
+not_for = """
+Reading the board or the strip: it reads both witnesses' stored rows and
+restates neither rule. A sample only the strip saw has no rows, so it names no
+agent and says nothing a row would say. Whether a round was won is not a
+presence question.
+"""
+consumers = ["cli"]
+evidence = "tests/test_scoreboard_presence.py, docs/SCOREBOARD_PRESENCE.md"
 
 [[entry]]
 id = "killfeed-weapon"
