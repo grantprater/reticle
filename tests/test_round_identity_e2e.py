@@ -28,6 +28,7 @@ from reticle.adjudication.identity import (
     load_identity_gallery,
 )
 from reticle.events import validate_event_rows
+from reticle.lineup import load_lineup
 from reticle.store import Store
 from prototypes.round_identity_eval import (
     assign_spatial_tracks,
@@ -36,6 +37,23 @@ from prototypes.round_identity_eval import (
     load_minimap_labels,
     load_round_bounds,
 )
+
+#: Round 4's ten agents, left to right in each top bar, read off the source
+#: crops (`roi_cache` hud, `hud_roster` and `hud_roster_enemy`, at 16 s and
+#: 245 s). They agree with the stored scoreboard's side sets and the production
+#: death verdicts. The hand-written roster this replaces put Raze and Clove
+#: where Breach and Miks stand, and swapped Jett (enemy slot 2) with Killjoy
+#: (enemy slot 4).
+ROUND4_AGENTS = {"ally": ["Phoenix", "Breach", "Deadlock", "Reyna", "Miks"],
+                 "enemy": ["Skye", "Iso", "Jett", "Omen", "Killjoy"]}
+
+
+def round4_lineup(sides=("ally", "enemy")) -> dict:
+    """The true round 4 lineup in the stored lineup's shape."""
+    return {"sides": {side: [{"slot": i, "agent": a, "best_guess": a,
+                              "margin": 0.2, "reason": None}
+                             for i, a in enumerate(ROUND4_AGENTS[side])]
+                      for side in sides}}
 
 
 class RoundIdentityE2ETests(unittest.TestCase):
@@ -68,8 +86,32 @@ class RoundIdentityE2ETests(unittest.TestCase):
         self.assertEqual(agents.count("killjoy"), 14)
         self.assertEqual(agents.count("skye"), 11)
 
+    def test_round4_owner_lineup_matches_source_crops(self):
+        """The lineup owner serves the true ten agents, slot by slot.
+
+        The stored file's `sides` hold the unconstrained top bar, which names
+        enemy slot 2 Clove; `load_lineup` constrains it by the scoreboard's side
+        sets and names Jett there, with Killjoy in slot 4. Consumers read the
+        owner, never the raw file.
+        """
+        lineup = load_lineup(self.session_id, self.store.root)
+        self.assertTrue(lineup["board_state"]["applied"])
+        for side in ("ally", "enemy"):
+            self.assertEqual([r["agent"] for r in lineup["sides"][side]],
+                             ROUND4_AGENTS[side])
+        claims = claims_from_minimap_icons(
+            self.sightings_with_crops, lineup, gallery=self.gallery)
+        for c, s in zip(claims, self.sightings_with_crops):
+            if c.get("agent") is not None:
+                self.assertEqual(c["agent"].lower(), s["agent"].lower())
+
     def test_round4_stored_lineup_prevents_false_identifications(self):
-        """Stored top-bar lineup has refused rival slots: arbiter must refuse, not misname."""
+        """The raw top-bar record has refused rival slots: arbiter must refuse, not misname.
+
+        This reads the stored file directly on purpose: its `sides` are the top
+        bar before the scoreboard constrains it (enemy slot 2 Clove, slots 0 and
+        4 refused), which exercises the refusal path.
+        """
         stored_lineup_path = self.store.root / "lineups" / f"{self.session_id}.json"
         with open(stored_lineup_path, "r", encoding="utf-8") as f:
             stored_lineup = json.load(f)
@@ -89,17 +131,7 @@ class RoundIdentityE2ETests(unittest.TestCase):
 
     def test_round4_true_candidates_resolution_and_accuracy(self):
         """With true candidate roster, resolved claims must be 100% accurate."""
-        oracle_lineup = {
-            "sides": {
-                "enemy": [
-                    {"slot": 0, "agent": "Skye", "best_guess": "Skye", "margin": 0.2, "reason": None},
-                    {"slot": 1, "agent": "Iso", "best_guess": "Iso", "margin": 0.2, "reason": None},
-                    {"slot": 2, "agent": "Killjoy", "best_guess": "Killjoy", "margin": 0.2, "reason": None},
-                    {"slot": 3, "agent": "Omen", "best_guess": "Omen", "margin": 0.2, "reason": None},
-                    {"slot": 4, "agent": "Jett", "best_guess": "Jett", "margin": 0.2, "reason": None},
-                ]
-            }
-        }
+        oracle_lineup = round4_lineup(("enemy",))
 
         claims = claims_from_minimap_icons(
             self.sightings_with_crops, oracle_lineup, gallery=self.gallery
@@ -122,17 +154,7 @@ class RoundIdentityE2ETests(unittest.TestCase):
 
     def test_round4_arbiter_and_cross_channel_corroboration(self):
         """Arbiter aggregates minimap claims and corroborates with killfeed witness."""
-        oracle_lineup = {
-            "sides": {
-                "enemy": [
-                    {"slot": 0, "agent": "Skye", "best_guess": "Skye", "margin": 0.2, "reason": None},
-                    {"slot": 1, "agent": "Iso", "best_guess": "Iso", "margin": 0.2, "reason": None},
-                    {"slot": 2, "agent": "Killjoy", "best_guess": "Killjoy", "margin": 0.2, "reason": None},
-                    {"slot": 3, "agent": "Omen", "best_guess": "Omen", "margin": 0.2, "reason": None},
-                    {"slot": 4, "agent": "Jett", "best_guess": "Jett", "margin": 0.2, "reason": None},
-                ]
-            }
-        }
+        oracle_lineup = round4_lineup(("enemy",))
         claims = claims_from_minimap_icons(
             self.sightings_with_crops, oracle_lineup, gallery=self.gallery
         )
@@ -166,17 +188,7 @@ class RoundIdentityE2ETests(unittest.TestCase):
 
     def test_round4_identity_distribution_events_validation(self):
         """Arbiter emitted IDENTITY_DISTRIBUTION events must satisfy unified event schema."""
-        oracle_lineup = {
-            "sides": {
-                "enemy": [
-                    {"slot": 0, "agent": "Skye", "best_guess": "Skye", "margin": 0.2, "reason": None},
-                    {"slot": 1, "agent": "Iso", "best_guess": "Iso", "margin": 0.2, "reason": None},
-                    {"slot": 2, "agent": "Killjoy", "best_guess": "Killjoy", "margin": 0.2, "reason": None},
-                    {"slot": 3, "agent": "Omen", "best_guess": "Omen", "margin": 0.2, "reason": None},
-                    {"slot": 4, "agent": "Jett", "best_guess": "Jett", "margin": 0.2, "reason": None},
-                ]
-            }
-        }
+        oracle_lineup = round4_lineup(("enemy",))
         claims = claims_from_minimap_icons(
             self.sightings_with_crops, oracle_lineup, gallery=self.gallery
         )
@@ -198,24 +210,7 @@ class RoundIdentityE2ETests(unittest.TestCase):
 
     def test_round4_death_attribution_and_events(self):
         """Cross-channel death adjudication attributes victim, killer, location, and valid schema events."""
-        oracle_lineup = {
-            "sides": {
-                "ally": [
-                    {"slot": 0, "agent": "Phoenix", "best_guess": "Phoenix", "margin": 0.2, "reason": None},
-                    {"slot": 1, "agent": "Raze", "best_guess": "Raze", "margin": 0.2, "reason": None},
-                    {"slot": 2, "agent": "Deadlock", "best_guess": "Deadlock", "margin": 0.2, "reason": None},
-                    {"slot": 3, "agent": "Reyna", "best_guess": "Reyna", "margin": 0.2, "reason": None},
-                    {"slot": 4, "agent": "Clove", "best_guess": "Clove", "margin": 0.2, "reason": None},
-                ],
-                "enemy": [
-                    {"slot": 0, "agent": "Skye", "best_guess": "Skye", "margin": 0.2, "reason": None},
-                    {"slot": 1, "agent": "Iso", "best_guess": "Iso", "margin": 0.2, "reason": None},
-                    {"slot": 2, "agent": "Killjoy", "best_guess": "Killjoy", "margin": 0.2, "reason": None},
-                    {"slot": 3, "agent": "Omen", "best_guess": "Omen", "margin": 0.2, "reason": None},
-                    {"slot": 4, "agent": "Jett", "best_guess": "Jett", "margin": 0.2, "reason": None},
-                ],
-            }
-        }
+        oracle_lineup = round4_lineup()
         claims = claims_from_minimap_icons(
             self.sightings_with_crops, oracle_lineup, gallery=self.gallery
         )
@@ -290,7 +285,7 @@ class RoundIdentityE2ETests(unittest.TestCase):
         self.assertEqual(jett_death.side, "enemy")
         self.assertEqual(jett_death.status, "resolved")
         self.assertEqual(jett_death.victim, "Jett")
-        self.assertEqual(jett_death.killer, "Raze")
+        self.assertEqual(jett_death.killer, "Breach")
         self.assertAlmostEqual(jett_death.location[0], 137.5, delta=1.0)
         self.assertAlmostEqual(jett_death.location[1], 201.1, delta=1.0)
         self.assertAlmostEqual(jett_death.killer_location[0], 116.4, delta=1.0)
@@ -298,18 +293,18 @@ class RoundIdentityE2ETests(unittest.TestCase):
         self.assertIn("killfeed_portrait", jett_death.channels)
         self.assertIn("roster_diff", jett_death.channels)
 
-        # Verify Clove's death at 295000 ms
-        clove_death = next(d for d in death_verdicts if abs(d.t_ms - 295000.0) < 1.0)
-        self.assertEqual(clove_death.side, "ally")
-        self.assertEqual(clove_death.status, "resolved")
-        self.assertEqual(clove_death.victim, "Clove")
-        self.assertEqual(clove_death.killer, "Killjoy")
-        self.assertAlmostEqual(clove_death.location[0], 244.9, delta=1.0)
-        self.assertAlmostEqual(clove_death.location[1], 153.9, delta=1.0)
-        self.assertAlmostEqual(clove_death.killer_location[0], 232.1, delta=1.0)
-        self.assertAlmostEqual(clove_death.killer_location[1], 271.7, delta=1.0)
-        self.assertIn("killfeed_portrait", clove_death.channels)
-        self.assertIn("roster_diff", clove_death.channels)
+        # Verify Miks's death at 295000 ms
+        miks_death = next(d for d in death_verdicts if abs(d.t_ms - 295000.0) < 1.0)
+        self.assertEqual(miks_death.side, "ally")
+        self.assertEqual(miks_death.status, "resolved")
+        self.assertEqual(miks_death.victim, "Miks")
+        self.assertEqual(miks_death.killer, "Killjoy")
+        self.assertAlmostEqual(miks_death.location[0], 244.9, delta=1.0)
+        self.assertAlmostEqual(miks_death.location[1], 153.9, delta=1.0)
+        self.assertAlmostEqual(miks_death.killer_location[0], 232.1, delta=1.0)
+        self.assertAlmostEqual(miks_death.killer_location[1], 271.7, delta=1.0)
+        self.assertIn("killfeed_portrait", miks_death.channels)
+        self.assertIn("roster_diff", miks_death.channels)
 
         # Verify Skye's death at 295500 ms
         skye_death = next(d for d in death_verdicts if abs(d.t_ms - 295500.0) < 1.0)
@@ -343,7 +338,7 @@ class RoundIdentityE2ETests(unittest.TestCase):
         # Verify Iso's death at 332500 ms
         iso_death = next(d for d in death_verdicts if abs(d.t_ms - 332500.0) < 1.0)
         self.assertEqual(iso_death.victim, "Iso")
-        self.assertEqual(iso_death.killer, "Raze")
+        self.assertEqual(iso_death.killer, "Breach")
         self.assertAlmostEqual(iso_death.location[0], 326.5, delta=1.0)
         self.assertAlmostEqual(iso_death.location[1], 145.6, delta=1.0)
         self.assertAlmostEqual(iso_death.killer_location[0], 365.1, delta=1.0)
@@ -391,24 +386,7 @@ class RoundIdentityE2ETests(unittest.TestCase):
         """Verify the complete Round 4 living roster timeline, survivor inward packing, and slot mapping."""
         from reticle.adjudication.death import build_round_roster_timeline, LivingRosterTracker
 
-        oracle_lineup = {
-            "sides": {
-                "ally": [
-                    {"slot": 0, "agent": "Phoenix"},
-                    {"slot": 1, "agent": "Raze"},
-                    {"slot": 2, "agent": "Deadlock"},
-                    {"slot": 3, "agent": "Reyna"},
-                    {"slot": 4, "agent": "Clove"},
-                ],
-                "enemy": [
-                    {"slot": 0, "agent": "Skye"},
-                    {"slot": 1, "agent": "Iso"},
-                    {"slot": 2, "agent": "Killjoy"},
-                    {"slot": 3, "agent": "Omen"},
-                    {"slot": 4, "agent": "Jett"},
-                ],
-            }
-        }
+        oracle_lineup = round4_lineup()
 
         hud = self.store.read_hud(self.session_id, self.date).to_pydict()
         roster = self.store.read_roster(self.session_id, self.date).to_pylist()
@@ -443,67 +421,67 @@ class RoundIdentityE2ETests(unittest.TestCase):
         # Allies in slots 0..4, Enemies in slots 0..4
         snap0 = timeline[0]
         self.assertEqual(snap0.ally_alive, 5)
-        self.assertEqual(snap0.ally_agents, ["Phoenix", "Raze", "Deadlock", "Reyna", "Clove"])
-        self.assertEqual(snap0.ally_slots, {"Phoenix": 0, "Raze": 1, "Deadlock": 2, "Reyna": 3, "Clove": 4})
+        self.assertEqual(snap0.ally_agents, ["Phoenix", "Breach", "Deadlock", "Reyna", "Miks"])
+        self.assertEqual(snap0.ally_slots, {"Phoenix": 0, "Breach": 1, "Deadlock": 2, "Reyna": 3, "Miks": 4})
         self.assertEqual(snap0.enemy_alive, 5)
-        self.assertEqual(snap0.enemy_agents, ["Skye", "Iso", "Killjoy", "Omen", "Jett"])
-        self.assertEqual(snap0.enemy_slots, {"Skye": 0, "Iso": 1, "Killjoy": 2, "Omen": 3, "Jett": 4})
+        self.assertEqual(snap0.enemy_agents, ["Skye", "Iso", "Jett", "Omen", "Killjoy"])
+        self.assertEqual(snap0.enemy_slots, {"Skye": 0, "Iso": 1, "Jett": 2, "Omen": 3, "Killjoy": 4})
 
         # Snapshot 1: Deadlock dies (ally, slot 2) at 281.5s -> 4v5
         # Allies pack right: slots 1..4 (slot 0 empty!)
         snap1 = timeline[1]
         self.assertEqual(snap1.event, "death:Deadlock")
         self.assertEqual(snap1.ally_alive, 4)
-        self.assertEqual(snap1.ally_agents, ["Phoenix", "Raze", "Reyna", "Clove"])
-        self.assertEqual(snap1.ally_slots, {"Phoenix": 1, "Raze": 2, "Reyna": 3, "Clove": 4})
+        self.assertEqual(snap1.ally_agents, ["Phoenix", "Breach", "Reyna", "Miks"])
+        self.assertEqual(snap1.ally_slots, {"Phoenix": 1, "Breach": 2, "Reyna": 3, "Miks": 4})
 
         # Snapshot 2: Reyna dies (ally, slot 3) at 283.5s -> 3v5
         # Allies pack right: slots 2..4 (slots 0, 1 empty!)
         snap2 = timeline[2]
         self.assertEqual(snap2.event, "death:Reyna")
         self.assertEqual(snap2.ally_alive, 3)
-        self.assertEqual(snap2.ally_agents, ["Phoenix", "Raze", "Clove"])
-        self.assertEqual(snap2.ally_slots, {"Phoenix": 2, "Raze": 3, "Clove": 4})
+        self.assertEqual(snap2.ally_agents, ["Phoenix", "Breach", "Miks"])
+        self.assertEqual(snap2.ally_slots, {"Phoenix": 2, "Breach": 3, "Miks": 4})
 
-        # Snapshot 3: Jett dies (enemy, slot 4) at 284.5s -> 3v4
-        # Enemies pack left: slots 0..3 (slot 4 empty!)
+        # Snapshot 3: Jett dies (enemy, slot 2) at 284.5s -> 3v4
+        # Enemies pack left: Omen and Killjoy shift in, slots 0..3 (slot 4 empty!)
         snap3 = timeline[3]
         self.assertEqual(snap3.event, "death:Jett")
         self.assertEqual(snap3.enemy_alive, 4)
-        self.assertEqual(snap3.enemy_agents, ["Skye", "Iso", "Killjoy", "Omen"])
-        self.assertEqual(snap3.enemy_slots, {"Skye": 0, "Iso": 1, "Killjoy": 2, "Omen": 3})
+        self.assertEqual(snap3.enemy_agents, ["Skye", "Iso", "Omen", "Killjoy"])
+        self.assertEqual(snap3.enemy_slots, {"Skye": 0, "Iso": 1, "Omen": 2, "Killjoy": 3})
 
-        # Snapshot 4: Clove dies (ally) at 295.0s -> 2v4
+        # Snapshot 4: Miks dies (ally) at 295.0s -> 2v4
         # Allies pack right: slots 3..4
         snap4 = timeline[4]
-        self.assertEqual(snap4.event, "death:Clove")
+        self.assertEqual(snap4.event, "death:Miks")
         self.assertEqual(snap4.ally_alive, 2)
-        self.assertEqual(snap4.ally_agents, ["Phoenix", "Raze"])
-        self.assertEqual(snap4.ally_slots, {"Phoenix": 3, "Raze": 4})
+        self.assertEqual(snap4.ally_agents, ["Phoenix", "Breach"])
+        self.assertEqual(snap4.ally_slots, {"Phoenix": 3, "Breach": 4})
 
         # Snapshot 5: Skye dies (enemy, slot 0) at 295.5s -> 2v3
         # Enemies pack left: slots 0..2 (slots 3, 4 empty!)
         snap5 = timeline[5]
         self.assertEqual(snap5.event, "death:Skye")
         self.assertEqual(snap5.enemy_alive, 3)
-        self.assertEqual(snap5.enemy_agents, ["Iso", "Killjoy", "Omen"])
-        self.assertEqual(snap5.enemy_slots, {"Iso": 0, "Killjoy": 1, "Omen": 2})
+        self.assertEqual(snap5.enemy_agents, ["Iso", "Omen", "Killjoy"])
+        self.assertEqual(snap5.enemy_slots, {"Iso": 0, "Omen": 1, "Killjoy": 2})
 
         # Snapshot 6: Phoenix dies (ally, slot 0) at 301.0s -> 1v3
-        # 1 ally survivor (Raze) packs right to innermost slot 4!
+        # 1 ally survivor (Breach) packs right to innermost slot 4!
         snap6 = timeline[6]
         self.assertEqual(snap6.event, "death:Phoenix")
         self.assertEqual(snap6.ally_alive, 1)
-        self.assertEqual(snap6.ally_agents, ["Raze"])
-        self.assertEqual(snap6.ally_slots, {"Raze": 4})
+        self.assertEqual(snap6.ally_agents, ["Breach"])
+        self.assertEqual(snap6.ally_slots, {"Breach": 4})
 
         # Snapshot 7: Iso dies (enemy, slot 1) at 332.5s -> 1v2
         # Enemies pack left: slots 0..1
         snap7 = timeline[7]
         self.assertEqual(snap7.event, "death:Iso")
         self.assertEqual(snap7.enemy_alive, 2)
-        self.assertEqual(snap7.enemy_agents, ["Killjoy", "Omen"])
-        self.assertEqual(snap7.enemy_slots, {"Killjoy": 0, "Omen": 1})
+        self.assertEqual(snap7.enemy_agents, ["Omen", "Killjoy"])
+        self.assertEqual(snap7.enemy_slots, {"Omen": 0, "Killjoy": 1})
 
         # Verify event emission from tracker
         tracker = LivingRosterTracker(oracle_lineup, starting_role="defenders")
