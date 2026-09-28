@@ -435,12 +435,88 @@ Regrowth is a pool drawn as a resource bar, not charges
 [domain:abilities/skye-regrowth-resource-bar], so Skye's C stays a no-fact
 slot until the model reads a pool; Viper's fuel is one bar two abilities
 drain, refilled at a constant rate while idle
-[domain:abilities/viper-fuel-bar-recharges]. The rerun records under
-`all-sessions`: [metric:ability_state/step1@all-sessions#labels_cast_held_before=93] of 94 labelled
+[domain:abilities/viper-fuel-bar-recharges]. The rerun recorded under
+`all-sessions`, relabelled `all-sessions-seven-facts` when the catalogue run
+below took that label: [metric:ability_state/step1@all-sessions-seven-facts#labels_cast_held_before=93] of 94 labelled
 casts held a charge before,
-[metric:ability_state/step1@all-sessions#invariant_1_cast_charge_unconfirmed=9] unconfirmed
-(five on `c62c2b06bcfb`, which has no lineup, so no fact names its agent; four whose slot read empty just before the labelled cast: Sova E `59c70f1ef720` 2429.0 s, Sova C `9acf02f98283` 610.1 s, Phoenix Q `a06f04a0059f` 1412.6 s, Skye Q `b7d24102a6f6` 650.0 s), a level outside the segments on
-[metric:ability_state/step1@all-sessions#invariant_1_level_outside_the_segments=14] readings
-(Phoenix:Q 1, Skye:Q 1, Sova:C 10, Sova:E 2), [metric:ability_state/step1@all-sessions#invariant_surprises=78] surprises
-([metric:ability_state/step1@all-sessions#surprise_level_fell_without_a_cast=60] refused drops
+[metric:ability_state/step1@all-sessions-seven-facts#invariant_1_cast_charge_unconfirmed=9] unconfirmed
+(five on `c62c2b06bcfb`, which had no lineup then, so no fact named its agent; four whose one-charge slot read half, fill 0.355 to 0.429, just before the labelled cast: Sova E `59c70f1ef720` 2429.0 s, Sova C `9acf02f98283` 610.1 s, Phoenix Q `a06f04a0059f` 1412.6 s, Skye Q `b7d24102a6f6` 650.0 s), a level outside the segments on
+[metric:ability_state/step1@all-sessions-seven-facts#invariant_1_level_outside_the_segments=14] readings
+(Phoenix:Q 1, Skye:Q 1, Sova:C 10, Sova:E 2), [metric:ability_state/step1@all-sessions-seven-facts#invariant_surprises=78] surprises
+([metric:ability_state/step1@all-sessions-seven-facts#surprise_level_fell_without_a_cast=60] refused drops
 whose level fell). S4 failed; S5 held (ledger).
+
+### The catalogue as the charge prior (2026-09-27)
+
+The player asked that the ability facts already pulled from the wiki be used.
+The harvest (`reference/abilities.json`, built by
+`prototypes/ability_reference.py` on 2026-09-04, a prior and never an oracle)
+now gives a slot's charge count where no domain fact does (`charge_priors`,
+`ability-state-0.2.0`). The command reads it from the store and stamps its
+harvest date among the inputs; without the file there is no prior and the
+command says so. The harvest's `Grenade`, `Ability1`, `Ability2` and
+`Ultimate` are C, Q, E and X, and its count applies only where it names the
+kit's ability in that slot.
+
+A domain fact outranks the catalogue. Where both give a count and differ, the
+fact's count stands and the slot records the `conflict` with both values. A
+fact that makes a slot a pool [domain:abilities/skye-regrowth-resource-bar],
+or bounds every slot at two charges [domain:hud/ability-tray-charge-segments],
+refuses the catalogue's count the same way. A catalogue string that is not a
+count (the ult table's function names, Reyna's "2 (shared charges)") or an
+empty field leaves the slot without one, with the reason. Every state row
+whose charges rest on a count names its `charges_source`; the coverage row
+lists the conflicts, the slots still without a count, and the half readings
+against each count (`segments`): a half bar agrees with a two-charge count and
+disagrees with a one-charge count, and the reading stands either way.
+
+Over the whole harvest (`ability_state/catalogue-prior`), the catalogue agrees
+with every one of the
+[metric:ability_state/catalogue-prior@reference-2026-09-04#cqe_source_player=23]
+C, Q and E counts the facts give
+([metric:ability_state/catalogue-prior@reference-2026-09-04#conflicts_count=0]
+count conflicts) and supplies
+[metric:ability_state/catalogue-prior@reference-2026-09-04#cqe_source_catalogue=57]
+more. Of the
+[metric:ability_state/catalogue-prior@reference-2026-09-04#cqe_without_count=7]
+slots left without a count, Skye's C is a pool by the player's fact against
+the catalogue's one, Brimstone's E (three) and Chamber's Q (eight) exceed the
+two-charge bound, Reyna's Q reads "2 (shared charges)", and Astra's Q and E
+and Reyna's E carry no count. The three refusals, and every count the
+catalogue alone gives, are questions for the player, who has confirmed none
+of them.
+
+The rerun covers
+[metric:ability_state/step1@all-sessions#sessions=21] sessions: the twenty
+above, with `c62c2b06bcfb` now naming Skye from its new lineup, and the Iso
+capture `4f207c0c4e39`. It changed no reading. Every played agent's C, Q and
+E slots already had a domain count except Skye's C, which the pool fact bars
+from the catalogue's one, so
+[metric:ability_state/step1@all-sessions#charges_source_catalogue=0]
+readable slot-samples rest on the catalogue and
+[metric:ability_state/step1@all-sessions#charges_source_player=93137] on a
+fact; [metric:ability_state/step1@all-sessions#charge_conflicts=1] conflict
+(Skye's C) and [metric:ability_state/step1@all-sessions#slots_without_count=1]
+slot without a count (the same) remain, and the unread `no-fact` samples, all
+on Skye's C, did not fall (C1 in the ledger). The half readings agree with the
+two-charge counts on
+[metric:ability_state/step1@all-sessions#segments_agree=6300] slot-samples
+(Clove E, Phoenix E, Skye E, Sova Q) and disagree with a one-charge count on
+[metric:ability_state/step1@all-sessions#segments_disagree=447], the same
+samples invariant 1 counts outside the segments; Iso's capture holds
+[metric:ability_state/step1@all-sessions#invariant_1_level_outside_the_segments_4f207c0c4e39=433]
+of them, half bars on all three of his one-charge slots. Casts left
+unconfirmed number
+[metric:ability_state/step1@all-sessions#invariant_1_cast_charge_unconfirmed=9],
+[metric:ability_state/step1@all-sessions#invariant_1_cast_charge_unconfirmed_4f207c0c4e39=5]
+of them Iso's; the four others are the casts above whose one-charge slot read
+half, which no count can confirm, and the lineup, not the prior, confirmed the
+five on `c62c2b06bcfb`. Surprises number
+[metric:ability_state/step1@all-sessions#invariant_surprises=167],
+[metric:ability_state/step1@all-sessions#invariant_surprises_4f207c0c4e39=89]
+on the Iso capture; the other twenty keep the
+[metric:ability_state/step1@all-sessions-seven-facts#invariant_surprises=78] above.
+[metric:ability_state/step1@all-sessions#labels_cast_held_before=93] of
+[metric:ability_state/step1@all-sessions#labels_cast=94] labelled casts
+held a charge before. C1 to C5 held (ledger); C4's premise called the four
+slots empty, and they read half.
