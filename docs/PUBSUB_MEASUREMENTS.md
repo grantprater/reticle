@@ -162,6 +162,22 @@ One OpenCV thread does not explain the loss: it cost the scoreboard 0.9 ms a cal
 Between listings, Opera's CPU grew most across m3, markedly across m2, and hardly across m1 and m4. The serial ally-icon pass took 59.7 s in m3 (`U[m3a]`) against [metric:scan_usage/ally_icon/cache/serial/cv12@c40d950031bb#pass_s=48.1] s in m4, 11.6 s or 24% longer, with its source and its reader each slower by 24 to 25%: a uniform slowdown, as a competing process gives, in the run where Opera worked hardest.
 The listings fit that account and cannot place Opera's CPU within m3's two paths. The two serial HUD runs differ by 17%, and Opera's other burst fell in m2. On this machine a difference under a fifth between single runs is within the spread.
 
+## m6: both ally-icon paths at one OpenCV thread
+
+After `6aecf78` gave the check's serial path the staged path's `--cv-threads`, I reran m3's flags: `scan c40d950031bb --only ally_icon --ally-hz 15 --from cache --pipeline staged --workers 2 --shard ally_icon=2 --cv-threads 1 --check`, at code `f5a7c81` on a clean tree, 2026-09-28, 15:53 to 15:55 local time, at Idle priority with OMP, MKL and OpenBLAS at one thread. Path a (usage `348617a112374f3aa6240f0d84a0e13c`) and path b (`948305e96e42411287c5d0b778246df2`) both ran at one OpenCV thread and wrote the same three files as m3 and m4, byte for byte (candidate revision `abe789d9…`, decisions `6c90539c3c11`, events `06f53af8cd25`). Both records are `scan-usage-3`: both name the FFV1 cache read through OpenCV, and both saw heavy other load, 0.44 of the 12 logical processors busy with other processes on each path (`U[m6a].contention.other_cpu_ns` / (`pass_ns` × 12), and alike for `U[m6b]`); VALORANT was running when the check began.
+
+Path a's pass row is in the store's metrics notes. Path b's row would share m3b's series (`w2/ally_icon=2/cv1`) and shadow m3b's tokens, so only its usage row was appended; its figures cite `U[m6b]`.
+
+| | pass, s | source, s | process CPU, s | ally_icon feed, s | ms a call | threads |
+|---|---|---|---|---|---|---|
+| m6 a, serial, cv1 | [metric:scan_usage/ally_icon/cache/serial/cv1@c40d950031bb#pass_s=62.2] | [metric:scan_usage/ally_icon/cache/serial/cv1@c40d950031bb#source_s=8.7] | [metric:scan_usage/ally_icon/cache/serial/cv1@c40d950031bb#cpu_s=89.4] | [metric:scan_usage/ally_icon/cache/serial/cv1@c40d950031bb#feed_s_ally_icon=51.4] | 6.66 | 1.44 |
+| m6 b, w2, 2 shards, cv1 | 44.2 | 12.7 | 105.7 | 85.4 (two shards) | 11.05 | 2.39 |
+
+- **Staging at equal threads.** The pass fell 1.41 times (62.2 / 44.2). Design step 3's L3 bound for two ally-icon shards asked at least 1.6 and falsified below 1.2: 1.41 neither meets nor falsifies it. The dispatcher still blocked on full FIFOs for 31.2 of 44.2 s (`U[m6b].dispatcher.wait_ns`), so the shards set the pace.
+- **A shard's call costs more than the serial call, in CPU too.** A serial call took 6.66 ms of wall at one thread; a shard's call took 11.05 ms of wall and 8.37 ms of its thread's CPU (64.7 s over 7729 calls, `U[m6b].readers.ally_icon`). Waiting alone does not explain the gap: each shard burned more CPU a call than the serial reader spent in wall. Two shards contending for cache and memory bandwidth, or the GIL's handoffs, remain candidates; these records cannot split them.
+- **One thread against the pool.** The serial pass at one thread burned [metric:scan_usage/ally_icon/cache/serial/cv1@c40d950031bb#cpu_s=89.4] s of CPU against m4a's pool-bound [metric:scan_usage/ally_icon/cache/serial/cv12@c40d950031bb#cpu_s=147.9] s, and its reader took 6.66 ms a call against 5.21 (m4a) and 6.47 (`U[m3a]`). The pool therefore bought little wall per call for 1.65 times the CPU; m6 ran under heavier load than m4, so the wall comparison is loose.
+- **Unattributed CPU.** Off every timed thread each path spent about 32 s of CPU: 89.4 − [metric:scan_usage/ally_icon/cache/serial/cv1@c40d950031bb#dispatcher_cpu_s=57.6] = 31.8 s on path a, 105.7 − 8.4 − 64.7 = 32.6 s on path b. OpenCV ran at one thread, so the FFV1 decoder's own threads inside `cv2.VideoCapture` are the likely spender; that is an inference.
+
 ## Against the predictions
 
 **The plan's four.**
@@ -181,7 +197,7 @@ The listings fit that account and cannot place Opera's CPU within m3's two paths
 
 ## Not measured, and what one more run would settle
 
-- A serial ally-icon pass at one OpenCV thread, design step 3's third run: these checks ran the serial path on the pool only, and step 2a's check, which ran one, predates `fbc3143` and keeps its rows outside the store. `scan c40d950031bb --only ally_icon --ally-hz 15 --from cache --pipeline serial --cv-threads 1 --check --check-dir DIR` settles it: its path b, series `ally_icon/cache/serial/cv1`, prices one thread, against which the shards' passes read.
+- A process shard of ally_icon, and a warmed-up `--check` whose path b does not pay the cold start alone: backlog item (1) named both, and neither has run. m6 ran each path once, under other load.
 - The HUD pair at two workers (L3 on the pair), whose bound is the source's [metric:scan_usage/hud+killfeed_portrait/cache/staged/w1/cv1@c40d950031bb#source_s=9.3] s.
 - The producer's decode, conversion and stall timers, the decoder's name, `concurrent_scans` and the priority: design section 3 lists them, and `scan-usage-2` as built records none, so m5's NVDEC is inferred from CPU and open question 1 stays open. CPU on untimed threads is unattributed.
 - Order and repetition: `--check` runs path b first, so b pays cold starts, and each configuration ran once, where two identical serial runs differed by up to 24%.
