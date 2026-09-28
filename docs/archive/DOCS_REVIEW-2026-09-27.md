@@ -218,6 +218,7 @@ relative links fell from 47 on master (8 machine-local `teststore/` links and
 
 - **EXPERIMENT_PROGRAM:** implement, supersede or retire it. It now opens with
   "proposed; no module or command implements it".
+  Decided 2026-09-27: E1 first, as a BACKLOG item with a ledger entry; the program stays proposed until E1 reports.
 - **Verbatim quotes in PROJECT_GUIDE.md,** which AGENTS says stay private: the
   endstate (287-292), the north star (298-299), shooting error (348-350), the
   clips pass (360-361), streaming (367-369), the scoreboard position (562), the
@@ -228,6 +229,7 @@ relative links fell from 47 on master (8 machine-local `teststore/` links and
 - **Task contracts:** bring them back (contracts for the open BACKLOG items, or
   `## Active:` headings again) or retire `tools/task_check.py` and the
   contract half of HANDOFF.
+  Decided 2026-09-27: not revived; the acceptance and evidence lines live on each BACKLOG item and HANDOFF reports their absence; `tools/task_check.py` retired.
 - **Session pixels and orientation:** AGENTS lets a capture set the widget's
   dimensions and placement; the domain fact adds orientation, and AGENTS' own
   exception grants `clip_preflight` orientation. Which wording is the rule?

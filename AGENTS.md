@@ -131,7 +131,9 @@ states plainly, and the player had to ask what the sentence meant.
   bounded working documents, not logs: `NOTES.md` holds only the current
   handoff, and `BACKLOG.md` holds open work plus the five latest completed
   tasks. Rewrite them in place and move what they retire to a dated file under
-  `docs/archive/`. `doctor` HANDOFF checks the limits.
+  `docs/archive/`. `doctor` HANDOFF checks the limits. An open `BACKLOG.md`
+  item carries an `Acceptance:` command and an `Evidence:` standard inside its
+  paragraph, and HANDOFF reports items without them.
 - Never put Claude session URLs in repository files or commit messages. Public
   files contain facts; attribution, quotes, and private domain notes stay out.
 
