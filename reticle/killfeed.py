@@ -1346,7 +1346,11 @@ PORTRAIT_ASPECT = 2.0
 # padded entry band landed low (`band_shift`, stored per row).
 # 0.7.0 (2026-09-25): each portrait's `ally` follows `victim_is_ally`, which
 # now reads the killer's colour behind the weapon icon.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.7.0"
+# 0.8.0 (2026-09-28): the victim's walk starts at the name's last glyph,
+# descenders included (`victim_name_end`), and counts as text only white ink
+# that begins by then (`own_ink`), so white hair no longer carries the box
+# past the portrait.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.8.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -1485,6 +1489,48 @@ def killer_name_start(white_band: np.ndarray, run: tuple[int, int]) -> int:
         x = min(int(st[i, 0]) for i in prev)
 
 
+def victim_name_end(white_band: np.ndarray, run: tuple[int, int]) -> int:
+    """The last column of the victim's name, which the victim's portrait
+    follows across a stretch of bare plate.
+
+    `killer_name_start` mirrored: walks right from the run over glyph-sized
+    white components on the name's baseline, descenders allowed, each within
+    `NAME_GAP` of the last.
+    """
+    st, glyph, base = _name_glyphs(white_band, run)
+    if base is None:
+        return run[1]
+    right = lambda i: int(st[i, 0] + st[i, 2] - 1)
+    rows = [i for i in glyph
+            if base - NAME_BASE_TOL <= st[i, 1] + st[i, 3] <= base + NAME_DESCENDER]
+    x = run[1]
+    while True:
+        ends = [right(i) for i in rows if right(i) > x and st[i, 0] - x <= NAME_GAP]
+        if not ends:
+            return x
+        x = max(ends)
+
+
+def own_ink(white_band: np.ndarray, x: int) -> np.ndarray:
+    """The white ink of components that begin at or before column `x`, the
+    victim's name end: the name, and any mark the name run sits in.
+
+    Portrait art is white too. Counted as text, Jett's white hair made every
+    column of her portrait read as furniture, the walk in `_portrait_edge`
+    crossed her face, and the box landed on the plate's end past it
+    (a06f04a0059f 284.5 s: all 10 views at x 471-473, her portrait at 425).
+    Her hair begins past a stretch of bare plate after the name. A mark does
+    not: a second-life badge's ring encloses the emblem that holds the run
+    (1576.0 s), its right arc starts before the run ends, and "Me" follows it
+    on the plate. Dropping all white ink past the name stopped the walk
+    inside that ring.
+    """
+    n, lab, st, _ = cv2.connectedComponentsWithStats((white_band > 0).astype(np.uint8), 8)
+    keep = st[:, 0] <= x
+    keep[0] = False
+    return np.where(keep[lab], white_band, 0).astype(white_band.dtype)
+
+
 def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                           views: "list[EntryView] | None" = None,
                           mask: np.ndarray | None = None,
@@ -1531,8 +1577,11 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
         bh = view.y1 - view.y0
         if bh < 8:
             continue
+        # The plate, and white ink that begins by the victim's name end
+        # (`own_ink`); portrait art begins past it.
+        name1 = victim_name_end(white[view.y0:view.y1], view.victim_run)
         on = _entry_columns(green[view.y0:view.y1], red[view.y0:view.y1],
-                            white[view.y0:view.y1], bh)
+                            own_ink(white[view.y0:view.y1], name1), bh)
         # The portraits are cut from the rows the names place the entry at
         # (`band_shift`); the columns stay read from the band as found.
         dy = band_shift(white[view.y0:view.y1], view.killer_run, view.victim_run)
@@ -1543,7 +1592,7 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
         wide = int(round(PORTRAIT_ASPECT * bh))
         name0 = killer_name_start(white[view.y0:view.y1], view.killer_run)
         for role, start, step in (("killer", name0 - 1, -1),
-                                  ("victim", view.victim_run[1] + 1, +1)):
+                                  ("victim", name1 + 1, +1)):
             if role == "killer":
                 # In Valorant's layout [killer portrait][killer name], the killer
                 # portrait abuts the name run directly. Walking left with _portrait_edge

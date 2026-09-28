@@ -287,9 +287,9 @@ class RoundIdentityE2ETests(unittest.TestCase):
         self.assertEqual(len(resolved_deaths), 7)
 
         # Victim and killer as the killfeed draws them (source review, 2026-09-28).
-        # Jett's victim vote is thin: the reader reads her white hair as name
-        # text and cuts the box past her portrait (clipped 0.76), so 3 of 10
-        # views name her and 7 refuse.
+        # Jett's victim box starts at her portrait on all 10 views since
+        # killfeed-portrait-0.8.0 stopped reading her white hair as name text;
+        # 9 of 10 views name her (3 before).
         expected = [
             (281500.0, "ally", "Deadlock", "Killjoy"),
             (283500.0, "ally", "Reyna", "Omen"),
