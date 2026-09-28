@@ -53,9 +53,9 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |
 | Ability entity inference and minimal capture plan | `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` |
-| What each demo cast draws on the minimap (census, player questions) | `docs/DEMO_CAST_CENSUS.md` |
-| Naming the player's casts from audio (demo bank, transfer) | `docs/AUDIO_ABILITY_BANK.md` |
-| The audio gate: design, mined labels, formulations, predictions, results | `docs/AUDIO_GATE.md` |
+| What each demo cast draws on the minimap (census, player questions) | [DEMO_CAST_CENSUS.md](DEMO_CAST_CENSUS.md) |
+| Naming the player's casts from audio (demo bank, transfer) | [AUDIO_ABILITY_BANK.md](AUDIO_ABILITY_BANK.md) |
+| The audio gate: design, mined labels, formulations, predictions, results | [AUDIO_GATE.md](AUDIO_GATE.md) |
 | What each ability does: inputs, minimap drawing, overlay, duration (the player's sheet) | `docs/ABILITY_MECHANICS_SHEET.md` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
