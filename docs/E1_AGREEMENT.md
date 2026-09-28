@@ -1,35 +1,24 @@
 # E1: agreeing totals concealed binding errors — 2026-09-28
 
-**Outcome: the prediction held.** Agreeing totals did not establish event
-correspondence. In two rounds where the killfeed, the combat report and the
-scoreboard agreed, the owner left the player's death panel unbound; fixing that
-exposed four panels elsewhere bound to the wrong killer. Each error was a
-binding, which totals cannot see. The player has not yet
-reviewed the agreeing rounds against source, so nothing is promoted but one
-owner fix. The experiment is E1 of [the experiment program](EXPERIMENT_PROGRAM.md).
+**Outcome: the prediction held.** In two rounds where the killfeed, the combat
+report and the scoreboard agreed, the owner left the player's death panel
+unbound; the fix exposed four panels bound to the wrong killer and a killfeed
+track that merged an enemy's death into the player's. Totals cannot see a
+binding, so agreement is no acceptance test: score events one to one. Only
+the owner fixes are promoted before the player's source review. E1 belongs to
+[the experiment program](EXPERIMENT_PROGRAM.md).
 
-## Question and prediction
+## Prediction and replay
 
-Can agreement of the three channels' per-round kill and death counts conceal a
-wrong event history? Ledger entry `e1-agreement-2026-09-27` (revised as
-`e1-agreement-2026-09-28` after the fix below) predicted that it can: the
-channels localise errors, but agreeing totals do not establish that each death
-binds to its true witness, identity and life episode.
-
-## The pin and the replay
-
-The pin names 18 sessions (`checks.KNOWN_KD`) and the reader stamps; the runner
-refuses any session whose stamps differ. `0f08b3dc3777` stores no HUD, rounds,
-death, report or scoreboard data and was refused.
-`prototypes/e1_agreement.py --replay` decodes no video. Per round it reads the
-killfeed's player kills and deaths, the combat report's verdict, and the
-scoreboard's outlined player row differenced across the round. It writes, under
-the store's `analysis/e1-agreement/`, `disagreements.json` (every round where
-two channels differ, with each channel's stored reason) and `agreeing.json`
-(the three-way rounds, each kill and death bound to its killfeed entry,
-identity verdict and life episode, and the report's panels bound through
-`adjudication.combat_report`). `tests/test_e1_agreement.py` tests the
-duplicate-plus-miss check on synthetic rounds, never counted as evidence.
+Ledger entry `e1-agreement-2026-09-27` (revised as `e1-agreement-2026-09-28`)
+predicted that agreeing per-round kill and death counts do not establish that
+each death binds to its true witness, identity and life episode. The pin names
+18 sessions (`checks.KNOWN_KD`) and the reader stamps, and refuses a session
+whose stamps differ (`0f08b3dc3777`, which stores no HUD data).
+`prototypes/e1_agreement.py --replay` compares the three channels per round
+without decoding video. It writes `disagreements.json`, with each channel's
+stored reason, and `agreeing.json`, each three-way round's kills and deaths
+bound to killfeed entry, identity verdict, life episode and report panel.
 
 ## Results
 
@@ -42,42 +31,54 @@ channels. The seeded rounds hold
 report bound [metric:e1_agreement/replay@pinned-18#deaths_report_bound=38] of
 them and flagged [metric:e1_agreement/replay@pinned-18#flagged=2] rounds.
 [metric:e1_agreement/replay@pinned-18#names_unnamed=18] of the 59 seeded rounds
-leave a kill victim or a KILLED row unnamed, so agreeing totals leave names open.
+leave a kill victim or a KILLED row unnamed.
 
 ## Flagged rounds and the owner fix
 
-`223d636bf8d2` round 6 (panel 719.0 s, death 721.0 s) and `c40d950031bb`
-round 6 (panel 701.0 s, death 703.5 s): each panel opened before its killfeed
-entry. The owner called each panel at-death by one window and refused to bind it
-by another. The fix gives both rules one window, `near_death`
-(combat-report-round-0.9.0); both rounds now bind
-([metric:e1_agreement/replay@c40d950031bb#flagged=0] flagged on `c40d950031bb`
-at 0.9.0; `223d636bf8d2` holds only its 0.8.0 row,
+In `223d636bf8d2` and `c40d950031bb` round 6 the death panel opened before the
+killfeed entry; the owner called it at-death by one window and refused to bind
+it by another. One window, `near_death` (combat-report-round-0.9.0), binds both
+([metric:e1_agreement/replay@c40d950031bb#flagged=0] flagged on `c40d950031bb`;
+`223d636bf8d2` holds only its 0.8.0 row,
 [metric:e1_agreement/replay@223d636bf8d2#flagged=1]).
 
-The narrower lookback exposed four panels from killed, revived and killed-again
-rounds (`a1a995e6b19b` 638 s, `b3b9defb6fd7` 891 s and 1308 s, `b7d24102a6f6`
-1912 s). Each shows two KILLED YOU rows, and the old rule bound both to the
-later death's killer: one wrong binding each. At 0.9.0 a row bound only as its
-panel's one KILLED YOU row, so those rows bound neither. `reticle combat-report`
-reran from storage on 20 sessions with no round row, panel or verdict changed.
-Ledger: `e1-binding-window-2026-09-28`, `e1-double-binding-2026-09-28`.
+The narrower lookback exposed four killed, revived and killed-again panels
+(`a1a995e6b19b` 638 s, `b3b9defb6fd7` 891 s and 1308 s, `b7d24102a6f6` 1912 s),
+whose two KILLED YOU rows both bound to the later killer; at 0.9.0 neither
+bound (ledger `e1-binding-window-2026-09-28`, `e1-double-binding-2026-09-28`).
 
-The report is cumulative over a round, so in each of those panels an earlier
-death panel of the round had already bound the first killer's portrait
-cluster. At combat-report-round-0.10.0 such a row binds by that cluster, and
-the one row left binds to the one death left in the panel's window; all eight
-rows bind. The killer's killfeed portrait now names a KILLED YOU row only as
-its panel's one KILLED YOU row, as the binding does: the old claim named both
-rows of each panel after the later killer, and dropping it turns
-`b7d24102a6f6` cluster 4 from a Raze verdict into a Reyna and Raze
-disagreement. A death also opens at most one death panel: `5822b6646448`
-round 12 and `587c15b07779` round 16 each showed one death's report, hid it and
-showed it again, and each second showing is now a reopen. Ledger:
-`e1-report-naming-2026-09-28`.
+At combat-report-round-0.10.0 the killer's killfeed portrait names a KILLED YOU
+row only when it is its panel's one. In a two-row panel a row binds by the
+portrait cluster an earlier panel bound, the other to the death left, both with
+`depends_on`; all eight bind. A repeated read with no later death is a reopen
+(`5822b6646448` 1093 s, `587c15b07779` 1386 s). Over 20 sessions no verdict K/D
+or round count moved; `b7d24102a6f6` cluster 4, a Raze resting on the wrong
+claim, became a Raze and Reyna disagreement. The prediction missed the
+`587c15b07779` fold, so the ledger records it as not held
+(`e1-report-naming-2026-09-28`).
 
-No flagged round hid a duplicate beside a miss: each held the deaths the
-channels counted, and the errors were bindings.
+No flagged round hid a duplicate beside a miss; the errors were bindings.
+
+## The merged killfeed track
+
+`59c70f1ef720` round 16 bound no death because one killfeed track held an
+enemy-victim entry (slot 0, 1619.5 to 1624.0 s) and, after one missed sample,
+an ally-victim entry at 1625.0 s. The player's death took the key
+`death:59c70f1ef720:1619500:0`, the enemy side, a teammate (Sage) as killer,
+and an onset outside the panel's window. E1 stops at an upstream identity
+failure, so the fix went to the hud-invariant owner
+(death-adjudication-0.15.0): `checks.track_entries`, given sides by
+`adjudication.death.session_entries` alone, ends a track where the victim plate
+changes side, unless the track has read a one-colour revive plate.
+
+Walked read-only over the 21 HUD sessions, the split changed no counted kill or
+death and added 41 entry tracks in 16 sessions. The 59c7 death moves to
+`1625000:0`, ally side; player kills on `3694746e4e54` (1344.5 to 1355.5 s) and
+`bfad2778a372` (1436.5 to 1443.0 s) move to enemy-victim entries;
+`a06f04a0059f`'s kill onset moves from 412.0 to 411.0 s, unchecked. The
+ledger's prediction row (`e1-entry-side-split-2026-09-28`) postdates the
+measurement: the measuring agent could not write to the store and stated the
+prediction in its report first. The store rerun waits (Open 1).
 
 ## Withholding
 
@@ -87,59 +88,52 @@ Without the killfeed portraits and death bindings, the report loses
 Without the scoreboard,
 [metric:e1_agreement/replay@pinned-18#deaths_no_scoreboard_changed=54] death
 verdicts change, [metric:e1_agreement/replay@pinned-18#deaths_no_scoreboard_player_changed=7]
-of them the player's: the scoreboard is a load-bearing identity witness, not a
-corroborator. The control rerun with every channel changed
+of them the player's: the scoreboard is a load-bearing identity witness. The
+control rerun changed
 [metric:e1_agreement/replay@pinned-18#deaths_control_changed=0] verdicts.
 
 ## Disagreements by stored reason
 
-- The killfeed missed a death that the report and the scoreboard both saw
-  (`e37fdeca944f` round 5), and deaths the report alone saw (`e37fdeca944f`
-  round 1, `5822b6646448` round 19).
-- `5822b6646448` round 16: the report counts the real death after a Run It Back
-  death; the killfeed books a second life and counts none
-  [domain:rounds/run-it-back-in-report].
-- `bfad2778a372` round 23: the killfeed counts a kill on an enemy Phoenix
-  inside Run It Back, which the report and the known K/D do not credit (the
-  `checks.KNOWN_KD` comment).
-- `c62c2b06bcfb` round 12: the known Killjoy death the killfeed never counted.
-- The scoreboard reads the outlined player row sparsely:
+- Killfeed misses: `e37fdeca944f` rounds 1 and 5 and `5822b6646448` round 19,
+  deaths the report saw; `c62c2b06bcfb` round 12, the known Killjoy death.
+- Run It Back: in `5822b6646448` round 16 the killfeed books a second life
+  [domain:rounds/run-it-back-in-report]; in `bfad2778a372` round 23 it credits
+  a kill that the report and the known K/D do not.
+- The scoreboard reads the player row sparsely:
   [metric:e1_agreement/replay@pinned-18#player_reads_with_kd=1214] of
-  [metric:e1_agreement/replay@pinned-18#player_reads=4836] reads carry both K
-  and D, and [metric:e1_agreement/replay@pinned-18#boundaries_read=126] of
-  [metric:e1_agreement/replay@pinned-18#boundaries=370] boundaries read. Two
-  boundaries rest on one misread row with shifted columns (`b7d24102a6f6`
-  boundary 11, which splits rounds 11 and 12; `bdfdcf009dba` boundary 17).
+  [metric:e1_agreement/replay@pinned-18#player_reads=4836] reads carry K and D,
+  and [metric:e1_agreement/replay@pinned-18#boundaries_read=126] of
+  [metric:e1_agreement/replay@pinned-18#boundaries=370] boundaries read; two
+  rest on one misread row (`b7d24102a6f6` boundary 11, `bdfdcf009dba`
+  boundary 17).
 
 The combat-report verdict equals `checks.KNOWN_KD` on all 17 sessions
 ([metric:e1_agreement/replay@pinned-18#verdict_sessions_off_known=0] off).
 
-## Conclusion
-
-Withholding localises dependence and the stored reasons localise every
-disagreement, but agreement is not an acceptance test: rounds whose totals
-agree carried unbound deaths, and their fix exposed wrong bindings
-elsewhere. Score events one to one.
-
 ## For the player to review
 
-The acceptance's Evidence line requires source review of the seeded agreeing
-rounds before promotion; `agreeing.json` lists them. Also confirm why a death
-panel opens 2 to 2.5 s before its killfeed entry; the comment above
-`near_death` in `reticle/adjudication/combat_report.py` states the belief that
-the death flash washes the killfeed plates.
+Against source, before promotion:
+
+1. The 59 seeded agreeing rounds in `agreeing.json`.
+2. The eight cluster-bound rows, which rest on an earlier panel's binding and
+   the portrait clustering, and the two folded panels.
+3. The `59c70f1ef720` death at 1625 s, whose killer no stored verdict now names.
+4. Why a death panel opens 2 to 2.5 s before its killfeed entry; the comment on
+   `near_death` believes the death flash washes the killfeed plates.
 
 ## Open
 
-1. The recorded corpus replay at scoreboard-0.9.0 under a new pin, after the
-   scoreboard rescan; `043bafca271a` and `223d636bf8d2` have no 0.9.0 row.
-   The pin names combat-report-round-0.9.0, so the replay refuses the 0.10.0
-   streams until the new pin.
-2. One binding the 5 s lookback lost (`59c70f1ef720` round 16): the death
-   stream's onset sits 5.5 s before the panel, and the HUD death time is 6 s
-   after the onset, a question for the death owner. The other,
-   `5822b6646448` round 12, was a second death panel for one death, now a
-   reopen.
-3. A two-read rule for the scoreboard player row, predicted before it is built.
-4. The player's review of the rows the cluster rule binds; the rule rests on
-   the earlier panel's binding and the portrait clustering being right.
+1. The store rerun, in order: `reticle deaths` on the 20 sessions with a death
+   stream (every HUD session but `4f207c0c4e39`); `reticle combat-report` on
+   the same 20, whose identity step drops death rows stamped other than the
+   code's; a new pin (combat-report-round-0.10.0, death-adjudication-0.15.0,
+   scoreboard-0.9.0); one recorded `--replay`. It waits for another session,
+   whose scoreboard rescan rewrites the `events/scoreboard` that
+   `reticle deaths` reads and whose ult-cast and ability-state streams depend
+   on the death stamp. The old pin refuses every session.
+2. `3694746e4e54` and `a06f04a0059f` each still carry one player death owned by
+   an enemy-victim entry.
+3. The `scoreboard_kd` claim still names both rows of a two-row panel whose
+   bound holds one agent; it fired on none of the 20 sessions.
+4. A two-read rule for the scoreboard player row, predicted before it is built.
+5. The `a06f04a0059f` kill onset at 411 s.
