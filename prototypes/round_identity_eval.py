@@ -377,22 +377,23 @@ def evaluate_round(session_id: str = "a06f04a0059f", round_no: int = 4, date: st
         stored_lineup = json.load(f)
 
     if lineup_mode == "oracle":
-        # Oracle lineup reflecting the true match roster for both teams
+        # The true match roster, left to right in each top bar, read off the
+        # source crops; it matches `reticle.lineup.load_lineup`'s answer.
         active_lineup = {
             "sides": {
                 "ally": [
                     {"slot": 0, "agent": "Phoenix", "best_guess": "Phoenix", "margin": 0.2, "reason": None},
-                    {"slot": 1, "agent": "Raze", "best_guess": "Raze", "margin": 0.2, "reason": None},
+                    {"slot": 1, "agent": "Breach", "best_guess": "Breach", "margin": 0.2, "reason": None},
                     {"slot": 2, "agent": "Deadlock", "best_guess": "Deadlock", "margin": 0.2, "reason": None},
                     {"slot": 3, "agent": "Reyna", "best_guess": "Reyna", "margin": 0.2, "reason": None},
-                    {"slot": 4, "agent": "Clove", "best_guess": "Clove", "margin": 0.2, "reason": None},
+                    {"slot": 4, "agent": "Miks", "best_guess": "Miks", "margin": 0.2, "reason": None},
                 ],
                 "enemy": [
                     {"slot": 0, "agent": "Skye", "best_guess": "Skye", "margin": 0.2, "reason": None},
                     {"slot": 1, "agent": "Iso", "best_guess": "Iso", "margin": 0.2, "reason": None},
-                    {"slot": 2, "agent": "Killjoy", "best_guess": "Killjoy", "margin": 0.2, "reason": None},
+                    {"slot": 2, "agent": "Jett", "best_guess": "Jett", "margin": 0.2, "reason": None},
                     {"slot": 3, "agent": "Omen", "best_guess": "Omen", "margin": 0.2, "reason": None},
-                    {"slot": 4, "agent": "Jett", "best_guess": "Jett", "margin": 0.2, "reason": None},
+                    {"slot": 4, "agent": "Killjoy", "best_guess": "Killjoy", "margin": 0.2, "reason": None},
                 ]
             }
         }
