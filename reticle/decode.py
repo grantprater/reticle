@@ -231,8 +231,14 @@ def _sampling_step(target_hz: float) -> float:
     return 1000.0 / target_hz
 
 
-def _sampling_spans(spans_ms):
-    """Validate and sort closed sampling spans; preserve empty as no work."""
+def _sampling_spans(spans_ms, open_start: bool = False):
+    """Validate and sort closed sampling spans; preserve empty as no work.
+
+    `open_start` also admits a start of `-inf`, the capture's beginning,
+    for a sampler that grabs from the start (`sample_multi`): a prefix of a
+    whole-capture read (`pipeline.limit_to_prefix`) keeps a first frame
+    observed before 0 ms. A seeking sampler has nowhere to seek to.
+    """
     if spans_ms is None:
         return None
     spans = []
@@ -240,8 +246,9 @@ def _sampling_spans(spans_ms):
         if len(span) != 2:
             raise ValueError("sampling span must have start and end")
         start, end = map(float, span)
-        if (not math.isfinite(start) or not math.isfinite(end)
-                or start < 0 or end < start):
+        opened = open_start and start == -math.inf
+        if ((not opened and (not math.isfinite(start) or start < 0))
+                or not math.isfinite(end) or end < start):
             raise ValueError("sampling spans must be finite, nonnegative, and increasing")
         spans.append((start, end))
     return sorted(spans)
@@ -500,7 +507,7 @@ def sample_multi(
     """
     state = {}
     for name, (hz, spans) in requests.items():
-        checked_spans = _sampling_spans(spans)
+        checked_spans = _sampling_spans(spans, open_start=True)
         state[name] = {
             "step": _sampling_step(hz),
             "spans": checked_spans,

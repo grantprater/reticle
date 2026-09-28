@@ -262,12 +262,13 @@ def limit_to_prefix(readers: list, until_ms: float, cache=None):
     Call it where spans are chosen, after `roi_cache.cache_for` has chosen
     the source: a whole-capture reader given a span would make `cache_for`
     refuse a whole-capture cache. Each reader's spans are cut at the limit,
-    and a whole-capture reader gets one span from 0, as new lists, since
-    readers share their span lists. Spans are closed, so each ends at the
-    float just below the limit, and a frame observed at the limit itself is
-    not offered. Inside the prefix the readers get the frames a whole pass
-    gives them: a span from 0 picks the frames no span would, and a cut span
-    keeps its phase.
+    and a whole-capture reader gets one span open at its start, from
+    `-inf`, as new lists, since readers share their span lists. Spans are
+    closed, so each ends at the float just below the limit, and a frame
+    observed at the limit itself is not offered. Inside the prefix the
+    readers get the frames a whole pass gives them: the open span keeps a
+    first frame observed before 0 ms, which a span from 0 dropped, shifting
+    every later sample's phase; a cut span keeps its phase.
 
     **Video.** `decode.sample_multi` stops, not skips: past every reader's
     last span end it breaks out of its loop and releases the capture
@@ -285,7 +286,7 @@ def limit_to_prefix(readers: list, until_ms: float, cache=None):
     end = math.nextafter(float(until_ms), -math.inf)
     for r in readers:
         spans = getattr(r, "spans", None)
-        r.spans = ([(0.0, end)] if spans is None
+        r.spans = ([(-math.inf, end)] if spans is None
                    else [(float(a), min(float(b), end)) for a, b in spans if a <= end])
         if cache is None and hasattr(r, "frames_from"):
             r.frames_from = f"{r.frames_from}, t < {until_ms:g} ms"

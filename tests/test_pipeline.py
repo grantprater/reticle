@@ -420,8 +420,9 @@ class OpenCvThreadTests(unittest.TestCase):
 class Capture:
     """`cv2.VideoCapture`'s front-to-back subset at 30 fps, counting its work."""
 
-    def __init__(self, n=600):
+    def __init__(self, n=600, offset_ms=0.0):
         self.n, self.pos, self.grabs, self.retrieved = n, -1, 0, []
+        self.offset_ms = offset_ms
 
     def isOpened(self):
         return True
@@ -434,7 +435,8 @@ class Capture:
         return True
 
     def get(self, prop):
-        return self.pos * 1000.0 / 30.0     # frame 210 is observed at 7000.0 ms exactly
+        # frame 210 is observed at 7000.0 ms exactly, plus any offset
+        return self.pos * 1000.0 / 30.0 + self.offset_ms
 
     def retrieve(self):
         self.retrieved.append(self.pos)
@@ -518,7 +520,36 @@ class PrefixTests(unittest.TestCase):
         self.assertIsNot(a.spans, b.spans)
         whole = Collect("whole")
         limit_to_prefix([whole], self.UNTIL)
-        self.assertEqual(whole.spans, [(0.0, math.nextafter(self.UNTIL, 0))])
+        self.assertEqual(whole.spans, [(-math.inf, math.nextafter(self.UNTIL, 0))])
+
+    def test_the_cache_keeps_frames_before_zero(self):
+        def early():
+            cache = Cache()
+            cache.t_ms = cache.t_ms - 250.0      # the first frame at -250 ms
+            return cache
+        whole = [Collect("whole")]
+        run_cached(None, whole, early())
+        self.assertLess(whole[0].rows[0][1], 0)
+        for label, go in self.paths(None):
+            with self.subTest(label):
+                readers = [Collect("whole")]
+                go(readers, limit_to_prefix(readers, self.UNTIL, early()))
+                self.assert_prefix_of(readers, whole)
+
+    def test_a_decode_keeps_a_first_frame_before_zero(self):
+        # Frame 0 observed at -20 ms: a whole pass takes it and strides from
+        # there, so dropping it would shift every later sample.
+        ctx = SimpleNamespace(media="x.mp4", fps=30.0)
+        with patch("reticle.decode.open_capture", lambda path: Capture(offset_ms=-20.0)):
+            whole = [Collect("whole")]
+            run(ctx, whole)
+            self.assertLess(whole[0].rows[0][1], 0)
+            for label, go in self.paths(ctx):
+                with self.subTest(label):
+                    readers = [Collect("whole")]
+                    self.assertIsNone(limit_to_prefix(readers, self.UNTIL))
+                    go(readers, None)
+                    self.assert_prefix_of(readers, whole)
 
 
 class UntilRefusalTests(unittest.TestCase):
