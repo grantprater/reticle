@@ -413,7 +413,8 @@ Answers append to `<store>/labels/demo_cast_class/<sid>.jsonl`, keyed
 `sid:t_ms:slot`; the last row for a key wins, and answered casts are skipped,
 so a pass resumes. I ran it once with `--dry-run --keys 5,a,u,q`: it showed
 cast 001, printed a `compact_icon` row, went back, printed an `unsure` row and
-quit, and the label directory stayed absent. No label row exists.
+quit, and the label directory stayed absent. The player labelled the keyed
+montages later on 2026-09-26, and his rows now fill that directory.
 
 ## What the census could not do
 
