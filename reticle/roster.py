@@ -316,6 +316,11 @@ class RosterReader:
         self.name, self.hz, self.spans = name, hz, spans
         self.profile = profile
         self.w, self.h = wh
+        # Reads only `hud_roster` and `hud_roster_enemy`, both in the `hud` cache
+        # set, so a session whose HUD crops are cached reads its roster with no
+        # decode (`scan --only roster --from cache`).
+        self.cache_set = "hud"
+        self.frames_from = "video"
         self.rows: list[dict] = []
 
     def feed(self, smp) -> None:

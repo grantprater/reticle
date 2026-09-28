@@ -1289,7 +1289,8 @@ Agents announce casts aloud in fixed voice lines that name the ability's
 class ("dropping a smoke", "blocking sight", "barrier created", "time to
 hunt"), and ults with a line of their own ("adapt or die"). The local player
 hears these cast lines for allies only; an enemy's cast sounds but is not
-announced. Callouts ("enemy spotted mid") and "reloading" are lines too.
+announced, except an ultimate, whose enemy variant is heard
+(abilities/ult-lines-heard-by-both-teams). Callouts ("enemy spotted mid") and "reloading" are lines too.
 """
 kind = "appearance"
 known = "player"
@@ -1302,10 +1303,11 @@ with their lines, and reloads; the allies-only caveat followed
 """
 exceptions = """
 Open, per the player (2026-09-27): whether the player's own agent's cast
-lines are heard (fairly sure yes); whether each cast has one line (thought
-so) at a fixed offset from the cast (not sure). Falsifiers: an own cast on a
-demo with no line; two lines for one ability in one match; a line-to-tray
-drop offset that varies by more than the tray's 0.5 s step
+Measured for ultimates (abilities/caster-hears-own-ult-line): the caster
+hears their own line, about 0.4 s before the tray's charge falls, with a
+0.44 s interquartile range. The wiki answered whether each cast has one
+line: it does not (abilities/cast-lines-vary). Open for the other
+abilities: whether own cast lines are heard, and at what offset
 """
 use = """
 a voice line is a fixed game asset, so match it as a template instead of
@@ -1330,3 +1332,354 @@ an end witness for a device entity the minimap may not show ending; a
 reload is background for the gate and a weapon event for a later channel
 """
 see = ["abilities/voice-lines-announce-casts", "abilities/ability-sound-phases"]
+
+[cast-lines-vary]
+claim = """
+An ability's cast is announced by one of several recorded lines, not one
+fixed line: the wiki lists more than one distinct cast line for 60 of
+81 abilities with a cast section (median 2, up to 7), for example
+Recon Bolt's "Revealing area", "Scanning ahead", "There they are" and
+"Found them".
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = """
+reference/assets/voicelines/casts/index.json, harvested from each agent's
+wiki quotes page by prototypes/voice_line_harvest.py on 2026-09-27
+(docs/VOICE_LINE_ASSETS.md); whether the game plays every listed line, and
+with what weights, is unmeasured
+"""
+use = """
+a template set per ability holds every listed line; a match on any of them
+names the ability, and the line text is not a stable key for the cast
+"""
+see = ["abilities/voice-lines-announce-casts"]
+
+[ult-lines-heard-by-both-teams]
+claim = """
+An ultimate's cast line is heard by every player in the match: the caster's
+allies hear the ally variant and the enemies hear the enemy variant, with no
+range limit that shows in a match.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = """
+prototypes/voice_lines.py on 19 lineup sessions, 2026-09-27: at a tenth of a
+lineup-impossible detection per live minute, enemy-variant detections equal
+ally-variant detections on the median session (docs/VOICE_LINES.md)
+"""
+use = """
+the variant names the caster's side, so an ult line is an event witness for
+the whole lobby: agent, side and time of every ultimate cast
+"""
+see = ["abilities/voice-lines-announce-casts", "abilities/caster-hears-own-ult-line"]
+
+[caster-hears-own-ult-line]
+claim = """
+The caster hears their own ultimate's ally line, about 0.4 s before the
+tray's ultimate charge falls.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = """
+prototypes/voice_lines.py, 2026-09-27: the player's own line found on Skye
+15 of 15 and Sova 15 of 19 ult casts on the matches and 2 of 3 on demos,
+onset median -0.43 s from the tray drop, interquartile range 0.44 s
+(docs/VOICE_LINES.md); Phoenix 0 of 10 within 1.5 s because Run it Back's
+pips fall at expiry, 8 of 10 with the line 12.6 s before the drop
+"""
+use = """
+own ult casts are free labels for a line matcher, and the tray drop dates
+the cast within half a second except where the pips fall at expiry
+"""
+see = ["abilities/voice-lines-announce-casts", "abilities/phoenix-run-it-back-expiry-flash"]
+
+[ult-ready-lines]
+claim = """
+An agent announces a ready ultimate with a fixed voice line of its own, not
+the cast line. The game voices it unprompted when the charge fills, and
+teammates hear it: the player heard Killjoy's, an ally's, on `c40d950031bb`
+at 678 s (the review of 2026-09-27 named Skye; the player corrected it to
+Killjoy the same day). The sound scored 0.0441 against Skye's enemy cast
+template and 0.0574 against Killjoy's, while Killjoy's harvested ready take
+ranked 17th of 29 agents there.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-27"
+use = """
+harvest the ult-ready lines as templates of their own: a false alarm for the
+cast templates, a witness that an ally's ultimate is ready, and a date for
+the fill, since the game voices the line when the charge fills
+"""
+see = ["abilities/voice-lines-announce-casts", "abilities/ult-ready-line-is-a-radio-reply"]
+
+[ult-ready-line-is-a-radio-reply]
+claim = """
+The wiki lists each agent's ult-ready line as one reply of the Ultimate Status
+radio command, under Radio Commands > Menu and Wheel Index > "Ultimate
+Status", beside a not-ready and an almost-ready reply, each recorded in two
+takes. No quotes page lists a ready line under the ultimate's own heading.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-27"
+subject = "abilities:audio"
+source = """
+reference/assets/voicelines/ult_ready/index.json, harvested from all 29
+agents' wiki quotes pages by prototypes/voice_line_harvest.py ult-ready on
+2026-09-27 (docs/VOICE_LINE_ASSETS.md); the wiki does not say that the game
+also voices the ready line unprompted when the charge fills, which the
+player confirmed on 2026-09-27 (see ult-ready-lines)
+"""
+use = """
+an agent's ult-ready templates are its two ready takes; a match says the
+speaker's ultimate became ready and dates the fill, since the game voices the
+line unprompted; whether the game's take is one of the wiki's two is unchecked
+"""
+see = ["abilities/ult-ready-lines", "abilities/voice-lines-announce-casts"]
+
+[ult-charge-pips]
+claim = """
+The pips of the tray's X slot are the ultimate charge. The ultimate can be
+cast only when every pip is lit, and the cast empties them. A drop from a
+slot that was not full is therefore not a cast.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "abilities:tray"
+use = """
+the tray gate refuses an X drop whose slot was not full (`partial_charge`);
+the four such drops on the 19 lineup sessions (fills 0.36 to 0.58) had no ult
+line, and every X drop with a line fell from a fill of 0.90 or more
+"""
+see = ["abilities/deadlock-ult-tray-drop-at-equip", "abilities/phoenix-run-it-back-expiry-flash", "abilities/ult-slot-lights-when-castable"]
+
+[ult-slot-lights-when-castable]
+claim = """
+The X slot's bar lights only while the ultimate can be cast, that is while
+every pip is lit. Until then the bar is dark and only the pips show.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-27"
+subject = "abilities:tray"
+source = """
+the player, 2026-09-27, asked whether the X bar lights only when full; the X
+fill on the 19 lineup sessions reads at or below 0.16 or between 0.8 and 1.1,
+with nothing between
+"""
+use = """
+a lit X bar is an ultimate ready: the first sample where the X fill passes
+FULL_MIN dates the charge filling, the moment the ult-ready line is voiced;
+the two-state reading is the appearance, not a reader artefact
+"""
+see = ["abilities/ult-charge-pips", "abilities/ult-ready-lines"]
+
+[sova-recon-bolt-charges]
+claim = """
+Sova has one Recon Bolt charge in slot E.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "sova:recon bolt"
+source = """
+player, 2026-09-27 (chat). The wiki harvest (reference/abilities.json,
+2026-09-04) agrees: Uses 1, Restock 60 seconds. The tray reads the slot half
+for a stretch after casts on c40d950031bb (595 s, 912 s) and a labelled cast
+fell from a half bar on 59c70f1ef720 (2429.0 s); the player doubts an
+immediate half refill, so those readings are unexplained, not a second charge.
+"""
+use = "adjudication.ability_state.charge_facts: max_charges for (sova, E)"
+see = ["abilities/recharge-kinds", "abilities/ability-rules-are-unique"]
+
+[phoenix-curveball-charges]
+claim = """
+Phoenix has two Curveball charges in slot E.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "phoenix:curveball"
+source = "player, 2026-09-27 (chat); the wiki harvest agrees (charges 2, restock 2 kills)"
+use = "adjudication.ability_state.charge_facts: max_charges for (phoenix, E)"
+see = ["abilities/phoenix-tray-charges", "abilities/recharge-kinds"]
+
+[skye-guiding-light-charges]
+claim = """
+Skye has two Guiding Light charges in slot E.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "skye:guiding light"
+source = "player, 2026-09-27 (chat); the wiki harvest agrees (charges 2, restock 60 seconds)"
+use = "adjudication.ability_state.charge_facts: max_charges for (skye, E)"
+see = ["abilities/recharge-kinds"]
+
+[recharge-kinds]
+claim = """
+An ability that comes back within a round restocks in one of two ways: over
+time after use, or on kills. Which abilities restock, and how, is a fact per
+ability. The wiki harvest of 2026-09-04 lists a restock only on signature
+abilities: a timer on sixteen (20 to 60 seconds) and kills on four (Curveball,
+Gatecrash, Refract, Tailwind); the basics carry none and are bought.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "abilities:tray"
+source = """
+player, 2026-09-27 (chat): "There are two kinds of recharges as well, time and
+kills." The counts are from reference/abilities.json (infobox Restock).
+"""
+use = "the ability state model's recharge transition needs the kind per ability before it dates a refill"
+see = ["abilities/ability-rules-are-unique", "abilities/omen-dark-cover-restock"]
+
+[sova-owl-drone-charges]
+claim = """
+Sova has one Owl Drone charge in slot C; it does not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "sova:owl drone"
+source = "player, 2026-09-27 (chat): one charge, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (sova, C); a level rise within a round is a misread, not a restock"
+see = ["abilities/recharge-kinds"]
+
+[sova-shock-bolt-charges]
+claim = """
+Sova has two Shock Bolt charges in slot Q; they do not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "sova:shock bolt"
+source = "player, 2026-09-27 (chat): two charges, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (sova, Q)"
+see = ["abilities/sova-bolt-charge-and-bounce", "abilities/sova-shock-bolt-minimap-none", "abilities/recharge-kinds"]
+
+[skye-regrowth-resource-bar]
+claim = """
+Skye's Regrowth in slot C draws on a healing pool drawn as a resource bar, not
+as charges, and the pool does not recharge within a round. It is a different
+bar from Viper's fuel.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "skye:regrowth"
+source = "player, 2026-09-27 (chat): a resource bar, not rechargeable, distinct from Viper's"
+use = "the state model reads Skye's C level as a pool fraction, never a charge count; a partial bar is not a half charge"
+see = ["abilities/skye-regrowth-no-tray-drop", "abilities/viper-fuel-bar-recharges", "abilities/recharge-kinds"]
+
+[viper-fuel-bar-recharges]
+claim = """
+Viper's fuel is a single resource bar that two of her abilities drain; while
+neither drains it, it recharges over time at a constant rate.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "viper:fuel"
+source = "player, 2026-09-27 (chat)"
+use = "the state model's recharge transition for Viper is a continuous refill of the fuel bar, not a charge restock; the drain rate and the refill rate are unmeasured"
+see = ["abilities/viper-fuel-toggle", "abilities/skye-regrowth-resource-bar", "abilities/recharge-kinds"]
+
+[skye-trailblazer-charges]
+claim = """
+Skye has one Trailblazer charge in slot Q; it does not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "skye:trailblazer"
+source = "player, 2026-09-27 (chat): her dog, one charge, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (skye, Q)"
+see = ["abilities/recharge-kinds"]
+
+[phoenix-hot-hands-charges]
+claim = """
+Phoenix has one Hot Hands charge in slot Q; it does not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "phoenix:hot hands"
+source = "player, 2026-09-27 (chat): his molly, one charge, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (phoenix, Q)"
+see = ["abilities/phoenix-slots", "abilities/recharge-kinds"]
+
+[clove-pick-me-up-charges]
+claim = """
+Clove has one Pick-me-up charge in slot C; it does not recharge within a round,
+and it can be cast only within 10 seconds of a kill or a damaging assist.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "clove:pick-me-up"
+source = "player, 2026-09-27 (chat)"
+use = "adjudication.ability_state.charge_facts: max_charges for (clove, C); a Pick-me-up cast dates a kill or assist within the 10 s before it"
+see = ["abilities/clove-c-and-x-need-a-target", "abilities/recharge-kinds"]
+
+[clove-meddle-charges]
+claim = """
+Clove has one Meddle charge in slot Q; it does not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "clove:meddle"
+source = "player, 2026-09-27 (chat): one charge, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (clove, Q)"
+see = ["abilities/recharge-kinds"]
+
+[iso-contingency-charges]
+claim = """
+Iso has one Contingency charge in slot C; it does not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "iso:contingency"
+source = "player, 2026-09-27 (chat): one charge, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (iso, C)"
+see = ["abilities/recharge-kinds"]
+
+[iso-undercut-charges]
+claim = """
+Iso has one Undercut charge in slot Q; it does not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "iso:undercut"
+source = "player, 2026-09-27 (chat): one charge, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (iso, Q)"
+see = ["abilities/recharge-kinds"]
+
+[iso-double-tap-charges]
+claim = """
+Iso has one Double Tap charge in slot E; it does not recharge within a round.
+Double Tap is channeled and grants a one-hit shield. The channel time is drawn
+as a resource bar on screen; shooting the orb that spawns from an enemy Iso
+killed or got a damaging assist on during the channel refreshes the channel
+time, not the charge.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "iso:double tap"
+source = "player, 2026-09-27 (chat)"
+use = "adjudication.ability_state.charge_facts: max_charges for (iso, E); a level rise on Iso's E within a round is a misread, not a restock; the channel bar is a separate widget from the slot"
+see = ["abilities/recharge-kinds"]

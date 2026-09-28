@@ -1,0 +1,531 @@
+# Ability state: one model of every ability's state, and the detectors it conditions
+
+Design sketch, 2026-09-27, from the player's framing: the missing piece is a
+detector that takes in the game state, including a state machine per ability
+(charges, equipped, deployed), and reads each channel conditioned on it.
+Companion designs: [entity phases](ABILITY_ENTITY_INFERENCE_DESIGN.md#entity-phases-an-ability-transforms-and-stays-itself)
+(a deployed entity transforms and stays itself), [temporal adjudication](ADJUDICATION_DESIGN.md)
+(claims, invariants, revision), [behaviour dynamics](BEHAVIOUR_MODEL_DESIGN.md)
+(predict-update-smooth at three timescales). This document adds the layer
+between them: the state of every ability slot of every player, as a belief
+that the witnesses update and the detectors consult.
+
+## Why a state, not more refusals
+
+`ability_timeline.player_tray_casts` (owner `ability-cast`) decides what a tray
+drop is with an ordered list of refusals: out of round, after the player's
+death, co-occurring, forced, `partial_charge`, and next `equip_release` and
+`pips_lit`. Each refusal is a fragment of a state machine written as an
+exception. `partial_charge` says the ult slot was not in the state *castable*;
+`equip_release` says the slot left the state *equipped* without a cast;
+`after_player_death` says the tray no longer shows the player's kit
+[domain:hud/tray-after-player-death]. The list grows by one rule per surprise
+and never says what state the slot is in, so nothing downstream can ask
+"could this ability be cast now?", and every detector runs against the full
+set of things that might happen. The model below names the states, and the
+refusals become transitions with witnesses.
+
+The reader already sees the state's shadow. A two-charge slot reads 1.0, 0.5
+and 0 [domain:hud/ability-tray-charge-segments]; an equipped ability adds
+teal above 1.0 and releases back to the full level
+([metric:tray/segments@all-sessions#full_after=68] of 493 accepted drops);
+the X bar lights only when the ult is castable
+[domain:abilities/ult-slot-lights-when-castable], and a cast empties the pips
+[domain:abilities/ult-charge-pips]. Those are observations of `charges`,
+`equipped` and `castable`, stored today as fills.
+
+## The state of one ability
+
+One record per (match, side, agent, slot). The slot is the unit because the
+tray, the timer bar and the description all speak per slot
+[domain:abilities/signature-on-e].
+
+| Variable | Values | Source of the parameters |
+|---|---|---|
+| `charges` | 0..`max_charges`, or an interval `[lo, hi]` when unobserved | `max_charges` per ability from `domain/abilities.toml` (`*-tray-charges`) and the mechanics sheet; no ability has more than two today [domain:hud/ability-tray-charge-segments] |
+| `mode` | `idle`, `equipped`, `casting`, `active`, `cooldown`, `unreadable` | the ability's kind from its description verbs [domain:abilities/ability-description-verbs]: fire-and-forget, channelled, placed-then-activated [domain:abilities/placed-then-activated], toggled by fuel [domain:abilities/viper-fuel-toggle], piloted, self-triggering |
+| `entities` | the ids of live world entities this slot owns, each with its own phases | the entity-phase model; a cast is 1:N (a wall is several segments, a Regrowth ring is one) |
+| `until_ms` | when `casting`, `active` or `cooldown` ends, with uncertainty | durations and cooldowns per ability (`phoenix-blaze-duration`, `omen-dark-cover-restock` [domain:abilities/omen-dark-cover-restock]); `null` with a reason when no fact exists |
+| `pips`, `castable` | ult slot only: 0..cost, and whether the bar is lit | [domain:abilities/ult-charge-pips], [domain:abilities/ult-slot-lights-when-castable] |
+| `owner_alive` | the kit belongs to a living player, a second life, or is frozen | death verdicts, Run it Back and revive rows, as the gate uses them today |
+| `readable` | which witnesses can see this slot now | local player: tray, timer bar, audio, minimap; ally: audio, minimap, ready lines; enemy: audio, minimap, killfeed |
+
+Every rule is per ability [domain:abilities/ability-rules-are-unique]. The
+model holds no defaults by category: a slot whose ability has no fact for a
+parameter carries `null` and the reason `no-fact:<ability>:<parameter>`, and
+the mechanics sheet is the place the player fills it. Regrowth has no tray
+drop [domain:abilities/skye-regrowth-no-tray-drop]; Deadlock's ult drops at
+equip [domain:abilities/deadlock-ult-tray-drop-at-equip]; Run it Back's pips
+fall at expiry [domain:abilities/phoenix-run-it-back-expiry-flash]. Each is a
+per-ability transition table, not a special case in a shared rule.
+
+## Transitions and their witnesses
+
+A transition is a claim with an observation time, an uncertainty, the witness
+that made it and the evidence it rests on. The set is closed; an observed
+change that matches no allowed transition is stored as a surprise, never
+silently absorbed or averaged away.
+
+| Transition | What changes | Witnesses that can see it | Invariant it must obey |
+|---|---|---|---|
+| equip | `mode` idle to equipped | tray teal above the full level (Sova's bow, Blaze's glow), hand animation, equip sound | the slot has a charge, or is the ult with the bar lit |
+| unequip | equipped to idle, nothing spent | tray teal falls to the full level (`equip_release`) | `charges` unchanged |
+| cast | `charges` down one segment, or `pips` to zero; `mode` to casting or active; entities born | tray fall to a lower segment level, cast voice line, cast sound, minimap birth, timer bar start | `charges` was above 0; ult `castable` was true; owner alive; in round; one cast per ability per range round [domain:abilities/range-one-cast-per-round] |
+| channel end | casting to idle or cooldown | timer bar end, key release, sound | duration within the ability's bound |
+| activate, reuse | a placed entity changes phase; a toggle consumes fuel [domain:abilities/viper-poison-cloud-toggle] | minimap phase change, sound, fuel meter | the entity exists and belongs to this slot |
+| expire, destroy | an entity ends; `mode` may return to idle | minimap death, destroyed-device sound [domain:abilities/device-destroyed-sounds], timer bar end | lifetime spans every phase; a phase change never creates a second entity |
+| recharge | `charges` up one segment | a tray segment relights, a cooldown counter reaching zero, a kill for kill-refreshed signatures, round start | never above `max_charges` |
+| buy | `charges` up in the buy phase | tray in the buy phase, the economy ledger | buy phase only |
+| ult charge | `pips` up one; `castable` when full | orb pickups, kills, round results; the ready line when full [domain:abilities/ult-ready-line-is-a-radio-reply] | `pips` never exceeds the cost |
+| owner death, second life, revive | `owner_alive`; the tray switches to a spectated kit [domain:hud/tray-after-player-death] | killfeed, badge, revive entries | the kit's charges freeze; a second life keeps them |
+| unreadable | the tray is not the player's or not drawn | menu dim [domain:hud/menu-dims-tray], the Trailblazer view [domain:hud/controlled-entity-view-tint], death camera | `charges` becomes an interval, never a guess |
+
+The tray's contribution is exactly what `reticle tray` stores today (fills,
+drops, refusals) read as level changes: a fall to a lower segment level is a
+cast, a fall to the same level is an unequip, a rise is a recharge or a buy.
+The reader keeps its one job [owns:tray-drop]; the meaning moves here.
+
+## Whose abilities
+
+The local player's four slots are the fully observed case: the tray gives
+`charges`, `equipped` and `castable` at 5 Hz, the timer bar gives channel and
+active ends [domain:hud/ability-timer-bar], own audio gives casts and the ult
+line [domain:abilities/caster-hears-own-ult-line], and the minimap gives the
+entities. This is where the model is built and scored first.
+
+Allies have no tray. Their casts come from cast lines and cast sounds, their
+entities from the minimap (ally abilities draw), their ult readiness from the
+ready line teammates hear [domain:abilities/ult-ready-line-is-a-radio-reply],
+and their deaths from the killfeed. `charges` is an interval: it starts each
+round at what the round reset allows, drops when a cast is witnessed, and
+widens when a witness was unavailable (a cast the audio could not hear). The
+interval is the honest state; a point value there is a guess.
+
+Enemies are observed by both teams' channels only: the ult line
+[domain:abilities/ult-lines-heard-by-both-teams], cast sounds within earshot,
+minimap objects their abilities draw, and the killfeed. Their ult pips are
+unknown until the cast; their `charges` interval rarely narrows. The value of
+the enemy record is negative evidence: an enemy who cast Dark Cover twice this
+round has none left, and a third smoke has another owner.
+
+Names are never decided here. A witness that binds a cast to a player
+publishes an `identity_claim` and asks `adjudication.identity`, with
+`depends_on` when the binding rests on another entity's verdict; the record's
+agent field is that arbiter's verdict. The unowned `ability-owner` question
+(which player owns an ability entity) is answered by this record once the
+entity is bound to a slot.
+
+## Modal detection: the state conditions the detectors
+
+The state is the prior the readers start from, and the surprise path is the
+widened search:
+
+- **Templates.** A cast template for ability A on side S is scored only while
+  some player on S holds A with `charges > 0`, or the ult with `castable`
+  true, and the owner alive. The lineup already reduces 58 ult templates to
+  the match's ten agents; the state reduces those to the ults that are ready.
+  The full set runs only as the surprise path, when a detection above the
+  threshold matches no allowed cast, and its result is stored as a
+  disagreement with the state, never as a cast.
+- **Shapes and entities.** The minimap fitters run in the window after a cast
+  claim, seeded by the caster's position, as `ability_shapes` does; a birth
+  with no cast claim is a surprise that asks the audio and the tray again
+  before it becomes an entity of unknown origin.
+- **The tray.** The reader's `CAST_DROP` and `FULL_MIN` become predictions
+  from the state: from `charges = 2` the next fall lands at 0.5; from an
+  equipped slot the next fall lands at the full level unless a cast witness
+  also fired. Disagreement between the predicted level and the read one is
+  stored per drop and is the reader's calibration set.
+- **Expensive passes.** Any pass that decodes (dense minimap reads, the shape
+  fitters, a future audio bank) is gated by a state transition or by the
+  audio gate's "something other than footsteps and gunfire", never by a
+  fixed cadence.
+
+Agreement is consistency, not accuracy. Two witnesses of one transition are
+corroboration; the reliability table (`adjudication.reliability`) weighs
+them as it weighs identity channels, and a channel's own output is never its
+own evidence.
+
+## Storage and recomputation
+
+`events/ability_state/<sid>.jsonl`, written whole by `Store.write_events`
+like every stream:
+
+- **claim rows**: witness, slot key, transition, `observed_at_ms`, the
+  uncertainty, `source_version`, `evidence` (a pointer into the witness's
+  stored rows), `depends_on`. Raw observations, kept apart from verdicts.
+- **verdict rows**: slot key, the state before and after, the transition, the
+  witnesses that agreed, the ones that disagreed, `reason` when the model
+  refused the transition, and a `surprise` flag when a claim matched no
+  allowed transition.
+- **a coverage row**: the version of every input stream (`tray`,
+  `player_cast`, `ult_line`, `ult_cast`, `minimap`, `death-adjudication`,
+  `hud`), so `reticle plan` can stale it, and its own `ABILITY_STATE_VERSION`.
+
+The model recomputes from stored claims and decodes nothing. A witness
+version change restamps the stream; the ledger records each restamp's
+predicted and observed counts, as the tray gate's G-series does today.
+
+## Ownership and layers
+
+- A new entry `ability-state` in `ownership.toml`: question "What state is
+  each player's ability in, and which transition did this observation
+  witness?"; owner `adjudication.ability_state`; produces the claim, verdict
+  and coverage rows and `allowed_transitions(slot, t)` for the detectors;
+  `not_for` a name (defers to `agent-identity`), a pixel or an audio
+  detection (those are witnesses), an entity's position or phases
+  (`ability-phase`). Placed in the `adjudication` layer beside
+  `adjudication.ult_cast` and `adjudication.phases`.
+- `ability-cast` becomes a witness: `player_tray_casts` publishes tray
+  transitions and their refusals as claims; its reason list is retired one
+  reason at a time as the model takes over, and its stored verdicts are the
+  regression set for the handover.
+- `ult-cast` asks `allowed_transitions` for the ult templates to score and
+  keeps binding lines to X casts; `ability-shape` keeps fitting shapes after
+  cast claims; `minimap-smoke` supplies smoke births and deaths as entity
+  transitions.
+- The per-ability parameters stay domain facts in `domain/abilities.toml`;
+  the model reads them through `reticle domain`, never restates them, and
+  the mechanics sheet is the intake for missing ones.
+
+## Invariants and evaluation
+
+The north star is the full-round event stream: every cast, entity and ending
+identified and localised, obeying the game's invariants. The invariants the
+model asserts, each a test and a stored count:
+
+1. `charges` stays within `[0, max_charges]`; a cast needs a charge.
+2. An ult casts only from a lit bar, and its cast empties the pips.
+3. A slot in `equipped` that returns to `idle` with the same level spent nothing.
+4. An entity has one owning slot; a phase change never creates a second entity; a lifetime spans every phase.
+5. A frozen kit (owner dead) changes only by revive, second life or round reset.
+6. One cast per ability per range round.
+
+Scoring, in order: the player's 120 tray-cast labels and 170 piece labels
+already stored; the demo census answers; a leave-one-session-out check of any
+fitted weight; then the same full-round stream on a session the player
+labels blind. Every count is predicted before the run and written to
+`notes/predictions.jsonl`; the first perceptual failure builds the tool that
+asks the player, as the tray labeller did.
+
+## Build order
+
+1. **The local kit from the tray alone.** `adjudication.ability_state` over
+   stored `tray_drop` rows: `charges` from segment levels, `equipped` from
+   teal above the level, `castable` from the lit X bar, `owner_alive` from
+   the death rows. Acceptance: reproduces every kept cast of
+   `player-cast-0.4.0` on the 19 lineup sessions, names the state each
+   refusal stood for, and passes the 120 labels at least as well as the gate
+   ([metric:tray/port@tray-work-cache#labelled_casts_passing=119] of 120).
+2. **Own audio and the timer bar as witnesses.** The ult line binds to the
+   `cast` transition instead of to a drop; the timer bar reader (new, from a
+   fixed ROI in the shared decode pass) dates channel and active ends for
+   Run it Back and Regrowth, the two casts the tray misses.
+3. **Entities join.** Shape fits and smoke tracks attach to the slot that
+   cast them, 1:N, with the entity-phase records inside the state rather
+   than beside it; simultaneous smoke births are one bulk cast
+   [domain:abilities/smoke-bulk-confirm], one transition with several
+   entities.
+4. **Allies.** Cast lines and minimap births drive interval charges per
+   teammate; ready lines set `castable`; scored on sessions where the player
+   labels teammates' casts from the VOD.
+5. **Enemies.** The same with both-team channels only; the measure is the
+   negative evidence it supplies to smoke and ability attribution.
+6. **Modal gating measured.** Cast templates scored only for allowed
+   transitions on a full game-only match, against the lineup-impossible rate
+   of the ungated run.
+
+## Hazards
+
+- **Restating an owner.** Every parameter and rule is a domain fact or an
+  owner's output; the model composes them. A restated rule compiles and
+  drifts.
+- **Analogy across abilities.** No default per category; `null` with
+  `no-fact` until the sheet or the player answers.
+- **The tray's reference.** Fills are relative to a session's p90, which
+  hides absolute levels; store the segment levels the model inferred beside
+  the fills so a mis-normalised session shows as a level disagreement.
+- **Unreadable spells.** Menus, the death camera and controlled-entity views
+  make the state an interval; a model that keeps a point value through them
+  guesses.
+- **Grading its own homework.** A detector gated by the state cannot score
+  the state; the score comes from labels, held-out sessions and the ungated
+  surprise path.
+- **The witnesses' own errors.** A surprise may be a tool error; the ledger
+  records which instrument was checked before the belief moved.
+
+## Questions for the player
+
+Per ability, through the mechanics sheet: max charges, recharge kind and
+time, whether the slot glows when equipped, whether the cooldown counter
+prints digits, which abilities show the timer bar, and what ends each
+entity. The sheet has 116 rows and none is complete; the model's `no-fact`
+reasons are the queue.
+
+## Step 1, built (2026-09-27)
+
+`reticle ability-state [--all | SESSION] [--record]` stores
+`events/ability_state/<sid>.jsonl` (`adjudication.ability_state`, owner
+`ability-state`, `ability-state-0.1.0`). It reads the stored `tray_drop`
+rows, reruns the gate on them from storage, reads the deaths and phases the
+gate reads, takes the player's agent from the arbiter's verdict in the
+lineup, and rereads the tray's fills from the stored `hud_abilities` crops on
+the grid `reticle tray` sampled. The drops carry only the two fills around
+each fall; the fills carry the level between drops, the teal of an equip, a
+lit X bar and every rise. It decodes nothing. The gate keeps its behaviour:
+step 1 turns each of its verdicts into a transition and names what each
+refusal stood for.
+
+The rows follow "Storage and recomputation": one `coverage` row (input
+stamps, the agent's provenance, the kit and the facts behind its parameters,
+thresholds, counts, reproduction checks and invariant counts); `claim` rows
+(`tray_drop`, the gate's `player_cast` that depends on it, `tray_fill`,
+`kit_end`, `undone_death`), each with its observation time, the interval it
+happened in, its source stamp and its evidence; `verdict` rows with the
+transition, the state before and after, the witnesses that agreed and
+disagreed, the gate's reason and what it stood for, and a surprise with its
+reason; and `state` rows, one per run of samples a slot spends in one state,
+carrying `charges`, `charges_range`, `level`, `mode`, `castable`, `pips`,
+`owner_alive`, `readable` and `until_ms`, each null with a reason when unread.
+
+**Instruments.** The reread reproduces the stored drops on all
+[metric:ability_state/step1@all-sessions-before-e-facts#sessions=20] sessions
+([metric:ability_state/step1@all-sessions-before-e-facts#drops_reread_mismatch=0]
+mismatches over [metric:ability_state/step1@all-sessions-before-e-facts#drops=3228] drops).
+The gate, refactored to publish `kit_windows` and `round_window_of`,
+reproduces every stored verdict
+([metric:ability_state/step1@all-sessions-before-e-facts#gate_stored_mismatch=0]
+mismatches), and each of its
+[metric:ability_state/step1@all-sessions-before-e-facts#transition_cast=493] kept casts is a
+`cast` transition.
+
+**Levels.** The first run read C, Q and E as full at the gate's
+`FULL_AFTER_MIN` and the X bar as lit at `FULL_MIN`. Those thresholds test a
+drop's ends and sit on the low tails of the full and lit levels: the X bar
+went dark without a drop
+[metric:ability_state/level-edges@all-sessions#x_unlit_without_a_drop=26]
+times, [metric:ability_state/level-edges@all-sessions#x_unlit_without_a_drop_to_0_5_0_8=24]
+of them to a fill of 0.5-0.8. The state now reads at the fills' density
+minima (`LEVEL_FULL_MIN`, `X_LIT_MIN`); surprises fell from
+[metric:ability_state/step1-scores@all-sessions#first_run_invariant_surprises=111]
+to [metric:ability_state/step1@all-sessions-before-e-facts#invariant_surprises=78] and the
+dark flickers to
+[metric:ability_state/step1@all-sessions-before-e-facts#surprise_x_bar_went_dark_without_a_drop=2].
+An equip reads from `EQUIP_MIN`, where
+[metric:ability_state/step1@all-sessions-before-e-facts#release_from_at_equip_min=120] of
+[metric:ability_state/step1@all-sessions-before-e-facts#release_drops=121] stored releases
+start.
+
+**Readability.** [metric:ability_state/step1@all-sessions-before-e-facts#unreadable_fraction=0.4213]
+of [metric:ability_state/step1@all-sessions-before-e-facts#slot_samples=222368]
+slot-samples are unreadable: after the player's death
+([metric:ability_state/step1-scores@all-sessions#unreadable_kit_frozen_fraction=0.3564]),
+in the round-end and inter-round phases
+([metric:ability_state/step1-scores@all-sessions#unreadable_phase_fraction=0.0259]),
+and with the tray undrawn or its guard rows flooded
+([metric:ability_state/step1-scores@all-sessions#unreadable_undrawn_or_flooded_fraction=0.0371]).
+
+**Whose kit.** A match with no killfeed death left the spectated kit's bars
+read as the player's: on the Iso match `4f207c0c4e39`
+[metric:ability_state/step1@4f207c0c4e39-before-kit-witness#invariant_1_level_outside_the_segments=433]
+samples showed a half level on a one-charge slot. The tray kit witness
+([TRAY_KIT_WITNESS.md](TRAY_KIT_WITNESS.md)) reads the slot icons, and the
+state now marks another agent's kit `kit:spectating:<agent>` and the rest of
+the witnessed death `owner_dead:kit_witness`; the half levels fall to
+[metric:ability_state/step1@4f207c0c4e39#invariant_1_level_outside_the_segments=0].
+
+**Charges.** Among the played agents, facts give a count only for Blaze
+[domain:abilities/phoenix-tray-charges] and Ruse
+[domain:abilities/clove-tray-charges]. Sova's C, Q and E, Skye's C, Q and
+E, Phoenix's Q and E and Clove's C and Q have none, so
+[metric:ability_state/step1-scores@all-sessions#no_fact_fraction_of_readable_cqe=0.671]
+of [metric:ability_state/step1-scores@all-sessions#readable_cqe_slot_samples=96507]
+readable C, Q and E slot-samples store `charges` null with a `no-fact`
+reason and keep only the range the level bounds. `c62c2b06bcfb` has no
+lineup, so its agent is null and
+[metric:ability_state/step1@all-sessions-before-e-facts#charges_unread_no_player_agent=3528]
+slot-samples carry `no_player_agent`. A half bar need not be one charge of
+two: Sova's Recon Bolt, one charge in the official reference
+(`reference/abilities.json`), reads half for a stretch after a cast on
+`c40d950031bb` (595 s, 912 s). The reference's `charges` field is not a
+domain fact, and step 1 does not read it.
+
+**Labels.** Of the player's tray-cast labels the gate accepts,
+[metric:ability_state/step1@all-sessions-before-e-facts#labels_cast_held_before=89] of
+[metric:ability_state/step1@all-sessions-before-e-facts#labels_cast=94]
+([metric:ability_state/step1@all-sessions-before-e-facts#a1_held_fraction=0.9468]) held a
+charge or a lit bar just before. The five others fell from a half bar on a
+slot with no fact (Phoenix E twice, Skye E twice, Sova E once), which the
+model will not call one charge. The other labels become `unequip`, `none` or
+`unresolved`, as the gate's reasons stand for.
+
+**Invariants.** Every testable count is zero in all
+[metric:ability_state/step1-scores@all-sessions#sessions_invariants_all_zero=20]
+sessions: a cast without a charge, an X cast from an unlit bar or leaving it
+lit, a release that lowered the level, a frozen kit that changed, and a half
+bar on a one-charge slot.
+[metric:ability_state/step1@all-sessions-before-e-facts#invariant_1_cast_charge_unconfirmed=44]
+casts leave the charge unconfirmed: a half bar on a slot with no fact.
+Entities (invariant 4) and range rounds (invariant 6) wait for later steps.
+The surprises left are
+[metric:ability_state/step1@all-sessions-before-e-facts#surprise_level_fell_without_a_cast=60]
+refused drops whose level fell, co-occurrence and buy-phase refusals where a
+state-deciding model and the gate would first disagree, and
+[metric:ability_state/step1@all-sessions-before-e-facts#surprise_level_fell_without_a_drop=16]
+level falls the reader stored no drop for.
+
+**Cost.** [metric:ability_state/step1-scores@all-sessions#run_wall_s=1266.8] s
+wall at Idle priority for all sessions, of which reading the crop cache took
+[metric:ability_state/step1-scores@all-sessions#cache_read_s_sum=1177.4] s.
+The predictions and outcomes are in the store's ledger, task
+`ability-state`.
+
+### What step 2 needs
+
+- Charge facts for the seven slots still without one (the ten above less
+  Sova's, Phoenix's and Skye's E), and each ability's recharge kind
+  [domain:abilities/recharge-kinds], from the mechanics sheet; until then a
+  half bar reads `[0, 2]`.
+- A pip reader for the X slot: the tray counts teal, not pips, so `pips`
+  stays null and `castable` is the only ult reading.
+- The timer bar reader, to date `until_ms`. Step 1 dates an active span only
+  from a duration fact and from the cast
+  ([domain:abilities/phoenix-blaze-duration],
+  [domain:abilities/clove-ruse-minimap-duration]).
+- Own audio bound to the `cast` transition rather than to a drop.
+- Labels for the refused drops whose level fell, scored before the model
+  decides casts in place of the gate.
+
+### Rerun with the E-slot charge facts (2026-09-27)
+
+The player confirmed one Recon Bolt charge
+[domain:abilities/sova-recon-bolt-charges] and two each of Curveball and
+Guiding Light [domain:abilities/phoenix-curveball-charges]
+[domain:abilities/skye-guiding-light-charges], and named the two restock
+kinds, a timer or kills, per ability [domain:abilities/recharge-kinds]. The
+first run's rows are relabelled `all-sessions-before-e-facts` and this run's
+`all-sessions-three-e-facts`.
+
+Before the rerun the five A1 misses were read in the crops. The two on
+`c40d950031bb` (595 s, 912 s) follow Sova's deaths at 592.5 s and 908.5 s:
+the tray then shows the spectated teammate's kit, Phoenix's Curveball at one
+charge of two, and the gate had forced the drops `after_player_death`. The
+one on `59c70f1ef720` (2429.0 s) is the bow's glow over the E slot while
+Recon Bolt restocks (countdown 33 to 13 s) after Hunter's Fury at 2425 s: the
+glow read as a fill of 0.42 and its passing as a drop the gate accepted as a
+cast; the player's label there is `nothing_on_minimap`. A half bar on a
+one-charge slot is the instrument, and the tray's icons say whose kit is
+shown, a witness for deaths the killfeed misses.
+
+With the facts, [metric:ability_state/step1@all-sessions-three-e-facts#labels_cast_held_before=93] of 94 labelled
+casts held a charge or a lit bar before (S1 asked 93: the two Phoenix and two
+Skye E casts read one charge of two, and the Sova E drop is not confirmed);
+[metric:ability_state/step1@all-sessions-three-e-facts#invariant_1_cast_charge_unconfirmed=9] casts are
+unconfirmed (S3 asked at most 20, from 44), a level outside the segments on
+[metric:ability_state/step1@all-sessions-three-e-facts#invariant_1_level_outside_the_segments=2] readings (S2
+asked 1 to 39; `59c70f1ef720` 2429 s is the glow, `9acf02f98283` 210 s is the whole tray dimmed in a buy phase, every slot at 0.6 of full), and
+[metric:ability_state/step1@all-sessions-three-e-facts#invariant_surprises=78] surprises
+([metric:ability_state/step1@all-sessions-three-e-facts#surprise_level_fell_without_a_cast=60] refused drops
+whose level fell). The run records no `step1-scores` row; the first run's
+scores stand. S1 to S3 held (ledger). Seven slots have no charge fact: Sova and Skye C and Q, Phoenix Q,
+Clove C and Q; Iso's kit joins when `4f207c0c4e39` is ingested.
+
+### Rerun with the seven remaining counts (2026-09-27, late)
+
+The player gave the seven counts left: Owl Drone one
+[domain:abilities/sova-owl-drone-charges], Shock Bolt two
+[domain:abilities/sova-shock-bolt-charges], Trailblazer one
+[domain:abilities/skye-trailblazer-charges], Hot Hands one
+[domain:abilities/phoenix-hot-hands-charges], Pick-me-up one, castable only
+within 10 s of a kill or damaging assist
+[domain:abilities/clove-pick-me-up-charges], Meddle one
+[domain:abilities/clove-meddle-charges], none recharging within a round.
+Regrowth is a pool drawn as a resource bar, not charges
+[domain:abilities/skye-regrowth-resource-bar], so Skye's C stays a no-fact
+slot until the model reads a pool; Viper's fuel is one bar two abilities
+drain, refilled at a constant rate while idle
+[domain:abilities/viper-fuel-bar-recharges]. The rerun recorded under
+`all-sessions`, relabelled `all-sessions-seven-facts` when the catalogue run
+below took that label: [metric:ability_state/step1@all-sessions-seven-facts#labels_cast_held_before=93] of 94 labelled
+casts held a charge before,
+[metric:ability_state/step1@all-sessions-seven-facts#invariant_1_cast_charge_unconfirmed=9] unconfirmed
+(five on `c62c2b06bcfb`, which had no lineup then, so no fact named its agent; four whose one-charge slot read half, fill 0.355 to 0.429, just before the labelled cast: Sova E `59c70f1ef720` 2429.0 s, Sova C `9acf02f98283` 610.1 s, Phoenix Q `a06f04a0059f` 1412.6 s, Skye Q `b7d24102a6f6` 650.0 s), a level outside the segments on
+[metric:ability_state/step1@all-sessions-seven-facts#invariant_1_level_outside_the_segments=14] readings
+(Phoenix:Q 1, Skye:Q 1, Sova:C 10, Sova:E 2), [metric:ability_state/step1@all-sessions-seven-facts#invariant_surprises=78] surprises
+([metric:ability_state/step1@all-sessions-seven-facts#surprise_level_fell_without_a_cast=60] refused drops
+whose level fell). S4 failed; S5 held (ledger).
+
+### The catalogue as the charge prior (2026-09-27)
+
+The player asked that the ability facts already pulled from the wiki be used.
+The harvest (`reference/abilities.json`, built by
+`prototypes/ability_reference.py` on 2026-09-04, a prior and never an oracle)
+now gives a slot's charge count where no domain fact does (`charge_priors`,
+`ability-state-0.2.0`). The command reads it from the store and stamps its
+harvest date among the inputs; without the file there is no prior and the
+command says so. The harvest's `Grenade`, `Ability1`, `Ability2` and
+`Ultimate` are C, Q, E and X, and its count applies only where it names the
+kit's ability in that slot.
+
+A domain fact outranks the catalogue. Where both give a count and differ, the
+fact's count stands and the slot records the `conflict` with both values. A
+fact that makes a slot a pool [domain:abilities/skye-regrowth-resource-bar],
+or bounds every slot at two charges [domain:hud/ability-tray-charge-segments],
+refuses the catalogue's count the same way. A catalogue string that is not a
+count (the ult table's function names, Reyna's "2 (shared charges)") or an
+empty field leaves the slot without one, with the reason. Every state row
+whose charges rest on a count names its `charges_source`; the coverage row
+lists the conflicts, the slots still without a count, and the half readings
+against each count (`segments`): a half bar agrees with a two-charge count and
+disagrees with a one-charge count, and the reading stands either way.
+
+Over the whole harvest (`ability_state/catalogue-prior`), the catalogue agrees
+with every one of the
+[metric:ability_state/catalogue-prior@reference-2026-09-04#cqe_source_player=23]
+C, Q and E counts the facts give
+([metric:ability_state/catalogue-prior@reference-2026-09-04#conflicts_count=0]
+count conflicts) and supplies
+[metric:ability_state/catalogue-prior@reference-2026-09-04#cqe_source_catalogue=57]
+more. Of the
+[metric:ability_state/catalogue-prior@reference-2026-09-04#cqe_without_count=7]
+slots left without a count, Skye's C is a pool by the player's fact against
+the catalogue's one, Brimstone's E (three) and Chamber's Q (eight) exceed the
+two-charge bound, Reyna's Q reads "2 (shared charges)", and Astra's Q and E
+and Reyna's E carry no count. The three refusals, and every count the
+catalogue alone gives, are questions for the player, who has confirmed none
+of them.
+
+The rerun covers
+[metric:ability_state/step1@all-sessions#sessions=21] sessions: the twenty
+above, with `c62c2b06bcfb` now naming Skye from its new lineup, and the Iso
+capture `4f207c0c4e39`. It changed no reading. Every played agent's C, Q and
+E slots already had a domain count except Skye's C, which the pool fact bars
+from the catalogue's one, so
+[metric:ability_state/step1@all-sessions#charges_source_catalogue=0]
+readable slot-samples rest on the catalogue and
+[metric:ability_state/step1@all-sessions#charges_source_player=93137] on a
+fact; [metric:ability_state/step1@all-sessions#charge_conflicts=1] conflict
+(Skye's C) and [metric:ability_state/step1@all-sessions#slots_without_count=1]
+slot without a count (the same) remain, and the unread `no-fact` samples, all
+on Skye's C, did not fall (C1 in the ledger). The half readings agree with the
+two-charge counts on
+[metric:ability_state/step1@all-sessions#segments_agree=6300] slot-samples
+(Clove E, Phoenix E, Skye E, Sova Q) and disagree with a one-charge count on
+[metric:ability_state/step1@all-sessions#segments_disagree=447], the same
+samples invariant 1 counts outside the segments; Iso's capture holds
+[metric:ability_state/step1@all-sessions#invariant_1_level_outside_the_segments_4f207c0c4e39=433]
+of them, half bars on all three of his one-charge slots. Casts left
+unconfirmed number
+[metric:ability_state/step1@all-sessions#invariant_1_cast_charge_unconfirmed=9],
+[metric:ability_state/step1@all-sessions#invariant_1_cast_charge_unconfirmed_4f207c0c4e39=5]
+of them Iso's; the four others are the casts above whose one-charge slot read
+half, which no count can confirm, and the lineup, not the prior, confirmed the
+five on `c62c2b06bcfb`. Surprises number
+[metric:ability_state/step1@all-sessions#invariant_surprises=167],
+[metric:ability_state/step1@all-sessions#invariant_surprises_4f207c0c4e39=89]
+on the Iso capture; the other twenty keep the
+[metric:ability_state/step1@all-sessions-seven-facts#invariant_surprises=78] above.
+[metric:ability_state/step1@all-sessions#labels_cast_held_before=93] of
+[metric:ability_state/step1@all-sessions#labels_cast=94] labelled casts
+held a charge before. C1 to C5 held (ledger); C4's premise called the four
+slots empty, and they read half.

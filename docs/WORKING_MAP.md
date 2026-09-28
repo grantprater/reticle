@@ -35,6 +35,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Frame primitives and spans | `primitives.py`, `segment.py` |
 | HUD, killfeed, roster | `ocr.py`, `killfeed.py`, `roster.py` |
 | Rounds and phase boundaries | `rounds.py`, `scoreboard.py` |
+| Is the Tab scoreboard open: slab close reasons, the history-strip witness, its round marks | `scoreboard.py`, `scoreboard_strip.py` (`reticle strip`), `adjudication/scoreboard.py` (`reticle openings`), [SCOREBOARD_PRESENCE.md](SCOREBOARD_PRESENCE.md), [SCOREBOARD_ROUND_MARKS.md](SCOREBOARD_ROUND_MARKS.md) |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py` |
 | Which stored minimap fits become icons, and what a candidate record carries | `candidate_evidence.py`, `adjudication/minimap_candidates.py`, [MINIMAP_CANDIDATE_CONTRACT.md](MINIMAP_CANDIDATE_CONTRACT.md) |
 | Position belief and its evidence | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
@@ -56,7 +57,9 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | What each demo cast draws on the minimap (census, player questions) | [DEMO_CAST_CENSUS.md](DEMO_CAST_CENSUS.md) |
 | Naming the player's casts from audio (demo bank, transfer) | [AUDIO_ABILITY_BANK.md](AUDIO_ABILITY_BANK.md) |
 | The audio gate: design, mined labels, formulations, predictions, results | [AUDIO_GATE.md](AUDIO_GATE.md) |
+| Voice lines: whose ult, which side, when; ult-ready replies; wiki cast lines | `ult_lines.py`, `adjudication/ult_cast.py`, [VOICE_LINES.md](VOICE_LINES.md), [ULT_READY_LINES.md](ULT_READY_LINES.md), [VOICE_LINE_ASSETS.md](VOICE_LINE_ASSETS.md) |
 | What each ability does: inputs, minimap drawing, overlay, duration (the player's sheet) | `docs/ABILITY_MECHANICS_SHEET.md` |
+| Each ability's state per slot, and the detectors it conditions | [ABILITY_STATE_MODEL.md](ABILITY_STATE_MODEL.md), `adjudication/ability_state.py` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
@@ -98,6 +101,9 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle ability-gallery
 .\.venv\Scripts\python.exe -m reticle ability-capture
 .\.venv\Scripts\python.exe -m reticle ability-phases
+.\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # decodes the audio stream only
+.\.venv\Scripts\python.exe -m reticle ult-cast SESSION      # stored data only
+.\.venv\Scripts\python.exe -m reticle ability-state SESSION # stored data only
 .\.venv\Scripts\python.exe -m reticle acquisition-plan REQUESTS.json
 .\.venv\Scripts\python.exe -m reticle capabilities
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID

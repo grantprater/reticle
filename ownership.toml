@@ -420,12 +420,28 @@ question = "What does a scoreboard row say, and which row is the local player?"
 owner = "scoreboard"
 role = ["detect", "attribute"]
 status = "partial"
-produces = ["read_scoreboard", "ScoreboardRead", "portrait_observations"]
+produces = ["read_scoreboard", "ScoreboardRead", "portrait_observations", "strip_rect"]
 not_for = """
 Cross-round player identity. Rows compact and reorder, so a row POSITION is not
 a player; the marked local row is the only attribution this owns.
 """
-evidence = "tests/test_scoreboard.py"
+evidence = "tests/test_scoreboard.py, docs/SCOREBOARD_PRESENCE.md"
+
+[[entry]]
+id = "scoreboard-strip"
+question = "Is the Tab scoreboard on screen at this cached frame, by its round-history strip?"
+owner = "scoreboard_strip"
+role = ["detect"]
+status = "partial"
+produces = ["read_strip", "strip_events"]
+not_for = """
+Reading a row, naming an agent, or deciding when the board opened. The strip is
+one presence witness; `scoreboard-presence` reconciles it with the slab test.
+The circles it counts as marks are round outcomes, which it does not read.
+"""
+consumers = ["cli", "scoreboard"]
+stored_consumers = ["adjudication.scoreboard"]
+evidence = "tests/test_scoreboard_strip.py, docs/SCOREBOARD_PRESENCE.md, prototypes/scoreboard_strip.py"
 
 [[entry]]
 id = "hud-scan"
@@ -825,15 +841,17 @@ question = "When was an ability cast, and from which tray slot?"
 owner = "ability_timeline"
 role = ["detect", "corroborate"]
 status = "transitional"
-produces = ["build_timeline", "write_timeline", "player_tray_casts"]
+produces = ["build_timeline", "write_timeline", "player_tray_casts", "stored_gate_inputs",
+            "kit_windows", "round_window_of"]
 not_for = """
 A pixel detector result. A cast claim is temporal evidence from the tray and
 audio; it does not locate the ability's entity in the world, and the audio and
 tray agreeing is corroboration rather than detection.
 """
-consumers = ["cli"]
+defers_to = ["tray-kit"]
+consumers = ["cli", "adjudication.ult_cast", "adjudication.ability_state"]
 exit = "`materialize_demo_casts` drives `ability_cast` and `ability_hud` from prototypes/."
-evidence = "tests/test_ability_timeline.py"
+evidence = "tests/test_ability_timeline.py, tests/test_tray.py, docs/VOICE_LINES.md"
 
 [[entry]]
 id = "tray-drop"
@@ -848,8 +866,125 @@ kit, so a drop is a transition, not the player's cast; `ability-cast`
 (`ability_timeline.player_tray_casts`) decides that. An undrawn tray is a
 refusal, never zero charges.
 """
-consumers = ["cli"]
+consumers = ["cli", "adjudication.ability_state"]
 evidence = "tests/test_tray.py, prototypes/tray_suspect_reasons.py"
+
+[[entry]]
+id = "ability-state"
+question = "What does each slot of the local player's kit hold at a time: charges (against the slot's charge count, from a domain fact or the wiki harvest), equipped, castable, owner alive?"
+owner = "adjudication.ability_state"
+role = ["adjudicate", "lifecycle"]
+status = "partial"
+names_agents = true
+produces = ["adjudicate", "invariant_violations", "score_labels", "charge_facts",
+            "pool_facts", "charge_priors", "duration_facts", "slot_parameters",
+            "charges_of", "player_agent_verdict", "player_kit", "STOOD_FOR",
+            "READABLE_PHASES", "HALF_MIN", "LEVEL_FULL_MIN", "X_LIT_MIN", "EQUIP_MIN",
+            "MAX_CHARGES_ANY", "CATALOGUE_PATH", "CATALOGUE_SLOTS"]
+not_for = """
+Deciding which drop is the player's cast: step 1 of docs/ABILITY_STATE_MODEL.md
+consumes the gate's verdicts (`ability-cast`) and names the state each refusal
+stood for; the design's later steps invert that dependency. Nor is it for
+naming the player's agent, which is the identity arbiter's verdict carried with
+its provenance (`agent-identity`, through `ult-cast` and `player-agent`), nor
+for guessing a charge count that neither a domain fact nor the wiki harvest
+gives, nor a regain of charges the tray does not show: those stay null with
+their reason. The harvest is a prior: it never overrules a domain fact, which
+records the conflict, nor a reading, which stands against any count. It builds
+no entity, reads no timer bar or audio, and says nothing of allies or enemies.
+"""
+defers_to = ["agent-identity", "player-agent", "ult-cast", "ability-cast", "tray-drop",
+             "tray-kit"]
+consumers = ["cli"]
+exit = "Steps 2 to 5 of docs/ABILITY_STATE_MODEL.md: audio and the timer bar as witnesses, entities, allies, then the gate's decision moves here."
+evidence = "tests/test_ability_state.py, docs/ABILITY_STATE_MODEL.md"
+
+[[entry]]
+id = "tray-icon"
+question = "How well does each agent's catalogue icon for a tray slot match the icon drawn in that slot?"
+owner = "tray_icons"
+role = ["detect"]
+status = "partial"
+produces = ["catalogue", "reference_key", "icon_template", "load_slot_icons", "slot_patches", "match_icon",
+            "slot_scores", "ICON_PX", "ICON_CY", "SHIFT_PX", "SLOT_KEYS"]
+not_for = """
+Deciding whose kit the tray shows, or naming anyone: it returns a score per
+agent and slot against any set it is handed, and `tray-kit` chooses the set and
+decides. Nor is it the player-agent witness (`lineup.tray_shapes`), which
+thresholds the grey and drops a dimmed icon. The references are the catalogue's
+icons only, never a template cut from a session.
+"""
+consumers = ["cli"]
+evidence = "tests/test_tray_kit.py, docs/TRAY_KIT_WITNESS.md"
+
+[[entry]]
+id = "tray-kit"
+question = "Whose kit does the ability tray show at a time, and when does it stop showing the local player's?"
+owner = "adjudication.tray_kit"
+role = ["attribute", "adjudicate"]
+status = "partial"
+names_agents = true
+produces = ["adjudicate", "read_sample", "candidate_sets", "stored_kit_witness",
+            "spectated_agent", "CHANNEL", "PLAYER_FIT_MIN", "KIT_FIT_MIN", "MARGIN_MIN",
+            "SLOT_READ_MIN", "MIN_READ_SLOTS", "MIN_RUN", "REFUSALS"]
+not_for = """
+Deciding a death or a cast. A kit change says only that the tray stopped
+showing the player's kit; the death of a player is `death`'s question, keyed
+by killfeed entries, and which drop is the player's cast is `ability-cast`'s,
+which reads the change as a second witness beside the killfeed. The planned
+`agent-alive` owner belongs with `death`, not here. The name on each span is
+the identity arbiter's verdict over this channel's claims, never this module's.
+"""
+defers_to = ["agent-identity"]
+consumers = ["cli", "ability_timeline", "adjudication.ability_state"]
+evidence = "tests/test_tray_kit.py, docs/TRAY_KIT_WITNESS.md"
+
+[[entry]]
+id = "ult-line"
+question = "Where in a capture's audio does an official ultimate voice line match, and how well?"
+owner = "ult_lines"
+role = ["detect"]
+status = "partial"
+produces = ["read_capture", "observations", "build_templates", "load_manifest",
+            "manifest_from_assets", "harvested_ults", "phat_tracks", "track_peaks",
+            "nms_peaks", "trim_floor", "decode_mono", "log_mel", "array_module"]
+not_for = """
+Whose line it was, whether that agent is in the match, or whether a peak is a
+cast. It stores every peak above each template's own floor with no class and
+no name; `ult-cast` selects, classes and names them. Two templates peaking at
+one onset both stay: cross-template suppression was measured and declined.
+"""
+consumers = ["cli"]
+stored_consumers = ["adjudication.ult_cast"]
+evidence = "tests/test_ult_lines.py, prototypes/voice_lines.py, docs/VOICE_LINES.md"
+
+[[entry]]
+id = "ult-cast"
+question = "Which ultimate was cast, by which side, when?"
+owner = "adjudication.ult_cast"
+role = ["attribute", "adjudicate"]
+status = "partial"
+names_agents = true
+produces = ["adjudicate", "template_class", "lineup_sides", "player_agent", "round_of",
+            "THRESHOLD", "cast_window", "CAST_WINDOW", "OWN_WINDOW_S", "player_x_drops",
+            "in_window", "nearest_cast"]
+not_for = """
+Deciding which tray drops are the player's casts. It asks `ability-cast`
+(`ability_timeline.player_tray_casts`, through `player_x_drops`), binds each
+own line to the nearest X cast within the agent's cast window as a
+`tray_witness`, writes a `missed_line` row for an X cast with no own line, and
+stores the owner's refusal beside an unwitnessed own line without overruling
+it. The cast window binds and selects nothing. Nor is it for locating the
+ultimate's entity or binding it to a minimap entity (`ability-owner`), or for
+deciding a name itself: each selected peak is a claim on channel `ult_line`,
+and the cast's agent is the arbiter's verdict. Its threshold was chosen on the
+sessions it was scored on and held out on two halves and each session left
+out (docs/VOICE_LINES.md, "Held-out threshold"); a session without a lineup
+classes every peak unknown.
+"""
+defers_to = ["agent-identity", "ability-cast"]
+consumers = ["cli", "adjudication.ability_state"]
+evidence = "tests/test_ult_cast.py, docs/VOICE_LINES.md, prototypes/voice_lines.py"
 
 [[entry]]
 id = "ability-evidence"
@@ -981,6 +1116,22 @@ one accepted opening; the row ordinal reorders as scores change and is never a
 key. Which death a dimmed row belongs to is `death-victim`'s call.
 """
 evidence = "tests/test_death_attribution.py"
+
+[[entry]]
+id = "scoreboard-presence"
+question = "Is the Tab scoreboard on screen at this sample, by the slab test and the round-history strip together, and when did the player hold Tab?"
+owner = "adjudication.scoreboard"
+role = ["adjudicate", "corroborate"]
+status = "partial"
+produces = ["board_presence", "presence_runs"]
+not_for = """
+Reading the board or the strip: it reads both witnesses' stored rows and
+restates neither rule. A sample only the strip saw has no rows, so it names no
+agent and says nothing a row would say. Whether a round was won is not a
+presence question.
+"""
+consumers = ["cli"]
+evidence = "tests/test_scoreboard_presence.py, docs/SCOREBOARD_PRESENCE.md"
 
 [[entry]]
 id = "killfeed-weapon"

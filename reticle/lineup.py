@@ -99,7 +99,8 @@ def load_lineup(session: str, store) -> dict | None:
     only place the answer lives.
 
     **The scoreboard constrains it here too**, when the session's stored rows
-    are current: `identity.board_side_sets` decides each side's five agents
+    carry the verdicts the current reader would write
+    (`version.SCOREBOARD_VERDICT_COMPATIBLE`): `identity.board_side_sets` decides each side's five agents
     and `identity.lineup_with_board` re-assigns the top bar over them, keeping
     the unconstrained verdict and every disagreement beside it.
     """
@@ -118,17 +119,19 @@ def load_lineup(session: str, store) -> dict | None:
     from .adjudication.identity import board_side_sets, lineup_with_board
     from .adjudication.scoreboard import scoreboard_openings
     from .store import Store
-    from .version import SCOREBOARD_VERSION
+    from .version import SCOREBOARD_VERDICT_COMPATIBLE, SCOREBOARD_VERSION
     board_store = Store(store)
     stored = board_store.events_version("scoreboard", session)
-    if stored == SCOREBOARD_VERSION:
+    if stored in SCOREBOARD_VERDICT_COMPATIBLE:
         openings = scoreboard_openings(board_store.read_events("scoreboard", session))
         got = lineup_with_board(got, board_side_sets(openings))
-        got["board_state"] = {"applied": True, "version": stored}
+        got["board_state"] = {"applied": True, "version": stored,
+                              "current": stored == SCOREBOARD_VERSION}
     else:
         # A stale or missing board leaves the top bar alone, and says so: a
         # version bump once dropped the board silently, and a blind label test
-        # read the top bar's wrong guesses as a lineup fault.
+        # read the top bar's wrong guesses as a lineup fault. A bump that keeps
+        # the verdicts joins the compatible set instead of refusing here.
         got["board_state"] = {"applied": False, "reason": "no_scoreboard" if stored is None
                         else f"stale_version {stored} != {SCOREBOARD_VERSION}"}
     return got

@@ -43,7 +43,7 @@ import numpy as np
 from .decode import sample_frames, sample_multi, sample_spans
 from .checks import KNOWN_KD, check_hud, player_events, track_entries
 from .rounds import build_rounds, summarise
-from .scoreboard import ScoreboardReader, read_scoreboard
+from .scoreboard import ScoreboardReader, load_agent_icons, read_scoreboard, strip_rect
 from . import cone, geometry, lighting
 from .fidelity import FROZEN_WINDOWS
 from .fingerprint import fingerprint
@@ -1274,11 +1274,13 @@ def cmd_scan(args) -> int:
                   f"stopped), {len(pp.rejected)} refused on lifetime, "
                   f"{pp.n_absent} frames widget-absent")
         if sp is not None:
-            path = out.write_events("scoreboard", sid, sp.events(sid))
+            events = sp.events(sid)
+            path = out.write_events("scoreboard", sid, events)
             accepted = sum(r["credits"] is not None for r in sp.rows)
             candidates = sum(r["credits_candidate"] is not None for r in sp.rows)
             print(f"scoreboard {sp.frames_open}/{sp.frames_offered} frames open, "
                   f"{accepted}/{candidates} credit candidates gated -> {path}")
+            print(f"           closed by {events[0]['closed_reasons']}")
         print(f"one pass   {n_dec} frames retrieved in {dt:.1f}s")
 
     def scan_once(out, pipeline="serial", workers=None, shards=None, cv_threads=None):
@@ -1543,9 +1545,12 @@ def cmd_board(args) -> int:
     print(f"sampling   {args.hz:g} Hz for scoreboard openings")
 
     reads: list[tuple[float, object]] = []
+    icons = load_agent_icons(store.root)
     for smp in sample_frames(str(media), args.hz, src["fps"], args.max_frames):
         sb = read_scoreboard(smp.frame, templates,
-                             args.min_confidence, args.min_margin)
+                             args.min_confidence, args.min_margin,
+                             strip_rect(profile.name, smp.frame.shape[1], smp.frame.shape[0]),
+                             icons)
         if sb.open_ and sb.player is not None and sb.player.complete:
             reads.append((smp.t_ms, sb))
 
@@ -1595,6 +1600,110 @@ def cmd_board(args) -> int:
         print(f"\nfirst divergence at {_fmt_hms(worst)} -- the error is in or before that round")
     elif tracked is not None:
         print("\nno divergence at any opening")
+    return 0
+
+
+def cmd_strip(args) -> int:
+    """The round-history strip at every cached frame, from the hud crop cache's
+    centre crop (`scoreboard_strip`): a second witness that the Tab board is
+    on screen. Decodes no video."""
+    from . import scoreboard_strip as strip
+    from .roi_cache import RoiCache
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        man = store.read_manifest(sid)
+        src = man["source"]
+        if (int(src["width"]), int(src["height"])) != strip.MEASURED_WH:
+            print(f"{sid}: the strip is measured at 1920x1080 -- skipped")
+            continue
+        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "hud")
+        if cache is None:
+            print(f"{sid}: no hud crop cache ({why}) -- skipped")
+            continue
+        rect = cache.rect_of(strip.ROI)
+        reads = [(f, t, strip.read_strip(crop, rect)) for f, t, crop in cache.crops(strip.ROI)]
+        rows = strip.strip_events(sid, reads, rect, cache.record["version"])
+        out = store.write_events("scoreboard_strip", sid, rows)
+        print(f"{sid}: {rows[0]['frames']} frames, {rows[0]['verdicts']} -> {out}")
+    return 0
+
+
+def _presence_counts(samples: list[dict], on=None) -> dict:
+    """Open samples, holds, single-sample holds and one-sample holes under one
+    reading of presence (`adjudication.scoreboard.presence_runs`)."""
+    from .adjudication.scoreboard import presence_runs
+
+    runs = presence_runs(samples, on)
+    test = on or (lambda s: s["present"])
+    return {"samples_open": sum(1 for s in samples if test(s)), "runs": len(runs),
+            "runs_single_sample": sum(r["single"] for r in runs),
+            "holes": sum(len(r["holes"]) for r in runs),
+            "runs_with_hole": sum(1 for r in runs if r["holes"])}
+
+
+def cmd_openings(args) -> int:
+    """Scoreboard openings from storage, the slab test's rows and the strip's
+    reconciled sample by sample (`adjudication.scoreboard`). Stores one
+    `scoreboard_presence` row per sample, with what each witness said and the
+    opening's verdict, and a coverage row counting holds, holes and
+    disagreements under the slab test alone and combined. Decodes nothing."""
+    from .adjudication.scoreboard import (SCOREBOARD_AGENT_VERSION, board_presence,
+                                          presence_runs, scoreboard_openings)
+    from .version import SCOREBOARD_STRIP_VERSION
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        board = store.read_events("scoreboard", sid)
+        if not board:
+            print(f"{sid}: no scoreboard rows -- skipped")
+            continue
+        strip = store.read_events("scoreboard_strip", sid)
+        stored_strip = strip[0].get("scoreboard_strip_version") if strip else None
+        if stored_strip != SCOREBOARD_STRIP_VERSION:
+            print(f"{sid}: strip rows {'absent' if stored_strip is None else 'at ' + stored_strip}, "
+                  f"current is {SCOREBOARD_STRIP_VERSION} -- run `reticle strip {sid}`; skipped")
+            continue
+        presence = board_presence(board, strip)
+        samples = presence["samples"]
+        openings = scoreboard_openings(board, strip_rows=strip)
+        by_frame = {int(o["frame_idx"]): o for o in openings}
+        hold = {}
+        for k, run in enumerate(presence_runs(samples)):
+            for s in samples[run["a"]:run["z"] + 1]:
+                hold[s["frame_idx"]] = k
+        common = {"session_id": sid, "scoreboard_presence_version": SCOREBOARD_AGENT_VERSION,
+                  "scoreboard_version": board[0].get("scoreboard_version"),
+                  "scoreboard_strip_version": stored_strip, "source": "scoreboard_presence"}
+        rows = []
+        for s in samples:
+            o = by_frame.get(s["frame_idx"])
+            rows.append({**common, "kind": "sample", **s, "hold": hold.get(s["frame_idx"]),
+                         "opening_accepted": None if o is None else o["accepted"],
+                         "opening_reason": None if o is None else o["reason"]})
+        witness = Counter(s["witness"] for s in samples)
+        unreadable = Counter(s["slab"] for s in samples if s["witness"] == "unreadable")
+        closed = Counter(s["slab_reason"] for s in samples if s["slab"] == "closed")
+        coverage = {**common, "kind": "coverage", "samples": len(samples),
+                    "slab_closed_from": presence["slab_closed_from"],
+                    "slab": _presence_counts(samples, lambda s: s["slab"] == "open"),
+                    "combined": _presence_counts(samples),
+                    "witness": dict(sorted(witness.items())),
+                    "unreadable_slab_open": unreadable.get("open", 0),
+                    "unreadable_slab_closed": unreadable.get("closed", 0),
+                    "slab_closed_reasons": {str(k): v for k, v in sorted(
+                        closed.items(), key=lambda kv: str(kv[0]))},
+                    "openings": len(openings),
+                    "openings_accepted": sum(o["accepted"] for o in openings),
+                    "openings_strip_only": sum(o["reason"] == "strip_only_no_rows"
+                                               for o in openings)}
+        out = store.write_events("scoreboard_presence", sid, [coverage] + rows)
+        a, b = coverage["slab"], coverage["combined"]
+        print(f"{sid}: open {a['samples_open']} -> {b['samples_open']}, holds {a['runs']} -> "
+              f"{b['runs']}, single {a['runs_single_sample']} -> {b['runs_single_sample']}, "
+              f"holes {a['holes']} -> {b['holes']}; accepted {coverage['openings_accepted']}; "
+              f"slab_only {witness.get('slab_only', 0)}, strip_only {witness.get('strip_only', 0)}, "
+              f"unreadable {witness.get('unreadable', 0)} -> {out}")
     return 0
 
 
@@ -2864,14 +2973,35 @@ def _sessions_arg(store: Store, args) -> list[str]:
             else [_resolve_session(store, args.session)["session_id"]])
 
 
+def _tray_samples(cache, step_s: float) -> tuple[list, list, list, list]:
+    """The tray's slot counts on the crop cache's grid, span by span:
+    (times, counts, clean, real). A refused row separates two spans, so no
+    drop is read across two rounds; `real` is False on it."""
+    from . import tray
+    ts, counts, clean, real = [], [], [], []
+    for a, b in cache.record["spans"]:
+        for smp in cache.samples(_cache_grid(cache.t_ms, a, b, step_s), rois=["hud_abilities"]):
+            c, ok = tray.slot_counts(smp.frame)
+            ts.append(float(smp.t_ms))
+            counts.append(c)
+            clean.append(ok)
+            real.append(True)
+        ts.append((ts[-1] if ts else 0.0) + 10.0)
+        counts.append([0, 0, 0, 0])
+        clean.append(False)
+        real.append(False)
+    return ts, counts, clean, real
+
+
 def cmd_tray(args) -> int:
     """The tray's charge drops from the stored crops, and which are the player's
     casts (`ability_timeline.player_tray_casts`). Decodes no video."""
     from . import tray
-    from .ability_timeline import player_tray_casts
-    from .rounds import player_death_times
+    from .ability_timeline import player_tray_casts, stored_gate_inputs
+    from .adjudication.ult_cast import player_agent
+    from .lineup import load_lineup
     from .roi_cache import RoiCache
-    from .version import TRAY_VERSION
+    from .version import PLAYER_CAST_VERSION, TRAY_VERSION
 
     store = Store(args.store)
     for sid in _sessions_arg(store, args):
@@ -2884,27 +3014,26 @@ def cmd_tray(args) -> int:
         if cache is None:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
             continue
-        ts, counts, clean = [], [], []
-        for a, b in cache.record["spans"]:
-            for smp in cache.samples(_cache_grid(cache.t_ms, a, b, args.step), rois=["hud_abilities"]):
-                c, ok = tray.slot_counts(smp.frame)
-                ts.append(float(smp.t_ms))
-                counts.append(c)
-                clean.append(ok)
-            # A refused row between spans: no drop is read across two rounds.
-            ts.append((ts[-1] if ts else 0.0) + 10.0)
-            counts.append([0, 0, 0, 0])
-            clean.append(False)
+        spans = cache.record.get("spans")
+        if not spans:
+            print(f"{sid}: the crop cache has no round spans (a whole-capture cache) -- skipped")
+            continue
+        ts, counts, clean, _real = _tray_samples(cache, args.step)
         date = _date_of(man)
-        hud, rounds = store.read_hud(sid, date), store.read_rounds(sid, date).to_pylist()
-        gt = gametime.build_session_gametime(sid, hud, rounds,
-                                             stall_list=stalls.for_session(store, sid, date))
+        rounds = store.read_rounds(sid, date).to_pylist()
+        gate, stamps = stored_gate_inputs(store, sid, date, rounds,
+                                          player_agent(load_lineup(sid, store.root), sid))
         rows = player_tray_casts(
             tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool)),
-            lambda t: gt.game_time_at(t).phase, rounds, player_death_times(hud))
-        common = {"session_id": sid, "tray_version": TRAY_VERSION, "step_s": args.step}
+            gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
+            second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+            report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+            kit_returns_ms=gate["kit_returns_ms"])
+        common = {"session_id": sid, "tray_version": TRAY_VERSION,
+                  "player_cast_version": PLAYER_CAST_VERSION, "step_s": args.step}
         why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
         out_rows = [{**common, "kind": "coverage", "samples": len(ts) - len(cache.record["spans"]),
+                     "tray_kit": stamps["tray_kit"],
                      "drops": len(rows), "player_casts": sum(r["player_cast"] for r in rows),
                      "refused_reasons": dict(sorted(why_not.items()))}]
         out_rows += [{**common, "kind": "drop", **r} for r in rows]
@@ -2914,13 +3043,400 @@ def cmd_tray(args) -> int:
     return 0
 
 
+def _tray_frames(cache, step_s: float):
+    """(cache span index, Sample) on the crop cache's grid, span by span: the
+    grid `reticle tray` samples, so a kit sample and a fill share an instant."""
+    for si, (a, b) in enumerate(cache.record["spans"]):
+        for smp in cache.samples(_cache_grid(cache.t_ms, a, b, step_s), rois=["hud_abilities"]):
+            yield si, smp
+
+
+def cmd_tray_kit(args) -> int:
+    """Whose kit the tray shows, per sample of the stored `hud_abilities`
+    crops (`adjudication.tray_kit`), the slot icons scored against the
+    catalogue's (`tray_icons`). Decodes no video."""
+    import time
+
+    from . import tray, tray_icons
+    from .adjudication.tray_kit import adjudicate, candidate_sets, read_sample
+    from .lineup import load_lineup
+    from .roi_cache import RoiCache
+    from .version import TRAY_KIT_VERSION, TRAY_VERSION
+
+    store = Store(args.store)
+    icons = tray_icons.load_slot_icons(store.root)
+    all_agents = sorted(icons)
+    ref_key = tray_icons.reference_key(store.root)
+    parameters = {"ICON_PX": tray_icons.ICON_PX, "ICON_CY": tray_icons.ICON_CY,
+                  "SHIFT_PX": tray_icons.SHIFT_PX, "step_s": args.step,
+                  "rate": f"the crop cache's grid every {args.step} s inside its round spans, "
+                          f"the grid `reticle tray` and `reticle ability-state` read"}
+    done = []
+    for sid in _sessions_arg(store, args):
+        t0 = time.perf_counter()
+        man = store.read_manifest(sid)
+        src = man["source"]
+        if (int(src["width"]), int(src["height"])) != (1920, 1080):
+            print(f"{sid}: tray geometry is measured at 1920x1080 -- skipped")
+            continue
+        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
+        if cache is None or not cache.record.get("spans"):
+            print(f"{sid}: no minimap crop cache with round spans ({why}) -- skipped")
+            continue
+        lineup = load_lineup(sid, store.root)
+        sets = candidate_sets(lineup, sid)
+        ts, span_of, counts, clean, patches = [], [], [], [], []
+        for si, smp in _tray_frames(cache, args.step):
+            c, ok = tray.slot_counts(smp.frame)
+            ts.append(float(smp.t_ms))
+            span_of.append(si)
+            counts.append(c)
+            clean.append(ok)
+            patches.append([np.clip(p, 0, 255).astype(np.uint8)
+                            for p in tray_icons.slot_patches(smp.frame)])
+        t_read = time.perf_counter() - t0
+        fills = tray.fills(np.asarray(counts, float), np.asarray(clean, bool))
+        samples = []
+        for i, t in enumerate(ts):
+            got: dict = {}
+            p = [x.astype(np.float32) for x in patches[i]]
+
+            def score(agents, p=p, got=got):
+                new = [a for a in agents if a not in got]
+                if new:
+                    got.update(zip(new, tray_icons.slot_scores(p, icons, new)))
+                return np.array([got[a] for a in agents])
+
+            drawn = tray.drawn(fills[i])
+            samples.append({"t_ms": t, "cache_span": span_of[i], "drawn": drawn,
+                            **read_sample(drawn, score, sets, all_agents)})
+        inputs = {"roi_cache": cache.record.get("version"), "tray_fill": TRAY_VERSION,
+                  "lineup": (lineup or {}).get("version"),
+                  "board_state": (lineup or {}).get("board_state"),
+                  "catalogue": f"reference/abilities.json#{ref_key}"}
+        res = adjudicate(sid, samples, sets, inputs, parameters)
+        cov = res["rows"][0]
+        cov["checks"] = {"cache_read_s": round(t_read, 1),
+                         "wall_s": round(time.perf_counter() - t0, 1)}
+        out = store.write_events("tray_kit", sid, res["rows"])
+        store.write_events("tray_kit_identity", sid, res["events"])
+        print(f"{sid}: player {cov['player_agent']}; {cov['named']} of {cov['samples']} samples "
+              f"named {cov['named_by_agent']}; refused {cov['refused']}; {cov['spans']} spans, "
+              f"{cov['kit_changes']} kit changes, {cov['kit_returns']} returns; "
+              f"{cov['checks']['wall_s']} s -> {out}")
+        done.append((sid, man, res["rows"]))
+    if args.record and done:
+        from . import metrics
+        for sid, man, rows in done:
+            values = _tray_kit_values(store, sid, man, rows, args.at)
+            metrics.record(tool="tray_kit", part="witness", session=sid, values=values,
+                           deps={"tray_kit_version": TRAY_KIT_VERSION,
+                                 "tray_version": TRAY_VERSION,
+                                 "catalogue": rows[0]["inputs"]["catalogue"]},
+                           context={"at_s": list(args.at or [])})
+            print(f"recorded tray_kit/witness@{sid}: {json.dumps(values)}")
+    return 0
+
+
+def _tray_kit_values(store, sid: str, man: dict, rows: list[dict], at_s) -> dict:
+    """The quoted numbers of one `tray-kit --record` run: coverage, the
+    reading at the instants asked for, and, where the killfeed witnesses the
+    player's deaths, each death's delay to the first sample of another kit and
+    the kit changes while the player lives (`ability_timeline.kit_windows`)."""
+    from .ability_timeline import DEATH_LEAD_MS, kit_windows, round_window_of, stored_gate_inputs
+    cov = rows[0]
+    samples = [r for r in rows if r.get("kind") == "sample"]
+    step = float(cov["parameters"]["step_s"])
+    values = {"samples": cov["samples"], "named": cov["named"], "spans": cov["spans"],
+              "spans_own": cov["spans_own"], "spans_other": cov["spans_other"],
+              "kit_changes": cov["kit_changes"], "kit_returns": cov["kit_returns"],
+              **{f"named_{k.replace('/', '_')}": v for k, v in cov["named_by_agent"].items()},
+              **{f"set_{k}": v for k, v in cov["named_by_set"].items()},
+              **{f"refused_{k}": v for k, v in cov["refused"].items()}}
+    t = np.array([s["t_ms"] for s in samples])
+    for s_at in at_s or []:
+        s = samples[int(np.argmin(np.abs(t - s_at * 1000.0)))]
+        key = f"at_{str(s_at).replace('.', '_')}_s"
+        values[key] = s["kit_agent"] or f"refused_{s['reason']}"
+        values[f"{key}_t_ms"] = s["t_ms"]
+    player = cov["player_agent"]
+    date = _date_of(man)
+    rounds = store.read_rounds(sid, date).to_pylist()
+    gate, _stamps = stored_gate_inputs(store, sid, date, rounds, player)
+    values["killfeed_deaths"] = len(gate["player_deaths_ms"])
+    if not gate["player_deaths_ms"] or player is None:
+        return values
+    # The killfeed's kit ends alone: the witness is scored against the
+    # channel it does not read.
+    kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                       second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+                       report_deaths=gate["report_deaths"])
+    other = [s for s in samples if s["kit_agent"] and s["kit_agent"] != player]
+    changes = [r for r in rows if r.get("kind") == "kit_change"]
+    delays, unseen, live_ms, early = [], [], 0.0, []
+    for s in samples:
+        k = round_window_of(s["t_ms"], kits)
+        if k is not None and (k["kit_end_ms"] is None
+                              or s["t_ms"] < k["kit_end_ms"] - DEATH_LEAD_MS):
+            live_ms += step * 1000.0
+    for k in kits:
+        end = k["kit_end_ms"]
+        if end is None:
+            continue
+        _a, _z, close = k["window"]
+        inside = [s["t_ms"] for s in other if end - DEATH_LEAD_MS <= s["t_ms"] <= close]
+        if inside:
+            delays.append((min(inside) - end) / 1000.0)
+        else:
+            unseen.append(end)
+    for c in changes:
+        k = round_window_of(c["kit_change_ms"], kits)
+        if k is not None and (k["kit_end_ms"] is None
+                              or c["kit_change_ms"] < k["kit_end_ms"] - DEATH_LEAD_MS):
+            early.append(c["kit_change_ms"])
+    values.update({"kill_ends": len(delays) + len(unseen),
+                   "kill_ends_with_other_kit": len(delays),
+                   "kill_ends_without_other_kit": len(unseen),
+                   "kill_ends_without_other_kit_t_s": [round(x / 1000.0, 2) for x in unseen],
+                   "live_min": round(live_ms / 60000.0, 2),
+                   "changes_while_alive": len(early),
+                   "changes_while_alive_per_live_min": round(
+                       len(early) / max(live_ms / 60000.0, 1e-9), 4),
+                   "changes_while_alive_t_s": [round(x / 1000.0, 1) for x in early]})
+    if delays:
+        q = np.quantile(delays, [0.0, 0.25, 0.5, 0.75, 1.0])
+        values.update({f"delay_s_{n}": round(float(x), 2)
+                       for n, x in zip(("min", "q25", "median", "q75", "max"), q)})
+        values["delays_s"] = [round(d, 2) for d in sorted(delays)]
+    return values
+
+
+def cmd_ability_state(args) -> int:
+    """The player's kit as a state per slot (`adjudication.ability_state`):
+    the stored `tray_drop` rows, the gate's verdicts on them, the deaths, and
+    the tray fills reread from the stored `hud_abilities` crops on the grid
+    `reticle tray` sampled, which carry what the drops cannot (the level
+    between drops, an equip, a lit X bar, every rise). The wiki harvest
+    (`reference/abilities.json`) is the charge prior where no domain fact
+    gives a count (`charge_priors`). Decodes no video."""
+    import json
+    import time
+
+    from . import domain, tray
+    from .ability_timeline import kit_windows, player_tray_casts, stored_gate_inputs
+    from .adjudication.ability_state import (CATALOGUE_PATH, adjudicate, player_agent_verdict,
+                                             player_kit, slot_parameters)
+    from .adjudication.tray_kit import stored_kit_witness
+    from .adjudication.ult_cast import DROP_FIELDS
+    from .lineup import load_lineup
+    from .roi_cache import RoiCache
+    from .version import ABILITY_STATE_VERSION, PLAYER_CAST_VERSION, TRAY_VERSION
+
+    store = Store(args.store)
+    facts = domain.load()
+    # The charge prior: the harvest, stamped by its date, or its stated absence.
+    cat_file = store.root / CATALOGUE_PATH
+    catalogue = (json.loads(cat_file.read_text(encoding="utf-8")) if cat_file.is_file()
+                 else None)
+    cat_stamp = (f"{CATALOGUE_PATH}@{catalogue.get('harvested')}" if catalogue is not None
+                 else f"absent:{CATALOGUE_PATH}")
+    if catalogue is None:
+        print(f"no charge prior: {cat_file} is absent; slots without a fact stay unread "
+              f"and the kit names no ability")
+    done = []
+    for sid in _sessions_arg(store, args):
+        t0 = time.perf_counter()
+        stored = store.read_events("tray_drop", sid)
+        cov = next((r for r in stored if r.get("kind") == "coverage"), None)
+        if cov is None:
+            print(f"{sid}: no tray_drop rows -- skipped")
+            continue
+        if cov.get("tray_version") != TRAY_VERSION:
+            print(f"{sid}: tray_drop is {cov.get('tray_version')}, code is {TRAY_VERSION} "
+                  f"-- rerun `reticle tray`; skipped")
+            continue
+        man = store.read_manifest(sid)
+        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
+        if cache is None or not cache.record.get("spans"):
+            print(f"{sid}: no minimap crop cache with round spans ({why}) -- skipped")
+            continue
+        drops = [r for r in stored if r.get("kind") == "drop"]
+        ts, counts, clean, real = _tray_samples(cache, cov["step_s"])
+        counts, clean = np.asarray(counts, float), np.asarray(clean, bool)
+        t_read = time.perf_counter() - t0
+        # The reread must give the stored drops, or the fills are not theirs.
+        key = lambda r: tuple(r[k] for k in ("t_ms", "slot", "from", "to", "forced",
+                                              "cooccur", "across_gap"))
+        reread_mismatch = len(set(map(key, tray.drops(ts, counts, clean)))
+                              ^ set(map(key, drops)))
+        fills = tray.fills(counts, clean)
+        keep = np.asarray(real, bool)
+        date = _date_of(man)
+        rounds = store.read_rounds(sid, date)
+        round_version = (rounds.schema.metadata or {}).get(b"round_version", b"").decode() or None
+        rounds = rounds.to_pylist()
+        lineup = load_lineup(sid, store.root)
+        agent = player_agent_verdict(lineup, sid)
+        gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent["agent"])
+        gate_rows = player_tray_casts(
+            [{k: r[k] for k in DROP_FIELDS} for r in drops], gate["phase_of"], rounds,
+            gate["player_deaths_ms"], agent=gate["agent"],
+            second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+            report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+            kit_returns_ms=gate["kit_returns_ms"])
+        kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                           second_lives_ms=gate["second_lives_ms"],
+                           revives_ms=gate["revives_ms"], report_deaths=gate["report_deaths"],
+                           kit_changes_ms=gate["kit_changes_ms"],
+                           kit_returns_ms=gate["kit_returns_ms"])
+        spectated = stored_kit_witness(store.read_events("tray_kit", sid),
+                                       agent=agent["agent"])["other_spans"]
+        # The kit's names come from the same harvest (`lineup.abilities_for`).
+        kit = player_kit(agent["agent"], store.root) if catalogue is not None else {}
+        inputs = {**stamps, "tray_drop": cov["tray_version"], "catalogue": cat_stamp,
+                  "tray_drop_player_cast": cov.get("player_cast_version"),
+                  "tray_fill": TRAY_VERSION, "roi_cache": cache.record.get("version"),
+                  "round": round_version, "lineup": (lineup or {}).get("version"),
+                  "agent_identity": agent["adjudication_version"]}
+        checks = {"step_s": cov["step_s"], "drops_reread_mismatch": reread_mismatch,
+                  "gate_stored_mismatch": sum(
+                      (a["reason"], a["player_cast"]) != (b.get("reason"), b.get("player_cast"))
+                      for a, b in zip(gate_rows, drops)),
+                  "cache_read_s": round(t_read, 1)}
+        rows = adjudicate(
+            sid, drops=drops, gate_rows=gate_rows, kits=kits, phase_of=gate["phase_of"],
+            samples={"t_ms": [t for t, r in zip(ts, real) if r], "fills": fills[keep],
+                     "drawn": [tray.drawn(f) for f in fills[keep]], "clean": clean[keep]},
+            agent=agent, params=slot_parameters(agent["agent"], kit, facts, catalogue=catalogue),
+            inputs=inputs, checks=checks, spectated=spectated)
+        rows[0]["checks"]["wall_s"] = round(time.perf_counter() - t0, 1)
+        out = store.write_events("ability_state", sid, rows)
+        c = rows[0]
+        print(f"{sid}: {agent['agent']} ({agent['status']}); {c['readable_slot_samples']} of "
+              f"{c['slot_samples']} slot-samples readable; {c['by_transition']}; surprises "
+              f"{c['surprises']}; reread mismatch {reread_mismatch}, gate mismatch "
+              f"{checks['gate_stored_mismatch']}; counts from {c['charges_source']}, "
+              f"conflicts {len(c['charge_conflicts'])}, without a count "
+              f"{[x['slot'] for x in c['slots_without_count']]}; "
+              f"{rows[0]['checks']['wall_s']} s -> {out}")
+        done.append((sid, rows))
+    if args.record and done:
+        from . import metrics
+        values = _ability_state_values(store, done)
+        metrics.record(tool="ability_state", part="step1",
+                       session=args.session if not args.all else "all-sessions",
+                       values=values,
+                       deps={"ability_state_version": ABILITY_STATE_VERSION,
+                             "tray_version": TRAY_VERSION,
+                             "player_cast_version": PLAYER_CAST_VERSION},
+                       context={"labels": "labels/tray_object", "catalogue": cat_stamp,
+                                "sessions": [sid for sid, _ in done]})
+        print(json.dumps(values, indent=1))
+    return 0
+
+
+def _ability_state_values(store, done) -> dict:
+    """The quoted numbers of one `ability-state --record` run: coverage, the
+    unreadable reasons, the invariant counts, the charge counts' sources and
+    conflicts, the half readings against each count, and the player's labels."""
+    import json
+
+    from .adjudication.ability_state import EQUIP_MIN, score_labels
+    pooled, invariants, unread, reasons = Counter(), Counter(), Counter(), Counter()
+    labelled = []
+    sources, slot_source, conflicts, without, segments = Counter(), {}, {}, {}, {}
+    for sid, rows in done:
+        c = rows[0]
+        # Where an equipped slot's fill sits: the stored releases' `from`.
+        released = [r["from"] for r in store.read_events("tray_drop", sid)
+                    if r.get("kind") == "drop" and r.get("reason") == "equip_release"]
+        pooled.update({"release_drops": len(released),
+                       "release_from_at_equip_min": sum(f >= EQUIP_MIN for f in released)})
+        pooled.update({"sessions": 1, "samples": c["samples"], "slot_samples": c["slot_samples"],
+                       "readable_slot_samples": c["readable_slot_samples"],
+                       "drops": c["drops"],
+                       "drops_reread_mismatch": c["checks"]["drops_reread_mismatch"],
+                       "gate_stored_mismatch": c["checks"]["gate_stored_mismatch"]})
+        pooled.update({f"transition_{k}": v for k, v in c["by_transition"].items()})
+        pooled.update({f"surprise_{k}": v for k, v in c["surprises"].items()})
+        pooled.update({f"kit_witness_{k}": v for k, v in c.get("kit_witness", {}).items()})
+        unread.update(c["unreadable_slot_samples"])
+        reasons.update(c["charges_unread_readable_slot_samples"])
+        # Where each count came from, per distinct agent and slot.
+        sources.update(c["charges_source_readable_slot_samples"])
+        who = c["agent"].get("agent")
+        for slot, src in c["charges_source"].items():
+            if who and src:
+                slot_source[f"{who}:{slot}"] = src
+        for x in c["charge_conflicts"]:
+            conflicts[f"{who}:{x['slot']}"] = (f"{who}:{x['slot']}:{x['kind']}:player={x['player']}"
+                                               f":catalogue={x['catalogue']}:{x['fact']}")
+        for x in c["slots_without_count"]:
+            if who:
+                without[f"{who}:{x['slot']}"] = f"{who}:{x['slot']}:{x['prior_reason'] or x['reason']}"
+        for slot, seg in c["segments"].items():
+            k = f"{who}:{slot}"
+            got = segments.setdefault(k, {"max_charges": seg["max_charges"],
+                                          "source": seg["source"], "half_samples": 0,
+                                          "agree": 0, "disagree": 0, "unscored": 0})
+            for f in ("half_samples", "agree", "disagree", "unscored"):
+                got[f] += seg[f]
+        for k, v in c["invariants"].items():
+            if isinstance(v, int):
+                invariants[k] += v
+                if v:
+                    invariants[f"{k}_{sid}"] = v
+        path = store.root / "labels" / "tray_object" / f"{sid}.jsonl"
+        if path.exists():
+            labs = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()]
+            labelled += score_labels(rows, labs)["labels"]
+    values = dict(sorted(pooled.items()))
+    values["readable_fraction"] = round(values["readable_slot_samples"]
+                                        / max(values["slot_samples"], 1), 4)
+    values.update({f"unreadable_{k}": v for k, v in sorted(unread.items())})
+    # The kit reasons again under names a citation can carry (an identifier).
+    values.update({f"unreadable_{k.replace(':', '_')}": unread.get(k, 0)
+                   for k in ("kit_frozen:after_player_death", "kit:spectating",
+                             "owner_dead:kit_witness")})
+    values["unreadable_fraction"] = round(1 - values["readable_fraction"], 4)
+    values.update({f"charges_unread_{k}": v for k, v in sorted(reasons.items())})
+    values.update({f"invariant_{k}": v for k, v in sorted(invariants.items())})
+    values.update({
+        "charges_source_player": sources.get("player", 0),
+        "charges_source_catalogue": sources.get("catalogue", 0),
+        "slots_source_player": sum(v == "player" for v in slot_source.values()),
+        "slots_source_catalogue": sum(v == "catalogue" for v in slot_source.values()),
+        "charge_conflicts": len(conflicts),
+        "charge_conflict_slots": [conflicts[k] for k in sorted(conflicts)],
+        "slots_without_count": len(without),
+        "slots_without_count_names": [without[k] for k in sorted(without)],
+        "segments_agree": sum(v["agree"] for v in segments.values()),
+        "segments_disagree": sum(v["disagree"] for v in segments.values()),
+        "segments_unscored": sum(v["unscored"] for v in segments.values()),
+        "segments_by_slot": {k: segments[k] for k in sorted(segments)
+                             if segments[k]["half_samples"]}})
+    casts = [lab for lab in labelled if lab["transition"] == "cast"]
+    values.update({"labels": len(labelled), "labels_cast": len(casts),
+                   "labels_cast_held_before": sum(bool(lab["held_before"]) for lab in casts),
+                   "labels_by_transition": dict(sorted(Counter(
+                       str(lab["transition"]) for lab in labelled).items()))})
+    if casts:
+        values["a1_held_fraction"] = round(values["labels_cast_held_before"] / len(casts), 4)
+    values["a1_misses"] = [f"{lab['key']}:{lab['agent']}:level={lab['before_level']}"
+                           f":held={lab['before_held_level']}:fill={lab['before_fill']}"
+                           for lab in casts if not lab["held_before"]]
+    return values
+
+
 def cmd_ability_shapes(args) -> int:
     """The drawn minimap shape after each of the player's casts of an ability
     with a known form, from stored crops (`ability_shapes`). Decodes no video."""
     from . import ability_shapes
+    from .ability_timeline import player_tray_casts, stored_gate_inputs
     from .lineup import abilities_for, load_lineup
     from .roi_cache import RoiCache
-    from .version import TRAY_VERSION
+    from .version import PLAYER_CAST_VERSION, TRAY_VERSION
 
     store = Store(args.store)
     for sid in _sessions_arg(store, args):
@@ -2937,9 +3453,18 @@ def cmd_ability_shapes(args) -> int:
             print(f"{sid}: the arbiter names no player agent -- skipped")
             continue
         kit = abilities_for(agent, store.root)
-        casts = [d for d in drops if d.get("kind") == "drop" and d["player_cast"]
-                 and kit.get(d["slot"]) in ability_shapes.SHAPES]
         man = store.read_manifest(sid)
+        # The gate decides afresh from the stored drops, as `ult-cast` asks it,
+        # so a gate change needs no reread of the tray's crops.
+        rounds = store.read_rounds(sid, _date_of(man)).to_pylist()
+        gate, _stamps = stored_gate_inputs(store, sid, _date_of(man), rounds, agent)
+        casts = [d for d in player_tray_casts(
+                     [d for d in drops if d.get("kind") == "drop"],
+                     gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                     second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+                     report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+                     kit_returns_ms=gate["kit_returns_ms"])
+                 if d["player_cast"] and kit.get(d["slot"]) in ability_shapes.SHAPES]
         cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
         if cache is None:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
@@ -2955,15 +3480,12 @@ def cmd_ability_shapes(args) -> int:
         sx, sy = mm.column("self_x").to_pylist(), mm.column("self_y").to_pylist()
 
         def seed_at(t):
-            if not len(mt):
-                return None
-            i = int(np.abs(mt - t).argmin())
-            if abs(mt[i] - t) > 100 or sx[i] is None:
-                return None
-            return float(sx[i]), float(sy[i])
+            return ability_shapes.seed_from_track(mt, sx, sy, t)
 
         common = {"session_id": sid, "agent": agent, "tray_version": TRAY_VERSION,
-                  "seed_source": "stored self position", "minimap_version": mm_version}
+                  "player_cast_version": PLAYER_CAST_VERSION,
+                  "seed_source": "stored self position", "minimap_version": mm_version,
+                  "seed_tol_ms": ability_shapes.SEED_TOL_MS}
         rows, found = [], Counter()
         for c in casts:
             ability = kit[c["slot"]]
@@ -2983,6 +3505,190 @@ def cmd_ability_shapes(args) -> int:
         out = store.write_events("ability_shape", sid, out_rows + rows)
         print(f"{sid}: {agent}, {len(casts)} casts with a shape model, {len(rows)} crops; "
               f"{out_rows[0]['found']} -> {out}")
+    return 0
+
+
+def cmd_ult_lines(args) -> int:
+    """Peaks of the official ultimate voice lines in each capture's audio
+    (`ult_lines`). Decodes the audio stream only, in memory; no video frame."""
+    from . import ult_lines
+    from .version import ULT_LINE_VERSION
+
+    store = Store(args.store)
+    voice = store.root / ult_lines.VOICE_DIR
+    declared = ult_lines.load_manifest()
+    if args.check_manifest:
+        want = {e["name"]: e for e in declared["templates"]}
+        got = {e["name"]: e for e in ult_lines.manifest_from_assets(voice)}
+        differ = sorted(n for n in set(want) | set(got) if want.get(n) != got.get(n))
+        for n in differ:
+            print(f"  {n}: declared {want.get(n)}, the assets hold {got.get(n)}")
+        print(f"{len(want)} templates declared ({declared['key']}); "
+              f"{len(differ)} differ from {voice}")
+        return 1 if differ else 0
+    if not args.all and not args.session:
+        raise SystemExit("name a session or pass --all")
+    xp = ult_lines.array_module()
+    templates = ult_lines.build_templates(voice, declared["templates"], xp=xp)
+    print(f"{len(templates)} templates ({declared['key']}), longest "
+          f"{max(t['span_s'] for t in templates):.2f} s, on {xp.__name__}")
+    for sid in _sessions_arg(store, args):
+        man = store.read_manifest(sid)
+        src = man["source"]
+        head = (store.read_events("ult_line", sid) or [{}])[0]
+        if (not args.force and head.get("ult_line_version") == ULT_LINE_VERSION
+                and head.get("content_key") == src["content_key"]
+                and head.get("templates_key") == declared["key"] and not head.get("reason")):
+            print(f"{sid}: current at {ULT_LINE_VERSION} -- pass --force to reread")
+            continue
+        media = Path(src["path"])
+        if not media.is_file():
+            print(f"{sid}: source media has moved: {media} -- skipped, nothing written")
+            continue
+        try:
+            info, peaks = ult_lines.read_capture(str(media), templates, xp=xp)
+        except (IndexError, ValueError) as e:
+            reason = "no_audio_stream" if isinstance(e, IndexError) else str(e)
+            out = store.write_events("ult_line", sid, [{
+                "session_id": sid, "ult_line_version": ULT_LINE_VERSION,
+                "content_key": src["content_key"], "kind": "coverage", "templates": len(templates),
+                "templates_key": declared["key"], "peaks": 0, "reason": reason}])
+            print(f"{sid}: refused ({reason}) -> {out}")
+            continue
+        rows = ult_lines.observations(sid, src["content_key"], ULT_LINE_VERSION, templates,
+                                      declared["key"], info, peaks)
+        out = store.write_events("ult_line", sid, rows)
+        print(f"{sid}: {len(rows) - 1} peaks over {info['n_frames'] * ult_lines.HOP / 60:.1f} min "
+              f"(decode {info['decode_s']} s, score {info['score_s']} s, {info['backend']}) -> {out}")
+    return 0
+
+
+def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict], agent: str | None):
+    """(the X drops with the verdict `ability_timeline.player_tray_casts` gives
+    each, or None; the reason for None; the input stamps) for `ult-cast`."""
+    from .ability_timeline import stored_gate_inputs
+    from .adjudication.ult_cast import player_x_drops
+    from .version import TRAY_VERSION
+
+    drops = store.read_events("tray_drop", sid)
+    if not drops:
+        return None, "no_tray_drops", {}
+    if drops[0].get("tray_version") != TRAY_VERSION:
+        return None, "tray_drops_stale", {"tray_drop": drops[0].get("tray_version")}
+    gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent)
+    return player_x_drops(drops, rounds=rounds, **gate), None, {"tray_drop": TRAY_VERSION,
+                                                                **stamps}
+
+
+def cmd_ult_cast(args) -> int:
+    """Ultimate casts, their side and their round from stored voice-line peaks,
+    the lineup and the rounds table (`adjudication.ult_cast`), with own lines
+    bound to the player's X casts from the stored tray drops. Decodes nothing."""
+    from .adjudication.ult_cast import THRESHOLD, adjudicate, player_agent
+    from .lineup import load_lineup
+    from .version import PLAYER_CAST_VERSION, TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION
+
+    store = Store(args.store)
+    pooled, sessions, stamps, timing = Counter(), [], set(), {"decode_s": [], "score_s": []}
+    missed_best, witnessed_scores, missed_detail = [], [], {}
+    for sid in _sessions_arg(store, args):
+        peaks = store.read_events("ult_line", sid)
+        if not peaks or peaks[0].get("ult_line_version") != ULT_LINE_VERSION:
+            if not args.all:
+                print(f"{sid}: no current ult_line peaks -- run `reticle ult-lines {sid}` first")
+            continue
+        man = store.read_manifest(sid)
+        table = store.read_rounds(sid, _date_of(man))
+        rounds = table.to_pylist() if table is not None else []
+        round_version = (((table.schema.metadata or {}).get(b"round_version", b"").decode()
+                          or "unstamped") if table is not None else None)
+        lineup = load_lineup(sid, store.root)
+        tray_drops, tray_reason, tray_inputs = _ult_tray_drops(
+            store, sid, _date_of(man), rounds, player_agent(lineup, sid))
+        res = adjudicate(sid, peaks, lineup, rounds, round_version,
+                         tray_drops=tray_drops, tray_reason=tray_reason, tray_inputs=tray_inputs)
+        out = store.write_events("ult_cast", sid, res["rows"])
+        store.write_events("ult_cast_identity", sid, res["events"])
+        cov = res["rows"][0]
+        sessions.append(sid)
+        stamps.add(peaks[0].get("templates_key"))
+        pooled.update({"sessions_with_lineup": int(cov["lineup"]), "peaks": cov["peaks"],
+                       "selected": cov["selected"], "casts": cov["casts"],
+                       "refusals": cov["refusals"], "player_casts": cov["by_class"]["own"],
+                       **{f"class_{c}": n for c, n in cov["by_class"].items()}})
+        pooled.update(Counter(f"named_{r['side']}" for r in res["rows"]
+                              if r.get("kind") == "cast" and r["agent"]))
+        if cov["lineup"]:
+            pooled.update({"lineup_selected": cov["selected"],
+                           **{f"lineup_class_{c}": n for c, n in cov["by_class"].items()}})
+        if cov["tray"]["bound"]:
+            # Own lines against the tray, pooled and by the player's agent.
+            a = cov["player_agent"]
+            got = {"x_casts": cov["tray"]["player_x_casts"] - cov["tray"]["casts_outside_round"],
+                   "own_witnessed": cov["own_witnessed"],
+                   "own_unwitnessed": cov["own_unwitnessed"],
+                   "missed_lines": cov["missed_lines"],
+                   "missed_with_peak": cov["missed_with_peak"]}
+            pooled.update({"tray_sessions": 1, "x_casts_outside_round":
+                           cov["tray"]["casts_outside_round"], **got,
+                           **{f"{k}_{a}": n for k, n in got.items()},
+                           **{f"own_beside_refused_{why.replace(':', '_')}": n
+                              for why, n in cov["own_beside_refused_drop"].items()},
+                           **{f"own_beside_refused_{why.replace(':', '_')}_{a}": n
+                              for why, n in cov["own_beside_refused_drop"].items()}})
+            missed_best += [r["best_peak"]["score"] for r in res["rows"]
+                            if r.get("kind") == "missed_line" and r["best_peak"]]
+            # Each missed cast: the drop's X fill before it, and the best own peak.
+            for r in res["rows"]:
+                if r.get("kind") == "missed_line":
+                    key = f"missed_{sid}_{int(r['cast_t_ms'] // 1000)}"
+                    missed_detail[f"{key}_from"] = r["tray"]["from"]
+                    if r["best_peak"]:
+                        missed_detail[f"{key}_best"] = r["best_peak"]["score"]
+                        missed_detail[f"{key}_dt_s"] = r["best_peak"]["dt_s"]
+            witnessed_scores += [r["score"] for r in res["rows"]
+                                 if r.get("kind") == "cast" and r.get("tray_witness")]
+        else:
+            pooled.update({f"tray_unbound_{cov['tray']['reason']}": 1})
+        for k, got in timing.items():
+            if peaks[0].get(k) is not None:
+                got.append(float(peaks[0][k]))
+        print(f"{sid}: {cov['selected']} of {cov['peaks']} peaks selected; {cov['by_class']}; "
+              f"player {cov['player_agent']}; tray "
+              + (f"{cov['own_witnessed']} own witnessed, {cov['own_unwitnessed']} not, "
+                 f"{cov['missed_lines']} missed ({cov['missed_with_peak']} with a peak)"
+                 if cov["tray"]["bound"] else f"unbound ({cov['tray']['reason']})")
+              + f" -> {out}")
+    if args.record and sessions:
+        from . import metrics
+        values = {"sessions": len(sessions), **dict(sorted(pooled.items()))}
+        # What the stored reads took, from each session's ult_line coverage row.
+        for k, got in timing.items():
+            if got:
+                values.update({f"{k}_min": min(got), f"{k}_median": float(np.median(got)),
+                               f"{k}_max": max(got)})
+        # The share of in-round X casts with an own line, and the best own-template
+        # peak under each missed cast against the witnessed own lines' scores.
+        if values.get("x_casts"):
+            values["x_casts_with_line_fraction"] = round(
+                1.0 - values["missed_lines"] / values["x_casts"], 3)
+        values.update(missed_detail)
+        for name, got in (("missed_best", missed_best), ("witnessed_score", witnessed_scores)):
+            if got:
+                q = np.quantile(got, [0.0, 0.25, 0.5, 0.75, 1.0])
+                values.update({f"{name}_{k}": round(float(x), 4) for k, x in
+                               zip(("min", "q25", "median", "q75", "max"), q)})
+        metrics.record(tool="ult_lines", part="ult-cast",
+                       session=args.session if not args.all else "all-sessions",
+                       values=values,
+                       deps={"ult_line_version": ULT_LINE_VERSION,
+                             "ult_cast_version": ULT_CAST_VERSION,
+                             "tray_version": TRAY_VERSION,
+                             "player_cast_version": PLAYER_CAST_VERSION,
+                             "threshold": THRESHOLD,
+                             "templates_key": sorted(k for k in stamps if k)},
+                       context={"session_ids": sessions})
+        print(f"recorded ult_lines/ult-cast: {values}")
     return 0
 
 
@@ -3560,6 +4266,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--min-margin", type=float, default=0.04)
     s.set_defaults(func=cmd_board)
 
+    s = sub.add_parser("strip", help="the scoreboard's round-history strip at every cached frame, "
+                                     "from stored crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.set_defaults(func=cmd_strip)
+
+    s = sub.add_parser("openings", help="scoreboard openings from the slab test and the strip "
+                                        "together, from storage (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.set_defaults(func=cmd_openings)
+
     s = sub.add_parser("kd", help="running K/D per round, to check against the scoreboard")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_kd)
@@ -3664,6 +4382,25 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--step", type=float, default=0.5, help="tray sampling interval (default 0.5 s)")
     s.set_defaults(func=cmd_tray)
 
+    s = sub.add_parser("tray-kit",
+                       help="whose kit the tray shows, from its slot icons in stored crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--step", type=float, default=0.5, help="sampling interval (default 0.5 s)")
+    s.add_argument("--record", action="store_true",
+                   help="record each session's numbers in notes/metrics.jsonl")
+    s.add_argument("--at", type=float, nargs="*", default=[],
+                   help="instants (s) whose reading --record stores")
+    s.set_defaults(func=cmd_tray_kit)
+
+    s = sub.add_parser("ability-state",
+                       help="the player's kit as a state per slot, from stored drops and crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--record", action="store_true",
+                   help="score the tray-cast labels and record the numbers in notes/metrics.jsonl")
+    s.set_defaults(func=cmd_ability_state)
+
     s = sub.add_parser("ability-shapes",
                        help="the drawn minimap shape after the player's casts, from stored crops (no video)")
     s.add_argument("session", nargs="?")
@@ -3671,6 +4408,22 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--window", type=float, default=6.0, help="seconds after each cast (default 6)")
     s.add_argument("--step", type=float, default=0.5, help="sampling interval (default 0.5 s)")
     s.set_defaults(func=cmd_ability_shapes)
+
+    s = sub.add_parser("ult-lines",
+                       help="peaks of the official ultimate voice lines in the capture's audio (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--force", action="store_true", help="reread a session whose peaks are current")
+    s.add_argument("--check-manifest", action="store_true",
+                   help="compare the declared templates with the assets, and read nothing")
+    s.set_defaults(func=cmd_ult_lines)
+
+    s = sub.add_parser("ult-cast",
+                       help="ultimate casts, side and round from stored voice-line peaks (storage only)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session with current peaks")
+    s.add_argument("--record", action="store_true", help="record the pooled counts in the metrics log")
+    s.set_defaults(func=cmd_ult_cast)
 
     s = sub.add_parser("ability-light", help="store the drawn light at ability candidates (opens media)")
     s.add_argument("session", nargs="?")

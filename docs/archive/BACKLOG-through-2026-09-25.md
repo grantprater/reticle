@@ -14,3 +14,5 @@
 ## Step 6 first slice
 
 Retired from BACKLOG.md on 2026-09-26. `scan --only ally_icon` stores a descriptor per ally icon at 2 Hz (`ally-icon-0.1.0`), refusing spawn barriers by their interior's match to the baked map, and `identity.claims_from_ally_icons` names each frame's icons with `assign_side` over the board's ally set minus the player. On `a06f04a0059f` it names 63% of described icons; the source check found 2 wrong of 40, one over the predicted limit, both on overlapping icons.
+
+- **`plan-derived-chain` (2026-09-25):** `plan` stales the round table on a moved HUD or portrait input and the deaths behind it; each round table records its portrait stamp. Rebuilding all 20 changed no round.

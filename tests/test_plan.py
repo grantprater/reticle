@@ -10,7 +10,8 @@ import pyarrow.parquet as pq
 from reticle.adjudication.death import DEATH_ADJUDICATION_VERSION
 from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
 from reticle.plan import reader_streams, render, stale
-from reticle.version import HUD_VERSION, ROUND_VERSION
+from reticle.version import (ABILITY_SHAPE_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
+                            ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION)
 
 
 class _Store:
@@ -65,6 +66,9 @@ def _current_store(root: Path) -> _Store:
                                               "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
                                               "killfeed_weapon": KILLFEED_WEAPON_VERSION,
                                               "round": ROUND_VERSION}}]
+    store.events["ult_cast:rows"] = [{"ult_cast_version": ULT_CAST_VERSION,
+                                      "inputs": {"ult_line": ULT_LINE_VERSION,
+                                                 "round": ROUND_VERSION}}]
     return store
 
 
@@ -80,9 +84,10 @@ class PlanTests(unittest.TestCase):
             store = _current_store(Path(d))
             store.table("rounds", round_version=ROUND_VERSION, hud_version=HUD_VERSION)
             derived = stale(store, ["s"])["s"]["derived"]
-            self.assertEqual([x["stream"] for x in derived], ["rounds", "death"])
+            self.assertEqual([x["stream"] for x in derived], ["rounds", "death", "ult_cast"])
             self.assertEqual(derived[0]["inputs_moved"], ["killfeed_portrait"])
             self.assertEqual(derived[1]["inputs_moved"], ["round"])
+            self.assertEqual(derived[2]["inputs_moved"], ["round"])
             text = render(stale(store, ["s"]))
             self.assertLess(text.index("reticle rounds <sid>"), text.index("reticle deaths <sid>"))
 
@@ -112,6 +117,112 @@ class PlanTests(unittest.TestCase):
             derived = stale(store, ["s"])["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("death", ["round"])])
+
+    def test_stale_voice_line_peaks_reread_the_audio_then_rerun_the_casts(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["ult_line"] = [{"v": "ult-line-0.0.1"}]
+            p = stale(store, ["s"])["s"]
+            self.assertEqual([(x["stream"], x["channel"]) for x in p["decode"]],
+                             [("ult_line", "audio")])
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in p["derived"]],
+                             [("ult_cast", ["ult_line"])])
+            text = render(stale(store, ["s"]))
+            self.assertIn("accept reticle ult-lines <sid>", text)
+            self.assertNotIn("--only audio", text)
+            self.assertIn("reticle ult-cast <sid>", text)
+
+    def test_a_round_bump_stales_the_ultimate_casts(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["ult_cast:rows"][0]["ult_cast_version"] = "ult-cast-0.0.1"
+            store.events["ult_cast:rows"][0]["inputs"]["round"] = "round-0.0.1"
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["stored"], x["inputs_moved"]) for x in derived],
+                             [("ult_cast", "ult-cast-0.0.1", ["round"])])
+
+    def test_older_tray_drops_or_a_hud_rescan_stale_the_casts_bound_to_them(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["ult_cast:rows"][0]["inputs"].update(tray_drop="tray-0.0.1",
+                                                              hud=HUD_VERSION,
+                                                              player_cast=PLAYER_CAST_VERSION)
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
+                             [("ult_cast", ["tray_drop"])])
+            store.events["ult_cast:rows"][0]["inputs"]["tray_drop"] = TRAY_VERSION
+            store.table("hud", hud_version="hud-0.0.1")
+            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            self.assertEqual(derived["ult_cast"]["inputs_moved"], ["hud", "round"])
+
+
+    def test_casts_bound_before_the_gate_had_its_own_stamp_are_stale(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["ult_cast:rows"][0]["inputs"].update(tray_drop=TRAY_VERSION,
+                                                              hud=HUD_VERSION)
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
+                             [("ult_cast", ["player_cast"])])
+            store.events["ult_cast:rows"][0]["inputs"]["player_cast"] = PLAYER_CAST_VERSION
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+
+    def test_a_gate_change_stales_the_stored_verdicts_and_the_shapes(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["tray_drop:rows"] = [{"tray_version": TRAY_VERSION}]
+            store.events["ability_shape:rows"] = [{"ability_shape_version": ABILITY_SHAPE_VERSION,
+                                                   "tray_version": TRAY_VERSION}]
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"], x["command"]) for x in derived],
+                             [("tray_drop", ["player_cast"], "reticle tray s"),
+                              ("ability_shape", ["player_cast"], "reticle ability-shapes s")])
+            for stream in ("tray_drop", "ability_shape"):
+                store.events[stream + ":rows"][0]["player_cast_version"] = PLAYER_CAST_VERSION
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            store.events["ability_shape:rows"][0]["tray_version"] = "tray-0.0.1"
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
+                             [("ability_shape", ["tray_drop"])])
+
+    def test_rows_the_gate_before_partial_charge_decided_are_stale(self):
+        old = "player-cast-0.2.0"
+        self.assertNotEqual(old, PLAYER_CAST_VERSION)
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["ult_cast:rows"][0]["inputs"].update(tray_drop=TRAY_VERSION,
+                                                              hud=HUD_VERSION, player_cast=old)
+            store.events["tray_drop:rows"] = [{"tray_version": TRAY_VERSION,
+                                               "player_cast_version": old}]
+            store.events["ability_shape:rows"] = [{"ability_shape_version": ABILITY_SHAPE_VERSION,
+                                                   "tray_version": TRAY_VERSION,
+                                                   "player_cast_version": old}]
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["stored"], x["inputs_moved"]) for x in derived],
+                             [("ult_cast", ULT_CAST_VERSION, ["player_cast"]),
+                              ("tray_drop", TRAY_VERSION, ["player_cast"]),
+                              ("ability_shape", ABILITY_SHAPE_VERSION, ["player_cast"])])
+
+
+    def test_a_strip_or_board_change_stales_the_strip_then_the_openings(self):
+        from reticle.adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
+        from reticle.roi_cache import ROI_CACHE_VERSION
+        from reticle.version import SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["scoreboard_strip:rows"] = [{"scoreboard_strip_version": SCOREBOARD_STRIP_VERSION,
+                                                      "roi_cache_version": ROI_CACHE_VERSION}]
+            store.events["scoreboard_presence:rows"] = [
+                {"scoreboard_presence_version": SCOREBOARD_AGENT_VERSION,
+                 "scoreboard_strip_version": SCOREBOARD_STRIP_VERSION,
+                 "scoreboard_version": SCOREBOARD_VERSION}]
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            store.events["scoreboard_strip:rows"][0]["roi_cache_version"] = "roi-cache-0.0.1"
+            store.events["scoreboard_presence:rows"][0]["scoreboard_version"] = "scoreboard-0.0.1"
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"], x["command"]) for x in derived],
+                             [("scoreboard_strip", ["roi_cache"], "reticle strip s"),
+                              ("scoreboard_presence", ["scoreboard"], "reticle openings s")])
 
 
 if __name__ == "__main__":
