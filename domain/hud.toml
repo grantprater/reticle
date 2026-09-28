@@ -208,7 +208,11 @@ see = ["abilities/voice-lines-announce-casts"]
 [ability-tray-charge-segments]
 claim = """
 An ability with two charges draws its tray slot's bar as two segments, one
-per charge. No ability has more than two charges (2026-09-27).
+per charge. Two abilities hold more than two: Brimstone's Sky Smoke three in
+slot E and Chamber's Headhunter eight in slot Q (2026-09-28). How the tray
+draws three or more charges is unobserved. Until 2026-09-28 this claim also
+said that no ability has more than two charges; the player's confirmation of
+the wiki harvest's counts falsified that.
 """
 kind = "appearance"
 known = "player"
@@ -217,15 +221,18 @@ subject = "hud:ability tray"
 source = """
 the player, 2026-09-27; the stored tray_drop rows on the 19 lineup sessions
 read Clove's Ruse, Phoenix's Hot Hands, Skye's Guiding Light and Sova's Shock
-Bolt as halves: 89 accepted drops from full to half and 43 from half to empty
+Bolt as halves: 89 accepted drops from full to half and 43 from half to empty.
+The counts above two: the player, 2026-09-28
 """
 use = """
 a fill is the slot's teal over the session's p90, so a segment is 0.5 of the
 reference and a spent charge falls by 0.5, above CAST_DROP (0.25); the reader
 needs no charge count per ability, and a drop that leaves the slot at its full
-level spent nothing
+level spent nothing. The state model interprets at most two segments
+(`adjudication.ability_state.MAX_SEGMENTS_READ`): a slot that holds more keeps
+its count and refuses the segment reading until a session shows the drawing
 """
-see = ["abilities/omen-tray-charges", "abilities/killjoy-tray-charges", "abilities/jett-tray-charges", "abilities/clove-tray-charges", "abilities/cypher-tray-charges"]
+see = ["abilities/omen-tray-charges", "abilities/killjoy-tray-charges", "abilities/jett-tray-charges", "abilities/clove-tray-charges", "abilities/cypher-tray-charges", "abilities/brimstone-sky-smoke-charges", "abilities/chamber-headhunter-charges", "abilities/catalogue-charge-counts-confirmed"]
 
 [scoreboard-strip-updates-next-round]
 claim = """

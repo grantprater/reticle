@@ -42,7 +42,7 @@ tray, the timer bar and the description all speak per slot
 
 | Variable | Values | Source of the parameters |
 |---|---|---|
-| `charges` | 0..`max_charges`, or an interval `[lo, hi]` when unobserved | `max_charges` per ability from `domain/abilities.toml` (`*-tray-charges`) and the mechanics sheet; no ability has more than two today [domain:hud/ability-tray-charge-segments] |
+| `charges` | 0..`max_charges`, or an interval `[lo, hi]` when unobserved | `max_charges` per ability from `domain/abilities.toml` (`*-tray-charges`) and the mechanics sheet; two charges draw two segments, and a count above two is kept while its drawing is unobserved [domain:hud/ability-tray-charge-segments] |
 | `mode` | `idle`, `equipped`, `casting`, `active`, `cooldown`, `unreadable` | the ability's kind from its description verbs [domain:abilities/ability-description-verbs]: fire-and-forget, channelled, placed-then-activated [domain:abilities/placed-then-activated], toggled by fuel [domain:abilities/viper-fuel-toggle], piloted, self-triggering |
 | `entities` | the ids of live world entities this slot owns, each with its own phases | the entity-phase model; a cast is 1:N (a wall is several segments, a Regrowth ring is one) |
 | `until_ms` | when `casting`, `active` or `cooldown` ends, with uncertainty | durations and cooldowns per ability (`phoenix-blaze-duration`, `omen-dark-cover-restock` [domain:abilities/omen-dark-cover-restock]); `null` with a reason when no fact exists |
@@ -529,3 +529,38 @@ on the Iso capture; the other twenty keep the
 [metric:ability_state/step1@all-sessions#labels_cast=94] labelled casts
 held a charge before. C1 to C5 held (ledger); C4's premise called the four
 slots empty, and they read half.
+
+### Counts above two and Astra's stars (2026-09-28)
+
+The player confirmed the harvest's C, Q and E counts
+[domain:abilities/catalogue-charge-counts-confirmed] and answered two of the
+[metric:ability_state/catalogue-prior@reference-2026-09-04#cqe_without_count=7]
+slots the section above left without a count: Brimstone's Sky Smoke holds
+three charges [domain:abilities/brimstone-sky-smoke-charges] and Chamber's
+Headhunter eight [domain:abilities/chamber-headhunter-charges]. That
+falsified the claim that no ability holds more than two, and the segment fact
+now keeps only its appearance: two charges draw two segments, and how the
+tray draws three or more is unobserved
+[domain:hud/ability-tray-charge-segments]. Astra's C, Q and E expend one pool
+of stars that the three slots share [domain:abilities/astra-stars-shared].
+
+`charge_priors` changes in three ways. A harvest count of the confirmed date
+takes the source `catalogue-confirmed` with the confirming fact's key and
+keeps its harvest entry; a distinct source, rather than `player`, keeps a bulk
+confirmation apart from a per-ability fact, and a harvest of another date
+falls back to `catalogue`. A per-ability fact still outranks it, and a pool
+still refuses it: Skye's Regrowth remains a `resource_bar` conflict against
+the harvest's one. A shared-pool fact (`shared_pool_facts`) leaves Astra's C,
+Q and E without a count, with the reason `shared_pool` and a conflict against
+the harvest's one Gravity Well. The bound of two no longer refuses a count:
+`MAX_SEGMENTS_READ` bounds the segments the reader interprets, not the
+charges. A count above it stands, unclamped, as the slot's `max_charges`; its
+full and half bars store `charges` null with the reason
+`segments_unobserved_above_two` and a range up to the count, and its half
+readings stay unscored in `segments`.
+
+No stored row changes: the lineups name no Brimstone, Chamber or Astra as the
+player, and every played agent's C, Q and E count already came from a
+per-ability fact, so the version stays `ability-state-0.3.0`. The range of a
+slot without a count still tops out at two segments; Astra's stars test that
+assumption the first time a session plays her.

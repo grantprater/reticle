@@ -58,19 +58,29 @@ count is a prior, weighed once (`charge_priors`). A `*-charges` fact of
 `domain/abilities.toml` gives it first (`charge_facts`, source `player`,
 whether the player or a measurement recorded it); where no fact speaks, the
 wiki harvest the command hands in (`reference/abilities.json`, built by
-`prototypes/ability_reference.py`, a prior and never an oracle) gives it
-(source `catalogue`). A fact outranks the catalogue: where both give a count
-and differ, the fact's stands and the slot records the `conflict`; a fact
-that makes the slot a resource bar, or bounds every slot at
-`MAX_CHARGES_ANY`, refuses the catalogue's count the same way. Every state
-row whose charges rest on a count names its `charges_source`. Every rule is
-per ability [domain:abilities/ability-rules-are-unique], so a slot with no
-count stores `charges` null with the reason
-`no-fact:<agent>:<slot>:max_charges` (the parameters say why the catalogue
-gave none) and only the range the reading bounds: at least one where the bar
-is full, none where it is empty, and anything up to `MAX_CHARGES_ANY` where
-it reads half, since a half bar on a slot of unknown kind need not be one
-charge of two. An unreadable slot keeps the range `[0, max]`, never a guess.
+`prototypes/ability_reference.py`) gives it: source `catalogue-confirmed`
+where a fact confirms that harvest's counts
+[domain:abilities/catalogue-charge-counts-confirmed], `catalogue` (a prior,
+never an oracle) where none does. A fact outranks the catalogue: where both
+give a count and differ, the fact's stands and the slot records the
+`conflict`; a fact that makes the slot a resource bar, or one pool that
+several slots share [domain:abilities/astra-stars-shared], refuses the
+catalogue's count the same way. Every state row whose charges rest on a
+count names its `charges_source`. Every rule is per ability
+[domain:abilities/ability-rules-are-unique], so a slot with no count stores
+`charges` null with the reason `no-fact:<agent>:<slot>:max_charges` (the
+parameters say why the catalogue gave none) and only the range the reading
+bounds: at least one where the bar is full, none where it is empty, and
+anything up to `MAX_SEGMENTS_READ` where it reads half, since a half bar on a
+slot of unknown kind need not be one charge of two. That top assumes a slot
+without a count draws at most the two segments the reader interprets; a slot
+without a count that holds more (Astra's stars, if she holds more than two)
+falsifies it. A count above `MAX_SEGMENTS_READ` (Brimstone's Sky Smoke,
+Chamber's Headhunter) is kept, never clamped, but the tray's drawing of it is
+unobserved: its full and half bars store `charges` null with the reason
+`segments_unobserved_above_two` and the range `[1, max]` or `[0, max]`, its
+empty bar none (`charges_of`). An unreadable slot keeps the range
+`[0, max]`, never a guess.
 A regain of charges, within a round or between rounds, is recorded where the
 tray shows it and never inferred.
 
@@ -158,20 +168,32 @@ X_LIT_MIN = 0.5
 #: ([metric:ability_state/step1@all-sessions-seven-facts#release_from_at_equip_min=120] of
 #: [metric:ability_state/step1@all-sessions-seven-facts#release_drops=121]).
 EQUIP_MIN = 1.2
-#: No ability has more than two charges [domain:hud/ability-tray-charge-segments].
-MAX_CHARGES_ANY = 2
-#: The level each charge count draws, per max_charges; the inverse is `charges_of`.
-_COUNT_WORDS = {"one": 1, "two": 2, "three": 3}
-_CHARGE_CLAUSE = re.compile(r"\b(one|two|three)\s+([^.,;]*?)\s+in slot ([CQEX])\b", re.I)
+#: The most segments the reader interprets on a C, Q or E bar: a two-charge
+#: slot draws two [domain:hud/ability-tray-charge-segments]. It bounds the
+#: drawing the reader can read, not a slot's charges: Brimstone's Sky Smoke
+#: holds three [domain:abilities/brimstone-sky-smoke-charges] and Chamber's
+#: Headhunter eight [domain:abilities/chamber-headhunter-charges], and how the
+#: tray draws either is unobserved. A count above it keeps its value and the
+#: slot's segment reading is refused (`SEGMENTS_UNOBSERVED`).
+MAX_SEGMENTS_READ = 2
+#: Why a slot of more than `MAX_SEGMENTS_READ` charges stores no count per level.
+SEGMENTS_UNOBSERVED = "segments_unobserved_above_two"
+#: The count words a `*-charges` fact may use; digits parse too (`charge_facts`).
+_COUNT_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+                "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
+_CHARGE_CLAUSE = re.compile(
+    r"\b(" + "|".join(_COUNT_WORDS) + r"|\d+)\s+([^.,;]*?)\s+in slot ([CQEX])\b", re.I)
 _POOL_SLOT = re.compile(r"\bin slot ([CQEX])\b")
+#: The fact that confirms the wiki harvest's C, Q and E counts; its claim names
+#: the harvest date it confirms, and a harvest of another date stays a prior.
+CONFIRM_FACT = "abilities/catalogue-charge-counts-confirmed"
+_CONFIRMED_HARVEST = re.compile(r"\bharvest of (\d{4}-\d{2}-\d{2})\b")
 _SECONDS = re.compile(r"(\d+(?:\.\d+)?)\s*seconds?\b")
 #: Where the command reads the wiki harvest, relative to the store root.
 CATALOGUE_PATH = "reference/abilities.json"
 #: The harvest's slot names and the tray keys they bind to
 #: (`prototypes/ability_reference.py`, SLOT_KEY); the passive has no slot.
 CATALOGUE_SLOTS = {"Grenade": "C", "Ability1": "Q", "Ability2": "E", "Ultimate": "X"}
-#: The fact that bounds every slot at MAX_CHARGES_ANY.
-_BOUND_FACT = "hud/ability-tray-charge-segments"
 
 #: What each of the gate's reasons stood for in the state, and the transition
 #: its drop becomes. `phase:<name>` is looked up by its prefix.
@@ -200,15 +222,16 @@ def charge_facts(facts: dict) -> dict:
     """{(agent key, slot): {"max_charges", "fact", "clause"}} from every fact
     in `domain/abilities.toml` whose id ends in `-charges`. The agent is the
     fact's subject before the colon; each "<count> <words> in slot <K>" clause
-    of its claim gives one slot. Two facts that disagree on a slot leave it
-    with `max_charges` None and the reason `conflicting-facts`."""
+    of its claim gives one slot, the count a word from one to twelve or
+    digits. Two facts that disagree on a slot leave it with `max_charges`
+    None and the reason `conflicting-facts`."""
     out: dict = {}
     for key, f in sorted(facts.items()):
         if f.domain != "abilities" or not f.id.endswith("-charges") or ":" not in f.subject:
             continue
         agent = _agent_key(f.subject.split(":")[0])
         for word, words, slot in _CHARGE_CLAUSE.findall(" ".join(f.claim.split())):
-            n = _COUNT_WORDS[word.lower()]
+            n = int(word) if word.isdigit() else _COUNT_WORDS[word.lower()]
             got = out.get((agent, slot.upper()))
             if got and got["max_charges"] not in (None, n):
                 out[(agent, slot.upper())] = {"max_charges": None, "fact": None,
@@ -233,6 +256,32 @@ def pool_facts(facts: dict) -> dict:
         if m:
             out[(_agent_key(f.subject.split(":")[0]), m.group(1))] = key
     return out
+
+
+def shared_pool_facts(facts: dict) -> dict:
+    """{(agent key, slot): fact key} from every fact in `domain/abilities.toml`
+    whose id ends in `-shared`: every slot its claim names ("in slot <K>")
+    spends one pool that the named slots share, so no count per slot applies
+    [domain:abilities/astra-stars-shared]."""
+    out = {}
+    for key, f in sorted(facts.items()):
+        if f.domain != "abilities" or not f.id.endswith("-shared") or ":" not in f.subject:
+            continue
+        agent = _agent_key(f.subject.split(":")[0])
+        for slot in _POOL_SLOT.findall(" ".join(f.claim.split())):
+            out[(agent, slot)] = key
+    return out
+
+
+def _confirmed_harvest(facts: dict) -> tuple[str | None, str | None, str | None]:
+    """(the confirming fact's key, its `known`, the harvest date its claim
+    names), or Nones where no fact confirms the harvest's counts
+    [domain:abilities/catalogue-charge-counts-confirmed]."""
+    f = facts.get(CONFIRM_FACT)
+    if f is None:
+        return None, None, None
+    m = _CONFIRMED_HARVEST.search(" ".join(f.claim.split()))
+    return CONFIRM_FACT, f.known, (m.group(1) if m else None)
 
 
 def _catalogue_slots(catalogue: dict | None, path: str) -> dict:
@@ -266,20 +315,35 @@ def charge_priors(facts: dict, *, catalogue: dict | None = None,
     for every agent a charge fact or the catalogue names, and each of C, Q, E
     and X.
 
-    Each entry holds `max_charges`, `source` (`player` for a domain fact,
-    whether the player or a measurement recorded it, `catalogue` for the wiki
-    harvest, None without a count), the `fact` and its `known`, the
-    `catalogue` entry (path, harvest date, agent, ability, raw `charges`),
-    `reason` where no count applies, and `conflict` where a fact and the
-    catalogue disagree. A fact outranks the catalogue:
+    Each entry holds `max_charges`, `source` (`player` for a per-ability
+    domain fact, whether the player or a measurement recorded it,
+    `catalogue-confirmed` for a wiki harvest count a domain fact confirms,
+    `catalogue` for a harvest count nothing confirms, None without a count),
+    the `fact` and its `known`, the `catalogue` entry (path, harvest date,
+    agent, ability, raw `charges`), `reason` where no count applies, and
+    `conflict` where a fact and the catalogue disagree. A fact outranks the
+    catalogue:
 
     * a fact's count stands; a different catalogue count is a `count` conflict;
     * facts that disagree leave the slot without a count (`conflicting-facts`),
       and the catalogue does not settle a dispute between facts;
     * a resource-bar fact (`pool_facts`) leaves the slot without a count
       (`resource_bar`); a catalogue count there is a `resource_bar` conflict;
-    * a catalogue count above `MAX_CHARGES_ANY` is refused
-      (`catalogue_above_max_charges`) [domain:hud/ability-tray-charge-segments].
+    * a shared-pool fact (`shared_pool_facts`) does the same (`shared_pool`,
+      a `shared_pool` conflict) [domain:abilities/astra-stars-shared].
+
+    Any count stands whatever its size: a count above `MAX_SEGMENTS_READ`
+    bounds the reading, not the count (`charges_of`)
+    [domain:hud/ability-tray-charge-segments].
+
+    The player confirmed the harvest's C, Q and E counts
+    [domain:abilities/catalogue-charge-counts-confirmed]. Where that fact is
+    handed in and names the harvest's date, a harvest count takes the source
+    `catalogue-confirmed` and the fact's key, and keeps its `catalogue` entry;
+    the ult slot's text and a harvest of another date stay `catalogue`. A
+    distinct source, rather than `player`, keeps a count the player confirmed
+    in bulk apart from one a per-ability fact states, so a later harvest or a
+    per-ability conflict points at the right witness.
 
     Without a fact the catalogue gives the count, or the reason it gives none:
     `no_fact` (no catalogue was handed in), `catalogue_missing` (no entry, or
@@ -287,12 +351,16 @@ def charge_priors(facts: dict, *, catalogue: dict | None = None,
     as the ult table's functions or "2 (shared charges)"). Reads neither
     stored data nor the model's output."""
     counts, pools = charge_facts(facts), pool_facts(facts)
+    shared = shared_pool_facts(facts)
+    confirm, confirm_known, confirm_date = _confirmed_harvest(facts)
     cat = _catalogue_slots(catalogue, path)
-    agents = {a for a, _s in counts} | {a for a, _s in pools} | {a for a, _s in cat}
+    agents = ({a for a, _s in counts} | {a for a, _s in pools} | {a for a, _s in shared}
+              | {a for a, _s in cat})
     out = {}
     for agent in sorted(agents):
         for slot in SLOTS:
-            got, pool, c = counts.get((agent, slot)), pools.get((agent, slot)), cat.get((agent, slot))
+            got, c = counts.get((agent, slot)), cat.get((agent, slot))
+            pool = pools.get((agent, slot))
             n_cat, why_cat = _catalogue_count(c) if catalogue is not None else (None, "no_fact")
             row = {"max_charges": None, "source": None, "fact": None, "known": None,
                    "clause": None, "catalogue": c, "reason": None, "conflict": None}
@@ -304,16 +372,17 @@ def charge_priors(facts: dict, *, catalogue: dict | None = None,
                                        "catalogue": n_cat, "fact": got["fact"]}
             elif got is not None:
                 row["reason"] = got["reason"]
-            elif pool is not None:
-                row.update(fact=pool, reason="resource_bar")
+            elif pool is not None or (agent, slot) in shared:
+                kind = "resource_bar" if pool is not None else "shared_pool"
+                fact = pool if pool is not None else shared[(agent, slot)]
+                row.update(fact=fact, reason=kind)
                 if n_cat is not None:
-                    row["conflict"] = {"kind": "resource_bar", "player": "resource_bar",
-                                       "catalogue": n_cat, "fact": pool}
-            elif n_cat is not None and n_cat > MAX_CHARGES_ANY:
-                row.update(fact=_BOUND_FACT, reason="catalogue_above_max_charges")
-                row["conflict"] = {"kind": "above_max_charges",
-                                   "player": f"at_most_{MAX_CHARGES_ANY}",
-                                   "catalogue": n_cat, "fact": _BOUND_FACT}
+                    row["conflict"] = {"kind": kind, "player": kind,
+                                       "catalogue": n_cat, "fact": fact}
+            elif n_cat is not None and slot != ULT_SLOT and confirm and (
+                    confirm_date == (c or {}).get("harvested")):
+                row.update(max_charges=n_cat, source="catalogue-confirmed", fact=confirm,
+                           known=confirm_known)
             elif n_cat is not None:
                 row.update(max_charges=n_cat, source="catalogue")
             else:
@@ -381,13 +450,15 @@ def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
                            max_charges_source="player", max_charges_known=got["known"])
         elif got["reason"] and got["reason"].startswith("conflicting-facts"):
             row["max_charges_reason"] = got["reason"]
-        elif got["source"] == "catalogue":
+        elif got["source"] in ("catalogue", "catalogue-confirmed"):
             named = got["catalogue"]["ability"]
             if ability and _agent_key(ability) != _agent_key(named):
                 row["max_charges_reason"] = f"no-fact:{a}:{slot}:max_charges"
                 row["max_charges_prior_reason"] = f"catalogue-names-another-ability:{named}"
             else:
-                row.update(max_charges=got["max_charges"], max_charges_source="catalogue")
+                row.update(max_charges=got["max_charges"], max_charges_source=got["source"])
+                if got["source"] == "catalogue-confirmed":
+                    row.update(max_charges_fact=got["fact"], max_charges_known=got["known"])
         else:
             row["max_charges_reason"] = f"no-fact:{a}:{slot}:max_charges"
             row["max_charges_prior_reason"] = (f"{got['reason']}:{got['fact']}" if got["fact"]
@@ -404,12 +475,18 @@ def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
 
 def charges_of(level: float | None, max_charges: int | None, reason: str | None):
     """(charges or None, the reason it is None, [lo, hi]) for a C, Q or E
-    level; see the module docstring for the range of a slot with no fact."""
+    level; see the module docstring for the range of a slot with no fact.
+    A slot of more than `MAX_SEGMENTS_READ` charges keeps its count as the
+    range's top, but its full and half bars store no count
+    (`SEGMENTS_UNOBSERVED`): the tray's drawing of it is unobserved
+    [domain:hud/ability-tray-charge-segments]."""
     if level is None:
-        return None, "unread_level", [0, max_charges or MAX_CHARGES_ANY]
-    if max_charges is None:
-        rng = {1.0: [1, MAX_CHARGES_ANY], 0.5: [0, MAX_CHARGES_ANY], 0.0: [0, 0]}[level]
-        return (0 if level == 0.0 else None), (None if level == 0.0 else reason), rng
+        return None, "unread_level", [0, max_charges or MAX_SEGMENTS_READ]
+    if max_charges is None or max_charges > MAX_SEGMENTS_READ:
+        top = max_charges or MAX_SEGMENTS_READ
+        why = reason if max_charges is None else SEGMENTS_UNOBSERVED
+        rng = {1.0: [1, top], 0.5: [0, top], 0.0: [0, 0]}[level]
+        return (0 if level == 0.0 else None), (None if level == 0.0 else why), rng
     n = round(level * max_charges, 3)
     if n != int(n):
         return None, f"level_{level:g}_on_a_{max_charges}_charge_slot", [0, max_charges]
@@ -494,7 +571,7 @@ def _state(slot, par, ctx, f, held, active_until) -> dict:
     unequipped reading in the round, which an equip keeps."""
     base = {"owner_alive": ctx["owner_alive"], "owner_life": ctx["owner_life"],
             "round": ctx["round"], "phase": ctx["phase"]}
-    cap = par["max_charges"] or MAX_CHARGES_ANY
+    cap = par["max_charges"] or MAX_SEGMENTS_READ
     ult = slot == ULT_SLOT
     # The count's source, wherever the charges or their range rest on it.
     source = None if ult or par["max_charges"] is None else par.get("max_charges_source")
@@ -897,8 +974,10 @@ def _count_provenance(states, params, agent) -> dict:
     """Each slot's count source, the conflicts between a fact and the
     catalogue, the C, Q and E slots still without a count, and the half
     readings against each count: a half bar agrees with a count that draws a
-    segment at half (an even count) and disagrees with an odd one. The
-    reading is never changed by the count; this only tallies them."""
+    segment at half (an even count) and disagrees with an odd one. A count
+    above `MAX_SEGMENTS_READ` draws in a way no session has shown, so its half
+    readings stay unscored. The reading is never changed by the count; this
+    only tallies them."""
     who = _agent_key(agent.get("agent")) if agent.get("agent") else None
     by_source, halves = Counter(), Counter()
     for r in states:
@@ -913,11 +992,12 @@ def _count_provenance(states, params, agent) -> dict:
         if s == ULT_SLOT:
             continue
         n, h = params[s]["max_charges"], halves[s]
+        scored = n is not None and n <= MAX_SEGMENTS_READ
         segments[s] = {"agent": who, "ability": params[s]["ability"], "max_charges": n,
                        "source": params[s].get("max_charges_source"), "half_samples": h,
-                       "agree": h if n is not None and n % 2 == 0 else 0,
-                       "disagree": h if n is not None and n % 2 == 1 else 0,
-                       "unscored": h if n is None else 0}
+                       "agree": h if scored and n % 2 == 0 else 0,
+                       "disagree": h if scored and n % 2 == 1 else 0,
+                       "unscored": 0 if scored else h}
     return {
         "charges_source": {s: params[s].get("max_charges_source") for s in SLOTS},
         "charges_source_readable_slot_samples": dict(sorted(by_source.items())),

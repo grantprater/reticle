@@ -126,7 +126,7 @@ class TransitionTest(unittest.TestCase):
         held = _state_at(rows, "Q", 31000.0)
         self.assertEqual((held["mode"], held["level"]), ("equipped", None))
         self.assertEqual(held["level_reason"], "equipped:teal_over_the_bar")
-        self.assertEqual(held["charges_range"], [1, st.MAX_CHARGES_ANY])
+        self.assertEqual(held["charges_range"], [1, st.MAX_SEGMENTS_READ])
 
     def test_an_x_cast_from_a_lit_bar(self):
         rows = _run()
@@ -145,7 +145,7 @@ class TransitionTest(unittest.TestCase):
         self.assertEqual(dead["readable"], [])
         self.assertEqual(dead["unreadable_reason"], "kit_frozen:after_player_death")
         self.assertIsNone(dead["charges"])
-        self.assertEqual(dead["charges_range"], [0, st.MAX_CHARGES_ANY])
+        self.assertEqual(dead["charges_range"], [0, st.MAX_SEGMENTS_READ])
         alive = _state_at(rows, "C", 45000.0)
         self.assertEqual(alive["owner_alive"], True)
 
@@ -165,7 +165,7 @@ class UnreadTest(unittest.TestCase):
         c = _state_at(rows, "C", 10000.0)
         self.assertIsNone(c["charges"])
         self.assertEqual(c["charges_reason"], "no-fact:tester:C:max_charges")
-        self.assertEqual(c["charges_range"], [1, st.MAX_CHARGES_ANY])
+        self.assertEqual(c["charges_range"], [1, st.MAX_SEGMENTS_READ])
         self.assertIn("no-fact:tester:C:max_charges", rows[0]["no_fact"])
         x = _state_at(rows, "X", 10000.0)
         self.assertIsNone(x["charges"])
@@ -230,7 +230,7 @@ class DeterminismTest(unittest.TestCase):
 
 #: A wiki harvest in the shape of `reference/abilities.json`: Tester's E
 #: disagrees with the fact, KAY/O's Q is not a count, Pooler's C is a pool
-#: by fact and its E exceeds the two-charge bound.
+#: by fact and its E holds more than the two segments the reader interprets.
 CATALOGUE = {"source": {"wiki": "test"}, "harvested": "2026-09-04", "agents": {
     "Tester": {"abilities": [
         {"name": "Widget", "slot": "Grenade", "key": "C", "charges": "1"},
@@ -305,15 +305,15 @@ class PriorTest(unittest.TestCase):
         self.assertEqual(q["C"]["max_charges_reason"], "no-fact:stranger:C:max_charges")
         self.assertEqual(q["C"]["max_charges_prior_reason"], "catalogue_missing")
 
-    def test_a_pool_fact_and_the_two_charge_bound_refuse_the_catalogue(self):
+    def test_a_pool_fact_refuses_the_catalogue_and_a_count_above_two_stands(self):
         pri = st.charge_priors(POOL, catalogue=CATALOGUE)
         c = pri[("pooler", "C")]
         self.assertEqual((c["max_charges"], c["source"], c["reason"]), (None, None, "resource_bar"))
         self.assertEqual(c["conflict"]["kind"], "resource_bar")
         self.assertEqual(c["conflict"]["catalogue"], 1)
         e = pri[("pooler", "E")]
-        self.assertEqual((e["max_charges"], e["reason"]), (None, "catalogue_above_max_charges"))
-        self.assertEqual(e["conflict"]["catalogue"], 3)
+        self.assertEqual((e["max_charges"], e["source"], e["reason"], e["conflict"]),
+                         (3, "catalogue", None, None))
         p = st.slot_parameters("Pooler", {"C": "Regrow", "E": "Big Pack"}, POOL,
                                catalogue=CATALOGUE)
         self.assertEqual(p["C"]["max_charges_prior_reason"],
@@ -369,6 +369,146 @@ class PriorTest(unittest.TestCase):
         params = st.slot_parameters(AGENT, KIT, FACTS, catalogue=CATALOGUE)
         self.assertEqual(json.dumps(_run(params=params), sort_keys=True),
                          json.dumps(_run(params=params), sort_keys=True))
+
+
+def _fact(fid, subject, claim, known="player"):
+    return Fact(domain="abilities", id=fid, kind="rule", known=known, since="2026-09-28",
+                subject=subject, claim=claim)
+
+
+#: The confirmation of the fixture's harvest, and three Twin Shot charges.
+CONFIRM = {st.CONFIRM_FACT: _fact(
+    "catalogue-charge-counts-confirmed", "abilities:charges",
+    "The charge counts that the wiki harvest of 2026-09-04 (reference/abilities.json) "
+    "gives for slots C, Q and E are the game's counts.")}
+THREE = {"abilities/tester-twin-shot-charges": _fact(
+    "tester-twin-shot-charges", "tester:twin shot", "Tester has three Twin Shot charges in slot E.")}
+#: One pool of stars that three slots spend.
+STARRY = {"abilities/starry-stars-shared": _fact(
+    "starry-stars-shared", "starry:stars",
+    "Starry's Pull in slot C, Pulse in slot Q and Cloud in slot E each expend her stars.")}
+STARRY_CAT = {"harvested": "2026-09-04", "agents": {"Starry": {"abilities": [
+    {"name": "Pull", "slot": "Grenade", "charges": "1"},
+    {"name": "Pulse", "slot": "Ability1", "charges": None},
+    {"name": "Cloud", "slot": "Ability2", "charges": None}]}}}
+
+
+class CountsAboveTwoTest(unittest.TestCase):
+    def test_the_charge_clause_parses_counts_to_twelve_and_digits(self):
+        got = st.charge_facts({
+            "abilities/a-charges": _fact("a-charges", "a:x", "A has three Sky Smoke charges in slot E."),
+            "abilities/b-charges": _fact("b-charges", "b:x", "B has eight Headhunter charges in slot Q."),
+            "abilities/c-charges": _fact("c-charges", "c:x", "C has 8 rounds in slot Q."),
+            "abilities/d-charges": _fact("d-charges", "d:x", "D has twelve darts in slot C.")})
+        self.assertEqual({k: v["max_charges"] for k, v in got.items()},
+                         {("a", "E"): 3, ("b", "Q"): 8, ("c", "Q"): 8, ("d", "C"): 12})
+        self.assertEqual(got[("b", "Q")]["clause"], "eight Headhunter charges in slot Q")
+
+    def test_the_registry_gives_three_eight_and_the_shared_stars(self):
+        from reticle import domain
+        facts = domain.load()
+        counts = st.charge_facts(facts)
+        self.assertEqual(counts[("brimstone", "E")]["max_charges"], 3)
+        self.assertEqual(counts[("chamber", "Q")]["max_charges"], 8)
+        # Every other count still reads one or two.
+        self.assertEqual({v["max_charges"] for k, v in counts.items()
+                          if k not in {("brimstone", "E"), ("chamber", "Q")}}, {1, 2})
+        self.assertEqual(st.shared_pool_facts(facts),
+                         {("astra", s): "abilities/astra-stars-shared" for s in "CQE"})
+        self.assertEqual(st._confirmed_harvest(facts),
+                         (st.CONFIRM_FACT, "player", "2026-09-04"))
+        seg = " ".join(facts["hud/ability-tray-charge-segments"].claim.split())
+        self.assertIn("unobserved", seg)
+        self.assertNotIn("No ability has more than two charges (", seg)
+
+    def test_a_count_above_two_is_kept_and_its_segments_refused(self):
+        why = st.SEGMENTS_UNOBSERVED
+        self.assertEqual(st.charges_of(1.0, 3, None), (None, why, [1, 3]))
+        self.assertEqual(st.charges_of(0.5, 8, None), (None, why, [0, 8]))
+        self.assertEqual(st.charges_of(0.0, 8, None), (0, None, [0, 0]))
+        self.assertEqual(st.charges_of(None, 8, None), (None, "unread_level", [0, 8]))
+        # Two charges still read by segment.
+        self.assertEqual(st.charges_of(0.5, 2, None), (1, None, [1, 1]))
+        p = st.slot_parameters(AGENT, KIT, THREE, catalogue=CATALOGUE)
+        self.assertEqual((p["E"]["max_charges"], p["E"]["max_charges_source"]), (3, "player"))
+        rows = _run(params=p)
+        full, half = _state_at(rows, "E", 10000.0), _state_at(rows, "E", 26000.0)
+        self.assertEqual((full["charges"], full["charges_reason"], full["charges_range"],
+                          full["charges_source"]), (None, why, [1, 3], "player"))
+        self.assertEqual((half["charges"], half["charges_reason"], half["charges_range"]),
+                         (None, why, [0, 3]))
+        self.assertEqual(_state_at(rows, "E", 55000.0)["charges_range"], [0, 3])
+        cov = rows[0]
+        self.assertGreater(cov["segments"]["E"]["unscored"], 0)
+        self.assertEqual((cov["segments"]["E"]["agree"], cov["segments"]["E"]["disagree"]),
+                         (0, 0))
+        self.assertGreater(cov["charges_unread_readable_slot_samples"][why], 0)
+        self.assertEqual(cov["invariants"]["1_level_outside_the_segments"], 0)
+        self.assertEqual(cov["invariants"]["1_cast_without_a_charge"], 0)
+        # The catalogue's one Twin Shot disagrees with the fact's three.
+        self.assertEqual(p["E"]["max_charges_conflict"]["catalogue"], 1)
+
+    def test_a_shared_pool_takes_no_count(self):
+        pri = st.charge_priors({**STARRY, **CONFIRM}, catalogue=STARRY_CAT)
+        for s in "CQE":
+            self.assertEqual((pri[("starry", s)]["max_charges"], pri[("starry", s)]["reason"],
+                              pri[("starry", s)]["fact"]),
+                             (None, "shared_pool", "abilities/starry-stars-shared"))
+        self.assertEqual(pri[("starry", "C")]["conflict"],
+                         {"kind": "shared_pool", "player": "shared_pool", "catalogue": 1,
+                          "fact": "abilities/starry-stars-shared"})
+        self.assertIsNone(pri[("starry", "Q")]["conflict"])
+        p = st.slot_parameters("Starry", {"C": "Pull", "Q": "Pulse", "E": "Cloud"},
+                               {**STARRY, **CONFIRM}, catalogue=STARRY_CAT)
+        self.assertEqual(p["C"]["max_charges_reason"], "no-fact:starry:C:max_charges")
+        self.assertEqual(p["C"]["max_charges_prior_reason"],
+                         "shared_pool:abilities/starry-stars-shared")
+
+    def test_a_confirmed_harvest_count_names_its_fact_and_entry(self):
+        pri = st.charge_priors({**FACTS, **CONFIRM}, catalogue=CATALOGUE)
+        c = pri[("tester", "C")]
+        self.assertEqual((c["max_charges"], c["source"], c["fact"], c["known"]),
+                         (1, "catalogue-confirmed", st.CONFIRM_FACT, "player"))
+        self.assertEqual((c["catalogue"]["path"], c["catalogue"]["harvested"],
+                          c["catalogue"]["ability"]),
+                         (st.CATALOGUE_PATH, "2026-09-04", "Widget"))
+        # A per-ability fact still outranks the confirmed harvest.
+        e = pri[("tester", "E")]
+        self.assertEqual((e["source"], e["conflict"]["kind"]), ("player", "count"))
+        self.assertEqual(pri[("tester", "X")]["reason"], "catalogue_non_numeric")
+        # A harvest of another date is a prior again.
+        later = {**CATALOGUE, "harvested": "2026-10-01"}
+        self.assertEqual(st.charge_priors(CONFIRM, catalogue=later)[("tester", "C")]["source"],
+                         "catalogue")
+        # A pool fact still wins over a confirmed count, and the conflict stays.
+        pool = st.charge_priors({**POOL, **CONFIRM}, catalogue=CATALOGUE)[("pooler", "C")]
+        self.assertEqual((pool["max_charges"], pool["reason"], pool["conflict"]["kind"]),
+                         (None, "resource_bar", "resource_bar"))
+        p = st.slot_parameters(AGENT, KIT, {**FACTS, **CONFIRM}, catalogue=CATALOGUE)
+        self.assertEqual((p["C"]["max_charges"], p["C"]["max_charges_source"],
+                          p["C"]["max_charges_fact"]), (1, "catalogue-confirmed", st.CONFIRM_FACT))
+        rows = _run(params=p)
+        self.assertEqual(_state_at(rows, "C", 10000.0)["charges_source"], "catalogue-confirmed")
+        self.assertEqual(rows[0]["charges_source"]["C"], "catalogue-confirmed")
+
+    def test_the_registry_keeps_skye_regrowth_a_pool(self):
+        from reticle import domain
+        cat = {"harvested": "2026-09-04", "agents": {
+            "Skye": {"abilities": [{"name": "Regrowth", "slot": "Grenade", "charges": "1"}]},
+            "Brimstone": {"abilities": [{"name": "Sky Smoke", "slot": "Ability2", "charges": "3"}]},
+            "Chamber": {"abilities": [{"name": "Headhunter", "slot": "Ability1", "charges": "8"}]},
+            "Sova": {"abilities": [{"name": "Owl Drone", "slot": "Grenade", "charges": "1"}]},
+            "Gekko": {"abilities": [{"name": "Wingman", "slot": "Ability1", "charges": "1"}]}}}
+        pri = st.charge_priors(domain.load(), catalogue=cat)
+        self.assertEqual(pri[("gekko", "Q")]["source"], "catalogue-confirmed")
+        skye = pri[("skye", "C")]
+        self.assertEqual((skye["max_charges"], skye["reason"], skye["conflict"]["kind"]),
+                         (None, "resource_bar", "resource_bar"))
+        self.assertEqual((pri[("brimstone", "E")]["max_charges"],
+                          pri[("brimstone", "E")]["source"]), (3, "player"))
+        self.assertEqual((pri[("chamber", "Q")]["max_charges"],
+                          pri[("chamber", "Q")]["source"]), (8, "player"))
+        self.assertEqual(pri[("sova", "C")]["source"], "player")
 
 
 if __name__ == "__main__":
