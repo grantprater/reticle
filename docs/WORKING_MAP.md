@@ -66,6 +66,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Ult-ready voice lines: who announced a ready ultimate; false alarms and collisions for the cast lines | `prototypes/ult_ready_lines.py`, [`docs/ULT_READY_LINES.md`](ULT_READY_LINES.md) |
 | What each ability does: inputs, minimap drawing, overlay, duration (the player's sheet) | `docs/ABILITY_MECHANICS_SHEET.md` |
 | The state of every ability (charges, equipped, active, castable) and the detectors it conditions: design | `docs/ABILITY_STATE_MODEL.md` |
+| The player's kit as a state per slot, step 1 (charges, equipped, castable, owner alive; invariant counts) | `reticle/adjudication/ability_state.py`, `reticle ability-state`, `tests/test_ability_state.py` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
@@ -109,6 +110,7 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle ability-phases
 .\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # decodes the audio stream only
 .\.venv\Scripts\python.exe -m reticle ult-cast SESSION      # stored peaks, lineup, rounds
+.\.venv\Scripts\python.exe -m reticle ability-state SESSION # stored drops, gate, deaths, crop cache
 .\.venv\Scripts\python.exe -m reticle acquisition-plan REQUESTS.json
 .\.venv\Scripts\python.exe -m reticle capabilities
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID

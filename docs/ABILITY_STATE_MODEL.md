@@ -261,3 +261,126 @@ time, whether the slot glows when equipped, whether the cooldown counter
 prints digits, which abilities show the timer bar, and what ends each
 entity. The sheet has 116 rows and none is complete; the model's `no-fact`
 reasons are the queue.
+
+## Step 1, built (2026-09-27)
+
+`reticle ability-state [--all | SESSION] [--record]` stores
+`events/ability_state/<sid>.jsonl` (`adjudication.ability_state`, owner
+`ability-state`, `ability-state-0.1.0`). It reads the stored `tray_drop`
+rows, reruns the gate on them from storage, reads the deaths and phases the
+gate reads, takes the player's agent from the arbiter's verdict in the
+lineup, and rereads the tray's fills from the stored `hud_abilities` crops on
+the grid `reticle tray` sampled. The drops carry only the two fills around
+each fall; the fills carry the level between drops, the teal of an equip, a
+lit X bar and every rise. It decodes nothing. The gate keeps its behaviour:
+step 1 turns each of its verdicts into a transition and names what each
+refusal stood for.
+
+The rows follow "Storage and recomputation": one `coverage` row (input
+stamps, the agent's provenance, the kit and the facts behind its parameters,
+thresholds, counts, reproduction checks and invariant counts); `claim` rows
+(`tray_drop`, the gate's `player_cast` that depends on it, `tray_fill`,
+`kit_end`, `undone_death`), each with its observation time, the interval it
+happened in, its source stamp and its evidence; `verdict` rows with the
+transition, the state before and after, the witnesses that agreed and
+disagreed, the gate's reason and what it stood for, and a surprise with its
+reason; and `state` rows, one per run of samples a slot spends in one state,
+carrying `charges`, `charges_range`, `level`, `mode`, `castable`, `pips`,
+`owner_alive`, `readable` and `until_ms`, each null with a reason when unread.
+
+**Instruments.** The reread reproduces the stored drops on all
+[metric:ability_state/step1@all-sessions#sessions=20] sessions
+([metric:ability_state/step1@all-sessions#drops_reread_mismatch=0]
+mismatches over [metric:ability_state/step1@all-sessions#drops=3228] drops).
+The gate, refactored to publish `kit_windows` and `round_window_of`,
+reproduces every stored verdict
+([metric:ability_state/step1@all-sessions#gate_stored_mismatch=0]
+mismatches), and each of its
+[metric:ability_state/step1@all-sessions#transition_cast=493] kept casts is a
+`cast` transition.
+
+**Levels.** The first run read C, Q and E as full at the gate's
+`FULL_AFTER_MIN` and the X bar as lit at `FULL_MIN`. Those thresholds test a
+drop's ends and sit on the low tails of the full and lit levels: the X bar
+went dark without a drop
+[metric:ability_state/level-edges@all-sessions#x_unlit_without_a_drop=26]
+times, [metric:ability_state/level-edges@all-sessions#x_unlit_without_a_drop_to_0_5_0_8=24]
+of them to a fill of 0.5-0.8. The state now reads at the fills' density
+minima (`LEVEL_FULL_MIN`, `X_LIT_MIN`); surprises fell from
+[metric:ability_state/step1-scores@all-sessions#first_run_invariant_surprises=111]
+to [metric:ability_state/step1@all-sessions#invariant_surprises=78] and the
+dark flickers to
+[metric:ability_state/step1@all-sessions#surprise_x_bar_went_dark_without_a_drop=2].
+An equip reads from `EQUIP_MIN`, where
+[metric:ability_state/step1@all-sessions#release_from_at_equip_min=120] of
+[metric:ability_state/step1@all-sessions#release_drops=121] stored releases
+start.
+
+**Readability.** [metric:ability_state/step1@all-sessions#unreadable_fraction=0.4213]
+of [metric:ability_state/step1@all-sessions#slot_samples=222368]
+slot-samples are unreadable: after the player's death
+([metric:ability_state/step1-scores@all-sessions#unreadable_kit_frozen_fraction=0.3564]),
+in the round-end and inter-round phases
+([metric:ability_state/step1-scores@all-sessions#unreadable_phase_fraction=0.0259]),
+and with the tray undrawn or its guard rows flooded
+([metric:ability_state/step1-scores@all-sessions#unreadable_undrawn_or_flooded_fraction=0.0371]).
+
+**Charges.** Among the played agents, facts give a count only for Blaze
+[domain:abilities/phoenix-tray-charges] and Ruse
+[domain:abilities/clove-tray-charges]. Sova's C, Q and E, Skye's C, Q and
+E, Phoenix's Q and E and Clove's C and Q have none, so
+[metric:ability_state/step1-scores@all-sessions#no_fact_fraction_of_readable_cqe=0.671]
+of [metric:ability_state/step1-scores@all-sessions#readable_cqe_slot_samples=96507]
+readable C, Q and E slot-samples store `charges` null with a `no-fact`
+reason and keep only the range the level bounds. `c62c2b06bcfb` has no
+lineup, so its agent is null and
+[metric:ability_state/step1@all-sessions#charges_unread_no_player_agent=3528]
+slot-samples carry `no_player_agent`. A half bar need not be one charge of
+two: Sova's Recon Bolt, one charge in the official reference
+(`reference/abilities.json`), reads half for a stretch after a cast on
+`c40d950031bb` (595 s, 912 s). The reference's `charges` field is not a
+domain fact, and step 1 does not read it.
+
+**Labels.** Of the player's tray-cast labels the gate accepts,
+[metric:ability_state/step1@all-sessions#labels_cast_held_before=89] of
+[metric:ability_state/step1@all-sessions#labels_cast=94]
+([metric:ability_state/step1@all-sessions#a1_held_fraction=0.9468]) held a
+charge or a lit bar just before. The five others fell from a half bar on a
+slot with no fact (Phoenix E twice, Skye E twice, Sova E once), which the
+model will not call one charge. The other labels become `unequip`, `none` or
+`unresolved`, as the gate's reasons stand for.
+
+**Invariants.** Every testable count is zero in all
+[metric:ability_state/step1-scores@all-sessions#sessions_invariants_all_zero=20]
+sessions: a cast without a charge, an X cast from an unlit bar or leaving it
+lit, a release that lowered the level, a frozen kit that changed, and a half
+bar on a one-charge slot.
+[metric:ability_state/step1@all-sessions#invariant_1_cast_charge_unconfirmed=44]
+casts leave the charge unconfirmed: a half bar on a slot with no fact.
+Entities (invariant 4) and range rounds (invariant 6) wait for later steps.
+The surprises left are
+[metric:ability_state/step1@all-sessions#surprise_level_fell_without_a_cast=60]
+refused drops whose level fell, co-occurrence and buy-phase refusals where a
+state-deciding model and the gate would first disagree, and
+[metric:ability_state/step1@all-sessions#surprise_level_fell_without_a_drop=16]
+level falls the reader stored no drop for.
+
+**Cost.** [metric:ability_state/step1-scores@all-sessions#run_wall_s=1266.8] s
+wall at Idle priority for all sessions, of which reading the crop cache took
+[metric:ability_state/step1-scores@all-sessions#cache_read_s_sum=1177.4] s.
+The predictions and outcomes are in the store's ledger, task
+`ability-state`.
+
+### What step 2 needs
+
+- Charge facts for the ten slots above, and each ability's recharge kind,
+  from the mechanics sheet; until then a half bar reads `[0, 2]`.
+- A pip reader for the X slot: the tray counts teal, not pips, so `pips`
+  stays null and `castable` is the only ult reading.
+- The timer bar reader, to date `until_ms`. Step 1 dates an active span only
+  from a duration fact and from the cast
+  ([domain:abilities/phoenix-blaze-duration],
+  [domain:abilities/clove-ruse-minimap-duration]).
+- Own audio bound to the `cast` transition rather than to a drop.
+- Labels for the refused drops whose level fell, scored before the model
+  decides casts in place of the gate.

@@ -825,13 +825,14 @@ question = "When was an ability cast, and from which tray slot?"
 owner = "ability_timeline"
 role = ["detect", "corroborate"]
 status = "transitional"
-produces = ["build_timeline", "write_timeline", "player_tray_casts", "stored_gate_inputs"]
+produces = ["build_timeline", "write_timeline", "player_tray_casts", "stored_gate_inputs",
+            "kit_windows", "round_window_of"]
 not_for = """
 A pixel detector result. A cast claim is temporal evidence from the tray and
 audio; it does not locate the ability's entity in the world, and the audio and
 tray agreeing is corroboration rather than detection.
 """
-consumers = ["cli", "adjudication.ult_cast"]
+consumers = ["cli", "adjudication.ult_cast", "adjudication.ability_state"]
 exit = "`materialize_demo_casts` drives `ability_cast` and `ability_hud` from prototypes/."
 evidence = "tests/test_ability_timeline.py, tests/test_tray.py, docs/VOICE_LINES.md"
 
@@ -848,8 +849,35 @@ kit, so a drop is a transition, not the player's cast; `ability-cast`
 (`ability_timeline.player_tray_casts`) decides that. An undrawn tray is a
 refusal, never zero charges.
 """
-consumers = ["cli"]
+consumers = ["cli", "adjudication.ability_state"]
 evidence = "tests/test_tray.py, prototypes/tray_suspect_reasons.py"
+
+[[entry]]
+id = "ability-state"
+question = "What does each slot of the local player's kit hold at a time: charges, equipped, castable, owner alive?"
+owner = "adjudication.ability_state"
+role = ["adjudicate", "lifecycle"]
+status = "partial"
+names_agents = true
+produces = ["adjudicate", "invariant_violations", "score_labels", "charge_facts",
+            "duration_facts", "slot_parameters", "charges_of", "player_agent_verdict",
+            "player_kit", "STOOD_FOR", "READABLE_PHASES", "HALF_MIN", "LEVEL_FULL_MIN",
+            "X_LIT_MIN", "EQUIP_MIN",
+            "MAX_CHARGES_ANY"]
+not_for = """
+Deciding which drop is the player's cast: step 1 of docs/ABILITY_STATE_MODEL.md
+consumes the gate's verdicts (`ability-cast`) and names the state each refusal
+stood for; the design's later steps invert that dependency. Nor is it for
+naming the player's agent, which is the identity arbiter's verdict carried with
+its provenance (`agent-identity`, through `ult-cast` and `player-agent`), nor
+for guessing a charge count no domain fact gives, nor a regain of charges the
+tray does not show: those stay null with their reason. It builds no entity,
+reads no timer bar or audio, and says nothing of allies or enemies.
+"""
+defers_to = ["agent-identity", "player-agent", "ult-cast", "ability-cast", "tray-drop"]
+consumers = ["cli"]
+exit = "Steps 2 to 5 of docs/ABILITY_STATE_MODEL.md: audio and the timer bar as witnesses, entities, allies, then the gate's decision moves here."
+evidence = "tests/test_ability_state.py, docs/ABILITY_STATE_MODEL.md"
 
 [[entry]]
 id = "ult-line"
@@ -895,7 +923,7 @@ out (docs/VOICE_LINES.md, "Held-out threshold"); a session without a lineup
 classes every peak unknown.
 """
 defers_to = ["agent-identity", "ability-cast"]
-consumers = ["cli"]
+consumers = ["cli", "adjudication.ability_state"]
 evidence = "tests/test_ult_cast.py, docs/VOICE_LINES.md, prototypes/voice_lines.py"
 
 [[entry]]

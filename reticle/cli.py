@@ -2708,6 +2708,26 @@ def _sessions_arg(store: Store, args) -> list[str]:
             else [_resolve_session(store, args.session)["session_id"]])
 
 
+def _tray_samples(cache, step_s: float) -> tuple[list, list, list, list]:
+    """The tray's slot counts on the crop cache's grid, span by span:
+    (times, counts, clean, real). A refused row separates two spans, so no
+    drop is read across two rounds; `real` is False on it."""
+    from . import tray
+    ts, counts, clean, real = [], [], [], []
+    for a, b in cache.record["spans"]:
+        for smp in cache.samples(_cache_grid(cache.t_ms, a, b, step_s), rois=["hud_abilities"]):
+            c, ok = tray.slot_counts(smp.frame)
+            ts.append(float(smp.t_ms))
+            counts.append(c)
+            clean.append(ok)
+            real.append(True)
+        ts.append((ts[-1] if ts else 0.0) + 10.0)
+        counts.append([0, 0, 0, 0])
+        clean.append(False)
+        real.append(False)
+    return ts, counts, clean, real
+
+
 def cmd_tray(args) -> int:
     """The tray's charge drops from the stored crops, and which are the player's
     casts (`ability_timeline.player_tray_casts`). Decodes no video."""
@@ -2733,17 +2753,7 @@ def cmd_tray(args) -> int:
         if not spans:
             print(f"{sid}: the crop cache has no round spans (a whole-capture cache) -- skipped")
             continue
-        ts, counts, clean = [], [], []
-        for a, b in spans:
-            for smp in cache.samples(_cache_grid(cache.t_ms, a, b, args.step), rois=["hud_abilities"]):
-                c, ok = tray.slot_counts(smp.frame)
-                ts.append(float(smp.t_ms))
-                counts.append(c)
-                clean.append(ok)
-            # A refused row between spans: no drop is read across two rounds.
-            ts.append((ts[-1] if ts else 0.0) + 10.0)
-            counts.append([0, 0, 0, 0])
-            clean.append(False)
+        ts, counts, clean, _real = _tray_samples(cache, args.step)
         date = _date_of(man)
         rounds = store.read_rounds(sid, date).to_pylist()
         gate, _stamps = stored_gate_inputs(store, sid, date, rounds,
@@ -2764,6 +2774,163 @@ def cmd_tray(args) -> int:
         print(f"{sid}: {len(rows)} drops, {out_rows[0]['player_casts']} the player's casts; "
               f"refused {dict(why_not)} -> {out}")
     return 0
+
+
+def cmd_ability_state(args) -> int:
+    """The player's kit as a state per slot (`adjudication.ability_state`):
+    the stored `tray_drop` rows, the gate's verdicts on them, the deaths, and
+    the tray fills reread from the stored `hud_abilities` crops on the grid
+    `reticle tray` sampled, which carry what the drops cannot (the level
+    between drops, an equip, a lit X bar, every rise). Decodes no video."""
+    import json
+    import time
+
+    from . import domain, tray
+    from .ability_timeline import kit_windows, player_tray_casts, stored_gate_inputs
+    from .adjudication.ability_state import (adjudicate, player_agent_verdict, player_kit,
+                                             slot_parameters)
+    from .adjudication.ult_cast import DROP_FIELDS
+    from .lineup import load_lineup
+    from .roi_cache import RoiCache
+    from .version import ABILITY_STATE_VERSION, PLAYER_CAST_VERSION, TRAY_VERSION
+
+    store = Store(args.store)
+    facts = domain.load()
+    done = []
+    for sid in _sessions_arg(store, args):
+        t0 = time.perf_counter()
+        stored = store.read_events("tray_drop", sid)
+        cov = next((r for r in stored if r.get("kind") == "coverage"), None)
+        if cov is None:
+            print(f"{sid}: no tray_drop rows -- skipped")
+            continue
+        if cov.get("tray_version") != TRAY_VERSION:
+            print(f"{sid}: tray_drop is {cov.get('tray_version')}, code is {TRAY_VERSION} "
+                  f"-- rerun `reticle tray`; skipped")
+            continue
+        man = store.read_manifest(sid)
+        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
+        if cache is None or not cache.record.get("spans"):
+            print(f"{sid}: no minimap crop cache with round spans ({why}) -- skipped")
+            continue
+        drops = [r for r in stored if r.get("kind") == "drop"]
+        ts, counts, clean, real = _tray_samples(cache, cov["step_s"])
+        counts, clean = np.asarray(counts, float), np.asarray(clean, bool)
+        t_read = time.perf_counter() - t0
+        # The reread must give the stored drops, or the fills are not theirs.
+        key = lambda r: tuple(r[k] for k in ("t_ms", "slot", "from", "to", "forced",
+                                              "cooccur", "across_gap"))
+        reread_mismatch = len(set(map(key, tray.drops(ts, counts, clean)))
+                              ^ set(map(key, drops)))
+        fills = tray.fills(counts, clean)
+        keep = np.asarray(real, bool)
+        date = _date_of(man)
+        rounds = store.read_rounds(sid, date)
+        round_version = (rounds.schema.metadata or {}).get(b"round_version", b"").decode() or None
+        rounds = rounds.to_pylist()
+        lineup = load_lineup(sid, store.root)
+        agent = player_agent_verdict(lineup, sid)
+        gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent["agent"])
+        gate_rows = player_tray_casts(
+            [{k: r[k] for k in DROP_FIELDS} for r in drops], gate["phase_of"], rounds,
+            gate["player_deaths_ms"], agent=gate["agent"],
+            second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+            report_deaths=gate["report_deaths"])
+        kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                           second_lives_ms=gate["second_lives_ms"],
+                           revives_ms=gate["revives_ms"], report_deaths=gate["report_deaths"])
+        kit = player_kit(agent["agent"], store.root)
+        inputs = {**stamps, "tray_drop": cov["tray_version"],
+                  "tray_drop_player_cast": cov.get("player_cast_version"),
+                  "tray_fill": TRAY_VERSION, "roi_cache": cache.record.get("version"),
+                  "round": round_version, "lineup": (lineup or {}).get("version"),
+                  "agent_identity": agent["adjudication_version"]}
+        checks = {"step_s": cov["step_s"], "drops_reread_mismatch": reread_mismatch,
+                  "gate_stored_mismatch": sum(
+                      (a["reason"], a["player_cast"]) != (b.get("reason"), b.get("player_cast"))
+                      for a, b in zip(gate_rows, drops)),
+                  "cache_read_s": round(t_read, 1)}
+        rows = adjudicate(
+            sid, drops=drops, gate_rows=gate_rows, kits=kits, phase_of=gate["phase_of"],
+            samples={"t_ms": [t for t, r in zip(ts, real) if r], "fills": fills[keep],
+                     "drawn": [tray.drawn(f) for f in fills[keep]], "clean": clean[keep]},
+            agent=agent, params=slot_parameters(agent["agent"], kit, facts),
+            inputs=inputs, checks=checks)
+        rows[0]["checks"]["wall_s"] = round(time.perf_counter() - t0, 1)
+        out = store.write_events("ability_state", sid, rows)
+        c = rows[0]
+        print(f"{sid}: {agent['agent']} ({agent['status']}); {c['readable_slot_samples']} of "
+              f"{c['slot_samples']} slot-samples readable; {c['by_transition']}; surprises "
+              f"{c['surprises']}; reread mismatch {reread_mismatch}, gate mismatch "
+              f"{checks['gate_stored_mismatch']}; {rows[0]['checks']['wall_s']} s -> {out}")
+        done.append((sid, rows))
+    if args.record and done:
+        from . import metrics
+        values = _ability_state_values(store, done)
+        metrics.record(tool="ability_state", part="step1",
+                       session=args.session if not args.all else "all-sessions",
+                       values=values,
+                       deps={"ability_state_version": ABILITY_STATE_VERSION,
+                             "tray_version": TRAY_VERSION,
+                             "player_cast_version": PLAYER_CAST_VERSION},
+                       context={"labels": "labels/tray_object",
+                                "sessions": [sid for sid, _ in done]})
+        print(json.dumps(values, indent=1))
+    return 0
+
+
+def _ability_state_values(store, done) -> dict:
+    """The quoted numbers of one `ability-state --record` run: coverage, the
+    unreadable reasons, the invariant counts, and the player's labels."""
+    import json
+
+    from .adjudication.ability_state import EQUIP_MIN, score_labels
+    pooled, invariants, unread, reasons = Counter(), Counter(), Counter(), Counter()
+    labelled = []
+    for sid, rows in done:
+        c = rows[0]
+        # Where an equipped slot's fill sits: the stored releases' `from`.
+        released = [r["from"] for r in store.read_events("tray_drop", sid)
+                    if r.get("kind") == "drop" and r.get("reason") == "equip_release"]
+        pooled.update({"release_drops": len(released),
+                       "release_from_at_equip_min": sum(f >= EQUIP_MIN for f in released)})
+        pooled.update({"sessions": 1, "samples": c["samples"], "slot_samples": c["slot_samples"],
+                       "readable_slot_samples": c["readable_slot_samples"],
+                       "drops": c["drops"],
+                       "drops_reread_mismatch": c["checks"]["drops_reread_mismatch"],
+                       "gate_stored_mismatch": c["checks"]["gate_stored_mismatch"]})
+        pooled.update({f"transition_{k}": v for k, v in c["by_transition"].items()})
+        pooled.update({f"surprise_{k}": v for k, v in c["surprises"].items()})
+        unread.update(c["unreadable_slot_samples"])
+        reasons.update(c["charges_unread_readable_slot_samples"])
+        for k, v in c["invariants"].items():
+            if isinstance(v, int):
+                invariants[k] += v
+                if v:
+                    invariants[f"{k}_{sid}"] = v
+        path = store.root / "labels" / "tray_object" / f"{sid}.jsonl"
+        if path.exists():
+            labs = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()]
+            labelled += score_labels(rows, labs)["labels"]
+    values = dict(sorted(pooled.items()))
+    values["readable_fraction"] = round(values["readable_slot_samples"]
+                                        / max(values["slot_samples"], 1), 4)
+    values.update({f"unreadable_{k}": v for k, v in sorted(unread.items())})
+    values["unreadable_fraction"] = round(1 - values["readable_fraction"], 4)
+    values.update({f"charges_unread_{k}": v for k, v in sorted(reasons.items())})
+    values.update({f"invariant_{k}": v for k, v in sorted(invariants.items())})
+    casts = [lab for lab in labelled if lab["transition"] == "cast"]
+    values.update({"labels": len(labelled), "labels_cast": len(casts),
+                   "labels_cast_held_before": sum(bool(lab["held_before"]) for lab in casts),
+                   "labels_by_transition": dict(sorted(Counter(
+                       str(lab["transition"]) for lab in labelled).items()))})
+    if casts:
+        values["a1_held_fraction"] = round(values["labels_cast_held_before"] / len(casts), 4)
+    values["a1_misses"] = [f"{lab['key']}:{lab['agent']}:level={lab['before_level']}"
+                           f":held={lab['before_held_level']}:fill={lab['before_fill']}"
+                           for lab in casts if not lab["held_before"]]
+    return values
 
 
 def cmd_ability_shapes(args) -> int:
@@ -3685,6 +3852,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--all", action="store_true", help="every session")
     s.add_argument("--step", type=float, default=0.5, help="tray sampling interval (default 0.5 s)")
     s.set_defaults(func=cmd_tray)
+
+    s = sub.add_parser("ability-state",
+                       help="the player's kit as a state per slot, from stored drops and crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--record", action="store_true",
+                   help="score the tray-cast labels and record the numbers in notes/metrics.jsonl")
+    s.set_defaults(func=cmd_ability_state)
 
     s = sub.add_parser("ability-shapes",
                        help="the drawn minimap shape after the player's casts, from stored crops (no video)")
