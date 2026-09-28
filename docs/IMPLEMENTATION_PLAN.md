@@ -85,8 +85,9 @@ cases and for measuring precision/recall, rather than request blanket relabeling
 - The implementation is concentrated in stage 02. Player kill/death tracking
   and round outcomes already exist, but there is no unified player-event table
   connecting them to a evaluated state model and retrievable video windows.
-- `doctor` currently fails: 35/36 geometry caches are stale. One lacks shade;
-  one manifest has contradictory widget-size metadata. Rebuilding geometry
+- On 2026-09-07 `doctor` failed: 35/36 geometry caches were stale, one lacked
+  shade, and one manifest had contradictory widget-size metadata; the
+  per-(map, profile) rebuild that day replaced the caches. Rebuilding geometry
   discards shade arrays. Do not consume these tracks for coaching yet.
 - The roster's undrawn `(0,0)` defect is documented and still present. HUD
   changes in a spectated view cannot be attributed to the local player.

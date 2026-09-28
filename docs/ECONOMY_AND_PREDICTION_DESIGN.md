@@ -2,8 +2,8 @@
 
 Date: 2026-09-09. Status: economy accounting core, explicit-fact CLI, stored
 scoreboard credit observations, and first-pass credit adjudication implemented;
-identity claim production, automatic ledger derivation, and prediction integration
-remain proposed.
+`adjudication.scoreboard` produces identity claims for scoreboard rows. Automatic
+ledger derivation and prediction integration remain proposed.
 
 Extends [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md), the existing
 `reticle/coaching.py` baseline, and the observation -> adjudication -> entity
@@ -33,9 +33,11 @@ to an observation. Stage 02 remains deterministic and model-free.
   occurrence intervals and defines compound episodes linked to entity IDs.
   Forecast targets should reference those definitions, not create a parallel
   set of player/ability identities.
-- Round intervals end at score increment and do not cover the entire inter-round
-  period. Economy needs an explicit settlement/carryover association for that
-  period, without changing round intervals to make joins convenient.
+- Round intervals end at the score increment. Since `round-0.4.0` a round's
+  events run on to the next buy-phase snap (`t_close_ms`)
+  [domain:rounds/post-round-period]. Economy still needs an explicit
+  settlement/carryover association for the inter-round period, without changing
+  round intervals to make joins convenient.
 - Historical corpus counts in the existing plans are historical measurements,
   not evidence that a richer model can currently be trained.
 - `reticle/economy.py` now implements the pure ruleset, interval balances,

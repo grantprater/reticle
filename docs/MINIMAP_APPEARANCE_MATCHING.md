@@ -56,7 +56,7 @@ Stage 02 remains deterministic: geometry, signal processing and mined exemplars.
   but refuse 1975/7131 frames (27.7%). Agreement is a consistency measurement,
   not independently established position accuracy. Retaining only easy frames
   cannot establish success.
-- Thin colour rings are vulnerable to 4:2:0 subsampling; the roughly 11-pixel
+- Thin colour rings are vulnerable to 4:2:0 subsampling [domain:capture/chroma-420]; the roughly 11-pixel
   portrait interior retains full-resolution luma structure. This motivates an
   appearance channel, not a claim that luma solves every icon.
 - `prototypes/minimap_portrait.py` reports 93.0% nearest-exemplar versus 70.4%
@@ -123,7 +123,7 @@ model's `origin` / `bearing` / `extent`, as `ping.py` states it.
 | **Dropped spike** | **self, yellow (measured)** | Rounded equilateral triangle, thin black outline, black centre dot inside a black circle, three dots toward the corners. **Base DOWN, corner up; slightly larger than carried.** fixed / absent / none | **nothing** | the drawn light where it is enemy-side; the carrier's death in the killfeed; the announcer's *spike down <location>* | **the player** |
 | **Carried-spike badge** | **self, yellow -- ally-carried too** | The same glyph rotated 180 degrees: **base UP**, slightly smaller, beside the carrier's portrait, 3.2 px to its bottom left. follows a player / absent / none | nothing | it moves with a player icon, which a dropped spike never does | the player's own centre, by a fixed offset |
 | **Planted spike** | **self, yellow (measured)** | Compact glyph, dark core, on site paint. fixed / absent / none, plant to defuse or detonate | HUD only: `rounds.spike_planted`, and `prototypes/plant_spike.py` unwired | the HUD spike graphic replacing the clock; the site letter; the beep interval | the player |
-| Death mark | team colour (unknown) | X glyph. fixed / absent / none, short life (unmeasured) | nothing; `world:x_mark` in the paint bank | **the killfeed names owner and time** | the player, an enemy |
+| Death mark | team colour: cyan/blue for an ally [domain:minimap/ally-death-mark]; see [domain:minimap/enemy-death-mark] | X glyph. fixed / absent / none, short life (unmeasured) | nothing; `world:x_mark` in the paint bank | **the killfeed names owner and time** | the player, an enemy |
 | Last-known mark | team colour (unknown) | Question-mark glyph. fixed / absent / none, short life (unmeasured) | nothing; `world:question_mark` | that enemy's last read; chat spot lines | an enemy |
 | Ping | per type | Glyph, no growth phase. fixed / absent / none, **7.0 s or 10.0 s exactly** | `ping-0.1.0` | the player who placed it, at their position | an ability icon |
 | Ability icon | per agent | Disc or glyph. fixed / absent / none, per-ability life | `prototypes/ability_disc.py`; `ability` and `ability_paint` labels | killfeed ability icons (owner + time, on kills only), HUD ability tray charges | the player, a ping |
@@ -173,19 +173,20 @@ G1 is designed against.
   all is a detector failure rather than information. On the defending half only
   the ground state is drawn, and only inside our vision.
 
-One question the domain has not answered, worth asking before G1 is scored:
-whether a reveal ability that shows an enemy also shows a spike on the ground.
+The domain has answered the one question left here: a reveal shows players
+only, never a spike on the ground [domain:minimap/vision-gate].
 
 ### The vision gate on enemy-team entities
 
 **An enemy-team entity is drawn on our minimap only where our team can see
-it.** That is a game rule rather than a tendency, and it applies to the enemy
+it** [domain:minimap/vision-gate]. That is a game rule rather than a tendency, and it applies to the enemy
 player icons and to the enemy-side spike on the ground alike. **Own-team icons
 are always visible**, so the gate is scoped to the enemy half and must never be
 applied to ours -- where a missing icon stays what the entity model already
 calls it, a detection failure rather than information. The repo already
 uses the weak form of it -- *an ally icon with no lit pixels beside it is not
-an ally* is a standing constraint in `../CLAUDE.md` -- but for allies the light
+an ally* is the archived backlog entry *Reject ally icons that have no light
+beside them* ([archive](archive/BACKLOG-through-2026-09-23.md)) -- but for allies the light
 is only a correlate. For enemy-team entities it is a NECESSARY CONDITION, which
 is a far stronger gate, and nothing consumes it today.
 
@@ -212,11 +213,14 @@ How the gate is allowed to be used:
   is a legal origin for an enemy appearance* -- so an unlit enemy PLAYER icon is
   a refusal or a reveal, separated by the ability channel rather than by the
   light. Store the disagreement; do not delete the detection. **A reveal does
-  not show the spike, and does not show abilities** (domain, 2026-09-10). For
-  the enemy-side ground spike and for enemy ability entities the gate is
-  therefore EXCEPTIONLESS, which makes them the cleaner instrument of the two:
-  an unlit enemy-side spike is a false positive with no second reading, so it
-  can validate the drawn light in a way an enemy player icon cannot.
+  not show the spike, and does not show abilities** [domain:minimap/vision-gate].
+  For the enemy-side ground spike and for enemy ability entities the one
+  remaining exception is timing: an enemy-owned entity stays drawn briefly
+  after it leaves vision, for an unmeasured time
+  [domain:minimap/vision-trailing-persistence]. Allowing that lag, an unlit
+  enemy-side spike is a false positive with no second reading, which makes it
+  the cleaner instrument of the two: it can validate the drawn light in a way
+  an enemy player icon cannot.
 - **`lighting.py` is not ground truth.** Its own docstring names the failure:
   any map object whose resting state is the bright one reads permanently lit,
   and the mechanical doors on Ascent and Lotus still do. Scoring a channel
@@ -245,133 +249,11 @@ where the constraint is a rule rather than a correlation.
 
 ### Infer the inventory; do not be told it
 
-**Historical proposal and first-run interpretation:** read the
-[subsequent critique](MINIMAP_MINING_REVIEW.md) for the current design. In
-particular, "clusters are classes", "junk never forms a cluster", semantic
-assignment from event coincidence, and origin inference from position spread
-are unsupported assumptions, not acceptance criteria. The replacement sequence
-starts with an independent proposal-recall audit and preserves rare candidates.
-
-**The prose descriptions above are a stopgap and must not become the method.**
-Everything in them except the game rules is a property of pixels the capture
-already holds, and this plan's own gallery contract already says to mine
-exemplars from independently anchored windows. Asking for a paragraph per icon
-does not scale past the fourteen rows above, it puts a person in the loop for
-something a decode can answer, and it introduces an error class nothing can
-catch: a description is unfalsifiable against the frame until someone re-reads
-both.
-
-**The precedent already worked, on the hardest case.**
-`prototypes/minimap_portrait.py` mined 71 enemy icons on `a06f04a0059f` and
-clustered them on their interiors alone. It produced 19 groups, every one
-visually pure, merging into exactly the five agents the enemy roster shows plus
-a sixth group for the question-mark icons -- with nothing tuned to make that
-happen. Its own note records the residue precisely: the agent NAMES were first
-written down wrong, the player corrected them, and **no measurement changed,
-because the classes were right.** Structure is inferable. A name is not, and a
-name is one word.
-
-**The proposer already exists and was thrown away.**
-`minimap_occlusion.foreign_fraction` asks, per pixel, whether the grey leaves
-the map's measured `[lo_gray, hi_gray]` lighting band -- *something is drawn
-here* -- naming no colour and no class. It then reduces that to a scalar and
-discards the mask. **The mask is the object proposer**, and the whole shape of
-the gap is in that one line: every prototype so far was built to answer one
-detector's question, so none of them ever enumerated objects.
-
-**Measured 2026-09-10 on four frames of `c40d950031bb`, inside the slab**, with
-`prototypes/object_proposals.py`:
-
-    frame                     foreign px   % of slab   components in the icon band
-    dropped spike + player       1560        5.50%              37
-    planted spike on B           1001        3.53%              11
-    carried badge + ally clump   1040        3.66%              13
-    spike, crowded               1156        4.07%              17
-
-at a 10.0 grey margin, with the icon band 5-203 px at scale 0.712. Rendered,
-the proposals cover the icon clumps and also pick up objects **no colour key
-would find at all**. The tail is larger than the five or six real icons on a
-frame, and much of it is map furniture -- which `doctor` already reports as a
-standing finding, and which is removable precisely because it is STATIC.
-
-**Why that tail is acceptable here, and would not be in a reader.** A detector
-needs per-frame precision. A miner needs RECURRENCE: artwork repeats across
-thousands of frames with a consistent appearance, and speckle does not, so the
-junk never forms a cluster. This is the one place in the pipeline where a loose
-proposer is the correct instrument, and it is why mining must not be built out
-of the readers.
-
-The protocol, which G1 uses and every later G-step inherits:
-
-1. **Propose objects from the foreign mask, inside the opaque slab only.**
-   Outside the slab the widget is see-through and the live world bleeds in,
-   which is the documented cause of reading scenery as icons; inside it, the
-   stored static map is a valid background. No colour key at any point.
-2. **Subtract what is always there.** Accumulate a per-pixel foreign RATE over
-   the session: a pixel foreign in most frames is furniture or a geometry
-   error, not an entity. This calibrates itself off the corpus rather than off
-   a hand-chosen threshold, and it is what removes the bulk of the tail above.
-3. **Describe and cluster.** `minimap_appearance.describe` already produces an
-   11x11 masked-luma descriptor with a contrast check, and
-   `appearance_similarity` already scores two of them; `minimap_portrait.py`
-   already clusters with them. The clusters are the classes. States separate
-   here too, because a glyph that is smaller and rotated does not land in its
-   neighbour's cluster.
-4. **Relate the clusters automatically.** Test each pair for the
-   transformations the widget actually uses -- a 180-degree rotation, a scale
-   change, a colour swap. *It inverts* [domain:minimap/spike-inversion] is
-   then a DISCOVERED relation
-   between two clusters rather than a sentence someone supplies.
-5. **Anchor clusters to independently timed events for their meaning.** The
-   cluster that appears at a HUD-detected plant is the planted spike; the one
-   that appears where a killfeed victim last stood is the dropped spike; the one
-   that rides a player icon is carried. This is the forced-correspondence rule
-   this plan already states, and it names classes without a person.
-6. **Ask the player only what survives.** A one-word name for a cluster, or a
-   yes/no on a rule the pipeline has hypothesised. Never a description.
-
-**BUILT AND FIRST-RUN 2026-09-10: `prototypes/mine_icons.py`.** It runs end to
-end and the proposer holds -- 2391 proposals over 101 frames of
-`c40d950031bb` at 1 Hz, 23.7 per frame, every one describable. **Three of the
-four steps above do not work as this document claims, and the claims are
-corrected here rather than left standing:**
-
-1. **The static subtraction is INERT.** At a 0.5 foreign rate it removed 14 px,
-   0.0% of the slab, against the text above promising it removes the bulk of
-   the tail. Furniture is not foreign in half of frames, so either the rate is
-   the wrong statistic or the level is far off. Unsupported until re-measured.
-2. **Clustering on appearance alone FRAGMENTS.** 254 clusters at join 0.60, 67
-   recurring, and the large ones carry a POSITION SPREAD of 60-84 px. A class
-   whose members are scattered over a third of the widget is a bag of visually
-   similar noise, not an object.
-3. **The rotation relation has no NULL and is therefore meaningless as run.**
-   It fired on 93 pairs, several at rotated 0.75-0.82 against upright -0.97. An
-   11x11 masked luma patch correlates with its own rotation by chance far too
-   often for that to be a discovery. Measure rotated similarity between
-   clusters known to be unrelated BEFORE any pair is called a relation.
-
-**What the run did find, and it was printed by accident rather than designed:
-POSITION SPREAD separates the clusters.** Cluster 11 is n=37 at 6.8 px spread
-and contrast 150; cluster 14 is n=30 at 32 px and contrast 126; the noise
-clusters sit at 60-84 px and contrast 45-70. That is the entity model's own
-`origin` parameter falling out of the data: a fixed object recurs in ONE PLACE,
-a player recurs everywhere, and speckle recurs nowhere in particular at low
-contrast. **Cluster on appearance AND on that behaviour**, and gate proposals on
-contrast before describing them.
-
-Cost is bounded by sampling rather than by the pass: mining wants enough
-exemplars per class, not every frame, so it takes the event-anchored windows
-plus a spread of ordinary ones and rides the shared decode. Scoring it needs
-the exhaustively painted frames, which are the only labels in the store that
-make precision computable at all; 39 exist across two sessions today.
-
-Three failure modes to design against, all of them already recorded elsewhere
-in this repo: coincident objects, since two icons may sit 0.7 px apart and no
-rule may assume they separate; class imbalance, since a spike appears in every
-round and a rarely-used ability may have one instance in the corpus; and
-mining's own circularity, since a cluster built from detector-selected frames
-inherits that detector's blind spot -- which is why the proposer takes no
-colour key.
+[MINIMAP_MINING_REVIEW.md](MINIMAP_MINING_REVIEW.md) holds the current mining
+design and the first run's recorded numbers. The original proposal -- the
+six-step protocol, the object-proposal measurements of 2026-09-10 and the
+first run's corrections -- moved to
+[the dated archive](archive/MINIMAP_MINING_PROPOSAL-2026-09-10.md).
 
 ### A class-specific detector is not a step toward this
 
@@ -429,8 +311,8 @@ A reader joins this inventory when it does all five. The first four are the
 repo's standing rules applied to a class rather than to a channel; the fifth is
 what this plan adds.
 
-0. **Derive its row by mining, not by asking.** The section above is the
-   method. A reader whose appearance came from a description has an unfalsified
+0. **Derive its row by mining, not by asking.**
+   [MINIMAP_MINING_REVIEW.md](MINIMAP_MINING_REVIEW.md) gives the method. A reader whose appearance came from a description has an unfalsified
    premise in it.
 1. **Name its key, and what else is in it.** `key_collision.py` is the cheap
    version wherever labels already exist.
@@ -486,7 +368,9 @@ from before a neighbour existed does not carry forward.
 
 ### G1: the spike
 
-**Step one is the mining pass, not a detector.** Residual against the static
+**Step one is the mining pass, not a detector** (the
+[archived proposal](archive/MINIMAP_MINING_PROPOSAL-2026-09-10.md) gives its
+protocol). Residual against the static
 median, cluster, relate the clusters, anchor them to the plant instant and to
 killfeed deaths. The spike is the ideal first case for it: three states that
 must fall into three clusters, two of them related by a 180-degree rotation
@@ -617,7 +501,8 @@ Still to predeclare, unchanged by the run above:
    so a minimap spike glyph outside a plant window is dropped or carried.
 3. The carried badge sits at a fixed offset from a player icon, and the offset
    is the same for every carrier.
-4. An enemy-side ground spike appears only on lit floor, per the vision gate.
+4. An enemy-side ground spike appears only on lit floor, per the vision gate,
+   allowing its trailing persistence [domain:minimap/vision-trailing-persistence].
 
 Promotion gate: presence precision and recall on exhaustively painted frames
 over at least two sessions, with the spike state reported separately; position
@@ -799,7 +684,7 @@ forced brackets, but only 80.00%, 68.42%, 12.50% and 0/2 answers were within
 descriptor was validated between adjacent native frames; at tier-sized gaps its
 physical search disk expands while compositing and overlap change. Therefore the
 standalone matcher remains in `prototypes/` and is not wired into `_MinimapPass`;
-`MINIMAP_VERSION` remains 0.5.0.
+`MINIMAP_VERSION` stayed at 0.5.0.
 
 ### The joint fit, and why Step 2 closes
 

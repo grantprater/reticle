@@ -1,8 +1,8 @@
 # Roster and event-timing findings — 2026-09-07
 
 These are localized source inspections, not a corpus accuracy estimate.
-Reproduce counts with `reticle audit`; source images are kept in the private
-store/workspace rather than committed footage. No detector thresholds changed.
+Reproduce counts with `reticle audit`; source images stayed outside the
+repository (the `store/workspace` directory named here no longer exists). No detector thresholds changed.
 
 ## Confirmed roster undercount: 587c15b07779, 1483.0 seconds
 
@@ -142,8 +142,9 @@ bar is near-black (`max < 1.0`). Only a bar with nothing behind it reaches 0.
 
 **This is the documented `(0,0)` defect from the opposite side, and it costs the
 audit its most informative windows** -- a wipe is a round outcome, and the
-roster refuses exactly there. It is pinned by
-`test_undrawn_and_wiped_rosters_are_not_distinguished`.
+roster refuses exactly there. It was pinned by
+`test_undrawn_and_wiped_rosters_are_not_distinguished` until 582a8c9, later
+the same day, resolved an empty roster bar by the scoreline and removed the test.
 
 **Not patched: it is a decision, not a task.** `roster.py` already records that
 returning `None` at the floor contradicts why the floor exists. The two states
@@ -279,7 +280,7 @@ vindicates the reader shipped earlier today and moves the work to the killfeed.
 | c40d 690.5/700.5 | +1/-1 | the known adjacent pair; onset lag, cancels over the union |
 | c40d 494.0-504.0 | -1 | an onset landing exactly on the window boundary |
 
-**Three of the seven are the documented Run It Back divergence.** CLAUDE.md
+**Three of the seven are the documented Run It Back divergence.** PROJECT_GUIDE.md
 already records that Phoenix and Kayo grant the second life BEFORE the fact, so
 the death is a real killfeed entry that produces no roster change by design.
 The local player is Phoenix on this session (`Omen (+) Me` at 951.0s), which is
@@ -287,7 +288,7 @@ why three appear in one match. The audit does not model it, so it reports them
 as detector disagreements.
 
 **This makes the revive-mark reader the highest-value killfeed addition, and it
-is now evidenced rather than argued.** CLAUDE.md lists it as candidate next step
+is now evidenced rather than argued.** PROJECT_GUIDE.md lists it as candidate next step
 #2 for the K/D divergences; it additionally resolves 3 of the 7 unresolved audit
 windows on the only session with a full roster. The marks all sit in one place
 -- right of the weapon icon -- and detecting *a* badge needs no icon list.
@@ -306,7 +307,7 @@ readable at all**: median 10 samples and 4.5s on every one of 18 sessions,
 pooled p95 13. Against it, 154 counted tracks exceed 12 samples and 83 exceed
 16, to a maximum of 38.
 
-**CLAUDE.md's claim that long tracks are gone is FALSE.** It reads *"the divider
+**PROJECT_GUIDE.md's claim that long tracks are gone is FALSE.** It reads *"the divider
 ended that and there are now none anywhere, so one appearing again is a signal
 that something upstream broke"*. There are 154.
 
@@ -493,7 +494,7 @@ Rendered at 5x: the enemy bar shows **one** portrait at 698.0 and 699.0 s,
 **two** at 699.5, 700.5 and 702.0 s, and one again at 702.5 s. The reader is
 right at every step. An enemy count rising 1 -> 2 is a **Sage or Clove revive**,
 and the return to 1 is the revived player dying again -- there is a killfeed
-track at 702.5 s. CLAUDE.md already records that those deaths count.
+track at 702.5 s. PROJECT_GUIDE.md already records that those deaths count.
 
 So this is not a defect and not a regression: it is a real game event the round
 change exposed, and the audit flag did its job by demanding an explanation.
@@ -546,12 +547,12 @@ a detector must answer "is there an arc" rather than "which single mark is this"
 Three confirmed positives is not a population. This directory's own lesson from
 earlier today is that a mechanism confirmed once and generalised is how the
 `over_long` merge hypothesis got refuted on its first independent test, and
-`prototypes/CLAUDE.md` records `detail` failing the same way at n=3. The next
+[The prototypes archive](archive/PROTOTYPES-through-2026-09-23.md) records `detail` failing the same way at n=3. The next
 step is a labelled set spanning both sessions with a Phoenix or Kayo, then a
 circle FIT rather than a threshold -- `minimap.fit_ring` is the precedent, and
 the standing rule is *fit a shape, do not repair one*.
 
-`ff636d173b07` is the session to add: CLAUDE.md records **four** Phoenix ult
+`ff636d173b07` is the session to add: PROJECT_GUIDE.md records **four** Phoenix ult
 marks there at 13:21, 20:00, 29:13 and 38:20, verified by hand, and its K/D is
 +4 deaths against `checks.KNOWN_KD` for exactly that reason. That is seven
 positives across two sessions with an independent count to score against.
@@ -588,7 +589,7 @@ along the fitted circumference. It separates with nothing in between.
 
 ## Held out against a count nobody computed for this
 
-`ff636d173b07` was held out. `CLAUDE.md` records it at +4 deaths against
+`ff636d173b07` was held out. `PROJECT_GUIDE.md` records it at +4 deaths against
 `checks.KNOWN_KD`, all 24 tracked deaths read correctly, four carrying the badge
 at 13:21, 20:00, 29:13 and 38:20 -- found by hand off a contact sheet weeks ago.
 
