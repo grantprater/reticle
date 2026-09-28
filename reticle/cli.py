@@ -10,6 +10,7 @@
     reticle minimap [SESSION]                 stage 02: player position off the minimap
     reticle glyphs  VIDEO                     mine digit templates from footage
     reticle verify  [SESSION]                 check HUD reads against domain invariants
+    reticle verify  --tier fast               known answers on a few sessions, no decode
     reticle overlay [SESSION]                 render detections onto the video
     reticle kd      [SESSION]                 running K/D per round, to check against the scoreboard
     reticle board   [SESSION]                 read the Tab scoreboard and score our K/D against it
@@ -1472,7 +1473,13 @@ def cmd_verify(args) -> int:
 
     Reads stored L1 -- it never touches video. The invariants themselves live in
     checks.py so this and the dashboard agree on what counts as a fault.
+
+    `--tier fast` runs the fixed checks of `tiers.FAST` instead: known answers
+    on a few sessions from storage and the crop cache, the default sanity
+    check between the unit tests and a corpus run.
     """
+    if getattr(args, "tier", None):
+        return _verify_tier(args)
     store = Store(args.store)
     manifest = _resolve_session(store, args.session)
     sid = manifest["session_id"]
@@ -1547,6 +1554,32 @@ def cmd_verify(args) -> int:
     else:
         print(f"FAULTS     {r['violations']} violations -- see timestamps above")
     return 0
+
+
+def _verify_tier(args) -> int:
+    """Print each check of one verification tier; exit 1 unless all pass."""
+    from . import tiers
+
+    store = Store(args.store)
+    t0 = time.perf_counter()
+    print(f"tier {args.tier}: {len(tiers.TIERS[args.tier])} declared checks, storage and "
+          f"crop cache only")
+    for sid in dict.fromkeys(c.session for c in tiers.TIERS[args.tier]):
+        print(f"  {sid}  {store.read_manifest(sid)['source']['path']}")
+    print()
+    results = tiers.run(store, args.tier, only=args.only)
+    for r in results:
+        print(f"{r['status']:<6} {r['id']}  [{r['kind']}]  {r['seconds']} s")
+        print(f"       measured {r['measured']}   known {r['known']}")
+        print(f"       source   {r['source']}")
+        if r["detail"]:
+            for line in str(r["detail"]).splitlines():
+                print(f"       {line}")
+    n = Counter(r["status"] for r in results)
+    print()
+    print(f"{n['PASS']} pass, {n['FAIL']} fail, {n['STALE']} stale of {len(results)} "
+          f"in {time.perf_counter() - t0:.1f} s")
+    return 0 if n["PASS"] == len(results) else 1
 
 
 # --------------------------------------------------------------------------- board
@@ -4318,8 +4351,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", default=None)
     s.set_defaults(func=cmd_glyphs)
 
-    s = sub.add_parser("verify", help="check HUD reads against domain invariants")
+    s = sub.add_parser("verify", help="check HUD reads against domain invariants, "
+                                      "or run a verification tier")
     s.add_argument("session", nargs="?")
+    s.add_argument("--tier", choices=("fast",), default=None,
+                   help="known answers on a few fixed sessions from storage and the crop "
+                        "cache, no decode: the default sanity check")
+    s.add_argument("--only", default=None, help="with --tier, run the one check with this id")
     s.set_defaults(func=cmd_verify)
 
     s = sub.add_parser("board", help="read the Tab scoreboard and score our K/D against it")
