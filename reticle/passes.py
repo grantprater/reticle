@@ -165,7 +165,10 @@ def run(ctx: SessionContext, readers: list, progress=None, usage=None) -> int:
     req = {r.name: (r.hz, r.spans) for r in readers}
     by_name = {r.name: r for r in readers}
     n = 0
-    frames = sample_multi(str(ctx.media), ctx.fps, req)
+    backend = {}
+    if usage is not None:
+        usage.decode_backend = backend      # filled when the capture opens
+    frames = sample_multi(str(ctx.media), ctx.fps, req, info=backend)
     for who, smp in (usage.timed_frames(frames) if usage is not None else frames):
         n += 1
         for name in who:
@@ -182,6 +185,13 @@ def run(ctx: SessionContext, readers: list, progress=None, usage=None) -> int:
     return n
 
 
+def cache_backend(cache) -> dict:
+    """What decodes a crop cache's pass, for the usage record: OpenCV reads
+    both codecs, an FFV1 cache through `cv2.VideoCapture` and a PNG one
+    through `cv2.imdecode`."""
+    return {"backend": "opencv", "codec": cache.record.get("codec"), "source": "cache"}
+
+
 def run_cached(ctx: SessionContext, readers: list, cache, progress=None,
                usage=None) -> int:
     """Drive every reader over the ROI crop cache instead of a decode.
@@ -195,6 +205,8 @@ def run_cached(ctx: SessionContext, readers: list, cache, progress=None,
     rois = sorted({roi for r in readers for roi in _cache_rois(r)})
     for r in readers:
         r.frames_from = cache.record["version"]
+    if usage is not None:
+        usage.decode_backend = cache_backend(cache)
     n = 0
     frames = cache.samples(sorted(set(cache.t_ms.tolist())), rois=rois)
     for smp in (usage.timed_frames(frames) if usage is not None else frames):

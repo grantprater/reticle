@@ -19,6 +19,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -35,9 +36,126 @@ from .candidate_evidence import (CANDIDATE_CONTRACT_VERSION, revision,
 DEFAULT_STORE = Path.home() / "reticle-store"
 
 
+def _last_line(f, block: int = 1 << 16) -> bytes:
+    """The last non-blank line of a binary file with its line ending, read
+    backwards from the end: a line longer than a block costs more blocks."""
+    f.seek(0, os.SEEK_END)
+    pos = f.tell()
+    buf = b""
+    while pos > 0:
+        step = min(block, pos)
+        pos -= step
+        f.seek(pos)
+        buf = f.read(step) + buf
+        body = buf.rstrip(b"\r\n \t")
+        if not body:
+            continue
+        cut = body.rfind(b"\n")
+        if cut >= 0 or pos == 0:
+            return buf[cut + 1:]
+    return buf
+
+
+#: Store paths whose files are immutable revisions, named by their content:
+#: a commit keeps an equal file already there and refuses a different one.
+IMMUTABLE_DIRS = ("candidates/", "decisions/")
+RUN_RECORD_VERSION = "scan-run-1"
+
+
+def _remove_empty(directory: Path) -> None:
+    try:
+        directory.rmdir()
+    except OSError:
+        pass            # absent, or other runs still stage there
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 class Store:
     def __init__(self, root: str | Path = DEFAULT_STORE):
         self.root = Path(root).resolve()
+
+    # ---------------------------------------------------------- staged runs
+
+    def staging(self, run_id: str) -> "Store":
+        """An empty scratch store at `<root>/staging/<run_id>/` for one publish.
+
+        A scan writes every stream here and `commit_staged` moves them into
+        the store together, so a publish that fails part way leaves the
+        store as it was.
+        """
+        staged = Store(self.root / "staging" / run_id)
+        if staged.root.exists():
+            raise ValueError(f"staging for run {run_id} already exists: {staged.root}")
+        staged.root.mkdir(parents=True)
+        return staged
+
+    def commit_staged(self, staged: "Store", run_id: str, session_id: str) -> dict:
+        """Move a staged publish into the store and append its run record.
+
+        First, before anything moves, every staged immutable revision
+        (`IMMUTABLE_DIRS`) is checked against the store: an equal file is
+        kept, a different one refuses the whole run. Then each file moves
+        into place with `os.replace`, and `notes/runs.jsonl` gains the run
+        record: `run_id` (the scan's usage run id), the session, and per
+        file its store path, sha256 and bytes. A move that fails part way
+        writes a `partial` record naming the files moved and those still in
+        staging, keeps the staging directory, and raises; nothing rolls it
+        forward yet.
+        """
+        files = sorted(p for p in staged.root.rglob("*") if p.is_file())
+        moves, kept = [], []
+        for src in files:
+            rel = src.relative_to(staged.root).as_posix()
+            dst = self.root / rel
+            if rel.startswith(IMMUTABLE_DIRS) and dst.exists():
+                if dst.read_bytes() != src.read_bytes():
+                    shutil.rmtree(staged.root)
+                    _remove_empty(staged.root.parent)
+                    raise ValueError(f"immutable revision differs from the stored one: {rel}; "
+                                     f"run {run_id} published nothing")
+                kept.append(rel)
+                continue
+            moves.append((rel, src, dst, _sha256(src), src.stat().st_size))
+        record = {"version": RUN_RECORD_VERSION, "run_id": run_id, "session_id": session_id,
+                  "status": "committed",
+                  "files": [{"path": rel, "sha256": sha, "bytes": n}
+                            for rel, _, _, sha, n in moves],
+                  "kept": kept}
+        moved = []
+        try:
+            for rel, src, dst, _, _ in moves:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(src, dst)
+                moved.append(rel)
+        except OSError as exc:
+            record.update(status="partial", moved=moved, error=str(exc),
+                          staging=str(staged.root))
+            self._append_run(record)
+            raise
+        record["committed_at"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        self._append_run(record)
+        shutil.rmtree(staged.root)
+        _remove_empty(staged.root.parent)
+        return record
+
+    def discard_staged(self, staged: "Store") -> None:
+        """Remove a staged publish that will not commit."""
+        shutil.rmtree(staged.root, ignore_errors=True)
+        _remove_empty(staged.root.parent)
+
+    def _append_run(self, record: dict) -> None:
+        path = self.root / "notes" / "runs.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, separators=(",", ":")) + "\n")
 
     # Candidate revisions are immutable; accepted views are separate outputs.
     def candidate_revision_path(self, producer: str, session_id: str,
@@ -694,27 +812,59 @@ class Store:
 
         path = self.events_path(kind, session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            for r in stamped:
-                f.write(json.dumps(r, separators=(",", ":"), allow_nan=False) + "\n")
+        # Written beside the file and moved into place whole, so a writer that
+        # dies leaves the previous file, never a prefix of the new one.
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                for r in stamped:
+                    f.write(json.dumps(r, separators=(",", ":"), allow_nan=False) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
         return path
 
     def events_version(self, kind: str, session_id: str) -> str | None:
         """The version an event file was written at, or None if there is none.
 
-        Reads ONE line rather than parsing the whole file, because the caller
-        is asking an existence-and-staleness question and a session's events
-        are answered by any row -- `write_events` rewrites whole, so a file
-        cannot hold two versions.
+        Reads the first row for the stamp and the last row to show the file
+        is whole, rather than parsing everything: the caller asks an
+        existence-and-staleness question, and `write_events` rewrites whole,
+        so a file cannot hold two versions. A file cut short -- no final
+        newline, a last row that does not parse, or a last row at another
+        stamp -- returns `incomplete: <why>`, which equals no version, so
+        `scan` rereads it and `plan` calls it stale. A cut that falls exactly
+        on a row boundary still reads as whole; `write_events` writes
+        atomically, so only a file written some other way can be cut there.
         """
         path = self.events_path(kind, session_id)
         if not path.is_file():
             return None
-        with open(path, encoding="utf-8") as f:
+        key = f"{kind}_version"
+        with open(path, "rb") as f:
+            first = b""
             for ln in f:
                 if ln.strip():
-                    return json.loads(ln).get(f"{kind}_version")
-        return None
+                    first = ln
+                    break
+            if not first:
+                return None
+            try:
+                version = json.loads(first).get(key)
+            except ValueError:
+                return "incomplete: its first row does not parse"
+            last = _last_line(f)
+        if not last.endswith(b"\n"):
+            return "incomplete: no newline ends its last row"
+        try:
+            end = json.loads(last)
+        except ValueError:
+            return "incomplete: its last row does not parse"
+        if isinstance(end, dict) and key in end and end[key] != version:
+            return f"incomplete: its last row reads {end[key]}, its first {version}"
+        return version
 
     def read_events(self, kind: str, session_id: str) -> list[dict]:
         path = self.events_path(kind, session_id)

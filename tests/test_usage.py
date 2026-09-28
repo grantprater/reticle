@@ -244,5 +244,95 @@ class CpuTimeTest(unittest.TestCase):
         self.assertIn("feed_s_lineup_s", usage.metric_values())
 
 
+
+class ContentionAndBackendTest(unittest.TestCase):
+    """The record says what else ran during the pass and what decoded it."""
+
+    manifest = {"session_id": "s", "source": {"content_key": "key"}}
+
+    def test_other_load_is_system_cpu_less_this_process(self):
+        from unittest.mock import patch
+        import reticle.usage as usage_mod
+        ticks = iter([1_000_000_000, 5_000_000_000])
+        usage = ScanUsage(self.manifest, "profile", [Reader()], "cache:cache-test")
+        with patch.object(usage_mod, "system_cpu_ns", lambda: next(ticks)):
+            with usage.timed_pass():
+                pass
+        row = usage.record()
+        self.assertEqual(row["version"], "scan-usage-3")
+        got = row["contention"]
+        self.assertEqual(got["system_cpu_ns"], 4_000_000_000)
+        self.assertEqual(got["other_cpu_ns"], 4_000_000_000 - row["cpu_ns"])
+        self.assertGreater(got["logical_cpus"], 0)
+        self.assertIn("priority", got)
+        self.assertIn("other_cpu_s", usage.metric_values())
+
+    def test_no_system_counter_leaves_contention_null_with_a_reason(self):
+        from unittest.mock import patch
+        import reticle.usage as usage_mod
+        usage = ScanUsage(self.manifest, "profile", [Reader()], "cache:cache-test")
+        with patch.object(usage_mod, "system_cpu_ns", lambda: None):
+            with usage.timed_pass():
+                pass
+        got = usage.record()["contention"]
+        self.assertIsNone(got["other_cpu_ns"])
+        self.assertTrue(got["reason"])
+        self.assertNotIn("other_cpu_s", usage.metric_values())
+
+    def test_a_decode_records_its_backend(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from reticle.decode import _NvdecCapture
+        from reticle.passes import run
+
+        class Cap:
+            def __init__(self):
+                self.pos = -1
+
+            def isOpened(self):
+                return True
+
+            def grab(self):
+                self.pos += 1
+                return self.pos < 3
+
+            def get(self, prop):
+                return self.pos * 500.0
+
+            def retrieve(self):
+                return True, np.zeros((2, 2, 3), np.uint8)
+
+            def release(self):
+                pass
+
+        import cv2
+
+        class OpenCV(Cap, cv2.VideoCapture):
+            def __init__(self):
+                cv2.VideoCapture.__init__(self)
+                Cap.__init__(self)
+
+        class Nvdec(Cap, _NvdecCapture):
+            def __init__(self):
+                Cap.__init__(self)
+
+        ctx = SimpleNamespace(media="x.mp4", fps=2.0)
+        for cap, want in ((OpenCV, "opencv"), (Nvdec, "nvdec")):
+            with self.subTest(want):
+                usage = ScanUsage(self.manifest, "profile", [Reader()], "video")
+                with patch("reticle.decode.open_capture", lambda path: cap()):
+                    run(ctx, [Reader()], usage=usage)
+                self.assertEqual(usage.record()["decode_backend"]["backend"], want)
+
+    def test_a_cache_pass_records_the_cache_codec(self):
+        reader = Reader()
+        usage = ScanUsage(self.manifest, "profile", [reader], "cache:cache-test")
+        cache = Cache()
+        cache.record = {"version": "cache-test", "codec": "ffv1"}
+        run_cached(None, [reader], cache, usage=usage)
+        self.assertEqual(usage.record()["decode_backend"],
+                         {"backend": "opencv", "codec": "ffv1", "source": "cache"})
+
+
 if __name__ == "__main__":
     unittest.main()

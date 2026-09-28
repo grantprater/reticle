@@ -204,7 +204,7 @@ class StagedEqualsSerialTests(unittest.TestCase):
                 log.append(self.name)
                 super().feed(smp)
 
-        def sample_multi(path, fps, req):
+        def sample_multi(path, fps, req, info=None):
             for i in range(3):
                 yield ("b", "a"), Sample(i, i * 500.0, np.full((2, 2, 3), i, np.uint8))
         ctx = SimpleNamespace(media="x.mp4", fps=60.0)
@@ -219,7 +219,7 @@ class StagedEqualsSerialTests(unittest.TestCase):
         frames = [(frozenset({"a"}), 0), (frozenset({"a", "b"}), 1), (frozenset({"b"}), 2),
                   (frozenset({"a", "b"}), 3)]
 
-        def sample_multi(path, fps, req):
+        def sample_multi(path, fps, req, info=None):
             for who, i in frames:
                 yield who, Sample(i, i * 500.0, np.full((2, 2, 3), i, np.uint8))
         ctx = SimpleNamespace(media="x.mp4", fps=60.0)
@@ -420,8 +420,9 @@ class OpenCvThreadTests(unittest.TestCase):
 class Capture:
     """`cv2.VideoCapture`'s front-to-back subset at 30 fps, counting its work."""
 
-    def __init__(self, n=600):
+    def __init__(self, n=600, offset_ms=0.0):
         self.n, self.pos, self.grabs, self.retrieved = n, -1, 0, []
+        self.offset_ms = offset_ms
 
     def isOpened(self):
         return True
@@ -434,7 +435,8 @@ class Capture:
         return True
 
     def get(self, prop):
-        return self.pos * 1000.0 / 30.0     # frame 210 is observed at 7000.0 ms exactly
+        # frame 210 is observed at 7000.0 ms exactly, plus any offset
+        return self.pos * 1000.0 / 30.0 + self.offset_ms
 
     def retrieve(self):
         self.retrieved.append(self.pos)
@@ -518,7 +520,36 @@ class PrefixTests(unittest.TestCase):
         self.assertIsNot(a.spans, b.spans)
         whole = Collect("whole")
         limit_to_prefix([whole], self.UNTIL)
-        self.assertEqual(whole.spans, [(0.0, math.nextafter(self.UNTIL, 0))])
+        self.assertEqual(whole.spans, [(-math.inf, math.nextafter(self.UNTIL, 0))])
+
+    def test_the_cache_keeps_frames_before_zero(self):
+        def early():
+            cache = Cache()
+            cache.t_ms = cache.t_ms - 250.0      # the first frame at -250 ms
+            return cache
+        whole = [Collect("whole")]
+        run_cached(None, whole, early())
+        self.assertLess(whole[0].rows[0][1], 0)
+        for label, go in self.paths(None):
+            with self.subTest(label):
+                readers = [Collect("whole")]
+                go(readers, limit_to_prefix(readers, self.UNTIL, early()))
+                self.assert_prefix_of(readers, whole)
+
+    def test_a_decode_keeps_a_first_frame_before_zero(self):
+        # Frame 0 observed at -20 ms: a whole pass takes it and strides from
+        # there, so dropping it would shift every later sample.
+        ctx = SimpleNamespace(media="x.mp4", fps=30.0)
+        with patch("reticle.decode.open_capture", lambda path: Capture(offset_ms=-20.0)):
+            whole = [Collect("whole")]
+            run(ctx, whole)
+            self.assertLess(whole[0].rows[0][1], 0)
+            for label, go in self.paths(ctx):
+                with self.subTest(label):
+                    readers = [Collect("whole")]
+                    self.assertIsNone(limit_to_prefix(readers, self.UNTIL))
+                    go(readers, None)
+                    self.assert_prefix_of(readers, whole)
 
 
 class UntilRefusalTests(unittest.TestCase):
@@ -535,7 +566,7 @@ class UntilRefusalTests(unittest.TestCase):
 class ScanCheckTests(unittest.TestCase):
     """`scan --check`: path b runs first, and only byte-equal files pass."""
 
-    def check(self, write_b):
+    def check(self, write_b, pipeline="staged", cv_threads=None, threads=None):
         import tempfile
         from pathlib import Path
 
@@ -549,6 +580,8 @@ class ScanCheckTests(unittest.TestCase):
         def scan_once(out, pipeline="serial", workers=None, shards=None, cv_threads=None):
             label = out.root.name
             order.append(label)
+            if threads is not None:
+                threads[label] = (pipeline, cv_threads)
             table = pa.table({"t": [1.0, 2.0]})
             if label == "b":
                 table = write_b(table)
@@ -557,8 +590,9 @@ class ScanCheckTests(unittest.TestCase):
             return SimpleNamespace(run_id=f"run-{label}")
 
         with tempfile.TemporaryDirectory() as d:
-            args = SimpleNamespace(check_dir=str(Path(d) / "check"), pipeline="staged",
-                                   workers=1, cv_threads=None)
+            args = SimpleNamespace(check_dir=str(Path(d) / "check"), pipeline=pipeline,
+                                   workers=1 if pipeline == "staged" else None,
+                                   cv_threads=cv_threads)
             with contextlib.redirect_stdout(io.StringIO()):
                 code = _scan_check(scan_once, "s", args, {})
         return code, order
@@ -566,6 +600,18 @@ class ScanCheckTests(unittest.TestCase):
     def test_the_staged_path_runs_first(self):
         code, order = self.check(lambda t: t)
         self.assertEqual((code, order), (0, ["b", "a"]))
+
+    def test_the_serial_path_takes_the_staged_paths_opencv_count(self):
+        threads = {}
+        self.check(lambda t: t, cv_threads=1, threads=threads)
+        self.assertEqual(threads, {"b": ("staged", 1), "a": ("serial", 1)})
+
+    def test_a_serial_check_at_a_count_compares_with_the_pool(self):
+        # Asked for the serial pass at one thread, the check compares it with
+        # the serial pass on OpenCV's own pool, not with itself.
+        threads = {}
+        self.check(lambda t: t, pipeline="serial", cv_threads=1, threads=threads)
+        self.assertEqual(threads, {"b": ("serial", 1), "a": ("serial", None)})
 
     def test_metadata_alone_fails_the_check(self):
         code, _ = self.check(lambda t: t.replace_schema_metadata({b"m": b"1"}))

@@ -206,13 +206,34 @@ def open_capture(path: str):
     mode = os.environ.get("RETICLE_DECODE", "auto").lower()
     if mode not in ("auto", "cpu", "nvdec"):
         raise ValueError(f"RETICLE_DECODE must be auto, cpu or nvdec, not {mode!r}")
+    global _fallback
+    _fallback = None
     if mode != "cpu":
         try:
             return _NvdecCapture(path)
-        except Exception:
+        except Exception as exc:
             if mode == "nvdec":
                 raise
+            _fallback = f"{type(exc).__name__}: {exc}"
     return cv2.VideoCapture(path)
+
+
+#: Why the last `open_capture` in `auto` fell back to OpenCV, or None.
+_fallback: str | None = None
+
+
+def capture_backend(cap) -> dict:
+    """Which decoder a capture from `open_capture` runs, for the usage record.
+
+    `backend` is `nvdec` or `opencv`; `mode` is `RETICLE_DECODE`'s; an
+    OpenCV capture in `auto` mode carries the NVDEC failure as `fallback`.
+    """
+    mode = os.environ.get("RETICLE_DECODE", "auto").lower()
+    if isinstance(cap, _NvdecCapture):
+        return {"backend": "nvdec", "mode": mode}
+    if isinstance(cap, cv2.VideoCapture):
+        return {"backend": "opencv", "mode": mode, "fallback": _fallback}
+    return {"backend": type(cap).__name__.lower(), "mode": mode}
 
 
 def _sampling_step(target_hz: float) -> float:
@@ -231,8 +252,14 @@ def _sampling_step(target_hz: float) -> float:
     return 1000.0 / target_hz
 
 
-def _sampling_spans(spans_ms):
-    """Validate and sort closed sampling spans; preserve empty as no work."""
+def _sampling_spans(spans_ms, open_start: bool = False):
+    """Validate and sort closed sampling spans; preserve empty as no work.
+
+    `open_start` also admits a start of `-inf`, the capture's beginning,
+    for a sampler that grabs from the start (`sample_multi`): a prefix of a
+    whole-capture read (`pipeline.limit_to_prefix`) keeps a first frame
+    observed before 0 ms. A seeking sampler has nowhere to seek to.
+    """
     if spans_ms is None:
         return None
     spans = []
@@ -240,8 +267,9 @@ def _sampling_spans(spans_ms):
         if len(span) != 2:
             raise ValueError("sampling span must have start and end")
         start, end = map(float, span)
-        if (not math.isfinite(start) or not math.isfinite(end)
-                or start < 0 or end < start):
+        opened = open_start and start == -math.inf
+        if ((not opened and (not math.isfinite(start) or start < 0))
+                or not math.isfinite(end) or end < start):
             raise ValueError("sampling spans must be finite, nonnegative, and increasing")
         spans.append((start, end))
     return sorted(spans)
@@ -462,8 +490,12 @@ def sample_multi(
     path: str,
     nominal_fps: float,
     requests: dict[str, tuple[float, list[tuple[float, float]] | None]],
+    info: dict | None = None,
 ) -> Iterator[tuple[frozenset[str], Sample]]:
     """One decode, many readers. Yields `(who wants this frame, sample)`.
+
+    `info`, when given, gains `capture_backend`'s keys once the capture
+    opens, so a caller's usage record can say what decoded the pass.
 
     `requests` maps a reader's name to `(target_hz, spans_ms | None)`, where
     `None` means the whole capture. A frame is retrieved only when at least one
@@ -500,7 +532,7 @@ def sample_multi(
     """
     state = {}
     for name, (hz, spans) in requests.items():
-        checked_spans = _sampling_spans(spans)
+        checked_spans = _sampling_spans(spans, open_start=True)
         state[name] = {
             "step": _sampling_step(hz),
             "spans": checked_spans,
@@ -514,6 +546,8 @@ def sample_multi(
         return
 
     cap = open_capture(path)
+    if info is not None:
+        info.update(capture_backend(cap))
     if not cap.isOpened():
         raise SystemExit(f"could not open {path}")
     # The last moment anyone is interested in: past it there is nothing to do.
