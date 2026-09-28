@@ -1,6 +1,6 @@
 # Reticle working map
 
-Use this as a routing index when picking up work. It is intentionally short;
+Use this as a routing index at pickup. It is intentionally short;
 the linked source is authoritative for detail. It routes by SUBSYSTEM; to route
 by the question itself -- *which agent died*, *where is the player* -- ask
 `reticle ownership`, which also says what the owner it names is NOT for.
@@ -35,6 +35,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Frame primitives and spans | `primitives.py`, `segment.py` |
 | HUD, killfeed, roster | `ocr.py`, `killfeed.py`, `roster.py` |
 | Rounds and phase boundaries | `rounds.py`, `scoreboard.py` |
+| Is the Tab scoreboard open: slab close reasons, the history-strip witness, its round marks | `scoreboard.py`, `scoreboard_strip.py` (`reticle strip`), `adjudication/scoreboard.py` (`reticle openings`), [SCOREBOARD_PRESENCE.md](SCOREBOARD_PRESENCE.md), [SCOREBOARD_ROUND_MARKS.md](SCOREBOARD_ROUND_MARKS.md) |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py` |
 | Which stored minimap fits become icons, and what a candidate record carries | `candidate_evidence.py`, `adjudication/minimap_candidates.py`, [MINIMAP_CANDIDATE_CONTRACT.md](MINIMAP_CANDIDATE_CONTRACT.md) |
 | Position belief and its evidence | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
@@ -51,13 +52,15 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Which documents are live, their status, and what reaches them | `documents.toml`, `reticle/documents.py`, `doctor` DOCS |
 | VOD scan cost and reader call frequencies | `reticle usage [SESSION]`, `reticle/usage.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
-| The experiment program, and E1: can agreeing channels hide a wrong event? | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
+| Experiments | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |
 | Ability entity inference and minimal capture plan | `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` |
 | What each demo cast draws on the minimap (census, player questions) | [DEMO_CAST_CENSUS.md](DEMO_CAST_CENSUS.md) |
 | Naming the player's casts from audio (demo bank, transfer) | [AUDIO_ABILITY_BANK.md](AUDIO_ABILITY_BANK.md) |
 | The audio gate: design, mined labels, formulations, predictions, results | [AUDIO_GATE.md](AUDIO_GATE.md) |
+| Voice lines: whose ult, which side, when; ult-ready replies; wiki cast lines | `ult_lines.py`, `adjudication/ult_cast.py`, [VOICE_LINES.md](VOICE_LINES.md), [ULT_READY_LINES.md](ULT_READY_LINES.md), [VOICE_LINE_ASSETS.md](VOICE_LINE_ASSETS.md) |
 | What each ability does: inputs, minimap drawing, overlay, duration (the player's sheet) | `docs/ABILITY_MECHANICS_SHEET.md` |
+| Each ability's state per slot, and the detectors it conditions | [ABILITY_STATE_MODEL.md](ABILITY_STATE_MODEL.md), `adjudication/ability_state.py` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
@@ -68,9 +71,8 @@ and `tools/minimap_sequence_review.py`. The plan behind them is finished and
 [archived](archive/MINIMAP_DETECTION_PLAN-2026-09-09.md).
 
 Cutting a frozen evaluation window on a new session starts at
-`tools/wipe_scout.py`: it locates the instants where the per-frame killfeed
-count and the adjudicated one disagree, which is where a camera wipe is,
-without opening the video.
+`tools/wipe_scout.py`: it finds where the per-frame killfeed count and the
+adjudicated one disagree, which marks a camera wipe, without opening the video.
 
 Module names above are relative to `reticle/` unless a directory is shown.
 Minimap work also requires `prototypes/CLAUDE.md` and the private domain notes
@@ -99,6 +101,9 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle ability-gallery
 .\.venv\Scripts\python.exe -m reticle ability-capture
 .\.venv\Scripts\python.exe -m reticle ability-phases
+.\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # decodes the audio stream only
+.\.venv\Scripts\python.exe -m reticle ult-cast SESSION      # stored data only
+.\.venv\Scripts\python.exe -m reticle ability-state SESSION # stored data only
 .\.venv\Scripts\python.exe -m reticle acquisition-plan REQUESTS.json
 .\.venv\Scripts\python.exe -m reticle capabilities
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID
@@ -113,8 +118,8 @@ path through `reticle/geometry.py` rather than joining a session id onto
 `store/geometry/`. A session with no `map:` tag reaches no geometry, and
 `doctor`'s COVERAGE check reports it.
 
-For stored-data changes, prefer `segment`, `audit`, `coach`, or `sql`
-as appropriate. `segment`/`audit` reuse stored L1. `scan --only hud` rereads
+For stored-data changes, prefer `segment`, `audit`, `coach`, or `sql`.
+`segment`/`audit` reuse stored L1. `scan --only hud` rereads
 the crop cache (`roi_cache`) and decodes only with `--from video`; `hud`,
 `board` and `overlay` open the source video. Run a targeted test file
 first, then the full suite when the change crosses module boundaries.

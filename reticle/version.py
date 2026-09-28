@@ -54,7 +54,56 @@ ECONOMY_VERSION = "economy-0.1.0"
 # 2163 of 182439 differ, at most 0.0036; best agent on 6330 of 6330 rows,
 # second agent on 6328, gain on 6329. 043bafca271a: 480 of 205262, at most
 # 0.0010; best agent on 7120 of 7120, gain on 7119.
-SCOREBOARD_VERSION = "scoreboard-0.6.0"
+# 0.7.0: one `sample` row per frame offered, open or closed, naming the test
+# that closed it (`scoreboard.CLOSE_REASONS`); the coverage row counts them.
+# No verdict changes.
+# 0.8.0: where the round-history strip witness reads present, the blocks are
+# the slab runs that meet its marker lines, not the tallest runs; a block the
+# strip does not bound is refused (`green_not_at_strip`, `red_not_at_strip`,
+# `red_short_at_strip`). Absent or unreadable strip: 0.7.0 exactly. Sample
+# and row events carry `anchor`, `strip` and `edges`. One decode of
+# [metric:scoreboard/anchored@a06f04a0059f#frames_decoded=300] frames of a06f04a0059f
+# (docs/SCOREBOARD_PRESENCE.md, "Anchoring on the strip"): of 100 boards the
+# strip saw and 0.7.0 closed, [metric:scoreboard/anchored@a06f04a0059f#closed_present_opened_five_each=70] open, all at the board.
+# Of 100 it opened, [metric:scoreboard/anchored@a06f04a0059f#open_present_off_board_before=55] had enemy rows off the board:
+# [metric:scoreboard/anchored@a06f04a0059f#open_present_off_board_moved_onto_board=35] now sit on it (portrait median
+# [metric:scoreboard/anchored@a06f04a0059f#moved_enemy_portrait_median_before=0.518] -> [metric:scoreboard/anchored@a06f04a0059f#moved_enemy_portrait_median_after=0.91]) and
+# [metric:scoreboard/anchored@a06f04a0059f#open_present_off_board_refused=20] are refused. Of [metric:scoreboard/anchored@a06f04a0059f#open_present_at_board_before=45] at the
+# board, [metric:scoreboard/anchored@a06f04a0059f#open_present_at_board_changed=3] are refused where the enemy slab's top rows fail
+# the red test and the rest are unchanged. Frames without the strip:
+# [metric:scoreboard/anchored@a06f04a0059f#absent_equal_070=100] of 100 unchanged.
+# 0.9.0: where no red run begins at the strip's lower line, the line still
+# places the enemy rows, and a red run over half the ally height inside that
+# span (`red_overlap`) or all five portraits scoring at least 0.81
+# (`portraits`) confirm them; sample and row events carry `confirm`. On the
+# same selection (docs/SCOREBOARD_PRESENCE.md, "The line places, the slab
+# confirms"): of [metric:scoreboard/line-confirm@a06f04a0059f#closed_present_refused_at_strip_before=26] + [metric:scoreboard/line-confirm@a06f04a0059f#open_present_refused_at_strip_before=23] boards 0.8.0 refused at
+# the strip, [metric:scoreboard/line-confirm@a06f04a0059f#recovered=45] open, all at the board; the other [metric:scoreboard/line-confirm@a06f04a0059f#still_refused=4] have a wrong
+# table left edge. Every board 0.8.0 opened is unchanged ([metric:scoreboard/line-confirm@a06f04a0059f#closed_present_before_open_unchanged=70] +
+# [metric:scoreboard/line-confirm@a06f04a0059f#open_present_before_open_unchanged=77]), and no strip-absent frame changes ([metric:scoreboard/line-confirm@a06f04a0059f#absent_changed=0]).
+SCOREBOARD_VERSION = "scoreboard-0.9.0"
+# Stored versions whose accepted openings the current reader does not
+# contradict. A consumer of VERDICTS (the lineup constraining its top bar by
+# the board) accepts these; `reticle plan` still names the rescan. 0.7.0 adds
+# rows and a reason and changes no verdict, so without this the bump refused
+# the board on every stored session and named 122 of 190 lineup slots.
+# 0.8.0 rewrites the enemy rows of most boards 0.7.0 opened off the board,
+# and the openings gate refuses those boards: every accepted stored opening
+# on the 19 lineup sessions ([metric:scoreboard/stored-openings@all-sessions#accepted_at_board=6018]) has its enemy rows at
+# the board, [metric:scoreboard/stored-openings@all-sessions#accepted_off_board=0] off it. At the accepted ones in the sample,
+# 0.8.0 writes the same rows on [metric:scoreboard/anchored@a06f04a0059f#stored_accepted_same=41], the same reads 6 px higher on
+# [metric:scoreboard/anchored@a06f04a0059f#stored_accepted_moved_same_reads=1], and refuses [metric:scoreboard/anchored@a06f04a0059f#stored_accepted_refused_now=3]; it names no other agent in any. So
+# 0.6.0 and 0.7.0 stay applied, and the openings 0.8.0 adds wait for the
+# rescan. 0.9.0 opens only boards 0.8.0 refused and changes none it opened,
+# so 0.8.0 is compatible too; it reads the three accepted openings 0.8.0
+# refused again ([metric:scoreboard/line-confirm@a06f04a0059f#stored_accepted_recovered=3]), with 0.7.0's rows or the same reads 2 px lower.
+SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", "scoreboard-0.8.0",
+                                 SCOREBOARD_VERSION)
+# The round-history strip as a second presence witness of the Tab board, read
+# by `scoreboard_strip` from the hud crop cache's `center` crop and written as
+# `scoreboard_strip` rows by `reticle strip`. 0.1.0 ports the rule and
+# constants of `prototypes/scoreboard_strip.py` at its 0.2.0.
+SCOREBOARD_STRIP_VERSION = "scoreboard-strip-0.1.0"
 EXTRACTOR_VERSION = "l1-0.1.0"
 SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the
@@ -181,10 +230,66 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
 # a prior, an acceptance or the stored fields change.
 ABILITY_SHAPE_VERSION = "ability-shape-0.1.0"
-# The ability tray's charge drops, with the player-cast gate applied, written as
-# `tray_drop` rows by `reticle tray` from the stored crops. Bump when a tray
-# constant, the drop rule or the gate changes.
+# The ability tray's charge drops, written as `tray_drop` rows by `reticle
+# tray` from the stored crops. Bump when a tray constant or the drop rule
+# changes; the gate that decides which drops are the player's has its own
+# stamp, PLAYER_CAST_VERSION.
 TRAY_VERSION = "tray-0.1.0"
+# Which stored tray drops are the local player's casts, decided by
+# `ability_timeline.player_tray_casts` from stored data alone. `reticle tray`
+# stamps it beside its drops; `ult-cast` and `ability-shapes` record it among
+# their inputs. Bump when the gate's rule or its inputs change.
+# 0.1.0 was stamped as tray-0.1.0 and ended the kit at the player's first
+# killfeed death in the round.
+# 0.2.0: a Phoenix Run It Back death, and a Clove death her Not Dead Yet
+# revive follows, do not end the kit.
+# 0.3.0: an X drop from a slot that was not full (a `from` fill below
+# `ability_timeline.FULL_MIN`) is refused as `partial_charge`.
+# 0.4.0: an X drop that does not empty the slot (a `to` fill above
+# `ability_timeline.EMPTY_MAX`) is refused as `pips_lit`, and a drop that
+# leaves any other slot at its full level (a `to` fill at or above
+# `ability_timeline.FULL_AFTER_MIN`) as `equip_release`.
+# 0.5.0: a release, a drop `equip_release` refuses from above
+# `ability_timeline.FULL_LEVEL`, taints no drop beside it; an X drop the
+# charge tests refuse still does.
+# 0.6.0: the first change from the player's kit to another agent's in a round,
+# stored by `reticle tray-kit`, ends the kit too, until the tray returns to the
+# player's kit; a drop between the two is refused as `after_kit_change`. A
+# session without current `tray_kit` rows is decided as under 0.5.0.
+PLAYER_CAST_VERSION = "player-cast-0.6.0"
+# Whose kit the ability tray shows, per sample of the stored `hud_abilities`
+# crops: the slot icons scored against the catalogue's (`tray_icons`) and read
+# against the candidate sets the lineup allows (`adjudication.tray_kit`),
+# written as `tray_kit` rows by `reticle tray-kit`, with the arbiter's identity
+# events as `tray_kit_identity`. Bump when the icon geometry, a threshold, the
+# candidate-set rule, the span rule or the stored fields change.
+TRAY_KIT_VERSION = "tray-kit-0.1.0"
+# The kit of the local player as a state per slot (charges, equipped,
+# castable, owner alive), written as `ability_state` rows by `reticle
+# ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,
+# the verdicts of the gate, the deaths and the tray fills of the crop cache.
+# Bump when a level threshold, a transition, a charge rule or the stored
+# fields change.
+# 0.2.0: the wiki harvest gives the charge count where no domain fact does
+# (`charge_priors`); state rows name their `charges_source`, and the coverage
+# row lists the conflicts, the slots without a count and the half readings
+# against each count.
+# 0.3.0: the kit witness (`adjudication.tray_kit`). A sample inside a span of
+# another agent's kit is unreadable as `kit:spectating:<agent>`, and after the
+# round's first kit change as `owner_dead:kit_witness`, where the tray's own
+# kit rather than a killfeed entry says the owner is dead.
+ABILITY_STATE_VERSION = "ability-state-0.3.0"
+# Peaks of the official ultimate voice lines correlated against a capture's
+# audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
+# stores no class and no name. Bump when a template, the front end, the
+# correlation, the floor or the stored fields change -- those re-decode audio.
+ULT_LINE_VERSION = "ult-line-0.1.0"
+# Ultimate casts selected, classed and named from stored `ult_line` peaks, the
+# lineup and the rounds table by `reticle ult-cast` (`adjudication.ult_cast`),
+# with own lines bound to the player's X casts from `tray_drop`. Bump when the
+# threshold, the classing, the cast window or the stored fields change.
+# 0.2.0: `tray_witness` on own casts and `missed_line` rows.
+ULT_CAST_VERSION = "ult-cast-0.2.0"
 # Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or

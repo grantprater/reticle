@@ -25,7 +25,25 @@ refuses an opening. Naming a side from the board belongs to
 `identity.assign_side`, which needs the full per-agent score matrix this
 reader does not yet store.
 
-Owns [owns:scoreboard-row-agent].
+**Two witnesses say the board is on screen.** The slab test
+(`scoreboard.read_scoreboard`) stores one `sample` row per frame it read,
+open or closed with the branch that closed it; the round-history strip
+(`scoreboard_strip.read_strip`) stores one per cached frame, `present`,
+`absent` or `unreadable` [domain:hud/scoreboard-round-history-strip]. They
+sample the same frames. `board_presence` reads both rows and neither rule:
+the board is present where the slab test opened it or the strip reads
+present, and each sample keeps what each witness said, so the
+disagreements (`slab_only`, `strip_only`, and `unreadable` where the strip
+could not read) stay countable. From `scoreboard-0.8.0` the slab test asks
+the strip where its blocks lie, and a read it anchored there
+(`anchor == "strip"`) rests on the strip: such a sample is `both_anchored`,
+one witness and a read that depends on it, and only a read placed by the
+tallest runs counts as `both`. Stored rows without `anchor` count as before. The player holds Tab to open the board and
+releases it to close it [domain:hud/scoreboard-tab-hold]; `presence_runs`
+groups present samples into holds, joined across one-sample holes. Only the
+slab test reads rows, so an opening the strip alone saw names nothing.
+
+Owns [owns:scoreboard-row-agent] and [owns:scoreboard-presence].
 """
 from __future__ import annotations
 
@@ -33,7 +51,19 @@ from collections import defaultdict
 
 from .identity import BOARD_MARGIN_MIN, adjudicate_agent_identity, identity_claim
 
-SCOREBOARD_AGENT_VERSION = "scoreboard-agent-0.2.0"
+# 0.3.0: given the strip's rows, openings are built from the combined
+# presence (`board_presence`): each carries what both witnesses said and its
+# hold, and a sample only the strip saw is an opening refused as
+# `strip_only_no_rows`. The portrait gate is unchanged.
+# 0.4.0: a sample whose slab read was anchored on the strip (the stored
+# `anchor`, from scoreboard-0.8.0) is `both_anchored`, not `both`; each
+# sample keeps the anchor as `slab_anchor`. Rows without it count as before.
+SCOREBOARD_AGENT_VERSION = "scoreboard-agent-0.4.0"
+
+#: Consecutive samples further apart than this are not neighbours: a gap in
+#: the sampling breaks a hold rather than being joined across. The scan and
+#: the crop cache sample every 500 ms.
+SAMPLE_GAP_MS = 750.0
 
 AGENT_SCORE_MIN = 0.75
 AGENT_MARGIN_MIN = BOARD_MARGIN_MIN
@@ -60,11 +90,129 @@ def _row_state(row: dict) -> tuple[str | None, bool | None, str | None]:
     return None, None, f"gain_between_bands {gain:.3f}"
 
 
-def scoreboard_openings(rows: list[dict]) -> list[dict]:
+def _slab_samples(board_rows: list[dict], grid: set[int]) -> tuple[dict[int, dict], str | None]:
+    """The slab test's verdict per sample frame, from its stored rows, and
+    where its closed samples come from.
+
+    From `scoreboard-0.7.0` the reader stores a `sample` row per frame it read
+    (`sample_rows`). Rows written before stored only the open frames' rows;
+    a closed sample is then taken at each frame of `grid` (the strip's cached
+    frames) without rows, and only when the reader's coverage offered exactly
+    that many frames and every open frame lies on it (`offered_frames`); its
+    reason is None, unstored. Otherwise closed samples are unknown (None)."""
+    stored = [r for r in board_rows if r.get("kind") == "sample"]
+    if stored:
+        return ({int(r["frame_idx"]): {"t_ms": float(r["t_ms"]),
+                                       "slab": "open" if r["open"] else "closed",
+                                       "slab_reason": r.get("reason"),
+                                       "slab_anchor": r.get("anchor")} for r in stored},
+                "sample_rows")
+    out = {}
+    for r in board_rows:
+        if r.get("kind") == "row_observation":
+            out[int(r["frame_idx"])] = {"t_ms": float(r["t_ms"]), "slab": "open",
+                                        "slab_reason": None}
+    offered = next((r.get("frames_offered") for r in board_rows
+                    if r.get("kind") == "coverage"), None)
+    if grid and offered == len(grid) and set(out) <= grid:
+        for f in grid - set(out):
+            out[f] = {"t_ms": None, "slab": "closed", "slab_reason": None}
+        return out, "offered_frames"
+    return out, None
+
+
+def _witness(slab: str | None, strip: str | None, anchor: str | None = None) -> str:
+    """Which witnesses saw the board at one sample. A slab read anchored on
+    the strip (`anchor == "strip"`) is not a second witness beside it."""
+    if strip is None:
+        return "no_strip"
+    if slab is None:
+        return "no_slab"
+    if strip == "unreadable":
+        return "unreadable"
+    if (slab, strip) == ("open", "present") and anchor == "strip":
+        return "both_anchored"
+    return {("open", "present"): "both", ("open", "absent"): "slab_only",
+            ("closed", "present"): "strip_only", ("closed", "absent"): "neither"}[(slab, strip)]
+
+
+def board_presence(board_rows: list[dict], strip_rows: list[dict]) -> dict:
+    """Per sample, what the slab test and the strip said, and whether the board
+    is on screen: the slab test opened it, or the strip reads present.
+
+    Reads the two witnesses' stored rows (`scoreboard` and `scoreboard_strip`
+    events) and neither rule. Returns `samples`, one per frame either witness
+    read, in frame order: `slab` (`open`, `closed` or None), `slab_reason`,
+    `slab_anchor` (the rule that placed the slab read's blocks, None on rows
+    stored before `scoreboard-0.8.0`), `strip` (`present`, `absent`,
+    `unreadable` or None), `strip_reason`, `present` and `witness` (`both`,
+    `both_anchored`, `slab_only`, `strip_only`, `neither`, `unreadable`,
+    `no_strip`, `no_slab`); and `slab_closed_from`, where the slab test's
+    closed samples come from (`_slab_samples`).
+    """
+    strip = {int(r["frame_idx"]): r for r in strip_rows if r.get("kind") == "sample"}
+    slab, closed_from = _slab_samples(board_rows, set(strip))
+    samples = []
+    for f in sorted(set(slab) | set(strip)):
+        s, w = slab.get(f), strip.get(f)
+        sv, wv = (s or {}).get("slab"), (w or {}).get("verdict")
+        t_ms = (w or {}).get("t_ms")
+        anchor = (s or {}).get("slab_anchor")
+        samples.append({"frame_idx": f, "t_ms": float(t_ms if t_ms is not None else s["t_ms"]),
+                        "slab": sv, "slab_reason": (s or {}).get("slab_reason"),
+                        "slab_anchor": anchor,
+                        "strip": wv, "strip_reason": (w or {}).get("reason"),
+                        "present": sv == "open" or wv == "present",
+                        "witness": _witness(sv, wv, anchor)})
+    return {"samples": samples, "slab_closed_from": closed_from}
+
+
+def presence_runs(samples: list[dict], on=None) -> list[dict]:
+    """Holds: runs of samples on which `on` holds (default: `present`), joined
+    across one-sample holes, the board closed for one sample between two open
+    ones. Samples further apart than SAMPLE_GAP_MS are not neighbours.
+
+    Each run gives its first and last sample index (`a`, `z`) and frame, the
+    number of samples `on` holds for, and the frames of its holes; a run of
+    one sample is `single`."""
+    on = on or (lambda s: s["present"])
+    flags = [bool(on(s)) for s in samples]
+    ts = [s["t_ms"] for s in samples]
+    near = lambda i: ts[i + 1] - ts[i] <= SAMPLE_GAP_MS  # noqa: E731
+    n, out, i = len(samples), [], 0
+    while i < n:
+        if not flags[i]:
+            i += 1
+            continue
+        a = j = i
+        holes = []
+        while True:
+            while j + 1 < n and flags[j + 1] and near(j):
+                j += 1
+            if j + 2 < n and not flags[j + 1] and flags[j + 2] and near(j) and near(j + 1):
+                holes.append(samples[j + 1]["frame_idx"])
+                j += 2
+                continue
+            break
+        out.append({"a": a, "z": j, "first_frame": samples[a]["frame_idx"],
+                    "last_frame": samples[j]["frame_idx"], "t_first_ms": ts[a],
+                    "t_last_ms": ts[j], "samples_on": j - a + 1 - len(holes),
+                    "holes": holes, "single": a == j})
+        i = j + 1
+    return out
+
+
+def scoreboard_openings(rows: list[dict], *, strip_rows: list[dict] | None = None) -> list[dict]:
     """Group stored row observations into openings and gate each one whole.
 
     An accepted opening names five distinct agents per side, each lit or dim.
     A refused one keeps its per-row reasons and names nothing.
+
+    Given the strip's stored rows, openings are built from the combined
+    presence (`board_presence`): every present sample is an opening carrying
+    what each witness said (`presence`) and the index of its hold
+    (`presence_runs`). A sample only the strip saw has no rows to gate and is
+    refused as `strip_only_no_rows`.
     """
     by_t: dict[float, list[dict]] = defaultdict(list)
     for row in rows:
@@ -119,7 +267,27 @@ def scoreboard_openings(rows: list[dict]) -> list[dict]:
                     "claims": claims,
                     "source_version": group[0].get("scoreboard_version"),
                     "version": SCOREBOARD_AGENT_VERSION})
-    return out
+    if strip_rows is None:
+        return out
+    samples = board_presence(rows, strip_rows)["samples"]
+    hold = {}
+    for k, run in enumerate(presence_runs(samples)):
+        for s in samples[run["a"]:run["z"] + 1]:
+            hold[s["frame_idx"]] = k
+    by_frame = {s["frame_idx"]: s for s in samples}
+    for o in out:
+        s = by_frame.get(int(o["frame_idx"]))
+        o["presence"] = None if s is None else {k: s[k] for k in ("slab", "strip", "witness")}
+        o["hold"] = hold.get(int(o["frame_idx"]))
+    strip_version = next((r.get("scoreboard_strip_version") for r in strip_rows), None)
+    for s in samples:
+        if s["present"] and s["slab"] != "open":
+            out.append({"t_ms": s["t_ms"], "frame_idx": s["frame_idx"], "accepted": False,
+                        "reason": "strip_only_no_rows", "rows": [], "claims": [],
+                        "presence": {k: s[k] for k in ("slab", "strip", "witness")},
+                        "hold": hold.get(s["frame_idx"]), "source_version": strip_version,
+                        "version": SCOREBOARD_AGENT_VERSION})
+    return sorted(out, key=lambda o: o["t_ms"])
 
 
 def side_state(opening: dict, side: str) -> dict[str, set[str]]:

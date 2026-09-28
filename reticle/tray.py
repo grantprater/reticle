@@ -31,6 +31,17 @@ in the store's `notes/predictions.jsonl`). Across refused samples that still
 show the tray, the last clean sample is compared with the next one if it comes
 within GAP_S, and the drop says `across_gap`.
 
+Two charges. An ability with two charges draws its bar as two segments
+[domain:hud/ability-tray-charge-segments], so the fill reads 1.0, 0.5 and 0,
+and a spent charge falls by 0.5, above CAST_DROP; no charge count per
+ability is needed. The four two-charge slots on the 19 lineup sessions gave
+[metric:tray/segments@all-sessions#half_from_full=89] drops from full to half
+and [metric:tray/segments@all-sessions#empty_from_half=43] from half to empty.
+A drop that leaves the slot at its full level
+([metric:tray/segments@all-sessions#full_after=68] of 493 accepted) is added
+teal released, an ability equipped and not used (player, 2026-09-27); the
+cast owner (`ability_timeline.player_tray_casts`) decides what a drop is.
+
 What a drop is not. A drop is a transition, not a cast: after the player dies
 the tray shows a spectated teammate's kit, and its switch reads as several
 slots emptying at once. `casts` flags a drop that lands on the first refused
@@ -135,13 +146,16 @@ def casts(ts, counts: np.ndarray, clean: np.ndarray | None = None) -> list[tuple
     return flag_suspect(out)
 
 
-def flag_suspect(ev: list[tuple]) -> list[tuple]:
+def flag_suspect(ev: list[tuple], quiet=None) -> list[tuple]:
     """Mark drops that co-occur across slots within SUSPECT_S, or were forced.
-    Flagged, not deleted: a player can cast twice in two seconds."""
+    Flagged, not deleted: a player can cast twice in two seconds. A drop whose
+    `quiet` entry is true is still marked but marks no other drop; the caller
+    names those drops (`ability_timeline.player_tray_casts`)."""
+    quiet = list(quiet) if quiet is not None else [False] * len(ev)
     out = []
     for i, (t, k, a, b, forced) in enumerate(ev):
         near = sum(1 for j, (t2, k2, _a, _b, _f) in enumerate(ev)
-                   if j != i and abs(t2 - t) <= SUSPECT_S and k2 != k)
+                   if j != i and not quiet[j] and abs(t2 - t) <= SUSPECT_S and k2 != k)
         out.append((t, k, a, b, bool(near) or bool(forced)))
     return out
 

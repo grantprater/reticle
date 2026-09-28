@@ -58,7 +58,7 @@ class ScorerSelectionTests(unittest.TestCase):
 
     def test_coverage_row_names_the_scorer(self):
         rd = sb.ScoreboardReader.__new__(sb.ScoreboardReader)
-        rd.frames_offered, rd.frames_open, rd.rows = 0, 0, []
+        rd.frames_offered, rd.frames_open, rd.rows, rd.samples = 0, 0, [], []
         with patch.dict(os.environ, {"RETICLE_SCOREBOARD": "cpu"}):
             head = rd.events("s")[0]
         self.assertEqual(head["portrait_scorer"], "opencv-float32")

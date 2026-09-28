@@ -346,14 +346,27 @@ def _tracks(t, masks, dividers):
     return [a for a in track_entries(t, masks, dividers) if a["counted"]]
 
 
+def _death_tracks(table) -> list[dict]:
+    names = set(table.column_names)
+    div = table.column("kf_death_wx").to_pylist() if "kf_death_wx" in names else None
+    return merge_split_tracks(_tracks(
+        table.column("t_ms").to_pylist(), table.column("kf_death_mask").to_pylist(), div))
+
+
 def player_death_times(table) -> list[float]:
     """First-seen time of each counted killfeed entry for the player's death,
     the same tracks `build_rounds` counts, for readers that need the instants
     rather than a per-round count."""
-    names = set(table.column_names)
-    div = table.column("kf_death_wx").to_pylist() if "kf_death_wx" in names else None
-    return sorted(e["t_first"] for e in merge_split_tracks(_tracks(
-        table.column("t_ms").to_pylist(), table.column("kf_death_mask").to_pylist(), div)))
+    return sorted(e["t_first"] for e in _death_tracks(table))
+
+
+def player_second_life_times(table, second_life: list[dict] | None) -> list[float]:
+    """The instants among `player_death_times` that
+    `adjudication.death.split_second_lives` calls second lives over the stored
+    badge reads `second_life`, as `build_rounds` splits its count; none where
+    `second_life` is None."""
+    from .adjudication.death import split_second_lives
+    return sorted(e["t_first"] for e in split_second_lives(_death_tracks(table), second_life)[1])
 
 
 #: The player's team is drawn on the LEFT of the scoreline. Structural, not

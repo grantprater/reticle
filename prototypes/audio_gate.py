@@ -90,7 +90,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "prototypes"))
 with contextlib.redirect_stdout(io.StringIO()):
     import audio_bank  # noqa: E402  the front end, the bank, Below Normal priority
-    import audio_channel  # noqa: E402  the mel filterbank
+from reticle import ult_lines  # noqa: E402  the audio decode and the log-mel front end
+from reticle.ult_lines import decode_mono, log_mel  # noqa: E402
 
 
 def _idle_priority() -> None:
@@ -117,6 +118,9 @@ DOC = ROOT / "docs" / "AUDIO_GATE.md"
 #: The front end of `audio_bank`, unchanged.
 HOP, NFFT, BANDS, FMIN, FMAX = (audio_bank.HOP, audio_bank.NFFT, audio_bank.BANDS,
                                 audio_bank.FMIN, audio_bank.FMAX)
+if (HOP, NFFT, BANDS, FMIN, FMAX) != (ult_lines.HOP, ult_lines.NFFT, ult_lines.BANDS,
+                                     ult_lines.FMIN, ult_lines.FMAX):
+    raise SystemExit("audio_bank's front end differs from reticle.ult_lines'")
 #: 10 ms frames per 100 ms label frame; label frame j spans [j, j + 1) * STEP.
 BLOCK, STEP = 10, 0.1
 #: F2 context: this many label frames, centred (0.5 s).
@@ -230,76 +234,16 @@ def _sha(path: Path) -> str | None:
 # Front end
 # ---------------------------------------------------------------------------
 
-def decode_mono(path: str) -> tuple[np.ndarray, np.ndarray, int]:
-    """(mono float32, filled mask, rate): the whole audio stream, decoded once.
-
-    The demuxer reads the interleaved video packets and never decodes them.
-    Each AAC frame is placed by its own pts, as `audio_bank.read_spans` places
-    it, so a gap in the stream stays a gap (unfilled).
-    """
-    import av
-    with av.open(str(path)) as c:
-        st = c.streams.audio[0]
-        rate = st.rate
-        dur = float(st.duration * st.time_base) if st.duration else c.duration / 1e6
-        x = np.zeros(int(math.ceil((dur + 2.0) * rate)), np.float32)
-        filled = np.zeros(len(x), bool)
-        end = 0
-        for pkt in c.demux(st):
-            for fr in pkt.decode():
-                if fr.pts is None:
-                    continue
-                a = fr.to_ndarray()
-                if a.ndim == 1 or a.shape[0] != 2:
-                    raise SystemExit(f"{path}: expected planar stereo, got {a.shape}")
-                i = int(round(float(fr.pts * st.time_base) * rate))
-                j = i + a.shape[1]
-                if j > len(x):
-                    grow = max(j - len(x), rate * 10)
-                    x = np.concatenate([x, np.zeros(grow, np.float32)])
-                    filled = np.concatenate([filled, np.zeros(grow, bool)])
-                lo = max(i, 0)
-                if j > lo:
-                    x[lo:j] = a[:, lo - i:].mean(axis=0)
-                    filled[lo:j] = True
-                    end = max(end, j)
-    return x[:end], filled[:end], rate
+# `decode_mono` is `reticle.ult_lines.decode_mono`, imported above.
 
 
 def logmel(x: np.ndarray, filled: np.ndarray, rate: int, chunk: int = 8192):
     """(absolute log-mel dB [n, 64], ok [n], RMS dB [n]); frame k centred on k * HOP.
 
-    `ok` is false where the 2048-point window reaches outside the decoded
-    audio. RMS is the mono mix's power over the hop around the centre, in dB.
+    `ult_lines.log_mel` on this module's GPU choice; the production voice-line
+    reader shares the front end these features were cached with.
     """
-    xp = gpu()
-    h = int(round(HOP * rate))
-    n = len(x) // h
-    fb = xp.asarray(audio_channel._mel_fb(rate, NFFT, BANDS, FMIN, FMAX).T.astype(np.float32))
-    win = xp.asarray(np.hanning(NFFT).astype(np.float32))
-    cum = np.concatenate([[0], np.cumsum(filled, dtype=np.int64)])
-    L = np.empty((n, BANDS), np.float32)
-    ok = np.zeros(n, bool)
-    rms = np.empty(n, np.float32)
-    half = NFFT // 2
-    for k0 in range(0, n, chunk):
-        k1 = min(n, k0 + chunk)
-        lo, hi = k0 * h - half, (k1 - 1) * h + half
-        seg = np.zeros(hi - lo, np.float32)
-        a, b = max(lo, 0), min(hi, len(x))
-        seg[a - lo:b - lo] = x[a:b]
-        g = xp.asarray(seg)
-        idx = (xp.arange(k1 - k0)[:, None] * h) + xp.arange(NFFT)[None]
-        P = xp.abs(xp.fft.rfft(g[idx] * win, axis=1)) ** 2
-        L[k0:k1] = _np(10 * xp.log10(P.astype(xp.float32) @ fb + 1e-10))
-        c = idx[:, half - h // 2:half - h // 2 + h]
-        rms[k0:k1] = _np(10 * xp.log10((g[c] ** 2).mean(axis=1) + 1e-10))
-        first = np.arange(k0, k1) * h - half
-        inside = (first >= 0) & (first + NFFT <= len(x))
-        full = np.zeros(k1 - k0, bool)
-        full[inside] = (cum[first[inside] + NFFT] - cum[first[inside]]) == NFFT
-        ok[k0:k1] = full
-    return L, ok, rms
+    return log_mel(x, filled, rate, chunk=chunk, xp=gpu())
 
 
 def ast_fbank(x: np.ndarray, rate: int, chunk_s: float = 60.0) -> np.ndarray:

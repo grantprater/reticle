@@ -283,6 +283,22 @@ class RoiCache:
         """The pixel rectangle of one profile ROI this cache holds."""
         return self.record["rects"][CACHE_SETS[self.record["roi"]].index(roi)]
 
+    def crops(self, roi: str):
+        """`(frame_idx, t_ms, crop)` of one profile ROI at every cached frame,
+        in frame order, the crop alone rather than pasted into a frame; None
+        where a stored crop does not decode. PNG caches only."""
+        if self.record.get("codec") == "ffv1":
+            raise ValueError("crops() reads PNG caches; an FFV1 cache is read through samples()")
+        k = CACHE_SETS[self.record["roi"]].index(roi)
+        rows = np.where(self.rect == k)[0]
+        rows = rows[np.argsort(self.frame_idx[rows], kind="stable")]
+        with open(self.blob, "rb") as fh:
+            for j in rows:
+                fh.seek(int(self.offset[j]))
+                buf = fh.read(int(self.length[j]))
+                yield (int(self.frame_idx[j]), float(self.t_ms[j]),
+                       cv2.imdecode(np.frombuffer(buf, np.uint8), cv2.IMREAD_COLOR))
+
     def samples(self, targets_ms: list[float], rois=None):
         """A Sample per target the cache holds, in target order: the stored
         crops pasted into a black frame of the capture's size. `rois` names

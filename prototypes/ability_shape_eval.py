@@ -121,10 +121,7 @@ class Session:
         return (None, None) if s is None else (s.frame[y0:y1, x0:x1], s.t_ms)
 
     def self_at(self, t):
-        i = int(np.abs(self.mt - t).argmin())
-        if abs(self.mt[i] - t) > 100 or self.sx[i] is None:
-            return None
-        return float(self.sx[i]), float(self.sy[i])
+        return S_.seed_from_track(self.mt, self.sx, self.sy, t)
 
 
 def fit_for(kind, img, me, support=None):

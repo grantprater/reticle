@@ -54,6 +54,33 @@ gate tray casts on the player's death (stored death verdicts) before binding
 anything to them
 """
 
+[tray-slot-icons]
+claim = """
+Each ability tray slot draws its ability's official icon above the charge bar:
+the white glyph of the game's icon, about 48 px across at 1920x1080 on both
+the standard and the big-minimap layout, dimmed while the ability is
+unavailable. A spectated teammate's tray draws that teammate's icons, and the
+tray returns to the player's own kit in the seconds after the round ends,
+before the next round begins.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-27"
+subject = "hud:ability tray"
+source = """
+measured 2026-09-27 with `reticle tray-kit` on the stored hud_abilities crops
+of four sessions (docs/TRAY_KIT_WITNESS.md): the catalogue icons matched at
+48 px (scale 0.375 of the 128 px icon) fit best on all three sessions scanned,
+one of them on the big-minimap layout; every return to the player's kit after
+a spectated one fell between the rounds table's round end and the next
+round's start, except in rounds whose end the table sets at the close
+"""
+use = """
+the icons name whose kit the tray shows; normalised cross-correlation of the
+icon's alpha channel reads a lit and a dimmed icon alike
+"""
+see = ["hud/tray-after-player-death"]
+
 [menu-dims-tray]
 claim = """
 Opening the in-game menu (settings, or ending a session) dims the whole
@@ -177,3 +204,96 @@ a text witness for callouts beyond audio range, in an unread HUD region;
 read, it names the caller and the site and dates a ping
 """
 see = ["abilities/voice-lines-announce-casts"]
+
+[ability-tray-charge-segments]
+claim = """
+An ability with two charges draws its tray slot's bar as two segments, one
+per charge. Two abilities hold more than two: Brimstone's Sky Smoke three in
+slot E and Chamber's Headhunter eight in slot Q (2026-09-28). How the tray
+draws three or more charges is unobserved. Until 2026-09-28 this claim also
+said that no ability has more than two charges; the player's confirmation of
+the wiki harvest's counts falsified that.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-27"
+subject = "hud:ability tray"
+source = """
+the player, 2026-09-27; the stored tray_drop rows on the 19 lineup sessions
+read Clove's Ruse, Phoenix's Hot Hands, Skye's Guiding Light and Sova's Shock
+Bolt as halves: 89 accepted drops from full to half and 43 from half to empty.
+The counts above two: the player, 2026-09-28
+"""
+use = """
+a fill is the slot's teal over the session's p90, so a segment is 0.5 of the
+reference and a spent charge falls by 0.5, above CAST_DROP (0.25); the reader
+needs no charge count per ability, and a drop that leaves the slot at its full
+level spent nothing. The state model interprets at most two segments
+(`adjudication.ability_state.MAX_SEGMENTS_READ`): a slot that holds more keeps
+its count and refuses the segment reading until a session shows the drawing
+"""
+see = ["abilities/omen-tray-charges", "abilities/killjoy-tray-charges", "abilities/jett-tray-charges", "abilities/clove-tray-charges", "abilities/cypher-tray-charges", "abilities/brimstone-sky-smoke-charges", "abilities/chamber-headhunter-charges", "abilities/catalogue-charge-counts-confirmed"]
+
+[scoreboard-strip-updates-next-round]
+claim = """
+The history strip, its round-in-play triangles included, redraws a decided
+round when the next round's buy phase begins, not when the scoreline's total
+rises: in the seconds between the score change and the clock reset the strip
+still shows the old state.
+"""
+kind = "lifecycle"
+known = "measured"
+since = "2026-09-27"
+subject = "hud:scoreboard"
+source = """
+measured 2026-09-27 on the column of the round the scoreline last decided, timed
+against the next clock reset, over 2155 cached centre crops of 19 sessions
+(prototypes/scoreboard_round_marks.py, docs/SCOREBOARD_ROUND_MARKS.md).
+"""
+see = ["hud/scoreboard-round-history-strip"]
+
+[scoreboard-tab-hold]
+claim = """
+The Tab scoreboard opens while the player holds Tab and closes when they
+release it. Every opening and closing in a capture is the player's own
+action; the game never opens or closes the board by itself.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+see = ["hud/scoreboard-round-history-strip"]
+
+[scoreboard-round-history-strip]
+claim = """
+Between the ally and enemy blocks of the Tab scoreboard, in the vertical
+middle, the game draws two lines of round markers, the upper for the allies
+and the lower for the enemies, one column per round of the match with the
+second half to the right of a separator column (two pale ticks, no dot). A
+played round shows the winner's icon on the winner's line (a crossed square,
+a pincer, an hourglass, among others: teal above, red below) and a black dot
+on the other line; an unplayed round shows black dots on both. Yellow
+triangles above and below a column mark the round in play. Each line carries
+one yellow dot, on the column of round 13 plus the other team's total: the
+earliest round in which that line's team could take the match. The strip is
+a mark of the open board that does not depend on the translucent team slabs.
+The player first read the left side as the half's outcomes and the yellow
+dot as the opponents' total; the measurement replaced that reading.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-27"
+subject = "hud:scoreboard"
+source = """
+the player, 2026-09-27, asking how the pipeline recognises an open scoreboard;
+`reticle.scoreboard` sees the strip only as red marks that can join the enemy
+slab, and keys the board on the two slabs instead
+measured 2026-09-27 on 2155 cached centre crops of 19 sessions against the stored
+scoreline (prototypes/scoreboard_round_marks.py, docs/SCOREBOARD_ROUND_MARKS.md).
+"""
+use = """
+an independent witness of the open board for cross-referencing the slab
+test: score it first on the samples the slab test closes between two open
+samples of one Tab hold; which dots are black and which yellow is a round
+history the reader may later read, once the colours are labelled
+"""
+see = ["rounds/scoreboard-dead-dimmed", "hud/scoreboard-strip-updates-next-round"]

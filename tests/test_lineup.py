@@ -259,3 +259,43 @@ class SlotCropTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LoadLineupBoardTests(unittest.TestCase):
+    """A stored board whose verdicts the reader still reproduces is APPLIED;
+    only a version that changed verdicts, or no board, leaves the top bar alone."""
+
+    def store_with(self, board_version):
+        import json
+        import tempfile
+        from pathlib import Path
+        root = Path(tempfile.mkdtemp())
+        (root / "lineups").mkdir()
+        (root / "lineups" / "s1.json").write_text(json.dumps(
+            {"version": "lineup-test", "sides": {}, "player": None}), encoding="utf-8")
+        if board_version is not None:
+            d = root / "events" / "scoreboard"
+            d.mkdir(parents=True)
+            (d / "s1.jsonl").write_text(json.dumps(
+                {"scoreboard_version": board_version, "kind": "coverage"}) + "\n", encoding="utf-8")
+        return root
+
+    def test_the_current_version_applies_and_says_it_is_current(self):
+        from reticle.version import SCOREBOARD_VERSION
+        got = lineup.load_lineup("s1", self.store_with(SCOREBOARD_VERSION))
+        self.assertEqual(got["board_state"], {"applied": True, "version": SCOREBOARD_VERSION,
+                                              "current": True})
+
+    def test_a_compatible_older_version_applies_and_says_it_is_not_current(self):
+        got = lineup.load_lineup("s1", self.store_with("scoreboard-0.6.0"))
+        self.assertEqual(got["board_state"], {"applied": True, "version": "scoreboard-0.6.0",
+                                              "current": False})
+
+    def test_a_version_that_changed_verdicts_is_refused_with_its_reason(self):
+        got = lineup.load_lineup("s1", self.store_with("scoreboard-0.5.0"))
+        self.assertFalse(got["board_state"]["applied"])
+        self.assertTrue(got["board_state"]["reason"].startswith("stale_version scoreboard-0.5.0"))
+
+    def test_no_board_is_said_so(self):
+        got = lineup.load_lineup("s1", self.store_with(None))
+        self.assertEqual(got["board_state"], {"applied": False, "reason": "no_scoreboard"})
