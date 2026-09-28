@@ -1,11 +1,23 @@
 # Experiments toward a complete observable event record
 
-Status (2026-09-27): proposed; no module or command implements it.
+Status (2026-09-27): proposed; E1 is the next task ([BACKLOG](../BACKLOG.md)); no module or command implements it yet.
 
 2026-09-24. Proposed experiments, not measured results. This design extends
 [pipeline acceptance](PIPELINE_REVIEW.md) and the
 [bounded learning pilot](archive/ENTITY_DOMAIN_LOOP_PILOT-2026-09-24.md). It does not replace the
 active backlog or launch that pilot.
+
+| Experiment | Status (2026-09-27) | Evidence |
+|---|---|---|
+| E1 | Selected: the next task | The [BACKLOG](../BACKLOG.md) item and the ledger entry `e1-agreement-2026-09-27` |
+| E2 | Proposed | None |
+| E3 | Proposed | None |
+| E4 | Proposed | None |
+| E5 | Proposed | None |
+| E6 | Proposed; partial evidence | [Pub/sub measurements](PUBSUB_MEASUREMENTS.md): staged-pass cost and byte equality |
+| E7 | Proposed | None |
+| E8 | Proposed; one negative result | [Bootstrap pilot](archive/BOOTSTRAP_PARALLEL_RUN-2026-09-24.md): the learner changed no name |
+| E9 | Proposed | None |
 
 Concurrent execution: [two-lane launch and handoff plan](archive/BOOTSTRAP_PARALLEL_RUN-2026-09-24.md).
 

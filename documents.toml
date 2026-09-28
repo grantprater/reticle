@@ -135,7 +135,8 @@ path = "docs/EXPERIMENT_PROGRAM.md"
 kind = "plan"
 status = "proposed"
 since = "2026-09-27"
-waits_for = "A BACKLOG item that selects one of its experiments."
+remains = "E1 selected 2026-09-27 as the next task; E2-E9 wait on it."
+waits_for = "prototypes/e1_agreement.py and its first replay."
 
 [[document]]
 path = "docs/IMPLEMENTATION_PLAN.md"

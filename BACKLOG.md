@@ -30,6 +30,10 @@ Steps 1 to 5 are done ([archive](docs/archive/BACKLOG-through-2026-09-26.md)).
 
 **Pub/sub branch `pubsub-20260927` (2026-09-27, unmerged).** (1) The [measurements](docs/PUBSUB_MEASUREMENTS.md) leave shards open: the check's serial path ignores `--cv-threads`; fix it, rerun ally-icon at one thread on both paths, then a process shard; warm up `--check`. (2) Publish writes in place with no run id: a minimap zero-rows exit fires after the killfeed writes. (3) `events_version` reads the first row, so a truncated events file reads as current. (4) Usage omits contention and backend. (5) `--until` drops negative timestamps. (6) Unbuilt: L1's selecting producer, L2, L5, L7. (7) Merging the two `NOTES.md` needs a decision.
 
+**E1: can agreement conceal a wrong event history? (next, 2026-09-27).** The first experiment of [the experiment program](docs/EXPERIMENT_PROGRAM.md), chosen because the combat report, killfeed and scoreboard are all in production and its falsifier is concrete. Replay stored evidence only: list every round where killfeed deaths, combat-report rows and scoreboard K/D disagree, by the stored reason; then seed contiguous rounds whose totals agree and bind each death in them to its source witness, identity and life episode; withhold each corroborating channel in turn. The belief, falsifier and acceptance rule are the ledger entry `e1-agreement-2026-09-27`.
+Acceptance: `.\.venv\Scripts\python.exe prototypes\e1_agreement.py --replay` writes the discrepancy list and the seeded agreeing rounds from storage with no decode, and records the series `e1_agreement/replay` through `reticle.metrics`.
+Evidence: the player reviews the seeded agreeing rounds against source before anything is promoted. Any source error in an agreeing round refutes agreement as an acceptance test. Stop at the first upstream identity or source-review failure; promote no oracle candidate, synthetic claim or all-null output.
+
 ## Completed
 
 Full entries: [09-27 archive](docs/archive/BACKLOG-through-2026-09-27.md).
