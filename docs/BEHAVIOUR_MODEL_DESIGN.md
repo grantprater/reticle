@@ -1,6 +1,8 @@
 # Behaviour dynamics: hierarchical predict-update model
 
-Date: 2026-09-25. Status: long-term design goal; nothing implemented. The
+Date: 2026-09-25. Status: long-term design goal. Two pieces ship: name
+continuity (`reticle/adjudication/killfeed_names.py`) and a reliability table
+(`reticle/adjudication/reliability.py`); the rest is unbuilt. The
 player's intent, recorded at their request. Extends
 [ADJUDICATION_DESIGN.md](ADJUDICATION_DESIGN.md) and sits downstream of the
 acceptance north star in `AGENTS.md`: behaviour is inferred from

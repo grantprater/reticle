@@ -8,9 +8,9 @@ the single root guidance for every agent; `CLAUDE.md` imports it.
 ## Start here
 
 Use [`docs/WORKING_MAP.md`](docs/WORKING_MAP.md) for task routing. Read
-`NOTES.md` for the single current handoff, then the selected `BACKLOG.md` task
-and its contract in `docs/tasks.json`. Read the relevant section of
-`PROJECT_GUIDE.md` before changing a subsystem. Minimap and prototype work
+`NOTES.md` for the single current handoff, then the `BACKLOG.md` task, then the
+owning module docstring and the relevant section of `PROJECT_GUIDE.md` before
+changing a subsystem. Minimap and prototype work
 also requires `prototypes/CLAUDE.md`; domain attribution and private quotes
 remain in `~/reticle-notes/`, outside this public repo.
 
@@ -52,15 +52,24 @@ states plainly, and the player had to ask what the sentence meant.
   (`roi_cache`) are not a copy (player, 2026-09-25). New readers join shared
   decode passes; gate dense sampling on opportunity rather than outcome. Never
   silently overwrite evidence.
+- A shared decode pass is an execution optimization, not a shared definition:
+  a change to one detector must not restamp another stream or a rule
+  recomputed from stored data. Adjudication stays pure over stored
+  observations, with explicit alternatives and evidence links; a late detector
+  answer never becomes an event's inferred origin; and a review window points
+  into source media with its provenance rather than standing as a clip or a
+  conclusion.
 - Run the least work that tests the change. `reticle plan` names the stale
   streams; adjudications rerun from storage; a reader change is checked first
   with `reticle trial` (stored windows, crop cache, no decode), and a full scan
   is the acceptance run.
-- The HUD and minimap are semi-transparent over the void. Search inside the
-  opaque structure; fit a shape rather than repairing it with a closing radius;
+- The HUD and minimap are semi-transparent over the void
+  [domain:minimap/transparency]. Search inside the opaque structure; fit a shape
+  rather than repairing it with a closing radius [domain:minimap/fit-not-repair];
   never seed label files. Invoke the `labelling-pass` skill before labelling.
-- **SESSION PIXELS DO NOT DEFINE THE MAP.** A capture may determine only the
-  minimap widget's dimensions and placement. Base-map pixels, floor masks,
+- **SESSION PIXELS DO NOT DEFINE THE MAP**
+  [domain:capture/session-pixels-are-not-the-map]. A capture may determine only
+  the minimap widget's dimensions and placement. Base-map pixels, floor masks,
   lighting references, detector backgrounds, and all other static map values
   come exclusively from baked geometry keyed by `(map, profile)`. Never add a
   per-session static-map cache or capture median to a reader/prototype; `doctor`

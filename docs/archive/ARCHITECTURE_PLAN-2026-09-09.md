@@ -1,12 +1,16 @@
 # Architecture and development efficiency
 
+Status (2026-09-27): archived. A1-A4 finished on 2026-09-07; A5 (partial) and
+A6 (deferred) were never resumed, and the task contracts A4 built retired to
+[tasks-through-2026-09-23.json](tasks-through-2026-09-23.json).
+
 ## Current pipeline direction -- 2026-09-09
 
-[PIPELINE_REVIEW.md](PIPELINE_REVIEW.md) is the current critique and revised
+[PIPELINE_REVIEW.md](../PIPELINE_REVIEW.md) is the current critique and revised
 pipeline sequence for semantics, adaptive fidelity, error classification and
 extension boundaries. Its P0-P5 gates govern new pipeline work; A1-A6 below
 remain the development-workflow history, not evidence of a complete state model.
-Implement the existing [adjudication design](ADJUDICATION_DESIGN.md) incrementally.
+Implement the existing [adjudication design](../ADJUDICATION_DESIGN.md) incrementally.
 First close observation/coverage contracts, then phase semantics and identity
 continuity, then validate adaptive observation against reference fidelity.
 Immutable observation revisions and dependent rebuilds are now concrete pipeline

@@ -1,8 +1,12 @@
 # First entity and domain learning pilot
 
-Status: prepared; launch after the user finishes scan fixes and gives the go-ahead.
+Status (2026-09-27): lane B of the [bootstrap run](BOOTSTRAP_PARALLEL_RUN-2026-09-24.md)
+executed this pilot on 2026-09-24 on branch `experiment/bootstrap-b`. The
+integration branch `experiment/bootstrap-integration` closed it unmerged: the
+learner changed no name. Its code lives only on those branches. The plan below
+stands as prepared.
 Runner: GPT-6 Sol, medium reasoning effort, as requested by the user.
-Parent design: [Entity mining and domain learning](ENTITY_DOMAIN_LEARNING_DESIGN.md).
+Parent design: [Entity mining and domain learning](../ENTITY_DOMAIN_LEARNING_DESIGN.md).
 
 ## Outcome and scope
 

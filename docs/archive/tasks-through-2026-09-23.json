@@ -29,15 +29,15 @@
       "id": "death-scoreboard-binding",
       "objective": "Use an independent stored scoreboard or top-bar witness to bind and correctly name at least one of the five fixed-round death refusals, preserving disagreements and source provenance.",
       "files": ["reticle/scoreboard.py", "reticle/adjudication/identity.py", "reticle/adjudication/death.py", "tools/death_round4_review.py"],
-      "reads": ["AGENTS.md", "BACKLOG.md#Active: death-scoreboard-binding", "NOTES.md#Picking up", "docs/DEATH_ROUND4_REFUSALS.md", "reticle/scoreboard.py", "reticle/adjudication/death.py", "PROJECT_GUIDE.md#Scoreboard divergence is a finding, not an error"],
+      "reads": ["AGENTS.md", "BACKLOG.md#Active: death-scoreboard-binding", "NOTES.md#Picking up", "docs/archive/DEATH_ROUND4_REFUSALS-2026-09-23.md", "reticle/scoreboard.py", "reticle/adjudication/death.py", "PROJECT_GUIDE.md#Scoreboard divergence is a finding, not an error"],
       "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-scoreboard", "--minimum-named", "3"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
-      "evidence": ["Before changing a reader, establish a known row and identity baseline, inspect the source, state a falsifiable prediction, and log it in notes/predictions.jsonl.", "A new named victim needs a stored, versioned scoreboard/top-bar observation and a checkable binding to the death; K/D arithmetic alone, human answers, refused lineup best guesses, and stale minimap positions cannot be its input.", "Source-review all seven deaths again and compare with docs/DEATH_ROUND4_REFUSALS.md. Keep zero new wrong names or extra entries and explicit location refusals. If the binding cannot be derived, record the first failure and retain the five machine refusals."]
+      "evidence": ["Before changing a reader, establish a known row and identity baseline, inspect the source, state a falsifiable prediction, and log it in notes/predictions.jsonl.", "A new named victim needs a stored, versioned scoreboard/top-bar observation and a checkable binding to the death; K/D arithmetic alone, human answers, refused lineup best guesses, and stale minimap positions cannot be its input.", "Source-review all seven deaths again and compare with docs/archive/DEATH_ROUND4_REFUSALS-2026-09-23.md. Keep zero new wrong names or extra entries and explicit location refusals. If the binding cannot be derived, record the first failure and retain the five machine refusals."]
     },
     {
       "id": "hud-reader",
       "objective": "Keep HUD extraction reusable without changing detector rows or calibration behavior.",
       "files": ["reticle/hud_reader.py", "reticle/cli.py", "tests/test_hud_reader.py"],
-      "reads": ["CLAUDE.md", "reticle/hud_reader.py", "reticle/passes.py", "docs/ARCHITECTURE_PLAN.md#A2"],
+      "reads": ["CLAUDE.md", "reticle/hud_reader.py", "reticle/passes.py", "docs/archive/ARCHITECTURE_PLAN-2026-09-09.md#A2"],
       "acceptance": [["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_hud_reader.py", "-q"]],
       "evidence": ["Cached initialization never opens VideoCapture; exact row comparison preserves nulls, flags, dividers, source timestamps and frame indices.", "For structural changes compare the 840-row fixed refinement window with its recorded baseline; unit checks alone do not establish corpus equivalence."]
     },
@@ -45,15 +45,15 @@
       "id": "artifact-dependencies",
       "objective": "Keep artifact writers and stale-input validators on the same explicit dependency declaration.",
       "files": ["reticle/artifacts.py", "reticle/coaching.py", "reticle/refinement.py", "tests/test_artifacts.py", "tests/test_refinement.py"],
-      "reads": ["CLAUDE.md", "reticle/artifacts.py", "docs/ARCHITECTURE_PLAN.md#A3"],
+      "reads": ["CLAUDE.md", "reticle/artifacts.py", "docs/archive/ARCHITECTURE_PLAN-2026-09-09.md#A3"],
       "acceptance": [["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_artifacts.py", "-q"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_refinement.py", "-q"]],
       "evidence": ["Missing/extra/changed hashes refuse; documentation changes affect no registered producer; parent changes propagate to dependents.", "Whole-file dependencies are conservative; affected artifacts are candidates, not an automatic rebuild."]
     },
     {
       "id": "architecture-regression",
       "objective": "Validate an architecture change before recording its results in the plan and handoff.",
-      "files": ["docs/ARCHITECTURE_PLAN.md", "docs/WORKING_MAP.md", "NOTES.md"],
-      "reads": ["CLAUDE.md", "docs/ARCHITECTURE_PLAN.md", "docs/tasks.json"],
+      "files": ["docs/archive/ARCHITECTURE_PLAN-2026-09-09.md", "docs/WORKING_MAP.md", "NOTES.md"],
+      "reads": ["CLAUDE.md", "docs/archive/ARCHITECTURE_PLAN-2026-09-09.md", "docs/archive/tasks-through-2026-09-23.json"],
       "acceptance": [["{python}", "-m", "unittest", "discover", "-s", "tests", "-q"], ["git", "diff", "--check"]],
       "evidence": ["All behavioral checks pass. Inspect doctor separately: stale geometry is a pre-existing blocker, not a waived regression.", "Record actual corpus comparisons separately. Logged elapsed time is check execution time, not total agent labor; tokens and corrections stay null unless measured."]
     },
@@ -61,7 +61,7 @@
       "id": "scoreboard-lineup",
       "objective": "Use accepted Tab-scoreboard openings as an independent side-set witness that constrains the top-bar side assignment in adjudication.identity, storing every disagreement with the top bar.",
       "files": ["reticle/scoreboard.py", "reticle/adjudication/identity.py", "reticle/adjudication/scoreboard.py", "reticle/lineup.py", "tools/death_round4_review.py"],
-      "reads": ["AGENTS.md", "BACKLOG.md#Next (no contract yet): scoreboard-lineup", "NOTES.md#Picking up", "docs/DEATH_SCOREBOARD_BINDING.md", "reticle/adjudication/identity.py", "reticle/lineup.py"],
+      "reads": ["AGENTS.md", "BACKLOG.md#Next (no contract yet): scoreboard-lineup", "NOTES.md#Picking up", "docs/archive/DEATH_SCOREBOARD_BINDING-2026-09-23.md", "reticle/adjudication/identity.py", "reticle/lineup.py"],
       "acceptance": [["{python}", "tools/death_round4_review.py", "--output", "teststore/death-round4-lineup", "--minimum-named", "4"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_agent_identity.py", "-q"], ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_death_attribution.py", "-q"]],
       "evidence": ["Log falsifiable predictions for a06f04a0059f and a second session with a recorded lineup truth before measuring.", "The side set is decided by identity.assign_side over stored scoreboard scores; the top-bar constraint is decided in adjudication.identity, never in lineup.", "Store each top-bar name the board contradicts. Refuse the constraint when accepted openings disagree on a side's set.", "Rerun the round-4 review and source-check any newly named death against the player's answers; keep zero wrong names."]
     },

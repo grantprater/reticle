@@ -582,8 +582,9 @@ Evaluate event-level performance, not repeated-frame counts. Report per-family a
 per-perspective transfer; preserve open-set errors and uncastable opportunities.
 
 Measure property coverage gained per new recorded minute, usable-take fraction,
-redo/setup/review time, decoded seconds and compute cost. Synthetic fixtures test
-grouping mechanics; they cannot certify ability rendering. Ablate identity anchors,
+redo/setup/review time, decoded seconds and compute cost. The shared perceptual
+acceptance rules, synthetic fixtures testing mechanics only among them, are in
+the minimap [evaluation contract](MINIMAP_APPEARANCE_MATCHING.md#evaluation-contract). Ablate identity anchors,
 temporal constraints, visual features and audio independently. Inspect consensus
 and no-detection cases as well as disagreements.
 
@@ -623,7 +624,8 @@ set, and is flagged when none of them has evidence:
     triggered_activation   Vyse's vines becoming a circle
     destroyed / expired    endings, with and without a cause
 
-That mirrors the ORIGIN EVENT model in `prototypes/CLAUDE.md`: a birth comes
+That mirrors the ORIGIN EVENT model in
+[the prototypes archive](archive/PROTOTYPES-through-2026-09-23.md): a birth comes
 from a closed set, so an unexplained birth is a flag rather than a silent row.
 A transition is the same claim applied to the middle of a life. Two rules are
 structural and asserted by tests -- a phase change never creates a second

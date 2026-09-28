@@ -1,10 +1,15 @@
 # Minimap detection: contiguous evidence and correction
 
+Status (2026-09-27): done and archived. Its follow-ups ship as
+`track.Corroboration`, `minimap.FIT_ERR_PX`, `minimap.slab_mask` and the overlay
+flags. `Tracker.resolve`, named below, was built and then deleted on 2026-09-08
+(32bce4c), when the opaque-slab support rule replaced it.
+
 2026-09-08. Implemented: temporal association corrections and a reproducible
 sequence diagnostic/review loop. Full entity recognition remains incomplete.
 
 Appearance-reader follow-up, 2026-09-09:
-[MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) specifies the
+[MINIMAP_APPEARANCE_MATCHING.md](../MINIMAP_APPEARANCE_MATCHING.md) specifies the
 proposed shared-centre portrait/shape fit and subsequent region/animation work.
 It owns that implementation sequence; this document retains association,
 cross-channel correction and sequence-review responsibilities.

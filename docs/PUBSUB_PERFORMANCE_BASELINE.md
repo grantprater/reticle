@@ -2,7 +2,7 @@
 
 Where a scan's time goes today, and how much a decoupled, pipelined pass could
 recover, read from the scan usage log (`<store>/notes/usage.jsonl`,
-`scan-usage-1`; [USAGE.md](USAGE.md)) on 2026-09-27 for
+`scan-usage-1`; [the scan usage notes](../README.md#scan-usage)) on 2026-09-27 for
 [PUBSUB_PLAN.md](PUBSUB_PLAN.md). No scan ran and no media was opened.
 
 **The figures live in [`pubsub_baseline.json`](pubsub_baseline.json).** QUOTED

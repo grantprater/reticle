@@ -441,10 +441,7 @@ constraint or authorize a training run, installation, or production integration.
    and channel agreement remain diagnostics. Use independent sessions/uses as
    uncertainty units rather than treating neighboring frames as independent.
 
-Predeclare numerical budgets and falsifiable predictions before experiments,
-using the requesting capability's tolerance and measured baseline. Inspect source
-images and use the existing review tools. Persist versioned evidence so comparisons
-can be repeated without unnecessary decoding. Promotion requires a visually
-checkable annotated sequence, held-out benefit, provenance, and integration through
-the existing observation/lifecycle contracts. No candidate is selected as winner
-by this design review.
+Acceptance follows the minimap
+[evaluation contract](MINIMAP_APPEARANCE_MATCHING.md#evaluation-contract) and
+AGENTS.md; promotion also requires provenance and integration through the
+existing observation/lifecycle contracts. This review selects no winner.
