@@ -90,6 +90,7 @@ def stale(store, sessions: list[str]) -> dict:
     """Per session: stale reader streams (decode), stale adjudications
     (storage only), and absent streams."""
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
+    from .adjudication.identity import AGENT_IDENTITY_VERSION
     from .adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
     from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
                            KILLFEED_WEAPON_VERSION)
@@ -126,9 +127,13 @@ def stale(store, sessions: list[str]) -> dict:
         d = _death_stamps(store, sid)
         if d is not None:
             version, inputs = d
+            # The scoreboard stream feeds `scoreboard_dim`, and the identity
+            # rules name every role; a deaths table read from older ones is
+            # stale although no killfeed stream moved.
             want = {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
                     "killfeed_weapon": KILLFEED_WEAPON_VERSION,
-                    "killfeed_name": KILLFEED_NAME_VERSION, "round": ROUND_VERSION}
+                    "killfeed_name": KILLFEED_NAME_VERSION, "round": ROUND_VERSION,
+                    "scoreboard": SCOREBOARD_VERSION, "agent_identity": AGENT_IDENTITY_VERSION}
             moved = sorted(k for k, v in want.items() if inputs.get(k) not in (v, None))
             # An input the rescan or the round rebuild will rewrite moves too,
             # once it has run.
