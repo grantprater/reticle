@@ -42,6 +42,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | HUD, killfeed, roster | `ocr.py`, `killfeed.py`, `roster.py` |
 | Rounds and phase boundaries | `rounds.py`, `scoreboard.py` |
 | Is the Tab scoreboard open: the round-history strip witness against the slab test | `prototypes/scoreboard_strip.py`, [SCOREBOARD_PRESENCE.md](SCOREBOARD_PRESENCE.md) |
+| Do the history strip's round marks agree with the stored scoreline; the yellow dot and triangles | `prototypes/scoreboard_round_marks.py`, [SCOREBOARD_ROUND_MARKS.md](SCOREBOARD_ROUND_MARKS.md) |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py` |
 | Position belief and its evidence | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
 | Which icon is which: the occluder inventory, the glyph track G1-G5, and portrait/shape/region/animation matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
