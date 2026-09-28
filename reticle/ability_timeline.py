@@ -164,7 +164,7 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
                       player_deaths_ms: list[float], *, agent: str | None = None,
                       second_lives_ms=(), revives_ms=(),
                       report_deaths: dict | None = None, kit_changes_ms=(),
-                      kit_returns_ms=()) -> list[dict]:
+                      kit_returns_ms=(), menu_at=None) -> list[dict]:
     """Which of a session's tray drops (`tray.drops`) are the local player's casts.
 
     The tray shows the player's kit only while the player lives; afterwards it
@@ -218,6 +218,13 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     while the tray is dark or several slots fall at once, and on the three
     sessions of docs/TRAY_KIT_WITNESS.md the `forced` and co-occurrence tests
     refused every one, so the change needs no lead.
+
+    The menu is refused before every other test. Opening it dims the whole
+    tray, which reads as a fall on every slot at one instant
+    [domain:hud/menu-dims-tray]. `menu_at(t_ms)` is the stored menu witness
+    (`menu.MenuWitness.at`); a drop at an instant it answers True is
+    `menu_open`, kept and named, and taints no drop beside it. A witness that
+    answers None there, or no witness, refuses nothing.
 
     A drop that passes those tests must still have spent a charge, and three
     more tests ask whether it did, in this order:
@@ -425,7 +432,8 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
         end, undone = (k["kit_end_ms"], k["undone_deaths"]) if k else (None, [])
         change, back = (k["kit_change_ms"], k["kit_return_ms"]) if k else (None, None)
         phase = phase_of(t)
-        reason = ("no_round" if rnd is None
+        reason = ("menu_open" if menu_at is not None and menu_at(t) is True
+                  else "no_round" if rnd is None
                   else "after_player_death" if end is not None and t >= end - DEATH_LEAD_MS
                   else "after_kit_change" if (change is not None and t >= change
                                               and (back is None or t < back))
@@ -462,12 +470,15 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     The kit changes are the stored `tray_kit` rows
     (`adjudication.tray_kit.stored_kit_witness`), used only where they are
     current and name the same player agent; otherwise the list is empty and
-    the stamp says why.
+    the stamp says why. The menu witness is the stored `menu_open` rows
+    (`menu.stored_menu`), used only where current; otherwise `menu_at` is None
+    and the stamp says why.
     """
     from . import gametime, stalls
     from .adjudication.death import stored_second_life
     from .adjudication.tray_kit import stored_kit_witness
     from .killfeed import KILLFEED_PORTRAIT_VERSION
+    from .menu import stored_menu
     from .rounds import player_death_times, player_second_life_times
     from .version import PLAYER_CAST_VERSION
 
@@ -494,6 +505,8 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     kit = stored_kit_witness(store.read_events("tray_kit", session_id), agent=agent)
     inputs["kit_changes_ms"] = kit["kit_changes_ms"]
     inputs["kit_returns_ms"] = kit["kit_returns_ms"]
+    menu, menu_stamp = stored_menu(store, session_id)
+    inputs["menu_at"] = menu.at if menu is not None else None
     head = lambda rows, key: rows[0].get(key) if rows else None
     stamps = {"player_cast": PLAYER_CAST_VERSION,
               "hud": (hud.schema.metadata or {}).get(b"hud_version", b"").decode() or "unstamped",
@@ -501,7 +514,8 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
               "killfeed_portrait": KILLFEED_PORTRAIT_VERSION if badges is not None else None,
               "death": head(verdicts, "death_adjudication_version"),
               "combat_report_round": head(report, "combat_report_round_version"),
-              "tray_kit": kit["version"] if kit["reason"] is None else kit["reason"]}
+              "tray_kit": kit["version"] if kit["reason"] is None else kit["reason"],
+              "menu_open": menu_stamp}
     return inputs, stamps
 
 

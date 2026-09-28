@@ -44,7 +44,9 @@ from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes
 # in-session exemplar pass is gone.
 # 0.6.0 (2026-09-26): an ally segment whose icons fit no teammate's rendered
 # art (`identity.teammate_fit_refusal`) is refused as not a teammate.
-ROUND_ENTITY_VERSION = "round-entity-0.8.0"
+# 0.9.0 (2026-09-28): a frame the stored menu witness finds covered steps the
+# lifetimes with no observation, as `source_state="menu_open"`.
+ROUND_ENTITY_VERSION = "round-entity-0.9.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
@@ -105,13 +107,16 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                       deaths: list[dict] | None = None,
                       lineup: dict | None = None,
                       gallery: dict | None = None,
-                      references: dict | None = None) -> list[dict]:
+                      references: dict | None = None, menu=None) -> list[dict]:
     """`round_entity` event rows for every round the stored frames reach.
 
     `events` are the session's `ally_icon` rows; `rounds` come from
     `rounds.build_rounds`; `roster` is `{"t_ms": [...], "alive_ally": [...]}`;
     `deaths` are `events/death` rows. Frames outside every round are not
-    associated -- an entity does not outlive its round.
+    associated -- an entity does not outlive its round. `menu(t_ms)` is the
+    stored menu witness (`menu.MenuWitness.at`): the menu dims the widget,
+    which still passes the widget test [domain:hud/menu-dims-tray], so a
+    frame it finds covered observes nothing and says `menu_open`.
     """
     frames = sorted((e for e in events if e["kind"] == "frame"), key=lambda e: e["t_ms"])
     icons: dict[int, list[dict]] = {}
@@ -139,6 +144,10 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
             if not f["widget_drawn"]:
                 life.step(f["t_ms"], [], source_state="absent")
                 coverage["absent_frames"] += 1
+                continue
+            if menu is not None and menu(f["t_ms"]) is True:
+                life.step(f["t_ms"], [], source_state="menu_open")
+                coverage["menu_open_frames"] += 1
                 continue
             obs = [_observation(i) for i in icons.get(f["frame_idx"], [])]
             me = _self_observation(f)

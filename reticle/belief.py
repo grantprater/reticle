@@ -28,8 +28,9 @@ from .minimap import FIT_ERR_PX, GAP_MS, RUN_PX, admit_steps, crosses
 
 #: Bumped from 0.1.0, which lived in `minimap` and consulted the self reads and
 #: the step law alone. Voids and reachability change the answer, so a stored
-#: belief from the old rule cannot read as current.
-BELIEF_VERSION = "belief-0.2.0"
+#: belief from the old rule cannot read as current. 0.3.0: an instant the
+#: stored menu witness finds covered is absent (`absent_instants`).
+BELIEF_VERSION = "belief-0.3.0"
 
 OBSERVED = "observed"
 INTERPOLATED = "interpolated"
@@ -74,7 +75,7 @@ class Fix:
         return self.source == OBSERVED
 
 
-def absent_instants(rows: list[dict]) -> list[float]:
+def absent_instants(rows: list[dict], menu=None) -> list[float]:
     """The instants a stored L1 row cannot show the widget was drawn.
 
     **`minimap-0.6.0` answers this directly.** The reader refuses a frame on
@@ -92,9 +93,17 @@ def absent_instants(rows: list[dict]) -> list[float]:
     tell. On `c40d950031bb` it recovered 2016 of 2676 unread instants as
     plainly drawn. The two paths are kept apart deliberately: mixing a measured
     flag with a proxy would make a stale table look like a fresh one.
+
+    **The menu covers the widget.** It dims the minimap, which still passes
+    the widget test [domain:hud/menu-dims-tray]; `menu(t_ms)` is the stored
+    menu witness (`menu.MenuWitness.at`), and an instant it finds covered is
+    absent whatever the row says.
     """
     out: list[float] = []
     for r in rows:
+        if menu is not None and menu(r["t_ms"]) is True:
+            out.append(r["t_ms"])
+            continue
         if r.get("self_x") is not None:
             continue
         drawn = r.get("widget_drawn")

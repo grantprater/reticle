@@ -870,6 +870,23 @@ consumers = ["cli", "adjudication.ability_state"]
 evidence = "tests/test_tray.py, prototypes/tray_suspect_reasons.py"
 
 [[entry]]
+id = "menu-open"
+question = "Is a menu or overlay covering the HUD: is the game's menu open at this instant?"
+owner = "menu"
+role = ["detect"]
+status = "partial"
+produces = ["tab_lines", "tab_strip", "close_button", "menu_rows", "MenuWitness", "stored_menu"]
+not_for = """
+The Tab scoreboard (`scoreboard-presence`), the buy menu, the death screen or
+any other overlay: it fits only the settings menu's own tab strip and CLOSE
+SETTINGS button. Nor does it decide what a covered reading means; each reader
+refuses its own reading with the reason `menu_open` and keeps it.
+"""
+consumers = ["cli", "ability_timeline", "coaching"]
+stored_consumers = ["reconciliation", "belief", "round_entities", "adjudication.smokes"]
+evidence = "tests/test_menu.py"
+
+[[entry]]
 id = "ability-state"
 question = "What does each slot of the local player's kit hold at a time: charges (against the slot's charge count, from a domain fact or the wiki harvest), equipped, castable, owner alive?"
 owner = "adjudication.ability_state"

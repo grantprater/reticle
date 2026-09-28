@@ -45,7 +45,7 @@ def _coach_columns(table):
     return data
 
 
-def observed_states(hud, roster, rounds, session_id):
+def observed_states(hud, roster, rounds, session_id, menu=None):
     """Causal as-of join; never fills a missing read or borrows a future row.
 
     Clock continuity rejects frozen menus/buy clocks. A >60s clock observed
@@ -60,7 +60,8 @@ def observed_states(hud, roster, rounds, session_id):
     # either way, so this changes coverage rather than any eligible state --
     # but the two must not disagree about what the roster said.
     v = dict(v)
-    v["alive_ally"], v["alive_enemy"] = roster_resolve(hud, roster)
+    # A roster row the menu witness finds covered refuses (`roster.resolve`).
+    v["alive_ally"], v["alive_enemy"] = roster_resolve(hud, roster, menu=menu)
     result, rejected = [], Counter(round_boundary_or_unresolved=len(h["t_ms"]))
     rt = v["t_ms"]
     for r in rounds[1:]:
@@ -433,7 +434,10 @@ def run_coaching(store, manifests, out):
                 roster, roster_status = candidate, "current"
                 source["roster_version"] = ROSTER_VERSION
                 source["roster_split_version"] = ROSTER_SPLIT_VERSION
-        ss, rejected = observed_states(hud, roster, rounds, sid)
+        from .menu import stored_menu
+        menu, source["menu_open"] = stored_menu(store, sid)
+        ss, rejected = observed_states(hud, roster, rounds, sid,
+                                       menu=menu.at if menu is not None else None)
         for e in es:
             e["provenance"] = source
         events.extend(es)

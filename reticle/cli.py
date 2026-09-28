@@ -2193,9 +2193,13 @@ def cmd_lifetimes(args) -> int:
     lineup = load_lineup(sid, store.root)
     references = load_ally_portrait_references(store.root) if lineup else None
     gallery = load_identity_gallery(store.root) if lineup else None
+    from .menu import stored_menu
+    menu, menu_stamp = stored_menu(store, sid)
     rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]),
                              roster, source_revision, deaths=deaths,
-                             lineup=lineup, gallery=gallery, references=references)
+                             lineup=lineup, gallery=gallery, references=references,
+                             menu=menu.at if menu is not None else None)
+    rows[0]["menu_open"] = menu_stamp
     # Stamp the rules that named the segments, so a later change recomputes.
     rows[0]["agent_identity_version"] = AGENT_IDENTITY_VERSION
     rows[0]["ally_portrait_refs_version"] = refs_version
@@ -2252,7 +2256,10 @@ def cmd_belief(args) -> int:
     except Exception:
         voids = []
 
-    fixes = resolve(raw, step, scale, absent_t=absent_instants(rows),
+    from .menu import stored_menu
+    menu, _menu_stamp = stored_menu(store, sid)
+    fixes = resolve(raw, step, scale,
+                    absent_t=absent_instants(rows, menu.at if menu is not None else None),
                     voids=voids, reachable=reachable)
     n = len(fixes)
     by = Counter(f.source for f in fixes)
@@ -2299,7 +2306,10 @@ def cmd_audit(args) -> int:
             continue
         hud = pq.ParquetFile(hp).read()
         roster = pq.ParquetFile(rp).read() if rp.is_file() else None
-        score, counts = audit_scoreline(hud), audit_roster_deltas(hud,roster)
+        from .menu import stored_menu
+        menu, _menu_stamp = stored_menu(store, sid)
+        score, counts = audit_scoreline(hud), audit_roster_deltas(
+            hud, roster, menu=menu.at if menu is not None else None)
         kf = killfeed_health(hud)
         scoreboard_observations = store.read_events('scoreboard', sid)
         scoreboard = adjudicate_scoreboard_credits(scoreboard_observations)
@@ -2948,7 +2958,10 @@ def cmd_smokes(args) -> int:
                          f"current is {MINIMAP_DARK_VERSION} -- re-scan before trusting them")
     with np.load(geometry.path_of(sid, store.root)) as z:
         ref = lighting.reference(z)
-    out_rows = smoke_events(sid, rows, ref.known)
+    from .menu import stored_menu
+    menu, menu_stamp = stored_menu(store, sid)
+    out_rows = smoke_events(sid, rows, ref.known, menu.at if menu is not None else None,
+                            menu_stamp)
     out = store.write_events("smoke", sid, out_rows)
     head = out_rows[0]
     print(f"{sid}: {head['tracks']} smoke tracks, {head['observed_ends']} with an observed end -> {out}")
@@ -2993,6 +3006,60 @@ def _tray_samples(cache, step_s: float) -> tuple[list, list, list, list]:
     return ts, counts, clean, real
 
 
+def cmd_menu(args) -> int:
+    """Whether the game's menu covers the HUD, per sample of the stored crops
+    (`menu`): the tab strip in the `hud` cache, the CLOSE SETTINGS button in
+    the `minimap` cache's tray crop. Decodes no video."""
+    from . import menu
+    from .roi_cache import ROI_CACHE_VERSION, RoiCache
+    from .version import MENU_VERSION
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        man = store.read_manifest(sid)
+        src = man["source"]
+        if (int(src["width"]), int(src["height"])) != menu.WH:
+            print(f"{sid}: the menu fits are measured at 1920x1080 -- skipped")
+            continue
+        prof = get_profile(man["source_profile"])
+        rows, said = [], []
+        hud, why = RoiCache.load(store.root, man, prof, "hud")
+        if hud is not None:
+            samples = []
+            rects = [hud.rect_of(roi) for roi in menu.TAB_ROIS]
+            for got in zip(*(hud.crops(roi) for roi in menu.TAB_ROIS)):
+                if len({t for _f, t, _c in got}) != 1:
+                    raise SystemExit(f"{sid}: the hud cache's crops disagree on their instants")
+                fit = (None if any(c is None for _f, _t, c in got) else
+                       menu.tab_strip({roi: (c, r) for roi, (_f, _t, c), r
+                                       in zip(menu.TAB_ROIS, got, rects)}))
+                samples.append((got[0][1], fit))
+            rows += menu.menu_rows(sid, "hud", samples, MENU_VERSION, ROI_CACHE_VERSION)
+            said.append(f"hud {sum(1 for _t, f in samples if f and f['open'])}/{len(samples)}")
+        else:
+            said.append(f"hud {why}")
+        mm, why = RoiCache.load(store.root, man, prof, "minimap")
+        if mm is not None:
+            rect = mm.rect_of(menu.TRAY_ROI)
+            x0, y0, x1, y1 = rect
+            spans = mm.record.get("spans") or [(float(mm.t_ms.min()), float(mm.t_ms.max()))]
+            samples = []
+            for a, b in spans:
+                for smp in mm.samples(_cache_grid(mm.t_ms, a, b, args.step), rois=[menu.TRAY_ROI]):
+                    samples.append((float(smp.t_ms),
+                                    menu.close_button(smp.frame[y0:y1, x0:x1], rect)))
+            rows += menu.menu_rows(sid, "minimap", samples, MENU_VERSION, ROI_CACHE_VERSION)
+            said.append(f"tray {sum(1 for _t, f in samples if f['open'])}/{len(samples)}")
+        else:
+            said.append(f"tray {why}")
+        if not rows:
+            print(f"{sid}: no crop cache ({'; '.join(said)}) -- nothing written")
+            continue
+        out = store.write_events("menu_open", sid, rows)
+        print(f"{sid}: menu open on {'; '.join(said)} samples -> {out}")
+    return 0
+
+
 def cmd_tray(args) -> int:
     """The tray's charge drops from the stored crops, and which are the player's
     casts (`ability_timeline.player_tray_casts`). Decodes no video."""
@@ -3028,12 +3095,12 @@ def cmd_tray(args) -> int:
             gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
             second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
             report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-            kit_returns_ms=gate["kit_returns_ms"])
+            kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
         common = {"session_id": sid, "tray_version": TRAY_VERSION,
                   "player_cast_version": PLAYER_CAST_VERSION, "step_s": args.step}
         why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
         out_rows = [{**common, "kind": "coverage", "samples": len(ts) - len(cache.record["spans"]),
-                     "tray_kit": stamps["tray_kit"],
+                     "tray_kit": stamps["tray_kit"], "menu_open": stamps["menu_open"],
                      "drops": len(rows), "player_casts": sum(r["player_cast"] for r in rows),
                      "refused_reasons": dict(sorted(why_not.items()))}]
         out_rows += [{**common, "kind": "drop", **r} for r in rows]
@@ -3283,7 +3350,7 @@ def cmd_ability_state(args) -> int:
             gate["player_deaths_ms"], agent=gate["agent"],
             second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
             report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-            kit_returns_ms=gate["kit_returns_ms"])
+            kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
         kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
                            second_lives_ms=gate["second_lives_ms"],
                            revives_ms=gate["revives_ms"], report_deaths=gate["report_deaths"],
@@ -3466,7 +3533,7 @@ def cmd_ability_shapes(args) -> int:
                      gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
                      second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                      report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-                     kit_returns_ms=gate["kit_returns_ms"])
+                     kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
                  if d["player_cast"] and kit.get(d["slot"]) in ability_shapes.SHAPES]
         cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
         if cache is None:
@@ -4378,6 +4445,13 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("smokes", help="smoke tracks from stored minimap_dark rows (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_smokes)
+
+    s = sub.add_parser("menu", help="whether the game's menu covers the HUD, from stored crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--step", type=float, default=0.5,
+                   help="tray-crop sampling interval (default 0.5 s, the tray's)")
+    s.set_defaults(func=cmd_menu)
 
     s = sub.add_parser("tray", help="the tray's charge drops and the player's casts, from stored crops (no video)")
     s.add_argument("session", nargs="?")
