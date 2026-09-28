@@ -58,11 +58,15 @@ def extract_round_killfeed_entries(
     session_id: str | None = None,
     active_lineup: dict | None = None,
     gallery: dict | None = None,
+    round_no: int = 4,
 ) -> list[dict]:
     """Extract discrete killfeed entry events across the round window from L1 HUD reads.
 
     If store, active_lineup, and gallery are provided, also classifies the victim
-    and killer portraits directly from video frames or the fast offline fixture.
+    and killer portraits. With the store fixture
+    (`round_identity_fixture.build_killfeed`), the production
+    `KillfeedPortraitReader` reads every view the entry occupies; without it,
+    one video frame at the entry's first sample.
     """
     r_idx = [i for i, t in enumerate(hud["t_ms"]) if t_start_ms <= t <= t_end_ms]
     t_r = [hud["t_ms"][i] for i in r_idx]
@@ -84,12 +88,7 @@ def extract_round_killfeed_entries(
                 vpath = vp
             profile = get_profile(manifest.get("source_profile", "valorant-16x9-bigmap"))
             roi = killfeed_roi(profile)
-        fixture_path = Path(__file__).resolve().parent.parent / "fixtures" / "round_identity" / f"{session_id}_r4_kf_crops.npz"
-        if fixture_path.is_file():
-            fixture_crops = np.load(fixture_path)
-            if profile is None:
-                profile = get_profile("valorant-16x9-bigmap")
-                roi = killfeed_roi(profile)
+        fixture_crops = fixture_killfeed_views(store, session_id, round_no)
 
     cap = None
     if vpath:
@@ -127,9 +126,8 @@ def extract_round_killfeed_entries(
         v_comps = None
         k_comps = None
 
-        if fixture_crops is not None and f"v_comps_{i}" in fixture_crops:
-            v_comps = fixture_crops[f"v_comps_{i}"]
-            k_comps = fixture_crops.get(f"k_comps_{i}")
+        if fixture_crops is not None and t0 in fixture_crops:
+            v_comps, k_comps = fixture_crops[t0]
         elif cap is not None and roi is not None:
             # Extract across active track frames if video is available
             cap.set(cv2.CAP_PROP_POS_MSEC, float(t0))
@@ -205,22 +203,12 @@ def extract_round_killfeed_entries(
                     "agent": victim_agent,
                     "killer": killer_agent,
                 }
-        elif t0 == 295500.0:
-            claim = {
-                "channel": "killfeed_portrait",
-                "agent": "Skye",
-                "killer": "Phoenix",
-            }
 
+        # No channel here observes where anyone died. The 2026-09-12 fixture's
+        # coordinates had no recorded source, and the death-round4 contract
+        # refused fixture locations.
         loc = None
         k_loc = None
-        if fixture_crops is not None:
-            if "death_locations" in fixture_crops and i < len(fixture_crops["death_locations"]):
-                dl = fixture_crops["death_locations"][i]
-                loc = (float(dl[0]), float(dl[1]))
-            if "killer_locations" in fixture_crops and i < len(fixture_crops["killer_locations"]):
-                kl = fixture_crops["killer_locations"][i]
-                k_loc = (float(kl[0]), float(kl[1]))
 
         entry = {
             "t_ms": t0,
@@ -241,6 +229,41 @@ def extract_round_killfeed_entries(
         cap.release()
 
     return entries
+
+
+def fixture_killfeed_views(store: Store, session_id: str, round_no: int
+                           ) -> dict[float, tuple[np.ndarray | None, np.ndarray | None]] | None:
+    """{entry onset: (victim compositions, killer compositions)} over every view
+    the store fixture holds for the entry, read now by the production
+    `KillfeedPortraitReader` with the session's killfeed mask; None without the
+    fixture."""
+    from prototypes.round_identity_fixture import fixture_path
+    from reticle.decode import Sample
+    from reticle.killfeed import KillfeedPortraitReader
+    path = fixture_path(store, session_id, round_no, "killfeed")
+    if not path.is_file():
+        return None
+    z = np.load(path)
+    prov = json.loads(str(z["provenance_json"]))
+    entries = json.loads(str(z["entries_json"]))
+    w, h = prov["wh"]
+    x0, y0, x1, y1 = prov["killfeed_rect"]
+    reader = KillfeedPortraitReader(get_profile(prov["profile"]), (w, h),
+                                    mask=store.read_kf_mask(session_id))
+    for t, fi, crop in zip(z["frame_t"], z["frame_idx"], z["crops"]):
+        frame = np.zeros((h, w, 3), np.uint8)
+        frame[y0:y1, x0:x1] = crop
+        reader.feed(Sample(frame_idx=int(fi), t_ms=float(t), frame=frame))
+    by = {(float(r["t_ms"]), r["slot"], r["role"]): r for r in reader.rows
+          if r.get("composition") is not None}
+    out = {}
+    for e in entries:
+        comps = []
+        for role in ("victim", "killer"):
+            got = [by[(t, s, role)]["composition"] for t, s in e["views"] if (t, s, role) in by]
+            comps.append(np.array(got, dtype=np.float32) if got else None)
+        out[float(e["t_first"])] = tuple(comps)
+    return out
 
 
 def load_round_bounds(store: Store, session_id: str, date: str, round_no: int) -> tuple[float, float, dict]:
@@ -269,9 +292,14 @@ def load_minimap_labels(store: Store, session_id: str, t_start_ms: float, t_end_
     return sorted(in_round, key=lambda r: (r["t_ms"], r["x"], r["y"]))
 
 
-def extract_crops_for_sightings(store: Store, session_id: str, sightings: list[dict]) -> list[dict]:
-    """Extract icon crops for sightings from video, or fall back to fixture if unavailable."""
-    fixture_path = Path(__file__).resolve().parent.parent / "fixtures" / "round_identity" / f"{session_id}_r4_crops.npz"
+def extract_crops_for_sightings(store: Store, session_id: str, sightings: list[dict],
+                                round_no: int = 4) -> list[dict]:
+    """Icon crops for sightings from the store fixture
+    (`round_identity_fixture.build_minimap`), else cut from video."""
+    from prototypes.round_identity_fixture import fixture_path as store_fixture
+    fixture_path = store_fixture(store, session_id, round_no, "minimap")
+    if fixture_path.is_file():
+        return _fixture_sightings(fixture_path, sightings)
     manifest_path = store.root / "manifests" / f"{session_id}.json"
 
     # Try extracting from video first if manifest and video exist
@@ -305,20 +333,19 @@ def extract_crops_for_sightings(store: Store, session_id: str, sightings: list[d
         cap.release()
         return out
 
-    # Fallback to fixture
-    if fixture_path.is_file():
-        z = np.load(fixture_path)
-        meta = json.loads(str(z["meta_json"]))
-        out = []
-        for i, m in enumerate(meta):
-            matching_s = next((s for s in sightings if s["t_ms"] == m["t_ms"] and s["x"] == m["x"] and s["y"] == m["y"]), None)
-            crop = z[f"crop_{i}"]
-            row = dict(matching_s or m)
-            row["crop"] = crop
-            out.append(row)
-        return out
-
     raise FileNotFoundError(f"Neither video for {session_id} nor fixture {fixture_path} is available.")
+
+
+def _fixture_sightings(fixture_path: Path, sightings: list[dict]) -> list[dict]:
+    z = np.load(fixture_path)
+    meta = json.loads(str(z["meta_json"]))
+    out = []
+    for i, m in enumerate(meta):
+        matching_s = next((s for s in sightings if s["t_ms"] == m["t_ms"] and s["x"] == m["x"] and s["y"] == m["y"]), None)
+        row = dict(matching_s or m)
+        row["crop"] = z[f"crop_{i}"]
+        out.append(row)
+    return out
 
 
 def assign_spatial_tracks(sightings: list[dict]) -> None:
@@ -339,7 +366,7 @@ def evaluate_round(session_id: str = "a06f04a0059f", round_no: int = 4, date: st
     store = Store()
     t_start_ms, t_end_ms, round_info = load_round_bounds(store, session_id, date, round_no)
     sightings = load_minimap_labels(store, session_id, t_start_ms, t_end_ms)
-    sightings_with_crops = extract_crops_for_sightings(store, session_id, sightings)
+    sightings_with_crops = extract_crops_for_sightings(store, session_id, sightings, round_no)
     assign_spatial_tracks(sightings_with_crops)
 
     gallery = load_identity_gallery(store.root, surfaces=MINIMAP_SURFACES)
@@ -442,7 +469,8 @@ def evaluate_round(session_id: str = "a06f04a0059f", round_no: int = 4, date: st
     roster = roster_table.to_pylist()
     kf_entries = extract_round_killfeed_entries(
         hud, t_start_ms, t_end_ms,
-        store=store, session_id=session_id, active_lineup=active_lineup, gallery=gallery
+        store=store, session_id=session_id, active_lineup=active_lineup, gallery=gallery,
+        round_no=round_no,
     )
     r4_roster = [r for r in roster if t_start_ms <= r["t_ms"] <= t_end_ms]
 
