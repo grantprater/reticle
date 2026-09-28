@@ -70,7 +70,7 @@ their intended integration is specified in the implementation plan.
 ## Setup
 
 ```
-cd path	oeticle
+cd path\to\reticle
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
