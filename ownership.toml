@@ -1111,7 +1111,7 @@ question = "Which agent does a Tab scoreboard row show, and has the game dimmed 
 owner = "adjudication.scoreboard"
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["SCOREBOARD_AGENT_VERSION", "scoreboard_openings", "side_state"]
+produces = ["SCOREBOARD_AGENT_VERSION", "scoreboard_openings", "side_state", "enemy_rows_from"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """
@@ -1119,7 +1119,7 @@ Player names, and a row across openings. It names the AGENT drawn in a row of
 one accepted opening; the row ordinal reorders as scores change and is never a
 key. Which death a dimmed row belongs to is `death-victim`'s call.
 """
-evidence = "tests/test_death_attribution.py"
+evidence = "tests/test_death_attribution.py, tests/test_scoreboard_presence.py"
 
 [[entry]]
 id = "scoreboard-presence"
