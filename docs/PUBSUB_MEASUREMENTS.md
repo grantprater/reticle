@@ -1,10 +1,66 @@
-# Pub/sub measurements: design steps 3 and 4
+# Pub/sub measurements: the baseline and design steps 1 to 4
 
-The measurement phase of the [plan](PUBSUB_PLAN.md): the staged pass against the serial one on
-`c40d950031bb`, read from the usage and metrics rows of five `scan --check` runs the player ran. Writing
-this, I ran no scan and decoded nothing.
+This document holds every measurement of the [design](PUBSUB_DESIGN.md)'s staged pass: the usage records
+from before staging, the equality checks of steps 1 and 2, and steps 3 and 4, the staged pass against the
+serial one on `c40d950031bb`, read from the usage and metrics rows of five `scan --check` runs the player
+ran. Writing this, I ran no scan and decoded nothing.
 
-## Conditions
+## Before staging: the usage-record baseline
+
+`tools/pubsub_baseline.py` reads the store's `scan-usage-1` records in `<store>/notes/usage.jsonl`, up to
+its cutoff of 2026-09-27T08:58, and writes [`pubsub_baseline.json`](pubsub_baseline.json), whose keys the
+design cites; the [baseline](PUBSUB_PERFORMANCE_BASELINE.md) reads it at length. Usage logging landed in
+`89bc726`. Every record but one ran a single reader (`scan --only`), and none a full fused scan.
+`composite` estimates one per session from separate records, taking decode from the crop-cache write's
+source time and each reader at its lowest recorded cost; ping, roster, lineup, minimap_dark and the
+combat report have no record.
+
+- **Where the time goes** (`share_source`, `share_readers`). Crop-cache writes on video are
+  decode-bound. The scoreboard on video splits between source and reader; minimap waits on the source on
+  std sessions and on its reader on the bigmap one. From the crop cache ally_icon is almost all reader,
+  killfeed_portrait is reader and then crop decode, and hud splits evenly between the two. Every
+  single-reader pass runs faster than real time.
+- **Overlap.** Giving the source its own worker (`gain_overlap_frac_wall`) helps most where source and
+  reader balance: hud and killfeed_portrait from the cache, the scoreboard and minimap on video. Only the
+  one two-reader record (c62c2b06bcfb) gains more from running its readers at once
+  (`gain_parallel_frac_wall`).
+- **The dominant reader.** ally_icon is heaviest in the composite on most sessions, the scoreboard on the
+  rest (`composite_summary.core.heaviest`). ally_icon costs per pixel, not per call (`per_pixel`); it runs
+  on OpenCV's default pool, and its batches ran beside other scans, so contention inflates them. The
+  scoreboard converts the whole frame to HSV before it learns the board is closed (design, L5).
+- **What the records lack:** CPU time, the decode backend, OpenCV's thread count, the code revision and
+  machine load; `concurrent_records` sees only other recorded scans. `scan-usage-2` added the revision,
+  CPU and thread counts, not the backend or contention.
+
+**A correction.** The baseline found that decode hid no reader time on three lone scoreboard records
+(`same_session_source`) and offered two causes: an OpenCV fallback, or an NVDEC read-ahead too short for
+the 2 Hz gap. Answer 5 below rules out the second: on NVDEC the read-ahead hid about half of each gap,
+10.1 s over m5's prefix. The records name no backend, so the first cause stays open.
+
+## Equality checks, steps 0 to 2
+
+Step 0 is `tests/test_pipeline.py`, on synthetic readers and a synthetic cache. Steps 1 and 2 read the
+crop cache of `c40d950031bb` at code revision `8e9f341`, clean tree, and decoded nothing. Each ran
+`scan c40d950031bb --from cache --check` with the flags below and exited 0 with every file byte-equal.
+They ran the serial path first, before `--check` put path b first.
+
+| Step | Further flags | Usage a (serial) | Usage b |
+|---|---|---|---|
+| 1, workers 1 | `--only hud --pipeline staged --workers 1` | `d80a02bb3a184e35ad47bcd138d87fcd` | `dc1a4505a3c444628895d07a8ff70072` |
+| 1, workers 0 | `--only hud --pipeline staged --workers 0` | `bb7059832e274dfb9b78fe96fef7f18e` | `c0e5a77d433b4eb3936124b2ed115c62` |
+| 2 | `--only ally_icon --ally-hz 15 --pipeline staged --workers 2 --shard ally_icon=2` | `a9bb1e5d129e4a3e844eb96c52634a00` | `e26f78d2cb9e49eeadf220e73ff87dd4` |
+| 2a | `--only ally_icon --ally-hz 15 --pipeline serial --cv-threads 1` | `8e5ff11d1a8344af8fe555184d2db684` | `1046bf3706534646a8c250d3a5b3f358` |
+
+Step 1 wrote four files at both worker counts, with sha256 prefixes `792f3a55b3fd`
+(`events/killfeed_name`), `901e3629f8e3` (`events/killfeed_portrait`), `1d1d104f7f67`
+(`events/killfeed_weapon`) and `cfaa16ad082e` (`l1/hud`). Steps 2 and 2a wrote candidate revision
+`abe789d9f253a9ce6cd2dffba23e82e986cf21e229b5dadeb12ebcc9ba5c95e5` (`0b88c7305038`), its decisions
+(`6c90539c3c11`) and `events/ally_icon` (`06f53af8cd25`). The store's own copies of all seven files carry
+these hashes, so both paths reproduce what the store holds, and the store's session paths matched before
+step 1 and after step 2a. The usage rows sit in each check's own stores, outside `<store>`, so no
+`metric:` token cites them and this section quotes no time.
+
+## Steps 3 and 4: conditions
 
 - Code `fbc3143`, clean tree (each record's `code_revision`); 2026-09-27, 11:30 to 11:37 local time. One
   process at a time, at Idle priority, with OMP, MKL and OpenBLAS at one thread.

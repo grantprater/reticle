@@ -171,10 +171,9 @@ remains = "P3 beyond its foundation, then P4 and P5."
 [[document]]
 path = "docs/PUBSUB_PLAN.md"
 kind = "plan"
-status = "partial"
+status = "implemented"
 since = "2026-09-27"
-implemented_by = ["reticle/pipeline.py"]
-remains = "The open items under the pub/sub entry in BACKLOG.md."
+implemented_by = ["reticle/pipeline.py", "tools/pubsub_baseline.py", "tools/pubsub_notes_append.py"]
 
 [[document]]
 path = "docs/PUBSUB_DESIGN.md"
@@ -182,7 +181,7 @@ kind = "design"
 status = "partial"
 since = "2026-09-27"
 implemented_by = ["reticle/pipeline.py"]
-remains = "L1's selecting producer, L2, L5 and L7."
+remains = "L1's selecting producer, L2, L4, L5, L6, L7, `_publish_scan` and the proposed usage fields, which its Status section lists."
 
 # --- findings: one outcome on one date --------------------------------------------
 
@@ -228,23 +227,27 @@ kind = "findings"
 status = "recorded"
 since = "2026-09-27"
 
+# Superseded, and live only while NOTES.md links them; archive them after.
 [[document]]
 path = "docs/PUBSUB_PERFORMANCE_BASELINE.md"
 kind = "findings"
-status = "recorded"
+status = "superseded"
 since = "2026-09-27"
+superseded_by = "docs/PUBSUB_MEASUREMENTS.md"
 
 [[document]]
 path = "docs/PUBSUB_PIPELINE_MAP.md"
 kind = "findings"
-status = "recorded"
+status = "superseded"
 since = "2026-09-27"
+superseded_by = "docs/PUBSUB_DESIGN.md"
 
 [[document]]
 path = "docs/PUBSUB_PROTOTYPE.md"
 kind = "findings"
-status = "recorded"
+status = "superseded"
 since = "2026-09-27"
+superseded_by = "docs/PUBSUB_DESIGN.md"
 
 [[document]]
 path = "docs/ROSTER_FINDINGS.md"

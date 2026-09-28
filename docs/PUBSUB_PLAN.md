@@ -1,5 +1,9 @@
 # Pub/sub model of the pipeline: plan
 
+Status (2026-09-27): implemented. All six phases ran, and the branch merged to master at `e518f8e`; its
+worktree is gone. The goal, the predictions' outcomes and the open work live in the
+[design](PUBSUB_DESIGN.md), and the rules below are [AGENTS.md](../AGENTS.md)'s.
+
 Branch `pubsub-20260927`, worktree `reticle-worktrees/pubsub`, cut from master.
 Nothing here reaches master until the player merges it.
 
