@@ -1543,3 +1543,103 @@ kills." The counts are from reference/abilities.json (infobox Restock).
 """
 use = "the ability state model's recharge transition needs the kind per ability before it dates a refill"
 see = ["abilities/ability-rules-are-unique", "abilities/omen-dark-cover-restock"]
+
+[sova-owl-drone-charges]
+claim = """
+Sova has one Owl Drone charge in slot C; it does not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "sova:owl drone"
+source = "player, 2026-09-27 (chat): one charge, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (sova, C); a level rise within a round is a misread, not a restock"
+see = ["abilities/recharge-kinds"]
+
+[sova-shock-bolt-charges]
+claim = """
+Sova has two Shock Bolt charges in slot Q; they do not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "sova:shock bolt"
+source = "player, 2026-09-27 (chat): two charges, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (sova, Q)"
+see = ["abilities/sova-bolt-charge-and-bounce", "abilities/sova-shock-bolt-minimap-none", "abilities/recharge-kinds"]
+
+[skye-regrowth-resource-bar]
+claim = """
+Skye's Regrowth in slot C draws on a healing pool drawn as a resource bar, not
+as charges, and the pool does not recharge within a round. It is a different
+bar from Viper's fuel.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "skye:regrowth"
+source = "player, 2026-09-27 (chat): a resource bar, not rechargeable, distinct from Viper's"
+use = "the state model reads Skye's C level as a pool fraction, never a charge count; a partial bar is not a half charge"
+see = ["abilities/skye-regrowth-no-tray-drop", "abilities/viper-fuel-bar-recharges", "abilities/recharge-kinds"]
+
+[viper-fuel-bar-recharges]
+claim = """
+Viper's fuel is a single resource bar that two of her abilities drain; while
+neither drains it, it recharges over time at a constant rate.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "viper:fuel"
+source = "player, 2026-09-27 (chat)"
+use = "the state model's recharge transition for Viper is a continuous refill of the fuel bar, not a charge restock; the drain rate and the refill rate are unmeasured"
+see = ["abilities/viper-fuel-toggle", "abilities/skye-regrowth-resource-bar", "abilities/recharge-kinds"]
+
+[skye-trailblazer-charges]
+claim = """
+Skye has one Trailblazer charge in slot Q; it does not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "skye:trailblazer"
+source = "player, 2026-09-27 (chat): her dog, one charge, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (skye, Q)"
+see = ["abilities/recharge-kinds"]
+
+[phoenix-hot-hands-charges]
+claim = """
+Phoenix has one Hot Hands charge in slot Q; it does not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "phoenix:hot hands"
+source = "player, 2026-09-27 (chat): his molly, one charge, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (phoenix, Q)"
+see = ["abilities/phoenix-slots", "abilities/recharge-kinds"]
+
+[clove-pick-me-up-charges]
+claim = """
+Clove has one Pick-me-up charge in slot C; it does not recharge within a round,
+and it can be cast only within 10 seconds of a kill or a damaging assist.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "clove:pick-me-up"
+source = "player, 2026-09-27 (chat)"
+use = "adjudication.ability_state.charge_facts: max_charges for (clove, C); a Pick-me-up cast dates a kill or assist within the 10 s before it"
+see = ["abilities/clove-c-and-x-need-a-target", "abilities/recharge-kinds"]
+
+[clove-meddle-charges]
+claim = """
+Clove has one Meddle charge in slot Q; it does not recharge within a round.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-27"
+subject = "clove:meddle"
+source = "player, 2026-09-27 (chat): one charge, not rechargeable"
+use = "adjudication.ability_state.charge_facts: max_charges for (clove, Q)"
+see = ["abilities/recharge-kinds"]
