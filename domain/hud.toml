@@ -200,6 +200,24 @@ level spent nothing
 """
 see = ["abilities/omen-tray-charges", "abilities/killjoy-tray-charges", "abilities/jett-tray-charges", "abilities/clove-tray-charges", "abilities/cypher-tray-charges"]
 
+[scoreboard-strip-updates-next-round]
+claim = """
+The history strip, its round-in-play triangles included, redraws a decided
+round when the next round's buy phase begins, not when the scoreline's total
+rises: in the seconds between the score change and the clock reset the strip
+still shows the old state.
+"""
+kind = "lifecycle"
+known = "measured"
+since = "2026-09-27"
+subject = "hud:scoreboard"
+source = """
+measured 2026-09-27 on the column of the round the scoreline last decided, timed
+against the next clock reset, over 2155 cached centre crops of 19 sessions
+(prototypes/scoreboard_round_marks.py, docs/SCOREBOARD_ROUND_MARKS.md).
+"""
+see = ["hud/scoreboard-round-history-strip"]
+
 [scoreboard-tab-hold]
 claim = """
 The Tab scoreboard opens while the player holds Tab and closes when they
@@ -214,23 +232,29 @@ see = ["hud/scoreboard-round-history-strip"]
 [scoreboard-round-history-strip]
 claim = """
 Between the ally and enemy blocks of the Tab scoreboard, in the vertical
-middle, the game draws two lines of round markers. On the left, each round
-of the half has a circle with an X through it, green when the allies won the
-round and red when the enemies did, placed by the round's position in the
-half from left to right; unplayed rounds show black dots. On the right, a
-yellow dot marks where the opponents' round total stands, moving from the
-centre to the right (the player's reading, offered as what it seems). The
-strip is a mark of the open board that does not depend on the translucent
-team slabs.
+middle, the game draws two lines of round markers, the upper for the allies
+and the lower for the enemies, one column per round of the match with the
+second half to the right of a separator column (two pale ticks, no dot). A
+played round shows the winner's icon on the winner's line (a crossed square,
+a pincer, an hourglass, among others: teal above, red below) and a black dot
+on the other line; an unplayed round shows black dots on both. Yellow
+triangles above and below a column mark the round in play. Each line carries
+one yellow dot, on the column of round 13 plus the other team's total: the
+earliest round in which that line's team could take the match. The strip is
+a mark of the open board that does not depend on the translucent team slabs.
+The player first read the left side as the half's outcomes and the yellow
+dot as the opponents' total; the measurement replaced that reading.
 """
 kind = "appearance"
-known = "player"
+known = "measured"
 since = "2026-09-27"
 subject = "hud:scoreboard"
 source = """
 the player, 2026-09-27, asking how the pipeline recognises an open scoreboard;
 `reticle.scoreboard` sees the strip only as red marks that can join the enemy
 slab, and keys the board on the two slabs instead
+measured 2026-09-27 on 2155 cached centre crops of 19 sessions against the stored
+scoreline (prototypes/scoreboard_round_marks.py, docs/SCOREBOARD_ROUND_MARKS.md).
 """
 use = """
 an independent witness of the open board for cross-referencing the slab
@@ -238,4 +262,4 @@ test: score it first on the samples the slab test closes between two open
 samples of one Tab hold; which dots are black and which yellow is a round
 history the reader may later read, once the colours are labelled
 """
-see = ["rounds/scoreboard-dead-dimmed"]
+see = ["rounds/scoreboard-dead-dimmed", "hud/scoreboard-strip-updates-next-round"]

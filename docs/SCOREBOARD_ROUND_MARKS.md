@@ -34,7 +34,7 @@ every session, at the 21.6 px pitch and at 22.4 px on `b3b9defb6fd7`.
   line's team could win the match [domain:rounds/match-end].
 
 The strip records a round at the snap to the next buy phase, not when the
-score increments [domain:rounds/post-round-period]. On the column of the round
+score increments [domain:rounds/post-round-period] [domain:hud/scoreboard-strip-updates-next-round]. On the column of the round
 the scoreline last decided, timed against the next round's clock reset, the
 icon shows on [metric:scoreboard/round-marks@all-sessions#decided_col_before_3s_icon=6] of [metric:scoreboard/round-marks@all-sessions#decided_col_before_3s=39]
 samples more than 3 s before it, [metric:scoreboard/round-marks@all-sessions#decided_col_last_3s_icon=28] of
