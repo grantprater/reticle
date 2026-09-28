@@ -155,6 +155,21 @@ broken by a Tab release leaves a one-sample hole. Of the combined holes,
 board on [metric:scoreboard/openings@all-sessions#inspect_holes_in_strip_holds_board=0]. A hole counts a reader
 miss only where some witness saw the board at that sample.
 
+From `scoreboard-agent-0.4.0` a sample whose slab read the reader anchored on
+the strip (the stored `anchor` is `strip`, from `scoreboard-0.8.0`) is
+`both_anchored`, not `both`: the slab test placed its blocks where the strip
+said, so the read rests on the strip and is no second witness beside it.
+Only a read placed by the tallest runs counts as `both`. The counts above
+come from `scoreboard-0.6.0` rows, which carry no anchor, and read the same
+under 0.4.0. After a rescan the reader consults the strip at every
+1920x1080 frame, so almost every `both` sample becomes `both_anchored`;
+`both` remains only where the reader did not consult the strip (another
+frame size), and the slab test witnesses the board independently only on
+`slab_only` samples, where the strip reads absent. The boards the anchor
+opens move from `strip_only` to `both_anchored`, so `strip_only` falls. The
+slab-alone counts (`coverage.slab`) then include reads that rest on the
+strip and no longer measure what the strip adds.
+
 ## Anchoring on the strip
 
 `read_scoreboard` (`scoreboard-0.8.0`) asks the strip witness first. Where the
@@ -168,14 +183,20 @@ takes the slab runs that meet the marker lines instead of the tallest runs:
   at least `MIN_BLOCK_H` tall from there, with the ally block's height. Where
   the run ends where that height puts it, the rows sit on its bottom, as at
   0.7.0; where the world below joins the run, the line places them.
-- A block the strip does not bound refuses the board as
-  `green_not_at_strip`, `red_not_at_strip` or `red_short_at_strip`.
+- Where no red run of block height begins at the lower line, the line
+  places the enemy rows anyway (`scoreboard-0.9.0`, "The line places, the
+  slab confirms"). A red run over half the ally height inside the span the
+  line predicts confirms them (`red_overlap`); failing that, each of the five
+  portraits at those rows must score at least `PORTRAIT_CONFIRM_MIN`
+  (`portraits`).
+- A block the strip does not bound, or that nothing confirms, refuses the
+  board as `green_not_at_strip`, `red_not_at_strip` or `red_short_at_strip`.
 
 Where the strip is absent or unreadable, or the frame is not 1920x1080, the
 tallest runs decide as at 0.7.0: the strip's marker lines are frame rows at
 that size, and the reader scales none of its own pixel constants. Each
-sample row stores `anchor`, `strip` and `edges`, and the coverage row counts
-the anchors of open boards.
+sample row stores `anchor`, `strip`, `edges` and `confirm`, and the coverage
+row counts the anchors and confirmations of open boards.
 
 ### Geometry
 
@@ -257,26 +278,80 @@ the boxes on the floor and the ability bar. All
 [metric:scoreboard/anchored@a06f04a0059f#montage_refused_full_boards=10] boards 0.8.0 refused in it are fully
 expanded boards.
 
+### The line places, the slab confirms
+
+0.8.0 refused a board wherever the red run did not begin at the lower line,
+and a montage showed those boards fully expanded: over a pale sky, a grey
+wall, a dark model or a violet effect the translucent enemy slab's top rows
+fail the red test. Once the strip bounds the block, the colour test has only
+to confirm a slab in the span the line predicts. Two confirmations were
+measured on the boards 0.8.0 refused at the strip in its before and after
+decode ([metric:scoreboard/line-confirm@a06f04a0059f#measure_open_present_refused=23] open at 0.7.0,
+[metric:scoreboard/line-confirm@a06f04a0059f#measure_closed_present_refused=26] closed), with the rows placed at the
+line:
+
+- (a) a red run over half the ally height inside the span: from the stored
+  runs, [metric:scoreboard/line-confirm@a06f04a0059f#measure_open_present_rule_a=8] and
+  [metric:scoreboard/line-confirm@a06f04a0059f#measure_closed_present_rule_a=4].
+- (b) each of the five enemy portraits scoring at least 0.81, a threshold
+  fixed from the stored openings before any refused board was scored: the
+  weakest enemy portrait of an accepted opening reaches
+  [metric:scoreboard/portrait-confirm@all-sessions#enemy_min_p5=0.8165] on 95 % of the [metric:scoreboard/portrait-confirm@all-sessions#accepted=6018] accepted
+  openings. One CPU decode of those [metric:scoreboard/line-confirm@a06f04a0059f#measure_frames_decoded=49] frames:
+  [metric:scoreboard/line-confirm@a06f04a0059f#measure_open_present_rule_b=20] and [metric:scoreboard/line-confirm@a06f04a0059f#measure_closed_present_rule_b=25],
+  and (a) accepts none that (b) refuses ([metric:scoreboard/line-confirm@a06f04a0059f#measure_rule_a_not_b=0]).
+
+The scores fall in two groups, at least [metric:scoreboard/line-confirm@a06f04a0059f#measure_confirmed_enemy_min_score_min=0.8796]
+and at most [metric:scoreboard/line-confirm@a06f04a0059f#refused_enemy_min_score_max=0.4042]. A montage of all
+[metric:scoreboard/line-confirm@a06f04a0059f#montage_frames=49] frames, viewed by eye, shows the line's enemy boxes on
+the five enemy rows on every one, the refused ones included. Those
+[metric:scoreboard/line-confirm@a06f04a0059f#measure_still_refused_x0_wrong=4] have a wrong table left edge (frame x 0
+or 304, not 572): the world left of the board passes the green test, the
+portrait boxes miss the portraits, and ally portraits score as low as enemy ones.
+
+`scoreboard-0.9.0` adopts both: a red run confirms first (`red_overlap`),
+the portraits second (`portraits`). The portrait scores are locally
+shift-invariant (`portrait_agent` searches around the box), so they confirm
+art at the rows, not the rows to the pixel; the line places them. A board
+confirmed by its portraits rests on them: the openings gate's portrait
+scores are no second witness of its rows.
+
+Another decode of the whole selection compared 0.8.0 with 0.9.0
+([metric:scoreboard/line-confirm@a06f04a0059f#frames_decoded=300] frames, every centre crop equal to the cached one):
+
+| Frames | 0.8.0 open | 0.9.0 open | recovered by `red_overlap` | by `portraits` | 0.8.0 opens unchanged |
+|---|---|---|---|---|---|
+| Strip present, 0.7.0 closed | [metric:scoreboard/line-confirm@a06f04a0059f#closed_present_before_open=70] | [metric:scoreboard/line-confirm@a06f04a0059f#closed_present_after_open=95] | [metric:scoreboard/line-confirm@a06f04a0059f#closed_present_recovered_red_overlap=4] | [metric:scoreboard/line-confirm@a06f04a0059f#closed_present_recovered_portraits=21] | [metric:scoreboard/line-confirm@a06f04a0059f#closed_present_before_open_unchanged=70] |
+| Strip present, 0.7.0 open | [metric:scoreboard/line-confirm@a06f04a0059f#open_present_before_open=77] | [metric:scoreboard/line-confirm@a06f04a0059f#open_present_after_open=97] | [metric:scoreboard/line-confirm@a06f04a0059f#open_present_recovered_red_overlap=8] | [metric:scoreboard/line-confirm@a06f04a0059f#open_present_recovered_portraits=12] | [metric:scoreboard/line-confirm@a06f04a0059f#open_present_before_open_unchanged=77] |
+| Strip absent | [metric:scoreboard/line-confirm@a06f04a0059f#absent_before_open=5] | [metric:scoreboard/line-confirm@a06f04a0059f#absent_after_open=5] | 0 | 0 | [metric:scoreboard/line-confirm@a06f04a0059f#absent_before_open_unchanged=5] |
+
+Every recovered board has its enemy rows at the board
+([metric:scoreboard/line-confirm@a06f04a0059f#recovered_at_board=45] of [metric:scoreboard/line-confirm@a06f04a0059f#recovered=45]); their enemy portraits score
+a median [metric:scoreboard/line-confirm@a06f04a0059f#recovered_enemy_portrait_median=0.913] and read K/D on
+[metric:scoreboard/line-confirm@a06f04a0059f#recovered_enemy_kd_read=116] of [metric:scoreboard/line-confirm@a06f04a0059f#recovered_enemy_rows=225] rows. The
+three accepted stored openings 0.8.0 refused come back: two with 0.7.0's
+rows and one 2 px lower with the same reads and agents
+([metric:scoreboard/line-confirm@a06f04a0059f#stored_accepted_recovered=3] recovered). Without agent icons only a red
+run confirms, and the reader differs from 0.8.0 on
+[metric:scoreboard/line-confirm@a06f04a0059f#noicons_changed_total=12] frames, the `red_overlap` boards.
+
 ### What still fails
 
-The red colour test on the enemy slab. Over a pale sky, a grey wall, a dark
-model or a violet effect, the translucent enemy slab's top rows leave the red
-hues or fall under the value floor, so the red run starts late or breaks.
-0.8.0 refuses these boards where 0.7.0 anchored rows on the world, and on the
-three accepted boards above, where 0.7.0 found the right rows by the run's
-bottom. A green world above the ally block still closes four boards as
-`green_tall`. The strip cannot anchor a board over a black world, where it is
-unreadable.
+The table's left edge. Where the world left of the board passes the green
+test, the ally block's dense columns reach frame x 0 or 304, the portrait
+boxes miss the portraits and the line's rows go unconfirmed
+([metric:scoreboard/line-confirm@a06f04a0059f#still_refused=4] boards of the selection, all fully expanded). A green
+world above the ally block still closes boards as `green_tall`, and the
+strip cannot anchor a board over a black world, where it is unreadable. The
+K/D cells scale with the table's width, so a wrong right edge (x1 past the
+board on [metric:scoreboard/line-confirm@a06f04a0059f#recovered_x1_wrong=4] recovered boards) misplaces them.
 
-No second session was decoded. The geometry holds on every lineup session
-(above); the reader's before and after have no held-out session yet.
-
-The predictions (ledger task `scoreboard-anchor`): SA2, SA5 and SA6 hold;
-SA1 holds across sessions but not on a06f04a0059f's own frames, where the
-enemy edge lay within 2 px on [metric:scoreboard/strip-geometry@a06f04a0059f#enemy_start_within_2px=29] of
+The earlier predictions (ledger task `scoreboard-anchor`): SA2, SA5 and SA6
+hold; SA1 holds across sessions but not on a06f04a0059f's own frames, where
+the enemy edge lay within 2 px on [metric:scoreboard/strip-geometry@a06f04a0059f#enemy_start_within_2px=29] of
 [metric:scoreboard/strip-geometry@a06f04a0059f#enemy_start_measured=35], not 0.95; SA3 and SA4 fail on the refusals
-above; SA7 holds except for an ally portrait threshold set above what open
-boards score.
+0.9.0 now recovers; SA7 holds except for an ally portrait threshold set
+above what open boards score. SA8 to SA12 are in the ledger.
 
 ## Predictions
 
@@ -305,14 +380,14 @@ boards score.
 
 ## Next
 
-- The enemy slab fails the red test over pale, grey and dark worlds, and
-  0.8.0 refuses those boards (see "What still fails"). Where the strip places
-  the block, ask what else observes its rows (the ten portraits the openings
-  gate scores) before tuning the colour test.
+- The table's left and right edges come from the ally block's dense green
+  columns, and a green world beside the board moves them (see "What still
+  fails"). Ask what else observes the table's columns before tuning the
+  green test.
 - Hold the anchor out on a second session: decode a seeded selection of
   another map (50 frames per group from `notes/scoreboard-strip-samples.jsonl`,
   `random.Random(20260927)`) and compare, fitting nothing.
-- Rescan the scoreboard (`scoreboard-0.8.0`) to store a `sample` row per
+- Rescan the scoreboard (`scoreboard-0.9.0`) to store a `sample` row per
   frame and the anchored rows; the openings now infer closed samples from
   the offered frames. `lineup.load_lineup` applies the stored 0.6.0 and 0.7.0
   boards meanwhile (`version.SCOREBOARD_VERDICT_COMPATIBLE`), and

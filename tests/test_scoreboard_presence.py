@@ -72,6 +72,22 @@ class BoardPresenceTests(unittest.TestCase):
         self.assertEqual([x["witness"] for x in got["samples"]], ["no_slab", "both", "no_slab"])
         self.assertTrue(all(x["present"] for x in got["samples"]))
 
+    def test_a_slab_read_anchored_on_the_strip_is_not_a_second_witness(self):
+        slab = [{**slab_sample(0, True), "anchor": "strip"},
+                {**slab_sample(30, True), "anchor": "tallest_run"},
+                slab_sample(60, True),                                  # stored before 0.8.0
+                {**slab_sample(90, False, "red_not_at_strip"), "anchor": "strip"},
+                {**slab_sample(120, True), "anchor": "tallest_run"}]
+        strip = [strip_sample(0, "present"), strip_sample(30, "present"),
+                 strip_sample(60, "present"), strip_sample(90, "present"),
+                 strip_sample(120, "absent")]
+        s = board_presence(slab, strip)["samples"]
+        self.assertEqual([x["witness"] for x in s],
+                         ["both_anchored", "both", "both", "strip_only", "slab_only"])
+        self.assertEqual([x["slab_anchor"] for x in s],
+                         ["strip", "tallest_run", None, "strip", "tallest_run"])
+        self.assertTrue(all(x["present"] for x in s))
+
     def test_a_frame_without_strip_row_is_no_strip(self):
         got = board_presence([slab_sample(0, True)], [])
         self.assertEqual(got["samples"][0]["witness"], "no_strip")

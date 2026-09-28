@@ -281,15 +281,15 @@ class StripAnchorTests(unittest.TestCase):
                     f[y:y + 2, x:x + 2] = 30
         return f
 
-    def read(self, frame, rect=RECT):
+    def read(self, frame, rect=RECT, icons=None):
         detail = (0, None, 1.0, 1.0, 0)
         with patch("reticle.scoreboard._read_cell_detail", return_value=detail):
-            return read_scoreboard(frame, object(), 0, 0, rect)
+            return read_scoreboard(frame, object(), 0, 0, rect, icons)
 
     def test_world_below_the_enemy_block_is_cut_off_at_the_board(self):
         board = self.read(self.frame())
         self.assertEqual((board.open_, board.anchor, board.strip), (True, "strip", "present"))
-        self.assertEqual(board.edges, ("run", "strip"))
+        self.assertEqual((board.edges, board.confirm), (("run", "strip"), "red_run"))
         self.assertEqual([(r.team, r.y0, r.y1) for r in board.rows],
                          [("ally", 340 + 34 * k, 374 + 34 * k) for k in range(5)]
                          + [("enemy", 568 + 34 * k, 602 + 34 * k) for k in range(5)])
@@ -324,6 +324,46 @@ class StripAnchorTests(unittest.TestCase):
         self.assertEqual((board.open_, board.reason), (False, "green_not_at_strip"))
         board = self.read(self.frame(enemy=(568, 640), world=None))
         self.assertEqual((board.open_, board.reason), (False, "red_short_at_strip"))
+
+    def test_a_red_run_inside_the_span_the_line_predicts_confirms_the_rows(self):
+        # The slab's top rows fail the red test (a pale world behind them), so
+        # no red run begins at the line; the line places the rows, and the red
+        # run below confirms a slab there.
+        board = self.read(self.frame(enemy=(600, 738)))
+        self.assertEqual((board.open_, board.edges, board.confirm),
+                         (True, ("run", "strip"), "red_overlap"))
+        self.assertEqual((board.rows[5].y0, board.rows[9].y1), (568, 738))
+        # Under half the ally height of red in the span confirms nothing.
+        board = self.read(self.frame(enemy=(660, 738), world=None))
+        self.assertEqual((board.open_, board.reason), (False, "red_not_at_strip"))
+
+    def test_the_portraits_confirm_rows_no_red_run_does(self):
+        frame = self.frame(enemy=None, world=None)
+        seen = []
+
+        def scorer(score):
+            def agent(frame, box, icons):
+                seen.append(box)
+                return {"portrait_agent_score": score}
+            return agent
+
+        with patch("reticle.scoreboard.portrait_agent", side_effect=scorer(0.9)):
+            board = self.read(frame, icons={"Omen": None})
+        self.assertEqual((board.open_, board.edges, board.confirm),
+                         (True, ("run", "strip"), "portraits"))
+        self.assertEqual([(r.team, r.y0) for r in board.rows[5:]],
+                         [("enemy", 568 + 34 * k) for k in range(5)])
+        self.assertEqual(seen, [(self.X0, 568 + 34 * k, self.X0 + 34, 602 + 34 * k)
+                                for k in range(5)])
+        # One portrait under the gate refuses the board; so do missing icons.
+        scores = iter([0.9, 0.9, 0.80, 0.9, 0.9])
+        with patch("reticle.scoreboard.portrait_agent",
+                   side_effect=lambda f, b, i: {"portrait_agent_score": next(scores)}):
+            board = self.read(frame, icons={"Omen": None})
+        self.assertEqual((board.open_, board.reason, board.confirm), (False, "red_not_at_strip", None))
+        self.assertEqual(self.read(frame).reason, "red_not_at_strip")
+        # The tallest-run rule never asks the portraits.
+        self.assertIsNone(self.read(self.frame(lines=False, world=None)).confirm)
 
     def test_a_green_band_is_cut_off_at_the_upper_line(self):
         board = self.read(self.frame(green_band=30))   # green world across the upper line

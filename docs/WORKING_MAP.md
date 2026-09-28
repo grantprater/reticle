@@ -41,7 +41,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Frame primitives and spans | `primitives.py`, `segment.py` |
 | HUD, killfeed, roster | `ocr.py`, `killfeed.py`, `roster.py` |
 | Rounds and phase boundaries | `rounds.py`, `scoreboard.py` |
-| Is the Tab scoreboard open: the slab test's close reasons, its blocks anchored on the round-history strip, the strip witness, and the two reconciled per sample | `scoreboard.py` (`reason`, `anchor`), `scoreboard_strip.py` (`reticle strip`), `adjudication/scoreboard.py` (`board_presence`, `reticle openings`), [SCOREBOARD_PRESENCE.md](SCOREBOARD_PRESENCE.md) |
+| Is the Tab scoreboard open: the slab test's close reasons, its blocks anchored on the round-history strip, the strip witness, and the two reconciled per sample | `scoreboard.py` (`reason`, `anchor`, `confirm`), `scoreboard_strip.py` (`reticle strip`), `adjudication/scoreboard.py` (`board_presence`, `reticle openings`), [SCOREBOARD_PRESENCE.md](SCOREBOARD_PRESENCE.md) |
 | Do the history strip's round marks agree with the stored scoreline; the yellow dot and triangles | `prototypes/scoreboard_round_marks.py`, [SCOREBOARD_ROUND_MARKS.md](SCOREBOARD_ROUND_MARKS.md) |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py` |
 | Position belief and its evidence | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |

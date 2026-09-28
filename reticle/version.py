@@ -72,7 +72,16 @@ ECONOMY_VERSION = "economy-0.1.0"
 # board, [metric:scoreboard/anchored@a06f04a0059f#open_present_at_board_changed=3] are refused where the enemy slab's top rows fail
 # the red test and the rest are unchanged. Frames without the strip:
 # [metric:scoreboard/anchored@a06f04a0059f#absent_equal_070=100] of 100 unchanged.
-SCOREBOARD_VERSION = "scoreboard-0.8.0"
+# 0.9.0: where no red run begins at the strip's lower line, the line still
+# places the enemy rows, and a red run over half the ally height inside that
+# span (`red_overlap`) or all five portraits scoring at least 0.81
+# (`portraits`) confirm them; sample and row events carry `confirm`. On the
+# same selection (docs/SCOREBOARD_PRESENCE.md, "The line places, the slab
+# confirms"): of [metric:scoreboard/line-confirm@a06f04a0059f#closed_present_refused_at_strip_before=26] + [metric:scoreboard/line-confirm@a06f04a0059f#open_present_refused_at_strip_before=23] boards 0.8.0 refused at
+# the strip, [metric:scoreboard/line-confirm@a06f04a0059f#recovered=45] open, all at the board; the other [metric:scoreboard/line-confirm@a06f04a0059f#still_refused=4] have a wrong
+# table left edge. Every board 0.8.0 opened is unchanged ([metric:scoreboard/line-confirm@a06f04a0059f#closed_present_before_open_unchanged=70] +
+# [metric:scoreboard/line-confirm@a06f04a0059f#open_present_before_open_unchanged=77]), and no strip-absent frame changes ([metric:scoreboard/line-confirm@a06f04a0059f#absent_changed=0]).
+SCOREBOARD_VERSION = "scoreboard-0.9.0"
 # Stored versions whose accepted openings the current reader does not
 # contradict. A consumer of VERDICTS (the lineup constraining its top bar by
 # the board) accepts these; `reticle plan` still names the rescan. 0.7.0 adds
@@ -85,8 +94,11 @@ SCOREBOARD_VERSION = "scoreboard-0.8.0"
 # 0.8.0 writes the same rows on [metric:scoreboard/anchored@a06f04a0059f#stored_accepted_same=41], the same reads 6 px higher on
 # [metric:scoreboard/anchored@a06f04a0059f#stored_accepted_moved_same_reads=1], and refuses [metric:scoreboard/anchored@a06f04a0059f#stored_accepted_refused_now=3]; it names no other agent in any. So
 # 0.6.0 and 0.7.0 stay applied, and the openings 0.8.0 adds wait for the
-# rescan.
-SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", SCOREBOARD_VERSION)
+# rescan. 0.9.0 opens only boards 0.8.0 refused and changes none it opened,
+# so 0.8.0 is compatible too; it reads the three accepted openings 0.8.0
+# refused again ([metric:scoreboard/line-confirm@a06f04a0059f#stored_accepted_recovered=3]), with 0.7.0's rows or the same reads 2 px lower.
+SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", "scoreboard-0.8.0",
+                                 SCOREBOARD_VERSION)
 # The round-history strip as a second presence witness of the Tab board, read
 # by `scoreboard_strip` from the hud crop cache's `center` crop and written as
 # `scoreboard_strip` rows by `reticle strip`. 0.1.0 ports the rule and

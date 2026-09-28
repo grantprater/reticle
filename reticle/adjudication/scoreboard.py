@@ -34,7 +34,11 @@ sample the same frames. `board_presence` reads both rows and neither rule:
 the board is present where the slab test opened it or the strip reads
 present, and each sample keeps what each witness said, so the
 disagreements (`slab_only`, `strip_only`, and `unreadable` where the strip
-could not read) stay countable. The player holds Tab to open the board and
+could not read) stay countable. From `scoreboard-0.8.0` the slab test asks
+the strip where its blocks lie, and a read it anchored there
+(`anchor == "strip"`) rests on the strip: such a sample is `both_anchored`,
+one witness and a read that depends on it, and only a read placed by the
+tallest runs counts as `both`. Stored rows without `anchor` count as before. The player holds Tab to open the board and
 releases it to close it [domain:hud/scoreboard-tab-hold]; `presence_runs`
 groups present samples into holds, joined across one-sample holes. Only the
 slab test reads rows, so an opening the strip alone saw names nothing.
@@ -51,7 +55,10 @@ from .identity import BOARD_MARGIN_MIN, adjudicate_agent_identity, identity_clai
 # presence (`board_presence`): each carries what both witnesses said and its
 # hold, and a sample only the strip saw is an opening refused as
 # `strip_only_no_rows`. The portrait gate is unchanged.
-SCOREBOARD_AGENT_VERSION = "scoreboard-agent-0.3.0"
+# 0.4.0: a sample whose slab read was anchored on the strip (the stored
+# `anchor`, from scoreboard-0.8.0) is `both_anchored`, not `both`; each
+# sample keeps the anchor as `slab_anchor`. Rows without it count as before.
+SCOREBOARD_AGENT_VERSION = "scoreboard-agent-0.4.0"
 
 #: Consecutive samples further apart than this are not neighbours: a gap in
 #: the sampling breaks a hold rather than being joined across. The scan and
@@ -97,7 +104,8 @@ def _slab_samples(board_rows: list[dict], grid: set[int]) -> tuple[dict[int, dic
     if stored:
         return ({int(r["frame_idx"]): {"t_ms": float(r["t_ms"]),
                                        "slab": "open" if r["open"] else "closed",
-                                       "slab_reason": r.get("reason")} for r in stored},
+                                       "slab_reason": r.get("reason"),
+                                       "slab_anchor": r.get("anchor")} for r in stored},
                 "sample_rows")
     out = {}
     for r in board_rows:
@@ -113,14 +121,17 @@ def _slab_samples(board_rows: list[dict], grid: set[int]) -> tuple[dict[int, dic
     return out, None
 
 
-def _witness(slab: str | None, strip: str | None) -> str:
-    """Which witnesses saw the board at one sample."""
+def _witness(slab: str | None, strip: str | None, anchor: str | None = None) -> str:
+    """Which witnesses saw the board at one sample. A slab read anchored on
+    the strip (`anchor == "strip"`) is not a second witness beside it."""
     if strip is None:
         return "no_strip"
     if slab is None:
         return "no_slab"
     if strip == "unreadable":
         return "unreadable"
+    if (slab, strip) == ("open", "present") and anchor == "strip":
+        return "both_anchored"
     return {("open", "present"): "both", ("open", "absent"): "slab_only",
             ("closed", "present"): "strip_only", ("closed", "absent"): "neither"}[(slab, strip)]
 
@@ -132,10 +143,12 @@ def board_presence(board_rows: list[dict], strip_rows: list[dict]) -> dict:
     Reads the two witnesses' stored rows (`scoreboard` and `scoreboard_strip`
     events) and neither rule. Returns `samples`, one per frame either witness
     read, in frame order: `slab` (`open`, `closed` or None), `slab_reason`,
-    `strip` (`present`, `absent`, `unreadable` or None), `strip_reason`,
-    `present` and `witness` (`both`, `slab_only`, `strip_only`, `neither`,
-    `unreadable`, `no_strip`, `no_slab`); and `slab_closed_from`, where the
-    slab test's closed samples come from (`_slab_samples`).
+    `slab_anchor` (the rule that placed the slab read's blocks, None on rows
+    stored before `scoreboard-0.8.0`), `strip` (`present`, `absent`,
+    `unreadable` or None), `strip_reason`, `present` and `witness` (`both`,
+    `both_anchored`, `slab_only`, `strip_only`, `neither`, `unreadable`,
+    `no_strip`, `no_slab`); and `slab_closed_from`, where the slab test's
+    closed samples come from (`_slab_samples`).
     """
     strip = {int(r["frame_idx"]): r for r in strip_rows if r.get("kind") == "sample"}
     slab, closed_from = _slab_samples(board_rows, set(strip))
@@ -144,11 +157,13 @@ def board_presence(board_rows: list[dict], strip_rows: list[dict]) -> dict:
         s, w = slab.get(f), strip.get(f)
         sv, wv = (s or {}).get("slab"), (w or {}).get("verdict")
         t_ms = (w or {}).get("t_ms")
+        anchor = (s or {}).get("slab_anchor")
         samples.append({"frame_idx": f, "t_ms": float(t_ms if t_ms is not None else s["t_ms"]),
                         "slab": sv, "slab_reason": (s or {}).get("slab_reason"),
+                        "slab_anchor": anchor,
                         "strip": wv, "strip_reason": (w or {}).get("reason"),
                         "present": sv == "open" or wv == "present",
-                        "witness": _witness(sv, wv)})
+                        "witness": _witness(sv, wv, anchor)})
     return {"samples": samples, "slab_closed_from": closed_from}
 
 

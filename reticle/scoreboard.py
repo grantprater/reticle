@@ -20,8 +20,11 @@ floor pass the red test, so the tallest red run is often the world below the
 board. Where the round-history strip witness (`scoreboard_strip`) sees its
 two marker lines, the blocks are instead the runs that meet the strip: the
 ally block ends just above the upper line and the enemy block begins just
-below the lower one. A block the strip does not bound is refused. Where the
-strip is absent or unreadable, the tallest runs decide, as they did at 0.7.0.
+below the lower one. Where no red run begins at the lower line, the line
+still places the enemy rows, and a red run inside that span or the five
+portraits there must confirm a slab. A block the strip does not bound, or
+does not confirm, is refused. Where the strip is absent or unreadable, the
+tallest runs decide, as they did at 0.7.0.
 
 The local player's row is the one the game outlines in yellow, and its name
 renders as the literal string "Me" -- the same convention the killfeed uses.
@@ -84,6 +87,23 @@ BLOCK_GAP = 44
 STRIP_ALLY_GAP = 17
 STRIP_ENEMY_GAP = 17
 STRIP_TOL = 4
+# Where no red run begins at the lower line, the line still places the enemy
+# rows, and the colour test has only to confirm a slab in the span it
+# predicts. The translucent slab's top rows fail the red test over pale sky,
+# grey walls, dark models and violet effects. A red run over at least half
+# the ally height inside the span confirms it; failing that, the five
+# portraits at those rows must each score at least PORTRAIT_CONFIRM_MIN,
+# fixed before any refused board was scored: the weakest enemy portrait of
+# an accepted opening scores at least
+# [metric:scoreboard/portrait-confirm@all-sessions#enemy_min_p5=0.8165] on 95 % of the
+# [metric:scoreboard/portrait-confirm@all-sessions#accepted=6018] openings the openings gate accepts on the 19 lineup
+# sessions. On the boards 0.8.0 refused at the strip in one decode of
+# a06f04a0059f the scores fall in two groups: at least
+# [metric:scoreboard/line-confirm@a06f04a0059f#measure_confirmed_enemy_min_score_min=0.8796] where the rows lie on the
+# board, at most [metric:scoreboard/line-confirm@a06f04a0059f#refused_enemy_min_score_max=0.4042] where the table's
+# left edge is wrong and the portrait boxes miss.
+STRIP_RED_OVERLAP = 0.5
+PORTRAIT_CONFIRM_MIN = 0.81
 
 # Digit envelope for this table specifically. The area floor has to stay low:
 # a "1" here is a 3x10 stroke of only 13 lit pixels, and an 18-pixel floor
@@ -136,6 +156,16 @@ CLOSE_REASONS = (
 #: strip's marker lines.
 ANCHORS = ("tallest_run", "strip")
 
+#: What confirmed the enemy block on the strip rule: a red run from the lower
+#: line (`red_run`), a red run over half the ally height inside the span the
+#: line predicts (`red_overlap`), or the five portraits at the line's rows
+#: (`portraits`). A board confirmed by its portraits rests on them, so the
+#: openings gate's portrait scores are not a second witness of its rows.
+#: `red_not_at_strip` and `red_short_at_strip` close a board nothing confirms;
+#: the portraits are tested after the table's edges, so those two reasons can
+#: follow `no_dense_columns` and `table_narrow` in the order of tests.
+CONFIRMS = ("red_run", "red_overlap", "portraits")
+
 
 @dataclass(frozen=True)
 class Row:
@@ -169,7 +199,8 @@ class ScoreboardRead:
     strip witness's verdict at this frame (None when it was not consulted),
     and `edges`, on the strip rule, which edge placed each block: the ally
     block's own end (`run`) or the upper line (`strip`), and the enemy run's
-    bottom (`run`) or the lower line (`strip`).
+    bottom (`run`) or the lower line (`strip`). `confirm`, on an open board
+    placed by the strip, names what confirmed the enemy block (`CONFIRMS`).
     """
 
     open_: bool
@@ -180,6 +211,7 @@ class ScoreboardRead:
     anchor: str | None = None
     strip: str | None = None
     edges: tuple[str, str] | None = None
+    confirm: str | None = None
 
     @property
     def player(self) -> Row | None:
@@ -254,7 +286,7 @@ def strip_rect(profile_name: str, width: int, height: int) -> tuple[int, int, in
 
 def _strip_blocks(green: np.ndarray, red: np.ndarray, rows: tuple[int, int]):
     """The ally and enemy blocks bounded by the strip's marker lines `rows`,
-    as `(ally, enemy, edges, reason)`; `reason` names the refusal.
+    as `(ally, enemy, edges, confirm, reason)`; `reason` names the refusal.
 
     The ally block is the merged green run that reaches within STRIP_TOL of
     its measured end above the upper line. Where the run goes on into the
@@ -264,35 +296,48 @@ def _strip_blocks(green: np.ndarray, red: np.ndarray, rows: tuple[int, int]):
     block's height. Its rows sit on the run's bottom where that bottom lies
     where the ally height puts it, as the tallest-run rule placed them;
     elsewhere the world below passed the red test, or the slab failed it,
-    and the line places them."""
+    and the line places them.
+
+    Where no red run of block height begins at the line, the line places the
+    rows anyway. A red run over STRIP_RED_OVERLAP of the ally height inside
+    that span confirms them (`red_overlap`); otherwise they come back
+    unconfirmed (`confirm` None) with the refusal as `reason`, for the
+    portraits to confirm."""
     ally_end = rows[0] - STRIP_ALLY_GAP
     near = [r for r in _runs(green, BLOCK_GAP)
             if r[0] < ally_end + STRIP_TOL and r[1] > ally_end - STRIP_TOL]
     if not near:
-        return None, None, None, "green_not_at_strip"
+        return None, None, None, None, "green_not_at_strip"
     a, z = min(near, key=lambda r: abs(r[1] - ally_end))
     ally_edge = "run" if z <= ally_end + STRIP_TOL else "strip"
     ally = (a, z if ally_edge == "run" else ally_end)
     if ally[1] - ally[0] < MIN_BLOCK_H:
-        return None, None, None, "green_short"
+        return None, None, None, None, "green_short"
     if ally[1] - ally[0] > MAX_BLOCK_H:
-        return None, None, None, "green_tall"
+        return None, None, None, None, "green_tall"
     team_h = ally[1] - ally[0]
     top = rows[1] + STRIP_ENEMY_GAP
     below = red.copy()
     below[:ally[1]] = False
-    near = [r for r in _runs(below, 0)
-            if r[0] <= top + STRIP_TOL and r[1] > top + STRIP_TOL]
-    if not near:
-        return ally, None, None, "red_not_at_strip"
-    a, z = near[0]
-    if a >= top - STRIP_TOL:
-        top = a
-    if z - top < MIN_BLOCK_H:
-        return ally, None, None, "red_short_at_strip"
-    if abs(z - (top + team_h)) <= STRIP_TOL:
-        return ally, (z - team_h, z), (ally_edge, "run"), None
-    return ally, (top, top + team_h), (ally_edge, "strip"), None
+    runs = _runs(below, 0)
+    near = [r for r in runs if r[0] <= top + STRIP_TOL and r[1] > top + STRIP_TOL]
+    why = "red_not_at_strip"
+    if near:
+        a, z = near[0]
+        if a >= top - STRIP_TOL:
+            top = a
+        why = "red_short_at_strip"
+        if z - top >= MIN_BLOCK_H:
+            if abs(z - (top + team_h)) <= STRIP_TOL:
+                return ally, (z - team_h, z), (ally_edge, "run"), "red_run", None
+            return ally, (top, top + team_h), (ally_edge, "strip"), "red_run", None
+    top = rows[1] + STRIP_ENEMY_GAP
+    enemy = (top, top + team_h)
+    span_end = enemy[1] + STRIP_TOL
+    overlap = max((min(z, span_end) - max(a, top) for a, z in runs), default=0)
+    if overlap >= STRIP_RED_OVERLAP * team_h:
+        return ally, enemy, (ally_edge, "strip"), "red_overlap", None
+    return ally, enemy, (ally_edge, "strip"), None, why
 
 
 def _split(block: tuple[int, int]) -> list[tuple[int, int]]:
@@ -347,14 +392,18 @@ def read_scoreboard(
     min_confidence: float = 0.80,
     min_margin: float = 0.04,
     strip_rect: tuple[int, int, int, int] | None = None,
+    icons: dict | None = None,
 ) -> ScoreboardRead:
     """Read every row's K/D/A, and say which row is the local player's.
 
     `strip_rect` is the frame rectangle the round-history strip witness reads
     (`strip_rect()`); where it reads the strip present, the blocks are the
     runs that meet the strip's marker lines. Without it, or where the strip
-    is absent or unreadable, they are the tallest runs. A closed board says
-    which test closed it (`ScoreboardRead.reason`)."""
+    is absent or unreadable, they are the tallest runs. Enemy rows the line
+    places without a red run to confirm them open only when every one of
+    their portraits scores at least PORTRAIT_CONFIRM_MIN against `icons`
+    (`load_agent_icons`); without `icons` such a board closes. A closed board
+    says which test closed it (`ScoreboardRead.reason`)."""
     H, W = frame.shape[:2]
     green, red = _slabs(frame)
     seen = None
@@ -364,11 +413,13 @@ def read_scoreboard(
         sx0, sy0, sx1, sy1 = strip_rect
         seen = strip.read_strip(frame[sy0:sy1, sx0:sx1], strip_rect)["verdict"]
     closed = {"strip": seen}
+    confirm = unconfirmed = None
     if seen == "present":
         closed["anchor"] = "strip"
-        ally, enemy, edges, why = _strip_blocks(green, red, strip.ROW_Y)
-        if why is not None:
+        ally, enemy, edges, confirm, why = _strip_blocks(green, red, strip.ROW_Y)
+        if enemy is None:
             return ScoreboardRead(False, reason=why, **closed)
+        unconfirmed = why
     else:
         closed["anchor"], edges = "tallest_run", None
         ally, why = _block_why(green)
@@ -408,6 +459,18 @@ def read_scoreboard(
     tw = x1 - x0
     if tw < MIN_TABLE_W:
         return ScoreboardRead(False, reason="table_narrow", **closed)
+    if unconfirmed is not None:
+        # The line placed the enemy rows and no red run confirmed them. The
+        # portraits sit where `portrait_observations` scores them, and every
+        # one must match agent art as accepted openings do.
+        if not icons:
+            return ScoreboardRead(False, reason=unconfirmed, **closed)
+        px = max(0, x0)
+        scores = [portrait_agent(frame, (px, a, px + (z - a), z), icons)["portrait_agent_score"]
+                  for a, z in _split(enemy)]
+        if None in scores or min(scores) < PORTRAIT_CONFIRM_MIN:
+            return ScoreboardRead(False, reason=unconfirmed, **closed)
+        confirm = "portraits"
 
     bands = [(a, z, "ally") for a, z in _split(ally)]
     bands += [(a, z, "enemy") for a, z in _split(enemy)]
@@ -453,7 +516,7 @@ def read_scoreboard(
                         credits_confidence=credit_conf,
                         credits_margin=credit_margin,
                         credits_candidate=credit_candidate))
-    return ScoreboardRead(True, tuple(rows), x0, x1, edges=edges, **closed)
+    return ScoreboardRead(True, tuple(rows), x0, x1, edges=edges, confirm=confirm, **closed)
 
 
 #: Search around the portrait box for the agent drawing, in pixels and in
@@ -698,11 +761,12 @@ class ScoreboardReader:
         h, w = sample.frame.shape[:2]
         board = read_scoreboard(sample.frame, self.templates,
                                 self.min_confidence, self.min_margin,
-                                strip_rect(self.profile_name, w, h))
+                                strip_rect(self.profile_name, w, h), self.icons)
         self.samples.append({"frame_idx": int(sample.frame_idx), "t_ms": float(sample.t_ms),
                              "open": board.open_, "reason": board.reason,
                              "anchor": board.anchor, "strip": board.strip,
-                             "edges": None if board.edges is None else list(board.edges)})
+                             "edges": None if board.edges is None else list(board.edges),
+                             "confirm": board.confirm})
         if not board.open_:
             return
         self.frames_open += 1
@@ -712,6 +776,7 @@ class ScoreboardReader:
             self.rows.append({
                 "frame_idx": int(sample.frame_idx), "t_ms": float(sample.t_ms),
                 "display_row": index, "team": row.team, "anchor": board.anchor,
+                "confirm": board.confirm,
                 "row_y0": row.y0, "row_y1": row.y1,
                 "table_x0": board.x0, "table_x1": board.x1,
                 "kills": row.kills, "deaths": row.deaths, "assists": row.assists,
@@ -738,10 +803,12 @@ class ScoreboardReader:
         # one wrote these scores is provenance.
         closed = Counter(s["reason"] for s in self.samples if not s["open"])
         anchors = Counter(s["anchor"] for s in self.samples if s["open"])
+        confirms = Counter(str(s["confirm"]) for s in self.samples if s["open"])
         coverage = {**common, "kind": "coverage", "frames_offered": self.frames_offered,
                     "frames_open": self.frames_open, "portrait_scorer": portrait_scorer(),
                     "closed_reasons": dict(sorted(closed.items())),
-                    "open_anchors": dict(sorted(anchors.items()))}
+                    "open_anchors": dict(sorted(anchors.items())),
+                    "open_confirms": dict(sorted(confirms.items()))}
         return ([coverage]
                 + [{**common, "kind": "row_observation",
                     "observation_key": f"{session_id}:{r['frame_idx']}:{r['display_row']}",

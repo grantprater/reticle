@@ -42,7 +42,7 @@ import numpy as np
 from .decode import sample_frames, sample_multi, sample_spans
 from .checks import KNOWN_KD, check_hud, player_events, track_entries
 from .rounds import build_rounds, summarise
-from .scoreboard import ScoreboardReader, read_scoreboard, strip_rect
+from .scoreboard import ScoreboardReader, load_agent_icons, read_scoreboard, strip_rect
 from . import cone, geometry, lighting
 from .fidelity import FROZEN_WINDOWS
 from .fingerprint import fingerprint
@@ -1389,10 +1389,12 @@ def cmd_board(args) -> int:
     print(f"sampling   {args.hz:g} Hz for scoreboard openings")
 
     reads: list[tuple[float, object]] = []
+    icons = load_agent_icons(store.root)
     for smp in sample_frames(str(media), args.hz, src["fps"], args.max_frames):
         sb = read_scoreboard(smp.frame, templates,
                              args.min_confidence, args.min_margin,
-                             strip_rect(profile.name, smp.frame.shape[1], smp.frame.shape[0]))
+                             strip_rect(profile.name, smp.frame.shape[1], smp.frame.shape[0]),
+                             icons)
         if sb.open_ and sb.player is not None and sb.player.complete:
             reads.append((smp.t_ms, sb))
 
