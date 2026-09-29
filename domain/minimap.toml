@@ -374,23 +374,44 @@ phrases = ["skye bird looks like an ally"]
 
 [cone-rays-stop-at-first-edge]
 claim = """
-A player's viewcone on the minimap originates at the icon's teardrop point and
-spans a fixed angle about the direction the teardrop points. Each ray stops
-exactly at the first wall or box edge it meets, corners included, with no
-reflection. A box edge the player stands at blocks the player's own sight.
+A player's viewcone on the minimap spans a fixed angle about the direction the
+icon's teardrop points. Each ray stops exactly at the first wall or box edge it
+meets, corners included, with no reflection. A box edge the player stands at
+blocks the player's own sight.
 """
 kind = "rule"
 known = "player"
 since = "2026-09-28"
 source = """
 the player's cone spec of 2026-09-02, from watching cones on a fresh clip
-(teardrop origin, fixed angle, each ray stops at the first wall); boxes stop
-sight too (2026-09-07, cone.py); on 2026-09-28 the player confirmed a box edge
-the player stands at blocks the player's own sight, the ray stopping exactly
-at the edge or corner
+(fixed angle, each ray stops at the first wall); boxes stop sight too
+(2026-09-07, cone.py); on 2026-09-28 the player confirmed a box edge the player
+stands at blocks the player's own sight, the ray stopping exactly at the edge
+or corner. The spec's origin, the teardrop point, was withdrawn on 2026-09-28
+(see minimap/cone-origin-near-centre)
 """
 use = """
 cone.raycast stops at the first impassable pixel; whether an origin on a
 one-pixel line lies on the open side is a pose question, not a transparency one
 """
-see = ["minimap/vision-gate"]
+see = ["minimap/vision-gate", "minimap/cone-origin-near-centre"]
+
+[cone-origin-near-centre]
+claim = """
+A player's viewcone rays start at about the centre of the player's minimap
+icon (the portrait's centre), not at the teardrop's point. The player judged
+this by eye; the exact origin is to be calibrated against the drawn light.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-28"
+source = """
+the player on 2026-09-28, asked whether the rays start at the icon's centre or
+its teardrop point after E3b of the statistical adjudicator; this replaces the
+teardrop-point origin of the 2026-09-02 cone spec
+"""
+use = """
+cast a cone from the icon's centre along the teardrop's facing; an offset from
+that centre is a measured calibration (prototypes/cone_origin.py), not a game fact
+"""
+see = ["minimap/cone-rays-stop-at-first-edge"]
