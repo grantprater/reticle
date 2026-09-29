@@ -189,6 +189,115 @@ class RoundCacheTest(unittest.TestCase):
                     self.assertTrue(np.array_equal(got[i].frame[y0:y1, x0:x1], f[y0:y1, x0:x1]))
 
 
+class AutoSourceTest(unittest.TestCase):
+    """`scan --from auto`: a span reader over a round cache reads the rounds
+    only when the cache holds every live round of its spans, else decodes."""
+
+    ROUNDS = [(0.0, 10.0), (20.0, 30.0)]
+    #: Active spans reach into the buy phase before each round.
+    ACTIVE = [(-5.0, 10.0), (15.0, 30.0)]
+
+    def _cache(self, root, held):
+        profile = get_profile("valorant-16x9")
+        w = RoiCacheWriter(Path(root), _manifest(), profile, "hud", hz=2.0, spans=held)
+        w.feed(Sample(frame_idx=0, t_ms=0.0, frame=np.zeros((1080, 1920, 3), np.uint8)))
+        w.finish()
+        return profile
+
+    def _reader(self, spans, cache_set="killfeed", name="dp"):
+        from types import SimpleNamespace
+        return SimpleNamespace(name=name, cache_set=cache_set, hz=2.0, spans=spans)
+
+    def _choose(self, root, profile, readers, mode, rounds=None):
+        from reticle.roi_cache import choose_source
+        asked = []
+
+        def live_rounds():
+            asked.append(1)
+            return (self.ROUNDS, None) if rounds is None else rounds
+        got = choose_source(Path(root), _manifest(), profile, readers, mode, live_rounds)
+        return got, len(asked)
+
+    def test_covered_reads_the_cache_as_cache_does(self):
+        with tempfile.TemporaryDirectory() as root:
+            profile = self._cache(root, [list(s) for s in self.ROUNDS])
+            auto, cached = self._reader(list(self.ACTIVE)), self._reader(list(self.ACTIVE))
+            (cache, why, notes), asked = self._choose(root, profile, [auto], "auto")
+            self.assertIsNotNone(cache, why)
+            self.assertEqual(asked, 1)
+            (cache2, _, _), _ = self._choose(root, profile, [cached], "cache")
+            self.assertIsNotNone(cache2)
+            # Auto reads the frames `--from cache` reads: the rounds, no buy phase.
+            self.assertEqual(auto.spans, cached.spans)
+            self.assertEqual(auto.spans, [(0.0, 10.0), (20.0, 30.0)])
+            self.assertTrue(any("inside all 2 live rounds" in n for n in notes), notes)
+            self.assertTrue(any("clipped" in n for n in notes), notes)
+
+    def test_partly_covered_decodes_its_whole_spans(self):
+        with tempfile.TemporaryDirectory() as root:
+            # The cache holds the first round only.
+            profile = self._cache(root, [[0.0, 10.0]])
+            r = self._reader(list(self.ACTIVE))
+            (cache, why, notes), _ = self._choose(root, profile, [r], "auto")
+            self.assertIsNone(cache)
+            self.assertIn("outside the cache's spans", why)
+            self.assertEqual(r.spans, self.ACTIVE)
+            self.assertTrue(any("1 of its 2 in-round spans lie outside" in n for n in notes),
+                            notes)
+            # `--from cache` clips it to what the cache holds instead.
+            c = self._reader(list(self.ACTIVE))
+            (cache, _, _), _ = self._choose(root, profile, [c], "cache")
+            self.assertIsNotNone(cache)
+            self.assertEqual(c.spans, [(0.0, 10.0)])
+
+    def test_absent_cache_decodes(self):
+        with tempfile.TemporaryDirectory() as root:
+            profile = get_profile("valorant-16x9")
+            r = self._reader(list(self.ACTIVE))
+            (cache, why, notes), asked = self._choose(root, profile, [r], "auto")
+            self.assertIsNone(cache)
+            self.assertEqual(why, "no_cache")
+            self.assertEqual((r.spans, notes, asked), (self.ACTIVE, [], 0))
+
+    def test_rounds_unknown_decodes_and_says_why(self):
+        with tempfile.TemporaryDirectory() as root:
+            profile = self._cache(root, [list(s) for s in self.ROUNDS])
+            r = self._reader(list(self.ACTIVE))
+            (cache, _, notes), _ = self._choose(root, profile, [r], "auto",
+                                                rounds=(None, "no rounds stored"))
+            self.assertIsNone(cache)
+            self.assertEqual(r.spans, self.ACTIVE)
+            self.assertIn("no rounds stored", notes[0])
+
+    def test_a_pass_the_cache_cannot_feed_puts_the_spans_back(self):
+        with tempfile.TemporaryDirectory() as root:
+            profile = self._cache(root, [list(s) for s in self.ROUNDS])
+            span = self._reader(list(self.ACTIVE))
+            # A whole-capture reader is not clipped under auto, so the pass decodes.
+            whole = self._reader(None, name="hud")
+            (cache, why, notes), _ = self._choose(root, profile, [span, whole], "auto")
+            self.assertIsNone(cache)
+            self.assertIn("hud reads outside", why)
+            self.assertEqual((span.spans, whole.spans), (self.ACTIVE, None))
+            self.assertIn("restored", notes[-1])
+
+    def test_video_decodes_without_looking(self):
+        with tempfile.TemporaryDirectory() as root:
+            profile = self._cache(root, [list(s) for s in self.ROUNDS])
+            r = self._reader(list(self.ACTIVE))
+            (cache, why, notes), asked = self._choose(root, profile, [r], "video")
+            self.assertEqual((cache, why, notes, asked, r.spans),
+                             (None, "--from video", [], 0, self.ACTIVE))
+
+    def test_rounds_covered(self):
+        from reticle.roi_cache import rounds_covered
+        held = [[0.0, 10.0], [20.0, 30.0]]
+        self.assertTrue(rounds_covered(held, self.ACTIVE, self.ROUNDS)[0])
+        self.assertFalse(rounds_covered(held, None, self.ROUNDS)[0])
+        self.assertFalse(rounds_covered(held, [(40.0, 50.0)], self.ROUNDS)[0])
+        self.assertFalse(rounds_covered([[0.0, 9.0]], self.ACTIVE, self.ROUNDS)[0])
+
+
 class DarkCacheTest(unittest.TestCase):
     """`scan --only minimap_dark` reads the 15 Hz minimap cache on its 4 Hz grid."""
 
