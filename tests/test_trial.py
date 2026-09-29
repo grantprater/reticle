@@ -204,9 +204,10 @@ class AutoSourceTest(unittest.TestCase):
         w.finish()
         return profile
 
-    def _reader(self, spans, cache_set="killfeed", name="dp"):
+    def _reader(self, spans, cache_set="killfeed", name="dp", records_clip=True):
         from types import SimpleNamespace
-        return SimpleNamespace(name=name, cache_set=cache_set, hz=2.0, spans=spans)
+        return SimpleNamespace(name=name, cache_set=cache_set, hz=2.0, spans=spans,
+                               records_clip=records_clip)
 
     def _choose(self, root, profile, readers, mode, rounds=None):
         from reticle.roi_cache import choose_source
@@ -232,6 +233,11 @@ class AutoSourceTest(unittest.TestCase):
             self.assertEqual(auto.spans, [(0.0, 10.0), (20.0, 30.0)])
             self.assertTrue(any("inside all 2 live rounds" in n for n in notes), notes)
             self.assertTrue(any("clipped" in n for n in notes), notes)
+            # Both record the same clip: the buy phase before each round is unread.
+            self.assertEqual(auto.spans_clip, cached.spans_clip)
+            self.assertEqual(auto.spans_clip["spans_skipped"], [[-5.0, 0.0], [15.0, 20.0]])
+            self.assertEqual(auto.spans_clip["spans_read"], [[0.0, 10.0], [20.0, 30.0]])
+            self.assertEqual(auto.spans_clip["frames_from"], "roi-cache-0.1.0")
 
     def test_partly_covered_decodes_its_whole_spans(self):
         with tempfile.TemporaryDirectory() as root:
@@ -280,6 +286,52 @@ class AutoSourceTest(unittest.TestCase):
             self.assertIn("hud reads outside", why)
             self.assertEqual((span.spans, whole.spans), (self.ACTIVE, None))
             self.assertIn("restored", notes[-1])
+            self.assertFalse(hasattr(span, "spans_clip"))
+
+    def test_auto_never_clips_a_stream_that_cannot_record_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            profile = self._cache(root, [list(s) for s in self.ROUNDS])
+            r = self._reader(list(self.ACTIVE), records_clip=False)
+            (cache, _, notes), asked = self._choose(root, profile, [r], "auto")
+            self.assertIsNone(cache)
+            self.assertEqual((r.spans, asked), (self.ACTIVE, 0))
+            self.assertFalse(hasattr(r, "spans_clip"))
+            self.assertIn("cannot record", notes[0])
+
+    def test_streams_record_the_clip(self):
+        import json
+        import pyarrow.parquet as pq
+        from types import SimpleNamespace
+        from reticle.minimap_dark import DarkRegionReader
+        from reticle.roi_cache import clip_record
+        from reticle.store import Store
+        clip = clip_record(self.ACTIVE, self.ROUNDS, {"version": "roi-cache-0.1.0",
+                                                       "roi": "minimap"})
+        d = DarkRegionReader(floor=None, sgray=None, static=None, ref=None, box=[0, 0, 1, 1])
+        self.assertTrue(d.records_clip)
+        self.assertNotIn("spans_clip", d.events("s1", None)[0])
+        d.spans_clip = clip
+        self.assertEqual(d.events("s1", None)[0]["spans_clip"], clip)
+        row = {"frame_idx": 0, "t_ms": 0.0, "self_x": None, "self_y": None, "n_allies": 0,
+               "widget_drawn": False, "ally_x": [None], "ally_y": [None]}
+        fp = SimpleNamespace(session_id="s1", content_key="k1")
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(Path(root))
+            meta = pq.read_schema(store.write_minimap([row], fp, "p", "2026-01-01")).metadata
+            self.assertNotIn(b"spans_clip", meta)
+            self.assertNotIn(b"frames_from", meta)
+            meta = pq.read_schema(store.write_minimap(
+                [row], fp, "p", "2026-01-01", frames_from="roi-cache-0.1.0",
+                spans_clip=clip)).metadata
+            self.assertEqual(json.loads(meta[b"spans_clip"]), clip)
+            self.assertEqual(meta[b"frames_from"], b"roi-cache-0.1.0")
+
+    def test_subtract_spans(self):
+        from reticle.roi_cache import subtract_spans
+        self.assertEqual(subtract_spans([(0.0, 10.0)], [(2.0, 3.0), (5.0, 12.0)]),
+                         [(0.0, 2.0), (3.0, 5.0)])
+        self.assertEqual(subtract_spans([(0.0, 10.0)], []), [(0.0, 10.0)])
+        self.assertEqual(subtract_spans([(0.0, 10.0)], [(0.0, 10.0)]), [])
 
     def test_video_decodes_without_looking(self):
         with tempfile.TemporaryDirectory() as root:

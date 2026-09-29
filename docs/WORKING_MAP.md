@@ -125,7 +125,8 @@ as appropriate. `segment`/`audit` reuse stored L1. `scan --only hud` rereads
 the crop cache (`roi_cache`) and decodes only with `--from video`; under
 the default `--from auto` a span reader (`minimap`, `minimap_dark`) reads a
 round cache's rounds only, without the buy phase, when that cache holds every
-live round, and decodes otherwise; `hud`,
+live round, and decodes otherwise; its stream records the unread spans as
+`spans_clip`; `hud`,
 `board` and `overlay` open the source video. Run a targeted test file,
 then `verify --tier fast`, then the full suite across module boundaries.
 `refine` previews stored windows; `--execute` reads only their merged intervals

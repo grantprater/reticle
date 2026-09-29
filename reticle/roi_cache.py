@@ -153,6 +153,32 @@ def clip_spans(wanted, held) -> list[tuple[float, float]]:
 FRAME_SOURCES = ("auto", "cache", "video")
 
 
+def subtract_spans(wanted, taken) -> list[tuple[float, float]]:
+    """The parts of `wanted` spans that no `taken` span holds."""
+    out = []
+    for s, e in wanted:
+        pieces = [(float(s), float(e))]
+        for a, b in taken:
+            pieces = [p for lo, hi in pieces
+                      for p in ((lo, min(hi, a)), (max(lo, b), hi)) if p[0] < p[1]]
+        out.extend(pieces)
+    return sorted(out)
+
+
+def clip_record(asked, read, record: dict) -> dict:
+    """What a clip to a round cache did to a reader, for its stream's
+    provenance: the cache that fed it, the spans it asked for, read and
+    skipped. A skipped span is unread, not unobserved: nothing looked
+    there. `asked` None is the whole capture, whose skipped part is
+    everything outside `spans_read`."""
+    pairs = lambda spans: [[float(a), float(b)] for a, b in spans]
+    return {"frames_from": record["version"], "cache_set": record["roi"],
+            "reason": "outside_cache_rounds",
+            "spans_asked": None if asked is None else pairs(asked),
+            "spans_read": pairs(read),
+            "spans_skipped": None if asked is None else pairs(subtract_spans(asked, read))}
+
+
 def rounds_covered(held, wanted, rounds) -> tuple[bool, str]:
     """Whether a cache written over rounds (`held`) holds a span reader's
     window, and why: the reader's `wanted` spans inside the session's live
@@ -191,8 +217,13 @@ def choose_source(store_root: Path, manifest: dict, profile, readers, mode: str,
     is never clipped under auto: a round cache does not hold it, and
     `cache_for` says so.
 
-    Under `auto` and `cache` a cache-fed pass reads the same frames, so the
-    two write the same streams; the source changes no stamp."""
+    Each clipped reader carries `spans_clip` (`clip_record`), which its
+    stream must record, so a skipped span reads as unread rather than as
+    a span with nothing in it; a restored reader loses it. Auto clips only
+    a reader that declares `records_clip`; under `cache` the caller refuses
+    a clipped reader that does not. Under `auto` and
+    `cache` a cache-fed pass reads the same frames and records the same
+    clip, so the two write the same streams; the source changes no stamp."""
     if mode not in FRAME_SOURCES:
         raise ValueError(f"frame source {mode!r} is not one of {FRAME_SOURCES}")
     if mode == "video":
@@ -210,6 +241,10 @@ def choose_source(store_root: Path, manifest: dict, profile, readers, mode: str,
         if mode == "auto":
             if getattr(r, "spans", None) is None:
                 continue
+            if not getattr(r, "records_clip", False):
+                notes.append(f"spans      {r.name} kept: its stream cannot record the "
+                             f"spans a clip to the {s} cache's rounds would skip")
+                continue
             if rounds is None and rounds_why is None:
                 rounds, rounds_why = live_rounds()
                 rounds_why = rounds_why or ""
@@ -222,13 +257,20 @@ def choose_source(store_root: Path, manifest: dict, profile, readers, mode: str,
                 notes.append(f"spans      {r.name} kept: {why}")
                 continue
             notes.append(f"spans      {r.name}: {why}")
-        before.append((r, getattr(r, "spans", None)))
-        r.spans = clip_spans(getattr(r, "spans", None), spans)
-        notes.append(f"spans      {r.name} clipped to the {s} cache's {len(spans)} rounds")
+        asked = getattr(r, "spans", None)
+        before.append((r, asked))
+        r.spans = clip_spans(asked, spans)
+        r.spans_clip = clip_record(asked, r.spans, held.record)
+        skipped = r.spans_clip["spans_skipped"]
+        notes.append(f"spans      {r.name} clipped to the {s} cache's {len(spans)} rounds"
+                     + ("" if skipped is None else
+                        f"; {sum(b - a for a, b in skipped) / 1000.0:.0f} s of its spans "
+                        f"left unread, recorded as spans_skipped"))
     cache, why = cache_for(store_root, manifest, profile, readers)
     if cache is None and mode == "auto" and before:
         for r, spans in before:
             r.spans = spans
+            del r.spans_clip
         notes.append(f"spans      {', '.join(r.name for r, _ in before)} restored: "
                      f"the pass decodes")
     return cache, why, notes

@@ -612,7 +612,13 @@ class Store:
             )
         return pq.read_table(path)
 
-    def write_minimap(self, rows: list[dict], fingerprint, profile_name: str, date: str) -> Path:
+    def write_minimap(self, rows: list[dict], fingerprint, profile_name: str, date: str,
+                      frames_from: str | None = None, spans_clip: dict | None = None) -> Path:
+        """The raw per-frame minimap table. A pass fed from the crop cache
+        names it in the schema metadata's `frames_from`, and one clipped to a
+        round cache's rounds adds `spans_clip` (JSON, `roi_cache.clip_record`):
+        its `spans_skipped` were never read, so no row there is not an absent
+        widget. A decode's table carries neither key."""
         if not rows:
             raise SystemExit("no frames were read -- nothing to write")
         n = len(rows)
@@ -647,15 +653,18 @@ class Store:
         arrays["minimap_version"] = pa.array([MINIMAP_VERSION] * n, type=pa.string())
         arrays["schema_version"] = pa.array([SCHEMA_VERSION] * n, type=pa.int32())
 
-        table = pa.table(arrays).replace_schema_metadata(
-            {
-                "minimap_version": MINIMAP_VERSION,
-                "schema_version": str(SCHEMA_VERSION),
-                "session_id": fingerprint.session_id,
-                "content_key": fingerprint.content_key,
-                "source_profile": profile_name,
-            }
-        )
+        meta = {
+            "minimap_version": MINIMAP_VERSION,
+            "schema_version": str(SCHEMA_VERSION),
+            "session_id": fingerprint.session_id,
+            "content_key": fingerprint.content_key,
+            "source_profile": profile_name,
+        }
+        if frames_from is not None:
+            meta["frames_from"] = frames_from
+        if spans_clip is not None:
+            meta["spans_clip"] = json.dumps(spans_clip, sort_keys=True)
+        table = pa.table(arrays).replace_schema_metadata(meta)
         path = self.minimap_path(fingerprint.session_id, date)
         path.parent.mkdir(parents=True, exist_ok=True)
         pq.write_table(table, path, compression="zstd")

@@ -486,6 +486,8 @@ class _MinimapPass:
         self.cv_threads = 1        # small crops: see `passes._feed`
         self.hz = args.minimap_hz
         self.spans = spans         # the minimap has nothing to say off-round
+        # Its table's metadata records a clip to a round cache (`spans_clip`).
+        self.records_clip = True
         self.step_ms = 1000.0 / args.minimap_hz
         # The last position READ and when, which is not the last frame fed:
         # a widget-absent frame, a dropped frame and a stall all leave the
@@ -1166,6 +1168,14 @@ def cmd_scan(args) -> int:
             print(line)
         if cache is None and args.frames_from == "cache":
             raise SystemExit(f"--from cache: {why}")
+        # A clipped stream must say which spans it left unread; one that
+        # cannot would store unread time as time with nothing in it.
+        mute = [r.name for r in readers if getattr(r, "spans_clip", None) is not None
+                and not getattr(r, "records_clip", False)]
+        if mute:
+            raise SystemExit(f"--from {args.frames_from}: {', '.join(mute)} would read the "
+                             f"cache's rounds only, and its stream cannot record the spans "
+                             f"it skips; use --from video")
         print(f"frames     {args.frames_from}: "
               f"{'from ' + why if cache is not None else 'decoded (' + why + ')'}")
         if until is not None:
@@ -1209,7 +1219,11 @@ def cmd_scan(args) -> int:
             if not mp.rows:
                 raise SystemExit("decoded zero frames inside active spans "
                                  "-- is segmentation right?")
-            path = out.write_minimap(mp.rows, _FP(src, sid), profile.name, date)
+            frames_from = getattr(mp, "frames_from", "video")
+            path = out.write_minimap(
+                mp.rows, _FP(src, sid), profile.name, date,
+                frames_from=None if frames_from.startswith("video") else frames_from,
+                spans_clip=getattr(mp, "spans_clip", None))
             got = sum(1 for r in mp.rows if r["self_x"] is not None)
             print(f"minimap    {len(mp.rows)} rows -> {path}")
             print(f"           widget absent {mp.n_absent}/{len(mp.rows)} "
