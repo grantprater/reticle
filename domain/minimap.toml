@@ -606,3 +606,68 @@ there is no enemy-spotted minimap class; a spotted message is a game witness
 of an enemy agent at a place and time, readable from the chat box
 """
 see = ["hud/chat-broadcasts-callouts"]
+
+[white-lines-are-walls]
+claim = """
+The bright white lines on the minimap are walls. On Ascent a white line cuts B
+main off from B site along most of their shared edge.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29, reading the cones on the E7 dark-frames sheet"
+use = """
+the occluders come from the white lines of the baked static
+(reticle/occluders.py), not from the wiki art's line class alone, whose
+warp loses thin lines; a ray stops at the first white-line pixel
+"""
+exceptions = """
+open: whether a stretch of one-pixel line is a doorway or a low edge a player
+can see across. E1b of the statistical adjudicator found the lines it tested
+opaque everywhere but left the local question open
+"""
+see = ["minimap/cone-rays-stop-at-first-edge", "minimap/boxes-block-unless-raised"]
+phrases = ["bright white lines are walls", "white lines are walls"]
+
+[boxes-block-unless-raised]
+claim = """
+A box is a solid obstacle drawn as a closed shape inside the play area. Most
+boxes reach head height and block the view of a player standing behind them,
+but a jump lets the cone extend past them. The flat minimap shows no height,
+so a box's effect on a cone varies with the caster.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+source = """
+the player, 2026-09-29: many boxes carry only one or two of their edges in the
+baked geometry, so a cone passes the missing sides; boxes block unless the
+caster jumps or stands higher
+"""
+use = """
+keep a box a separate occluder class from a full-height wall: a wall always
+stops a ray; a box stops it by default, and cone.box_crossings reports which
+boxes each cone crossed so the drawn light can decide whether a pass happened
+"""
+see = ["minimap/white-lines-are-walls", "minimap/cone-rays-stop-at-first-edge"]
+phrases = ["a jump lets the cone extend past", "boxes block unless"]
+
+[floor-shade-is-elevation]
+claim = """
+The minimap's floor shading shows elevation: a lighter grey floor is raised,
+a darker grey floor is lower or under an overhang. On Ascent the raised
+platform on the right side of mid and A heaven are drawn lighter; A hell,
+under the overhang, is drawn darker.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29, while reading the cone-walls sheets"
+use = """
+the baked geometry keeps each floor pixel's shade rung from the map art
+(`shade_kind`, `shade_step`, prototypes/map_shade.py), never from session
+pixels; the rung is an elevation level, not a lighting state. The raycast does
+not use it yet
+"""
+see = ["minimap/boxes-block-unless-raised"]
+phrases = ["lighter grey is raised", "floor shading shows elevation"]

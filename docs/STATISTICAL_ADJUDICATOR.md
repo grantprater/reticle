@@ -1283,6 +1283,138 @@ does the minimap draw in yellow, yours or the teammate you spectate
 (`5822b6646448_self_kept_confirmed.png`, 1617.17 s and 2164.57 s;
 `c40d950031bb_self_kept_not_confirmed.png`, 613.12 s)?
 
+## E9: the cones pass the drawn walls
+
+The player read `c40d950031bb_dark_frames.png` (E7): at 572.20 s and 928.07 s
+the cones pass several walls. Task `cone-walls-20260929`, predictions W1-W5
+logged first; `prototypes/cone_walls.py` (`cone-walls-0.1.0`) measures, and
+`reticle/occluders.py` builds the fix. Sheets are in the store's
+`analysis/cone-walls-20260929/`.
+
+**The cause is the wall classes, not the raycast and not the placement.** A
+ray stopped only at `labels == BOXEDGE`, and `labels` comes from the wiki
+art, warped into widget pixels with one winner per pixel. The art's thin line
+work covers under half of most widget pixels and loses them to the floor
+beside it; the white lines the widget itself draws were FLOOR. The map's
+border (`BORDER`) never stopped a ray either, and the floor mask's dilation
+let rays run into the void beyond it. The player's reading
+[domain:minimap/white-lines-are-walls] is right: on Ascent the line between B
+main and B site was open.
+
+- *The raycast is sound.* The vectorised cast equals the loop reference on
+  every checked cone ([metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_loop_mismatch_px=0] pixels differ), and sealing
+  diagonal steps changes the measured leak by under a hundredth.
+- *The baked static sits on the drawn walls* at both widget sizes: best shift
+  0, scale [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_scale_x=1.0], and [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_align_baked_drawn_within_1px=0.9733] of
+  the drawn line pixels on c40d lie within 1 px of the static's lines
+  ([metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#a06f_align_baked_drawn_within_1px=0.9896] on a06f04a0059f).
+- *The art does not.* Within 1 px of the art's walls lie
+  [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_align_art_drawn_within_1px=0.6142] of c40d's drawn line pixels at 331 px
+  against [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#a06f_align_art_drawn_within_1px=0.9048] on a06f04a0059f at 465 px. At
+  465 px most missing lines carry art line coverage of 0.25-0.5 (lost to the
+  warp's winner); at 331 px most carry none, and the art's stored fit on
+  `ascent__valorant-16x9` sits about 1% small in scale.
+- *Boxes.* The static draws boxes as faint closed outlines; the art carries one
+  or two of their sides. Of the closed outlines on
+  `ascent__valorant-16x9-bigmap`, [metric:cone_walls/boxes@all-keys#ascent__valorant-16x9-bigmap_open_to_rays=13] of
+  [metric:cone_walls/boxes@all-keys#ascent__valorant-16x9-bigmap_boxes=17] were open to a ray in the old grid; on
+  `sunset__valorant-16x9-bigmap` [metric:cone_walls/boxes@all-keys#sunset__valorant-16x9-bigmap_open_to_rays=15] of
+  [metric:cone_walls/boxes@all-keys#sunset__valorant-16x9-bigmap_boxes=18] (`boxes_worst.png`).
+
+**The fix.** `occluders` reads the walls and boxes from the baked static
+(the builder's one capture-derived array) into an additive occluder table,
+`occ` and `box_id`, stamped `occ_built_by`; `cone.passable_from` stops rays at
+it; a wall is a bright line or the art's border, a box a fitted closed shape
+or a faint mark, and `cone.box_crossings` reports which boxes a cone crossed
+[domain:minimap/boxes-block-unless-raised]. An origin on an occluder moves to
+the nearest open pixel within 2 px (`cone.snap_origin`).
+
+**The share of each cast cone beyond a drawn wall** (the instrument: each
+frame's own lines that the frame half the session away also draws, icons and
+light slivers removed):
+
+| session | widget | before | walls | walls and boxes |
+|---|---|---|---|---|
+| c40d950031bb | 331 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_old_beyond_share=0.3266] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_walls_beyond_share=0.0289] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_walls_boxes_beyond_share=0.0007] |
+| 9acf02f98283 | 331 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#9acf_old_beyond_share=0.2856] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#9acf_walls_beyond_share=0.0327] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#9acf_walls_boxes_beyond_share=0.0021] |
+| 3694746e4e54 | 331 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#3694_old_beyond_share=0.3152] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#3694_walls_beyond_share=0.046] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#3694_walls_boxes_beyond_share=0.0021] |
+| a06f04a0059f | 465 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#a06f_old_beyond_share=0.2334] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#a06f_walls_beyond_share=0.0397] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#a06f_walls_boxes_beyond_share=0.0006] |
+| 5822b6646448 | 465 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#5822_old_beyond_share=0.1119] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#5822_walls_beyond_share=0.0208] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#5822_walls_boxes_beyond_share=0.0] |
+| 7010b3d62460 | 465 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#7010_old_beyond_share=0.1105] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#7010_walls_beyond_share=0.0235] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#7010_walls_boxes_beyond_share=0.0046] |
+
+The 331 px sessions leaked more because the art's warp loses more there. The
+"walls" column leaves boxes open, and the instrument counts a drawn box
+outline as a wall, so its remainder is box crossings.
+
+**E7's team F1 on E7's frames** (the product's eligible cones recast; the
+before column reproduces E7):
+
+| | c40d950031bb | 5822b6646448 | e78e75b2d191 |
+|---|---|---|---|
+| before | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_old_f1=0.3389] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_old_f1=0.4803] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_old_f1=0.6367] |
+| walls, boxes open | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_walls_f1=0.3488] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_walls_f1=0.4658] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_walls_f1=0.6568] |
+| walls and boxes | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_walls_boxes_f1=0.3195] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_walls_boxes_f1=0.4661] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_walls_boxes_f1=0.6] |
+| precision, before / after | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_old_precision=0.3562] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_walls_boxes_precision=0.7147] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_old_precision=0.6573] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_walls_boxes_precision=0.7394] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_old_precision=0.7074] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_walls_boxes_precision=0.8841] |
+| recall, before / after | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_old_recall=0.3233] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_walls_boxes_recall=0.2058] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_old_recall=0.3784] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_walls_boxes_recall=0.3403] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_old_recall=0.5788] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_walls_boxes_recall=0.4541] |
+
+Precision roughly doubles at 331 px and recall falls: a cone that ran through
+walls took credit for light it could not see. Of the light the old cones
+reached and the new ones do not, [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_lost_uncast_share=0.6747] on c40d and
+[metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_lost_uncast_share=0.3808] on Lotus is joined to a teammate the product casts
+no cone for (E7's cause e); the rest is light a misdirected leaking cone
+covered by chance, or a doorway the classes close. Light beyond a crossed box
+is lit at [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_box_beyond_lit_share=0.5631] on c40d,
+[metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_box_beyond_lit_share=0.2342] on Lotus and [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_box_beyond_lit_share=0.9667] on
+the spawn clip, where most of it lies past one floor decal the builder calls a
+box: the per-box pass rate varies from near 0 to near 1, which is the case
+for a per-box prior.
+
+**Against the predictions.** W1 held. W2 held. W3 held for the static and
+failed for the art, which is misplaced at 331 px. W4 failed: every session
+leaked, but the 331 px sessions leaked more. W5 failed on F1: the beyond-wall
+share fell under 1% on every session, but recall fell by more than 0.05 on
+c40d and e78e, and F1 fell with boxes closed.
+
+**The enemy smoke at 572.20 s.** An enemy smoke sits in the B main choke,
+and the teammates' drawn light stops at it
+[domain:minimap/enemy-smokes-block-cones]. With the walls closed, the cast
+cones there shrink to the choke; the missing light past it is evidence for the
+enemy-smoke inference, not built here.
+
+**Proposed, not built: a per-box pass rate.** Pool, per `(key, box_id)`, the
+light found beyond the box over every crossing (`cone.box_crossings`), under
+a new occluder stamp; E1's pooled box-edge transparency (0.12) is the prior's
+starting point, and a box whose beyond-light is lit on most crossings (a
+floor decal, a stair mark) becomes passable. A jump witness would be light
+beyond a box on isolated frames of an otherwise blocking box; no channel shows
+one yet.
+
+### Proposed, not built: elevation in the raycast
+
+The floor's shade is elevation [domain:minimap/floor-shade-is-elevation], and
+the baked geometry already keeps it: `map_shade` quantises the map ART into
+grey rungs and warps them into widget pixels as `shade_kind` (FLOOR, RAMP,
+SHADOW) and `shade_step` (rungs above the base floor). No capture enters it,
+so the drawn light, the widget's transparency and a session's lighting cannot
+reach it. The fetched art shows 3 floor rungs on Abyss and Lotus, 6 on Ascent,
+5 on Haven, 4 on Split and Summit and 2 on Sunset, besides ramps and shadow.
+Three uses, none built:
+
+1. *A raised caster sees over a low box.* A caster whose origin sits on a
+   rung above a box's surrounding floor passes that box; the stored
+   `boxes_crossed` and the light beyond each crossing test it frame by frame.
+2. *An overhang hides the floor below from above.* Floor on a SHADOW (under an
+   overhang, like A hell) is not lit by a caster on the rung above; the drawn
+   light on those pixels confirms or refutes it.
+3. *A step down is not a wall.* A ray crossing from a high rung to a low one
+   continues; what it lights below a drop is the light's to confirm.
+
+The drawn light can confirm (1) and (2) directly, since both predict light or
+its absence at named pixels. It cannot see height itself, so a pass the light
+shows with no rung difference is a jump or an error, and is stored apart. On
+`ascent__valorant-16x9` the art's placement is about 1% small in scale, so a
+rung boundary there may sit 1-2 px off.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
