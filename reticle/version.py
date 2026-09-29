@@ -108,7 +108,15 @@ ECONOMY_VERSION = "economy-0.1.0"
 # named agent ([metric:scoreboard/speed-float32@fixture#bar_changed_boards=0] of [metric:scoreboard/speed-float32@fixture#boards=456]);
 # [metric:scoreboard/speed-float32@fixture#rounded_scores_differ=19] of [metric:scoreboard/speed-float32@fixture#rounded_scores=115420] rounded scores move, by
 # at most [metric:scoreboard/speed-float32@fixture#max_score_diff=0.0001].
-SCOREBOARD_VERSION = "scoreboard-0.12.0"
+# 0.13.0: one CUDA kernel scores every portrait of a frame, with exact
+# integer masked sums and a float64 finish, so a window's scores no longer
+# depend on the batch; the coverage row names `cupy-exact`. Every decoded
+# board reads as 0.11.0 read it, portrait scores included
+# ([metric:scoreboard/speed-batch@fixture#boards_identical_float64=456] of [metric:scoreboard/speed-batch@fixture#boards=456]); against 0.12.0 no board
+# changes a verdict, an edge, a row or a named agent
+# ([metric:scoreboard/speed-batch@fixture#bar_changed_boards=0]), and the [metric:scoreboard/speed-batch@fixture#rounded_scores_differ=19] rounded scores
+# 0.12.0 moved move back.
+SCOREBOARD_VERSION = "scoreboard-0.13.0"
 # Stored versions whose accepted openings the current reader does not
 # contradict. A consumer of VERDICTS (the lineup constraining its top bar by
 # the board) accepts these; `reticle plan` still names the rescan. 0.7.0 adds
@@ -131,10 +139,11 @@ SCOREBOARD_VERSION = "scoreboard-0.12.0"
 # [metric:scoreboard/table-rows@fixture#accepted_both=335]), and the [metric:scoreboard/table-rows@fixture#accepted_lost=5] accepted openings it refuses sit at the
 # board, so 0.10.0 stays applied. 0.12.0 changes only the fourth decimal of
 # a few scores and no verdict or agent ([metric:scoreboard/speed-float32@fixture#bar_changed_boards=0] boards
-# change), so 0.11.0 stays applied.
+# change), so 0.11.0 stays applied. 0.13.0 moves the same fourth decimals
+# back and changes no verdict, so 0.12.0 stays applied.
 SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", "scoreboard-0.8.0",
                                  "scoreboard-0.9.0", "scoreboard-0.10.0", "scoreboard-0.11.0",
-                                 SCOREBOARD_VERSION)
+                                 "scoreboard-0.12.0", SCOREBOARD_VERSION)
 # The round-history strip as a second presence witness of the Tab board, read
 # by `scoreboard_strip` from the hud crop cache's `center` crop and written as
 # `scoreboard_strip` rows by `reticle strip`. 0.1.0 ports the rule and

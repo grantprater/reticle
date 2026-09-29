@@ -596,9 +596,13 @@ def read_scoreboard(
         if not icons:
             return ScoreboardRead(False, reason=unconfirmed, **closed)
         px = max(0, x0)
-        scores = [portrait_agent(frame, (px, a, px + (z - a), z), icons,
-                                 cache)["portrait_agent_score"]
-                  for a, z in _split(enemy)]
+        boxes = [(px, a, px + (z - a), z) for a, z in _split(enemy)]
+        # With a cache the ally portraits ride in the same batch, and
+        # `portrait_observations` finds all ten there: one GPU launch and
+        # one copy back a frame. The ally scores decide nothing here.
+        ahead = [(px, a, px + (z - a), z) for a, z in _split(ally)] if cache is not None else []
+        scores = [got["portrait_agent_score"] for got in
+                  portrait_agents(frame, boxes + ahead, icons, cache)[:len(boxes)]]
         if None in scores or min(scores) < PORTRAIT_CONFIRM_MIN:
             return ScoreboardRead(False, reason=unconfirmed, **closed)
         confirm = "portraits"
@@ -723,6 +727,11 @@ def _copied(result: dict) -> dict:
     return result if scores is None else {**result, "portrait_agent_scores": dict(scores)}
 
 
+_EMPTY = {"portrait_agent_best": None, "portrait_agent_score": None,
+          "portrait_agent_second": None, "portrait_agent_margin": None,
+          "portrait_gain": None, "portrait_agent_scores": None}
+
+
 def portrait_agent(frame: np.ndarray, box: tuple[int, int, int, int],
                    icons: dict, cache: PortraitCache | None = None) -> dict:
     """Raw agent-art scores for one portrait box, and its brightness gain.
@@ -735,34 +744,58 @@ def portrait_agent(frame: np.ndarray, box: tuple[int, int, int, int],
     enough to trust either number. `cache` returns the result for a window
     scored before, pixel for pixel, with the same scorer and art.
     """
-    empty = {"portrait_agent_best": None, "portrait_agent_score": None,
-             "portrait_agent_second": None, "portrait_agent_margin": None,
-             "portrait_gain": None, "portrait_agent_scores": None}
+    return portrait_agents(frame, [box], icons, cache)[0]
+
+
+def portrait_agents(frame: np.ndarray, boxes, icons: dict,
+                    cache: PortraitCache | None = None) -> list[dict]:
+    """`portrait_agent` for each box of one frame, scored together.
+
+    On the GPU every window the cache does not hold goes to one kernel
+    launch with one copy back (`_art_scores_gpu_batch`). A window's result
+    depends only on its own pixels, so each equals `portrait_agent` on its
+    box alone, whatever else shares the batch. Identical windows are scored
+    once.
+    """
     if not icons:
-        return {**empty, "portrait_agent_reason": "no_agent_icons"}
-    x0, y0, x1, y1 = box
-    win = frame[max(0, y0 - AGENT_PAD):max(0, y1 + AGENT_PAD),
-                max(0, x0 - AGENT_PAD):max(0, x1 + AGENT_PAD)]
+        return [{**_EMPTY, "portrait_agent_reason": "no_agent_icons"} for _ in boxes]
     gallery = _gpu_gallery(icons)
-    key = None
-    if cache is not None:
-        key = (gallery is not None, win.shape, win.dtype.str, win.tobytes())
-        got = cache.get(key, icons)
-        if got is not None:
-            return got
-    out = _portrait_agent_scored(win, icons, gallery, empty)
-    if cache is not None:
-        cache.put(key, out)
+    wins = [_portrait_window(frame, box) for box in boxes]
+    out: list = [None] * len(wins)
+    todo: dict = {}                     # key -> the indices of the windows it scores
+    for k, win in enumerate(wins):
+        key = k
+        if cache is not None:
+            key = (gallery is not None, win.shape, win.dtype.str, win.tobytes())
+            got = cache.get(key, icons)
+            if got is not None:
+                out[k] = got
+                continue
+        todo.setdefault(key, []).append(k)
+    first = [ks[0] for ks in todo.values()]
+    scored = (_art_scores_gpu_batch([wins[k] for k in first], gallery) if gallery is not None
+              else [_art_scores_cpu(wins[k], icons) for k in first])
+    for (key, ks), (scores, where) in zip(todo.items(), scored):
+        got = _portrait_result(wins[ks[0]], icons, scores, where)
+        for j in ks:
+            out[j] = _copied(got)
+        if cache is not None:
+            cache.put(key, got)
     return out
 
 
-def _portrait_agent_scored(win: np.ndarray, icons: dict, gallery, empty: dict) -> dict:
-    """`portrait_agent`'s result for the window around the portrait box."""
-    scores, where = (_art_scores_gpu(win, gallery) if gallery is not None
-                     else _art_scores_cpu(win, icons))
+def _portrait_window(frame: np.ndarray, box: tuple[int, int, int, int]) -> np.ndarray:
+    """The pixels searched for the agent art: the box grown by AGENT_PAD."""
+    x0, y0, x1, y1 = box
+    return frame[max(0, y0 - AGENT_PAD):max(0, y1 + AGENT_PAD),
+                 max(0, x0 - AGENT_PAD):max(0, x1 + AGENT_PAD)]
+
+
+def _portrait_result(win: np.ndarray, icons: dict, scores: dict, where: dict) -> dict:
+    """`portrait_agent`'s result from every agent's best score and place."""
     ranked = sorted(scores.items(), key=lambda kv: -kv[1])
     if len(ranked) < 2 or where[ranked[0][0]] is None:
-        return {**empty, "portrait_agent_reason": "portrait_box_smaller_than_art"}
+        return {**_EMPTY, "portrait_agent_reason": "portrait_box_smaller_than_art"}
     name = ranked[0][0]
     i, (x, y) = where[name]
     t, m = icons[name][0][i], icons[name][1][i][:, :, 0] > 0
@@ -798,20 +831,98 @@ def _art_scores_cpu(win: np.ndarray, icons: dict) -> tuple[dict, dict]:
 
 # `RETICLE_SCOREBOARD=cpu` forces OpenCV; `=gpu` refuses to fall back; `auto`
 # (the default) scores on the GPU when cupy and a CUDA device are present.
-_GPU_GALLERIES: dict[int, tuple[dict, object]] = {}
+# The galleries of the last few agent-art dicts stay on the GPU, each kept
+# with its dict so a reused id() never returns another dict's art.
+_GPU_GALLERIES: OrderedDict = OrderedDict()
+_GPU_GALLERIES_HELD = 4
+_GPU_KERNEL = None
+_GPU_THREADS = 128
+
+# One block per (window, scale, agent); its threads walk the window's
+# placements. Every masked sum is over integers (pixels and art are 0-255),
+# held exactly in int32; only the per-placement finish is in float64. The
+# block keeps the largest score and, among equal scores, the first
+# placement in row-major order, as `cv2.minMaxLoc` does.
+_GPU_SOURCE = r"""
+#define THREADS %d
+extern "C" __global__
+void portrait_scores(const unsigned char* img, const int* hw, const unsigned char* art,
+                     const unsigned char* mask, const int* scale, const double* mean,
+                     const double* area, const double* tnorm, int S, int A, int Hm, int Wm,
+                     double* out)
+{
+    int a = blockIdx.x %% A, s = (blockIdx.x / A) %% S, k = blockIdx.x / (A * S);
+    int th = scale[4 * s], tw = scale[4 * s + 1];
+    const unsigned char* t = art + scale[4 * s + 2] + (size_t)a * th * tw * 3;
+    const unsigned char* m = mask + scale[4 * s + 3] + (size_t)a * th * tw;
+    const unsigned char* im = img + (size_t)k * Hm * Wm * 3;
+    int ny = hw[2 * k] - th + 1, nx = hw[2 * k + 1] - tw + 1;
+    int npos = (ny > 0 && nx > 0) ? ny * nx : 0;
+    int sa = s * A + a;
+    double ar = area[sa], tn = tnorm[sa];
+    double mu0 = mean[3 * sa], mu1 = mean[3 * sa + 1], mu2 = mean[3 * sa + 2];
+    double best = -2.0;
+    int where = 0x7fffffff;
+    for (int p = threadIdx.x; p < npos; p += THREADS) {
+        int y = p / nx, x = p %% nx;
+        int s10 = 0, s11 = 0, s12 = 0, s20 = 0, s21 = 0, s22 = 0, v0 = 0, v1 = 0, v2 = 0;
+        for (int i = 0; i < th; ++i) {
+            const unsigned char* row = im + ((size_t)(y + i) * Wm + x) * 3;
+            for (int j = 0; j < tw; ++j) {
+                if (!m[i * tw + j]) continue;
+                const unsigned char* q = row + 3 * j;
+                const unsigned char* u = t + 3 * (i * tw + j);
+                int c0 = q[0], c1 = q[1], c2 = q[2];
+                s10 += c0; s11 += c1; s12 += c2;
+                s20 += c0 * c0; s21 += c1 * c1; s22 += c2 * c2;
+                v0 += c0 * u[0]; v1 += c1 * u[1]; v2 += c2 * u[2];
+            }
+        }
+        double num = ((double)v0 - mu0 * s10) + ((double)v1 - mu1 * s11)
+                   + ((double)v2 - mu2 * s12);
+        double var = ((double)s20 - (double)s10 * s10 / ar)
+                   + ((double)s21 - (double)s11 * s11 / ar)
+                   + ((double)s22 - (double)s12 * s12 / ar);
+        double den = sqrt(fmax(var, 0.0) * tn);
+        double r = den > 0 ? num / den : -1.0;
+        if (r > best) { best = r; where = p; }
+    }
+    __shared__ double vb[THREADS];
+    __shared__ int wb[THREADS];
+    vb[threadIdx.x] = best;
+    wb[threadIdx.x] = where;
+    __syncthreads();
+    for (int h = THREADS / 2; h > 0; h >>= 1) {
+        if (threadIdx.x < h) {
+            double ov = vb[threadIdx.x + h];
+            int ow = wb[threadIdx.x + h];
+            if (ov > vb[threadIdx.x] || (ov == vb[threadIdx.x] && ow < wb[threadIdx.x])) {
+                vb[threadIdx.x] = ov;
+                wb[threadIdx.x] = ow;
+            }
+        }
+        __syncthreads();
+    }
+    if (threadIdx.x == 0) {
+        out[2 * blockIdx.x] = vb[0];
+        out[2 * blockIdx.x + 1] = npos ? (double)wb[0] : -1.0;
+    }
+}
+""" % _GPU_THREADS
 
 
 def portrait_scorer() -> str:
     """Which scorer `portrait_agent` uses in this process, for provenance."""
-    return "cupy-float32" if _gpu_gallery(None) is not None else "opencv-float32"
+    return "cupy-exact" if _gpu_gallery(None) is not None else "opencv-float32"
 
 
 def _gpu_gallery(icons: dict | None):
-    """The agent art stacked per scale on the GPU, or None to score on the CPU.
+    """The agent art on the GPU, or None to score on the CPU.
 
-    `icons=None` asks only whether the GPU path is available. The gallery is
-    built once per icons dict and kept with it: the zero-mean art and its
-    norms are computed in float64 and held in float32.
+    `icons=None` asks only whether the GPU path is available. The gallery
+    holds every scale's art and mask as bytes, and each agent's masked mean,
+    masked area and zero-mean art norm per scale, computed in float64. It is
+    built once per icons dict; the last `_GPU_GALLERIES_HELD` stay.
     """
     mode = os.environ.get("RETICLE_SCOREBOARD", "auto").lower()
     if mode not in ("auto", "cpu", "gpu"):
@@ -830,67 +941,101 @@ def _gpu_gallery(icons: dict | None):
         return True
     held = _GPU_GALLERIES.get(id(icons))
     if held is not None and held[0] is icons:
+        _GPU_GALLERIES.move_to_end(id(icons))
         return held[1]
     names = list(icons)
-    per_scale = []
-    f32 = lambda a: cp.asarray(a, dtype=cp.float32)
+    arts, masks, scales, means, areas, norms = [], [], [], [], [], []
+    art_at = mask_at = 0
     for i in range(min(len(ims) for ims, _ in icons.values())):
-        t = np.stack([icons[n][0][i] for n in names]).astype(np.float64)
-        m = np.stack([icons[n][1][i] for n in names]).astype(np.float64)
-        area = np.maximum(m.sum(axis=(1, 2)), 1)                    # (agents, 3)
-        mean = (t * m).sum(axis=(1, 2)) / area
-        tz = (t - mean[:, None, None, :]) * m                       # zero-mean art
-        per_scale.append((t.shape[1], t.shape[2], f32(tz), f32(m), f32(area),
-                          f32((tz ** 2).sum(axis=(1, 2, 3)))))
-    gallery = (names, per_scale)
+        t = np.ascontiguousarray(np.stack([icons[n][0][i] for n in names]), dtype=np.uint8)
+        m = np.stack([icons[n][1][i][:, :, 0] for n in names]) > 0    # (agents, th, tw)
+        th, tw = t.shape[1:3]
+        # A masked sum of pixel products must fit the kernel's int32.
+        if 255 * 255 * th * tw >= 2 ** 31:
+            raise ValueError(f"agent art {th}x{tw} is too large for the GPU scorer")
+        scales.append((th, tw, art_at, mask_at))
+        arts.append(t.ravel())
+        masks.append(m.astype(np.uint8).ravel())
+        art_at, mask_at = art_at + t.size, mask_at + m.size
+        tf, mf = t.astype(np.float64), m[..., None].astype(np.float64)
+        area = np.maximum(m.sum(axis=(1, 2)), 1).astype(np.float64)   # (agents,)
+        mean = (tf * mf).sum(axis=(1, 2)) / area[:, None]             # (agents, 3)
+        means.append(mean)
+        areas.append(area)
+        norms.append((((tf - mean[:, None, None, :]) * mf) ** 2).sum(axis=(1, 2, 3)))
+    arrays = {"art": cp.asarray(np.concatenate(arts)),
+              "mask": cp.asarray(np.concatenate(masks)),
+              "scale": cp.asarray(np.array(scales, dtype=np.int32).ravel()),
+              "mean": cp.asarray(np.array(means)), "area": cp.asarray(np.array(areas)),
+              "tnorm": cp.asarray(np.array(norms))}
+    gallery = (names, [(th, tw) for th, tw, _, _ in scales], arrays)
     _GPU_GALLERIES[id(icons)] = (icons, gallery)
+    while len(_GPU_GALLERIES) > _GPU_GALLERIES_HELD:
+        _GPU_GALLERIES.popitem(last=False)
     return gallery
 
 
 def _art_scores_gpu(win: np.ndarray, gallery) -> tuple[dict, dict]:
-    """`_art_scores_cpu` in float32 on the GPU, every agent of a scale at once.
+    """`_art_scores_cpu` on the GPU for one window (`_art_scores_gpu_batch`)."""
+    return _art_scores_gpu_batch([win], gallery)[0]
 
-    The same masked normalised correlation: sum((I - mean_I) * (T - mean_T))
-    over the mask, over the root of both masked variances, summed over the
-    three channels as OpenCV sums them. The window is first shifted by its
-    per-channel mean, rounded to an integer: the correlation does not
-    change, every pixel stays an exact integer in float32, and the masked
-    sums stay small enough that the variance keeps its precision. On the
-    fixture's boards (docs/SCOREBOARD_PRESENCE.md, "Portrait scoring time")
-    this moves a rounded score against the float64 scorer of 0.6.0-0.11.0
-    by at most 0.0001, and no best agent. A zero variance scores -1, as
-    OpenCV's NaN does after `nan_to_num`. The first maximum in row-major
-    order wins, as in `cv2.minMaxLoc`, and a later scale must beat an
-    earlier one strictly.
+
+def _art_scores_gpu_batch(wins: list, gallery) -> list[tuple[dict, dict]]:
+    """`_art_scores_cpu` for every window at once: one kernel, one copy back.
+
+    The same masked normalised correlation, summed over the three channels
+    as OpenCV sums them: sum((I - mean_I) * (T - mean_T)) over the mask,
+    over the root of both masked variances. Written as sum(I*T) - mean_T *
+    sum(I) and sum(I*I) - sum(I)^2 / area, every masked sum is a sum of
+    integers and exact, so no summation order can move it; the finish is in
+    float64. A window's scores therefore depend only on its own pixels, not
+    on the batch, and equal the float64 scorer of 0.6.0-0.11.0 to about
+    1e-14 (docs/SCOREBOARD_PRESENCE.md, "Portrait scoring time"). A zero
+    variance scores -1, as OpenCV's NaN does after `nan_to_num`. The first
+    maximum in row-major order wins, as in `cv2.minMaxLoc`, and a later
+    scale must beat an earlier one strictly.
     """
     import cupy as cp
-    names, per_scale = gallery
-    centre = np.rint(win.reshape(-1, 3).mean(axis=0))
-    img = cp.asarray(win.astype(np.float32) - centre.astype(np.float32))
-    found = []
-    for i, (th, tw, tz, m, area, tnorm) in enumerate(per_scale):
-        if th > win.shape[0] or tw > win.shape[1]:
-            continue
-        v = cp.lib.stride_tricks.sliding_window_view(img, (th, tw, 3))[:, :, 0]
-        num = cp.einsum("yxijc,aijc->ayx", v, tz)
-        s1 = cp.einsum("yxijc,aijc->ayxc", v, m)
-        s2 = cp.einsum("yxijc,aijc->ayxc", v * v, m)
-        var = (s2 - s1 * s1 / area[:, None, None, :]).sum(-1)
-        den = cp.sqrt(cp.maximum(var, 0) * tnorm[:, None, None])
-        r = cp.where(den > 0, num / cp.where(den > 0, den, 1.0), -1.0)
-        flat = r.reshape(len(names), -1)
-        arg = flat.argmax(axis=1)
-        found.append((i, r.shape[2], cp.asnumpy(flat[cp.arange(len(names)), arg]),
-                      cp.asnumpy(arg)))
-    scores, where = {}, {}
-    for a, name in enumerate(names):
-        best = (-1.0, None)
-        for i, width, vals, args in found:
-            if float(vals[a]) > best[0]:
-                y, x = divmod(int(args[a]), width)
-                best = (float(vals[a]), (i, (x, y)))
-        scores[name], where[name] = best
-    return scores, where
+    global _GPU_KERNEL
+    names, sizes, arrays = gallery
+    empty = ({n: -1.0 for n in names}, {n: None for n in names})
+    fit = [k for k, w in enumerate(wins)
+           if any(th <= w.shape[0] and tw <= w.shape[1] for th, tw in sizes)]
+    out = [empty] * len(wins)
+    if not fit:
+        return out
+    for k in fit:
+        if wins[k].dtype != np.uint8 or wins[k].ndim != 3 or wins[k].shape[2] != 3:
+            raise ValueError("the GPU scorer reads 8-bit three-channel windows")
+    if _GPU_KERNEL is None:
+        _GPU_KERNEL = cp.RawKernel(_GPU_SOURCE, "portrait_scores")
+    n, S, A = len(fit), len(sizes), len(names)
+    Hm = max(wins[k].shape[0] for k in fit)
+    Wm = max(wins[k].shape[1] for k in fit)
+    host = np.zeros((n, Hm, Wm, 3), np.uint8)
+    for j, k in enumerate(fit):
+        host[j, :wins[k].shape[0], :wins[k].shape[1]] = wins[k]
+    hw = np.array([wins[k].shape[:2] for k in fit], dtype=np.int32)
+    got = cp.empty(n * S * A * 2, dtype=cp.float64)
+    _GPU_KERNEL((n * S * A,), (_GPU_THREADS,),
+                (cp.asarray(host), cp.asarray(hw), arrays["art"], arrays["mask"],
+                 arrays["scale"], arrays["mean"], arrays["area"], arrays["tnorm"],
+                 np.int32(S), np.int32(A), np.int32(Hm), np.int32(Wm), got))
+    got = cp.asnumpy(got).reshape(n, S, A, 2)
+    for j, k in enumerate(fit):
+        h, w = wins[k].shape[:2]
+        scores, where = {}, {}
+        for a, name in enumerate(names):
+            best = (-1.0, None)
+            for i, (th, tw) in enumerate(sizes):
+                if th > h or tw > w:
+                    continue
+                if float(got[j, i, a, 0]) > best[0]:
+                    y, x = divmod(int(got[j, i, a, 1]), w - tw + 1)
+                    best = (float(got[j, i, a, 0]), (i, (x, y)))
+            scores[name], where[name] = best
+        out[k] = (scores, where)
+    return out
 
 
 def portrait_observations(frame: np.ndarray, board: ScoreboardRead,
@@ -908,7 +1053,7 @@ def portrait_observations(frame: np.ndarray, board: ScoreboardRead,
     """
     if not board.open_ or not board.rows:
         return []
-    result = []
+    result, boxes = [], []
     for index, row in enumerate(board.rows):
         height = row.y1 - row.y0
         x0 = max(0, board.x0)
@@ -921,14 +1066,16 @@ def portrait_observations(frame: np.ndarray, board: ScoreboardRead,
         # The histogram lives in `appearance` so the killfeed can describe its
         # own portraits with the SAME function. Two copies of it was the fork
         # this repo has a checker for.
-        got = {"display_row": index, "portrait_x0": x0,
-               "portrait_y0": row.y0, "portrait_x1": x0 + art.shape[1],
-               "portrait_y1": row.y1,
-               "portrait_detail": appearance.detail(art),
-               "portrait_composition": appearance.hsv_composition(art).tolist()}
-        if icons is not None:
-            got.update(portrait_agent(frame, (x0, row.y0, x0 + height, row.y1), icons, cache))
-        result.append(got)
+        result.append({"display_row": index, "portrait_x0": x0,
+                       "portrait_y0": row.y0, "portrait_x1": x0 + art.shape[1],
+                       "portrait_y1": row.y1,
+                       "portrait_detail": appearance.detail(art),
+                       "portrait_composition": appearance.hsv_composition(art).tolist()})
+        boxes.append((x0, row.y0, x0 + height, row.y1))
+    if icons is not None:
+        # Every portrait of the board in one batch (`portrait_agents`).
+        for got, scored in zip(result, portrait_agents(frame, boxes, icons, cache)):
+            got.update(scored)
     return result
 
 
