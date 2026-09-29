@@ -11,7 +11,7 @@ restates a stage, and every stage is its owner's call:
     stalled_at                             stalls         (stored primitives)
     lit_mask                               lighting       (pixels)
     resolve_lobe, observable               cone
-    SelfConeReader (self origin, facing)   teardrop       (pixels)
+    SelfConeReader, IconPoseReader         teardrop       (pixels: centre, facing)
     Tracker                                track
     light_support, distance_agreement      minimap_diagnostics
     Lifecycle                              minimap_lifecycle
@@ -32,20 +32,26 @@ ELIGIBLE cones (the adjudicated vision), and `observable_all`, the union of
 every tracked bearing (what `overlay` tints without `--minimap-lifecycle`).
 A stale or absent widget stores no mask and says which.
 
-**The self cone (0.2.0, 0.3.0).** The self cone starts at the teardrop's
-centre and faces the teardrop's facing (`teardrop.SelfConeReader`), wherever
-the principal self track is observed this frame and the shape reads. The ring
-fit's centre sits 2.8 to 4.4 px toward the apex, and E4 of
-docs/STATISTICAL_ADJUDICATOR.md found the rays start at the teardrop's centre
-with no offset [domain:minimap/cone-origin-near-centre]; the ring fit's
-facing flips on half of the Lotus frames the player labelled, the teardrop's
-on 7%. Where the teardrop is unread the cone starts at the ring fit's centre
-and faces the track's resolved lobe, or is not cast when the track refuses
-it. The stored self icon's `self_cone` names the `origin` (`teardrop` or
-`ring_fit`) and the `facing` (`teardrop`, `track`, or None) it used, with the
-teardrop's reason. The teardrop's facing does not enter the track's history.
-Teammates' cones start at their ring fits' centres along their tracks'
-facings.
+**Every cone from the teardrop (0.2.0-0.4.0).** The ring fit finds each
+icon; the teardrop reads its centre and facing (`teardrop.SelfConeReader`
+for the player, `teardrop.IconPoseReader` for teammates, scaled by
+`minimap.widget_scale`), and the tracker, the lifecycle and every cone take
+those in place of the ring fit's. The ring fit's centre sits 2.8 to 4.4 px
+toward the self apex, and E4 of docs/STATISTICAL_ADJUDICATOR.md found the
+rays start at the teardrop's centre with no offset
+[domain:minimap/cone-origin-near-centre]; the ring fit's facing flips on
+about half of the icons the player labelled, self and ally alike, the
+teardrop's on almost none (E6). A cone observed this frame faces this
+frame's teardrop facing, not the track's windowed mean. Where the teardrop
+is unread (`low_ncc`, `ambiguous_facing`, `no_key`) and `RING_FALLBACK`
+holds, the icon keeps the ring fit's centre and facing, the light resolves
+that facing's lobe (`cone.resolve_lobe`, which a teardrop facing never
+enters), and the cone faces the track's resolved lobe; without it the icon
+casts nothing. Each stored icon's `pose` names the `origin` (`teardrop` or
+`ring_fit`) and the `facing` (`teardrop`, `track`, or None) its cone used,
+with the teardrop's reason. On a widget drawn turned over the icons' facing
+arrows turn with the map [domain:minimap/upright-icons-on-turned-map], so the
+teardrop's facing needs no correction in the baked frame.
 
 **On demand.** `at` computes the rows at chosen instants only, starting the
 chain at the last cache gap its tracks and lifecycle expire across, so each
@@ -72,13 +78,22 @@ import numpy as np
 
 from . import cone as cone_mod
 from . import geometry, lighting
-from .teardrop import SelfConeReader
+from .teardrop import IconPoseReader, SelfConeReader, posed
 from .minimap import (ally_icons, floor_mask, minimap_roi_px, self_icons, slab_mask,
                       widget_drawn, widget_scale)
 from .minimap_diagnostics import DIAGNOSTICS_VERSION, distance_agreement, light_support
 from .minimap_lifecycle import LIFECYCLE_VERSION, Lifecycle
 from .stalls import STALL_VERSION, stalled_at
 from .track import Tracker
+
+#: An icon whose teardrop is unread casts from the ring fit along its track's
+#: resolved lobe (True), or casts nothing (False). See `TeamVision`. Measured
+#: by `prototypes/team_vision_eval.py` against the light joined to the team's
+#: icons on 5822b6646448: the fallback supplies an eighth of the cones, their
+#: pixels agree with the light less often than the teardrop cones' do (0.64
+#: against 0.71) but far more often than a flipped cone's would, and the
+#: team's F1 is 0.624 with it against 0.604 without.
+RING_FALLBACK = True
 
 
 @dataclass
@@ -145,10 +160,15 @@ class VisionFrame:
     adjudicated_resolved: list = field(default_factory=list)
     tracked: list = field(default_factory=list)
     eligible: set = field(default_factory=set)
-    #: Per `resolved` entry, where its cone starts: `(x, y, origin)`.
+    #: Per `resolved` entry, where its cone starts: `(x, y, origin)`, origin
+    #: `teardrop`, `ring_fit`, or None for a track not observed this frame.
     origins: list = field(default_factory=list)
-    #: The self cone's record (`teardrop.SelfConeReader.read` plus the
-    #: `facing` source), or None when the principal is not observed this frame.
+    #: Per `resolved` entry, its pose record (`TeamVision._posed`'s `pose`
+    #: plus `x`, `y`, the `facing` source and the track's `track_deg`), or
+    #: None for a track not observed this frame.
+    poses: list = field(default_factory=list)
+    #: The principal self icon's pose record, or None when it is not
+    #: observed this frame.
     self_cone: dict | None = None
     #: Per `resolved` entry, its cast cone (None where the bearing is refused).
     cones: list = field(default_factory=list)
@@ -161,7 +181,8 @@ class TeamVision:
 
     def __init__(self, floor, passable, sgray, *, width: int, slab=None, static=None,
                  light=None, stalls=None, origin_events=(), track_self=None,
-                 track_ally=None, lifecycle=None, distance_diagnostics=True):
+                 track_ally=None, lifecycle=None, distance_diagnostics=True,
+                 ring_fallback: bool = RING_FALLBACK):
         self.floor, self.passable, self.sgray = floor, passable, sgray
         self.slab, self.static, self.light = slab, static, light
         self.stalls, self.origin_events = stalls, tuple(origin_events or ())
@@ -171,6 +192,11 @@ class TeamVision:
         self.track_ally = track_ally if track_ally is not None else Tracker("walker", scale=self.scale)
         self.lifecycle = lifecycle if lifecycle is not None else Lifecycle(scale=self.scale)
         self.self_cone_reader = SelfConeReader(scale=self.scale)
+        self.ally_pose_reader = IconPoseReader("ally", scale=self.scale)
+        #: Whether an icon whose teardrop is unread casts from the ring fit's
+        #: centre along its track's resolved lobe. `RING_FALLBACK` is the
+        #: stored product's; the other value exists to measure the fallback.
+        self.ring_fallback = ring_fallback
         #: `distance_agreement` is a diagnostic `overlay` shows and nothing
         #: stores or decides on; it was 29% of `reticle vision`'s time, and
         #: the stored product runs without it.
@@ -219,41 +245,53 @@ class TeamVision:
         selves = self_icons(crop, self.floor, require_facing=False, support=self.slab)
         raw_allies, raw_selves = [dict(d) for d in allies], [dict(d) for d in selves]
 
-        # The light settles the ring fit's 180-degree lobe before the tracker
-        # sees the bearing (`cone.resolve_lobe`).
+        # The ring fit FINDS each icon; the teardrop supplies its centre and
+        # facing wherever it reads (`teardrop.SelfConeReader`,
+        # `teardrop.IconPoseReader`), before the tracker sees either.
+        allies = [self._posed(crop, d, self.ally_pose_reader) for d in allies]
+        selves = [self._posed(crop, d, self.self_cone_reader) for d in selves]
+
+        # The light settles the ring fit's 180-degree lobe (`cone.resolve_lobe`)
+        # on a fallback bearing only; a teardrop points one way.
         lit = None
         if self.light is not None:
             lit = lighting.lit_mask(crop, self.light)
-            allies = cone_mod.resolve_lobe(self.passable, lit, allies, visible=self.floor)
-            selves = cone_mod.resolve_lobe(self.passable, lit, selves, visible=self.floor)
+            allies = self._resolve_fallback(lit, allies)
+            selves = self._resolve_fallback(lit, selves)
 
-        # Bearings come from the TRACKS, not from this frame's fit
-        # (`track.Track.resolved_facing`); the self bearing gives way to the
-        # teardrop's below.
         self.track_self.step(t_ms, selves)
         self.track_ally.step(t_ms, allies)
         principal = self.track_self.principal()
         self_tracks = [principal] if principal is not None else []
         resolved = (self.track_ally.bearings(t_ms)
                     + self.track_self.bearings(t_ms, tracks=self_tracks))
+        tracked = ([("ally", tr) for tr in self.track_ally.tracks]
+                   + [("self", tr) for tr in self_tracks])
 
-        # Each cone starts at its track's position along its track's facing,
-        # except the self cone: where the principal is observed this frame and
-        # the teardrop reads (`teardrop.SelfConeReader`), it starts at the
-        # teardrop's centre along the teardrop's facing. Otherwise it starts
-        # at the ring fit's centre along the track's resolved lobe, if any.
-        origins = [(bx, by, "ring_fit") for bx, by, _deg, _c in resolved]
-        self_cone = None
-        if principal is not None and principal.t_ms == t_ms:
-            self_cone = self.self_cone_reader.read(crop, principal.x, principal.y)
-            x, y, track_deg, _carried = resolved[-1]
-            if self_cone["deg"] is not None:
-                resolved[-1] = (x, y, self_cone["deg"] % 360.0, False)
-                self_cone["facing"] = "teardrop"
+        # Each cone observed this frame starts at its detection's teardrop
+        # centre and faces this frame's teardrop facing. Where the teardrop is
+        # unread it starts at the ring fit's centre along the track's resolved
+        # lobe, if `ring_fallback` and the track resolves one, and each pose
+        # record names both sources. A track not observed this frame casts
+        # nothing (`track.Tracker.bearings`).
+        posed = {"ally": {(d["cx"], d["cy"]): d for d in allies},
+                 "self": {(d["cx"], d["cy"]): d for d in selves}}
+        origins, poses = [], []
+        for i, ((role, tr), (x, y, track_deg, _c)) in enumerate(zip(tracked, resolved)):
+            d = posed[role].get((tr.x, tr.y)) if tr.t_ms == t_ms else None
+            if d is None:
+                origins.append((x, y, None))
+                poses.append(None)
+                continue
+            pose = dict(d["pose"], x=float(x), y=float(y), track_deg=track_deg)
+            if pose["origin"] == "teardrop":
+                resolved[i] = (x, y, d["facing"], False)
+                pose["facing"] = "teardrop"
             else:
-                self_cone["facing"] = "track" if track_deg is not None else None
-            self_cone["track_deg"] = track_deg
-            origins[-1] = (self_cone["x"], self_cone["y"], self_cone["origin"])
+                pose["facing"] = "track" if track_deg is not None else None
+            origins.append((x, y, pose["origin"]))
+            poses.append(pose)
+        self_cone = poses[-1] if self_tracks else None
 
         # Three-tuples ONLY: `resolved`'s fourth element is `interpolated`,
         # and `observable`'s fourth is a per-icon HALF-ANGLE.
@@ -293,8 +331,6 @@ class TeamVision:
         diagnostic["lifecycle_version"] = LIFECYCLE_VERSION
         diagnostic["adjudication"] = adjudicated
         eligible = {row["observation_key"] for row in adjudicated if row["eligible"]}
-        tracked = ([("ally", tr) for tr in self.track_ally.tracks]
-                   + [("self", tr) for tr in self_tracks])
         adjudicated_resolved = [
             (x, y, deg if f"{role}:{tr.tid}" in eligible else None, carried)
             for (role, tr), (x, y, deg, carried) in zip(tracked, resolved)]
@@ -311,9 +347,27 @@ class TeamVision:
         return VisionFrame(t_ms, "drawn", diagnostic, allies=allies, selves=selves,
                            principal=principal, resolved=resolved,
                            adjudicated_resolved=adjudicated_resolved, tracked=tracked,
-                           eligible=eligible, origins=origins, self_cone=self_cone,
-                           cones=per_icon or [], observable_all=agg,
+                           eligible=eligible, origins=origins, poses=poses,
+                           self_cone=self_cone, cones=per_icon or [], observable_all=agg,
                            observable=adjudicated_agg)
+
+    def _posed(self, crop: np.ndarray, d: dict, reader) -> dict:
+        """The detection `d` posed by its teardrop (`teardrop.posed`). An
+        unread teardrop keeps the ring fit's centre and, only with
+        `ring_fallback`, its facing for the light to resolve; otherwise the
+        detection carries no facing and casts nothing."""
+        return posed(d, reader.read(crop, d["cx"], d["cy"]), ring_facing=self.ring_fallback)
+
+    def _resolve_fallback(self, lit, dets: list[dict]) -> list[dict]:
+        """`cone.resolve_lobe` on the detections whose facing is the ring fit's."""
+        idx = [i for i, d in enumerate(dets) if d["facing_source"] == "ring_fit"]
+        if not idx:
+            return dets
+        out = list(dets)
+        for i, e in zip(idx, cone_mod.resolve_lobe(self.passable, lit, [dets[i] for i in idx],
+                                                   visible=self.floor)):
+            out[i] = e
+        return out
 
 
 def _num(v):
@@ -323,10 +377,11 @@ def _num(v):
 def frame_row(frame: VisionFrame, frame_idx: int | None = None) -> dict:
     """The stored row for one frame: icons, eligibility and both packed masks.
 
-    The self icon carries `self_cone`: where its cone starts and which
-    witness gave its `facing` (`teardrop.SelfConeReader.read`, plus the
-    track's own bearing as `track_deg`); None when the principal is not
-    observed this frame. Every other icon's cone starts at its `x`, `y`.
+    Every icon's cone starts at its `x`, `y` along its `facing`. Its `pose`
+    says where both came from (`TeamVision._posed`): the `origin`
+    (`teardrop` or `ring_fit`), the `facing` source (`teardrop`, `track`,
+    or None), the teardrop's NCC and refusal `reason`, and the track's own
+    bearing as `track_deg`; None for a track not observed this frame.
     """
     row = {"kind": "frame", "t_ms": float(frame.t_ms), "frame_idx": frame_idx,
            "widget": frame.widget}
@@ -335,15 +390,13 @@ def frame_row(frame: VisionFrame, frame_idx: int | None = None) -> dict:
                    reason=frame.diagnostic.get("reason"))
         return row
     icons = []
-    for (role, tr), (x, y, deg, carried), (_x, _y, adj, _c) in zip(
-            frame.tracked, frame.resolved, frame.adjudicated_resolved):
-        icon = {"role": role, "track_id": int(tr.tid), "x": _num(x), "y": _num(y),
-                "facing": _num(deg), "interpolated": bool(carried),
-                "eligible": f"{role}:{tr.tid}" in frame.eligible,
-                "casts": adj is not None}
-        if role == "self":
-            icon["self_cone"] = frame.self_cone
-        icons.append(icon)
+    poses = frame.poses or [None] * len(frame.tracked)
+    for (role, tr), (x, y, deg, carried), (_x, _y, adj, _c), pose in zip(
+            frame.tracked, frame.resolved, frame.adjudicated_resolved, poses):
+        icons.append({"role": role, "track_id": int(tr.tid), "x": _num(x), "y": _num(y),
+                      "facing": _num(deg), "interpolated": bool(carried),
+                      "eligible": f"{role}:{tr.tid}" in frame.eligible,
+                      "casts": adj is not None, "pose": pose})
     floor = int(frame.observable.size)
     row.update(icons=icons,
                observable=lighting.pack_mask(frame.observable),

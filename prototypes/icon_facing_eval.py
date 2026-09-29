@@ -12,8 +12,12 @@ centre, within `MATCH_PX`) and reads:
 - `teardrop`: `icon_teardrop.fit` for the item's class;
 - `ring`: that detection's raw facing, as `minimap.fit_ring` reads it;
 - `ring_lobe` (allies only): the ring facing after `cone.resolve_lobe` on the
-  frame's lit mask, as `team_vision` hands it to the tracker. Enemy light is
-  not drawn, so enemies have no such reader.
+  frame's lit mask, as `team_vision` 0.3.0 handed it to the tracker. Enemy
+  light is not drawn, so enemies have no such reader;
+- `wired`: what the wired consumers cast per frame since `team-vision-0.4.0`,
+  the promoted reader at the widget's scale (`teardrop.IconPoseReader`) and,
+  for allies where it is unread and `team_vision.RING_FALLBACK` holds, the
+  `ring_lobe` facing.
 
 Per class, reader and stratum it prints the median absolute error against
 the player's facing, the flip rate (error above 90 degrees), the share within
@@ -51,15 +55,19 @@ import sliver_error_model as sem  # noqa: E402  (sets thread limits first)
 import icon_teardrop as it_  # noqa: E402
 import label_icon_facing as lif  # noqa: E402
 
-VERSION = "icon-facing-eval-0.2.0"
+# 0.3.0: the `wired` reader, what the wired consumers cast per frame.
+VERSION = "icon-facing-eval-0.3.0"
 ELSEWHERE_PX = 8.0
 MATCH_PX = 3.0
-READERS = ("teardrop", "ring", "ring_lobe")
+READERS = ("teardrop", "ring", "ring_lobe", "wired")
 
 
 def readings(index: list[dict], answers: dict) -> list[dict]:
     """One row per answered item: the label, the stratum and each reader's facing."""
     from reticle import cone, lighting
+    from reticle.minimap import widget_scale
+    from reticle.teardrop import IconPoseReader
+    from reticle.team_vision import RING_FALLBACK
     rows = []
     by_sid = defaultdict(list)
     for it in index:
@@ -85,13 +93,20 @@ def readings(index: list[dict], answers: dict) -> list[dict]:
             if det is not None and cls == "ally" and det.get("facing") is not None:
                 lit = lighting.lit_mask(crop, s.ref)
                 lobe = cone.resolve_lobe(s.passable, lit, [dict(det)], visible=s.floor)[0].get("facing")
+            # What the wired consumer casts this frame: the promoted reader at
+            # the widget's scale (`teardrop.IconPoseReader`), and for allies
+            # `team_vision`'s ring-fit fallback, the lobe the light resolves.
+            wired = None
+            if det is not None:
+                pose = IconPoseReader(cls, widget_scale(crop.shape[1])).read(crop, det["cx"], det["cy"])
+                wired = pose["deg"] if pose["deg"] is not None else (lobe if RING_FALLBACK else None)
             row = {"key": it["key"], "session": sid, "t_ms": it["t_ms"], "cls": cls,
                    "stratum": it["stratum"], "stacked": it.get("stacked", False),
                    "answer": a["answer"], "label_deg": a.get("facing_deg"),
                    "teardrop": tf["deg"] if tf.get("read") else None,
                    "teardrop_reason": None if tf.get("read") else tf.get("reason"),
                    "ring": det.get("facing") if det else None,
-                   "ring_lobe": lobe}
+                   "ring_lobe": lobe, "wired": wired}
             if a.get("centre_x") is not None:
                 row["label_colour"] = colour_at(crop, a["centre_x"], a["centre_y"])
                 row["centre_off_px"] = float(np.hypot(a["centre_x"] - it["ring_x"], a["centre_y"] - it["ring_y"]))

@@ -89,11 +89,13 @@ class IconTeardropTests(unittest.TestCase):
         self.assertEqual((first["x"], first["y"], first["deg"]), (fresh["x"], fresh["y"], fresh["deg"]))
 
 
-def _run(crop, det, frames=12):
+def _run(crop, det, frames=12, role="self", **kw):
     floor = np.ones((80, 80), bool)
     # width 465 is widget scale 1.0, the scale the teardrop constants were fitted at.
-    vision = TeamVision(floor, floor, np.zeros((80, 80)), width=465)
-    with patch("reticle.team_vision.widget_drawn", return_value=True),             patch("reticle.team_vision.ally_icons", return_value=[]),             patch("reticle.team_vision.self_icons", side_effect=lambda *a, **k: [dict(det)]):
+    vision = TeamVision(floor, floor, np.zeros((80, 80)), width=465, **kw)
+    selves = (lambda *a, **k: [dict(det)]) if role == "self" else (lambda *a, **k: [])
+    allies = (lambda *a, **k: [dict(det)]) if role == "ally" else (lambda *a, **k: [])
+    with patch("reticle.team_vision.widget_drawn", return_value=True),             patch("reticle.team_vision.ally_icons", side_effect=allies),             patch("reticle.team_vision.self_icons", side_effect=selves):
         for i in range(frames):
             got = vision.step(crop, i * 66.7)
     return floor, got
@@ -112,10 +114,10 @@ class SelfConeTests(unittest.TestCase):
         self.assertTrue(np.array_equal(got.observable_all, want))
         icon = frame_row(got)["icons"][-1]
         self.assertEqual(icon["role"], "self")
-        # The track keeps the ring fit's position; the cone's record sits beside it.
-        self.assertEqual((icon["x"], icon["y"]), (30.0, 43.0))
+        # The track follows the teardrop's centre, not the ring fit's (0.4.0).
+        self.assertLess(math.hypot(icon["x"] - 30.0, icon["y"] - 40.0), 0.2)
         self.assertEqual(icon["facing"], got.resolved[-1][2])
-        self.assertEqual(icon["self_cone"]["origin"], "teardrop")
+        self.assertEqual((icon["pose"]["origin"], icon["pose"]["facing"]), ("teardrop", "teardrop"))
 
     def test_an_unread_teardrop_keeps_the_track_bearing_and_says_so(self):
         det = {"cx": 30.0, "cy": 40.0, "r": 8, "cov": 0.9, "facing": 0.0}
@@ -125,6 +127,31 @@ class SelfConeTests(unittest.TestCase):
         self.assertEqual(got.resolved[-1][2], sc["track_deg"])
         want = cone.observable(floor, [(30.0, 40.0, sc["track_deg"])], visible=floor)[0]
         self.assertTrue(np.array_equal(got.observable_all, want))
+
+    def test_without_the_fallback_an_unread_teardrop_casts_nothing(self):
+        det = {"cx": 30.0, "cy": 40.0, "r": 8, "cov": 0.9, "facing": 0.0}
+        floor, got = _run(np.zeros((80, 80, 3), np.uint8), det, ring_fallback=False)
+        sc = got.self_cone
+        self.assertEqual((sc["origin"], sc["facing"], sc["reason"]), ("ring_fit", None, "no_yellow"))
+        self.assertIsNone(got.resolved[-1][2])
+        self.assertFalse(got.observable_all.any())
+
+
+class AllyConeTests(unittest.TestCase):
+    def test_a_teammate_s_cone_starts_at_its_teardrop_along_its_facing(self):
+        # The ring fit sits toward the lobe and says 270 degrees; the teardrop points at 180.
+        det = {"cx": 37.0, "cy": 40.0, "r": 8, "cov": 0.9, "facing": 270.0}
+        floor, got = _run(_teal(40.0, 40.0, 180.0), det, role="ally")
+        pose = got.poses[0]
+        self.assertEqual((pose["origin"], pose["facing"]), ("teardrop", "teardrop"))
+        x, y, deg, _ = got.resolved[0]
+        self.assertLess(math.hypot(x - 40.0, y - 40.0), 0.2)
+        self.assertLess(abs(deg - 180.0), 2.0)
+        want = cone.observable(floor, [(x, y, deg)], visible=floor)[0]
+        self.assertTrue(np.array_equal(got.observable_all, want))
+        icon = frame_row(got)["icons"][0]
+        self.assertEqual((icon["role"], icon["pose"]["origin"]), ("ally", "teardrop"))
+        self.assertEqual(got.allies[0]["ring"], {"cx": 37.0, "cy": 40.0, "facing": 270.0})
 
 
 if __name__ == "__main__":

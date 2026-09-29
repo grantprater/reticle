@@ -249,6 +249,30 @@ def _num(v):
     return None if v is None else float(v)
 
 
+def posed(d: dict, pose: dict, *, ring_facing: bool = True) -> dict:
+    """The ring fit's detection `d` with the teardrop's centre and facing where `pose` reads.
+
+    `pose` is `SelfConeReader.read` or `IconPoseReader.read` at `d`'s centre.
+    The ring fit FINDS the icon; the teardrop, where it reads, supplies `cx`,
+    `cy` and `facing` (`facing_source` `teardrop`). The ring fit's own values
+    stay under `ring`, and `pose` keeps the `origin`, NCC and refusal
+    `reason`. Where the teardrop is unread the detection keeps the ring fit's
+    centre and, with `ring_facing`, its facing (`facing_source` `ring_fit`);
+    otherwise it carries no facing (`facing_source` None).
+    """
+    out = dict(d)
+    out["ring"] = {"cx": d["cx"], "cy": d["cy"], "facing": d.get("facing")}
+    out["pose"] = {"origin": pose["origin"], "ncc": pose.get("ncc"), "reason": pose.get("reason")}
+    if pose["origin"] == "teardrop":
+        out["cx"], out["cy"], out["facing"] = pose["x"], pose["y"], pose["deg"] % 360.0
+        out["facing_source"] = "teardrop"
+    elif ring_facing and d.get("facing") is not None:
+        out["facing_source"] = "ring_fit"
+    else:
+        out["facing"], out["facing_source"] = None, None
+    return out
+
+
 # ------------------------------------------------------------ teammates, enemies
 
 def tealness(crop: np.ndarray) -> np.ndarray:

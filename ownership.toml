@@ -611,7 +611,7 @@ question = "Where is a teammate's or an enemy's minimap icon centred, and which 
 owner = "teardrop"
 role = ["detect"]
 status = "partial"
-produces = ["fit_icon", "IconPoseReader", "ICON_CLASSES", "tealness", "redness", "ring_cover"]
+produces = ["fit_icon", "IconPoseReader", "ICON_CLASSES", "tealness", "redness", "ring_cover", "posed"]
 not_for = """
 Finding the icon (`ally-candidates`: the ring fit still proposes each
 detection and seeds this fit) and naming the agent (`agent-identity`). It
