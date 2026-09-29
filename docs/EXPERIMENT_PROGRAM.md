@@ -1,6 +1,6 @@
 # Experiments toward a complete observable event record
 
-Status (2026-09-28): partial. E1 ran as a replay from storage, and its [findings](E1_AGREEMENT.md) are recorded: agreeing totals hid unbound deaths, which the combat report's owner now binds. The player's source review of E1's seeded rounds comes first ([BACKLOG](../BACKLOG.md)); E2-E9 are proposed.
+Status (2026-09-28): partial. E1 ran as a replay from storage and landed on master; its [findings](E1_AGREEMENT.md) are recorded: agreeing totals hid binding errors, which the combat report's and the death adjudicator's owners now fix. The player's source review of E1's seeded rounds comes first ([BACKLOG](../BACKLOG.md)); E2-E9 are proposed.
 
 2026-09-24. Proposed experiments, not measured results. This design extends
 [pipeline acceptance](PIPELINE_REVIEW.md) and the
@@ -9,7 +9,7 @@ active backlog or launch that pilot.
 
 | Experiment | Status (2026-09-28) | Evidence |
 |---|---|---|
-| E1 | Replayed; the prediction held; the player's source review pending | [Findings](E1_AGREEMENT.md), the ledger entry `e1-agreement-2026-09-27` and the [BACKLOG](../BACKLOG.md) follow-ups |
+| E1 | Replayed on master; the prediction held; the player's source review pending | [Findings](E1_AGREEMENT.md), the ledger entries `e1-agreement-2026-09-27` and `e1-agreement-land-2026-09-28` and the [BACKLOG](../BACKLOG.md) follow-ups |
 | E2 | Proposed | None |
 | E3 | Proposed | None |
 | E4 | Proposed | None |

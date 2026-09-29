@@ -12,7 +12,7 @@ runner asks whether a round whose totals agree can still hold a duplicate
 beside a miss, or a death bound to the wrong witness, identity or life.
 
 Decodes no video. Every input is a stored product at the stamp the ledger
-entry `LEDGER_ID` (`e1-agreement-2026-09-28`) pins; a session whose stamps
+entry `LEDGER_ID` (`e1-agreement-land-2026-09-28`) pins; a session whose stamps
 differ is refused with the stamp named, never read. A channel whose stream is absent
 is a missing channel, recorded as such per round, not a refusal.
 
@@ -71,7 +71,7 @@ from reticle.store import Store  # noqa: E402
 
 TOOL = "e1_agreement"
 VERSION = "e1-agreement-0.1.0"
-LEDGER_ID = "e1-agreement-2026-09-28"
+LEDGER_ID = "e1-agreement-land-2026-09-28"
 CORPUS_SESSION = "pinned-18"
 #: A scoreboard read serves a round's boundary when it falls between the
 #: previous round's close and this round's first possible kill

@@ -144,8 +144,8 @@ kind = "plan"
 status = "partial"
 since = "2026-09-28"
 implemented_by = ["owns:combat-report-round"]
-remains = "E1 ran as the prototype replay prototypes/e1_agreement.py, whose one owner fix is the combat report's death window; the player's source review of E1's seeded rounds, E1's corpus replay at scoreboard-0.9.0, and E2-E9 remain."
-waits_for = "The player's review of the rounds in analysis/e1-agreement/agreeing.json."
+remains = "E1 ran as the prototype replay prototypes/e1_agreement.py and landed on master with its owner fixes (combat-report-round-0.10.0, death-adjudication-0.18.0) and a recorded corpus replay at scoreboard-0.9.0; the player's source review of E1's seeded rounds, and E2-E9, remain."
+waits_for = "The player's review of the rounds in the store's analysis/e1-agreement/review-20260928.md."
 
 [[document]]
 path = "docs/IMPLEMENTATION_PLAN.md"
