@@ -434,3 +434,21 @@ cast a cone from the icon's centre along the teardrop's facing; an offset from
 that centre is a measured calibration (prototypes/cone_origin.py), not a game fact
 """
 see = ["minimap/cone-rays-stop-at-first-edge"]
+
+[upright-icons-on-turned-map]
+claim = """
+A minimap widget drawn turned 180 degrees (the side-based rotation of the Iso
+capture's first half) turns the map only: the spike glyph and the agents'
+portraits stay upright on the screen, so a dropped glyph still points its base
+down and a carried one still sits at the lower left of its carrier.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-29"
+use = """
+a reader that resamples a turned widget into the baked frame turns the icons
+upside down with it; an orientation test or an offset read there must turn
+with the placement (`spike`, rotation)
+"""
+see = ["minimap/spike-inversion", "minimap/spike-carrier-overlay"]
+phrases = ["icons stay upright", "turns the map only"]

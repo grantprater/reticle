@@ -52,6 +52,18 @@ four sessions a match above 0.8 peaked only at those five columns and never
 twice in one frame, so the gate reads the match only there. The slot is the bar's PACKED position: survivors pack toward the
 scoreline, so a slot index is not a teammate until the lineup binds it, and
 this module names nobody.
+
+**A widget drawn turned over.** A variant widget (`widget_frame`) may draw the
+map turned 180 degrees, as a side-based minimap does in one half, and the
+reader meets it resampled into the baked frame, turned back. The map turns
+and the icons do not [domain:minimap/upright-icons-on-turned-map], so in the
+baked frame they arrive upside down: a dropped glyph (base down on the screen) is base up,
+and a carrier's icon sits below and to the left of its glyph rather than above
+and to the right. `rotation` (the placement's, `WidgetFrame.at`) turns the
+orientation test and the carrier's offset with it. On the Iso capture
+4f207c0c4e39, whose first half draws the widget turned over, spike-0.1.0 read
+every dropped glyph of that half as carried; refitted upright, eight of eight
+sampled read dropped at a higher correlation (docs/ISO_SPIKE_CARRIER.md).
 """
 from __future__ import annotations
 
@@ -150,7 +162,14 @@ def glyph_template(side: float, base_down: bool, margin: int = 3) -> np.ndarray:
                       interpolation=cv2.INTER_AREA)
 
 
-def _fit(y: np.ndarray, sc: float):
+def _base_down(state: str, rotation: int = 0) -> bool:
+    """Whether a glyph in `state` points its base down in the baked frame: on
+    the screen a dropped glyph is base down, and a widget drawn turned over
+    (`rotation` 180) arrives turned back, the glyph with it."""
+    return (state == "dropped") != (int(rotation) % 360 == 180)
+
+
+def _fit(y: np.ndarray, sc: float, rotation: int = 0):
     """Per state, the best correlation, its amplitude and side at every pixel
     of `y` (-1 where the window does not fit)."""
     y2 = y * y
@@ -158,7 +177,7 @@ def _fit(y: np.ndarray, sc: float):
     for state, sides in SIDES.items():
         best = None
         for s in sides:
-            t = glyph_template(round(s * sc, 2), state == "dropped")
+            t = glyph_template(round(s * sc, 2), _base_down(state, rotation))
             if t.shape[0] > y.shape[0] or t.shape[1] > y.shape[1]:
                 continue
             ncc = cv2.matchTemplate(y, t, cv2.TM_CCOEFF_NORMED)
@@ -187,14 +206,17 @@ def glyph_gate(ncc: float, amp: float) -> str | None:
     return "weak_correlation" if ncc < NCC_MIN else "weak_amplitude"
 
 
-def glyph_fits(crop: np.ndarray, support: np.ndarray | None = None) -> list[dict]:
+def glyph_fits(crop: np.ndarray, support: np.ndarray | None = None,
+               rotation: int = 0) -> list[dict]:
     """Every spike-glyph fit on a minimap crop, accepted or candidate.
 
     Each: `cx`, `cy` (the triangle's centroid, crop px), `state` ("dropped"
     base down, "carried" base up), `side` (scale-1.0 px), `ncc`, `ncc_flip`
     (the other orientation's correlation at the same point), `amp`, `rg`
     (the mean R - G of its keyed pixels), `reason` (None where accepted). `support` (the opaque slab) refuses a
-    fit that does not touch it, as `off_slab`. Sorted strongest first."""
+    fit that does not touch it, as `off_slab`. `rotation` is the widget's
+    placement (0 or 180): the state names the glyph as drawn on the screen,
+    whichever way the baked frame turns it. Sorted strongest first."""
     from .minimap import widget_scale
 
     sc = widget_scale(crop.shape[1])
@@ -213,7 +235,7 @@ def glyph_fits(crop: np.ndarray, support: np.ndarray | None = None) -> list[dict
     found = []
     ys = cv2.GaussianBlur(y, (0, 0), 0.7)
     for x0, y0, x1, y1 in boxes:
-        maps = _fit(ys[y0:y1, x0:x1], sc)
+        maps = _fit(ys[y0:y1, x0:x1], sc, rotation)
         if maps.get("dropped") is None or maps.get("carried") is None:
             continue
         nd, ad, sd = maps["dropped"]
@@ -280,8 +302,16 @@ def accepted(fits: list[dict]) -> list[dict]:
     return [f for f in fits if f.get("reason") is None]
 
 
+def _carrier_point(glyph: dict, sc: float, rotation: int = 0) -> tuple[float, float]:
+    """Where the carrier's icon centre sits in the baked frame: up and to the
+    right of its glyph on the screen, down and to the left where the widget is
+    drawn turned over."""
+    k = -1.0 if int(rotation) % 360 == 180 else 1.0
+    return glyph["cx"] + k * CARRIER_DX * sc, glyph["cy"] + k * CARRIER_DY * sc
+
+
 def on_glyph(cx: float, cy: float, glyphs: list[dict], sc: float,
-             icons=()) -> dict | None:
+             icons=(), rotation: int = 0) -> dict | None:
     """The accepted glyph an icon fit centred at (cx, cy) lands on, or None.
 
     A carried spike draws over the lower left of its carrier's icon
@@ -298,6 +328,9 @@ def on_glyph(cx: float, cy: float, glyphs: list[dict], sc: float,
       carrier seen, the fit may be the carrier pulled toward its own glyph,
       and it is kept.
 
+    `rotation` is the widget's placement: turned over, the carrier's place
+    turns with it (`_carrier_point`).
+
     On 5822b6646448 the self fits within 7.5 px of a glyph an ally carried
     ringed the glyph by eye (18 of 18)."""
     for g in glyphs:
@@ -308,7 +341,7 @@ def on_glyph(cx: float, cy: float, glyphs: list[dict], sc: float,
             continue
         if g["state"] == "dropped" or d <= CORE_PX * sc:
             return g
-        kx, ky = g["cx"] + CARRIER_DX * sc, g["cy"] + CARRIER_DY * sc
+        kx, ky = _carrier_point(g, sc, rotation)
         if np.hypot(cx - kx, cy - ky) <= CARRIER_TOL_PX * sc:
             continue                                   # this fit is the carrier
         if any(np.hypot(i["cx"] - kx, i["cy"] - ky) <= CARRIER_TOL_PX * sc
@@ -317,12 +350,14 @@ def on_glyph(cx: float, cy: float, glyphs: list[dict], sc: float,
     return None
 
 
-def carrier_offset(glyph: dict, icons: list[dict], sc: float) -> dict | None:
+def carrier_offset(glyph: dict, icons: list[dict], sc: float,
+                   rotation: int = 0) -> dict | None:
     """The icon a carried glyph sits under: the nearest icon centre to the
-    glyph's centroid plus (CARRIER_DX, CARRIER_DY), within CARRIER_TOL_PX.
-    `icons` are dicts with `cx`, `cy` and any tags; returns the icon with its
-    offset from the glyph added, or None."""
-    want = (glyph["cx"] + CARRIER_DX * sc, glyph["cy"] + CARRIER_DY * sc)
+    glyph's centroid plus (CARRIER_DX, CARRIER_DY) on the screen, within
+    CARRIER_TOL_PX (`_carrier_point`, turned with `rotation`). `icons` are
+    dicts with `cx`, `cy` and any tags; returns the icon with its offset from
+    the glyph (baked-frame px over `sc`) added, or None."""
+    want = _carrier_point(glyph, sc, rotation)
     best, bd = None, CARRIER_TOL_PX * sc
     for ic in icons:
         d = float(np.hypot(ic["cx"] - want[0], ic["cy"] - want[1]))
@@ -372,8 +407,9 @@ ROSTER_GAP_MS = 250.0
 def read_frame(crop: np.ndarray, ctx: dict) -> dict:
     """One minimap frame's spike reading.
 
-    `ctx` holds the baked geometry's `floor`, `slab`, `static` and `sgray`.
-    Returns `glyphs` (every fit, accepted or candidate) and, where a carried
+    `ctx` holds the baked geometry's `floor`, `slab`, `static` and `sgray`,
+    and `rotation`, the widget placement's (0 where absent). Returns
+    `rotation`, `glyphs` (every fit, accepted or candidate) and, where a carried
     glyph was accepted, `icons`: the self fit and ally fits (`minimap`
     owns them) as `channel`, `cx`, `cy`, `r`, which the carrier check pairs
     with the glyph. Or a refusal `reason`."""
@@ -383,8 +419,9 @@ def read_frame(crop: np.ndarray, ctx: dict) -> dict:
         return {"reason": "crop_size"}
     if not widget_drawn(crop, ctx["sgray"], ctx["floor"]):
         return {"reason": "widget_not_drawn"}
-    fits = glyph_fits(crop, ctx["slab"])
-    row = {"glyphs": fits, "reason": None}
+    rotation = int(ctx.get("rotation") or 0)
+    fits = glyph_fits(crop, ctx["slab"], rotation)
+    row = {"rotation": rotation, "glyphs": fits, "reason": None}
     if any(g["reason"] is None and g["state"] == "carried" for g in fits):
         me = self_icons(crop, ctx["floor"], require_facing=False, support=ctx["slab"])[:1]
         al = ally_icons(crop, ctx["floor"], support=ctx["slab"], static=ctx["static"])

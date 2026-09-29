@@ -461,10 +461,18 @@ ROSTER_SPLIT_VERSION = "roster-split-0.4.0"
 # from the minimap and hud crop caches (`spike`), written as `spike` rows by
 # `reticle spike`. Bump when a template, a side, a gate or the stored fields
 # change.
-SPIKE_VERSION = "spike-0.1.0"
+#
+# 0.2.0 (2026-09-29): a widget drawn turned over (`widget_frame`, rotation
+# 180) arrives in the baked frame with its upright glyph upside down; the
+# glyph's state and the carrier's offset turn with the placement's rotation,
+# which each frame row stores. Unturned sessions read the same fits.
+SPIKE_VERSION = "spike-0.2.0"
 # The spike's carrier and state cross-checked from stored `spike` rows, the
 # rounds table and the roster (`adjudication.spike_carrier`): the roster
 # marker against the minimap carried glyph, the carrier against the plant, a
 # vanished marker against the roster's alive count. Bump when a rule, a
 # tolerance or the stored fields change.
-SPIKE_CARRIER_VERSION = "spike-carrier-0.1.0"
+#
+# 0.2.0 (2026-09-29): the carrier's icon is sought at the offset the frame
+# row's widget `rotation` turns (`spike.carrier_offset`).
+SPIKE_CARRIER_VERSION = "spike-carrier-0.2.0"

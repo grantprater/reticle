@@ -37,6 +37,25 @@ class GlyphTest(unittest.TestCase):
         self.assertLessEqual(abs(by["carried"]["cx"] - 300) + abs(by["carried"]["cy"] - 300), 2)
         self.assertGreater(by["carried"]["ncc"], by["carried"]["ncc_flip"])
 
+    def test_a_widget_drawn_turned_over(self):
+        # The screen draws the glyphs upright; a widget placed at rotation 180
+        # reaches the reader turned back, glyphs upside down. The state names
+        # the glyph as drawn on the screen.
+        screen = _crop()
+        _draw_glyph(screen, 100, 120, 21.0, True)            # dropped
+        _draw_glyph(screen, 300, 300, 17.5, False)           # carried
+        baked = cv2.rotate(screen, cv2.ROTATE_180)
+        h, w = baked.shape[:2]
+        turned = {g["state"]: g for g in spike.accepted(spike.glyph_fits(baked, rotation=180))}
+        self.assertEqual(sorted(turned), ["carried", "dropped"])
+        d, c = turned["dropped"], turned["carried"]
+        self.assertLessEqual(abs(d["cx"] - (w - 1 - 100)) + abs(d["cy"] - (h - 1 - 120)), 2)
+        self.assertLessEqual(abs(c["cx"] - (w - 1 - 300)) + abs(c["cy"] - (h - 1 - 300)), 2)
+        # Read as if unturned, as spike-0.1.0 did, the states swap.
+        plain = {(g["cx"], g["cy"]): g["state"]
+                 for g in spike.accepted(spike.glyph_fits(baked))}
+        self.assertEqual(plain.get((d["cx"], d["cy"])), "carried")
+
     def test_empty_floor_reads_nothing(self):
         self.assertEqual(spike.glyph_fits(_crop()), [])
 
@@ -86,6 +105,21 @@ class OnGlyphTest(unittest.TestCase):
         self.assertEqual(got["channel"], "ally")
         self.assertIsNone(spike.carrier_offset(self.carried, icons[1:], 1.0))
 
+    def test_carrier_offset_turned_over(self):
+        # On the screen the carrier sits up and right of its glyph; in a baked
+        # frame turned back from 180, down and left.
+        below = [{"channel": "ally", "cx": 93.0, "cy": 108.0}]
+        above = [{"channel": "ally", "cx": 107.0, "cy": 92.0}]
+        self.assertEqual(spike.carrier_offset(self.carried, below, 1.0, rotation=180)["channel"],
+                         "ally")
+        self.assertIsNone(spike.carrier_offset(self.carried, above, 1.0, rotation=180))
+        self.assertIsNone(spike.carrier_offset(self.carried, below, 1.0))
+        # on_glyph keeps the turned carrier and refuses a fit beside it.
+        carrier = [{"cx": 93.0, "cy": 107.5}]
+        self.assertIsNone(spike.on_glyph(95.5, 104.5, [self.carried], 1.0, carrier, rotation=180))
+        self.assertIsNotNone(spike.on_glyph(102, 104, [self.carried], 1.0, carrier, rotation=180))
+        self.assertIsNone(spike.on_glyph(102, 104, [self.carried], 1.0, carrier))
+
 
 class RosterMarkerTest(unittest.TestCase):
     def _roster(self, slot=None):
@@ -124,6 +158,12 @@ class CarrierCheckTest(unittest.TestCase):
     def test_frame_state(self):
         s = frame_state(_frame(0, "carried", 2, self.ally), 1.0)
         self.assertEqual((s["glyph"], s["slot"], s["carrier_channel"]), ("carried", 2, "ally"))
+
+    def test_frame_state_turned_over(self):
+        row = {**_frame(0, "carried", 2, [{"channel": "self", "cx": 93.0, "cy": 107.5, "r": 9}]),
+               "rotation": 180}
+        self.assertEqual(frame_state(row, 1.0)["carrier_channel"], "self")
+        self.assertIsNone(frame_state({**row, "rotation": 0}, 1.0)["carrier_channel"])
 
     def test_agreement_and_disagreements(self):
         rows = [self.head, _frame(0, "carried", 1, self.ally), _frame(1000),
