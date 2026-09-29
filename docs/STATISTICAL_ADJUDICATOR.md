@@ -702,6 +702,11 @@ ring flips on [metric:icon_facing_eval/labels-excl@5822b6646448+a06f04a0059f#all
 and [metric:icon_facing_eval/labels-excl@5822b6646448+a06f04a0059f#enemy_ring_all_flip=0.412] of enemies.
 The teardrop reads the three ally candidates as confidently as agents: it
 does not tell a teardrop-shaped ability icon from a teammate.
+Item #15 on the sheet (`5822b6646448` 758.4 s, answered not an icon, so
+already out of scoring) shows the white creature glyph that Wingman's icon
+carried at 404.5-408.5 s before it planted the spike
+[domain:abilities/gekko-wingman-plant-minimap]: probably a Wingman glyph,
+pending the player's confirmation.
 
 **Against the predictions.** L1 passed for both classes, with and without
 the candidates. L2 passed. C1 and C3 passed on 2026-09-28 and the labels do

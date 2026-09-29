@@ -73,7 +73,8 @@ NCC_MIN, AMP_MIN = 0.70, 95.0
 NCC_STRONG, AMP_PARTIAL = 0.78, 75.0
 #: The glyph's yellow is greenish: over its keyed pixels R - G read -25 to
 #: -15 on 120 accepted glyphs of 5822b6646448. An orange glyph inside a dark
-#: disc (409.1 s there; the player has not yet said what it shows) read +25
+#: disc (409.1 s there: the spike Gekko's Wingman just planted, drawn inside
+#: Wingman's icon [domain:abilities/gekko-wingman-plant-minimap]) read +25
 #: at the same correlation, so a fit redder than this is `orange`, kept as a
 #: candidate.
 RG_MAX = 5.0

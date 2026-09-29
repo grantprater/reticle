@@ -48,9 +48,9 @@ questions.
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Gravity Well | Targeted | shared stars [domain:abilities/astra-stars-shared] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | ? | other (census 1) | ? | ? | ? |
-| Q | Nova Pulse | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
-| E | Nebula  / Dissipate | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | ? | dark disc [domain:abilities/astra-nebula-minimap-disc] | ? | ? | ? |
+| C | Gravity Well | Targeted | shared stars [domain:abilities/astra-stars-shared] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | other (census 1) | ? | ? | ? |
+| Q | Nova Pulse | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | nothing (census 1) | ? | ? | ? |
+| E | Nebula  / Dissipate | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | dark disc [domain:abilities/astra-nebula-minimap-disc]; on a teammate's minimap the star's disc becomes a larger grey disc [domain:abilities/astra-star-ally-minimap-glyph] | ? | ? | ? |
 | X | Astral Form / Cosmic Divide | ? | ? | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
 
 ## Breach
@@ -121,7 +121,7 @@ questions.
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Mosh Pit | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | 20 s (granted by Globules) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1) | ? | ? | ? |
-| Q | Wingman | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1) | ? | ? | ? |
+| Q | Wingman | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed]; but Gekko recharges it by picking the used Wingman up [domain:abilities/gekko-wingman-reclaim-or-expire] | cast on FIRE | ? | compact icon (census 1); planting, it carries the spike symbol, then a yellow pick-up disc [domain:abilities/gekko-wingman-plant-minimap] | ? | the used Wingman expires on a timer unless picked up (length unknown) [domain:abilities/gekko-wingman-reclaim-or-expire] | can plant the spike [domain:abilities/gekko-wingman-plants-spike] |
 | E | Dizzy | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | compact icon (census 1) | ? | ? | ? |
 | X | Thrash | Possession | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | compact icon (census 1) | ? | ? | ? |
 

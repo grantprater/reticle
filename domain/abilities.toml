@@ -910,6 +910,122 @@ and keyed_142 (c7674c699ad0 26.067 s) under
 """
 use = "a Nebula disc appears where a star icon was, not where Astra stands"
 
+[astra-star-placed-then-turned]
+claim = """
+Astra's star is placed down first and can then be turned into one of three
+abilities: her smoke (Nebula, slot E), her concuss (Nova Pulse, slot Q) or her
+gravity well (Gravity Well, slot C).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-29"
+subject = "astra:stars"
+source = """
+player, 2026-09-29 (chat), naming the unknown glyph at 223d636bf8d2 630 s:
+"astra's star which is placed down and can be turned into either her smoke,
+her concuss, or her grav well". The slot names are the catalogue's for his
+words smoke, concuss and grav well
+"""
+use = """
+a placed star is a pending ability, not yet a smoke, concuss or well; which
+of the three it becomes is read when it turns, never assumed at placement
+"""
+see = ["abilities/astra-stars-shared", "abilities/astra-star-ally-minimap-glyph",
+       "abilities/astra-nebula-minimap-disc"]
+
+[astra-star-ally-minimap-glyph]
+claim = """
+On a teammate's minimap, a star Astra has placed is a near-black disc, about
+12 px, carrying a white ring with a notch at its top. A star turned into her
+smoke becomes a larger grey disc at the same place.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-29"
+subject = "astra:stars"
+source = """
+223d636bf8d2 (C:/Users/grant/Videos/2026-08-23 20-09-01.mp4), Astra a
+teammate, minimap crop cache: one such disc near C site from 614 s turned
+into a grey smoke disc between 624.87 s and 626.97 s at the same place; two
+at A site from 615-622 s were still dark at 633 s and gone at 640 s
+(<store>/analysis/unknown-glyphs-20260929/). The player named the glyph
+Astra's star, 2026-09-29 (chat)
+"""
+use = """
+seek a smoke disc where a placed star was; a black disc with the white
+ring-and-notch mark is a pending star, neither an agent nor the spike
+"""
+see = ["abilities/astra-star-placed-then-turned", "abilities/astra-nebula-minimap-disc"]
+
+[gekko-wingman-plants-spike]
+claim = """
+Gekko's Wingman (slot Q) can plant the spike.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+subject = "gekko:wingman"
+source = """
+player, 2026-09-29 (chat), confirming the reading of 5822b6646448 409 s as
+Wingman planting the spike: "on gekko's wingman, yes that accurate". The
+catalogue's description (ALT FIRE on a planted spike or site to have Wingman
+defuse or plant) agrees
+"""
+use = "a plant need not happen where Gekko stands; the spike's plant position may be Wingman's"
+see = ["abilities/gekko-wingman-plant-minimap", "abilities/gekko-wingman-reclaim-or-expire"]
+
+[gekko-wingman-plant-minimap]
+claim = """
+On a teammate's minimap, a Wingman planting the spike draws in this order:
+Wingman's icon, a teal-ringed dark disc carrying a white creature glyph,
+reaches the site; the disc then carries the planted-spike symbol in place of
+the creature; then the spike symbol sits in a pale yellow disc, the
+highlight of the Wingman left to pick up; then the spike symbol stands alone.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-29"
+subject = "gekko:wingman"
+source = """
+5822b6646448 (C:/Users/grant/Videos/2026-08-26 12-38-38.mp4), minimap crop
+cache at C site, crop (77, 259): the creature disc from 404.5 s, the spike
+symbol inside it at 408.8-409.07 s, the yellow disc from 409.4 s to about
+416 s, the bare spike by 422 s (<store>/analysis/unknown-glyphs-20260929/).
+The player named the highlight, 2026-09-29 (chat): "gekko buddy just planted
+spike and left its yellow "pick up" highlight over the spike", and confirmed
+the reading
+"""
+use = """
+spike.py reads the spike symbol inside Wingman's disc as an orange candidate
+(`orange`); it is the planted spike, drawn inside Wingman's icon, not a new
+glyph and not a carrier
+"""
+see = ["abilities/gekko-wingman-plants-spike", "minimap/spike-glyph",
+       "abilities/gekko-wingman-reclaim-or-expire", "abilities/minimap-thrown-ability-icon"]
+
+[gekko-wingman-reclaim-or-expire]
+claim = """
+After a Wingman is used it stays on the map for Gekko to pick up; picking it
+up recharges his Wingman. If he does not, it expires on a timer.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-29"
+subject = "gekko:wingman"
+source = """
+player, 2026-09-29 (chat): "gekko goes to pick it up and recharges it,
+otherwise it would have expired on a timer", and "by "it" for gekko I mean
+his wingman ability". The timer's length is unknown
+"""
+use = """
+a Wingman charge can return within a round by pickup, which the harvest's
+restock (none, abilities/catalogue-restock-and-ult-points-confirmed) does not
+list; this fact outranks that value for Wingman. A lost pickup highlight is
+either a pickup or an expiry
+"""
+see = ["abilities/catalogue-restock-and-ult-points-confirmed", "abilities/recharge-kinds",
+       "abilities/gekko-wingman-plant-minimap"]
+
 [viper-poison-cloud-emitter-outline]
 claim = """
 After Viper throws a Poison Cloud, her minimap draws a faint circle outline,
