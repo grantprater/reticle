@@ -243,6 +243,12 @@ status = "recorded"
 since = "2026-09-27"
 
 [[document]]
+path = "docs/VICTIM_DISAGREEMENTS.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-28"
+
+[[document]]
 path = "docs/SCOREBOARD_ROUND_MARKS.md"
 kind = "findings"
 status = "recorded"
