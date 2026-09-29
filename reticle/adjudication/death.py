@@ -90,7 +90,12 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # 0.19.0 (2026-09-28): a name-cluster role whose two views read no name tries
 # its other followed views (`killfeed-name-cluster-0.2.0`); 223d636bf8d2's
 # victim at 335.5 s joins its player's cluster and is named Fade, not Iso.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.19.0"
+# 0.20.0 (2026-09-29): an entry that rises into the slot an expired entry
+# vacated keeps its own track (`checks.track_entries`, the stack rule
+# [domain:killfeed/stack-order]), where their dividers and victim sides agree;
+# the player's death at 043bafca271a 1506.5 s now runs to 1511.0 s and the
+# entry above it ends at 1505.0 s.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.20.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster

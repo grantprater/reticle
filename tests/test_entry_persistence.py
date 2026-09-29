@@ -9,7 +9,7 @@ The shapes here are the ones measured on `c40d950031bb`, scaled down.
 """
 import unittest
 
-from reticle.checks import (KF_ENTRY_MIN_LIFE_MS, entry_presence,
+from reticle.checks import (KF_ENTRY_MIN_LIFE_MS, _count, entry_presence,
                             sample_step_ms, track_entries)
 
 
@@ -150,6 +150,187 @@ class StackOrderTests(unittest.TestCase):
                           for a in tracks],
                          [(905_000.0, 909_000.0, 0, 0, "enemy"),
                           (908_500.0, t[-1], 1, 0, "ally")])
+
+
+def stored(rows):
+    """Columns from stored HUD rows `(t_ms, mask, wx, ally, enemy, same, ...)`."""
+    cols = list(zip(*rows))
+    return list(cols[0]), list(cols[1]), list(cols[2]), list(zip(cols[3], cols[4], cols[5]))
+
+
+class RiseIntoVacatedSlotTests(unittest.TestCase):
+    """An entry rises only into a slot its occupant vacated
+    [domain:killfeed/stack-order]: a risen detection belongs to the track from
+    below that read last sample, not to the expired track above it."""
+
+    # 043bafca271a (C:/Users/grant/Videos/2026-08-25 13-59-44.mp4), stored
+    # hud rows 1499.0-1513.0 s: t, kf_entry_mask, kf_entry_wx, kf_ally_mask,
+    # kf_enemy_mask, kf_same_side_mask. Entry A (divider 237, ally victim) reads
+    # in slot 0 until 1505.0 s. The player's death B (243, ally victim) arrives
+    # in slot 2 at 1506.5 s, reads in slot 1 at 1507.0 s and in slot 0 from
+    # 1507.5 s to 1511.0 s; the crop cache shows it rising 2, 1, 0 as the two
+    # entries above it expire. The nearest-slot walk gave B's slot-0 reads to
+    # A, whose track then ran 1500.5-1511.0 s and B's 1506.5-1507.0 s.
+    ROWS_043B = [
+        (1499000.0, 0, 0, 0, 0, 0), (1499500.0, 0, 0, 0, 0, 0), (1500000.0, 0, 0, 0, 0, 0),
+        (1500500.0, 1, 237, 1, 0, 0), (1501000.0, 1, 237, 1, 0, 0),
+        (1501500.0, 1, 237, 1, 0, 0), (1502000.0, 7, 39437549, 3, 4, 0),
+        (1502500.0, 7, 39437549, 3, 4, 0), (1503000.0, 7, 39437549, 3, 4, 0),
+        (1503500.0, 7, 39437549, 3, 4, 0), (1504000.0, 7, 39437549, 3, 4, 0),
+        (1504500.0, 7, 39437549, 3, 4, 0), (1505000.0, 7, 39437549, 3, 4, 0),
+        (1505500.0, 6, 39437312, 2, 4, 0), (1506000.0, 3, 77026, 1, 2, 0),
+        (1506500.0, 7, 63778018, 5, 2, 0), (1507000.0, 34, 124416, 2, 0, 0),
+        (1507500.0, 1, 243, 1, 0, 0), (1508000.0, 1, 243, 1, 0, 0),
+        (1508500.0, 1, 243, 1, 0, 0), (1509000.0, 1, 243, 1, 0, 0),
+        (1509500.0, 1, 243, 1, 0, 0), (1510000.0, 1, 243, 1, 0, 0),
+        (1510500.0, 1, 243, 1, 0, 0), (1511000.0, 1, 243, 1, 0, 0),
+        (1511500.0, 0, 0, 0, 0, 0), (1512000.0, 0, 0, 0, 0, 0), (1512500.0, 0, 0, 0, 0, 0),
+        (1513000.0, 0, 0, 0, 0, 0)]
+
+    def test_the_players_death_at_043bafca271a_keeps_its_risen_reads(self):
+        t, masks, wx, sides = stored(self.ROWS_043B)
+        tracks = [a for a in track_entries(t, masks, wx, sides=sides) if a["counted"]]
+        got = {a["t_first"]: a for a in tracks}
+        self.assertEqual((got[1500500.0]["t_last"], got[1500500.0]["sig"]), (1505000.0, 237))
+        b = got[1506500.0]
+        self.assertEqual((b["t_last"], b["slot_first"], b["slot"], b["side"]),
+                         (1511000.0, 2, 0, "ally"))
+        # The walk says which rule took each read: the rise into slot 0 is the
+        # stack's, the reads that follow are the nearest slot's.
+        self.assertEqual([r for _, _, r in b["assigned"]],
+                         ["new", "nearest", "stack_rise"] + ["nearest"] * 7)
+
+    # b3b9defb6fd7 (C:/Users/grant/Videos/2026-08-23 18-24-15.mp4), stored hud
+    # rows 1627.0-1641.0 s: t, kf_entry_mask, kf_entry_wx, kf_ally_mask,
+    # kf_enemy_mask, kf_same_side_mask, kf_kill_mask, kf_kill_wx. A genuine
+    # double: the player kills TurtPlatAccount at 1632.0 s (27:12) and Waylay at
+    # 1634.0 s (27:14); the crop cache shows both entries on screen at once.
+    # The kill attribution drops out of slot 0 at 1634.0 s and of both slots
+    # at 1635.0 s, which is what made "prefer the most recently seen track"
+    # shatter it.
+    ROWS_B3B9 = [
+        (1627000.0, 0, 0, 0, 0, 0, 0, 0), (1627500.0, 0, 0, 0, 0, 0, 0, 0),
+        (1628000.0, 0, 0, 0, 0, 0, 0, 0), (1628500.0, 0, 0, 0, 0, 0, 0, 0),
+        (1629000.0, 1, 295, 1, 0, 0, 0, 0), (1629500.0, 1, 295, 1, 0, 0, 0, 0),
+        (1630000.0, 1, 295, 1, 0, 0, 0, 0), (1630500.0, 1, 295, 1, 0, 0, 0, 0),
+        (1631000.0, 1, 295, 1, 0, 0, 0, 0), (1631500.0, 0, 0, 0, 0, 0, 0, 0),
+        (1632000.0, 3, 82215, 1, 2, 0, 2, 81920), (1632500.0, 3, 82727, 1, 2, 0, 2, 82432),
+        (1633000.0, 6, 81084928, 4, 2, 0, 2, 82432),
+        (1633500.0, 7, 81085223, 5, 2, 0, 2, 82432),
+        (1634000.0, 7, 58878625, 2, 5, 0, 4, 58720256),
+        (1634500.0, 7, 58878625, 2, 5, 0, 5, 58720417),
+        (1635000.0, 7, 158208, 2, 5, 0, 0, 0),
+        (1635500.0, 7, 58878625, 2, 5, 0, 5, 58720417),
+        (1636000.0, 7, 58878625, 2, 5, 0, 5, 58720417),
+        (1636500.0, 7, 58878625, 2, 5, 0, 5, 58720417),
+        (1637000.0, 6, 58878464, 2, 4, 0, 4, 58720256),
+        (1637500.0, 7, 81117493, 5, 2, 0, 2, 114688),
+        (1638000.0, 6, 81117184, 4, 2, 0, 2, 114688),
+        (1638500.0, 3, 158432, 2, 1, 0, 1, 224), (1639000.0, 2, 158208, 2, 0, 0, 0, 0),
+        (1639500.0, 0, 0, 0, 0, 0, 0, 0), (1640000.0, 0, 0, 0, 0, 0, 0, 0),
+        (1640500.0, 0, 0, 0, 0, 0, 0, 0), (1641000.0, 0, 0, 0, 0, 0, 0, 0)]
+
+    def test_the_b3b9defb6fd7_double_stays_two_kills(self):
+        # The later kill reads in slot 2 while the earlier one still reads in
+        # slot 0, so it has not risen, and the stack rule leaves the earlier
+        # kill its own track across the dropout.
+        rows = self.ROWS_B3B9
+        t = [r[0] for r in rows]
+        tracks = [a for a in track_entries(t, [r[6] for r in rows], [r[7] for r in rows])
+                  if a["counted"]]
+        self.assertEqual([(a["t_first"], a["t_last"]) for a in tracks],
+                         [(1632000.0, 1636500.0), (1634000.0, 1638500.0)])
+        self.assertEqual(_count(t, [r[6] for r in rows], [r[7] for r in rows]), 2)
+
+    def test_the_b3b9defb6fd7_entries_keep_their_tracks(self):
+        t, masks, wx, sides = stored(self.ROWS_B3B9)
+        tracks = [a for a in track_entries(t, masks, wx, sides=sides) if a["counted"]]
+        self.assertEqual([(a["t_first"], a["t_last"], a["slot_first"], a["slot"])
+                          for a in tracks],
+                         [(1629000.0, 1633500.0, 0, 0), (1632000.0, 1636500.0, 1, 0),
+                          (1633000.0, 1637500.0, 2, 0), (1634000.0, 1638500.0, 2, 0),
+                          (1637500.0, 1639000.0, 2, 1)])
+        self.assertFalse(any(r == "stack_rise" for a in tracks for _, _, r in a["assigned"]))
+
+    # bdfdcf009dba (C:/Users/grant/Videos/2026-08-23 19-25-23.mp4), stored hud
+    # rows 1942.5-1956.5 s, columns as above. Evan -> duckyrelicc (divider
+    # 195) holds slot 0 until 1948.0 s; Dcmonster002 -> macaroni (198) arrives
+    # below it at 1948.0 s and rises to slot 0 at 1949.0 s; Dcmonster002 ->
+    # doritorine (195) arrives at 1950.0 s. Every victim is an enemy and the
+    # dividers agree, so the nearest slot ran Evan's entry 1943.5-1954.5 s.
+    ROWS_BDFD = [
+        (1942500.0, 0, 0, 0, 0, 0), (1943000.0, 0, 0, 0, 0, 0), (1943500.0, 1, 195, 0, 1, 0),
+        (1944000.0, 1, 195, 0, 1, 0), (1944500.0, 1, 195, 0, 1, 0), (1945000.0, 0, 0, 0, 0, 0),
+        (1945500.0, 1, 195, 0, 1, 0), (1946000.0, 1, 195, 0, 1, 0), (1946500.0, 1, 195, 0, 1, 0),
+        (1947000.0, 1, 195, 0, 1, 0), (1947500.0, 1, 195, 0, 1, 0),
+        (1948000.0, 3, 101571, 0, 3, 0), (1948500.0, 2, 101376, 0, 2, 0),
+        (1949000.0, 1, 198, 0, 1, 0), (1949500.0, 1, 199, 0, 1, 0),
+        (1950000.0, 3, 100039, 0, 3, 0), (1950500.0, 7, 59082438, 0, 7, 0),
+        (1951000.0, 7, 59082438, 0, 7, 0), (1951500.0, 7, 59082438, 0, 7, 0),
+        (1952000.0, 7, 59082439, 0, 7, 0), (1952500.0, 7, 59082438, 0, 7, 0),
+        (1953000.0, 6, 59082240, 0, 6, 0), (1953500.0, 3, 115395, 0, 3, 0),
+        (1954000.0, 3, 115395, 0, 3, 0), (1954500.0, 3, 114883, 0, 3, 0),
+        (1955000.0, 2, 115200, 0, 2, 0), (1955500.0, 0, 0, 0, 0, 0), (1956000.0, 0, 0, 0, 0, 0),
+        (1956500.0, 0, 0, 0, 0, 0)]
+
+    def test_the_track_whose_slot_was_taken_ends_there(self):
+        # When macaroni's entry rises into slot 0, Evan's expired track ends;
+        # left open, it would take the risen entry's next read at 1949.5 s.
+        t, masks, wx, sides = stored(self.ROWS_BDFD)
+        tracks = [a for a in track_entries(t, masks, wx, sides=sides) if a["counted"]]
+        self.assertEqual(tracks[0].get("ended_by"), "stack_rise")
+        self.assertEqual([(a["t_first"], a["t_last"], a["slot_first"], a["slot"])
+                          for a in tracks],
+                         [(1943500.0, 1948000.0, 0, 0), (1948000.0, 1952500.0, 1, 0),
+                          (1950000.0, 1954500.0, 1, 0), (1950500.0, 1955000.0, 2, 1)])
+
+    def test_two_entries_that_rise_together_keep_their_order(self):
+        # 9acf02f98283 (C:/Users/grant/Videos/2026-08-24 11-55-34.mp4) 1226.0-
+        # 1237.0 s: Sakiko -> Me (slot 1) and twilightfangrl -> Reyna (slot 2)
+        # arrive at 1231.5 s under an expiring entry, dividers 276-278, all
+        # ally victims, and both rise one slot at 1232.0 s. The upper entry's
+        # slot then holds the lower one, which is no sign the upper one stayed.
+        rows = [(1226000.0, 1, 254, 1, 0, 0), (1226500.0, 5, 72876286, 5, 0, 0),
+                (1227000.0, 5, 72876286, 5, 0, 0), (1227500.0, 5, 72876286, 5, 0, 0),
+                (1228000.0, 5, 72876286, 5, 0, 0), (1228500.0, 5, 72876286, 5, 0, 0),
+                (1229000.0, 4, 72876032, 4, 0, 0), (1229500.0, 2, 142336, 2, 0, 0),
+                (1230000.0, 2, 142336, 2, 0, 0), (1230500.0, 1, 278, 1, 0, 0),
+                (1231000.0, 1, 278, 1, 0, 0), (1231500.0, 6, 72755200, 6, 0, 0)] + [
+                (ts, 3, 142100, 3, 0, 0) for ts in steps(1_232_000.0, 9, 500.0)] + [
+                (1236500.0, 0, 0, 0, 0, 0), (1237000.0, 0, 0, 0, 0, 0)]
+        t, masks, wx, sides = stored(rows)
+        tracks = [a for a in track_entries(t, masks, wx, sides=sides) if a["counted"]]
+        self.assertEqual([(a["t_first"], a["t_last"], a["slot_first"], a["slot"])
+                          for a in tracks if a["t_first"] >= 1226500.0],
+                         [(1226500.0, 1231000.0, 2, 0), (1231500.0, 1236000.0, 1, 0),
+                          (1231500.0, 1236000.0, 2, 1)])
+
+    def test_a_misread_divider_does_not_become_an_entry(self):
+        # 223d636bf8d2 (C:/Users/grant/Videos/2026-08-23 20-09-01.mp4) 755.0-
+        # 761.5 s: Koop -> vxCrucifiedxv (divider 181) reads 151 at 758.5 s
+        # and no divider at 759.0 s; the crop cache shows one entry. The
+        # unread divider fits both tracks in slot 0, and the entry's own track
+        # must take it, or the misread becomes a counted entry.
+        rows = [(755000.0, 1, 221, 1, 0, 0), (755500.0, 1, 221, 1, 0, 0),
+                (756000.0, 3, 93405, 1, 2, 0), (756500.0, 3, 93405, 1, 2, 0),
+                (757000.0, 3, 93405, 1, 2, 0), (757500.0, 2, 93184, 0, 2, 0),
+                (758000.0, 1, 182, 0, 1, 0), (758500.0, 1, 151, 0, 1, 0),
+                (759000.0, 1, 0, 0, 1, 0), (759500.0, 1, 182, 0, 1, 0),
+                (760000.0, 1, 181, 0, 1, 0), (760500.0, 1, 181, 0, 1, 0),
+                (761000.0, 2, 122368, 2, 0, 0), (761500.0, 1, 239, 1, 0, 0)]
+        t, masks, wx, sides = stored(rows)
+        tracks = [a for a in track_entries(t, masks, wx, sides=sides) if a["counted"]]
+        self.assertEqual([(a["t_first"], a["t_last"]) for a in tracks if 756000.0 <= a["t_first"] <= 760500.0],
+                         [(756000.0, 760500.0)])
+
+    def test_a_dropout_above_does_not_hand_its_slot_to_the_entry_below(self):
+        # A misses one sample while B, below it, reads; A returns in slot 0 and
+        # B still reads in slot 1, so B has not risen and A keeps its track.
+        t = steps(0.0, 12, 500.0)
+        occupied = {ts: ((0, 1) if ts != 2000.0 else (1,)) for ts in t}
+        tracks = track_entries(t, feed(t, occupied), [0] * len(t))
+        self.assertEqual([(a["t_first"], a["t_last"], a["slot_first"]) for a in tracks],
+                         [(0.0, t[-1], 0), (0.0, t[-1], 1)])
 
 
 class PlateSideTests(unittest.TestCase):
