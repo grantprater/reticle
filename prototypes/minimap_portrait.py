@@ -530,15 +530,20 @@ def scoreboard_portraits(frame, sb):
     return out
 
 
-def mine_scoreboard(cap, templates, n_probe=400, want_rows=10):
+def mine_scoreboard(cap, templates, n_probe=400, want_rows=10, profile_name=None, icons=None):
     """Ten portraits from the busiest full scoreboard opening in the capture.
+
+    `profile_name` and `icons` (`scoreboard.load_agent_icons`) reach
+    `read_scoreboard` as the scan passes them: the strip's rectangle anchors
+    the blocks, and the portraits confirm enemy rows no red run confirms.
+    Without them the reader places the blocks by the tallest runs.
 
     Scans for an opening rather than being handed a timestamp, and keeps the
     one whose rows carry the most detail -- the table animates in, so an
     opening caught mid-fade is readable enough to pass `read_scoreboard` and
     still too washed out to mine art from.
     """
-    from reticle.scoreboard import read_scoreboard
+    from reticle.scoreboard import read_scoreboard, strip_rect
     tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     cand = []
     for i in np.linspace(tot * 0.02, tot * 0.98, n_probe).astype(int):
@@ -546,7 +551,8 @@ def mine_scoreboard(cap, templates, n_probe=400, want_rows=10):
         ok, fr = cap.read()
         if not ok:
             continue
-        sb = read_scoreboard(fr, templates)
+        rect = strip_rect(profile_name, fr.shape[1], fr.shape[0]) if profile_name else None
+        sb = read_scoreboard(fr, templates, strip_rect=rect, icons=icons)
         if not sb.open_ or len(sb.rows) < want_rows:
             continue
         arts = scoreboard_portraits(fr, sb)
@@ -755,11 +761,13 @@ def cmd_eval(args):
 
 def cmd_mine_sb(args):
     from reticle.ocr import Templates
+    from reticle.scoreboard import load_agent_icons
     man = json.loads((STORE / "manifests" / f"{args.session}.json").read_text())
     src = man["source"]
     prof = get_profile(man["source_profile"])
     cap = cv2.VideoCapture(src["path"])
-    found = mine_scoreboard(cap, Templates.load(prof.name))
+    found = mine_scoreboard(cap, Templates.load(prof.name), profile_name=prof.name,
+                            icons=load_agent_icons(STORE))
     cap.release()
     if found is None:
         print("no full scoreboard opening found -- does this capture use Tab?")

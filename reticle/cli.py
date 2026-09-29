@@ -1758,7 +1758,8 @@ def cmd_openings(args) -> int:
             o = by_frame.get(s["frame_idx"])
             rows.append({**common, "kind": "sample", **s, "hold": hold.get(s["frame_idx"]),
                          "opening_accepted": None if o is None else o["accepted"],
-                         "opening_reason": None if o is None else o["reason"]})
+                         "opening_reason": None if o is None else o["reason"],
+                         "opening_enemy_rows_from": None if o is None else o["enemy_rows_from"]})
         witness = Counter(s["witness"] for s in samples)
         unreadable = Counter(s["slab"] for s in samples if s["witness"] == "unreadable")
         closed = Counter(s["slab_reason"] for s in samples if s["slab"] == "closed")
@@ -1773,13 +1774,19 @@ def cmd_openings(args) -> int:
                         closed.items(), key=lambda kv: str(kv[0]))},
                     "openings": len(openings),
                     "openings_accepted": sum(o["accepted"] for o in openings),
+                    # accepted on the portrait scores that alone placed the
+                    # enemy rows: they witness the agents, not the rows
+                    "openings_accepted_enemy_rows_from_portraits": sum(
+                        o["accepted"] and o["enemy_rows_from"] == "portraits" for o in openings),
                     "openings_strip_only": sum(o["reason"] == "strip_only_no_rows"
                                                for o in openings)}
         out = store.write_events("scoreboard_presence", sid, [coverage] + rows)
         a, b = coverage["slab"], coverage["combined"]
         print(f"{sid}: open {a['samples_open']} -> {b['samples_open']}, holds {a['runs']} -> "
               f"{b['runs']}, single {a['runs_single_sample']} -> {b['runs_single_sample']}, "
-              f"holes {a['holes']} -> {b['holes']}; accepted {coverage['openings_accepted']}; "
+              f"holes {a['holes']} -> {b['holes']}; accepted {coverage['openings_accepted']} "
+              f"({coverage['openings_accepted_enemy_rows_from_portraits']} with enemy rows from "
+              f"the portraits alone); "
               f"slab_only {witness.get('slab_only', 0)}, strip_only {witness.get('strip_only', 0)}, "
               f"unreadable {witness.get('unreadable', 0)} -> {out}")
     return 0

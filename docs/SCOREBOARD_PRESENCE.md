@@ -385,6 +385,50 @@ the enemy edge lay within 2 px on [metric:scoreboard/strip-geometry@a06f04a0059f
 above what open boards score. SA8 to SA12 and the holdout's SH1 to SH3 are
 in the ledger.
 
+### The edges in storage
+
+The store holds `scoreboard-0.9.0` rows for all 19 lineup sessions: a scan
+wrote them on 2026-09-28, so the table's edges can be counted without a
+decode. Of the [metric:scoreboard/stored-edges@all-sessions#boards_open=20751] open boards, [metric:scoreboard/stored-edges@all-sessions#x0_wrong=2904] have a
+left edge outside frame x 572 or 574: [metric:scoreboard/stored-edges@all-sessions#x0_wrong_at_0=739] at x 0,
+[metric:scoreboard/stored-edges@all-sessions#x0_wrong_left=2185] left of the board in all and [metric:scoreboard/stored-edges@all-sessions#x0_wrong_right=675]
+right of it. The openings gate refuses [metric:scoreboard/stored-edges@all-sessions#x0_wrong_refused=2813] of them and
+accepts [metric:scoreboard/stored-edges@all-sessions#x0_wrong_accepted=91], each within 30 px of the board's edge
+([metric:scoreboard/stored-edges@all-sessions#x0_wrong_within_30px_accepted=91]). The portrait boxes are the
+cross-reference: a wrong left edge moves them off the portraits, and the gate
+refuses the board rather than naming from it. So the defect costs coverage,
+not names. Every session has some, from [metric:scoreboard/stored-edges@all-sessions#x0_wrong_session_min=31] to
+[metric:scoreboard/stored-edges@all-sessions#x0_wrong_session_max=313]; the right edge lies outside x 1345 or 1347 on
+[metric:scoreboard/stored-edges@all-sessions#x1_wrong=4099].
+
+The stored rows keep the edges but no pixels. The crop cache holds the centre
+crop (frame x 883-1037), not the table's frame, and the holdout run kept
+thumbnails of two of its nine wrong boards, annotated and cropped. A fit of
+the table's frame therefore needs frames decoded: the selection can come from
+the stored rows above, x0-wrong and x0-right boards across sessions.
+
+### A portrait-confirmed board counts once
+
+Where the portraits alone confirmed the enemy rows (`confirm ==
+"portraits"`), the openings gate accepts the board on the same scores, so its
+acceptance says which agents the board shows and nothing more about where the
+rows lie. From `scoreboard-agent-0.5.0` each opening says where its enemy rows
+come from (`enemy_rows_from`, `slab` or `portraits`), the presence rows carry
+it as `opening_enemy_rows_from`, and the coverage row counts
+`openings_accepted_enemy_rows_from_portraits`. The gate's verdicts do not
+change: from the stored 0.9.0 rows, 0.4.0 and 0.5.0 both accept
+[metric:scoreboard/openings-confirm@all-sessions#accepted=16421] of [metric:scoreboard/openings-confirm@all-sessions#openings=25620] openings
+([metric:scoreboard/openings-confirm@all-sessions#accepted_before=16421] before). Of those accepted,
+[metric:scoreboard/openings-confirm@all-sessions#accepted_enemy_rows_from_slab=13108] have enemy rows from the slab
+([metric:scoreboard/openings-confirm@all-sessions#accepted_confirm_red_run=12229] by a red run,
+[metric:scoreboard/openings-confirm@all-sessions#accepted_confirm_red_overlap=834] by a red overlap,
+[metric:scoreboard/openings-confirm@all-sessions#accepted_tallest_run=45] by the tallest runs) and
+[metric:scoreboard/openings-confirm@all-sessions#accepted_enemy_rows_from_portraits=3313] from the portraits alone. The
+presence rows stored before counted
+[metric:scoreboard/portrait-confirm@all-sessions#accepted=6018] accepted
+openings over the older 0.6.0 rows; the 0.9.0 scan, not this change, moved
+that count.
+
 ## Predictions
 
 - **S1 is refuted on both clauses.** The witness finds the strip on
@@ -419,11 +463,12 @@ in the ledger.
 - Keep an image of every board the holdout refuses at the strip, and view
   them before changing either confirmation: on `bfad2778a372` the run kept
   none (see "Held out on a second map").
-- Rescan the scoreboard (`scoreboard-0.9.0`) to store a `sample` row per
-  frame and the anchored rows; the openings now infer closed samples from
-  the offered frames. `lineup.load_lineup` applies the stored 0.6.0 and 0.7.0
-  boards meanwhile (`version.SCOREBOARD_VERDICT_COMPATIBLE`), and
-  `board_state.current` says the stamp is behind.
+- Fit the table's frame for its left and right edges on decoded frames
+  chosen from the stored rows ("The edges in storage"), then rescan the
+  scoreboard under the new stamp. The 0.9.0 scan of 2026-09-28 already
+  stores a `sample` row per frame and the anchored rows. A scoreboard ROI in
+  the crop cache, written by that rescan, would let later edge fits rerun
+  without a decode.
 - The player reads the strip as round outcomes: a circle with an X per round
   of the half, green for an ally win and red for an enemy win, and a yellow
   dot on the right for the opponents' round total

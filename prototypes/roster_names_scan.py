@@ -54,7 +54,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from reticle.ocr import Templates                                  # noqa: E402
-from reticle.scoreboard import read_scoreboard                     # noqa: E402
+from reticle.scoreboard import load_agent_icons, read_scoreboard, strip_rect  # noqa: E402
 import minimap_portrait as mp                                      # noqa: E402
 
 STORE = Path.home() / "reticle-store"
@@ -159,6 +159,9 @@ def main() -> int:
 
     sessions = a.sessions or sorted(p.stem for p in (STORE / "manifests").glob("*.json"))
     blocks = []
+    # The scan's inputs: the strip anchors the blocks, the portraits confirm
+    # enemy rows no red run confirms (`read_scoreboard`).
+    icons = load_agent_icons(STORE)
     for sid in sessions:
         man = json.loads((STORE / "manifests" / f"{sid}.json").read_text())
         src = man["source"]
@@ -179,7 +182,8 @@ def main() -> int:
             ok, fr = cap.read()
             if not ok:
                 continue
-            sb = read_scoreboard(fr, templates)
+            sb = read_scoreboard(fr, templates, strip_rect=strip_rect(
+                man["source_profile"], fr.shape[1], fr.shape[0]), icons=icons)
             if not sb.open_ or len(sb.rows) < 10:
                 continue
             crops = name_text_crops(fr, sb)

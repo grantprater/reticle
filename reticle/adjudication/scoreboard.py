@@ -43,6 +43,17 @@ releases it to close it [domain:hud/scoreboard-tab-hold]; `presence_runs`
 groups present samples into holds, joined across one-sample holes. Only the
 slab test reads rows, so an opening the strip alone saw names nothing.
 
+**A board confirmed by its portraits counts once.** From `scoreboard-0.9.0`
+the strip's lower line may place the enemy rows where no red run confirms
+them, and the reader then opens the board only when all five enemy portraits
+score at least `PORTRAIT_CONFIRM_MIN` (stored `confirm == "portraits"`).
+Those rows have no witness but the portrait scores, and the gate accepts the
+opening on the same scores. So each opening says where its enemy rows come
+from (`enemy_rows_from`): `slab` where a red run placed or confirmed them,
+`portraits` where the portraits alone did. An accepted opening witnesses its
+rows' placement only where they come from the slab; one from the portraits
+names agents and no more, and the coverage counts it apart.
+
 Owns [owns:scoreboard-row-agent] and [owns:scoreboard-presence].
 """
 from __future__ import annotations
@@ -58,7 +69,17 @@ from .identity import BOARD_MARGIN_MIN, adjudicate_agent_identity, identity_clai
 # 0.4.0: a sample whose slab read was anchored on the strip (the stored
 # `anchor`, from scoreboard-0.8.0) is `both_anchored`, not `both`; each
 # sample keeps the anchor as `slab_anchor`. Rows without it count as before.
-SCOREBOARD_AGENT_VERSION = "scoreboard-agent-0.4.0"
+# 0.5.0: each opening says where its enemy rows come from
+# (`enemy_rows_from`, `ENEMY_ROWS_FROM`): a board the reader confirmed by its
+# portraits rests on them, so its acceptance is counted once. The gate's
+# verdicts are unchanged.
+SCOREBOARD_AGENT_VERSION = "scoreboard-agent-0.5.0"
+
+#: Where an opening's enemy rows come from: a red run of the slab test placed
+#: or confirmed them (`slab`; every read without a stored `confirm`, before
+#: scoreboard-0.9.0 or placed by the tallest runs, is one), or the five enemy
+#: portraits alone confirmed the rows the strip's line placed (`portraits`).
+ENEMY_ROWS_FROM = ("slab", "portraits")
 
 #: Consecutive samples further apart than this are not neighbours: a gap in
 #: the sampling breaks a hold rather than being joined across. The scan and
@@ -202,6 +223,14 @@ def presence_runs(samples: list[dict], on=None) -> list[dict]:
     return out
 
 
+def enemy_rows_from(group: list[dict]) -> str | None:
+    """Where one opening's enemy rows come from (`ENEMY_ROWS_FROM`), from the
+    `confirm` its stored rows carry; None for an opening without rows."""
+    if not group:
+        return None
+    return "portraits" if group[0].get("confirm") == "portraits" else "slab"
+
+
 def scoreboard_openings(rows: list[dict], *, strip_rows: list[dict] | None = None) -> list[dict]:
     """Group stored row observations into openings and gate each one whole.
 
@@ -213,6 +242,10 @@ def scoreboard_openings(rows: list[dict], *, strip_rows: list[dict] | None = Non
     what each witness said (`presence`) and the index of its hold
     (`presence_runs`). A sample only the strip saw has no rows to gate and is
     refused as `strip_only_no_rows`.
+
+    Each opening carries `enemy_rows_from`: `portraits` where the reader
+    confirmed the enemy rows by the same portrait scores this gate reads, so
+    its acceptance witnesses the agents and not the rows' placement.
     """
     by_t: dict[float, list[dict]] = defaultdict(list)
     for row in rows:
@@ -264,7 +297,7 @@ def scoreboard_openings(rows: list[dict], *, strip_rows: list[dict] | None = Non
                     reason = f"{side}_agents_not_distinct"
         out.append({"t_ms": t_ms, "frame_idx": group[0].get("frame_idx"),
                     "accepted": reason is None, "reason": reason, "rows": states,
-                    "claims": claims,
+                    "claims": claims, "enemy_rows_from": enemy_rows_from(group),
                     "source_version": group[0].get("scoreboard_version"),
                     "version": SCOREBOARD_AGENT_VERSION})
     if strip_rows is None:
@@ -284,6 +317,7 @@ def scoreboard_openings(rows: list[dict], *, strip_rows: list[dict] | None = Non
         if s["present"] and s["slab"] != "open":
             out.append({"t_ms": s["t_ms"], "frame_idx": s["frame_idx"], "accepted": False,
                         "reason": "strip_only_no_rows", "rows": [], "claims": [],
+                        "enemy_rows_from": None,
                         "presence": {k: s[k] for k in ("slab", "strip", "witness")},
                         "hold": hold.get(s["frame_idx"]), "source_version": strip_version,
                         "version": SCOREBOARD_AGENT_VERSION})

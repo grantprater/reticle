@@ -154,5 +154,44 @@ class CombinedOpeningsTests(unittest.TestCase):
                          [(o["accepted"], o["reason"]) for o in alone])
 
 
+class PortraitConfirmedOpeningsTests(unittest.TestCase):
+    """A board the reader confirmed by its portraits rests on them: the gate's
+    acceptance names its agents and is no second witness of its rows."""
+
+    @staticmethod
+    def confirmed(frame: int, confirm) -> list[dict]:
+        return [{**r, "anchor": "strip", "confirm": confirm,
+                 "scoreboard_version": "scoreboard-0.9.0"} for r in board_rows(frame)]
+
+    def test_each_opening_says_where_its_enemy_rows_come_from(self):
+        rows = (self.confirmed(0, "red_run") + self.confirmed(30, "red_overlap")
+                + self.confirmed(60, "portraits") + board_rows(90))    # 90: stored before 0.9.0
+        got = scoreboard_openings(rows)
+        self.assertEqual([o["accepted"] for o in got], [True] * 4)
+        self.assertEqual([o["enemy_rows_from"] for o in got],
+                         ["slab", "slab", "portraits", "slab"])
+
+    def test_the_gate_verdict_is_unchanged(self):
+        bad = self.confirmed(0, "portraits")
+        bad[7] = {**bad[7], "portrait_agent_margin": 0.01}
+        rows = bad + self.confirmed(30, "red_run")
+        plain = [{k: v for k, v in r.items() if k != "confirm"} for r in rows]
+        got, before = scoreboard_openings(rows), scoreboard_openings(plain)
+        self.assertEqual([(o["accepted"], o["reason"]) for o in got],
+                         [(o["accepted"], o["reason"]) for o in before])
+        self.assertEqual(got[0]["reason"], "row_refused")
+        self.assertEqual(got[0]["enemy_rows_from"], "portraits")
+
+    def test_a_strip_only_opening_has_no_rows_to_come_from(self):
+        rows = self.confirmed(0, "portraits") + [
+            {**slab_sample(0, True), "anchor": "strip", "confirm": "portraits"},
+            slab_sample(30, False, "red_not_at_strip")]
+        strip = [strip_sample(0, "present"), strip_sample(30, "present")]
+        got = scoreboard_openings(rows, strip_rows=strip)
+        self.assertEqual([(o["reason"], o["enemy_rows_from"]) for o in got],
+                         [(None, "portraits"), ("strip_only_no_rows", None)])
+        self.assertEqual(got[0]["presence"]["witness"], "both_anchored")
+
+
 if __name__ == "__main__":
     unittest.main()
