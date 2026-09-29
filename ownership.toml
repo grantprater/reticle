@@ -175,6 +175,40 @@ consumers = ["belief", "track", "lighting", "minimap_diagnostics", "team_vision"
 evidence = "tests/test_pick_self.py, prototypes/xmark_eval.py"
 
 [[entry]]
+id = "spike-observation"
+question = "Where is the spike glyph on the minimap, is it on the ground or carried, and which roster slot carries the spike marker?"
+owner = "spike"
+role = ["detect"]
+status = "partial"
+produces = ["glyph_fits", "accepted", "on_glyph", "carrier_offset", "roster_marker", "read_frame"]
+not_for = """
+Naming the carrier: the marker's slot is the roster bar's packed position, and
+the agent in it is `agent-from-slot`'s answer. Nor the planted spike, whose
+state the rounds table owns (`rounds.spike_planted`), nor the orange and black
+spike appearances the player has not yet named, which it keeps as candidates.
+"""
+consumers = ["cli", "self_icon", "minimap", "adjudication.minimap_candidates",
+             "adjudication.spike_carrier"]
+evidence = "tests/test_spike.py"
+
+[[entry]]
+id = "spike-carrier"
+question = "Do the roster marker, the minimap carried glyph, the plant and the alive count agree about who carries the spike?"
+owner = "adjudication.spike_carrier"
+role = ["adjudicate"]
+status = "partial"
+produces = ["check", "frame_state"]
+defers_to = ["spike-observation"]
+not_for = """
+Naming the carrier, which each row defers to `agent-from-slot` through
+`depends_on`; timing the plant, which `rounds` owns; or reading the "SPIKE
+CARRIER KILLED" banner, which no channel reads yet. It stores disagreements
+and resolves none.
+"""
+consumers = ["cli"]
+evidence = "tests/test_spike.py"
+
+[[entry]]
 id = "ally-candidates"
 question = "Which minimap blobs could be a teammate this frame?"
 owner = "minimap"

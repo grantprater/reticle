@@ -1228,12 +1228,24 @@ class AllyIconReader:
         amask, smask = ally_mask(crop), self_mask(crop)
         keyed = amask | smask
         raw_self = icons(smask, crop, self.floor, support=self.slab, gates=False)
-        mine = _gated(raw_self, sc, require_facing=False)
-        me = mine[0] if mine else None
-        occ = [(me["cx"], me["cy"], me["r"])] if me else []
         raw = icons(amask, crop, self.floor, support=self.slab,
                     seed="surface", gates=False)
-        found = _gated(raw, sc)
+        # A fit that lands on the spike glyph is the glyph, not an icon
+        # (`spike.on_glyph`, ally-icon-0.5.0). Each candidate stores the
+        # accepted glyphs near it, so `ally_decisions` refuses the same fits
+        # from storage; the gated lists here skip them, as the decisions do.
+        from . import spike
+        glyphs = spike.accepted(spike.glyph_fits(crop, self.slab))
+        near = {}
+        for f in raw_self + raw:
+            near[id(f)] = [{k: g[k] for k in ("cx", "cy", "state", "side", "ncc", "amp", "reason")}
+                           for g in glyphs if np.hypot(g["cx"] - f["cx"], g["cy"] - f["cy"])
+                           <= spike.ON_GLYPH_PX * sc]
+        clear = lambda fs: [f for f in fs if spike.on_glyph(f["cx"], f["cy"], near[id(f)], sc) is None]
+        mine = _gated(clear(raw_self), sc, require_facing=False)
+        me = mine[0] if mine else None
+        occ = [(me["cx"], me["cy"], me["r"])] if me else []
+        found = _gated(clear(raw), sc)
         grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
         ref = self.ref
         _mark_barriers(found, keyed, grey, ref)
@@ -1251,6 +1263,7 @@ class AllyIconReader:
         for i, f in enumerate(raw_self):
             self.candidates.append({**frame, "channel": "self", "index": i,
                                     **f, "widget_scale": widget_scale(crop.shape[1]),
+                                    "spike_glyphs": near[id(f)],
                                     "facing_reason": ("lobe_unread" if f["facing"] is None
                                                       else None),
                                     "map_diff": None, "map_diff_reason": "not_applicable",
@@ -1285,6 +1298,7 @@ class AllyIconReader:
                              if keep.any() else None)
             self.candidates.append({**frame, "channel": "ally", "index": i,
                                     **f, "widget_scale": widget_scale(crop.shape[1]),
+                                    "spike_glyphs": near[id(f)],
                                     "facing_reason": ("lobe_unread" if f["facing"] is None
                                                       else None),
                                     "map_diff": match["map_diff"] if match else None,

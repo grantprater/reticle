@@ -49,7 +49,7 @@ claim = "pixels in, one observation out; no reader knows another"
 modules = ["minimap", "ally_portrait", "ocr", "killfeed", "roster", "ping", "cone", "lighting",
            "hud_reader", "scoreboard", "scoreboard_strip", "glance", "track", "economy",
            "minimap_dark", "combat_report", "ability_shapes", "tray", "ult_lines",
-           "tray_icons", "menu"]
+           "tray_icons", "menu", "spike"]
 
 [orchestration]
 claim = "shared decode passes, which dispatch to readers and own no reading"
@@ -67,7 +67,7 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "adjudication.combat_report", "adjudication.reliability",
            "adjudication.killfeed_names", "adjudication.ult_cast",
            "adjudication.ability_state", "adjudication.tray_kit",
-           "adjudication.smoke_owner", "self_icon",
+           "adjudication.smoke_owner", "adjudication.spike_carrier", "self_icon",
            "ability_coverage",
            "ability_timeline", "gametime", "domain_learning"]
 
