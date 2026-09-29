@@ -6,8 +6,8 @@ The player recalls that the red "?" appears after a delay and stays "a
 couple seconds", and asked for both to be measured
 [domain:minimap/last-known-mark]. No owner reads the mark. This prototype
 takes the player's `?` marks in `labels/minimap` as anchors (one instance per
-place and time; `labels/minimap_agent`'s are mostly `claude-provisional` and
-are not used) and follows each through the minimap crop cache:
+place and time; `labels/minimap_agent` repeats the same Ascent marks, so it
+adds no anchor) and follows each through the minimap crop cache:
 
   1. presence: the death owner's red extractor
      (`adjudication.death.extract_minimap_death_marks`, red list) holds a
