@@ -26,6 +26,13 @@ portraits there must confirm a slab. A block the strip does not bound, or
 does not confirm, is refused. Where the strip is absent or unreadable, the
 tallest runs decide, as they did at 0.7.0.
 
+The table's left and right edges are its frame: in every row of both blocks
+the row plates begin and end with a colour step, whatever world lies behind.
+Where the profile gives the strip's rectangle, the reader fits the two steps
+a table's width apart near the place the strip's centre predicts
+(`_frame_edges`) and closes a board with no such frame; the green test's
+dense columns decide only where no rectangle is known.
+
 The local player's row is the one the game outlines in yellow, and its name
 renders as the literal string "Me" -- the same convention the killfeed uses.
 The outline is what this keys on: it needs no template and no name reading.
@@ -104,6 +111,23 @@ STRIP_TOL = 4
 # left edge is wrong and the portrait boxes miss.
 STRIP_RED_OVERLAP = 0.5
 PORTRAIT_CONFIRM_MIN = 0.81
+# The table's frame (`_frame_edges`). Its left and right edges are vertical
+# steps in every row of both blocks: the row plates begin at the portrait
+# column and end after the ping plate, over whatever world lies behind. At
+# 1920x1080 the table spans frame x 572-1347 (TABLE_W columns), centred on
+# the round-history strip; the green test's dense columns reach past it where
+# the world beside the board passes the test, and stop short where the
+# portrait column fails it over a pale world. The fit searches FRAME_SEARCH
+# columns either side of the place the strip's centre predicts, lets the
+# width vary by FRAME_W_TOL, and refuses a frame whose two steps sum under
+# FRAME_STEP_MIN grey levels: on the fixture's fit sessions, stored opens
+# without a board sum at most [metric:scoreboard/table-frame@fixture#fit_frame_score_noboard_max=20] and boards at least [metric:scoreboard/table-frame@fixture#fit_frame_score_board_min=53]; on the
+# held-out ones [metric:scoreboard/table-frame@fixture#holdout_frame_score_noboard_max=20] and [metric:scoreboard/table-frame@fixture#holdout_frame_score_board_min=64] (docs/SCOREBOARD_PRESENCE.md,
+# "The table's frame").
+TABLE_W = 776
+FRAME_W_TOL = 2
+FRAME_SEARCH = 32
+FRAME_STEP_MIN = 36.0
 
 # Digit envelope for this table specifically. The area floor has to stay low:
 # a "1" here is a 3x10 stroke of only 13 lit pixels, and an 18-pixel floor
@@ -148,6 +172,7 @@ CLOSE_REASONS = (
     "red_short_at_strip",                           # the red run from the strip is shorter than MIN_BLOCK_H
     "enemy_overlaps_ally",                          # anchored enemy rows rise into the ally block
     "no_dense_columns",                             # no column of the ally block is half green
+    "no_table_frame",                               # strip rectangle known; no frame steps where it predicts
     "table_narrow",                                 # its dense columns span under MIN_TABLE_W
 )
 
@@ -340,6 +365,53 @@ def _strip_blocks(green: np.ndarray, red: np.ndarray, rows: tuple[int, int]):
     return ally, enemy, (ally_edge, "strip"), None, why
 
 
+def _table_edges(green: np.ndarray, red: np.ndarray, ally: tuple[int, int],
+                 enemy: tuple[int, int]) -> tuple[int, int] | None:
+    """The table's left and right edge columns, or None where nothing marks them.
+
+    From the ally block's own dense columns, which are cleaner than a
+    whole-frame profile that also catches the team bars up top."""
+    dense = np.where(green[ally[0]:ally[1]].mean(axis=0) > 0.5)[0]
+    if dense.size == 0:
+        return None
+    return int(dense.min()), int(dense.max())
+
+
+def _frame_edges(frame: np.ndarray, ally: tuple[int, int], enemy: tuple[int, int],
+                 centre: int) -> tuple[int, int] | None:
+    """The table's left and right edge columns from its frame, or None where no
+    frame steps near the place `centre` (the strip's centre column) predicts.
+
+    A column's step is the median, over the rows of both blocks, of the
+    colour change from its left neighbour. The frame is the pair of steps
+    TABLE_W apart (within FRAME_W_TOL) with the largest sum, its left edge
+    within FRAME_SEARCH of `centre - TABLE_W // 2`."""
+    lo = centre - TABLE_W // 2 - FRAME_SEARCH
+    hi = centre - TABLE_W // 2 + FRAME_SEARCH
+    rows = np.r_[ally[0]:ally[1], enemy[0]:enemy[1]]
+    W = frame.shape[1]
+    if lo < 1 or hi + TABLE_W + FRAME_W_TOL >= W or rows.size == 0:
+        return None
+
+    def steps(a: int, b: int) -> np.ndarray:
+        # step[i] is the change from column a + i - 1 to column a + i
+        px = frame[rows, a - 1:b + 1].astype(np.int16)
+        return np.median(np.abs(np.diff(px, axis=1)).sum(axis=2), axis=0)
+
+    left = steps(lo, hi)
+    right = steps(lo + TABLE_W - FRAME_W_TOL, hi + TABLE_W + FRAME_W_TOL)
+    best = None
+    for i in range(hi - lo + 1):
+        win = right[i:i + 2 * FRAME_W_TOL + 1]
+        j = int(np.argmax(win))
+        score = float(left[i] + win[j])
+        if best is None or score > best[0]:
+            best = (score, lo + i, lo + i + TABLE_W - FRAME_W_TOL + j - 1)
+    if best[0] < FRAME_STEP_MIN:
+        return None
+    return best[1], best[2]
+
+
 def _split(block: tuple[int, int]) -> list[tuple[int, int]]:
     a, z = block
     step = (z - a) / TEAM_ROWS
@@ -450,12 +522,16 @@ def read_scoreboard(
     if enemy[0] < ally[1]:
         return ScoreboardRead(False, reason="enemy_overlaps_ally", **closed)
 
-    # Table edges from the ally block's own dense columns, which are cleaner
-    # than a whole-frame profile that also catches the team bars up top.
-    dense = np.where(green[ally[0]:ally[1]].mean(axis=0) > 0.5)[0]
-    if dense.size == 0:
-        return ScoreboardRead(False, reason="no_dense_columns", **closed)
-    x0, x1 = int(dense.min()), int(dense.max())
+    if strip_rect is not None:
+        # The strip's rectangle says where the table lies; fit its frame there.
+        got = _frame_edges(frame, ally, enemy, (strip_rect[0] + strip_rect[2]) // 2)
+        if got is None:
+            return ScoreboardRead(False, reason="no_table_frame", **closed)
+    else:
+        got = _table_edges(green, red, ally, enemy)
+        if got is None:
+            return ScoreboardRead(False, reason="no_dense_columns", **closed)
+    x0, x1 = got
     tw = x1 - x0
     if tw < MIN_TABLE_W:
         return ScoreboardRead(False, reason="table_narrow", **closed)

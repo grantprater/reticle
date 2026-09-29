@@ -234,7 +234,7 @@ class CloseReasonTests(unittest.TestCase):
 
     def test_every_reason_is_declared(self):
         from reticle.scoreboard import CLOSE_REASONS
-        self.assertEqual(len(set(CLOSE_REASONS)), 12)
+        self.assertEqual(len(set(CLOSE_REASONS)), 13)
 
     def test_the_reader_stores_a_sample_row_per_frame_offered(self):
         closed = ScoreboardRead(False, reason="red_short")
@@ -293,6 +293,28 @@ class StripAnchorTests(unittest.TestCase):
         self.assertEqual([(r.team, r.y0, r.y1) for r in board.rows],
                          [("ally", 340 + 34 * k, 374 + 34 * k) for k in range(5)]
                          + [("enemy", 568 + 34 * k, 602 + 34 * k) for k in range(5)])
+
+    def test_a_green_world_beside_the_board_leaves_the_frame_edges(self):
+        f = self.frame()
+        f[340:510, 0:560] = self.GREEN          # a green wall left of the board
+        f[340:738, 1360:1920] = self.GREEN      # and right of it
+        board = self.read(f)
+        self.assertEqual((board.open_, board.x0, board.x1), (True, 572, 1347))
+        # the green test's dense columns alone reach both walls
+        self.assertEqual(self.read(f, rect=None).x0, 0)
+
+    def test_a_pale_portrait_column_leaves_the_left_edge(self):
+        f = self.frame()
+        f[340:510, 576:602] = (200, 200, 200)  # the portraits fail the green test
+        board = self.read(f)
+        self.assertEqual((board.open_, board.x0, board.x1), (True, 572, 1347))
+
+    def test_slab_colours_without_a_frame_close_the_board(self):
+        f = self.frame()
+        f[340:510, :] = self.GREEN               # the colours span the frame: no step
+        f[568:738, :] = self.RED
+        board = self.read(f)
+        self.assertEqual((board.open_, board.reason), (False, "no_table_frame"))
 
     def test_without_the_strip_the_tallest_run_decides_as_at_0_7_0(self):
         board = self.read(self.frame(lines=False))

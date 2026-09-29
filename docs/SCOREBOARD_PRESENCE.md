@@ -404,8 +404,62 @@ not names. Every session has some, from [metric:scoreboard/stored-edges@all-sess
 The stored rows keep the edges but no pixels. The crop cache holds the centre
 crop (frame x 883-1037), not the table's frame, and the holdout run kept
 thumbnails of two of its nine wrong boards, annotated and cropped. A fit of
-the table's frame therefore needs frames decoded: the selection can come from
-the stored rows above, x0-wrong and x0-right boards across sessions.
+the table's frame therefore needed frames decoded ("The table's frame").
+
+### The table's frame
+
+One CPU seek decode stored [metric:scoreboard/table-frame@fixture#boards=456] boards as lossless crops of frame
+rows 150-899 at full width in the store fixture `fixtures/scoreboard_edges`
+(`index.jsonl` names each board's session, frame, group and the 0.9.0 read),
+chosen by `random.Random(20260928)` from the stored rows: boards with the left
+edge at x 0, left of the board, right of it, at the board, and at the board
+with a wrong right edge. Six sessions are held out (`223d636bf8d2`,
+`5822b6646448`, `96aa1ae9b96f`, `bfad2778a372` with the holdout's nine boards,
+`c40d950031bb`, `ff636d173b07`). Every decoded read equals the stored one. On
+[metric:scoreboard/table-frame@fixture#evaluable=414] boards the reader reads the crop pasted into a black frame as it
+reads the decoded frame; the rest had rows outside the crop and are not scored.
+
+Contact sheets (`notes/pictures/scoreboard_edges_fit_*.png`) show every board
+at frame x 572-1347. A speaker-icon column (x 540-571) lies outside the slab;
+a 4 px plate stripe, the portrait column and the row plates follow, and the
+ping plate ends the table. The green test's dense columns fail both ways: a
+green world beside the board passes the test over the ally rows, and the
+portrait column fails it over a pale world (x0 near 600). Some stored opens
+show no board at all.
+
+Colour classes did not fix it. Requiring the enemy rows red where the ally
+rows are green put x0 right on [metric:scoreboard/table-frame@fixture#fit_colour_both_x0_right_zero_left=69] of [metric:scoreboard/table-frame@fixture#fit_colour_both_zero_left_n=103] fit boards at x 0 or
+left, and lost x0 on [metric:scoreboard/table-frame@fixture#fit_colour_both_ok_x0_lost=13] correct ones; a fixed-width colour fit
+corrected [metric:scoreboard/table-frame@fixture#fit_colour_fixed_x0_right=35] of [metric:scoreboard/table-frame@fixture#fit_colour_fixed_x0_right_n=45] boards right of the board. The row separators are no
+cleaner: over a washed world only the player's outline shows.
+
+The edges are colour steps. The median, over the rows of both blocks, of the
+change from one column to the next peaks at x 572 and 1348 on every board.
+`scoreboard-0.10.0` fits the frame as the pair of steps `TABLE_W` (776)
+columns apart, within 2, whose sum is largest, with its left edge within 32
+px of the place the strip's centre predicts (`_frame_edges`). A frame whose
+steps sum under 36 closes the board as `no_table_frame`: stored opens without
+a board sum at most [metric:scoreboard/table-frame@fixture#fit_frame_score_noboard_max=20] on the fit sessions and boards at least
+[metric:scoreboard/table-frame@fixture#fit_frame_score_board_min=53] ([metric:scoreboard/table-frame@fixture#holdout_frame_score_board_min=64] held out). Without the strip's rectangle the dense
+columns still decide.
+
+| Boards | Edges right, 0.9.0 | Edges right, 0.10.0 | Closed, no board | Gate accepts, 0.9.0 | Gate accepts, 0.10.0 |
+|---|---|---|---|---|---|
+| Fit, x0 wrong | [metric:scoreboard/table-frame@fixture#fit_x0_wrong_edges_right_before=0] of [metric:scoreboard/table-frame@fixture#fit_x0_wrong_n=151] | [metric:scoreboard/table-frame@fixture#fit_x0_wrong_edges_right_after=148] | [metric:scoreboard/table-frame@fixture#fit_x0_wrong_closed_no_frame=3] | [metric:scoreboard/table-frame@fixture#fit_x0_wrong_accepted_before=3] | [metric:scoreboard/table-frame@fixture#fit_x0_wrong_accepted_after=119] |
+| Held out, x0 wrong | [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_edges_right_before=0] of [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_n=71] | [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_edges_right_after=68] | [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_closed_no_frame=3] | [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_accepted_before=2] | [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_accepted_after=49] |
+
+The K/D/A cells scale with the table's width, so the right edge matters as
+much: on boards with only x1 wrong, 0.10.0 puts it right on
+[metric:scoreboard/table-frame@fixture#fit_x1_wrong_x1_right_after=40] of [metric:scoreboard/table-frame@fixture#fit_x1_wrong_n=40] and [metric:scoreboard/table-frame@fixture#holdout_x1_wrong_x1_right_after=20] of [metric:scoreboard/table-frame@fixture#holdout_x1_wrong_n=20], and the cells read rise from
+[metric:scoreboard/table-frame@fixture#holdout_x1_wrong_kda_read_before=165] to [metric:scoreboard/table-frame@fixture#holdout_x1_wrong_kda_read_after=456] held out; on the x0-wrong boards from
+[metric:scoreboard/table-frame@fixture#holdout_x0_wrong_kda_read_before=365] to [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_kda_read_after=1398]. On boards 0.9.0 read with the right edges
+([metric:scoreboard/table-frame@fixture#fit_ok_n=80] fit, [metric:scoreboard/table-frame@fixture#holdout_ok_n=50] held out) no row and no gate verdict changes
+([metric:scoreboard/table-frame@fixture#fit_ok_rows_changed=0], [metric:scoreboard/table-frame@fixture#holdout_ok_rows_changed=0]); the edges move by at most [metric:scoreboard/table-frame@fixture#holdout_ok_edge_shift_max_px=2] px, x0 574 to 572 or
+x1 1347 to 1346. No accepted opening is lost ([metric:scoreboard/table-frame@fixture#fit_accepted_lost=0], [metric:scoreboard/table-frame@fixture#holdout_accepted_lost=0]), and none
+opens that 0.9.0 closed ([metric:scoreboard/table-frame@fixture#opened_now=0]). The [metric:scoreboard/table-frame@fixture#closed_no_frame_all=13] boards 0.10.0 closes all
+show no board (`notes/pictures/scoreboard_edges_closed_no_frame.png`).
+Predictions E1 and E4 hold; E2 and E3, the colour rules, fail (ledger task
+`scoreboard-edges`).
 
 ### A portrait-confirmed board counts once
 
@@ -463,12 +517,10 @@ that count.
 - Keep an image of every board the holdout refuses at the strip, and view
   them before changing either confirmation: on `bfad2778a372` the run kept
   none (see "Held out on a second map").
-- Fit the table's frame for its left and right edges on decoded frames
-  chosen from the stored rows ("The edges in storage"), then rescan the
-  scoreboard under the new stamp. The 0.9.0 scan of 2026-09-28 already
-  stores a `sample` row per frame and the anchored rows. A scoreboard ROI in
-  the crop cache, written by that rescan, would let later edge fits rerun
-  without a decode.
+- Rescan the scoreboard at `scoreboard-0.10.0` (the player's call): the
+  stored 0.9.0 rows keep the dense columns' edges ("The edges in storage").
+  A scoreboard ROI in the crop cache, written by that rescan, would let
+  later reader changes rerun without a decode.
 - The player reads the strip as round outcomes: a circle with an X per round
   of the half, green for an ally win and red for an enemy win, and a yellow
   dot on the right for the opponents' round total
