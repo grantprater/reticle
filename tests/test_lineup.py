@@ -334,6 +334,17 @@ class LoadLineupBoardTests(unittest.TestCase):
         self.assertFalse(got["board_state"]["applied"])
         self.assertTrue(got["board_state"]["reason"].startswith("stale_version scoreboard-0.5.0"))
 
+    def test_a_board_newer_than_this_code_names_the_checkout_not_the_board(self):
+        """A worktree older than the store once read a rescanned 0.13.0 board
+        as `stale_version` and blamed the rescan for the top bar's refusals."""
+        from reticle.version import SCOREBOARD_VERSION
+        major, minor, patch = lineup._version_key(SCOREBOARD_VERSION)
+        newer = f"scoreboard-{major}.{minor + 1}.0"
+        got = lineup.load_lineup("s1", self.store_with(newer))
+        self.assertFalse(got["board_state"]["applied"])
+        self.assertTrue(got["board_state"]["reason"].startswith(
+            f"code_older_than_store {newer} > {SCOREBOARD_VERSION}"))
+
     def test_no_board_is_said_so(self):
         got = lineup.load_lineup("s1", self.store_with(None))
         self.assertEqual(got["board_state"], {"applied": False, "reason": "no_scoreboard"})

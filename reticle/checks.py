@@ -38,7 +38,8 @@ MAX_GAP_MS = 3_000
 # One killfeed entry stays on screen for several seconds, so a per-frame flag
 # counts the same kill many times over. Counting *entries* means following each
 # one across frames, which works because an entry never moves down the stack: it
-# holds its position until an entry above it expires, then rises.
+# holds its position until an entry above it expires, then rises
+# [domain:killfeed/stack-order].
 #
 # Both bars below are stated in SAMPLES as well as milliseconds, because a bar
 # in milliseconds alone means different things at different rates: 2500 ms is
