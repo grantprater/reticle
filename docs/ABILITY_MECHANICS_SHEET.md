@@ -238,9 +238,9 @@ questions.
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Regrowth | ? | a resource bar [domain:abilities/skye-regrowth-resource-bar] | the pool does not refill [domain:abilities/skye-regrowth-resource-bar] | channelled (HOLD FIRE) | channelled [domain:abilities/skye-regrowth-channelled] | teal ring round Skye [domain:abilities/skye-regrowth-minimap-ring] | ? | ? | no tray drop [domain:abilities/skye-regrowth-no-tray-drop] |
-| Q | Trailblazer | Possession | 1 [domain:abilities/skye-trailblazer-charges] | none within a round [domain:abilities/skye-trailblazer-charges] | piloted | piloted [domain:abilities/skye-trailblazer-piloted] | compact icon (census 2) | green view, shows through the minimap void [domain:hud/controlled-entity-view-tint] | ? | ? |
+| Q | Trailblazer | Possession | 1 [domain:abilities/skye-trailblazer-charges] | none within a round [domain:abilities/skye-trailblazer-charges] | piloted | controlled by the player, as the Owl Drone [domain:abilities/skye-trailblazer-piloted] | compact icon (census 2) | green view, shows through the minimap void [domain:hud/controlled-entity-view-tint] | ? | ? |
 | E | Guiding Light | Missile | 2 [domain:abilities/skye-guiding-light-charges] | harvest: 60 s? | guided path (HOLD FIRE); second press (RE-USE) | steered by the player: held, or piloted? [domain:abilities/skye-guiding-light-steered] | travelling bird icon [domain:abilities/skye-guiding-light-minimap-icon] | ? | ? | activation sound distinct from the cast [domain:abilities/ability-sound-phases] |
-| X | Seekers | Grounded Object | harvest: 8 ult points? | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | tracks enemies itself; needs a living enemy [domain:abilities/skye-seekers-track-enemies] | unsure (census 1) | ? | ? | ? |
+| X | Seekers | Grounded Object | harvest: 8 ult points? | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | autonomous toward enemies? | unsure (census 1) | ? | ? | ? |
 
 ## Sova
 
@@ -255,7 +255,7 @@ questions.
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Stealth Drone | Possession | 1 | harvest: none? | piloted | piloted [domain:abilities/tejo-stealth-drone-piloted] | travelling icon; a brief ring at the pulse [domain:abilities/pulse-scan-abilities] | brown view; teal weight unmoved [domain:hud/controlled-entity-view-tint] | ? | a pulse scan, as Recon Bolt and Haunt [domain:abilities/pulse-scan-abilities] |
+| C | Stealth Drone | Possession | 1 | harvest: none? | piloted | piloted? | travelling icon; a brief ring at the pulse [domain:abilities/pulse-scan-abilities] | brown view; teal weight unmoved [domain:hud/controlled-entity-view-tint] | ? | a pulse scan, as Recon Bolt and Haunt [domain:abilities/pulse-scan-abilities] |
 | Q | Special Delivery | Class 5 Projectile | 1 | harvest: none? | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 | E | Guided Salvo | ? | 2 | harvest: none? | cast on FIRE | ? | rings [domain:abilities/tejo-guided-salvo-minimap-rings] | ? | ? | ? |
 | X | Armageddon | ? | harvest: 9 ult points? | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | pale region (census 1) | ? | ? | ? |
