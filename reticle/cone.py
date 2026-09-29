@@ -109,6 +109,10 @@ CONE_HALF_ANGLE_DEG = 51.5
 #: fine enough that a doorway cannot fall between two rays.
 N_RAYS = 240
 
+#: Steps a ray advances per chunk before the dead rays are dropped. Speed
+#: only: the mask does not depend on it.
+RAY_CHUNK = 48
+
 
 def passable_from(labels: np.ndarray, floor: np.ndarray) -> np.ndarray:
     """The grid a ray may travel through: the floor, minus the boxes.
@@ -150,28 +154,36 @@ def raycast(passable: np.ndarray, cx: float, cy: float, facing_deg: float,
     # `n_rays - 1` divisions so both edges of the wedge are sampled, matching
     # the loop reference exactly rather than approximately.
     th = facing - half + (2 * half) * np.arange(n_rays) / (n_rays - 1)
-    s = np.arange(int(max_r), dtype=np.float64)          # step 0 IS the origin
-
-    xs = cx + np.cos(th)[:, None] * s[None, :]
-    ys = cy + np.sin(th)[:, None] * s[None, :]
-    xi = np.rint(xs).astype(np.int64)
-    yi = np.rint(ys).astype(np.int64)
-
-    inb = (xi >= 0) & (xi < w) & (yi >= 0) & (yi < h)
-    # Clip only so the gather is legal; `inb` is what decides, and an
-    # out-of-bounds step is impassable so the ray dies there.
-    xc = np.clip(xi, 0, w - 1)
-    yc = np.clip(yi, 0, h - 1)
-
-    step_ok = passable[yc, xc] & inb
-    # A ray is alive at step k only if EVERY step up to k was passable. This
-    # is the whole raycast -- the running AND is what "stops at the first
-    # wall" means, and it is why no loop is needed.
-    alive = np.logical_and.accumulate(step_ok, axis=1)
-    lit = alive & visible[yc, xc]
-
+    cos_t, sin_t = np.cos(th), np.sin(th)
     mask = np.zeros((h, w), dtype=bool)
-    mask[yc[lit], xc[lit]] = True
+    # **Steps are cast in chunks, and only the rays still alive continue.** On
+    # a real map most rays die within a few dozen steps, and the whole-length
+    # cast spent most of its time on steps no ray reached. Every step's
+    # coordinate is the same product `c + cos * s` the whole-length cast
+    # computed, so the mask is identical (`--self-test`, `--bench`).
+    rays = np.arange(n_rays)
+    k0, max_r = 0, int(max_r)
+    while k0 < max_r and rays.size:
+        k1 = min(max_r, k0 + RAY_CHUNK)
+        s = np.arange(k0, k1, dtype=np.float64)          # step 0 IS the origin
+        xi = np.rint(cx + cos_t[rays, None] * s[None, :]).astype(np.int64)
+        yi = np.rint(cy + sin_t[rays, None] * s[None, :]).astype(np.int64)
+
+        inb = (xi >= 0) & (xi < w) & (yi >= 0) & (yi < h)
+        # Clip only so the gather is legal; `inb` is what decides, and an
+        # out-of-bounds step is impassable so the ray dies there.
+        np.clip(xi, 0, w - 1, out=xi)
+        np.clip(yi, 0, h - 1, out=yi)
+
+        step_ok = passable[yi, xi] & inb
+        # A ray is alive at step k only if EVERY step up to k was passable. This
+        # is the whole raycast -- the running AND is what "stops at the first
+        # wall" means, and it is why no per-step loop is needed.
+        alive = np.logical_and.accumulate(step_ok, axis=1)
+        lit = alive & visible[yi, xi]
+        mask[yi[lit], xi[lit]] = True
+        rays = rays[alive[:, -1]]
+        k0 = k1
     return mask
 
 
@@ -266,11 +278,11 @@ def resolve_lobe(passable: np.ndarray, lit: np.ndarray, dets, *,
             continue
         best, best_score = deg, -1.0
         for cand in (float(deg), (float(deg) + 180.0) % 360.0):
-            m, _ = observable(passable, [(e["cx"], e["cy"], cand)],
-                              visible=visible, half_angle_deg=half_angle_deg)
+            # One cone's `observable` is its `raycast`; cast it directly.
+            m = raycast(passable, e["cx"], e["cy"], cand, half_angle_deg, visible)
             if known is None:
-                area = float(m.sum())
-                score = float((m & lit).sum()) / area if area else 0.0
+                area = float(np.count_nonzero(m))
+                score = float(np.count_nonzero(m & lit)) / area if area else 0.0
             else:
                 score = compare_evidence(m, lit, known)["lit_share"]
                 if score is None:
@@ -327,11 +339,20 @@ def observable(passable: np.ndarray, icons, *,
             continue
         per_icon.append(raycast(passable, cx, cy, deg, half, visible,
                                 n_rays=n_rays, max_r=max_r))
-    if per_icon:
-        mask = np.logical_or.reduce(per_icon)
-    else:
-        mask = np.zeros(passable.shape, dtype=bool)
-    return mask, per_icon
+    return union(per_icon, passable.shape), per_icon
+
+
+def union(masks, shape) -> np.ndarray:
+    """The union of cone masks; all False when there are none.
+
+    `observable`'s aggregate. A caller holding `observable`'s `per_icon` asks
+    this for the union of a subset -- the eligible cones -- rather than
+    casting the same rays again.
+    """
+    mask = np.zeros(shape, dtype=bool)
+    for m in masks:
+        mask |= m
+    return mask
 
 
 def coverage(mask: np.ndarray, floor: np.ndarray) -> float:

@@ -171,9 +171,21 @@ def raw_lit(crop: np.ndarray, ref: Lighting) -> np.ndarray:
     light can reach -- the self icon's raycast cone -- may accept these pixels
     where that witness agrees; alone they include the noise `lit_mask` rejects.
     """
-    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float64)
-    crossing = (ref.hi * ref.sd_lo + ref.lo * ref.sd_hi) / (ref.sd_lo + ref.sd_hi)
-    return ref.known & (g > crossing)
+    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    return ref.known & (g > crossing(ref))
+
+
+def crossing(ref: Lighting) -> np.ndarray:
+    """The noise-weighted grey level between the two states, per pixel.
+
+    A property of the reference alone, so it is computed once per reference
+    rather than once per frame.
+    """
+    got = getattr(ref, "_crossing", None)
+    if got is None:
+        got = (ref.hi * ref.sd_lo + ref.lo * ref.sd_hi) / (ref.sd_lo + ref.sd_hi)
+        ref._crossing = got
+    return got
 
 
 def raw_dark(crop: np.ndarray, ref: Lighting, threshold: float = DARK_DROP_MIN) -> np.ndarray:
@@ -215,7 +227,8 @@ def clean_lit(raw: np.ndarray, ref: Lighting) -> np.ndarray:
                            np.ones((k, k), np.uint8))
     n, lbl, st, _ = cv2.connectedComponentsWithStats(lit, 8)
     keep_px = MIN_BLOB_PX * ref.scale * ref.scale
-    keep = np.array([False] + [st[i, 4] >= keep_px for i in range(1, n)])
+    keep = st[:, 4] >= keep_px
+    keep[0] = False
     lit = keep[lbl].astype(np.uint8)
     # Then CLOSE, because the two filters above remove speckle and also chew
     # holes in the interior of a real cone -- a third of every hole measured.

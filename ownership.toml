@@ -543,7 +543,7 @@ question = "What can the team see at this instant, as the pipeline adjudicates i
 owner = "team_vision"
 role = ["constrain", "corroborate"]
 status = "partial"
-produces = ["TeamVision", "load_inputs", "frame_row"]
+produces = ["TeamVision", "load_inputs", "frame_row", "at", "at_plan", "compare_rows"]
 not_for = """
 Ground truth for vision, and a new rule for any stage. It composes the owners'
 calls -- lobe from the drawn light, track facing, lifecycle eligibility, the
