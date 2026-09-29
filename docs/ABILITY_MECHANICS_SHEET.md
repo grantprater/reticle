@@ -120,10 +120,10 @@ questions.
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Mosh Pit | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | 20 s (granted by Globules) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1) | ? | ? | ? |
-| Q | Wingman | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed]; but Gekko recharges it by picking the used Wingman up [domain:abilities/gekko-wingman-reclaim-or-expire] | cast on FIRE | ? | compact icon (census 1); planting, it carries the spike symbol, then a yellow pick-up disc [domain:abilities/gekko-wingman-plant-minimap] | ? | the used Wingman expires on a timer unless picked up (length unknown) [domain:abilities/gekko-wingman-reclaim-or-expire] | can plant the spike [domain:abilities/gekko-wingman-plants-spike] |
-| E | Dizzy | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | compact icon (census 1) | ? | ? | ? |
-| X | Thrash | Possession | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | compact icon (census 1) | ? | ? | ? |
+| C | Mosh Pit | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | 20 s (granted by Globules) [domain:abilities/catalogue-restock-and-ult-points-confirmed]; also a pickup Gekko collects to restock within the round (a later change; it used to drop nothing) [domain:abilities/gekko-mosh-pit-drops-pickup] | cast on FIRE | ? | compact icon (census 1) | ? | ? | ? |
+| Q | Wingman | ? | 1 | Gekko recharges it by picking the used Wingman up (the harvest's "none" is withdrawn; all four Gekko abilities drop a pickup [domain:abilities/gekko-abilities-drop-pickups]) [domain:abilities/gekko-wingman-reclaim-or-expire] | cast on FIRE | ? | compact icon (census 1); planting, it carries the spike symbol, then a yellow pick-up disc [domain:abilities/gekko-wingman-plant-minimap] | ? | the used Wingman expires on a timer unless picked up (length unknown) [domain:abilities/gekko-wingman-reclaim-or-expire] | can plant the spike [domain:abilities/gekko-wingman-plants-spike] |
+| E | Dizzy | ? | 1 | Gekko restocks it by picking up the thing it drops (the harvest's "none" is withdrawn) [domain:abilities/gekko-dizzy-drops-pickup] | triggers on enemies | ? | compact icon (census 1) | ? | ? | ? |
+| X | Thrash | Possession | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips]; Gekko also restocks it by picking up the thing it drops [domain:abilities/gekko-thrash-drops-pickup] | second press (ACTIVATE) | ? | compact icon (census 1) | ? | ? | ? |
 
 ## Harbor
 
