@@ -286,7 +286,14 @@ PING_VERSION = "ping-0.1.0"
 # `spike.ON_GLYPH_PX` of it (`spike_glyphs`), and a fit that lands on one
 # (`spike.on_glyph`) is neither the self occluder nor a described teammate;
 # `ally_decisions` rejects it as `on_spike_glyph`.
-ALLY_ICON_VERSION = "ally-icon-0.5.0"
+# 0.6.0: every fit past the shape gate is posed by its teardrop (`teardrop.posed`:
+# SelfConeReader for the self channel, IconPoseReader for allies, at the widget's
+# scale): where it reads, its centre and facing replace the ring fit's in the glyph
+# check, the separation, the portrait's pixels and alignment, and the published
+# row; each fit keeps the ring fit's under `ring` and names its `pose` and
+# `facing_source`. `ally_decisions` rejects `facing_unread` only where neither
+# reader saw a lobe.
+ALLY_ICON_VERSION = "ally-icon-0.6.0"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.
@@ -313,11 +320,23 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # walls and its closed boxes, reticle/occluders.py) where the npz carries it;
 # the coverage row names the table's stamp as `occluders` (None: art box edges only).
 # Each icon also records `boxes_crossed`, the boxes its cone would pass with boxes open.
-TEAM_VISION_VERSION = "team-vision-0.4.0"
+# 0.5.0: every icon's centre and facing come from its teardrop (`teardrop`,
+# ICON_TEARDROP_VERSION for teammates) where it reads, before the tracker sees
+# them; the light resolves only a fallback ring-fit lobe; each stored icon's
+# `pose` names its origin and facing source, replacing the self icon's `self_cone`.
+TEAM_VISION_VERSION = "team-vision-0.5.0"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.
-TEARDROP_VERSION = "teardrop-0.2.0"
+# 0.3.0: on a widget size the facing labels do not cover (`LABELLED_SCALES`), a self
+# read under `SELF_FACING_MIN_NCC` gives the centre and no facing (`facing_reason`
+# `low_ncc_unlabelled_scale`); `posed` poses a ring-fit detection by a read.
+TEARDROP_VERSION = "teardrop-0.3.0"
+# A teammate's or an enemy's icon read as a teardrop (`teardrop.fit_icon`): its centre
+# and facing. Promoted from prototypes/icon_teardrop.py (icon-teardrop-0.1.0), whose
+# model, keys and gates are unchanged; 0.2.0 scales its radii by `minimap.widget_scale`,
+# as the self teardrop's are, so a 331 px widget's centre lands on the portrait.
+ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
 # One observation of an ability's drawn minimap shape (a ring or a beam), fitted
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
 # a prior, an acceptance or the stored fields change.
@@ -381,7 +400,11 @@ TRAY_KIT_VERSION = "tray-kit-0.1.0"
 # glyph it refuses only a fit on the glyph's core or one whose carrier another
 # fit of the frame holds (0.3.0 rows, written on two sessions, refused by
 # distance alone).
-SELF_ICON_VERSION = "self-icon-0.4.0"
+# 0.5.0: the portrait is cut, aligned and tested for overlap at the self
+# teardrop's centre (`teardrop.SelfConeReader`, TEARDROP_VERSION) where it reads
+# on the labelled 465 px widget; each row keeps the ring fit's `cx`, `cy` and adds
+# `x`, `y`, `origin` and `origin_reason`.
+SELF_ICON_VERSION = "self-icon-0.5.0"
 # The kit of the local player as a state per slot (charges, equipped,
 # castable, owner alive), written as `ability_state` rows by `reticle
 # ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,

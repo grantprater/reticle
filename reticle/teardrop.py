@@ -38,16 +38,38 @@ facing, says why, and the caller keeps its own bearing.
 (the bigmap profile at 1080p) and scale linearly with the widget. A widget
 drawn at another scale has not been measured.
 
+**Teammates and enemies** (owns [owns:icon-pose], `ICON_TEARDROP_VERSION`).
+They wear the same teardrop in other colours, and `fit_icon` reads it with
+the class's key, radii and refusal gates (`ICON_CLASSES`), promoted from
+`prototypes/icon_teardrop.py` (`icon-teardrop-0.1.0`) with its model
+unchanged. On the player's blind labels of 5822b6646448 and a06f04a0059f
+its facing errs a median 2.5 degrees on allies and 1.7 on enemies, with no
+flip, where the ring fit flips on about half
+(docs/STATISTICAL_ADJUDICATOR.md, E6, which cites the run). Its constants
+were fitted on 465 px widgets; 0.2.0 scales them by `minimap.widget_scale`
+as the self teardrop's are, so on a 331 px widget the centre lands on the
+portrait instead of about 6 px off it. `IconPoseReader` returns an ally's
+centre and facing per frame, or the ring fit's centre and no facing with
+the reason. The ring fit still FINDS the icon; where the teardrop reads,
+it supplies neither centre nor facing.
+
+**On a turned widget** the facing needs no correction: the icons' facing
+arrows turn with the map [domain:minimap/upright-icons-on-turned-map], and
+the fit reads the arrow as drawn in the crop, which is the frame every cone
+is cast in.
+
 It reads one crop and decides nothing about identity or position.
 """
 from __future__ import annotations
 
 import hashlib
 import math
+from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 
-from .version import TEARDROP_VERSION  # noqa: F401  (the stamp callers store)
+from .version import ICON_TEARDROP_VERSION, TEARDROP_VERSION  # noqa: F401  (the stamps callers store)
 
 # Fitted by `prototypes/teardrop_tip.py --calibrate` on 24 held-out frames of
 # e78e75b2d191 at widget scale 1.0: mean correlation 0.846, on a plateau over
@@ -217,11 +239,265 @@ class SelfConeReader:
             tf = fit_teardrop(crop, cx, cy, scale=self.scale)
             self._last = (key, tf)
         if tf.get("read"):
-            return {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
-                    "origin": "teardrop", "ncc": float(tf["ncc"])}
+            out = {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
+                   "origin": "teardrop", "ncc": float(tf["ncc"])}
+            if tf["ncc"] < SELF_FACING_MIN_NCC and not labelled_scale(self.scale):
+                out.update(deg=None, facing_reason="low_ncc_unlabelled_scale")
+            return out
         return {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
                 "ncc": _num(tf.get("ncc")), "reason": tf.get("reason")}
 
 
+#: On a widget size the player's facing labels do not cover, a self read
+#: under this NCC gives the icon's centre but no facing (`facing_reason`
+#: `low_ncc_unlabelled_scale`), and a consumer casts no cone from it. Against
+#: the ring fit's facing after the light resolves its lobe, self reads at
+#: 0.5-0.6 point more than 90 degrees away on about a third of frames on
+#: 5822b6646448 (465 px), 223d636bf8d2 and c40d950031bb (331 px), and most
+#: 331 px self reads fall there (`prototypes/team_vision_eval.py
+#: --pose-check`); E7 found those facings cast much of c40d950031bb's false
+#: light. At the labelled size the labels do not support the gate: of the two
+#: labelled reads under it one is right (an Ascent control) and one flipped.
+SELF_FACING_MIN_NCC = 0.6
+#: The widget scales whose self facing the player labelled (5822b6646448 and
+#: the e78e75b2d191 controls, `reticle verify` lotus/self-facing).
+LABELLED_SCALES = (1.0,)
+
+
+def labelled_scale(scale: float) -> bool:
+    """True for a widget scale the self facing labels cover (`LABELLED_SCALES`)."""
+    return any(abs(scale - s) < 0.02 for s in LABELLED_SCALES)
+
+
+def self_portrait_pose(pose: dict, scale: float, cx: float, cy: float) -> dict:
+    """Where to cut the player's portrait: `pose` (`SelfConeReader.read` at the
+    ring fit's `cx`, `cy`) on a labelled widget size, the ring fit's centre
+    elsewhere (`reason` `unlabelled_scale`).
+
+    At 465 px the portrait aligned at the self teardrop's centre fits its
+    art far better than at the ring fit's (E6's rule B'; `prototypes/
+    icon_teardrop.py --centre-check --centre-class self` on 5822b6646448);
+    on four 331 px sessions it fit better on two and worse on two, so the
+    ring fit's centre stays there. A teammate's portrait has no such limit.
+    """
+    if pose["origin"] != "teardrop" or labelled_scale(scale):
+        return pose
+    return {"origin": "ring_fit", "x": float(cx), "y": float(cy), "deg": None,
+            "ncc": pose.get("ncc"), "reason": "unlabelled_scale"}
+
+
 def _num(v):
     return None if v is None else float(v)
+
+
+def posed(d: dict, pose: dict, *, ring_facing: bool = True) -> dict:
+    """The ring fit's detection `d` with the teardrop's centre and facing where `pose` reads.
+
+    `pose` is `SelfConeReader.read` or `IconPoseReader.read` at `d`'s centre.
+    The ring fit FINDS the icon; the teardrop, where it reads, supplies `cx`
+    and `cy`, and its facing where the reader gives one (`facing_source`
+    `teardrop`). The ring fit's own values stay under `ring`, and `pose`
+    keeps the `origin`, NCC, refusal `reason` and `facing_reason`. Where the
+    teardrop gives no facing the detection keeps, with `ring_facing`, the
+    ring fit's facing (`facing_source` `ring_fit`), and otherwise carries
+    none (`facing_source` None).
+    """
+    out = dict(d)
+    out["ring"] = {"cx": d["cx"], "cy": d["cy"], "facing": d.get("facing")}
+    out["pose"] = {"origin": pose["origin"], "ncc": pose.get("ncc"), "reason": pose.get("reason"),
+                   "facing_reason": pose.get("facing_reason")}
+    if pose["origin"] == "teardrop":
+        out["cx"], out["cy"] = pose["x"], pose["y"]
+    if pose.get("deg") is not None:
+        out["facing"], out["facing_source"] = pose["deg"] % 360.0, "teardrop"
+    elif ring_facing and d.get("facing") is not None:
+        out["facing_source"] = "ring_fit"
+    else:
+        out["facing"], out["facing_source"] = None, None
+    return out
+
+
+# ------------------------------------------------------------ teammates, enemies
+
+def tealness(crop: np.ndarray) -> np.ndarray:
+    """How teal each pixel is, in [0, 1]: min(G, B) - R, ramped over 10..60,
+    faded out where B exceeds G by more than 10 (the blue death X, the blue
+    ability glyphs). Keyed ally pixels sit at G - B of 20 to 50."""
+    c = crop.astype(np.float32)
+    b, g, r = c[..., 0], c[..., 1], c[..., 2]
+    y = np.clip((np.minimum(g, b) - r - 10.0) / 50.0, 0.0, 1.0)
+    return y * np.clip((g - b + 30.0) / 20.0, 0.0, 1.0)
+
+
+def redness(crop: np.ndarray) -> np.ndarray:
+    """How red each pixel is, in [0, 1]: R - max(G, B), ramped over 15..65."""
+    c = crop.astype(np.float32)
+    y = c[..., 2] - np.maximum(c[..., 0], c[..., 1])
+    return np.clip((y - 15.0) / 50.0, 0.0, 1.0)
+
+
+@dataclass(frozen=True)
+class IconClass:
+    """One class's key, radii at widget scale 1.0, and refusal gates."""
+
+    name: str
+    key: Callable[[np.ndarray], np.ndarray]
+    r_in: float
+    r_out: float
+    L: float
+    min_ncc: float
+    min_margin: float
+    min_ring: float
+
+
+#: Fitted by `prototypes/icon_teardrop.py --calibrate` on held-out minutes
+#: (every fourth) of 5822b6646448 and a06f04a0059f, both 465 px widgets.
+ICON_CLASSES = {
+    # 100 read detections: mean NCC 0.766, a plateau over ring width 1.5-2
+    # and L 18-20 at r_out 10.5. The ally ring turns pale away from the lobe,
+    # so a ring-coverage gate refused real teammates; the ally class has none.
+    "ally": IconClass("ally", tealness, 8.5, 10.5, 19.0, 0.5, 0.05, 0.0),
+    # 53 read detections: mean NCC 0.741, a ridge along r_in 7-7.5 for r_out
+    # 10.5-11 and L 18-19. The ring gate refuses spawn barriers and red map
+    # fills, which the enemy ring fit takes for icons.
+    "enemy": IconClass("enemy", redness, 7.5, 10.5, 18.0, 0.5, 0.05, 0.4),
+}
+MARGIN_DEG = 5.0      # facing grid for the ambiguity margin
+
+
+def _signed_deg(a):
+    return (np.asarray(a, dtype=float) + 180.0) % 360.0 - 180.0
+
+
+def _window(key: np.ndarray, cx0: float, cy0: float, reach: float):
+    h, w = key.shape
+    x0, x1 = max(0, int(cx0 - reach)), min(w, int(cx0 + reach) + 1)
+    y0, y1 = max(0, int(cy0 - reach)), min(h, int(cy0 + reach) + 1)
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    keep = np.hypot(xx - cx0, yy - cy0) <= reach
+    px, py = xx[keep].astype(np.float32), yy[keep].astype(np.float32)
+    return px, py, key[py.astype(int), px.astype(int)]
+
+
+def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: float, *,
+             scale: float = 1.0, key: np.ndarray | None = None,
+             r_in: float | None = None, r_out: float | None = None,
+             L_: float | None = None) -> dict:
+    """The `cls` teardrop (`ally`, `enemy`, or an `IconClass`) nearest the detector's centre `(cx0, cy0)`.
+
+    Returns `fit_teardrop`'s fields (`x`, `y`, `deg`, `tip_x`, `tip_y`,
+    `ncc`) plus `margin` (the best NCC less the best at any facing 90 degrees
+    or more away, at the fitted centre), `ring_cover`, `cls` and `read`. An
+    unread fit carries `reason` and no `deg` a caller may use:
+
+        low_ncc           the silhouette explains too little of the colour
+        no_ring           under `min_ring` of the ring away from the lobe is
+                          keyed: a spawn barrier or a red map fill
+        ambiguous_facing  a facing 90 degrees or more away scores within
+                          `min_margin`, so the lobe is not seen
+        no_key            no keyed pixel near the detector's centre
+
+    The radii scale by `scale` (`minimap.widget_scale`) unless given in px;
+    `key` is the class's key over `crop`, computed once per frame by a caller
+    fitting several icons.
+    """
+    c = cls if isinstance(cls, IconClass) else ICON_CLASSES[cls]
+    cls = c.name
+    r_in = c.r_in * scale if r_in is None else r_in
+    r_out = c.r_out * scale if r_out is None else r_out
+    L_ = c.L * scale if L_ is None else L_
+    edge = EDGE * scale
+    key = c.key(crop) if key is None else key
+    f = fit_teardrop(None, cx0, cy0, scale=scale, r_in=r_in, r_out=r_out, L_=L_, yel=key)
+    f["cls"] = cls
+    if "x" not in f:
+        return {"cls": cls, "read": False, "reason": "no_key"}
+    px, py, obs = _window(key, f["x"], f["y"], L_ + WINDOW * scale)
+    ths = np.radians(np.arange(0.0, 360.0, MARGIN_DEG, dtype=np.float32))
+    sc = _correlation(obs, render(px[None, :] - f["x"], py[None, :] - f["y"], ths[:, None],
+                                  r_in, r_out, L_, edge))
+    far = np.abs(_signed_deg(np.degrees(ths) - f["deg"])) >= 90.0
+    f["margin"] = float(f["ncc"] - sc[far].max())
+    f["ring_cover"] = ring_cover(key, f["x"], f["y"], f["deg"], r_in, r_out, pad=0.5 * scale)
+    f["read"] = True
+    f.pop("reason", None)
+    if f["ncc"] < c.min_ncc:
+        f.update(read=False, reason="low_ncc")
+    elif f["ring_cover"] < c.min_ring:
+        f.update(read=False, reason="no_ring")
+    elif f["margin"] < c.min_margin:
+        f.update(read=False, reason="ambiguous_facing")
+    return f
+
+
+def ring_cover(key: np.ndarray, x: float, y: float, deg: float, r_in: float, r_out: float,
+               n_bins: int = 36, away_deg: float = 60.0, min_key: float = 0.5,
+               pad: float = 0.5) -> float:
+    """Share of the ring's angular bins, away from the lobe, whose annulus is keyed.
+
+    The ring is what a spawn barrier, a map fill or a stray glyph lacks: a
+    straight red bar crosses the annulus twice and scores the lobe's NCC
+    well enough. Bins within `away_deg` of the facing hold the lobe and are
+    skipped; a bin is covered when the brightest key in the annulus
+    `[r_in - pad, r_out + pad]` within it reaches `min_key`. The brightest,
+    not the mean: the teal ring is 1-2 px of a 3 px band whose inner edge is
+    the portrait's dark rim.
+    """
+    h, w = key.shape
+    R = int(math.ceil(r_out + 2 * pad))
+    x0, x1 = max(0, int(x) - R), min(w, int(x) + R + 2)
+    y0, y1 = max(0, int(y) - R), min(h, int(y) + R + 2)
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    rho = np.hypot(xx - x, yy - y)
+    ang = np.degrees(np.arctan2(yy - y, xx - x))
+    band = (rho >= r_in - pad) & (rho <= r_out + pad)
+    rel = np.abs(_signed_deg(ang - deg))
+    keep = band & (rel >= away_deg)
+    if not keep.any():
+        return 0.0
+    b = ((ang[keep] + 180.0) / 360.0 * n_bins).astype(int) % n_bins
+    v = key[y0:y1, x0:x1][keep]
+    peak = np.full(n_bins, -1.0)
+    np.maximum.at(peak, b, v)
+    used = peak >= 0
+    return float(np.mean(peak[used] >= min_key))
+
+
+class IconPoseReader:
+    """A teammate's or an enemy's centre and facing per frame, from the teardrop.
+
+    The class's key is computed once per image and the image's fits are
+    memoised by its pixels, so the minimap's repeated images (several cached
+    frames hold one image) and the same icon asked twice return the fit a
+    fresh one gives without recomputing it.
+    """
+
+    def __init__(self, cls: str = "ally", scale: float = 1.0):
+        self.cls, self.scale = cls, scale
+        self._digest: bytes | None = None
+        self._key: np.ndarray | None = None
+        self._fits: dict = {}
+
+    def read(self, crop: np.ndarray, cx: float, cy: float) -> dict:
+        """`{"x", "y", "deg", "origin", "ncc", ...}` for a detection centred at `(cx, cy)`.
+
+        Where the shape reads, `origin` is `teardrop` and `x`, `y`, `deg` are
+        its centre and facing (image degrees, y down). Otherwise `origin` is
+        `ring_fit`: `x`, `y` are the detector's own centre, `deg` is None and
+        `reason` says why the teardrop was not read.
+        """
+        digest = hashlib.blake2b(np.ascontiguousarray(crop).tobytes(), digest_size=16).digest()
+        if digest != self._digest:
+            self._digest, self._key, self._fits = digest, None, {}
+        k = (float(cx), float(cy))
+        tf = self._fits.get(k)
+        if tf is None:
+            if self._key is None:
+                self._key = ICON_CLASSES[self.cls].key(crop)
+            tf = self._fits[k] = fit_icon(None, self.cls, cx, cy, scale=self.scale, key=self._key)
+        if tf.get("read"):
+            return {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
+                    "origin": "teardrop", "ncc": float(tf["ncc"]),
+                    "margin": float(tf["margin"])}
+        return {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
+                "ncc": _num(tf.get("ncc")), "reason": tf.get("reason")}

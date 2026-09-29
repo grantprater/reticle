@@ -72,6 +72,7 @@ from reticle.minimap import BOXEDGE, VOID  # noqa: E402
 from reticle.profiles import get_profile  # noqa: E402
 from reticle.roi_cache import RoiCache  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
+from reticle.teardrop import _signed_deg  # noqa: E402,F401  (the promoted angle wrap)
 
 STORE = Path(DEFAULT_STORE)
 VERSION = "sliver-error-model-0.3.0"
@@ -97,9 +98,6 @@ def _below_normal() -> None:
     except Exception:
         pass
 
-
-def _signed_deg(a):
-    return (np.asarray(a, dtype=float) + 180.0) % 360.0 - 180.0
 
 
 def answers() -> dict[tuple, dict]:

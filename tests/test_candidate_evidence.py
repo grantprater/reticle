@@ -96,9 +96,15 @@ class CandidateEvidenceTests(unittest.TestCase):
                                                   reader.hz, rev)
             self.assertEqual(reader.events("s", kept, rev), events)
             icons = [r for r in events if r["kind"] == "icon"]
+            # Published at the teardrop's centre (ally-icon-0.6.0), to 3 decimals.
             self.assertEqual([(r["cx"], r["cy"]) for r in icons],
-                             [(round(r["cx"], 2), round(r["cy"], 2))
+                             [(round(r["cx"], 3), round(r["cy"], 3))
                               for r in reader.icons])
+            self.assertEqual([r["pose"]["origin"] for r in icons], ["teardrop"])
+            # The descriptor's disc stays at the ring fit's centre.
+            cand = next(r for r in batch["rows"] if r["candidate_key"] == icons[0]["candidate_key"])
+            self.assertEqual(cand["interior_at"], [cand["ring"]["cx"], cand["ring"]["cy"]])
+            self.assertNotEqual((cand["cx"], cand["cy"]), tuple(cand["interior_at"]))
             self.assertNotIn(row["candidate_key"],
                              {r["candidate_key"] for r in icons})
 

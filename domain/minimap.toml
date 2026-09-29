@@ -721,3 +721,24 @@ a glyph on the ground in vision [domain:minimap/enemy-spike-ground-vision], and
 the carrier's identity comes from other channels
 """
 see = ["minimap/spike-carrier-overlay", "minimap/enemy-spike-ground-vision"]
+
+[icon-tip-highlight]
+claim = """
+The tip of an agent icon's teardrop is drawn lighter than the rest of its rim,
+like a highlight.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29, while labelling teammate icon facings on the 331 px widget"
+use = """
+a facing witness that reads brightness, apart from the teardrop's template,
+which reads only the lobe's shape (prototypes/tip_highlight.py, not wired)
+"""
+exceptions = """
+seen on ally icons at 331 px; unverified by the player for the self icon,
+enemy icons and the 465 px widget
+"""
+see = ["minimap/cone-rays-stop-at-first-edge", "minimap/cone-origin-near-centre",
+       "minimap/upright-icons-on-turned-map"]
+phrases = ["tip of the teardrop is lighter", "tip drawn lighter"]

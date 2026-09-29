@@ -10,8 +10,10 @@ from reticle.team_vision import TeamVision, at_plan, frame_row
 
 
 def _vision():
+    # The crops are black, so no teardrop reads; the ring-fit fallback lets the
+    # synthetic detections cast, which these tests of the chain's bookkeeping need.
     floor = np.ones((60, 60), bool)
-    return TeamVision(floor, floor, np.zeros((60, 60)), width=60)
+    return TeamVision(floor, floor, np.zeros((60, 60)), width=60, ring_fallback=True)
 
 
 def _ally(x=30.0):

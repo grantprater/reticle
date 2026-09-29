@@ -1111,17 +1111,26 @@ def _interior(f: dict, keyed: np.ndarray, others=(), occluders=()):
     rad = ALLY_INTERIOR_FRAC * f["r"]
     R = int(np.ceil(rad)) + 1
     H, W = keyed.shape
-    a, b = max(0, int(f["cy"]) - R), min(H, int(f["cy"]) + R + 1)
-    c, d = max(0, int(f["cx"]) - R), min(W, int(f["cx"]) + R + 1)
+    fx, fy = _interior_centre(f)
+    a, b = max(0, int(fy) - R), min(H, int(fy) + R + 1)
+    c, d = max(0, int(fx) - R), min(W, int(fx) + R + 1)
     yy, xx = np.mgrid[a:b, c:d]
-    d2 = (xx - f["cx"]) ** 2 + (yy - f["cy"]) ** 2
+    d2 = (xx - fx) ** 2 + (yy - fy) ** 2
     keep = (d2 <= rad * rad) & ~keyed[a:b, c:d]
     for ox, oy, orad in occluders:
         keep &= (xx - ox) ** 2 + (yy - oy) ** 2 > (orad + 1) ** 2
     for g in others:
         if g is not f:
-            keep &= d2 < (xx - g["cx"]) ** 2 + (yy - g["cy"]) ** 2
+            gx, gy = _interior_centre(g)
+            keep &= d2 < (xx - gx) ** 2 + (yy - gy) ** 2
     return (slice(a, b), slice(c, d)), keep
+
+
+def _interior_centre(f: dict) -> tuple[float, float]:
+    """Where `_interior` cuts a fit's disc: `interior_at` where the fit names
+    one (`AllyIconReader` keeps the ring fit's centre there), else its centre."""
+    at = f.get("interior_at")
+    return (float(at[0]), float(at[1])) if at is not None else (f["cx"], f["cy"])
 
 
 #: The share of the fitted radius whose interior is the portrait. The teal
@@ -1186,7 +1195,10 @@ def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
                     "inner_v": f["inner_v"], "lobe": f["lobe"],
                     "area": f["area"], "pixels": int(keep.sum()), "map_diff": diff,
                     "composition": [float(v) for v in comp] if comp.size else None,
-                    "reason": reason})
+                    "reason": reason,
+                    # A posed fit (`teardrop.posed`) keeps where its centre
+                    # and facing came from.
+                    **{k: f[k] for k in ("ring", "pose", "facing_source") if k in f}})
     return out
 
 
@@ -1208,6 +1220,20 @@ class AllyIconReader:
     the cache in `frames_from`, and a pass clipped to the cache's rounds adds
     `spans_clip` (`roi_cache.clip_record`); a decode's coverage row carries
     neither key, as `minimap_dark.DarkRegionReader`'s does not.
+
+    **The ring fit finds; the teardrop places (0.6.0).** Each fit past the
+    shape gate is posed by its teardrop (`teardrop.posed`, owner of
+    `icon-pose` and `self-cone-origin`): where the shape reads, its centre
+    and facing replace the ring fit's in the glyph check, the separation,
+    the portrait's alignment and the published row, since the ring fit's
+    centre sits toward the icon's lobe and its facing flips on about half of
+    the icons the player labelled (docs/STATISTICAL_ADJUDICATOR.md, E6). A
+    teammate's portrait fits its side's art more tightly at the teardrop's
+    centre on both widget sizes (`prototypes/icon_teardrop.py
+    --centre-check`); the self fit follows `teardrop.self_portrait_pose`.
+    The descriptor's disc stays at the ring fit's centre (`interior_at`,
+    see `_posed`). The ring fit's own values stay under `ring`; `pose`
+    names the origin and the teardrop's reasons.
     """
 
     #: `feed` reads no state an earlier frame wrote and only appends to these
@@ -1253,6 +1279,12 @@ class AllyIconReader:
         raw_self = icons(smask, crop, self.floor, support=self.slab, gates=False)
         raw = icons(amask, crop, self.floor, support=self.slab,
                     seed="surface", gates=False)
+        # The ring fit finds each icon; its teardrop supplies the centre and
+        # facing every later step reads, where it reads (`teardrop.posed`,
+        # ally-icon-0.6.0): the glyph check, the separation, the portrait's
+        # pixels and alignment, and the published position.
+        raw_self = [self._posed(crop, f, "self", sc) for f in raw_self]
+        raw = [self._posed(crop, f, "ally", sc) for f in raw]
         # A fit that lands on the spike glyph is the glyph, not an icon
         # (`spike.on_glyph`, ally-icon-0.5.0). Each candidate stores the
         # accepted glyphs near it, so `ally_decisions` refuses the same fits
@@ -1355,6 +1387,37 @@ class AllyIconReader:
         for i, d in enumerate(got):
             self.icons.append({**frame, "index": i, **d})
 
+    def _posed(self, crop: np.ndarray, f: dict, channel: str, sc: float) -> dict:
+        """One ring fit posed by its teardrop (`teardrop.posed`); a fit that
+        fails the shape gate is not read (`pose` reason `not_shaped`).
+
+        The descriptor's disc (`_interior`: the composition, `map_diff` and
+        the `interior_too_thin` refusal) stays at the ring fit's centre,
+        `interior_at`. The ring fit's integer centre holds a whole-pixel disc;
+        on a 331 px widget that disc sits on `appearance.MIN_PIXELS`, and
+        cutting it at the teardrop's fractional centre refused a sixth more
+        teammates as too thin on 223d636bf8d2. The portrait's features, the
+        identity arbiter's preferred evidence, are aligned at the teardrop's
+        centre.
+        """
+        from .teardrop import IconPoseReader, SelfConeReader, posed, self_portrait_pose
+
+        if f["cov"] < ALLY_COV_MIN or f["inner"] > ALLY_INNER_MAX:
+            out = posed(f, {"origin": "ring_fit", "reason": "not_shaped"})
+        else:
+            readers = getattr(self, "_pose_readers", None)
+            if readers is None or readers[0] != sc:
+                readers = self._pose_readers = (sc, {"self": SelfConeReader(sc),
+                                                     "ally": IconPoseReader("ally", sc)})
+            pose = readers[1][channel].read(crop, f["cx"], f["cy"])
+            if channel == "self":
+                # The self icon's disc occludes a teammate's portrait and is the
+                # published self point; its centre follows the self portrait's rule.
+                pose = self_portrait_pose(pose, sc, f["cx"], f["cy"])
+            out = posed(f, pose)
+        out["interior_at"] = [f["cx"], f["cy"]]
+        return out
+
     def candidate_rows(self, session_id: str) -> list[dict]:
         """All fitted ally hypotheses, including later rejected fits."""
         from .version import ALLY_ICON_VERSION
@@ -1376,7 +1439,8 @@ class AllyIconReader:
         """
         from collections import Counter
 
-        from .version import ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION
+        from .version import (ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
+                              ICON_TEARDROP_VERSION, TEARDROP_VERSION)
 
         common = {"session_id": session_id, "source": "minimap",
                   "ally_icon_version": ALLY_ICON_VERSION, "hz": self.hz}
@@ -1405,7 +1469,9 @@ class AllyIconReader:
                                  "reason": reason,
                                  "candidate_key": c["candidate_key"],
                                  "family": c["decision"]["family"],
-                                 "self_occluder": c["self_occluder"]})
+                                 "self_occluder": c["self_occluder"],
+                                 **{k: c[k] for k in ("ring", "pose", "facing_source")
+                                    if k in c}})
             # Preserve the previous accepted view's positions and refusal
             # causes; a changed gate must be deliberate and versioned.
             if self.icons:
@@ -1423,7 +1489,9 @@ class AllyIconReader:
                  "described": len(selected) - sum(refused.values()),
                  "candidate_revision": candidate_revision,
                  "candidate_lineage": "complete" if candidate_revision else "unavailable",
-                 "refused_reasons": dict(sorted(refused.items()))}]
+                 "refused_reasons": dict(sorted(refused.items())),
+                 "teardrop_version": TEARDROP_VERSION,
+                 "icon_teardrop_version": ICON_TEARDROP_VERSION}]
         frames_from = getattr(self, "frames_from", "video")
         if not frames_from.startswith("video"):
             # Only a cache-fed pass adds the key, so a decode's rows keep their bytes.
