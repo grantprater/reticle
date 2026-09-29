@@ -1765,3 +1765,120 @@ session plays Astra
 """
 see = ["abilities/catalogue-charge-counts-confirmed", "abilities/astra-nebula-minimap-disc",
        "abilities/skye-regrowth-resource-bar"]
+
+[skye-regrowth-channelled]
+claim = """
+Skye's Regrowth in slot C is channelled: she heals while the fire button is
+held, and one hold is one channel however long it lasts.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-26"
+subject = "skye:regrowth"
+source = """
+the player, 2026-09-26, classifying the input models the mechanics sheet
+records, then answering the census's question on the re-recorded Skye demo
+fc02a2c1ac01: the Regrowth ring from 5.2 to 16.5 s was one channel, held to
+give plenty of audio
+"""
+use = "one Regrowth ring is one cast however long it lasts; its start and end bound the channel"
+see = ["abilities/skye-regrowth-no-tray-drop", "abilities/skye-regrowth-minimap-ring",
+       "abilities/skye-regrowth-resource-bar", "abilities/ability-description-verbs"]
+
+[skye-trailblazer-piloted]
+claim = """
+Skye's Trailblazer in slot Q is piloted: after the cast the player takes
+control of the dog and steers it.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-03"
+subject = "skye:trailblazer"
+source = """
+the player, 2026-09-03, on the Skye clip: the dog is controlled by the player,
+as Sova's drone is; again 2026-09-26, labelling the census montage keyed_010
+while controlling it [domain:hud/controlled-entity-view-tint]
+"""
+use = "the icon's motion is the player's steering, so its path is representative; the view tint marks the control"
+see = ["abilities/skye-trailblazer-charges", "hud/controlled-entity-view-tint"]
+
+[sova-owl-drone-piloted]
+claim = """
+Sova's Owl Drone in slot C is piloted: after the cast the player takes control
+of the drone and flies it.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-03"
+subject = "sova:owl drone"
+source = "the player, 2026-09-03, on the Sova clip: the drone is controlled by the player, who flew it around"
+use = "the icon's motion is the player's steering, so its path is representative"
+see = ["abilities/sova-owl-drone-charges", "hud/controlled-entity-view-tint"]
+
+[tejo-stealth-drone-piloted]
+claim = """
+Tejo's Stealth Drone in slot C is piloted: after the cast the player takes
+control of the drone and flies it.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-26"
+subject = "tejo:stealth drone"
+source = """
+the player, 2026-09-26, classifying the input models the mechanics sheet
+records, and labelling the census montages: the view while in the drone is
+tinted [domain:hud/controlled-entity-view-tint]
+"""
+use = "the icon's motion is the player's steering; the brown view tint marks the control"
+see = ["abilities/pulse-scan-abilities", "hud/controlled-entity-view-tint"]
+
+[fade-prowler-steered]
+claim = """
+Fade's Prowler in slot C is steered by the player after the cast; it is not
+autonomous.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-03"
+subject = "fade:prowler"
+source = """
+the player, 2026-09-03, told that Sova's drone is flown by the player:
+"same with fade dogs". Whether the player steers by holding fire or takes
+control of the view is not recorded
+"""
+use = "the Prowler icon's motion is the player's steering, so its path is representative"
+see = ["abilities/fade-prowler-minimap-icon"]
+
+[skye-guiding-light-steered]
+claim = """
+Skye's Guiding Light in slot E is steered by the player after the cast; it is
+not autonomous.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-03"
+subject = "skye:guiding light"
+source = """
+the player, 2026-09-03, told that Sova's drone is flown by the player: the
+same for Skye's dog and birds. Whether the player steers by holding fire or
+takes control of the view is not recorded
+"""
+use = "the bird icon's motion is the player's steering, so its path is representative"
+see = ["abilities/skye-guiding-light-minimap-icon", "abilities/skye-guiding-light-charges"]
+
+[skye-seekers-track-enemies]
+claim = """
+Skye's Seekers in slot X track enemies by themselves; the player does not
+steer them, and they need a living enemy to track.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-03"
+subject = "skye:seekers"
+source = """
+the player, 2026-09-03, on the Skye clip: the ultimate requires enemies to be
+alive to track. Told that Sova's drone is flown by the player, he named
+Skye's dog and birds as flown the same way, and not the ultimate
+"""
+use = "a cast with no enemy alive, as in a solo range demo, shows the Seekers' artwork but not a round's motion, lifetime or end point"
+see = ["abilities/ability-rules-are-unique"]
