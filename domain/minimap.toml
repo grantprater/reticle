@@ -724,9 +724,8 @@ see = ["minimap/spike-carrier-overlay", "minimap/enemy-spike-ground-vision"]
 
 [icon-tip-highlight]
 claim = """
-The tip of the teardrop on the player's team's icons (ally and, per the
-self-facing labels, the self icon) is drawn lighter than the rest of its rim,
-like a highlight.
+The tip of the teardrop on every agent icon (ally, self and enemy) is drawn
+lighter than the rest of its rim, like a highlight.
 """
 kind = "appearance"
 known = "player"
@@ -737,11 +736,13 @@ a facing witness that reads brightness, apart from the teardrop's template,
 which reads only the lobe's shape (prototypes/tip_highlight.py, not wired)
 """
 exceptions = """
-seen on ally icons at 331 px, and on the self icon per the self-facing labels;
-enemy icons show no obviously brighter tip (the player, 2026-09-29: their rim
-is more uniformly red), and the 465 px enemy icons were not seen with one
-either: the tip-highlight prototype's enemy sheet at 465 px showed none and its
-reader failed there
+on enemy icons the tip is brighter but less obviously so (the player,
+2026-09-29, amended): the red rim is often thinner than one pixel at 331 px,
+where the ally rim is at least a pixel, and the tip's brightening relative to
+the red rim is smaller than the ally tip's relative to the teal. The
+tip-highlight prototype's failure on enemies at 465 px (it selected red hue,
+which also caught portrait skin and red X marks) does not show the highlight is
+absent
 """
 see = ["minimap/enemy-rim-faint-at-small-widget", "minimap/cone-rays-stop-at-first-edge", "minimap/cone-origin-near-centre",
        "minimap/upright-icons-on-turned-map"]
@@ -750,8 +751,8 @@ phrases = ["tip of the teardrop is lighter", "tip drawn lighter"]
 [enemy-rim-faint-at-small-widget]
 claim = """
 At the 331 px widget an enemy icon's red rim is much fainter than an ally's
-teal rim, is more uniformly red with no brighter tip, and on many enemy icons
-is barely visible at all.
+teal rim, is often thinner than one pixel, and on many enemy icons is barely
+visible at all.
 """
 kind = "appearance"
 known = "player"
@@ -759,7 +760,8 @@ since = "2026-09-29"
 source = "the player, 2026-09-29, viewing enemy-icons-331/sheet.png (8 enemy icons beside 3 ally icons at 15x)"
 use = """
 an enemy icon at this size cannot be found or oriented from its rim alone; the
-portrait carries the detection
+portrait carries the detection. A tip highlight exists on enemy icons and is
+weak
 """
 exceptions = """
 seen on two sessions (c40d950031bb, 223d636bf8d2); the 465 px widget unjudged
