@@ -62,6 +62,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import sliver_error_model as sem  # noqa: E402  (sets thread limits first)
 import teardrop_tip as tt  # noqa: E402
 from reticle import minimap  # noqa: E402
+# `teardrop_tip` 0.2.0 moved its correlation to the promoted reader, which owns it.
+from reticle.teardrop import _correlation  # noqa: E402
 
 VERSION = "icon-teardrop-0.1.0"
 LOTUS, ASCENT = "5822b6646448", "a06f04a0059f"
@@ -174,7 +176,7 @@ def fit(crop: np.ndarray | None, cls: str, cx0: float, cy0: float, *,
         return {"cls": cls, "read": False, "reason": "no_key"}
     px, py, obs = _window(key, f["x"], f["y"], L_ + tt.WINDOW)
     ths = np.radians(np.arange(0.0, 360.0, MARGIN_DEG, dtype=np.float32))
-    sc = tt._ncc(obs, tt.render(px[None, :] - f["x"], py[None, :] - f["y"], ths[:, None],
+    sc = _correlation(obs, tt.render(px[None, :] - f["x"], py[None, :] - f["y"], ths[:, None],
                                 r_in, r_out, L_))
     far = np.abs(sem._signed_deg(np.degrees(ths) - f["deg"])) >= 90.0
     f["margin"] = float(f["ncc"] - sc[far].max())

@@ -1,6 +1,7 @@
 r"""Score the teardrop and the ring fit's facing on ally and enemy icons against the player's labels.
 
     .\.venv\Scripts\python.exe prototypes\icon_facing_eval.py [--labels PATH] [--json PATH]
+        [--exclude PATH] [--record]
 
 The scorer for `label_icon_facing.py`. For every labelled item it recomputes
 the readers from the minimap crop cache (no decode), so it scores the code as
@@ -23,7 +24,14 @@ key catches teammates) is another class; both are reported apart. `cant_tell` st
 `not_icon` answers are counted per stratum and per teardrop verdict, which
 says whether the teardrop was right to refuse.
 
-It writes nothing to the store; `--json` writes the per-item table.
+`--exclude` names a JSON file whose `keys` list items to leave out of every
+count, such as the items that look like ability glyphs rather than agent
+icons (the store's `labels/icon_facing_20260928/ability_candidates.json`).
+The label file is never edited; the exclusion lives beside it and names who
+proposed it and whether the player confirmed it.
+
+It writes to the store only with `--record` (one `metrics` row, part `labels`,
+or `labels-excl` with `--exclude`); `--json` writes the per-item table.
 """
 from __future__ import annotations
 
@@ -43,7 +51,7 @@ import sliver_error_model as sem  # noqa: E402  (sets thread limits first)
 import icon_teardrop as it_  # noqa: E402
 import label_icon_facing as lif  # noqa: E402
 
-VERSION = "icon-facing-eval-0.1.0"
+VERSION = "icon-facing-eval-0.2.0"
 ELSEWHERE_PX = 8.0
 MATCH_PX = 3.0
 READERS = ("teardrop", "ring", "ring_lobe")
@@ -184,11 +192,43 @@ def show(res: dict) -> None:
               f"vs ring centre: {c['centre_vs_ring_px_median']}")
 
 
+def record_summary(res: dict, excluded: Path | None) -> None:
+    """One `metrics` row: each class, reader and stratum, and the answer counts."""
+    from reticle import metrics
+    values = {"items": res["items"]}
+    for cls, c in res["classes"].items():
+        values[f"{cls}_items"] = c["items"]
+        for a, n in c["answers"].items():
+            values[f"{cls}_answer_{a}"] = n
+        values[f"{cls}_elsewhere"] = c["elsewhere"]
+        values[f"{cls}_other_colour"] = sum(c["other_colour"].values())
+        for v, a in c["answers_by_teardrop"].items():
+            for k, n in a.items():
+                values[f"{cls}_teardrop_{v}_{k}"] = n
+        for name, d in c["readers"].items():
+            for st, v in d.items():
+                values[f"{cls}_{name}_{st}_n"] = v["n"]
+                values[f"{cls}_{name}_{st}_unread"] = v["unread"]
+                for k in ("median_abs_deg", "flip", "within10", "within20", "median_signed_deg"):
+                    if k in v:
+                        values[f"{cls}_{name}_{st}_{k}"] = round(v[k], 3)
+    deps = {"prototype": VERSION, "reader": it_.VERSION, "labels": Path(res["labels"]).name,
+            "elsewhere_px": ELSEWHERE_PX, "match_px": MATCH_PX}
+    context = {}
+    if excluded is not None:
+        deps["exclude"] = excluded.name
+        context["excluded"] = res["excluded"]
+    metrics.record("icon_facing_eval", part="labels-excl" if excluded is not None else "labels",
+                   session="+".join(lif.SESSIONS), values=values, deps=deps, context=context)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--store", default=str(sem.STORE))
     ap.add_argument("--labels", help="answers file (default: the store's labels/" + lif.NAME + ".jsonl)")
     ap.add_argument("--json", type=Path, help="write the per-item rows and the summary here")
+    ap.add_argument("--exclude", type=Path, help="JSON file whose `keys` list items left out of scoring")
+    ap.add_argument("--record", action="store_true", help="record the summary as one metrics row")
     args = ap.parse_args(argv)
     sem._below_normal()
     store = Path(args.store)
@@ -198,10 +238,19 @@ def main(argv=None) -> int:
         print(f"no labels in {path}")
         return 1
     index = json.loads((lif.items_dir(store) / "index.json").read_text(encoding="utf-8"))["items"]
+    excluded = []
+    if args.exclude:
+        drop = set(json.loads(args.exclude.read_text(encoding="utf-8"))["keys"])
+        excluded = sorted(k for k in drop if k in answers)
+        answers = {k: v for k, v in answers.items() if k not in drop}
+        print(f"excluding {len(excluded)} of {len(drop)} listed items ({args.exclude})")
     rows = readings(index, answers)
     res = score(rows)
     res["labels"] = str(path)
+    res["excluded"] = excluded
     show(res)
+    if args.record:
+        record_summary(res, args.exclude)
     if args.json:
         args.json.write_text(json.dumps({"summary": res, "rows": rows}, indent=1), encoding="utf-8")
         print("wrote", args.json)
