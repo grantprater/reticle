@@ -35,6 +35,21 @@ least `cone_origin.MIN_LIT` witness pixels; consecutive identical witnesses
 collapse. It reads the minimap crop cache only, decodes no video, and writes
 to the store only with `--record` (one `metrics` row).
 
+**Never let an arm choose a facing with the light this witness is built
+from.** `cone.resolve_lobe` picks each ring-fit lobe by its lit share on the
+same drawn light, so an arm that resolves lobes gets, per cone, the better of
+two opposite cones on this metric whatever the true facing; the score
+rewards the choice, not the facing. On 331 px widgets the ring fit's raw
+axis is close enough that the choice is all that matters, and the ring arm
+beat the teardrop there (E11 of docs/STATISTICAL_ADJUDICATOR.md). `--variant`
+runs the chain with one factor changed: `ring-lobe` (0.4.0's ally cones:
+ring-fit centre and lobe-resolved facing, ungated self teardrop, fallback
+on), `ring-raw` (the same with no light in the lobe), `td-lobe` (the
+teardrop's facing, flipped wherever the light prefers its reverse) and
+`no-self-gate` (0.5.0 without the 331 px self facing gate). `--matched`
+scores those factors on the same ally detections, cone by cone, and the self
+teardrop and its reverse by NCC bin.
+
 **Predictions** (2026-09-29, before the after arm ran): on both sessions the
 eligible union's F1 under 0.4.0 is at least 0.3.0's, and Lotus's rises by at
 least 0.02, since the ally ring's lobe-resolved facing errs a median 27
@@ -64,7 +79,7 @@ import vision_origin_eval as voe  # noqa: E402
 from reticle import cone, lighting, metrics  # noqa: E402
 from reticle.minimap import widget_scale  # noqa: E402
 
-VERSION = "team-vision-eval-0.2.0"
+VERSION = "team-vision-eval-0.3.0"
 #: `ncc60` and the like: the eligible teardrop cones whose fit reads at that
 #: NCC or more, which is what the chain casts with no fallback and a cast gate
 #: there (the tracker and the lifecycle read no facing).
@@ -246,6 +261,129 @@ def arm(sid: str) -> dict:
     return {"rows": rows, "why": why}
 
 
+VARIANTS = ("ring-lobe", "ring-raw", "td-lobe", "no-self-gate")
+
+
+def apply_variant(name: str) -> None:
+    """Patch `team_vision.TeamVision` (and the self gate) for one `--variant`, in process."""
+    from reticle import team_vision, teardrop
+    tv = team_vision.TeamVision
+
+    class _RingOnly:
+        def read(self, crop, cx, cy):
+            return {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
+                    "ncc": None, "reason": "variant_ring_only"}
+
+    class _SelfUngated(teardrop.SelfConeReader):
+        def read(self, crop, cx, cy):
+            tf = teardrop.fit_teardrop(crop, cx, cy, scale=self.scale)
+            if tf.get("read"):
+                return {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
+                        "origin": "teardrop", "ncc": float(tf["ncc"])}
+            return {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
+                    "ncc": tf.get("ncc"), "reason": tf.get("reason")}
+
+    if name in ("ring-lobe", "ring-raw"):
+        init = tv.__init__
+
+        def ring_init(self, *a, **kw):
+            kw["ring_fallback"] = True
+            init(self, *a, **kw)
+            self.ally_pose_reader = _RingOnly()
+            self.self_cone_reader = _SelfUngated(scale=self.scale)
+        tv.__init__ = ring_init
+        if name == "ring-raw":
+            tv._resolve_fallback = lambda self, lit, dets: dets
+    elif name == "td-lobe":
+        def every_lobe(self, lit, dets):
+            idx = [i for i, d in enumerate(dets) if d.get("facing") is not None]
+            out = list(dets)
+            for i, e in zip(idx, cone.resolve_lobe(self.passable, lit, [dets[i] for i in idx],
+                                                   visible=self.floor)):
+                out[i] = e
+            return out
+        tv._resolve_fallback = every_lobe
+    elif name == "no-self-gate":
+        teardrop.labelled_scale = lambda scale: True
+    else:
+        raise SystemExit(f"unknown variant {name!r}")
+
+
+SELF_BINS = ((0.0, 0.55, "self_lt55"), (0.55, 0.6, "self_55_60"), (0.6, 0.7, "self_60_70"),
+             (0.7, 1.01, "self_ge70"))
+
+
+def matched(sid: str, every: int = 2) -> dict:
+    """Cone by cone on the same detections, scored against the witness.
+
+    Every `every`-th frame of `cone_origin.windows` with enough witness light.
+    For each ally detection whose teardrop reads and whose ring fit has a
+    facing: `td_td` (teardrop centre and facing, 0.5.0's cone), `ring_lobe`
+    (ring-fit centre, lobe resolved by `lighting.lit_mask`, 0.4.0's per-frame
+    input), `ring_td`, `td_lobe`, `ring_raw` (the ring's facing, no light) and
+    `td_rev` (the teardrop's reverse), pooled over all such detections and
+    split by whether the teardrop and the lobe differ by more than 90 degrees.
+    Unread teardrops score `ring_lobe` and `ring_raw` apart. The self
+    teardrop (`teardrop_tip.self_start`, ungated) and its reverse are pooled
+    by NCC bin. Returns `{"frames", "acc": {bucket: {cone: [hits, n, cones]}}}`.
+    """
+    from reticle.minimap import ally_icons, widget_drawn
+    from reticle.teardrop import IconPoseReader, fit_teardrop
+    s = Sess(sid)
+    sc = widget_scale(s.box[2] - s.box[0])
+    rdr = IconPoseReader("ally", sc)
+    half = cone.CONE_HALF_ANGLE_DEG
+    times = sorted(float(t) for _, sel in co.windows(s) for t in sel)[::every]
+    acc: dict = {}
+    frames = 0
+
+    def add(bucket, k, m, region, wit):
+        a = acc.setdefault(bucket, {}).setdefault(k, [0, 0, 0])
+        a[0] += int((m & wit).sum())
+        a[1] += int((m & region).sum())
+        a[2] += 1
+
+    def ray(x, y, deg):
+        return cone.raycast(s.passable, x, y, deg, half, s.floor)
+
+    for _t, crop in s.crops(times):
+        if not widget_drawn(crop, s.inputs.sgray, s.floor):
+            continue
+        got = witness(s, crop, icons_of(s, crop))
+        if got is None or int(got[1].sum()) < co.MIN_LIT:
+            continue
+        region, wit = got
+        frames += 1
+        sd = tt.self_start(crop, s.floor)
+        if sd is not None:
+            f = fit_teardrop(crop, sd["cx"], sd["cy"], scale=sc)
+            if f.get("read"):
+                b = next(tag for lo, hi, tag in SELF_BINS if lo <= f["ncc"] < hi)
+                add(b, "td", ray(f["x"], f["y"], f["deg"]), region, wit)
+                add(b, "rev", ray(f["x"], f["y"], f["deg"] + 180.0), region, wit)
+        lit = lighting.lit_mask(crop, s.ref)
+        dets = ally_icons(crop, s.floor, require_facing=False, support=s.inputs.slab,
+                          static=s.inputs.static)
+        for d, e in zip(dets, cone.resolve_lobe(s.passable, lit, dets, visible=s.floor)):
+            if e.get("facing") is None:
+                continue
+            p = rdr.read(crop, d["cx"], d["cy"])
+            if p["deg"] is None:
+                add("unread", "ring_lobe", ray(d["cx"], d["cy"], e["facing"]), region, wit)
+                add("unread", "ring_raw", ray(d["cx"], d["cy"], d["facing"]), region, wit)
+                continue
+            split = "agree" if abs(float(sem._signed_deg(p["deg"] - e["facing"]))) <= 90.0 else "disagree"
+            cones = {"td_td": (p["x"], p["y"], p["deg"]), "ring_lobe": (d["cx"], d["cy"], e["facing"]),
+                     "ring_td": (d["cx"], d["cy"], p["deg"]), "td_lobe": (p["x"], p["y"], e["facing"]),
+                     "ring_raw": (d["cx"], d["cy"], d["facing"]),
+                     "td_rev": (p["x"], p["y"], p["deg"] + 180.0)}
+            for k, (x, y, deg) in cones.items():
+                m = ray(x, y, deg)
+                for bucket in ("all", split):
+                    add(bucket, k, m, region, wit)
+    return {"sid": sid, "frames": frames, "acc": acc}
+
+
 NCC_BINS = (0.5, 0.6, 0.7, 0.8, 1.01)
 
 
@@ -365,6 +503,13 @@ def main(argv=None) -> int:
                     help="the teardrop's facing against the light-resolved ring fit, by NCC")
     ap.add_argument("--footprint", choices=("teardrop", "disc"), default=FOOTPRINT,
                     help="the witness's icon footprint (see FOOTPRINT)")
+    ap.add_argument("--variant", choices=VARIANTS,
+                    help="with --arm: the chain with one factor changed (see the module docstring)")
+    ap.add_argument("--label", default="",
+                    help="with --compare --record: a suffix naming the comparison in the metric part")
+    ap.add_argument("--matched", nargs="+", metavar="SID",
+                    help="cone by cone on the same detections: facing and centre sources, "
+                         "and the self teardrop against its reverse by NCC")
     ap.add_argument("--no-fallback", action="store_true",
                     help="with --arm: the chain casts nothing where the teardrop is unread "
                          "(`TeamVision(ring_fallback=False)`)")
@@ -398,6 +543,28 @@ def main(argv=None) -> int:
                                                 "(known-aware); agreement, not accuracy"},
                                note="teardrop facing against the ring fit's lobe-resolved facing, by NCC")
         return 0
+    if args.matched:
+        for sid in args.matched:
+            res = matched(sid)
+            (args.out / f"matched_{sid}.json").write_text(json.dumps(res), encoding="utf-8")
+            values = {"frames": res["frames"]}
+            for bucket, cones in res["acc"].items():
+                for k, (h, n, c) in cones.items():
+                    values[f"{bucket}_{k}_cones"] = c
+                    if n:
+                        values[f"{bucket}_{k}_precision"] = round(h / n, 4)
+            print(sid, json.dumps(values, indent=1), flush=True)
+            if args.record:
+                from reticle.version import ICON_TEARDROP_VERSION, TEARDROP_VERSION
+                metrics.record("team_vision_eval", part="matched", session=sid, values=values,
+                               deps={"prototype": VERSION, "witness": co.VERSION, "footprint": FOOTPRINT,
+                                     "lighting": lighting.LIGHTING_VERSION, "every": 2,
+                                     "teardrop": TEARDROP_VERSION, "icon_teardrop": ICON_TEARDROP_VERSION},
+                               note="cone by cone on the same ally detections; self teardrop and "
+                                    "reverse by NCC; precision against the joined team light")
+        return 0
+    if args.variant:
+        apply_variant(args.variant)
     if args.no_fallback:
         from reticle import team_vision
         base = team_vision.TeamVision.from_inputs.__func__
@@ -441,7 +608,8 @@ def main(argv=None) -> int:
         print(json.dumps(values, indent=1))
         if args.record:
             from reticle.version import ICON_TEARDROP_VERSION, TEAM_VISION_VERSION
-            metrics.record("team_vision_eval", part=f"joined-team-light-{FOOTPRINT}",
+            metrics.record("team_vision_eval", part=f"joined-team-light-{FOOTPRINT}"
+                           + (f"-{args.label}" if args.label else ""),
                            session="+".join(args.sessions), values=values,
                            deps={"prototype": VERSION, "witness": co.VERSION, "reader": it_.VERSION,
                                  "footprint": FOOTPRINT,
