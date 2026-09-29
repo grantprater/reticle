@@ -195,6 +195,14 @@ remains = "Stage 1 (prototypes/minimap_objects.py) failed its falsifier; an X sh
 waits_for = "The player's answers to the plan's questions on the '?' mark, X persistence, the death transition and the red marks."
 
 [[document]]
+path = "docs/PRIOR_DRIVEN_READERS.md"
+kind = "plan"
+status = "proposed"
+since = "2026-09-29"
+remains = "Every change: declared scopes, the four stored-row experiments, the ally window search and the scoreboard's own prior."
+waits_for = "The player's decision on the belief-rule amendment and on which experiments to run."
+
+[[document]]
 path = "docs/PUBSUB_PLAN.md"
 kind = "plan"
 status = "implemented"

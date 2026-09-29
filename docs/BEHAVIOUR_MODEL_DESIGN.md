@@ -130,7 +130,8 @@ side's five, the match's ten, the slot's predicted agent); it never changes a
 score. When even the best gated candidate fits poorly, the reader widens to
 the full set and records why: that is the surprise path of "Continue the
 prior". A gated likelihood table declares its scope, so inference knows the
-set it covers.
+set it covers. [Prior-driven readers](PRIOR_DRIVEN_READERS.md) audits every
+reader against this rule and ranks where a prior would pay.
 
 **`identity_claim` becomes a factor.** It already carries a channel, an entity
 key, evidence and `depends_on`. It gains a likelihood table over its candidates
