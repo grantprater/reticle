@@ -20,10 +20,11 @@ Three rules, each from a failure seen on `a06f04a0059f` on 2026-09-24
 
 On four match rounds this kept six tracks, all smokes, with observed ends of
 18.0 s against the Miks disc's 18.2 s [domain:abilities/miks-smoke-minimap-disc].
-Smokes are not yet named. Only the player's team's smokes are drawn
-[domain:abilities/enemy-smokes-not-on-minimap], and a smoke can be attributed
-only by a lone team smoke agent, the player's own tray, or its lifetime
-[domain:abilities/smoke-attribution]; that is the next step.
+This module names no smoke. Only the player's team's smokes are drawn
+[domain:abilities/enemy-smokes-not-on-minimap], and `adjudication.smoke_owner`
+attributes each track by a lone team smoke agent, the player's own tray, or
+its lifetime [domain:abilities/smoke-attribution], as claims through the
+identity arbiter.
 
 Owns [owns:minimap-smoke].
 """

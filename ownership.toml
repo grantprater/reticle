@@ -213,12 +213,34 @@ role = ["adjudicate", "lifecycle"]
 status = "partial"
 produces = ["tracks", "events"]
 not_for = """
-Which agent cast the smoke (`ability-owner`, unowned), enemy smokes (only
+Which agent cast the smoke (`smoke-owner`), enemy smokes (only
 missing cone light shows them [domain:minimap/enemy-smokes-block-cones]), and
 non-disc abilities. An end marked censored is an interval, not a time.
 """
 consumers = ["cli"]
 evidence = "tests/test_smokes.py"
+
+[[entry]]
+id = "smoke-owner"
+question = "Which ally agent cast this minimap smoke?"
+owner = "adjudication.smoke_owner"
+role = ["attribute", "adjudicate"]
+status = "partial"
+names_agents = true
+produces = ["adjudicate", "lifetime_verdict", "tray_verdict", "cast_groups",
+            "tolerance_s", "window", "SMOKE_ABILITY", "NO_BULK", "LIFETIME_S",
+            "CAST_WINDOW_S", "NOT_A_PLAYER_CAST", "CHANNELS", "player_smoke_casts"]
+not_for = """
+Finding or timing the smoke (`minimap-smoke`), enemy smokes (not drawn on the
+player's minimap), or deciding a name itself: each rule is a claim through
+`agent-identity`, declaring `depends_on` the lineup's ally slots, and a track's
+agent is the arbiter's verdict. Nor is it for deciding which tray drops are the
+player's casts (`ability-cast`). A smoke agent without a measured disc lifetime
+or cast window has no rule, and none is borrowed from another ability.
+"""
+defers_to = ["agent-identity", "ult-cast", "ability-cast"]
+consumers = ["cli"]
+evidence = "tests/test_smoke_owner.py"
 
 [[entry]]
 id = "combat-report-read"
@@ -1161,7 +1183,8 @@ status = "unowned"
 not_for = """
 Inference from the tray alone. Cast order, roster, audio, killfeed ability icons
 and owner-death linkage are candidate witnesses; the killfeed icon is biased
-toward damaging abilities and represents no smoke, wall or recon use.
+toward damaging abilities and represents no smoke, wall or recon use. A
+minimap smoke's caster is `smoke-owner`'s question.
 """
 blocked_by = "agent-identity, plus an ability entity to attribute."
 

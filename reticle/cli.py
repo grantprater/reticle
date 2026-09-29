@@ -2935,7 +2935,8 @@ def cmd_reliability(args) -> int:
 
 
 def cmd_smokes(args) -> int:
-    """Smoke tracks from stored `minimap_dark` rows. Decodes no video."""
+    """Smoke tracks from stored `minimap_dark` rows, and the ally agent who
+    cast each (`adjudication.smoke_owner`). Decodes no video."""
     from .adjudication.smokes import events as smoke_events
 
     store = Store(args.store)
@@ -2952,10 +2953,51 @@ def cmd_smokes(args) -> int:
     out = store.write_events("smoke", sid, out_rows)
     head = out_rows[0]
     print(f"{sid}: {head['tracks']} smoke tracks, {head['observed_ends']} with an observed end -> {out}")
+    res = _smoke_owners(store, sid, out_rows, float(rows[0].get("hz") or 4.0))
+    owners = {r["track"]: r for r in res["rows"][1:]}
     for t in out_rows[1:]:
+        o = owners[t["track"]]
         print(f"  {t['first_ms'] / 1000:8.2f}-{t['last_ms'] / 1000:8.2f} s  {t['life_s']:6.2f} s  "
-              f"at ({t['cx']:.0f},{t['cy']:.0f}) r {t['r']:.1f}  {t['end_status']}")
+              f"at ({t['cx']:.0f},{t['cy']:.0f}) r {t['r']:.1f}  {t['end_status']}  "
+              + (f"{o['agent']} by {'+'.join(o['rules'])}" if o["agent"] else f"refused: {o['reason']}"))
+    cov = res["rows"][0]
+    print(f"{sid}: team smoke agents {cov['team_smoke_agents']}, player {cov['player_agent']}; "
+          f"{cov['named']} of {cov['tracks']} named {cov['by_agent']}, by rule {cov['by_rule']}; "
+          f"refused {cov['refused']} -> {res['out']}")
     return 0
+
+
+def _smoke_owners(store, sid: str, smoke_rows: list[dict], hz: float) -> dict:
+    """Name each stored smoke track through `adjudication.smoke_owner` and
+    write the `smoke_owner` rows and their formal identity events. Reads the
+    tray only where the player's agent is one of the team's smoke agents."""
+    from .ability_timeline import stored_gate_inputs
+    from .adjudication.smoke_owner import SMOKE_ABILITY, adjudicate, player_smoke_casts
+    from .adjudication.ult_cast import lineup_sides, player_agent
+    from .lineup import load_lineup
+    from .version import TRAY_VERSION
+
+    lineup = load_lineup(sid, store.root)
+    player = player_agent(lineup, sid)
+    sides = lineup_sides(lineup, sid)
+    team = set((sides or {}).get("ally", {}).get("named", [])) & set(SMOKE_ABILITY)
+    casts, why = None, "player_not_a_team_smoke_agent"
+    if player in team:
+        drops = store.read_events("tray_drop", sid)
+        if not drops:
+            why = "no_tray_drops"
+        elif drops[0].get("tray_version") != TRAY_VERSION:
+            why = "tray_drops_stale"
+        else:
+            man = store.read_manifest(sid)
+            table = store.read_rounds(sid, _date_of(man))
+            rounds = table.to_pylist() if table is not None else []
+            gate, _ = stored_gate_inputs(store, sid, _date_of(man), rounds, player)
+            casts, why = player_smoke_casts(drops, rounds, **gate), None
+    res = adjudicate(sid, smoke_rows, lineup, hz=hz, tray_casts=casts, tray_reason=why)
+    out = store.write_events("smoke_owner", sid, res["rows"])
+    store.write_events("smoke_owner_identity", sid, res["events"])
+    return {**res, "out": out}
 
 
 def _cache_grid(t_ms, t0: float, t1: float, step_s: float) -> list[float]:
@@ -4375,7 +4417,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--top", type=int, default=12)
     s.set_defaults(func=cmd_reliability)
 
-    s = sub.add_parser("smokes", help="smoke tracks from stored minimap_dark rows (no video)")
+    s = sub.add_parser("smokes", help="smoke tracks and who cast them, from stored minimap_dark rows (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_smokes)
 

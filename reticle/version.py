@@ -299,6 +299,10 @@ MINIMAP_DARK_VERSION = "minimap-dark-0.1.0"
 # Bump when a birth, presence or end rule in `adjudication.smokes` changes.
 # 0.2.0: sampling gaps are unobserved; onsets carry their own censoring.
 SMOKE_VERSION = "smoke-0.2.0"
+# Which ally agent cast each smoke track, from stored `smoke` tracks, the
+# lineup's verdicts and the player's tray casts (`adjudication.smoke_owner`).
+# Bump when a rule, a lifetime, a cast window or the stored fields change.
+SMOKE_OWNER_VERSION = "smoke-owner-0.1.0"
 # Combat report reads (header score, per-row damage, hit splits, flag-word
 # correlations), written as `combat_report` rows by `reticle scan`. It stores no
 # decision. Bump when an offset, a threshold, the templates or the stored fields
