@@ -249,7 +249,7 @@ def arm(sid: str) -> dict:
 NCC_BINS = (0.5, 0.6, 0.7, 0.8, 1.01)
 
 
-def pose_check(sid: str, every: int = 3) -> dict:
+def pose_check(sid: str, every: int = 3, times=None) -> dict:
     """Per icon, the teardrop's facing against the ring fit's after the light
     resolves its lobe (`cone.resolve_lobe`, 0.3.0's per-frame input), by NCC.
 
@@ -259,6 +259,10 @@ def pose_check(sid: str, every: int = 3) -> dict:
     lobe-resolved facing, and where the two facings differ by more than 90
     degrees, the light's verdict: the lit share (`cone.compare_evidence`) of
     each facing's cone from the teardrop's centre, so only the facing differs.
+
+    `times` replaces the windows' frames (`label_icon_facing`'s 331 px set
+    draws its pool from the round-live frames). Each row carries the
+    detection's centre (`det_x`, `det_y`, `r`) and the reader's (`x`, `y`).
     """
     from reticle import cone as cone_mod
     from reticle.minimap import ally_icons, self_icons, widget_drawn
@@ -278,7 +282,8 @@ def pose_check(sid: str, every: int = 3) -> dict:
                     "reason": f.get("reason")}
 
     readers = {"self": _SelfFit(), "ally": IconPoseReader("ally", sc)}
-    times = sorted(float(t) for _, sel in co.windows(s) for t in sel)[::every]
+    if times is None:
+        times = sorted(float(t) for _, sel in co.windows(s) for t in sel)[::every]
     rows = []
     for t, crop in s.crops(times):
         if not widget_drawn(crop, s.inputs.sgray, s.floor):
@@ -294,7 +299,9 @@ def pose_check(sid: str, every: int = 3) -> dict:
                 p = readers[role].read(crop, d["cx"], d["cy"])
                 row = {"t": t, "role": role, "origin": p["origin"], "ncc": p.get("ncc"),
                        "reason": p.get("reason"), "deg": p["deg"], "ring": d.get("facing"),
-                       "lobe": e.get("facing"), "offset": math.hypot(p["x"] - d["cx"], p["y"] - d["cy"])}
+                       "lobe": e.get("facing"), "offset": math.hypot(p["x"] - d["cx"], p["y"] - d["cy"]),
+                       "x": float(p["x"]), "y": float(p["y"]), "det_x": float(d["cx"]),
+                       "det_y": float(d["cy"]), "r": float(d.get("r", 0.0))}
                 if p["deg"] is not None and e.get("facing") is not None:
                     row["dis"] = abs(float(sem._signed_deg(p["deg"] - e["facing"])))
                     if row["dis"] > 90.0:

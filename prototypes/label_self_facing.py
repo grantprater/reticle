@@ -267,38 +267,41 @@ def prepare(store: Path, reuse: Path | None = None) -> int:
 
 # ---------------------------------------------------------------- ask
 
-def compose(patch: np.ndarray) -> np.ndarray:
-    """The zoom panel and the context panel side by side, the candidate ringed in both."""
+def compose(patch: np.ndarray, zh: int = ZH, zf: int = ZF, ring_r: float = RING_R) -> np.ndarray:
+    """The zoom panel and the context panel side by side, the candidate ringed in both.
+
+    `zh`, `zf` and `ring_r` let a smaller widget zoom closer (`label_icon_facing`'s
+    331 px set); the defaults are this labeller's."""
     c = CTX
-    z = patch[c - ZH:c + ZH + 1, c - ZH:c + ZH + 1]
-    zoom = cv2.resize(z, None, fx=ZF, fy=ZF, interpolation=cv2.INTER_NEAREST)
+    z = patch[c - zh:c + zh + 1, c - zh:c + zh + 1]
+    zoom = cv2.resize(z, None, fx=zf, fy=zf, interpolation=cv2.INTER_NEAREST)
     ctx = cv2.resize(patch, None, fx=CF, fy=CF, interpolation=cv2.INTER_NEAREST)
-    zc = int((ZH + 0.5) * ZF)
-    cv2.circle(zoom, (zc, zc), int(RING_R * ZF), RING, 1, cv2.LINE_AA)
+    zc = int((zh + 0.5) * zf)
+    cv2.circle(zoom, (zc, zc), int(ring_r * zf), RING, 1, cv2.LINE_AA)
     cc = int((c + 0.5) * CF)
-    cv2.circle(ctx, (cc, cc), int(RING_R * CF), RING, 1, cv2.LINE_AA)
+    cv2.circle(ctx, (cc, cc), int(ring_r * CF), RING, 1, cv2.LINE_AA)
     # A 10-crop-pixel bar, so the magnification cannot be mistaken.
-    cv2.line(zoom, (8, zoom.shape[0] - 10), (8 + 10 * ZF, zoom.shape[0] - 10), (230, 230, 230), 2)
+    cv2.line(zoom, (8, zoom.shape[0] - 10), (8 + 10 * zf, zoom.shape[0] - 10), (230, 230, 230), 2)
     h = max(zoom.shape[0], ctx.shape[0])
     pad = lambda im: cv2.copyMakeBorder(im, 0, h - im.shape[0], 0, 0, cv2.BORDER_CONSTANT, value=(18, 18, 18))
     gap = np.full((h, GAP_PX, 3), 18, np.uint8)
     return np.hstack([pad(zoom), gap, pad(ctx)])
 
 
-def screen_to_patch(sx: float, sy: float):
+def screen_to_patch(sx: float, sy: float, zh: int = ZH, zf: int = ZF):
     """A click on the composite, in patch px (pixel centres at integers), or None."""
-    zw = (2 * ZH + 1) * ZF
+    zw = (2 * zh + 1) * zf
     if sx < zw:
-        return sx / ZF - 0.5 + (CTX - ZH), sy / ZF - 0.5 + (CTX - ZH)
+        return sx / zf - 0.5 + (CTX - zh), sy / zf - 0.5 + (CTX - zh)
     sx -= zw + GAP_PX
     if 0 <= sx < (2 * CTX + 1) * CF:
         return sx / CF - 0.5, sy / CF - 0.5
     return None
 
 
-def patch_to_screens(px: float, py: float):
-    zw = (2 * ZH + 1) * ZF
-    out = [((px - (CTX - ZH) + 0.5) * ZF, (py - (CTX - ZH) + 0.5) * ZF)]
+def patch_to_screens(px: float, py: float, zh: int = ZH, zf: int = ZF):
+    zw = (2 * zh + 1) * zf
+    out = [((px - (CTX - zh) + 0.5) * zf, (py - (CTX - zh) + 0.5) * zf)]
     out.append(((px + 0.5) * CF + zw + GAP_PX, (py + 0.5) * CF))
     return out
 
