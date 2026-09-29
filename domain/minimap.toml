@@ -671,3 +671,53 @@ not use it yet
 """
 see = ["minimap/boxes-block-unless-raised"]
 phrases = ["lighter grey is raised", "floor shading shows elevation"]
+
+[enemy-spike-ground-vision]
+claim = """
+When the enemy team attacks, the minimap draws a spike lying on the ground only
+while it lies within the team's vision. Outside vision it becomes a yellow "?"
+at its last-known place, under the same rules as an enemy's "?".
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+source = """
+the player, 2026-09-29 (chat), after viewing a spike drop on Lotus session
+a06f04a0059f at about 183.3 s, and earlier the same day on the yellow "?";
+measured support below is an observation, not the player's claim
+"""
+use = """
+a yellow "?" of the spike is a place and a time, not a spike in sight; the
+spike leaving the team's vision is the origin of the "?". It gives an
+independent witness of the team's vision at the spike's place; an enemy
+carrier's icon shows no spike [domain:minimap/enemy-carrier-no-spike-overlay],
+and its death drops the spike with a broadcast
+[domain:hud/enemy-carrier-death-broadcast]
+"""
+exceptions = """
+observed on three events of one session (a06f04a0059f at 184 s, 413 s, 591 s):
+the glyph became "?" one frame (0.067-0.083 s) after the last glyph frame,
+began fading 1.8-2.5 s later and was gone 3.0-3.2 s later, which matches
+minimap/last-known-mark-timing. Images in the store's
+analysis/spike-question-mark/. One session, one map (Lotus); the "?" colour is
+the only difference from the enemy's red one
+"""
+see = ["minimap/last-known-mark", "minimap/last-known-mark-timing",
+       "minimap/vision-gate", "minimap/spike-glyph"]
+phrases = ["spike lying on the ground", "yellow question mark"]
+
+[enemy-carrier-no-spike-overlay]
+claim = """
+An enemy carrier's icon carries no spike overlay. Only the ally carrier's icon
+shows the spike at its lower left.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29 (chat), viewing an enemy carrier's death at a06f04a0059f 183.3 s"
+use = """
+an enemy carrier is not readable from its icon; the enemy spike shows only as
+a glyph on the ground in vision [domain:minimap/enemy-spike-ground-vision], and
+the carrier's identity comes from other channels
+"""
+see = ["minimap/spike-carrier-overlay", "minimap/enemy-spike-ground-vision"]

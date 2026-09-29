@@ -325,3 +325,21 @@ samples of one Tab hold; which dots are black and which yellow is a round
 history the reader may later read, once the colours are labelled
 """
 see = ["rounds/scoreboard-dead-dimmed", "hud/scoreboard-strip-updates-next-round"]
+
+[enemy-carrier-death-broadcast]
+claim = """
+When an enemy carrier dies and drops the spike, the game shows a broadcast
+message and plays an announcer line.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29 (chat), after viewing the spike drop at a06f04a0059f 183.3 s"
+use = """
+the drop is a witness in three channels (the minimap glyph, the broadcast, the
+audio line), so a spike drop can be cross-checked; the message text and the
+line are unrecorded and must be read from a frame or the audio, not assumed
+"""
+exceptions = "the message's wording, position and duration are unmeasured"
+see = ["minimap/enemy-spike-ground-vision", "minimap/enemy-carrier-no-spike-overlay",
+       "hud/chat-broadcasts-callouts"]
