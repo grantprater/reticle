@@ -508,7 +508,7 @@ it was drawn; the answers go to the store's
 scores the teardrop and the ring fit against them. The predictions (L1-L5)
 are logged in the store's `notes/predictions.jsonl` before any label exists.
 
-**The player's answers.** On the [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_n=28] Lotus items he
+**The player's answers.** On the [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_n=28] Lotus items the player
 could read, the teardrop's facing errs a median [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_median_abs_deg=2.233]
 degrees, flips on [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_flip=0.071] of them and lies within 10 degrees on
 [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_within10=0.893]. The ring fit's raw facing errs
@@ -602,6 +602,58 @@ e78e75b2d191 and a06f04a0059f. `light_refusals` now refuses
 [metric:vision_origin_eval/light-refusals@all-labelled#sliver_43350_vision_share=0.807]): the flipped lobe E3 found there no longer
 turns the cone away. 36.9 s and 40.65 s still pass; the vision covers neither.
 F4 failed in the direction it could not rule out.
+
+## E6: ally and enemy teardrops
+
+The labels settled the self facing: the teardrop read it to a median 2.2
+degrees on Lotus, the ring fit flipped half the time. Teammates carry the same
+ring fit (`minimap.ally_icons`, "the key reaches past the circle in ONE
+direction"), and so does the prototype enemy ring (`minimap_ring_fit`).
+`prototypes/icon_teardrop.py` (`icon-teardrop-0.1.0`, task
+`icon-facing-20260928`) fits the same silhouette to both, with a colour key
+and three radii per class, calibrated on held-out minutes (every fourth) of
+5822b6646448 (Lotus, C:\Users\grant\Videos\2026-08-26 12-38-38.mp4) and
+a06f04a0059f (Ascent, C:\Users\grant\Videos\2026-08-26 09-56-37.mp4):
+
+| class | key | r_in, r_out, apex (px) | refuses |
+|---|---|---|---|
+| ally | min(G, B) - R, off where B exceeds G | 8.5, 10.5, 19 | NCC under 0.5; a facing 90 degrees away within 0.05 |
+| enemy | R - max(G, B) | 7.5, 10.5, 18 | the same, and under 40% of the ring keyed away from the lobe |
+
+The ally ring turns pale, nearly white, on the side away from the lobe, so a
+ring-coverage gate refused real teammates and the ally class has none; the
+production detector's own gates and barrier rule stand in for it. The enemy
+gate refuses spawn barriers and red map fills, which the enemy ring fit takes
+for icons.
+
+On 150 frames per session outside the calibration minutes:
+
+| | Lotus | Ascent |
+|---|---|---|
+| ally read rate | [metric:icon_teardrop/stats@5822b6646448#ally_read_rate=0.894] | [metric:icon_teardrop/stats@a06f04a0059f#ally_read_rate=0.949] |
+| ally: ring and teardrop over 90 deg apart | [metric:icon_teardrop/stats@5822b6646448#ally_ring_vs_teardrop_over90=0.207] | [metric:icon_teardrop/stats@a06f04a0059f#ally_ring_vs_teardrop_over90=0.136] |
+| ally stationary jitter, teardrop / ring (deg) | [metric:icon_teardrop/stats@5822b6646448#ally_jitter_rms20_deg=0.6] / [metric:icon_teardrop/stats@5822b6646448#ally_ring_jitter_rms20_deg=2.02] | [metric:icon_teardrop/stats@a06f04a0059f#ally_jitter_rms20_deg=0.43] / [metric:icon_teardrop/stats@a06f04a0059f#ally_ring_jitter_rms20_deg=1.66] |
+| enemy read rate | [metric:icon_teardrop/stats@5822b6646448#enemy_read_rate=0.511] | [metric:icon_teardrop/stats@a06f04a0059f#enemy_read_rate=0.26] |
+| enemy: ring and teardrop over 90 deg apart | [metric:icon_teardrop/stats@5822b6646448#enemy_ring_vs_teardrop_over90=0.217] | [metric:icon_teardrop/stats@a06f04a0059f#enemy_ring_vs_teardrop_over90=0.231] |
+| enemy stationary jitter, teardrop / ring (deg) | [metric:icon_teardrop/stats@5822b6646448#enemy_jitter_rms20_deg=1.33] / [metric:icon_teardrop/stats@5822b6646448#enemy_ring_jitter_rms20_deg=3.2] | [metric:icon_teardrop/stats@a06f04a0059f#enemy_jitter_rms20_deg=1.25] / [metric:icon_teardrop/stats@a06f04a0059f#enemy_ring_jitter_rms20_deg=4.67] |
+
+The enemy read rate counts the enemy detector's false candidates in its
+denominator; on the contact sheets most Ascent refusals are red floor, pings,
+death marks and teammates the red key caught, not enemies. Contact sheets
+show the teardrop on the lobe wherever the two readers disagree on a lone
+icon; in stacks of three or more it sometimes fits another icon's lobe. The
+jitter bounds precision, not accuracy: no light witness exists for enemies,
+and the drawn light judged ally facings only through `resolve_lobe`.
+
+**The labels.** `prototypes/label_icon_facing.py` asks the player, blind,
+for the centre and tip of about 60 ally and enemy icons from both sessions,
+drawn in strata: the two readers over 90 degrees apart, 20 to 90 apart, within
+10, one reader refusing, uniform, stacked, and (allies) yellow at the lower
+left where the carried spike is drawn. Answers go to the store's
+`labels/icon_facing_20260928.jsonl`; `prototypes/icon_facing_eval.py` scores
+the teardrop, the raw ring facing and (allies) the ring facing after
+`resolve_lobe`, per class and stratum. Predictions C1-C4 and L1-L2 are logged
+in the store's `notes/predictions.jsonl`.
 
 ## What this plan does not settle
 
