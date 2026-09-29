@@ -322,6 +322,13 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
             # gave none, or the window was ambiguous. No cone was cast either.
             _text(img, "?", (c[0] + d["r"] + 2, c[1] - d["r"]), AMBER, 0.42)
         else:
+            # The arrow starts where the cone does and points where it faces:
+            # the self cone at the teardrop's centre, along its facing, where
+            # it reads (`team_vision`, 0.3.0). An amber dot marks a fallback.
+            o = got.self_cone if base == SELF else None
+            if o is not None:
+                c = (x0 + int(round(o["x"])), y0 + int(round(o["y"])))
+                cv2.circle(img, c, 2, colour if o["origin"] == "teardrop" else AMBER, -1)
             th = np.radians(deg)
             tip = (int(c[0] + 2.2 * d["r"] * np.cos(th)),
                    int(c[1] + 2.2 * d["r"] * np.sin(th)))
