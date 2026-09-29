@@ -309,7 +309,11 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # where the shape reads, else at the ring fit's centre; each self icon records which.
 # 0.3.0: the self cone faces the teardrop's facing where the shape reads, else the
 # track's resolved lobe; the stored self icon's `self_cone` names both sources.
-TEAM_VISION_VERSION = "team-vision-0.3.0"
+# 0.4.0: rays stop at the geometry's occluder table (`occ`: the static's white-line
+# walls and its closed boxes, prototypes/map_occluders.py) where the npz carries it;
+# the coverage row names the table's stamp as `occluders` (None: art box edges only).
+# Each icon also records `boxes_crossed`, the boxes its cone would pass with boxes open.
+TEAM_VISION_VERSION = "team-vision-0.4.0"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.

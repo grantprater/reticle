@@ -577,15 +577,18 @@ question = "What does the geometric raycast say the player can see?"
 owner = "cone"
 role = ["constrain", "corroborate"]
 status = "partial"
-produces = ["raycast", "coverage", "compare_evidence"]
+produces = ["raycast", "coverage", "compare_evidence", "passable_from", "box_crossings",
+            "snap_origin"]
 not_for = """
-Ground truth for vision, and the identity of anything revealed. The raycast
+Ground truth for vision, and the identity of anything revealed. Whether a box
+passed light on a frame: `box_crossings` says where a pass would show, and the
+drawn light decides. The raycast
 overclaims area and disagrees with the drawn light; it is a crosscheck. A Sova
 dart reveals a line-of-sight set from a variable-height origin, so its drawn
 circle is not ground coverage.
 """
 consumers = ["overlay", "barriers", "team_vision"]
-evidence = "tests/test_cone_evidence.py, tests/test_full_round_cones.py"
+evidence = "tests/test_cone_evidence.py, tests/test_full_round_cones.py, tests/test_cone_walls.py"
 
 [[entry]]
 id = "self-cone-origin"

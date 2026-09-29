@@ -2711,6 +2711,7 @@ def cmd_vision(args) -> int:
                     "source": "roi_cache/minimap", "roi_cache_version": ROI_CACHE_VERSION,
                     "cache_hz": cache.record.get("hz"),
                     "geometry_key": inputs.geometry_key,
+                    "occluders": inputs.occluders,
                     "lighting_version": (lighting.LIGHTING_VERSION
                                          if inputs.light is not None else None),
                     "track_version": TRACK_VERSION,

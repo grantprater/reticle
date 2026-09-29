@@ -55,7 +55,8 @@ compares a computation with the stored product without writing.
 **Order against the ability adjudicator.** A smoke blocks the drawn light, and
 the drawn light refuses ability candidates, so the two could wait on each
 other. The loop is broken by time. This product reads no ability entity
-today: its rays stop at the baked geometry's boxes only, so behind a smoke it
+today: its rays stop at the baked geometry's walls and boxes only (`occ`
+where the geometry carries it, `cone.passable_from`), so behind a smoke it
 over-claims, which the ability rule tolerates because a sliver must also be
 lit to be refused. When smokes enter the rays, the vision at frame t may
 consume only entities accepted at frames before t -- the previous frame's
@@ -98,6 +99,13 @@ class VisionInputs:
     light: object = None
     stalls: list | None = None
     geometry_key: str | None = None
+    #: The geometry's occluder stamp (`occ_built_by`), or None when it has no
+    #: `occ` and the rays stop only at the art's box edges.
+    occluders: str | None = None
+    #: With `occ`: each box pixel's id, and the grid with the boxes open, for
+    #: the per-cone crossing report (`cone.box_crossings`).
+    box_id: np.ndarray | None = None
+    open_boxes: np.ndarray | None = None
     notes: list = field(default_factory=list)
 
 
@@ -117,8 +125,18 @@ def load_inputs(store_root, session_id: str, profile, width: int, height: int):
                           static=med, geometry_key=geometry.key_of(session_id, store_root))
     with np.load(geo) as z:
         if "labels" in z.files and z["labels"].shape == floor.shape:
-            inputs.passable = cone_mod.passable_from(z["labels"], floor)
-            inputs.notes.append("geometry labels loaded (a box stops a ray and is not lit)")
+            occ = z["occ"] if "occ" in z.files else None
+            inputs.passable = cone_mod.passable_from(z["labels"], floor, occ)
+            if occ is not None and occ.shape == floor.shape:
+                inputs.occluders = str(z["occ_built_by"]) if "occ_built_by" in z.files else "?"
+                inputs.box_id = z["box_id"].copy() if "box_id" in z.files else None
+                inputs.open_boxes = cone_mod.passable_from(z["labels"], floor, occ,
+                                                           boxes_block=False)
+                inputs.notes.append("occluders loaded: rays stop at the static's walls and "
+                                    "boxes (occ)")
+            else:
+                inputs.notes.append("geometry labels loaded (a box stops a ray and is not lit); "
+                                    "no occluder table, so the art's box edges are the only walls")
             # The lighting reference rides along with the labels: the same npz
             # and key. Without it a bearing keeps its lobe ambiguity.
             inputs.light = lighting.reference(z)
@@ -152,6 +170,9 @@ class VisionFrame:
     self_cone: dict | None = None
     #: Per `resolved` entry, its cast cone (None where the bearing is refused).
     cones: list = field(default_factory=list)
+    #: Per `resolved` entry, the ids of the boxes its cone crossed with the
+    #: boxes open (`cone.box_crossings`); empty when the geometry has no `occ`.
+    crossed: list = field(default_factory=list)
     observable_all: np.ndarray | None = None
     observable: np.ndarray | None = None
 
@@ -161,8 +182,10 @@ class TeamVision:
 
     def __init__(self, floor, passable, sgray, *, width: int, slab=None, static=None,
                  light=None, stalls=None, origin_events=(), track_self=None,
-                 track_ally=None, lifecycle=None, distance_diagnostics=True):
+                 track_ally=None, lifecycle=None, distance_diagnostics=True,
+                 box_id=None, open_boxes=None):
         self.floor, self.passable, self.sgray = floor, passable, sgray
+        self.box_id, self.open_boxes = box_id, open_boxes
         self.slab, self.static, self.light = slab, static, light
         self.stalls, self.origin_events = stalls, tuple(origin_events or ())
         self.scale = widget_scale(width)
@@ -181,7 +204,8 @@ class TeamVision:
         x0, _y0, x1, _y1 = inputs.box
         return cls(inputs.floor, inputs.passable, inputs.sgray, width=x1 - x0,
                    slab=inputs.slab, static=inputs.static, light=inputs.light,
-                   stalls=inputs.stalls, origin_events=origin_events, **kw)
+                   stalls=inputs.stalls, origin_events=origin_events,
+                   box_id=inputs.box_id, open_boxes=inputs.open_boxes, **kw)
 
     def step(self, crop: np.ndarray, t_ms: float, masks: bool = True) -> VisionFrame:
         """Advance the chain one frame.
@@ -263,6 +287,13 @@ class TeamVision:
                 self.passable, [(ox, oy, deg) for (ox, oy, _s), (_x, _y, deg, _c)
                                 in zip(origins, resolved)],
                 visible=self.floor)
+        # Which boxes each cone would cross if the caster could see over them:
+        # the report the drawn light decides a box pass from. Stored, not cast.
+        crossed = []
+        if masks and self.box_id is not None and self.open_boxes is not None:
+            crossed = [None if deg is None else sorted(cone_mod.box_crossings(
+                self.open_boxes, self.box_id, ox, oy, deg, visible=self.floor)[1])
+                for (ox, oy, _s), (_x, _y, deg, _c) in zip(origins, resolved)]
 
         by_pos = {(round(bx), round(by)): deg for bx, by, deg, _ in resolved}
         known = self.light.known if self.light is not None else None
@@ -312,7 +343,7 @@ class TeamVision:
                            principal=principal, resolved=resolved,
                            adjudicated_resolved=adjudicated_resolved, tracked=tracked,
                            eligible=eligible, origins=origins, self_cone=self_cone,
-                           cones=per_icon or [], observable_all=agg,
+                           cones=per_icon or [], crossed=crossed, observable_all=agg,
                            observable=adjudicated_agg)
 
 
@@ -327,6 +358,8 @@ def frame_row(frame: VisionFrame, frame_idx: int | None = None) -> dict:
     witness gave its `facing` (`teardrop.SelfConeReader.read`, plus the
     track's own bearing as `track_deg`); None when the principal is not
     observed this frame. Every other icon's cone starts at its `x`, `y`.
+    Where the geometry carries boxes, each icon records `boxes_crossed`: the
+    boxes its cone crosses with the boxes open (None without a facing).
     """
     row = {"kind": "frame", "t_ms": float(frame.t_ms), "frame_idx": frame_idx,
            "widget": frame.widget}
@@ -335,12 +368,14 @@ def frame_row(frame: VisionFrame, frame_idx: int | None = None) -> dict:
                    reason=frame.diagnostic.get("reason"))
         return row
     icons = []
-    for (role, tr), (x, y, deg, carried), (_x, _y, adj, _c) in zip(
-            frame.tracked, frame.resolved, frame.adjudicated_resolved):
+    for i, ((role, tr), (x, y, deg, carried), (_x, _y, adj, _c)) in enumerate(zip(
+            frame.tracked, frame.resolved, frame.adjudicated_resolved)):
         icon = {"role": role, "track_id": int(tr.tid), "x": _num(x), "y": _num(y),
                 "facing": _num(deg), "interpolated": bool(carried),
                 "eligible": f"{role}:{tr.tid}" in frame.eligible,
                 "casts": adj is not None}
+        if frame.crossed:
+            icon["boxes_crossed"] = frame.crossed[i]
         if role == "self":
             icon["self_cone"] = frame.self_cone
         icons.append(icon)
