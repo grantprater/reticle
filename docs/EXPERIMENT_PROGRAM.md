@@ -1,15 +1,15 @@
 # Experiments toward a complete observable event record
 
-Status (2026-09-27): proposed; E1 is the next task ([BACKLOG](../BACKLOG.md)); no module or command implements it yet.
+Status (2026-09-28): partial. E1 ran as a replay from storage, and its [findings](E1_AGREEMENT.md) are recorded: agreeing totals hid unbound deaths, which the combat report's owner now binds. The player's source review of E1's seeded rounds comes first ([BACKLOG](../BACKLOG.md)); E2-E9 are proposed.
 
 2026-09-24. Proposed experiments, not measured results. This design extends
 [pipeline acceptance](PIPELINE_REVIEW.md) and the
 [bounded learning pilot](archive/ENTITY_DOMAIN_LOOP_PILOT-2026-09-24.md). It does not replace the
 active backlog or launch that pilot.
 
-| Experiment | Status (2026-09-27) | Evidence |
+| Experiment | Status (2026-09-28) | Evidence |
 |---|---|---|
-| E1 | Selected: the next task | The [BACKLOG](../BACKLOG.md) item and the ledger entry `e1-agreement-2026-09-27` |
+| E1 | Replayed; the prediction held; the player's source review pending | [Findings](E1_AGREEMENT.md), the ledger entry `e1-agreement-2026-09-27` and the [BACKLOG](../BACKLOG.md) follow-ups |
 | E2 | Proposed | None |
 | E3 | Proposed | None |
 | E4 | Proposed | None |

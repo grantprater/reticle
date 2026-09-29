@@ -71,6 +71,19 @@ class Panels(unittest.TestCase):
         self.assertEqual([p["start_ms"] for p in ps], [50000.0, 150000.0])
         self.assertEqual(ps[0]["reopens"], [90000.0])
 
+    def test_one_death_opens_one_death_panel(self):
+        # `5822b6646448` round 12: one frame at 1087 s, the same read at
+        # 1093 s, and one HUD death at 1088 s inside both windows.
+        same = [_row("0", "280", ih="100", killed_you=0.99)]
+        frames = [_frame(50000, same)] + _run(56000, 60000, same)
+        ps = adj.panels(frames, death_times=[51000.0])
+        self.assertEqual([(p["start_ms"], p["at_death"]) for p in ps], [(50000.0, True)])
+        self.assertEqual(ps[0]["reopens"], [56000.0])
+        # A death after the first panel's opens a panel however alike the reads.
+        ps = adj.panels(frames, death_times=[51000.0, 58000.0])
+        self.assertEqual([p["start_ms"] for p in ps], [50000.0, 56000.0])
+        self.assertEqual(ps[0]["reopens"], [])
+
     def test_flags_are_a_majority_vote_over_the_panel(self):
         rows_hit = [_row("160", "0", oh="100", killed=0.95)]
         rows_miss = [_row("160", "0", oh="100", killed=0.3)]
@@ -205,6 +218,106 @@ class Naming(unittest.TestCase):
         self.assertEqual([(c["channel"], c["agent"]) for c in mine], [("ally_lineup", None)])
         self.assertIn("ally bound of 4", mine[0]["reason"])
         self.assertEqual(adj.ally_bound(ally[:2], "Phoenix"), ["Jett"])
+
+    def test_the_killers_track_names_only_a_panels_one_killed_you_row(self):
+        # `b7d24102a6f6` 1912 s: after a revive the panel lists both killers,
+        # and the last killer's track named both rows.
+        jett, raze = self._thumb(1), self._thumb(2)
+        ps = [{"start_ms": 60000.0, "kind": "death", "round_no": 1,
+               "rows": [{"killed_you": True, "killed": False, "portrait": jett}]},
+              {"start_ms": 80000.0, "kind": "death", "round_no": 1,
+               "rows": [{"killed_you": True, "killed": False, "portrait": raze},
+                        {"killed_you": True, "killed": False, "portrait": jett}]}]
+        deaths = [{"t_first": 59000.0, "t_last": 63000.0, "slot": 0},
+                  {"t_first": 79000.0, "t_last": 83000.0, "slot": 0}]
+        enemy = [{"agent": a} for a in ("Jett", "Raze", "Skye", "Omen", "Killjoy")]
+        original = adj._killfeed_name
+        adj._killfeed_name = lambda tr, *_a: {59000.0: "Jett", 79000.0: "Raze"}[tr["t_first"]]
+        try:
+            claims, _ = adj.name_rows("s", ps, [dict(ROUNDS[0])], [], deaths, [], [], enemy, {})
+        finally:
+            adj._killfeed_name = original
+        named = [(c["evidence"]["panel_start_ms"], c["agent"]) for c in claims
+                 if c["channel"] == "killfeed_portrait"]
+        self.assertEqual(named, [(60000.0, "Jett")])
+
+
+class DeathBinding(unittest.TestCase):
+    """`bind_deaths` binds in the window `panels` calls a panel at-death by."""
+
+    def _bind(self, death_ms, rows=1):
+        frames = _run(60000, 64000, [_row("0", str(160 - k), ih="100", killed_you=0.99)
+                                     for k in range(rows)])
+        (p,) = adj.panels(frames, death_times=[death_ms])
+        adj.assign_rounds([p], ROUNDS)
+        for k, row in enumerate(p["rows"]):
+            row["entity_id"] = f"combat_report:s:portrait:{k}"
+        death = {"kind": "death_verdict", "death_id": "d1", "t_ms": death_ms,
+                 "kf_player_death": True, "kf_player_kill": False, "is_second_life": False,
+                 "is_revive": False, "death_adjudication_version": "test",
+                 "metadata": {"killer_identity": {"status": "resolved", "agent": "Jett"}}}
+        bindings, _ = adj.bind_deaths([p], ROUNDS, [death])
+        return p, bindings
+
+    def test_a_death_the_killfeed_reads_late_binds_to_its_panel(self):
+        # The death flash can delay the killfeed 2.5 s past the panel
+        # (`b3b9defb6fd7` 1635 s); the panel is at-death, so it must bind.
+        p, bindings = self._bind(62500.0)
+        self.assertEqual(p["kind"], "death")
+        self.assertEqual([b["death_entity"] for b in bindings], ["d1:killer"])
+
+    def test_two_killed_you_rows_with_one_death_bind_neither(self):
+        # `a1a995e6b19b` round 7: killed, revived, killed again; the panel
+        # shows both killers and only the second death is in its window.
+        p, bindings = self._bind(62500.0, rows=2)
+        self.assertEqual(sum(r["killed_you"] for r in p["rows"]), 2)
+        self.assertEqual(bindings, [])
+
+    def test_a_death_past_the_window_neither_calls_nor_binds_the_panel(self):
+        p, bindings = self._bind(65000.0)
+        self.assertFalse(p["at_death"])
+        self.assertEqual(bindings, [])
+
+    @staticmethod
+    def _death(death_id, t_ms, agent):
+        return {"kind": "death_verdict", "death_id": death_id, "t_ms": t_ms,
+                "kf_player_death": True, "kf_player_kill": False, "is_second_life": False,
+                "is_revive": False, "death_adjudication_version": "test",
+                "metadata": {"killer_identity": {"status": "resolved", "agent": agent}}}
+
+    @staticmethod
+    def _panels(later_clusters):
+        # Round 1: killed at 60 s (one row), revived, killed again at 80 s;
+        # the 80 s panel lists both killers.
+        row = lambda c: {"killed_you": True, "killed": False, "cluster": c,
+                         "entity_id": f"combat_report:s:portrait:{c}"}
+        return [{"start_ms": 60000.0, "kind": "death", "round_no": 1, "rows": [row(0)]},
+                {"start_ms": 80000.0, "kind": "death", "round_no": 1,
+                 "rows": [row(c) for c in later_clusters]}]
+
+    def test_a_second_killer_panel_binds_by_the_earlier_panels_cluster(self):
+        deaths = [self._death("d1", 60000.0, "Jett"), self._death("d2", 80000.0, "Raze")]
+        bindings, claims = adj.bind_deaths(self._panels([1, 0]), ROUNDS, deaths)
+        self.assertEqual([(b["panel_start_ms"], b["row"], b["death_entity"], b["rule"])
+                          for b in bindings],
+                         [(60000.0, 0, "d1:killer", "one_killed_you_row"),
+                          (80000.0, 0, "d2:killer", "remaining_death"),
+                          (80000.0, 1, "d1:killer", "earlier_panel_cluster")])
+        left = next(c for c in claims if c["evidence"]["panel_start_ms"] == 80000.0
+                    and c["evidence"]["row"] == 0)
+        self.assertEqual((left["agent"], sorted(left["depends_on"])), ("Raze", ["d1:killer", "d2:killer"]))
+        by_cluster = next(c for c in claims if c["evidence"].get("rule") == "earlier_panel_cluster")
+        self.assertEqual(by_cluster["evidence"]["earlier_panel_start_ms"], 60000.0)
+
+    def test_two_rows_in_one_cluster_refuse_the_panel(self):
+        deaths = [self._death("d1", 60000.0, "Jett"), self._death("d2", 80000.0, "Raze")]
+        bindings, _ = adj.bind_deaths(self._panels([0, 0]), ROUNDS, deaths)
+        self.assertEqual([b["panel_start_ms"] for b in bindings], [60000.0])
+
+    def test_unbound_clusters_leave_both_rows_unbound(self):
+        deaths = [self._death("d1", 60000.0, "Jett"), self._death("d2", 80000.0, "Raze")]
+        bindings, _ = adj.bind_deaths(self._panels([2, 1]), ROUNDS, deaths)
+        self.assertEqual([b["panel_start_ms"] for b in bindings], [60000.0])
 
 
 class RoundVerdicts(unittest.TestCase):

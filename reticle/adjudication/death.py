@@ -82,7 +82,12 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # names, and the arbiter resolves it only on a channel outside
 # `COLLISION_IMPLICATED` (the player HUD, a minimap track). 0.16.0 turned five
 # of twelve flagged deaths into silent errors.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.17.0"
+# 0.18.0 (2026-09-28): an entry track ends where its victim plate's side flips
+# (`checks.track_entries` given `sides`), unless it has read a one-colour
+# banner; the player's death at 59c70f1ef720 moves from the enemy-victim entry
+# at 1619.5 s to the ally-victim one at 1625.0 s (E1; stamped 0.15.0 on
+# e1-agreement-20260927, renumbered on landing above master's 0.17.0).
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.18.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -605,8 +610,13 @@ def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[di
             for kind in ("kill", "death")}
     # Stored from hud-0.15.0; an older table reads no entry's plates as one side.
     same = hud.get("kf_same_side_mask")
+    # The victim plate's side and the same-side mask let `track_entries` split
+    # two entries that held one slot in turn and keep a revive whole.
+    sides = (list(zip(hud["kf_ally_mask"], hud["kf_enemy_mask"], same or [None] * len(t)))
+             if hud.get("kf_ally_mask") and hud.get("kf_enemy_mask") else None)
     tracks = [e for e in track_entries(t, hud["kf_entry_mask"], col("kf_entry_wx"),
-                                       flags={"same_side": same} if same else None)
+                                       flags={"same_side": same} if same else None,
+                                       sides=sides)
               if e["counted"]]
     # A player track belongs to the entry on screen when it was first seen
     # whose divider agrees, the latest such onset first (the attribution can

@@ -141,10 +141,11 @@ remains = "Tracklets, families, automatic hypotheses and consumer wiring."
 [[document]]
 path = "docs/EXPERIMENT_PROGRAM.md"
 kind = "plan"
-status = "proposed"
-since = "2026-09-27"
-remains = "E1 selected 2026-09-27 as the next task; E2-E9 wait on it."
-waits_for = "prototypes/e1_agreement.py and its first replay."
+status = "partial"
+since = "2026-09-28"
+implemented_by = ["owns:combat-report-round"]
+remains = "E1 ran as the prototype replay prototypes/e1_agreement.py, whose one owner fix is the combat report's death window; the player's source review of E1's seeded rounds, E1's corpus replay at scoreboard-0.9.0, and E2-E9 remain."
+waits_for = "The player's review of the rounds in analysis/e1-agreement/agreeing.json."
 
 [[document]]
 path = "docs/IMPLEMENTATION_PLAN.md"
@@ -231,6 +232,12 @@ path = "docs/DEMO_CAST_CENSUS.md"
 kind = "findings"
 status = "recorded"
 since = "2026-09-26"
+
+[[document]]
+path = "docs/E1_AGREEMENT.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-28"
 
 [[document]]
 path = "docs/IDENTITY_EXEMPLAR_LOOP.md"
