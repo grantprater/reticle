@@ -135,7 +135,7 @@ class VerdictTests(unittest.TestCase):
 
 
 class PlayerCorroborationTests(unittest.TestCase):
-    """Two witnesses that answer DIFFERENT questions, kept apart on purpose."""
+    """The self icon ranks the five the top bar proposes; the arbiter decides."""
 
     def build(self):
         gal = {n: [np.zeros(4, np.float32)] for n in
@@ -157,26 +157,30 @@ class PlayerCorroborationTests(unittest.TestCase):
         # The self icon likes Phoenix best AMONG the five on the team, even
         # though it is not the global maximum -- Sova is, and Sova is not here.
         st.self_scores = np.array([0.2, 0.1, 0.1, 0.8, 0.1, 0.95])
-        got = st.player("ally")
-        self.assertEqual(got["slot"], 3)
-        self.assertEqual(got["agent"], "Phoenix")
-        self.assertEqual(got["agree"], "agrees")
-        self.assertEqual(got["witnesses"]["self_icon"]["agent"], "Sova")
+        got = st.result("s")
+        who = got["player"]
+        self.assertEqual((who["agent"], who["slot"], who["status"]), ("Phoenix", 3, "resolved"))
+        self.assertEqual(who["channels"], ["self_icon"])
+        claim = next(c for c in got["identity_claims"] if c["channel"] == "self_icon")
+        self.assertEqual(claim["evidence"]["global_best"], "Sova")
+        # Its candidates came from the top bar, so it rests on the ally slots.
+        self.assertEqual(len(claim["depends_on"]), 5)
 
-    def test_no_self_icon_names_nobody(self):
-        got = self.build().player("ally")
-        self.assertIsNone(got["slot"])
-        self.assertEqual(got["reason"], "no self icon and no readable tray")
+    def test_no_witness_names_nobody_and_says_why(self):
+        who = self.build().result("s")["player"]
+        self.assertEqual((who["agent"], who["slot"], who["status"]), (None, None, "abstained"))
+        self.assertEqual(who["witnesses"]["self_icon"]["reason"], "no_self_icon_frames")
+        self.assertTrue(who["witnesses"]["ability_tray"]["reason"].startswith("tray_unread"))
 
     def test_a_flat_self_witness_refuses_rather_than_picking_slot_zero(self):
         st = self.build()
         st.self_n = 1
         st.self_scores = np.full(6, 0.5)
-        got = st.player("ally")
-        self.assertIsNone(got["slot"])
-        self.assertIn("below", got["reason"])
+        who = st.result("s")["player"]
+        self.assertIsNone(who["slot"])
+        self.assertIn("below", who["witnesses"]["self_icon"]["reason"])
 
-    def test_disagreement_is_recorded_not_hidden(self):
+    def test_a_silent_top_bar_is_not_a_disagreement(self):
         st = self.build()
         st.self_n = 1
         st.self_scores = np.array([0.2, 0.1, 0.1, 0.8, 0.1, 0.95])
@@ -185,15 +189,15 @@ class PlayerCorroborationTests(unittest.TestCase):
         # Sage would not be one, because the assignment gives Sage to slot 4
         # and the margin is measured against what the constraint PERMITS.
         st.scores["ally"][3] = [0, 0, 0, 0.50, 0, 0.49]
-        got = st.player("ally")
-        # The top bar could not separate that slot; that is silence, not
-        # a contradiction, and the two must not read the same.
-        self.assertEqual(got["agree"], "abstained")
-        self.assertIsNone(got["witnesses"]["top_bar"]["agent"])
+        got = st.result("s")
+        who = got["player"]
+        self.assertEqual((who["agent"], who["slot"], who["top_bar"]), ("Phoenix", 3, None))
+        slot = next(v for v in got["agent_identity"] if v["entity_id"] == "s:ally:slot:3")
+        self.assertEqual((slot["status"], slot["independent_channels"]), ("resolved", 0))
 
 
 class TrayWitnessTests(unittest.TestCase):
-    """The tray names the agent outright, so it decides when it has spoken."""
+    """The tray names the agent outright; it is one witness among the player's."""
 
     def build(self):
         gal = {n: [np.zeros(4, np.float32)] for n in
@@ -207,33 +211,67 @@ class TrayWitnessTests(unittest.TestCase):
         st.scores["ally"] = rows
         return st
 
-    def test_the_tray_decides_and_needs_no_self_icon(self):
+    def test_the_tray_names_the_player_without_a_self_icon(self):
         st = self.build()
-        st.tray_votes = {"Phoenix": 9}
+        st.tray_votes = {"Phoenix": 9, "Sage": 2}
         st.tray_frames = 12
-        got = st.player("ally")
-        self.assertEqual(got["agent"], "Phoenix")
-        self.assertEqual(got["slot"], 3)
-        self.assertEqual(got["decided_by"], "ability_tray")
-        self.assertEqual(got["self_frames"], 0)
+        got = st.result("s")
+        who = got["player"]
+        self.assertEqual((who["agent"], who["slot"]), ("Phoenix", 3))
+        self.assertEqual(who["channels"], ["ability_tray"])
+        self.assertEqual(got["player_witnesses"]["tray"]["votes"], {"Phoenix": 9, "Sage": 2})
+        slot = next(v for v in got["agent_identity"] if v["entity_id"] == "s:ally:slot:3")
+        self.assertEqual(slot["channels"], ["player_agent", "top_bar"])
+        self.assertEqual(slot["independent_channels"], 1)
 
     def test_a_tray_agent_nobody_on_the_team_has_is_refused_not_forced(self):
         st = self.build()
-        st.tray_votes = {"Sova": 9}       # slot 5 does not exist; five slots only
+        st.tray_votes = {"Sova": 9}
         st.tray_frames = 12
         st.scores["ally"][:, 5] = 0.0     # no slot proposes Sova
-        got = st.player("ally")
-        self.assertIsNone(got["slot"])
-        self.assertIn("no ally slot proposes", got["reason"])
+        who = st.result("s")["player"]
+        self.assertEqual((who["agent"], who["slot"], who["status"]), (None, None, "unbound"))
+        self.assertIn("no_ally_slot", who["reason"])
 
-    def test_the_self_icon_still_decides_when_the_tray_is_silent(self):
+    def test_the_self_icon_names_the_player_when_the_tray_is_silent(self):
         st = self.build()
         st.self_n = 1
         st.self_scores = np.array([0.1, 0.1, 0.1, 0.8, 0.1, 0.2])
-        got = st.player("ally")
-        self.assertEqual(got["decided_by"],
-                         "self_icon_among_top_bar_candidates")
-        self.assertEqual(got["agent"], "Phoenix")
+        who = st.result("s")["player"]
+        self.assertEqual((who["agent"], who["channels"]), ("Phoenix", ["self_icon"]))
+
+    def test_the_tray_and_self_icon_disagreeing_names_nobody(self):
+        # `Lineup.player` let the tray win and never published the self icon.
+        st = self.build()
+        st.tray_votes = {"Sage": 9}
+        st.self_n = 1
+        st.self_scores = np.array([0.1, 0.1, 0.1, 0.8, 0.1, 0.2])
+        who = st.result("s")["player"]
+        self.assertEqual((who["agent"], who["slot"], who["status"]),
+                         (None, None, "disagreement"))
+        self.assertEqual(who["agents_seen"], ["Phoenix", "Sage"])
+
+    def test_a_tied_tray_refuses(self):
+        st = self.build()
+        st.tray_votes = {"Sage": 4, "Phoenix": 4}
+        who = st.result("s")["player"]
+        self.assertEqual(who["status"], "abstained")
+        self.assertEqual(who["witnesses"]["ability_tray"]["reason"], "tray_tie Phoenix Sage")
+
+    def test_a_legacy_file_reads_its_tray_winner(self):
+        from reticle.adjudication.identity import (adjudicate_agent_identity,
+                                                   claims_from_lineup,
+                                                   lineup_player_witnesses,
+                                                   player_identity)
+        st = self.build()
+        old = {"sides": {"ally": st.verdict("ally"), "enemy": []},
+               "tray": {"agent": "Phoenix", "votes": 9, "total": 11, "frames_offered": 12}}
+        w = lineup_player_witnesses(old)
+        self.assertEqual((w["legacy"], w["tray"]["other_votes"]), (True, 2))
+        claims = claims_from_lineup(old["sides"], w, observation_id="s")
+        who = player_identity({"identity_claims": claims,
+                               "agent_identity": adjudicate_agent_identity(claims)}, "s")
+        self.assertEqual((who["agent"], who["slot"]), ("Phoenix", 3))
 
     def test_a_glyph_mask_that_fills_its_cell_is_refused(self):
         # The failure that made this witness lie: a flooded mask still has a

@@ -81,7 +81,17 @@ ECONOMY_VERSION = "economy-0.1.0"
 # the strip, [metric:scoreboard/line-confirm@a06f04a0059f#recovered=45] open, all at the board; the other [metric:scoreboard/line-confirm@a06f04a0059f#still_refused=4] have a wrong
 # table left edge. Every board 0.8.0 opened is unchanged ([metric:scoreboard/line-confirm@a06f04a0059f#closed_present_before_open_unchanged=70] +
 # [metric:scoreboard/line-confirm@a06f04a0059f#open_present_before_open_unchanged=77]), and no strip-absent frame changes ([metric:scoreboard/line-confirm@a06f04a0059f#absent_changed=0]).
-SCOREBOARD_VERSION = "scoreboard-0.9.0"
+# 0.10.0: where the strip's rectangle is known, the table's left and right
+# edges are its frame, the two colour steps TABLE_W apart near the place the
+# strip's centre predicts (`scoreboard._frame_edges`), not the green test's
+# dense columns; a board without that frame closes as `no_table_frame`. On
+# the fixture of decoded boards (docs/SCOREBOARD_PRESENCE.md, "The table's
+# frame"), held-out sessions: both edges right on
+# [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_edges_right_after=68] of [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_n=71] boards the dense columns misplaced,
+# the other [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_closed_no_frame=3] closed and showing no board; the gate accepts
+# [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_accepted_after=49] of them, against [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_accepted_before=2]. No correct board changes a row or a
+# verdict ([metric:scoreboard/table-frame@fixture#holdout_ok_rows_changed=0] of [metric:scoreboard/table-frame@fixture#holdout_ok_n=50]); its edges move at most [metric:scoreboard/table-frame@fixture#holdout_ok_edge_shift_max_px=2] px.
+SCOREBOARD_VERSION = "scoreboard-0.10.0"
 # Stored versions whose accepted openings the current reader does not
 # contradict. A consumer of VERDICTS (the lineup constraining its top bar by
 # the board) accepts these; `reticle plan` still names the rescan. 0.7.0 adds
@@ -97,8 +107,11 @@ SCOREBOARD_VERSION = "scoreboard-0.9.0"
 # rescan. 0.9.0 opens only boards 0.8.0 refused and changes none it opened,
 # so 0.8.0 is compatible too; it reads the three accepted openings 0.8.0
 # refused again ([metric:scoreboard/line-confirm@a06f04a0059f#stored_accepted_recovered=3]), with 0.7.0's rows or the same reads 2 px lower.
+# 0.10.0 moves the edges of boards 0.9.0 read with the right edges by at most
+# 2 px and refuses no opening 0.9.0 accepted ([metric:scoreboard/table-frame@fixture#fit_accepted_lost=0] + [metric:scoreboard/table-frame@fixture#holdout_accepted_lost=0] lost on the
+# fixture), so 0.9.0 stays applied.
 SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", "scoreboard-0.8.0",
-                                 SCOREBOARD_VERSION)
+                                 "scoreboard-0.9.0", SCOREBOARD_VERSION)
 # The round-history strip as a second presence witness of the Tab board, read
 # by `scoreboard_strip` from the hud crop cache's `center` crop and written as
 # `scoreboard_strip` rows by `reticle strip`. 0.1.0 ports the rule and
@@ -358,7 +371,13 @@ COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.8.0"
 # new when nothing about the roster moved. That is exactly the comparability
 # fault `metrics.py` splits deps from context to avoid: a version that moves
 # for reasons unrelated to the number it stamps is not a version, it is noise.
-ROSTER_VERSION = "roster-0.2.0"
+#
+# 0.3.0 (2026-09-28) starts the crispness band below the tinted panel's top
+# edge (`roster.PANEL_TOP_FRAC`). The rows above the panel show the scene
+# undimmed, and that strip let an empty slot reach 10-13 and count as a
+# portrait (docs/BOARD_ALIVE_SETS.md). Every stored vector changes; `scan
+# --only roster --from cache` rereads them without a decode.
+ROSTER_VERSION = "roster-0.3.0"
 # The split rule that turns those detail vectors into a count. It is a SEPARATE
 # stamp because it is a pure function of stored data: changing it re-derives,
 # it does not re-decode, and `Store.has_roster` deliberately does not consult
@@ -382,4 +401,10 @@ ROSTER_VERSION = "roster-0.2.0"
 # store's metrics log measured the same day and never shipped: `DETAIL_FLOOR`
 # raised to 13 per split, which also counted 0 on bars holding a red portrait
 # beside crisp teammates.
-ROSTER_SPLIT_VERSION = "roster-split-0.3.1"
+#
+# 0.4.0 (2026-09-28): a bar with a crisp slot but no winning split refuses
+# (`no_split`) rather than reading 0 under a drawn HUD, and every refusal
+# carries its reason (`roster.read_split`, `roster.resolve_reasons`).
+# `DETAIL_FLOOR` falls from 9 to 8 for roster-0.3.0's panel band, where no
+# board-empty slot reaches 8 and a red portrait reads 6-11.
+ROSTER_SPLIT_VERSION = "roster-split-0.4.0"

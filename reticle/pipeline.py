@@ -12,10 +12,11 @@ definition moves, so no stamp moves (docs/PUBSUB_DESIGN.md, section 1).
 
 **Which frames: the source's rule, never a second one.** On video
 `decode.sample_multi` decides from each reader's `hz` and `spans`, as `run`
-does. On the crop cache `want` is `run_cached`'s span filter alone:
-`roi_cache.cache_for` has already matched every reader's rate to the cache's,
-and `--from cache` has clipped spans to the cache's rounds, so a second
-thinning would pick other frames than the serial pass. `frames_from` is set
+does. On the crop cache `want` is `passes.cache_feed`, the rule `run_cached`
+uses: `roi_cache.cache_for` has matched every reader's rate to the cache's or
+let a `cache_resample` reader read its own grid, and `--from cache` has
+clipped spans to the cache's rounds, so a second thinning would pick other
+frames than the serial pass. `frames_from` is set
 from the chosen source before any reader is copied into shards, because the
 killfeed reader writes it into three streams.
 
@@ -79,7 +80,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .passes import _cache_rois, _feed, cache_backend
+from .passes import _cache_rois, _feed, cache_backend, cache_feed
 
 #: Frames each reader's or shard's FIFO holds; see the module docstring.
 FIFO_DEPTH = 8
@@ -314,14 +315,10 @@ def _source_items(ctx, readers: list, source, usage=None):
         r.frames_from = source.record["version"]
     if usage is not None:
         usage.decode_backend = cache_backend(source)
-    items = source.samples(sorted(set(source.t_ms.tolist())), rois=rois)
-
-    def want(smp):
-        # `run_cached`'s filter: spans only, no thinning.
-        return smp, [r for r in readers
-                     if getattr(r, "spans", None) is None
-                     or any(a <= smp.t_ms <= b for a, b in r.spans)]
-    return items, want
+    # `run_cached`'s rule: spans, and a resampling reader's own grid.
+    times, wants = cache_feed(readers, source)
+    items = source.samples(times, rois=rois)
+    return items, lambda smp: (smp, wants(smp))
 
 
 def _read_only(smp) -> None:

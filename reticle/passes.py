@@ -200,7 +200,8 @@ def run_cached(ctx: SessionContext, readers: list, cache, progress=None,
     reads stay inside a cached set, that it wants the whole capture, and that
     the cache was written at its rate -- so the cache's timestamps are the
     frames `run` would have fed it, and each frame holds those pixels bit for
-    bit. Returns frames fed.
+    bit. A `cache_resample` reader slower than the cache reads its own grid
+    of cached times instead (`cache_feed`). Returns frames fed.
     """
     rois = sorted({roi for r in readers for roi in _cache_rois(r)})
     for r in readers:
@@ -208,15 +209,11 @@ def run_cached(ctx: SessionContext, readers: list, cache, progress=None,
     if usage is not None:
         usage.decode_backend = cache_backend(cache)
     n = 0
-    frames = cache.samples(sorted(set(cache.t_ms.tolist())), rois=rois)
+    times, want = cache_feed(readers, cache)
+    frames = cache.samples(times, rois=rois)
     for smp in (usage.timed_frames(frames) if usage is not None else frames):
         n += 1
-        for r in readers:
-            # A cache over wider spans than a reader asked for holds frames it
-            # would not have been fed.
-            spans = getattr(r, "spans", None)
-            if spans is not None and not any(a <= smp.t_ms <= b for a, b in spans):
-                continue
+        for r in want(smp):
             _feed(r, smp, usage)
         if progress is not None:
             progress(n, smp)
@@ -228,6 +225,46 @@ def run_cached(ctx: SessionContext, readers: list, cache, progress=None,
             else:
                 usage.finish(r, fin)
     return n
+
+
+def cache_feed(readers: list, cache):
+    """The cached times a pass reads, and who wants each frame.
+
+    A reader at the cache's rate wants every cached frame inside its spans: a
+    cache over wider spans than it asked for holds frames it would not have
+    been fed. A reader that `roi_cache.resamples` wants only the first cached
+    time at or after each point of its own grid, restarted at each of its
+    spans (`roi_cache.grid_times`). The pass reads only the times somebody wants.
+    """
+    from .roi_cache import grid_times, resamples
+    t = cache.t_ms
+    hz = cache.record.get("hz")
+    picks: dict[int, set[float] | None] = {}
+    for r in readers:
+        if hz is None or not resamples(r, hz):
+            picks[id(r)] = None
+            continue
+        spans = getattr(r, "spans", None)
+        if spans is None:
+            spans = [(float(np.min(t)), float(np.max(t)))] if len(t) else []
+        picks[id(r)] = {x for a, b in spans for x in grid_times(t, float(a), float(b), 1.0 / float(r.hz))}
+    every = sorted(set(np.asarray(t, float).tolist()))
+    if all(p is not None for p in picks.values()):
+        every = sorted(set().union(*picks.values())) if picks else []
+
+    def want(smp) -> list:
+        out = []
+        for r in readers:
+            p = picks[id(r)]
+            if p is not None:
+                if float(smp.t_ms) in p:
+                    out.append(r)
+                continue
+            spans = getattr(r, "spans", None)
+            if spans is None or any(a <= smp.t_ms <= b for a, b in spans):
+                out.append(r)
+        return out
+    return every, want
 
 
 def _feed(reader, smp, usage) -> None:

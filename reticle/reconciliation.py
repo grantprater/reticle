@@ -13,7 +13,7 @@ from bisect import bisect_left, bisect_right
 from collections import Counter
 
 from .checks import track_entries
-from .roster import refusals, resolve
+from .roster import refusals, resolve, resolve_reasons
 from .rounds import round_bounds
 
 SCORE_CONFIRM_GAP_MS = 3000
@@ -271,6 +271,7 @@ def board_alive_auditor(hud, roster, join_ms: float = ROSTER_JOIN_MS, menu=None)
     v = roster.to_pydict() if hasattr(roster, 'to_pydict') else dict(roster)
     h = hud.to_pydict() if hasattr(hud, 'to_pydict') else dict(hud or {})
     alive = dict(zip(('ally', 'enemy'), resolve(h, v, menu=menu)))
+    why = dict(zip(('ally', 'enemy'), resolve_reasons(h, v, menu=menu)))
     rt = v['t_ms']
     entries = sorted(e['t_first'] for e in track_entries(
         h['t_ms'], h['kf_entry_mask'], h.get('kf_entry_wx')) if e['counted']) if h else []
@@ -283,10 +284,10 @@ def board_alive_auditor(hud, roster, join_ms: float = ROSTER_JOIN_MS, menu=None)
         return min((abs(ts[k] - t) for k in (i - 1, i) if 0 <= k < len(ts)), default=None)
 
     return lambda openings: _audit_openings(openings, alive, rt, entries, bounds,
-                                            nearest, join_ms)
+                                            nearest, join_ms, why)
 
 
-def _audit_openings(openings, alive, rt, entries, bounds, nearest, join_ms):
+def _audit_openings(openings, alive, rt, entries, bounds, nearest, join_ms, why=None):
     records, counts = [], Counter()
     for opening in openings:
         if not opening.get('accepted'):
@@ -303,6 +304,7 @@ def _audit_openings(openings, alive, rt, entries, bounds, nearest, join_ms):
                 status = 'missing_roster_row'
             elif alive[side][i] is None:
                 status = 'unreadable_roster'
+                record['roster_reason'] = why[side][i] if why else None
             else:
                 record['roster_alive'] = alive[side][i]
                 record['roster_t_ms'] = rt[i]

@@ -73,7 +73,7 @@ from collections import Counter
 
 from ..version import ULT_CAST_VERSION
 from .identity import (AGENT_IDENTITY_VERSION, adjudicate_agent_identity, identity_claim,
-                       identity_events)
+                       identity_events, player_identity)
 
 #: A peak at or above this score is selected. See the module docstring for the
 #: run that set it and the sessions it was chosen on.
@@ -134,15 +134,9 @@ def lineup_sides(lineup: dict | None, session_id: str) -> dict | None:
 
 
 def player_agent(lineup: dict | None, session_id: str) -> str | None:
-    """The player's agent, where the arbiter resolves the player's slot."""
-    if not lineup:
-        return None
-    slot = (lineup.get("player") or {}).get("slot")
-    if slot is None:
-        return None
-    v = next((v for v in lineup.get("agent_identity") or []
-              if v.get("entity_id") == f"{session_id}:ally:slot:{slot}"), None)
-    return _norm(v["agent"]) if v and v.get("status") == "resolved" and v.get("agent") else None
+    """The player's agent, where the arbiter names it (`identity.player_identity`)."""
+    agent = player_identity(lineup, session_id)["agent"]
+    return _norm(agent) if agent else None
 
 
 def template_class(agent: str, variant: str, sides: dict | None,

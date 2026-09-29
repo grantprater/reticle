@@ -65,11 +65,22 @@ class DarkRegionReader:
 
     A frame whose widget is not drawn is stored as such, with no masks: it is
     unobserved, which `adjudication.smokes` keeps apart from an empty floor.
+
+    Fed from the 15 Hz minimap crop cache, it reads the cached frames on its
+    own 4 Hz grid (`cache_resample`, `roi_cache.grid_times`): the same pixels and the
+    same rows at every instant both sources hold, but other instants than a
+    decode's stride, which takes every 15th frame of a 60 fps capture where
+    the cache holds every 4th or 5th. The coverage row then names the cache in
+    `frames_from`; a decode's coverage row carries no such key.
     """
+
+    #: A slower rate than the cache's reads the cache on this reader's own grid.
+    cache_resample = True
 
     def __init__(self, floor, sgray, static, ref, box, hz=4.0, spans=None,
                  name="minimap_dark"):
         self.name, self.hz, self.spans = name, hz, spans
+        self.frames_from = "video"
         self.cv_threads = 1        # small crops: see `passes._feed`
         self.floor, self.sgray, self.static, self.ref, self.box = floor, sgray, static, ref, box
         self.rows: list[dict] = []
@@ -96,4 +107,7 @@ class DarkRegionReader:
         drawn = sum(r["widget_drawn"] is True for r in self.rows)
         head = {**common, "kind": "coverage", "hz": self.hz, "frames": len(self.rows),
                 "widget_drawn": drawn, "unobserved": len(self.rows) - drawn}
+        if self.frames_from != "video":
+            # Only a cache-fed pass adds the key, so a decode's rows keep their bytes.
+            head["frames_from"] = self.frames_from
         return [head] + [{**common, **r} for r in self.rows]
