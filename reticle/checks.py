@@ -174,6 +174,20 @@ def _slots(mask) -> list[int]:
     return [s for s in range(6) if m & (1 << s)]
 
 
+def _side_at(pair, slot: int) -> str | None:
+    """The victim plate's side in `slot` from one `(ally_mask, enemy_mask[, same])`
+    pair: "ally", "enemy", or None when unread (neither bit, both, no pair)."""
+    if pair is None:
+        return None
+    ally, enemy = (bool((m or 0) & (1 << slot)) for m in pair[:2])
+    return "ally" if ally and not enemy else "enemy" if enemy and not ally else None
+
+
+def _same_at(pair, slot: int) -> bool:
+    """Whether the optional third mask of a `sides` entry flags `slot`."""
+    return bool(pair is not None and len(pair) > 2 and (pair[2] or 0) & (1 << slot))
+
+
 def sample_step_ms(times, default: float = 500.0) -> float:
     """The sampler's own interval, as the median gap between reads.
 
@@ -190,7 +204,7 @@ def sample_step_ms(times, default: float = 500.0) -> float:
     return float(np.median(d)) if d.size else float(default)
 
 
-def track_entries(times, masks, dividers=None, flags=None) -> list[dict]:
+def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[dict]:
     """Follow each entry across frames; one dict per distinct entry.
 
     Returns every track, including the ones the bars refuse, with `counted`
@@ -210,6 +224,24 @@ def track_entries(times, masks, dividers=None, flags=None) -> list[dict]:
     track how many of its observations carried each flag in the slot it held
     then (`flag_hits`); `n_obs` is the denominator.
 
+    `sides`, a column of `(ally_mask, enemy_mask)` pairs parallel to `times`
+    (the stored `kf_ally_mask` / `kf_enemy_mask`, the victim plate's side per
+    slot), keeps a detection off a track whose last read victim plate was the
+    other side: one entry's victim never changes team, so a flip is a new entry
+    in the same slot. At 59c70f1ef720 slot 0 an enemy-victim entry read
+    1619.5-1624.0 s, the slot missed one sample, and an ally-victim entry
+    followed at 1625.0 s, dividers 250 against 253, inside KF_SIG_TOL and the
+    track gap; the walk without sides held both as one track keyed at 1619.5 s,
+    and the player's death took that key and the enemy side. An unread side
+    rules nothing out, and a sample the slot missed in between does not hide
+    the flip. Each track then carries `side`, its last read victim side, and
+    `one_colour`. None keeps the walk that ignores plate side.
+    A pair may carry a third mask, the stored `kf_same_side_mask`: a track
+    that has read a one-colour banner never splits on side, because a revive's
+    victim plate reads ally and enemy by turns (bdfdcf009dba 1884-1886 s,
+    divider 328, alternates `As` and `E`) and would otherwise shed a phantom
+    entry at each flicker.
+
     **This is where a band that appears for three frames and never again is
     refused, and it is the right place for it.** `read_killfeed` sees one frame
     and must keep reporting what that frame held; only a walk across frames can
@@ -227,7 +259,10 @@ def track_entries(times, masks, dividers=None, flags=None) -> list[dict]:
     if dividers is None:
         dividers = [None] * len(times)
     flags = flags or {}
-    for i, (t, mask, packed) in enumerate(zip(times, masks, dividers)):
+    use_sides = sides is not None
+    if not use_sides:
+        sides = [None] * len(times)
+    for i, (t, mask, packed, pair) in enumerate(zip(times, masks, dividers, sides)):
         flagged = lambda slot: {k: int(bool((col[i] or 0) & (1 << slot)))
                                 for k, col in flags.items()}
         keep = []
@@ -237,6 +272,8 @@ def track_entries(times, masks, dividers=None, flags=None) -> list[dict]:
         used: set[int] = set()
         for slot in _slots(mask):
             sig = wx_at(packed, slot)
+            side = _side_at(pair, slot)
+            one_colour = _same_at(pair, slot)
             best = bi = None
             for ai, a in enumerate(active):
                 if ai in used or slot > a["slot"]:
@@ -253,6 +290,11 @@ def track_entries(times, masks, dividers=None, flags=None) -> list[dict]:
                 # killer, victim and weapon render at the same column, so equal
                 # dividers are no evidence of anything; see `divider_of_ys`.
                 if sig is not None and a["sig"] is not None                         and abs(a["sig"] - sig) > KF_SIG_TOL:
+                    continue
+                # The victim plate's side rules a match out the same way, unless
+                # the track has read a one-colour banner (see the docstring).
+                if (side is not None and a.get("side") is not None
+                        and a["side"] != side and not a.get("one_colour")):
                     continue
                 # Otherwise the nearest slot wins, which is imperfect in two
                 # opposite ways and was the whole rule before the divider:
@@ -273,6 +315,9 @@ def track_entries(times, masks, dividers=None, flags=None) -> list[dict]:
             if bi is None:
                 active.append({"t_first": t, "t_last": t, "slot": slot, "slot_first": slot,
                                "n_obs": 1, "sig": sig, "flag_hits": flagged(slot)})
+                if use_sides:
+                    active[-1]["side"] = side
+                    active[-1]["one_colour"] = one_colour
                 used.add(len(active) - 1)
             else:
                 hits = active[bi]["flag_hits"]
@@ -280,6 +325,10 @@ def track_entries(times, masks, dividers=None, flags=None) -> list[dict]:
                     hits[k] = hits.get(k, 0) + v
                 active[bi].update(t_last=t, slot=slot, sig=sig or active[bi]["sig"],
                                   n_obs=active[bi]["n_obs"] + 1)
+                if use_sides and side is not None:
+                    active[bi]["side"] = side
+                if use_sides and one_colour:
+                    active[bi]["one_colour"] = True
                 used.add(bi)
     done.extend(active)
     done.sort(key=lambda a: a["t_first"])
