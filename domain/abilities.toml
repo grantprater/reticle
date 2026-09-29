@@ -2157,3 +2157,57 @@ the player, 2026-09-28 (chat), answering the mechanics sheet's question
 """
 use = "the icon's motion is the player's steering, so its path is representative"
 see = ["abilities/pulse-scan-abilities", "hud/controlled-entity-view-tint"]
+
+[reyna-leer-enemy-minimap-glyph]
+claim = """
+On the player's minimap, an enemy Reyna's Leer draws as a red circle around
+an inner white circle, an iris, with a red vertical pupil in the centre.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+subject = "reyna:leer"
+source = """
+the player, 2026-09-29 (chat), naming the red disc with a white bar at
+5822b6646448 277.8 s and 1773.2 s (C:/Users/grant/Videos/2026-08-26 12-38-38.mp4)
+"""
+use = """
+the enemy ring detector and the teardrop take it for an enemy icon; the
+portrait gate rejected both labelled crops. It is a glyph of an enemy
+Reyna's kit, never an agent
+"""
+see = ["abilities/reyna-leer-minimap-icon"]
+
+[gekko-wingman-minimap-icon]
+claim = """
+Wingman draws on the minimap as an icon like Skye's Trailblazer, green for
+an ally Gekko and red for an enemy one, with an arrow showing its direction.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+subject = "gekko:wingman"
+source = "the player, 2026-09-29 (chat), answering the minimap-objects questions"
+use = """
+the teardrop and the portrait gate read it as an agent icon (item #15 of the
+facing labels); a Wingman is a glyph of a Gekko on its side, never an agent
+"""
+see = ["abilities/gekko-wingman-plant-minimap", "abilities/skye-trailblazer-enemy-minimap-glyph"]
+
+[gekko-wingman-straight-bounce]
+claim = """
+Wingman moves only in straight lines and bounces off walls at the reflection
+angle. The player states this as he recalls it.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+subject = "gekko:wingman"
+source = "the player, 2026-09-29 (chat), as he recalls it"
+use = """
+a glyph whose track is piecewise straight with mirror turns at walls may be a
+Wingman; a walker turns anywhere. Check the recollection on a track before a
+reader relies on it
+"""
+exceptions = "recalled, not observed; unverified on any capture"
+see = ["abilities/gekko-wingman-minimap-icon"]

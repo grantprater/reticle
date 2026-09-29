@@ -187,7 +187,7 @@ example being a player; and what the terminal state is -- a question mark, a
 different marker, or nothing
 """
 source = "the player, correcting the gate's exceptionless form"
-see = ["minimap/vision-gate"]
+see = ["minimap/vision-gate", "minimap/last-known-mark", "minimap/last-known-mark-timing"]
 
 [device-dim-on-deactivation]
 claim = """
@@ -463,3 +463,141 @@ there must turn with the placement (`spike`, rotation)
 """
 see = ["minimap/spike-inversion", "minimap/spike-carrier-overlay"]
 phrases = ["portraits keep their on-screen orientation", "facing arrow turns with the map"]
+
+[last-known-mark]
+claim = """
+An enemy's red "?" on the minimap marks the place the team last saw that
+enemy. The player recalls that it comes after a delay and stays a couple of
+seconds.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+source = """
+the player, 2026-09-29 (chat), answering the minimap-objects questions; he
+asked for the delay and the duration to be measured rather than taken from
+his recollection (minimap/last-known-mark-timing measures them)
+"""
+use = """
+a "?" is a place and a time for an enemy no one sees now; never count it as
+a visible enemy, and never read it as an agent portrait
+"""
+see = ["minimap/vision-trailing-persistence", "minimap/last-known-mark-timing",
+       "minimap/unseen-utility-death-mark"]
+
+[last-known-mark-timing]
+claim = """
+The red "?" replaces the enemy's icon in the next cached frame, at the
+icon's place, with no blank frame between. It holds for about 2 s, then
+fades, and is gone about 3.1 s after it appeared, unless the enemy's icon
+returns there first.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-09-29"
+source = """
+prototypes/last_known_marks.py (last-known-marks-0.1.0) on the player's 82
+"?" marks of labels/minimap, 5822b6646448 and a06f04a0059f, crop cache at
+15 Hz: 29 instances measured; the last icon frame precedes the "?" by
+0.067-0.083 s on all 29; of the 19 that vanished the fade begins at a median
+1.95 s and the mark is gone at a median 3.08 s (IQR 3.03-3.18 s); 10 ended
+with the icon returning after 0.75-2.8 s. Metrics row
+last_known_marks/timing@5822b6646448+a06f04a0059f; sheets in the store's
+analysis/minimap-objects-b-20260929/
+"""
+use = """
+the delay the player recalls lies before the swap, while the icon is still
+drawn after vision is lost [domain:minimap/vision-trailing-persistence]; a
+"?" witness expects the icon to end where the "?" begins and the "?" to be
+gone within about 3.3 s
+"""
+exceptions = """
+two sessions, one widget size (465 px); the time from leaving vision to the
+swap is not measured, because the team's drawn light was not read
+"""
+see = ["minimap/last-known-mark"]
+
+[unseen-utility-death-mark]
+claim = """
+An enemy killed by utility while drawn as a "?" may leave no X until the
+place of death comes into the team's view. The player calls it a small edge
+case and states it as a possibility.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29 (chat), answering the minimap-objects questions"
+use = """
+a stored enemy death with no X at its time is not a miss when the victim was
+last a "?"; wait for the place to be seen before calling the X absent
+"""
+see = ["minimap/enemy-death-mark", "minimap/last-known-mark", "minimap/death-mark-persistence"]
+
+[death-mark-persistence]
+claim = """
+An X death mark stays on the minimap until the round ends. An ally's X is
+always visible; an enemy's X is drawn only while its place is in the team's
+vision.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29 (chat), answering the minimap-objects questions"
+use = """
+an enemy X that vanishes and returns in one round is one mark leaving and
+re-entering vision, not two deaths; an ally X seen once holds its place for
+the rest of the round
+"""
+see = ["minimap/enemy-death-mark", "minimap/ally-death-mark", "minimap/vision-gate"]
+
+[death-icon-becomes-mark]
+claim = """
+At a death the victim's icon and its X are, for reading, one thing: the icon
+either vanishes as the X appears or covers the X until it goes.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29 (chat), answering the minimap-objects questions"
+use = """
+a fit at a death's place at the death's time is the victim's icon or its X,
+not a second entity; an X witness binds an X seen after the icon is gone
+"""
+see = ["minimap/enemy-death-mark", "minimap/death-mark-persistence"]
+
+[danger-ping-pulses]
+claim = """
+The danger ping draws a red triangle that sends out radial pulses. The player
+thinks some other ping kinds are static and shorter-lived.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+source = """
+the player, 2026-09-29 (chat), naming the red triangle in a red ring at
+5822b6646448 750-762 s a danger ping; the other kinds are his impression,
+not a statement
+"""
+use = """
+the pulse ring touches the triangle on some frames, which is why the ping
+owner's sightings split this ping into short groups and its lifetime gate
+rejects them (docs/MINIMAP_OBJECTS_DESIGN.md)
+"""
+subject = "minimap:ping"
+
+[spotted-callouts-draw-nothing]
+claim = """
+The automatic "enemy spotted" voice line and the broadcast chat message
+("<player> spotted <enemy> in <place>") draw nothing on the minimap beyond
+the enemy's icon. The game invokes both automatically; players invoke pings
+by hand.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29 (chat), answering the minimap-objects question on enemy-spotted markers"
+use = """
+there is no enemy-spotted minimap class; a spotted message is a game witness
+of an enemy agent at a place and time, readable from the chat box
+"""
+see = ["hud/chat-broadcasts-callouts"]

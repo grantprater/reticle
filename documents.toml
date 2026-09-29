@@ -191,8 +191,8 @@ path = "docs/MINIMAP_OBJECTS_DESIGN.md"
 kind = "plan"
 status = "proposed"
 since = "2026-09-29"
-remains = "Stage 1 (prototypes/minimap_objects.py) failed its falsifier; an X shape reader, a ping witness that keeps unconfirmed groups, the '?' reader and per-kit glyph classes remain."
-waits_for = "The player's answers to the plan's questions on the '?' mark, X persistence, the death transition and the red marks."
+remains = "Stage 1 (prototypes/minimap_objects.py) failed its falsifier and the '?' timing is measured (prototypes/last_known_marks.py); stage 2 remains: an X shape test with the icon-then-X order, a '?' witness from the measured timing, the ping kinds, and glyph templates for Leer, Wingman, Trailblazer and Astra's star."
+waits_for = "Labelled X marks and glyph items to score stage 2 on."
 
 [[document]]
 path = "docs/PUBSUB_PLAN.md"
