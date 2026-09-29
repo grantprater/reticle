@@ -593,16 +593,19 @@ question = "Where does the local player's viewcone start on the minimap, and whi
 owner = "teardrop"
 role = ["detect"]
 status = "partial"
-produces = ["fit_teardrop", "SelfConeReader", "yellowness", "render", "MIN_NCC"]
+produces = ["fit_teardrop", "SelfConeReader", "yellowness", "render", "MIN_NCC",
+            "SELF_FACING_MIN_NCC", "LABELLED_SCALES", "labelled_scale", "self_portrait_pose"]
 not_for = """
-Where the player's icon is for tracking (`self-position`, the ring fit that
-seeds this one) and which agent the player is (`player-agent`). It reads one
-frame's teardrop and holds no bearing across frames: an unread teardrop
-returns the ring fit's centre and no facing, with the reason, and
-`team_vision` keeps `track`'s resolved lobe there. The facing is scored
-against 28 Lotus labels and 8 Ascent controls only.
+Finding the player's icon and the L1 self position (`self-position`, the ring
+fit that seeds this one) and which agent the player is (`player-agent`). It
+reads one frame's teardrop and holds no bearing across frames: an unread
+teardrop returns the ring fit's centre and no facing, and on a widget size
+the labels do not cover a read under `SELF_FACING_MIN_NCC` returns its centre
+and no facing, each with the reason; the consumer then casts no cone. The
+facing is scored against 28 Lotus labels and 8 Ascent controls at 465 px
+only; at 331 px most self reads fall under the facing gate.
 """
-consumers = ["team_vision"]
+consumers = ["team_vision", "self_icon", "minimap", "tiers"]
 evidence = "tests/test_teardrop.py, prototypes/vision_origin_eval.py, docs/STATISTICAL_ADJUDICATOR.md (E3, E4)"
 
 [[entry]]
@@ -620,9 +623,11 @@ teardrop returns the ring fit's centre, no facing, and the reason
 (`low_ncc`, `no_ring`, `ambiguous_facing`, `no_key`). It does not tell an
 ability glyph drawn as a teardrop from an agent icon. The facing is scored
 against the player's labels of two 465 px sessions; the 331 px scaling is
-checked against the portrait fit, not against labels.
+checked against the portrait fit and the drawn light, not against labels.
+`posed` is the one rule for combining a ring fit with a read; the enemy
+class has no consumer in `reticle/` yet.
 """
-consumers = ["team_vision"]
+consumers = ["team_vision", "minimap", "self_icon"]
 evidence = "tests/test_teardrop.py, prototypes/icon_teardrop.py --centre-check, prototypes/icon_facing_eval.py, docs/STATISTICAL_ADJUDICATOR.md (E6)"
 
 [[entry]]

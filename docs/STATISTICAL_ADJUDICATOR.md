@@ -1114,6 +1114,88 @@ every cone on the `dark_frames` sheets (an enemy smoke, a death, a flash);
 and is the large yellow glyph on Lotus that lights the floor round it an
 ability (`5822b6646448_fn_f.png`, 1617.9 s).
 
+## E8: the teardrop in every consumer
+
+The player's direction of 2026-09-29: the ring fit no longer supplies an
+icon's centre or facing, and the teardrop reaches every consumer; team vision
+is a team signal, so teammates' cones come from it too. Task
+`teardrop-everywhere-20260929`. This section records the rules; the run
+figures are quoted, with their commands, in the branch's commits and are cited
+here once recorded.
+
+**The owner.** `reticle.teardrop` reads the ally and enemy teardrops
+(`fit_icon`, `IconPoseReader`, `icon-teardrop-0.2.0`, owner of `icon-pose`)
+with E6's keys, radii and gates, scaled by `minimap.widget_scale` as the self
+teardrop's are; at scale 1.0 it is E6's fit exactly. `teardrop.posed` is the
+one rule every consumer asks: the ring fit finds the icon, the teardrop gives
+its centre where it reads and its facing where the reader gives one, and the
+ring fit's values stay beside them under `ring`. On the three 331 px sessions
+of E6 (`prototypes/icon_teardrop.py --centre-check`) the scaled ally centre
+moves from about 6 px off the ring fit's to under 2, reads on nine in ten
+detections instead of one in two, and the portrait aligned there fits its
+side's art better than at either the ring fit's centre or the unscaled
+teardrop's, as it does at 465 px.
+
+**The self teardrop at 331 px.** E7 found the self teardrop misreads on
+c40d950031bb. `prototypes/team_vision_eval.py --pose-check` compares each read
+with the ring fit's facing after `cone.resolve_lobe`: self reads under NCC
+0.6 point more than 90 degrees away on about a third of frames on every
+widget size, and on 331 px widgets most self reads fall there. That check
+cannot judge which facing is right (the light chose the ring's lobe), so it
+sets only a gate. Leaving the blur and the ring width unscaled raised the
+NCC at 331 px but not the agreement, so the model's scaling is not the
+cause. At 465 px the player's labels do not support the gate: of the two
+labelled reads under 0.6, an Ascent control is right and a Lotus item
+flipped. So `SelfConeReader` (`teardrop-0.3.0`) gives the centre and no
+facing under `SELF_FACING_MIN_NCC` only on a widget size the labels do not
+cover (`LABELLED_SCALES`), with `facing_reason` `low_ncc_unlabelled_scale`,
+and the known-answer check reads as before. The ally reads show no cliff
+that holds across sessions, the ally cones gain precision at 331 px (below),
+and E6's labels, which never saw the ally teardrop flip, come from 465 px
+widgets; no label scores either teardrop at 331 px.
+
+**Team vision (`team-vision-0.4.0`).** Every detection is posed before the
+tracker sees it, so tracks, lifecycle positions and cones all take the
+teardrop's centre, and a cone observed this frame faces this frame's
+teardrop facing; `cone.resolve_lobe` sees only a ring-fit facing. Each stored
+icon's `pose` names its origin, facing source and the teardrop's reasons.
+`team_vision_eval.py` scores the eligible team union against the drawn light
+joined to every team icon, with the chain on master's code as the before
+arm; `--footprint disc` places the icons without any facing, so the witness
+cannot favour the teardrop. An icon whose teardrop gives no facing casts
+nothing (`RING_FALLBACK` off): with the fallback the ring fit's cones raised
+recall at 465 px but pulled precision on c40d950031bb under 0.3.0's, and a
+cone cast the wrong way discards real observations downstream. Against
+0.3.0 the team's precision rises on all four sessions scored (e78e75b2d191,
+5822b6646448, 223d636bf8d2, c40d950031bb) and each ally's cone gains
+precision on all three with teammates; F1 rises at 465 px and falls at
+331 px, where fewer cones are cast: the ally teardrop reads less there and
+the self teardrop mostly falls under its facing gate.
+
+**The ally icon and self icon streams.** `minimap.AllyIconReader`
+(`ally-icon-0.6.0`) poses every shape-gated fit: the glyph check, the
+separation, the published position and the portrait's alignment use the
+teardrop's centre, and the published facing is the teardrop's where it gives
+one. The descriptor's disc (composition, `map_diff`, `interior_too_thin`)
+stays at the ring fit's centre, `interior_at`: on a 331 px widget that disc
+sits on `appearance.MIN_PIXELS`, and cutting it at the teardrop's fractional
+centre refused a sixth more teammates; kept at the ring fit's centre it
+describes as many as before. `self_icon` (`self-icon-0.5.0`) cuts and aligns
+the player's portrait at the self teardrop's centre on the 465 px widget,
+where E6's rule B' and `--centre-check --centre-class self` find it fits the
+art far better. On 331 px widgets the same check fit better on two sessions
+and worse on two, so `teardrop.self_portrait_pose` keeps the ring fit's
+centre there (`origin_reason` `unlabelled_scale`), for the self icon stream
+and for the ally reader's self occluder alike.
+
+**Where the ring fit stays.** The L1 self position (`pick_self`, the
+`minimap` stream): switching estimators mid-track moves the point by the
+ring's lobe bias whenever the read toggles, a step `filter_track`'s speed gate
+may take for a jump, and it needs its own check. The spike carrier pairing
+(`spike.read_frame`, `carrier_offset`), whose constants were measured from
+ring-fit centres. `minimap_dark.occluded`, which masks an icon's pixels with a
+margin. Each finds or masks an icon; none casts a cone.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
@@ -1126,9 +1208,10 @@ ability (`5822b6646448_fn_f.png`, 1617.9 s).
   portrait gate rule rejects more than half the not-icons without losing
   teammates: Bs, calibrated clean of the spike, still keeps pings, X marks
   and the Wingman glyph that fit like portraits.
-- The self cone's fallback (ring fit and track lobe) serves about a tenth of
-  Lotus's cast cones; teammates' cones still start at their ring fits along
-  their tracks' lobes.
+- Since `team-vision-0.4.0` no cone falls back to the ring fit: an icon whose
+  teardrop gives no facing casts nothing, which costs recall wherever the
+  teardrop reads less, as on c40d950031bb. No label scores either teardrop
+  at 331 px, and the self teardrop there mostly reads under its facing gate.
 - Wall edges (`BORDER`) were not perturbed; only box edges were.
 - E2's near-line group holds only a handful of held-out frames.
 - E1-E3 calibrated on one session and one map; E4 adds one Lotus session.
