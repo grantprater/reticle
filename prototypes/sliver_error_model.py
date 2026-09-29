@@ -73,7 +73,7 @@ from reticle.roi_cache import RoiCache  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
 STORE = Path(DEFAULT_STORE)
-VERSION = "sliver-error-model-0.1.0"
+VERSION = "sliver-error-model-0.2.0"
 ABILITY = {"same_entity", "other_ability"}
 DEMO = "e78e75b2d191"
 SLIVERS = (36900.0, 40650.0, 43350.0)
@@ -137,6 +137,8 @@ class Session:
         self.boxedge = self.labels == BOXEDGE
         n, self.segments = cv2.connectedComponents(self.boxedge.astype(np.uint8), connectivity=8)
         self.n_segments = n - 1
+        # Distance from each pixel to the nearest impassable one, for E2's side rule.
+        self.clearance = cv2.distanceTransform(self.passable.astype(np.uint8), cv2.DIST_L2, 3)
         self.cache, why = RoiCache.load(STORE, man, prof, "minimap")
         if self.cache is None:
             raise SystemExit(f"{sid}: no minimap crop cache ({why})")
@@ -231,7 +233,7 @@ class Calibration:
         if rec["deg"] is None or rec["resultant"] < 0.5:
             return
         x, y, deg = rec["x"], rec["y"], rec["deg"]
-        self.frames.append((x, y, deg, np.packbits(raw)))
+        self.frames.append((x, y, deg, np.packbits(raw), r))
         shut = cone.raycast(s.passable, x, y, deg, visible=s.floor)
         opened = cone.raycast(s.floor, x, y, deg, visible=s.floor)
         k = s.ref.known
@@ -282,7 +284,8 @@ class Calibration:
 
 class Model:
     def __init__(self, cal: dict, geometry_noise: bool, n: int, seed: int = 20260928,
-                 q_segment: dict | None = None):
+                 q_segment: dict | None = None, origin: str = "centre"):
+        self.origin = origin              # E2: "centre", "side" or "teardrop"
         self.sp, self.sd, self.flip = cal["sigma_pos_px"], cal["sigma_deg"], cal["flip_rate"]
         self.q = cal["boxedge_q"] if geometry_noise else 0.0
         self.q_segment = q_segment or {}     # segment id -> its own held-out transparency
@@ -313,9 +316,46 @@ class Model:
                 opened = np.flatnonzero(rng.random(s.n_segments) < q) + 1
                 if len(opened):
                     passable = passable | np.isin(s.segments, opened)
-            m = cone.raycast(passable, x, y, deg % 360.0, visible=s.floor, max_r=reach)
+            x, y = place_origin(s, self.origin, x, y, deg, pose["det"][3] if pose.get("det") else 0.0,
+                                3.0 * self.sp)
+            m = cone.raycast(passable, x, y, deg % 360.0, visible=s.floor, max_r=reach + 10)
             hits += int(m[ys, xs].sum() >= need)
         return hits / self.n
+
+
+def place_origin(s: Session, how: str, x: float, y: float, deg: float, r: float,
+                 radius: float) -> tuple[float, float]:
+    """E2: where the eye is, given a drawn centre and bearing.
+
+    `centre` keeps the fitted centre. `side` applies only when the centre lies
+    within a pixel of an impassable pixel: it moves the origin to the passable
+    pixel within `radius` that lies furthest along the bearing -- the open side
+    of a one-pixel line. `teardrop` is the player's spec
+    [domain:minimap/cone-rays-stop-at-first-edge]: the fitted radius along the
+    bearing. Neither lets a ray pass an edge; each only moves where it starts.
+    """
+    if how == "teardrop":
+        a = math.radians(deg)
+        return x + r * math.cos(a), y + r * math.sin(a)
+    if how != "side":
+        return x, y
+    h, w = s.passable.shape
+    ix, iy = int(round(x)), int(round(y))
+    if not (0 <= ix < w and 0 <= iy < h) or s.clearance[iy, ix] > 1.5:
+        return x, y
+    k = int(math.ceil(radius))
+    dy, dx = np.mgrid[-k:k + 1, -k:k + 1]
+    keep = np.hypot(dx, dy) <= radius
+    px, py = ix + dx[keep], iy + dy[keep]
+    ok = (px >= 0) & (px < w) & (py >= 0) & (py < h)
+    px, py = px[ok], py[ok]
+    ok = s.passable[py, px]
+    if not ok.any():
+        return x, y
+    px, py = px[ok], py[ok]
+    a = math.radians(deg)
+    j = int(np.argmax((px - x) * math.cos(a) + (py - y) * math.sin(a)))
+    return float(px[j]), float(py[j])
 
 
 def required_error(s: Session, pose: dict, O: np.ndarray, passable: np.ndarray) -> dict | None:
@@ -376,7 +416,7 @@ def segment_transparency(s: Session, cal: "Calibration", C: dict, segs) -> dict:
     acc = {seg: [0.0, 0.0] for seg in segs}
     k = s.ref.known
     shape = s.passable.shape
-    for x, y, deg, packed in cal.frames:
+    for x, y, deg, packed, _r in cal.frames:
         raw = np.unpackbits(packed, count=shape[0] * shape[1]).reshape(shape).astype(bool)
         shut = cone.raycast(s.passable, x, y, deg, visible=s.floor)
         for seg in segs:
@@ -417,9 +457,13 @@ def main(argv=None) -> int:
     ap.add_argument("--samples", type=int, default=200)
     ap.add_argument("--shifts", type=int, default=60)
     ap.add_argument("--out", type=Path, default=Path(tempfile.gettempdir()) / "sliver-error-model")
+    ap.add_argument("--experiment", choices=("e1", "e2"), default="e1",
+                    help="e1: noise and box-edge transparency (with E1b); e2: the origin's side")
     args = ap.parse_args(argv)
     _below_normal()
     args.out.mkdir(parents=True, exist_ok=True)
+    if args.experiment == "e2":
+        return main_e2(args)
 
     comps = {c["component_id"]: c for c in _components(STORE, _labels(STORE))}
     rows = [r for r in answers().values()
@@ -664,6 +708,126 @@ def main(argv=None) -> int:
               "cone_half_angle": cone.CONE_HALF_ANGLE_DEG, "samples": args.samples,
               "shifts": args.shifts, "reach_px_min": 200},
         context={"blockers": {str(t): e1b[t]["blockers"] for t in SLIVERS}, "holdout_ms": HOLDOUT_MS})
+    return 0
+
+
+def agreement(s: Session, cal: "Calibration", radius: float) -> dict:
+    """E2's held-out witness: how the drawn light agrees with the cone per origin.
+
+    Precision is the raw-lit share of the cone's known floor, pooled; recall is
+    the share of raw-lit known floor within 90 px of the icon the cone covers,
+    averaged over frames with at least 50 such pixels, split by whether the
+    fitted centre lies within a pixel of an impassable pixel.
+    """
+    shape = s.passable.shape
+    yy, xx = np.mgrid[0:shape[0], 0:shape[1]]
+    k = s.ref.known
+    pooled = {o: [0.0, 0.0] for o in ("centre", "side", "teardrop")}
+    recall = {(o, g): [] for o in pooled for g in ("near", "clear", "far")}
+    for x, y, deg, packed, r in cal.frames:
+        raw = np.unpackbits(packed, count=shape[0] * shape[1]).reshape(shape).astype(bool)
+        dist = np.hypot(xx - x, yy - y)
+        lit = raw & k & (dist <= 90.0)
+        # EXPLORATORY, added after R4 failed: the icon's own disc and the floor
+        # beside it are lit and sit behind a teardrop apex, so recall is also
+        # read only on lit floor more than three icon radii out.
+        far_lit = lit & (dist > 3.0 * max(r, 1.0))
+        ix, iy = int(round(x)), int(round(y))
+        near = bool(s.clearance[min(max(iy, 0), shape[0] - 1), min(max(ix, 0), shape[1] - 1)] <= 1.5)
+        for o in pooled:
+            ox, oy = place_origin(s, o, x, y, deg, r, radius)
+            m = cone.raycast(s.passable, ox, oy, deg % 360.0, visible=s.floor)
+            pooled[o][0] += float((m & k).sum())
+            pooled[o][1] += float((m & k & raw).sum())
+            if lit.sum() >= 50:
+                recall[(o, "near" if near else "clear")].append(float((m & lit).sum() / lit.sum()))
+            if far_lit.sum() >= 50:
+                recall[(o, "far")].append(float((m & far_lit).sum() / far_lit.sum()))
+    out = {"frames": len(cal.frames)}
+    for o, (n, hit) in pooled.items():
+        out[f"precision_{o}"] = hit / n if n else None
+        for g in ("near", "clear", "far"):
+            v = recall[(o, g)]
+            out[f"recall_{o}_{g}"] = float(np.mean(v)) if v else None
+            out[f"frames_{g}"] = len(v)
+    return out
+
+
+def main_e2(args) -> int:
+    """E2: does placing the eye on the open side of a one-pixel line explain the slivers?"""
+    comps = {c["component_id"]: c for c in _components(STORE, _labels(STORE))}
+    rows = [r for r in answers().values()
+            if r.get("component_id") in comps and r.get("t_ms") is not None
+            and not r.get("unsure") and r["session_id"] == DEMO and group(r["answer"]) == "viewcone"]
+    demo = Session(DEMO)
+    cal = Calibration()
+    demo.run_chain(demo.cache_t, calib=cal, holdout=SLIVERS)
+    C = cal.result()
+    radius = 3.0 * C["sigma_pos_px"]
+    print(f"calibration: sigma_pos {C['sigma_pos_px']:.2f} px, facing {C['sigma_deg']:.1f} deg, "
+          f"flip {C['flip_rate']:.3f}; side radius {radius:.2f} px")
+    arms = {o: Model(C, False, args.samples, origin=o) for o in ("centre", "side", "teardrop")}
+    posed = [t for t, p in sorted(demo.poses.items()) if p["pose"] and p["window"]]
+    slivers, lit_ok = {}, defaultdict(int)
+    for r in rows:
+        t = float(r["t_ms"])
+        box = comps[r["component_id"]].get("box")
+        O, why = demo.observed(t, box)
+        pose = demo.pose_at(t)
+        if O is None or O.sum() < MIN_O or pose is None or not pose["pose"]:
+            continue
+        E = {o: m.explain(demo, pose, O) for o, m in arms.items()}
+        if t not in SLIVERS:
+            for o, e in E.items():
+                lit_ok[o] += int(e is not None and e >= PLAUSIBLE)
+            lit_ok["scored"] += 1
+            continue
+        far = [u for u in posed if abs(u - t) >= SHIFT_MIN_MS]
+        pick = [far[i] for i in np.linspace(0, len(far) - 1, min(args.shifts, len(far))).astype(int)]
+        out = {"E": E, "near_line": bool(demo.clearance[int(round(pose["y"])), int(round(pose["x"]))] <= 1.5)}
+        for o in ("side", "teardrop"):
+            vals = np.array([v for v in (arms[o].explain(demo, demo.poses[u], O) for u in pick)
+                             if v is not None])
+            out[f"null_rate_{o}"] = float((vals >= PLAUSIBLE).mean())
+            out[f"true_percentile_{o}"] = float((vals < E[o]).mean())
+        slivers[t] = out
+        print(f"sliver {t / 1000:.2f}s: {json.dumps(out)}")
+    agree = agreement(demo, cal, radius)
+    print("lit viewcones explained:", dict(lit_ok))
+    print("held-out agreement:", json.dumps(agree, indent=1))
+    (args.out / "results_e2.json").write_text(json.dumps(
+        {"version": VERSION, "calibration": C, "slivers": {str(k): v for k, v in slivers.items()},
+         "lit_viewcones": dict(lit_ok), "agreement": agree}, indent=1), encoding="utf-8")
+    vals = {"side_radius_px": round(radius, 2),
+            "lit_viewcones_scored": lit_ok["scored"],
+            "lit_viewcones_centre": lit_ok["centre"], "lit_viewcones_side": lit_ok["side"],
+            "lit_viewcones_teardrop": lit_ok["teardrop"],
+            "frames_near": agree["frames_near"], "frames_clear": agree["frames_clear"],
+            "frames_far": agree["frames_far"]}
+    for t in SLIVERS:
+        v = slivers.get(t)
+        if v is None:
+            continue
+        for o in ("centre", "side", "teardrop"):
+            vals[f"e_{o}_{int(t)}"] = round(v["E"][o], 3)
+        for o in ("side", "teardrop"):
+            vals[f"null_{o}_{int(t)}"] = round(v[f"null_rate_{o}"], 3)
+            vals[f"pct_{o}_{int(t)}"] = round(v[f"true_percentile_{o}"], 3)
+        vals[f"near_line_{int(t)}"] = int(v["near_line"])
+    for key in ("precision_centre", "precision_side", "precision_teardrop",
+                "recall_centre_near", "recall_side_near", "recall_teardrop_near",
+                "recall_centre_clear", "recall_side_clear", "recall_teardrop_clear",
+                "recall_centre_far", "recall_side_far", "recall_teardrop_far"):
+        vals[key] = None if agree[key] is None else round(agree[key], 3)
+    for o in ("side", "teardrop"):
+        vals[f"slivers_explained_{o}"] = sum(1 for v in slivers.values() if v["E"][o] >= PLAUSIBLE)
+    metrics.record(
+        "sliver_error_model", part="origin-side", session=DEMO, values=vals,
+        deps={"prototype": VERSION, "lighting": lighting.LIGHTING_VERSION,
+              "cone_half_angle": cone.CONE_HALF_ANGLE_DEG, "samples": args.samples,
+              "shifts": args.shifts, "plausible": PLAUSIBLE, "cover": COVER,
+              "fact": "minimap/cone-rays-stop-at-first-edge"},
+        context={"holdout_ms": HOLDOUT_MS, "arms": ["centre", "side", "teardrop"]})
     return 0
 
 

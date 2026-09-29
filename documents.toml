@@ -182,8 +182,8 @@ path = "docs/STATISTICAL_ADJUDICATOR.md"
 kind = "plan"
 status = "proposed"
 since = "2026-09-28"
-remains = "Withdraw the wired sliver path, then E2 (the origin on an occluder) and the sampler."
-waits_for = "The team-vision product storing pose windows, and the player's answer on box-edge sight."
+remains = "E3 (read the teardrop tip), then the sampler."
+waits_for = "team_vision storing pose windows, and a teardrop reader or the player's tip labels."
 
 [[document]]
 path = "docs/PUBSUB_PLAN.md"

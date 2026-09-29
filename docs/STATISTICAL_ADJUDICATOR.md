@@ -272,9 +272,10 @@ The experiment reorders the work:
    which explained the slivers only because it explained almost any pose. No
    local error search returns; the error model sits in, or consumes, the
    owners of track facing and geometry.
-2. **Geometry at the origin before pose noise.** Measured position jitter is
-   under a pixel and does not matter; a one-pixel line under the icon does. The
-   next experiment is E2 below.
+2. **The origin before pose noise.** Measured position jitter is under a
+   pixel and does not matter; where the eye sits relative to the lines near the
+   icon does. E2 below found that neither the open side of a line nor a derived
+   teardrop settles it; E3 reads the teardrop.
 3. **Store what the sampler needs in `team_vision`.** Its rows keep each
    icon's position and gated bearing. Add per frame and track: the fitted
    radius, the raw and lobe-resolved per-frame bearings, the 200 ms window and
@@ -290,24 +291,69 @@ The experiment reorders the work:
    segment, and is scored on held-out slivers or on held-out frames, as E1b
    was.
 
-## Next experiment, E2: the origin on an occluder
+## E2: the origin on an occluder
 
-Hypothesis: the point-estimate cone underclaims the drawn light when the fitted
-centre lies within a pixel of a BOXEDGE or BORDER pixel, because the game casts
-from a player standing past the line. On held-out frames of every session with a
-crop cache, compare the drawn light's coverage of the cone's neighbourhood for
-frames with the origin within 1 px of a line against frames with it 3 px or more
-clear. Predict a lower lit share inside the cone and a higher lit share just
-outside it for the first group; falsified if the two groups match. If it holds,
-the sampler draws the origin's side of the line as an uncertain input and the
-three slivers are rescored on held-out calibration. Before it runs, ask the
-player the mechanics question rather than infer it: does a box edge the player
-stands at block the player's own sight?
+The player answered the mechanics question on 2026-09-28: a box edge the player
+stands at does block the player's own sight, and the ray stops exactly at the
+edge or corner, as the cone spec of 2026-09-02 described
+[domain:minimap/cone-rays-stop-at-first-edge]. That spec also puts the cone's
+origin at the icon's teardrop point, not its centre. So no edge becomes
+transparent; the open question is where the eye is. E2 (task
+`statistical-adjudicator-e2`, `--experiment e2`) tested two origin rules with
+E1's pose noise and no geometry noise, predictions logged first:
+
+- **side:** when a drawn origin lies within a pixel of an impassable pixel, move
+  it to the passable pixel within three sigma ([metric:sliver_error_model/origin-side@e78e75b2d191#side_radius_px=2.15] px)
+  that lies furthest along the drawn bearing;
+- **teardrop:** place the origin one fitted icon radius along the drawn bearing.
+
+| | centre | side | teardrop |
+|---|---|---|---|
+| E at 36.9 s (the doorway) | [metric:sliver_error_model/origin-side@e78e75b2d191#e_centre_36900=0.0] | [metric:sliver_error_model/origin-side@e78e75b2d191#e_side_36900=0.0] | [metric:sliver_error_model/origin-side@e78e75b2d191#e_teardrop_36900=0.0] |
+| E at 40.65 s | [metric:sliver_error_model/origin-side@e78e75b2d191#e_centre_40650=0.0] | [metric:sliver_error_model/origin-side@e78e75b2d191#e_side_40650=0.0] | [metric:sliver_error_model/origin-side@e78e75b2d191#e_teardrop_40650=0.13] |
+| E at 43.35 s | [metric:sliver_error_model/origin-side@e78e75b2d191#e_centre_43350=0.0] | [metric:sliver_error_model/origin-side@e78e75b2d191#e_side_43350=0.0] | [metric:sliver_error_model/origin-side@e78e75b2d191#e_teardrop_43350=0.225] |
+| shifted poses explaining 40.65 / 43.35 s | | | [metric:sliver_error_model/origin-side@e78e75b2d191#null_teardrop_40650=22%] / [metric:sliver_error_model/origin-side@e78e75b2d191#null_teardrop_43350=18%] |
+| true E's percentile among them | | | [metric:sliver_error_model/origin-side@e78e75b2d191#pct_teardrop_40650=0.883] / [metric:sliver_error_model/origin-side@e78e75b2d191#pct_teardrop_43350=0.933] |
+| held-out cone precision (raw-lit share) | [metric:sliver_error_model/origin-side@e78e75b2d191#precision_centre=0.639] | [metric:sliver_error_model/origin-side@e78e75b2d191#precision_side=0.639] | [metric:sliver_error_model/origin-side@e78e75b2d191#precision_teardrop=0.59] |
+| held-out recall, clear frames | [metric:sliver_error_model/origin-side@e78e75b2d191#recall_centre_clear=0.52] | [metric:sliver_error_model/origin-side@e78e75b2d191#recall_side_clear=0.52] | [metric:sliver_error_model/origin-side@e78e75b2d191#recall_teardrop_clear=0.383] |
+| held-out recall, frames with the centre on a line | [metric:sliver_error_model/origin-side@e78e75b2d191#recall_centre_near=0.308] | [metric:sliver_error_model/origin-side@e78e75b2d191#recall_side_near=0.272] | [metric:sliver_error_model/origin-side@e78e75b2d191#recall_teardrop_near=0.157] |
+| lit viewcones explained, of [metric:sliver_error_model/origin-side@e78e75b2d191#lit_viewcones_scored=9] | [metric:sliver_error_model/origin-side@e78e75b2d191#lit_viewcones_centre=9] | [metric:sliver_error_model/origin-side@e78e75b2d191#lit_viewcones_side=9] | [metric:sliver_error_model/origin-side@e78e75b2d191#lit_viewcones_teardrop=8] |
+
+Against the predictions: R1 failed -- the side rule explains no sliver, and the
+fitted centre sits on a line only at 43.35 s and in
+[metric:sliver_error_model/origin-side@e78e75b2d191#frames_near=4] of the held-out frames; at 40.65 s the rays die a few
+pixels out, not at the origin. R2 held -- the teardrop explains 40.65 and 43.35
+s and the 36.9 s doorway stays closed. R3 held for 43.35 s and missed for 40.65
+s, whose true E beats 88% of shifted poses against a bar of 90%. R4 failed: on
+held-out frames the teardrop cone covers less of the drawn light than the
+centre cone. An exploratory reread beyond three icon radii, added after R4
+failed to rule out the icon's own glow, keeps the gap
+([metric:sliver_error_model/origin-side@e78e75b2d191#recall_teardrop_far=0.407] against [metric:sliver_error_model/origin-side@e78e75b2d191#recall_centre_far=0.502]).
+
+**In plain words:** moving the eye within the measured position error does not
+explain the slivers. Moving it to the teardrop does explain the two past the
+icon, and keeps the doorway closed, but the same move makes the cone agree
+worse with the drawn light everywhere else. An explanation that the held-out
+frames contradict grades its own homework, so the slivers stay unexplained
+refusals. The likely reason is the bearing: with a
+[metric:sliver_error_model/grouping-labels@all-labelled#sigma_deg=29.0] degree
+spread, a teardrop placed from the fitted centre and the drawn bearing lands
+beside the true tip.
+
+## Next experiment, E3: read the teardrop
+
+Read the teardrop tip from pixels, as its own witness of origin and facing,
+instead of deriving it from the ring fit. Pre-register that a cone cast from
+the read tip, along the tip's direction, covers more of the held-out drawn light
+than the centre cone does, and only then rescore the three slivers. If the tip
+cannot be read reliably, build the labeller that asks the player to click it on
+the three sliver frames and a held-out sample.
 
 ## What this plan does not settle
 
 - The half-angle stays at 51.5 degrees; its interval was not measured.
 - Wall edges (`BORDER`) were not perturbed; only box edges were.
+- E2's near-line group holds only a handful of held-out frames.
 - Calibration used one session and one map.
 - The flip rate is a floor, because `resolve_lobe` chose each lobe with the
   same light the bisector reads.
