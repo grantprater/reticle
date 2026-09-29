@@ -1415,6 +1415,21 @@ shows with no rung difference is a jump or an error, and is stored apart. On
 `ascent__valorant-16x9` the art's placement is about 1% small in scale, so a
 rung boundary there may sit 1-2 px off.
 
+## A team-vision over-light from the spike's "?"
+
+`team_vision` lit a spot the enemy spike had left. On Lotus a06f04a0059f the
+spike glyph became a yellow "?" at 184.067 s
+[domain:minimap/enemy-spike-ground-vision], which puts the spot outside the
+team's vision from 184.07 s; the stored `team_vision` marked it lit (about 0.75
+of a 20x20 px neighbourhood) until 186.07 s, an over-light of about 2 s. This
+case derives from the player's rule, not from a labelled frame, and no label
+file holds it. It joins the cause tally of E7 as a lit-but-not-seen case to
+test against a cone, a wall or a smoke, not as a mislabel of the light. The
+enemy carrier's icon shows no spike
+[domain:minimap/enemy-carrier-no-spike-overlay], and its death raises a
+broadcast [domain:hud/enemy-carrier-death-broadcast], so the drop has other
+witnesses when a spike read needs one.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
