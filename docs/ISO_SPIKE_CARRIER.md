@@ -6,9 +6,13 @@ On the Iso capture `4f207c0c4e39` (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp
 [metric:iso_spike/stored-0.1.0@4f207c0c4e39#rounds=22] rounds. The capture's
 widget is a variant (`widget_frame`): 1.18x the baked Split static, drawn
 turned 180 degrees before 1192767 ms and upright after, and `RoiCache.samples`
-resamples it into the baked frame. The resample turns the map back, and the
-icons with it: the map turns on the screen and the icons do not
-[domain:minimap/upright-icons-on-turned-map]. `spike-0.1.0` read every dropped
+resamples it into the baked frame. The resample turns back everything the
+widget holds. On the screen the facing arrows and oriented ability drawings
+turn with the map, but the portraits and the spike glyph stay upright
+[domain:minimap/upright-icons-on-turned-map]; the player answered for the
+portraits, the arrows and the abilities, and these crops show the glyph. So in
+the baked frame the arrows and ability drawings arrive right, and the portraits
+and the glyph arrive upside down. `spike-0.1.0` read every dropped
 glyph of the turned half as carried. `spike-0.2.0` turns the glyph's
 orientation test and the carrier's offset with the placement, and the carrier
 falls to [metric:iso_spike/rerun-0.2.0@4f207c0c4e39#rounds_carrier_seen=10]
@@ -54,7 +58,7 @@ dropped, each at a higher correlation than the turned fit.
 
 The instrument is sound. The baked static's edges lie on the walls of the
 resampled crop in both halves, so the transform places the widget correctly;
-it only turns icons that the game never turns.
+it only turns back the portraits and the glyph, which the game never turned.
 `iso_unrot_carried.png` beside it shows four upright-half carried glyphs, each
 at the lower left of an icon and matched by a roster marker.
 
@@ -88,8 +92,9 @@ needs only a restamp.
 
 ## The self icon
 
-The self icon shares the cause in part. Its portrait is drawn upright and the
-resample turns it over on the first half. Over the stored scored frames the
+The self icon shares the cause in part. Its portrait keeps its on-screen
+orientation on a turned widget [domain:minimap/upright-icons-on-turned-map],
+so the resample turns it over on the first half. Over the stored scored frames the
 art scores rank Iso
 [metric:iso_spike/self-icon-halves@4f207c0c4e39#rot180_iso_rank=19]th on the
 [metric:iso_spike/self-icon-halves@4f207c0c4e39#rot180_frames=171] turned
@@ -108,7 +113,13 @@ the first suspect; nothing here tests it.
   `on_glyph` unturned, so on the turned half the refusal of a fit on the glyph
   still reads a dropped glyph as carried. Wiring the rotation there restamps
   `self_icon` and `ally_icon`.
-- `self_icon` scores the turned portrait as it arrives; turning it upright and
-  testing the shrink is its own change.
+- What the fact means for the other readers
+  [domain:minimap/upright-icons-on-turned-map]: on a turned half, `self_icon`
+  (and any ally portrait reader) must turn the portrait upright before scoring
+  it, since it scores the turned portrait as it arrives; testing the shrink is
+  a separate change. Oriented ability glyphs turn with the map, so they arrive
+  right in the baked frame and need no turn, and neither does the facing
+  arrow the teardrop reads. An ability reader must not borrow the spike's
+  turn.
 - No turned-half round has a true carried glyph, so the turned carrier offset
   rests on synthetic tests (`tests/test_spike.py`).

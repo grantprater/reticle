@@ -55,10 +55,11 @@ this module names nobody.
 
 **A widget drawn turned over.** A variant widget (`widget_frame`) may draw the
 map turned 180 degrees, as a side-based minimap does in one half, and the
-reader meets it resampled into the baked frame, turned back. The map turns
-and the icons do not [domain:minimap/upright-icons-on-turned-map], so in the
-baked frame they arrive upside down: a dropped glyph (base down on the screen) is base up,
-and a carrier's icon sits below and to the left of its glyph rather than above
+reader meets it resampled into the baked frame, turned back. The spike glyph
+and the portraits stay upright on the screen while the map turns
+[domain:minimap/upright-icons-on-turned-map], so in the baked frame they
+arrive upside down: a dropped glyph (base down on the screen) is base up, and
+a carrier's icon sits below and to the left of its glyph rather than above
 and to the right. `rotation` (the placement's, `WidgetFrame.at`) turns the
 orientation test and the carrier's offset with it. On the Iso capture
 4f207c0c4e39, whose first half draws the widget turned over, spike-0.1.0 read
