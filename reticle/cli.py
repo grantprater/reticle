@@ -2690,7 +2690,7 @@ def cmd_vision(args) -> int:
     from .roi_cache import ROI_CACHE_VERSION, RoiCache
     from .team_vision import TeamVision, at, compare_rows, frame_row, load_inputs
     from .track import TRACK_VERSION
-    from .version import TEAM_VISION_VERSION
+    from .version import TEAM_VISION_VERSION, TEARDROP_VERSION
 
     store = Store(args.store)
     targets = store.sessions() if args.all else [_resolve_session(store, args.session)]
@@ -2771,6 +2771,7 @@ def cmd_vision(args) -> int:
                     "lighting_version": (lighting.LIGHTING_VERSION
                                          if inputs.light is not None else None),
                     "track_version": TRACK_VERSION,
+                    "teardrop_version": TEARDROP_VERSION,
                     "lifecycle_version": LIFECYCLE_VERSION,
                     "diagnostics_version": DIAGNOSTICS_VERSION,
                     "stall_version": stalls.STALL_VERSION,

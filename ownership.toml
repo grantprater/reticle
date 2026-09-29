@@ -538,6 +538,24 @@ consumers = ["overlay", "barriers", "team_vision"]
 evidence = "tests/test_cone_evidence.py, tests/test_full_round_cones.py"
 
 [[entry]]
+id = "self-cone-origin"
+question = "Where does the local player's viewcone start on the minimap?"
+owner = "teardrop"
+role = ["detect"]
+status = "partial"
+produces = ["fit_teardrop", "OriginReader", "yellowness", "render", "MIN_NCC"]
+not_for = """
+Where the player's icon is for tracking (`self-position`, the ring fit that
+seeds this one) and which agent the player is (`player-agent`). It also does
+not supply the cone's bearing: `fit_teardrop` reads the teardrop's facing as a raw
+observation, and nothing casts from it until the player's labels confirm it on
+Lotus; `team_vision` casts along `track`'s resolved facing. An unread teardrop
+falls back to the ring fit's centre, recorded as `ring_fit` with its reason.
+"""
+consumers = ["team_vision"]
+evidence = "tests/test_teardrop.py, prototypes/vision_origin_eval.py, docs/STATISTICAL_ADJUDICATOR.md (E3, E4)"
+
+[[entry]]
 id = "team-vision"
 question = "What can the team see at this instant, as the pipeline adjudicates it?"
 owner = "team_vision"
@@ -553,7 +571,7 @@ gaps the drawn light passes (the three e78e75b2d191 slivers). Smokes do not
 yet block its rays.
 """
 defers_to = ["viewcone", "drawn-light", "track-continuation", "minimap-origin",
-             "capture-stall", "light-support"]
+             "capture-stall", "light-support", "self-cone-origin"]
 consumers = ["overlay", "cli"]
 stored_consumers = ["adjudication.ability"]
 evidence = "tests/test_team_vision.py, tests/test_ability_entities.py"

@@ -498,6 +498,44 @@ it an ability icon, and a check against player labels of the facing on Lotus
 frames, where the light cannot judge it. Both changes go in together, under a
 new `team-vision` stamp, once the labels agree.
 
+## E5: `team_vision` casts the self cone from the teardrop's centre
+
+`team-vision-0.2.0` takes E4's origin and keeps the track's resolved facing.
+`reticle/teardrop.py` (`teardrop-0.1.0`, owner of `self-cone-origin`) holds
+the promoted fit; its grid correlates by `cv2.matchTemplate` and returns the
+prototype's centre exactly on 69 sampled frames of both sessions, at a
+twelfth of the time. Where the teardrop is unread the ring fit's centre stands
+in, and each stored self icon's `origin` names the source and the reason.
+`prototypes/vision_origin_eval.py` drives the chain on master's code and on
+the branch and scores the self cone against E4's joined light, whose fit and
+pixels did not move between the arms ([metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#e78e_witness_changed=0] and
+[metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_witness_changed=0] frames changed). Ascent is E4's held-out half;
+Lotus is E4's twenty windows, each warmed up 10 s through `team_vision.at`.
+
+| Self cone against the joined light | before (ring fit) | after (teardrop) |
+|---|---|---|
+| Ascent precision | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#e78e_before_precision=0.681] | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#e78e_after_precision=0.6773] |
+| Ascent recall | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#e78e_before_recall=0.5392] | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#e78e_after_recall=0.5556] |
+| Ascent F1 | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#e78e_before_f1=0.6019] | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#e78e_after_f1=0.6104] |
+| Lotus precision | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_before_precision=0.7688] | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_after_precision=0.7707] |
+| Lotus recall | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_before_recall=0.4453] | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_after_recall=0.4561] |
+| Lotus F1 | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_before_f1=0.5639] | [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_after_f1=0.573] |
+
+Recall counts the light of frames whose self bearing the track refused; on the
+frames that cast in both arms, F1 rises from [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#e78e_before_cast_f1=0.6853] to
+[metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#e78e_after_cast_f1=0.6936] on Ascent and from [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_before_cast_f1=0.624] to
+[metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_after_cast_f1=0.6335] on Lotus. The teardrop supplies the origin on
+[metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#e78e_after_teardrop_origin=134] of [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#e78e_after_cast_frames=134.0] cast cones on
+Ascent and [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_after_teardrop_origin=632] of [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_after_cast_frames=718.0] on Lotus;
+the ring fit stands in on [metric:vision_origin_eval/joined-light@e78e75b2d191+5822b6646448#lotus_after_fallback_origin=86].
+
+Against the logged predictions: V2 and V3 held. V1 failed narrowly: Ascent's
+F1 rose 0.009, not the 0.01 predicted, and its precision fell 0.004, inside
+what one clip's 134 frames resolve. E3b's larger gain (precision
+[metric:sliver_error_model/teardrop-tip@e78e75b2d191#precision_centre_tipdeg=0.703] to [metric:sliver_error_model/teardrop-tip@e78e75b2d191#precision_tip_facing=0.719]) cast along the teardrop's facing, which this change does not take; the
+track's facing is the remaining error, and it waits on the player's Lotus
+labels.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
