@@ -309,7 +309,9 @@ MINIMAP_DARK_VERSION = "minimap-dark-0.1.0"
 # 0.2.0: sampling gaps are unobserved; onsets carry their own censoring.
 # 0.3.0: a frame the stored menu witness (`menu_open`) finds covered is
 # unobserved.
-SMOKE_VERSION = "smoke-0.3.0"
+# 0.4.0: a component whose disc overlaps a live track's is no birth, so a smoke
+# born half covered is not born again once uncovered.
+SMOKE_VERSION = "smoke-0.4.0"
 # Which ally agent cast each smoke track, from stored `smoke` tracks, the
 # lineup's verdicts and the player's tray casts (`adjudication.smoke_owner`).
 # Bump when a rule, a lifetime, a cast window or the stored fields change.

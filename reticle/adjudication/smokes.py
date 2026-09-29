@@ -10,7 +10,7 @@ that a smoke persisted or ended.
 Three rules, each from a failure seen on `a06f04a0059f` on 2026-09-24
 ---------------------------------------------------------------------
 * **A birth is a component of at least `AREA_MIN_REF` px** (scaled to the
-  widget) of grey dark floor not already inside a live track.
+  widget) of grey dark floor whose disc overlaps no live track's.
 * **After birth a track is judged by the dark share of its own disc,** not by
   finding its component again. A smoke's hatched texture keeps its component
   near the area floor, and re-detection split one smoke into three tracks.
@@ -131,9 +131,14 @@ def tracks(rows: list[dict], known: np.ndarray, menu=None) -> list[dict]:
             if a < area_min:
                 continue
             cx, cy = float(cen[i][0]), float(cen[i][1])
-            if any(math.hypot(cx - tr["cx"], cy - tr["cy"]) <= max(8.0 * sc, tr["r"]) for tr in live):
-                continue
             r = math.sqrt(a / math.pi)
+            # A component whose disc overlaps a live track's is that smoke seen
+            # again. A birth read under a teammate's icon keeps a small radius,
+            # so the live radius alone let one Miks smoke on c40d950031bb be
+            # born twice, 8 s apart, with one end.
+            if any(math.hypot(cx - tr["cx"], cy - tr["cy"]) <= max(8.0 * sc, tr["r"] + r)
+                   for tr in live):
+                continue
             # An onset is observed only if the previous sample SAW this disc
             # clear. A smoke first counted as a teammate walks off it, or after a
             # gap, was there before its birth, merely too covered to be born.
