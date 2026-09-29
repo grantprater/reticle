@@ -434,3 +434,32 @@ cast a cone from the icon's centre along the teardrop's facing; an offset from
 that centre is a measured calibration (prototypes/cone_origin.py), not a game fact
 """
 see = ["minimap/cone-rays-stop-at-first-edge"]
+
+[upright-icons-on-turned-map]
+claim = """
+A minimap widget drawn turned 180 degrees (the side-based rotation of the Iso
+capture's first half) turns the map and what points across it, not the
+portraits. Agent portraits keep their on-screen orientation; each player's
+facing arrow turns 180 with the map; an ability drawing that has an
+orientation turns 180 with the map too. The spike glyph stays upright on the
+screen, so a dropped glyph still points its base down and a carried one still
+sits at the lower left of its carrier.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+source = """
+the player, 2026-09-29, for the portraits, the facing arrow and the oriented
+ability drawings. The spike glyph is OBSERVED, not a player answer: on the Iso
+capture 4f207c0c4e39 every sampled first-half glyph points its base down on
+the screen (docs/ISO_SPIKE_CARRIER.md)
+"""
+use = """
+a reader that resamples a turned widget into the baked frame turns everything
+back: the facing arrow and oriented ability drawings arrive right in the baked
+frame, while the portraits and the spike glyph arrive upside down, so a
+portrait score, a glyph orientation test or a glyph-to-carrier offset read
+there must turn with the placement (`spike`, rotation)
+"""
+see = ["minimap/spike-inversion", "minimap/spike-carrier-overlay"]
+phrases = ["portraits keep their on-screen orientation", "facing arrow turns with the map"]

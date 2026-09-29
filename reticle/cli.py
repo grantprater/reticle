@@ -3458,10 +3458,16 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
         for smp in hud.samples(sorted(set(pair.values())), rois=["hud_roster"]):
             marks[float(smp.t_ms)] = roster_marker(smp.frame[ry0:ry1, rx0:rx1])
     x0, y0, x1, y1 = mm.rect_of("minimap")
+
+    def rotation(t_ms: float) -> int:
+        # The placement turns the map, not the upright glyph (`spike`).
+        seg = mm.widget.at(t_ms) if mm.widget is not None else None
+        return int(seg["rotation"]) if seg is not None else 0
+
     frames = []
     for smp in mm.samples(grid, rois=["minimap"]):
         row = {"kind": "frame", "t_ms": float(smp.t_ms), "frame_idx": int(smp.frame_idx),
-               **read_frame(smp.frame[y0:y1, x0:x1], ctx)}
+               **read_frame(smp.frame[y0:y1, x0:x1], {**ctx, "rotation": rotation(smp.t_ms)})}
         h = pair.get(float(smp.t_ms))
         row["roster_t_ms"] = h
         row["marker"] = (marks.get(h) if h is not None else
@@ -3479,6 +3485,8 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
                            "AMP_PARTIAL": AMP_PARTIAL, "MARK_NCC_MIN": MARK_NCC_MIN,
                            "ROSTER_GAP_MS": ROSTER_GAP_MS},
             "grid_frames": len(frames), "read": len(read),
+            "rotation_frames": {str(k): sum(r.get("rotation", 0) == k for r in read)
+                                for k in sorted({r.get("rotation", 0) for r in read})},
             "refused": {k: sum(r["reason"] == k for r in frames)
                         for k in ("widget_not_drawn", "crop_size")},
             "glyph_frames": {s: sum(any(g["reason"] is None and g["state"] == s

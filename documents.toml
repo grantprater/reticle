@@ -276,6 +276,12 @@ status = "recorded"
 since = "2026-09-28"
 
 [[document]]
+path = "docs/ISO_SPIKE_CARRIER.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-29"
+
+[[document]]
 path = "docs/SELF_ICON_WITNESS.md"
 kind = "findings"
 status = "recorded"

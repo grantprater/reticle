@@ -69,8 +69,9 @@ def _alive_at(rt: np.ndarray, ra: list[int], t: float) -> int | None:
 def frame_state(row: dict, sc: float) -> dict:
     """One grid frame's spike state from its stored reading: `glyph`
     ("carried", "dropped", "none" or None where the minimap was not read),
-    `carrier_channel` (the icon under a carried glyph, or None), `slot` (the
-    marker's, or None) and `marker_read` (the roster was read, marker or not)."""
+    `carrier_channel` (the icon under a carried glyph, found at the offset the
+    row's widget `rotation` turns, or None), `slot` (the marker's, or None)
+    and `marker_read` (the roster was read, marker or not)."""
     mk = row.get("marker") or {}
     out = {"t_ms": row["t_ms"], "slot": mk.get("slot"),
            "marker_read": mk.get("reason") in (None, "no_marker"),
@@ -81,7 +82,7 @@ def frame_state(row: dict, sc: float) -> dict:
     car = [g for g in acc if g["state"] == "carried"]
     out["glyph"] = "carried" if car else "dropped" if acc else "none"
     if car:
-        ic = carrier_offset(car[0], row.get("icons", []), sc)
+        ic = carrier_offset(car[0], row.get("icons", []), sc, row.get("rotation") or 0)
         out["carrier_channel"] = ic["channel"] if ic else None
     return out
 
