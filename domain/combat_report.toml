@@ -15,6 +15,10 @@ a death with no panel in any sample is a panel hidden with N or a reader
 failure; look at the frames before deciding, and keep it as a refusal with the
 reason found
 """
+source = """
+the player, 2026-09-28, on 5822b6646448 at 1093 s, where the panel of the
+1087 s death shows again: he toggled it with N
+"""
 exceptions = """
 how a Sage revive interacts with the panel is unknown to the player; capture
 one and look when it occurs
@@ -110,3 +114,41 @@ ability damage, so it carries no hits; the player's own agent must have an
 ally-damaging ability for the row to exist. The killfeed can witness an ALLY
 row only when that ability killed the teammate (a team kill), which is rare
 """
+
+[rows-newest-first]
+claim = """
+The report's engagement rows run newest first: top to bottom, from the most
+recent engagement to the earliest.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-28"
+use = """
+a row's position orders its engagement in time: in a panel of several rows
+the top row is the latest, so a lower row binds an earlier kill or death
+"""
+exceptions = """
+the player "believes in general"; check it against the panels whose rows
+bind to killfeed entries before a binding rule rests on it
+"""
+source = "the player's E1 review of b3b9defb6fd7 at 891 s"
+
+[toggle-into-next-buy-phase]
+claim = """
+The player can hide and show the death panel with N at any time after the
+death, possibly into the buy phase of the next round. The end of that window
+is not known.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-28"
+use = """
+a panel that shows again after it closed is the same panel reopened, not a
+new death; the player expects the window to be testable on a capture
+"""
+exceptions = """
+the player does not recall the exact timing; test it on a capture before any
+rule depends on when the window closes
+"""
+see = ["combat_report/appears-on-death", "combat_report/round-summary"]
+source = "the player's E1 review of 587c15b07779 at 1386 s"
