@@ -3373,6 +3373,150 @@ def cmd_self_icon(args) -> int:
     return 0
 
 
+def _stored_alive(store, sid: str, man: dict):
+    """The stored roster's times and ally alive counts (-1 unread), or empty."""
+    import glob
+
+    import pyarrow.parquet as pq
+
+    path = store.roster_path(sid, man["ingested_at"][:10])
+    if not path.is_file():
+        found = glob.glob(str(store.root / "l1" / "roster" / "*" / f"session={sid}" / "*.parquet"))
+        path = found[-1] if found else None
+    if path is None:
+        return [], []
+    table = pq.read_table(path, columns=["t_ms", "alive_ally"])
+    return (table.column("t_ms").to_pylist(),
+            [(-1 if a is None else int(a)) for a in table.column("alive_ally").to_pylist()])
+
+
+def _spike_session(store, sid: str, step_s: float) -> dict:
+    """Every grid frame of the session's minimap crop cache, read by
+    `spike.read_frame`, with the roster marker (`spike.roster_marker`) from
+    the hud crop cache where one is stored.
+
+    Returns `{"rows": [...]}`, a coverage row first and a row per grid frame,
+    or `{"skipped": why}`. Decodes no video."""
+    import cv2
+
+    from . import geometry
+    from .minimap import floor_mask, slab_mask, widget_scale
+    from .profiles import get_profile
+    from .roi_cache import RoiCache
+    from .spike import (AMP_MIN, AMP_PARTIAL, MARK_NCC_MIN, NCC_MIN, NCC_STRONG, ROSTER_GAP_MS,
+                        SIDES, read_frame, roster_marker)
+    from .version import SPIKE_VERSION
+
+    man = store.read_manifest(sid)
+    prof = get_profile(man["source_profile"])
+    mm, why = RoiCache.load(store.root, man, prof, "minimap")
+    if mm is None:
+        return {"skipped": f"no minimap crop cache ({why})"}
+    hud, hud_why = RoiCache.load(store.root, man, prof, "hud")
+    try:
+        med = geometry.reference_static(sid, store.root)
+    except SystemExit as e:                  # `geometry.require` exits with the reason
+        return {"skipped": f"no baked geometry ({e})"}
+    sd = geometry.stability(sid, store.root, med.shape[:2])
+    ctx = {"floor": floor_mask(med, sd=sd), "slab": slab_mask(med, sd=sd), "static": med,
+           "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)}
+    t = np.unique(np.asarray(mm.t_ms, float))
+    spans = mm.record.get("spans") or [[float(t[0]), float(t[-1])]]
+    grid: list[float] = []
+    for a, b in spans:
+        ts = t[(t >= a) & (t <= b)]
+        if len(ts):
+            want = np.arange(ts[0], ts[-1] + 1, step_s * 1000.0)
+            grid += [float(x) for x in ts[np.unique(np.searchsorted(ts, want).clip(0, len(ts) - 1))]]
+    grid = sorted(set(grid))
+    ht = np.unique(np.asarray(hud.t_ms, float)) if hud is not None else np.array([])
+    pair = {}
+    for g in grid:
+        if len(ht):
+            j = int(np.argmin(np.abs(ht - g)))
+            if abs(ht[j] - g) <= ROSTER_GAP_MS:
+                pair[g] = float(ht[j])
+    marks = {}
+    if hud is not None and pair:
+        rx0, ry0, rx1, ry1 = hud.rect_of("hud_roster")
+        for smp in hud.samples(sorted(set(pair.values())), rois=["hud_roster"]):
+            marks[float(smp.t_ms)] = roster_marker(smp.frame[ry0:ry1, rx0:rx1])
+    x0, y0, x1, y1 = mm.rect_of("minimap")
+    frames = []
+    for smp in mm.samples(grid, rois=["minimap"]):
+        row = {"kind": "frame", "t_ms": float(smp.t_ms), "frame_idx": int(smp.frame_idx),
+               **read_frame(smp.frame[y0:y1, x0:x1], ctx)}
+        h = pair.get(float(smp.t_ms))
+        row["roster_t_ms"] = h
+        row["marker"] = (marks.get(h) if h is not None else
+                         {"slot": None, "reason": "no_hud_cache" if hud is None else "no_roster_sample"})
+        frames.append(row)
+    frames.sort(key=lambda r: r["t_ms"])
+    read = [r for r in frames if r["reason"] is None]
+    head = {"kind": "coverage", "session": sid, "spike_version": SPIKE_VERSION,
+            "widget_scale": round(widget_scale(x1 - x0), 4),
+            "roi_cache_version": mm.record.get("version"),
+            "hud_cache": None if hud is None else hud.record.get("version"),
+            "hud_cache_reason": hud_why,
+            "parameters": {"step_s": step_s, "SIDES": SIDES, "NCC_MIN": NCC_MIN,
+                           "AMP_MIN": AMP_MIN, "NCC_STRONG": NCC_STRONG,
+                           "AMP_PARTIAL": AMP_PARTIAL, "MARK_NCC_MIN": MARK_NCC_MIN,
+                           "ROSTER_GAP_MS": ROSTER_GAP_MS},
+            "grid_frames": len(frames), "read": len(read),
+            "refused": {k: sum(r["reason"] == k for r in frames)
+                        for k in ("widget_not_drawn", "crop_size")},
+            "glyph_frames": {s: sum(any(g["reason"] is None and g["state"] == s
+                                        for g in r["glyphs"]) for r in read)
+                             for s in ("dropped", "carried")},
+            "marker_frames": sum((r["marker"] or {}).get("slot") is not None for r in frames),
+            "marker_read": sum((r["marker"] or {}).get("reason") in (None, "no_marker")
+                               for r in frames)}
+    for r in frames:
+        r["spike_version"] = SPIKE_VERSION
+    return {"rows": [head] + frames}
+
+
+def cmd_spike(args) -> int:
+    """The spike's glyph on the minimap and marker on the roster, from the
+    stored crops (`spike`), then its carrier cross-checked against the plant
+    and the roster (`adjudication.spike_carrier`). Decodes no video;
+    `--from-store` reruns only the cross-check from stored `spike` rows."""
+    import time
+
+    from .adjudication.spike_carrier import check
+    from .version import SPIKE_VERSION
+
+    store = Store(args.store)
+    sids = _sessions_arg(store, args)
+    for sid in sids:
+        t0 = time.perf_counter()
+        if not args.from_store:
+            res = _spike_session(store, sid, args.step)
+            if "skipped" in res:
+                print(f"{sid}: {res['skipped']} -- skipped")
+                continue
+            head = res["rows"][0]
+            head["checks"] = {"wall_s": round(time.perf_counter() - t0, 1)}
+            out = store.write_events("spike", sid, res["rows"])
+            print(f"{sid}: {head['read']} of {head['grid_frames']} grid frames read; glyph frames "
+                  f"{head['glyph_frames']}; marker on {head['marker_frames']} of "
+                  f"{head['marker_read']} roster reads; {head['checks']['wall_s']} s -> {out}")
+        rows = store.read_events("spike", sid)
+        if not rows or rows[0].get("spike_version") != SPIKE_VERSION:
+            print(f"{sid}: no current `spike` rows -- run `reticle spike {sid}`")
+            continue
+        man = store.read_manifest(sid)
+        rs = store.read_rounds(sid, man["ingested_at"][:10])
+        rt, ra = _stored_alive(store, sid, man)
+        got = check(rows, None if rs is None else rs.to_pylist(), rt, ra)
+        out = store.write_events("spike_carrier", sid, got)
+        c = got[0]
+        print(f"{sid}: both read on {c['both_read']} frames, agree {c['agree']}; "
+              f"disagreements {c['disagreements']}; carrier seen on {c['rounds_carrier_seen']} "
+              f"of {c['rounds']} rounds; losses {c['losses_by_witness']} -> {out}")
+    return 0
+
+
 def cmd_tray_kit(args) -> int:
     """Whose kit the tray shows, per sample of the stored `hud_abilities`
     crops (`adjudication.tray_kit`), the slot icons scored against the
@@ -4728,6 +4872,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--all", action="store_true", help="every session with a stored lineup")
     s.add_argument("--step", type=float, default=1.0, help="sampling interval (default 1.0 s)")
     s.set_defaults(func=cmd_self_icon)
+
+    s = sub.add_parser("spike",
+                       help="the spike's minimap glyph and roster marker from stored crops, "
+                            "and its carrier cross-checked (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--step", type=float, default=1.0, help="sampling interval (default 1.0 s)")
+    s.add_argument("--from-store", action="store_true",
+                   help="rerun only the carrier cross-check from stored `spike` rows")
+    s.set_defaults(func=cmd_spike)
 
     s = sub.add_parser("widget-fit",
                        help="where the session draws its minimap widget against the baked "

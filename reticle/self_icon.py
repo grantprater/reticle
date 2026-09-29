@@ -38,7 +38,9 @@ claim and this one stay independent witnesses.
 **What each grid frame records.** A frame is scored, or refused with the
 first reason that applies: `not_all_alive` (the gate), `widget_not_drawn`
 (`minimap.widget_drawn` over the baked geometry), `no_self_fit`
-(`minimap.self_icons` fits no ring), `ally_overlap` (a teammate's icon disc
+(`minimap.self_icons` fits no ring), `on_spike_glyph` (every fit lands on
+the spike glyph, `spike.on_glyph`; a fit that does is skipped for the next
+by coverage), `ally_overlap` (a teammate's icon disc
 touches the self icon's, so its portrait is drawn over the player's),
 `interior_too_thin` (fewer than MIN_PIXELS portrait pixels,
 `minimap.self_portrait_pixels`). Refusals stay stored, so coverage is read
@@ -50,7 +52,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .version import ALLY_PORTRAIT_FEATURES_VERSION, SELF_ICON_VERSION
+from .version import ALLY_PORTRAIT_FEATURES_VERSION, SELF_ICON_VERSION, SPIKE_VERSION
 
 #: Fewer portrait pixels than this and the histogram is noise.
 MIN_PIXELS = 12
@@ -59,8 +61,8 @@ STEP_S = 1.0
 #: How far, in ms, a roster sample may lie from the frame it gates.
 ROSTER_GAP_MS = 1000.0
 
-REFUSALS = ("not_all_alive", "widget_not_drawn", "no_self_fit", "ally_overlap",
-            "interior_too_thin")
+REFUSALS = ("not_all_alive", "widget_not_drawn", "no_self_fit", "on_spike_glyph",
+            "ally_overlap", "interior_too_thin")
 
 
 def all_alive(roster_t, roster_alive, t_ms: float, n: int = 5) -> bool:
@@ -83,18 +85,28 @@ def read_frame(crop: np.ndarray, ctx: dict, gal: dict, references: dict | None =
     from . import ally_portrait
     from .adjudication.identity import rendered_art_scores
     from .lineup import _composition, gallery_scores
+    from . import spike
     from .minimap import (ally_icons, portrait_key, self_icons, self_portrait_pixels,
-                          widget_drawn)
+                          widget_drawn, widget_scale)
 
     if not widget_drawn(crop, ctx["sgray"], ctx["floor"]):
         return {"reason": "widget_not_drawn"}
     fits = self_icons(crop, ctx["floor"], require_facing=False, support=ctx["slab"])
     if not fits:
         return {"reason": "no_self_fit"}
-    f = max(fits, key=lambda d: d["cov"])
+    allies = ally_icons(crop, ctx["floor"], support=ctx["slab"], static=ctx["static"])
+    glyphs = spike.accepted(spike.glyph_fits(crop, ctx["slab"]))
+    sc = widget_scale(crop.shape[1])
+    clear = [d for d in fits
+             if spike.on_glyph(d["cx"], d["cy"], glyphs, sc, fits + allies) is None]
+    if not clear:
+        g = spike.on_glyph(fits[0]["cx"], fits[0]["cy"], glyphs, sc, fits + allies)
+        return {"cx": round(fits[0]["cx"], 2), "cy": round(fits[0]["cy"], 2),
+                "spike_glyph": {k: g[k] for k in ("cx", "cy", "state")},
+                "reason": "on_spike_glyph"}
+    f = max(clear, key=lambda d: d["cov"])
     row = {"cx": round(f["cx"], 2), "cy": round(f["cy"], 2), "r": int(f["r"]),
            "cov": round(f["cov"], 3)}
-    allies = ally_icons(crop, ctx["floor"], support=ctx["slab"], static=ctx["static"])
     near = min((float(np.hypot(a["cx"] - f["cx"], a["cy"] - f["cy"])) - a["r"] - f["r"]
                 for a in allies), default=None)
     row["ally_gap_px"] = None if near is None else round(near, 1)
@@ -217,6 +229,7 @@ def read_session(store, sid: str, gal: dict, references: dict | None = None,
     head = {"kind": "coverage", "session": sid, "self_icon_version": SELF_ICON_VERSION,
             "roi_cache_version": cache.record.get("version"), "roster_version": roster_version,
             "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION,
+            "spike_version": SPIKE_VERSION,
             "reference_version": (references or {}).get("version"),
             "parameters": {"step_s": step_s, "MIN_PIXELS": MIN_PIXELS,
                            "ROSTER_GAP_MS": ROSTER_GAP_MS},

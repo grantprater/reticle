@@ -229,7 +229,11 @@ PING_VERSION = "ping-0.1.0"
 # 0.4.0: selected icons carry `portrait_features` (`ally_portrait.portrait_features`:
 # 3x3 Lab grid, native-scale edge-orientation histograms, horizontal profile)
 # with `portrait_features_version`; accepted rows are otherwise unchanged.
-ALLY_ICON_VERSION = "ally-icon-0.4.0"
+# 0.5.0: each candidate stores the accepted spike glyphs within
+# `spike.ON_GLYPH_PX` of it (`spike_glyphs`), and a fit that lands on one
+# (`spike.on_glyph`) is neither the self occluder nor a described teammate;
+# `ally_decisions` rejects it as `on_spike_glyph`.
+ALLY_ICON_VERSION = "ally-icon-0.5.0"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.
@@ -313,7 +317,14 @@ TRAY_KIT_VERSION = "tray-kit-0.1.0"
 # art alone; it named Chamber for Skye on two sessions.
 # 0.2.0: each frame also stores the portrait feature families and their
 # rendered-art scores, and the witness reads those at the table's margin.
-SELF_ICON_VERSION = "self-icon-0.2.0"
+# 0.3.0: a self fit that lands on a spike glyph (`spike.on_glyph`) is
+# skipped for the next; a frame whose every fit lands on one is refused as
+# `on_spike_glyph`.
+# 0.4.0: `spike.on_glyph` keeps a fit that may be the carrier: near a carried
+# glyph it refuses only a fit on the glyph's core or one whose carrier another
+# fit of the frame holds (0.3.0 rows, written on two sessions, refused by
+# distance alone).
+SELF_ICON_VERSION = "self-icon-0.4.0"
 # The kit of the local player as a state per slot (charges, equipped,
 # castable, owner alive), written as `ability_state` rows by `reticle
 # ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,
@@ -445,3 +456,15 @@ ROSTER_VERSION = "roster-0.3.0"
 # `DETAIL_FLOOR` falls from 9 to 8 for roster-0.3.0's panel band, where no
 # board-empty slot reaches 8 and a red portrait reads 6-11.
 ROSTER_SPLIT_VERSION = "roster-split-0.4.0"
+# The spike's glyph on the minimap (fitted as a rounded triangle, base down on
+# the ground and base up when carried) and its marker on the ally roster, read
+# from the minimap and hud crop caches (`spike`), written as `spike` rows by
+# `reticle spike`. Bump when a template, a side, a gate or the stored fields
+# change.
+SPIKE_VERSION = "spike-0.1.0"
+# The spike's carrier and state cross-checked from stored `spike` rows, the
+# rounds table and the roster (`adjudication.spike_carrier`): the roster
+# marker against the minimap carried glyph, the carrier against the plant, a
+# vanished marker against the roster's alive count. Bump when a rule, a
+# tolerance or the stored fields change.
+SPIKE_CARRIER_VERSION = "spike-carrier-0.1.0"

@@ -12,15 +12,24 @@ from math import hypot
 
 from ..minimap import (ALLY_COV_MIN, ALLY_INNER_MAX, ALLY_MAP_DIFF_MIN,
                        MIN_ICON_SEPARATION_PX)
+from ..spike import on_glyph
 
-MINIMAP_ICON_DECISION_VERSION = "minimap-icon-decision-0.1.0"
+#: 0.2.0: a fit that lands on a stored spike glyph is rejected as
+#: `on_spike_glyph`, after the shape gate and before facing and separation;
+#: the frame's shape-gated fits of both channels are the icons a carried glyph
+#: may belong to (`spike.on_glyph`).
+MINIMAP_ICON_DECISION_VERSION = "minimap-icon-decision-0.2.0"
 
 
 def ally_decisions(rows: list[dict]) -> list[dict]:
     """Account for every fitted ally hypothesis from stored measurements."""
     groups = defaultdict(list)
+    shaped = defaultdict(list)
     for row in rows:
         groups[(row["frame_idx"], row["channel"])].append(row)
+        # Either channel's fit past the shape gate may carry a spike glyph.
+        if row["cov"] >= ALLY_COV_MIN and row["inner"] <= ALLY_INNER_MAX:
+            shaped[row["frame_idx"]].append(row)
     out = []
     for (_, channel), group in groups.items():
         kept = []
@@ -29,6 +38,11 @@ def ally_decisions(rows: list[dict]) -> list[dict]:
             preferred = None
             if row["cov"] < ALLY_COV_MIN or row["inner"] > ALLY_INNER_MAX:
                 reason = "shape_gate"
+            elif on_glyph(row["cx"], row["cy"], row.get("spike_glyphs") or [],
+                          row["widget_scale"], shaped[row["frame_idx"]]) is not None:
+                # The fit is the spike glyph (`spike.on_glyph`). Candidates
+                # stored before ally-icon-0.5.0 carry no glyphs and pass.
+                reason = "on_spike_glyph"
             elif channel == "ally" and row["facing"] is None:
                 reason = "facing_unread"
             else:

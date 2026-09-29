@@ -82,10 +82,29 @@ since = "2026-09-10"
 see = ["minimap/spike-glyph"]
 phrases = ["inverts on pickup"]
 
+[spike-carrier-overlay]
+claim = """
+A teammate's carried spike draws on the minimap at the lower left of that
+teammate's icon, over it, inverted relative to the spike dropped on the map.
+The roster marks the same teammate.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-28"
+use = """
+a carried glyph belongs to the icon above and to its right, so a fit nearer the
+glyph than that icon is the glyph (`spike.on_glyph`), and the roster marker and
+the minimap glyph witness the same carrier
+"""
+see = ["minimap/spike-glyph", "minimap/spike-inversion", "hud/spike-carrier-marker"]
+phrases = ["lower left of their icon", "carried spike overlay"]
+
 [no-spike-channel]
 claim = """
-No channel reads the spike. It is therefore invisible to every test that gates
-on a read confuser, which is why a spike-shaped wrong accept survives one.
+Until `reticle/spike.py` (2026-09-28) no channel read the spike. It was
+therefore invisible to every test that gates on a read confuser, which is why a
+spike-shaped wrong accept survived one; the self and ally fits now ask
+`spike.on_glyph`.
 """
 kind = "constraint"
 known = "measured"
