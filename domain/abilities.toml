@@ -1723,6 +1723,31 @@ source = "player, 2026-09-27 (chat): her dog, one charge, not rechargeable"
 use = "adjudication.ability_state.charge_facts: max_charges for (skye, Q)"
 see = ["abilities/recharge-kinds"]
 
+[skye-trailblazer-enemy-minimap-glyph]
+claim = """
+On the player's minimap, an enemy Skye's Trailblazer draws as a white dog
+glyph on a near-black disc inside a red ring with a red lobe: the ring and
+lobe of an enemy agent's icon, with the glyph where a portrait would be.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-29"
+subject = "skye:trailblazer"
+source = """
+a06f04a0059f (C:/Users/grant/Videos/2026-08-26 09-56-37.mp4, Ascent, Skye on
+the enemy side), minimap crop cache at 104.17 s, crop (119, 248): item #23 of
+the store's labels/icon_facing_20260928/ability_candidates.png. The player
+named the glyph Skye's dog on 2026-09-29 (chat;
+ability_candidates_verdicts.jsonl beside it). One crop: its size over time,
+lifetime and motion are not observed
+"""
+use = """
+the enemy teardrop reads it as an enemy icon and the player could mark a
+facing on its lobe; the glyph holds no agent portrait, so it is an ability
+glyph of an enemy Skye, never an enemy agent
+"""
+see = ["abilities/skye-trailblazer-charges"]
+
 [phoenix-hot-hands-charges]
 claim = """
 Phoenix has one Hot Hands charge in slot Q; it does not recharge within a round.
