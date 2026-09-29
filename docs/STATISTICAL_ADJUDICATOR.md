@@ -1609,6 +1609,104 @@ which is consistency, not accuracy. The sheets are in the store's
 `analysis/tip-highlight-20260929/`; predictions H1-H6 and their outcome are
 the `tip-highlight-20260929` rows of `notes/predictions.jsonl`.
 
+## E11: the light chose the ring's lobe, then scored it
+
+E10 found the ring fit's ally cones more precise than the teardrop's on
+331 px widgets, while the player's 331 px ally facing labels find the
+teardrop right and the ring's lobe flipped. Task
+`vision-331-diagnosis-20260929`; predictions H1-H5 and the self-gate
+prediction were logged in the store's `notes/predictions.jsonl` before any
+measurement. Sessions c40d950031bb (C:\Users\grant\Videos\2026-08-24
+18-27-17.mp4) and 223d636bf8d2 (C:\Users\grant\Videos\2026-08-23
+20-09-01.mp4), E10's disc witness, crop cache only.
+
+**The instrument judges one cone fairly.** Cast along the player's label and
+along its reverse from the labelled centre, the disc witness gives the
+label's cone four to six times the reverse's precision on the 38 labelled
+icons, isolated or clustered (the store's
+`analysis/vision-331-diagnosis-20260929/label_cones.json`). No 465 px
+constant misplaces the witness at 331 px: its radius and footprint scale
+with `widget_scale`, its pad and join band are 3 px either way, the cone's
+half-angle is an angle, its origin snap scales and its rays run to the
+first wall (H1 fails).
+
+**The ring arm chose its facing with the light it is scored against.**
+0.4.0 resolved each ring-fit lobe per frame by its lit share
+(`cone.resolve_lobe`), so each of its cones is the better of two opposite
+cones on nearly the metric the witness applies. At 465 px the ring's axis
+itself errs, and no lobe choice rescues it; at 331 px the axis is close and
+only the lobe matters, so the choice alone decides the score.
+`team_vision_eval.py --variant` changes one factor at a time (disc witness,
+ally precision; the `ring-lobe` variant reproduces E10's 0.4.0 arm):
+
+| arm | c40d950031bb | 223d636bf8d2 |
+|---|---|---|
+| ring fit, lobe by the light (0.4.0) | [metric:team_vision_eval/joined-team-light-disc-ringlobe@c40d950031bb+223d636bf8d2#c40d_before_ally_precision=0.7599] | [metric:team_vision_eval/joined-team-light-disc-ringlobe@c40d950031bb+223d636bf8d2#223d_before_ally_precision=0.6854] |
+| ring fit, no light | [metric:team_vision_eval/joined-team-light-disc-ringraw@c40d950031bb+223d636bf8d2#c40d_before_ally_precision=0.5557] | [metric:team_vision_eval/joined-team-light-disc-ringraw@c40d950031bb+223d636bf8d2#223d_before_ally_precision=0.6233] |
+| teardrop (0.5.0) | [metric:team_vision_eval/joined-team-light-disc-ringraw@c40d950031bb+223d636bf8d2#c40d_after_ally_precision=0.6492] | [metric:team_vision_eval/joined-team-light-disc-ringraw@c40d950031bb+223d636bf8d2#223d_after_ally_precision=0.6787] |
+| teardrop, lobe by the light | [metric:team_vision_eval/joined-team-light-disc-tdlobe@c40d950031bb+223d636bf8d2#c40d_after_ally_precision=0.7965] | [metric:team_vision_eval/joined-team-light-disc-tdlobe@c40d950031bb+223d636bf8d2#223d_after_ally_precision=0.6602] |
+
+Without the light the ring loses to the teardrop on both sessions; given
+the light's choice, the teardrop beats the ring on c40d950031bb. Cone by
+cone on the same ally detections (`--matched`, c40d950031bb), the
+teardrop's centre changes nothing (ring centre, teardrop facing
+[metric:team_vision_eval/matched@c40d950031bb#all_ring_td_precision=0.6783] against
+[metric:team_vision_eval/matched@c40d950031bb#all_td_td_precision=0.673]); the light's lobe gives
+[metric:team_vision_eval/matched@c40d950031bb#all_ring_lobe_precision=0.7635], the ring's raw facing
+[metric:team_vision_eval/matched@c40d950031bb#all_ring_raw_precision=0.6001] and the teardrop's reverse
+[metric:team_vision_eval/matched@c40d950031bb#all_td_rev_precision=0.1403]. The gain sits where the two
+readers disagree, a set the light itself selects: there the teardrop scores
+[metric:team_vision_eval/matched@c40d950031bb#disagree_td_td_precision=0.2235] and its reverse
+[metric:team_vision_eval/matched@c40d950031bb#disagree_td_rev_precision=0.4418]. Twelve of those
+disagreements drawn at random (the store's
+`analysis/vision-331-diagnosis-20260929/disagree_c40d950031bb_*.png`) show
+three kinds: stacked icons, where a neighbour's light lies behind the icon;
+an icon against a wall its cone crosses in the raycast; and a cone the wall
+ends inside the icon's footprint, which the witness does not score. The
+lobe chooser also counts the icon's own pixels, which the light mask reads
+as lit: on c40d950031bb's disagreements about a third of the lit pixels
+behind the chosen lobe lie inside the icon's footprint disc, which the
+witness excludes (the store's `analysis/vision-331-diagnosis-20260929/disagree_c40d950031bb.json`).
+
+So the E10 comparison measured the lobe choice, not the facing. The
+teardrop stays (`team-vision-0.5.0` unchanged). A comparison on this
+witness must not let an arm choose a facing with its light; the labels,
+not the light, decide facing.
+
+**The self gate at 331 px.** `SELF_FACING_MIN_NCC` rested on the self
+teardrop disagreeing with the light-resolved lobe, the comparison the ally
+labels overturned. The witness scores the self teardrop against its own
+reverse by NCC (`--matched`):
+
+| self NCC | c40d950031bb teardrop / reverse | 223d636bf8d2 teardrop / reverse |
+|---|---|---|
+| under 0.55 | [metric:team_vision_eval/matched@c40d950031bb#self_lt55_td_precision=0.4985] / [metric:team_vision_eval/matched@c40d950031bb#self_lt55_rev_precision=0.3465] | [metric:team_vision_eval/matched@223d636bf8d2#self_lt55_td_precision=0.3055] / [metric:team_vision_eval/matched@223d636bf8d2#self_lt55_rev_precision=0.8235] |
+| 0.55-0.6 | [metric:team_vision_eval/matched@c40d950031bb#self_55_60_td_precision=0.8599] / [metric:team_vision_eval/matched@c40d950031bb#self_55_60_rev_precision=0.319] | [metric:team_vision_eval/matched@223d636bf8d2#self_55_60_td_precision=0.6716] / [metric:team_vision_eval/matched@223d636bf8d2#self_55_60_rev_precision=0.4727] |
+| 0.6-0.7 | [metric:team_vision_eval/matched@c40d950031bb#self_60_70_td_precision=0.8095] / [metric:team_vision_eval/matched@c40d950031bb#self_60_70_rev_precision=0.2059] | [metric:team_vision_eval/matched@223d636bf8d2#self_60_70_td_precision=0.8837] / [metric:team_vision_eval/matched@223d636bf8d2#self_60_70_rev_precision=0.0363] |
+
+Under 0.55 the reads fail: on 223d636bf8d2 the reverse scores better. From
+0.6 they separate on both sessions. Between 0.55 and 0.6 they separate on
+c40d950031bb and weakly on 223d636bf8d2. Removing the gate
+(`no-self-gate`) raises c40d950031bb's team F1 from
+[metric:team_vision_eval/joined-team-light-disc-selfgate@c40d950031bb+223d636bf8d2#c40d_before_eligible_f1=0.2125] to
+[metric:team_vision_eval/joined-team-light-disc-selfgate@c40d950031bb+223d636bf8d2#c40d_after_eligible_f1=0.2583] and lowers its self
+precision from [metric:team_vision_eval/joined-team-light-disc-selfgate@c40d950031bb+223d636bf8d2#c40d_before_self_precision=0.8659] to
+[metric:team_vision_eval/joined-team-light-disc-selfgate@c40d950031bb+223d636bf8d2#c40d_after_self_precision=0.5564]. The gate stays at 0.6
+until the player labels 331 px self facing; the witness now supports it,
+and 0.55 is the candidate the labels would test.
+
+**Against the predictions.** H1 failed (nothing unscaled misplaces the
+witness). H2 held for the lobe chooser, not the witness: the light mask
+reads the icon's own pixels as lit and `resolve_lobe` counts them; the
+witness excludes them. H3 held in part: 0.5.0 casts fewer cones (E10's
+source counts), but matched on the same detections the light's lobe still
+scores higher, so population does not explain the precision. H4 failed on
+the labelled items: a neighbour's cone holds few of the reverse cones' hits,
+though stacks recur among the population's disagreements. H5 held: without
+the light 0.4.0's ally precision falls below 0.5.0's on both sessions. The
+self-gate prediction held: removing the gate raises self recall and moves
+team precision by under 0.03.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
@@ -1623,10 +1721,11 @@ the `tip-highlight-20260929` rows of `notes/predictions.jsonl`.
   and the Wingman glyph that fit like portraits.
 - Since `team-vision-0.5.0` no cone falls back to the ring fit: an icon whose
   teardrop gives no facing casts nothing, which costs recall wherever the
-  teardrop reads less, as on c40d950031bb. No label scores either teardrop
-  at 331 px; with the walls on, the ring fit's clipped ally cones there are
-  more precise than the teardrop's on c40d950031bb, and whether the ally
-  teardrop or the ring's lobe is right there waits on labels.
+  teardrop reads less, as on c40d950031bb. The ring fit's ally cones scored
+  more precise than the teardrop's there only because the light chose
+  their lobe (E11).
+- No label scores the self teardrop at 331 px; E11's witness supports the
+  0.6 self gate and names 0.55 as the candidate labels would test.
 - Wall edges (`BORDER`) were not perturbed; only box edges were.
 - E2's near-line group holds only a handful of held-out frames.
 - E1-E3 calibrated on one session and one map; E4 adds one Lotus session.
