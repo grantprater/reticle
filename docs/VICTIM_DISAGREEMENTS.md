@@ -162,15 +162,64 @@ matches (for instance four dimmed agents against five deaths), so the board
 refuses and the killfeed names alone. The second life stays uncounted; the
 fix removes a coincidence, not the cause.
 
+## What changed: the elimination collision (death-adjudication-0.16.0)
+
+Elimination now refuses an interval whose independent names repeat an agent.
+Every board claim in it reads `elimination_collision ['<agent>']`, and
+`reticle deaths` stores one `collision` row per interval in the `death`
+stream: the side, both openings, the newly dimmed agents, each death's key,
+name and naming channels, and the board's own reason. A collision where the
+count or a revive already refused is stored with that reason. The claims
+already declared `depends_on` for the deaths elimination used.
+
+Six stored intervals had repeated names
+[metric:victim_disagreements/elimination-collision@corpus#colliding_elimination_intervals=6], holding 12 of the 16
+disagreements [metric:victim_disagreements/elimination-collision@corpus#disagreements_in_colliding_intervals=12]. Rerun from
+storage on the 20 sessions; before is the backup
+`notes/backup/deaths-before-elimination-collision-20260928/`.
+
+| | 0.15.0 | 0.16.0 |
+|---|---|---|
+| Victim disagreements | [metric:victim_disagreements/elimination-collision@corpus#victim_disagreements_before=16] | [metric:victim_disagreements/elimination-collision@corpus#victim_disagreements_after=4] |
+| Killer disagreements | 13 | [metric:victim_disagreements/elimination-collision@corpus#killer_disagreements_after=13] |
+| Killer labels right / wrong / unnamed | 138 / 1 / 7 | [metric:victim_disagreements/elimination-collision@corpus#labels_right_after=138] / [metric:victim_disagreements/elimination-collision@corpus#labels_wrong_after=1] / [metric:victim_disagreements/elimination-collision@corpus#labels_unnamed_after=7] |
+| `checks.KNOWN_KD` exact of 17 | 13 | [metric:victim_disagreements/elimination-collision@corpus#known_kd_exact_after=13] |
+| Collision rows | 0 | [metric:victim_disagreements/elimination-collision@corpus#collision_rows=30] |
+
+The 30 rows: [metric:victim_disagreements/elimination-collision-rows@corpus#elimination_collision=6]
+elimination collisions, [metric:victim_disagreements/elimination-collision-rows@corpus#count_mismatch=17]
+where the count refused and [metric:victim_disagreements/elimination-collision-rows@corpus#revive_in_interval=7]
+where a revive refused.
+
+No resolved name changed [metric:victim_disagreements/elimination-collision@corpus#resolved_names_changed=0];
+`bfad2778a372` 616.5 s stays Raze (truly Phoenix), since its claim already
+refused. The 12 disagreements resolved to the killfeed's name
+[metric:victim_disagreements/elimination-collision@corpus#disagreement_to_resolved=12]: seven right
+[metric:victim_disagreements/elimination-collision@corpus#disagreement_to_resolved_right=7] and five wrong
+[metric:victim_disagreements/elimination-collision@corpus#disagreement_to_resolved_wrong=5], by the table above (three
+rechecked on the zoom crops):
+
+| Session, time | Resolved | True victim |
+|---|---|---|
+| 223d636bf8d2 817.0 | Reyna | Clove |
+| 223d636bf8d2 1296.0 | Vyse | Iso |
+| 3694746e4e54 320.0 | Gekko | Brimstone |
+| 9acf02f98283 592.5 | Reyna | Clove |
+| bfad2778a372 615.5 | Deadlock | Raze |
+
+The refusal traded twelve flagged deaths for seven right names and five
+silent errors. A board refusal leaves the killfeed witness alone, and the
+arbiter resolves one named witness. The collision row marks each of the five:
+a consumer that reads it, or requires two independent channels, sees them.
+The next step is to have the arbiter or the killfeed treat a stored collision
+as contested, not to name either death from the board.
+
 ## Recommended next
 
-1. **Elimination must not name from a colliding interval.** When the
-   independent names of an interval's deaths repeat an agent, elimination
-   cannot say which entry is wrong, and a real second life makes both
-   eliminations wrong. The board witness should refuse such an interval with
-   the collision as its reason, and the collision should be stored as a
-   finding for the killfeed (a misread or an uncounted second life), not as
-   a name.
+1. **A stored collision should contest its deaths' names.** Elimination
+   now refuses a colliding interval (0.16.0 above), and five of its deaths
+   resolve silently wrong on the killfeed alone. The collision row names
+   them; the arbiter or the killfeed should read it.
 2. **Store the revive entries.** Clove's Not Dead Yet (`bdfdcf009dba` about
    666 s) and Sage's Resurrection (`ff636d173b07` about 2240 s) were on screen
    and absent from the death rows, so the board witness never saw
