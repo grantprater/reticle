@@ -106,18 +106,112 @@ detail cells match the table before, and the
 counts all became None, none on a bar with a crisp slot
 [metric:roster_split/bar-floor-cache#alive_changed_crisp=0].
 
+## Scenery above the panel — 2026-09-28, later
+
+`4f207c0c4e39` 2170.5 s (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`)
+read four allies where the board lit three. The crop
+(`notes/pictures/roster_panel_band_board_changes.png`, first row) shows the
+cause: the crispness band began at the crop's top row, and the tinted panel
+begins on row 8 of 78. Above it the scene arrives undimmed. Over the board's
+empty slots, the top row reaches
+[metric:roster_split/panel-band#empty_top_rows_p99=28.2] at the 99th
+percentile; inside the panel no row passes
+[metric:roster_split/panel-band#empty_panel_rows_p99_max=4.5]. The empty
+slot's 10.4 was a window frame above the panel. Neither the pill nor the hue
+was needed: once the band starts inside the panel, detail separates scenery
+from a red portrait [domain:minimap/red-portrait-states].
+
+**The fix.** `roster-0.3.0` reads crispness from `PANEL_TOP_FRAC` (row 10)
+to `ART_FRAC`. `roster-split-0.4.0` refuses a bar with a crisp slot and no
+winning split (`no_split`) instead of reading 0, names every refusal's reason
+(`roster.read_split`, `roster.resolve_reasons`, and `roster_reason` on the
+board audit's unread records), and lowers `DETAIL_FLOOR` from 9 to 8. In the
+panel band no slot the board leaves empty reaches
+[metric:roster_split/panel-band#empty_max=7.53] and no lit one falls below
+[metric:roster_split/panel-band#occupied_min=19.07]; a red portrait reads 6
+to 11. The first reread kept the floor at 9, and the crops of every in-round
+change showed a red KAY/O between crisp teammates at 8.9 (`bfad2778a372`
+1011.5 s allies) reading 1 of 4; the floor of 8 restores 4.
+
+| Check | 0.3.1 on roster-0.2.0 | 0.4.0 on roster-0.3.0 |
+| --- | --- | --- |
+| Board agreements, of [metric:roster_split/panel-band#side_openings=35250] | [metric:roster_split/panel-band#agree_before=34399] | [metric:roster_split/panel-band#agree=34402] |
+| Agreements lost | — | [metric:roster_split/panel-band#agree_lost=0] |
+| Board-wiped sides with a slot at 13+ | [metric:roster_split/panel-band#wiped_bar_max_ge_13_before=13] | [metric:roster_split/panel-band#wiped_bar_max_ge_13=11] |
+| of those, scenery (crops) | — | [metric:roster_split/panel-band#wiped_scenery_ge_13=0] |
+| `checks.KNOWN_KD` exact, of [metric:roster_split/panel-band-known-kd#sessions=17] | [metric:roster_split/bar-floor-known-kd#exact=13] | [metric:roster_split/panel-band-known-kd#exact=13] |
+
+The three agreements gained: `4f207c0c4e39` 2170.5 s (4 to 3),
+`5822b6646448` 1946.5 s (a pale fifth portrait, 4 to 5) and `e37fdeca944f`
+1650.5 s (a wiped bar over scenery, 2 to 0). `c40d950031bb` 961.5-964 s, five
+portraits under a fading screen, now refuses instead of reading 1. The
+eleven wiped side-openings that still read a count all show drawn
+portraits: seven at a round reset the board has not relit, one KAY/O the
+board dims (`4f207c0c4e39` 911.5 s), and three openings of a red portrait
+with no health pill (`ff636d173b07` 523.5-524.5 s).
+
+Over every stored row, [metric:roster_split/panel-band-rows#changed=593] of
+[metric:roster_split/panel-band-rows#cells=175578] resolved counts change;
+[metric:roster_split/panel-band-rows#to_none_hud_not_drawn=550] become None
+on a bar with nothing crisp and no scoreline, most of them the menu before
+the first round, and [metric:roster_split/panel-band-rows#no_split=11]
+refuse `no_split`. I checked all
+[metric:roster_split/panel-band-rows#in_round_changes_checked=37] in-round
+changes that are not HUD refusals by crop
+(`notes/pictures/roster_panel_band_inround_changes.png`). A red captive now
+counts (`a1a995e6b19b` 942.5 s and `a06f04a0059f` 537.5 s enemies, 0 to 4),
+and the `no_split` refusals replace a 0 beside a crisp portrait. Nine answers
+became wrong
+[metric:roster_split/panel-band-rows#in_round_newly_wrong=9]: eight rows at
+session starts with no HUD drawn, where scenery or menu text is crisp
+(`bdfdcf009dba` 0-2.5 s, `96aa1ae9b96f` 47.5 s, `bfad2778a372` 29.5 s), and
+`a06f04a0059f` 1099.0 s enemies, whose red fifth portrait the enemy box clips
+(below), 5 to 4.
+
+`scan --only roster --from cache --force` reread all
+[metric:roster_split/panel-band-cache#sessions=21] roster sessions without a
+decode. [metric:roster_split/panel-band-cache#ungated_changed=977] stored
+ungated counts changed,
+[metric:roster_split/panel-band-cache#ungated_changed_in_round=539] of them
+in a round. The old tables are in
+`notes/backup/roster-before-0.3.0-20260928/`.
+
+## The enemy box clips the fifth portrait
+
+`hud_roster_enemy` spans x 1167-1467, 300 px; `hud_roster` spans 434-751,
+317 px, and mirrored about the scoreline's centre it would end at 1486. In
+the `hud` cache the enemy tiles start about 66 px apart, and the fifth starts
+at x [metric:roster/enemy-box#enemy_tile4_start_px=267.5] of the crop, so
+about [metric:roster/enemy-box#enemy_tile4_px_outside=8] of its 40 px fall
+outside it. The equal fifths the roster and lineup readers cut also drift
+against the tiles: enemy slot 4's window holds about 28 px of panel and the
+clipped tile.
+
+That the clip causes the lineup's enemy refusals is only partly supported.
+Over the stored lineups, the enemy side refuses
+[metric:roster/enemy-box#lineup_refused_enemy=54] slots and the ally side
+[metric:roster/enemy-box#lineup_refused_ally=20]; slot 4 refuses
+[metric:roster/enemy-box#enemy_refused_slot4=14] times, but slots 0 and 2,
+whose tiles lie whole inside their windows, refuse
+[metric:roster/enemy-box#enemy_refused_slot0=11] and
+[metric:roster/enemy-box#enemy_refused_slot2=12]. Every refusal's reason is
+a margin below 0.07. The clip can explain at most slot 4's excess; the
+side-wide gap has another cause. The cache holds no pixels beyond x 1467
+above y 81, so a wider box needs a decode, which this work did not run.
+
 ## Open
 
-- A wiped side over scenery that reaches 13 still reads 1 or more
-  ([metric:roster_split/bar-floor#wiped_bar_max_ge_13=13] of
-  [metric:roster_split/bar-floor#wiped_sides=2197] board-wiped sides), and
-  scenery behind the first empty slot of a partly filled bar can count as one
-  more portrait (`4f207c0c4e39` 2170.5 s reads 4 of 3). Detail cannot separate
-  that scenery from a red portrait; the pill or the hue might.
-- A bar with a crisp slot but no winning split reads 0 under a drawn HUD
-  (`[7.34 31.09 7.32 37.00 13.04]`); it should refuse. Not changed here.
+- A drawn portrait the board dims still counts (KAY/O downed, a red
+  portrait with no health pill). Which channel is right is the board's
+  question.
+- With no HUD drawn, a crisp bar still reads a count; the scoreline cannot
+  gate it, because it is unread on many in-round rows.
+- Widen `hud_roster_enemy` to 1167-1486 and cut slots at the tile pitch;
+  that needs a decode of the roster sessions (or of the `hud` cache set)
+  and a lineup rerun.
 - Round entities and the death adjudicator read the stored ungated columns
-  rather than `resolve`; they pick up 0.3.1 only when rerun.
+  rather than `resolve`; they pick up roster-0.3.0 only when rerun from
+  storage.
 - A stale board can only hide deaths from the witness's newly dimmed set,
   never add one, so before the guard it caused refusals, not wrong names.
   The guard changes the refusal reason to the true one.
