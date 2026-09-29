@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import numpy as np
 import pyarrow as pa
 
 from reticle.reconciliation import (audit_scoreline, audit_roster_deltas,
@@ -207,6 +208,55 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(alive_from_detail([16.0,30.1,27.1,24.2,31.0],True), 5)
         # A drawn red-tinted portrait at 14.9 stays one (ff636d173b07 523.5 s).
         self.assertEqual(alive_from_detail([2.77,2.71,3.12,2.65,14.92],True,True), 1)
+        # roster-split-0.4.0 on the panel band: a red portrait at 8.9 between
+        # crisp teammates counts (bfad2778a372 1011.5 s allies, four drawn);
+        # a floor of 9 read 1.
+        self.assertEqual(alive_from_detail([1.4,31.4,28.0,8.9,39.2],True,True), 4)
+
+    def test_scenery_above_the_panel_is_not_a_portrait(self):
+        """roster-0.3.0: the crispness band starts inside the tinted panel.
+
+        4f207c0c4e39 2170.5 s allies (C:/Users/grant/Videos/2026-09-27
+        19-40-58.mp4): three portraits, and the first empty slot showed a
+        window frame in the undimmed rows above the panel. roster-0.2.0's band
+        scored it 10.35 and the bar read 4 of the board's 3; the panel band
+        scores it 3.9 and reads 3.
+        """
+        from reticle.roster import slot_detail
+        crop = np.full((78, 317, 3), 90, np.uint8)
+        check = (np.indices((78, 64)).sum(0) % 2 * 160).astype(np.uint8)[..., None]
+        crop[0:8, 63:126] = check[0:8, :63]          # scenery above the panel
+        for x in (126, 190, 253):                    # three drawn portraits
+            crop[8:48, x:x + 63] = check[8:48, :63]
+        d = slot_detail(crop)
+        self.assertLess(max(d[:2]), 1.0)
+        self.assertEqual(alive_from_detail(d, True, True), 3)
+        self.assertEqual(alive_from_detail([3.75,10.35,30.83,30.69,26.12],True,True), 4)
+        self.assertEqual(alive_from_detail([1.9,3.9,35.1,33.4,28.0],True,True), 3)
+
+    def test_a_crisp_bar_with_no_split_refuses_under_a_drawn_hud(self):
+        """roster-split-0.4.0: a crisp slot rules out 0, so no split refuses.
+
+        Through 0.3.1 this vector read 0 when the scoreline read. The reason
+        travels with the refusal.
+        """
+        from reticle.roster import read_split, resolve_reasons
+        d = [7.34,31.09,7.32,37.00,13.04]
+        self.assertIsNone(alive_from_detail(d,True,True))
+        self.assertEqual(read_split(d,True,True), (None, "no_split"))
+        self.assertEqual(read_split([2.0]*5,True,False), (None, "hud_not_drawn"))
+        self.assertEqual(read_split([2.0]*5,True), (None, "hud_unknown"))
+        self.assertEqual(read_split([2.0]*5,True,True), (0, None))
+        roster = pa.table(dict(t_ms=[5000.0, 6000.0], alive_ally=[None]*2,
+                               alive_enemy=[None]*2, detail_ally=[d, [30.0]*5],
+                               detail_enemy=[[2.0]*5, None]))
+        hud = pa.table(dict(t_ms=[4800.0], score_left=[1], score_right=[0]))
+        self.assertEqual(resolve(hud, roster), ([None, 5], [0, None]))
+        self.assertEqual(resolve_reasons(hud, roster),
+                         (["no_split", None], [None, "no_detail"]))
+        covered = lambda t: t == 6000.0
+        self.assertEqual(resolve_reasons(hud, roster, menu=covered),
+                         (["no_split", "menu_open"], [None, "menu_open"]))
 
     def test_resolve_never_borrows_a_future_hud_row(self):
         """The gate is an as-of join, and out-of-range leaves it unknown."""

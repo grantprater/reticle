@@ -144,12 +144,26 @@ N_SLOTS = 5
 #: pill beneath it. The pill is deliberately excluded -- it is the weaker
 #: signal and it fails against bright scenery.
 ART_FRAC = 0.62
+#: Fraction of the bar's height above which the crispness band starts
+#: (roster-0.3.0). The tinted panel's top edge sits on row 8 of the 78-row
+#: crop at 1080p; the rows above it show the scene UNDIMMED, and that strip,
+#: not the panel, gave an empty slot its 10-13
+#: [metric:roster_split/panel-band#empty_top_rows_p99=28.2]. The band starts
+#: two rows below the edge, so the edge line never enters it either. The
+#: portrait tile covers the whole band, so a portrait loses only its flat
+#: tile background and reads slightly crisper.
+PANEL_TOP_FRAC = 0.13
 #: Mean |Laplacian| below which a slot is too blurred to be called occupied, so
 #: no split that includes it wins. Permissive on purpose: it exists to resolve
 #: the all-dead case, not to decide what counts as a portrait. Measured band is
 #: 4.53 (dead)
 #: to 18.87 (alive); this sits well inside it and nowhere near either edge.
-DETAIL_FLOOR = 9.0
+#: roster-split-0.4.0 lowers it from 9 to 8 for roster-0.3.0's panel band:
+#: no slot the board leaves empty reaches 8 there
+#: [metric:roster_split/panel-band#empty_max=7.53], and a red portrait
+#: [domain:minimap/red-portrait-states] reads 6-11 (bfad2778a372 1011.5 s
+#: allies: 8.9, which the floor of 9 dropped and so read 1 of 4).
+DETAIL_FLOOR = 8.0
 #: Mean |Laplacian| the bar's crispest slot must reach before any slot counts
 #: as a portrait (roster-split-0.3.1). An empty panel dims the scene behind it
 #: rather than hiding it, so an empty slot over detailed scenery reaches 12,
@@ -173,11 +187,19 @@ def roster_rois(profile: Profile, w: int, h: int):
 
 
 def slot_detail(crop: np.ndarray) -> list[float]:
-    """Per-slot crispness of the portrait band. Five numbers, left to right."""
+    """Per-slot crispness of the portrait band inside the panel. Five
+    numbers, left to right.
+
+    The band runs from `PANEL_TOP_FRAC` to `ART_FRAC`: inside the tinted
+    panel and above the health pill. Inside the panel the scene arrives
+    dimmed and blurred and the portrait arrives crisp, which is the property
+    the count rests on; above the panel the scene is not dimmed at all.
+    """
     if crop is None or crop.size == 0:
         return [0.0] * N_SLOTS
     g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    art = g[: max(1, int(g.shape[0] * ART_FRAC))]
+    top = int(g.shape[0] * PANEL_TOP_FRAC)
+    art = g[top: max(top + 1, int(g.shape[0] * ART_FRAC))]
     w = art.shape[1] / float(N_SLOTS)
     out = []
     for i in range(N_SLOTS):
@@ -246,19 +268,49 @@ def alive_from_detail(detail: list[float], pack_right: bool,
     also counted 0 where a red portrait sat beside crisp teammates
     (a1a995e6b19b 1640 s, three alive); gating the whole bar leaves any bar
     with a crisp portrait to the ratio, exactly as before.
-    Two defects remain open. A bar holding one drawn portrait the board has
-    dimmed still reads 1 (KAY/O on 4f207c0c4e39, and ff636d173b07); and
-    scenery behind the first EMPTY slot of a partly filled bar can still count
-    as one more portrait (4f207c0c4e39 2170.5 s reads 4 of 3), because only a
-    feature beyond detail separates it from a red portrait.
+    SCENERY ABOVE THE PANEL (roster-0.3.0, 2026-09-28)
+    --------------------------------------------------
+    Scenery behind the first EMPTY slot of a partly filled bar still counted
+    one more portrait: 4f207c0c4e39 2170.5 s read 4 of the board's 3. The
+    crop showed the cause, and it was not a feature detail cannot see: the
+    band began at the crop's top row, above the tinted panel, where the scene
+    arrives undimmed. `slot_detail` now reads inside the panel only
+    (`PANEL_TOP_FRAC`); there the empty slot scores 3.9, and the red
+    portrait at a1a995e6b19b 1640 s still scores 11.
+    One defect remains open: a bar holding a drawn portrait the board has
+    dimmed still reads it (KAY/O on 4f207c0c4e39, and red portraits with no
+    health pill on ff636d173b07). Which channel is right is the board's
+    question.
+    """
+    return read_split(detail, pack_right, hud_drawn)[0]
+
+
+def read_split(detail, pack_right: bool,
+               hud_drawn: bool | None = None) -> tuple[int | None, str | None]:
+    """`(count, reason)`: the count `alive_from_detail` returns, and why it
+    is None when it is.
+
+    Reasons: `no_detail` (no vector stored), `hud_not_drawn` (nothing crisp
+    and the scoreline did not read), `hud_unknown` (nothing crisp and no HUD
+    sample to ask), `no_split` (a crisp slot, but no split separates a run of
+    portraits packed at the scoreline from the empty slots).
+
+    A BAR WITH A CRISP SLOT AND NO SPLIT REFUSES (roster-split-0.4.0)
+    -----------------------------------------------------------------
+    Through 0.3.1 it fell to the `hud_drawn` answer and read 0 under a drawn
+    HUD: `[7.34 31.09 7.32 37.00 13.04]` counted nobody beside two crisp
+    portraits. A crisp slot is evidence that someone is drawn, so 0 is the
+    one answer it rules out; the bar is unread.
     """
     if not detail or len(detail) != N_SLOTS:
-        return None
+        return None, "no_detail"
     # Occupied slots run inward from the scoreline: allies pack right, enemies
     # pack left. Order the slots so index 0 is always the innermost.
     seq = list(reversed(detail)) if pack_right else list(detail)
     if max(seq) < CRISP_FLOOR:            # nothing crisp: wiped, or not drawn
-        return 0 if hud_drawn else None
+        if hud_drawn:
+            return 0, None
+        return None, "hud_unknown" if hud_drawn is None else "hud_not_drawn"
     best, best_gap = None, 1.0
     for n in range(1, N_SLOTS + 1):
         occ, emp = seq[:n], seq[n:]
@@ -271,8 +323,8 @@ def alive_from_detail(detail: list[float], pack_right: bool,
         if gap > best_gap:
             best, best_gap = n, gap
     if best is None:
-        return 0 if hud_drawn else None
-    return best
+        return None, "no_split"
+    return best, None
 
 
 def resolve(hud, roster, join_ms: float = 1000.0, menu=None):
@@ -286,19 +338,35 @@ def resolve(hud, roster, join_ms: float = 1000.0, menu=None):
     menu's tab strip crosses the roster bars, and its crisp labels read as
     portraits: `4f207c0c4e39` at 201.0 s counted three allies. A row the
     witness finds covered refuses both counts; `refusals` names the reason,
-    and the stored detail stays as it was read.
+    and the stored detail stays as it was read. `resolve_reasons` names the
+    reason for every refused count, the menu's and the split's alike.
 
     This is an ADJUDICATION over stored data, which is why it lives here rather
     than in `RosterReader`: `scan --only roster` deliberately runs no HUD
     reader, so the gate is not available at read time and the stored columns are
     the ungated answer by construction.
     """
+    reads = _resolved(hud, roster, join_ms, menu)
+    return tuple([n for n, _why in side] for side in reads)
+
+
+def resolve_reasons(hud, roster, join_ms: float = 1000.0, menu=None):
+    """(ally, enemy) reasons per roster row, parallel to `resolve`: None where
+    it reads a count, else why it refuses (`menu_open`, or a `read_split`
+    reason)."""
+    reads = _resolved(hud, roster, join_ms, menu)
+    return tuple([why for _n, why in side] for side in reads)
+
+
+def _resolved(hud, roster, join_ms, menu):
+    """`resolve`'s join: per side, one `(count, reason)` per roster row."""
     from bisect import bisect_right
     v = roster.to_pydict() if hasattr(roster, "to_pydict") else roster
     if "detail_ally" not in v:            # written before roster-0.2.0
         gone = refusals(v, menu)
-        return ([None if w else n for n, w in zip(v["alive_ally"], gone)],
-                [None if w else n for n, w in zip(v["alive_enemy"], gone)])
+        return tuple([(None, w) if w else (n, None if n is not None else "unread")
+                      for n, w in zip(v[col], gone)]
+                     for col in ("alive_ally", "alive_enemy"))
     h = (hud.to_pydict() if hasattr(hud, "to_pydict") else hud) or {}
     ht = h.get("t_ms") or []
     drawn = [l is not None and r is not None
@@ -311,8 +379,9 @@ def resolve(hud, roster, join_ms: float = 1000.0, menu=None):
         for side, (col, pack) in enumerate((("detail_ally", True),
                                             ("detail_enemy", False))):
             d = v[col][k]
-            out[side].append(None if d is None or covered
-                             else alive_from_detail(list(d), pack, g))
+            out[side].append((None, "menu_open") if covered
+                             else (None, "no_detail") if d is None
+                             else read_split(list(d), pack, g))
     return out
 
 

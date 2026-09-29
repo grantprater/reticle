@@ -371,7 +371,13 @@ COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.8.0"
 # new when nothing about the roster moved. That is exactly the comparability
 # fault `metrics.py` splits deps from context to avoid: a version that moves
 # for reasons unrelated to the number it stamps is not a version, it is noise.
-ROSTER_VERSION = "roster-0.2.0"
+#
+# 0.3.0 (2026-09-28) starts the crispness band below the tinted panel's top
+# edge (`roster.PANEL_TOP_FRAC`). The rows above the panel show the scene
+# undimmed, and that strip let an empty slot reach 10-13 and count as a
+# portrait (docs/BOARD_ALIVE_SETS.md). Every stored vector changes; `scan
+# --only roster --from cache` rereads them without a decode.
+ROSTER_VERSION = "roster-0.3.0"
 # The split rule that turns those detail vectors into a count. It is a SEPARATE
 # stamp because it is a pure function of stored data: changing it re-derives,
 # it does not re-decode, and `Store.has_roster` deliberately does not consult
@@ -395,4 +401,10 @@ ROSTER_VERSION = "roster-0.2.0"
 # store's metrics log measured the same day and never shipped: `DETAIL_FLOOR`
 # raised to 13 per split, which also counted 0 on bars holding a red portrait
 # beside crisp teammates.
-ROSTER_SPLIT_VERSION = "roster-split-0.3.1"
+#
+# 0.4.0 (2026-09-28): a bar with a crisp slot but no winning split refuses
+# (`no_split`) rather than reading 0 under a drawn HUD, and every refusal
+# carries its reason (`roster.read_split`, `roster.resolve_reasons`).
+# `DETAIL_FLOOR` falls from 9 to 8 for roster-0.3.0's panel band, where no
+# board-empty slot reaches 8 and a red portrait reads 6-11.
+ROSTER_SPLIT_VERSION = "roster-split-0.4.0"
