@@ -1420,9 +1420,9 @@ rung boundary there may sit 1-2 px off.
 The player's direction of 2026-09-29: the ring fit no longer supplies an
 icon's centre or facing, and the teardrop reaches every consumer; team vision
 is a team signal, so teammates' cones come from it too. Task
-`teardrop-everywhere-20260929`. This section records the rules; the run
-figures are quoted, with their commands, in the branch's commits and are cited
-here once recorded.
+`teardrop-everywhere-20260929`; its predictions were written in
+`prototypes/team_vision_eval.py` before the first arm ran and logged in the
+ledger only after the results, so they are not a pre-registration.
 
 **The owner.** `reticle.teardrop` reads the ally and enemy teardrops
 (`fit_icon`, `IconPoseReader`, `icon-teardrop-0.2.0`, owner of `icon-pose`)
@@ -1430,48 +1430,100 @@ with E6's keys, radii and gates, scaled by `minimap.widget_scale` as the self
 teardrop's are; at scale 1.0 it is E6's fit exactly. `teardrop.posed` is the
 one rule every consumer asks: the ring fit finds the icon, the teardrop gives
 its centre where it reads and its facing where the reader gives one, and the
-ring fit's values stay beside them under `ring`. On the three 331 px sessions
-of E6 (`prototypes/icon_teardrop.py --centre-check`) the scaled ally centre
-moves from about 6 px off the ring fit's to under 2, reads on nine in ten
-detections instead of one in two, and the portrait aligned there fits its
-side's art better than at either the ring fit's centre or the unscaled
-teardrop's, as it does at 465 px.
+ring fit's values stay beside them under `ring`.
+
+**The ally centre at 331 px** (`prototypes/icon_teardrop.py --centre-check`,
+40 frames a session; the portrait fit is the aligned portrait's median
+distance to its side's art, lower is better):
+
+| session | offset from the ring fit, unscaled / scaled (px) | read rate, unscaled / scaled | portrait fit: ring / unscaled / scaled |
+|---|---|---|---|
+| 223d636bf8d2 | [metric:icon_teardrop/centre-scale@223d636bf8d2#old_offset_px=6.244] / [metric:icon_teardrop/centre-scale@223d636bf8d2#new_offset_px=1.729] | [metric:icon_teardrop/centre-scale@223d636bf8d2#old_read_rate=0.448] / [metric:icon_teardrop/centre-scale@223d636bf8d2#new_read_rate=0.908] | [metric:icon_teardrop/centre-scale@223d636bf8d2#ring_fit_median=0.648] / [metric:icon_teardrop/centre-scale@223d636bf8d2#old_fit_median=1.32] / [metric:icon_teardrop/centre-scale@223d636bf8d2#new_fit_median=0.564] |
+| bfad2778a372 | [metric:icon_teardrop/centre-scale@bfad2778a372#old_offset_px=6.011] / [metric:icon_teardrop/centre-scale@bfad2778a372#new_offset_px=1.597] | [metric:icon_teardrop/centre-scale@bfad2778a372#old_read_rate=0.537] / [metric:icon_teardrop/centre-scale@bfad2778a372#new_read_rate=0.91] | [metric:icon_teardrop/centre-scale@bfad2778a372#ring_fit_median=0.673] / [metric:icon_teardrop/centre-scale@bfad2778a372#old_fit_median=1.513] / [metric:icon_teardrop/centre-scale@bfad2778a372#new_fit_median=0.497] |
+| e37fdeca944f | [metric:icon_teardrop/centre-scale@e37fdeca944f#old_offset_px=6.458] / [metric:icon_teardrop/centre-scale@e37fdeca944f#new_offset_px=1.566] | [metric:icon_teardrop/centre-scale@e37fdeca944f#old_read_rate=0.473] / [metric:icon_teardrop/centre-scale@e37fdeca944f#new_read_rate=0.905] | [metric:icon_teardrop/centre-scale@e37fdeca944f#ring_fit_median=0.555] / [metric:icon_teardrop/centre-scale@e37fdeca944f#old_fit_median=1.356] / [metric:icon_teardrop/centre-scale@e37fdeca944f#new_fit_median=0.515] |
+
+The unscaled teardrop sat about 6 px off; scaled, it reads twice as often and
+the portrait aligned at its centre fits the art better than at the ring fit's.
+At 465 px the scale is 1 and nothing moves (a06f04a0059f,
+[metric:icon_teardrop/centre-scale@a06f04a0059f#new_offset_px=1.214] px either way).
 
 **The self teardrop at 331 px.** E7 found the self teardrop misreads on
-c40d950031bb. `prototypes/team_vision_eval.py --pose-check` compares each read
-with the ring fit's facing after `cone.resolve_lobe`: self reads under NCC
-0.6 point more than 90 degrees away on about a third of frames on every
-widget size, and on 331 px widgets most self reads fall there. That check
-cannot judge which facing is right (the light chose the ring's lobe), so it
-sets only a gate. Leaving the blur and the ring width unscaled raised the
-NCC at 331 px but not the agreement, so the model's scaling is not the
-cause. At 465 px the player's labels do not support the gate: of the two
-labelled reads under 0.6, an Ascent control is right and a Lotus item
-flipped. So `SelfConeReader` (`teardrop-0.3.0`) gives the centre and no
+c40d950031bb. `prototypes/team_vision_eval.py --pose-check` compares each
+ungated read with the ring fit's facing after `cone.resolve_lobe`, which chose
+its lobe with the same light, so the check measures agreement, not accuracy.
+Self reads at NCC 0.5-0.6 point more than 90 degrees from the lobe on
+[metric:team_vision_eval/pose-check@c40d950031bb#self_ncc05_over90=0.289] of c40d950031bb's,
+[metric:team_vision_eval/pose-check@223d636bf8d2#self_ncc05_over90=0.275] of 223d636bf8d2's (both 331 px) and
+[metric:team_vision_eval/pose-check@5822b6646448#self_ncc05_over90=0.278] of Lotus's (465 px); from 0.6 up,
+[metric:team_vision_eval/pose-check@c40d950031bb#self_ncc06_over90=0.176],
+[metric:team_vision_eval/pose-check@223d636bf8d2#self_ncc06_over90=0.021] and
+[metric:team_vision_eval/pose-check@5822b6646448#self_ncc06_over90=0.107]. The median self read sits at NCC
+[metric:team_vision_eval/pose-check@c40d950031bb#self_ncc_median=0.558] on c40d950031bb and
+[metric:team_vision_eval/pose-check@223d636bf8d2#self_ncc_median=0.606] on 223d636bf8d2, against
+[metric:team_vision_eval/pose-check@5822b6646448#self_ncc_median=0.705] on Lotus. Leaving the blur and the ring
+width unscaled raised the NCC at 331 px but not the agreement, so the model's
+scaling is not the cause. At 465 px the player's labels do not support a gate:
+of the two labelled reads under 0.6, an Ascent control is right and a Lotus
+item flipped. So `SelfConeReader` (`teardrop-0.3.0`) gives the centre and no
 facing under `SELF_FACING_MIN_NCC` only on a widget size the labels do not
 cover (`LABELLED_SCALES`), with `facing_reason` `low_ncc_unlabelled_scale`,
-and the known-answer check reads as before. The ally reads show no cliff
-that holds across sessions, the ally cones gain precision at 331 px (below),
-and E6's labels, which never saw the ally teardrop flip, come from 465 px
-widgets; no label scores either teardrop at 331 px.
+and the known-answer check reads as before.
 
 **Team vision (`team-vision-0.5.0`).** Every detection is posed before the
 tracker sees it, so tracks, lifecycle positions and cones all take the
-teardrop's centre, and a cone observed this frame faces this frame's
-teardrop facing; `cone.resolve_lobe` sees only a ring-fit facing. Each stored
-icon's `pose` names its origin, facing source and the teardrop's reasons.
+teardrop's centre, and a cone observed this frame faces this frame's teardrop
+facing and stops at master's occluders (E9); `cone.resolve_lobe` sees only a
+ring-fit facing. Each stored icon's `pose` names its origin, facing source
+and the teardrop's reasons, beside E9's `boxes_crossed`. An icon whose
+teardrop gives no facing casts nothing (`RING_FALLBACK` off): a cone cast the
+wrong way discards real observations downstream.
+
 `team_vision_eval.py` scores the eligible team union against the drawn light
-joined to every team icon, with the chain on master's code as the before
-arm; `--footprint disc` places the icons without any facing, so the witness
-cannot favour the teardrop. An icon whose teardrop gives no facing casts
-nothing (`RING_FALLBACK` off): with the fallback the ring fit's cones raised
-recall at 465 px but pulled precision on c40d950031bb under 0.3.0's, and a
-cone cast the wrong way discards real observations downstream. Against
-0.3.0 the team's precision rises on all four sessions scored (e78e75b2d191,
-5822b6646448, 223d636bf8d2, c40d950031bb) and each ally's cone gains
-precision on all three with teammates; F1 rises at 465 px and falls at
-331 px, where fewer cones are cast: the ally teardrop reads less there and
-the self teardrop mostly falls under its facing gate.
+joined to every team icon, with the chain on master's `team-vision-0.4.0`
+(walls, ring-fit ally cones, the ungated self teardrop) as the before arm; the
+witness is the same in both arms on every frame. The E4 witness places each
+icon by its teardrop; `--footprint disc` places it without any facing, so the
+witness cannot favour the teardrop.
+
+| session | widget | witness | precision, 0.4.0 / 0.5.0 | recall, 0.4.0 / 0.5.0 | F1, 0.4.0 / 0.5.0 |
+|---|---|---|---|---|---|
+| e78e75b2d191 | 465 | E4 | [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#e78e_before_eligible_precision=0.8705] / [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#e78e_after_eligible_precision=0.8746] | [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#e78e_before_eligible_recall=0.5217] / [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#e78e_after_eligible_recall=0.5209] | [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#e78e_before_eligible_f1=0.6524] / [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#e78e_after_eligible_f1=0.6529] |
+| 5822b6646448 | 465 | E4 | [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#lotus_before_eligible_precision=0.7637] / [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#lotus_after_eligible_precision=0.7871] | [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#lotus_before_eligible_recall=0.476] / [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#lotus_after_eligible_recall=0.4691] | [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#lotus_before_eligible_f1=0.5865] / [metric:team_vision_eval/joined-team-light-teardrop@e78e75b2d191+5822b6646448#lotus_after_eligible_f1=0.5878] |
+| 5822b6646448 | 465 | disc | [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#lotus_before_eligible_precision=0.7632] / [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#lotus_after_eligible_precision=0.7846] | [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#lotus_before_eligible_recall=0.4661] / [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#lotus_after_eligible_recall=0.4609] | [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#lotus_before_eligible_f1=0.5787] / [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#lotus_after_eligible_f1=0.5807] |
+| 223d636bf8d2 | 331 | disc | [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#223d_before_eligible_precision=0.7038] / [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#223d_after_eligible_precision=0.6922] | [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#223d_before_eligible_recall=0.3462] / [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#223d_after_eligible_recall=0.3321] | [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#223d_before_eligible_f1=0.4641] / [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#223d_after_eligible_f1=0.4488] |
+| c40d950031bb | 331 | disc | [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#c40d_before_eligible_precision=0.6788] / [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#c40d_after_eligible_precision=0.6522] | [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#c40d_before_eligible_recall=0.2106] / [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#c40d_after_eligible_recall=0.1269] | [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#c40d_before_eligible_f1=0.3215] / [metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#c40d_after_eligible_f1=0.2125] |
+
+At 465 px the teardrop raises precision and holds F1; at 331 px it lowers
+both. Before the walls the teardrop raised precision on every session scored,
+because the ring fit's leaking cones lost more; E9's walls took that loss
+away, and on 331 px widgets the ring fit's clipped cones now score better
+than the teardrop's. The ally cones carry the loss: ally precision on
+c40d950031bb falls from
+[metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#c40d_before_ally_precision=0.7599] to
+[metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#c40d_after_ally_precision=0.6492], holds on 223d636bf8d2
+([metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#223d_before_ally_precision=0.6854] to
+[metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#223d_after_ally_precision=0.6787]) and rises on Lotus
+([metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#lotus_before_ally_precision=0.7454] to
+[metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#lotus_after_ally_precision=0.7678]). An NCC gate would not
+recover it: on c40d950031bb the union of cones read at NCC 0.7 or more is less
+precise
+([metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#c40d_after_ncc70_precision=0.5112])
+than the whole
+([metric:team_vision_eval/joined-team-light-disc@c40d950031bb+223d636bf8d2+5822b6646448#c40d_after_teardrop_only_precision=0.6522]), and ally reads
+there disagree with the ring's lobe on
+[metric:team_vision_eval/pose-check@c40d950031bb#ally_over90=0.214] of frames, against
+[metric:team_vision_eval/pose-check@223d636bf8d2#ally_over90=0.084] on 223d636bf8d2. The self gate leaves
+c40d950031bb almost no self cones, since most of its self reads fall under
+NCC 0.6 (above). Only labels of the
+ally facing at 331 px can say whether the teardrop or the ring's lobe is
+right there.
+
+**Against the predictions.** P1 (F1 at least 0.3.0's on both E4 sessions,
+Lotus up by 0.02) failed: F1 held but rose by far less than 0.02, against
+0.3.0 as against 0.4.0. P2 (ally precision rises) held on Lotus, the one E4
+session with teammates. P3 (pooled recall moves under 0.03) held on both.
+The predictions named only the E4 sessions; off them, on c40d950031bb, ally
+precision fell and recall fell by more than 0.03.
 
 **The ally icon and self icon streams.** `minimap.AllyIconReader`
 (`ally-icon-0.6.0`) poses every shape-gated fit: the glyph check, the
@@ -1484,10 +1536,20 @@ centre refused a sixth more teammates; kept at the ring fit's centre it
 describes as many as before. `self_icon` (`self-icon-0.5.0`) cuts and aligns
 the player's portrait at the self teardrop's centre on the 465 px widget,
 where E6's rule B' and `--centre-check --centre-class self` find it fits the
-art far better. On 331 px widgets the same check fit better on two sessions
-and worse on two, so `teardrop.self_portrait_pose` keeps the ring fit's
-centre there (`origin_reason` `unlabelled_scale`), for the self icon stream
-and for the ally reader's self occluder alike.
+art far better (Lotus:
+[metric:icon_teardrop/centre-scale-self@5822b6646448#new_fit_median=0.474] against the ring fit's
+[metric:icon_teardrop/centre-scale-self@5822b6646448#ring_fit_median=1.013]). On 331 px widgets the same check
+is mixed: the teardrop's centre fits better on c40d950031bb
+([metric:icon_teardrop/centre-scale-self@c40d950031bb#new_fit_median=1.143] against
+[metric:icon_teardrop/centre-scale-self@c40d950031bb#ring_fit_median=1.286]) and e37fdeca944f
+([metric:icon_teardrop/centre-scale-self@e37fdeca944f#new_fit_median=1.039] against
+[metric:icon_teardrop/centre-scale-self@e37fdeca944f#ring_fit_median=1.414]), ties on 223d636bf8d2
+([metric:icon_teardrop/centre-scale-self@223d636bf8d2#new_fit_median=0.871] against
+[metric:icon_teardrop/centre-scale-self@223d636bf8d2#ring_fit_median=0.874]) and fits worse on bfad2778a372
+([metric:icon_teardrop/centre-scale-self@bfad2778a372#new_fit_median=1.008] against
+[metric:icon_teardrop/centre-scale-self@bfad2778a372#ring_fit_median=0.865]). So `teardrop.self_portrait_pose`
+keeps the ring fit's centre there (`origin_reason` `unlabelled_scale`), for
+the self icon stream and for the ally reader's self occluder alike.
 
 **Where the ring fit stays.** The L1 self position (`pick_self`, the
 `minimap` stream): switching estimators mid-track moves the point by the
@@ -1512,7 +1574,9 @@ margin. Each finds or masks an icon; none casts a cone.
 - Since `team-vision-0.5.0` no cone falls back to the ring fit: an icon whose
   teardrop gives no facing casts nothing, which costs recall wherever the
   teardrop reads less, as on c40d950031bb. No label scores either teardrop
-  at 331 px, and the self teardrop there mostly reads under its facing gate.
+  at 331 px; with the walls on, the ring fit's clipped ally cones there are
+  more precise than the teardrop's on c40d950031bb, and whether the ally
+  teardrop or the ring's lobe is right there waits on labels.
 - Wall edges (`BORDER`) were not perturbed; only box edges were.
 - E2's near-line group holds only a handful of held-out frames.
 - E1-E3 calibrated on one session and one map; E4 adds one Lotus session.

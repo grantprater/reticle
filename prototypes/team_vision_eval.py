@@ -262,10 +262,22 @@ def pose_check(sid: str, every: int = 3) -> dict:
     """
     from reticle import cone as cone_mod
     from reticle.minimap import ally_icons, self_icons, widget_drawn
-    from reticle.teardrop import IconPoseReader, SelfConeReader
+    from reticle.teardrop import IconPoseReader
     s = Sess(sid)
     sc = widget_scale(s.box[2] - s.box[0])
-    readers = {"self": SelfConeReader(sc), "ally": IconPoseReader("ally", sc)}
+    class _SelfFit:
+        """The self teardrop's own read, before `SelfConeReader`'s facing gate,
+        which this check measures and so must not apply."""
+
+        def read(self, crop, cx, cy):
+            from reticle.teardrop import fit_teardrop
+            f = fit_teardrop(crop, cx, cy, scale=sc)
+            if f.get("read"):
+                return {"x": f["x"], "y": f["y"], "deg": f["deg"], "origin": "teardrop", "ncc": f["ncc"]}
+            return {"x": cx, "y": cy, "deg": None, "origin": "ring_fit", "ncc": f.get("ncc"),
+                    "reason": f.get("reason")}
+
+    readers = {"self": _SelfFit(), "ally": IconPoseReader("ally", sc)}
     times = sorted(float(t) for _, sel in co.windows(s) for t in sel)[::every]
     rows = []
     for t, crop in s.crops(times):
@@ -357,7 +369,27 @@ def main(argv=None) -> int:
         for sid in args.pose_check:
             res = pose_check(sid)
             (args.out / f"pose_{sid}.json").write_text(json.dumps(res), encoding="utf-8")
-            print(sid, json.dumps(pose_summary(res)), flush=True)
+            summ = pose_summary(res)
+            print(sid, json.dumps(summ), flush=True)
+            if args.record:
+                from reticle.version import ICON_TEARDROP_VERSION, TEARDROP_VERSION
+                values = {"width": summ["width"]}
+                for role in ("self", "ally"):
+                    o = summ[role]
+                    values.update({f"{role}_n": o["n"], f"{role}_read_rate": o["read_rate"],
+                                   f"{role}_ncc_median": o["ncc_q"][2] if o["ncc_q"] else None,
+                                   f"{role}_over90": o["over90_vs_lobe"]})
+                    for lo, b in o["bins"].items():
+                        tag = lo.replace(".", "")
+                        values[f"{role}_ncc{tag}_n"] = b["n"]
+                        if b["over90"] is not None:
+                            values[f"{role}_ncc{tag}_over90"] = b["over90"]
+                metrics.record("team_vision_eval", part="pose-check", session=sid, values=values,
+                               deps={"prototype": VERSION, "teardrop": TEARDROP_VERSION,
+                                     "icon_teardrop": ICON_TEARDROP_VERSION, "every": 3,
+                                     "witness": "minimap.fit_ring facing after cone.resolve_lobe "
+                                                "(known-aware); agreement, not accuracy"},
+                               note="teardrop facing against the ring fit's lobe-resolved facing, by NCC")
         return 0
     if args.no_fallback:
         from reticle import team_vision

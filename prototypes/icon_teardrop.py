@@ -440,15 +440,18 @@ def main(argv=None) -> int:
             values[sid] = got
         if args.record:
             from reticle import metrics
-            from reticle.version import ICON_TEARDROP_VERSION
+            from reticle.version import ICON_TEARDROP_VERSION, TEARDROP_VERSION
             for sid, got in values.items():
                 metrics.record("icon_teardrop", part="centre-scale" + ("" if args.centre_class == "ally"
                                                                       else "-" + args.centre_class),
                                session=sid,
                                values={k: v for k, v in got.items() if k != "gallery_reason"},
-                               deps={"version": VERSION, "reader": ICON_TEARDROP_VERSION, "n": args.n,
-                                     "before": "icon-teardrop-0.1.0 (scale 1.0)"},
-                               note="ally teardrop centre and portrait fit at scale 1.0 and at widget_scale")
+                               deps={"version": VERSION, "n": args.n,
+                                     "reader": (ICON_TEARDROP_VERSION if args.centre_class == "ally"
+                                                else TEARDROP_VERSION),
+                                     "before": "the same reader at scale 1.0"},
+                               note=f"{args.centre_class} teardrop centre and portrait fit "
+                                    "at scale 1.0 and at widget_scale")
         return 0
     if args.calibrate:
         calibrate(args.calibrate, args.n, {"r_out": args.r_out, "width": args.width, "L": args.length})
