@@ -1847,13 +1847,46 @@ def pick_self(cands: list[tuple[float, float, float] | dict],
     Past `GAP_MS` the previous point constrains nothing -- a player crosses the
     whole widget in a second -- so it is dropped rather than used with a gate
     so wide it admits everything.
+
+    `pick_self_declared` makes the same choice and says which rule made it.
+    """
+    return pick_self_declared(cands, prev, dt_ms, scale)["xy"]
+
+
+#: The rules `pick_self_declared` names in `rests_on`.
+SELF_PICK_RULES = ("near_prior", "sole_candidate", "full_search", "no_candidate")
+
+
+def pick_self_declared(cands: list[tuple[float, float, float] | dict],
+                       prev: tuple[float, float] | None,
+                       dt_ms: float, scale: float = 1.0) -> dict:
+    """`pick_self`'s choice, with the rule that made it (`rests_on`).
+
+    Returns `xy` (the fit's centre, or None), `index` (its place in `cands`),
+    `rests_on` (one of `SELF_PICK_RULES`), `widened` and `runner_up`:
+
+    * `near_prior`: the best coverage among the fits within the gate round
+      `prev`; the pick rests on the previous point.
+    * `sole_candidate`: one fit, taken whatever the prior says.
+    * `full_search`: the best coverage over every fit, because no previous
+      point is usable (none, or older than `GAP_MS`) or none lies within
+      the gate. `widened` is True in the second case: a prior existed and
+      the frame surprised it.
+    * `no_candidate`: nothing to pick.
+
+    `runner_up` is the best-coverage fit not picked, `(x, y, cov)` or None,
+    so a pick the prior decided keeps its rival. The choice is `pick_self`'s,
+    unchanged; this only declares it (docs/PRIOR_DRIVEN_READERS.md, guard 1).
     """
     if not cands:
-        return None
+        return {"xy": None, "index": None, "rests_on": "no_candidate",
+                "widened": False, "runner_up": None}
     norm = [(float(c["cov"]), float(c["cx"]), float(c["cy"]))
             if isinstance(c, dict)
             else (float(c[0]), float(c[1]), float(c[2]))
             for c in cands]
+    order = list(range(len(norm)))
+    chosen, rule, widened = None, "full_search", False
     if prev is not None and dt_ms <= GAP_MS:
         # RUN_PX is widget px/s, so the gate scales with the widget. `scale`
         # defaults to 1.0 rather than being derived, because this is the one
@@ -1861,10 +1894,20 @@ def pick_self(cands: list[tuple[float, float, float] | dict],
         # caller has the width and passes it.
         lim = max(2.0 * FIT_ERR_PX * scale,
                   RUN_PX * scale * (dt_ms / 1000.0) * 2.0)
-        near = [c for c in norm if np.hypot(c[1] - prev[0], c[2] - prev[1]) <= lim]
+        near = [i for i in order
+                if np.hypot(norm[i][1] - prev[0], norm[i][2] - prev[1]) <= lim]
         if near:
-            return max(near, key=lambda c: c[0])[1:]
-    return max(norm, key=lambda c: c[0])[1:]
+            chosen, rule = max(near, key=lambda i: norm[i][0]), "near_prior"
+        else:
+            widened = True
+    if chosen is None:
+        chosen = max(order, key=lambda i: norm[i][0])
+    if len(norm) == 1:
+        rule = "sole_candidate"
+    rest = [i for i in order if i != chosen]
+    ru = max(rest, key=lambda i: norm[i][0]) if rest else None
+    return {"xy": norm[chosen][1:], "index": chosen, "rests_on": rule, "widened": widened,
+            "runner_up": None if ru is None else (norm[ru][1], norm[ru][2], norm[ru][0])}
 
 
 def crosses(instants: list[float], t0: float, t1: float) -> bool:
@@ -1948,8 +1991,16 @@ def admit_steps(found: list[tuple[float, float, float]], scale: float,
 
 def filter_track(found: list[tuple[float, float, float]],
                   step_ms: float, scale: float = 1.0,
-                  motion=None) -> list[tuple[float, float, float]]:
+                  motion=None, *, mark: bool = False) -> list[tuple]:
     """Drop impossible steps, then interpolate the short gaps they leave.
+
+    **`mark=True` says which points were invented.** Each point then carries
+    a fourth element, True where this function interpolated it and False
+    where it was read; the default returns the plain `(t, x, y)` triples
+    every existing caller unpacks. `docs/ADJUDICATION_DESIGN.md` requires an
+    interpolated point to render distinctly, and a triple cannot say it
+    (docs/PRIOR_DRIVEN_READERS.md, section 4). Nothing stores this function's
+    output, so marking changes no stored stream.
 
     **`motion` selects the law**, and takes three shapes:
 
@@ -2033,16 +2084,18 @@ def filter_track(found: list[tuple[float, float, float]],
     def spans_hole(t0: float, t1: float) -> bool:
         return crosses(holes, t0, t1)
 
+    read = (lambda p: (*p[:3], False)) if mark else (lambda p: p)
     out = []
     for i, (a, b) in enumerate(zip(keep, keep[1:])):
-        out.append(a)
+        out.append(read(a))
         gap = b[0] - a[0]
         if (step_ms < gap <= GAP_MS and not spans_hole(a[0], b[0])
                 and i not in jumps):
             k = int(round(gap / step_ms)) - 1
             for j in range(1, k + 1):
                 f = j / (k + 1)
-                out.append((a[0] + gap * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f))
+                p = (a[0] + gap * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f)
+                out.append((*p, True) if mark else p)
     if keep:
-        out.append(keep[-1])
+        out.append(read(keep[-1]))
     return out

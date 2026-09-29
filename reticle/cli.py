@@ -737,9 +737,10 @@ def cmd_minimap(args) -> int:
     track = filter_track([(r["t_ms"], r["self_x"], r["self_y"]) for r in rows],
                          step_ms,
                          widget_scale(minimap_roi_px(profile, w, h)[2]
-                                      - minimap_roi_px(profile, w, h)[0]))
+                                      - minimap_roi_px(profile, w, h)[0]), mark=True)
     print(f"           filtered {len(track)} points "
-          f"({len(track) / n * 100:.1f}% coverage after gap interpolation)")
+          f"({len(track) / n * 100:.1f}% coverage after gap interpolation, "
+          f"{sum(p[3] for p in track)} interpolated)")
     sp = np.array([np.hypot(b[1] - a[1], b[2] - a[2]) / ((b[0] - a[0]) / 1000.0)
                    for a, b in zip(track, track[1:]) if 0 < b[0] - a[0] <= 1.5 * step_ms])
     if sp.size:
