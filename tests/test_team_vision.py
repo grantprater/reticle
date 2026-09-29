@@ -71,6 +71,40 @@ class TeamVisionTests(unittest.TestCase):
         self.assertFalse(late[0]["casts"])
         self.assertLessEqual(row["observable_px"], row["observable_all_px"])
 
+    def test_the_row_stores_why_each_icon_casts_or_not(self):
+        from reticle.minimap_lifecycle import Witnesses
+        crop = np.zeros((60, 60, 3), np.uint8)
+        rows = {}
+        for name, witnesses in (("stock", None), ("roster", Witnesses(roster=[(0.0, 5)]))):
+            vision = TeamVision(np.ones((60, 60), bool), np.ones((60, 60), bool),
+                                np.zeros((60, 60)), width=60, witnesses=witnesses)
+            me = {"cx": 20.0, "cy": 20.0, "r": 5, "cov": 0.9, "facing": 0.0}
+            with patch("reticle.team_vision.widget_drawn", return_value=True), \
+                    patch("reticle.team_vision.self_icons", return_value=[me]):
+                with patch("reticle.team_vision.ally_icons", return_value=[_ally(10.0)]):
+                    for i in range(12):
+                        vision.step(crop, i * 66.7)
+                with patch("reticle.team_vision.ally_icons",
+                           return_value=[_ally(10.0), {**_ally(50.0), "cy": 50.0}]):
+                    for i in range(12, 24):
+                        got = vision.step(crop, i * 66.7)
+                        if i == 12:
+                            rows[name + "_first"] = frame_row(got)
+            rows[name] = frame_row(got)
+        for row in rows.values():
+            keys = {f"{ic['role']}:{ic['track_id']}" for ic in row["icons"]}
+            self.assertTrue({a["key"] for a in row["adjudication"]} <= keys)
+        late = {a["key"]: a for a in rows["stock"]["adjudication"]}
+        refused = [a for a in late.values() if not a["eligible"]]
+        self.assertEqual(len(refused), 1)
+        self.assertTrue(refused[0]["reason_code"].endswith("beyond_reach"))
+        # The roster licenses four allies and sees two: the late icon is
+        # admitted where it appears, and continues from then on.
+        admitted = [a for a in rows["roster_first"]["adjudication"] if a["refused_as"]]
+        self.assertEqual(len(admitted), 1)
+        self.assertEqual(admitted[0]["admitted_by"]["rule"], "roster_capacity")
+        self.assertTrue(all(a["eligible"] for a in rows["roster"]["adjudication"]))
+
     def test_a_warm_up_frame_leaves_the_chain_where_a_full_frame_does(self):
         crop = np.zeros((60, 60, 3), np.uint8)
         full, warm = _vision(), _vision()

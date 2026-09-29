@@ -309,7 +309,12 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # where the shape reads, else at the ring fit's centre; each self icon records which.
 # 0.3.0: the self cone faces the teardrop's facing where the shape reads, else the
 # track's resolved lobe; the stored self icon's `self_cone` names both sources.
-TEAM_VISION_VERSION = "team-vision-0.3.0"
+# NEXT (renumber at rebase, after teardrop-everywhere's 0.4.0 and cone-walls):
+# each frame row stores `adjudication`, the lifecycle's verdict per observed icon
+# (`minimap_lifecycle.adjudication_record`), and the lifecycle (0.3.0) asks the
+# roster, the player's dead intervals, round starts and revives
+# (`team_vision.stored_witnesses`), named in the coverage row.
+TEAM_VISION_VERSION = "team-vision-0.3.0+lifecycle-draft"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.

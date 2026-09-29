@@ -2631,7 +2631,8 @@ def cmd_vision(args) -> int:
     from .minimap_diagnostics import DIAGNOSTICS_VERSION
     from .minimap_lifecycle import LIFECYCLE_VERSION
     from .roi_cache import ROI_CACHE_VERSION, RoiCache
-    from .team_vision import TeamVision, at, compare_rows, frame_row, load_inputs
+    from .team_vision import (TeamVision, at, compare_rows, frame_row, load_inputs,
+                              stored_witnesses)
     from .track import TRACK_VERSION
     from .version import TEAM_VISION_VERSION, TEARDROP_VERSION
 
@@ -2674,15 +2675,21 @@ def cmd_vision(args) -> int:
             print(f"{sid}: no stored team_vision to check against -- skipped")
             continue
         inputs.stalls = stalls.for_session(store, sid, _date_of(manifest))
+        # The lifecycle's second witnesses and origin events, from stored rows
+        # (`team_vision.stored_witnesses`): the roster, the player's death and
+        # spectate intervals, round starts and revives.
+        witnesses, origin_events, witness_stamps = stored_witnesses(
+            store, sid, _date_of(manifest), inputs.box)
+        chain = {"distance_diagnostics": False, "witnesses": witnesses,
+                 "origin_events": origin_events}
         common = {"session_id": sid, "team_vision_version": TEAM_VISION_VERSION}
         rows, widget = [], Counter()
         times = sorted({float(t) for t in cache.t_ms})
         started = time.perf_counter()
         if instants is not None:
-            got = at(cache, inputs, sorted(instants[sid]), warmup_ms=warmup_ms,
-                     distance_diagnostics=False)
+            got = at(cache, inputs, sorted(instants[sid]), warmup_ms=warmup_ms, **chain)
         else:
-            vision = TeamVision.from_inputs(inputs, distance_diagnostics=False)
+            vision = TeamVision.from_inputs(inputs, **chain)
             got = ((smp.frame_idx, vision.step(smp.frame[y0:y1, x0:x1], smp.t_ms))
                    for smp in cache.samples(times, rois=["minimap"]))
         for frame_idx, frame in got:
@@ -2719,9 +2726,8 @@ def cmd_vision(args) -> int:
                     "diagnostics_version": DIAGNOSTICS_VERSION,
                     "stall_version": stalls.STALL_VERSION,
                     "stalls_known": inputs.stalls is not None,
-                    # `overlay`'s default: no origin-event file, so an
-                    # appearance is eligible only at a boundary or by continuity.
-                    "origin_events": 0,
+                    "origin_events": len(origin_events),
+                    "lifecycle_witnesses": witness_stamps,
                     "notes": inputs.notes}
         if instants is not None:
             # Track ids count from each warm-up's start; see `team_vision.at`.

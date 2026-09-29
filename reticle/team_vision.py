@@ -30,7 +30,19 @@ tracked icon with its resolved bearing and lifecycle eligibility, and two
 masks packed with `lighting.pack_mask` -- `observable`, the union of the
 ELIGIBLE cones (the adjudicated vision), and `observable_all`, the union of
 every tracked bearing (what `overlay` tints without `--minimap-lifecycle`).
-A stale or absent widget stores no mask and says which.
+A stale or absent widget stores no mask and says which. Beside `icons`,
+`adjudication` holds the lifecycle's verdict per observed icon
+(`minimap_lifecycle.adjudication_record`): its state, the rule that refused
+or admitted it, and what that rests on.
+
+**The lifecycle asks channels that do not read the minimap** (lifecycle
+0.3.0). `reticle vision` builds them from stored rows (`stored_witnesses`):
+the roster's alive count licenses ally appearances, the player's dead
+intervals (`adjudication.spectate`) say when the yellow icon is the player,
+the death camera's view, or a spectated teammate, whose cone is team vision,
+and the HUD's round starts and the revive verdicts become origin events.
+None of them reads the light, so the drawn light still scores the product
+independently (E8 of docs/STATISTICAL_ADJUDICATOR.md).
 
 **The self cone (0.2.0, 0.3.0).** The self cone starts at the teardrop's
 centre and faces the teardrop's facing (`teardrop.SelfConeReader`), wherever
@@ -76,7 +88,8 @@ from .teardrop import SelfConeReader
 from .minimap import (ally_icons, floor_mask, minimap_roi_px, self_icons, slab_mask,
                       widget_drawn, widget_scale)
 from .minimap_diagnostics import DIAGNOSTICS_VERSION, distance_agreement, light_support
-from .minimap_lifecycle import LIFECYCLE_VERSION, Lifecycle
+from .minimap_lifecycle import (LIFECYCLE_VERSION, Lifecycle, Witnesses, adjudication_record,
+                                revive_events, round_start_events)
 from .stalls import STALL_VERSION, stalled_at
 from .track import Tracker
 
@@ -161,7 +174,8 @@ class TeamVision:
 
     def __init__(self, floor, passable, sgray, *, width: int, slab=None, static=None,
                  light=None, stalls=None, origin_events=(), track_self=None,
-                 track_ally=None, lifecycle=None, distance_diagnostics=True):
+                 track_ally=None, lifecycle=None, distance_diagnostics=True,
+                 witnesses: Witnesses | None = None):
         self.floor, self.passable, self.sgray = floor, passable, sgray
         self.slab, self.static, self.light = slab, static, light
         self.stalls, self.origin_events = stalls, tuple(origin_events or ())
@@ -169,7 +183,8 @@ class TeamVision:
         # The error term is `track.FIT_ERR_PX`, not restated here.
         self.track_self = track_self if track_self is not None else Tracker("walker", scale=self.scale)
         self.track_ally = track_ally if track_ally is not None else Tracker("walker", scale=self.scale)
-        self.lifecycle = lifecycle if lifecycle is not None else Lifecycle(scale=self.scale)
+        self.lifecycle = (lifecycle if lifecycle is not None
+                          else Lifecycle(scale=self.scale, witnesses=witnesses))
         self.self_cone_reader = SelfConeReader(scale=self.scale)
         #: `distance_agreement` is a diagnostic `overlay` shows and nothing
         #: stores or decides on; it was 29% of `reticle vision`'s time, and
@@ -321,7 +336,9 @@ def _num(v):
 
 
 def frame_row(frame: VisionFrame, frame_idx: int | None = None) -> dict:
-    """The stored row for one frame: icons, eligibility and both packed masks.
+    """The stored row for one frame: icons, eligibility, the lifecycle's
+    verdicts (`adjudication`, `minimap_lifecycle.adjudication_record`) and
+    both packed masks.
 
     The self icon carries `self_cone`: where its cone starts and which
     witness gave its `facing` (`teardrop.SelfConeReader.read`, plus the
@@ -331,7 +348,7 @@ def frame_row(frame: VisionFrame, frame_idx: int | None = None) -> dict:
     row = {"kind": "frame", "t_ms": float(frame.t_ms), "frame_idx": frame_idx,
            "widget": frame.widget}
     if frame.observable is None:
-        row.update(observable=None, observable_all=None, icons=[],
+        row.update(observable=None, observable_all=None, icons=[], adjudication=[],
                    reason=frame.diagnostic.get("reason"))
         return row
     icons = []
@@ -345,7 +362,11 @@ def frame_row(frame: VisionFrame, frame_idx: int | None = None) -> dict:
             icon["self_cone"] = frame.self_cone
         icons.append(icon)
     floor = int(frame.observable.size)
+    # The lifecycle's verdict per OBSERVED icon, joined to `icons` by `key`
+    # (`role:track_id`): why an icon casts or not, not only whether it does.
     row.update(icons=icons,
+               adjudication=[adjudication_record(r)
+                             for r in frame.diagnostic.get("adjudication") or []],
                observable=lighting.pack_mask(frame.observable),
                observable_all=lighting.pack_mask(frame.observable_all),
                observable_px=int(frame.observable.sum()),
@@ -353,6 +374,45 @@ def frame_row(frame: VisionFrame, frame_idx: int | None = None) -> dict:
                widget_px=floor, reason=None)
     return row
 
+
+
+def stored_witnesses(store, session_id: str, date: str, box) -> tuple:
+    """The lifecycle's second witnesses and origin events, from stored rows.
+
+    Returns `(Witnesses, events, stamps)`: the roster's alive counts (owner
+    `roster`) at `round_entities.ROSTER_LAG_MS`, the player's dead intervals
+    (`adjudication.spectate`, owner of `player-dead`), and the round-start and
+    revive events built from the HUD's round bounds (`rounds.build_rounds`)
+    and the death verdicts (`adjudication.death`). A missing input stays
+    missing: its witness admits and refuses nothing, and `stamps` says so.
+    """
+    from .adjudication.spectate import DeadIndex, stored_intervals
+    from .minimap import widget_scale
+    from .round_entities import ROSTER_LAG_MS
+    from .rounds import build_rounds
+
+    x0, y0, x1, y1 = box
+    stamps = {"lifecycle": LIFECYCLE_VERSION, "roster": None}
+    roster = []
+    if store.has_roster(session_id, date):
+        tb = store.read_roster(session_id, date)
+        roster = list(zip(tb.column("t_ms").to_pylist(), tb.column("alive_ally").to_pylist()))
+        stamps["roster"] = next(iter(tb.column("roster_version").to_pylist()), None)
+    deaths = (store.read_events("death", session_id)
+              if store.events_path("death", session_id).is_file() else [])
+    stamps["death"] = next((r.get("death_adjudication_version") for r in deaths), None)
+    dead = None
+    if deaths:
+        intervals, sp = stored_intervals(store, session_id, date, widget_scale(x1 - x0))
+        stamps.update(sp)
+        dead = DeadIndex(intervals)
+    rounds = build_rounds(store.read_hud(session_id, date))
+    stamps["round_starts"] = sum(1 for r in rounds if r.get("t_start_ms") is not None)
+    events = (round_start_events(rounds, x1 - x0, y1 - y0)
+              + revive_events(deaths, x1 - x0, y1 - y0))
+    witnesses = Witnesses(roster=roster, roster_lag_ms=ROSTER_LAG_MS, dead=dead,
+                          versions=stamps)
+    return witnesses, events, stamps
 
 
 def at_plan(times, instants, warmup_ms: float | None = None, expiry_ms: float = 500.0):

@@ -74,6 +74,12 @@ class CausalOriginKind(str, Enum):
     UNEXPLAINED_APPEARANCE = "unexplained_appearance"
     UNLIT_UNEXPLAINED_APPEARANCE = "unlit_unexplained_appearance"
     AMBIGUOUS_CONTINUATION = "ambiguous_continuation"
+    #: minimap-lifecycle-0.3.0: an appearance a second witness admitted, the
+    #: yellow icon while the player spectates a teammate, and the yellow icon
+    #: during the death camera.
+    CORROBORATED_APPEARANCE = "corroborated_appearance"
+    SPECTATED_TEAMMATE = "spectated_teammate"
+    DEATH_CAMERA_VIEW = "death_camera_view"
 
 
 class MotionClass(str, Enum):

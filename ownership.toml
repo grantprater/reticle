@@ -611,7 +611,8 @@ question = "What can the team see at this instant, as the pipeline adjudicates i
 owner = "team_vision"
 role = ["constrain", "corroborate"]
 status = "partial"
-produces = ["TeamVision", "load_inputs", "frame_row", "at", "at_plan", "compare_rows"]
+produces = ["TeamVision", "load_inputs", "frame_row", "at", "at_plan", "compare_rows",
+            "stored_witnesses"]
 not_for = """
 Ground truth for vision, and a new rule for any stage. It composes the owners'
 calls -- lobe from the drawn light, track facing, lifecycle eligibility, the
@@ -621,7 +622,8 @@ gaps the drawn light passes (the three e78e75b2d191 slivers). Smokes do not
 yet block its rays.
 """
 defers_to = ["viewcone", "drawn-light", "track-continuation", "minimap-origin",
-             "capture-stall", "light-support", "self-cone-origin"]
+             "capture-stall", "light-support", "self-cone-origin", "round-bounds",
+             "player-dead"]
 consumers = ["overlay", "cli"]
 stored_consumers = ["adjudication.ability"]
 evidence = "tests/test_team_vision.py, tests/test_ability_entities.py"
@@ -704,13 +706,17 @@ question = "Is this minimap appearance a birth, a continuation or unexplained?"
 owner = "minimap_lifecycle"
 role = ["lifecycle", "adjudicate"]
 status = "partial"
-produces = ["Lifecycle", "light_state", "matching_events", "lifecycle_row_to_event"]
+produces = ["Lifecycle", "Witnesses", "light_state", "matching_events",
+            "lifecycle_row_to_event", "round_start_events", "revive_events",
+            "adjudication_record"]
 not_for = """
 The motion law. This module restated `track`'s continuation ceiling once and the
 two drifted -- 2.2 px against 4.8 at 60 Hz -- so it quarantined appearances the
-tracker had already associated. It defers, it does not re-derive.
+tracker had already associated. It defers, it does not re-derive. Nor does it
+count the team, decide the player's death or place a round: the roster, the
+spectate owner and the HUD's rounds answer, and it applies their answers.
 """
-defers_to = ["track-continuation", "teleport-licence"]
+defers_to = ["track-continuation", "teleport-licence", "round-entity"]
 consumers = ["team_vision"]
 evidence = "tests/test_minimap_lifecycle.py"
 

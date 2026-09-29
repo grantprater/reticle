@@ -13,7 +13,9 @@ misses. `team_vision` computes the lifecycle's `adjudication` rows and stores
 only each icon's `eligible` flag, so the reason is unread. This replays the
 chain in memory, reads it, and prototypes a gate change
 (`CorroboratedLifecycle`: the roster and the player's death, never the
-light) with the stored-row schema it proposes (`adjudication_record`).
+light) with the stored-row schema it proposed, now promoted to
+`minimap_lifecycle.adjudication_record` (lifecycle 0.3.0, which also wires
+the gate; this file measured it against 0.2.0).
 Default sessions: 5822b6646448 (Lotus) and c40d950031bb (Ascent, 331 px).
 
 **study** scores the stored gate, the gate off, and the gate variants against
@@ -90,7 +92,7 @@ import numpy as np  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reticle import geometry, stalls, team_vision  # noqa: E402
-from reticle.minimap_lifecycle import ROLE_MOTION  # noqa: E402
+from reticle.minimap_lifecycle import ROLE_MOTION, adjudication_record  # noqa: E402,F401  (promoted)
 from reticle.profiles import get_profile  # noqa: E402
 from reticle.roi_cache import RoiCache  # noqa: E402
 from reticle.store import DEFAULT_STORE, Store  # noqa: E402
@@ -486,45 +488,6 @@ class CorroboratedLifecycle:
                      admitted_by=why, reason=None)
             self.lc.anchors.append(r)
         return rows
-
-
-def adjudication_record(row: dict) -> dict:
-    """One icon's lifecycle verdict in the schema proposed for `team_vision`'s
-    frame rows (`adjudication`, a list beside `icons`, one entry per OBSERVED
-    icon, joined to `icons` by `key`). Position and time are the frame's and
-    the icon's, so they are not repeated.
-
-        key             "ally:12" -- `role:track_id`, the icon's
-        entity_id       the lifecycle's entity (a parent's, on continuation)
-        state           left_censored | continuation | explained_origin |
-                        relocation | ambiguous_continuation |
-                        unexplained_appearance | unlit_unexplained_appearance |
-                        corroborated_appearance
-        eligible        bool -- the cone joins `observable`
-        reason_code     why a refused row was refused: no_live_anchor_of_role |
-                        beyond_reach | ambiguous | jump, or persisting:<code>
-                        for a key still quarantined since an earlier refusal
-        reason          the prose reason, naming the second witness's refusal
-        nearest_anchor  {dist, dt_ms, excess, entity} of the nearest live
-                        anchor of its role, or null
-        refused_as      the stock state an admitted row carried, else null
-        admitted_by     {rule, ...evidence} for a corroborated_appearance
-        alternatives    parent entities (ambiguous continuation)
-        light_state     lit | unlit | unknown, and `conflict` -- evidence the
-                        lifecycle keeps and does not gate on
-
-    The coverage row adds the witnesses' versions: roster, death adjudication
-    and HUD rounds, beside `lifecycle_version`.
-    """
-    near = row.get("nearest_anchor")
-    return {"key": row["observation_key"], "entity_id": row["entity_id"],
-            "state": row["state"], "eligible": bool(row["eligible"]),
-            "reason_code": row.get("reason_code"), "reason": row.get("reason"),
-            "nearest_anchor": None if near is None else
-            {k: near[k] for k in ("dist", "dt_ms", "excess", "entity")},
-            "refused_as": row.get("refused_as"), "admitted_by": row.get("admitted_by"),
-            "alternatives": list(row.get("alternatives") or []),
-            "light_state": row.get("light_state"), "conflict": row.get("conflict")}
 
 
 def corroborated_run(rep: dict, **kw) -> dict:
