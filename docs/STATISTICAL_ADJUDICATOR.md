@@ -1609,6 +1609,55 @@ which is consistency, not accuracy. The sheets are in the store's
 `analysis/tip-highlight-20260929/`; predictions H1-H6 and their outcome are
 the `tip-highlight-20260929` rows of `notes/predictions.jsonl`.
 
+**Does the cone light the tip? (2026-09-29).** The player asked whether the
+viewcone, drawn from near the centre along the facing, adds light at the
+tip, so that the ally highlight is partly the cone. `prototypes/tip_cone.py`
+(`tip-cone-test-0.1.0`) places each labelled icon's zones from the owner's
+silhouette at the teardrop's centre and the label's facing, not from hue:
+the lobe's body (a pixel or more inside), the tip (the lobe's outer half,
+edge included), the rim away from the cone, and the floor just past the tip
+and behind the rim. The ally and self lobes are opaque: the body's pixels
+over a baked wall are no brighter than over floor (465 px allies
+[metric:tip_cone_test/ally-465@5822b6646448+a06f04a0059f#line_obs_diff=-1.0]
+grey levels where the static differs by
+[metric:tip_cone_test/ally-465@5822b6646448+a06f04a0059f#line_static_diff=77.0];
+331 px
+[metric:tip_cone_test/ally-331@223d636bf8d2+c40d950031bb#line_obs_diff=2.25]
+of [metric:tip_cone_test/ally-331@223d636bf8d2+c40d950031bb#line_static_diff=77.0]).
+The body is lighter than the rim with or without a cone: where the owner's
+raycast along the label reaches under a fifth of the floor past the tip, the
+body reads [metric:tip_cone_test/ally-331@223d636bf8d2+c40d950031bb#ctrl_median_y_lobe_int=207.25]
+against [metric:tip_cone_test/ally-331@223d636bf8d2+c40d950031bb#cone_median_y_lobe_int=207.5]
+with a cone (331 px,
+[metric:tip_cone_test/ally-331@223d636bf8d2+c40d950031bb#n_ctrl=12] controls), and the self body
+[metric:tip_cone_test/self-465@5822b6646448+e78e75b2d191#ctrl_median_y_lobe_int=243.0]
+against [metric:tip_cone_test/self-465@5822b6646448+e78e75b2d191#cone_median_y_lobe_int=244.0].
+So the highlight is the art. The cone reaches only the lobe's edge pixels,
+which blend with the floor past them: on floor, the tip zone gains
+[metric:tip_cone_test/ally-331@223d636bf8d2+c40d950031bb#floor_tip_per_lit=49.6424]
+grey levels from unlit to fully lit at 331 px, the body
+[metric:tip_cone_test/ally-331@223d636bf8d2+c40d950031bb#floor_lobe_int_per_lit=-1.0611].
+At 331 px the tip is a few pixels, mostly edge, and its excess over the rim
+falls from [metric:tip_cone_test/ally-331@223d636bf8d2+c40d950031bb#cone_median_tip_excess=36.5]
+to [metric:tip_cone_test/ally-331@223d636bf8d2+c40d950031bb#ctrl_median_tip_excess=22.0]
+without a cone (permutation p
+[metric:tip_cone_test/ally-331@223d636bf8d2+c40d950031bb#ctrl_perm_p=0.2302]).
+At 465 px only [metric:tip_cone_test/ally-465@5822b6646448+a06f04a0059f#n_ctrl=3]
+allies have no cone, all facing the dark void, too few to compare. The
+tip-highlight reader keeps the body: a median
+[metric:tip_cone_test/ally-331@223d636bf8d2+c40d950031bb#median_hl_body_frac=0.8248]
+of its kept pixels at 331 px and
+[metric:tip_cone_test/ally-465@5822b6646448+a06f04a0059f#median_hl_body_frac=0.8025]
+at 465 px lie inside it. The enemy is no cone-free control, because its lobe
+is see-through: walls show through it on the sheet, and over a baked line it
+reads [metric:tip_cone_test/enemy-465@5822b6646448+a06f04a0059f#line_obs_diff=51.0]
+brighter where the static differs by
+[metric:tip_cone_test/enemy-465@5822b6646448+a06f04a0059f#line_static_diff=105.0],
+on [metric:tip_cone_test/enemy-465@5822b6646448+a06f04a0059f#line_icons=5] icons, so the
+floor beneath, often a teammate's light, shows in its tip. The sheets are in the store's
+`analysis/tip-cone-20260929/`; predictions C1-C4 and their outcome are the
+`tip-cone-test-20260929` rows of `notes/predictions.jsonl`.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
