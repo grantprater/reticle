@@ -39,7 +39,8 @@ Keys (the repo's labeller orthodoxy):
 
 Answers append to `labels/prior_ally/<session>.jsonl`, one row per answer;
 the last row for a key wins, so `A` then a new answer corrects. Nothing is
-seeded: the file holds only what the player answered. Unwired (`"wire":
+seeded: the file holds only what the player answered. The answers are
+scored by `prototypes/prior_ally_eval.py`. Unwired (`"wire":
 "no"`, task `prior-ally-20260929` in the store's `notes/predictions.jsonl`).
 """
 from __future__ import annotations
