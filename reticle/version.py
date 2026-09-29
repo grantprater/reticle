@@ -317,7 +317,10 @@ TEAM_VISION_VERSION = "team-vision-0.4.0"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.
-TEARDROP_VERSION = "teardrop-0.2.0"
+# 0.3.0: on a widget size the facing labels do not cover (`LABELLED_SCALES`), a self
+# read under `SELF_FACING_MIN_NCC` gives the centre and no facing (`facing_reason`
+# `low_ncc_unlabelled_scale`); `posed` poses a ring-fit detection by a read.
+TEARDROP_VERSION = "teardrop-0.3.0"
 # A teammate's or an enemy's icon read as a teardrop (`teardrop.fit_icon`): its centre
 # and facing. Promoted from prototypes/icon_teardrop.py (icon-teardrop-0.1.0), whose
 # model, keys and gates are unchanged; 0.2.0 scales its radii by `minimap.widget_scale`,

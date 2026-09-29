@@ -37,6 +37,29 @@ class TeardropTests(unittest.TestCase):
         self.assertEqual((o["x"], o["y"], o["deg"], o["origin"], o["reason"]),
                          (40.0, 41.0, None, "ring_fit", "no_yellow"))
 
+    def test_a_low_ncc_self_read_off_the_labelled_scale_gives_the_centre_and_no_facing(self):
+        fit = {"read": True, "x": 40.5, "y": 39.5, "deg": 120.0, "ncc": 0.55}
+        with patch("reticle.teardrop.fit_teardrop", return_value=fit):
+            o = teardrop.SelfConeReader(scale=331 / 465).read(np.zeros((80, 80, 3), np.uint8), 42.0, 40.0)
+            labelled = teardrop.SelfConeReader(scale=1.0).read(np.zeros((80, 80, 3), np.uint8), 42.0, 40.0)
+        self.assertEqual((o["x"], o["y"], o["deg"], o["origin"], o["facing_reason"]),
+                         (40.5, 39.5, None, "teardrop", "low_ncc_unlabelled_scale"))
+        # The labels cover scale 1.0 and do not support the gate there.
+        self.assertEqual((labelled["deg"], labelled.get("facing_reason")), (120.0, None))
+        det = {"cx": 42.0, "cy": 40.0, "facing": 300.0}
+        self.assertEqual({k: teardrop.posed(det, o, ring_facing=False)[k]
+                          for k in ("cx", "facing", "facing_source")},
+                         {"cx": 40.5, "facing": None, "facing_source": None})
+        self.assertEqual({k: teardrop.posed(det, o)[k] for k in ("cx", "facing", "facing_source")},
+                         {"cx": 40.5, "facing": 300.0, "facing_source": "ring_fit"})
+
+    def test_the_self_portrait_stays_at_the_ring_fit_off_the_labelled_scale(self):
+        read = {"origin": "teardrop", "x": 40.5, "y": 39.5, "deg": 120.0, "ncc": 0.7}
+        self.assertIs(teardrop.self_portrait_pose(read, 1.0, 42.0, 40.0), read)
+        off = teardrop.self_portrait_pose(read, 331 / 465, 42.0, 40.0)
+        self.assertEqual((off["origin"], off["x"], off["y"], off["deg"], off["reason"]),
+                         ("ring_fit", 42.0, 40.0, None, "unlabelled_scale"))
+
     def test_a_repeated_image_returns_the_fit_a_fresh_one_gives(self):
         crop = _crop(40.0, 40.0, -60.0)
         reader = teardrop.SelfConeReader()
@@ -119,18 +142,19 @@ class SelfConeTests(unittest.TestCase):
         self.assertEqual(icon["facing"], got.resolved[-1][2])
         self.assertEqual((icon["pose"]["origin"], icon["pose"]["facing"]), ("teardrop", "teardrop"))
 
-    def test_an_unread_teardrop_keeps_the_track_bearing_and_says_so(self):
+    def test_with_the_fallback_an_unread_teardrop_keeps_the_track_bearing_and_says_so(self):
         det = {"cx": 30.0, "cy": 40.0, "r": 8, "cov": 0.9, "facing": 0.0}
-        floor, got = _run(np.zeros((80, 80, 3), np.uint8), det)
+        floor, got = _run(np.zeros((80, 80, 3), np.uint8), det, ring_fallback=True)
         sc = got.self_cone
         self.assertEqual((sc["origin"], sc["facing"], sc["reason"]), ("ring_fit", "track", "no_yellow"))
         self.assertEqual(got.resolved[-1][2], sc["track_deg"])
         want = cone.observable(floor, [(30.0, 40.0, sc["track_deg"])], visible=floor)[0]
         self.assertTrue(np.array_equal(got.observable_all, want))
 
-    def test_without_the_fallback_an_unread_teardrop_casts_nothing(self):
+    def test_an_unread_teardrop_casts_nothing_and_says_why(self):
+        # The stored product's default: no ring-fit fallback (`RING_FALLBACK`).
         det = {"cx": 30.0, "cy": 40.0, "r": 8, "cov": 0.9, "facing": 0.0}
-        floor, got = _run(np.zeros((80, 80, 3), np.uint8), det, ring_fallback=False)
+        floor, got = _run(np.zeros((80, 80, 3), np.uint8), det)
         sc = got.self_cone
         self.assertEqual((sc["origin"], sc["facing"], sc["reason"]), ("ring_fit", None, "no_yellow"))
         self.assertIsNone(got.resolved[-1][2])

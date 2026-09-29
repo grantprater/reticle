@@ -43,13 +43,16 @@ rays start at the teardrop's centre with no offset
 about half of the icons the player labelled, self and ally alike, the
 teardrop's on almost none (E6). A cone observed this frame faces this
 frame's teardrop facing, not the track's windowed mean. Where the teardrop
-is unread (`low_ncc`, `ambiguous_facing`, `no_key`) and `RING_FALLBACK`
-holds, the icon keeps the ring fit's centre and facing, the light resolves
-that facing's lobe (`cone.resolve_lobe`, which a teardrop facing never
-enters), and the cone faces the track's resolved lobe; without it the icon
-casts nothing. Each stored icon's `pose` names the `origin` (`teardrop` or
+is unread (`low_ncc`, `ambiguous_facing`, `no_key`), or reads the self icon
+under `teardrop.SELF_FACING_MIN_NCC` on a widget size the facing labels do
+not cover (`facing_reason` `low_ncc_unlabelled_scale`: most self reads on a
+331 px widget), the icon casts no cone: `RING_FALLBACK` is off, and with it
+on the icon would keep the
+ring fit's facing, the light would resolve its lobe (`cone.resolve_lobe`,
+which a teardrop facing never enters) and the cone would face the track's
+resolved lobe. Each stored icon's `pose` names the `origin` (`teardrop` or
 `ring_fit`) and the `facing` (`teardrop`, `track`, or None) its cone used,
-with the teardrop's reason. On a widget drawn turned over the icons' facing
+with the teardrop's reasons. On a widget drawn turned over the icons' facing
 arrows turn with the map [domain:minimap/upright-icons-on-turned-map], so the
 teardrop's facing needs no correction in the baked frame.
 
@@ -86,14 +89,16 @@ from .minimap_lifecycle import LIFECYCLE_VERSION, Lifecycle
 from .stalls import STALL_VERSION, stalled_at
 from .track import Tracker
 
-#: An icon whose teardrop is unread casts from the ring fit along its track's
-#: resolved lobe (True), or casts nothing (False). See `TeamVision`. Measured
-#: by `prototypes/team_vision_eval.py` against the light joined to the team's
-#: icons on 5822b6646448: the fallback supplies an eighth of the cones, their
-#: pixels agree with the light less often than the teardrop cones' do (0.64
-#: against 0.71) but far more often than a flipped cone's would, and the
-#: team's F1 is 0.624 with it against 0.604 without.
-RING_FALLBACK = True
+#: An icon whose teardrop gives no facing casts from the ring fit along its
+#: track's resolved lobe (True), or casts nothing (False). See `TeamVision`.
+#: A cone cast the wrong way is worse than none: the stored vision refuses
+#: ability candidates, so false light discards real observations. Measured by
+#: `prototypes/team_vision_eval.py` (the light joined to the team's icons,
+#: placed without a facing): with no fallback the team's precision is at
+#: least team-vision-0.3.0's on 5822b6646448, 223d636bf8d2 and c40d950031bb;
+#: the fallback adds recall at 465 px but lowers precision on c40d950031bb
+#: below 0.3.0's.
+RING_FALLBACK = False
 
 
 @dataclass
@@ -284,11 +289,15 @@ class TeamVision:
                 poses.append(None)
                 continue
             pose = dict(d["pose"], x=float(x), y=float(y), track_deg=track_deg)
-            if pose["origin"] == "teardrop":
+            if d["facing_source"] == "teardrop":
                 resolved[i] = (x, y, d["facing"], False)
                 pose["facing"] = "teardrop"
-            else:
+            elif d["facing_source"] == "ring_fit":
                 pose["facing"] = "track" if track_deg is not None else None
+            else:
+                # No facing this frame: `bearings` casts nothing for a track
+                # whose facing was not observed now, whatever it carries.
+                pose["facing"] = None
             origins.append((x, y, pose["origin"]))
             poses.append(pose)
         self_cone = poses[-1] if self_tracks else None

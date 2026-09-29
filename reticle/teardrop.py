@@ -239,10 +239,51 @@ class SelfConeReader:
             tf = fit_teardrop(crop, cx, cy, scale=self.scale)
             self._last = (key, tf)
         if tf.get("read"):
-            return {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
-                    "origin": "teardrop", "ncc": float(tf["ncc"])}
+            out = {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
+                   "origin": "teardrop", "ncc": float(tf["ncc"])}
+            if tf["ncc"] < SELF_FACING_MIN_NCC and not labelled_scale(self.scale):
+                out.update(deg=None, facing_reason="low_ncc_unlabelled_scale")
+            return out
         return {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
                 "ncc": _num(tf.get("ncc")), "reason": tf.get("reason")}
+
+
+#: On a widget size the player's facing labels do not cover, a self read
+#: under this NCC gives the icon's centre but no facing (`facing_reason`
+#: `low_ncc_unlabelled_scale`), and a consumer casts no cone from it. Against
+#: the ring fit's facing after the light resolves its lobe, self reads at
+#: 0.5-0.6 point more than 90 degrees away on about a third of frames on
+#: 5822b6646448 (465 px), 223d636bf8d2 and c40d950031bb (331 px), and most
+#: 331 px self reads fall there (`prototypes/team_vision_eval.py
+#: --pose-check`); E7 found those facings cast much of c40d950031bb's false
+#: light. At the labelled size the labels do not support the gate: of the two
+#: labelled reads under it one is right (an Ascent control) and one flipped.
+SELF_FACING_MIN_NCC = 0.6
+#: The widget scales whose self facing the player labelled (5822b6646448 and
+#: the e78e75b2d191 controls, `reticle verify` lotus/self-facing).
+LABELLED_SCALES = (1.0,)
+
+
+def labelled_scale(scale: float) -> bool:
+    """True for a widget scale the self facing labels cover (`LABELLED_SCALES`)."""
+    return any(abs(scale - s) < 0.02 for s in LABELLED_SCALES)
+
+
+def self_portrait_pose(pose: dict, scale: float, cx: float, cy: float) -> dict:
+    """Where to cut the player's portrait: `pose` (`SelfConeReader.read` at the
+    ring fit's `cx`, `cy`) on a labelled widget size, the ring fit's centre
+    elsewhere (`reason` `unlabelled_scale`).
+
+    At 465 px the portrait aligned at the self teardrop's centre fits its
+    art far better than at the ring fit's (E6's rule B'; `prototypes/
+    icon_teardrop.py --centre-check --centre-class self` on 5822b6646448);
+    on four 331 px sessions it fit better on two and worse on two, so the
+    ring fit's centre stays there. A teammate's portrait has no such limit.
+    """
+    if pose["origin"] != "teardrop" or labelled_scale(scale):
+        return pose
+    return {"origin": "ring_fit", "x": float(cx), "y": float(cy), "deg": None,
+            "ncc": pose.get("ncc"), "reason": "unlabelled_scale"}
 
 
 def _num(v):
@@ -253,19 +294,22 @@ def posed(d: dict, pose: dict, *, ring_facing: bool = True) -> dict:
     """The ring fit's detection `d` with the teardrop's centre and facing where `pose` reads.
 
     `pose` is `SelfConeReader.read` or `IconPoseReader.read` at `d`'s centre.
-    The ring fit FINDS the icon; the teardrop, where it reads, supplies `cx`,
-    `cy` and `facing` (`facing_source` `teardrop`). The ring fit's own values
-    stay under `ring`, and `pose` keeps the `origin`, NCC and refusal
-    `reason`. Where the teardrop is unread the detection keeps the ring fit's
-    centre and, with `ring_facing`, its facing (`facing_source` `ring_fit`);
-    otherwise it carries no facing (`facing_source` None).
+    The ring fit FINDS the icon; the teardrop, where it reads, supplies `cx`
+    and `cy`, and its facing where the reader gives one (`facing_source`
+    `teardrop`). The ring fit's own values stay under `ring`, and `pose`
+    keeps the `origin`, NCC, refusal `reason` and `facing_reason`. Where the
+    teardrop gives no facing the detection keeps, with `ring_facing`, the
+    ring fit's facing (`facing_source` `ring_fit`), and otherwise carries
+    none (`facing_source` None).
     """
     out = dict(d)
     out["ring"] = {"cx": d["cx"], "cy": d["cy"], "facing": d.get("facing")}
-    out["pose"] = {"origin": pose["origin"], "ncc": pose.get("ncc"), "reason": pose.get("reason")}
+    out["pose"] = {"origin": pose["origin"], "ncc": pose.get("ncc"), "reason": pose.get("reason"),
+                   "facing_reason": pose.get("facing_reason")}
     if pose["origin"] == "teardrop":
-        out["cx"], out["cy"], out["facing"] = pose["x"], pose["y"], pose["deg"] % 360.0
-        out["facing_source"] = "teardrop"
+        out["cx"], out["cy"] = pose["x"], pose["y"]
+    if pose.get("deg") is not None:
+        out["facing"], out["facing_source"] = pose["deg"] % 360.0, "teardrop"
     elif ring_facing and d.get("facing") is not None:
         out["facing_source"] = "ring_fit"
     else:
