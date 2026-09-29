@@ -68,7 +68,11 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # fields a reviver (`plate_revive`); a named weapon vetoes the plates, and a
 # self entry, whose killer and victim print one name, is not a revive
 # (`killfeed_names.self_entry`).
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.14.0"
+# 0.15.0 (2026-09-28): the board interval closes ON its closing opening: an
+# entry whose onset equals that opening's time counts toward it, since the board
+# at that frame already dims its victim (a1a995e6b19b 1656.0 s, ff636d173b07
+# 2255.5 s, 587c15b07779 776.5 s; docs/VICTIM_DISAGREEMENTS.md).
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.15.0"
 
 #: Weapon-slot icons that mark a revive entry, which is not a death
 #: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
@@ -269,6 +273,13 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
     agent can die again and stay dim at both ends. A downed KAY/O is unknown
     to it, and a count that disagrees still refuses.
 
+    The interval is (opening before, opening after]: an entry whose onset
+    equals an opening's time belongs to the interval that opening closes. A
+    killfeed entry appears at or after its death, so the board at that frame
+    already dims the victim; leaving it out made the count match by
+    coincidence where a second life was also uncounted (a1a995e6b19b 1656.0 s,
+    KAY/O downed and killed; docs/VICTIM_DISAGREEMENTS.md).
+
     `contradicted` holds the (opening time, side) pairs whose lit count the
     roster contradicts (`reconciliation.audit_board_alive`). The board relights
     its rows a moment after the top bar resets at a round start
@@ -283,7 +294,7 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
         t_ms, side = float(entry["t_ms"]), entry.get("side")
         usable = [o for o in accepted if (o["t_ms"], side) not in contradicted]
         before = [o for o in usable if o["t_ms"] < t_ms]
-        after = [o for o in usable if o["t_ms"] > t_ms]
+        after = [o for o in usable if o["t_ms"] >= t_ms]
         claim = {"channel": "scoreboard_dim", "agent": None, "reason": None,
                  "source_version": SCOREBOARD_AGENT_VERSION, "evidence": {}}
         claims.append(claim)
@@ -305,7 +316,7 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
         newly = now["dim"] - was["dim"]
         revived = was["dim"] - now["dim"]
         deaths = [j for j, e in enumerate(entries)
-                  if e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) < hi["t_ms"]
+                  if e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) <= hi["t_ms"]
                   and not _second_life(j, entries, second_life) and not revive_entry(e)]
         claim["evidence"] = {
             "opening_before": {"t_ms": lo["t_ms"], "frame_idx": lo["frame_idx"],
@@ -324,7 +335,7 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
         # at both ends (b3b9defb6fd7 1289.5 s, Skye), so the difference no
         # longer counts the interval's deaths.
         revives = [float(e["t_ms"]) for e in entries if revive_entry(e)
-                   and e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) < hi["t_ms"]]
+                   and e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) <= hi["t_ms"]]
         if revives:
             claim["evidence"]["interval_revives"] = revives
             claim["reason"] = "revive_in_interval"

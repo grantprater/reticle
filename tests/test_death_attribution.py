@@ -969,6 +969,28 @@ class ScoreboardDimWitnessTest(unittest.TestCase):
         self.assertIsNone(claims[0]["agent"])
         self.assertEqual(claims[0]["reason"], "newly_dim_2_disagrees_with_killfeed_deaths_1")
 
+    def test_an_entry_at_the_closing_opening_counts_toward_it(self):
+        # a1a995e6b19b 1639.5-1656.0 s: KAY/O downed and killed (two entries,
+        # one agent), and Clove's entry at the closing board's own time. Left
+        # out, Clove made the count match and each KAY/O entry was named Clove.
+        from reticle.adjudication.death import scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        openings = scoreboard_openings(self.board(1000.0)
+                                       + self.board(5000.0, dim={"Reyna", "Miks"}))
+        entries = [{"t_ms": 2000.0, "side": "ally"}, {"t_ms": 3000.0, "side": "ally"},
+                   {"t_ms": 5000.0, "side": "ally"}]
+        claims = scoreboard_death_claims(entries, openings, {0: "Reyna", 1: "Reyna"})
+        for c in claims:
+            self.assertIsNone(c["agent"])
+            self.assertEqual(c["reason"], "newly_dim_2_disagrees_with_killfeed_deaths_3")
+        self.assertEqual(claims[2]["evidence"]["opening_after"]["t_ms"], 5000.0)
+        # An entry at the opening that begins an interval is not in it.
+        after = scoreboard_openings(self.board(1000.0, dim={"Reyna"})
+                                    + self.board(5000.0, dim={"Reyna", "Miks"}))
+        got = scoreboard_death_claims([{"t_ms": 1000.0, "side": "ally"},
+                                       {"t_ms": 3000.0, "side": "ally"}], after, {})
+        self.assertEqual(got[1]["agent"], "Miks")
+
     def test_a_sage_revive_lights_a_row_again_without_refusing(self):
         from reticle.adjudication.death import scoreboard_death_claims
         from reticle.adjudication.scoreboard import scoreboard_openings
