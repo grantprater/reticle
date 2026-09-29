@@ -239,29 +239,38 @@ Only elimination collisions contest. Where the count or a revive already
 refused (24 of the 30 rows), the dimmed set is not the interval's victims,
 so it offers no alternative name.
 
-Rerun from storage on the 20 sessions after merging master's roster-0.3.0.
-Master's own deaths (0.15.0 on the reread roster) are the baseline; they
-match the earlier 0.15.0 rows name for name. Backups:
-`notes/backup/deaths-before-elimination-collision-20260928/` (0.15.0) and
-`notes/backup/deaths-0.16.0-elimination-collision-20260928/`.
+Rerun from storage on the 20 sessions after merging master 6f19eb8
+(killfeed-portrait-0.8.0, roster-0.3.0), with the HUD reread from the crop
+cache and the rounds rebuilt. Master's own deaths on those inputs (0.15.0)
+are the baseline. Backups:
+`notes/backup/deaths-before-elimination-collision-20260928/` (0.15.0 on the
+old inputs) and `notes/backup/deaths-0.16.0-elimination-collision-20260928/`.
 
-| | master 0.15.0 | 0.16.0 | 0.17.0 |
-|---|---|---|---|
-| Victim disagreements | [metric:{M}disagreements_master=16] | 4 | [metric:{M}disagreements_after=4] |
-| Contested | 0 | 0 | [metric:{M}contested_after=12] |
-| Silent errors among the audited 22 | [metric:{M}silent_errors_master=1] | 6 | [metric:{M}silent_errors_after=1] |
-| Killer labels right / wrong / unnamed | 138 / 1 / 7 | 138 / 1 / 7 | [metric:{M}labels_right_after=138] / [metric:{M}labels_wrong_after=1] / [metric:{M}labels_unnamed_after=7] |
-| `checks.KNOWN_KD` exact of 17 | 13 | 13 | [metric:{M}known_kd_exact_after=13] |
+| | master 0.15.0 | 0.17.0 |
+|---|---|---|
+| Victim disagreements | [metric:victim_disagreements/contested-by-collision-0.8.0@corpus#disagreements_master=21] | [metric:victim_disagreements/contested-by-collision-0.8.0@corpus#disagreements_after=7] |
+| Contested | 0 | [metric:victim_disagreements/contested-by-collision-0.8.0@corpus#contested_after=18] |
+| Elimination collisions (intervals) | | [metric:victim_disagreements/contested-by-collision-0.8.0@corpus#elimination_collision_rows=9] |
+| Silent errors among the audited 22 | [metric:victim_disagreements/contested-by-collision-0.8.0@corpus#silent_errors_master=1] | [metric:victim_disagreements/contested-by-collision-0.8.0@corpus#silent_errors_after=1] |
+| Killer labels right / wrong / unnamed | 138 / 1 / 7 | [metric:victim_disagreements/contested-by-collision-0.8.0@corpus#labels_right_after=138] / [metric:victim_disagreements/contested-by-collision-0.8.0@corpus#labels_wrong_after=1] / [metric:victim_disagreements/contested-by-collision-0.8.0@corpus#labels_unnamed_after=7] |
+| `checks.KNOWN_KD` exact of 17 | 13 | [metric:victim_disagreements/contested-by-collision-0.8.0@corpus#known_kd_exact_after=13] |
 
-None of the twelve was confirmed [metric:{M}confirmed_by_outside_channel=0]:
-their only naming channels are the killfeed's. The remaining silent error
-is `bfad2778a372` 616.5 s (Raze for Phoenix): its name does not repeat, so
-nothing contests it. Its partner at 615.5 s is contested between Deadlock and
-Phoenix while its victim is Raze. The follow drift moved the name, so the
-right name is not among the alternatives.
+The audited 22 are the 21 above plus `bfad2778a372` 616.5 s. Of the 18
+contested, 14 were disagreements at master and 4 were resolved: four ally
+Fade deaths in `bfad2778a372` (615.5 and 624.0 s, 2401.0 and 2404.0 s), two
+per interval. Fade has no revive and the ally side fields no reviver, so at
+most one of each pair was right; the contest removes at least two silent
+errors (not checked by eye). None of the 18 was confirmed
+[metric:victim_disagreements/contested-by-collision-0.8.0@corpus#confirmed_by_outside_channel=0]: their only naming channels are
+the killfeed's.
 
-The refusal withholds seven names 0.16.0 gave right
-[metric:{M}right_names_withheld=7]: `223d636bf8d2` 820.5 s Reyna and
+The remaining silent error is `bfad2778a372` 616.5 s (Raze for Phoenix): its
+name does not repeat, so nothing contests it. Its partner at 615.5 s is
+contested between Deadlock and Phoenix while its victim is Raze. The follow
+drift moved the name, so neither alternative is right.
+
+Among the audited deaths the refusal withholds seven right names
+[metric:victim_disagreements/contested-by-collision-0.8.0@corpus#right_names_withheld=7]: `223d636bf8d2` 820.5 s Reyna and
 1293.0 s Vyse, `3694746e4e54` 319.5 s Gekko, `9acf02f98283` 595.0 s Reyna,
 `bdfdcf009dba` 665.0 and 669.0 s Clove (a real second life), and
 `bfad2778a372` 619.5 s Deadlock. Each keeps its name as an alternative.
