@@ -1,8 +1,12 @@
 r"""The map's occluders from the baked static: full-height walls and boxes.
 
-    .\.venv\Scripts\python.exe prototypes\map_occluders.py build <key> | --all [--store DIR]
-    .\.venv\Scripts\python.exe prototypes\map_occluders.py sheet <key> --out PNG
-    .\.venv\Scripts\python.exe prototypes\map_occluders.py boxes [--sheet PNG]
+    .\.venv\Scripts\python.exe -m reticle occluders --all          # bake every key
+    .\.venv\Scripts\python.exe -m reticle occluders KEY --dry-run  # classify, write nothing
+
+**Part of the geometry builder.** The occluder table is baked `(map, profile)`
+geometry that `cone` consumes, so it is built here, in `reticle/`, and read
+from the geometry npz by `team_vision` and `barriers`. It reads the key's
+baked arrays only -- never a session's pixels, never a video.
 
 Why this exists
 ---------------
@@ -29,7 +33,8 @@ and writes them into the geometry npz ADDITIVELY, as `map_shade` does:
 
 `labels`, `static` and the rest are untouched, so `minimap_geometry`'s stamp
 does not move and no geometry needs a rebuild from video: this reads stored
-arrays only and takes seconds.
+arrays only and takes seconds. `doctor`'s OCCLUDERS check compares each npz's
+`occ_built_by` with `occluder_stamp`.
 
 The classes
 -----------
@@ -62,27 +67,23 @@ default, and its pass rate is the light's to learn.
 A wall always stops a ray. A box stops it by default and may pass light when
 the caster jumps or stands higher (the player, 2026-09-29): `cone.box_crossings`
 reports which boxes each cone crossed, so the drawn light can decide.
+
+Owns [owns:map-occluders].
 """
 from __future__ import annotations
 
-import argparse
 import hashlib
-import json
-import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from reticle import geometry as G                                 # noqa: E402
-from reticle import metrics                                       # noqa: E402
-from reticle.minimap import (BORDER, BOXEDGE, FLOOR, HOLE, PLANT,  # noqa: E402
-                             VOID, _odd, widget_scale)
+from . import geometry as G
+from . import metrics
+from .cone import OCC_BOX as BOX, OCC_OPEN as OPEN, OCC_WALL as WALL
+from .minimap import BORDER, BOXEDGE, HOLE, PLANT, VOID, _odd, widget_scale
+from .store import DEFAULT_STORE
 
-STORE = Path.home() / "reticle-store"
-
-OPEN, WALL, BOX = 0, 1, 2
 OCC_NAMES = {OPEN: "open", WALL: "wall", BOX: "box"}
 
 #: A line pixel is grey: the site paint sits at saturation 43-58 and is broad,
@@ -258,28 +259,35 @@ def classify(static: np.ndarray, labels: np.ndarray):
     return occ, box_id, info
 
 
-def source_stamp() -> str:
+def occluder_stamp() -> str:
+    """This module and the scale helpers it calls: the table's `occ_built_by`."""
     return hashlib.sha256(
         Path(__file__).read_bytes()
         + metrics.fingerprint(widget_scale, _odd).encode()).hexdigest()
 
 
-def bake(gkey: str, store: Path = STORE, quiet=False) -> dict:
+def bake(gkey: str, store: Path | str = DEFAULT_STORE, write: bool = True) -> dict:
+    """Classify one key's baked arrays and add the table to its npz.
+
+    Every other array is written back unchanged, through a temporary file and
+    a rename, so a failed write leaves the old npz. `write=False` classifies
+    and writes nothing. Returns `classify`'s info.
+    """
     p = G.path(gkey, store)
     with np.load(p, allow_pickle=False) as z:
         arrays = {k: z[k].copy() for k in z.files}
     occ, box_id, info = classify(arrays["static"], arrays["labels"])
-    arrays.update(occ=occ, box_id=box_id, occ_built_by=np.array(source_stamp()))
-    tmp = p.with_suffix(".tmp.npz")
-    np.savez_compressed(tmp, **arrays)
-    tmp.replace(p)
-    if not quiet:
-        print(f"{gkey}: {info['wall_px']} wall px, {len(info['boxes'])} boxes "
-              f"({info['box_px']} px) -> {p}")
+    if write:
+        arrays.update(occ=occ, box_id=box_id, occ_built_by=np.array(occluder_stamp()))
+        tmp = p.with_suffix(".tmp.npz")
+        np.savez_compressed(tmp, **arrays)
+        tmp.replace(p)
     return info
 
 
-def render(static, labels, occ, box_id, zoom=3) -> np.ndarray:
+def render(static, labels, occ, zoom=3) -> np.ndarray:
+    """The static beside it with walls cyan, boxes orange, and the art's box
+    edges the table does not call a wall red."""
     ov = static.copy()
     ov[occ == WALL] = (255, 255, 0)
     ov[occ == BOX] = (0, 140, 255)
@@ -287,30 +295,3 @@ def render(static, labels, occ, box_id, zoom=3) -> np.ndarray:
     a = cv2.resize(static, None, fx=zoom, fy=zoom, interpolation=cv2.INTER_NEAREST)
     b = cv2.resize(ov, None, fx=zoom, fy=zoom, interpolation=cv2.INTER_NEAREST)
     return np.hstack([a, b])
-
-
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("cmd", choices=("build", "sheet"))
-    ap.add_argument("key", nargs="?")
-    ap.add_argument("--all", action="store_true")
-    ap.add_argument("--store", default=str(STORE))
-    ap.add_argument("--out")
-    a = ap.parse_args(argv)
-    store = Path(a.store)
-    keys = G.keys_in_store(store) if a.all else [a.key]
-    if a.cmd == "build":
-        for k in keys:
-            bake(k, store)
-        return 0
-    for k in keys:
-        with np.load(G.path(k, store)) as z:
-            st, lab = z["static"].copy(), z["labels"].copy()
-        occ, bid, info = classify(st, lab)
-        print(k, {x: y for x, y in info.items() if x != "boxes"}, len(info["boxes"]), "boxes")
-        cv2.imwrite(a.out or f"{k}_occ.png", render(st, lab, occ, bid))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

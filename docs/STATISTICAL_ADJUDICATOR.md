@@ -1119,7 +1119,7 @@ ability (`5822b6646448_fn_f.png`, 1617.9 s).
 The player read `c40d950031bb_dark_frames.png` (E7): at 572.20 s and 928.07 s
 the cones pass several walls. Task `cone-walls-20260929`, predictions W1-W5
 logged first; `prototypes/cone_walls.py` (`cone-walls-0.1.0`) measures, and
-`prototypes/map_occluders.py` builds the fix. Sheets are in the store's
+`reticle/occluders.py` builds the fix. Sheets are in the store's
 `analysis/cone-walls-20260929/`.
 
 **The cause is the wall classes, not the raycast and not the placement.** A
@@ -1152,7 +1152,7 @@ main and B site was open.
   `sunset__valorant-16x9-bigmap` [metric:cone_walls/boxes@all-keys#sunset__valorant-16x9-bigmap_open_to_rays=15] of
   [metric:cone_walls/boxes@all-keys#sunset__valorant-16x9-bigmap_boxes=18] (`boxes_worst.png`).
 
-**The fix.** `map_occluders` reads the walls and boxes from the baked static
+**The fix.** `occluders` reads the walls and boxes from the baked static
 (the builder's one capture-derived array) into an additive occluder table,
 `occ` and `box_id`, stamped `occ_built_by`; `cone.passable_from` stops rays at
 it; a wall is a bright line or the art's border, a box a fitted closed shape

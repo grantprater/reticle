@@ -489,24 +489,19 @@ def check_occluders(store: Path) -> list[tuple[str, str]]:
     """Geometry npz whose occluder table (`occ`) is missing or stale.
 
     `occ` holds the walls and boxes a ray stops at, read from the baked static
-    by `prototypes/map_occluders.py` and stamped `occ_built_by`. A STALE table
+    by `occluders` and stamped `occ_built_by`. A STALE table
     is an ERROR: every cone is cast over it. A MISSING one is a WARN: the rays
     fall back to the art's box edges alone, which pass the walls the art's
     warp lost, and `team_vision` records `occluders: null` so the fallback is
     visible in every product. Building is seconds and decodes nothing:
-    `prototypes/map_occluders.py build --all`.
+    `reticle occluders --all`.
     """
     d = store / "geometry"
     if not d.is_dir():
         return []
     try:
-        import sys
-        sys.path.insert(0, str(ROOT / "prototypes"))
-        sys.path.insert(0, str(ROOT))
-        import io, contextlib
-        with contextlib.redirect_stdout(io.StringIO()):
-            import map_occluders
-        want = map_occluders.source_stamp()
+        from . import occluders
+        want = occluders.occluder_stamp()
     except Exception as e:                                  # pragma: no cover
         return [(WARN, f"cannot compute the occluder stamp ({type(e).__name__}) "
                        f"-- staleness unchecked")]
@@ -527,12 +522,12 @@ def check_occluders(store: Path) -> list[tuple[str, str]]:
     if stale:
         out.append((ERROR, f"{len(stale)} geometry npz carry a STALE occluder table "
                            f"(occ_built_by != current) -- rebuild with "
-                           f"prototypes/map_occluders.py build --all. "
+                           f"`reticle occluders --all`. "
                            f"{', '.join(stale[:6])}{' ...' if len(stale) > 6 else ''}"))
     if absent:
         out.append((WARN, f"{len(absent)} geometry npz have NO occluder table -- rays "
                           f"stop only at the art's box edges; build with "
-                          f"prototypes/map_occluders.py build --all. "
+                          f"`reticle occluders --all`. "
                           f"{', '.join(absent[:6])}{' ...' if len(absent) > 6 else ''}"))
     return out
 

@@ -70,6 +70,23 @@ consumers = ["barriers", "status", "cone", "doctor"]
 evidence = "tests/test_geometry.py, tests/test_floor_stability.py"
 
 [[entry]]
+id = "map-occluders"
+question = "Which pixels of this (map, profile) are full-height walls, and which are boxes a ray may pass over?"
+owner = "occluders"
+role = ["constrain"]
+status = "partial"
+produces = ["bake", "classify", "lines", "seal_diagonals", "occluder_stamp"]
+not_for = """
+Whether a ray passed a box on a given frame: `cone.box_crossings` says where a
+pass would show and the drawn light decides. Not elevation, which the map art
+carries as `shade_step`. Not anything a session's own pixels say: it reads the
+key's baked static, the geometry builder's one capture-derived array.
+"""
+consumers = ["doctor", "cli"]
+stored_consumers = ["team_vision", "barriers"]
+evidence = "tests/test_cone_walls.py"
+
+[[entry]]
 id = "minimap-widget-frame"
 question = "Where does this session draw its minimap widget relative to the baked geometry, and is it a variant?"
 owner = "widget_frame"

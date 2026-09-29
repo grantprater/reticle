@@ -13,7 +13,7 @@ pass several walls.
 
 **The instrument is the drawn wall of each scored frame**, read from that
 frame's cached crop with the builder's own line rule
-(`map_occluders.line_mask`). It is one frame, never a median: it measures
+(`occluders.line_mask`). It is one frame, never a median: it measures
 what the frame drew and builds no map value
 [domain:capture/session-pixels-are-not-the-map]; the product's walls come
 from the baked static alone. On the geometry key's reference session the two
@@ -64,9 +64,9 @@ import numpy as np  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import map_occluders as mo  # noqa: E402
 import team_vision_errors as tve  # noqa: E402
 from reticle import cone, geometry, lighting, metrics, minimap  # noqa: E402
+from reticle import occluders as mo  # noqa: E402
 from reticle.minimap import BORDER, BOXEDGE  # noqa: E402
 
 VERSION = "cone-walls-0.1.0"
@@ -105,7 +105,7 @@ def occ_of(sid):
     with np.load(geometry.path_of(sid, STORE)) as z:
         labels, static = z["labels"].copy(), z["static"].copy()
         if "occ" in z.files and z.get("occ_built_by") is not None and \
-                str(z["occ_built_by"]) == mo.source_stamp():
+                str(z["occ_built_by"]) == mo.occluder_stamp():
             return labels, static, z["occ"].copy(), z["box_id"].copy()
     occ, box_id, _info = mo.classify(static, labels)
     return labels, static, occ, box_id
@@ -540,7 +540,7 @@ def main(argv=None) -> int:
                           "line_px_passable_old", "wall_px_old", "wall_px_new"):
                     vals[f"{k}_{f}"] = v[f]
             metrics.record("cone_walls", part="boxes", session="all-keys", values=vals,
-                           deps={"prototype": VERSION, "occluders": mo.source_stamp()[:12]})
+                           deps={"prototype": VERSION, "occluders": mo.occluder_stamp()[:12]})
         return 0
     sessions = a.sessions or (SESS_331 + SESS_465 if a.cmd == "beyond"
                               else ("c40d950031bb", "5822b6646448", "e78e75b2d191"))
@@ -580,7 +580,7 @@ def main(argv=None) -> int:
                 vals[f"{t}_box_beyond_px"] = r["box_beyond_px"]
                 vals[f"{t}_box_beyond_lit_share"] = r["box_beyond_lit_share"]
         metrics.record("cone_walls", part=a.cmd, session="+".join(res), values=vals,
-                       deps={"prototype": VERSION, "occluders": mo.source_stamp()[:12],
+                       deps={"prototype": VERSION, "occluders": mo.occluder_stamp()[:12],
                              "origin_clear_px": ORIGIN_CLEAR_PX, "n": a.n},
                        context={"captures": {s: res[s]["capture"] for s in res}})
         print(f"recorded metrics row cone_walls/{a.cmd}")

@@ -1,5 +1,5 @@
 """A cone never passes a wall; boxes block by default and report their crossings."""
-import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -7,10 +7,8 @@ import cv2
 import numpy as np
 
 from reticle import cone
+from reticle import occluders as mo
 from reticle.minimap import BOXEDGE, FLOOR, VOID
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
-import map_occluders as mo  # noqa: E402
 
 
 def ring(shape, pts, thickness=1):
@@ -99,6 +97,29 @@ class Classes(unittest.TestCase):
         self.assertEqual(int(occ[24, 24]), mo.BOX)      # the interior is the box
         self.assertTrue((box_id[20:29, 20:29] == box_id[24, 24]).all())
         self.assertEqual(int(occ[60, 30]), mo.OPEN)
+
+
+class Bake(unittest.TestCase):
+    def test_bake_adds_the_table_and_keeps_every_array(self):
+        h, w = 60, 465
+        static = np.full((h, w, 3), 117, np.uint8)
+        static[:, 200] = 235
+        labels = np.full((h, w), FLOOR, np.uint8)
+        labels[:2] = labels[-2:] = VOID
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "geometry" / "testmap__testprofile.npz"
+            p.parent.mkdir()
+            np.savez_compressed(p, static=static, labels=labels, built_by=np.array("x"))
+            mo.bake("testmap__testprofile", d, write=False)
+            with np.load(p) as z:
+                self.assertNotIn("occ", z.files)           # a dry run writes nothing
+            mo.bake("testmap__testprofile", d)
+            with np.load(p) as z:
+                self.assertEqual(str(z["occ_built_by"]), mo.occluder_stamp())
+                self.assertTrue(np.array_equal(z["static"], static))
+                self.assertTrue(np.array_equal(z["labels"], labels))
+                self.assertEqual(str(z["built_by"]), "x")
+                self.assertTrue((z["occ"][5:55, 200] == mo.WALL).all())
 
 
 class BoxCrossings(unittest.TestCase):

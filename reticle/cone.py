@@ -158,7 +158,7 @@ def snap_origin(passable: np.ndarray, cx: float, cy: float, facing_deg: float,
 
 
 #: The geometry's occluder classes (`occ`), baked beside `labels` by
-#: `prototypes/map_occluders.py` from the static's own white lines. A WALL is
+#: `occluders` from the static's own white lines. A WALL is
 #: full height and always stops a ray; a BOX stops it by default and may pass
 #: light when the caster jumps or stands higher (the player, 2026-09-29), so
 #: `box_crossings` reports which boxes a cone crossed.

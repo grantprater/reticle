@@ -618,7 +618,7 @@ since = "2026-09-29"
 source = "the player, 2026-09-29, reading the cones on the E7 dark-frames sheet"
 use = """
 the occluders come from the white lines of the baked static
-(prototypes/map_occluders.py), not from the wiki art's line class alone, whose
+(reticle/occluders.py), not from the wiki art's line class alone, whose
 warp loses thin lines; a ray stops at the first white-line pixel
 """
 exceptions = """
