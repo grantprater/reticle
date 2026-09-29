@@ -1109,11 +1109,8 @@ def cmd_scan(args) -> int:
                     med, sd=geometry.stability(sid, store.root, med.shape[:2])),
                 static=med, box=minimap_roi_px(profile, *ctx.wh), hz=args.ally_hz,
                 spans=spans)
-            from .roi_cache import roi_rects
-            # Its reads are `frame[box]`; they stay inside the cached set only
-            # where the box IS the profile's minimap ROI.
-            if list(ap.box) == roi_rects("minimap", profile, ctx.wh)[0]:
-                ap.cache_set = "minimap"
+            from .roi_cache import declare_set
+            declare_set(ap, "minimap", profile, ctx.wh)
         dp = None
         if want_dark:
             from .minimap_dark import DarkRegionReader
@@ -1128,6 +1125,10 @@ def cmd_scan(args) -> int:
                     sgray=mp.sgray if mp is not None else ctx.sgray(),
                     static=ctx.map_reference(), ref=dark_ref,
                     box=minimap_roi_px(profile, *ctx.wh), hz=args.dark_hz, spans=spans)
+                from .roi_cache import declare_set
+                # It reads `frame[box]` alone, so the minimap cache feeds it on
+                # its own grid (`cache_resample`).
+                declare_set(dp, "minimap", profile, ctx.wh)
         cp = None
         if want_report:
             from .combat_report import CombatReportReader
@@ -3099,13 +3100,9 @@ def _smoke_owners(store, sid: str, smoke_rows: list[dict], hz: float) -> dict:
 
 
 def _cache_grid(t_ms, t0: float, t1: float, step_s: float) -> list[float]:
-    """Cached times nearest a regular grid inside [t0, t1]."""
-    t = np.unique(np.asarray(t_ms, float))
-    t = t[(t >= t0) & (t <= t1)]
-    if not len(t):
-        return []
-    want = np.arange(t[0], t[-1] + 1, step_s * 1000.0)
-    return [float(x) for x in t[np.unique(np.searchsorted(t, want).clip(0, len(t) - 1))]]
+    """Cached times on a regular grid inside [t0, t1] (`roi_cache.grid_times`)."""
+    from .roi_cache import grid_times
+    return grid_times(t_ms, t0, t1, step_s)
 
 
 def _sessions_arg(store: Store, args) -> list[str]:
