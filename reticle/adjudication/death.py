@@ -72,7 +72,24 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # entry whose onset equals that opening's time counts toward it, since the board
 # at that frame already dims its victim (a1a995e6b19b 1656.0 s, ff636d173b07
 # 2255.5 s, 587c15b07779 776.5 s; docs/VICTIM_DISAGREEMENTS.md).
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.15.0"
+# 0.16.0 (2026-09-28): the board names no death by elimination in an interval
+# whose independent names repeat an agent; each claim refuses with
+# `elimination_collision`, and the collision is stored as its own row
+# (`board_collisions`), since elimination copied the repeated name's error to
+# both deaths (223d636bf8d2 817.0 and 820.5 s; docs/VICTIM_DISAGREEMENTS.md).
+# 0.17.0 (2026-09-28): a death carrying the repeated name is CONTESTED, not
+# named by the killfeed alone: the board's claim carries a `contest` with both
+# names, and the arbiter resolves it only on a channel outside
+# `COLLISION_IMPLICATED` (the player HUD, a minimap track). 0.16.0 turned five
+# of twelve flagged deaths into silent errors.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.17.0"
+
+#: Channels an elimination collision implicates: the two killfeed readings
+#: that repeated a name, the board that dimmed another agent, and the roster
+#: difference, whose name comes from a living set the earlier killfeed
+#: verdicts built. Only a channel outside these confirms a contested name.
+COLLISION_IMPLICATED = ("killfeed_portrait", "killfeed_name_cluster", "scoreboard_dim",
+                        "roster_diff")
 
 #: Weapon-slot icons that mark a revive entry, which is not a death
 #: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
@@ -248,7 +265,8 @@ def _portrait_channel(portraits, role, side, slot, start, end, lineup, gallery, 
 def scoreboard_death_claims(entries: list[dict], openings: list[dict],
                             named: dict[int, str | None],
                             second_life: set[int] = frozenset(),
-                            contradicted: set[tuple[float, str]] = frozenset()) -> list[dict]:
+                            contradicted: set[tuple[float, str]] = frozenset(),
+                            witnesses: dict[int, list] | None = None) -> list[dict]:
     """A victim witness per killfeed entry from the scoreboard's dimmed rows.
 
     Between the last accepted opening before a death and the first after it,
@@ -263,6 +281,21 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
     (`named`, which must not come from this witness), those names are all in
     the dimmed set, and exactly one agent is left. The names it rested on are
     stored with the claim.
+
+    Elimination refuses an interval whose independent names repeat an agent
+    (`elimination_collision`): two deaths carrying one name means the
+    killfeed misread one of them or the agent died twice, and elimination
+    would hand both the one agent left over, copying the error to both
+    (223d636bf8d2 817.0 and 820.5 s, Reyna twice for Clove and Reyna). Every
+    claim in such an interval carries the `collision` (the openings, each
+    death's name and the `witnesses` that named it); `board_collisions` keeps
+    one per interval, also where the count already refused.
+
+    Where the count matched and no revive intervened, the board's dimmed set
+    is the interval's victims, so a death carrying the repeated name has two
+    candidates: its own name and the dimmed agent no death was given. Its
+    claim carries a `contest` (reason `contested_by_collision`) for the
+    arbiter, which names it only on a channel outside `COLLISION_IMPLICATED`.
 
     What dimming means is a player rule [domain:rounds/scoreboard-dim-is-dead]:
     a Run It Back death does not dim, so second-life deaths (`second_life`
@@ -331,6 +364,15 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
             "observation_keys": [s["observation_key"] for s in hi["rows"]
                                  if s["team"] == side and s["agent"] in newly],
         }
+        given = [named.get(j) for j in deaths if named.get(j)]
+        repeated = sorted({a for a in given if given.count(a) > 1})
+        if repeated:
+            claim["collision"] = {
+                "side": side, "opening_before_ms": lo["t_ms"], "opening_after_ms": hi["t_ms"],
+                "newly_dim": sorted(newly), "agents": repeated,
+                "deaths": [{"t_ms": float(entries[j]["t_ms"]), "slot": entries[j].get("slot"),
+                            "agent": named.get(j), "witnesses": (witnesses or {}).get(j, [])}
+                           for j in deaths]}
         # A revived agent can die again before the next opening and stay dim
         # at both ends (b3b9defb6fd7 1289.5 s, Skye), so the difference no
         # longer counts the interval's deaths.
@@ -349,7 +391,19 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
             names = [named.get(j) for j in others]
             claim["evidence"]["by_elimination"] = [
                 {"t_ms": float(entries[j]["t_ms"]), "agent": named.get(j)} for j in others]
-            if not all(names):
+            if repeated:
+                claim["reason"] = f"elimination_collision {repeated}"
+                if named.get(i) in repeated:
+                    claim["contest"] = {
+                        "reason": "contested_by_collision",
+                        "alternatives": [{"agent": named[i],
+                                          "witnesses": (witnesses or {}).get(i, [])}] + [
+                            {"agent": a, "witnesses": [["scoreboard_dim", a]],
+                             "observation_keys": [s["observation_key"] for s in hi["rows"]
+                                                  if s["team"] == side and s["agent"] == a]}
+                            for a in sorted(newly - set(given))],
+                        "implicated": list(COLLISION_IMPLICATED)}
+            elif not all(names):
                 claim["reason"] = f"interval_unordered {sorted(newly)}"
             elif not set(names) <= newly or len(set(names)) != len(names):
                 claim["reason"] = (f"other_names_not_in_newly_dim {sorted(names)} "
@@ -362,6 +416,24 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
                 else:
                     claim["reason"] = f"interval_unordered {sorted(left)}"
     return claims
+
+
+def board_collisions(session_id: str, round_no, claims: list[dict]) -> list[dict]:
+    """One `collision` row per board interval whose independent names repeat
+    an agent (`scoreboard_death_claims`), with the board's reason and each
+    death's key. A finding for the killfeed, a misread or an uncounted second
+    life; it names no one."""
+    rows = {}
+    for c in claims:
+        col = c.get("collision")
+        if col is None:
+            continue
+        key = (col["side"], col["opening_before_ms"], col["opening_after_ms"])
+        rows.setdefault(key, {
+            "kind": "collision", "round_no": round_no, **col, "board_reason": c["reason"],
+            "deaths": [dict(d, death_id=death_key(session_id, d["t_ms"], d["slot"])
+                            if d["slot"] is not None else None) for d in col["deaths"]]})
+    return list(rows.values())
 
 
 #: Channels whose name may label an exemplar. The portrait channel is not one:
@@ -993,7 +1065,8 @@ def adjudicate_death(
               and ch not in named_votes):
             claims.append(identity_claim(death_id, None, channel=ch, reason=w.get("reason"),
                                          evidence=(w.get("evidence")
-                                                   if ch == NAME_CLUSTER_CHANNEL else None)))
+                                                   if ch == NAME_CLUSTER_CHANNEL else None),
+                                         contest=w.get("contest")))
     identity = (adjudicate_agent_identity(claims) or [None])[0]
     status = identity["status"] if identity else "abstained"
     victim = identity["agent"] if identity else None
@@ -1002,6 +1075,9 @@ def adjudicate_death(
         reason = f"witnesses disagree: {named_votes}"
     elif status == "abstained":
         reason = "no witness provided a confident candidate"
+    elif status == "contested":
+        reason = (f"{identity['reason']}: "
+                  f"{sorted({a['agent'] for a in identity.get('alternatives', [])})}")
 
     # Location observability rules:
     # Enemy ability or environmental deaths can be unobserved by the team;
@@ -1430,7 +1506,7 @@ def death_verdict_to_events(verdict: DeathVerdict, session_id: str) -> list[dict
         # A revive deletes no entity; its portraits still name agents.
         for key in ("identity", "killer_identity"):
             identity = verdict.metadata.get(key)
-            if identity and identity["status"] in ("resolved", "disagreement"):
+            if identity and identity["status"] in ("resolved", "disagreement", "contested"):
                 events.extend(identity_events([identity], session_id, verdict.t_ms))
         return events
 
@@ -1463,7 +1539,7 @@ def death_verdict_to_events(verdict: DeathVerdict, session_id: str) -> list[dict
     # 2. IDENTITY_DISTRIBUTION event, from the identity arbiter only.
     for key in ("identity", "killer_identity"):
         identity = verdict.metadata.get(key)
-        if identity and identity["status"] in ("resolved", "disagreement"):
+        if identity and identity["status"] in ("resolved", "disagreement", "contested"):
             events.extend(identity_events([identity], session_id, verdict.t_ms))
 
     return events
@@ -1853,11 +1929,12 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
             board = scoreboard_death_claims(
                 entries, openings, {i: v.victim for i, v in enumerate(first)},
                 {i for i, v in enumerate(first) if v.is_second_life},
-                contradicted_openings(audit_board(openings)))
+                contradicted_openings(audit_board(openings)), _named_by(first))
             verdicts = adjudicate_round_deaths(session_id, entries, window,
                                                player_agent=player_agent,
                                                scoreboard_claims=board)
-            results.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts})
+            results.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts,
+                            "collisions": board_collisions(session_id, r["round_no"], board)})
         n += 1
         harvested = portrait_exemplars([v for x in results for v in x["verdicts"]],
                                        [e for x in results for e in x["entries"]])
@@ -1882,11 +1959,19 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
         board = scoreboard_death_claims(
             entries, openings, {i: v.victim for i, v in enumerate(first)},
             {i for i, v in enumerate(first) if v.is_second_life},
-            contradicted_openings(audit_board(openings)))
+            contradicted_openings(audit_board(openings)), _named_by(first))
         verdicts = adjudicate_round_deaths(session_id, entries, window,
                                            player_agent=player_agent, scoreboard_claims=board)
-        final.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts})
+        final.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts,
+                      "collisions": board_collisions(session_id, r["round_no"], board)})
     return {"rounds": final, "passes": n + 1, "name_clusters": summary}
+
+
+def _named_by(verdicts) -> dict[int, list]:
+    """Per death index, the [channel, agent] pairs that named its victim."""
+    return {i: [[ch, row["agent"]] for ch, row in
+                ((v.metadata.get("identity") or {}).get("by_channel") or {}).items()
+                if row.get("agent")] for i, v in enumerate(verdicts)}
 
 
 def _name_cluster_claims(session_id, results, portraits, name_observations, lineup,
