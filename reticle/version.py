@@ -101,7 +101,14 @@ ECONOMY_VERSION = "economy-0.1.0"
 # ([metric:scoreboard/table-rows@fixture#roi_equal=456] of [metric:scoreboard/table-rows@fixture#boards=456]); against 0.10.0 the rows move onto
 # the table on [metric:scoreboard/table-rows@fixture#better_on_table=47] boards and [metric:scoreboard/table-rows@fixture#better_no_board_closed=4] opens with no board close,
 # while [metric:scoreboard/table-rows@fixture#worse_closed=5] boards read at the table close over a dull world.
-SCOREBOARD_VERSION = "scoreboard-0.11.0"
+# 0.12.0: the GPU scores portraits in float32, on the window shifted by its
+# integer per-channel mean, not in float64; the coverage row names
+# `cupy-float32`. On the decoded boards (docs/SCOREBOARD_PRESENCE.md,
+# "Portrait scoring time") no board changes a verdict, an edge, a row or a
+# named agent ([metric:scoreboard/speed-float32@fixture#bar_changed_boards=0] of [metric:scoreboard/speed-float32@fixture#boards=456]);
+# [metric:scoreboard/speed-float32@fixture#rounded_scores_differ=19] of [metric:scoreboard/speed-float32@fixture#rounded_scores=115420] rounded scores move, by
+# at most [metric:scoreboard/speed-float32@fixture#max_score_diff=0.0001].
+SCOREBOARD_VERSION = "scoreboard-0.12.0"
 # Stored versions whose accepted openings the current reader does not
 # contradict. A consumer of VERDICTS (the lineup constraining its top bar by
 # the board) accepts these; `reticle plan` still names the rescan. 0.7.0 adds
@@ -122,9 +129,12 @@ SCOREBOARD_VERSION = "scoreboard-0.11.0"
 # fixture), so 0.9.0 stays applied. 0.11.0 names the same agent in every
 # row of every board both versions accept ([metric:scoreboard/table-rows@fixture#accepted_both_same_agents=335] of
 # [metric:scoreboard/table-rows@fixture#accepted_both=335]), and the [metric:scoreboard/table-rows@fixture#accepted_lost=5] accepted openings it refuses sit at the
-# board, so 0.10.0 stays applied.
+# board, so 0.10.0 stays applied. 0.12.0 changes only the fourth decimal of
+# a few scores and no verdict or agent ([metric:scoreboard/speed-float32@fixture#bar_changed_boards=0] boards
+# change), so 0.11.0 stays applied.
 SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", "scoreboard-0.8.0",
-                                 "scoreboard-0.9.0", "scoreboard-0.10.0", SCOREBOARD_VERSION)
+                                 "scoreboard-0.9.0", "scoreboard-0.10.0", "scoreboard-0.11.0",
+                                 SCOREBOARD_VERSION)
 # The round-history strip as a second presence witness of the Tab board, read
 # by `scoreboard_strip` from the hud crop cache's `center` crop and written as
 # `scoreboard_strip` rows by `reticle strip`. 0.1.0 ports the rule and

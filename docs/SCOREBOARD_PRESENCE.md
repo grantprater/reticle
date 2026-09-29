@@ -611,6 +611,30 @@ byte for byte, and every fixture board reads the same, portrait scores
 included ([metric:scoreboard/speed-reuse@fixture#boards_identical=456] of [metric:scoreboard/speed-reuse@fixture#boards=456]), so the
 version stays.
 
+From `scoreboard-0.12.0` the GPU scores in float32, not float64
+(`scoreboard._art_scores_gpu`). The window is first shifted by its
+per-channel mean rounded to an integer, which leaves the correlation
+unchanged and keeps every pixel and the masked sums exact enough in
+float32. No fixture board changes a verdict, an edge, a row or a named
+agent ([metric:scoreboard/speed-float32@fixture#bar_changed_boards=0] of [metric:scoreboard/speed-float32@fixture#boards=456]; the gate
+accepts [metric:scoreboard/speed-float32@fixture#accepted=376] boards both times). [metric:scoreboard/speed-float32@fixture#rounded_scores_differ=19]
+of [metric:scoreboard/speed-float32@fixture#rounded_scores=115420] rounded scores move, each by
+[metric:scoreboard/speed-float32@fixture#max_score_diff=0.0001]; no second agent and no gain moves. On the
+window [metric:scoreboard/speed-float32@a06f04a0059f#window_rounded_scores_differ=2] of [metric:scoreboard/speed-float32@a06f04a0059f#window_rounded_scores=10440]
+scores move, by [metric:scoreboard/speed-float32@a06f04a0059f#window_max_score_diff=0.0001], and no row changes.
+
+Timed frame by frame against the float64 reader of 0.11.0, an open frame
+takes [metric:scoreboard/speed-float32@a06f04a0059f#ms_open_mean_cur=241.8] ms against [metric:scoreboard/speed-float32@a06f04a0059f#ms_open_mean_ref=322.8]
+ms, reuse and float32 together; against the reuse commit alone,
+[metric:scoreboard/speed-float32@a06f04a0059f#ms_open_mean_float32_paired_with_reuse=294.9] ms against
+[metric:scoreboard/speed-float32@a06f04a0059f#ms_open_mean_reuse=319.9] ms. Paired runs share the GPU with each
+other and with other jobs, so only the ratios compare. Float64
+arithmetic was not most of the cost. A profile of the float64 scorer
+found the largest share in waits for GPU results: two copies to the host
+per scale, six scales, ten to fifteen windows a frame, each queued behind
+other jobs' kernels; cupy's per-call overhead takes much of the rest. One
+copy per window, or one batched call per frame, is the next saving.
+
 
 ## Predictions
 

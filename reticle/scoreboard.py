@@ -803,14 +803,15 @@ _GPU_GALLERIES: dict[int, tuple[dict, object]] = {}
 
 def portrait_scorer() -> str:
     """Which scorer `portrait_agent` uses in this process, for provenance."""
-    return "cupy-float64" if _gpu_gallery(None) is not None else "opencv-float32"
+    return "cupy-float32" if _gpu_gallery(None) is not None else "opencv-float32"
 
 
 def _gpu_gallery(icons: dict | None):
     """The agent art stacked per scale on the GPU, or None to score on the CPU.
 
     `icons=None` asks only whether the GPU path is available. The gallery is
-    built once per icons dict and kept with it.
+    built once per icons dict and kept with it: the zero-mean art and its
+    norms are computed in float64 and held in float32.
     """
     mode = os.environ.get("RETICLE_SCOREBOARD", "auto").lower()
     if mode not in ("auto", "cpu", "gpu"):
@@ -832,35 +833,40 @@ def _gpu_gallery(icons: dict | None):
         return held[1]
     names = list(icons)
     per_scale = []
+    f32 = lambda a: cp.asarray(a, dtype=cp.float32)
     for i in range(min(len(ims) for ims, _ in icons.values())):
         t = np.stack([icons[n][0][i] for n in names]).astype(np.float64)
         m = np.stack([icons[n][1][i] for n in names]).astype(np.float64)
         area = np.maximum(m.sum(axis=(1, 2)), 1)                    # (agents, 3)
         mean = (t * m).sum(axis=(1, 2)) / area
         tz = (t - mean[:, None, None, :]) * m                       # zero-mean art
-        per_scale.append((t.shape[1], t.shape[2], cp.asarray(tz), cp.asarray(m),
-                          cp.asarray(area), cp.asarray((tz ** 2).sum(axis=(1, 2, 3)))))
+        per_scale.append((t.shape[1], t.shape[2], f32(tz), f32(m), f32(area),
+                          f32((tz ** 2).sum(axis=(1, 2, 3)))))
     gallery = (names, per_scale)
     _GPU_GALLERIES[id(icons)] = (icons, gallery)
     return gallery
 
 
 def _art_scores_gpu(win: np.ndarray, gallery) -> tuple[dict, dict]:
-    """`_art_scores_cpu` in float64 on the GPU, every agent of a scale at once.
+    """`_art_scores_cpu` in float32 on the GPU, every agent of a scale at once.
 
     The same masked normalised correlation: sum((I - mean_I) * (T - mean_T))
     over the mask, over the root of both masked variances, summed over the
-    three channels as OpenCV sums them. OpenCV accumulates in float32, so
-    scores differ from it in the fourth decimal: 9 of 4640 rounded scores on
-    7010b3d62460, by at most 0.0007, with the same best agent on 160 of 160
-    rows; over the whole session 1033 of 95294, at most 0.0047 on a weak
-    score, with the same best agent on 3310 of 3310 rows. A zero variance scores -1, as OpenCV's NaN does after
-    `nan_to_num`. The first maximum in row-major order wins, as in
-    `cv2.minMaxLoc`, and a later scale must beat an earlier one strictly.
+    three channels as OpenCV sums them. The window is first shifted by its
+    per-channel mean, rounded to an integer: the correlation does not
+    change, every pixel stays an exact integer in float32, and the masked
+    sums stay small enough that the variance keeps its precision. On the
+    fixture's boards (docs/SCOREBOARD_PRESENCE.md, "Portrait scoring time")
+    this moves a rounded score against the float64 scorer of 0.6.0-0.11.0
+    by at most 0.0001, and no best agent. A zero variance scores -1, as
+    OpenCV's NaN does after `nan_to_num`. The first maximum in row-major
+    order wins, as in `cv2.minMaxLoc`, and a later scale must beat an
+    earlier one strictly.
     """
     import cupy as cp
     names, per_scale = gallery
-    img = cp.asarray(win, dtype=cp.float64)
+    centre = np.rint(win.reshape(-1, 3).mean(axis=0))
+    img = cp.asarray(win.astype(np.float32) - centre.astype(np.float32))
     found = []
     for i, (th, tw, tz, m, area, tnorm) in enumerate(per_scale):
         if th > win.shape[0] or tw > win.shape[1]:
