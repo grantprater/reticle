@@ -211,15 +211,68 @@ The refusal traded twelve flagged deaths for seven right names and five
 silent errors. A board refusal leaves the killfeed witness alone, and the
 arbiter resolves one named witness. The collision row marks each of the five:
 a consumer that reads it, or requires two independent channels, sees them.
-The next step is to have the arbiter or the killfeed treat a stored collision
-as contested, not to name either death from the board.
+0.16.0 was not accepted for this reason; 0.17.0 replaces it.
+
+## What changed: a collision contests its deaths (death-adjudication-0.17.0)
+
+A death carrying an elimination collision's repeated name is now
+`contested`, a fourth arbiter status beside resolved, disagreement and
+abstained. The board's claim carries a `contest` with two alternatives,
+each with its witnesses: the death's own name (the killfeed channels that
+read it), and the dimmed agent no death was given (`scoreboard_dim`, with the
+board rows' observation keys). `adjudicate_agent_identity` resolves a
+contested entity only on an independent channel outside the contest's
+`implicated` list, and names that channel in `confirmed_by`. Otherwise the
+row is `contested_by_collision`, with no agent. The identity event splits
+its distribution over the alternatives. The arbiter had no contest
+mechanism, so this adds the smallest one: an optional `contest` field on
+`identity_claim`.
+
+Implicated (`COLLISION_IMPLICATED`): `killfeed_portrait` and
+`killfeed_name_cluster`, which repeated the name; `scoreboard_dim`, which
+dimmed the other agent; and `roster_diff`, whose name comes from a living set
+the earlier killfeed verdicts built. A channel outside these confirms: today
+`player_hud` (the local player's own death entry) and `minimap_track`. The
+top bar would confirm too, but no death witness reads it yet.
+
+Only elimination collisions contest. Where the count or a revive already
+refused (24 of the 30 rows), the dimmed set is not the interval's victims,
+so it offers no alternative name.
+
+Rerun from storage on the 20 sessions after merging master's roster-0.3.0.
+Master's own deaths (0.15.0 on the reread roster) are the baseline; they
+match the earlier 0.15.0 rows name for name. Backups:
+`notes/backup/deaths-before-elimination-collision-20260928/` (0.15.0) and
+`notes/backup/deaths-0.16.0-elimination-collision-20260928/`.
+
+| | master 0.15.0 | 0.16.0 | 0.17.0 |
+|---|---|---|---|
+| Victim disagreements | [metric:{M}disagreements_master=16] | 4 | [metric:{M}disagreements_after=4] |
+| Contested | 0 | 0 | [metric:{M}contested_after=12] |
+| Silent errors among the audited 22 | [metric:{M}silent_errors_master=1] | 6 | [metric:{M}silent_errors_after=1] |
+| Killer labels right / wrong / unnamed | 138 / 1 / 7 | 138 / 1 / 7 | [metric:{M}labels_right_after=138] / [metric:{M}labels_wrong_after=1] / [metric:{M}labels_unnamed_after=7] |
+| `checks.KNOWN_KD` exact of 17 | 13 | 13 | [metric:{M}known_kd_exact_after=13] |
+
+None of the twelve was confirmed [metric:{M}confirmed_by_outside_channel=0]:
+their only naming channels are the killfeed's. The remaining silent error
+is `bfad2778a372` 616.5 s (Raze for Phoenix): its name does not repeat, so
+nothing contests it. Its partner at 615.5 s is contested between Deadlock and
+Phoenix while its victim is Raze. The follow drift moved the name, so the
+right name is not among the alternatives.
+
+The refusal withholds seven names 0.16.0 gave right
+[metric:{M}right_names_withheld=7]: `223d636bf8d2` 820.5 s Reyna and
+1293.0 s Vyse, `3694746e4e54` 319.5 s Gekko, `9acf02f98283` 595.0 s Reyna,
+`bdfdcf009dba` 665.0 and 669.0 s Clove (a real second life), and
+`bfad2778a372` 619.5 s Deadlock. Each keeps its name as an alternative.
 
 ## Recommended next
 
-1. **A stored collision should contest its deaths' names.** Elimination
-   now refuses a colliding interval (0.16.0 above), and five of its deaths
-   resolve silently wrong on the killfeed alone. The collision row names
-   them; the arbiter or the killfeed should read it.
+1. **Settle the twelve contested deaths.** A contested death needs a
+   witness outside the killfeed and the board: the top bar's grey-then-drop
+   order, or the victim's name plate text, which would also separate follow
+   drift. The two `bdfdcf009dba` deaths are a real second life, which a
+   stored Not Dead Yet entry would explain (item 2).
 2. **Store the revive entries.** Clove's Not Dead Yet (`bdfdcf009dba` about
    666 s) and Sage's Resurrection (`ff636d173b07` about 2240 s) were on screen
    and absent from the death rows, so the board witness never saw

@@ -77,7 +77,19 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # `elimination_collision`, and the collision is stored as its own row
 # (`board_collisions`), since elimination copied the repeated name's error to
 # both deaths (223d636bf8d2 817.0 and 820.5 s; docs/VICTIM_DISAGREEMENTS.md).
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.16.0"
+# 0.17.0 (2026-09-28): a death carrying the repeated name is CONTESTED, not
+# named by the killfeed alone: the board's claim carries a `contest` with both
+# names, and the arbiter resolves it only on a channel outside
+# `COLLISION_IMPLICATED` (the player HUD, a minimap track). 0.16.0 turned five
+# of twelve flagged deaths into silent errors.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.17.0"
+
+#: Channels an elimination collision implicates: the two killfeed readings
+#: that repeated a name, the board that dimmed another agent, and the roster
+#: difference, whose name comes from a living set the earlier killfeed
+#: verdicts built. Only a channel outside these confirms a contested name.
+COLLISION_IMPLICATED = ("killfeed_portrait", "killfeed_name_cluster", "scoreboard_dim",
+                        "roster_diff")
 
 #: Weapon-slot icons that mark a revive entry, which is not a death
 #: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
@@ -279,6 +291,12 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
     death's name and the `witnesses` that named it); `board_collisions` keeps
     one per interval, also where the count already refused.
 
+    Where the count matched and no revive intervened, the board's dimmed set
+    is the interval's victims, so a death carrying the repeated name has two
+    candidates: its own name and the dimmed agent no death was given. Its
+    claim carries a `contest` (reason `contested_by_collision`) for the
+    arbiter, which names it only on a channel outside `COLLISION_IMPLICATED`.
+
     What dimming means is a player rule [domain:rounds/scoreboard-dim-is-dead]:
     a Run It Back death does not dim, so second-life deaths (`second_life`
     indices, or an entry flag) are left out of the count and name nothing
@@ -375,6 +393,16 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
                 {"t_ms": float(entries[j]["t_ms"]), "agent": named.get(j)} for j in others]
             if repeated:
                 claim["reason"] = f"elimination_collision {repeated}"
+                if named.get(i) in repeated:
+                    claim["contest"] = {
+                        "reason": "contested_by_collision",
+                        "alternatives": [{"agent": named[i],
+                                          "witnesses": (witnesses or {}).get(i, [])}] + [
+                            {"agent": a, "witnesses": [["scoreboard_dim", a]],
+                             "observation_keys": [s["observation_key"] for s in hi["rows"]
+                                                  if s["team"] == side and s["agent"] == a]}
+                            for a in sorted(newly - set(given))],
+                        "implicated": list(COLLISION_IMPLICATED)}
             elif not all(names):
                 claim["reason"] = f"interval_unordered {sorted(newly)}"
             elif not set(names) <= newly or len(set(names)) != len(names):
@@ -1037,7 +1065,8 @@ def adjudicate_death(
               and ch not in named_votes):
             claims.append(identity_claim(death_id, None, channel=ch, reason=w.get("reason"),
                                          evidence=(w.get("evidence")
-                                                   if ch == NAME_CLUSTER_CHANNEL else None)))
+                                                   if ch == NAME_CLUSTER_CHANNEL else None),
+                                         contest=w.get("contest")))
     identity = (adjudicate_agent_identity(claims) or [None])[0]
     status = identity["status"] if identity else "abstained"
     victim = identity["agent"] if identity else None
@@ -1046,6 +1075,9 @@ def adjudicate_death(
         reason = f"witnesses disagree: {named_votes}"
     elif status == "abstained":
         reason = "no witness provided a confident candidate"
+    elif status == "contested":
+        reason = (f"{identity['reason']}: "
+                  f"{sorted({a['agent'] for a in identity.get('alternatives', [])})}")
 
     # Location observability rules:
     # Enemy ability or environmental deaths can be unobserved by the team;
@@ -1474,7 +1506,7 @@ def death_verdict_to_events(verdict: DeathVerdict, session_id: str) -> list[dict
         # A revive deletes no entity; its portraits still name agents.
         for key in ("identity", "killer_identity"):
             identity = verdict.metadata.get(key)
-            if identity and identity["status"] in ("resolved", "disagreement"):
+            if identity and identity["status"] in ("resolved", "disagreement", "contested"):
                 events.extend(identity_events([identity], session_id, verdict.t_ms))
         return events
 
@@ -1507,7 +1539,7 @@ def death_verdict_to_events(verdict: DeathVerdict, session_id: str) -> list[dict
     # 2. IDENTITY_DISTRIBUTION event, from the identity arbiter only.
     for key in ("identity", "killer_identity"):
         identity = verdict.metadata.get(key)
-        if identity and identity["status"] in ("resolved", "disagreement"):
+        if identity and identity["status"] in ("resolved", "disagreement", "contested"):
             events.extend(identity_events([identity], session_id, verdict.t_ms))
 
     return events
