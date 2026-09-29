@@ -1015,16 +1015,96 @@ subject = "gekko:wingman"
 source = """
 player, 2026-09-29 (chat): "gekko goes to pick it up and recharges it,
 otherwise it would have expired on a timer", and "by "it" for gekko I mean
-his wingman ability". The timer's length is unknown
+his wingman ability". The timer's length is unknown. He later confirmed it
+for all four of Gekko's abilities (abilities/gekko-abilities-drop-pickups)
 """
 use = """
 a Wingman charge can return within a round by pickup, which the harvest's
-restock (none, abilities/catalogue-restock-and-ult-points-confirmed) does not
-list; this fact outranks that value for Wingman. A lost pickup highlight is
-either a pickup or an expiry
+restock (none) does not list; this fact outranks that value for Wingman
+(abilities/catalogue-restock-and-ult-points-confirmed excludes Gekko's
+restock cells). A lost pickup highlight is either a pickup or an expiry
 """
 see = ["abilities/catalogue-restock-and-ult-points-confirmed", "abilities/recharge-kinds",
-       "abilities/gekko-wingman-plant-minimap"]
+       "abilities/gekko-wingman-plant-minimap", "abilities/gekko-abilities-drop-pickups"]
+
+[gekko-abilities-drop-pickups]
+claim = """
+Each of Gekko's four abilities (Mosh Pit, Wingman, Dizzy, Thrash) drops an
+interactable thing that Gekko can pick up, and picking it up restocks that
+ability within the round.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-29"
+subject = "gekko"
+source = """
+player, 2026-09-29 (chat): "Yes, all of gekko's abilities drop an
+interactable thing for him to pick up, which gives him a restock within the
+round. So sorry that was innacurate info." Asked whether that includes Mosh
+Pit and Thrash: "mosh pit does, though it used to not. All of them do now."
+"""
+use = """
+Gekko's restock cells in the harvest (none for Wingman and Dizzy) are wrong;
+a spent Gekko charge can return by pickup. The per-ability facts
+abilities/gekko-mosh-pit-drops-pickup, abilities/gekko-dizzy-drops-pickup,
+abilities/gekko-thrash-drops-pickup and abilities/gekko-wingman-reclaim-or-expire
+carry each ability
+"""
+see = ["abilities/catalogue-restock-and-ult-points-confirmed",
+       "abilities/gekko-wingman-reclaim-or-expire", "abilities/recharge-kinds"]
+
+[gekko-mosh-pit-drops-pickup]
+claim = """
+Gekko's Mosh Pit drops an interactable thing that he can pick up, which
+restocks Mosh Pit within the round. This is a later change to the game: Mosh
+Pit used to drop nothing.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-29"
+subject = "gekko:mosh-pit"
+source = """
+player, 2026-09-29 (chat): "mosh pit does, though it used to not. All of them
+do now."
+"""
+use = """
+a VOD from before the change would show no pickup; the game version of a
+capture is unrecorded here
+"""
+see = ["abilities/gekko-abilities-drop-pickups"]
+
+[gekko-dizzy-drops-pickup]
+claim = """
+Gekko's Dizzy drops an interactable thing that he can pick up, which
+restocks Dizzy within the round.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-29"
+subject = "gekko:dizzy"
+source = """
+player, 2026-09-29 (chat): "Yes, all of gekko's abilities drop an
+interactable thing for him to pick up, which gives him a restock within the
+round."
+"""
+use = "the harvest's restock for Dizzy (none) is wrong"
+see = ["abilities/gekko-abilities-drop-pickups"]
+
+[gekko-thrash-drops-pickup]
+claim = """
+Gekko's Thrash drops an interactable thing that he can pick up, which
+restocks Thrash within the round.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-29"
+subject = "gekko:thrash"
+source = """
+player, 2026-09-29 (chat): asked whether the pickup includes Mosh Pit and
+Thrash, "mosh pit does, though it used to not. All of them do now."
+"""
+use = "Thrash is Gekko's ultimate; its ultimate-point cost stands as confirmed"
+see = ["abilities/gekko-abilities-drop-pickups"]
 
 [viper-poison-cloud-emitter-outline]
 claim = """
@@ -1892,9 +1972,12 @@ destroyed and another when recalled) or the listed kills (2 kills on four
 abilities), with the harvest's notes on modes and globules as listed; where
 the harvest lists no restock (54 abilities), the ability has none. For each X
 ability the harvest's `cost` is the ultimate points it needs (7, 8 or 9).
-Astra's X has no harvest cost, and this fact gives it none. The 72 restock
+Astra's X has no harvest cost, and this fact gives it none. The restock
 values and 28 ultimate-point values stand in the mechanics sheet's Restock
-and Charges columns.
+and Charges columns, except Gekko's four restock cells (Mosh Pit, Wingman,
+Dizzy, Thrash): every Gekko ability drops a pickup that restocks it, per
+abilities/gekko-abilities-drop-pickups, and the player withdrew the harvest's
+"none" for Gekko.
 """
 kind = "rule"
 known = "player"
@@ -1912,7 +1995,8 @@ with abilities/catalogue-charge-counts-confirmed; a per-ability domain fact
 still outranks the harvest. A harvest of another date is unconfirmed again
 """
 see = ["abilities/recharge-kinds", "abilities/catalogue-charge-counts-confirmed",
-       "abilities/ult-charge-pips", "abilities/ability-rules-are-unique"]
+       "abilities/ult-charge-pips", "abilities/ability-rules-are-unique",
+       "abilities/gekko-abilities-drop-pickups"]
 
 [skye-regrowth-channelled]
 claim = """
