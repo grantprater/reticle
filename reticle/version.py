@@ -128,7 +128,11 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # plate colour behind the weapon icon, not the last run past it.
 # 0.15.0 (2026-09-26): `kf_same_side_mask` stores the slots whose killer
 # plate reads the victim's side, the one-colour banner a revive draws.
-HUD_VERSION = "hud-0.15.0"
+# 0.16.0 (2026-09-28): `killfeed._join_split_runs` rejoins an entry whose plate
+# run broke in two at its text rows. The entry stack gains the samples it was
+# missing, so track onsets move earlier (c40d950031bb's player death, 703.5 s
+# to 701.0 s) and `kf_*` columns change where a split entry stood.
+HUD_VERSION = "hud-0.16.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits
