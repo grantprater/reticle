@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 from reticle import lineup, self_icon
 from reticle.version import SELF_ICON_VERSION
 
@@ -28,6 +30,45 @@ class AliveGateTests(unittest.TestCase):
 
     def test_no_roster_refuses(self):
         self.assertFalse(self_icon.all_alive([], [], 100))
+
+
+class TeardropCentreTests(unittest.TestCase):
+    """The ring fit finds the icon; the portrait is cut at the teardrop's centre."""
+
+    def _read(self, crop, det):
+        from unittest.mock import patch
+
+        import numpy as np
+
+        seen = {}
+
+        def pixels(crop, fit, others=()):
+            seen["fit"] = dict(fit)
+            return (slice(0, 1), slice(0, 1)), np.zeros((1, 1), bool)
+        ctx = {"floor": np.ones(crop.shape[:2], bool), "slab": None, "static": None, "sgray": None}
+        with patch("reticle.minimap.widget_drawn", return_value=True), \
+                patch("reticle.minimap.self_icons", return_value=[dict(det)]), \
+                patch("reticle.minimap.ally_icons", return_value=[]), \
+                patch("reticle.spike.glyph_fits", return_value=[]), \
+                patch("reticle.minimap.self_portrait_pixels", side_effect=pixels):
+            return self_icon.read_frame(crop, ctx, {}), seen
+
+    def test_the_portrait_is_cut_at_the_teardrop_centre(self):
+        from tests.test_teardrop import _crop
+        # 465 px wide: widget scale 1.0. The ring fit sits 3 px toward the lobe.
+        crop = np.zeros((80, 465, 3), np.uint8)
+        crop[:, :80] = _crop(40.0, 40.0, 0.0)
+        row, seen = self._read(crop, {"cx": 43.0, "cy": 40.0, "r": 9, "cov": 0.9})
+        self.assertEqual((row["reason"], row["origin"], row["cx"]), ("interior_too_thin", "teardrop", 43.0))
+        self.assertLess(abs(row["x"] - 40.0) + abs(row["y"] - 40.0), 0.3)
+        self.assertLess(abs(seen["fit"]["cx"] - 40.0), 0.2)
+
+    def test_an_unread_teardrop_keeps_the_ring_fit_centre_and_says_why(self):
+        row, seen = self._read(np.zeros((80, 465, 3), np.uint8),
+                               {"cx": 43.0, "cy": 40.0, "r": 9, "cov": 0.9})
+        self.assertEqual((row["x"], row["y"], row["origin"], row["origin_reason"]),
+                         (43.0, 40.0, "ring_fit", "no_yellow"))
+        self.assertEqual(seen["fit"]["cx"], 43.0)
 
 
 class WitnessTests(unittest.TestCase):

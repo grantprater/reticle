@@ -46,13 +46,24 @@ touches the self icon's, so its portrait is drawn over the player's),
 `minimap.self_portrait_pixels`). Refusals stay stored, so coverage is read
 from the rows and not assumed.
 
+**The portrait sits at the teardrop's centre.** The ring fit finds the icon
+(`cx`, `cy`) and its centre sits a few pixels toward the icon's lobe. The
+portrait is cut, aligned and tested for overlap at the self teardrop's centre
+(`x`, `y`, `teardrop.SelfConeReader`) where the shape reads on a 465 px
+widget, and at the ring fit's otherwise; `origin` names which and
+`origin_reason` says why (`unlabelled_scale` on a smaller widget, where the
+teardrop's centre fit the portrait no better). Aligned at the teardrop's
+centre the stored self frames fit their ally five more tightly
+(docs/STATISTICAL_ADJUDICATOR.md, E6, rule B').
+
 This describes; `adjudication.identity` names.
 """
 from __future__ import annotations
 
 import numpy as np
 
-from .version import ALLY_PORTRAIT_FEATURES_VERSION, SELF_ICON_VERSION, SPIKE_VERSION
+from .version import (ALLY_PORTRAIT_FEATURES_VERSION, SELF_ICON_VERSION, SPIKE_VERSION,
+                      TEARDROP_VERSION)
 
 #: Fewer portrait pixels than this and the histogram is noise.
 MIN_PIXELS = 12
@@ -88,6 +99,7 @@ def read_frame(crop: np.ndarray, ctx: dict, gal: dict, references: dict | None =
     from . import spike
     from .minimap import (ally_icons, portrait_key, self_icons, self_portrait_pixels,
                           widget_drawn, widget_scale)
+    from .teardrop import SelfConeReader, posed, self_portrait_pose
 
     if not widget_drawn(crop, ctx["sgray"], ctx["floor"]):
         return {"reason": "widget_not_drawn"}
@@ -104,9 +116,15 @@ def read_frame(crop: np.ndarray, ctx: dict, gal: dict, references: dict | None =
         return {"cx": round(fits[0]["cx"], 2), "cy": round(fits[0]["cy"], 2),
                 "spike_glyph": {k: g[k] for k in ("cx", "cy", "state")},
                 "reason": "on_spike_glyph"}
-    f = max(clear, key=lambda d: d["cov"])
-    row = {"cx": round(f["cx"], 2), "cy": round(f["cy"], 2), "r": int(f["r"]),
-           "cov": round(f["cov"], 3)}
+    ring = max(clear, key=lambda d: d["cov"])
+    # The ring fit finds the icon; the portrait is cut, aligned and tested for
+    # overlap at the teardrop's centre where it reads (0.5.0).
+    pose = self_portrait_pose(SelfConeReader(sc).read(crop, ring["cx"], ring["cy"]), sc,
+                              ring["cx"], ring["cy"])
+    f = posed(ring, pose)
+    row = {"cx": round(ring["cx"], 2), "cy": round(ring["cy"], 2), "r": int(f["r"]),
+           "cov": round(f["cov"], 3), "x": round(f["cx"], 2), "y": round(f["cy"], 2),
+           "origin": pose["origin"], "origin_reason": pose.get("reason")}
     near = min((float(np.hypot(a["cx"] - f["cx"], a["cy"] - f["cy"])) - a["r"] - f["r"]
                 for a in allies), default=None)
     row["ally_gap_px"] = None if near is None else round(near, 1)
@@ -229,7 +247,7 @@ def read_session(store, sid: str, gal: dict, references: dict | None = None,
     head = {"kind": "coverage", "session": sid, "self_icon_version": SELF_ICON_VERSION,
             "roi_cache_version": cache.record.get("version"), "roster_version": roster_version,
             "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION,
-            "spike_version": SPIKE_VERSION,
+            "spike_version": SPIKE_VERSION, "teardrop_version": TEARDROP_VERSION,
             "reference_version": (references or {}).get("version"),
             "parameters": {"step_s": step_s, "MIN_PIXELS": MIN_PIXELS,
                            "ROSTER_GAP_MS": ROSTER_GAP_MS},

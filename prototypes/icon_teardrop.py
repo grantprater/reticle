@@ -322,10 +322,10 @@ def sheet(path: Path, cls: str, n: int, sid: str) -> None:
 CENTRE_SESSIONS = ("223d636bf8d2", "bfad2778a372", "e37fdeca944f", ASCENT)
 
 
-def centre_check(sid: str, n: int, sheet_path: Path | None = None) -> dict:
-    """The ally teardrop's centre at scale 1.0 (0.1.0) and at the widget's scale (0.2.0).
+def centre_check(sid: str, n: int, sheet_path: Path | None = None, cls: str = "ally") -> dict:
+    """The `cls` teardrop's centre at scale 1.0 (0.1.0) and at the widget's scale (0.2.0).
 
-    On `n` frames outside the calibration minutes, every ally detection is
+    On `n` frames outside the calibration minutes, every `cls` detection is
     read three ways: the ring fit's centre, the teardrop at scale 1.0 and
     the teardrop at `widget_scale`. Reports each teardrop's median distance
     from the ring fit's centre and, the independent witness, the median
@@ -345,11 +345,12 @@ def centre_check(sid: str, n: int, sheet_path: Path | None = None) -> dict:
     for t, crop in s.crops(sample_times(s, n, calibration=False)):
         width = int(crop.shape[1])
         sc = minimap.widget_scale(width)
-        key = CLASSES["ally"].key(crop)
-        for d in detections(crop, "ally", s):
-            old = fit(None, "ally", d["cx"], d["cy"], key=key)
-            new = fit(None, "ally", d["cx"], d["cy"], key=key, scale=sc)
-            row = {"t_ms": float(t), "old_read": bool(old.get("read")), "new_read": bool(new.get("read"))}
+        key = CLASSES[cls].key(crop)
+        for d in detections(crop, cls, s):
+            old = fit(None, cls, d["cx"], d["cy"], key=key)
+            new = fit(None, cls, d["cx"], d["cy"], key=key, scale=sc)
+            row = {"t_ms": float(t), "old_read": bool(old.get("read")), "new_read": bool(new.get("read")),
+                   "new_ncc": new.get("ncc")}
             for arm, f in (("ring", {"x": d["cx"], "y": d["cy"], "read": True}), ("old", old), ("new", new)):
                 if f.get("read"):
                     got = rendered_art_fit(ipg.features_at(crop, f["x"], f["y"]), names, refs) if names else None
@@ -382,7 +383,13 @@ def centre_check(sid: str, n: int, sheet_path: Path | None = None) -> dict:
             "new_better_than_old": (round(float(np.mean([r["new_fit"] < r["old_fit"] for r in rows if both(r)])), 3)
                                     if any(both(r) for r in rows) else None),
             "facing_change_median_deg": round(float(np.median(dd)), 2) if dd else None,
-            "facing_change_over90": round(float(np.mean(np.asarray(dd) > 90)), 3) if dd else None}
+            "facing_change_over90": round(float(np.mean(np.asarray(dd) > 90)), 3) if dd else None,
+            "new_ncc_median": med("new_ncc", lambda r: r["new_read"]),
+            # Portrait fit by the scaled read's NCC: does a low-NCC read still centre the portrait?
+            "new_fit_median_ncc_under60": med("new_fit", lambda r: r["new_read"] and r["new_ncc"] < 0.6),
+            "ring_fit_median_ncc_under60": med("ring_fit", lambda r: r["new_read"] and r["new_ncc"] < 0.6),
+            "new_fit_median_ncc_60up": med("new_fit", lambda r: r["new_read"] and r["new_ncc"] >= 0.6),
+            "ring_fit_median_ncc_60up": med("ring_fit", lambda r: r["new_read"] and r["new_ncc"] >= 0.6)}
 
 
 def _centre_tile(crop, d, old, new, K: int = 16, Z: int = 8) -> np.ndarray:
@@ -418,21 +425,26 @@ def main(argv=None) -> int:
     ap.add_argument("--length", type=float, nargs="+", default=[15.0, 16.0, 17.0, 18.0, 19.0, 20.0])
     ap.add_argument("--centre-check", action="store_true",
                     help="the ally centre at scale 1.0 and at widget scale, on CENTRE_SESSIONS")
+    ap.add_argument("--centre-class", choices=("ally", "self"), default="ally")
+    ap.add_argument("--centre-sessions", nargs="+", default=list(CENTRE_SESSIONS))
     ap.add_argument("--sheet-dir", type=Path, help="--centre-check: write a contact sheet per session here")
     args = ap.parse_args(argv)
     sem._below_normal()
     if args.centre_check:
         values = {}
-        for sid in CENTRE_SESSIONS:
+        for sid in args.centre_sessions:
             got = centre_check(sid, args.n, None if args.sheet_dir is None
-                               else args.sheet_dir / f"centre_check_{sid}.png")
+                               else args.sheet_dir / f"centre_check_{args.centre_class}_{sid}.png",
+                               cls=args.centre_class)
             print(sid, got, flush=True)
             values[sid] = got
         if args.record:
             from reticle import metrics
             from reticle.version import ICON_TEARDROP_VERSION
             for sid, got in values.items():
-                metrics.record("icon_teardrop", part="centre-scale", session=sid,
+                metrics.record("icon_teardrop", part="centre-scale" + ("" if args.centre_class == "ally"
+                                                                      else "-" + args.centre_class),
+                               session=sid,
                                values={k: v for k, v in got.items() if k != "gallery_reason"},
                                deps={"version": VERSION, "reader": ICON_TEARDROP_VERSION, "n": args.n,
                                      "before": "icon-teardrop-0.1.0 (scale 1.0)"},
