@@ -30,6 +30,11 @@ ELIGIBLE cones (the adjudicated vision), and `observable_all`, the union of
 every tracked bearing (what `overlay` tints without `--minimap-lifecycle`).
 A stale or absent widget stores no mask and says which.
 
+**On demand.** `at` computes the rows at chosen instants only, starting the
+chain at the last cache gap its tracks and lifecycle expire across, so each
+row equals the full run's except for track ids. `reticle vision --check`
+compares a computation with the stored product without writing.
+
 **Order against the ability adjudicator.** A smoke blocks the drawn light, and
 the drawn light refuses ability candidates, so the two could wait on each
 other. The loop is broken by time. This product reads no ability entity
