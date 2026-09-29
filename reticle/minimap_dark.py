@@ -71,11 +71,15 @@ class DarkRegionReader:
     same rows at every instant both sources hold, but other instants than a
     decode's stride, which takes every 15th frame of a 60 fps capture where
     the cache holds every 4th or 5th. The coverage row then names the cache in
-    `frames_from`; a decode's coverage row carries no such key.
+    `frames_from`; a decode's coverage row carries no such key. A pass
+    clipped to a round cache's rounds adds `spans_clip`, the spans it read
+    and the spans it left unread (`roi_cache.clip_record`).
     """
 
     #: A slower rate than the cache's reads the cache on this reader's own grid.
     cache_resample = True
+    #: Its coverage row records a clip to a round cache (`spans_clip`).
+    records_clip = True
 
     def __init__(self, floor, sgray, static, ref, box, hz=4.0, spans=None,
                  name="minimap_dark"):
@@ -110,4 +114,9 @@ class DarkRegionReader:
         if self.frames_from != "video":
             # Only a cache-fed pass adds the key, so a decode's rows keep their bytes.
             head["frames_from"] = self.frames_from
+        clip = getattr(self, "spans_clip", None)
+        if clip is not None:
+            # A pass clipped to a round cache's rounds names the spans it left
+            # unread (`roi_cache.clip_record`): no row there is not an empty floor.
+            head["spans_clip"] = clip
         return [head] + [{**common, **r} for r in self.rows]

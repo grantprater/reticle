@@ -149,6 +149,133 @@ def clip_spans(wanted, held) -> list[tuple[float, float]]:
     return sorted(out)
 
 
+#: How `scan --from` picks a pass's frames.
+FRAME_SOURCES = ("auto", "cache", "video")
+
+
+def subtract_spans(wanted, taken) -> list[tuple[float, float]]:
+    """The parts of `wanted` spans that no `taken` span holds."""
+    out = []
+    for s, e in wanted:
+        pieces = [(float(s), float(e))]
+        for a, b in taken:
+            pieces = [p for lo, hi in pieces
+                      for p in ((lo, min(hi, a)), (max(lo, b), hi)) if p[0] < p[1]]
+        out.extend(pieces)
+    return sorted(out)
+
+
+def clip_record(asked, read, record: dict) -> dict:
+    """What a clip to a round cache did to a reader, for its stream's
+    provenance: the cache that fed it, the spans it asked for, read and
+    skipped. A skipped span is unread, not unobserved: nothing looked
+    there. `asked` None is the whole capture, whose skipped part is
+    everything outside `spans_read`."""
+    pairs = lambda spans: [[float(a), float(b)] for a, b in spans]
+    return {"frames_from": record["version"], "cache_set": record["roi"],
+            "reason": "outside_cache_rounds",
+            "spans_asked": None if asked is None else pairs(asked),
+            "spans_read": pairs(read),
+            "spans_skipped": None if asked is None else pairs(subtract_spans(asked, read))}
+
+
+def rounds_covered(held, wanted, rounds) -> tuple[bool, str]:
+    """Whether a cache written over rounds (`held`) holds a span reader's
+    window, and why: the reader's `wanted` spans inside the session's live
+    `rounds`, the spans a live-round cache is written over.
+
+    A round cache never holds the buy phase before each round's lead, so the
+    window leaves it out: `--from cache` reads the rounds only, and `--from
+    auto` reads what `--from cache` would. What the window asks the cache
+    must hold whole; a cache missing a round, or written before the rounds
+    moved, holds part of it, and the pass decodes."""
+    if wanted is None:
+        return False, "it reads the whole capture, and the cache holds rounds"
+    window = clip_spans(wanted, rounds)
+    if not window:
+        return False, "its spans meet no live round"
+    out = [w for w in window if not covers(held, [w])]
+    if out:
+        return False, (f"{len(out)} of its {len(window)} in-round spans lie outside "
+                       f"the cache's {len(held)} rounds")
+    return True, f"the cache holds its spans inside all {len(rounds)} live rounds"
+
+
+def choose_source(store_root: Path, manifest: dict, profile, readers, mode: str,
+                  live_rounds) -> tuple["RoiCache | None", str, list[str]]:
+    """The cache that feeds a pass (None to decode), why, and the lines that
+    say what the choice did to the readers' spans.
+
+    `mode` is `FRAME_SOURCES`'s. `video` decodes. `cache` clips every reader
+    of a cache written over rounds to those rounds, then asks `cache_for`;
+    None there means the caller refuses. `auto` clips a span reader the same
+    way only where `rounds_covered` says its cache holds its window, asking
+    `live_rounds()` -- the session's live-round spans, or None and why --
+    once, when a round cache first needs it. If `cache_for` then refuses the
+    pass, auto puts every clipped reader's spans back and the pass decodes
+    them whole, so a decode never reads clipped spans. A whole-capture reader
+    is never clipped under auto: a round cache does not hold it, and
+    `cache_for` says so.
+
+    Each clipped reader carries `spans_clip` (`clip_record`), which its
+    stream must record, so a skipped span reads as unread rather than as
+    a span with nothing in it; a restored reader loses it. Auto clips only
+    a reader that declares `records_clip`; under `cache` the caller refuses
+    a clipped reader that does not. Under `auto` and
+    `cache` a cache-fed pass reads the same frames and records the same
+    clip, so the two write the same streams; the source changes no stamp."""
+    if mode not in FRAME_SOURCES:
+        raise ValueError(f"frame source {mode!r} is not one of {FRAME_SOURCES}")
+    if mode == "video":
+        return None, "--from video", []
+    notes: list[str] = []
+    before: list[tuple[object, object]] = []
+    rounds: list | None = None
+    rounds_why = None
+    for r in readers:
+        s = getattr(r, "cache_set", None)
+        held = RoiCache.load(store_root, manifest, profile, s)[0] if s else None
+        if held is None or held.record.get("spans") is None:
+            continue
+        spans = held.record["spans"]
+        if mode == "auto":
+            if getattr(r, "spans", None) is None:
+                continue
+            if not getattr(r, "records_clip", False):
+                notes.append(f"spans      {r.name} kept: its stream cannot record the "
+                             f"spans a clip to the {s} cache's rounds would skip")
+                continue
+            if rounds is None and rounds_why is None:
+                rounds, rounds_why = live_rounds()
+                rounds_why = rounds_why or ""
+            if rounds is None:
+                notes.append(f"spans      {r.name} kept: no live rounds to check the "
+                             f"{s} cache against ({rounds_why})")
+                continue
+            ok, why = rounds_covered(spans, r.spans, rounds)
+            if not ok:
+                notes.append(f"spans      {r.name} kept: {why}")
+                continue
+            notes.append(f"spans      {r.name}: {why}")
+        asked = getattr(r, "spans", None)
+        before.append((r, asked))
+        r.spans = clip_spans(asked, spans)
+        r.spans_clip = clip_record(asked, r.spans, held.record)
+        skipped = r.spans_clip["spans_skipped"]
+        notes.append(f"spans      {r.name} clipped to the {s} cache's {len(spans)} rounds"
+                     + ("" if skipped is None else
+                        f"; {sum(b - a for a, b in skipped) / 1000.0:.0f} s of its spans "
+                        f"left unread, recorded as spans_skipped"))
+    cache, why = cache_for(store_root, manifest, profile, readers)
+    if cache is None and mode == "auto" and before:
+        for r, spans in before:
+            r.spans = spans
+            del r.spans_clip
+        notes.append(f"spans      {', '.join(r.name for r, _ in before)} restored: "
+                     f"the pass decodes")
+    return cache, why, notes
+
+
 def cache_dir(store_root: Path, name: str) -> Path:
     return Path(store_root) / "roi_cache" / name / ROI_CACHE_VERSION
 

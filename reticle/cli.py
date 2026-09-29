@@ -486,6 +486,8 @@ class _MinimapPass:
         self.cv_threads = 1        # small crops: see `passes._feed`
         self.hz = args.minimap_hz
         self.spans = spans         # the minimap has nothing to say off-round
+        # Its table's metadata records a clip to a round cache (`spans_clip`).
+        self.records_clip = True
         self.step_ms = 1000.0 / args.minimap_hz
         # The last position READ and when, which is not the last frame fed:
         # a widget-absent frame, a dropped frame and a stall all leave the
@@ -1147,25 +1149,35 @@ def cmd_scan(args) -> int:
         return SimpleNamespace(hp=hp, kp=kp, mp=mp, pp=pp, rp=rp, sp=sp, lp=lp, ap=ap,
                                dp=dp, cp=cp, xp=xp, ctx=ctx, readers=readers)
 
+    def live_rounds():
+        try:
+            return _live_round_spans(store, sid, date), None
+        except SystemExit as exc:
+            return None, str(exc)
+
     def choose_source(readers):
         # A pass whose readers all stay inside a cached ROI set is fed from the
-        # crop cache: the same pixels, no decode. `--from video` decodes anyway.
-        from .roi_cache import RoiCache, cache_for, clip_spans
-        if args.frames_from == "cache":
-            # A cache written over rounds holds no frames outside them; asked to
-            # read from it, a span reader reads the rounds only, and says so.
-            for r in readers:
-                s = getattr(r, "cache_set", None)
-                held = (RoiCache.load(store.root, manifest, profile, s)[0] if s else None)
-                if held is not None and held.record.get("spans") is not None:
-                    r.spans = clip_spans(getattr(r, "spans", None), held.record["spans"])
-                    print(f"spans      {r.name} clipped to the {s} cache's "
-                          f"{len(held.record['spans'])} rounds")
-        cache, why = ((None, "--from video") if args.frames_from == "video"
-                      else cache_for(store.root, manifest, profile, readers))
+        # crop cache: the same pixels, no decode. A cache written over rounds
+        # holds no frames outside them: `--from cache` reads a span reader's
+        # rounds only, `--from auto` does so where the cache holds every live
+        # round of its spans and decodes otherwise, and each says which.
+        from .roi_cache import choose_source as choose
+        cache, why, notes = choose(store.root, manifest, profile, readers,
+                                   args.frames_from, live_rounds)
+        for line in notes:
+            print(line)
         if cache is None and args.frames_from == "cache":
             raise SystemExit(f"--from cache: {why}")
-        print(f"frames     {'from ' + why if cache is not None else 'decoded (' + why + ')'}")
+        # A clipped stream must say which spans it left unread; one that
+        # cannot would store unread time as time with nothing in it.
+        mute = [r.name for r in readers if getattr(r, "spans_clip", None) is not None
+                and not getattr(r, "records_clip", False)]
+        if mute:
+            raise SystemExit(f"--from {args.frames_from}: {', '.join(mute)} would read the "
+                             f"cache's rounds only, and its stream cannot record the spans "
+                             f"it skips; use --from video")
+        print(f"frames     {args.frames_from}: "
+              f"{'from ' + why if cache is not None else 'decoded (' + why + ')'}")
         if until is not None:
             # After `cache_for`: a span on a whole-capture reader would make
             # it refuse a whole-capture cache.
@@ -1207,7 +1219,11 @@ def cmd_scan(args) -> int:
             if not mp.rows:
                 raise SystemExit("decoded zero frames inside active spans "
                                  "-- is segmentation right?")
-            path = out.write_minimap(mp.rows, _FP(src, sid), profile.name, date)
+            frames_from = getattr(mp, "frames_from", "video")
+            path = out.write_minimap(
+                mp.rows, _FP(src, sid), profile.name, date,
+                frames_from=None if frames_from.startswith("video") else frames_from,
+                spans_clip=getattr(mp, "spans_clip", None))
             got = sum(1 for r in mp.rows if r["self_x"] is not None)
             print(f"minimap    {len(mp.rows)} rows -> {path}")
             print(f"           widget absent {mp.n_absent}/{len(mp.rows)} "
@@ -4671,8 +4687,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--from", dest="frames_from", default="auto",
                    choices=("auto", "cache", "video"),
                    help="auto (default): feed the pass from the ROI crop cache when every "
-                        "reader in it reads only cached ROIs, else decode; cache: refuse to "
-                        "decode; video: always decode")
+                        "reader in it reads only cached ROIs and the cache holds its frames "
+                        "-- a span reader over a round cache reads the rounds only, as with "
+                        "cache, when the cache holds every live round -- else decode; "
+                        "cache: refuse to decode; video: always decode")
     s.add_argument("--cache-roi", choices=("killfeed", "hud", "minimap"),
                    help="also store lossless crops of this ROI at the HUD rate, for "
                         "`reticle trial --from cache`; `--only roi_cache` stores only them")
