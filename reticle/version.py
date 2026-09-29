@@ -235,6 +235,11 @@ ABILITY_SHAPE_VERSION = "ability-shape-0.1.0"
 # changes; the gate that decides which drops are the player's has its own
 # stamp, PLAYER_CAST_VERSION.
 TRAY_VERSION = "tray-0.1.0"
+# Whether the game's menu covers the HUD, per sample of the stored crops, written
+# as `menu_open` rows by `reticle menu`: the tab strip in the `hud` cache and
+# the CLOSE SETTINGS button in the tray crop (`menu`). Bump when a fit, a
+# constant or the stored fields change.
+MENU_VERSION = "menu-0.1.0"
 # Which stored tray drops are the local player's casts, decided by
 # `ability_timeline.player_tray_casts` from stored data alone. `reticle tray`
 # stamps it beside its drops; `ult-cast` and `ability-shapes` record it among
@@ -256,7 +261,11 @@ TRAY_VERSION = "tray-0.1.0"
 # stored by `reticle tray-kit`, ends the kit too, until the tray returns to the
 # player's kit; a drop between the two is refused as `after_kit_change`. A
 # session without current `tray_kit` rows is decided as under 0.5.0.
-PLAYER_CAST_VERSION = "player-cast-0.6.0"
+# 0.7.0: a drop at an instant the stored menu witness (`menu_open`, `reticle
+# menu`) finds the menu open is refused first, as `menu_open`, and taints no
+# drop beside it; on a capture with no rounds table it outranks `no_rounds`.
+# A session without current `menu_open` rows is decided as under 0.6.0.
+PLAYER_CAST_VERSION = "player-cast-0.7.0"
 # Whose kit the ability tray shows, per sample of the stored `hud_abilities`
 # crops: the slot icons scored against the catalogue's (`tray_icons`) and read
 # against the candidate sets the lineup allows (`adjudication.tray_kit`),
@@ -298,7 +307,9 @@ MINIMAP_DARK_VERSION = "minimap-dark-0.1.0"
 # Smoke tracks recomputed from stored `minimap_dark` rows by `reticle smokes`.
 # Bump when a birth, presence or end rule in `adjudication.smokes` changes.
 # 0.2.0: sampling gaps are unobserved; onsets carry their own censoring.
-SMOKE_VERSION = "smoke-0.2.0"
+# 0.3.0: a frame the stored menu witness (`menu_open`) finds covered is
+# unobserved.
+SMOKE_VERSION = "smoke-0.3.0"
 # Combat report reads (header score, per-row damage, hit splits, flag-word
 # correlations), written as `combat_report` rows by `reticle scan`. It stores no
 # decision. Bump when an offset, a threshold, the templates or the stored fields

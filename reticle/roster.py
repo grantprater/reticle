@@ -275,12 +275,18 @@ def alive_from_detail(detail: list[float], pack_right: bool,
     return best
 
 
-def resolve(hud, roster, join_ms: float = 1000.0):
+def resolve(hud, roster, join_ms: float = 1000.0, menu=None):
     """(ally, enemy) counts per roster row, with the empty bar resolved by HUD.
 
     An as-of join, never forward: each roster row takes the nearest EARLIER HUD
     sample within `join_ms` and asks whether the scoreline read there. No HUD
     row in range leaves `hud_drawn` unknown, and an unknown refuses.
+
+    `menu(t_ms)` is the stored menu witness (`menu.MenuWitness.at`). The
+    menu's tab strip crosses the roster bars, and its crisp labels read as
+    portraits: `4f207c0c4e39` at 201.0 s counted three allies. A row the
+    witness finds covered refuses both counts; `refusals` names the reason,
+    and the stored detail stays as it was read.
 
     This is an ADJUDICATION over stored data, which is why it lives here rather
     than in `RosterReader`: `scan --only roster` deliberately runs no HUD
@@ -290,7 +296,9 @@ def resolve(hud, roster, join_ms: float = 1000.0):
     from bisect import bisect_right
     v = roster.to_pydict() if hasattr(roster, "to_pydict") else roster
     if "detail_ally" not in v:            # written before roster-0.2.0
-        return list(v["alive_ally"]), list(v["alive_enemy"])
+        gone = refusals(v, menu)
+        return ([None if w else n for n, w in zip(v["alive_ally"], gone)],
+                [None if w else n for n, w in zip(v["alive_enemy"], gone)])
     h = (hud.to_pydict() if hasattr(hud, "to_pydict") else hud) or {}
     ht = h.get("t_ms") or []
     drawn = [l is not None and r is not None
@@ -299,12 +307,20 @@ def resolve(hud, roster, join_ms: float = 1000.0):
     for k, t in enumerate(v["t_ms"]):
         i = bisect_right(ht, t) - 1
         g = drawn[i] if 0 <= i < len(drawn) and t - ht[i] <= join_ms else None
+        covered = menu is not None and menu(t) is True
         for side, (col, pack) in enumerate((("detail_ally", True),
                                             ("detail_enemy", False))):
             d = v[col][k]
-            out[side].append(None if d is None
+            out[side].append(None if d is None or covered
                              else alive_from_detail(list(d), pack, g))
     return out
+
+
+def refusals(roster, menu=None) -> list[str | None]:
+    """Per roster row, why `resolve` refuses it before reading the bars:
+    `menu_open` where the menu witness finds the screen covered, else None."""
+    v = roster.to_pydict() if hasattr(roster, "to_pydict") else roster
+    return ["menu_open" if menu is not None and menu(t) is True else None for t in v["t_ms"]]
 
 
 def slot_details(frame: np.ndarray, profile: Profile, w: int, h: int):

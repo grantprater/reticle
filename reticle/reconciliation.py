@@ -13,7 +13,7 @@ from bisect import bisect_left, bisect_right
 from collections import Counter
 
 from .checks import track_entries
-from .roster import resolve
+from .roster import refusals, resolve
 from .rounds import round_bounds
 
 SCORE_CONFIRM_GAP_MS = 3000
@@ -151,12 +151,14 @@ def audit_scoreline(hud):
                 proposed=proposed)
 
 
-def audit_roster_deltas(hud, roster):
+def audit_roster_deltas(hud, roster, menu=None):
     """Nonoverlapping 10s windows, actual baseline, explicit timing tolerance.
 
     A count rise is flagged as revive/reset/read-error ambiguity, never forced
     monotone. Zero/zero is ambiguous, not declared impossible. Nulls or gaps
-    inside a window prevent it from being counted as an agreement.
+    inside a window prevent it from being counted as an agreement. `menu` is
+    the stored menu witness (`menu.MenuWitness.at`); a row it finds covered
+    refuses, and `menu_open_rows` counts them.
     """
     if roster is None:
         return dict(status='missing_roster', windows=[], counts={})
@@ -164,12 +166,13 @@ def audit_roster_deltas(hud, roster):
     # Adjudicate from the stored detail with the HUD gate, rather than trusting
     # the ungated counts the reader had to store: a WIPED team reads None
     # without it, and a wipe is exactly the window this audit most wants.
-    v['alive_ally'], v['alive_enemy'] = resolve(hud, roster)
+    v['alive_ally'], v['alive_enemy'] = resolve(hud, roster, menu=menu)
     rt = v['t_ms']
     rounds = round_bounds(h['t_ms'], h['score_left'], h['score_right'], h.get('clock_ms'))
     entry_times = [e['t_first'] for e in track_entries(
         h['t_ms'], h['kf_entry_mask'], h.get('kf_entry_wx')) if e['counted']]
     counts, windows = Counter(), []
+    counts['menu_open_rows'] = sum(w is not None for w in refusals(roster, menu))
     counts['zero_zero_rows'] = sum(a == 0 and b == 0 for a,b in
                                   zip(v['alive_ally'], v['alive_enemy']))
     for number, r in enumerate(rounds, 1):
@@ -241,7 +244,7 @@ def audit_roster_deltas(hud, roster):
 BOARD_ALIVE_CONTEXT_MS = 2000
 
 
-def audit_board_alive(openings, hud, roster, join_ms: float = ROSTER_JOIN_MS):
+def audit_board_alive(openings, hud, roster, join_ms: float = ROSTER_JOIN_MS, menu=None):
     """The scoreboard's lit rows per side against the roster's alive count.
 
     Each accepted opening names who is lit and who is dimmed on each side
@@ -251,12 +254,12 @@ def audit_board_alive(openings, hud, roster, join_ms: float = ROSTER_JOIN_MS):
     or unread roster refuses with its reason. Every disagreement keeps its
     distance to the nearest counted killfeed entry and score boundary, because
     a death between the two reads is the expected cause, not a verdict on
-    either channel.
+    either channel. A roster row the menu witness finds covered is unread.
     """
-    return board_alive_auditor(hud, roster, join_ms)(openings)
+    return board_alive_auditor(hud, roster, join_ms, menu)(openings)
 
 
-def board_alive_auditor(hud, roster, join_ms: float = ROSTER_JOIN_MS):
+def board_alive_auditor(hud, roster, join_ms: float = ROSTER_JOIN_MS, menu=None):
     """`audit_board_alive` for many opening lists of one session.
 
     The roster's alive counts, the counted killfeed entries and the score
@@ -267,7 +270,7 @@ def board_alive_auditor(hud, roster, join_ms: float = ROSTER_JOIN_MS):
         return lambda openings: dict(status='missing_roster', records=[], counts={})
     v = roster.to_pydict() if hasattr(roster, 'to_pydict') else dict(roster)
     h = hud.to_pydict() if hasattr(hud, 'to_pydict') else dict(hud or {})
-    alive = dict(zip(('ally', 'enemy'), resolve(h, v)))
+    alive = dict(zip(('ally', 'enemy'), resolve(h, v, menu=menu)))
     rt = v['t_ms']
     entries = sorted(e['t_first'] for e in track_entries(
         h['t_ms'], h['kf_entry_mask'], h.get('kf_entry_wx')) if e['counted']) if h else []

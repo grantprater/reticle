@@ -104,6 +104,34 @@ use = """
 a same-instant fall on several slots with a dimmed tray is the menu, not a
 cast; the tray reader and `minimap.widget_drawn` both need the guard
 """
+see = ["hud/menu-structure"]
+
+[menu-structure]
+claim = """
+The in-game menu draws two opaque structures over the dimmed screen: a tab
+strip across the top (MATCH, GENERAL, CONTROLS, CROSSHAIR, VIDEO, AUDIO,
+VIEWING), one line of white labels on a dark panel where the roster bars and
+the scoreline sit in play, and a grey CLOSE SETTINGS button centred at the
+bottom, over the ability tray, lighter while the pointer rests on it. Both
+sit at one scale and height in most captures; one capture draws the whole
+menu smaller and lower.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-28"
+subject = "hud:menu-overlay"
+source = """
+the stored crop caches, 2026-09-28, all at 1920x1080: the tab strip on
+4f207c0c4e39 at 201.0 s (the roster channel counted it as three allies; this
+is the smaller, lower layout) and on 59c70f1ef720 at 205.0 s, both beside the
+button; the button on 6bb88dba5d2c at 44.05 s; the demo census's
+settings-cover drops show the button (store analysis/demo-cast-census/)
+"""
+use = """
+`reticle.menu` fits these structures instead of a hue or level threshold; each
+crop cache holds one of them
+"""
+see = ["hud/menu-dims-tray"]
 
 [ability-timer-bar]
 claim = """

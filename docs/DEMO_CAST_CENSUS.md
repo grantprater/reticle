@@ -32,7 +32,8 @@ drops, so the census holds no real Cypher cast.
 [metric:demo_cast_census/table@demos#same_instant_drops=18] census drops share
 their instant with another slot's drop, and
 [metric:demo_cast_census/table@demos#same_instant_settings=16] of those are
-settings-menu drops.
+settings-menu drops. The menu witness now names all of them `menu_open`
+([MENU_WITNESS.md](MENU_WITNESS.md)).
 
 Of the [metric:demo_cast_census/table@demos#kept=128] real casts, the blind
 read calls [metric:demo_cast_census/table@demos#kept_nothing=55] nothing and

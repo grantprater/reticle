@@ -59,8 +59,11 @@ MIN_LIFE_S = 1.0
 MAX_GAP_PERIODS = 3.0
 
 
-def tracks(rows: list[dict], known: np.ndarray) -> list[dict]:
-    """Smoke tracks from one session's `minimap_dark` rows, in time order."""
+def tracks(rows: list[dict], known: np.ndarray, menu=None) -> list[dict]:
+    """Smoke tracks from one session's `minimap_dark` rows, in time order.
+    A frame the stored menu witness `menu(t_ms)` (`menu.MenuWitness.at`)
+    finds covered is unobserved, as an undrawn widget is: the menu dims the
+    widget, which still passes the widget test [domain:hud/menu-dims-tray]."""
     frames = sorted((r for r in rows if r.get("kind") == "frame"), key=lambda r: r["t_ms"])
     head = next((r for r in rows if r.get("kind") == "coverage"), {})
     hz = float(head.get("hz") or 4.0)
@@ -94,7 +97,7 @@ def tracks(rows: list[dict], known: np.ndarray) -> list[dict]:
         if gap:
             unobserved(t)
             prev_occ = None
-        if f.get("widget_drawn") is not True:
+        if f.get("widget_drawn") is not True or (menu is not None and menu(t) is True):
             unobserved(t)
             prev_occ = None
             continue
@@ -161,11 +164,13 @@ def tracks(rows: list[dict], known: np.ndarray) -> list[dict]:
     return out
 
 
-def events(session_id: str, rows: list[dict], known: np.ndarray) -> list[dict]:
+def events(session_id: str, rows: list[dict], known: np.ndarray, menu=None,
+           menu_stamp: str | None = None) -> list[dict]:
     """`smoke` rows: one coverage row, then one row per track."""
     src = next((r for r in rows if r.get("kind") == "coverage"), {})
-    got = tracks(rows, known)
+    got = tracks(rows, known, menu)
     common = {"session_id": session_id, "smoke_version": SMOKE_VERSION,
+              "menu_open": menu_stamp,
               "minimap_dark_version": src.get("minimap_dark_version"),
               "geometry_key": src.get("geometry_key")}
     head = {**common, "kind": "coverage", "tracks": len(got),
