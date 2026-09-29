@@ -14,8 +14,9 @@ def _lineup(sid, ally, enemy, player_slot=0, enemy_refused=()):
              "enemy": [{"slot": i, "agent": None if i in enemy_refused else a,
                         "best_guess": a, "rival": "Omen", "reason": "margin"}
                        for i, a in enumerate(enemy)]}
-    claims = claims_from_lineup(sides, None, observation_id=sid, source_version="lineup-test")
-    return {"version": "lineup-test", "sides": sides, "player": {"slot": player_slot},
+    claims = claims_from_lineup(sides, {"tray": {"votes": {ally[player_slot]: 9}}},
+                                observation_id=sid, source_version="lineup-test")
+    return {"version": "lineup-test", "sides": sides, "identity_claims": claims,
             "agent_identity": adjudicate_agent_identity(claims),
             "board_state": {"applied": False, "reason": "no_scoreboard"}}
 

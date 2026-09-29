@@ -154,13 +154,123 @@ def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
     }
 
 
-def claims_from_lineup(sides, player=None, *, observation_id="lineup",
+#: The local player's identity: which witnesses name the player's agent, and
+#: which top-bar slot holds it. Stamped on every player claim and on
+#: `player_identity`, apart from the arbiter's own AGENT_IDENTITY_VERSION.
+#: 0.1.0 (2026-09-28): the tray and the self icon publish claims on the player
+#: entity and the arbiter decides; `Lineup.player` had let the tray win and
+#: dropped a disagreeing self icon unpublished.
+PLAYER_AGENT_VERSION = "player-agent-0.1.0"
+
+#: The channel that carries the player entity's verdict to the ally slot the
+#: top bar holds it in.
+PLAYER_SLOT_CHANNEL = "player_agent"
+
+
+def player_entity(observation_id) -> str:
+    """The entity key of the local player in one lineup observation."""
+    return f"{observation_id}:player"
+
+
+def lineup_player_witnesses(lineup: dict) -> dict:
+    """The stored player witnesses of a lineup file, whatever its version.
+
+    `lineup-0.5.0` stores them as `player_witnesses`: the tray's votes per
+    agent and the self icon's mean score per agent. Older files kept only the
+    tray's winner and its count under `tray`, and never a self-icon frame (no
+    caller feeds `Lineup.add_self`), so they read as `legacy`, with the losing
+    votes pooled under `other_votes`.
+    """
+    got = lineup.get("player_witnesses")
+    if got is not None:
+        return got
+    tray = lineup.get("tray") or {}
+    votes = {tray["agent"]: int(tray.get("votes") or 0)} if tray.get("agent") else {}
+    return {"legacy": True,
+            "tray": {"votes": votes,
+                     "other_votes": int(tray.get("total") or 0) - sum(votes.values()),
+                     "frames_offered": tray.get("frames_offered")},
+            "self_icon": {"frames": 0, "scores": {}}}
+
+
+def _tray_claim(entity_id, tray: dict, version: str) -> dict:
+    """The tray's claim on the player: its most-voted agent, or a refusal.
+
+    A tie refuses. The votes pool every frame whose glyphs were read,
+    spectated kits included, so the winner's share rides on the claim."""
+    votes = {a: int(n) for a, n in (tray.get("votes") or {}).items() if n}
+    total = sum(votes.values()) + int(tray.get("other_votes") or 0)
+    ranked = sorted(votes.items(), key=lambda kv: (-kv[1], kv[0]))
+    evidence = {"votes": votes, "total": total,
+                "frames_offered": tray.get("frames_offered"),
+                "share": round(ranked[0][1] / total, 3) if ranked and total else None,
+                "player_agent_version": PLAYER_AGENT_VERSION}
+    agent, reason = None, None
+    if not ranked:
+        reason = "tray_unread: no frame's glyphs named an agent at the margin"
+    elif len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+        reason = "tray_tie " + " ".join(sorted(a for a, n in ranked if n == ranked[0][1]))
+    else:
+        agent = ranked[0][0]
+    return identity_claim(entity_id, agent, channel="ability_tray", reason=reason,
+                          source_version=version, evidence=evidence)
+
+
+def _self_icon_claim(entity_id, self_icon: dict, ally_rows, ally_ids, version: str) -> dict:
+    """The self icon's claim on the player, ranked among the ally side's five.
+
+    The candidate set is the top bar's assignment (each slot's agent or best
+    guess), so the claim `depends_on` the ally slots and the prior is weighed
+    once. On Lotus the self icon ranks Phoenix 2nd of 29 at a margin of 0.045,
+    refused alone, and first among the five by 0.098."""
+    frames = int(self_icon.get("frames") or 0)
+    scores = self_icon.get("scores") or {}
+    evidence = {"frames": frames, "player_agent_version": PLAYER_AGENT_VERSION}
+    if not frames or not scores:
+        return identity_claim(entity_id, None, channel="self_icon",
+                              reason="no_self_icon_frames", source_version=version,
+                              evidence=evidence)
+    cands = [c for c in (r.get("agent") or r.get("best_guess") for r in ally_rows) if c]
+    ranked = sorted(((float(scores.get(c, 0.0)), c) for c in cands), key=lambda t: -t[0])
+    if not ranked:
+        return identity_claim(entity_id, None, channel="self_icon",
+                              reason="no_ally_candidates", source_version=version,
+                              evidence=evidence)
+    margin = ranked[0][0] - (ranked[1][0] if len(ranked) > 1 else 0.0)
+    ok = margin >= SIDE_MARGIN_MIN
+    order = sorted(scores, key=lambda n: -scores[n])
+    evidence.update({"candidates": cands, "margin": round(margin, 4),
+                     "global_best": order[0],
+                     "rank_of_pick": (1 + order.index(ranked[0][1])
+                                      if ranked[0][1] in scores else None)})
+    return identity_claim(
+        entity_id, ranked[0][1] if ok else None, channel="self_icon",
+        reason=None if ok else
+        f"margin {margin:.3f} below {SIDE_MARGIN_MIN} among the ally candidates",
+        source_version=version, depends_on=ally_ids, evidence=evidence)
+
+
+def claims_from_lineup(sides, witnesses=None, *, observation_id="lineup",
                        source_version=None) -> list[dict]:
-    """Publish lineup, tray and self-icon witnesses as independent claims.
+    """Publish the top bar, tray and self-icon witnesses as claims.
 
     The slot key is explicitly scoped to this lineup observation.  It is not a
     persistent player id: a later roster/track pass must supply that relation
     before these claims can be joined across time.
+
+    **The player is an entity of its own**, `<observation>:player`. The tray
+    names the agent outright and the self icon ranks the ally five; each
+    publishes a claim there, abstaining with its reason, and the arbiter
+    decides. Neither overrides the other: two names are a disagreement.
+
+    **The player's SLOT is a binding, not a name.** When the arbiter resolves
+    the player, the ally row whose assignment (agent or best guess) holds that
+    agent is the player's slot, and a `player_agent` claim carries the name
+    there with `binding_from="top_bar"` and `depends_on` the player entity. It
+    agrees with the top bar or finds it silent by construction, so it counts as
+    no independent witness. An agent no ally row holds binds no slot; the
+    player entity keeps the name and `player_identity` reports the conflict.
+    `witnesses` is `lineup_player_witnesses` of a lineup file.
     """
     version = source_version or "lineup"
     out = []
@@ -177,33 +287,75 @@ def claims_from_lineup(sides, player=None, *, observation_id="lineup",
                           "margin": row.get("margin"),
                           "best_guess": row.get("best_guess")},
             ))
+    if witnesses is None:
+        return out
+    ally = [r for r in sides.get("ally", []) if r.get("slot") is not None]
+    ally_ids = [f"{observation_id}:ally:slot:{r['slot']}" for r in ally]
+    pid = player_entity(observation_id)
+    mine = [_tray_claim(pid, witnesses.get("tray") or {}, version),
+            _self_icon_claim(pid, witnesses.get("self_icon") or {}, ally, ally_ids, version)]
+    out += mine
+    verdict = adjudicate_agent_identity(mine)[0]
+    if verdict["status"] == "resolved":
+        hit = next((r for r in ally
+                    if (r.get("agent") or r.get("best_guess")) == verdict["agent"]), None)
+        if hit is not None:
+            out.append(identity_claim(
+                f"{observation_id}:ally:slot:{hit['slot']}", verdict["agent"],
+                channel=PLAYER_SLOT_CHANNEL, source_version=version,
+                binding_from="top_bar", depends_on=[pid],
+                evidence={"slot": hit["slot"], "player_entity": pid,
+                          "player_channels": verdict["channels"],
+                          "top_bar_named": hit.get("agent"),
+                          "player_agent_version": PLAYER_AGENT_VERSION}))
+    return out
 
-    # The player result identifies the same ally slot through two witnesses
-    # that answer a different question from the top bar.  Emit the witness
-    # that actually decided, not a global self-icon argmax that may be an enemy
-    # agent outside the ally roster.
-    #
-    # **The SLOT comes from the top bar either way**, and that is why the claim
-    # says so.  `Lineup.player` finds the tray's agent by searching the top
-    # bar's own rows for that name, and ranks the self icon among the five the
-    # top bar proposed, so neither witness can contradict the top bar at the
-    # slot it is attached to.  The name is independent evidence; the binding is
-    # not, and counting it as a second channel would report corroboration that
-    # the construction guarantees.
-    if player and player.get("agent") is not None and player.get("slot") is not None:
-        entity_id = f"{observation_id}:ally:slot:{player['slot']}"
-        decided_by = player.get("decided_by")
-        channel = ("ability_tray" if decided_by == "ability_tray"
-                   else "self_icon" if decided_by == "self_icon_among_top_bar_candidates"
-                   else "player_identity")
-        out.append(identity_claim(
-            entity_id, player["agent"], channel=channel,
-            source_version=version, binding_from="top_bar",
-            evidence={"slot": player["slot"],
-                      "decided_by": decided_by,
-                      "agree": player.get("agree"),
-                      "witnesses": player.get("witnesses", {})},
-        ))
+
+def player_identity(lineup: dict | None, session_id: str) -> dict:
+    """The local player's agent and slot, as the arbiter decided them.
+
+    Reads the lineup's verdicts (`lineup.load_lineup` derives them) and
+    decides nothing. `agent` is set only where the player entity resolves AND
+    its slot binding resolves to the same agent. Otherwise `agent` is None and
+    `status` says why: `abstained` (every witness refused), `disagreement`
+    (witnesses named different agents), `unbound` (no ally slot of the top bar
+    holds the named agent), `no_player_verdict` or `no_lineup`.
+    """
+    pid = player_entity(session_id)
+    out = {"agent": None, "slot": None, "entity_id": None, "player_entity": pid,
+           "status": "no_lineup", "reason": "no_lineup", "channels": [],
+           "independent_channels": 0, "agents_seen": [], "witnesses": {},
+           "player_agent_version": PLAYER_AGENT_VERSION}
+    if not lineup:
+        return out
+    verdicts = {v.get("entity_id"): v for v in lineup.get("agent_identity") or []}
+    pv = verdicts.get(pid)
+    if pv is None:
+        return {**out, "status": "no_player_verdict",
+                "reason": "the lineup's verdicts hold no player entity"}
+    out.update({"status": pv["status"], "reason": pv["reason"],
+                "channels": pv["channels"], "agents_seen": pv["agents_seen"],
+                "independent_channels": pv["independent_channels"],
+                "witnesses": {ch: {"agent": row["agent"], "reason": row["reason"]}
+                              for ch, row in pv["by_channel"].items()}})
+    if pv["status"] != "resolved":
+        return out
+    bind = next((c for c in lineup.get("identity_claims") or []
+                 if c.get("channel") == PLAYER_SLOT_CHANNEL
+                 and pid in (c.get("depends_on") or [])), None)
+    if bind is None:
+        return {**out, "status": "unbound",
+                "reason": f"player_agent_on_no_ally_slot {pv['agent']}"}
+    sv = verdicts.get(bind["entity_id"]) or {}
+    out.update({"slot": bind["evidence"].get("slot"), "entity_id": bind["entity_id"],
+                "top_bar": bind["evidence"].get("top_bar_named"),
+                "slot_status": sv.get("status")})
+    if sv.get("status") == "resolved" and sv.get("agent") == pv["agent"]:
+        out.update({"agent": pv["agent"], "reason": None})
+    else:
+        out.update({"status": sv.get("status") or "unbound",
+                    "reason": sv.get("reason") or "no_slot_verdict",
+                    "agents_seen": sv.get("agents_seen", [])})
     return out
 
 
@@ -365,7 +517,7 @@ def lineup_with_board(lineup: dict, board: dict[str, dict]) -> dict:
                     "top_bar": before["agent"], "with_board": after["agent"],
                     "board_agents": row["agents"]})
         got.setdefault("sides", {})[side] = constrained
-    claims = claims_from_lineup(got.get("sides", {}), got.get("player"),
+    claims = claims_from_lineup(got.get("sides", {}), lineup_player_witnesses(got),
                                 observation_id=str(got.get("session", "lineup")),
                                 source_version=got.get("version", "lineup"))
     got["identity_claims"] = claims

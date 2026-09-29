@@ -502,16 +502,16 @@ def player_kit(agent: str | None, store_root) -> dict:
 def player_agent_verdict(lineup: dict | None, session_id: str) -> dict:
     """The player's agent as the identity arbiter names it in the stored
     lineup (`ult_cast.player_agent`), with the verdict's provenance."""
+    from .identity import player_identity
     from .ult_cast import player_agent
     name = player_agent(lineup, session_id)
-    slot = ((lineup or {}).get("player") or {}).get("slot")
-    eid = f"{session_id}:ally:slot:{slot}" if slot is not None else None
+    who = player_identity(lineup, session_id)
+    eid = who["entity_id"]
     v = next((v for v in (lineup or {}).get("agent_identity") or []
               if v.get("entity_id") == eid), None) if eid else None
     return {"agent": name, "entity_id": eid,
-            "status": v.get("status") if v else None,
-            "reason": (v.get("reason") if v else
-                       "no_lineup" if not lineup else "no_player_slot_verdict"),
+            "status": v.get("status") if v else who["status"],
+            "reason": v.get("reason") if v else who["reason"],
             "channels": v.get("channels") if v else None,
             "independent_channels": v.get("independent_channels") if v else None,
             "adjudication_version": v.get("adjudication_version") if v else None,

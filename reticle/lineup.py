@@ -47,6 +47,14 @@ within 0.03 of `MARGIN_MIN`, and no newly named slot has a recorded truth to
 check it against, so the honest summary is that the rule stopped measuring the
 wrong quantity -- not that identity coverage is solved.
 
+**The player's agent is the arbiter's.** `Lineup` gathers the tray's votes
+and the self icon's scores as observations (`Lineup.player_witnesses`) and
+combines neither. `identity.claims_from_lineup` makes each a claim on the
+player entity, the arbiter decides, and `identity.player_identity` reads the
+answer, with the slot bound to the ally row holding that agent. A tray that
+outvoted a disagreeing self icon, as `Lineup.player` let it, is now a
+disagreement with both names kept.
+
 Owns [owns:agent-from-slot] and [owns:player-agent].
 """
 from __future__ import annotations
@@ -60,9 +68,15 @@ import numpy as np
 
 from .roster import ART_FRAC, N_SLOTS, alive_counts, roster_rois
 from .adjudication.identity import (SIDE_MARGIN_MIN, adjudicate_agent_identity,
-                                    assign_side, claims_from_lineup)
+                                    assign_side, claims_from_lineup,
+                                    lineup_player_witnesses, player_entity,
+                                    player_identity)
 
-LINEUP_VERSION = "lineup-0.4.0"
+# 0.5.0 (2026-09-28): the file stores the player's witnesses raw
+# (`player_witnesses`: the tray's votes per agent, the self icon's mean scores)
+# in place of the tray's winner, and `player` is the arbiter's answer
+# (`identity.player_identity`); `Lineup.player` no longer combines them.
+LINEUP_VERSION = "lineup-0.5.0"
 
 #: The three official renderings of an agent. They are independent drawings of
 #: one thing, so their scores are summed rather than chosen between.
@@ -103,15 +117,25 @@ def load_lineup(session: str, store) -> dict | None:
     (`version.SCOREBOARD_VERDICT_COMPATIBLE`): `identity.board_side_sets` decides each side's five agents
     and `identity.lineup_with_board` re-assigns the top bar over them, keeping
     the unconstrained verdict and every disagreement beside it.
+
+    **`player` is the arbiter's answer**, `identity.player_identity` over the
+    verdicts returned here; the file's own `player` stays as `stored_player`.
+    A file whose verdicts hold no player entity (every one before
+    `lineup-0.5.0`, and any keyed by another observation id) has its claims
+    derived again from `sides` and its stored witnesses.
     """
     import json
     f = Path(store) / "lineups" / f"{session}.json"
     if not f.is_file():
         return None
     got = json.loads(f.read_text(encoding="utf-8"))
-    if "agent_identity" not in got:
+    got.setdefault("session", session)
+    if "player" in got:
+        got["stored_player"] = got.pop("player")
+    if not any(v.get("entity_id") == player_entity(session)
+               for v in got.get("agent_identity") or []):
         claims = claims_from_lineup(
-            got.get("sides", {}), got.get("player"), observation_id=session,
+            got.get("sides", {}), lineup_player_witnesses(got), observation_id=session,
             source_version=got.get("version", "lineup"))
         got["identity_claims"] = claims
         got["agent_identity"] = adjudicate_agent_identity(claims)
@@ -134,6 +158,7 @@ def load_lineup(session: str, store) -> dict | None:
         # the verdicts joins the compatible set instead of refusing here.
         got["board_state"] = {"applied": False, "reason": "no_scoreboard" if stored is None
                         else f"stale_version {stored} != {SCOREBOARD_VERSION}"}
+    got["player"] = player_identity(got, session)
     return got
 
 
@@ -248,97 +273,39 @@ class Lineup:
         if agent and margin >= margin_min:
             self.tray_votes[agent] = self.tray_votes.get(agent, 0) + 1
 
-    def tray_verdict(self):
-        """`(agent, votes, total_votes)` -- the tray's own answer, unmixed."""
-        if not self.tray_votes:
-            return None, 0, 0
-        total = sum(self.tray_votes.values())
-        agent = max(self.tray_votes, key=self.tray_votes.get)
-        return agent, self.tray_votes[agent], total
+    def player_witnesses(self) -> dict:
+        """The player's witnesses as observations, for the arbiter to decide.
 
-    def player(self, side: str = "ally", margin_min: float = MARGIN_MIN) -> dict:
-        """Which slot the player is, from the top bar AND the self icon.
-
-        **Neither witness is confident alone and together they are**, which is
-        the whole argument for corroborating rather than picking a best
-        detector. On Lotus the self icon ranks Phoenix 2nd of 29 at a margin of
-        0.045 -- refused on its own -- but the top bar proposes only five
-        candidates, and among those five Phoenix wins by 0.098.
-
-        The scores are NOT summed. The top bar decides WHO is on the team and
-        the self icon decides WHICH of them is holding the camera; they answer
-        different questions and pooling them would let a confident answer to
-        one paper over silence on the other. Disagreement is kept.
+        The tray names the agent outright and the self icon ranks agents by
+        composition; neither is combined with the other or with the top bar
+        here. `identity.claims_from_lineup` turns each into a claim on the
+        player entity, and `identity.player_identity` reads the verdict.
         """
-        tray_agent, tray_votes, tray_total = self.tray_verdict()
-        if not self.self_n and not tray_agent:
-            return {"slot": None, "agent": None,
-                    "reason": "no self icon and no readable tray",
-                    "witnesses": {}}
-        rows_all = self.verdict(side, margin_min=0.0)
-        gated_all = self.verdict(side, margin_min=margin_min)
-        # THE TRAY FIRST when it has spoken: it names the agent outright, where
-        # the self icon only ranks the five the top bar proposes. If that agent
-        # is on the team, the slot holding it is the player and no elimination
-        # is needed.
-        if tray_agent:
-            hit = next((r for r in rows_all if r["agent"] == tray_agent), None)
-            if hit is not None:
-                return {
-                    "slot": hit["slot"], "agent": tray_agent,
-                    "margin": None, "self_frames": self.self_n,
-                    "decided_by": "ability_tray",
-                    "witnesses": {
-                        "tray": {"agent": tray_agent,
-                                 "votes": f"{tray_votes}/{tray_total}",
-                                 "frames_offered": self.tray_frames},
-                        "top_bar": {"agent": gated_all[hit["slot"]]["agent"],
-                                    "margin": gated_all[hit["slot"]]["margin"]},
-                    },
-                    # ABSTAINED is not DISAGREED. The top bar refusing a slot
-                    # for want of margin says nothing against the tray, and
-                    # collapsing the two into a boolean would report a conflict
-                    # where there is only silence.
-                    "agree": ("agrees" if gated_all[hit["slot"]]["agent"] == tray_agent
-                              else "abstained" if gated_all[hit["slot"]]["agent"] is None
-                              else "DISAGREES"),
-                    "reason": None,
-                }
-        if not self.self_n:
-            return {"slot": None, "agent": None,
-                    "reason": f"tray says {tray_agent}, which no {side} slot "
-                              f"proposes, and there is no self icon",
-                    "witnesses": {"tray": {"agent": tray_agent}}}
-        s = self.self_scores / self.self_n
-        by_name = {n: float(s[j]) for j, n in enumerate(self.names)}
-        rows = rows_all                                # ungated: candidates only
-        ranked = sorted(((by_name.get(r["agent"], 0.0), r) for r in rows),
-                        key=lambda t: -t[0])
-        best, runner = ranked[0], ranked[1] if len(ranked) > 1 else (0.0, None)
-        margin = best[0] - runner[0]
-        gated = gated_all
-        top_bar_named = gated[best[1]["slot"]]["agent"]
-        ok = margin >= margin_min
+        n = max(self.self_n, 1)
         return {
-            "slot": best[1]["slot"] if ok else None,
-            "agent": best[1]["agent"] if ok else None,
-            "margin": round(margin, 4),
-            "self_frames": self.self_n,
-            "decided_by": "self_icon_among_top_bar_candidates",
-            "witnesses": {
-                "top_bar": {"agent": top_bar_named,
-                            "margin": gated[best[1]["slot"]]["margin"]},
-                "self_icon": {"agent": max(by_name, key=by_name.get),
-                              "rank_of_pick": 1 + sorted(
-                                  by_name, key=lambda n: -by_name[n]).index(
-                                      best[1]["agent"])},
-            },
-            "agree": ("agrees" if top_bar_named == best[1]["agent"]
-                      else "abstained" if top_bar_named is None else "DISAGREES"),
-            "reason": None if ok else
-                      f"margin {margin:.3f} below {margin_min} across the "
-                      f"{side} slots",
+            "tray": {"votes": dict(sorted(self.tray_votes.items())),
+                     "frames_offered": self.tray_frames},
+            "self_icon": {"frames": self.self_n,
+                          "scores": ({name: round(float(self.self_scores[j] / n), 5)
+                                      for j, name in enumerate(self.names)}
+                                     if self.self_n else {})},
         }
+
+    def result(self, observation_id: str) -> dict:
+        """The lineup record: both sides, the witnesses, their claims and the
+        arbiter's verdicts, with `player` read from those verdicts."""
+        sides = {side: self.verdict(side) for side in ("ally", "enemy")}
+        witnesses = self.player_witnesses()
+        claims = claims_from_lineup(sides, witnesses, observation_id=observation_id,
+                                    source_version=LINEUP_VERSION)
+        got = {"version": LINEUP_VERSION, "frames": self.frames,
+               "margin_min": MARGIN_MIN, "sides": sides,
+               "player_witnesses": witnesses,
+               "identity_claims": claims,
+               "agent_identity": adjudicate_agent_identity(claims),
+               "scores": self.stored_scores()}
+        got["player"] = player_identity(got, observation_id)
+        return got
 
     def mean_scores(self, side: str) -> np.ndarray:
         """The (slot, agent) evidence, per frame. THE observation this stores.
@@ -383,8 +350,12 @@ class LineupReader:
     frame happened to be last.
     """
 
-    def __init__(self, profile, wh, store, name="lineup", hz=0.1, spans=None):
+    def __init__(self, profile, wh, store, name="lineup", hz=0.1, spans=None,
+                 session=None):
         self.name, self.hz, self.spans = name, hz, spans
+        # The claims' entity keys: the session, so a stored verdict is found
+        # under the key every consumer asks for.
+        self.session = session or name
         self.profile = profile
         self.w, self.h = wh
         self.store = store
@@ -397,21 +368,7 @@ class LineupReader:
         self.state.add_tray(smp.frame, self.store)
 
     def finish(self):
-        agent, votes, total = self.state.tray_verdict()
-        sides = {side: self.state.verdict(side)
-                 for side in ("ally", "enemy")}
-        player = self.state.player("ally")
-        identity_claims = claims_from_lineup(
-            sides, player, observation_id=self.name,
-            source_version=LINEUP_VERSION)
-        return [{"version": LINEUP_VERSION, "frames": self.state.frames,
-                 "margin_min": MARGIN_MIN, "sides": sides,
-                 "tray": {"agent": agent, "votes": votes, "total": total,
-                          "frames_offered": self.state.tray_frames},
-                 "player": player,
-                 "identity_claims": identity_claims,
-                 "agent_identity": adjudicate_agent_identity(identity_claims),
-                 "scores": self.state.stored_scores()}]
+        return [self.state.result(self.session)]
 
 
 def read_session(session: str, store, frames: int = 90, cap=None):
@@ -460,20 +417,15 @@ def main(argv=None):
     args = ap.parse_args(argv)
     store = Store().root
     state = read_session(args.session, store, args.frames)
-    rows = {side: state.verdict(side) for side in ("ally", "enemy")}
-    player = state.player("ally")
-    identity_claims = claims_from_lineup(
-        rows, player, observation_id=args.session, source_version=LINEUP_VERSION)
-    agent_identity = adjudicate_agent_identity(identity_claims)
-    agent, votes, total = state.tray_verdict()
+    got = state.result(args.session)
+    rows, player = got["sides"], got["player"]
+    tray = got["player_witnesses"]["tray"]
     print(f"{args.session}: {state.frames} frames sampled")
-    print(f"  tray   {agent or '--'} ({votes}/{total} votes over "
-          f"{state.tray_frames} frames offered)")
+    print(f"  tray   votes {tray['votes'] or '--'} over "
+          f"{tray['frames_offered']} frames offered")
     print(f"  PLAYER {player.get('agent') or '--'}"
           + (f", ally slot {player['slot']}" if player.get("slot") is not None else "")
-          + f"   decided by {player.get('decided_by', '--')}"
-          + (f"   [top bar agrees: {player.get('agree')}]"
-             if player.get("witnesses", {}).get("top_bar") else "")
+          + f"   {player['status']} by {', '.join(player['channels']) or '--'}"
           + (f"   ({player['reason']})" if player.get("reason") else ""))
     for side in ("ally", "enemy"):
         named = sum(1 for r in rows[side] if r["agent"])
@@ -489,19 +441,8 @@ def main(argv=None):
     if args.write:
         out = Path(store) / "lineups" / f"{args.session}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps({"version": LINEUP_VERSION,
-                                   "session": args.session,
-                                   "frames": state.frames,
-                                   "margin_min": MARGIN_MIN,
-                                   "sides": rows,
-                                   "tray": {"agent": agent, "votes": votes,
-                                            "total": total,
-                                            "frames_offered": state.tray_frames},
-                                   "player": player,
-                                   "identity_claims": identity_claims,
-                                   "agent_identity": agent_identity,
-                                   "scores": state.stored_scores()},
-                                  indent=2), encoding="utf-8")
+        out.write_text(json.dumps({**got, "session": args.session}, indent=2),
+                       encoding="utf-8")
         print(f"  wrote {out}")
     return 0
 
