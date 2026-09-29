@@ -739,7 +739,11 @@ exceptions = """
 on enemy icons the tip is brighter but less obviously so (the player,
 2026-09-29, amended): the red rim is often thinner than one pixel at 331 px,
 where the ally rim is at least a pixel, and the tip's brightening relative to
-the red rim is smaller than the ally tip's relative to the teal. The
+the red rim is smaller than the ally tip's relative to the teal. The enemy lobe
+is also translucent, so its tip shows the floor beneath
+[domain:minimap/enemy-lobe-translucent]; the ally and self highlight is in the
+opaque art, and the cone brightens only the lobe's antialiased edge (tip-cone
+test, E10 in docs/STATISTICAL_ADJUDICATOR.md). The
 tip-highlight prototype's failure on enemies at 465 px (it selected red hue,
 which also caught portrait skin and red X marks) does not show the highlight is
 absent
@@ -747,6 +751,26 @@ absent
 see = ["minimap/enemy-rim-faint-at-small-widget", "minimap/cone-rays-stop-at-first-edge", "minimap/cone-origin-near-centre",
        "minimap/upright-icons-on-turned-map"]
 phrases = ["tip of the teardrop is lighter", "tip drawn lighter"]
+
+[enemy-lobe-translucent]
+claim = """
+The teardrop lobe of an enemy icon is semi-transparent: the floor, walls and
+any cone beneath show through it. The lobe of an ally or self icon is opaque.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29, confirming a measurement (5 enemy icons over a baked line at 465 px; tip-cone test, E10 in docs/STATISTICAL_ADJUDICATOR.md)"
+use = """
+model an enemy lobe as a red tint over the background beneath (the baked
+static plus any dynamic light, such as a teammate's cone), not as fixed art;
+its tip brightness partly carries the floor beneath
+"""
+exceptions = """
+measured on 5 enemy icons at 465 px; the 331 px widget and the portrait's own
+opacity are unmeasured
+"""
+see = ["minimap/icon-tip-highlight", "minimap/enemy-rim-faint-at-small-widget", "minimap/transparency"]
 
 [enemy-rim-faint-at-small-widget]
 claim = """
