@@ -10,7 +10,8 @@ or writes to the store. Two kinds of check are kept apart:
 
 * **accuracy** compares the current code's answer with a known answer from the
   player or a source-verified label: the player's cast census and grouping
-  labels on the Omen demo, `checks.KNOWN_KD`, and the round 4 fixture's oracle.
+  labels on the Omen demo, his self-facing labels on Lotus, `checks.KNOWN_KD`,
+  and the round 4 fixture's oracle.
   The pipeline's own stored output is never the known answer.
 * **consistency** reruns a reader on a bounded slice and diffs it against the
   stored rows (`trial`). Agreement says only that the stored rows reproduce
@@ -39,6 +40,7 @@ import numpy as np
 
 OMEN_DEMO = "e78e75b2d191"
 MATCH = "a06f04a0059f"
+LOTUS = "5822b6646448"
 #: Round 4 of `MATCH`, the slice the round 4 fixture covers
 #: (`tests/test_round_identity_e2e.py` asserts these bounds).
 ROUND4_MS = (232000.0, 351000.0)
@@ -51,6 +53,16 @@ DISC_TOL_PX = 12.0
 #: 0.5 s [domain:abilities/omen-dark-cover-minimap-phases]; a track born in
 #: this window after a labelled drop is that cast's.
 SMOKE_BIRTH_MS = (500.0, 4500.0)
+
+#: The player's blind self-facing labels (`prototypes/label_self_facing.py`)
+#: and the lossless patches they were drawn on, under the store's `labels/`.
+SELF_FACING = "self_facing_lotus_20260928"
+#: A clicked centre farther than this from the item's ring marks another icon
+#: than the one asked about; `prototypes/self_facing_eval.py` leaves it out.
+SELF_FACING_ELSEWHERE_PX = 8.0
+#: Per session: the fewest items read, the most flips (error over 90 degrees)
+#: and the largest median error, degrees. `check_self_facing` justifies them.
+SELF_FACING_BARS = {LOTUS: (28, 2, 3.0), OMEN_DEMO: (8, 0, 2.5)}
 
 PASS, FAIL, STALE = "PASS", "FAIL", "STALE"
 
@@ -206,6 +218,132 @@ def check_omen_smokes(store) -> dict:
                    f"tracks {got or 'none'}; missed {missed or 'none'}")
 
 
+# --------------------------------------------------------------------------- self facing
+
+def facing_error_deg(read_deg: float, label_deg: float) -> float:
+    """Signed facing error, degrees in [-180, 180)."""
+    return (float(read_deg) - float(label_deg) + 180.0) % 360.0 - 180.0
+
+
+def self_facing_errors(store) -> tuple[dict[str, dict] | None, str]:
+    """Production's self-cone facing against the player's labels, per session.
+
+    For each item the player answered `facing` on, with his clicked centre
+    within `SELF_FACING_ELSEWHERE_PX` of the item's ring: the stored lossless
+    patch pasted at its origin into a blank frame of the widget's size, so
+    `widget_scale` and the baked floor and slab apply as in `team_vision`;
+    the best-coverage `minimap.self_icons` fit as the seed, standing in for the
+    track's principal as `prototypes/self_facing_eval.py` does; then
+    `teardrop.SelfConeReader`, whose facing `team_vision` casts. Reads the
+    patches and the baked geometry; decodes nothing.
+    """
+    import cv2
+
+    from .minimap import self_icons, widget_scale
+    from .profiles import get_profile
+    from .team_vision import load_inputs
+    from .teardrop import SelfConeReader
+
+    labels = store.root / "labels" / f"{SELF_FACING}.jsonl"
+    idir = store.root / "labels" / SELF_FACING
+    if not labels.is_file() or not (idir / "index.json").is_file():
+        return None, f"no labels at labels/{SELF_FACING}"
+    items = {it["key"]: it for it in
+             json.loads((idir / "index.json").read_text(encoding="utf-8"))["items"]}
+    answers = {}
+    with open(labels, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                r = json.loads(line)
+                answers[r["key"]] = r          # the last answer for a key wins
+    inputs: dict[str, tuple] = {}
+    out: dict[str, dict] = {}
+    for key, a in answers.items():
+        it = items.get(key)
+        if it is None or a.get("answer") != "facing" or a.get("by") != "player":
+            continue
+        if np.hypot(a["centre_x"] - it["ring_x"], a["centre_y"] - it["ring_y"]) \
+                > SELF_FACING_ELSEWHERE_PX:
+            continue
+        sid = it["session"]
+        if sid not in inputs:
+            man = store.read_manifest(sid)
+            src = man["source"]
+            inp, why = load_inputs(store.root, sid, get_profile(man["source_profile"]),
+                                   int(src["width"]), int(src["height"]))
+            if inp is None:
+                return None, f"{sid}: {why}"
+            inputs[sid] = (inp, widget_scale(inp.box[2] - inp.box[0]))
+        inp, scale = inputs[sid]
+        patch = cv2.imread(str(idir / "patches" / it["patch"]), cv2.IMREAD_COLOR)
+        if patch is None:
+            return None, f"missing patch {it['patch']}"
+        h, w = inp.floor.shape
+        x0, y0 = int(it["patch_x0"]), int(it["patch_y0"])
+        ph, pw = patch.shape[:2]
+        crop = np.zeros((h, w, 3), np.uint8)
+        ya, yb, xa, xb = max(0, y0), min(h, y0 + ph), max(0, x0), min(w, x0 + pw)
+        crop[ya:yb, xa:xb] = patch[ya - y0:yb - y0, xa - x0:xb - x0]
+        dets = self_icons(crop, inp.floor, require_facing=False, support=inp.slab)
+        g = out.setdefault(sid, {"errors": [], "unread": []})
+        if not dets:
+            g["unread"].append(f"{it['t_ms'] / 1000:.1f}s no self detection")
+            continue
+        det = max(dets, key=lambda d: d["cov"])
+        r = SelfConeReader(scale=scale).read(crop, det["cx"], det["cy"])
+        if r["deg"] is None:
+            g["unread"].append(f"{it['t_ms'] / 1000:.1f}s {r.get('reason')}")
+        else:
+            g["errors"].append((it["t_ms"], facing_error_deg(r["deg"], a["facing_deg"])))
+    return out, ""
+
+
+def check_self_facing(store) -> dict:
+    """The self-cone facing against the player's blind self-facing labels.
+
+    The known answer is the player's: on the Lotus capture 5822b6646448 the
+    teardrop's facing erred a median
+    [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_median_abs_deg=2.233]
+    degrees over
+    [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_n=28]
+    read items and flipped on
+    [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_flip=0.071]
+    of them (2 of 28); on the Ascent controls of e78e75b2d191 it erred
+    [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_control_median_abs_deg=1.82]
+    over [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_control_n=8]
+    items with
+    [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_control_flip=0.0]
+    flipped.
+
+    The bars (`SELF_FACING_BARS`) hold the flips and the read count exactly:
+    a flip is the failure the teardrop replaced the ring fit to end, so one
+    more fails, and a reader that refused a hard item would lower its median
+    by reading less. The medians get 0.8 and 0.7 degree of margin: over three
+    times the fit's last facing step (3/16 degree), so float and platform
+    drift pass, and under a third of the labels' own resolution (the player's
+    clicked centre lies 0.8 px from the teardrop's, 2.5 degrees at the 18 px
+    tip), so a shift a label could see fails.
+    """
+    groups, why = self_facing_errors(store)
+    if groups is None:
+        return _result(FAIL, None, None, why)
+    parts, known, detail, ok = [], [], [], True
+    for sid, (min_n, max_flip, max_med) in SELF_FACING_BARS.items():
+        g = groups.get(sid, {"errors": [], "unread": []})
+        e = np.abs([err for _t, err in g["errors"]])
+        n, flips = len(e), int((e > 90.0).sum())
+        med = float(np.median(e)) if n else float("nan")
+        ok &= n > 0 and n >= min_n and flips <= max_flip and med <= max_med
+        parts.append(f"{sid} {med:.2f} deg median, {flips}/{n} flipped")
+        known.append(f"{sid} <= {max_med} deg, <= {max_flip} flipped, >= {min_n} read")
+        worst = sorted(g["errors"], key=lambda te: -abs(te[1]))[:3]
+        detail.append(f"{sid}: unread {'; '.join(g['unread']) or 'none'}; worst "
+                      + ", ".join(f"{t / 1000:.1f}s {err:+.1f}" for t, err in worst))
+    from .version import TEARDROP_VERSION
+    detail.append(f"code {TEARDROP_VERSION}")
+    return _result(PASS if ok else FAIL, "; ".join(parts), "; ".join(known), "\n".join(detail))
+
+
 # --------------------------------------------------------------------------- a06f04a0059f
 
 def _stored_stamps(store, sid: str, date: str) -> dict[str, tuple[str | None, str]]:
@@ -301,6 +439,10 @@ FAST: tuple[Check, ...] = (
     Check("omen-demo/dark-cover-smokes", OMEN_DEMO, "accuracy",
           "the player's grouping labels (omen:dark cover, same_entity) and census E casts",
           check_omen_smokes),
+    Check("lotus/self-facing", LOTUS, "accuracy",
+          f"the player's blind self-facing labels, labels/{SELF_FACING} "
+          "(by player; Ascent controls on e78e75b2d191)",
+          check_self_facing),
     Check("match/known-kd", MATCH, "accuracy",
           "checks.KNOWN_KD, the end screen and match history (player, 2026-08-25)",
           check_match_kd),

@@ -32,7 +32,8 @@ class DeclarationTests(unittest.TestCase):
     def test_fast_tier_is_declared_with_sources(self):
         ids = [c.id for c in tiers.FAST]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual({c.session for c in tiers.FAST}, {tiers.OMEN_DEMO, tiers.MATCH})
+        self.assertEqual({c.session for c in tiers.FAST},
+                         {tiers.OMEN_DEMO, tiers.MATCH, tiers.LOTUS})
         for c in tiers.FAST:
             self.assertIn(c.kind, ("accuracy", "consistency"))
             self.assertTrue(c.source)
@@ -100,6 +101,52 @@ class RuleTests(unittest.TestCase):
             r = tiers.check_match_kd(store)
         self.assertEqual(r["status"], tiers.STALE)
         self.assertIn("hud-0.1.0", r["detail"])
+
+
+
+def _facing(errors_lotus, errors_control, unread=()):
+    return {tiers.LOTUS: {"errors": [(float(i), e) for i, e in enumerate(errors_lotus)],
+                          "unread": list(unread)},
+            tiers.OMEN_DEMO: {"errors": [(float(i), e) for i, e in enumerate(errors_control)],
+                              "unread": []}}
+
+
+class SelfFacingTests(unittest.TestCase):
+    LOTUS_OK = [2.0] * 26 + [170.0, -150.0]
+    CONTROL_OK = [1.5] * 8
+
+    def _check(self, groups):
+        with mock.patch.object(tiers, "self_facing_errors", return_value=(groups, "")):
+            return tiers.check_self_facing(mock.Mock())
+
+    def test_the_error_wraps_round_the_circle(self):
+        self.assertAlmostEqual(tiers.facing_error_deg(179.0, -179.0), -2.0)
+        self.assertAlmostEqual(tiers.facing_error_deg(-170.0, 170.0), 20.0)
+
+    def test_the_labelled_answer_passes(self):
+        self.assertEqual(self._check(_facing(self.LOTUS_OK, self.CONTROL_OK))["status"],
+                         tiers.PASS)
+
+    def test_one_more_flip_fails(self):
+        lotus = self.LOTUS_OK[:-3] + [2.0, 170.0, -150.0, 95.0]
+        self.assertEqual(self._check(_facing(lotus, self.CONTROL_OK))["status"], tiers.FAIL)
+
+    def test_a_flipped_control_fails(self):
+        self.assertEqual(self._check(_facing(self.LOTUS_OK, [1.5] * 7 + [180.0]))["status"],
+                         tiers.FAIL)
+
+    def test_reading_fewer_items_fails(self):
+        self.assertEqual(self._check(_facing(self.LOTUS_OK[1:], self.CONTROL_OK))["status"],
+                         tiers.FAIL)
+
+    def test_a_wider_median_fails(self):
+        self.assertEqual(self._check(_facing([3.5] * 26 + [170.0, -150.0],
+                                             self.CONTROL_OK))["status"], tiers.FAIL)
+
+    def test_missing_labels_fail(self):
+        with mock.patch.object(tiers, "self_facing_errors", return_value=(None, "no labels")):
+            r = tiers.check_self_facing(mock.Mock())
+        self.assertEqual((r["status"], r["detail"]), (tiers.FAIL, "no labels"))
 
 
 if __name__ == "__main__":
