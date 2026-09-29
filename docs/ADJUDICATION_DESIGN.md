@@ -551,8 +551,12 @@ consequences worth holding:
 
 ### Rules the belief obeys whatever it consults
 
-- A belief is never evidence. It cannot seed a template, feed a detector's
-  prior, or count toward observed coverage.
+- A belief is never an observation. It cannot seed a template or count
+  toward observed coverage, and a result it shaped never testifies for it.
+- A belief may set a reader's prior, under the guards `AGENTS.md` states in
+  "Continue the prior; widen the search only on surprise". The player
+  approved this on 2026-09-29, amending the earlier rule that a belief cannot
+  feed a detector's prior; `docs/PRIOR_DRIVEN_READERS.md` gives the argument.
 - Observed and believed coverage are reported separately and never summed.
 - It never crosses a void, and never claims a region the map forbids.
 - Interpolation and prediction render distinctly from observed coordinates.

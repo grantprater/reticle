@@ -218,3 +218,31 @@ the player, 2026-09-25 ("probably me assisting yes, yellow is typically
 self"), asked about 223d636bf8d2 349.0 s, b7d24102a6f6 265.5 s and
 bfad2778a372 921.5 s
 """
+
+[stack-order]
+claim = """
+A new killfeed entry appears at the bottom of the stack. An entry on screen
+does not move when a newer one arrives; it rises one slot when an entry above
+it expires. The topmost entry is therefore the oldest on screen, and an entry
+never moves down.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+source = """
+the player, 2026-09-29, answering the stack question the prior-readers audit
+raised (docs/PRIOR_DRIVEN_READERS.md). Stored rows agree: at c40d950031bb
+908.5 s a new entry reads in slot 1 below the one in slot 0; slot 0 empties at
+909.5 s and the newer entry reads in slot 0 at 910.0 s
+"""
+use = """
+follow an entry across frames by letting it stay or rise, never fall
+(`checks.track_entries`, `adjudication.death.follow_entry_portraits`); a band
+in the top slot is the oldest entry on screen, and the newest only when alone
+"""
+exceptions = """
+the player thinks the stack may also rise when it reaches a maximum count, and
+does not know whether such a maximum exists. If it does, it is greater than
+four, so a rise without an expiry would be rare
+"""
+phrases = ["new entries arrive at the top", "killfeed stack direction"]

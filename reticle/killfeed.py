@@ -275,13 +275,16 @@ Known defects, in the order worth attacking
    surfaces clear the enemy plate's colour test, and those rows joined the
    topmost entry's run from above until it exceeded MAX_BAND_H, at which point
    the run was discarded whole. Requiring both plate colours per row -- the test
-   the band already applied, moved a step earlier -- keeps them out. Because new
-   entries arrive at the top of the stack, this always cost the newest event:
-   the death at 9acf02f98283 20:32.
+   the band already applied, moved a step earlier -- keeps them out. It cost
+   the topmost entry, which is the oldest on screen, since new entries arrive
+   at the bottom [domain:killfeed/stack-order]: here the death at
+   9acf02f98283 20:32.
 
 5. **Clipping at the ROI's top edge.** c40d950031bb 15:12, "pan (rifle) Me"
-   scoring 0.41 against a 0.65 bar on a band at y0-37: the newest entry is still
-   sliding into place and its glyph tops are cut off by the ROI boundary.
+   scoring 0.41 against a 0.65 bar on a band at y0-37: the entry has risen into
+   the top slot and its glyph tops are cut off by the ROI boundary. It arrived
+   below another entry at 908.5 s and rose at 910.0 s, as the stack does
+   [domain:killfeed/stack-order].
    Reading 24 rows above the ROI was tried and rejected -- it recovers nothing
    and loses those bands outright, because the taller crop changes what the
    plate row-profile resolves. Moving the ROI costs an EXTRACTOR_VERSION bump
@@ -664,8 +667,8 @@ def _row_profile(
     applies, moved a step earlier, and it is what keeps bright warm scenery out
     of the profile: read as the enemy plate's red, those rows joined the topmost
     entry's run from above and carried it past MAX_BAND_H, which discards the
-    run whole. The newest entry is the one at the top, so what it costs is
-    always the most recent event -- the death at 9acf02f98283 20:32.
+    run whole. What it costs is the topmost entry, the oldest on screen
+    [domain:killfeed/stack-order] -- the death at 9acf02f98283 20:32.
 
     Density is measured over pixels that are actually *visible*. A toggled
     overlay blanks part of a row, and counting the blanked columns against it

@@ -96,14 +96,15 @@ changes a score. The rest follow.
    streams belong in owners that recompute from storage, where a change costs
    a rerun.
 
-**The tension with the belief rules.** `docs/ADJUDICATION_DESIGN.md` says a
-belief "cannot seed a template, feed a detector's prior, or count toward
-observed coverage". Read literally, it forbids this plan. The rule's purpose
-is that a belief never becomes an observation. This plan keeps that: the
-gated reader stores a raw score over a declared scope, the audit keeps the
-unbiased channel, and gated rows never count as independent coverage of the
-prior. The player should decide whether the rule is amended to "a belief may
-choose a reader's scope, declared and audited; it never becomes evidence".
+**The belief rule, amended.** `docs/ADJUDICATION_DESIGN.md` said a belief
+"cannot seed a template, feed a detector's prior, or count toward observed
+coverage", which forbade this plan. The rule's purpose is that a belief never
+becomes an observation, and this plan keeps it: the gated reader stores a raw
+score over a declared scope, the audit keeps the unbiased channel, and gated
+rows never count as independent coverage of the prior. The player approved
+the amendment on 2026-09-29: a belief may set a reader's prior under the
+guards `AGENTS.md` states ("Continue the prior; widen the search only on
+surprise"), which are guards 1 to 4 above.
 
 **What the pattern trades.**
 
@@ -302,8 +303,8 @@ after batching.
 
 6. **Killfeed follow in the reader.** Parse a band fully only when it is new;
    a band the last frame predicts (same divider column, same slot or one
-   higher) verifies by comparing crops. Resolve the stack's direction first
-   (section 4). Wipe bands already die on persistence in
+   higher) verifies by comparing crops; the stack's direction is now a fact
+   [domain:killfeed/stack-order]. Wipe bands already die on persistence in
    `checks.track_entries`, so the gain is cost and consistency.
 7. **The round clock counts down.** Consecutive reads within 1.5 s break the
    countdown on
@@ -359,11 +360,29 @@ bar, and the board's audit openings (guard 5).
   measured ones, while `docs/ADJUDICATION_DESIGN.md` requires that
   interpolation render distinctly. The raw reads stay stored; the returned
   track does not mark what it invented.
-- **The killfeed stack's direction is two beliefs.** `killfeed.py` (defect 4)
-  says "new entries arrive at the top of the stack"; `death.follow_entry_portraits`
-  says "a newer entry arrives BELOW" and lets an entry only stay or rise. No
-  `domain/killfeed.toml` fact records it. Check it on the killfeed crop cache
-  or ask the player, then record the answer as a fact.
+- **The killfeed stack's direction was two beliefs; the player settled it**
+  on 2026-09-29 [domain:killfeed/stack-order]. `death.follow_entry_portraits`
+  and `checks.track_entries` matched the fact and now cite it; `killfeed.py`'s
+  docstrings said the reverse, and no code read them. Stored rows agree: a
+  divider-matched entry fell a slot on
+  [metric:killfeed_stack_order/pairs@stored-hud~stack-order-20260929#falls=7]
+  of [metric:killfeed_stack_order/pairs@stored-hud~stack-order-20260929#matched_pairs=28356]
+  consecutive pairs, and a new entry arrived below every entry already on
+  screen on
+  [metric:killfeed_stack_order/pairs@stored-hud~stack-order-20260929#arrivals_below_all=1518]
+  of [metric:killfeed_stack_order/pairs@stored-hud~stack-order-20260929#arrivals_with_entry_on_screen=1625]
+  arrivals; most of the rest sit where the previous sample held an unparsed
+  band. The walk's nearest-slot rule still gives a risen entry to the expired
+  track above it when dividers and victim sides agree:
+  [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#welded_entries=45]
+  of [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#entries=3310]
+  entries, of which
+  [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#welded_player_deaths=3]
+  are the player's deaths. The follow then binds
+  [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#welded_views_bound=213]
+  of their
+  [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#welded_views_if_unwelded=358]
+  views: the old symptom, by a new path.
 - `follow_entry_portraits` skips a frame where two slots fit the key and
   stores nothing, so the ambiguity rate cannot be counted.
 - `tray_kit` accepts the player's kit as a lone candidate with no audit
@@ -380,9 +399,10 @@ bar, and the board's audit openings (guard 5).
    `pick_self`, an interpolation flag in `filter_track`, a stored ambiguity row
    in the follow. No output changes, so `reticle verify --tier fast` must pass
    unchanged.
-2. Run the four stored-row experiments above (items 1-4) and the killfeed
-   stack check; log predictions in `notes/predictions.jsonl` first.
+2. Run the four stored-row experiments above (items 1-4); log predictions in
+   `notes/predictions.jsonl` first. The killfeed stack check is done
+   (section 4).
 3. Build the ally window search if item 1's isolated misses are real, scored
    against the player's blind labels before it is wired.
-4. Decide the belief-rule amendment in section 2, then the scoreboard's own
-   prior if the timing still matters.
+4. The belief-rule amendment is decided (section 2); build the scoreboard's
+   own prior if the timing still matters.

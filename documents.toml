@@ -200,7 +200,7 @@ kind = "plan"
 status = "proposed"
 since = "2026-09-29"
 remains = "Every change: declared scopes, the four stored-row experiments, the ally window search and the scoreboard's own prior."
-waits_for = "The player's decision on the belief-rule amendment and on which experiments to run."
+waits_for = "The player's choice of which experiments to run; he approved the belief-rule amendment on 2026-09-29."
 
 [[document]]
 path = "docs/PUBSUB_PLAN.md"
