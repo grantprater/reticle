@@ -1439,7 +1439,8 @@ Moved verbatim from the root `CLAUDE.md` on 2026-09-23, when the root guidance w
   guess being laundered into a given.
 - **A NUMBER QUOTED IN PROSE CITES THE RUN THAT PRODUCED IT.** The form is a
   bracketed `metric:` token carrying the series, the session and the VALUE, and
-  `doctor`'s QUOTED check compares it to the latest `pass` row. A citation to a
+  `doctor`'s QUOTED check compares it to the latest `pass` row, or to the one
+  run a `~<run>` pin names. A citation to a
   series with no recorded run is an ERROR; a quoted value that no longer matches
   is a finding naming the file and both numbers, because the honest fix is
   sometimes the prose and sometimes the number. This existed because `metrics`
