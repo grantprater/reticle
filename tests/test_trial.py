@@ -239,21 +239,6 @@ class AutoSourceTest(unittest.TestCase):
             self.assertEqual(auto.spans_clip["spans_read"], [[0.0, 10.0], [20.0, 30.0]])
             self.assertEqual(auto.spans_clip["frames_from"], "roi-cache-0.1.0")
 
-    def test_a_reader_that_clips_only_on_request_decodes_under_auto(self):
-        with tempfile.TemporaryDirectory() as root:
-            profile = self._cache(root, [list(s) for s in self.ROUNDS])
-            r = self._reader(list(self.ACTIVE))
-            r.clip_on_auto = False
-            (cache, why, notes), asked = self._choose(root, profile, [r], "auto")
-            self.assertIsNone(cache)
-            self.assertEqual((r.spans, asked), (self.ACTIVE, 0))
-            self.assertFalse(hasattr(r, "spans_clip"))
-            self.assertIn("only under --from cache", notes[0])
-            # `--from cache` clips it and records the buy phase as unread.
-            (cache, _, _), _ = self._choose(root, profile, [r], "cache")
-            self.assertIsNotNone(cache)
-            self.assertEqual(r.spans_clip["spans_skipped"], [[-5.0, 0.0], [15.0, 20.0]])
-
     def test_partly_covered_decodes_its_whole_spans(self):
         with tempfile.TemporaryDirectory() as root:
             # The cache holds the first round only.
@@ -462,8 +447,8 @@ class AllyCacheTest(unittest.TestCase):
         static = np.zeros((box[3] - box[1], box[2] - box[0], 3), np.uint8)
         reader = AllyIconReader(None, None, static, box)
         declare_set(reader, "minimap", profile, (1920, 1080))
-        self.assertEqual((reader.cache_set, reader.cache_resample, reader.records_clip,
-                          reader.clip_on_auto), ("minimap", "nearest", True, False))
+        self.assertEqual((reader.cache_set, reader.cache_resample, reader.records_clip),
+                         ("minimap", "nearest", True))
         head = reader.events("s1", [], "rev")[0]
         self.assertNotIn("frames_from", head)
         self.assertNotIn("spans_clip", head)
@@ -472,6 +457,32 @@ class AllyCacheTest(unittest.TestCase):
         head = AllyIconReader.replay_events("s1", [], [], 2.0, "rev",
                                             frames_from="roi-cache-0.1.0", spans_clip=clip)[0]
         self.assertEqual((head["frames_from"], head["spans_clip"]), ("roi-cache-0.1.0", clip))
+
+    def test_auto_clips_the_ally_reader_to_the_cached_rounds(self):
+        # The player scoped ally tracking to the rounds from the barrier-drop
+        # lead onward (2026-09-29): auto reads the cache and records the buy
+        # phase before each round as unread.
+        from reticle.minimap import AllyIconReader
+        from reticle.roi_cache import choose_source, declare_set
+        _needs_ffmpeg(self)
+        profile = get_profile("valorant-16x9")
+        box = roi_rects("minimap", profile, (1920, 1080))[0]
+        static = np.zeros((box[3] - box[1], box[2] - box[0], 3), np.uint8)
+        rounds, active = [(1000.0, 2000.0)], [(0.0, 2000.0)]
+        with tempfile.TemporaryDirectory() as root:
+            w = RoiCacheWriter(Path(root), _manifest(), profile, "minimap", hz=15.0,
+                               spans=[list(s) for s in rounds])
+            frame = np.zeros((1080, 1920, 3), np.uint8)
+            for i in range(16):
+                w.feed(Sample(frame_idx=60 + 4 * i, t_ms=1000.0 + 66.7 * i, frame=frame))
+            w.finish()
+            reader = AllyIconReader(None, None, static, box, spans=list(active))
+            declare_set(reader, "minimap", profile, (1920, 1080))
+            cache, why, notes = choose_source(Path(root), _manifest(), profile, [reader],
+                                              "auto", lambda: (rounds, None))
+            self.assertIsNotNone(cache, why)
+            self.assertEqual(reader.spans, rounds)
+            self.assertEqual(reader.spans_clip["spans_skipped"], [[0.0, 1000.0]])
 
     def test_nearest_times_take_the_decodes_phase(self):
         from reticle.roi_cache import nearest_times

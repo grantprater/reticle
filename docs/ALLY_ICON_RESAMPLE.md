@@ -9,8 +9,28 @@ in its coverage row, as `minimap_dark` does; the stamp stays
 `ally-icon-0.5.0`. `reticle trial --reader ally_icon` rereads the stored
 frames from the cache, and `reticle plan` names that trial.
 
-`--from auto` never clips the reader (`clip_on_auto = False`); only
-`--from cache` does. The reason is the buy phase, below.
+**The 2 Hz resample is an opt-in, not the default.** A rescan keeps the
+stored stream's rate: `scan --only ally_icon` without `--ally-hz` reads the
+rate from the stored coverage row, 15 Hz across the corpus, and so rereads
+the 15 Hz cache frame for frame. Only an explicit `--ally-hz 2` resamples.
+The measurements below compare the cache-resampled 2 Hz stream with a 2 Hz
+decode, 2 Hz against 2 Hz; they show the cache costs a 2 Hz reader nothing,
+and they do not clear 2 Hz against 15 Hz. The 15 Hz stored streams stand:
+`prototypes/minimap_fidelity.py`, scored against killfeed deaths on
+2026-09-25, found segment identity well below its 5 to 15 Hz level at 2 Hz
+(`docs/archive/NOTES-through-2026-09-26.md`), and the player recalls 2 Hz
+degrading tracking and the detection of invariant violations. This work did
+not rerun that comparison.
+
+`--from auto` clips the reader to the cache's rounds at whatever rate it
+reads, as it clips `minimap` and `minimap_dark`, and records the spans it
+skips. The player scoped ally tracking to the rounds from the barrier-drop
+lead onward (2026-09-29): the buy phase before the lead is out of scope,
+which is why the cache never held it. Only the pre-round positions as the
+barriers drop matter, and the section on the lead checks that the cache
+holds them. On `75a55a296d3b` the default rescan (`--from auto`, no
+`--ally-hz`) read the cache at 15 Hz up to 300 s, clipped and recorded, and
+wrote the rows the 15 Hz driver wrote there, byte for byte.
 
 Sessions: `a06f04a0059f` (C:\Users\grant\Videos\2026-08-26 09-56-37.mp4,
 Ascent, 465 px widget), `5822b6646448` (C:\Users\grant\Videos\2026-08-26
@@ -54,7 +74,7 @@ span) would sit a median
 [metric:ally_icon_resample/instants@a06f04a0059f#grid_times_median_offset_ms=100.0]
 ms from the decode's instants on `a06f04a0059f`; hence the separate rule.
 
-## The buy phase: a loss the cache causes, not the resample
+## The buy phase: out of scope
 
 The minimap cache starts each round just before the barrier drops. The
 active spans a decode reads start earlier. Of the decode's 2 Hz instants,
@@ -68,12 +88,52 @@ active spans a decode reads start earlier. Of the decode's 2 Hz instants,
 the 2026-09-23 decoded stream (`ally-icon-0.1.0`)
 [metric:ally_icon_resample/buy-phase@a06f04a0059f#old_icons_round_not_cache=4814]
 of its [metric:ally_icon_resample/buy-phase@a06f04a0059f#old_icons=9925] icons sat
-there. A clipped pass records that time as `spans_skipped`, unread, but it
-reads none of it. The stored 15 Hz streams, fed from the same cache, already
-lack it. So `--from auto` keeps decoding the ally reader; `--from cache` is
-the explicit choice to read the rounds only.
+there. A clipped pass records that time as `spans_skipped`, unread. The
+stored 15 Hz streams, fed from the same cache, already lack it, and the
+player's scope (2026-09-29) leaves it out: the rounds from the barrier-drop
+lead onward are the ally tracking window.
 
-## Degradation inside the cache's rounds
+## The lead before each barrier drop
+
+`gametime` owns the barrier drop (`t_live_ms`, from the HUD clock); the
+cache starts `LIVE_LEAD_MS` before it. On all three sessions the cache starts
+[metric:ally_icon_resample/lead@a06f04a0059f#lead_min_ms=1000.0] ms before
+`t_live_ms` on every round
+([metric:ally_icon_resample/lead@a06f04a0059f#rounds=24],
+[metric:ally_icon_resample/lead@5822b6646448#rounds=24] and
+[metric:ally_icon_resample/lead@75a55a296d3b#rounds=12] rounds).
+
+The real drop comes later than `t_live_ms`. The clock reads whole seconds,
+and the last frame on which the ally reader still fits a spawn barrier sits a
+median [metric:ally_icon_resample/lead@a06f04a0059f#barrier_fit_after_live_median_ms=1000.0]
+ms after it on `a06f04a0059f`
+([metric:ally_icon_resample/lead@5822b6646448#barrier_fit_after_live_median_ms=1000.0]
+on `5822b6646448`,
+[metric:ally_icon_resample/lead@75a55a296d3b#barrier_fit_after_live_median_ms=1200.0]
+on `75a55a296d3b`). The crop strips (`lead_<sid>.png`: the first cached
+frame, then `t_live_ms` -0.5 s to +2 s) agree: on the ten rounds shown the
+red bars vanish between `t_live_ms` and 1.5 s after it, and the first cached
+frames show the teammates at their pre-round positions with the bars still
+drawn. The effective lead is therefore 1 to 2.5 s.
+
+Three things cost part of the lead, none of them the cache:
+
+- The buy menu or the Tab scoreboard covers the widget on some frames near
+  the drop: `a06f04a0059f` round 1 at the first cached frame,
+  `5822b6646448` round 24 from 0.5 s before `t_live_ms` to it (the widget test
+  refuses 14 of the first 15 frames), `75a55a296d3b` round 4 at 0.5 s after
+  it. The reader stores those frames as widget-absent.
+- The active spans (`segment`) start after the first cached frame on
+  [metric:ally_icon_resample/lead@a06f04a0059f#ally_spans_start_late=3],
+  [metric:ally_icon_resample/lead@5822b6646448#ally_spans_start_late=3] and
+  [metric:ally_icon_resample/lead@75a55a296d3b#ally_spans_start_late=2]
+  rounds. On `a06f04a0059f` rounds 1, 3 and 5 and `5822b6646448` round 3
+  they start 3 to 5 s after `t_live_ms`, so the ally reader misses the drop
+  whatever its source.
+- On `75a55a296d3b` round 1 no bar is drawn in any frame of the strip; the
+  crops cannot say whether the bars dropped before the first cached frame.
+
+## A 2 Hz reader inside the cache's rounds, against a 2 Hz decode
 
 The decode's frame lies between two cached frames: `A` reads the nearer, `B`
 the other, 67-83 ms from `A`. `B` bounds the timing effect from the far side.
@@ -96,8 +156,10 @@ right one. The facing flips are the ring fit's, on stacked icons.
 
 ## Identity and lifetimes
 
-`lifetimes` on `A`, `B`, `R15` shifted by one or two cached frames, and the
-decode's phase moved 100-400 ms (nine alternatives, each a valid 2 Hz sample):
+All streams here are 2 Hz; none is compared with the 15 Hz stream
+`lifetimes` reads in production. `lifetimes` on `A`, `B`, `R15` shifted by
+one or two cached frames, and the decode's phase moved 100-400 ms (nine
+alternatives, each a valid 2 Hz sample):
 
 | session | named share, A (alternatives min-median-max) | named observation share, A (min-median-max) | rank of A, low to high |
 |---|---|---|---|
@@ -140,9 +202,10 @@ within 300 ms, centre within 6 px, facing within 20 degrees): on
 both labelled not-icons, as `B` and `R15` do. `labels/minimap` marks enemies
 only, and `75a55a296d3b` has no ally labels.
 
-## Speed
+## Speed of the opt-in
 
-One OpenCV thread, Idle priority, the 2 Hz pass then the 15 Hz pass:
+What the opt-in buys. One OpenCV thread, Idle priority, the 2 Hz pass then
+the 15 Hz pass, both from the cache:
 
 | session | 2 Hz s | 15 Hz s | wall speedup | CPU speedup |
 |---|---|---|---|---|

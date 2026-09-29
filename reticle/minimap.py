@@ -1213,13 +1213,12 @@ class AllyIconReader:
     #: A slower rate than the cache's reads the cached frame nearest each
     #: instant of the decode's grid.
     cache_resample = "nearest"
-    #: Its coverage row records a clip to a round cache (`spans_clip`).
+    #: Its coverage row records a clip to a round cache (`spans_clip`), so
+    #: `--from auto` clips it to the cache's rounds as it clips `minimap_dark`.
+    #: The buy phase before each round's lead is left unread, and recorded as
+    #: such: the player scoped ally tracking to the rounds from the
+    #: barrier-drop lead onward (2026-09-29, docs/ALLY_ICON_RESAMPLE.md).
     records_clip = True
-    #: `--from auto` never clips it: the minimap cache starts each round just
-    #: before the barrier drops, and the active spans a decode reads hold the
-    #: buy phase before it, 24-32% of the 2 Hz instants on the three sessions
-    #: measured (docs/ALLY_ICON_RESAMPLE.md). Only `--from cache` clips it.
-    clip_on_auto = False
 
     def __init__(self, floor, slab, static, box, hz=ALLY_DESCRIPTOR_HZ,
                  spans=None, name="ally_icon"):

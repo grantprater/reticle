@@ -357,9 +357,8 @@ def choose_source(store_root: Path, manifest: dict, profile, readers, mode: str,
     Each clipped reader carries `spans_clip` (`clip_record`), which its
     stream must record, so a skipped span reads as unread rather than as
     a span with nothing in it; a restored reader loses it. Auto clips only
-    a reader that declares `records_clip` and not `clip_on_auto = False`;
-    under `cache` the caller refuses a clipped reader that does not record
-    the clip. Under `auto` and
+    a reader that declares `records_clip`; under `cache` the caller refuses
+    a clipped reader that does not. Under `auto` and
     `cache` a cache-fed pass reads the same frames and records the same
     clip, so the two write the same streams; the source changes no stamp."""
     if mode not in FRAME_SOURCES:
@@ -382,10 +381,6 @@ def choose_source(store_root: Path, manifest: dict, profile, readers, mode: str,
             if not getattr(r, "records_clip", False):
                 notes.append(f"spans      {r.name} kept: its stream cannot record the "
                              f"spans a clip to the {s} cache's rounds would skip")
-                continue
-            if not getattr(r, "clip_on_auto", True):
-                notes.append(f"spans      {r.name} kept: it clips to the {s} cache's rounds "
-                             f"only under --from cache")
                 continue
             if rounds is None and rounds_why is None:
                 rounds, rounds_why = live_rounds()

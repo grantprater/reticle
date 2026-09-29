@@ -52,10 +52,6 @@ def _round_stamps(store, manifest: dict) -> dict | None:
 
 #: The command that rereads a channel `scan` does not read.
 ACCEPT = {"audio": "reticle ult-lines <sid>"}
-#: What the accept run reads, where `--from auto` does not read the crop cache
-#: for a channel with a trial (`AllyIconReader.clip_on_auto`).
-ACCEPT_NOTE = {"ally_icon": "   (decodes the buy phase the minimap cache lacks; "
-                            "`--from cache` reads only the cached rounds)"}
 
 
 def reader_streams() -> list[tuple[str, str, str, str | None]]:
@@ -251,8 +247,7 @@ def render(plan: dict) -> str:
                              f"   (one session, stored windows, no decode)")
         accept = ACCEPT.get(ch, f"reticle scan <sid> --only {ch}")
         lines.append(f"  accept {accept}   for {' '.join(sids)}"
-                     + (ACCEPT_NOTE.get(ch, "   (from the ROI crop cache where one exists)")
-                        if cached else ""))
+                     + ("   (from the ROI crop cache where one exists)" if cached else ""))
     # Grouped by command and reason, rounds before the adjudications that read them.
     grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
     for sid, d in sorted(derived, key=lambda x: x[1]["stream"] != "rounds"):
