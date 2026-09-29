@@ -239,6 +239,12 @@ ALLY_PORTRAIT_REFS_VERSION = "ally-portrait-refs-1.0.0"
 # packed per frame. It stores no decision; `adjudication.ability` reads it.
 # 0.2.0: stores raw_dark alongside raw_lit to distinguish opaque objects from viewcones.
 ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
+# The team's adjudicated vision per frame, written as `team_vision` rows by
+# `reticle vision` from the minimap crop cache: every tracked icon's resolved
+# bearing and lifecycle eligibility, and the packed union of the eligible cones
+# (`observable`) beside the union of all tracked bearings (`observable_all`).
+# The chain is `team_vision.TeamVision`, the one `overlay` draws.
+TEAM_VISION_VERSION = "team-vision-0.1.0"
 # One observation of an ability's drawn minimap shape (a ring or a beam), fitted
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
 # a prior, an acceptance or the stored fields change.

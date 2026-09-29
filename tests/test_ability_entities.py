@@ -308,6 +308,55 @@ class LightRefusalTests(unittest.TestCase):
         self.assertEqual(res["c1"]["status"], "refused")
         self.assertEqual(res["c1"]["reason"], "drawn_light")
 
+    def _sliver(self, dark=False, vision_share=None, widget="drawn"):
+        """A raw-lit half of a 4x10 box that the clean mask does not carry."""
+        import numpy as np
+        raw_lit = np.zeros((50, 50), dtype=bool)
+        raw_lit[20:30, 21:23] = True
+        raw_dark = np.zeros((50, 50), dtype=bool)
+        if dark:
+            raw_dark[24:26, 21:23] = True
+        row = {"session_id": "s1", "kind": "frame", "t_ms": 1000.0,
+               "raw_lit": lighting.pack_mask(raw_lit),
+               "raw_dark": lighting.pack_mask(raw_dark), "reason": None}
+        (self.root / "events/ability_light/s1.jsonl").write_text(json.dumps(row) + "\n")
+        if vision_share is not None:
+            seen = np.zeros((50, 50), dtype=bool)
+            seen[20:20 + round(10 * vision_share), 20:24] = True
+            (self.root / "events/team_vision").mkdir(parents=True, exist_ok=True)
+            rows = [{"kind": "coverage", "cache_hz": 15.0},
+                    {"kind": "frame", "t_ms": 1016.7, "widget": widget,
+                     "team_vision_version": "team-vision-test",
+                     "observable": lighting.pack_mask(seen) if widget == "drawn" else None}]
+            (self.root / "events/team_vision/s1.jsonl").write_text(
+                "".join(json.dumps(r) + "\n" for r in rows))
+        comp = [{"component_id": "c1", "session_id": "s1", "observed_t_ms": 1000.0,
+                 "x": 22, "y": 25, "box": [20, 20, 4, 10]}]
+        return light_refusals(self.root, comp)["c1"]
+
+    def test_a_sliver_inside_the_team_vision_is_refused(self):
+        got = self._sliver(vision_share=0.5)
+        self.assertLess(got["lit_share"], 0.6)
+        self.assertEqual(got["status"], "refused")
+        self.assertEqual(got["basis"], "raw_lit_in_team_vision")
+        self.assertEqual(got["team_vision"]["share"], 0.5)
+
+    def test_a_sliver_outside_the_team_vision_passes(self):
+        got = self._sliver(vision_share=0.1)
+        self.assertEqual(got["status"], "passed")
+
+    def test_a_missing_vision_is_unread_not_a_pass_reason(self):
+        got = self._sliver()
+        self.assertEqual(got["status"], "passed")
+        self.assertEqual(got["team_vision"], {"status": "unread", "reason": "no_team_vision"})
+        got = self._sliver(vision_share=0.5, widget="not_drawn")
+        self.assertEqual(got["team_vision"]["reason"], "widget_not_drawn")
+
+    def test_a_dark_object_inside_the_team_vision_is_not_refused(self):
+        got = self._sliver(dark=True, vision_share=1.0)
+        self.assertEqual(got["status"], "passed")
+        self.assertTrue(got["dark"])
+
     def test_trajectory_ability_emits_parametric_beam_schema(self):
         from reticle.adjudication.ability import _properties
         use = {"use_claim_id": "u1", "ability_id": "sova:hunter's fury", "session_id": "s1"}
