@@ -179,14 +179,15 @@ question = "Where is the local player's icon on the minimap?"
 owner = "minimap"
 role = ["detect"]
 status = "partial"
-produces = ["pick_self", "self_icons", "filter_track", "self_portrait_pixels"]
+produces = ["pick_self_declared", "self_icons", "filter_track", "self_portrait_pixels"]
 not_for = """
 WHICH AGENT the player is. `pick_self` answers a spatial question and the name
 is the trap: semantic self is `player-agent`, owned by `lineup`. The fit can
 also land on the carried spike, so an accepted position is not an accepted
-identity.
+identity. Nor whether the yellow icon is the player at all: after his death
+it is a spectated teammate (`player-dead`).
 """
-consumers = ["belief", "track", "lighting", "minimap_diagnostics", "team_vision"]
+consumers = ["belief", "track", "lighting", "minimap_diagnostics", "team_vision", "icon_prior"]
 evidence = "tests/test_pick_self.py, prototypes/xmark_eval.py"
 
 [[entry]]
@@ -195,16 +196,40 @@ question = "Where is the spike glyph on the minimap, is it on the ground or carr
 owner = "spike"
 role = ["detect"]
 status = "partial"
-produces = ["glyph_fits", "accepted", "on_glyph", "carrier_offset", "roster_marker", "read_frame"]
+produces = ["glyph_fits", "accepted", "on_glyph", "carrier_offset", "roster_marker", "read_frame",
+            "verify_glyph", "glyph_footprint"]
 not_for = """
 Naming the carrier: the marker's slot is the roster bar's packed position, and
 the agent in it is `agent-from-slot`'s answer. Nor the planted spike, whose
 state the rounds table owns (`rounds.spike_planted`), nor the orange and black
 spike appearances the player has not yet named, which it keeps as candidates.
+Nor tracking the glyph across frames, which `icon-prior` does from these fits.
 """
 consumers = ["cli", "self_icon", "minimap", "adjudication.minimap_candidates",
-             "adjudication.spike_carrier"]
+             "adjudication.spike_carrier", "icon_prior"]
 evidence = "tests/test_spike.py"
+
+[[entry]]
+id = "icon-prior"
+question = "Given the last frame, where are the tracked icons and the spike glyph on this minimap crop, and what does each answer rest on?"
+owner = "icon_prior"
+role = ["track", "detect"]
+status = "partial"
+produces = ["SelfTracker", "GlyphTrack", "IconTrack", "SidePrior", "SIDES", "veto_for", "annotate", "frame_glyphs", "AuditClock", "audit_row"]
+defers_to = ["self-position", "spike-observation"]
+not_for = """
+Deciding a fit or the self pick, which stay `minimap`'s (`self_icons`,
+`pick_self_declared`), or a glyph fit and the carrier geometry, which stay
+`spike`'s. It holds the prior each reader's own earlier frames give -- a
+dropped glyph's fixed place, the last self point within a speed bound, an
+enemy's last-known mark -- masks a dropped glyph from every key, flags a
+carrier, and declares what each answer rests on. Nor the player's death:
+that rests on the death owner and is `player-dead`'s, applied in the
+consumers. Nor which teammate carries: the roster marker and the lineup
+answer that (`spike-carrier`).
+"""
+consumers = ["cli", "minimap"]
+evidence = "tests/test_icon_prior.py, prototypes/self_spike_tracker_eval.py"
 
 [[entry]]
 id = "spike-carrier"
@@ -776,8 +801,10 @@ exists and the roster's count fell. Nor naming the spectated teammate: the
 yellow icon after the switch is stored as a spectated teammate's
 observation with no name, and identity decides who it is. It reads the
 stored outputs of `death-victim`, `alive-count` and `self-position` and
-imports none of them.
+imports none of them. `belief` and `round_entities` receive its intervals
+from `cli`; `team_vision` also stamps its version.
 """
+consumers = ["cli", "team_vision"]
 evidence = "tests/test_spectate.py, prototypes/spectate_switch.py"
 
 [[entry]]

@@ -918,6 +918,9 @@ def ally_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, fl
 # which is what makes the bearing very nearly free.
 ALLY_COV_MIN = 0.25
 ALLY_INNER_MAX = 0.25
+#: A fit whose circle a veto hides past this share is not gated on the rest:
+#: too little of the ring is left to say it is a ring (`icons`, `veto`).
+VETO_SHARE_MAX = 0.6
 
 
 def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
@@ -925,7 +928,8 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
           require_facing: bool = True, min_area: int | None = None,
           support: np.ndarray | None = None,
           separation_px: float | None = None,
-          seed: str = "centroid", gates: bool = True) -> list[dict]:
+          seed: str = "centroid", gates: bool = True,
+          veto: np.ndarray | None = None) -> list[dict]:
     """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
 
     **`seed` decides where each blob's circle is searched for.** `"centroid"`
@@ -945,6 +949,13 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     or None), `lobe`, `area`. Facing is in the same convention as
     `cone.raycast` -- 0 is +x and +90 is DOWN the image -- so it can be handed
     straight to it.
+
+    **`veto` removes pixels from the key before any fit**: a boolean mask of
+    the crop's shape, True where something known is drawn that is no icon.
+    The dropped spike glyph is yellow and passes the self key, so a self fit
+    rings it; `icon_prior` passes its footprint (`spike.glyph_footprint`)
+    here, and an icon standing on the glyph is fitted from the rest of its
+    ring. None changes nothing.
 
     `require_facing=False` keeps a positionally-good icon whose bearing was
     refused, which is what the interpolation pass needs: a lobe the fit could
@@ -974,6 +985,8 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     if min_area is None:
         min_area = max(4, int(round(MIN_ICON_AREA * sc * sc)))
     keyed = mask & floor
+    if veto is not None:
+        keyed = keyed & ~veto
     grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     m = cv2.morphologyEx(keyed.astype(np.uint8), cv2.MORPH_CLOSE,
                          np.ones((_odd(3 * sc), _odd(3 * sc)), np.uint8))
@@ -1040,6 +1053,20 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     # self ring that is not always the fragment nearest the true centre. A
     # caller asking for PROPOSALS to score is not asking how many icons there
     # are, so it must be able to decline the answer this rule gives.
+    if veto is not None:
+        # Coverage over the VISIBLE ring: the vetoed pixels are known to be
+        # something else drawn over it, so they are neither evidence for the
+        # ring nor against it. `veto_share` is the share of the fitted circle
+        # the veto covers; `cov_visible` is the coverage of the rest, which
+        # the gate reads. A player on the dropped spike keeps a few arcs of
+        # his ring: 0.075-0.2 of the whole circle on the player's on-spike
+        # labels (prototypes/self_spike_tracker_eval.py).
+        for f in found:
+            px = np.clip(np.round(f["cx"] + f["r"] * _FACE_DX).astype(int), 0, W - 1)
+            py = np.clip(np.round(f["cy"] + f["r"] * _FACE_DY).astype(int), 0, H - 1)
+            share = float(veto[py, px].mean())
+            f["veto_share"] = round(share, 4)
+            f["cov_visible"] = (f["cov"] / (1.0 - share)) if share < VETO_SHARE_MAX else 0.0
     if not gates:
         return sorted(found, key=lambda d: -d["cov"])
     return _gated(found, sc, cov_min=cov_min, inner_max=inner_max,
@@ -1055,7 +1082,7 @@ def _gated(found: list[dict], sc: float, *, cov_min: float = ALLY_COV_MIN,
     raw and the gated list fits once. Returns copies, in `icons` order.
     """
     found = [dict(f) for f in found
-             if not (f["cov"] < cov_min or f["inner"] > inner_max)
+             if not (f.get("cov_visible", f["cov"]) < cov_min or f["inner"] > inner_max)
              and not (require_facing and f["facing"] is None)]
     sep = MIN_ICON_SEPARATION_PX * sc if separation_px is None else float(separation_px)
     if sep <= 0:

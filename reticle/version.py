@@ -259,7 +259,19 @@ HUD_VERSION = "hud-0.16.0"
 # cross-referencing the ally channel. No detector changed, so positions are
 # byte-identical to 0.5.0; this bump exists because the TABLE gained a column,
 # and rows without it must read as unknown rather than as false.
-MINIMAP_VERSION = "minimap-0.7.0"
+#
+# 0.8.0 (2026-09-29): the self icon and the spike glyph are tracked together
+# from the same crop (`icon_prior.SelfTracker`). A dropped glyph's place is
+# fixed at its drop and checked there each frame; its footprint is masked
+# from the self key before the fit, so the fit no longer rings the glyph and
+# the player standing on the spike is fitted from the rest of his ring. A
+# carried glyph flags the fit it sits under (`self_carries_spike`) and never
+# refuses it; a fit ringing the carried glyph itself is refused. New columns
+# say what each point rests on and why a drawn frame holds none, and the
+# glyph's state and place; a fixed-cadence full-search audit and every
+# surprise are stored apart as `minimap_prior` events. Reruns from the
+# minimap crop cache (`scan --only minimap`), no decode.
+MINIMAP_VERSION = "minimap-0.8.0"
 # Minimap pings, emitted as EVENTS rather than per-frame rows. Bump when the
 # hue bands, the size gates or the lifetime gate change. Events are rewritten
 # whole per session, so this is a stamp for attribution rather than a cache

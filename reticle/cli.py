@@ -58,7 +58,7 @@ from .minimap import (ALLY_DESCRIPTOR_HZ, FIT_ERR_PX, MAX_ALLIES, AllyIconReader
                       ally_rings, art_floor,
                       filter_track, floor_mask, minimap_roi_px, slab_mask,
                       widget_scale,
-                      pick_self, self_icons, widget_drawn)
+                      self_icons, widget_drawn)
 from .overlay import OverlayContext, draw
 from .passes import SessionContext, run as passes_run
 from .ping import LIFETIME_S, PingReader
@@ -489,15 +489,20 @@ class _MinimapPass:
         # Its table's metadata records a clip to a round cache (`spans_clip`).
         self.records_clip = True
         self.step_ms = 1000.0 / args.minimap_hz
-        # The last position READ and when, which is not the last frame fed:
-        # a widget-absent frame, a dropped frame and a stall all leave the
-        # previous point older than one nominal period. `pick_self`'s gate is
-        # how far the player could have moved since, so it needs the real
-        # elapsed time and not the rate this reader was configured with.
-        self.prev = None
-        self.prev_t = None
         self.rows: list[dict] = []
         self.n_absent = 0
+        # The self icon and the spike glyph, tracked together from the same
+        # crop (`icon_prior.SelfTracker`, minimap-0.8.0): the dropped glyph is
+        # masked before the self fit, a carried glyph flags its carrier, and
+        # the pick declares what it rests on. Its audits and surprises are
+        # stored apart, as `minimap_prior` events. The track keeps the last
+        # position READ and when, which is not the last frame fed: a
+        # widget-absent frame, a dropped frame and a stall all leave the
+        # previous point older than one nominal period, and `pick_self`'s gate
+        # is how far the player could have moved since.
+        from .icon_prior import SelfTracker
+        x0, _y0, x1, _y1 = self.box
+        self.tracker = SelfTracker(self.floor, self.slab, widget_scale(x1 - x0), self.step_ms)
         print(f"floor      {self.floor.mean() * 100:.1f}% of the widget is walkable")
 
     def feed(self, smp) -> None:
@@ -519,6 +524,7 @@ class _MinimapPass:
         # stage reports.
         if not widget_drawn(crop, self.sgray, self.floor):
             self.n_absent += 1
+            self.tracker.widget_absent(smp.t_ms)
             self.rows.append({
                 "frame_idx": smp.frame_idx, "t_ms": smp.t_ms,
                 "self_x": None, "self_y": None, "n_allies": 0,
@@ -529,35 +535,53 @@ class _MinimapPass:
                 # them alike -- only the second is a detection failure, and
                 # only the first forbids a belief outright.
                 "widget_drawn": False,
+                **_ABSENT_PRIOR,
             })
             return
-        dt_ms = (self.step_ms if self.prev_t is None
-                 else smp.t_ms - self.prev_t)
         # Fit one icon around all keyed fragments. A connected-component
         # centroid sits near the middle of one broken arc, roughly one radius
         # away from the icon centre. `self_icons` instead fits the shared ring
         # and collapses nearby fragments. Position does not require a readable
         # facing: bearing may be unknown while the centre is supported. There
         # is deliberately no blob fallback; switching estimators introduces a
-        # radius-sized, rate-dependent bias.
-        fitted = self_icons(crop, self.floor, require_facing=False,
-                            support=self.slab)
-        pick = pick_self(fitted, self.prev, dt_ms, widget_scale(crop.shape[1]))
-        if pick is not None:
-            self.prev, self.prev_t = pick, smp.t_ms
+        # radius-sized, rate-dependent bias. The tracker fits it with the
+        # dropped spike glyph masked and picks with `pick_self`'s rule
+        # (`minimap.pick_self_declared`), timed from the last point READ.
+        got = self.tracker.step(crop, smp.t_ms)
         allies = sorted(ally_rings(crop, self.floor), key=lambda c: -c[0])[:MAX_ALLIES]
         ally_x = [c[1] for c in allies] + [None] * (MAX_ALLIES - len(allies))
         ally_y = [c[2] for c in allies] + [None] * (MAX_ALLIES - len(allies))
         self.rows.append({
             "frame_idx": smp.frame_idx,
             "t_ms": smp.t_ms,
-            "self_x": pick[0] if pick else None,
-            "self_y": pick[1] if pick else None,
             "n_allies": len(allies),
             "ally_x": ally_x,
             "ally_y": ally_y,
             "widget_drawn": True,
+            **got,
         })
+
+    def prior_events(self, session_id: str) -> list[dict]:
+        """The tracker's audit and surprise rows, stored apart from the
+        gated track as `minimap_prior` events."""
+        from .icon_prior import AUDIT_EVERY
+        common = {"session_id": session_id, "minimap_prior_version": MINIMAP_VERSION}
+        head = {**common, "kind": "coverage", "frames": len(self.rows),
+                "audits": len(self.tracker.audits), "audit_every": AUDIT_EVERY,
+                "surprises": len(self.tracker.surprises)}
+        frames_from = getattr(self, "frames_from", "video")
+        if not frames_from.startswith("video"):
+            head["frames_from"] = frames_from
+        return ([head] + [{**common, **a} for a in self.tracker.audits]
+                + [{**common, **{k: v for k, v in s.items() if k != "kind"},
+                    "kind": "surprise", "surprise": s["kind"]} for s in self.tracker.surprises])
+
+
+#: The tracker's columns on a widget-absent row: nothing read, and why.
+_ABSENT_PRIOR = {"self_rests_on": None, "self_reason": "widget_not_drawn",
+                 "self_carries_spike": None, "self_glyph_masked": None,
+                 "spike_state": None, "spike_x": None, "spike_y": None,
+                 "spike_rests_on": None}
 
 
 def _active_spans(store, sid, date):
@@ -719,6 +743,7 @@ def cmd_minimap(args) -> int:
         raise SystemExit("decoded zero frames inside active spans -- is segmentation right?")
 
     out = store.write_minimap(rows, _FP(src, sid), profile.name, date)
+    store.write_events("minimap_prior", sid, mp.prior_events(sid))
     dt = time.perf_counter() - t0
 
     n = len(rows)
@@ -1252,8 +1277,10 @@ def cmd_scan(args) -> int:
                 mp.rows, _FP(src, sid), profile.name, date,
                 frames_from=None if frames_from.startswith("video") else frames_from,
                 spans_clip=getattr(mp, "spans_clip", None))
+            prior = out.write_events("minimap_prior", sid, mp.prior_events(sid))
             got = sum(1 for r in mp.rows if r["self_x"] is not None)
             print(f"minimap    {len(mp.rows)} rows -> {path}")
+            print(f"           audits and surprises -> {prior}")
             print(f"           widget absent {mp.n_absent}/{len(mp.rows)} "
                   f"({mp.n_absent / len(mp.rows) * 100:.1f}%)")
             print(f"           self raw {got}/{len(mp.rows)} "

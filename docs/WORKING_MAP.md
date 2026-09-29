@@ -37,6 +37,8 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Rounds and phase boundaries | `rounds.py`, `scoreboard.py` |
 | Is the Tab scoreboard open: slab close reasons, the history-strip witness, its round marks | `scoreboard.py`, `scoreboard_strip.py` (`reticle strip`), `adjudication/scoreboard.py` (`reticle openings`), [SCOREBOARD_PRESENCE.md](SCOREBOARD_PRESENCE.md), [SCOREBOARD_ROUND_MARKS.md](SCOREBOARD_ROUND_MARKS.md) |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py`, `team_vision.py` |
+| The self icon and the spike glyph tracked together, the dropped-glyph mask, the carrier flag, per-side priors | `icon_prior.py`, `spike.py` |
+| Whether the yellow icon is the player: his death and the spectate switch (guard 6) | `adjudication/spectate.py` |
 | Which stored minimap fits become icons, and what a candidate record carries | `candidate_evidence.py`, `adjudication/minimap_candidates.py`, [MINIMAP_CANDIDATE_CONTRACT.md](MINIMAP_CANDIDATE_CONTRACT.md) |
 | Position belief and its evidence | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
 | Which icon is which: the occluder inventory, the glyph track G1-G5, and portrait/shape/region/animation matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |

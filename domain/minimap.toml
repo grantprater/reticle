@@ -664,3 +664,29 @@ switch; the deaths where the widget was absent (the death screen or the full
 map) were counted apart; one widget size per session, three sessions
 """
 see = ["minimap/spectated-self-icon"]
+
+[spike-last-known-mark]
+claim = """
+A dropped spike glyph can be replaced at its place by a yellow "?", which
+then fades and is gone.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-29"
+source = """
+the 15 Hz minimap crop cache of a06f04a0059f, viewed at the five longest
+runs where the dropped glyph's check at its fixed place failed (184, 413,
+591, 780 and 1237 s): each time the glyph gives way to a yellow "?" at its
+centroid within one or two cached frames (icon_prior, minimap-0.8.0)
+"""
+use = """
+a dropped glyph that stops verifying may have become this mark rather than
+lie under a portrait; the tracker holds it unverified and masks nothing
+while it is not drawn (`icon_prior.veto_for`)
+"""
+exceptions = """
+why the mark appears (the spike leaving the team's vision, as an enemy's
+"?" does [domain:minimap/last-known-mark], is a guess) and how long it
+holds are not known; ask the player
+"""
+see = ["minimap/spike-glyph", "minimap/last-known-mark"]
