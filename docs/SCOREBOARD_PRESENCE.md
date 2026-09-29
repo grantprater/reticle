@@ -656,32 +656,65 @@ float32 moved move back. Timed frame by frame against 0.12.0 over
 at least [metric:scoreboard/speed-batch@a06f04a0059f#open_ratio_min=4.53] times faster; a closed frame
 costs the same.
 
-### Before the rescan
+### The rescan, before and after
 
-On 2026-09-29, before the rescan, I recorded the stored summaries as the
-series `scoreboard_rescan/store-before`. The `death` streams of
-[metric:scoreboard_rescan/store-before@store-20#death_sessions=20] sessions, all at
-`death-adjudication-0.19.0`, hold
-[metric:scoreboard_rescan/store-before@store-20#deaths=3094] deaths and
-[metric:scoreboard_rescan/store-before@store-20#revives=38] revives. Victims:
-[metric:scoreboard_rescan/store-before@store-20#victims_resolved=2969] resolved,
-[metric:scoreboard_rescan/store-before@store-20#victims_abstained=140] abstained,
-[metric:scoreboard_rescan/store-before@store-20#victims_contested=18] contested and
-[metric:scoreboard_rescan/store-before@store-20#victims_disagreement=5] in disagreement.
-Killers: [metric:scoreboard_rescan/store-before@store-20#killers_resolved=2954] resolved,
-[metric:scoreboard_rescan/store-before@store-20#killers_abstained=165] abstained and
-[metric:scoreboard_rescan/store-before@store-20#killers_disagreement=11] in disagreement.
-The 0.9.0 scoreboard rows open
-[metric:scoreboard_rescan/store-before@store-20#scoreboard_frames_open=22293] of
-[metric:scoreboard_rescan/store-before@store-20#scoreboard_frames_offered=83864] frames;
-[metric:scoreboard_rescan/store-before@store-20#x0_wrong=3225] of them put the table's
-left edge outside x 572-574 and
-[metric:scoreboard_rescan/store-before@store-20#x1_wrong=4752] its right edge outside
-x 1345-1347. The openings gate accepts
-[metric:scoreboard_rescan/store-before@store-20#openings_accepted=17625] of
-[metric:scoreboard_rescan/store-before@store-20#openings=27500] openings. The streams
-before the rescan are kept in the store's
-`notes/backup/scoreboard-rescan-20260929/`.
+On 2026-09-29 I recorded the stored summaries three times through
+`reticle.metrics` (series `scoreboard_rescan`): before the rescan, with
+every scoreboard stream at 0.9.0 and every `death` stream at
+`death-adjudication-0.19.0`; after the rescan and the storage reruns
+(`deaths`, `openings`, `ult-cast`, `ability-state`), still at 0.19.0; and
+after `deaths`, `combat-report`, `ult-cast` and `ability-state` reran at
+`death-adjudication-0.20.0`, the killfeed weld fix. The player's rescan wrote
+`scoreboard-0.12.0` on four sessions and `scoreboard-0.13.0` on the rest;
+0.13.0 reads 0.12.0's boards unchanged, and `version.STAMP_WAIVERS` accepts
+the four.
+
+| Stored | Before | After the rescan | After `death-adjudication-0.20.0` |
+|---|---|---|---|
+| Deaths | [metric:scoreboard_rescan/store-before@store-20#deaths=3094] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#deaths=3094] | [metric:scoreboard_rescan/store-after@store-20#deaths=3101] |
+| Revives | [metric:scoreboard_rescan/store-before@store-20#revives=38] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#revives=38] | [metric:scoreboard_rescan/store-after@store-20#revives=38] |
+| Victims resolved | [metric:scoreboard_rescan/store-before@store-20#victims_resolved=2969] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#victims_resolved=2972] | [metric:scoreboard_rescan/store-after@store-20#victims_resolved=3021] |
+| Victims abstained | [metric:scoreboard_rescan/store-before@store-20#victims_abstained=140] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#victims_abstained=135] | [metric:scoreboard_rescan/store-after@store-20#victims_abstained=96] |
+| Victims contested | [metric:scoreboard_rescan/store-before@store-20#victims_contested=18] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#victims_contested=20] | [metric:scoreboard_rescan/store-after@store-20#victims_contested=18] |
+| Victims in disagreement | [metric:scoreboard_rescan/store-before@store-20#victims_disagreement=5] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#victims_disagreement=5] | [metric:scoreboard_rescan/store-after@store-20#victims_disagreement=4] |
+| Killers resolved | [metric:scoreboard_rescan/store-before@store-20#killers_resolved=2954] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#killers_resolved=2956] | [metric:scoreboard_rescan/store-after@store-20#killers_resolved=2982] |
+| Killers abstained | [metric:scoreboard_rescan/store-before@store-20#killers_abstained=165] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#killers_abstained=163] | [metric:scoreboard_rescan/store-after@store-20#killers_abstained=143] |
+| Killers in disagreement | [metric:scoreboard_rescan/store-before@store-20#killers_disagreement=11] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#killers_disagreement=11] | [metric:scoreboard_rescan/store-after@store-20#killers_disagreement=12] |
+| Weapons resolved | [metric:scoreboard_rescan/store-before@store-20#weapons_resolved=3077] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#weapons_resolved=3077] | [metric:scoreboard_rescan/store-after@store-20#weapons_resolved=3085] |
+| Weapons refused | [metric:scoreboard_rescan/store-before@store-20#weapons_refused=55] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#weapons_refused=55] | [metric:scoreboard_rescan/store-after@store-20#weapons_refused=54] |
+| Board collisions | [metric:scoreboard_rescan/store-before@store-20#collisions=31] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#collisions=33] | [metric:scoreboard_rescan/store-after@store-20#collisions=32] |
+| Scoreboard frames offered | [metric:scoreboard_rescan/store-before@store-20#scoreboard_frames_offered=83864] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#scoreboard_frames_offered=87789] | [metric:scoreboard_rescan/store-after@store-20#scoreboard_frames_offered=87789] |
+| Scoreboard frames open | [metric:scoreboard_rescan/store-before@store-20#scoreboard_frames_open=22293] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#scoreboard_frames_open=25857] | [metric:scoreboard_rescan/store-after@store-20#scoreboard_frames_open=25857] |
+| Open boards, left edge wrong | [metric:scoreboard_rescan/store-before@store-20#x0_wrong=3225] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#x0_wrong=80] | [metric:scoreboard_rescan/store-after@store-20#x0_wrong=80] |
+| Open boards, right edge wrong | [metric:scoreboard_rescan/store-before@store-20#x1_wrong=4752] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#x1_wrong=75] | [metric:scoreboard_rescan/store-after@store-20#x1_wrong=75] |
+| Openings | [metric:scoreboard_rescan/store-before@store-20#openings=27500] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#openings=27010] | [metric:scoreboard_rescan/store-after@store-20#openings=27010] |
+| Openings accepted | [metric:scoreboard_rescan/store-before@store-20#openings_accepted=17625] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#openings_accepted=22484] | [metric:scoreboard_rescan/store-after@store-20#openings_accepted=22484] |
+| Accepted, enemy rows from portraits | [metric:scoreboard_rescan/store-before@store-20#openings_accepted_enemy_rows_from_portraits=3707] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#openings_accepted_enemy_rows_from_portraits=7616] | [metric:scoreboard_rescan/store-after@store-20#openings_accepted_enemy_rows_from_portraits=7616] |
+| Strip-only openings | [metric:scoreboard_rescan/store-before@store-20#openings_strip_only=5207] | [metric:scoreboard_rescan/store-after-scoreboard@store-20#openings_strip_only=2661] | [metric:scoreboard_rescan/store-after@store-20#openings_strip_only=2661] |
+
+The death counts cover the 20 sessions with a `death` stream.
+`c62c2b06bcfb` had strip rows but no scoreboard stream before the rescan,
+so its `death` stream read no scoreboard. `plan` ignores an input a stream
+never read, so it named no `deaths` rerun there after the rescan. It named
+one when the stamp moved to 0.20.0, and that rerun read the new board: most
+of the third column's rise in resolved victims, from
+[metric:scoreboard_rescan/store-after-scoreboard@store-20#victims_resolved=2972] to
+[metric:scoreboard_rescan/store-after@store-20#victims_resolved=3021], is
+`c62c2b06bcfb`'s, not the weld fix's. The scoreboard
+counts after the rescan include `c62c2b06bcfb`; the openings counts cover
+the 20 sessions with a `scoreboard_presence` stream.
+
+The rescan fixed the table's frame: the left edge is wrong on
+[metric:scoreboard_rescan/store-after-scoreboard@store-20#x0_wrong=80] open boards instead of
+[metric:scoreboard_rescan/store-before@store-20#x0_wrong=3225], and the gate accepts
+[metric:scoreboard_rescan/store-after-scoreboard@store-20#openings_accepted=22484] openings instead of
+[metric:scoreboard_rescan/store-before@store-20#openings_accepted=17625]. The death verdicts barely
+moved: three more victims resolve, and two more stay contested until an
+outside witness confirms them. The 0.20.0 rerun then added seven deaths and
+settled the contested victims back at
+[metric:scoreboard_rescan/store-after@store-20#victims_contested=18]. The streams before each pass are
+kept in the store's `notes/backup/scoreboard-rescan-20260929/` and
+`notes/backup/deaths-0.19.0-after-scoreboard-20260929/`.
 
 ## Predictions
 
