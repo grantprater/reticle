@@ -2472,145 +2472,13 @@ def cmd_dashboard(args) -> int:
     print(f"Tactical Coaching Dashboard: {p}")
 
     if getattr(args, "serve", False):
-        import http.server
-        import socketserver
-        import urllib.parse
-        import re
-        import webbrowser
+        from .clipserve import RangeHandler, serve
 
-        port = args.port
-        html_path = p
-        videos_dir = Path(args.videos_dir)
+        class DashboardHandler(RangeHandler):
+            html_path = p
+            videos_dir = Path(args.videos_dir)
 
-        class RangeHandler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                parsed = urllib.parse.urlparse(self.path)
-                req_path = urllib.parse.unquote(parsed.path)
-
-                if req_path in ("/", "/index.html"):
-                    content = html_path.read_bytes()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html; charset=utf-8")
-                    self.send_header("Content-Length", str(len(content)))
-                    self.end_headers()
-                    self.wfile.write(content)
-                    return
-
-                if req_path.startswith("/video/"):
-                    fname = req_path[len("/video/"):].lstrip("/\\")
-                    target = videos_dir / fname
-                    if not target.is_file():
-                        target = Path(fname)
-                    if not target.is_file():
-                        self.send_error(404, f"Video not found: {fname}")
-                        return
-                    self._serve_range(target)
-                    return
-
-                self.send_error(404, "Not Found")
-
-            def do_HEAD(self):
-                parsed = urllib.parse.urlparse(self.path)
-                req_path = urllib.parse.unquote(parsed.path)
-
-                if req_path in ("/", "/index.html"):
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html; charset=utf-8")
-                    self.send_header("Content-Length", str(html_path.stat().st_size))
-                    self.end_headers()
-                    return
-
-                if req_path.startswith("/video/"):
-                    fname = req_path[len("/video/"):].lstrip("/\\")
-                    target = videos_dir / fname
-                    if not target.is_file():
-                        target = Path(fname)
-                    if not target.is_file():
-                        self.send_error(404)
-                        return
-                    self.send_response(200)
-                    self.send_header("Content-Type", "video/mp4")
-                    self.send_header("Content-Length", str(target.stat().st_size))
-                    self.send_header("Accept-Ranges", "bytes")
-                    self.end_headers()
-                    return
-
-                self.send_error(404)
-
-            def _serve_range(self, file_path: Path):
-                file_size = file_path.stat().st_size
-                range_header = self.headers.get("Range")
-
-                if range_header:
-                    m = re.match(r"^bytes=(\d+)-(\d+)?$", range_header.strip())
-                    if m:
-                        start = int(m.group(1))
-                        end = int(m.group(2)) if m.group(2) else file_size - 1
-                        if start < file_size and end < file_size and start <= end:
-                            length = end - start + 1
-                            self.send_response(206)
-                            self.send_header("Content-Type", "video/mp4")
-                            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
-                            self.send_header("Content-Length", str(length))
-                            self.send_header("Accept-Ranges", "bytes")
-                            self.end_headers()
-                            try:
-                                with open(file_path, "rb") as f:
-                                    f.seek(start)
-                                    rem = length
-                                    while rem > 0:
-                                        chunk = f.read(min(rem, 65536))
-                                        if not chunk:
-                                            break
-                                        self.wfile.write(chunk)
-                                        rem -= len(chunk)
-                            except (ConnectionResetError, BrokenPipeError):
-                                pass
-                            return
-
-                self.send_response(200)
-                self.send_header("Content-Type", "video/mp4")
-                self.send_header("Content-Length", str(file_size))
-                self.send_header("Accept-Ranges", "bytes")
-                self.end_headers()
-                try:
-                    with open(file_path, "rb") as f:
-                        rem = file_size
-                        while rem > 0:
-                            chunk = f.read(min(rem, 65536))
-                            if not chunk:
-                                break
-                            self.wfile.write(chunk)
-                            rem -= len(chunk)
-                except (ConnectionResetError, BrokenPipeError):
-                    pass
-
-            def log_message(self, format, *args):
-                pass
-
-        class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
-            daemon_threads = True
-
-        server_address = ("127.0.0.1", port)
-        try:
-            httpd = ThreadingServer(server_address, RangeHandler)
-        except OSError as e:
-            raise SystemExit(f"Could not bind to port {port}: {e}")
-
-        url = f"http://127.0.0.1:{port}"
-        print(f"Serving dashboard at: {url}")
-        print(f"Streaming video from: {videos_dir} (HTTP 206 Range enabled)")
-        print("Press Ctrl+C to stop.")
-
-        if args.open:
-            webbrowser.open(url)
-
-        try:
-            httpd.serve_forever()
-        except KeyboardInterrupt:
-            print("\nDashboard server stopped.")
-            httpd.server_close()
-        return 0
+        return serve(DashboardHandler, args.port, "dashboard", open_browser=args.open)
 
     if args.open:
         import webbrowser
@@ -2978,7 +2846,9 @@ def cmd_deaths(args) -> int:
 
     Writes a `death` stream (a summary with every input's stamp, then one
     `death_verdict` row per killfeed entry keyed by `death_key`) and a
-    `death_identity` stream of the formal events."""
+    `death_identity` stream of the formal events. A board interval whose
+    independent names repeat an agent adds a `collision` row
+    (`board_collisions`), which names no one."""
     from .adjudication.death import (DEATH_ADJUDICATION_VERSION, adjudicate_session_deaths,
                                      death_verdict_to_events, stored_second_life)
     from .adjudication.identity import AGENT_IDENTITY_VERSION, load_identity_gallery
@@ -3042,6 +2912,7 @@ def cmd_deaths(args) -> int:
                          "revive_witness": e.get("revive_witness"),
                          "plate_refusal": e.get("plate_refusal"), **v.to_dict()})
             events.extend(death_verdict_to_events(v, sid))
+    collisions = [{**common, **c} for r in res["rounds"] for c in r.get("collisions", [])]
     status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
                                        for r in rows)
     head = {**common, "kind": "summary", "deaths": len(rows), "passes": res["passes"],
@@ -3050,6 +2921,7 @@ def cmd_deaths(args) -> int:
             "weapons": dict(Counter((r.get("weapon_evidence") or {}).get("status", "none")
                                     for r in rows)),
             "revives": sum(bool(r.get("is_revive")) for r in rows),
+            "collisions": len(collisions),
             "revive_witnesses": dict(Counter(r["revive_witness"] for r in rows
                                              if r.get("is_revive") and r.get("revive_witness"))),
             "plate_refusals": dict(Counter(r["plate_refusal"] for r in rows if r.get("plate_refusal"))),
@@ -3061,11 +2933,12 @@ def cmd_deaths(args) -> int:
                        "round": rounds[0].get("round_version") if rounds else None,
                        "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION,
                        "reliability": RELIABILITY_VERSION if rel is not None else None}}
-    out = store.write_events("death", sid, [head] + rows)
+    out = store.write_events("death", sid, [head] + rows + collisions)
     store.write_events("death_identity", sid, events)
     print(f"{sid}: {len(rows) - head['revives']} deaths and {head['revives']} revives over "
           f"{len(rounds)} rounds in {res['passes']} passes; "
-          f"victims {head['victims']}, killers {head['killers']} -> {out}")
+          f"victims {head['victims']}, killers {head['killers']}, "
+          f"{len(collisions)} board collisions -> {out}")
     return 0
 
 

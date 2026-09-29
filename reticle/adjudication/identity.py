@@ -120,7 +120,7 @@ MINIMAP_SURFACES = ("minimap_portrait",)
 
 def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
                    reason=None, source_version=None, evidence=None,
-                   binding_from=None, depends_on=None) -> dict:
+                   binding_from=None, depends_on=None, contest=None) -> dict:
     """Return one normalized, provenance-carrying identity claim.
 
     ``agent=None`` is an explicit abstention.  The arbiter never turns a
@@ -136,6 +136,11 @@ def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
     reach its name -- naming one death by eliminating the others' names is the
     case. Such a claim can still disagree, so it is not ``binding_from``, but
     it is not independent evidence either and is not counted as such.
+
+    ``contest`` marks the entity's name as contested by a finding outside any
+    one reading: ``{"reason", "alternatives": [{"agent", "witnesses"}],
+    "implicated": [channels]}``. The arbiter then resolves only on a channel
+    the contest does not implicate; see `adjudicate_agent_identity`.
     """
     if not channel:
         raise ValueError("identity claims need a channel")
@@ -151,6 +156,7 @@ def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
         "binding_from": binding_from,
         "depends_on": sorted(depends_on) if depends_on else [],
         "evidence": deepcopy(evidence) if evidence is not None else {},
+        **({"contest": deepcopy(contest)} if contest is not None else {}),
     }
 
 
@@ -1613,6 +1619,7 @@ def _normalise(claim):
         evidence=claim.get("evidence"),
         binding_from=claim.get("binding_from"),
         depends_on=claim.get("depends_on"),
+        contest=claim.get("contest"),
     )
 
 
@@ -1683,6 +1690,16 @@ def adjudicate_agent_identity(claims) -> list[dict]:
     agreement is consistency and not accuracy. A channel whose claim
     ``depends_on`` other entities' verdicts is excluded from the count for the
     same reason, and its dependencies are listed on the row.
+
+    **A contested name needs a witness outside the contest.** A claim carrying
+    a ``contest`` says the entity's name is one of several ``alternatives``
+    and names the channels that produced the conflict (``implicated``). A
+    ``resolved`` verdict then stands only if an independent channel outside
+    ``implicated`` names it (``confirmed_by``); otherwise the row is
+    ``contested`` with the contest's reason and no answer. Either way the row
+    carries the ``alternatives``. The first producer is the board's
+    elimination collision (`death.scoreboard_death_claims`): two deaths the
+    killfeed gave one name, while the board dimmed another agent.
     """
     grouped = defaultdict(list)
     for raw in claims:
@@ -1706,6 +1723,15 @@ def adjudicate_agent_identity(claims) -> list[dict]:
             status, agent, reason = "resolved", agents[0], None
         else:
             status, agent, reason = "abstained", None, "all_claims_abstained"
+        contests = [c["contest"] for c in group if c.get("contest")]
+        contested = {}
+        if contests:
+            implicated = {ch for k in contests for ch in k.get("implicated") or []}
+            confirmed_by = sorted(ch for ch in independent if ch not in implicated)
+            contested = {"alternatives": [a for k in contests for a in k.get("alternatives") or []],
+                         "confirmed_by": confirmed_by}
+            if status == "resolved" and not confirmed_by:
+                status, agent, reason = "contested", None, contests[0].get("reason") or "contested"
         out.append({
             "entity_id": entity_id,
             "agent": agent,
@@ -1719,6 +1745,7 @@ def adjudicate_agent_identity(claims) -> list[dict]:
             "by_channel": by_channel,
             "claims": group,
             "adjudication_version": AGENT_IDENTITY_VERSION,
+            **contested,
         })
     return out
 
@@ -1766,6 +1793,9 @@ def identity_events(verdicts, session_id: str, t_ms: float = 0.0) -> list[dict]:
         elif v["status"] == "disagreement" and v["agents_seen"]:
             p = round(1.0 / len(v["agents_seen"]), 3)
             dist = {a: p for a in v["agents_seen"]}
+        elif v["status"] == "contested" and v.get("alternatives"):
+            names = sorted({a["agent"] for a in v["alternatives"]})
+            dist = {a: round(1.0 / len(names), 3) for a in names}
         event = identity_distribution_event(
             session_id=session_id,
             entity_id=f"identity:{v['entity_id']}",

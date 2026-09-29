@@ -961,6 +961,82 @@ class ScoreboardDimWitnessTest(unittest.TestCase):
         self.assertIsNone(claims[1]["agent"])
         self.assertTrue(claims[1]["reason"].startswith("other_names_not_in_newly_dim"))
 
+    def test_a_repeated_name_refuses_elimination_and_stores_the_collision(self):
+        # 223d636bf8d2 817.0 and 820.5 s: the killfeed read Reyna twice and the
+        # board dimmed Clove and Reyna; elimination named both deaths Clove.
+        from reticle.adjudication.death import board_collisions, scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        openings = scoreboard_openings(
+            self.board(1000.0) + self.board(9000.0, dim={"Reyna", "Miks", "Deadlock"}))
+        entries = [{"t_ms": 2000.0, "side": "ally", "slot": 0},
+                   {"t_ms": 4000.0, "side": "ally", "slot": 1},
+                   {"t_ms": 6000.0, "side": "ally", "slot": 0}]
+        witnesses = {0: [["killfeed_portrait", "Reyna"]], 1: [["killfeed_portrait", "Reyna"]]}
+        claims = scoreboard_death_claims(entries, openings,
+                                         {0: "Reyna", 1: "Reyna", 2: "Deadlock"},
+                                         witnesses=witnesses)
+        self.assertEqual([c["agent"] for c in claims], [None, None, None])
+        self.assertTrue(all(c["reason"] == "elimination_collision ['Reyna']" for c in claims))
+        rows = board_collisions("s", 3, claims)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual((row["kind"], row["side"], row["agents"], row["newly_dim"]),
+                         ("collision", "ally", ["Reyna"], ["Deadlock", "Miks", "Reyna"]))
+        self.assertEqual((row["opening_before_ms"], row["opening_after_ms"]), (1000.0, 9000.0))
+        self.assertEqual([d["death_id"] for d in row["deaths"]],
+                         ["death:s:2000:0", "death:s:4000:1", "death:s:6000:0"])
+        self.assertEqual(row["deaths"][1]["witnesses"], [["killfeed_portrait", "Reyna"]])
+        # The two Reyna deaths are contested between Reyna and the dimmed
+        # agent nobody was given; the Deadlock death is not.
+        self.assertIsNone(claims[2].get("contest"))
+        contest = claims[0]["contest"]
+        self.assertEqual(contest["reason"], "contested_by_collision")
+        self.assertEqual([a["agent"] for a in contest["alternatives"]], ["Reyna", "Miks"])
+        self.assertEqual(contest["alternatives"][0]["witnesses"], [["killfeed_portrait", "Reyna"]])
+        # Distinct names still eliminate, and store no collision.
+        clean = scoreboard_death_claims(entries, openings, {0: "Reyna", 1: "Miks", 2: "Deadlock"})
+        self.assertEqual([c["agent"] for c in clean], ["Reyna", "Miks", "Deadlock"])
+        self.assertEqual(board_collisions("s", 3, clean), [])
+
+    def test_a_contested_name_resolves_only_on_a_channel_outside_the_collision(self):
+        from reticle.adjudication.death import COLLISION_IMPLICATED, adjudicate_death
+        from reticle.adjudication.identity import identity_events
+        contest = {"reason": "contested_by_collision", "implicated": list(COLLISION_IMPLICATED),
+                   "alternatives": [{"agent": "Reyna", "witnesses": [["killfeed_portrait", "Reyna"]]},
+                                    {"agent": "Miks", "witnesses": [["scoreboard_dim", "Miks"]]}]}
+        board = {"channel": "scoreboard_dim", "agent": None,
+                 "reason": "elimination_collision ['Reyna']", "contest": contest}
+        kf = {"channel": "killfeed_portrait", "agent": "Reyna"}
+        alone = adjudicate_death(death_id="d1", t_ms=1000.0, side="ally",
+                                 killfeed_claim=kf, scoreboard_claim=board)
+        self.assertEqual((alone.status, alone.victim), ("contested", None))
+        ident = alone.metadata["identity"]
+        self.assertEqual(ident["reason"], "contested_by_collision")
+        self.assertEqual([a["agent"] for a in ident["alternatives"]], ["Reyna", "Miks"])
+        self.assertEqual(ident["confirmed_by"], [])
+        dist = identity_events([ident], "s")[0]["identity_distribution"]["distribution"]
+        self.assertEqual(dist, {"Miks": 0.5, "Reyna": 0.5})
+        from reticle.adjudication.death import death_verdict_to_events
+        published = [e for e in death_verdict_to_events(alone, "s") if e["identity_distribution"]]
+        self.assertEqual([e["metadata"]["status"] for e in published], ["contested"])
+        # The player's own death banner is outside the collision and confirms it.
+        confirmed = adjudicate_death(death_id="d2", t_ms=1000.0, side="ally",
+                                     killfeed_claim=kf, scoreboard_claim=board,
+                                     is_player_death=True, player_agent="Reyna")
+        self.assertEqual((confirmed.status, confirmed.victim), ("resolved", "Reyna"))
+        self.assertEqual(confirmed.metadata["identity"]["confirmed_by"], ["player_hud"])
+
+    def test_a_collision_where_the_count_refuses_keeps_the_count_reason(self):
+        from reticle.adjudication.death import board_collisions, scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        openings = scoreboard_openings(self.board(1000.0) + self.board(9000.0, dim={"Reyna"}))
+        entries = [{"t_ms": 2000.0, "side": "ally", "slot": 0},
+                   {"t_ms": 4000.0, "side": "ally", "slot": 1}]
+        claims = scoreboard_death_claims(entries, openings, {0: "Reyna", 1: "Reyna"})
+        self.assertEqual(claims[0]["reason"], "newly_dim_1_disagrees_with_killfeed_deaths_2")
+        rows = board_collisions("s", 1, claims)
+        self.assertEqual(rows[0]["board_reason"], "newly_dim_1_disagrees_with_killfeed_deaths_2")
+
     def test_count_disagreement_with_killfeed_refuses(self):
         from reticle.adjudication.death import scoreboard_death_claims
         from reticle.adjudication.scoreboard import scoreboard_openings

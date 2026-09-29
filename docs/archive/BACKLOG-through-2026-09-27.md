@@ -26,3 +26,9 @@ Spans cut verbatim from open items when the ability-identification branch merged
 - **`ability-state-step1` (2026-09-27):** `reticle ability-state` stores the player's kit as a state per slot from storage (`ability-state-0.1.0`); every testable invariant is zero on 20 sessions.
 - **`scoreboard-presence` (2026-09-27):** the round-history strip is a second presence witness (`reticle strip`, `reticle openings`); the slab test stores its close reason (`scoreboard-0.7.0`).
 - **`ult-voice-lines` (2026-09-27):** whitened correlation against the 56 official ultimate lines is ported as `reticle ult-lines` and `ult-cast`, its threshold held out and own lines bound to the tray.
+
+## Retired from Completed at the E1 merge (2026-09-28)
+
+`demo-cast-census` left the completed list to keep its five latest when `e1-agreement` joined it; its full text is at the top of this file. `BACKLOG.md` held it as:
+
+- **`demo-cast-census` (2026-09-26):** demo census.

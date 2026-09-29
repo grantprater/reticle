@@ -15,9 +15,11 @@ Panels and rounds
 -----------------
 * A **panel episode** is a run of frames with the header found, split at gaps
   over `GAP_MS` (a reopen with N, or the round summary later).
-* An episode that starts at a player death (`rounds.player_death_times`) is a
-  new **death panel**. Two rounds can read identically (one 160 headshot each),
-  so a death always starts a new panel.
+* An episode that opens at a player death (`rounds.player_death_times`, in
+  `near_death`'s window) is a new **death panel**. Two rounds can read
+  identically (one 160 headshot each), so a new death always starts a new
+  panel; a death opens at most one, so an episode that repeats the previous
+  death panel's read with no later death in its window is that panel's reopen.
 * Any other episode is a **reopen** of the previous panel when its damage
   numbers match it (damage reads are stable across frames; hit counts are
   not), else a new **summary panel** [domain:combat_report/round-summary].
@@ -29,7 +31,7 @@ Naming rows
 `name_rows` groups rows across panels by their portrait thumbnails (one
 player's art repeats) and asks `adjudication.identity` for each group's agent.
 The witnesses are the killfeed portraits of the entries the report's flags bind
-to -- the killer on the player's death for KILLED YOU, the victim of the
+to -- the killer on the player's death for a panel's one KILLED YOU row, the victim of the
 player's single kill for a lone KILLED row -- kept only where the scoreboard's
 kill or death increments over the round admit that agent, and the scoreboard
 itself where those increments admit exactly one. On the player's 50 labelled
@@ -51,11 +53,26 @@ FLAG_MIN = 0.70              # flag-word correlation that counts as drawn
 GAP_MS = 3000.0
 #: A panel opens with the death, but the killfeed can read the death late:
 #: on `b3b9defb6fd7` at 1635 s the death flash washed the killfeed plates and
-#: the entry was first read 2.5 s after the panel opened.
+#: the entry was first read 2.5 s after the panel opened. One window serves
+#: every rule that ties a panel to a death (`near_death`).
 DEATH_BEFORE_MS, DEATH_AFTER_MS = 5000.0, 4000.0
 SUMMARY_WINDOW_MS = 45000.0
 ROUND_TAIL_MS = 8000.0       # a panel this long after a round's end still belongs to it
 FIELDS = ("out", "in", "out_hits", "in_hits")
+
+
+def near_death(t0: float, death_ms: float) -> bool:
+    """Whether a death read at `death_ms` belongs to a panel opening at `t0`:
+    from `DEATH_BEFORE_MS` before it opens to `DEATH_AFTER_MS` after. The
+    at-death call, the death binding and the killer's killfeed track all use
+    it, and `panels` also uses it to fold a repeated read with no later death
+    into a reopen; when binding kept its own window, 2 panels called at-death
+    on `223d636bf8d2` and `c40d950031bb` bound no death. The death stream's
+    onset can precede the HUD death time by up to 6 s, so a panel called
+    at-death can still miss its death verdict (`59c70f1ef720` 1625 s). The
+    other such panel, `5822b6646448` 1093 s, repeated the 1087 s death panel
+    and is now its reopen."""
+    return t0 - DEATH_BEFORE_MS <= death_ms <= t0 + DEATH_AFTER_MS
 
 
 def episodes(frames: list[dict]) -> list[list[dict]]:
@@ -109,15 +126,29 @@ def _agreement(frames: list[dict], read: tuple) -> dict[str, list[int]]:
 
 
 def panels(frames: list[dict], death_times: list[float]) -> list[dict]:
+    """Group episodes into panels (see the module docstring).
+
+    A death opens at most one death panel. An episode in a death's window
+    whose damage read equals the previous death panel's, with no death in its
+    own window later than that panel's deaths, is a reopen of that panel: on
+    `5822b6646448` round 12 the report showed at 1087 s for one frame, hid,
+    and showed the same read at 1093 s, and the HUD death at 1088 s sat in
+    both windows. A death after the previous panel's still opens a new panel,
+    however alike the reads."""
     out = []
     for e in episodes(frames):
         read, shown = _vote(e)
         if not read:
             continue
         t0 = e[0]["t_ms"]
-        at_death = any(t0 - DEATH_BEFORE_MS <= d <= t0 + DEATH_AFTER_MS for d in death_times)
+        mine = [d for d in death_times if near_death(t0, d)]
+        at_death = bool(mine)
         dmg = [(o, i) for o, i, _, _ in read]
-        if out and not at_death and dmg == [(o, i) for o, i, _, _ in out[-1]["read"]]:
+        same = bool(out) and dmg == [(o, i) for o, i, _, _ in out[-1]["read"]]
+        if same and at_death and out[-1]["at_death"]:
+            held = max(d for d in death_times if near_death(out[-1]["start_ms"], d))
+            at_death = any(d > held for d in mine)
+        if same and not at_death:
             out[-1]["reopens"].append(t0)
             continue
         flags = [_flags(shown, k) for k in range(len(read))]
@@ -271,7 +302,6 @@ PORTRAIT_SAME = 0.8
 #: No kill happens this early in a round, so reads before it are "before".
 BUY_PHASE_MS = 25000.0
 KF_SLACK_MS = 500.0
-DEATH_LOOKBACK_MS = 6000.0
 
 
 def _corr(a, b) -> float:
@@ -343,56 +373,127 @@ def _killfeed_name(track, portraits, role, split, gallery):
     return top[0][0]
 
 
+def lone_killed_you(p: dict) -> bool:
+    """Whether a panel carries exactly one KILLED YOU row. A death has one
+    killer, so only then does the panel's one death -- its verdict or its
+    killer's killfeed track -- name that row. `bind_deaths` and `name_rows`
+    both ask this."""
+    return sum(bool(row.get("killed_you")) for row in p["rows"]) == 1
+
+
+def _killer_plan(p, mine, earlier) -> dict[int, tuple]:
+    """Which death each KILLED YOU row of a death panel binds to:
+    {row: (death, extra evidence, other death entities it rests on)}.
+
+    One row binds to the panel's one death in its window. With two or more
+    rows, a row whose portrait cluster an earlier death panel of the round
+    bound to death D binds to D, and then the one row left binds to the one
+    death in the window that no row of the panel holds. `earlier` maps a
+    cluster to the killer bindings earlier death panels of the round made.
+    Rows share no binding: two rows in one cluster, or two rows bound to one
+    death, refuse the panel; a cluster bound to two deaths binds nothing by
+    cluster; more than one row or death left leaves the rest unbound."""
+    ky = [k for k, row in enumerate(p["rows"]) if row.get("killed_you")]
+    if lone_killed_you(p):
+        return {ky[0]: (mine[0], {"rule": "one_killed_you_row"}, [])} if len(mine) == 1 else {}
+    clusters = [p["rows"][k].get("cluster") for k in ky]
+    if any(c is not None and clusters.count(c) > 1 for c in clusters):
+        return {}
+    plan = {}
+    for k, c in zip(ky, clusters):
+        prior = earlier.get(c, [])
+        if len({b["death"]["death_id"] for b in prior}) == 1:
+            b = prior[0]
+            plan[k] = (b["death"], {"rule": "earlier_panel_cluster", "cluster": c,
+                                    "earlier_panel_start_ms": b["panel_start_ms"],
+                                    "earlier_row": b["row"]}, [])
+    held = [d["death_id"] for d, _, _ in plan.values()]
+    if len(set(held)) < len(held):
+        return {}
+    rest = [k for k in ky if k not in plan]
+    left = [d for d in mine if d["death_id"] not in held]
+    if len(rest) == 1 and len(left) == 1:
+        plan[rest[0]] = (left[0], {"rule": "remaining_death"},
+                         sorted(f"{h}:killer" for h in held))
+    return plan
+
+
 def bind_deaths(ps, rounds, death_rows) -> tuple[list[dict], list[dict]]:
     """Bind report rows to stored death verdicts (`reticle deaths`), and the
     identity claims that binding carries.
 
-    A death panel's KILLED YOU row binds to the player's death -- not a second
-    life -- first seen within `DEATH_LOOKBACK_MS` before the panel opens, as
-    entity `<death_id>:killer`. A lone KILLED row binds to the player's lone
-    kill in the round (before the panel, for a death panel), as `<death_id>`.
-    A revive entry is neither.
+    A death panel's KILLED YOU rows bind to the player's deaths -- not second
+    lives or revives -- as entity `<death_id>:killer`, by `_killer_plan`:
+
+    * A panel with one KILLED YOU row binds it to the one death first seen in
+      the panel's `near_death` window, the one `panels` calls it at-death by.
+    * The report is cumulative over a round, so a panel after a revive lists
+      both killers. On `a1a995e6b19b` round 7 KAY/O killed the player at
+      632.5 s, a revive followed at 634 s and Deadlock killed the player at
+      638 s; the 633 s panel bound KAY/O's portrait cluster to the 632.5 s
+      death, and the 638 s panel showed both killers with only the 638 s death
+      in its window. Such a row binds by its portrait cluster to the death an
+      earlier death panel of the round bound that cluster to, and the one row
+      left binds to the one death in the window no row holds. The cluster,
+      not the arbiter's name, selects the death, so the rule never picks a
+      death by a name that rests on the same portraits. When clusters are
+      unbound or shared, or more than one death is left, the rest stay
+      unbound; 0.9.0 bound every row of such a panel to the later death's
+      killer (`b3b9defb6fd7` 891 s and 1308 s, `b7d24102a6f6` 1912 s too).
+
+    A lone KILLED row binds to the player's lone kill in the round (before
+    the panel, for a death panel), as `<death_id>`.
     Each binding publishes the death entity's name on the row's cluster with
-    `depends_on` that entity: the death's name rests on the same killfeed
-    portraits, so it can disagree but is never independent. Returns
-    (bindings, claims); rows with no or several candidates are not bound.
+    `depends_on` that entity -- and, for the row left over, the deaths the
+    other rows hold: the death's name rests on the same killfeed portraits, so
+    it can disagree but is never independent. Returns (bindings, claims);
+    rows with no or several candidates are not bound.
     """
     from .identity import identity_claim
     by_no = {r["round_no"]: r for r in rounds}
     deaths = [d for d in death_rows if d.get("kind") == "death_verdict" and not d.get("is_revive")]
     bindings, claims = [], []
+    # (round_no, cluster) -> the killer bindings earlier death panels made.
+    earlier: dict[tuple, list[dict]] = {}
     for p in ps:
         rnd = by_no.get(p.get("round_no"))
         if rnd is None:
             continue
         a, close = rnd["t_start_ms"], rnd.get("t_close_ms") or rnd["t_end_ms"]
         mine = [d for d in deaths if d["kf_player_death"] and not d["is_second_life"]
-                and p["kind"] == "death"
-                and p["start_ms"] - DEATH_LOOKBACK_MS <= d["t_ms"] <= p["start_ms"] + 1000]
+                and near_death(p["start_ms"], d["t_ms"])]
         kills = [d for d in deaths if d["kf_player_kill"] and a <= d["t_ms"] < close
                  and (p["kind"] != "death" or d["t_ms"] <= p["start_ms"])]
         killed = [k for k, row in enumerate(p["rows"]) if row.get("killed")]
+        plan = {}
+        if p["kind"] == "death":
+            plan = _killer_plan(p, mine, {c: v for (n, c), v in earlier.items()
+                                          if n == p["round_no"]})
         for k, row in enumerate(p["rows"]):
             if row.get("entity_id") is None:
                 continue
-            if row.get("killed_you") and len(mine) == 1:
-                d, role, key = mine[0], "killer", "killer_identity"
-                entity = f"{d['death_id']}:killer"
+            if k in plan:
+                d, extra, rests_on = plan[k]
+                role, key, entity = "killer", "killer_identity", f"{d['death_id']}:killer"
+                if row.get("cluster") is not None:
+                    earlier.setdefault((p["round_no"], row["cluster"]), []).append(
+                        {"death": d, "panel_start_ms": p["start_ms"], "row": k})
             elif row.get("killed") and len(killed) == 1 and len(kills) == 1:
                 d, role, key = kills[0], "victim", "identity"
-                entity = d["death_id"]
+                entity, extra, rests_on = d["death_id"], {"rule": "lone_kill"}, []
             else:
                 continue
             verdict = d["metadata"].get(key) or {}
             name = verdict.get("agent") if verdict.get("status") == "resolved" else None
             bindings.append({"panel_start_ms": p["start_ms"], "row": k, "role": role,
-                             "entity_id": row["entity_id"], "death_entity": entity})
+                             "entity_id": row["entity_id"], "death_entity": entity,
+                             "rule": extra["rule"]})
             claims.append(identity_claim(
                 row["entity_id"], name, channel="death_verdict", binding_from="combat_report",
-                observed_at_ms=p["start_ms"], depends_on=[entity],
+                observed_at_ms=p["start_ms"], depends_on=[entity, *rests_on],
                 source_version=d.get("death_adjudication_version"),
                 evidence={"panel_start_ms": p["start_ms"], "row": k, "role": role,
-                          "death_entity": entity},
+                          "death_entity": entity, **extra},
                 reason=None if name else f"death {role} {verdict.get('status', 'unread')}"))
     return bindings, claims
 
@@ -437,9 +538,13 @@ def name_rows(session_id, ps, rounds, kill_tracks, death_tracks, portraits, boar
         kills = [t for t in kill_tracks if a <= t["t_first"] < close
                  and (p["kind"] != "death" or t["t_first"] <= p["start_ms"])]
         death = [t for t in death_tracks if p["kind"] == "death"
-                 and p["start_ms"] - DEATH_LOOKBACK_MS <= t["t_first"] <= p["start_ms"] + 1000]
+                 and near_death(p["start_ms"], t["t_first"])]
         victims = {_killfeed_name(t, portraits, "victim", split, gallery) for t in kills} - {None}
-        killer = _killfeed_name(death[-1], portraits, "killer", split, gallery) if death else None
+        # The killer's track names a KILLED YOU row only when the panel has
+        # one: after a revive the panel lists both killers, and the last
+        # track's name belongs to one of them (`b7d24102a6f6` 1912 s).
+        killer = (_killfeed_name(death[-1], portraits, "killer", split, gallery)
+                  if death and lone_killed_you(p) else None)
         lone_kill = sum(r["killed"] for r in p["rows"]) == 1 and len(kills) == 1
         for k, row in enumerate(p["rows"]):
             if row["entity_id"] is None:
