@@ -18,6 +18,7 @@ The citation
     [metric:<tool>/<part>#<field>=<value>]
     [metric:<tool>/<part>@<session>#<field>=<value>]
     [metric:<tool>#<field>=<value>]
+    [metric:<tool>/<part>@<session>~<run>#<field>=<value>]
 
 So `[metric:proposal_audit/acquisition@d95cfad5693a#recall=0.9375]`. The series
 name is permissive because real ones contain dots, spaces and pipes
@@ -28,6 +29,17 @@ only its series would prove a measurement exists and say nothing about whether
 the number beside it is still true -- and a wrong number that looks sourced is
 worse than one that looks unsourced. So the check compares the quoted value to
 the latest `pass` row of that series and reports the file when they disagree.
+
+**A pinned citation names its run.** Some series grow a row whenever anyone
+runs the tool: `usage.write_metric` appends a `scan_usage` row per scan, so a
+timing quoted from one run disagrees with the latest row as soon as another
+agent scans the same session. `~<run>` pins the citation to one recorded
+`pass` row of its series and session: the row whose `usage_run_id` or `run_id`
+starts with `<run>`, or whose `at` equals it. The check compares the value with
+that row, not the latest, and a pin that matches no row, or more than one, is
+an ERROR. Pin a figure that describes one run (a timing, a dated experiment);
+leave a figure the prose claims is still true unpinned, so it keeps being
+checked against the latest run.
 
 Three findings, and the levels are deliberate
 ----------------------------------------------
@@ -63,8 +75,9 @@ ROOT = Path(__file__).resolve().parent.parent
 #: because a series name is data and a field name is an identifier.
 CITE = re.compile(
     r"\[metric:"
-    r"(?P<series>[^\]#@]+?)"
-    r"(?:@(?P<session>[^\]#@]+?))?"
+    r"(?P<series>[^\]#@~]+?)"
+    r"(?:@(?P<session>[^\]#@~]+?))?"
+    r"(?:~(?P<run>[^\]#@~]+?))?"
     r"#(?P<field>[A-Za-z_][A-Za-z0-9_]*)"
     r"=(?P<value>[^\]]+)\]")
 
@@ -143,6 +156,7 @@ def citations(root: Path | None = None) -> list[dict]:
                 "line": text.count("\n", 0, match.start()) + 1,
                 "series": match.group("series").strip(),
                 "session": (match.group("session") or "").strip(),
+                "run": (match.group("run") or "").strip(),
                 "field": match.group("field"),
                 "quoted": match.group("value").strip(),
             })
@@ -163,6 +177,22 @@ def latest_pass(rows: list[dict]) -> dict[tuple[str, str], dict]:
         tool, part, session = metrics.key(row)
         series = f"{tool}/{part}" if part else tool
         out[(series, session)] = row
+    return out
+
+
+def _pinned(cite: dict, rows: list[dict]) -> list[dict]:
+    """The `pass` rows of the citation's series and session that its `~<run>` names."""
+    pin = cite["run"]
+    out = []
+    for row in rows:
+        if row.get("status") != metrics.PASS:
+            continue
+        tool, part, session = metrics.key(row)
+        if (f"{tool}/{part}" if part else tool) != cite["series"] or session != cite["session"]:
+            continue
+        ids = [str(row.get(k) or "") for k in ("usage_run_id", "run_id")]
+        if row.get("at") == pin or any(i and i.startswith(pin) for i in ids):
+            out.append(row)
     return out
 
 
@@ -190,7 +220,18 @@ def verify(root: Path | None = None,
 
     for cite in found:
         where = f"{cite['file']}:{cite['line']}"
-        run = _resolve(cite, index)
+        if cite["run"]:
+            pinned = _pinned(cite, rows)
+            if len(pinned) != 1:
+                out.append(("ERROR", f"{where} pins metric `{cite['series']}` "
+                                     f"@{cite['session'] or '-'} to run "
+                                     f"`{cite['run']}`, which names "
+                                     f"{len(pinned)} recorded `pass` runs, "
+                                     f"not one"))
+                continue
+            run = pinned[0]
+        else:
+            run = _resolve(cite, index)
         if run is None:
             sessions = sorted({s for (series, s) in index if series == cite["series"]})
             if not sessions:
@@ -221,9 +262,10 @@ def verify(root: Path | None = None,
             continue
         stored = values[cite["field"]]
         if not _agrees(cite["quoted"], stored):
+            which = f"pinned run {cite['run']}" if cite["run"] else "latest pass run"
             out.append(("WARN", f"{where} quotes {cite['series']} "
                                 f"{cite['field']}={cite['quoted']} and the "
-                                f"latest pass run records {stored} -- the "
+                                f"{which} records {stored} -- the "
                                 f"document is stale, or the number moved and "
                                 f"nobody looked"))
 

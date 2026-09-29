@@ -162,6 +162,49 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(index[("t/p", "s")]["values"]["recall"], 0.8)
 
 
+class PinTests(unittest.TestCase):
+    """`~<run>` names one recorded run of a series that grows a row per run."""
+
+    ROWS = [dict(row("scan_usage", "hud/cache/serial", "c40", {"pass_s": 25.755}),
+                 usage_run_id="9d49200011e6490a"),
+            dict(row("scan_usage", "hud/cache/serial", "c40", {"pass_s": 42.38},
+                     at="2026-09-28T22:25:41"), usage_run_id="c25218c73c83")]
+
+    def _messages(self, text):
+        with contextlib.ExitStack() as stack:
+            tree = Tree(stack, {"docs/a.md": text})
+            return [(lv, m) for lv, m in tree.verify(self.ROWS) if "nobody uses" not in m]
+
+    def test_a_pin_is_parsed(self):
+        with contextlib.ExitStack() as stack:
+            tree = Tree(stack, {"docs/a.md":
+                                "[metric:scan_usage/hud/cache/serial@c40~9d49200011e6"
+                                "#pass_s=25.8]"})
+            got = quoted.citations(tree.root)
+        self.assertEqual((got[0]["series"], got[0]["session"], got[0]["run"]),
+                         ("scan_usage/hud/cache/serial", "c40", "9d49200011e6"))
+
+    def test_an_unpinned_citation_still_meets_the_latest_run(self):
+        msgs = self._messages("[metric:scan_usage/hud/cache/serial@c40#pass_s=25.8]")
+        self.assertTrue(any("latest pass run records 42.38" in m for _lv, m in msgs))
+
+    def test_a_pinned_citation_meets_its_own_run(self):
+        self.assertEqual(self._messages(
+            "[metric:scan_usage/hud/cache/serial@c40~9d49200011e6#pass_s=25.8]"), [])
+
+    def test_a_pinned_citation_still_reports_a_wrong_value(self):
+        msgs = self._messages("[metric:scan_usage/hud/cache/serial@c40~9d49#pass_s=30.0]")
+        self.assertTrue(any("pinned run 9d49 records 25.755" in m for _lv, m in msgs))
+
+    def test_a_pin_may_name_the_row_time(self):
+        self.assertEqual(self._messages(
+            "[metric:scan_usage/hud/cache/serial@c40~2026-09-28T22:25:41#pass_s=42.38]"), [])
+
+    def test_a_pin_that_names_no_run_is_an_error(self):
+        msgs = self._messages("[metric:scan_usage/hud/cache/serial@c40~ffff#pass_s=25.8]")
+        self.assertTrue(any(lv == "ERROR" and "names 0 recorded" in m for lv, m in msgs))
+
+
 class ExemptionTests(unittest.TestCase):
     def test_the_bounded_working_documents_are_scanned(self):
         self.assertNotIn("NOTES.md", quoted.HISTORY)

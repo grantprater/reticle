@@ -58,7 +58,11 @@ pass time of a staged HUD pass from the crop cache at one worker as
 
     [metric:scan_usage/hud+killfeed_portrait/cache/staged/w1/cv1@c40d950031bb#pass_s=<seconds>]
 
-with `<seconds>` the row's `pass_s` at the precision the prose states. The
+with `<seconds>` the row's `pass_s` at the precision the prose states.
+Every scan of the session appends a row to the series, so a figure that
+describes one run pins it with the first characters of the row's
+`usage_run_id`, as `...cv1@c40d950031bb~cf98e5c94cbc#pass_s=<seconds>`, and
+QUOTED checks it against that run rather than the latest. The
 row's other fields cite the same way: `source_s`, `cpu_s`,
 `dispatcher_cpu_s`, `dispatcher_wait_s` (staged at one worker or more), and
 per reader `feed_s_<reader>` and, when known, `thread_cpu_s_<reader>`, the
