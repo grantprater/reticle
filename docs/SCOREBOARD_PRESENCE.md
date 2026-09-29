@@ -582,6 +582,60 @@ reproduced the stored rows byte for byte
 [metric:scoreboard/cache-window@a06f04a0059f#trial_refused_outside_gate=59] frames
 outside the gate.
 
+### Portrait scoring time
+
+An open board costs the reader far more than a closed one: on the cached
+minute of `a06f04a0059f`, [metric:scoreboard/speed-reuse@a06f04a0059f#ms_open_mean_ref=283.4] ms a frame open
+against [metric:scoreboard/speed-reuse@a06f04a0059f#ms_closed_mean_ref=11.2] ms closed, averaged over
+[metric:scoreboard/speed-reuse@a06f04a0059f#runs=3] paired runs of its [metric:scoreboard/speed-reuse@a06f04a0059f#frames_open=36] open frames. Most of
+it scores each row's portrait against every agent's art
+(`scoreboard.portrait_agent`), and the enemy rows of a board the
+portraits confirm are scored twice, once to confirm and once as
+observations.
+
+The reader now keeps each portrait's result keyed on the exact window it
+scored, with the scorer and the art (`scoreboard.PortraitCache`, 64
+windows per reader), and returns it on an exact match. The premise was
+that a board held open repeats its portraits; the pixels say otherwise.
+Of [metric:scoreboard/speed-reuse@a06f04a0059f#consecutive_windows=260] windows at the same place on
+consecutive open frames, [metric:scoreboard/speed-reuse@a06f04a0059f#consecutive_windows_identical=3] are
+identical: the video codec moves most pixels by a few levels from frame
+to frame. The cache answers [metric:scoreboard/speed-reuse@a06f04a0059f#cache_hit_frac=0.15] of the scores
+([metric:scoreboard/speed-reuse@a06f04a0059f#cache_hits=63] hits, [metric:scoreboard/speed-reuse@a06f04a0059f#cache_misses=357] misses), nearly all
+confirmed enemy rows scored again in the same frame, and an open frame
+takes [metric:scoreboard/speed-reuse@a06f04a0059f#ms_open_mean_cur=260.5] ms against
+[metric:scoreboard/speed-reuse@a06f04a0059f#ms_open_mean_ref=283.4] ms, timed frame by frame against the
+reader before it on a GPU other jobs share. The reads do not change: the
+window's [metric:scoreboard/speed-reuse@a06f04a0059f#rows_byte_equal_stored=421] rows equal the stored stream
+byte for byte, and every fixture board reads the same, portrait scores
+included ([metric:scoreboard/speed-reuse@fixture#boards_identical=456] of [metric:scoreboard/speed-reuse@fixture#boards=456]), so the
+version stays.
+
+From `scoreboard-0.12.0` the GPU scores in float32, not float64
+(`scoreboard._art_scores_gpu`). The window is first shifted by its
+per-channel mean rounded to an integer, which leaves the correlation
+unchanged and keeps every pixel and the masked sums exact enough in
+float32. No fixture board changes a verdict, an edge, a row or a named
+agent ([metric:scoreboard/speed-float32@fixture#bar_changed_boards=0] of [metric:scoreboard/speed-float32@fixture#boards=456]; the gate
+accepts [metric:scoreboard/speed-float32@fixture#accepted=376] boards both times). [metric:scoreboard/speed-float32@fixture#rounded_scores_differ=19]
+of [metric:scoreboard/speed-float32@fixture#rounded_scores=115420] rounded scores move, each by
+[metric:scoreboard/speed-float32@fixture#max_score_diff=0.0001]; no second agent and no gain moves. On the
+window [metric:scoreboard/speed-float32@a06f04a0059f#window_rounded_scores_differ=2] of [metric:scoreboard/speed-float32@a06f04a0059f#window_rounded_scores=10440]
+scores move, by [metric:scoreboard/speed-float32@a06f04a0059f#window_max_score_diff=0.0001], and no row changes.
+
+Timed frame by frame against the float64 reader of 0.11.0, an open frame
+takes [metric:scoreboard/speed-float32@a06f04a0059f#ms_open_mean_cur=241.8] ms against [metric:scoreboard/speed-float32@a06f04a0059f#ms_open_mean_ref=322.8]
+ms, reuse and float32 together; against the reuse commit alone,
+[metric:scoreboard/speed-float32@a06f04a0059f#ms_open_mean_float32_paired_with_reuse=294.9] ms against
+[metric:scoreboard/speed-float32@a06f04a0059f#ms_open_mean_reuse=319.9] ms. Paired runs share the GPU with each
+other and with other jobs, so only the ratios compare. Float64
+arithmetic was not most of the cost. A profile of the float64 scorer
+found the largest share in waits for GPU results: two copies to the host
+per scale, six scales, ten to fifteen windows a frame, each queued behind
+other jobs' kernels; cupy's per-call overhead takes much of the rest. One
+copy per window, or one batched call per frame, is the next saving.
+
+
 ## Predictions
 
 - **S1 is refuted on both clauses.** The witness finds the strip on

@@ -390,7 +390,7 @@ class StripAnchorTests(unittest.TestCase):
         seen = []
 
         def scorer(score):
-            def agent(frame, box, icons):
+            def agent(frame, box, icons, cache=None):
                 seen.append(box)
                 return {"portrait_agent_score": score}
             return agent
@@ -406,7 +406,7 @@ class StripAnchorTests(unittest.TestCase):
         # One portrait under the gate refuses the board; so do missing icons.
         scores = iter([0.9, 0.9, 0.80, 0.9, 0.9])
         with patch("reticle.scoreboard.portrait_agent",
-                   side_effect=lambda f, b, i: {"portrait_agent_score": next(scores)}):
+                   side_effect=lambda f, b, i, c=None: {"portrait_agent_score": next(scores)}):
             board = self.read(frame, icons={"Omen": None})
         self.assertEqual((board.open_, board.reason, board.confirm), (False, "red_not_at_strip", None))
         self.assertEqual(self.read(frame).reason, "red_not_at_strip")
