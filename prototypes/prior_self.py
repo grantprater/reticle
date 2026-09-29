@@ -66,7 +66,10 @@ from reticle.profiles import get_profile  # noqa: E402
 from reticle.roi_cache import RoiCache  # noqa: E402
 from reticle.store import Store  # noqa: E402
 
-VERSION = "prior-self-0.1.0"
+#: 0.2.0: no dropped glyph held across a pickup or a drop (`Glyphs.at`);
+#: guard 6 stops the self track at the player's death (`run_guarded`);
+#: second-life deaths no longer count as his death (`player_deaths`).
+VERSION = "prior-self-0.2.0"
 STORE = Store()
 OUT = STORE.root / "analysis" / "prior-self-20260929"
 #: A dropped glyph read at a 1 Hz spike sample holds for frames this near it,
@@ -108,17 +111,30 @@ def spike_rows(sid: str) -> list[dict]:
 class Glyphs:
     """The accepted glyphs the stored spike rows hold for a frame's instant."""
 
-    def __init__(self, rows: list[dict]):
+    def __init__(self, rows: list[dict], rule: str = "0.2.0"):
         self.rows = rows
         self.t = [r["t_ms"] for r in rows]
+        self.rule = rule
+
+    @staticmethod
+    def _carried(r: dict) -> bool:
+        return r.get("reason") is None and any(
+            g["state"] == "carried" for g in spike.accepted(r.get("glyphs") or []))
 
     def at(self, t_ms: float) -> tuple[list[dict], list[dict], float | None]:
         """`(glyphs, icons, sample_t)`: accepted glyphs held at `t_ms` and the
-        row's stored icons (carried-glyph frames only)."""
+        row's stored icons (carried-glyph frames only).
+
+        Rule 0.1.0 holds a dropped glyph from either neighbour sample. Rule
+        0.2.0 (the default) holds it from a neighbour only when the other
+        neighbour reads no carried glyph: across a pickup or a drop the old
+        dropped glyph lies under the new carrier, and 0.1.0 put it on his own
+        fit (a06f04a0059f 1480.13 s, 0.4 s before he died carrying it)."""
         k = bisect.bisect_left(self.t, t_ms)
         gl, icons, near_t = [], [], None
-        for j in (k - 1, k):
-            if not (0 <= j < len(self.t)) or abs(self.t[j] - t_ms) > HOLD_MS:
+        pair = [j for j in (k - 1, k) if 0 <= j < len(self.t)]
+        for j in pair:
+            if abs(self.t[j] - t_ms) > HOLD_MS:
                 continue
             r = self.rows[j]
             if near_t is None or abs(r["t_ms"] - t_ms) < abs(near_t - t_ms):
@@ -126,8 +142,13 @@ class Glyphs:
             if r.get("reason") is not None:
                 continue
             same = abs(r["t_ms"] - t_ms) <= SAME_FRAME_MS
+            other = [o for o in pair if o != j]
+            crossed = (self.rule != "0.1.0" and not same
+                       and any(self._carried(self.rows[o]) for o in other))
             for g in spike.accepted(r.get("glyphs") or []):
                 if g["state"] != "dropped" and not same:
+                    continue
+                if g["state"] == "dropped" and crossed:
                     continue
                 if any(abs(g["cx"] - o["cx"]) <= 2 and abs(g["cy"] - o["cy"]) <= 2 for o in gl):
                     continue
@@ -272,12 +293,47 @@ def pick_guarded(r: dict, prev, dt_ms: float, sc: float) -> dict:
             "reason": "on_spike_glyph_unconfirmed", "glyph": g, "refused_xy": p["xy"]}
 
 
-def run_guarded(rows: list[dict], sc: float, step_ms: float) -> list[dict]:
+def reflag(rows: list[dict], gly: "Glyphs", sc: float) -> list[dict]:
+    """The replay's rows with each candidate's `on_glyph` asked again under
+    `gly`'s hold rule. The teardrop stays the replay's: a rule that holds no
+    more glyphs than the replay's asks for no teardrop it did not fit."""
+    out = []
+    for r in rows:
+        if r.get("drawn") is False or not r.get("c"):
+            out.append(r)
+            continue
+        glyphs, icons, gt = gly.at(r["t"])
+        cs = []
+        for c in r["c"]:
+            c = {k: v for k, v in c.items() if k != "g"}
+            o = spike.on_glyph(c["x"], c["y"], glyphs, sc, icons=icons)
+            if o is not None:
+                c["g"] = [o["cx"], o["cy"], o["state"]]
+            cs.append(c)
+        nr = {**r, "c": cs}
+        nr.pop("gl", None)
+        if glyphs:
+            nr["gl"] = [[g["cx"], g["cy"], g["state"]] for g in glyphs]
+            nr["gt"] = gt
+        out.append(nr)
+    return out
+
+
+def run_guarded(rows: list[dict], sc: float, step_ms: float, dead=None) -> list[dict]:
+    """The guarded pick over a session. With `dead` (guard 6, `dead_after`),
+    a frame after the player's death is null with reason `player_dead`, and
+    the prior expires there: the view spectates, and the yellow icon is not
+    his (run prior-self-b-20260929)."""
     prev = prev_t = None
     out = []
     for r in rows:
         if r.get("drawn") is False:
             out.append({"t": r["t"], "xy": None, "rests_on": "widget_not_drawn"})
+            continue
+        if dead is not None and dead(r["t"]):
+            out.append({"t": r["t"], "xy": None, "rests_on": "player_dead",
+                        "guard": "player_dead"})
+            prev = prev_t = None
             continue
         dt = step_ms if prev_t is None else r["t"] - prev_t
         p = pick_guarded(r, prev, dt, sc)
@@ -338,11 +394,15 @@ def rounds(sid: str) -> list[dict]:
 
 
 def player_deaths(sid: str) -> list[float]:
-    """Instants the killfeed shows the player dying (`kf_player_death`)."""
+    """Instants the killfeed shows the player dying (`kf_player_death`), as
+    the death owner stored them. A second-life death (`is_second_life`, a
+    Run It Back body) is left out: the player lives on after it."""
     out = []
     for line in (STORE.root / "events" / "death" / f"{sid}.jsonl").open(encoding="utf-8"):
         if '"kf_player_death":true' in line:
-            out.append(json.loads(line)["t_ms"])
+            r = json.loads(line)
+            if not r.get("is_second_life"):
+                out.append(r["t_ms"])
     return sorted(out)
 
 
@@ -566,6 +626,172 @@ def measure(sid: str) -> dict:
     return res
 
 
+#: The four runs of five seconds or more classed dead (prior-self-20260929):
+#: (session, first and last 1 Hz sample, s).
+DEAD_RUNS = (("a06f04a0059f", 1528.0, 1536.0), ("a06f04a0059f", 1851.0, 1855.0),
+             ("a06f04a0059f", 2220.0, 2226.0), ("223d636bf8d2", 944.5, 950.5))
+
+
+def measure_b(sid: str) -> dict:
+    """The carried case and guard 6, rule 0.1.0 against 0.2.0."""
+    from collections import Counter
+
+    from reticle.adjudication.spike_carrier import frame_state
+    head, rows0 = load_replay(sid)
+    sc = head["widget_scale"]
+    step = 1000.0 / 15.0
+    sp = spike_rows(sid)
+    dead = dead_after(sid)
+    stored = run_stored(rows0, sc, step)
+    rules = {"0.1.0": reflag(rows0, Glyphs(sp, "0.1.0"), sc),
+             "0.2.0": reflag(rows0, Glyphs(sp, "0.2.0"), sc)}
+    # Carrier frames: within 500 ms of a sample whose carried glyph sits under
+    # the self fit, as the carrier owner reads it.
+    carrier_t = [r["t_ms"] for r in sp if frame_state(r, sc)["carrier_channel"] == "self"]
+    ct = sorted(carrier_t)
+
+    def carrying(t):
+        k = bisect.bisect_left(ct, t)
+        return any(0 <= j < len(ct) and abs(ct[j] - t) <= 500 for j in (k - 1, k))
+
+    # Pickup and drop instants: a self-carrier sample beside one without.
+    edges = [r["t_ms"] for a, r in zip(sp, sp[1:])
+             if (frame_state(a, sc)["carrier_channel"] == "self")
+             != (frame_state(r, sc)["carrier_channel"] == "self")]
+    res = {"session": sid, "version": VERSION, "carrier_samples": len(ct)}
+    for name, rows in rules.items():
+        g = run_guarded(rows, sc, step)
+        c = Counter()
+        near_edge = 0
+        for r, a, b in zip(rows, stored, g):
+            if not carrying(r["t"]) or a.get("xy") is None:
+                continue
+            c["frames"] += 1
+            kind = b.get("guard", "clear")
+            c[kind] += 1
+            if kind != "clear":
+                c[f"{kind}:{(b.get('glyph') or [None, None, '?'])[2]}"] += 1
+                near_edge += any(abs(e - r["t"]) <= 1000 for e in edges)
+        c["misfire_within_1s_of_pickup_or_drop"] = near_edge
+        res[f"carrier_{name}"] = dict(c)
+        # The dropped-glyph samples the rule guards (the 1 Hz on-glyph count).
+        on = 0
+        for s in sp:
+            gl = [x for x in s.get("glyphs") or [] if x.get("reason") is None
+                  and x["state"] == "dropped"]
+            if not gl:
+                continue
+            k = bisect.bisect_left([r["t"] for r in rows], s["t_ms"] - 40)
+            if k < len(rows) and abs(rows[k]["t"] - s["t_ms"]) <= 70:
+                on += any("g" in cc for cc in rows[k].get("c") or [])
+        res[f"dropped_samples_with_a_flagged_candidate_{name}"] = on
+    # Guard 6 on rule 0.2.0.
+    rows = rules["0.2.0"]
+    g2 = run_guarded(rows, sc, step)
+    g6 = run_guarded(rows, sc, step, dead=dead)
+    runs = []
+    for s, t0, t1 in DEAD_RUNS:
+        if s != sid:
+            continue
+        ix = [i for i, r in enumerate(rows) if t0 * 1000 - 100 <= r["t"] <= t1 * 1000 + 100]
+        count = lambda tr: {"points": sum(tr[i].get("xy") is not None for i in ix),  # noqa: E731
+                            "on_glyph": sum(tr[i].get("xy") is not None and any(
+                                "g" in c and (c["x"], c["y"]) == tuple(tr[i]["xy"])
+                                for c in rows[i].get("c") or []) for i in ix)}
+        runs.append({"run": [t0, t1], "frames": len(ix), "dead_frames": sum(dead(rows[i]["t"]) for i in ix),
+                     "stored": count(stored), "guarded": count(g2), "guard6": count(g6)})
+    res["dead_runs"] = runs
+    alive_lost = sum(1 for r, a, b in zip(rows, g2, g6)
+                     if a.get("xy") is not None and b.get("xy") is None and not dead(r["t"]))
+    res["guard6"] = {"frames_dead": sum(1 for r in rows if r.get("drawn") is not False and dead(r["t"])),
+                     "points_before": sum(p.get("xy") is not None for p in g2),
+                     "points_after": sum(p.get("xy") is not None for p in g6),
+                     "points_removed_while_dead": sum(1 for r, a, b in zip(rows, g2, g6)
+                                                     if a.get("xy") is not None and b.get("xy") is None
+                                                     and dead(r["t"])),
+                     "points_lost_while_alive": alive_lost}
+    (OUT / f"{sid}.measure_b.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+    return res
+
+
+#: An item's player stands ON the spike when his click lies within this many
+#: icon radii (`teardrop.R_OUT` x scale) of the glyph's centroid: his icon
+#: then overlaps the glyph. Chosen before scoring, from the icon's size.
+ON_SPIKE_RADII = 1.5
+
+
+def score_labels() -> dict:
+    """The player's `labels/prior_self` answers against the guard, once.
+
+    Each item is scored under the rule it was drawn with (0.1.0) and under
+    0.2.0 with guard 6. A kept point is within `ON_SPIKE_RADII` icon radii of
+    his click; the glyph's candidate is confirmed where the teardrop reads."""
+    from collections import Counter
+    index = {r["key"]: r for r in json.loads(
+        (OUT / "label_items" / "index.json").read_text(encoding="utf-8"))}
+    answers = {}
+    for line in (STORE.root / "labels" / "prior_self" / "answers.jsonl").read_text(
+            encoding="utf-8").splitlines():
+        if line.strip():
+            r = json.loads(line)
+            answers[r["key"]] = r
+    cache, items = {}, []
+    for key, a in answers.items():
+        it = index[key]
+        sid = it["session"]
+        if sid not in cache:
+            head, rows = load_replay(sid)
+            sc = head["widget_scale"]
+            r2 = reflag(rows, Glyphs(spike_rows(sid), "0.2.0"), sc)
+            dead = dead_after(sid)
+            cache[sid] = (sc, rows, dead, run_stored(rows, sc, 1000 / 15),
+                          run_guarded(rows, sc, 1000 / 15),
+                          run_guarded(r2, sc, 1000 / 15, dead=dead),
+                          {r["t"]: i for i, r in enumerate(rows)})
+        sc, rows, dead, st, g1, g2, ti = cache[sid]
+        i = ti[it["t_ms"]]
+        R = teardrop.R_OUT * sc
+        click = (a["x"], a["y"]) if a["answer"] == "here" else None
+        glyph = (it["gx"], it["gy"])
+        d = lambda p, q: None if p is None or q is None else float(np.hypot(p[0] - q[0], p[1] - q[1]))  # noqa: E731
+        on_spike = a["answer"] == "on_spike" or (click is not None and d(click, glyph) <= ON_SPIKE_RADII * R)
+        gc = [c for c in rows[i].get("c") or [] if "g" in c]
+        items.append({
+            "key": key, "stratum": it["stratum"], "answer": a["answer"],
+            "killfeed_dead": dead(it["t_ms"]), "on_spike": on_spike,
+            "click_to_glyph_radii": None if click is None else round(d(click, glyph) / R, 2),
+            "stored_kept": click is not None and (d(st[i].get("xy"), click) or 1e9) <= ON_SPIKE_RADII * R,
+            "g1": g1[i].get("guard"), "g1_kept": click is not None and (d(g1[i].get("xy"), click) or 1e9) <= ON_SPIKE_RADII * R,
+            "g2": g2[i].get("guard", "clear"), "g2_kept": click is not None and (d(g2[i].get("xy"), click) or 1e9) <= ON_SPIKE_RADII * R,
+            "g1_point": g1[i].get("xy") is not None, "g2_point": g2[i].get("xy") is not None,
+            "teardrop_on_glyph_reads": bool(gc) and any(c.get("tdxy") is not None for c in gc)})
+    here = [x for x in items if x["answer"] == "here"]
+    spike_items = [x for x in items if x["on_spike"] and x["answer"] == "here"]
+    alive_here = [x for x in here if not x["killfeed_dead"]]
+    res = {
+        "items": len(items), "answers": dict(Counter(x["answer"] for x in items)),
+        "by_stratum": {s: dict(Counter(x["answer"] for x in items if x["stratum"] == s))
+                       for s in sorted({x["stratum"] for x in items})},
+        "on_spike_here": len(spike_items),
+        "on_spike_teardrop_reads": sum(x["teardrop_on_glyph_reads"] for x in spike_items),
+        "on_spike_kept_0.1.0": sum(x["g1_kept"] for x in spike_items),
+        "on_spike_kept_stored": sum(x["stored_kept"] for x in spike_items),
+        "alive_here": len(alive_here),
+        "alive_here_kept_stored": sum(x["stored_kept"] for x in alive_here),
+        "alive_here_kept_0.1.0": sum(x["g1_kept"] for x in alive_here),
+        "alive_here_kept_0.2.0": sum(x["g2_kept"] for x in alive_here),
+        "alive_here_wrong_point_stored": sum(not x["stored_kept"] for x in alive_here),
+        "alive_here_wrong_point_0.1.0": sum(x["g1_point"] and not x["g1_kept"] for x in alive_here),
+        "alive_here_wrong_point_0.2.0": sum(x["g2_point"] and not x["g2_kept"] for x in alive_here),
+        "killfeed_dead_items": sum(x["killfeed_dead"] for x in items),
+        "killfeed_dead_answers": dict(Counter(x["answer"] for x in items if x["killfeed_dead"])),
+        "killfeed_alive_but_dead_answer": [x["key"] for x in items
+                                           if not x["killfeed_dead"] and x["answer"] == "dead_spectating"],
+        "detail": items}
+    (OUT / "label_scores.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+    return res
+
+
 def run_context(sid: str, res: dict, run: dict) -> dict:
     """What the stored rows say round one run: round, side, plant, the
     player's death, the carrier before it, and the replay's candidates."""
@@ -762,7 +988,7 @@ def record_run(sid: str) -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("what", choices=["replay", "measure", "sheets", "record"])
+    ap.add_argument("what", choices=["replay", "measure", "sheets", "record", "measure_b", "score"])
     ap.add_argument("sessions", nargs="+")
     ap.add_argument("--limit", type=int)
     a = ap.parse_args(argv)
@@ -788,6 +1014,11 @@ def main(argv=None) -> int:
             sheets(sid)
         elif a.what == "record":
             record_run(sid)
+        elif a.what == "measure_b":
+            print(json.dumps(measure_b(sid), indent=1))
+        elif a.what == "score":
+            print(json.dumps({k: v for k, v in score_labels().items() if k != "detail"}, indent=1))
+            break
     return 0
 
 
