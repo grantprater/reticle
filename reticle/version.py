@@ -298,7 +298,13 @@ PING_VERSION = "ping-0.1.0"
 # `spike.ON_GLYPH_PX` of it (`spike_glyphs`), and a fit that lands on one
 # (`spike.on_glyph`) is neither the self occluder nor a described teammate;
 # `ally_decisions` rejects it as `on_spike_glyph`.
-ALLY_ICON_VERSION = "ally-icon-0.5.0"
+# 0.6.0 (2026-09-29): the glyph is asked of `icon_prior`. Every dropped
+# glyph's footprint is masked from the ally and self keys before any fit
+# (`glyph_masked`), so the glyph alone yields no fit and a teammate on it is
+# fitted from the rest of his ring; a carried glyph flags the fit it sits
+# under (`carries_spike`, also on the frame row for the self) and refuses only
+# a fit ringing it. Frame rows list the frame's accepted glyphs.
+ALLY_ICON_VERSION = "ally-icon-0.6.0"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.

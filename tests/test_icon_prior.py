@@ -172,6 +172,32 @@ class IconTrackTest(unittest.TestCase):
         self.assertEqual(tr.step(1000.0, [])["rests_on"], "no_candidate")
 
 
+class AllyDecisionTest(unittest.TestCase):
+    """`ally_decisions` 0.3.0: a masked fit is not refused for a dropped glyph."""
+
+    def _row(self, key, masked=None, state="dropped"):
+        row = {"candidate_key": key, "frame_idx": 1, "channel": "ally", "cov": 0.9,
+               "inner": 0.0, "cx": 100.0, "cy": 100.0, "widget_scale": 1.0,
+               "facing": 0.0, "map_diff": 40.0,
+               "spike_glyphs": [{"cx": 101.0, "cy": 100.0, "state": state, "side": 21.0,
+                                 "ncc": 0.85, "amp": 120.0, "reason": None}]}
+        if masked is not None:
+            row["glyph_masked"] = masked
+        return row
+
+    def test_masked_fit_on_a_dropped_glyph_is_kept(self):
+        from reticle.adjudication.minimap_candidates import ally_decisions
+        (old,) = ally_decisions([self._row("a")])
+        (new,) = ally_decisions([self._row("b", masked=True)])
+        self.assertEqual(old["reason"], "on_spike_glyph")
+        self.assertEqual(new["disposition"], "accepted")
+
+    def test_a_carried_glyph_still_refuses_its_ring(self):
+        from reticle.adjudication.minimap_candidates import ally_decisions
+        (d,) = ally_decisions([self._row("c", masked=False, state="carried")])
+        self.assertEqual(d["reason"], "on_spike_glyph")
+
+
 class AuditClockTest(unittest.TestCase):
     def test_cadence_and_first_frame_after_a_gap(self):
         c = icon_prior.AuditClock(every=3)

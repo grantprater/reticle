@@ -1277,15 +1277,23 @@ class AllyIconReader:
         sc = widget_scale(crop.shape[1])
         amask, smask = ally_mask(crop), self_mask(crop)
         keyed = amask | smask
-        raw_self = icons(smask, crop, self.floor, support=self.slab, gates=False)
+        # The spike glyph, asked of `icon_prior` (ally-icon-0.6.0). A dropped
+        # glyph's footprint is masked from both keys before any fit, so the
+        # glyph alone yields no fit and a teammate planting or defusing on it
+        # is fitted from the rest of his ring (`glyph_masked`). A carried
+        # glyph flags the fit it sits under (`carries_spike`) and refuses
+        # only a fit ringing the glyph itself (`spike.on_glyph`). This reader
+        # is split into interleaved shards, so it holds no glyph across
+        # frames: its glyphs rest on each frame's full search
+        # (`icon_prior.frame_glyphs`). Each candidate stores the accepted
+        # glyphs near it, so `ally_decisions` makes the same refusals from
+        # storage; the gated lists here skip them, as the decisions do.
+        from . import icon_prior, spike
+        glyphs = icon_prior.frame_glyphs(crop, self.slab)
+        veto = icon_prior.veto_for(crop.shape, glyphs, sc)
+        raw_self = icons(smask, crop, self.floor, support=self.slab, gates=False, veto=veto)
         raw = icons(amask, crop, self.floor, support=self.slab,
-                    seed="surface", gates=False)
-        # A fit that lands on the spike glyph is the glyph, not an icon
-        # (`spike.on_glyph`, ally-icon-0.5.0). Each candidate stores the
-        # accepted glyphs near it, so `ally_decisions` refuses the same fits
-        # from storage; the gated lists here skip them, as the decisions do.
-        from . import spike
-        glyphs = spike.accepted(spike.glyph_fits(crop, self.slab))
+                    seed="surface", gates=False, veto=veto)
         near = {}
         for f in raw_self + raw:
             near[id(f)] = [{k: g[k] for k in ("cx", "cy", "state", "side", "ncc", "amp", "reason")}
@@ -1294,9 +1302,11 @@ class AllyIconReader:
         # The icons a carried glyph may belong to: every fit of either channel
         # past the shape gate, which `ally_decisions` rebuilds from the rows.
         shaped = [f for f in raw_self + raw
-                  if f["cov"] >= ALLY_COV_MIN and f["inner"] <= ALLY_INNER_MAX]
-        clear = lambda fs: [f for f in fs if spike.on_glyph(f["cx"], f["cy"], near[id(f)], sc,
-                                                            shaped) is None]
+                  if f.get("cov_visible", f["cov"]) >= ALLY_COV_MIN and f["inner"] <= ALLY_INNER_MAX]
+        icon_prior.annotate(raw_self, icon_prior.SIDES["self"], glyphs, sc, icons=shaped)
+        icon_prior.annotate(raw, icon_prior.SIDES["ally"], glyphs, sc, icons=shaped)
+        refused = {id(f): f.pop("refused") for f in raw_self + raw}
+        clear = lambda fs: [f for f in fs if refused[id(f)] is None]  # noqa: E731
         mine = _gated(clear(raw_self), sc, require_facing=False)
         me = mine[0] if mine else None
         occ = [(me["cx"], me["cy"], me["r"])] if me else []
@@ -1378,7 +1388,9 @@ class AllyIconReader:
                                     "neighbor_candidate_keys": [k for k in selected_keys
                                                                if k != f"{frame['frame_idx']}:ally:{i}"]})
         self.frames.append({**frame, "widget_drawn": True, "icons": len(got),
-                            "self": [round(v, 2) for v in occ[0]] if occ else None})
+                            "self": [round(v, 2) for v in occ[0]] if occ else None,
+                            "self_carries_spike": bool(me["carries_spike"]) if me else None,
+                            "glyphs": [[g["cx"], g["cy"], g["state"]] for g in glyphs]})
         for i, d in enumerate(got):
             self.icons.append({**frame, "index": i, **d})
 
@@ -1432,7 +1444,10 @@ class AllyIconReader:
                                  "reason": reason,
                                  "candidate_key": c["candidate_key"],
                                  "family": c["decision"]["family"],
-                                 "self_occluder": c["self_occluder"]})
+                                 "self_occluder": c["self_occluder"],
+                                 # ally-icon-0.6.0: the glyph's say on the fit.
+                                 "carries_spike": c.get("carries_spike"),
+                                 "glyph_masked": c.get("glyph_masked")})
             # Preserve the previous accepted view's positions and refusal
             # causes; a changed gate must be deliberate and versioned.
             if self.icons:

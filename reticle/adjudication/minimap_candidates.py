@@ -18,7 +18,14 @@ from ..spike import on_glyph
 #: `on_spike_glyph`, after the shape gate and before facing and separation;
 #: the frame's shape-gated fits of both channels are the icons a carried glyph
 #: may belong to (`spike.on_glyph`).
-MINIMAP_ICON_DECISION_VERSION = "minimap-icon-decision-0.2.0"
+#: 0.3.0: a candidate that says `glyph_masked` (ally-icon-0.6.0) was fitted
+#: with every dropped glyph's footprint removed from its key
+#: (`icon_prior.veto_for`), so a dropped glyph beside it is no reason to
+#: refuse it: an icon standing on the spike -- a teammate planting or
+#: defusing -- is kept. A carried glyph still refuses a fit ringing it. The
+#: shape gate reads the coverage of the ring the mask left visible
+#: (`cov_visible`) where the candidate carries it.
+MINIMAP_ICON_DECISION_VERSION = "minimap-icon-decision-0.3.0"
 
 
 def ally_decisions(rows: list[dict]) -> list[dict]:
@@ -28,7 +35,7 @@ def ally_decisions(rows: list[dict]) -> list[dict]:
     for row in rows:
         groups[(row["frame_idx"], row["channel"])].append(row)
         # Either channel's fit past the shape gate may carry a spike glyph.
-        if row["cov"] >= ALLY_COV_MIN and row["inner"] <= ALLY_INNER_MAX:
+        if row.get("cov_visible", row["cov"]) >= ALLY_COV_MIN and row["inner"] <= ALLY_INNER_MAX:
             shaped[row["frame_idx"]].append(row)
     out = []
     for (_, channel), group in groups.items():
@@ -36,9 +43,13 @@ def ally_decisions(rows: list[dict]) -> list[dict]:
         for row in sorted(group, key=lambda r: -r["cov"]):
             reason = None
             preferred = None
-            if row["cov"] < ALLY_COV_MIN or row["inner"] > ALLY_INNER_MAX:
+            glyphs = row.get("spike_glyphs") or []
+            if "glyph_masked" in row:
+                # ally-icon-0.6.0 masked every dropped glyph before the fit.
+                glyphs = [g for g in glyphs if g.get("state") != "dropped"]
+            if row.get("cov_visible", row["cov"]) < ALLY_COV_MIN or row["inner"] > ALLY_INNER_MAX:
                 reason = "shape_gate"
-            elif on_glyph(row["cx"], row["cy"], row.get("spike_glyphs") or [],
+            elif on_glyph(row["cx"], row["cy"], glyphs,
                           row["widget_scale"], shaped[row["frame_idx"]]) is not None:
                 # The fit is the spike glyph (`spike.on_glyph`). Candidates
                 # stored before ally-icon-0.5.0 carry no glyphs and pass.
