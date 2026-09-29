@@ -12,6 +12,11 @@ nothing: it reruns from storage; `reticle tray` and `reticle ability-shapes`
 reread the stored crops and decode nothing. A stream never written is
 `absent`, which is not stale.
 
+A stored stamp the code declares acceptable in its place
+(`version.STAMP_WAIVERS`, a testing-phase decision of the player's) is not
+stale either, and not current: `stale` lists it under `waived`, as a stream
+or as an input of a rerun, and `render` names it as accepted by waiver.
+
 A stamp is only as good as the bump: a code change that keeps its stamp is
 invisible here, as it is to `scan`'s cache check.
 """
@@ -48,6 +53,12 @@ def _round_stamps(store, manifest: dict) -> dict | None:
     get = lambda k, missing: meta.get(k.encode(), missing.encode()).decode()
     return {"round": get("round_version", "unstamped"), "hud": get("hud_version", "unknown"),
             "killfeed_portrait": get("killfeed_portrait_version", "unrecorded")}
+
+
+def waiver(stored, current: str) -> str | None:
+    """Why `stored` counts as `current` by a declared waiver, or None."""
+    from .version import STAMP_WAIVERS
+    return STAMP_WAIVERS.get((current, stored))
 
 
 #: The command that rereads a channel `scan` does not read.
@@ -103,12 +114,21 @@ def stale(store, sessions: list[str]) -> dict:
     out = {}
     for sid in sessions:
         man = store.read_manifest(sid)
-        decode, derived, absent = [], [], []
+        decode, derived, absent, waived = [], [], [], []
+
+        def accepted(where: str, stored, current: str) -> bool:
+            """True where a waiver accepts `stored` as `current`, and records it."""
+            why = waiver(stored, current)
+            if why is not None:
+                waived.append({"stream": where, "stored": stored, "current": current,
+                               "why": why})
+            return why is not None
+
         for stream, channel, now, trial in reader_streams():
             got = stored_stamp(store, man, stream)
             if got is None:
                 absent.append(stream)
-            elif got != now:
+            elif got != now and not accepted(stream, got, now):
                 decode.append({"stream": stream, "channel": channel, "stored": got,
                                "current": now, "trial": trial})
         rescanned = {s["stream"] for s in decode}
@@ -135,7 +155,8 @@ def stale(store, sessions: list[str]) -> dict:
                     "killfeed_weapon": KILLFEED_WEAPON_VERSION,
                     "killfeed_name": KILLFEED_NAME_VERSION, "round": ROUND_VERSION,
                     "scoreboard": SCOREBOARD_VERSION, "agent_identity": AGENT_IDENTITY_VERSION}
-            moved = sorted(k for k, v in want.items() if inputs.get(k) not in (v, None))
+            moved = sorted(k for k, v in want.items() if inputs.get(k) not in (v, None)
+                           and not accepted(f"death input {k}", inputs.get(k), v))
             # An input the rescan or the round rebuild will rewrite moves too,
             # once it has run.
             moved += sorted(s for s in rescanned | ({"round"} if rounds_stale else set())
@@ -206,7 +227,8 @@ def stale(store, sessions: list[str]) -> dict:
             if not rows:
                 continue
             version = rows[0].get(stamp)
-            moved = sorted(k for k, (field, v) in want.items() if rows[0].get(field) != v)
+            moved = sorted(k for k, (field, v) in want.items() if rows[0].get(field) != v
+                           and not accepted(f"{stream} input {k}", rows[0].get(field), v))
             if stream == "ability_state":
                 moved += sorted(k for k, again in (("round", rounds_stale),
                                                    ("hud", "hud" in rescanned),
@@ -216,7 +238,7 @@ def stale(store, sessions: list[str]) -> dict:
             if version != current or moved:
                 derived.append({"stream": stream, "stored": version, "current": current,
                                 "inputs_moved": moved, "command": f"{command} {sid}"})
-        out[sid] = {"decode": decode, "derived": derived, "absent": absent}
+        out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived}
     return out
 
 
@@ -233,8 +255,16 @@ def render(plan: dict) -> str:
                 trials[(s["channel"], s["trial"])].append(sid)
         derived += [(sid, d) for d in p["derived"]]
     lines = []
+    # Accepted by waiver: neither stale nor current, and always named.
+    waived: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+    for sid, p in plan.items():
+        for w in p.get("waived", []):
+            waived[(w["stream"], w["stored"], w["current"])].append(sid)
+    waived_lines = [f"waived   {stream}: {stored} accepted as {current} by waiver "
+                    f"(version.STAMP_WAIVERS) on {len(sids)} sessions: {' '.join(sids)}"
+                    for (stream, stored, current), sids in sorted(waived.items())]
     if not by_channel and not derived:
-        return f"nothing stale over {len(plan)} sessions"
+        return "\n".join([f"nothing stale over {len(plan)} sessions"] + waived_lines)
     for ch, sids in sorted(by_channel.items()):
         streams = sorted({s["stream"] for p in plan.values() for s in p["decode"]
                           if s["channel"] == ch})
@@ -256,4 +286,4 @@ def render(plan: dict) -> str:
         grouped[(d["command"].rsplit(" ", 1)[0], why)].append(sid)
     for (command, why), sids in grouped.items():
         lines.append(f"storage  {command} <sid>   ({why}) for {' '.join(sids)}")
-    return "\n".join(lines)
+    return "\n".join(lines + waived_lines)
