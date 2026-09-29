@@ -25,6 +25,20 @@ as the corpus itself. FFV1 in `bgr0` through `ffmpeg` (`CODECS`) is lossless
 at a third of PNG's size; lossless x264 was larger, since the minimap changes
 too much between frames for prediction to pay. Every FFV1 frame is a key
 frame, so a seek lands on the frame asked for.
+
+**The scoreboard set is gated on an opportunity.** Its one rectangle is not
+a profile ROI but the region the Tab scoreboard reader reads
+(`scoreboard.reader_roi`, frame x 535-1382 over the whole height at
+1920x1080), placed by the strip's profile rectangle; a capture without that
+rectangle has no such region, and the set refuses it. The writer rides the
+scoreboard reader's own frames (whole capture, its rate) and keeps only
+those inside the gate (`scoreboard_gate`): samples within
+`SCOREBOARD_GATE_MARGIN` samples of one where the stored round-history strip
+witness (`scoreboard_strip`) reads the board present or cannot read the band.
+The gate never asks the slab test, whose opens are the reader's own outcome.
+The record keeps the gate, and `RoiCache.refusal` says why a time outside it
+is not held. A gated cache never feeds a scan (`cache_for`): it holds the
+frames `reticle trial` reads.
 """
 from __future__ import annotations
 
@@ -52,7 +66,20 @@ CACHE_SETS = {
     # round from just before its barrier drop (`spans`): what was placed in the
     # buy phase is still drawn then [domain:rounds/buy-phase-barriers].
     "minimap": ("minimap", "hud_abilities"),
+    # The Tab scoreboard reader's region (`DERIVED_ROIS`), at the frames the
+    # strip gate keeps (`scoreboard_gate`).
+    "scoreboard": ("scoreboard",),
 }
+
+#: Cache ROIs that are not profile ROIs: each is computed from the profile
+#: and the frame size by the reader that owns the region.
+DERIVED_ROIS = ("scoreboard",)
+
+#: Samples either side of a strip sample that opens the scoreboard gate.
+SCOREBOARD_GATE_MARGIN = 1
+#: The strip verdicts that open the gate: the board is seen, or the band is
+#: too dark for the witness to say it is not there.
+SCOREBOARD_GATE_VERDICTS = ("present", "unreadable")
 
 #: The longest forward skip in an FFV1 cache that `samples` grabs through
 #: rather than seeks. Measured 2026-09-28 on c40d950031bb's minimap cache: a
@@ -60,7 +87,11 @@ CACHE_SETS = {
 GRAB_MAX = 8
 
 #: How each set's crops are stored: "png" per crop, or "ffv1" video per rect.
-CODECS = {"minimap": "ffv1"}
+#: The scoreboard region is FFV1 for size alone: over one decoded minute of
+#: a06f04a0059f its crops (848x1080) take
+#: [metric:scoreboard/cache-window@a06f04a0059f#kb_per_frame_ffv1=345.0] kB a frame against
+#: [metric:scoreboard/cache-window@a06f04a0059f#kb_per_frame_png=857.0] as PNG.
+CODECS = {"minimap": "ffv1", "scoreboard": "ffv1"}
 
 
 def ffmpeg_path() -> str:
@@ -85,16 +116,90 @@ def roi_rects(name: str, profile, wh: tuple[int, int],
     if name not in CACHE_SETS:
         raise ValueError(f"no cacheable ROI set named {name!r}; have {sorted(CACHE_SETS)}")
     by = {r.name: r for r in profile.rois}
-    missing = [r for r in CACHE_SETS[name] if r not in by]
+    missing = [r for r in CACHE_SETS[name] if r not in by and r not in DERIVED_ROIS]
     if missing:
         raise ValueError(f"profile {profile.name} lacks ROIs {missing} for set {name!r}")
-    rects = [[int(v) for v in by[r].pixels(*wh)] for r in CACHE_SETS[name]]
+    rects = [derived_rect(r, profile, wh) if r in DERIVED_ROIS
+             else [int(v) for v in by[r].pixels(*wh)] for r in CACHE_SETS[name]]
     if manifest is not None and "minimap" in CACHE_SETS[name]:
         from .widget_frame import capture_box
         box = capture_box(manifest)
         if box is not None:
             rects[CACHE_SETS[name].index("minimap")] = box
     return rects
+
+
+def derived_rect(roi: str, profile, wh: tuple[int, int]) -> list[int]:
+    """The pixel rectangle of a `DERIVED_ROIS` entry, from the reader that
+    owns the region; ValueError where the capture places none."""
+    if roi != "scoreboard":
+        raise ValueError(f"no derived ROI named {roi!r}; have {list(DERIVED_ROIS)}")
+    from .scoreboard import reader_roi, strip_rect
+    rect = strip_rect(profile.name, int(wh[0]), int(wh[1]))
+    if rect is None:
+        raise ValueError(f"profile {profile.name} at {wh[0]}x{wh[1]} gives no strip rectangle, "
+                         f"so the scoreboard reader reads the whole frame and no region holds it")
+    return [int(v) for v in reader_roi(rect, int(wh[1]))]
+
+
+def gate_spans(t_ms, open_, margin: int) -> list[list[float]]:
+    """Closed spans `[first, last]` of the sample times within `margin`
+    samples of an open one, on the timeline `t_ms` (sorted) gives."""
+    t = np.asarray(t_ms, float)
+    on = np.asarray(open_, bool)
+    keep = on.copy()
+    for d in range(1, margin + 1):
+        keep[d:] |= on[:-d]
+        keep[:-d] |= on[d:]
+    spans: list[list[float]] = []
+    prev = False
+    for x, k in zip(t.tolist(), keep.tolist()):
+        if k and prev:
+            spans[-1][1] = x
+        elif k:
+            spans.append([x, x])
+        prev = k
+    return spans
+
+
+def in_spans(t: float, spans, starts=None) -> bool:
+    """Whether `t` lies in one of the closed `spans` (sorted, disjoint);
+    `starts`, the spans' first times, saves rebuilding them per call."""
+    import bisect
+    if starts is None:
+        starts = [a for a, _ in spans]
+    i = bisect.bisect_right(starts, float(t)) - 1
+    return i >= 0 and float(t) <= spans[i][1]
+
+
+def scoreboard_gate(strip_rows: list[dict], margin: int = SCOREBOARD_GATE_MARGIN
+                    ) -> tuple[dict | None, str | None]:
+    """The scoreboard set's gate from a session's stored `scoreboard_strip`
+    rows, or None and why there is none.
+
+    The gate is an opportunity, not an outcome: the strip witness reads the
+    board present, or cannot read the band (`SCOREBOARD_GATE_VERDICTS`), at
+    a sample or within `margin` samples of it. It reads the strip's own
+    verdict rather than `adjudication.scoreboard.board_presence`, which
+    joins the slab test's opens, the scoreboard reader's own outcome."""
+    from .version import SCOREBOARD_STRIP_VERSION
+    if not strip_rows:
+        return None, "no stored scoreboard_strip rows"
+    got = strip_rows[0].get("scoreboard_strip_version")
+    if got != SCOREBOARD_STRIP_VERSION:
+        return None, f"stored scoreboard_strip rows are at {got}, current is {SCOREBOARD_STRIP_VERSION}"
+    samples = sorted((r for r in strip_rows if r.get("kind") == "sample"),
+                     key=lambda r: float(r["t_ms"]))
+    if not samples:
+        return None, "the stored scoreboard_strip rows hold no samples"
+    opens = [r["verdict"] in SCOREBOARD_GATE_VERDICTS for r in samples]
+    spans = gate_spans([r["t_ms"] for r in samples], opens, margin)
+    starts = [a for a, _ in spans]
+    return {"witness": "scoreboard_strip", "witness_version": got,
+            "verdicts": list(SCOREBOARD_GATE_VERDICTS), "margin_samples": int(margin),
+            "witness_samples": len(samples), "witness_open": int(sum(opens)),
+            "samples": sum(in_spans(r["t_ms"], spans, starts) for r in samples),
+            "spans": spans}, None
 
 
 def declare_set(reader, name: str, profile, wh) -> None:
@@ -280,12 +385,16 @@ def cache_dir(store_root: Path, name: str) -> Path:
     return Path(store_root) / "roi_cache" / name / ROI_CACHE_VERSION
 
 
-def _cache_record(manifest: dict, profile, name: str, rects, hz: float, spans=None) -> dict:
-    return {"version": ROI_CACHE_VERSION, "roi": name, "rects": [list(r) for r in rects],
-            "hz": hz, "spans": None if spans is None else [[float(a), float(b)] for a, b in spans],
-            "codec": CODECS.get(name, "png"), "session_id": manifest["session_id"], "profile": profile.name,
-            "content_key": manifest["source"].get("content_key"),
-            "wh": [int(manifest["source"]["width"]), int(manifest["source"]["height"])]}
+def _cache_record(manifest: dict, profile, name: str, rects, hz: float, spans=None,
+                  gate=None) -> dict:
+    rec = {"version": ROI_CACHE_VERSION, "roi": name, "rects": [list(r) for r in rects],
+           "hz": hz, "spans": None if spans is None else [[float(a), float(b)] for a, b in spans],
+           "codec": CODECS.get(name, "png"), "session_id": manifest["session_id"], "profile": profile.name,
+           "content_key": manifest["source"].get("content_key"),
+           "wh": [int(manifest["source"]["width"]), int(manifest["source"]["height"])]}
+    if gate is not None:
+        rec["gate"] = json.loads(json.dumps(gate))
+    return rec
 
 
 def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiCache | None", str]:
@@ -318,6 +427,10 @@ def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiC
         if cache is None:
             why = reason or why
             continue
+        if cache.record.get("gate") is not None:
+            # It holds the frames its gate kept, not every frame at its rate.
+            return None, (f"the {cache.record['roi']} cache holds only the samples its "
+                          f"{cache.record['gate']['witness']} gate kept")
         hz = float(cache.record["hz"])
         bad = [r.name for r in readers if float(r.hz) != hz and not resamples(r, hz)]
         if bad:
@@ -339,15 +452,25 @@ def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiC
 
 
 class RoiCacheWriter:
-    """A reader that joins a decode pass and stores a set's crops."""
+    """A reader that joins a decode pass and stores a set's crops.
+
+    With a `gate` (`scoreboard_gate`), it is offered every frame at its rate
+    and stores only those inside the gate's spans, so the frames it holds are
+    the ones a whole-capture reader at that rate reads: spans of its own
+    would restart the stride at each span, on other frames."""
 
     def __init__(self, store_root: Path, manifest: dict, profile, name: str = "killfeed",
-                 hz: float = 2.0, spans=None):
+                 hz: float = 2.0, spans=None, gate: dict | None = None):
         wh = (int(manifest["source"]["width"]), int(manifest["source"]["height"]))
+        if gate is not None and spans is not None:
+            raise ValueError("a gated cache rides the whole capture; it takes no spans")
         self.rects = roi_rects(name, profile, wh, manifest)
-        self.record = _cache_record(manifest, profile, name, self.rects, hz, spans)
+        self.record = _cache_record(manifest, profile, name, self.rects, hz, spans, gate)
         self.name = f"roi_cache:{name}"
         self.hz, self.spans = hz, spans
+        self.gate = self.record.get("gate")
+        self._starts = None if self.gate is None else [a for a, _ in self.gate["spans"]]
+        self.frames_offered = 0
         d = cache_dir(store_root, name)
         d.mkdir(parents=True, exist_ok=True)
         sid = manifest["session_id"]
@@ -374,6 +497,9 @@ class RoiCacheWriter:
             self._fh = open(self._part, "wb")
 
     def feed(self, smp) -> None:
+        self.frames_offered += 1
+        if self.gate is not None and not in_spans(smp.t_ms, self.gate["spans"], self._starts):
+            return
         if self.codec == "ffv1":
             for k, ((x0, y0, x1, y1), proc) in enumerate(zip(self.rects, self._procs)):
                 proc.stdin.write(np.ascontiguousarray(smp.frame[y0:y1, x0:x1]).tobytes())
@@ -393,16 +519,24 @@ class RoiCacheWriter:
         if self.codec == "ffv1":
             for proc, path in zip(self._procs, self.videos):
                 proc.stdin.close()
-                if proc.wait() != 0:
+                code = proc.wait()
+                part = path.with_suffix(".part.mkv")
+                if self._count == 0:
+                    # A gate that kept nothing: no video, and an empty index.
+                    part.unlink(missing_ok=True)
+                    path.unlink(missing_ok=True)
+                    continue
+                if code != 0:
                     raise RuntimeError(f"ffmpeg failed writing {path}")
-                path.with_suffix(".part.mkv").replace(path)
-            self._offset = sum(p.stat().st_size for p in self.videos)
+                part.replace(path)
+            self._offset = sum(p.stat().st_size for p in self.videos if p.is_file())
         else:
             self._fh.close()
             self._part.replace(self.paths[0])
         np.save(self.paths[1], np.array(self._index, dtype=np.float64).reshape(-1, 5))
         frames = len({t for t, *_ in self._index})
         self.paths[2].write_text(json.dumps({**self.record, "frames": frames,
+                                             "frames_offered": self.frames_offered,
                                              "bytes": self._offset}, indent=1),
                                  encoding="utf-8")
 
@@ -481,6 +615,32 @@ class RoiCache:
             return list(self.widget.baked_roi)
         return self.stored_rect(roi)
 
+    def _index_by_t(self) -> dict[float, list[int]]:
+        if not hasattr(self, "_by_t"):
+            self._by_t: dict[float, list[int]] = {}
+            for i, t in enumerate(self.t_ms):
+                self._by_t.setdefault(float(t), []).append(i)
+        return self._by_t
+
+    def holds(self) -> list[float]:
+        """The times the cache holds a frame at, in order."""
+        return sorted(self._index_by_t())
+
+    def refusal(self, t_ms: float) -> str | None:
+        """None where the cache holds a frame at `t_ms`; else why it holds
+        none: `outside_gate` (its gate kept no sample there),
+        `outside_cache_spans` (it was written over spans that miss it), or
+        `not_cached` (no frame was stored at that time)."""
+        if float(t_ms) in self._index_by_t():
+            return None
+        gate = self.record.get("gate")
+        if gate is not None and not in_spans(t_ms, gate["spans"]):
+            return "outside_gate"
+        spans = self.record.get("spans")
+        if spans is not None and not any(a <= float(t_ms) <= b for a, b in spans):
+            return "outside_cache_spans"
+        return "not_cached"
+
     def stored_rect(self, roi: str) -> list[int]:
         """The pixel rectangle one profile ROI's crops were stored from."""
         return self.record["rects"][CACHE_SETS[self.record["roi"]].index(roi)]
@@ -520,10 +680,7 @@ class RoiCache:
         held = CACHE_SETS[self.record["roi"]]
         keep = (set(range(len(held))) if rois is None
                 else {held.index(r) for r in rois if r in held})
-        if not hasattr(self, "_by_t"):
-            self._by_t: dict[float, list[int]] = {}
-            for i, t in enumerate(self.t_ms):
-                self._by_t.setdefault(float(t), []).append(i)
+        self._index_by_t()
         w, h = self.record["wh"]
         if self.record.get("codec") == "ffv1":
             yield from self._video_samples(targets_ms, keep, w, h)

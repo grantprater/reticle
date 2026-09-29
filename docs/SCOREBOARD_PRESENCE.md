@@ -526,6 +526,62 @@ presence rows stored before counted
 openings over the older 0.6.0 rows; the 0.9.0 scan, not this change, moved
 that count.
 
+### The scoreboard crop cache
+
+`scan --cache-roi scoreboard` stores the reader's region (`reader_roi`,
+frame x 535-1382 over the whole height) as lossless FFV1 crops from the
+scoreboard reader's own pass, so a reader change reruns through `reticle
+trial --reader scoreboard` without a decode. The writer is offered the
+reader's frames and keeps those within one sample of a stored strip sample
+that reads the board present or the band unreadable
+(`roi_cache.scoreboard_gate`). The gate asks the strip, a witness of the
+opportunity; it never asks the slab test, whose opens are the reader's own
+outcome. The cache records the gate (witness version, verdicts, margin and
+spans), the frames offered and the times it holds; `trial` refuses any other
+frame as `outside_gate`. A gated cache never feeds a scan.
+
+Over the stored rows the gate keeps
+[metric:scoreboard/cache-gate@all-sessions#gate_samples=37069] of
+[metric:scoreboard/cache-gate@all-sessions#samples=83864] samples on
+[metric:scoreboard/cache-gate@all-sessions#sessions=20] sessions. It leaves out
+[metric:scoreboard/cache-gate@all-sessions#slab_open_outside=402] of
+[metric:scoreboard/cache-gate@all-sessions#slab_open=22293] slab opens and
+[metric:scoreboard/cache-gate@all-sessions#accepted_outside=2] of
+[metric:scoreboard/cache-gate@all-sessions#accepted=17625] accepted openings. The
+hud cache's centre crops show a board at
+[metric:scoreboard/cache-gate@all-sessions#inspect_outside_runs_board=0] of
+[metric:scoreboard/cache-gate@all-sessions#inspect_outside_runs_viewed=55] runs of
+those opens: every run of three or more, and thirty shorter ones drawn at
+random. Of the two accepted openings, one is a Tab board whose strip read
+one line empty (`587c15b07779` at 533.5 s) and the other a buy-phase panel
+(`a06f04a0059f` at 156.5 s). The gate misses
+[metric:scoreboard/cache-gate@all-sessions#accepted_outside_board=1] board, so the
+cache keeps no frame for the reader's own opens. Present samples alone leave
+out [metric:scoreboard/cache-gate@all-sessions#present1_accepted_outside=6] accepted
+openings; two samples either side would keep
+[metric:scoreboard/cache-gate@all-sessions#gate2_samples=42862] and still leave out
+[metric:scoreboard/cache-gate@all-sessions#gate2_accepted_outside=2].
+
+One decoded minute of `a06f04a0059f` tested the writer. Its crops take
+[metric:scoreboard/cache-window@a06f04a0059f#kb_per_frame_ffv1=345.0] kB a frame as
+FFV1 and [metric:scoreboard/cache-window@a06f04a0059f#kb_per_frame_png=857.0] kB as
+PNG, so the corpus cache comes to about
+[metric:scoreboard/cache-gate@all-sessions#est_gb_ffv1=12.8] GB
+([metric:scoreboard/cache-gate@all-sessions#est_gb_png=31.8] GB as PNG);
+`c62c2b06bcfb`, with strip rows and no scoreboard stream, would add
+[metric:scoreboard/cache-gate@all-sessions#strip_only_gate_samples=2091] frames. The
+scan with the cache wrote a stream byte-identical to the scan without it
+([metric:scoreboard/cache-window@a06f04a0059f#stream_identical=1]). The cache kept
+[metric:scoreboard/cache-window@a06f04a0059f#frames_cached=61] of
+[metric:scoreboard/cache-window@a06f04a0059f#frames_offered=120] frames, and every
+open board ([metric:scoreboard/cache-window@a06f04a0059f#frames_open_cached=36] of
+[metric:scoreboard/cache-window@a06f04a0059f#frames_open=36]). `trial` from it
+reproduced the stored rows byte for byte
+([metric:scoreboard/cache-window@a06f04a0059f#trial_rows_byte_equal=421] of
+[metric:scoreboard/cache-window@a06f04a0059f#trial_rows=421]) and refused
+[metric:scoreboard/cache-window@a06f04a0059f#trial_refused_outside_gate=59] frames
+outside the gate.
+
 ## Predictions
 
 - **S1 is refuted on both clauses.** The witness finds the strip on
@@ -562,9 +618,9 @@ that count.
   none (see "Held out on a second map").
 - Rescan the scoreboard at `scoreboard-0.11.0` (the player's call): the
   stored 0.9.0 rows keep the dense columns' edges ("The edges in storage"),
-  and 0.10.0's rows the whole-width row test ("The table's rows"). A
-  scoreboard set in the crop cache, holding `reader_roi` at the frames that
-  rescan reads, would let later reader changes rerun without a decode.
+  and 0.10.0's rows the whole-width row test ("The table's rows"). Run it
+  with `--cache-roi scoreboard`, so later reader changes rerun from the
+  crops without a decode ("The scoreboard crop cache").
 - Recover the five boards 0.11.0 closes over a dull world. Ask what else
   observes the enemy rows (the strip's line, the portraits) before lowering
   MIN_TABLE_W.

@@ -10,10 +10,19 @@ A reader change is checked where it can matter, not over the whole capture:
   decoding from the file start; `source="cache"` reads the ROI crops
   (`roi_cache`) and decodes nothing.
 
+The scoreboard reader's frames are its stored stream's samples instead, and
+`"occupied"` keeps those inside the strip gate its crop cache is written
+under (`roi_cache.scoreboard_gate`): an opportunity the stored strip
+witness saw, not the reader's own opens.
+
+A frame the source does not yield is refused with the reason the cache
+gives (`RoiCache.refusal`), never read as empty; the diff compares only the
+frames read.
+
 A trial writes nothing to the store. It is a test tier, not a scan: the
-occupied windows come from the stored reader's own output, so a change that
-finds entries where the old reader saw none can only show up in a full scan,
-which stays the acceptance run. Returns the rows and their diff.
+occupied windows come from stored output, so a change that finds entries
+where the old reader saw none can only show up in a full scan, which stays
+the acceptance run. Returns the rows and their diff.
 """
 from __future__ import annotations
 
@@ -44,11 +53,63 @@ def _hud_rows(reader, sid: str) -> dict[str, list[dict]]:
     return {"hud": reader.rows}
 
 
+def _scoreboard_reader(ctx):
+    from .scoreboard import ScoreboardReader
+    # `scan`'s defaults: 2 Hz over the whole capture, the digit gates its
+    # parser sets, and the agent art in the store.
+    return ScoreboardReader(ctx.profile.name, hz=2.0, spans=None, min_confidence=0.82,
+                            min_margin=0.05, icons_root=ctx.store.root)
+
+
+def _scoreboard_rows(reader, sid: str) -> dict[str, list[dict]]:
+    return {"scoreboard": reader.events(sid)}
+
+
+def _hud_timeline(store, manifest: dict, windows: str, pad_ms: float):
+    """(timeline length, frames to read, frame index by time) from the stored
+    HUD table."""
+    hud = store.read_hud(manifest["session_id"], manifest["ingested_at"][:10]).to_pydict()
+    return len(hud["t_ms"]), targets(hud, windows, pad_ms), dict(zip(hud["t_ms"], hud["frame_idx"]))
+
+
+def _scoreboard_timeline(store, manifest: dict, windows: str, pad_ms: float):
+    """`_hud_timeline` from the stored scoreboard stream's samples; occupied
+    keeps those inside the strip gate (`scoreboard_targets`)."""
+    sid = manifest["session_id"]
+    samples = store.read_events_kind("scoreboard", sid, "sample")
+    samples = [s for s in samples if s.get("kind") == "sample"]
+    if not samples:
+        raise SystemExit(f"{sid}: no stored scoreboard samples -- run "
+                         f"`reticle scan {sid} --only scoreboard`")
+    strip = store.read_events("scoreboard_strip", sid) if windows == "occupied" else None
+    return (len(samples), scoreboard_targets(samples, strip, windows),
+            {s["t_ms"]: s["frame_idx"] for s in samples})
+
+
+def scoreboard_targets(samples: list[dict], strip_rows: list[dict] | None,
+                       windows: str = "occupied") -> list[float]:
+    """Times of the stored scoreboard samples the trial reads: all of them,
+    or those inside the gate the scoreboard crop cache is written under."""
+    from .roi_cache import in_spans, scoreboard_gate
+    t = [float(s["t_ms"]) for s in samples]
+    if windows == "all":
+        return t
+    if windows != "occupied":
+        raise ValueError(f"unknown windows {windows!r}")
+    gate, why = scoreboard_gate(strip_rows or [])
+    if gate is None:
+        raise SystemExit(f"no strip gate for the scoreboard trial: {why}")
+    starts = [a for a, _ in gate["spans"]]
+    return [x for x in t if in_spans(x, gate["spans"], starts)]
+
+
 TRIAL_READERS = {
-    # reader -> (the ROI cache set its reads stay inside, build, rows, streams)
+    # reader -> (the ROI cache set its reads stay inside, build, rows, streams, timeline)
     "killfeed": ("killfeed", _killfeed_reader, _killfeed_rows,
-                 ("killfeed_portrait", "killfeed_weapon", "killfeed_name")),
-    "hud": ("hud", _hud_reader, _hud_rows, ("hud",)),
+                 ("killfeed_portrait", "killfeed_weapon", "killfeed_name"), _hud_timeline),
+    "hud": ("hud", _hud_reader, _hud_rows, ("hud",), _hud_timeline),
+    "scoreboard": ("scoreboard", _scoreboard_reader, _scoreboard_rows, ("scoreboard",),
+                   _scoreboard_timeline),
 }
 
 
@@ -146,17 +207,16 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
 
     if reader not in TRIAL_READERS:
         raise ValueError(f"no trial for reader {reader!r}; have {sorted(TRIAL_READERS)}")
-    roi_name, build, output, streams = TRIAL_READERS[reader]
+    roi_name, build, output, streams, timeline = TRIAL_READERS[reader]
     sid = manifest["session_id"]
     profile = get_profile(manifest["source_profile"])
     ctx = SessionContext(store=store, manifest=manifest, profile=profile)
-    hud = store.read_hud(sid, manifest["ingested_at"][:10]).to_pydict()
-    want = targets(hud, windows, pad_ms)
+    n_timeline, want, stored_idx = timeline(store, manifest, windows, pad_ms)
     if between is not None:
         want = [t for t in want if between[0] <= t <= between[1]]
-    stored_idx = dict(zip(hud["t_ms"], hud["frame_idx"]))
     r = build(ctx)
     t0 = time.perf_counter()
+    cache = None
     if source == "video":
         frames = seek_at(str(ctx.media), want, ctx.fps)
     elif source == "cache":
@@ -167,18 +227,40 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
         frames = cache.samples(want, rois=roi_name)
     else:
         raise ValueError(f"unknown source {source!r}")
-    n = 0
+    read: list[float] = []
+    moved_idx = 0
     for smp in frames:
-        smp.frame_idx = int(stored_idx.get(smp.t_ms, smp.frame_idx))
+        idx = int(stored_idx.get(smp.t_ms, smp.frame_idx))
+        moved_idx += idx != int(smp.frame_idx)
+        smp.frame_idx = idx
         r.feed(smp)
-        n += 1
+        read.append(float(smp.t_ms))
     seconds = time.perf_counter() - t0
+    # A frame the source did not yield is refused, with the cache's reason.
+    got = set(read)
+    refused: dict[str, int] = {}
+    for t in want:
+        if float(t) not in got:
+            why = cache.refusal(t) if cache is not None else "not_decoded"
+            refused[why] = refused.get(why, 0) + 1
     # The store writes plain JSON; compare what it would have written.
     rows = {s: [json.loads(json.dumps(x, separators=(",", ":"), allow_nan=False))
                 for x in rs] for s, rs in output(r, sid).items()}
-    at = set(float(t) for t in want)
+    at = got
+    if "hud" in streams:
+        hud = store.read_hud(sid, manifest["ingested_at"][:10]).to_pydict()
     diffs = {s: (diff_table(rows[s], hud, at) if s == "hud"
                  else diff(rows[s], store.read_events(s, sid), at)) for s in streams}
-    return {"session_id": sid, "reader": reader, "source": source, "windows": windows,
-            "pad_ms": pad_ms, "between": between, "timeline": len(hud["t_ms"]), "frames": n,
-            "seconds": round(seconds, 1), "diff": diffs, "rows": rows}
+    out = {"session_id": sid, "reader": reader, "source": source, "windows": windows,
+           "pad_ms": pad_ms, "between": between, "timeline": n_timeline, "frames": len(read),
+           "asked": len(want), "refused": dict(sorted(refused.items())),
+           "frame_idx_moved": moved_idx, "seconds": round(seconds, 1), "diff": diffs,
+           "rows": rows}
+    if reader == "scoreboard":
+        # The GPU and CPU scorers differ in the fourth decimal; a trial on the
+        # other one moves portrait scores without any reader change.
+        from .scoreboard import portrait_scorer
+        stored = store.read_events_kind("scoreboard", sid, "coverage")
+        out["portrait_scorer"] = {"stored": stored[0].get("portrait_scorer") if stored else None,
+                                  "trial": portrait_scorer()}
+    return out

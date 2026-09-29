@@ -749,14 +749,36 @@ def cmd_minimap(args) -> int:
     return 0
 
 
-def _roi_cache_stale(store, manifest, profile, name, hz=None, spans=None) -> bool:
+def _roi_cache_stale(store, manifest, profile, name, hz=None, spans=None, gate=None) -> bool:
+    """Whether set `name`'s stored cache differs from the one asked for: its
+    rate, its spans, or its gate (`roi_cache.scoreboard_gate`)."""
     from .roi_cache import RoiCache
     cache = RoiCache.load(store.root, manifest, profile, name)[0]
     if cache is None:
         return True
     want = None if spans is None else [[float(a), float(b)] for a, b in spans]
+    gate = None if gate is None else json.loads(json.dumps(gate))
     return ((hz is not None and float(cache.record["hz"]) != float(hz))
-            or cache.record.get("spans") != want)
+            or cache.record.get("spans") != want or cache.record.get("gate") != gate)
+
+
+def _scoreboard_cache_gate(store, sid, args) -> dict:
+    """The gate a scoreboard crop cache is written under, from the stored
+    strip rows (`roi_cache.scoreboard_gate`); refuses a request the set
+    cannot hold. The crops ride the scoreboard reader's own frames: the
+    whole capture at `--hz`."""
+    from .roi_cache import scoreboard_gate
+    if args.cache_live:
+        raise SystemExit("--cache-roi scoreboard rides the scoreboard reader over the whole "
+                         "capture; it takes no --cache-live")
+    if args.cache_hz is not None and float(args.cache_hz) != float(args.hz):
+        raise SystemExit("--cache-roi scoreboard stores the scoreboard reader's frames, at "
+                         "--hz; it takes no other --cache-hz")
+    gate, why = scoreboard_gate(store.read_events("scoreboard_strip", sid))
+    if gate is None:
+        raise SystemExit(f"--cache-roi scoreboard gates on the strip witness: {why}; "
+                         f"run `reticle strip {sid}` first")
+    return gate
 
 
 #: How long before each barrier drop a live-round cache starts: the last
@@ -1031,10 +1053,14 @@ def cmd_scan(args) -> int:
     # Lossless crops of a fixed ROI, so a reader change can rerun without a
     # decode (`reticle trial --from cache`). Opt-in: it rides the HUD rate, so
     # its crops sit on the HUD timeline's timestamps.
+    # The scoreboard set keeps the scoreboard reader's frames inside the
+    # strip gate (`roi_cache.scoreboard_gate`), so it rides at --hz.
+    cache_gate = (_scoreboard_cache_gate(store, sid, args)
+                  if args.cache_roi == "scoreboard" else None)
     cache_hz = args.cache_hz or args.hz
     cache_spans = _live_round_spans(store, sid, date) if args.cache_live else None
     want_cache = bool(args.cache_roi) and (args.force or _roi_cache_stale(
-        store, manifest, profile, args.cache_roi, cache_hz, cache_spans))
+        store, manifest, profile, args.cache_roi, cache_hz, cache_spans, cache_gate))
     if args.only == ["roi_cache"] and not args.cache_roi:
         raise SystemExit("--only roi_cache needs --cache-roi <roi>")
     if (args.check and (want_hud or want_portraits) and killfeed_roi(profile) is not None
@@ -1143,8 +1169,11 @@ def cmd_scan(args) -> int:
         xp = None
         if want_cache:
             from .roi_cache import RoiCacheWriter
-            xp = RoiCacheWriter(store.root, manifest, profile, args.cache_roi, hz=cache_hz,
-                                spans=cache_spans)
+            try:
+                xp = RoiCacheWriter(store.root, manifest, profile, args.cache_roi, hz=cache_hz,
+                                    spans=cache_spans, gate=cache_gate)
+            except ValueError as exc:
+                raise SystemExit(f"--cache-roi {args.cache_roi}: {exc}")
         readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, cp, xp) if r is not None]
         return SimpleNamespace(hp=hp, kp=kp, mp=mp, pp=pp, rp=rp, sp=sp, lp=lp, ap=ap,
                                dp=dp, cp=cp, xp=xp, ctx=ctx, readers=readers)
@@ -1315,6 +1344,10 @@ def cmd_scan(args) -> int:
         if xp is not None:
             print(f"roi cache  {len(xp._index)} {args.cache_roi} crops, "
                   f"{xp._offset / 2**20:.0f} MB -> {xp.paths[0].parent}")
+            if xp.gate is not None:
+                print(f"           {xp.gate['witness']} gate kept {len(xp._index)} of "
+                      f"{xp.frames_offered} frames offered ({xp.gate['samples']} "
+                      f"stored samples in its {len(xp.gate['spans'])} spans)")
 
         if dp is not None:
             rows = dp.events(sid, geometry.key_of(sid, store.root))
@@ -2986,6 +3019,16 @@ def cmd_trial(args) -> int:
               windows=args.windows, pad_ms=args.pad_ms)
     print(f"{res['session_id']}: {args.reader} from {args.source}, {args.windows} windows: "
           f"{res['frames']} of {res['timeline']} timeline frames in {res['seconds']} s")
+    if res["refused"]:
+        print(f"  refused {sum(res['refused'].values())} of {res['asked']} frames asked, "
+              f"none read: {res['refused']}")
+    if res["frame_idx_moved"]:
+        print(f"  {res['frame_idx_moved']} frames carry another frame index than the stored "
+              f"timeline's; the trial uses the stored one")
+    scorer = res.get("portrait_scorer")
+    if scorer and scorer["stored"] != scorer["trial"]:
+        print(f"  portrait scores come from {scorer['trial']} here and {scorer['stored']} in "
+              f"storage; they differ in the fourth decimal (RETICLE_SCOREBOARD picks one)")
     ok = True
     for stream, d in res["diff"].items():
         ok &= d["only_trial"] == 0 and d["only_stored"] == 0
@@ -4699,9 +4742,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "-- a span reader over a round cache reads the rounds only, as with "
                         "cache, when the cache holds every live round -- else decode; "
                         "cache: refuse to decode; video: always decode")
-    s.add_argument("--cache-roi", choices=("killfeed", "hud", "minimap"),
+    s.add_argument("--cache-roi", choices=("killfeed", "hud", "minimap", "scoreboard"),
                    help="also store lossless crops of this ROI at the HUD rate, for "
-                        "`reticle trial --from cache`; `--only roi_cache` stores only them")
+                        "`reticle trial --from cache`; `--only roi_cache` stores only them. "
+                        "scoreboard: the scoreboard reader's region, at its frames within "
+                        "one sample of a stored strip sample that reads the board present "
+                        "or the band unreadable")
     s.add_argument("--cache-hz", type=float, default=None,
                    help="rate of the ROI crops (default: the HUD rate)")
     s.add_argument("--cache-live", action="store_true",
@@ -4862,11 +4908,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("trial", help="rerun one reader on stored windows and diff it (writes nothing)")
     s.add_argument("session", nargs="?")
-    s.add_argument("--reader", default="killfeed", choices=("killfeed", "hud"))
+    s.add_argument("--reader", default="killfeed", choices=("killfeed", "hud", "scoreboard"))
     s.add_argument("--from", dest="source", default="cache", choices=("cache", "video"),
                    help="ROI crop cache (no decode) or seeks into the capture")
     s.add_argument("--windows", default="occupied", choices=("occupied", "all"),
-                   help="frames near a stored killfeed entry, or the whole timeline")
+                   help="frames near a stored killfeed entry (scoreboard: inside the strip "
+                        "gate), or the whole timeline")
     s.add_argument("--pad-ms", type=float, default=2000.0)
     s.set_defaults(func=cmd_trial)
 
