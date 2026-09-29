@@ -86,6 +86,31 @@ class TeamVisionTests(unittest.TestCase):
         self.assertIsNotNone(b.observable)
         self.assertEqual(frame_row(a), frame_row(b))
 
+    def test_the_yellow_icon_after_his_death_is_not_his_cone(self):
+        # Guard 6: dead from frame 6, spectating from frame 10.
+        from reticle.adjudication.spectate import DeadIndex, DeadInterval
+        floor = np.ones((60, 60), bool)
+        dead = DeadIndex([DeadInterval(1, 6 * 66.7 - 1, 1e9, "killfeed_death", "d",
+                                       10 * 66.7 - 1, "capture_end")])
+        vision = TeamVision(floor, floor, np.zeros((60, 60)), width=60, dead=dead)
+        crop = np.zeros((60, 60, 3), np.uint8)
+        rows = []
+        with patch("reticle.team_vision.widget_drawn", return_value=True), \
+                patch("reticle.team_vision.ally_icons", return_value=[]), \
+                patch("reticle.team_vision.self_icons",
+                      side_effect=lambda *a, **k: [_ally(20.0)]):
+            for i in range(14):
+                rows.append(frame_row(vision.step(crop, i * 66.7)))
+        roles = [[ic["role"] for ic in r["icons"]] for r in rows]
+        self.assertEqual(roles[3], ["self"])
+        self.assertEqual(roles[7], ["player_dead"])
+        self.assertEqual(roles[12], ["spectated"])
+        dead_icon = rows[7]["icons"][0]
+        self.assertFalse(dead_icon["casts"])
+        self.assertIsNone(dead_icon["self_cone"])
+        self.assertEqual(dead_icon["rests_on"]["dead_rests_on"], "killfeed_death")
+        self.assertEqual(rows[12]["icons"][0]["rests_on"]["rests_on"], "spectate_switch")
+
     def test_at_plan_takes_both_neighbours_and_merges_overlapping_warm_ups(self):
         times = [i * 100.0 for i in range(100)]
         runs = at_plan(times, [250.0, 400.0, 9000.0], warmup_ms=300.0)

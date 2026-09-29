@@ -300,6 +300,30 @@ follows the spectated teammate or the glyph. Guard 6 rests on another
 stream, so it belongs where the self track is consumed, recomputed from
 storage (guard 7), not in the decoding reader.
 
+*Wired on branch `self-spike-tracker-20260929` (run `self-spike-20260929`).*
+The player asked for one prior-driven tracker for the icons and the spike.
+`reticle/icon_prior.py` tracks the self icon and the spike glyph from the
+same crop in the minimap reader (`minimap-0.8.0`): a dropped glyph's place
+is fixed and checked there each frame, its footprint is masked from the key
+before any icon is fitted, a carried glyph flags its carrier, and each point
+declares what it rests on; a 1 Hz full-search audit and the surprises are
+stored apart. The ally reader masks the same way (`ally-icon-0.6.0`); side
+is a parameter, and enemies have a seam. Guard 6 runs in `belief`,
+`team_vision` and `round_entities` through `adjudication.spectate`. Replayed
+from the crop cache, the tracker keeps
+[metric:self_spike/labels@a06f04a0059f+5822b6646448+223d636bf8d2~2026-09-29T15:11:20#on_spike_kept_new=4]
+of the [metric:self_spike/labels@a06f04a0059f+5822b6646448+223d636bf8d2~2026-09-29T15:11:20#on_spike_here=7]
+on-spike labels, below the 1 Hz-row guard's 5 and the stored rule's
+[metric:self_spike/labels@a06f04a0059f+5822b6646448+223d636bf8d2~2026-09-29T15:11:20#on_spike_kept_l1=6]:
+the glyph draws over most of his ring, and masking it leaves too little to
+fit. Of the
+[metric:self_spike/labels@a06f04a0059f+5822b6646448+223d636bf8d2~2026-09-29T15:11:20#l1_wrong_alive_here=17]
+labels where the stored point lay elsewhere while he lived,
+[metric:self_spike/labels@a06f04a0059f+5822b6646448+223d636bf8d2~2026-09-29T15:11:20#l1_wrong_still_wrong=1]
+stays wrong. The glyph's cheap check fails mostly where the glyph turns
+into a yellow "?" [domain:minimap/spike-last-known-mark]; the player's
+death-camera period is [domain:minimap/death-camera-period].
+
 ### 3. Pings: the ally track says a teammate stands there
 
 *Prior.* A standard-hue candidate that coincides with a tracked ally icon for

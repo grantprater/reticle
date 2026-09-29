@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import bisect
+
 import numpy as np
 
 from .minimap import FIT_ERR_PX, GAP_MS, RUN_PX, admit_steps, crosses
@@ -29,8 +31,11 @@ from .minimap import FIT_ERR_PX, GAP_MS, RUN_PX, admit_steps, crosses
 #: Bumped from 0.1.0, which lived in `minimap` and consulted the self reads and
 #: the step law alone. Voids and reachability change the answer, so a stored
 #: belief from the old rule cannot read as current. 0.3.0: an instant the
-#: stored menu witness finds covered is absent (`absent_instants`).
-BELIEF_VERSION = "belief-0.3.0"
+#: stored menu witness finds covered is absent (`absent_instants`). 0.4.0
+#: (2026-09-29): an instant inside one of the player's dead intervals
+#: (`adjudication.spectate`, guard 6) is unresolved as `player_dead`, its read
+#: is no evidence, and nothing is carried into or out of the interval.
+BELIEF_VERSION = "belief-0.4.0"
 
 OBSERVED = "observed"
 INTERPOLATED = "interpolated"
@@ -139,7 +144,7 @@ def _on(mask: np.ndarray | None, x: float, y: float) -> bool:
 
 def resolve(found: list[tuple[float, float, float]], step_ms: float,
             scale: float = 1.0, motion=None, absent_t=None, voids=None,
-            reachable: np.ndarray | None = None) -> list[Fix]:
+            reachable: np.ndarray | None = None, dead=None) -> list[Fix]:
     """One belief per sampled instant, carrying its source and its bound.
 
     Shares `minimap.admit_steps` with `filter_track`, so the two cannot
@@ -167,7 +172,25 @@ def resolve(found: list[tuple[float, float, float]], step_ms: float,
     centres on `c40d950031bb` against 98.6% undilated. Observed reads are never
     gated on it: they are evidence, and evidence is not discarded for
     disagreeing with a mask.
+
+    `dead` names `(t0, t1)` intervals in which the yellow icon is not the
+    player (guard 6: his death to the next round's start, from
+    `adjudication.spectate`, which rests on the death owner). An instant
+    inside one is unresolved as `player_dead`; its read is removed before the
+    step law sees it, since it is a spectated teammate or the death camera's
+    view, and the interval's start is a void, so no belief is carried across
+    it.
     """
+    dead_iv = sorted((float(a), float(b)) for a, b in (dead or ()))
+    d0 = [a for a, _b in dead_iv]
+
+    def in_dead(t: float) -> bool:
+        k = bisect.bisect_right(d0, t) - 1
+        return k >= 0 and t < dead_iv[k][1]
+
+    if dead_iv:
+        found = [(t, None, None) if in_dead(t) else (t, x, y) for t, x, y in found]
+        voids = list(voids or ()) + d0
     keep, jumps, _ = admit_steps(found, scale, motion)
     if absent_t is None:
         blind = sorted(p[0] for p in found if p[1] is None or p[2] is None)
@@ -183,6 +206,9 @@ def resolve(found: list[tuple[float, float, float]], step_ms: float,
 
     out: list[Fix] = []
     for t_ms, _x, _y in found:
+        if dead_iv and in_dead(t_ms):
+            out.append(Fix(t_ms, None, None, UNRESOLVED, None, "player_dead"))
+            continue
         # The instant itself may be the one nobody was looking at, which is a
         # different answer from a gap BETWEEN two such instants.
         if t_ms in unobservable and t_ms not in kept_at:

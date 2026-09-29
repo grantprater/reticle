@@ -2326,8 +2326,10 @@ def cmd_lifetimes(args) -> int:
     # and deaths bind to pieces: a rescan of either changes the entities
     # without touching the ally icons, so their bytes are stamped too.
     inputs = hashlib.sha256()
+    # The self track and the roster feed guard 6's intervals.
     for part in (store.root / "lineups" / f"{sid}.json",
-                 store.events_path("scoreboard", sid), store.events_path("death", sid)):
+                 store.events_path("scoreboard", sid), store.events_path("death", sid),
+                 store.minimap_path(sid, date), store.roster_path(sid, date)):
         inputs.update(part.read_bytes() if part.is_file() else b"-")
     inputs_revision = inputs.hexdigest()
     path = store.events_path("round_entity", sid)
@@ -2361,11 +2363,20 @@ def cmd_lifetimes(args) -> int:
     gallery = load_identity_gallery(store.root) if lineup else None
     from .menu import stored_menu
     menu, menu_stamp = stored_menu(store, sid)
+    # Guard 6: the player's dead intervals (`adjudication.spectate`).
+    from .adjudication.spectate import DeadIndex, stored_intervals
+    try:
+        dead_iv, dead_stamps = stored_intervals(store, sid, date, widget_scale(box[2] - box[0]))
+    except SystemExit as exc:
+        dead_iv, dead_stamps = [], {"reason": str(exc)}
     rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]),
                              roster, source_revision, deaths=deaths,
                              lineup=lineup, gallery=gallery, references=references,
-                             menu=menu.at if menu is not None else None)
+                             menu=menu.at if menu is not None else None,
+                             dead=DeadIndex(dead_iv))
     rows[0]["menu_open"] = menu_stamp
+    rows[0]["dead_intervals"] = len(dead_iv)
+    rows[0]["dead_inputs"] = dead_stamps
     # Stamp the rules that named the segments, so a later change recomputes.
     rows[0]["agent_identity_version"] = AGENT_IDENTITY_VERSION
     rows[0]["ally_portrait_refs_version"] = refs_version
@@ -2424,15 +2435,25 @@ def cmd_belief(args) -> int:
 
     from .menu import stored_menu
     menu, _menu_stamp = stored_menu(store, sid)
+    # Guard 6: the self track ends at the player's death until the next round
+    # (`adjudication.spectate`, over the death owner's verdicts).
+    from .adjudication.spectate import stored_intervals
+    dead, dead_stamps = stored_intervals(store, sid, date, scale, selves=raw)
     fixes = resolve(raw, step, scale,
                     absent_t=absent_instants(rows, menu.at if menu is not None else None),
-                    voids=voids, reachable=reachable)
+                    voids=voids, reachable=reachable,
+                    dead=[(iv.t0_ms, iv.t1_ms) for iv in dead])
     n = len(fixes)
     by = Counter(f.source for f in fixes)
     inferred = [f for f in fixes if f.x is not None and not f.observed]
     print(f"session    {sid}  {n} sampled instants, step {step:.1f} ms")
     print(f"producer   {BELIEF_VERSION}  scale {scale:.3f}  "
           f"{len(voids)} voids  floor {'yes' if reachable is not None else 'NO'}")
+    removed = sum(1 for (_t, x, _y), f in zip(raw, fixes)
+                  if x is not None and f.reason == "player_dead")
+    print(f"dead       {len(dead)} intervals ("
+          + ", ".join(f"{k} {v}" for k, v in sorted(Counter(iv.rests_on for iv in dead).items()))
+          + f"), {removed} self reads removed ({dead_stamps['spectate']})")
     for k in ("observed", "interpolated", "held", "unresolved"):
         print(f"  {k:12s} {by[k]:6d}  {by[k] / n * 100:5.1f}%")
     believed = n - by["unresolved"]
@@ -2701,15 +2722,25 @@ def cmd_vision(args) -> int:
             print(f"{sid}: no stored team_vision to check against -- skipped")
             continue
         inputs.stalls = stalls.for_session(store, sid, _date_of(manifest))
+        # Guard 6: the player's dead intervals, from stored rows
+        # (`adjudication.spectate`); without the minimap table there are none,
+        # and the coverage row says why.
+        from .adjudication.spectate import DeadIndex, stored_intervals
+        try:
+            dead_iv, dead_stamps = stored_intervals(store, sid, _date_of(manifest),
+                                                    widget_scale(x1 - x0))
+            dead = DeadIndex(dead_iv)
+        except SystemExit as exc:
+            dead_iv, dead_stamps, dead = [], {"reason": str(exc)}, None
         common = {"session_id": sid, "team_vision_version": TEAM_VISION_VERSION}
         rows, widget = [], Counter()
         times = sorted({float(t) for t in cache.t_ms})
         started = time.perf_counter()
         if instants is not None:
             got = at(cache, inputs, sorted(instants[sid]), warmup_ms=warmup_ms,
-                     distance_diagnostics=False)
+                     distance_diagnostics=False, dead=dead)
         else:
-            vision = TeamVision.from_inputs(inputs, distance_diagnostics=False)
+            vision = TeamVision.from_inputs(inputs, distance_diagnostics=False, dead=dead)
             got = ((smp.frame_idx, vision.step(smp.frame[y0:y1, x0:x1], smp.t_ms))
                    for smp in cache.samples(times, rois=["minimap"]))
         for frame_idx, frame in got:
@@ -2749,6 +2780,9 @@ def cmd_vision(args) -> int:
                     # `overlay`'s default: no origin-event file, so an
                     # appearance is eligible only at a boundary or by continuity.
                     "origin_events": 0,
+                    # Guard 6: the player's dead intervals and their inputs.
+                    "dead_intervals": len(dead_iv),
+                    "dead_inputs": dead_stamps,
                     "notes": inputs.notes}
         if instants is not None:
             # Track ids count from each warm-up's start; see `team_vision.at`.

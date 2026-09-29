@@ -22,7 +22,10 @@ Observation mapping, and why
   not compete with teammates for continuity;
 * any other refused ally fit is an `ally` with no appearance -- a thin
   interior is an unread descriptor, not a missing teammate;
-* the frame's self fit is `self`.
+* the frame's self fit is `self`, except inside the player's dead intervals
+  (guard 6, `adjudication.spectate`): there the yellow icon is not him
+  [domain:minimap/spectated-self-icon], so after the spectate switch it is a
+  `spectated` observation that names nobody, and before it nothing.
 
 A widget-absent frame is passed as `source_state="absent"`, which suspends
 association rather than ending anything.
@@ -46,7 +49,11 @@ from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes
 # art (`identity.teammate_fit_refusal`) is refused as not a teammate.
 # 0.9.0 (2026-09-28): a frame the stored menu witness finds covered steps the
 # lifetimes with no observation, as `source_state="menu_open"`.
-ROUND_ENTITY_VERSION = "round-entity-0.9.0"
+# 0.10.0 (2026-09-29): guard 6. Inside the player's dead intervals
+# (`adjudication.spectate`) the frame's self fit is not the player: after the
+# spectate switch it is a `spectated` observation, a teammate named by nobody
+# here; before it, the death camera's, and it is dropped.
+ROUND_ENTITY_VERSION = "round-entity-0.10.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
@@ -82,13 +89,26 @@ def _observation(icon: dict) -> dict:
     return obs
 
 
-def _self_observation(frame: dict) -> dict | None:
+def _self_observation(frame: dict, dead=None) -> dict | None:
+    """The frame's self fit as an observation. Inside one of the player's
+    dead intervals (`dead`, an `adjudication.spectate.DeadIndex`) it is not
+    the player: after the spectate switch a `spectated` observation resting
+    on that inference, with no name; before it, None."""
     if not frame.get("self"):
         return None
     x, y, r = frame["self"]
-    return {"x": x, "y": y, "r": r, "box": [x - r, y - r, 2 * r, 2 * r],
-            "family": "self", "view": "minimap", "label": "self",
-            "observation_key": f"{frame['session_id']}:{frame['frame_idx']}:self"}
+    obs = {"x": x, "y": y, "r": r, "box": [x - r, y - r, 2 * r, 2 * r],
+           "family": "self", "view": "minimap", "label": "self",
+           "observation_key": f"{frame['session_id']}:{frame['frame_idx']}:self"}
+    iv = dead.at(frame["t_ms"]) if dead is not None else None
+    if iv is None:
+        return obs
+    if not iv.spectated(frame["t_ms"]):
+        return None
+    return {**obs, "family": "spectated", "label": "spectated",
+            "observation_key": f"{frame['session_id']}:{frame['frame_idx']}:spectated",
+            "rests_on": {"rests_on": "spectate_switch", "dead_rests_on": iv.rests_on,
+                         "switch_ms": iv.switch_ms}}
 
 
 def _roster_at(times: list[float], alive: list, t_ms: float):
@@ -107,8 +127,11 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                       deaths: list[dict] | None = None,
                       lineup: dict | None = None,
                       gallery: dict | None = None,
-                      references: dict | None = None, menu=None) -> list[dict]:
+                      references: dict | None = None, menu=None, dead=None) -> list[dict]:
     """`round_entity` event rows for every round the stored frames reach.
+
+    `dead` is the player's dead intervals (`adjudication.spectate.DeadIndex`,
+    guard 6): the self fit inside one is not the player (`_self_observation`).
 
     `events` are the session's `ally_icon` rows; `rounds` come from
     `rounds.build_rounds`; `roster` is `{"t_ms": [...], "alive_ally": [...]}`;
@@ -150,7 +173,11 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                 coverage["menu_open_frames"] += 1
                 continue
             obs = [_observation(i) for i in icons.get(f["frame_idx"], [])]
-            me = _self_observation(f)
+            me = _self_observation(f, dead)
+            if f.get("self") and me is None:
+                coverage["self_fits_player_dead"] += 1
+            elif me is not None and me["family"] == "spectated":
+                coverage["self_fits_spectated"] += 1
             if me:
                 obs.append(me)
             out = life.step(f["t_ms"], obs,
@@ -257,6 +284,10 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                                         if player_agent else None)
             elif fam == "barrier":
                 body["identity_status"], body["identity_reason"] = "abstained", "barrier"
+            elif fam == "spectated":
+                # A teammate the dead player spectates; identity names it.
+                body["identity_status"] = "abstained"
+                body["identity_reason"] = "spectated_teammate"
             head = {**common, "kind": "entity", "entity_kind": ent.get("kind"),
                     "round_no": rec["round_no"]}
             if fam == "ally" and ent["id"] in named.get("pieces_of", {}):

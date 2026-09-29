@@ -327,7 +327,13 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # where the shape reads, else at the ring fit's centre; each self icon records which.
 # 0.3.0: the self cone faces the teardrop's facing where the shape reads, else the
 # track's resolved lobe; the stored self icon's `self_cone` names both sources.
-TEAM_VISION_VERSION = "team-vision-0.3.0"
+# 0.5.0 (2026-09-29): guard 6. Inside the player's dead intervals
+# (`adjudication.spectate`) the self track's icon is stored as `spectated`
+# after the spectate switch (a teammate's cone, `rests_on` the inference) and
+# as `player_dead` before it, casting nothing; the coverage row counts the
+# intervals. Numbered above teardrop-everywhere-20260929's 0.4.0, which
+# retires the ring fit in the same product.
+TEAM_VISION_VERSION = "team-vision-0.5.0"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.

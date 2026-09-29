@@ -57,6 +57,25 @@ class SessionLifetimeTests(unittest.TestCase):
         self.assertEqual(marks, ["roster_count_conflict",
                                  "roster_slot_available_not_identity"])
 
+    def test_the_yellow_icon_after_his_death_is_not_him(self):
+        # Guard 6: dead from 300 ms, spectating from 600 ms, to the round's end.
+        from reticle.adjudication.spectate import DeadIndex, DeadInterval
+        dead = DeadIndex([DeadInterval(1, 300.0, 1000.0, "killfeed_death", "d", 600.0,
+                                       "next_round_start")])
+        events = [_frame(k, float(t)) for k, t in enumerate(range(0, 1000, 67))]
+        rows = session_lifetimes("s", events, ROUNDS, 1.0, dead=dead)
+        fams = {}
+        for r in rows:
+            if r["kind"] == "observation":
+                fams.setdefault(r["family"], []).append(r["t_ms"])
+        self.assertTrue(all(t < 300.0 for t in fams["self"]))
+        self.assertTrue(fams["spectated"] and all(t >= 600.0 for t in fams["spectated"]))
+        self.assertGreater(rows[0]["self_fits_player_dead"], 0)
+        spec = [r for r in rows if r["kind"] == "entity" and r["family"] == "spectated"]
+        self.assertTrue(spec)
+        self.assertTrue(all(r["agent"] is None and r["identity_reason"] == "spectated_teammate"
+                            for r in spec))
+
     def test_track_segments_receive_adjudicated_agent_names(self):
         import numpy as np
 
