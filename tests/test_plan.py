@@ -76,7 +76,7 @@ class PlanTests(unittest.TestCase):
     def test_current_store_is_not_stale(self):
         with tempfile.TemporaryDirectory() as d:
             plan = stale(_current_store(Path(d)), ["s"])
-            self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": []})
+            self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": [], "waived": []})
             self.assertEqual(render(plan), "nothing stale over 1 sessions")
 
     def test_unrecorded_portrait_stamp_stales_rounds_then_deaths(self):
@@ -234,6 +234,48 @@ class PlanTests(unittest.TestCase):
             self.assertEqual([(x["stream"], x["inputs_moved"], x["command"]) for x in derived],
                              [("scoreboard_strip", ["roi_cache"], "reticle strip s"),
                               ("scoreboard_presence", ["scoreboard"], "reticle openings s")])
+
+    def test_the_waiver_accepts_scoreboard_0_12_0_and_names_it(self):
+        """The player's 2026-09-29 waiver: a 0.12.0 board stream, and the
+        deaths and openings read from it, are not stale under 0.13.0, and
+        `plan` names them as accepted by waiver. 0.11.0 and 0.10.0 stay stale."""
+        from reticle.adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
+        from reticle.version import (SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION,
+                                     STAMP_WAIVERS)
+        self.assertEqual(SCOREBOARD_VERSION, "scoreboard-0.13.0")
+        self.assertEqual([k for k in STAMP_WAIVERS if k[0].startswith("scoreboard-")],
+                         [("scoreboard-0.13.0", "scoreboard-0.12.0")])
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["scoreboard_presence:rows"] = [
+                {"scoreboard_presence_version": SCOREBOARD_AGENT_VERSION,
+                 "scoreboard_strip_version": SCOREBOARD_STRIP_VERSION}]
+            for old, is_stale in (("scoreboard-0.12.0", False), ("scoreboard-0.11.0", True),
+                                  ("scoreboard-0.10.0", True)):
+                store.events["scoreboard"] = [{"v": old}]
+                store.events["death:rows"][0]["inputs"]["scoreboard"] = old
+                store.events["scoreboard_presence:rows"][0]["scoreboard_version"] = old
+                plan = stale(store, ["s"])
+                p = plan["s"]
+                self.assertEqual([x["stream"] for x in p["decode"]],
+                                 ["scoreboard"] if is_stale else [], old)
+                self.assertEqual([(x["stream"], x["inputs_moved"]) for x in p["derived"]],
+                                 [("death", ["scoreboard"]),
+                                  ("scoreboard_presence", ["scoreboard"])] if is_stale else [],
+                                 old)
+                if is_stale:
+                    self.assertEqual(p["waived"], [])
+                    self.assertNotIn("waiver", render(plan))
+                    continue
+                self.assertEqual([(w["stream"], w["stored"], w["current"]) for w in p["waived"]],
+                                 [("scoreboard", old, SCOREBOARD_VERSION),
+                                  ("death input scoreboard", old, SCOREBOARD_VERSION),
+                                  ("scoreboard_presence input scoreboard", old,
+                                   SCOREBOARD_VERSION)])
+                text = render(plan)
+                self.assertTrue(text.startswith("nothing stale over 1 sessions"))
+                self.assertIn("waived   scoreboard: scoreboard-0.12.0 accepted as "
+                              "scoreboard-0.13.0 by waiver", text)
 
 
 if __name__ == "__main__":

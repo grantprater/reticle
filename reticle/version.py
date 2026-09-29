@@ -144,6 +144,27 @@ SCOREBOARD_VERSION = "scoreboard-0.13.0"
 SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", "scoreboard-0.8.0",
                                  "scoreboard-0.9.0", "scoreboard-0.10.0", "scoreboard-0.11.0",
                                  "scoreboard-0.12.0", SCOREBOARD_VERSION)
+# TESTING-PHASE WAIVER, TO REVISIT: stored stamps that `reticle plan` (and
+# every rerun input check inside it) accepts as the current stamp, as
+# {(current, stored): why}. The player decided on 2026-09-29, to iterate
+# quickly, that the scoreboard streams his rescan wrote at 0.12.0 count as
+# current under 0.13.0, with no rescan; later sessions of that rescan run at
+# 0.13.0. Against 0.12.0, 0.13.0 changes no verdict, edge, row or named agent
+# on any of the [metric:scoreboard/speed-batch@fixture#boards=456] decoded boards
+# ([metric:scoreboard/speed-batch@fixture#bar_changed_boards=0] change), and only
+# [metric:scoreboard/speed-batch@fixture#rounded_scores_differ=19] of
+# [metric:scoreboard/speed-float32@fixture#rounded_scores=115420] rounded portrait scores
+# differ, by at most [metric:scoreboard/speed-float32@fixture#max_score_diff=0.0001].
+# The key names the literal current stamp, so the waiver lapses at the next
+# bump; a waived stamp must already be verdict-compatible. `plan` names each
+# stream it accepts here as accepted by waiver, never as current. Stored
+# stamps stay as written: they record the code that wrote them.
+STAMP_WAIVERS = {
+    ("scoreboard-0.13.0", "scoreboard-0.12.0"):
+        "player 2026-09-29: testing-phase waiver, no rescan; 0.13.0 changes no verdict",
+}
+assert all(stored in SCOREBOARD_VERDICT_COMPATIBLE
+           for current, stored in STAMP_WAIVERS if current.startswith("scoreboard-"))
 # The round-history strip as a second presence witness of the Tab board, read
 # by `scoreboard_strip` from the hud crop cache's `center` crop and written as
 # `scoreboard_strip` rows by `reticle strip`. 0.1.0 ports the rule and
