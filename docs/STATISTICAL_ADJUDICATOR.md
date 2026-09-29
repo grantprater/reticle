@@ -1559,6 +1559,41 @@ may take for a jump, and it needs its own check. The spike carrier pairing
 ring-fit centres. `minimap_dark.occluded`, which masks an icon's pixels with a
 margin. Each finds or masks an icon; none casts a cone.
 
+**The tip highlight (2026-09-29).** The player saw the teardrop's tip drawn
+lighter than its rim [domain:minimap/icon-tip-highlight].
+`prototypes/tip_highlight.py` (`tip-highlight-0.1.0`, not wired) reads a
+facing from brightness alone: round the ring fit's centre, the brightest
+fifth of the class-hued pixels between the portrait and the apex, and their
+circular mean angle. `hue_mass`, the mean angle of all hued pixels, is the
+control that sees only the lobe's area. Against the labels:
+
+| label set | highlight median / flipped | teardrop median / flipped | ring median / flipped |
+|---|---|---|---|
+| allies, 465 px | [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#ally_highlight_median_abs_deg=7.217] / [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#ally_highlight_flip=0.0] | [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#ally_teardrop_median_abs_deg=2.485] / [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#ally_teardrop_flip=0.0] | [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#ally_ring_median_abs_deg=81.326] / [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#ally_ring_flip=0.478] |
+| enemies, 465 px | [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#enemy_highlight_median_abs_deg=34.279] / [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#enemy_highlight_flip=0.286] | [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#enemy_teardrop_median_abs_deg=1.685] / [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#enemy_teardrop_flip=0.0] | [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#enemy_ring_median_abs_deg=69.651] / [metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#enemy_ring_flip=0.389] |
+| self, Lotus | [metric:tip_highlight_eval/self@5822b6646448+controls#lotus_highlight_median_abs_deg=6.949] / [metric:tip_highlight_eval/self@5822b6646448+controls#lotus_highlight_flip=0.0] | [metric:tip_highlight_eval/self@5822b6646448+controls#lotus_teardrop_median_abs_deg=2.233] / [metric:tip_highlight_eval/self@5822b6646448+controls#lotus_teardrop_flip=0.071] | [metric:tip_highlight_eval/self@5822b6646448+controls#lotus_ring_median_abs_deg=105.498] / [metric:tip_highlight_eval/self@5822b6646448+controls#lotus_ring_flip=0.5] |
+| allies, 331 px | [metric:tip_highlight_eval/labels-331@c40d950031bb+223d636bf8d2#highlight_median_abs_deg=7.24] / [metric:tip_highlight_eval/labels-331@c40d950031bb+223d636bf8d2#highlight_flip=0.053] | [metric:tip_highlight_eval/labels-331@c40d950031bb+223d636bf8d2#teardrop_median_abs_deg=4.603] / [metric:tip_highlight_eval/labels-331@c40d950031bb+223d636bf8d2#teardrop_flip=0.079] | [metric:tip_highlight_eval/labels-331@c40d950031bb+223d636bf8d2#ring_median_abs_deg=10.164] / [metric:tip_highlight_eval/labels-331@c40d950031bb+223d636bf8d2#ring_flip=0.237] |
+
+On 331 px allies the ring's lobe flips on
+[metric:tip_highlight_eval/labels-331@c40d950031bb+223d636bf8d2#ring_lobe_flip=0.395].
+The control trails the highlight on every set (465 px allies
+[metric:tip_highlight_eval/labels-465@5822b6646448+a06f04a0059f#ally_hue_mass_median_abs_deg=26.213]),
+so brightness carries what the lobe's area does not. The highlight trails
+the teardrop wherever both read, but it disagrees with the teardrop by over
+45 degrees on three of the five labelled ally and self items where the
+teardrop flips; the other two are stacks, where a teammate's rim lends a
+second bright tip and both readers fail. On enemies the red hue takes the
+portrait's skin and red X marks inside the band, and the sheet shows no
+lighter tip. Grey floor and white walls carry no hue and caused no failure.
+On the 40 items of the 331 px manifest the highlight lies within 30 degrees
+of the teardrop on
+[metric:tip_highlight_eval/labels-331@c40d950031bb+223d636bf8d2#consistency_teardrop_within30=0.875]
+and of the raw ring on
+[metric:tip_highlight_eval/labels-331@c40d950031bb+223d636bf8d2#consistency_ring_within30=0.775],
+which is consistency, not accuracy. The sheets are in the store's
+`analysis/tip-highlight-20260929/`; predictions H1-H6 and their outcome are
+the `tip-highlight-20260929` rows of `notes/predictions.jsonl`.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
