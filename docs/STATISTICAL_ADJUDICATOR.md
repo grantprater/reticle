@@ -708,6 +708,90 @@ carried at 404.5-408.5 s before it planted the spike
 [domain:abilities/gekko-wingman-plant-minimap]: probably a Wingman glyph,
 pending the player's confirmation.
 
+*Superseded (2026-09-29):* the player answered every candidate. The three
+blue orbs (#36, #58, #59) are Omen, a teammate; #36 and #58 overlap other
+ally icons. #15 is Gekko's Wingman and #23 Skye's Trailblazer
+[domain:abilities/skye-trailblazer-enemy-minimap-glyph], both ability glyphs.
+His verdicts sit beside the candidates file in the store
+(`ability_candidates_verdicts.jsonl`); the label file is unchanged. So the
+valid ally figures are the all-items ones above (teardrop median
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_teardrop_all_median_abs_deg=2.485]
+on [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_teardrop_all_n=23]
+allies, none flipped), and the "left out" ally figures, which dropped three
+Omen icons, are superseded. For enemies the valid figures leave #23 out:
+the teardrop's are unchanged, since it refused #23, and the raw ring flips on
+[metric:icon_facing_eval/labels-excl@5822b6646448+a06f04a0059f#enemy_ring_all_flip=0.412]
+of enemies. The teardrop did read the three Omen icons: it reads them as
+agents because they are agents, and the sentence above that it cannot tell a
+teardrop-shaped ability icon from a teammate rests on no confirmed example
+among the labels. #15, a confirmed ability glyph, was read.
+
+**A portrait gate (2026-09-29).** An agent icon holds the portrait of one of
+its side's five agents; a ping, an X mark, floor, a portrait tile or an
+ability glyph holds none. `prototypes/icon_portrait_gate.py`
+(`icon-portrait-gate-0.1.0`) scores the portrait inside each teardrop fit
+with the self icon's and teammate channel's rendered-art model
+(`ally_portrait.align_icon` at the teardrop's centre, `portrait_features`,
+`identity.rendered_art_fit`) against the side's lineup
+(`identity.side_candidates`), and keeps the fit as an agent icon only where
+the lineup explains the portrait. It rests on the lineup prior and names
+nobody. Three rules were fixed before the labels were scored: A, the
+owner's `teammate_fit_refusal` at its stored threshold; B, the fit at most
+the 99th percentile of the stored self-icon frames' fit to their ally five,
+[metric:icon_portrait_gate/calibration@self_icon-18#b_max=6.9994], over
+[metric:icon_portrait_gate/calibration@self_icon-18#frames=5582] frames of
+the other lineup sessions; C, the closest of all 29 rendered references lies
+in the side's set, the other 24 standing only as the null a non-portrait
+falls to.
+
+On the labels (kept of each class):
+
+| side, class | n | A | B | C |
+|---|---|---|---|---|
+| ally, agent icon | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_true_icon_n=24] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_true_icon_kept_A=24] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_true_icon_kept_B=24] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_true_icon_kept_C=24] |
+| ally, not an icon | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_not_icon_n=1] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_not_icon_kept_A=1] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_not_icon_kept_B=1] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_not_icon_kept_C=1] |
+| ally, ability glyph (#15) | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_ability_glyph_n=1] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_ability_glyph_kept_A=1] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_ability_glyph_kept_B=1] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#ally_ability_glyph_kept_C=0] |
+| enemy, agent icon | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_true_icon_n=17] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_true_icon_kept_A=17] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_true_icon_kept_B=17] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_true_icon_kept_C=17] |
+| enemy, not an icon | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_not_icon_n=10] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_not_icon_kept_A=10] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_not_icon_kept_B=10] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_not_icon_kept_C=2] |
+| enemy, ability glyph (#23) | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_ability_glyph_n=1] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_ability_glyph_kept_A=1] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_ability_glyph_kept_B=1] | [metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_ability_glyph_kept_C=0] |
+
+Of the four enemy not-icons the teardrop reads, C keeps
+[metric:icon_portrait_gate/labels@5822b6646448+a06f04a0059f#enemy_not_icon_kept_C_td=0].
+C keeps two red ping triangles and the ally not-icon. A and B reject
+nothing: the self-icon calibration's tail sits above every not-icon, and
+above A's own threshold. The score itself separates the labelled classes
+where the gate reads it: at the teardrop's centre every agent icon fits
+under every not-icon and glyph. That gap was seen on the labels and sets
+no rule. At the detector's centre the enemy agent icons fit several times
+worse, and the stored self-icon frames are fitted at the ring fit's
+centre, which may explain their tail. On the same self frames rule C keeps
+only [metric:icon_portrait_gate/calibration@self_icon-18#c_keep=0.5262].
+
+On 40 unlabelled frames per session outside the calibration minutes, A and
+B reject no ally fit, and C rejects
+[metric:icon_portrait_gate/sample@5822b6646448#ally_reject_C=0.036] of the
+Lotus and [metric:icon_portrait_gate/sample@a06f04a0059f#ally_reject_C=0.036]
+of the Ascent ally fits: a Wingman glyph and red floor, and three teammates,
+two of them carrying the spike glyph across the portrait. It keeps a red
+ping disc. On 223d636bf8d2 (C:/Users/grant/Videos/2026-08-23 20-09-01.mp4)
+the widget is 331 px, where the teardrop's constants do not hold: its
+centres miss the portraits, and C rejects
+[metric:icon_portrait_gate/sample@223d636bf8d2#ally_reject_C=0.821] of the
+ally fits, nearly all teammates. The sheets are in the store's
+`analysis/portrait-gate-20260929/` (`labels_sheet.png`,
+`sample_rejected.png`, `sample_kept.png`). No rule is ready to wire; the
+prototype carries `"wire": "no"`. Predictions G1-G7, their corrections and
+the outcome are the `portrait-gate-20260929` rows of the store's
+`notes/predictions.jsonl`: G1, G2 and G3 failed for B, G4-G6 passed, and the
+falsifier was met.
+
+The gate cannot work where the portrait is not seen: a stack or a carried
+spike glyph over it, a widget size the teardrop was not fitted for, a widget
+turned 180 degrees, whose portraits arrive upside down after the resample
+[domain:minimap/upright-icons-on-turned-map] (not measured; the prototype
+does not turn them), a red portrait [domain:minimap/red-portrait-states],
+and a side whose lineup has a blind slot, where it abstains.
+
 **Against the predictions.** L1 passed for both classes, with and without
 the candidates. L2 passed. C1 and C3 passed on 2026-09-28 and the labels do
 not bear on them. C2 failed: the ally read rate on Lotus fell under 0.90, the
@@ -723,8 +807,9 @@ degrees apart on a fifth of ally frames, not the 30% predicted.
   controls; the flips cluster where the readers disagree, and no other map
   or widget scale has labels.
 - The ally and enemy teardrops are scored on one Lotus and one Ascent
-  session; the teardrop reads teardrop-shaped ability icons as agents, and
-  which of the four candidates are abilities waits on the player.
+  session; the teardrop reads the Wingman glyph as an agent, and no
+  portrait gate rule yet rejects not-icons without losing teammates: the
+  self-icon calibration must be taken again at the teardrop's centre.
 - The self cone's fallback (ring fit and track lobe) serves about a tenth of
   Lotus's cast cones; teammates' cones still start at their ring fits along
   their tracks' lobes.
