@@ -195,6 +195,71 @@ for the self icon portrait (`self-icon-0.4.0`).
 cache beside the tray and the plant clock, and class each as plant, defuse or
 lock-in.
 
+*Result (2026-09-29, run `prior-self-20260929`, `prototypes/prior_self.py`,
+not wired).* The audit read `ally_icon`'s best-coverage self, which no prior
+chooses; its count reproduces
+([metric:prior_self/audit-reproduced@a06f04a0059f~prior-self-20260929#self_on_glyph=47]
+of [metric:prior_self/audit-reproduced@a06f04a0059f~prior-self-20260929#samples_with_dropped_glyph=159]
+on `a06f04a0059f`). `pick_self`'s stored track (`l1/minimap`) sits on the
+glyph more often and longer:
+[metric:prior_self/on-glyph-l1-owner@a06f04a0059f~prior-self-20260929#on_samples=71]
+samples in runs up to
+[metric:prior_self/on-glyph-l1-owner@a06f04a0059f~prior-self-20260929#longest_s=27]
+s there, and
+[metric:prior_self/on-glyph-l1-owner@223d636bf8d2~prior-self-20260929#on_samples=69]
+up to [metric:prior_self/on-glyph-l1-owner@223d636bf8d2~prior-self-20260929#longest_s=18]
+s on `223d636bf8d2`. The prior locks in.
+
+No run of five seconds or more is a plant or a defuse. By eye on the crop
+strips
+([metric:prior_self/run-classing@a06f04a0059f+223d636bf8d2~prior-self-20260929#runs_ge_5s=6]
+runs), the player was dead in
+[metric:prior_self/run-classing@a06f04a0059f+223d636bf8d2~prior-self-20260929#player_dead=4]:
+the fit rings the spike where the carrier fell while the view spectates a
+teammate, whose yellow icon, with another agent's portrait, moves elsewhere.
+In [metric:prior_self/run-classing@a06f04a0059f+223d636bf8d2~prior-self-20260929#locked_player_elsewhere=1]
+the player walks toward the spike 50 px away; in
+[metric:prior_self/run-classing@a06f04a0059f+223d636bf8d2~prior-self-20260929#player_icon_not_found=1]
+(`223d636bf8d2`, 1276-1280 s) no icon of his shows. On `a06f04a0059f` every
+audit sample on the glyph falls after the player's death. A second defect
+follows: after the player dies, the self track follows the spectated
+teammate, so guard 6 (expire the prior at the player's death) applies to the
+self position too.
+
+The lock-in depends on frame phase. The replay refits `self_icons` on the
+15 Hz crop cache and agrees with `l1/minimap` within 0.5 px on
+[metric:prior_self/replay-vs-l1@a06f04a0059f~prior-self-20260929#within_0.5px=10278]
+of [metric:prior_self/replay-vs-l1@a06f04a0059f~prior-self-20260929#both=10279]
+shared instants, but the cache and the decode sample different frames half
+the time: at 664.5 s on `a06f04a0059f` one missed frame sent `l1` onto the
+glyph for 4 s, and the replay kept the player.
+
+The guarded pick (`minimap.pick_self_declared`, then `spike.on_glyph` on
+`spike-0.2.0` rows, then the teardrop) cuts the replay's samples on a glyph
+from [metric:prior_self/on-glyph-stored@223d636bf8d2~prior-self-20260929#on_samples=71]
+to [metric:prior_self/on-glyph-guarded@223d636bf8d2~prior-self-20260929#on_samples=2]
+on `223d636bf8d2` and from
+[metric:prior_self/on-glyph-stored@a06f04a0059f~prior-self-20260929#on_samples=78]
+to [metric:prior_self/on-glyph-guarded@a06f04a0059f~prior-self-20260929#on_samples=4]
+on `a06f04a0059f`, and loses
+[metric:prior_self/points@223d636bf8d2~prior-self-20260929#lost_elsewhere=0]
+points away from a glyph. The teardrop reads on
+[metric:prior_self/teardrop@a06f04a0059f~prior-self-20260929#on_glyph_read=70]
+of [metric:prior_self/teardrop@a06f04a0059f~prior-self-20260929#on_glyph_n=1425]
+fits on a glyph against
+[metric:prior_self/teardrop@a06f04a0059f~prior-self-20260929#off_glyph_read=1954]
+of [metric:prior_self/teardrop@a06f04a0059f~prior-self-20260929#off_glyph_n=2251]
+off one. The cost is open: of
+[metric:prior_self/lost-while-alive@223d636bf8d2~prior-self-20260929#lost_while_alive=301]
+frames refused while the player lived on `223d636bf8d2`,
+[metric:prior_self/lost-while-alive@223d636bf8d2~prior-self-20260929#track_at_glyph=96]
+sit where the track stands at the glyph, where he may stand on the spike.
+`prototypes/label_prior_self.py` asks the player about 34 such frames,
+blind. The 1 Hz full-search audit disagrees with the guarded pick on
+[metric:prior_self/audit-cadence@a06f04a0059f~prior-self-20260929#disagree_guarded=34]
+of [metric:prior_self/audit-cadence@a06f04a0059f~prior-self-20260929#compared=1283]
+samples.
+
 ### 3. Pings: the ally track says a teammate stands there
 
 *Prior.* A standard-hue candidate that coincides with a tracked ally icon for
@@ -359,7 +424,9 @@ bar, and the board's audit openings (guard 5).
 - `minimap.filter_track` returns interpolated points as plain tuples beside
   measured ones, while `docs/ADJUDICATION_DESIGN.md` requires that
   interpolation render distinctly. The raw reads stay stored; the returned
-  track does not mark what it invented.
+  track does not mark what it invented. (2026-09-29: `filter_track(...,
+  mark=True)` now marks each point; the default is unchanged, and nothing
+  stores the output. `pick_self_declared` names the pick's rule.)
 - **The killfeed stack's direction was two beliefs; the player settled it**
   on 2026-09-29 [domain:killfeed/stack-order]. `death.follow_entry_portraits`
   and `checks.track_entries` matched the fact and now cite it; `killfeed.py`'s
