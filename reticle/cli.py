@@ -1064,6 +1064,11 @@ def cmd_scan(args) -> int:
         """The pass's readers, built from the store's inputs; the prints are theirs."""
         hp = _HudPass(store, manifest, profile, args) if want_hud else None
         mp = _MinimapPass(store, manifest, profile, spans, args) if want_mm else None
+        if mp is not None:
+            # It reads `frame[box]` alone, so a minimap cache at its rate feeds
+            # it; `--from cache` clips its spans to the cached rounds.
+            from .roi_cache import declare_set
+            declare_set(mp, "minimap", profile, (mp.w, mp.h))
 
         ctx = SessionContext(store=store, manifest=manifest, profile=profile, spans=spans)
         kp = (KillfeedPortraitReader(

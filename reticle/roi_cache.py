@@ -322,7 +322,7 @@ class RoiCache:
             # A widget drawn elsewhere is read through its placement; one the
             # stored crop cannot hold is refused by name, never read as absent.
             from .widget_frame import for_session, refusal_text
-            got.widget = for_session(manifest, got.rect_of("minimap"), d.parents[2])
+            got.widget = for_session(manifest, got.stored_rect("minimap"), d.parents[2])
             if got.widget is not None and got.widget.refusal is not None:
                 return None, refusal_text(got.widget.refusal)
         return got, None
@@ -344,7 +344,18 @@ class RoiCache:
         return None, why
 
     def rect_of(self, roi: str) -> list[int]:
-        """The pixel rectangle of one profile ROI this cache holds."""
+        """Where a reader finds one profile ROI in the frames `samples` yields.
+
+        That is the stored rectangle, except for the minimap of a session whose
+        widget is read through a placement: `samples` writes it, resampled,
+        at the baked ROI, which a crop of the stored (wider) rectangle would
+        miss by its shape."""
+        if roi == "minimap" and self.widget is not None:
+            return list(self.widget.baked_roi)
+        return self.stored_rect(roi)
+
+    def stored_rect(self, roi: str) -> list[int]:
+        """The pixel rectangle one profile ROI's crops were stored from."""
         return self.record["rects"][CACHE_SETS[self.record["roi"]].index(roi)]
 
     def crops(self, roi: str):

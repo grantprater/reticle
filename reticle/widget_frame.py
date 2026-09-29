@@ -367,7 +367,7 @@ def fit_session(manifest: dict, cache, store_root, n: int = 24) -> dict:
     sid = manifest["session_id"]
     static = geometry.reference_static(sid, store_root)
     sgray = _to_gray(static)
-    box = cache.rect_of("minimap")
+    box = cache.stored_rect("minimap")
     x0, y0, x1, y1 = box
     ts = np.unique(np.asarray(cache.t_ms, float))
     if not len(ts):
