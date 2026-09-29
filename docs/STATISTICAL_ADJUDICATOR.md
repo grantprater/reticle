@@ -1114,7 +1114,308 @@ every cone on the `dark_frames` sheets (an enemy smoke, a death, a flash);
 and is the large yellow glyph on Lotus that lights the floor round it an
 ability (`5822b6646448_fn_f.png`, 1617.9 s).
 
-## E8: the teardrop in every consumer
+## E8: why the lifecycle quarantines confirmed cones
+
+E7 left one question unread: why `minimap_lifecycle` withholds cones the
+drawn light confirms. `prototypes/vision_lifecycle.py`
+(`vision-lifecycle-0.1.0`, task `vision-lifecycle-20260929`, predictions
+L1-L5, G1-G4 and G1b-G4b logged first) replays `team_vision` over each
+session's whole minimap crop cache with the masks off, keeps every
+adjudication row with what the lifecycle saw when it decided, and reruns
+the lifecycle from those stored inputs with no pixels. It reads the crop
+cache and stored rows only. Sessions: 5822b6646448 (Lotus,
+C:\Users\grant\Videos\2026-08-26 12-38-38.mp4) and c40d950031bb (Ascent,
+331 px, C:\Users\grant\Videos\2026-08-24 18-27-17.mp4).
+
+**The instrument.** The replay's `eligible` flags equal the stored rows' on
+every frame of both sessions, and the stored gate and the gate off reproduce
+E7's F1 on E7's frames ([metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_studied_stored_f1=0.4803] and [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_studied_off_f1=0.621]
+on Lotus, [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_studied_stored_f1=0.3389] and [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_studied_off_f1=0.4344] on c40d).
+
+**The stored reason says nothing.** Every quarantined row carries the same
+string, "origin or continuity needs corroboration" ([metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_reason_strings=1]
+distinct reason on [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_quarantined_rows=5961] c40d rows and
+[metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_reason_strings=1] on [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_quarantined_rows=9569] Lotus rows).
+Read from what the lifecycle saw instead:
+
+| role, refusal | c40d rows | c40d entries | Lotus rows | Lotus entries |
+|---|---|---|---|---|
+| ally, no live anchor of its role | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_ally_no_live_anchor_of_role_rows=2274] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_ally_no_live_anchor_of_role_entries=120] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_ally_no_live_anchor_of_role_rows=1549] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_ally_no_live_anchor_of_role_entries=72] |
+| self, no live anchor of its role | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_self_no_live_anchor_of_role_rows=2210] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_self_no_live_anchor_of_role_entries=60] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_self_no_live_anchor_of_role_rows=4659] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_self_no_live_anchor_of_role_entries=159] |
+| ally, live anchors, none within reach | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_ally_beyond_reach_rows=1446] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_ally_beyond_reach_entries=127] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_ally_beyond_reach_rows=3330] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_ally_beyond_reach_entries=233] |
+| ally, own key jumped | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_ally_jump_rows=21] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_ally_jump_entries=7] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_ally_jump_rows=5] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_ally_jump_entries=4] |
+| ally, ambiguous parents | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_ally_ambiguous_rows=9] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_ally_ambiguous_entries=6] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_ally_ambiguous_rows=24] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_ally_ambiguous_entries=7] |
+
+An entry is the frame a key first goes ineligible; [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_inherited_share=0.9461]
+of c40d's quarantined rows and [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_inherited_share=0.9502] of Lotus's are
+inherited from one. **The quarantine cannot heal**, for two reasons in the
+lifecycle's own rules:
+
+1. A quarantined row is never an anchor ("persistence of a quarantined
+   candidate cannot corroborate itself"), so its key stays quarantined for
+   the life of its track, unless it walks within reach of another entity's
+   anchor and takes that entity's id.
+2. The boundary that admits appearances (`left_censored`) opens only when no
+   eligible anchor of ANY role is live. An ally's anchors expire 500 ms after
+   it is last seen, under a stack or the self icon; one live self anchor
+   keeps the boundary shut, and the ally's next track is an unexplained
+   appearance. The same holds for the self icon while any ally is eligible.
+
+`reticle vision` passes no origin events (its coverage row says
+`origin_events: 0`), so no round start or revive ever explains an
+appearance. The pre-registered taxonomy failed here: `gap_reborn` took nearly
+every entry, because a minutes-old eligible row is always within walking
+reach; the table above is the refusal read from the same stored view.
+
+**Does the light confirm the withheld cones?** On E7's scored frames a
+quarantined cone is *confirmed* when half of its pixels (outside the
+product's cones, where 30 or more remain) are lit:
+[metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_studied_light_confirmed=407] of [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_studied_quarantined_icons=530] Lotus
+icons ([metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_studied_confirmed_share=0.814] of those with a cone) and
+[metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_studied_light_confirmed=203] of [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_studied_quarantined_icons=472] c40d icons
+([metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_studied_confirmed_share=0.5356]). L4 held on Lotus and failed on c40d, where
+E7 found the 331 px facings poor.
+
+**The sheets** (store `analysis/vision-lifecycle-20260929/`,
+`<session>_<group>.png`; crop left, right the light in cyan, the product's
+cones in green, the withheld cone and its icon in red):
+
+- `*_ally_released_confirmed`: every tile a teammate's teardrop and portrait
+  beside the light it draws. Wrong quarantines.
+- `*_ally_released_not_confirmed`: teammates again, most in stacks with the
+  cone turned away from the light (a facing error, E7's cause g); two are
+  not icons: Lotus 1836.00 s (`ally:624`, bare floor) and c40d 808.83 s
+  (`ally:358`, the void at the widget's edge).
+- `*_ally_kept`: the ghosts the gate change keeps out (Lotus 304.98 s and
+  1177.97 s over the roster's count, 1397.02 s and c40d 573.83 s bare
+  floor), and stacked teammates it cannot admit because the self icon under
+  the stack is unobserved.
+- `*_self_released`: the player's yellow teardrop every time. Wrong.
+- `*_self_kept_confirmed`, `*_self_kept_not_confirmed`: a yellow teardrop
+  drawn and lit seconds after the killfeed's death of the player (Lotus
+  1617.17 s, 7 s after the death at 1610.5 s; c40d 613.12 s). Whose icon it
+  is waits on the player.
+
+A Lotus death at 845.0 s the death adjudicator calls a second life (Run It
+Back); the player's icon drew light at 850 s, so a second life is not a
+death here.
+
+**Cross-reference, and the gate change.** Other channels already count the
+team, and none reads the minimap's light:
+
+- the roster's living allies (`roster`, question `alive-count`), which
+  `round_lifetimes.ally_capacity` turns into the ally icons it licenses;
+- the death verdicts the killfeed marks as the player's own
+  (`adjudication.death`, `kf_player_death`, less `is_second_life`), in the
+  round the adjudicator assigns;
+- the HUD's round bounds (`rounds.build_rounds`).
+
+`CorroboratedLifecycle` runs the stock rules unchanged and admits only a row
+they refuse as an unexplained appearance: an ally when every ally observed
+this frame fits the roster's capacity (a frame with more admits none), and
+the self icon when the roster reads five allies alive or the player has no
+killfeed death this round. An admitted row keeps `refused_as` and names its
+evidence in `admitted_by`, and becomes an anchor, so the key continues from
+then on; nothing earlier is rewritten. The light gates nothing, so scoring
+against the light stays independent. The `spectated` variant also admits the
+self icon after the player's death while the roster reads an ally alive; it
+rests on the unconfirmed reading that the yellow icon then belongs to the
+spectated teammate.
+
+**Team F1** (the stored gate; gain over it with a window bootstrap):
+
+| windows | gate | c40d F1 | c40d gain | Lotus F1 | Lotus gain |
+|---|---|---|---|---|---|
+| E7's (design) | stored | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_studied_stored_f1=0.3389] | | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_studied_stored_f1=0.4803] | |
+| | off | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_studied_off_f1=0.4344] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_studied_off_df1=0.0954] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_studied_off_f1=0.621] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_studied_off_df1=0.1407] |
+| | corroborated | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_studied_corroborated_f1=0.435] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_studied_corroborated_df1=0.0961] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_studied_corroborated_f1=0.6079] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_studied_corroborated_df1=0.1276] |
+| held-out, offset 0 | stored | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout_stored_f1=0.3599] | | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout_stored_f1=0.4743] | |
+| | off | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout_off_f1=0.4009] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout_off_df1=0.041] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout_off_f1=0.5893] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout_off_df1=0.115] |
+| | corroborated | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout_corroborated_f1=0.3992] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout_corroborated_df1=0.0394] ([metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout_corroborated_df1_lo=-0.029] to [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout_corroborated_df1_hi=0.1367]) | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout_corroborated_f1=0.5769] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout_corroborated_df1=0.1026] ([metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout_corroborated_df1_lo=0.0] to [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout_corroborated_df1_hi=0.2115]) |
+| | spectated | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout_spectated_f1=0.4024] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout_spectated_df1=0.0426] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout_spectated_f1=0.5889] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout_spectated_df1=0.1146] |
+| held-out, offsets 0.25, 0.75 | stored | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_stored_f1=0.265] | | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_stored_f1=0.565] | |
+| | off | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_off_f1=0.3764] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_off_df1=0.1114] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_off_f1=0.6157] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_off_df1=0.0507] |
+| | corroborated | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_corroborated_f1=0.3636] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_corroborated_df1=0.0986] ([metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_corroborated_df1_lo=0.0566] to [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_corroborated_df1_hi=0.1419]) | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_corroborated_f1=0.587] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_corroborated_df1=0.022] ([metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_corroborated_df1_lo=0.0061] to [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_corroborated_df1_hi=0.0455]) |
+| | spectated | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_spectated_f1=0.3707] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_spectated_df1=0.1057] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_spectated_f1=0.6052] | [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_spectated_df1=0.0402] |
+
+Precision under the change: c40d [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout_stored_precision=0.4594] to
+[metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout_corroborated_precision=0.4084] on the first held-out set and
+[metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_stored_precision=0.3409] to [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_corroborated_precision=0.3833] on
+the second; Lotus [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout_stored_precision=0.586] to
+[metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout_corroborated_precision=0.6362] and [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_stored_precision=0.6257]
+to [metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_corroborated_precision=0.6303]. The first held-out set scored 12
+Lotus windows and the change touched three, so I widened it before scoring
+the second (G1b-G4b logged first).
+
+**Against the predictions.** L1, L2 and L5 held; L3 held as worded while its
+taxonomy failed; L4 held on Lotus only. G1 failed (c40d gained under +0.05 on
+the first held-out set and Lotus's interval touches zero); G2 failed on c40d's
+first set; G3 and G4 held. On the widened set c40d gained
+[metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#c40d_heldout2_corroborated_df1=0.0986] and kept its precision; Lotus gained only
+[metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_corroborated_df1=0.022] against the gate off's
+[metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_off_df1=0.0507] (G1b and G3b failed there), and the `spectated`
+variant recovers most of the rest ([metric:vision_lifecycle/gate@c40d950031bb+5822b6646448#lotus_heldout2_spectated_df1=0.0402]). The
+falsifier, a gain under +0.02, was not met.
+
+**What the gate should become.** The ally rule keeps the right quarantines
+(ghosts over the roster's count) and releases the wrong ones without the
+light. The self rule is right while the player lives; after his killfeed
+death the yellow icon still draws light, and that is the remaining loss on
+Lotus. The quarantine's two structural faults deserve the owner's attention
+before any threshold: a quarantined key can never heal on its own evidence,
+and one role's anchor keeps another role's boundary shut.
+
+**Proposed stored rows.** `team_vision`'s frame row gains `adjudication`, one
+entry per observed icon joined to `icons` by `key` (`role:track_id`), in the
+form `vision_lifecycle.adjudication_record` writes: `entity_id`, `state`
+(adding `corroborated_appearance`), `eligible`, `reason_code`
+(`no_live_anchor_of_role`, `beyond_reach`, `ambiguous`, `jump`, or
+`persisting:<code>` for a key still quarantined since an earlier refusal),
+the prose `reason`, `nearest_anchor` (`dist`, `dt_ms`, `excess`, `entity`),
+`refused_as`, `admitted_by` (the rule and its evidence: roster reads, death
+id, round start), `alternatives`, `light_state` and `conflict`. The coverage
+row names the roster, death and HUD versions beside `lifecycle_version`. The
+prototype writes these rows for every frame of both sessions to its work
+directory; they come to about a third of the stored product's size.
+
+**Questions for the player**, each with its sheet: after you die, whose icon
+does the minimap draw in yellow, yours or the teammate you spectate
+(`5822b6646448_self_kept_confirmed.png`, 1617.17 s and 2164.57 s;
+`c40d950031bb_self_kept_not_confirmed.png`, 613.12 s)?
+
+## E9: the cones pass the drawn walls
+
+The player read `c40d950031bb_dark_frames.png` (E7): at 572.20 s and 928.07 s
+the cones pass several walls. Task `cone-walls-20260929`, predictions W1-W5
+logged first; `prototypes/cone_walls.py` (`cone-walls-0.1.0`) measures, and
+`reticle/occluders.py` builds the fix. Sheets are in the store's
+`analysis/cone-walls-20260929/`.
+
+**The cause is the wall classes, not the raycast and not the placement.** A
+ray stopped only at `labels == BOXEDGE`, and `labels` comes from the wiki
+art, warped into widget pixels with one winner per pixel. The art's thin line
+work covers under half of most widget pixels and loses them to the floor
+beside it; the white lines the widget itself draws were FLOOR. The map's
+border (`BORDER`) never stopped a ray either, and the floor mask's dilation
+let rays run into the void beyond it. The player's reading
+[domain:minimap/white-lines-are-walls] is right: on Ascent the line between B
+main and B site was open.
+
+- *The raycast is sound.* The vectorised cast equals the loop reference on
+  every checked cone ([metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_loop_mismatch_px=0] pixels differ), and sealing
+  diagonal steps changes the measured leak by under a hundredth.
+- *The baked static sits on the drawn walls* at both widget sizes: best shift
+  0, scale [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_scale_x=1.0], and [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_align_baked_drawn_within_1px=0.9733] of
+  the drawn line pixels on c40d lie within 1 px of the static's lines
+  ([metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#a06f_align_baked_drawn_within_1px=0.9896] on a06f04a0059f).
+- *The art does not.* Within 1 px of the art's walls lie
+  [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_align_art_drawn_within_1px=0.6142] of c40d's drawn line pixels at 331 px
+  against [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#a06f_align_art_drawn_within_1px=0.9048] on a06f04a0059f at 465 px. At
+  465 px most missing lines carry art line coverage of 0.25-0.5 (lost to the
+  warp's winner); at 331 px most carry none, and the art's stored fit on
+  `ascent__valorant-16x9` sits about 1% small in scale.
+- *Boxes.* The static draws boxes as faint closed outlines; the art carries one
+  or two of their sides. Of the closed outlines on
+  `ascent__valorant-16x9-bigmap`, [metric:cone_walls/boxes@all-keys#ascent__valorant-16x9-bigmap_open_to_rays=13] of
+  [metric:cone_walls/boxes@all-keys#ascent__valorant-16x9-bigmap_boxes=17] were open to a ray in the old grid; on
+  `sunset__valorant-16x9-bigmap` [metric:cone_walls/boxes@all-keys#sunset__valorant-16x9-bigmap_open_to_rays=15] of
+  [metric:cone_walls/boxes@all-keys#sunset__valorant-16x9-bigmap_boxes=18] (`boxes_worst.png`).
+
+**The fix.** `occluders` reads the walls and boxes from the baked static
+(the builder's one capture-derived array) into an additive occluder table,
+`occ` and `box_id`, stamped `occ_built_by`; `cone.passable_from` stops rays at
+it; a wall is a bright line or the art's border, a box a fitted closed shape
+or a faint mark, and `cone.box_crossings` reports which boxes a cone crossed
+[domain:minimap/boxes-block-unless-raised]. An origin on an occluder moves to
+the nearest open pixel within 2 px (`cone.snap_origin`).
+
+**The share of each cast cone beyond a drawn wall** (the instrument: each
+frame's own lines that the frame half the session away also draws, icons and
+light slivers removed):
+
+| session | widget | before | walls | walls and boxes |
+|---|---|---|---|---|
+| c40d950031bb | 331 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_old_beyond_share=0.3266] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_walls_beyond_share=0.0289] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#c40d_walls_boxes_beyond_share=0.0007] |
+| 9acf02f98283 | 331 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#9acf_old_beyond_share=0.2856] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#9acf_walls_beyond_share=0.0327] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#9acf_walls_boxes_beyond_share=0.0021] |
+| 3694746e4e54 | 331 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#3694_old_beyond_share=0.3152] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#3694_walls_beyond_share=0.046] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#3694_walls_boxes_beyond_share=0.0021] |
+| a06f04a0059f | 465 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#a06f_old_beyond_share=0.2334] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#a06f_walls_beyond_share=0.0397] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#a06f_walls_boxes_beyond_share=0.0006] |
+| 5822b6646448 | 465 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#5822_old_beyond_share=0.1119] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#5822_walls_beyond_share=0.0208] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#5822_walls_boxes_beyond_share=0.0] |
+| 7010b3d62460 | 465 | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#7010_old_beyond_share=0.1105] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#7010_walls_beyond_share=0.0235] | [metric:cone_walls/beyond@c40d950031bb+9acf02f98283+3694746e4e54+a06f04a0059f+5822b6646448+7010b3d62460#7010_walls_boxes_beyond_share=0.0046] |
+
+The 331 px sessions leaked more because the art's warp loses more there. The
+"walls" column leaves boxes open, and the instrument counts a drawn box
+outline as a wall, so its remainder is box crossings.
+
+**E7's team F1 on E7's frames** (the product's eligible cones recast; the
+before column reproduces E7):
+
+| | c40d950031bb | 5822b6646448 | e78e75b2d191 |
+|---|---|---|---|
+| before | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_old_f1=0.3389] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_old_f1=0.4803] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_old_f1=0.6367] |
+| walls, boxes open | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_walls_f1=0.3488] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_walls_f1=0.4658] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_walls_f1=0.6568] |
+| walls and boxes | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_walls_boxes_f1=0.3195] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_walls_boxes_f1=0.4661] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_walls_boxes_f1=0.6] |
+| precision, before / after | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_old_precision=0.3562] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_walls_boxes_precision=0.7147] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_old_precision=0.6573] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_walls_boxes_precision=0.7394] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_old_precision=0.7074] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_walls_boxes_precision=0.8841] |
+| recall, before / after | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_old_recall=0.3233] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_walls_boxes_recall=0.2058] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_old_recall=0.3784] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_walls_boxes_recall=0.3403] | [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_old_recall=0.5788] / [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_walls_boxes_recall=0.4541] |
+
+Precision roughly doubles at 331 px and recall falls: a cone that ran through
+walls took credit for light it could not see. Of the light the old cones
+reached and the new ones do not, [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_lost_uncast_share=0.6747] on c40d and
+[metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_lost_uncast_share=0.3808] on Lotus is joined to a teammate the product casts
+no cone for (E7's cause e); the rest is light a misdirected leaking cone
+covered by chance, or a doorway the classes close. Light beyond a crossed box
+is lit at [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#c40d_box_beyond_lit_share=0.5631] on c40d,
+[metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#5822_box_beyond_lit_share=0.2342] on Lotus and [metric:cone_walls/f1@c40d950031bb+5822b6646448+e78e75b2d191#e78e_box_beyond_lit_share=0.9667] on
+the spawn clip, where most of it lies past one floor decal the builder calls a
+box: the per-box pass rate varies from near 0 to near 1, which is the case
+for a per-box prior.
+
+**Against the predictions.** W1 held. W2 held. W3 held for the static and
+failed for the art, which is misplaced at 331 px. W4 failed: every session
+leaked, but the 331 px sessions leaked more. W5 failed on F1: the beyond-wall
+share fell under 1% on every session, but recall fell by more than 0.05 on
+c40d and e78e, and F1 fell with boxes closed.
+
+**The enemy smoke at 572.20 s.** An enemy smoke sits in the B main choke,
+and the teammates' drawn light stops at it
+[domain:minimap/enemy-smokes-block-cones]. With the walls closed, the cast
+cones there shrink to the choke; the missing light past it is evidence for the
+enemy-smoke inference, not built here.
+
+**Proposed, not built: a per-box pass rate.** Pool, per `(key, box_id)`, the
+light found beyond the box over every crossing (`cone.box_crossings`), under
+a new occluder stamp; E1's pooled box-edge transparency (0.12) is the prior's
+starting point, and a box whose beyond-light is lit on most crossings (a
+floor decal, a stair mark) becomes passable. A jump witness would be light
+beyond a box on isolated frames of an otherwise blocking box; no channel shows
+one yet.
+
+### Proposed, not built: elevation in the raycast
+
+The floor's shade is elevation [domain:minimap/floor-shade-is-elevation], and
+the baked geometry already keeps it: `map_shade` quantises the map ART into
+grey rungs and warps them into widget pixels as `shade_kind` (FLOOR, RAMP,
+SHADOW) and `shade_step` (rungs above the base floor). No capture enters it,
+so the drawn light, the widget's transparency and a session's lighting cannot
+reach it. The fetched art shows 3 floor rungs on Abyss and Lotus, 6 on Ascent,
+5 on Haven, 4 on Split and Summit and 2 on Sunset, besides ramps and shadow.
+Three uses, none built:
+
+1. *A raised caster sees over a low box.* A caster whose origin sits on a
+   rung above a box's surrounding floor passes that box; the stored
+   `boxes_crossed` and the light beyond each crossing test it frame by frame.
+2. *An overhang hides the floor below from above.* Floor on a SHADOW (under an
+   overhang, like A hell) is not lit by a caster on the rung above; the drawn
+   light on those pixels confirms or refutes it.
+3. *A step down is not a wall.* A ray crossing from a high rung to a low one
+   continues; what it lights below a drop is the light's to confirm.
+
+The drawn light can confirm (1) and (2) directly, since both predict light or
+its absence at named pixels. It cannot see height itself, so a pass the light
+shows with no rung difference is a jump or an error, and is stored apart. On
+`ascent__valorant-16x9` the art's placement is about 1% small in scale, so a
+rung boundary there may sit 1-2 px off.
+
+## E10: the teardrop in every consumer
 
 The player's direction of 2026-09-29: the ring fit no longer supplies an
 icon's centre or facing, and the teardrop reaches every consumer; team vision
@@ -1154,7 +1455,7 @@ that holds across sessions, the ally cones gain precision at 331 px (below),
 and E6's labels, which never saw the ally teardrop flip, come from 465 px
 widgets; no label scores either teardrop at 331 px.
 
-**Team vision (`team-vision-0.4.0`).** Every detection is posed before the
+**Team vision (`team-vision-0.5.0`).** Every detection is posed before the
 tracker sees it, so tracks, lifecycle positions and cones all take the
 teardrop's centre, and a cone observed this frame faces this frame's
 teardrop facing; `cone.resolve_lobe` sees only a ring-fit facing. Each stored
@@ -1208,7 +1509,7 @@ margin. Each finds or masks an icon; none casts a cone.
   portrait gate rule rejects more than half the not-icons without losing
   teammates: Bs, calibrated clean of the spike, still keeps pings, X marks
   and the Wingman glyph that fit like portraits.
-- Since `team-vision-0.4.0` no cone falls back to the ring fit: an icon whose
+- Since `team-vision-0.5.0` no cone falls back to the ring fit: an icon whose
   teardrop gives no facing casts nothing, which costs recall wherever the
   teardrop reads less, as on c40d950031bb. No label scores either teardrop
   at 331 px, and the self teardrop there mostly reads under its facing gate.
@@ -1221,4 +1522,7 @@ margin. Each finds or masks an icon; none casts a cone.
   half-occluded cone biases; it is an upper bound on the fit's error.
 - E7 scores three sessions and one 331 px widget; its causes rest on ordered
   rules, so an early rule (geometry) takes pixels a later cause (a wrong
-  cone) produced. Why the lifecycle quarantines confirmed cones is unread.
+  cone) produced.
+- E8 reads the lifecycle's refusals on two sessions; its gate change is
+  scored against the light on held-out windows of the same sessions, and
+  the self icon after the player's death is unanswered.

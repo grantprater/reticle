@@ -292,7 +292,8 @@ def _passable_for(session, store):
     from .minimap import floor_mask
     with np.load(geometry.require(session, store)) as z:
         return cone.passable_from(z["labels"].copy(),
-                                  floor_mask(z["static"].copy(), sd=z["sd_lo"].copy()))
+                                  floor_mask(z["static"].copy(), sd=z["sd_lo"].copy()),
+                                  z["occ"].copy() if "occ" in z.files else None)
 
 
 def main(argv=None):

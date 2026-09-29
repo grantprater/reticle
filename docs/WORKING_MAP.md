@@ -42,7 +42,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Which icon is which: the occluder inventory, the glyph track G1-G5, and portrait/shape/region/animation matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
 | Current mining critique, minimal-label extraction design, and deterministic/YOLO comparison | [MINIMAP_MINING_REVIEW.md](MINIMAP_MINING_REVIEW.md) |
 | What else lives in a colour key | `prototypes/key_collision.py`, off existing label sheets, no decode |
-| Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py` |
+| Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py`, `occluders.py` |
 | What is true of the GAME, cited not restated | `domain/*.toml`, `reticle/domain.py`, `reticle domain` |
 | The first entity/domain learning pilot | Ran 2026-09-24 as bootstrap lane B and closed unmerged; the learner changed no name ([archive](archive/ENTITY_DOMAIN_LOOP_PILOT-2026-09-24.md)) |
 | Review proposed domain knowledge over stored evidence | `reticle/domain_learning.py`, `tools/domain_hypothesis.py`, [ENTITY_DOMAIN_LEARNING_DESIGN.md](ENTITY_DOMAIN_LEARNING_DESIGN.md) |
@@ -114,6 +114,7 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
 .\.venv\Scripts\python.exe tools\wipe_scout.py SESSION   # stored data only
 .\.venv\Scripts\python.exe prototypes\minimap_geometry.py --all
+.\.venv\Scripts\python.exe -m reticle occluders --all      # baked arrays only
 ```
 
 Geometry is one npz per `<map>__<profile>`, never per session: resolve every

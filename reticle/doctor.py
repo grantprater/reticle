@@ -485,6 +485,53 @@ def check_coverage(store: Path) -> list[tuple[str, str]]:
     return out
 
 
+def check_occluders(store: Path) -> list[tuple[str, str]]:
+    """Geometry npz whose occluder table (`occ`) is missing or stale.
+
+    `occ` holds the walls and boxes a ray stops at, read from the baked static
+    by `occluders` and stamped `occ_built_by`. A STALE table
+    is an ERROR: every cone is cast over it. A MISSING one is a WARN: the rays
+    fall back to the art's box edges alone, which pass the walls the art's
+    warp lost, and `team_vision` records `occluders: null` so the fallback is
+    visible in every product. Building is seconds and decodes nothing:
+    `reticle occluders --all`.
+    """
+    d = store / "geometry"
+    if not d.is_dir():
+        return []
+    try:
+        from . import occluders
+        want = occluders.occluder_stamp()
+    except Exception as e:                                  # pragma: no cover
+        return [(WARN, f"cannot compute the occluder stamp ({type(e).__name__}) "
+                       f"-- staleness unchecked")]
+    import numpy as np
+    stale, absent = [], []
+    for p in sorted(d.glob("*.npz")):
+        try:
+            with np.load(p, allow_pickle=False) as z:
+                if "occ" not in z.files:
+                    absent.append(p.stem)
+                    continue
+                got = str(z["occ_built_by"]) if "occ_built_by" in z.files else "unstamped"
+        except Exception:
+            got = "unreadable"
+        if got != want:
+            stale.append(p.stem)
+    out = []
+    if stale:
+        out.append((ERROR, f"{len(stale)} geometry npz carry a STALE occluder table "
+                           f"(occ_built_by != current) -- rebuild with "
+                           f"`reticle occluders --all`. "
+                           f"{', '.join(stale[:6])}{' ...' if len(stale) > 6 else ''}"))
+    if absent:
+        out.append((WARN, f"{len(absent)} geometry npz have NO occluder table -- rays "
+                          f"stop only at the art's box edges; build with "
+                          f"`reticle occluders --all`. "
+                          f"{', '.join(absent[:6])}{' ...' if len(absent) > 6 else ''}"))
+    return out
+
+
 def check_shade(store: Path) -> list[tuple[str, str]]:
     """Geometry npz whose art-derived terrain levels are missing or stale.
 
@@ -1063,6 +1110,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("SESSION_STATIC", lambda: check_session_static(store)),
               ("GEOMETRY", lambda: check_geometry(store)),
               ("SHADE", lambda: check_shade(store)),
+              ("OCCLUDERS", lambda: check_occluders(store)),
               ("COVERAGE", lambda: check_coverage(store)),
               ("MANIFEST", lambda: check_manifest(store)),
               ("FURNITURE", lambda: check_furniture(store)),

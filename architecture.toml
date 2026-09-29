@@ -49,7 +49,7 @@ claim = "pixels in, one observation out; no reader knows another"
 modules = ["minimap", "ally_portrait", "ocr", "killfeed", "roster", "ping", "cone", "lighting",
            "hud_reader", "scoreboard", "scoreboard_strip", "glance", "track", "economy",
            "minimap_dark", "combat_report", "ability_shapes", "tray", "ult_lines",
-           "tray_icons", "menu", "teardrop", "spike"]
+           "tray_icons", "menu", "teardrop", "spike", "occluders"]
 
 [orchestration]
 claim = "shared decode passes, which dispatch to readers and own no reading"

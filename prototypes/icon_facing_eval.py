@@ -14,7 +14,7 @@ centre, within `MATCH_PX`) and reads:
 - `ring_lobe` (allies only): the ring facing after `cone.resolve_lobe` on the
   frame's lit mask, as `team_vision` 0.3.0 handed it to the tracker. Enemy
   light is not drawn, so enemies have no such reader;
-- `wired`: what the wired consumers cast per frame since `team-vision-0.4.0`,
+- `wired`: what the wired consumers cast per frame since `team-vision-0.5.0`,
   the promoted reader at the widget's scale (`teardrop.IconPoseReader`) and,
   for allies where it is unread and `team_vision.RING_FALLBACK` holds, the
   `ring_lobe` facing.

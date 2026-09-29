@@ -2711,6 +2711,7 @@ def cmd_vision(args) -> int:
                     "source": "roi_cache/minimap", "roi_cache_version": ROI_CACHE_VERSION,
                     "cache_hz": cache.record.get("hz"),
                     "geometry_key": inputs.geometry_key,
+                    "occluders": inputs.occluders,
                     "lighting_version": (lighting.LIGHTING_VERSION
                                          if inputs.light is not None else None),
                     "track_version": TRACK_VERSION,
@@ -2735,6 +2736,46 @@ def cmd_vision(args) -> int:
               f"{widget.get('not_drawn', 0)} no widget, {widget.get('stale', 0)} stale "
               f"in {elapsed:.0f} s -> {out}")
     return 0
+
+
+def cmd_occluders(args) -> int:
+    """Bake the occluder table (`occluders.bake`) into each geometry npz."""
+    from . import geometry, occluders
+
+    store = Path(args.store)
+    if args.all:
+        keys = geometry.keys_in_store(store)
+    elif args.key:
+        keys = [args.key if geometry.SEP in args.key else geometry.key_of(args.key, store)]
+    else:
+        print("give a geometry key, a session id, or --all")
+        return 2
+    rc = 0
+    for k in keys:
+        if k is None or not geometry.path(k, store).is_file():
+            print(f"{args.key}: no built geometry -- skipped")
+            rc = 1
+            continue
+        info = occluders.bake(k, store, write=not args.dry_run)
+        kinds = {}
+        for b in info["boxes"]:
+            kinds[b["drawn"]] = kinds.get(b["drawn"], 0) + 1
+        print(f"{k}: {info['wall_px']} wall px, {info['box_px']} box px in "
+              f"{len(info['boxes'])} boxes {kinds}"
+              + (" (dry run)" if args.dry_run else f" -> {geometry.path(k, store)}"))
+        if args.sheet:
+            import cv2
+            import numpy as np
+            with np.load(geometry.path(k, store)) as z:
+                st, lab = z["static"].copy(), z["labels"].copy()
+            occ, _bid, _ = occluders.classify(st, lab)
+            out = Path(args.sheet) / f"{k}_occluders.png"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(out), occluders.render(st, lab, occ))
+            print(f"  sheet {out}")
+    if not args.dry_run:
+        print(f"occluder stamp {occluders.occluder_stamp()[:12]}")
+    return rc
 
 
 def cmd_ability_light(args) -> int:
@@ -5015,6 +5056,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--all", action="store_true", help="every session with current peaks")
     s.add_argument("--record", action="store_true", help="record the pooled counts in the metrics log")
     s.set_defaults(func=cmd_ult_cast)
+
+    s = sub.add_parser("occluders", help="bake the walls and boxes a ray stops at into the "
+                                         "geometry npz (baked arrays only; decodes nothing)")
+    s.add_argument("key", nargs="?", help="a geometry key `<map>__<profile>`, or a session id")
+    s.add_argument("--all", action="store_true", help="every key an ingested session reads")
+    s.add_argument("--dry-run", action="store_true", help="classify and report; write nothing")
+    s.add_argument("--sheet", help="directory for one overlay PNG per key")
+    s.set_defaults(func=cmd_occluders)
 
     s = sub.add_parser("vision", help="store the team's adjudicated vision per frame "
                                       "(minimap crop cache; decodes no capture)")

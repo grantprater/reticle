@@ -3,7 +3,7 @@ r"""Score `team_vision`'s team cones against the drawn light joined to the team'
     .\.venv\Scripts\python.exe prototypes\team_vision_eval.py --arm NAME
     .\.venv\Scripts\python.exe prototypes\team_vision_eval.py --compare BEFORE AFTER [--record]
 
-The measurement behind `team-vision-0.4.0`, which casts every teammate's cone
+The measurement behind `team-vision-0.5.0`, which casts every teammate's cone
 from the ally teardrop's centre along its facing (`reticle.teardrop.
 IconPoseReader`), as 0.3.0 cast the self cone. `vision_origin_eval.py` scored
 the self cone alone; teammates are a team signal, so this scores the union.

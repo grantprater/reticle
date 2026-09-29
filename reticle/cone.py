@@ -114,14 +114,78 @@ N_RAYS = 240
 RAY_CHUNK = 48
 
 
-def passable_from(labels: np.ndarray, floor: np.ndarray) -> np.ndarray:
-    """The grid a ray may travel through: the floor, minus the boxes.
+#: How far a cone's origin may move off an occluder, in px at the 465 px
+#: widget (`snap_origin`). The icon's fitted centre carries about 2 px of error
+#: (`track.FIT_ERR_PX`), and a one-pixel wall under it would otherwise end every
+#: ray at step 0 -- E1b found the cone dying at its origin while the game drew
+#: the light, and a wall read from the static puts a line under 4-9% of icons.
+ORIGIN_SNAP_PX = 2.0
+
+
+def snap_origin(passable: np.ndarray, cx: float, cy: float, facing_deg: float,
+                max_px: float | None = None):
+    """Where a cone starts: `(cx, cy)` on a passable pixel, else the nearest
+    passable pixel within `max_px`, else None.
+
+    Distance first; among pixels within half a pixel of the nearest, the one
+    furthest along the facing. That tie-break is a stated guess about which
+    side of a one-pixel line the player stands on (E1b left it open): it
+    assumes the player faces away from the line he stands against. A caster
+    facing the line he stands at is then placed past it, which the domain fact
+    [domain:minimap/cone-rays-stop-at-first-edge] says blocks his sight; the
+    drawn light is the witness that can tell the two apart.
+    """
+    h, w = passable.shape
+    xi, yi = int(round(cx)), int(round(cy))
+    if not (0 <= xi < w and 0 <= yi < h):
+        return None
+    if passable[yi, xi]:
+        return float(cx), float(cy)
+    if max_px is None:
+        max_px = ORIGIN_SNAP_PX * w / 465.0
+    r = int(np.ceil(max_px))
+    ys, xs = np.mgrid[max(0, yi - r):min(h, yi + r + 1), max(0, xi - r):min(w, xi + r + 1)]
+    d = np.hypot(xs - cx, ys - cy)
+    ok = passable[ys, xs] & (d <= max_px)
+    if not ok.any():
+        return None
+    dmin = d[ok].min()
+    near = ok & (d <= dmin + 0.5)
+    th = np.radians(facing_deg)
+    along = (xs - cx) * np.cos(th) + (ys - cy) * np.sin(th)
+    k = np.argmax(np.where(near, along, -np.inf))
+    return float(xs.flat[k]), float(ys.flat[k])
+
+
+#: The geometry's occluder classes (`occ`), baked beside `labels` by
+#: `occluders` from the static's own white lines. A WALL is
+#: full height and always stops a ray; a BOX stops it by default and may pass
+#: light when the caster jumps or stands higher (the player, 2026-09-29), so
+#: `box_crossings` reports which boxes a cone crossed.
+OCC_OPEN, OCC_WALL, OCC_BOX = 0, 1, 2
+
+
+def passable_from(labels: np.ndarray, floor: np.ndarray, occ: np.ndarray | None = None,
+                  boxes_block: bool = True) -> np.ndarray:
+    """The grid a ray may travel through: the floor, minus the walls and boxes.
 
     One definition, because two callers composing this by hand is how the
     `floor_mask` fork started. `visible` stays `floor`: a box stops sight and
     is not itself lit, which `raycast` gives for free by not marking the pixel
     it dies on.
+
+    With `occ` (the geometry's occluder classes) the walls and boxes come from
+    it alone: it holds the art's BORDER and BOXEDGE and the static's white
+    lines the art lost [domain:minimap/white-lines-are-walls]. Without it the
+    art's BOXEDGE is the only occluder, which is what every geometry baked
+    before `occ` existed gives. `boxes_block=False` opens the boxes and keeps
+    the walls: the cast `box_crossings` needs.
     """
+    if occ is not None and occ.shape == floor.shape:
+        stop = occ == OCC_WALL
+        if boxes_block:
+            stop = stop | (occ == OCC_BOX)
+        return floor & ~stop
     from .minimap import BOXEDGE
     return floor & ~(labels == BOXEDGE)
 
@@ -129,7 +193,8 @@ def passable_from(labels: np.ndarray, floor: np.ndarray) -> np.ndarray:
 def raycast(passable: np.ndarray, cx: float, cy: float, facing_deg: float,
             half_angle_deg: float = CONE_HALF_ANGLE_DEG,
             visible: np.ndarray | None = None,
-            n_rays: int = N_RAYS, max_r: int | None = None) -> np.ndarray:
+            n_rays: int = N_RAYS, max_r: int | None = None,
+            clear_px: float = 0.0, snap_px: float | None = None) -> np.ndarray:
     """Pixels a ray from (cx, cy) reaches within the wedge. Vectorised.
 
     `passable` says where a ray may CONTINUE; `visible` (default: `passable`)
@@ -146,8 +211,11 @@ def raycast(passable: np.ndarray, cx: float, cy: float, facing_deg: float,
         visible = passable
     if max_r is None:
         max_r = max(h, w)
-    if not (0 <= int(round(cx)) < w and 0 <= int(round(cy)) < h):
+    start = snap_origin(passable, cx, cy, facing_deg, snap_px) if snap_px != 0 else (
+        (cx, cy) if 0 <= int(round(cx)) < w and 0 <= int(round(cy)) < h else None)
+    if start is None:
         return np.zeros((h, w), dtype=bool)
+    cx, cy = start
 
     half = np.radians(half_angle_deg)
     facing = np.radians(facing_deg)
@@ -175,7 +243,7 @@ def raycast(passable: np.ndarray, cx: float, cy: float, facing_deg: float,
         np.clip(xi, 0, w - 1, out=xi)
         np.clip(yi, 0, h - 1, out=yi)
 
-        step_ok = passable[yi, xi] & inb
+        step_ok = (passable[yi, xi] | (s < clear_px)[None, :]) & inb
         # A ray is alive at step k only if EVERY step up to k was passable. This
         # is the whole raycast -- the running AND is what "stops at the first
         # wall" means, and it is why no per-step loop is needed.
@@ -189,7 +257,7 @@ def raycast(passable: np.ndarray, cx: float, cy: float, facing_deg: float,
 
 def _raycast_loop(passable, cx, cy, facing_deg,
                   half_angle_deg=CONE_HALF_ANGLE_DEG, visible=None,
-                  n_rays=N_RAYS, max_r=None):
+                  n_rays=N_RAYS, max_r=None, clear_px=0.0, snap_px=None):
     """The reference implementation. Kept ONLY so `--self-test` can check the
     vectorised one against it; nothing should call this for real work.
     """
@@ -199,6 +267,11 @@ def _raycast_loop(passable, cx, cy, facing_deg,
     if max_r is None:
         max_r = max(h, w)
     mask = np.zeros((h, w), dtype=bool)
+    if snap_px != 0:
+        start = snap_origin(passable, cx, cy, facing_deg, snap_px)
+        if start is None:
+            return mask
+        cx, cy = start
     facing = np.radians(facing_deg)
     half = np.radians(half_angle_deg)
     for i in range(n_rays):
@@ -207,11 +280,88 @@ def _raycast_loop(passable, cx, cy, facing_deg,
         for k in range(int(max_r)):
             xi = int(round(cx + dx * k))
             yi = int(round(cy + dy * k))
-            if not (0 <= xi < w and 0 <= yi < h) or not passable[yi, xi]:
+            if not (0 <= xi < w and 0 <= yi < h) or not (passable[yi, xi] or k < clear_px):
                 break
             if visible[yi, xi]:
                 mask[yi, xi] = True
     return mask
+
+
+def box_crossings(passable: np.ndarray, box_id: np.ndarray, cx: float, cy: float,
+                  facing_deg: float, half_angle_deg: float = CONE_HALF_ANGLE_DEG,
+                  visible: np.ndarray | None = None, n_rays: int = N_RAYS,
+                  max_r: int | None = None, clear_px: float = 0.0,
+                  snap_px: float | None = None):
+    """One cone with the boxes open, split at the first box each ray crosses.
+
+    `passable` is the grid with the WALLS closed and the boxes open
+    (`passable_from(..., boxes_block=False)`); `box_id` names each box pixel
+    (0 elsewhere). Returns `(blocked, beyond)`: `blocked` is what the cone
+    lights with every box closed -- exactly `raycast` over `passable &
+    (box_id == 0)` -- and `beyond` maps each box id to the pixels lit only
+    because the rays that crossed that box first went on. Which of those the
+    game drew is the drawn light's question, per frame; this only says where
+    a box pass would show.
+
+    A box under the origin is not crossed: the caster stands on it or its
+    icon covers it, and its rays start there.
+    """
+    h, w = passable.shape
+    if visible is None:
+        visible = passable
+    if max_r is None:
+        max_r = max(h, w)
+    blocked = np.zeros((h, w), dtype=bool)
+    beyond: dict[int, np.ndarray] = {}
+    start = snap_origin(passable, cx, cy, facing_deg, snap_px) if snap_px != 0 else (
+        (cx, cy) if 0 <= int(round(cx)) < w and 0 <= int(round(cy)) < h else None)
+    if start is None:
+        return blocked, beyond
+    cx, cy = start
+    own = int(box_id[int(round(cy)), int(round(cx))])
+    half = np.radians(half_angle_deg)
+    facing = np.radians(facing_deg)
+    th = facing - half + (2 * half) * np.arange(n_rays) / (n_rays - 1)
+    cos_t, sin_t = np.cos(th), np.sin(th)
+    first = np.zeros(n_rays, dtype=np.int64)          # 0: no box crossed yet
+    rays = np.arange(n_rays)
+    k0, max_r = 0, int(max_r)
+    while k0 < max_r and rays.size:
+        k1 = min(max_r, k0 + RAY_CHUNK)
+        s = np.arange(k0, k1, dtype=np.float64)
+        xi = np.rint(cx + cos_t[rays, None] * s[None, :]).astype(np.int64)
+        yi = np.rint(cy + sin_t[rays, None] * s[None, :]).astype(np.int64)
+        inb = (xi >= 0) & (xi < w) & (yi >= 0) & (yi < h)
+        np.clip(xi, 0, w - 1, out=xi)
+        np.clip(yi, 0, h - 1, out=yi)
+        alive = np.logical_and.accumulate((passable[yi, xi] | (s < clear_px)[None, :]) & inb,
+                                          axis=1)
+        bid = np.where(alive, box_id[yi, xi].astype(np.int64), 0)
+        bid[bid == own] = 0
+        hit = bid > 0
+        # The first box on each ray, carried across chunks.
+        before = first[rays] > 0                      # crossed in an earlier chunk
+        new = ~before & hit.any(axis=1)
+        if new.any():
+            idx = np.argmax(hit[new], axis=1)
+            first[rays[new]] = bid[new][np.arange(idx.size), idx]
+        crossed = np.logical_or.accumulate(hit, axis=1) | before[:, None]
+        lit = alive & visible[yi, xi]
+        pre = lit & ~crossed
+        blocked[yi[pre], xi[pre]] = True
+        post = lit & crossed
+        if post.any():
+            owner = np.broadcast_to(first[rays][:, None], post.shape)[post]
+            px, py = xi[post], yi[post]
+            for b in np.unique(owner):
+                m = beyond.setdefault(int(b), np.zeros((h, w), dtype=bool))
+                sel = owner == b
+                m[py[sel], px[sel]] = True
+        rays = rays[alive[:, -1]]
+        k0 = k1
+    for b in beyond:
+        beyond[b] &= ~blocked
+    return blocked, beyond
 
 
 def compare_evidence(mask: np.ndarray, lit: np.ndarray,
