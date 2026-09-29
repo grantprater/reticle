@@ -928,6 +928,192 @@ enemy read rates under 0.60, and the teardrop refused 3 of the 4 labelled
 red map fills, under the 80% claimed. C4 failed: the two readers were over 90
 degrees apart on a fifth of ally frames, not the 30% predicted.
 
+## E7: the team's error, by cause
+
+The player's direction of 2026-09-29: team vision is a team signal, so the
+whole team's joined cones must explain the lit area, or the product is useless
+as a gate. He expected much of the remaining error to lie in pixel-level
+geometry (one-pixel box edges, doorways, E1b), and smoke discs on the minimap
+to occlude cones as walls do. `prototypes/team_vision_errors.py`
+(`team-vision-errors-0.1.0`, task `vision-errors-20260929`, predictions T1-T7
+logged first) scores the stored `team-vision-0.3.0` rows and gives every
+disagreeing pixel one cause by ordered rules; its docstring states them. Two
+arms: `prod`, the stored product (`observable`, the eligible cones), and
+`any`, every stored bearing (`observable_all`, the lifecycle gate off). The
+witness is `lighting.raw_lit` joined to any team icon, plus other lit
+components that pass `lighting.clean_lit`. Sessions: e78e75b2d191 (Ascent
+enlarged widget, C:\Users\grant\Videos\2026-09-03 19-16-07.mp4, E4's held-out
+blocks, a spawn clip with no teammate drawn), 5822b6646448 (Lotus,
+C:\Users\grant\Videos\2026-08-26 12-38-38.mp4) and c40d950031bb (Ascent,
+331 px, C:\Users\grant\Videos\2026-08-24 18-27-17.mp4), each on E4's twenty
+6 s windows at every second cached frame. Intervals are 95% bootstraps over
+windows. It reads the crop cache and stored rows only.
+
+**The instrument.** The cones recast from the stored icons equal the stored
+masks on every frame ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_mask_mismatch_px=0] and
+[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_mask_mismatch_px=0] pixels differ). On the frames where the product
+casts a self cone, E4's self witness gives F1 [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_e5_cast_f1=0.7798] on
+Ascent, beside E5's [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_after_cast_f1=0.7752],
+and [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_e5_cast_f1=0.6015] on Lotus: the stored rows reproduce E5. E5 drove
+the chain and scored `resolved`, which the lifecycle does not gate; its Lotus
+F1 of [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_after_f1=0.5889]
+is the self cone with the gate off. The stored product scores
+[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_e5_f1=0.3552] on the same witness, because it casts the self cone on
+[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_self_frames=318] of [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_frames=700] scored Lotus frames, where the
+stored bearings give one on [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_any_self_frames=498].
+
+**The team against the self** (F1 against every lit pixel; the team-joined
+light in brackets):
+
+| | e78e75b2d191 | 5822b6646448 | c40d950031bb (331 px) |
+|---|---|---|---|
+| team, product | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_team_all_f1=0.6367] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_team_team_f1=0.6995]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_team_all_f1=0.4803] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_team_team_f1=0.5041]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_team_all_f1=0.3389] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_team_team_f1=0.3445]) |
+| team, lifecycle off | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_any_team_all_f1=0.6367] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_any_team_all_f1=0.621] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_any_team_team_f1=0.6477]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_any_team_all_f1=0.4344] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_any_team_team_f1=0.4396]) |
+| self only, product | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_self_all_f1=0.6367] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_self_all_f1=0.2097] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_self_all_f1=0.1636] |
+| team precision / recall, product | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_team_all_precision=0.7074] / [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_team_all_recall=0.5788] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_team_all_precision=0.6573] / [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_team_all_recall=0.3784] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_team_all_precision=0.3562] / [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_team_all_recall=0.3233] |
+| team F1 interval, product | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_team_all_f1_lo=0.4674] to [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_team_all_f1_hi=0.7403] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_team_all_f1_lo=0.411] to [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_team_all_f1_hi=0.5436] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_team_all_f1_lo=0.2555] to [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_team_all_f1_hi=0.4245] |
+
+The team explains far more light than the self cone does, but the product
+still misses most of it on Lotus and at 331 px: its recall is
+[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_team_all_recall=0.3784] and [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_team_all_recall=0.3233].
+
+**The error by cause** (the product; share of false-lit pixels, FP, and of
+missed lit pixels, FN, with intervals):
+
+| cause | Lotus FP | Lotus FN | c40d FP | c40d FN | e78e FP | e78e FN |
+|---|---|---|---|---|---|---|
+| a geometry at pixel scale | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_a=0.1062] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_a_lo=0.0922]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_a_hi=0.1211]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_a=0.0063] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_a=0.102] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_a_lo=0.0848]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_a_hi=0.1298]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_a=0.0171] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fp_a=0.0587] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fn_a=0.0264] |
+| b smoke not modelled | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_b=0.0277] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_b_lo=0.0007]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_b_hi=0.0725]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_b=0.0003] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_b=0.0695] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_b_lo=0.0015]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_b_hi=0.1348]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_b=0.0015] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fp_b=0.2643] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fn_b=0.0] |
+| c ally ring-fit facing | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_c=0.0898] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_c_lo=0.0456]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_c_hi=0.1555]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_c=0.0341] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_c=0.0576] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_c_lo=0.0118]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_c_hi=0.1498]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_c=0.0173] | no allies | no allies |
+| d angular edge | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_d=0.0926] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_d_lo=0.0738]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_d_hi=0.1185]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_d=0.0197] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_d=0.0692] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_d_lo=0.0533]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_d_hi=0.0924]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_d=0.0187] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fp_d=0.0529] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fn_d=0.0146] |
+| e icon cast no cone | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_e=0.6481] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_e_lo=0.4999]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_e_hi=0.7557]) | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_e=0.7224] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_e_lo=0.6129]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_e_hi=0.7975]) | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fn_e=0.2596] |
+| of e: lifecycle quarantined | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_e_ineligible=0.4102] | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_e_ineligible=0.4611] | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fn_e_ineligible=0.0] |
+| of e: bearing refused | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_e_no_facing=0.1235] | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_e_no_facing=0.2258] | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fn_e_no_facing=0.0] |
+| of e: detected, not tracked | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_e_untracked=0.1144] | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_e_untracked=0.0355] | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fn_e_untracked=0.2596] |
+| f no plausible caster | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_f=0.1327] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_f_lo=0.0916]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_f_hi=0.1945]) | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_f=0.0685] | | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fn_f=0.4149] |
+| g other | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_g=0.6837] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_g_lo=0.5822]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_g_hi=0.7484]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_g=0.1588] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_g=0.7018] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_g_lo=0.5769]-[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_g_hi=0.7946]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_g=0.1544] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fp_g=0.6242] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fn_g=0.2845] |
+
+Missed light outweighs false light on Lotus ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_FN=1618329] pixels against
+[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_FP=513761]), so the FN column carries the error there: pixel-scale geometry holds [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_err_a=0.0303] of all
+error pixels on Lotus, [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_err_a=0.0564] on c40d and [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_err_a=0.0381] on
+Ascent; uncast icons hold [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_err_e=0.4919] and [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_err_e=0.3876]. With the
+lifecycle gate off, geometry rises to [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_any_err_a=0.0462] and [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_any_err_a=0.0731]
+and the unexplained share g to [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_any_err_g=0.4438] and [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_any_err_g=0.5988]. Rule
+(a) comes first and takes the pixels along a wall of any wrong cone, so it
+bounds pixel geometry from above.
+
+**What the sheets show.** The sheets are in the store's
+`analysis/team-vision-errors-20260929/` (`<session>_fp_<cause>.png`,
+`<session>_fn_<cause>.png`, `<session>_whole.png`, `<session>_dark_frames.png`,
+`c40d950031bb_self_flip.png`, `c40d950031bb_smoke_lit_lost.png`, and the
+`peek_` sheets inspected before the run). Looking at them:
+
+- *e, uncast icons*: clear teammates with clear teardrops and drawn light,
+  outside the product. The quarantined bearings are the largest part.
+- *g, false light*: whole cones turned the wrong way: a teammate in a stack,
+  a self teardrop read at the threshold, and cones 10-30 degrees off, which
+  (c) and (d) do not reach. A facing oracle that turns each cone up to 40
+  degrees toward the light removes [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_facing_oracle_removed=0.1415]
+  of the Lotus error and [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_facing_oracle_removed=0.2194] of c40d's.
+- *f, no caster*: light cut off from its icon by a stack, a spike glyph or a
+  wall gap; light round a large yellow ability glyph on Lotus; and the map's
+  own drawing.
+- *a, geometry*: stair-stepped curved walls on Lotus and cones grazing a
+  wall; most (a) pixels border a larger wrong cone.
+
+**Where the witness or the product is wrong**, counted:
+
+- *The map's drawing reads as light.* A site glyph on Ascent and hook marks on
+  Lotus are lit in half or more of the frames with no caster: they are
+  [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fn_f_static=0.3408] of the product's missed light on Ascent and
+  [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_f_static=0.0978] on Lotus, none on c40d. The lighting reference
+  calls these pixels known; the fix belongs in the baked geometry, not in a
+  per-session mask.
+- *Cones cast, no light.* On [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_dark_frames=35] c40d frames and
+  [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_dark_frames=17] Lotus frames the cast cones find under 5% of their
+  pixels lit: [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_dark=0.2123] of c40d's false light and [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_dark=0.023]
+  of Lotus's. The icons are teammates, several beside a smoke disc; the light
+  is simply not drawn. Whether a teammate in an enemy smoke draws no cone
+  [domain:minimap/enemy-smokes-block-cones], or something else hides it, is
+  the player's to answer; the frames are on `<session>_dark_frames.png`.
+- *The self teardrop at 331 px.* On c40d the self cone cast along a teardrop
+  facing over 90 degrees from the track's bearing holds [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_g_self_flip=0.1489]
+  of the false light, against [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_g_self_flip=0.0096] on Lotus. The sheet
+  shows fits at NCC 0.50 to 0.61, just over the gate, several with the
+  carried spike's yellow glyph over the portrait. The labels that settled the
+  teardrop came from 465 px widgets; its precision at 331 px is
+  [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_e5_cast_precision=0.3427] against E4's self witness.
+- *Smoke discs are larger than their tracks.* The birth radius comes from a
+  hatched component; the drawn edge lies [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_smoke_r_gain_mean=1.899] px further
+  out on Lotus and [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_smoke_r_gain_mean=1.4138] px on c40d, so the analysis
+  measures each frame's edge with the owner's `grey_dark`.
+- *Smoke walls cost light on c40d.* There, making discs walls lowers F1 by
+  [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_smoke_walls_df1=-0.0163]: teammates standing inside a disc still
+  draw their light. Whether a cone starts inside a team smoke is a player
+  question.
+- *Red icons and pings* are [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fp_red=0.0155] of Lotus's false light and
+  [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fp_red=0.0114] of c40d's; saturated glyphs [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fn_sat=0.0035] and
+  [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fn_sat=0.0127] of the missed light. The menu witness covers no scored
+  frame on Lotus or c40d and [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_menu_frames=15] on Ascent, whose error is not
+  separated.
+
+**The fixes, ranked** by the product's F1 change (error pixels removed, net,
+in brackets). Oracles read the witness and bound a fix from above.
+
+| fix | Lotus | c40d (331 px) | e78e |
+|---|---|---|---|
+| lifecycle gate off | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_lifecycle_off_df1=0.1407] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_lifecycle_off_removed=0.1653]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_lifecycle_off_df1=0.0954] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_lifecycle_off_removed=-0.0141]) | no quarantine |
+| facing, oracle (each cone turned up to 40 deg) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_facing_oracle_df1=0.0572] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_facing_oracle_removed=0.1415]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_facing_oracle_df1=0.0687] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_facing_oracle_removed=0.2194]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_facing_oracle_df1=-0.0018] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_facing_oracle_removed=0.0155]) |
+| uncast icons cast from their teardrops | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_cast_uncast_df1=0.0587] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_cast_uncast_removed=0.0369]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_cast_uncast_df1=0.0393] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_cast_uncast_removed=-0.0669]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_cast_uncast_df1=0.0611] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_cast_uncast_removed=0.1205]) |
+| ally teardrop cones | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_ally_teardrop_df1=0.0206] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_ally_teardrop_removed=0.023]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_ally_teardrop_df1=-0.0226] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_ally_teardrop_removed=-0.0506]) | no allies |
+| doorways, oracle | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_doorway_oracle_df1=0.0105] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_doorway_oracle_removed=-0.0115]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_doorway_oracle_df1=0.0299] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_doorway_oracle_removed=-0.0483]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_doorway_oracle_df1=0.0128] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_doorway_oracle_removed=-0.0449]) |
+| smoke discs as walls | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_smoke_walls_df1=0.0016] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_smoke_walls_removed=0.0071]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_smoke_walls_df1=-0.0163] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_smoke_walls_removed=0.0143]) | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_smoke_walls_df1=0.0239] ([metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_smoke_walls_removed=0.0998]) |
+| half-angle +4 deg | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_half_plus4_df1=0.0054] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_half_plus4_df1=0.0046] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_half_plus4_df1=-0.0073] |
+| half-angle -4 deg | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_half_minus4_df1=-0.01] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_half_minus4_df1=-0.0078] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_half_minus4_df1=-0.0135] |
+| every box edge passable | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_boxedge_open_df1=-0.1599] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_boxedge_open_df1=-0.087] | [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_boxedge_open_df1=-0.168] |
+
+1. **Missing cones first.** The lifecycle's quarantine is the largest single
+   loss: it drops teammates' and the player's own cones that the light
+   confirms. Why it quarantines them is the lifecycle's `adjudication`
+   row, which `team_vision` computes and does not store; read that reason
+   before changing the gate. Casting refused and untracked icons
+   from their teardrops adds the next share.
+2. **Facing second.** A cone turned the wrong way is most of the false light.
+   The ally teardrop recovers about a third of the facing oracle's F1 gain
+   on Lotus and hurts at 331 px, where it reads [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_ally_td_read=0.6921] of ally cones
+   (against [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_ally_td_read=0.9189]) with constants fitted at 465 px; the self
+   teardrop misreads at 331 px. The teardrop needs a scale check at 331 px
+   before any team cone takes it.
+3. **Pixel geometry third.** Its bound is small: (a) holds 3-7% of the error,
+   and opening only the box edges beside missed light gains at most
+   [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_fix_doorway_oracle_df1=0.0105] and [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_fix_doorway_oracle_df1=0.0299]
+   in F1. Opening every box edge floods the map.
+4. **Smoke fourth.** Walls gain little on Lotus, a tenth of the error on the
+   Ascent spawn clip, and cost light on c40d.
+5. **The half-angle last.** Four degrees either way moves F1 by at most
+   [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#e78e_prod_fix_half_minus4_df1=-0.0135]; 51.5 stays.
+
+**Against the predictions.** T1 held (team over self by
+[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_team_all_f1=0.4803] to [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#lotus_prod_self_all_f1=0.2097] and
+[metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_team_all_f1=0.3389] to [metric:team_vision_errors/causes@e78e75b2d191+5822b6646448+c40d950031bb#c40d_prod_self_all_f1=0.1636]; equal on the spawn
+clip). T2 held. T3 failed: uncast icons took about two-thirds of the missed
+light, not 30-45%, and geometry, ally facing and the angular edge each took
+far less than predicted. T4 failed: g, whole cones turned wrong, took about
+70% of the false light. T5 held only in its "not a majority" clause:
+geometry holds 3-6% of the error, under the 15% floor. T6 failed: the
+lifecycle gate, which it did not name, ranks first; the ally teardrop removes
+under 5%; opening box edges destroys precision. T7 failed: the map's drawing
+and the frames with no drawn light exceed 5% of the error. The falsifier was
+not met. The player's hypothesis that pixel-level geometry holds much of the
+error is refuted on these three sessions at the stored product: missing and
+misdirected cones hold most of it.
+
+**Questions for the player**, each with its sheet: does a teammate inside a
+team smoke still draw a cone (`c40d950031bb_smoke_lit_lost.png`); what hides
+every cone on the `dark_frames` sheets (an enemy smoke, a death, a flash);
+and is the large yellow glyph on Lotus that lights the floor round it an
+ability (`5822b6646448_fn_f.png`, 1617.9 s).
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
@@ -950,3 +1136,6 @@ degrees apart on a fifth of ally frames, not the 30% predicted.
   same light the bisector reads.
 - The facing spread is measured against the light's bisector, which a
   half-occluded cone biases; it is an upper bound on the fit's error.
+- E7 scores three sessions and one 331 px widget; its causes rest on ordered
+  rules, so an early rule (geometry) takes pixels a later cause (a wrong
+  cone) produced. Why the lifecycle quarantines confirmed cones is unread.
