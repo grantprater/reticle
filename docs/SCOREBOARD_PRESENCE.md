@@ -410,7 +410,8 @@ the table's frame therefore needed frames decoded ("The table's frame").
 
 One CPU seek decode stored [metric:scoreboard/table-frame@fixture#boards=456] boards as lossless crops of frame
 rows 150-899 at full width in the store fixture `fixtures/scoreboard_edges`
-(`index.jsonl` names each board's session, frame, group and the 0.9.0 read),
+(cropped to the reader's region on 2026-09-29, "The table's rows";
+`index.jsonl` names each board's session, frame, group and the 0.9.0 read),
 chosen by `random.Random(20260928)` from the stored rows: boards with the left
 edge at x 0, left of the board, right of it, at the board, and at the board
 with a wrong right edge. Six sessions are held out (`223d636bf8d2`,
@@ -460,6 +461,48 @@ opens that 0.9.0 closed ([metric:scoreboard/table-frame@fixture#opened_now=0]). 
 show no board (`notes/pictures/scoreboard_edges_closed_no_frame.png`).
 Predictions E1 and E4 hold; E2 and E3, the colour rules, fail (ledger task
 `scoreboard-edges`).
+
+### The table's rows
+
+The row test counted slab pixels across the whole frame width, so green or
+red world beside the board decided which rows passed: a green wall above the
+ally block joined it, and a warm wall beside a dull enemy slab carried it.
+From `scoreboard-0.11.0`, where the strip's rectangle is known, the test
+counts only the table's columns (`scoreboard.table_columns`, frame x
+572-1347). Every pixel the reader reads, the frame fit's search and the
+portrait pad included, then lies in `scoreboard.reader_roi`, frame x
+535-1382 over the whole height. `prototypes/scoreboard_fixture.py` scores the
+reader on the fixture and writes its crops.
+
+Each board reads the same with everything outside that region blanked
+([metric:scoreboard/table-rows@fixture#roi_equal=456] of [metric:scoreboard/table-rows@fixture#boards=456], portrait scores included). Against 0.10.0,
+[metric:scoreboard/table-rows@fixture#changed=197] boards change; [metric:scoreboard/table-rows@fixture#changed_placement=112] move a verdict, an edge or a row, and
+the rest change only the closing reason, anchor or confirmation. Contact
+sheets draw both reads (`notes/pictures/scoreboard_rows_changed/`); by eye:
+
+| Change | Boards |
+|---|---|
+| Rows onto the table, off it at 0.10.0 | [metric:scoreboard/table-rows@fixture#better_on_table=47] |
+| An open without a board closes | [metric:scoreboard/table-rows@fixture#better_no_board_closed=4] |
+| A board read at the table closes | [metric:scoreboard/table-rows@fixture#worse_closed=5] |
+| Misread at 0.10.0, refused now | [metric:scoreboard/table-rows@fixture#neither_refused_now=3] |
+| Off the table both times | [metric:scoreboard/table-rows@fixture#neither_both_off=5] |
+| On the table, 2 px apart: not judged | [metric:scoreboard/table-rows@fixture#not_judged_2px=48] |
+
+The five losses (three on `587c15b07779`, one each on `7010b3d62460` and
+`ff636d173b07`) are slabs over a dull or pale world whose colour covers under
+MIN_TABLE_W of the table's columns; world beside the board had carried them.
+The 2 px pairs place the enemy block at y 568-736 or 570-738 and read the
+same cells; the slab's last row lies at 737 on the boards measured, so
+neither version is right on every one. The openings gate accepts
+[metric:scoreboard/table-rows@fixture#accepted_after=376] boards against [metric:scoreboard/table-rows@fixture#accepted_before=340], and on the
+[metric:scoreboard/table-rows@fixture#accepted_both=335] both accept every row names the same agent
+([metric:scoreboard/table-rows@fixture#accepted_both_same_agents=335]), so 0.10.0's openings stay applied.
+
+The fixture now holds that region only: [metric:scoreboard/table-rows@fixture#fixture_roi_mb=198.5] MB of crops at frame x
+535-1382, rows 150-899 (the box is in `manifest.json`), against
+[metric:scoreboard/table-rows@fixture#fixture_full_width_mb=480.5] MB at full width. Its reads equal the full-width reads on
+[metric:scoreboard/table-rows@fixture#cropped_fixture_equal_full_width=456] boards. Predictions R1 to R6 hold (ledger task `scoreboard-rows`).
 
 ### A portrait-confirmed board counts once
 
@@ -517,10 +560,14 @@ that count.
 - Keep an image of every board the holdout refuses at the strip, and view
   them before changing either confirmation: on `bfad2778a372` the run kept
   none (see "Held out on a second map").
-- Rescan the scoreboard at `scoreboard-0.10.0` (the player's call): the
-  stored 0.9.0 rows keep the dense columns' edges ("The edges in storage").
-  A scoreboard ROI in the crop cache, written by that rescan, would let
-  later reader changes rerun without a decode.
+- Rescan the scoreboard at `scoreboard-0.11.0` (the player's call): the
+  stored 0.9.0 rows keep the dense columns' edges ("The edges in storage"),
+  and 0.10.0's rows the whole-width row test ("The table's rows"). A
+  scoreboard set in the crop cache, holding `reader_roi` at the frames that
+  rescan reads, would let later reader changes rerun without a decode.
+- Recover the five boards 0.11.0 closes over a dull world. Ask what else
+  observes the enemy rows (the strip's line, the portraits) before lowering
+  MIN_TABLE_W.
 - The player reads the strip as round outcomes: a circle with an X per round
   of the half, green for an ally win and red for an enemy win, and a yellow
   dot on the right for the opponents' round total

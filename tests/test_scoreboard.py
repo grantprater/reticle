@@ -303,6 +303,32 @@ class StripAnchorTests(unittest.TestCase):
         # the green test's dense columns alone reach both walls
         self.assertEqual(self.read(f, rect=None).x0, 0)
 
+    def test_a_green_world_beside_the_board_leaves_the_rows(self):
+        # A green wall beside the board above the ally block: 600 columns of
+        # it passed the whole-width row test and joined the ally run (0.10.0).
+        f = self.frame(world=None)
+        f[300:340, 0:572] = self.GREEN
+        f[300:340, 1348:1400] = self.GREEN
+        board = self.read(f)
+        self.assertEqual((board.open_, board.rows[0].y0, board.rows[4].y1), (True, 340, 510))
+        # Without the strip's rectangle nothing places the columns: the whole
+        # width counts, and the wall joins the ally block.
+        self.assertEqual(self.read(f, rect=None).rows[0].y0, 300)
+
+    def test_the_read_depends_only_on_the_reader_roi(self):
+        from reticle.scoreboard import reader_roi, table_columns
+        self.assertEqual(table_columns(self.RECT), (self.X0, self.X1))
+        self.assertEqual(reader_roi(self.RECT, 1080), (535, 0, 1383, 1080))
+        f = self.frame()
+        f[300:700, 0:560] = self.GREEN          # world beside the board, both colours
+        f[300:700, 1390:1920] = self.RED
+        x0, y0, x1, y1 = reader_roi(self.RECT, 1080)
+        blank = np.zeros_like(f)
+        blank[y0:y1, x0:x1] = f[y0:y1, x0:x1]
+        a, b = self.read(f), self.read(blank)
+        self.assertTrue(a.open_)
+        self.assertEqual(a, b)
+
     def test_a_pale_portrait_column_leaves_the_left_edge(self):
         f = self.frame()
         f[340:510, 576:602] = (200, 200, 200)  # the portraits fail the green test

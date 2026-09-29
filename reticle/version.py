@@ -91,7 +91,17 @@ ECONOMY_VERSION = "economy-0.1.0"
 # the other [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_closed_no_frame=3] closed and showing no board; the gate accepts
 # [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_accepted_after=49] of them, against [metric:scoreboard/table-frame@fixture#holdout_x0_wrong_accepted_before=2]. No correct board changes a row or a
 # verdict ([metric:scoreboard/table-frame@fixture#holdout_ok_rows_changed=0] of [metric:scoreboard/table-frame@fixture#holdout_ok_n=50]); its edges move at most [metric:scoreboard/table-frame@fixture#holdout_ok_edge_shift_max_px=2] px.
-SCOREBOARD_VERSION = "scoreboard-0.10.0"
+# 0.11.0: where the strip's rectangle is known, the row test counts slab
+# pixels only in the table's columns (`scoreboard.table_columns`, frame x
+# 572-1347), not across the whole frame, so green or red world beside the
+# board no longer moves the rows; every pixel read lies in
+# `scoreboard.reader_roi` (frame x 535-1382). On the decoded boards
+# (docs/SCOREBOARD_PRESENCE.md, "The table's rows"): each reads the same
+# pasted into black inside that region
+# ([metric:scoreboard/table-rows@fixture#roi_equal=456] of [metric:scoreboard/table-rows@fixture#boards=456]); against 0.10.0 the rows move onto
+# the table on [metric:scoreboard/table-rows@fixture#better_on_table=47] boards and [metric:scoreboard/table-rows@fixture#better_no_board_closed=4] opens with no board close,
+# while [metric:scoreboard/table-rows@fixture#worse_closed=5] boards read at the table close over a dull world.
+SCOREBOARD_VERSION = "scoreboard-0.11.0"
 # Stored versions whose accepted openings the current reader does not
 # contradict. A consumer of VERDICTS (the lineup constraining its top bar by
 # the board) accepts these; `reticle plan` still names the rescan. 0.7.0 adds
@@ -109,9 +119,12 @@ SCOREBOARD_VERSION = "scoreboard-0.10.0"
 # refused again ([metric:scoreboard/line-confirm@a06f04a0059f#stored_accepted_recovered=3]), with 0.7.0's rows or the same reads 2 px lower.
 # 0.10.0 moves the edges of boards 0.9.0 read with the right edges by at most
 # 2 px and refuses no opening 0.9.0 accepted ([metric:scoreboard/table-frame@fixture#fit_accepted_lost=0] + [metric:scoreboard/table-frame@fixture#holdout_accepted_lost=0] lost on the
-# fixture), so 0.9.0 stays applied.
+# fixture), so 0.9.0 stays applied. 0.11.0 names the same agent in every
+# row of every board both versions accept ([metric:scoreboard/table-rows@fixture#accepted_both_same_agents=335] of
+# [metric:scoreboard/table-rows@fixture#accepted_both=335]), and the [metric:scoreboard/table-rows@fixture#accepted_lost=5] accepted openings it refuses sit at the
+# board, so 0.10.0 stays applied.
 SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", "scoreboard-0.8.0",
-                                 "scoreboard-0.9.0", SCOREBOARD_VERSION)
+                                 "scoreboard-0.9.0", "scoreboard-0.10.0", SCOREBOARD_VERSION)
 # The round-history strip as a second presence witness of the Tab board, read
 # by `scoreboard_strip` from the hud crop cache's `center` crop and written as
 # `scoreboard_strip` rows by `reticle strip`. 0.1.0 ports the rule and

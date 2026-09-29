@@ -13,7 +13,11 @@ over five enemy rows, each row a coloured slab -- green for the player's team,
 red for the other -- carrying NAME, ULTIMATE, K, D, A, LOADOUT, CREDS, PING.
 Rows are found from the slab row-profile rather than assumed at fixed offsets,
 because the table is centred but the frame it sits on is not fixed and the
-number of visible rows changes while it animates in.
+number of visible rows changes while it animates in. Where the strip's
+rectangle is known, the profile counts slab pixels only in the table's
+columns (`table_columns`): green or red world beside the board once moved
+the rows and closed boards. Every pixel the reader reads then lies in
+`reader_roi`, so the board reads the same pasted into black.
 
 The world shows through the slabs and around them, and warm walls, sky and
 floor pass the red test, so the tallest red run is often the world below the
@@ -75,7 +79,9 @@ SLAB_V_MIN = 45
 # them are hairlines that never break the colour. So each block is found whole
 # and then divided by five, which the game guarantees: Valorant is always 5v5.
 TEAM_ROWS = 5
-# A row of the frame belongs to a block when this many of its pixels are slab.
+# A row of the frame belongs to a block when this many of its pixels are slab:
+# of the table's TABLE_W columns where the strip's rectangle places them
+# (`table_columns`), of the whole frame width where nothing places them.
 MIN_TABLE_W = 500
 # Plausible height for a whole five-row block at 1080p.
 MIN_BLOCK_H, MAX_BLOCK_H = 90, 300
@@ -159,7 +165,8 @@ HL_SEARCH = 3
 
 #: Why `read_scoreboard` closed a board, one per refusal branch, in the order
 #: it tests them. A slab block is a run of frame rows holding more than
-#: MIN_TABLE_W slab pixels: the tallest such run, or where the strip is
+#: MIN_TABLE_W slab pixels in the table's columns (the whole width where the
+#: strip's rectangle is unknown): the tallest such run, or where the strip is
 #: present the run that meets the strip. `no_rows` means no such row, `short`
 #: and `tall` a run outside MIN_BLOCK_H-MAX_BLOCK_H. Enemy rows whose height
 #: differs from the ally block's are re-anchored, not refused; the refusal is
@@ -243,14 +250,53 @@ class ScoreboardRead:
         return next((r for r in self.rows if r.is_player), None)
 
 
-def _slabs(frame: np.ndarray):
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+def table_columns(strip_rect: tuple[int, int, int, int]) -> tuple[int, int]:
+    """The frame columns `[x0, x1)` of a table centred on the strip's
+    rectangle, TABLE_W wide: frame x 572-1347 at 1920x1080. The frame fit
+    (`_frame_edges`) searches FRAME_SEARCH either side of this place."""
+    x0 = (strip_rect[0] + strip_rect[2]) // 2 - TABLE_W // 2
+    return x0, x0 + TABLE_W
+
+
+def reader_roi(strip_rect: tuple[int, int, int, int], height: int
+               ) -> tuple[int, int, int, int]:
+    """Every frame pixel `read_scoreboard` and `portrait_observations` read
+    where the strip's rectangle is known, as `(x0, y0, x1, y1)`, x1 and y1
+    exclusive: frame x 535-1382 over the whole height at 1920x1080.
+
+    The row test counts the table's columns (`table_columns`). The frame fit
+    (`_frame_edges`) reads FRAME_SEARCH either side of them, one column more
+    on the left for the step into its first column, and FRAME_W_TOL more on
+    the right, where the width may vary. The table's edges fall inside that
+    search, and the portrait search reaches AGENT_PAD left of the left edge.
+    Every cell, the outline and the strip lie between the edges. Rows are
+    wherever the blocks lie, so the region spans the frame's height."""
+    x0, x1 = table_columns(strip_rect)
+    left = x0 - FRAME_SEARCH - max(1, AGENT_PAD)
+    right = x1 + FRAME_SEARCH + FRAME_W_TOL + 1
+    return left, 0, right, height
+
+
+def _slabs(frame: np.ndarray, cols: tuple[int, int] | None = None):
+    """The green and red slab masks, frame-shaped. With `cols`, only those
+    columns `[x0, x1)` are tested and every other column is False."""
+    if cols is None:
+        part = frame
+    else:
+        a, z = max(0, cols[0]), min(frame.shape[1], cols[1])
+        part = frame[:, a:z]
+    hsv = cv2.cvtColor(part, cv2.COLOR_BGR2HSV)
     h = hsv[:, :, 0].astype(np.int16)
     s = hsv[:, :, 1].astype(np.int16)
     v = hsv[:, :, 2].astype(np.int16)
     green = (h > GREEN_H[0]) & (h < GREEN_H[1]) & (s > SLAB_S_MIN) & (v > SLAB_V_MIN)
     red = ((h < RED_H_LO) | (h > RED_H_HI)) & (s > SLAB_S_MIN) & (v > SLAB_V_MIN)
-    return green, red
+    if cols is None:
+        return green, red
+    full_g = np.zeros(frame.shape[:2], bool)
+    full_r = np.zeros(frame.shape[:2], bool)
+    full_g[:, a:z], full_r[:, a:z] = green, red
+    return full_g, full_r
 
 
 def _block(mask: np.ndarray, merge_gap: int = BLOCK_GAP) -> tuple[int, int] | None:
@@ -260,7 +306,9 @@ def _block(mask: np.ndarray, merge_gap: int = BLOCK_GAP) -> tuple[int, int] | No
 
 def _runs(mask: np.ndarray, merge_gap: int) -> list[list[int]]:
     """Runs `[start, end)` of frame rows holding more than MIN_TABLE_W slab
-    pixels, joining runs `merge_gap` rows apart or closer."""
+    pixels, joining runs `merge_gap` rows apart or closer. The caller decides
+    which columns count: `read_scoreboard` passes masks that are slab only
+    in the table's columns where the strip's rectangle is known."""
     on = (mask.sum(axis=1) > MIN_TABLE_W).astype(np.int8)
     edges = np.flatnonzero(np.diff(np.concatenate(([0], on, [0]))))
     merged: list[list[int]] = []
@@ -471,13 +519,17 @@ def read_scoreboard(
     `strip_rect` is the frame rectangle the round-history strip witness reads
     (`strip_rect()`); where it reads the strip present, the blocks are the
     runs that meet the strip's marker lines. Without it, or where the strip
-    is absent or unreadable, they are the tallest runs. Enemy rows the line
+    is absent or unreadable, they are the tallest runs. With it, the runs
+    count slab pixels only in the table's columns (`table_columns`), and the
+    read depends only on the pixels in `reader_roi`. Enemy rows the line
     places without a red run to confirm them open only when every one of
     their portraits scores at least PORTRAIT_CONFIRM_MIN against `icons`
     (`load_agent_icons`); without `icons` such a board closes. A closed board
     says which test closed it (`ScoreboardRead.reason`)."""
     H, W = frame.shape[:2]
-    green, red = _slabs(frame)
+    # The strip's rectangle places the table's columns, and the row test
+    # counts only those: world beside the board is not the board.
+    green, red = _slabs(frame, None if strip_rect is None else table_columns(strip_rect))
     seen = None
     if strip_rect is not None:
         from . import scoreboard_strip as strip
@@ -816,6 +868,11 @@ def portrait_observations(frame: np.ndarray, board: ScoreboardRead,
 class ScoreboardReader:
     """Sparse context-free scoreboard observations for a shared decode pass."""
 
+    #: The frame region every read depends on (`reader_roi`), set at the
+    #: first frame, or None where no strip rectangle places the table and the
+    #: whole frame counts. The coverage row carries it.
+    roi: list[int] | None = None
+
     def __init__(self, profile_name: str, hz: float = 2.0, spans=None,
                  min_confidence: float = 0.80, min_margin: float = 0.04,
                  icons_root=None):
@@ -835,9 +892,11 @@ class ScoreboardReader:
     def feed(self, sample) -> None:
         self.frames_offered += 1
         h, w = sample.frame.shape[:2]
+        rect = strip_rect(self.profile_name, w, h)
+        if rect is not None and self.roi is None:
+            self.roi = [int(v) for v in reader_roi(rect, h)]
         board = read_scoreboard(sample.frame, self.templates,
-                                self.min_confidence, self.min_margin,
-                                strip_rect(self.profile_name, w, h), self.icons)
+                                self.min_confidence, self.min_margin, rect, self.icons)
         self.samples.append({"frame_idx": int(sample.frame_idx), "t_ms": float(sample.t_ms),
                              "open": board.open_, "reason": board.reason,
                              "anchor": board.anchor, "strip": board.strip,
@@ -884,7 +943,8 @@ class ScoreboardReader:
                     "frames_open": self.frames_open, "portrait_scorer": portrait_scorer(),
                     "closed_reasons": dict(sorted(closed.items())),
                     "open_anchors": dict(sorted(anchors.items())),
-                    "open_confirms": dict(sorted(confirms.items()))}
+                    "open_confirms": dict(sorted(confirms.items())),
+                    "roi": self.roi}
         return ([coverage]
                 + [{**common, "kind": "row_observation",
                     "observation_key": f"{session_id}:{r['frame_idx']}:{r['display_row']}",
