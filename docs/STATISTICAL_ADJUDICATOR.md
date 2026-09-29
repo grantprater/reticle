@@ -792,6 +792,36 @@ turned 180 degrees, whose portraits arrive upside down after the resample
 does not turn them), a red portrait [domain:minimap/red-portrait-states],
 and a side whose lineup has a blind slot, where it abstains.
 
+**Rule B at the teardrop's centre (B', 2026-09-29).** B' re-reads the
+self frames at the self teardrop's centre (`teardrop.fit_teardrop` on the
+crop cache, 60 frames per session) before taking the same percentile. Of
+[metric:icon_portrait_gate/calibration-teardrop@self_icon-18#frames=884]
+frames the teardrop reads, the fits' median is
+[metric:icon_portrait_gate/calibration-teardrop@self_icon-18#fit_p50=0.883]
+and the threshold
+[metric:icon_portrait_gate/calibration-teardrop@self_icon-18#bt_max=3.8023],
+half the first one and still above every labelled not-icon. B' keeps
+[metric:icon_portrait_gate/labels-bt@5822b6646448+a06f04a0059f#ally_true_icon_kept_Bt=24]
+ally and
+[metric:icon_portrait_gate/labels-bt@5822b6646448+a06f04a0059f#enemy_true_icon_kept_Bt=17]
+enemy agent icons, and also keeps
+[metric:icon_portrait_gate/labels-bt@5822b6646448+a06f04a0059f#enemy_not_icon_kept_Bt=10]
+of the ten enemy not-icons and both glyphs. On the Lotus and Ascent sample
+it rejects
+[metric:icon_portrait_gate/sample-bt@5822b6646448#ally_reject_Bt=0.0] of
+the Lotus ally fits and one red-floor enemy fit, and it keeps the Wingman
+glyph. The sheets are `sample_rejected-bt.png` and `sample_kept-bt.png`
+in the same store folder. B1 and B2 failed, B3 passed, and the falsifier was met.
+
+The tail explains why. On `calibration_teardrop_tail.png`, most of the 32
+worst self frames carry the spike glyph across the portrait, and three
+are teardrop fits off any icon. Real icons under the spike fit as badly as
+pings and glyphs, so no per-frame threshold at a percentile of real icons
+separates them. The spike reader already sees the glyph: cross-reference
+it, flagging a carrier before the portrait is scored, and calibrate on
+frames with no glyph near the icon. That is the next experiment, with
+its own prediction.
+
 **Against the predictions.** L1 passed for both classes, with and without
 the candidates. L2 passed. C1 and C3 passed on 2026-09-28 and the labels do
 not bear on them. C2 failed: the ally read rate on Lotus fell under 0.90, the
@@ -808,8 +838,9 @@ degrees apart on a fifth of ally frames, not the 30% predicted.
   or widget scale has labels.
 - The ally and enemy teardrops are scored on one Lotus and one Ascent
   session; the teardrop reads the Wingman glyph as an agent, and no
-  portrait gate rule yet rejects not-icons without losing teammates: the
-  self-icon calibration must be taken again at the teardrop's centre.
+  portrait gate rule yet rejects not-icons without losing teammates: even
+  at the teardrop's centre, real icons under the carried spike fit as
+  badly as pings.
 - The self cone's fallback (ring fit and track lobe) serves about a tenth of
   Lotus's cast cones; teammates' cones still start at their ring fits along
   their tracks' lobes.

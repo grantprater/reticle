@@ -1,8 +1,9 @@
 r"""Keep a teardrop fit as an agent icon only where a portrait of its side's lineup explains it.
 
     .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --calibrate [--record]
+    .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --calibrate-teardrop [--per-session 60] [--record]
     .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --labels [--record] [--sheet PATH]
-    .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --sample [--n 40] [--record] [--out DIR]
+    .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --sample [--sessions SID ...] [--n 40] [--record] [--out DIR]
 
 `icon_teardrop` reads ally and enemy facings to a couple of degrees, and reads
 things that are not agent icons as confidently: a red ping disc, a portrait
@@ -36,6 +37,10 @@ teammate channel's. Rules, each fixed before the labels were scored:
     B  the fit to the side's set is at most `b_max`, the P99 of the stored
        self-icon frames' fit to their own ally five (`--calibrate`, over the
        self_icon sessions this prototype does not evaluate on) -- primary
+    Bt rule B with `bt_max` from the same self frames re-read at the self
+       teardrop's centre (`--calibrate-teardrop`, `teardrop.fit_teardrop`
+       on the crop cache): the first calibration fitted them at the ring
+       fit's centre
     C  the closest of all 29 rendered references lies in the side's set: the
        other 24 stand as the null hypothesis a non-portrait falls to by
        chance about 24 times in 29. The full gallery is used only as that
@@ -92,7 +97,7 @@ from reticle.profiles import get_profile  # noqa: E402
 from reticle.roi_cache import RoiCache  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "icon-portrait-gate-0.1.0"
+VERSION = "icon-portrait-gate-0.2.0"
 STORE = Path(DEFAULT_STORE)
 LOTUS, ASCENT = it_.LOTUS, it_.ASCENT
 LABELLED = (LOTUS, ASCENT)
@@ -102,7 +107,7 @@ SAMPLE_SESSIONS = (LOTUS, ASCENT, "223d636bf8d2")
 PERCENTILE = 99.0
 MATCH_PX = 3.0
 ELSEWHERE_PX = 8.0
-RULES = ("A", "B", "C", "BC")
+RULES = ("A", "B", "Bt", "C", "BC")
 CANDIDATES = "ability_candidates.json"
 
 
@@ -159,12 +164,14 @@ def features_at(crop: np.ndarray, x: float, y: float) -> dict:
     return ally_portrait.portrait_features(img, portrait_key(img))
 
 
-def gate(feats: dict, names: list[str], refs: dict, b_max: float) -> dict:
+def gate(feats: dict, names: list[str], refs: dict, b_max: float,
+         bt_max: float | None = None) -> dict:
     """Each rule's verdict on one portrait: True keeps the fit as an agent icon.
 
     `fit_side` is the fit to the closest of the side's set, `fit_all` to the
     closest of every rendered reference; the agents that attain them are
-    dropped here, because the gate names nobody."""
+    dropped here, because the gate names nobody. `Bt` is None until
+    `--calibrate-teardrop` has run."""
     fs = rendered_art_fit(feats, names, refs)
     fa = rendered_art_fit(feats, sorted(refs["agents"]), refs)
     if fs is None or fa is None:
@@ -174,14 +181,95 @@ def gate(feats: dict, names: list[str], refs: dict, b_max: float) -> dict:
     b = fs[0] <= b_max
     c = fs[0] <= fa[0] + 1e-9
     return {"fit_side": round(fs[0], 4), "fit_all": round(fa[0], 4),
-            "A": a, "B": bool(b), "C": bool(c), "BC": bool(b and c), "why": None}
+            "A": a, "B": bool(b), "Bt": None if bt_max is None else bool(fs[0] <= bt_max),
+            "C": bool(c), "BC": bool(b and c), "why": None}
+
+
+OUT = STORE / "analysis" / "portrait-gate-20260929"
 
 
 def load_calibration() -> dict:
-    p = STORE / "analysis" / "portrait-gate-20260929" / "calibration.json"
+    """The first calibration, with `bt_max` from the teardrop-centred one
+    where it exists."""
+    p = OUT / "calibration.json"
     if not p.exists():
         raise SystemExit(f"run --calibrate first ({p})")
-    return json.loads(p.read_text(encoding="utf-8"))
+    cal = json.loads(p.read_text(encoding="utf-8"))
+    pt = OUT / "calibration_teardrop.json"
+    cal["bt_max"] = json.loads(pt.read_text(encoding="utf-8"))["bt_max"] if pt.exists() else None
+    return cal
+
+
+def calibrate_teardrop(exclude: tuple[str, ...], per_session: int) -> dict:
+    """`bt_max`: rule B's percentile, taken with each self frame re-read at
+    the self teardrop's centre.
+
+    Up to `per_session` scored `self_icon` frames per session, evenly
+    spaced; each frame's crop from the minimap crop cache at the rectangle
+    `self_icon` read it from; `teardrop.fit_teardrop` at the stored centre,
+    scaled by `minimap.widget_scale`. Frames the teardrop refuses are
+    counted and left out, as the gate reads only teardrop fits."""
+    from reticle.minimap import widget_scale
+    from reticle.teardrop import fit_teardrop
+    refs = load_ally_portrait_references(STORE)
+    fv = refs["features_version"]
+    per, fits = {}, []
+    for p in sorted((STORE / "events" / "self_icon").glob("*.jsonl")):
+        sid = p.stem
+        if sid in exclude:
+            continue
+        lineup = load_lineup(sid, STORE)
+        names, why = side_gallery(lineup, "ally")
+        if why:
+            per[sid] = {"skipped": why}
+            continue
+        rows = [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+        head = rows[0] if rows and rows[0].get("kind") == "coverage" else {}
+        if head.get("portrait_features_version") != fv:
+            per[sid] = {"skipped": "features_version"}
+            continue
+        scored = [r for r in rows if r.get("kind") == "frame" and r.get("reason") is None
+                  and r.get("cx") is not None]
+        if not scored:
+            per[sid] = {"skipped": "no_scored_frames"}
+            continue
+        pick = [scored[i] for i in np.unique(np.linspace(0, len(scored) - 1,
+                                                         min(per_session, len(scored))).astype(int))]
+        man = geometry.manifest(sid, STORE)
+        cache, why = RoiCache.load(STORE, man, get_profile(man["source_profile"]), "minimap")
+        if cache is None:
+            per[sid] = {"skipped": f"no crop cache ({why})"}
+            continue
+        x0, y0, x1, y1 = cache.rect_of("minimap")
+        by_t = {float(r["t_ms"]): r for r in pick}
+        f_s, refused, missing = [], Counter(), 0
+        got = {float(s.t_ms): s.frame[y0:y1, x0:x1] for s in cache.samples(sorted(by_t), rois=["minimap"])}
+        for t, r in by_t.items():
+            crop = got.get(t)
+            if crop is None:
+                missing += 1
+                continue
+            tf = fit_teardrop(crop, r["cx"], r["cy"], scale=widget_scale(crop.shape[1]))
+            if not tf.get("read"):
+                refused[tf.get("reason")] += 1
+                continue
+            g = gate(features_at(crop, tf["x"], tf["y"]), names, refs, math.inf)
+            if g["fit_side"] is not None:
+                f_s.append(g["fit_side"])
+        per[sid] = {"picked": len(pick), "read": len(f_s), "refused": dict(refused), "missing": missing,
+                    "width": int(x1 - x0), "fit_p50": round(float(np.median(f_s)), 3) if f_s else None,
+                    "fit_p99": round(float(np.percentile(f_s, PERCENTILE)), 3) if f_s else None}
+        fits += f_s
+        print(sid, per[sid], flush=True)
+    fits = np.asarray(fits)
+    return {"version": VERSION,
+            "rule": f"bt_max = P{PERCENTILE:g} of identity.rendered_art_fit at the self teardrop's centre "
+                    "(teardrop.fit_teardrop on the crop cache) of stored self_icon frames, to their ally set",
+            "exclude": list(exclude), "per_session_max": per_session, "frames": int(len(fits)),
+            "sessions": sorted(k for k, v in per.items() if v.get("read")),
+            "bt_max": round(float(np.percentile(fits, PERCENTILE)), 4),
+            "fit_pct": {str(q): round(float(np.percentile(fits, q)), 3) for q in (50, 90, 95, 97.5, 99)},
+            "reference_version": refs.get("version"), "features_version": fv, "per_session": per}
 
 
 # --------------------------------------------------------------- calibration
@@ -281,7 +369,7 @@ def item_class(it: dict, a: dict, cands: set, colour: str | None, glyphs: set = 
     return "true_icon"
 
 
-def label_rows(b_max: float) -> list[dict]:
+def label_rows(b_max: float, bt_max: float | None = None) -> list[dict]:
     import icon_facing_eval as ife
     refs = load_ally_portrait_references(STORE)
     answers = lif.load_answers(lif.labels_path(STORE))
@@ -317,7 +405,7 @@ def label_rows(b_max: float) -> list[dict]:
                    "teardrop_reason": f.get("reason"), "x": round(x, 2), "y": round(y, 2),
                    "deg": f.get("deg"), "rests_on": "lineup", "gallery": len(names),
                    "gallery_reason": why}
-            row.update(gate(features_at(crop, x, y), names, refs, b_max))
+            row.update(gate(features_at(crop, x, y), names, refs, b_max, bt_max))
             # The detector's centre, for the record only: the rules read the teardrop's.
             gd = gate(features_at(crop, cx, cy), names, refs, b_max)
             row["det_fit_side"], row["det_B"] = gd["fit_side"], gd["B"]
@@ -358,10 +446,11 @@ def show_table(tab: dict, b_max: float) -> None:
 
 # -------------------------------------------------------------------- sample
 
-def sample_rows(n: int, b_max: float) -> tuple[list[dict], dict]:
+def sample_rows(n: int, b_max: float, bt_max: float | None = None,
+                sessions: tuple[str, ...] = SAMPLE_SESSIONS) -> tuple[list[dict], dict]:
     refs = load_ally_portrait_references(STORE)
     rows, meta = [], {}
-    for sid in SAMPLE_SESSIONS:
+    for sid in sessions:
         s = Lite(sid)
         lineup = load_lineup(sid, STORE)
         gals = {side: side_gallery(lineup, side) for side in ("ally", "enemy")}
@@ -380,7 +469,7 @@ def sample_rows(n: int, b_max: float) -> tuple[list[dict], dict]:
                     row = {"session": sid, "t_ms": float(t), "side": side, "x": round(f["x"], 2),
                            "y": round(f["y"], 2), "deg": round(f["deg"], 1), "ncc": round(f["ncc"], 3),
                            "rests_on": "lineup", "gallery": len(names), "gallery_reason": why}
-                    row.update(gate(features_at(crop, f["x"], f["y"]), names, refs, b_max))
+                    row.update(gate(features_at(crop, f["x"], f["y"]), names, refs, b_max, bt_max))
                     row["_crop"] = crop
                     rows.append(row)
         print(sid, "done", flush=True)
@@ -426,7 +515,7 @@ def tile(r: dict, K: int = 18, Z: int = 6) -> np.ndarray:
         top += f" {r['class'][:9]}"
     fs = "-" if r["fit_side"] is None else f"{r['fit_side']:.2f}"
     fa = "-" if r["fit_all"] is None else f"{r['fit_all']:.2f}"
-    flags = " ".join(f"{k}{'+' if r[k] else '-' if r[k] is False else '?'}" for k in ("A", "B", "C"))
+    flags = " ".join(f"{k}{'+' if r[k] else '-' if r[k] is False else '?'}" for k in ("A", "B", "Bt", "C"))
     for i, text in enumerate((top, f"fit {fs} all {fa}", flags)):
         cv2.putText(big, text, (3, 13 + 14 * i), 0, 0.42, (0, 0, 0), 3)
         cv2.putText(big, text, (3, 13 + 14 * i), 0, 0.42, (255, 255, 255), 1)
@@ -451,7 +540,7 @@ def write_sheet(path: Path, rows: list[dict], cols: int = 8, limit: int = 64) ->
 
 def _deps(cal: dict) -> dict:
     return {"prototype": VERSION, "reader": it_.VERSION, "b_max": cal["b_max"],
-            "a_fit_max": cal["a_fit_max"], "reference_version": cal["reference_version"],
+            "bt_max": cal.get("bt_max"), "a_fit_max": cal["a_fit_max"], "reference_version": cal["reference_version"],
             "features_version": cal["features_version"], "rests_on": "lineup",
             "centre": "teardrop"}
 
@@ -459,8 +548,12 @@ def _deps(cal: dict) -> dict:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--calibrate", action="store_true")
+    ap.add_argument("--calibrate-teardrop", action="store_true",
+                    help="rule Bt: the self frames re-read at the self teardrop's centre")
+    ap.add_argument("--per-session", type=int, default=60, help="--calibrate-teardrop: frames per session")
     ap.add_argument("--labels", action="store_true")
     ap.add_argument("--sample", action="store_true")
+    ap.add_argument("--sessions", nargs="+", default=list(SAMPLE_SESSIONS), help="--sample: sessions")
     ap.add_argument("--n", type=int, default=40, help="--sample: frames per session")
     ap.add_argument("--sheet", type=Path, help="--labels: contact sheet of every labelled item")
     ap.add_argument("--out", type=Path, default=STORE / "analysis" / "portrait-gate-20260929")
@@ -486,11 +579,30 @@ def main(argv=None) -> int:
                            context={"sessions": cal["sessions"]},
                            note="per-icon rendered-art fit of stored self_icon frames to their ally set")
         return 0
+    if args.calibrate_teardrop:
+        cal = calibrate_teardrop(tuple(SAMPLE_SESSIONS), args.per_session)
+        print(json.dumps({k: v for k, v in cal.items() if k != "per_session"}, indent=1))
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / "calibration_teardrop.json").write_text(json.dumps(cal, indent=1), encoding="utf-8")
+        if args.record:
+            metrics.record("icon_portrait_gate", part="calibration-teardrop",
+                           session="self_icon-" + str(len(cal["sessions"])),
+                           values={"frames": cal["frames"], "bt_max": cal["bt_max"]}
+                           | {f"fit_p{k}": v for k, v in cal["fit_pct"].items()},
+                           deps={"prototype": VERSION, "percentile": PERCENTILE, "exclude": cal["exclude"],
+                                 "per_session_max": cal["per_session_max"],
+                                 "reference_version": cal["reference_version"],
+                                 "features_version": cal["features_version"]},
+                           context={"sessions": cal["sessions"]},
+                           note="per-icon rendered-art fit of stored self_icon frames at the self teardrop's centre")
+        return 0
     cal = load_calibration()
+    suffix = "-bt" if cal.get("bt_max") is not None else ""
     if args.labels:
-        rows = label_rows(cal["b_max"])
+        rows = label_rows(cal["b_max"], cal.get("bt_max"))
         tab = label_table(rows)
         show_table(tab, cal["b_max"])
+        print("bt_max", cal.get("bt_max"))
         if args.sheet:
             order = {c: i for i, c in enumerate(CLASSES_ORDER)}
             write_sheet(args.sheet, sorted(rows, key=lambda r: (r["side"], order.get(r["class"], 9), r["t_ms"])),
@@ -507,31 +619,37 @@ def main(argv=None) -> int:
                 for rule in RULES:
                     values[f"{side}_{c}_kept_{rule}"] = d[f"kept_{rule}"]
                     values[f"{side}_{c}_kept_{rule}_td"] = d[f"kept_{rule}_td"]
-            metrics.record("icon_portrait_gate", part="labels", session="+".join(LABELLED), values=values,
+            metrics.record("icon_portrait_gate", part="labels" + suffix, session="+".join(LABELLED), values=values,
                            deps=_deps(cal) | {"labels": lif.labels_path(STORE).name, "candidates": CANDIDATES},
                            note="per side and item class, the fits each rule keeps")
         return 0
     if args.sample:
-        rows, meta = sample_rows(args.n, cal["b_max"])
+        sessions = tuple(args.sessions)
+        rows, meta = sample_rows(args.n, cal["b_max"], cal.get("bt_max"), sessions)
         tab = sample_table(rows)
         for k, d in tab.items():
             print(k, d)
         print(json.dumps(meta, indent=1))
         rng = np.random.default_rng(20260929)
-        rej = [r for r in rows if r["B"] is False or r["C"] is False]
-        rej.sort(key=lambda r: (r["side"], r["B"] is not False, r["session"], r["t_ms"]))
-        kept = [r for r in rows if r["B"] and r["C"]]
+        if suffix:
+            # Rule Bt's sheets: every fit it rejects, and a sample of those it keeps.
+            rej = [r for r in rows if r["Bt"] is False]
+            kept = [r for r in rows if r["Bt"]]
+        else:
+            rej = [r for r in rows if r["B"] is False or r["C"] is False]
+            kept = [r for r in rows if r["B"] and r["C"]]
+        rej.sort(key=lambda r: (r["side"], r["session"], r["t_ms"]))
         kept = [kept[i] for i in sorted(rng.choice(len(kept), min(48, len(kept)), replace=False))]
         kept.sort(key=lambda r: (r["side"], r["session"], r["t_ms"]))
-        write_sheet(args.out / "sample_rejected.png", rej, limit=96)
-        write_sheet(args.out / "sample_kept.png", kept, limit=48)
-        counts = Counter((r["side"], r["B"], r["C"]) for r in rows)
-        print("side, B, C:", dict(counts))
+        write_sheet(args.out / f"sample_rejected{suffix}.png", rej, limit=96)
+        write_sheet(args.out / f"sample_kept{suffix}.png", kept, limit=48)
+        counts = Counter((r["side"], r["B"], r["Bt"], r["C"]) for r in rows)
+        print("side, B, Bt, C:", dict(counts))
         if args.json:
             args.json.write_text(json.dumps([{k: v for k, v in r.items() if k != "_crop"} for r in rows],
                                             indent=1), encoding="utf-8")
         if args.record:
-            for sid in SAMPLE_SESSIONS:
+            for sid in sessions:
                 values = {}
                 for side in ("ally", "enemy"):
                     d = tab.get(f"{sid}/{side}")
@@ -539,7 +657,7 @@ def main(argv=None) -> int:
                         values[f"{side}_read"] = d["read"]
                         for rule in RULES:
                             values[f"{side}_reject_{rule}"] = d[f"reject_{rule}"]
-                metrics.record("icon_portrait_gate", part="sample", session=sid, values=values,
+                metrics.record("icon_portrait_gate", part="sample" + suffix, session=sid, values=values,
                                deps=_deps(cal) | {"n": args.n},
                                context={"capture": meta[sid]["capture"], "gallery": meta[sid]["gallery"]},
                                note="share of teardrop-read fits each rule rejects, unlabelled frames")
