@@ -15,8 +15,9 @@ The scoreboard reader's frames are its stored stream's samples instead, and
 under (`roi_cache.scoreboard_gate`): an opportunity the stored strip
 witness saw, not the reader's own opens.
 
-The ally-icon reader's frames are its stored stream's frame rows, at the
-stream's own rate, and `"occupied"` keeps those whose widget was drawn. A
+The ally-icon reader's frames are its stored stream's frame rows, read at
+the reader's declared rate, and `"occupied"` keeps those whose widget was
+drawn. A
 stream the cache fed (`frames_from`) holds only cached instants; one a
 decode wrote at 2 Hz holds instants the 15 Hz cache mostly lacks, and the
 trial refuses those as `not_cached` rather than reading a neighbour.
@@ -72,11 +73,10 @@ def _scoreboard_rows(reader, sid: str) -> dict[str, list[dict]]:
 
 
 def _ally_reader(ctx):
-    from .minimap import ALLY_DESCRIPTOR_HZ, ally_icon_reader
-    # The stored stream's rate, so the rows carry the `hz` it wrote.
-    head = ctx.store.read_events_kind("ally_icon", ctx.session_id, "coverage")
-    return ally_icon_reader(ctx, hz=float(head[0].get("hz") or ALLY_DESCRIPTOR_HZ)
-                            if head else ALLY_DESCRIPTOR_HZ)
+    from .minimap import ally_icon_reader
+    # The declared rate (`ALLY_DESCRIPTOR_HZ`), never the stored stream's: a
+    # stream at another rate shows as a moved `hz` field.
+    return ally_icon_reader(ctx)
 
 
 def _ally_rows(reader, sid: str) -> dict[str, list[dict]]:

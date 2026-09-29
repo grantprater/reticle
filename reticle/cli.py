@@ -1034,20 +1034,11 @@ def cmd_scan(args) -> int:
     want_ping = 'ping' in channels and args.ping and (args.force
                                or store.events_version("ping", sid) != PING_VERSION)
     want_roster = 'roster' in channels and args.roster and (args.force or not store.has_roster(sid, date))
-    # Rides the minimap's active spans at 2 Hz; versioned by its own stamp, so a
-    # descriptor change re-reads descriptors and leaves positions alone.
+    # Rides the minimap's active spans at `--ally-hz` (`ALLY_DESCRIPTOR_HZ`);
+    # versioned by its own stamp, so a descriptor change re-reads descriptors
+    # and leaves positions alone.
     want_ally = 'ally_icon' in channels and (
         args.force or store.events_version("ally_icon", sid) != ALLY_ICON_VERSION)
-    if getattr(args, "ally_hz", None) is None:
-        # A rescan keeps the stored stream's rate (15 Hz across the corpus),
-        # so a stale stream is reread from the 15 Hz minimap cache frame for
-        # frame; only an explicit lower rate resamples it.
-        path = store.events_path("ally_icon", sid)
-        head = {}
-        if path.is_file():
-            with open(path, encoding="utf-8") as fh:
-                head = json.loads(fh.readline() or "{}")
-        args.ally_hz = float(head.get("hz") or ALLY_DESCRIPTOR_HZ)
     # Grey dark floor at 4 Hz over active spans: the smoke observation.
     # Versioned by its own stamp, so `reticle smokes` can re-adjudicate
     # without a re-read.
@@ -4728,12 +4719,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-lineup", dest="lineup", action="store_false",
                    help="skip naming the ten agents from the top bar; it "
                         "otherwise rides every unnarrowed scan for free")
-    s.add_argument("--ally-hz", type=float, default=None,
-                   help=f"ally icon descriptor rate (default: the stored stream's rate, "
-                        f"else {ALLY_DESCRIPTOR_HZ:g}); round lifetimes want the minimap's 15. "
-                        "A rate below the minimap cache's reads the cached frame nearest "
-                        "each decode instant, an opt-in: 2 Hz scored worse on segment "
-                        "identity (docs/ALLY_ICON_RESAMPLE.md)")
+    s.add_argument("--ally-hz", type=float, default=ALLY_DESCRIPTOR_HZ,
+                   help=f"ally icon rate (default {ALLY_DESCRIPTOR_HZ:g}, the minimap "
+                        "cache's). A lower rate reads the cached frame nearest each decode "
+                        "instant, an opt-in: 2 Hz scored worse on segment identity "
+                        "(docs/ALLY_ICON_RESAMPLE.md)")
     s.add_argument("--only", nargs="+",
                    choices=("hud", "minimap", "ping", "roster", "scoreboard",
                             "ally_icon", "minimap_dark", "combat_report", "roi_cache"),

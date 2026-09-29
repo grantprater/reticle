@@ -1129,9 +1129,13 @@ def _interior(f: dict, keyed: np.ndarray, others=(), occluders=()):
 #: key pixels are masked out anyway, so this bounds where the portrait may be
 #: rather than trimming the ring.
 ALLY_INTERIOR_FRAC = 0.75
-#: How often the reader describes ally icons. Positions ride every frame; a
-#: descriptor is 90 floats per icon, and identity changes only at a death.
-ALLY_DESCRIPTOR_HZ = 2.0
+#: The ally-icon reader's declared rate, and the one place it is set: the
+#: `AllyIconReader` default, `scan --ally-hz` and `trial`'s fallback. 15 Hz,
+#: the minimap cache's rate, so a rescan reads the cache frame for frame.
+#: It was 2.0 until 2026-09-29; the corpus's streams were already 15 Hz,
+#: because segment identity scored lower at 2 Hz than at 5 to 15 Hz
+#: (`prototypes/minimap_fidelity.py`, docs/archive/NOTES-through-2026-09-26.md).
+ALLY_DESCRIPTOR_HZ = 15.0
 #: Below this mean grey difference from the baked map, an icon's interior IS
 #: the map and the icon is a teal spawn barrier, not a teammate. Measured on
 #: ten random frames of a06f04a0059f with five allies alive: nine barrier fits

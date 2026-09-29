@@ -9,10 +9,12 @@ in its coverage row, as `minimap_dark` does; the stamp stays
 `ally-icon-0.5.0`. `reticle trial --reader ally_icon` rereads the stored
 frames from the cache, and `reticle plan` names that trial.
 
-**The 2 Hz resample is an opt-in, not the default.** A rescan keeps the
-stored stream's rate: `scan --only ally_icon` without `--ally-hz` reads the
-rate from the stored coverage row, 15 Hz across the corpus, and so rereads
-the 15 Hz cache frame for frame. Only an explicit `--ally-hz 2` resamples.
+**The 2 Hz resample is an opt-in, not the default.** The reader's declared
+rate, `minimap.ALLY_DESCRIPTOR_HZ`, is now 15 Hz (it was 2 Hz): the rate of
+the corpus's stored streams and of the minimap cache, so `scan --only
+ally_icon` rereads the cache frame for frame. The rate is a declared
+parameter, never read back from a stored stream. Only an explicit
+`--ally-hz` below the cache's rate resamples.
 The measurements below compare the cache-resampled 2 Hz stream with a 2 Hz
 decode, 2 Hz against 2 Hz; they show the cache costs a 2 Hz reader nothing,
 and they do not clear 2 Hz against 15 Hz. The 15 Hz stored streams stand:
