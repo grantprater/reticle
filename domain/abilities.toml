@@ -1766,6 +1766,38 @@ session plays Astra
 see = ["abilities/catalogue-charge-counts-confirmed", "abilities/astra-nebula-minimap-disc",
        "abilities/skye-regrowth-resource-bar"]
 
+[catalogue-restock-and-ult-points-confirmed]
+claim = """
+The restock values and ultimate-point costs that the wiki harvest of
+2026-09-04 (reference/abilities.json) gives are the game's values. For each C,
+Q and E ability the harvest's restock is how a spent charge returns within the
+round: the listed time (20 to 60 s; three abilities list one time when
+destroyed and another when recalled) or the listed kills (2 kills on four
+abilities), with the harvest's notes on modes and globules as listed; where
+the harvest lists no restock (54 abilities), the ability has none. For each X
+ability the harvest's `cost` is the ultimate points it needs (7, 8 or 9).
+Astra's X has no harvest cost, and this fact gives it none. The 72 restock
+values and 28 ultimate-point values stand in the mechanics sheet's Restock
+and Charges columns.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+subject = "abilities:restock"
+source = """
+player, 2026-09-29 (chat), answering the mechanics sheet's `harvest: ...?`
+cells (docs/ABILITY_MECHANICS_SHEET.md), which listed each harvest value as a
+question: every one looks right to him
+"""
+use = """
+a consumer that needs an ability's restock or ultimate points reads the
+harvest entry and cites this fact, as ability_state does for charge counts
+with abilities/catalogue-charge-counts-confirmed; a per-ability domain fact
+still outranks the harvest. A harvest of another date is unconfirmed again
+"""
+see = ["abilities/recharge-kinds", "abilities/catalogue-charge-counts-confirmed",
+       "abilities/ult-charge-pips", "abilities/ability-rules-are-unique"]
+
 [skye-regrowth-channelled]
 claim = """
 Skye's Regrowth in slot C is channelled: she heals while the fire button is
