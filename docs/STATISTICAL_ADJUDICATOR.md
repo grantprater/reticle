@@ -872,6 +872,53 @@ the ping channel. The prototype stays `"wire": "no"`. Bs rests on 60
 labels from two 465 px sessions; its threshold comes from the self icon,
 not from enemies; and no 331 px or turned widget was scored.
 
+**Bs off the 465 px widget (2026-09-29).** Bs ran unchanged on 40 frames
+from each of three 331 px sessions and each half of the Iso capture
+4f207c0c4e39 (C:/Users/grant/Videos/2026-09-27 19-40-58.mp4), whose widget
+is drawn turned over before 1192767 ms. That widget arrives resampled into
+a 331 px baked frame. Bs rejects
+[metric:icon_portrait_gate/sample-bs-331@223d636bf8d2#ally_reject_Bs=0.051],
+[metric:icon_portrait_gate/sample-bs-331@bfad2778a372#ally_reject_Bs=0.028]
+and [metric:icon_portrait_gate/sample-bs-331@e37fdeca944f#ally_reject_Bs=0.057]
+of the 331 px ally fits, and
+[metric:icon_portrait_gate/sample-bs-iso@4f207c0c4e39-turned#ally_reject_Bs=0.182]
+and [metric:icon_portrait_gate/sample-bs-iso@4f207c0c4e39-upright#ally_reject_Bs=0.382]
+on the Iso halves. Every ally reject on the sheets is a teammate, many of
+them Omen; the enemy rejects are floor. The rates look tolerable at 331 px,
+but the kept fits sit close to the threshold, so the gate has no margin
+there.
+
+The teardrop's centre is the cause. Its ally and enemy constants are one
+widget size's, 465 px. At 331 px its centre sits
+[metric:icon_portrait_gate/centre-check@223d636bf8d2#centre_offset_px=6.2]
+px from the ally ring fit's, against
+[metric:icon_portrait_gate/centre-check@a06f04a0059f#centre_offset_px=1.2]
+at 465 px. At the ring fit's centre, which scales with the widget, the
+331 px portraits fit at a median
+[metric:icon_portrait_gate/centre-check@223d636bf8d2#ring_median=0.6],
+the 465 px level; at the teardrop's they fit at
+[metric:icon_portrait_gate/centre-check@223d636bf8d2#teardrop_median=1.32].
+The teardrop's ally and enemy constants need scaling by
+`minimap.widget_scale`, as `reticle.teardrop` scales the self icon's, or a
+fit per widget size.
+
+The turned half confirms the domain fact once the portrait is centred
+[domain:minimap/upright-icons-on-turned-map]. Scored at the teardrop's
+centre, turning the portrait before scoring (`Bs_up`) did not help
+([metric:icon_portrait_gate/sample-bs-iso@4f207c0c4e39-turned#ally_reject_Bs_up=0.25]
+rejected). At the ring fit's centre, turning improves the fit on
+[metric:icon_portrait_gate/orient-check@4f207c0c4e39-turned#turned_better=0.97]
+of the turned half's icons, the median falling from
+[metric:icon_portrait_gate/orient-check@4f207c0c4e39-turned#asis_median=1.22]
+to [metric:icon_portrait_gate/orient-check@4f207c0c4e39-turned#turned_median=0.44].
+It helps on only
+[metric:icon_portrait_gate/orient-check@4f207c0c4e39-upright#turned_better=0.09]
+of the upright half's. Predictions D2 and D5 passed. D1 failed on its
+rate. D3 and D4 failed at the teardrop's centre, which confounded them. The
+sheets are `sample_rejected-bs-331.png`, `sample_kept-bs-331.png`,
+`sample_rejected-bs-iso.png`, `sample_kept-bs-iso.png` and
+`sample_rejected-bs-iso-up.png` in the same store folder.
+
 **Against the predictions.** L1 passed for both classes, with and without
 the candidates. L2 passed. C1 and C3 passed on 2026-09-28 and the labels do
 not bear on them. C2 failed: the ally read rate on Lotus fell under 0.90, the

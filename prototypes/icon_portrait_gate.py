@@ -4,7 +4,8 @@ r"""Keep a teardrop fit as an agent icon only where a portrait of its side's lin
     .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --calibrate-teardrop [--per-session 60] [--record]
     .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --calibrate-spike [--per-session 60] [--record]
     .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --labels [--record] [--sheet PATH]
-    .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --sample [--sessions SID ...] [--n 40] [--record] [--out DIR]
+    .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --sample [--sessions SID|SID:NAME:T0:T1 ...] [--n 40]
+        [--turned-variant] [--tag=-X] [--record] [--out DIR]
 
 `icon_teardrop` reads ally and enemy facings to a couple of degrees, and reads
 things that are not agent icons as confidently: a red ping disc, a portrait
@@ -67,7 +68,8 @@ Where it cannot work: a portrait the features cannot see (under
 `ally_portrait`'s disc, occluded by another icon in a stack, or too small at
 another widget scale), a widget drawn turned 180 degrees (the portraits
 arrive upside down after the resample [domain:minimap/upright-icons-on-turned-map];
-this prototype does not turn them), a red portrait
+`--turned-variant` scores them turned as well, and a variant widget's crop
+comes from the baked ROI the cache resamples it to), a red portrait
 [domain:minimap/red-portrait-states], and an agent missing from the gallery.
 """
 from __future__ import annotations
@@ -144,6 +146,15 @@ class Lite:
         if self.cache is None:
             raise SystemExit(f"{sid}: no minimap crop cache ({why})")
         self.cache_t = np.unique(np.asarray(self.cache.t_ms, dtype=float))
+        # A variant widget (`widget_frame`) arrives resampled into the baked
+        # frame at the baked ROI, which `rect_of` names; `placement` says
+        # where it was drawn turned over.
+        if self.cache.widget is not None:
+            self.box = tuple(self.cache.rect_of("minimap"))
+
+    def rotation(self, t_ms: float) -> int:
+        seg = self.cache.widget.at(t_ms) if self.cache.widget is not None else None
+        return int(seg["rotation"]) if seg else 0
 
     def crops(self, times):
         x0, y0, x1, y1 = self.box
@@ -165,8 +176,14 @@ def side_gallery(lineup: dict | None, side: str) -> tuple[list[str], str | None]
     return names, None
 
 
-def features_at(crop: np.ndarray, x: float, y: float) -> dict:
+def features_at(crop: np.ndarray, x: float, y: float, turn: bool = False) -> dict:
+    """The portrait's features at (x, y). `turn` rotates the aligned crop 180
+    degrees first: on a widget drawn turned over, portraits stay upright on
+    the screen and arrive upside down in the baked frame
+    [domain:minimap/upright-icons-on-turned-map]."""
     img = ally_portrait.align_icon(crop, x, y)
+    if turn:
+        img = np.ascontiguousarray(img[::-1, ::-1])
     return ally_portrait.portrait_features(img, portrait_key(img))
 
 
@@ -541,20 +558,36 @@ def show_table(tab: dict, b_max: float) -> None:
 
 def sample_rows(n: int, b_max: float, bt_max: float | None = None,
                 sessions: tuple[str, ...] = SAMPLE_SESSIONS,
-                bs_max: float | None = None) -> tuple[list[dict], dict]:
+                bs_max: float | None = None,
+                turned_variant: bool = False) -> tuple[list[dict], dict]:
     from reticle.minimap import widget_scale
     refs = load_ally_portrait_references(STORE)
     rows, meta = [], {}
-    for sid in sessions:
+    for spec in sessions:
+        # `sid` alone, or `sid:name:t0:t1` for a span of one session (either
+        # bound may be empty); the span's rows carry `sid-name`.
+        sid, *span = spec.split(":")
+        label = f"{sid}-{span[0]}" if span else sid
         s = Lite(sid)
         sp = SpikeRows(sid)
         lineup = load_lineup(sid, STORE)
         gals = {side: side_gallery(lineup, side) for side in ("ally", "enemy")}
-        meta[sid] = {"capture": s.capture, "gallery": {k: {"n": len(v[0]), "reason": v[1]}
-                                                       for k, v in gals.items()}}
-        times = it_.sample_times(s, n, calibration=False)
+        meta[label] = {"capture": s.capture, "gallery": {k: {"n": len(v[0]), "reason": v[1]}
+                                                         for k, v in gals.items()},
+                       "variant_widget": s.cache.widget is not None}
+        if span:
+            t0 = float(span[1]) if len(span) > 1 and span[1] else -math.inf
+            t1 = float(span[2]) if len(span) > 2 and span[2] else math.inf
+            T = np.array([t for t in s.cache_t if not it_.held_out(t) and t0 <= t < t1])
+            times = sorted(float(t) for t in T[np.linspace(0, len(T) - 1, n).astype(int)])
+            meta[label]["span_ms"] = [t0, t1]
+        else:
+            times = it_.sample_times(s, n, calibration=False)
+        rots = Counter()
         for t, crop in s.crops(times):
-            meta[sid]["width"] = int(crop.shape[1])
+            meta[label]["width"] = int(crop.shape[1])
+            rot = s.rotation(t)
+            rots[rot] += 1
             for side in ("ally", "enemy"):
                 key = it_.CLASSES[side].key(crop)
                 names, why = gals[side]
@@ -562,16 +595,23 @@ def sample_rows(n: int, b_max: float, bt_max: float | None = None,
                     f = it_.fit(None, side, d["cx"], d["cy"], key=key)
                     if not f.get("read"):
                         continue
-                    row = {"session": sid, "t_ms": float(t), "side": side, "x": round(f["x"], 2),
+                    row = {"session": label, "t_ms": float(t), "side": side, "x": round(f["x"], 2),
                            "y": round(f["y"], 2), "deg": round(f["deg"], 1), "ncc": round(f["ncc"], 3),
-                           "rests_on": "lineup", "gallery": len(names), "gallery_reason": why}
+                           "rotation": rot, "rests_on": "lineup", "gallery": len(names),
+                           "gallery_reason": why}
                     fl = spike_flags(sp.at(t), d["cx"], d["cy"], widget_scale(crop.shape[1]))
                     row.update({f"spike_{k}": v for k, v in fl.items()})
                     row.update(gate(features_at(crop, f["x"], f["y"]), names, refs, b_max, bt_max,
                                     bs_max, fl["carrier"]))
+                    if turned_variant:
+                        # The logged variant: the same gate on the portrait turned 180 degrees.
+                        gu = gate(features_at(crop, f["x"], f["y"], turn=True), names, refs, b_max,
+                                  bt_max, bs_max, fl["carrier"])
+                        row["fit_side_up"], row["Bs_up"] = gu["fit_side"], gu["Bs"]
                     row["_crop"] = crop
                     rows.append(row)
-        print(sid, "done", flush=True)
+        meta[label]["rotation_frames"] = {str(k): v for k, v in rots.items()}
+        print(label, "done", dict(rots), flush=True)
     return rows, meta
 
 
@@ -583,8 +623,9 @@ def sample_table(rows: list[dict]) -> dict:
             if not sub:
                 continue
             d = {"read": len(sub)}
-            for rule in RULES:
+            for rule in RULES + (("Bs_up",) if "Bs_up" in sub[0] else ()):
                 d[f"reject_{rule}"] = round(sum(r[rule] is False for r in sub) / len(sub), 3)
+            d["carrier"] = sum(bool(r.get("spike_carrier")) for r in sub)
             out[f"{sid}/{side}"] = d
     return out
 
@@ -615,6 +656,10 @@ def tile(r: dict, K: int = 18, Z: int = 6) -> np.ndarray:
     fs = "-" if r["fit_side"] is None else f"{r['fit_side']:.2f}"
     fa = "-" if r["fit_all"] is None else f"{r['fit_all']:.2f}"
     flags = " ".join(f"{k}{'+' if r[k] else '-' if r[k] is False else '?'}" for k in ("A", "Bt", "Bs", "C"))
+    if "Bs_up" in r:
+        flags += f" up{'+' if r['Bs_up'] else '-' if r['Bs_up'] is False else '?'}"
+    if r.get("rotation"):
+        top += f" r{r['rotation']}"
     if r.get("spike_carrier"):
         flags += " CARRIER"
     elif r.get("spike_spike") == "unread":
@@ -659,7 +704,11 @@ def main(argv=None) -> int:
     ap.add_argument("--per-session", type=int, default=60, help="--calibrate-teardrop/-spike: frames per session")
     ap.add_argument("--labels", action="store_true")
     ap.add_argument("--sample", action="store_true")
-    ap.add_argument("--sessions", nargs="+", default=list(SAMPLE_SESSIONS), help="--sample: sessions")
+    ap.add_argument("--sessions", nargs="+", default=list(SAMPLE_SESSIONS),
+                    help="--sample: sessions, each `sid` or `sid:name:t0:t1` for a span")
+    ap.add_argument("--turned-variant", action="store_true",
+                    help="--sample: also score each portrait turned 180 degrees (Bs_up)")
+    ap.add_argument("--tag", default="", help="--sample: suffix for the sheets and the metric part")
     ap.add_argument("--n", type=int, default=40, help="--sample: frames per session")
     ap.add_argument("--sheet", type=Path, help="--labels: contact sheet of every labelled item")
     ap.add_argument("--out", type=Path, default=STORE / "analysis" / "portrait-gate-20260929")
@@ -756,7 +805,9 @@ def main(argv=None) -> int:
         return 0
     if args.sample:
         sessions = tuple(args.sessions)
-        rows, meta = sample_rows(args.n, cal["b_max"], cal.get("bt_max"), sessions, cal.get("bs_max"))
+        rows, meta = sample_rows(args.n, cal["b_max"], cal.get("bt_max"), sessions, cal.get("bs_max"),
+                                 turned_variant=args.turned_variant)
+        tag = f"{suffix}{args.tag}"
         tab = sample_table(rows)
         for k, d in tab.items():
             print(k, d)
@@ -775,25 +826,33 @@ def main(argv=None) -> int:
         rej.sort(key=lambda r: (r["side"], r["session"], r["t_ms"]))
         kept = [kept[i] for i in sorted(rng.choice(len(kept), min(48, len(kept)), replace=False))]
         kept.sort(key=lambda r: (r["side"], r["session"], r["t_ms"]))
-        write_sheet(args.out / f"sample_rejected{suffix}.png", rej, limit=96)
-        write_sheet(args.out / f"sample_kept{suffix}.png", kept, limit=48)
+        write_sheet(args.out / f"sample_rejected{tag}.png", rej, limit=96)
+        write_sheet(args.out / f"sample_kept{tag}.png", kept, limit=48)
+        if args.turned_variant:
+            up = sorted((r for r in rows if r["Bs_up"] is False),
+                        key=lambda r: (r["side"], r["session"], r["t_ms"]))
+            write_sheet(args.out / f"sample_rejected{tag}-up.png", up, limit=96)
         counts = Counter((r["side"], r["Bt"], r["Bs"], r["C"]) for r in rows)
         print("side, Bt, Bs, C:", dict(counts))
         if args.json:
             args.json.write_text(json.dumps([{k: v for k, v in r.items() if k != "_crop"} for r in rows],
                                             indent=1), encoding="utf-8")
         if args.record:
-            for sid in sessions:
+            for label in meta:
                 values = {}
                 for side in ("ally", "enemy"):
-                    d = tab.get(f"{sid}/{side}")
+                    d = tab.get(f"{label}/{side}")
                     if d:
                         values[f"{side}_read"] = d["read"]
-                        for rule in RULES:
-                            values[f"{side}_reject_{rule}"] = d[f"reject_{rule}"]
-                metrics.record("icon_portrait_gate", part="sample" + suffix, session=sid, values=values,
-                               deps=_deps(cal) | {"n": args.n},
-                               context={"capture": meta[sid]["capture"], "gallery": meta[sid]["gallery"]},
+                        values[f"{side}_carrier"] = d["carrier"]
+                        for k, v in d.items():
+                            if k.startswith("reject_"):
+                                values[f"{side}_{k}"] = v
+                metrics.record("icon_portrait_gate", part="sample" + tag, session=label, values=values,
+                               deps=_deps(cal) | {"n": args.n, "turned_variant": args.turned_variant},
+                               context={k: meta[label].get(k) for k in
+                                        ("capture", "gallery", "width", "span_ms", "rotation_frames",
+                                         "variant_widget")},
                                note="share of teardrop-read fits each rule rejects, unlabelled frames")
         return 0
     ap.print_help()
