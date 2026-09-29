@@ -606,3 +606,61 @@ there is no enemy-spotted minimap class; a spotted message is a game witness
 of an enemy agent at a place and time, readable from the chat box
 """
 see = ["hud/chat-broadcasts-callouts"]
+
+[spectated-self-icon]
+claim = """
+While the player is dead and spectating, the minimap draws the spectated
+teammate as the yellow self icon. The switch waits for spectating to begin:
+for a short death-camera period after the death the camera stays on the
+player. The player thinks the period may run longer when Clove's ultimate
+is available; he is not sure.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29 (chat), approving the self-position guards"
+use = """
+a yellow icon after the player's death is a spectated teammate's
+observation, not a self point: the self track ends at his death until the
+next round (`adjudication.spectate`); the teammate's name is identity's call
+"""
+exceptions = """
+the Clove-ultimate extension is the player's uncertainty, not a fact; no
+session has measured it
+"""
+see = ["minimap/death-camera-period", "hud/tray-after-player-death"]
+
+[death-camera-period]
+claim = """
+From the player's killfeed death to the yellow icon jumping onto a
+teammate's place takes about 2.4 s, most deaths 1.4-2.6 s; a few switch
+within a second, and a few wait up to about 9 s. At the death his icon
+leaves his place, mostly without a yellow icon in its stead, until the
+switch.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-09-29"
+source = """
+prototypes/spectate_switch.py (spectate-switch-0.1.0, owner
+adjudication.spectate spectate-0.1.0) over stored l1/minimap, ally_icon,
+death and rounds of a06f04a0059f, 5822b6646448 and 223d636bf8d2; no decode.
+Of 53 killfeed deaths of the player, 33 kept the widget drawn until the
+switch, and the switch was found after 29 of them: median 2.38 s, IQR
+1.38-2.63 s, range 0.08-9.22 s (a06f04a0059f median 2.44 s, 223d636bf8d2
+2.51 s, 5822b6646448 1.38 s). Metrics rows spectate_switch/death-camera and
+death-camera-pooled, run self-spike-20260929. By eye at 5822b6646448
+1776.4 s the X replaces his icon and the yellow icon appears on a teammate
+about 1 s later.
+"""
+use = """
+a consumer ends the self track at the killfeed death, not at the switch;
+the switch is a fallback witness of a death the killfeed missed, taken only
+after a fall in the roster's alive count (`adjudication.spectate`)
+"""
+exceptions = """
+the stored self track is minimap-0.7.0's, whose misfits can place an early
+switch; the deaths where the widget was absent (the death screen or the full
+map) were counted apart; one widget size per session, three sessions
+"""
+see = ["minimap/spectated-self-icon"]

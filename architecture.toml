@@ -68,6 +68,7 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "adjudication.killfeed_names", "adjudication.ult_cast",
            "adjudication.ability_state", "adjudication.tray_kit",
            "adjudication.smoke_owner", "adjudication.spike_carrier", "self_icon",
+           "adjudication.spectate",
            "ability_coverage",
            "ability_timeline", "gametime", "domain_learning"]
 

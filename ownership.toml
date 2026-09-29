@@ -763,6 +763,24 @@ defers_to = ["self-position", "widget-drawn"]
 evidence = "tests/test_belief.py"
 
 [[entry]]
+id = "player-dead"
+question = "Is the yellow self icon the player at this instant, or has he died, and when does it show a spectated teammate?"
+owner = "adjudication.spectate"
+role = ["adjudicate"]
+status = "partial"
+produces = ["player_dead_intervals", "switch_after", "player_deaths", "DeadInterval", "DeadIndex", "Teammates", "stored_intervals", "stored_teammates", "stored_roster", "roster_drops", "SPECTATE_VERSION"]
+not_for = """
+Deciding a death, which is `death-victim`'s verdict; this turns the player's
+verdicts into intervals and takes the spectate switch only where no verdict
+exists and the roster's count fell. Nor naming the spectated teammate: the
+yellow icon after the switch is stored as a spectated teammate's
+observation with no name, and identity decides who it is. It reads the
+stored outputs of `death-victim`, `alive-count` and `self-position` and
+imports none of them.
+"""
+evidence = "tests/test_spectate.py, prototypes/spectate_switch.py"
+
+[[entry]]
 id = "round-bounds"
 question = "Where does a round begin and end, and which side is the player on?"
 owner = "rounds"
