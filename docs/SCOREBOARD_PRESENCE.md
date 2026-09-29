@@ -635,6 +635,27 @@ per scale, six scales, ten to fifteen windows a frame, each queued behind
 other jobs' kernels; cupy's per-call overhead takes much of the rest. One
 copy per window, or one batched call per frame, is the next saving.
 
+From `scoreboard-0.13.0` one CUDA kernel scores every portrait of a frame
+the cache does not hold, with one copy back (`scoreboard.portrait_agents`,
+`_art_scores_gpu_batch`); a board the portraits confirm scores its ally
+portraits in the same batch. The kernel sums pixels and pixel products
+as integers, exactly, and finishes each placement in float64, so no
+summation order moves a score and a window scores the same alone or in
+any batch. Batched matrix multiplies were tried first and were refused:
+cuBLAS summed a window's products in a different order at another batch
+size, and the same window scored differently in the fourth decimal. The
+reads return to 0.11.0's float64 reads: every fixture board equals it,
+portrait scores included ([metric:scoreboard/speed-batch@fixture#boards_identical_float64=456] of
+[metric:scoreboard/speed-batch@fixture#boards=456]), and so does every row of the window
+([metric:scoreboard/speed-batch@a06f04a0059f#rows_equal_float64=421] of [metric:scoreboard/speed-batch@a06f04a0059f#rows=421]), version aside. Against 0.12.0 no
+board changes a verdict, an edge, a row or a named agent
+([metric:scoreboard/speed-batch@fixture#bar_changed_boards=0]); the [metric:scoreboard/speed-batch@fixture#rounded_scores_differ=19] rounded scores
+float32 moved move back. Timed frame by frame against 0.12.0 over
+[metric:scoreboard/speed-batch@a06f04a0059f#runs=3] paired runs, an open frame takes
+[metric:scoreboard/speed-batch@a06f04a0059f#ms_open_mean_cur=55.2] ms against [metric:scoreboard/speed-batch@a06f04a0059f#ms_open_mean_ref=255.0] ms, and every run is
+at least [metric:scoreboard/speed-batch@a06f04a0059f#open_ratio_min=4.53] times faster; a closed frame
+costs the same.
+
 
 ## Predictions
 
