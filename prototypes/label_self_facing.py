@@ -14,11 +14,12 @@ teammates. The drawn light cannot judge it there; the player can.
 **Prepare** reads the minimap crop cache (no decode) every `STRIDE`-th frame,
 runs the self detector, the teardrop fit, the ring fit and E4's light-fitted
 facing (`cone_origin.light_facing` on the joined light), and draws about fifty
-items in five strata, each at least `GAP_MS` from the others:
+items in six strata, each at least `GAP_MS` from the others (`CONTROL_GAP_MS`
+on the 48 s control clip):
 
     flip      the teardrop and the light-fitted facing differ by over 90
               degrees (11% of lit read frames on Lotus)
-    disagree  they differ by `MID_DEG`, the band E4's median error sits in
+    disagree  they differ by 20 to 90 degrees (`MID_DEG`)
     agree     they differ by at most `AGREE_DEG`
     refused   the detector found a self candidate the teardrop refuses
               (E4 saw these lock on a yellow ability icon in a stack)
