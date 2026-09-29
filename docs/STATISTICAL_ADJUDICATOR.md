@@ -1220,6 +1220,32 @@ floor decal, a stair mark) becomes passable. A jump witness would be light
 beyond a box on isolated frames of an otherwise blocking box; no channel shows
 one yet.
 
+### Proposed, not built: elevation in the raycast
+
+The floor's shade is elevation [domain:minimap/floor-shade-is-elevation], and
+the baked geometry already keeps it: `map_shade` quantises the map ART into
+grey rungs and warps them into widget pixels as `shade_kind` (FLOOR, RAMP,
+SHADOW) and `shade_step` (rungs above the base floor). No capture enters it,
+so the drawn light, the widget's transparency and a session's lighting cannot
+reach it. The fetched art shows 3 floor rungs on Abyss and Lotus, 6 on Ascent,
+5 on Haven, 4 on Split and Summit and 2 on Sunset, besides ramps and shadow.
+Three uses, none built:
+
+1. *A raised caster sees over a low box.* A caster whose origin sits on a
+   rung above a box's surrounding floor passes that box; the stored
+   `boxes_crossed` and the light beyond each crossing test it frame by frame.
+2. *An overhang hides the floor below from above.* Floor on a SHADOW (under an
+   overhang, like A hell) is not lit by a caster on the rung above; the drawn
+   light on those pixels confirms or refutes it.
+3. *A step down is not a wall.* A ray crossing from a high rung to a low one
+   continues; what it lights below a drop is the light's to confirm.
+
+The drawn light can confirm (1) and (2) directly, since both predict light or
+its absence at named pixels. It cannot see height itself, so a pass the light
+shows with no rung difference is a jump or an error, and is stored apart. On
+`ascent__valorant-16x9` the art's placement is about 1% small in scale, so a
+rung boundary there may sit 1-2 px off.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
