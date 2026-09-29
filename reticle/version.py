@@ -286,7 +286,14 @@ PING_VERSION = "ping-0.1.0"
 # `spike.ON_GLYPH_PX` of it (`spike_glyphs`), and a fit that lands on one
 # (`spike.on_glyph`) is neither the self occluder nor a described teammate;
 # `ally_decisions` rejects it as `on_spike_glyph`.
-ALLY_ICON_VERSION = "ally-icon-0.5.0"
+# 0.6.0: every fit past the shape gate is posed by its teardrop (`teardrop.posed`:
+# SelfConeReader for the self channel, IconPoseReader for allies, at the widget's
+# scale): where it reads, its centre and facing replace the ring fit's in the glyph
+# check, the separation, the portrait's pixels and alignment, and the published
+# row; each fit keeps the ring fit's under `ring` and names its `pose` and
+# `facing_source`. `ally_decisions` rejects `facing_unread` only where neither
+# reader saw a lobe.
+ALLY_ICON_VERSION = "ally-icon-0.6.0"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.
@@ -386,7 +393,10 @@ TRAY_KIT_VERSION = "tray-kit-0.1.0"
 # glyph it refuses only a fit on the glyph's core or one whose carrier another
 # fit of the frame holds (0.3.0 rows, written on two sessions, refused by
 # distance alone).
-SELF_ICON_VERSION = "self-icon-0.4.0"
+# 0.5.0: the portrait is cut, aligned and tested for overlap at the self
+# teardrop's centre (`teardrop.SelfConeReader`, TEARDROP_VERSION) where it reads;
+# each row keeps the ring fit's `cx`, `cy` and adds `x`, `y`, `origin`.
+SELF_ICON_VERSION = "self-icon-0.5.0"
 # The kit of the local player as a state per slot (charges, equipped,
 # castable, owner alive), written as `ability_state` rows by `reticle
 # ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,
