@@ -20,29 +20,49 @@ from ..ability_timeline import build_timeline
 
 ABILITY_ENTITY_VERSION = "ability-entities-0.3.0"
 #: Refuses a candidate that is the team's drawn light. Decided here from stored
-#: `ability_light` evidence; the reader stores the raw lit decision and the self
-#: fits and decides nothing.
-LIGHT_REFUSAL_VERSION = "ability-light-refusal-0.2.0"
+#: `ability_light` evidence and the stored `team_vision`; the reader stores the
+#: raw lit decision and decides nothing.
+#: 0.3.0 (2026-09-28): a sliver is witnessed by the stored team vision, not a
+#: self raycast restated here with jitter, both lobes and relaxed walls.
+LIGHT_REFUSAL_VERSION = "ability-light-refusal-0.3.0"
 LIT_SHARE_MIN = 0.6
+#: A sliver the clean mask's opening starves: raw lit over this share of the
+#: box's known floor, and inside the team's adjudicated vision over
+#: `VISION_SHARE_MIN` of it.
+RAW_LIT_MIN = 0.35
+VISION_SHARE_MIN = 0.20
+
+
+def _vision_frames(root: Path, sid: str) -> tuple[dict, list, float | None]:
+    """Stored `team_vision` frame rows by time, the sorted times, and the cache rate."""
+    rows = _jsonl(root / "events" / "team_vision" / f"{sid}.jsonl")
+    hz = next((r.get("cache_hz") for r in rows if r.get("kind") == "coverage"), None)
+    frames = {float(r["t_ms"]): r for r in rows if r.get("kind") == "frame"}
+    return frames, sorted(frames), hz
 
 
 def light_refusals(root: Path, components: list[dict]) -> dict[str, dict]:
     """Decide, per component, whether its box is the team's drawn light.
 
     Refuses when `lighting.clean_lit`, rebuilt from the stored raw decision,
-    covers at least `LIT_SHARE_MIN` of the box. Where morphological opening in
-    `clean_lit` starves narrow cone slivers (raw_lit >= 0.35), evaluates joint
-    wall edge relaxation (1-px dilation) and measurement error budget
-    (dx, dy in [-2, 2] px, d_theta in [-10, 10] deg) against the player's
-    tracked facing series.
+    covers at least `LIT_SHARE_MIN` of the box. The opening in `clean_lit`
+    starves a cone narrowed to a sliver against a wall; such a box is refused
+    when the raw decision covers `RAW_LIT_MIN` of it AND the team's stored
+    adjudicated vision (`reticle vision`, owned by `team_vision`) covers
+    `VISION_SHARE_MIN` of it at the nearest stored frame within one cache
+    period. A dark object in the box is never refused.
 
-    Recovers 19 of 19 viewcone fragments (100.0%) and 0 of 34 abilities (0.0%)
-    against grouping labels without false ability refusals.
+    **Order.** This rule reads the vision at the candidate's instant; the
+    vision reads no ability entity. When smokes block the vision's rays, the
+    vision at t may consume only entities accepted before t, so the loop breaks
+    by time and nothing iterates. See `team_vision`.
+
+    Every decision records its `basis`, and a missing vision row is `unread`
+    with a reason, not a pass.
     """
-    import cv2
     import numpy as np
 
-    from .. import cone, geometry, lighting
+    from .. import geometry, lighting
 
     out: dict[str, dict] = {}
     by_session = defaultdict(list)
@@ -59,16 +79,11 @@ def light_refusals(root: Path, components: list[dict]) -> dict[str, dict]:
             continue
         with np.load(geo) as z:
             ref = lighting.reference(z)
-            passable = (z["labels"] != 0) if "labels" in z else None
+        vision, vision_t, vision_hz = _vision_frames(root, sid)
+        vision_t = np.asarray(vision_t, float)
+        max_dt = 1000.0 / float(vision_hz) if vision_hz else 0.0
 
-        passable_rel = None
-        if passable is not None:
-            passable_rel = cv2.dilate(passable.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=1).astype(bool)
-
-        series_path = root / "series" / f"{sid}.npz"
-        series = np.load(series_path) if series_path.is_file() else None
-
-        cache = {}
+        cache, vcache = {}, {}
         for c in rows:
             frame = frames.get(float(c["observed_t_ms"]))
             if ref is None or frame is None or frame.get("raw_lit") is None:
@@ -93,45 +108,41 @@ def light_refusals(root: Path, components: list[dict]) -> dict[str, dict]:
             raw_share = float(raw_lit[win][known].mean())
             is_dark = bool(raw_dark[win][known].any()) if raw_dark is not None else False
 
-            refused = False
-            if is_dark:
-                refused = False
-            elif clean_share >= LIT_SHARE_MIN:
-                refused = True
-            elif raw_dark is not None and raw_share >= 0.35 and series is not None and passable_rel is not None:
-                # Formulation D: Joint Geometry Edge & Orientation Uncertainty
-                best_cov = 0.0
-                t_arr = series["t_ms"]
-                idx = int(np.argmin(np.abs(t_arr - t)))
-                if np.abs(t_arr[idx] - t) <= 150:
-                    sx = float(series["self_x"][0, idx])
-                    sy = float(series["self_y"][0, idx])
-                    sd = float(series["self_d"][0, idx])
-                    if not np.isnan(sd):
-                        lobes = [sd, (sd + 180.0) % 360.0]
-                        for lobe in lobes:
-                            if refused:
-                                break
-                            for dx in (-2.0, 0.0, 2.0):
-                                if refused:
-                                    break
-                                for dy in (-2.0, 0.0, 2.0):
-                                    if refused:
-                                        break
-                                    for d_deg in (-10.0, 0.0, 10.0):
-                                        cmask = cone.raycast(passable_rel, sx + dx, sy + dy, (lobe + d_deg) % 360.0)
-                                        cov = float(cmask[win].mean())
-                                        if cov > best_cov:
-                                            best_cov = cov
-                                        if cov >= 0.20:
-                                            refused = True
-                                            break
+            # The team's vision at the nearest stored frame, or why there is none.
+            seen = {"status": "unread", "reason": "no_team_vision"}
+            if vision_t.size:
+                j = int(np.argmin(np.abs(vision_t - t)))
+                dt = float(vision_t[j] - t)
+                row = vision[float(vision_t[j])]
+                if abs(dt) > max_dt:
+                    seen = {"status": "unread", "reason": "no_vision_frame_near"}
+                elif row.get("observable") is None:
+                    seen = {"status": "unread", "reason": f"widget_{row.get('widget')}",
+                            "dt_ms": round(dt, 1)}
+                else:
+                    key = float(vision_t[j])
+                    if key not in vcache:
+                        vcache[key] = lighting.unpack_mask(row["observable"])
+                    share = float(vcache[key][win][known].mean())
+                    seen = {"status": "read", "share": round(share, 3), "dt_ms": round(dt, 1),
+                            "version": row.get("team_vision_version")}
 
+            basis = None
+            if is_dark:
+                basis = None
+            elif clean_share >= LIT_SHARE_MIN:
+                basis = "clean_lit"
+            elif (raw_share >= RAW_LIT_MIN and seen["status"] == "read"
+                  and seen["share"] >= VISION_SHARE_MIN):
+                basis = "raw_lit_in_team_vision"
+            refused = basis is not None
             out[c["component_id"]] = {
                 "status": "refused" if refused else "passed",
                 "reason": "drawn_light" if refused else None,
+                "basis": basis, "dark": is_dark,
                 "lit_share": round(clean_share, 3),
                 "raw_lit_share": round(raw_share, 3),
+                "team_vision": seen,
                 "rule_version": LIGHT_REFUSAL_VERSION}
     return out
 

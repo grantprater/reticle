@@ -1951,39 +1951,17 @@ def cmd_overlay(args) -> int:
     # geometry. Session frames may determine ROI placement/dimensions only.
     mm_box = mm_floor = mm_passable = mm_sgray = mm_light = mm_slab = med = None
     if not args.no_minimap:
-        geo = geometry.path_of(sid, args.store)
-        if geo is None or not geo.is_file():
+        from .team_vision import load_inputs
+        inputs, why = load_inputs(args.store, sid, profile, w, h)
+        if inputs is None:
             print("minimap    no baked geometry -- tag the session map or run "
                   "minimap_geometry.py for its (map, profile) key")
         else:
-            med = geometry.reference_static(sid, args.store)
-            mm_box = minimap_roi_px(profile, w, h)
-            mm_sd = geometry.stability(sid, args.store, med.shape[:2])
-            mm_floor = floor_mask(med, sd=mm_sd)
-            mm_slab = slab_mask(med, sd=mm_sd)
-            mm_sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
-            mm_passable = mm_floor
-            geo = geometry.path_of(sid, args.store)
-            if geo is not None and geo.is_file():
-                z = np.load(geo)
-                if "labels" in z.files and z["labels"].shape == mm_floor.shape:
-                    mm_passable = cone.passable_from(z["labels"], mm_floor)
-                    print("minimap    geometry labels loaded "
-                          "(a box stops a ray and is not lit)")
-                    # The lighting reference rides along with the labels: it is
-                    # the same npz and the same key. Without it the bearing is
-                    # whatever the ring fit said, lobe ambiguity and all.
-                    mm_light = lighting.reference(z)
-                    print("minimap    lighting reference loaded, lobes resolved "
-                          f"against the drawn light ({lighting.LIGHTING_VERSION})"
-                          if mm_light is not None else
-                          "minimap    geometry predates the two-state reference "
-                          "-- bearings keep their lobe ambiguity")
-                else:
-                    print("minimap    geometry present but unusable -- "
-                          "floor only, which under-claims")
-            else:
-                print("minimap    no geometry npz -- floor only, which under-claims")
+            for note in inputs.notes:
+                print(f"minimap    {note}")
+            mm_box, mm_floor, mm_slab = inputs.box, inputs.floor, inputs.slab
+            mm_sgray, mm_passable, mm_light = inputs.sgray, inputs.passable, inputs.light
+            med = inputs.static
 
     ctx = OverlayContext(profile=profile, templates=templates, width=w, height=h,
                          kf_mask=kf_mask, min_confidence=args.min_confidence,
@@ -2025,7 +2003,7 @@ def cmd_overlay(args) -> int:
         from .minimap_diagnostics import DIAGNOSTICS_VERSION
         diagnostic_path = out.with_suffix(".minimap.jsonl")
         diagnostic_file = diagnostic_path.open("x", encoding="utf-8")
-        producers = ("cli.py", "minimap.py", "track.py", "cone.py", "lighting.py", "minimap_lifecycle.py",
+        producers = ("cli.py", "minimap.py", "track.py", "cone.py", "lighting.py", "minimap_lifecycle.py", "team_vision.py",
                      "overlay.py", "minimap_diagnostics.py")
         metadata = {"type": "provenance", "version": DIAGNOSTICS_VERSION,
                     "track_version": TRACK_VERSION, "session": sid,
@@ -2683,6 +2661,83 @@ def cmd_ability_entities(args) -> int:
     print(f"{summary['supported_parent_edges']} supported parent edges; "
           f"{summary['review_windows']} unresolved review windows")
     print(f"ability entities: {target}")
+    return 0
+
+
+def cmd_vision(args) -> int:
+    """Store the team's adjudicated vision per frame, from the minimap crop cache.
+
+    Runs `team_vision.TeamVision` -- the chain `overlay` draws -- over every
+    frame of the session's minimap `roi_cache`, in time order, and writes
+    `events/team_vision/<session>.jsonl`. Decodes no capture: the four pixel
+    stages (`widget_drawn`, `ally_icons`, `self_icons`, `lit_mask`) read the
+    cached crops. A session with no cache or no geometry is reported and
+    skipped, never guessed.
+    """
+    from collections import Counter
+
+    from . import lighting, stalls
+    from .minimap_diagnostics import DIAGNOSTICS_VERSION
+    from .minimap_lifecycle import LIFECYCLE_VERSION
+    from .roi_cache import ROI_CACHE_VERSION, RoiCache
+    from .team_vision import TeamVision, frame_row, load_inputs
+    from .track import TRACK_VERSION
+    from .version import TEAM_VISION_VERSION
+
+    store = Store(args.store)
+    targets = store.sessions() if args.all else [_resolve_session(store, args.session)]
+    for manifest in targets:
+        sid = manifest["session_id"]
+        profile = get_profile(manifest["source_profile"])
+        src = manifest["source"]
+        w, h = int(src["width"]), int(src["height"])
+        cache, why = RoiCache.load(store.root, manifest, profile, "minimap")
+        if cache is None:
+            print(f"{sid}: no minimap crop cache ({why}) -- skipped")
+            continue
+        inputs, why = load_inputs(store.root, sid, profile, w, h)
+        if inputs is None:
+            print(f"{sid}: {why} -- skipped")
+            continue
+        rx0, ry0, rx1, ry1 = cache.rect_of("minimap")
+        x0, y0, x1, y1 = inputs.box
+        if not (rx0 <= x0 and ry0 <= y0 and x1 <= rx1 and y1 <= ry1):
+            print(f"{sid}: cache rect {cache.rect_of('minimap')} does not hold the widget "
+                  f"box {list(inputs.box)} -- skipped")
+            continue
+        inputs.stalls = stalls.for_session(store, sid, _date_of(manifest))
+        vision = TeamVision.from_inputs(inputs)
+        common = {"session_id": sid, "team_vision_version": TEAM_VISION_VERSION}
+        rows, widget = [], Counter()
+        times = sorted({float(t) for t in cache.t_ms})
+        for smp in cache.samples(times, rois=["minimap"]):
+            got = vision.step(smp.frame[y0:y1, x0:x1], smp.t_ms)
+            widget[got.widget] += 1
+            rows.append({**common, **frame_row(got, smp.frame_idx)})
+            if len(rows) % 500 == 0:
+                sys.stdout.write(f"\r  {sid}  {len(rows)}/{len(times)} frames")
+                sys.stdout.flush()
+        sys.stdout.write("\r" + " " * 60 + "\r")
+        rows.insert(0, {**common, "kind": "coverage", "frames": len(rows),
+                        "cache_frames": len(times), "widget": dict(sorted(widget.items())),
+                        "source": "roi_cache/minimap", "roi_cache_version": ROI_CACHE_VERSION,
+                        "cache_hz": cache.record.get("hz"),
+                        "geometry_key": inputs.geometry_key,
+                        "lighting_version": (lighting.LIGHTING_VERSION
+                                             if inputs.light is not None else None),
+                        "track_version": TRACK_VERSION,
+                        "lifecycle_version": LIFECYCLE_VERSION,
+                        "diagnostics_version": DIAGNOSTICS_VERSION,
+                        "stall_version": stalls.STALL_VERSION,
+                        "stalls_known": inputs.stalls is not None,
+                        # `overlay`'s default: no origin-event file, so an
+                        # appearance is eligible only at a boundary or by continuity.
+                        "origin_events": 0,
+                        "notes": inputs.notes})
+        out = store.write_events("team_vision", sid, rows)
+        drawn = widget.get("drawn", 0)
+        print(f"{sid}: {len(rows) - 1} frames, {drawn} drawn, "
+              f"{widget.get('not_drawn', 0)} no widget, {widget.get('stale', 0)} stale -> {out}")
     return 0
 
 
@@ -4652,6 +4707,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--all", action="store_true", help="every session with current peaks")
     s.add_argument("--record", action="store_true", help="record the pooled counts in the metrics log")
     s.set_defaults(func=cmd_ult_cast)
+
+    s = sub.add_parser("vision", help="store the team's adjudicated vision per frame "
+                                      "(minimap crop cache; decodes no capture)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session with a minimap crop cache")
+    s.set_defaults(func=cmd_vision)
 
     s = sub.add_parser("ability-light", help="store the drawn light at ability candidates (opens media)")
     s.add_argument("session", nargs="?")
