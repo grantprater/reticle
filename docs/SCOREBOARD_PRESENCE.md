@@ -483,6 +483,33 @@ presence rows stored before counted
 openings over the older 0.6.0 rows; the 0.9.0 scan, not this change, moved
 that count.
 
+### Before the 0.10.0 rescan
+
+On 2026-09-29, before the rescan, I recorded the stored summaries as the
+series `scoreboard_rescan/store-before`. The `death` streams of
+[metric:scoreboard_rescan/store-before@store-20#death_sessions=20] sessions, all at
+`death-adjudication-0.19.0`, hold
+[metric:scoreboard_rescan/store-before@store-20#deaths=3094] deaths and
+[metric:scoreboard_rescan/store-before@store-20#revives=38] revives. Victims:
+[metric:scoreboard_rescan/store-before@store-20#victims_resolved=2969] resolved,
+[metric:scoreboard_rescan/store-before@store-20#victims_abstained=140] abstained,
+[metric:scoreboard_rescan/store-before@store-20#victims_contested=18] contested and
+[metric:scoreboard_rescan/store-before@store-20#victims_disagreement=5] in disagreement.
+Killers: [metric:scoreboard_rescan/store-before@store-20#killers_resolved=2954] resolved,
+[metric:scoreboard_rescan/store-before@store-20#killers_abstained=165] abstained and
+[metric:scoreboard_rescan/store-before@store-20#killers_disagreement=11] in disagreement.
+The 0.9.0 scoreboard rows open
+[metric:scoreboard_rescan/store-before@store-20#scoreboard_frames_open=22293] of
+[metric:scoreboard_rescan/store-before@store-20#scoreboard_frames_offered=83864] frames;
+[metric:scoreboard_rescan/store-before@store-20#x0_wrong=3225] of them put the table's
+left edge outside x 572-574 and
+[metric:scoreboard_rescan/store-before@store-20#x1_wrong=4752] its right edge outside
+x 1345-1347. The openings gate accepts
+[metric:scoreboard_rescan/store-before@store-20#openings_accepted=17625] of
+[metric:scoreboard_rescan/store-before@store-20#openings=27500] openings. The streams
+before the rescan are kept in the store's
+`notes/backup/scoreboard-rescan-20260929/`.
+
 ## Predictions
 
 - **S1 is refuted on both clauses.** The witness finds the strip on
