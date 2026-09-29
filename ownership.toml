@@ -70,6 +70,21 @@ consumers = ["barriers", "status", "cone", "doctor"]
 evidence = "tests/test_geometry.py, tests/test_floor_stability.py"
 
 [[entry]]
+id = "minimap-widget-frame"
+question = "Where does this session draw its minimap widget relative to the baked geometry, and is it a variant?"
+owner = "widget_frame"
+role = ["constrain"]
+status = "shipped"
+produces = ["fit_crop", "for_session", "cohort", "capture_box"]
+not_for = """
+Any map value. The fit measures the widget's scale, rotation and placement
+against the baked static and nothing else; the floor, lighting and base map
+still come from `map-geometry`. Not the icons drawn on the widget either.
+"""
+consumers = ["roi_cache", "status", "cli"]
+evidence = "tests/test_widget_frame.py"
+
+[[entry]]
 id = "domain-fact"
 question = "What is true of VALORANT itself, rather than of this pipeline?"
 owner = "domain"
