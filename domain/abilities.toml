@@ -1847,3 +1847,56 @@ takes control of the view is not recorded
 """
 use = "the bird icon's motion is the player's steering, so its path is representative"
 see = ["abilities/skye-guiding-light-minimap-icon", "abilities/skye-guiding-light-charges"]
+
+[skye-seekers-one-per-living-enemy]
+claim = """
+Skye's Seekers in slot X spawn one Seeker per living enemy.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-28"
+subject = "skye:seekers"
+source = """
+the player, 2026-09-28 (chat), answering the mechanics sheet's question
+"Seekers: autonomous toward enemies?". Earlier, 2026-09-03, on the Skye clip:
+the ultimate requires enemies to be alive to track
+(docs/archive/PROTOTYPES-through-2026-09-23.md, line 1752)
+"""
+use = "count a cast's Seekers against the enemies alive; each Seeker has one enemy"
+see = ["abilities/skye-seekers-track-and-blind", "abilities/ability-rules-are-unique"]
+
+[skye-seekers-track-and-blind]
+claim = """
+Each of Skye's Seekers in slot X tracks its enemy by itself; the player does
+not steer it. A Seeker lasts until it is destroyed or reaches its enemy, and
+reaching the enemy blinds that enemy.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-28"
+subject = "skye:seekers"
+source = """
+the player, 2026-09-28 (chat), answering the mechanics sheet's question
+"Seekers: autonomous toward enemies?". The player is unsure whether a Seeker
+also despawns when its enemy dies; the mechanics sheet keeps that question open
+"""
+use = """
+a Seeker's path leads to its enemy, not the caster's aim; it ends destroyed
+or at that enemy, who is blinded
+"""
+see = ["abilities/skye-seekers-one-per-living-enemy"]
+
+[tejo-stealth-drone-piloted]
+claim = """
+Tejo's Stealth Drone in slot C is piloted by the player.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-28"
+subject = "tejo:stealth drone"
+source = """
+the player, 2026-09-28 (chat), answering the mechanics sheet's question
+"Stealth Drone: piloted?"
+"""
+use = "the icon's motion is the player's steering, so its path is representative"
+see = ["abilities/pulse-scan-abilities", "hud/controlled-entity-view-tint"]
