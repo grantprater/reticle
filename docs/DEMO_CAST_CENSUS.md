@@ -638,7 +638,8 @@ frames, and
 [metric:demo_cast_census/rerecorded-sweep@rerecorded#regrowth_runs_tray_unseen=1]
 run that no tray cast explains. A crop sheet at 0.2 s steps shows the ring at
 16.4 s and gone at 16.6 s. One run of 11 s may be one channel or three with
-gaps under 0.5 s [domain:abilities/skye-regrowth-minimap-ring]. The fit took
+gaps under 0.5 s [domain:abilities/skye-regrowth-minimap-ring]; the player
+later answered one [domain:abilities/skye-regrowth-channelled]. The fit took
 about 4 s a frame, 43 minutes for this demo, mostly on the whole-widget
 search that frames without the ring fall back to, so I swept no other demo.
 
@@ -733,7 +734,8 @@ Asked the questions above the same evening, the player answered:
 - **Question 6.** Pick-me-up and Not Dead Yet cannot be cast in the range
   [domain:abilities/clove-c-and-x-need-a-target].
 - **Question 7.** The 11 s Regrowth ring was one channel, held to give
-  plenty of audio [domain:abilities/skye-regrowth-no-tray-drop].
+  plenty of audio [domain:abilities/skye-regrowth-channelled]
+  [domain:abilities/skye-regrowth-no-tray-drop].
 - **Question 8.** One equip: the player toggled between the options for a
   while before the first Shock Bolt
   [domain:abilities/sova-bolt-charge-and-bounce]. The bolts landed right in

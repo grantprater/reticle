@@ -672,25 +672,50 @@ which the mask's opening removes.
 The gate is now wired under the reader/adjudicator split. `reticle ability-light`
 stores `lighting.raw_lit` for every candidate instant and decides nothing. `adjudication.ability` rebuilds the clean mask from that
 record and refuses a component as `drawn_light`, keeping it with its evidence.
-A human name outranks the light, and the disagreement is counted. It refuses
-[metric:ability_light_refusal/grouping-labels@all-labelled#viewcone_refused=16]
-viewcone components and
-[metric:ability_light_refusal/grouping-labels@all-labelled#ability_refused=0]
-abilities, and
-[metric:ability_light_refusal/grouping-labels@all-labelled#light_refused=733] of
-[metric:ability_light_refusal/grouping-labels@all-labelled#components=1410]
-components overall. The review queue fell from
-[metric:ability_light_refusal/grouping-labels@all-labelled#questions_before=1357]
-to [metric:ability_light_refusal/grouping-labels@all-labelled#questions_after=637]
-questions, partly because the player answered 50 in between.
+A human name outranks the light, and the disagreement is counted. A dark
+object in the box is never refused (`lighting.raw_dark`).
 
-A per-frame self cone did not rescue the slivers, and the prediction that it
-would failed: resolving the lobe against a sliver's thin light chose the
-opposite lobe twice. The right witness already exists as the team's adjudicated
-vision -- lobe per frame, `track` resolved facing, `minimap_lifecycle`
-eligibility, `cone.observable` -- but it runs only inside `overlay` and stores
-nothing. Storing it as its own product is the next step; the ability rule must
-consume it rather than restate its first stage.
+**The slivers and the team's vision (2026-09-28).** The three misses are cone
+slivers, and their intended witness was the team's adjudicated vision -- lobe
+per frame, `track` resolved facing, `minimap_lifecycle` eligibility, the
+`cone.observable` union -- which ran only inside `overlay`. `reticle vision`
+now stores it per frame from the minimap crop cache (`team_vision`), and the
+stored masks equal the master overlay chain's on
+[metric:team_vision/overlay-equality@e78e75b2d191#observable_equal=658] of
+[metric:team_vision/overlay-equality@e78e75b2d191#frames=658] cached frames
+of `e78e75b2d191`. `light_refusals` 0.3.0 refuses a sliver when its raw light
+covers 0.35 of the box and the stored vision covers 0.20 of it.
+
+The prediction that the vision covers the slivers failed: it covers none of
+them ([metric:ability_light_refusal/grouping-labels@all-labelled#viewcone_refused_team_vision=0]). At 36.9 s and 43.35 s the track
+refuses the self bearing, so no cone is cast; at 40.65 s the cone points along
+the sliver and stops at the baked geometry short of the narrow gap the drawn
+light passes. The vision under-claims there by design. The rule therefore
+refuses [metric:ability_light_refusal/grouping-labels@all-labelled#viewcone_refused=16] of [metric:ability_light_refusal/grouping-labels@all-labelled#viewcone_n=19] viewcones, all by the
+clean mask, and [metric:ability_light_refusal/grouping-labels@all-labelled#ability_refused=0] of [metric:ability_light_refusal/grouping-labels@all-labelled#ability_n=34] abilities;
+[metric:ability_light_refusal/grouping-labels@all-labelled#ability_dark_gated=34] of those abilities carry the dark gate, so no light
+witness could refuse one. Overall it refuses [metric:ability_light_refusal/grouping-labels@all-labelled#light_refused=623] of
+[metric:ability_light_refusal/grouping-labels@all-labelled#components=1410] components, and the review queue holds
+[metric:ability_light_refusal/grouping-labels@all-labelled#questions_after=287] questions against [metric:ability_light_refusal/grouping-labels@all-labelled#questions_before=294] with no
+light rule.
+
+0.2.0 had reached all 19 by restating the self raycast inside the rule: both
+lobes, a 2 px and 10 degree error budget, and walls relaxed by a pixel. That
+restatement refused [metric:ability_light_refusal/grouping-labels@all-labelled#formulation_d_only_refusals=91] components the stored
+vision does not, [metric:ability_light_refusal/grouping-labels@all-labelled#formulation_d_refused_named=8] of them components the
+player named as abilities, and is removed. The route back to the slivers runs
+through the owners: `track`'s refused bearings and the geometry that seals a
+narrow gap.
+
+**Order.** A smoke blocks the drawn light while the light refuses ability
+candidates. The loop breaks by time: the light rule reads the vision at the
+candidate's instant, and the vision reads no ability entity. When smokes enter
+its rays, the vision at t may consume only entities accepted before t.
+
+0.2.0's restatement also read the series column `self_d`, a distance to a
+query point, as its bearing. [The statistical adjudicator plan](STATISTICAL_ADJUDICATOR.md)
+measures it against a time-shift null and tests, through the owners, what
+does explain the slivers.
 
 ## Sources and mechanics policy
 

@@ -64,7 +64,7 @@ class TemporalEvidenceTests(unittest.TestCase):
                               mm_floor=np.ones((50, 50), bool),
                               mm_track_self=tracker, mm_track_ally=Tracker())
         frame = np.zeros((50, 50, 3), np.uint8)
-        with patch("reticle.overlay.widget_drawn", return_value=False):
+        with patch("reticle.team_vision.widget_drawn", return_value=False):
             _draw_minimap(frame.copy(), frame, 600, ctx)
         self.assertEqual(tracker.tracks, [])
         self.assertEqual(ctx.mm_diagnostic["widget"], "not_drawn")
@@ -105,7 +105,7 @@ class TemporalEvidenceTests(unittest.TestCase):
                                           "samples": 2}])
         frame = np.zeros((50, 50, 3), np.uint8)
         frame[10:20, 10:20] = 200
-        with patch("reticle.overlay.widget_drawn", return_value=True):
+        with patch("reticle.team_vision.widget_drawn", return_value=True):
             _draw_minimap(frame.copy(), frame, 100, ctx)     # before the stall
             self.assertEqual(ctx.mm_diagnostic["widget"], "drawn")
             _draw_minimap(frame.copy(), frame, 200, ctx)     # inside it
@@ -124,7 +124,7 @@ class TemporalEvidenceTests(unittest.TestCase):
                               mm_stalls=None)
         frame = np.zeros((50, 50, 3), np.uint8)
         frame[10:20, 10:20] = 200
-        with patch("reticle.overlay.widget_drawn", return_value=True):
+        with patch("reticle.team_vision.widget_drawn", return_value=True):
             _draw_minimap(frame.copy(), frame, 200, ctx)
         self.assertEqual(ctx.mm_diagnostic["widget"], "drawn")
         self.assertFalse(ctx.mm_diagnostic["stalls_known"])

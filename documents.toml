@@ -178,6 +178,14 @@ implemented_by = ["owns:reader-capability", "owns:evidence-plan", "cmd:acquisiti
 remains = "P3 beyond its foundation, then P4 and P5."
 
 [[document]]
+path = "docs/STATISTICAL_ADJUDICATOR.md"
+kind = "plan"
+status = "proposed"
+since = "2026-09-28"
+remains = "Withdraw the wired sliver path, then E2 (the origin on an occluder) and the sampler."
+waits_for = "The team-vision product storing pose windows, and the player's answer on box-edge sight."
+
+[[document]]
 path = "docs/PUBSUB_PLAN.md"
 kind = "plan"
 status = "implemented"
@@ -256,6 +264,12 @@ since = "2026-09-27"
 
 [[document]]
 path = "docs/MENU_WITNESS.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-28"
+
+[[document]]
+path = "docs/SELF_ICON_WITNESS.md"
 kind = "findings"
 status = "recorded"
 since = "2026-09-28"

@@ -137,7 +137,7 @@ Channel-specific absence. A stall says the SOURCE repeated, not that an entity
 died, a widget vanished or a reader refused -- every reader joins this fact
 rather than deciding on its own that a missing observation means death.
 """
-consumers = ["overlay", "doctor"]
+consumers = ["doctor", "team_vision"]
 evidence = "tests/test_stalls.py"
 
 # ---------------------------------------------------------------------------
@@ -164,14 +164,14 @@ question = "Where is the local player's icon on the minimap?"
 owner = "minimap"
 role = ["detect"]
 status = "partial"
-produces = ["pick_self", "self_icons", "filter_track"]
+produces = ["pick_self", "self_icons", "filter_track", "self_portrait_pixels"]
 not_for = """
 WHICH AGENT the player is. `pick_self` answers a spatial question and the name
 is the trap: semantic self is `player-agent`, owned by `lineup`. The fit can
 also land on the carried spike, so an accepted position is not an accepted
 identity.
 """
-consumers = ["belief", "track", "lighting", "minimap_diagnostics", "overlay"]
+consumers = ["belief", "track", "lighting", "minimap_diagnostics", "team_vision"]
 evidence = "tests/test_pick_self.py, prototypes/xmark_eval.py"
 
 [[entry]]
@@ -187,7 +187,7 @@ nothing claims slot 0 is the same player between frames. Two icons may also be
 exactly coincident [domain:minimap/coincident-icons], so one candidate never
 excludes another's region.
 """
-consumers = ["round_lifetimes", "minimap_diagnostics", "overlay"]
+consumers = ["round_lifetimes", "minimap_diagnostics", "team_vision"]
 
 [[entry]]
 id = "minimap-dark"
@@ -518,7 +518,7 @@ not_for = """
 Visibility truth, or confirmation. Light can REFUSE an entity and cannot
 confirm one, and unknown is not dark [domain:minimap/vision-gate].
 """
-consumers = ["overlay", "cli", "adjudication.ability"]
+consumers = ["cli", "adjudication.ability", "team_vision"]
 evidence = "tests/test_lighting.py"
 
 [[entry]]
@@ -534,8 +534,29 @@ overclaims area and disagrees with the drawn light; it is a crosscheck. A Sova
 dart reveals a line-of-sight set from a variable-height origin, so its drawn
 circle is not ground coverage.
 """
-consumers = ["overlay", "barriers"]
+consumers = ["overlay", "barriers", "team_vision"]
 evidence = "tests/test_cone_evidence.py, tests/test_full_round_cones.py"
+
+[[entry]]
+id = "team-vision"
+question = "What can the team see at this instant, as the pipeline adjudicates it?"
+owner = "team_vision"
+role = ["constrain", "corroborate"]
+status = "partial"
+produces = ["TeamVision", "load_inputs", "frame_row"]
+not_for = """
+Ground truth for vision, and a new rule for any stage. It composes the owners'
+calls -- lobe from the drawn light, track facing, lifecycle eligibility, the
+`observable` union -- and restates none. It under-claims: a refused bearing
+casts nothing and a ray stops at the baked boxes, which also seal some narrow
+gaps the drawn light passes (the three e78e75b2d191 slivers). Smokes do not
+yet block its rays.
+"""
+defers_to = ["viewcone", "drawn-light", "track-continuation", "minimap-origin",
+             "capture-stall", "light-support"]
+consumers = ["overlay", "cli"]
+stored_consumers = ["adjudication.ability"]
+evidence = "tests/test_team_vision.py, tests/test_ability_entities.py"
 
 [[entry]]
 id = "screen-outline"
@@ -592,7 +613,7 @@ SEMANTIC IDENTITY. This is the most important negative boundary in the repo:
 being consistent with Agent X is not evidence that this is Agent X. A consumer
 treating an association as a name is a design error, not a tuning problem.
 """
-consumers = ["adjudication.identity", "minimap_lifecycle", "round_lifetimes", "overlay"]
+consumers = ["adjudication.identity", "minimap_lifecycle", "round_lifetimes", "team_vision"]
 evidence = "`python -m reticle.track --self-test`"
 
 [[entry]]
@@ -622,7 +643,7 @@ two drifted -- 2.2 px against 4.8 at 60 Hz -- so it quarantined appearances the
 tracker had already associated. It defers, it does not re-derive.
 """
 defers_to = ["track-continuation", "teleport-licence"]
-consumers = ["overlay"]
+consumers = ["team_vision"]
 evidence = "tests/test_minimap_lifecycle.py"
 
 [[entry]]
@@ -745,7 +766,7 @@ not_for = """
 Labels. These are diagnostic panels; feeding them back as training or label data
 is a model grading its own homework.
 """
-consumers = ["overlay"]
+consumers = ["team_vision"]
 evidence = "tests/test_minimap_diagnostics.py"
 
 [[entry]]
@@ -854,6 +875,28 @@ exit = """
 As `agent-from-slot`: the calibration assets still live in prototypes/.
 """
 evidence = "tests/test_lineup.py"
+
+[[entry]]
+id = "self-icon-portrait"
+question = "What does the portrait inside the player's minimap self icon look like, scored against each agent's art, while the player lives?"
+owner = "self_icon"
+role = ["detect"]
+status = "partial"
+produces = ["read_session", "read_frame", "icon_witness", "stored_witness", "all_alive",
+            "MIN_PIXELS", "STEP_S", "ROSTER_GAP_MS", "REFUSALS"]
+names_agents = true
+defers_to = ["agent-identity", "self-position"]
+consumers = ["cli", "lineup"]
+not_for = """
+Naming the player's agent. It stores scores against every agent's art and
+names nobody: `lineup.load_lineup` hands them to `identity.claims_from_lineup`
+as the `self_icon` witness, which ranks the ally five, and the arbiter decides
+(`player-agent`). Nor is it for where the icon is (`self-position`) or how many allies
+live (`alive-count`: its gate reads the stored roster table, not the rule). It
+reads only the baked geometry's widget, so a capture whose minimap is drawn at
+another scale than the baked one refuses every frame as `widget_not_drawn`.
+"""
+evidence = "tests/test_self_icon.py"
 
 # ---------------------------------------------------------------------------
 # Abilities

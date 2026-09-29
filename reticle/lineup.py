@@ -123,6 +123,12 @@ def load_lineup(session: str, store) -> dict | None:
     A file whose verdicts hold no player entity (every one before
     `lineup-0.5.0`, and any keyed by another observation id) has its claims
     derived again from `sides` and its stored witnesses.
+
+    **The self icon is read from its own stored rows** (`reticle self-icon`,
+    `self_icon.stored_witness`) where the file holds no self-icon frame, which
+    is every file written by a scan: no scan feeds `Lineup.add_self`. The
+    claims are then derived again, and `self_icon_state` says which witness
+    was used.
     """
     import json
     f = Path(store) / "lineups" / f"{session}.json"
@@ -132,8 +138,9 @@ def load_lineup(session: str, store) -> dict | None:
     got.setdefault("session", session)
     if "player" in got:
         got["stored_player"] = got.pop("player")
-    if not any(v.get("entity_id") == player_entity(session)
-               for v in got.get("agent_identity") or []):
+    attached = _attach_self_icon(got, session, store)
+    if attached or not any(v.get("entity_id") == player_entity(session)
+                           for v in got.get("agent_identity") or []):
         claims = claims_from_lineup(
             got.get("sides", {}), lineup_player_witnesses(got), observation_id=session,
             source_version=got.get("version", "lineup"))
@@ -162,6 +169,28 @@ def load_lineup(session: str, store) -> dict | None:
     return got
 
 
+def _attach_self_icon(got: dict, session: str, store) -> bool:
+    """Put the stored `self_icon` rows into a lineup whose own self-icon
+    witness is empty; True when it did. Records `self_icon_state` either way."""
+    from .self_icon import stored_witness
+    from .store import Store
+    from .version import SELF_ICON_VERSION
+    witnesses = lineup_player_witnesses(got)
+    if int((witnesses.get("self_icon") or {}).get("frames") or 0):
+        got["self_icon_state"] = {"source": "lineup_file"}
+        return False
+    rows = Store(store).read_events_kind("self_icon", session, "coverage")
+    stored = stored_witness(rows)
+    if stored is None:
+        got["self_icon_state"] = {
+            "source": None, "reason": "no_self_icon_rows" if not rows else
+            f"stale_version {rows[0].get('self_icon_version')} != {SELF_ICON_VERSION}"}
+        return False
+    got["player_witnesses"] = {**witnesses, "self_icon": stored}
+    got["self_icon_state"] = {"source": "self_icon_rows", "version": SELF_ICON_VERSION}
+    return True
+
+
 def load_gallery(store) -> dict[str, list[np.ndarray]]:
     """Every agent's official art as composition histograms, by agent name."""
     art = Path(store) / "reference" / "assets" / "agents"
@@ -175,6 +204,14 @@ def load_gallery(store) -> dict[str, list[np.ndarray]]:
             out.setdefault(_agent_name(f, surface), []).append(
                 _composition(im[:, :, :3], mask))
     return out
+
+
+def gallery_scores(hq, gal: dict[str, list[np.ndarray]]) -> dict[str, float]:
+    """One composition scored against every agent's art: the histogram
+    intersection summed over the agent's surfaces, as `Lineup.add` and
+    `Lineup.add_self` accumulate it."""
+    hq = np.asarray(hq, dtype=np.float32)
+    return {n: sum(float(np.minimum(hq, g).sum()) for g in gs) for n, gs in gal.items()}
 
 
 def slot_crops(crop: np.ndarray) -> list[np.ndarray]:
@@ -259,9 +296,9 @@ class Lineup:
         hq = np.asarray(appearance, dtype=np.float32)
         if not hq.size:
             return
+        got = gallery_scores(hq, self.gal)
         for j, n in enumerate(self.names):
-            self.self_scores[j] += sum(float(np.minimum(hq, g).sum())
-                                       for g in self.gal[n])
+            self.self_scores[j] += got[n]
         self.self_n += 1
 
     def add_tray(self, frame, store, margin_min: float = MARGIN_MIN) -> None:

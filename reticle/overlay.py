@@ -56,13 +56,8 @@ import numpy as np
 import cv2
 
 from . import cone as cone_mod
-from . import lighting
 from .killfeed import ME_MATCH_MIN, analyse_killfeed, killfeed_roi
-from .minimap import ally_icons, self_icons, widget_drawn, widget_scale
-from .minimap_diagnostics import DIAGNOSTICS_VERSION, light_support, distance_agreement
-from .stalls import STALL_VERSION, stalled_at
-from .minimap_lifecycle import Lifecycle, LIFECYCLE_VERSION
-from .track import Tracker
+from .team_vision import TeamVision
 from .ocr import crop_gray, read_bottom_hud, read_scoreline, scoreline_roi
 from .profiles import Profile
 
@@ -131,6 +126,9 @@ class OverlayContext:
     mm_lifecycle: object = None
     mm_origin_events: object = ()
     mm_apply_lifecycle: bool = False
+    #: The team's vision chain (`team_vision.TeamVision`), built on first use
+    #: from the fields above; it owns the trackers' and lifecycle's state.
+    mm_vision: object = None
 
     @property
     def has_minimap(self) -> bool:
@@ -258,164 +256,62 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     reason when the widget is not on screen -- which is a real state, not a
     failure: the death screen and the M key both remove it, and 5% of a
     session's frames have no widget in them.
+
+    **The chain is `team_vision`'s, not this renderer's.** Lobe, track
+    facing, lifecycle eligibility and the observable union run there, once,
+    so `reticle vision` stores what this draws.
     """
     x0, y0, x1, y1 = ctx.mm_box
     crop = frame[y0:y1, x0:x1]
 
-    if ctx.mm_track_self is None:
-        scale = widget_scale(x1 - x0)
-        # The error term is `track.FIT_ERR_PX` and is not restated here: it is
-        # a measured property of the icon fit, not an overlay preference.
-        ctx.mm_track_self = Tracker("walker", scale=scale)
-        ctx.mm_track_ally = Tracker("walker", scale=scale)
-    if getattr(ctx, "mm_lifecycle", None) is None:
-        ctx.mm_lifecycle = Lifecycle(scale=widget_scale(x1 - x0))
-
-    # **The stall fact is not measured here.** It is a property of the source
-    # frame, it is already in `l1/primitives` for every session, and every
-    # channel joins the same spans -- see `stalls`. This used to be a per-frame
-    # luma delta on the minimap crop plus a round-clock witness, which measured
-    # one ROI to answer a question a stored whole-frame column answers for all
-    # of them at once.
-    known_stalls = getattr(ctx, "mm_stalls", None)
-    stale = stalled_at(known_stalls, t_ms)
-    # **A frozen source is not an observation, and it used to look like a
-    # perfect one.** Treated exactly like an absent widget -- the trackers age,
-    # nothing is read -- but recorded as its own state, because "the recording
-    # stalled" and "the player opened the map" are different facts about the
-    # same silence. See `stalls`.
-    # Order matters: an ABSENT widget is asked about first, because a static
-    # overlay covering the minimap -- the buy panel is one, for seconds at a
-    # time -- is also unchanging, and "the widget is not there" is the more
-    # specific fact. Stale means the widget IS drawn and is not advancing.
-    drawn = widget_drawn(crop, ctx.mm_sgray, ctx.mm_floor)
-    # An ABSENT widget is the more specific fact, so it is reported first: a
-    # static overlay covering the minimap -- the buy panel, for seconds at a
-    # time -- is unchanging without the capture having stalled.
-    stale = stale and drawn
-    if stale or not drawn:
-        ctx.mm_track_self.step(t_ms, [])
-        ctx.mm_track_ally.step(t_ms, [])
-        ctx.mm_diagnostic = {"version": DIAGNOSTICS_VERSION, "t_ms": t_ms,
-                             "widget": "stale" if stale else "not_drawn",
-                             "observations": [],
-                             "stall_version": STALL_VERSION,
-                             "stalls_known": known_stalls is not None,
-                             "reason": ("source not advancing (l1/primitives motion)"
-                                        if stale else "widget unavailable")}
-        ctx.mm_lifecycle.step(ctx.mm_diagnostic)
+    if getattr(ctx, "mm_vision", None) is None:
+        ctx.mm_vision = TeamVision(
+            ctx.mm_floor, getattr(ctx, "mm_passable", None), ctx.mm_sgray, width=x1 - x0,
+            slab=getattr(ctx, "mm_slab", None), static=getattr(ctx, "mm_static", None),
+            light=getattr(ctx, "mm_light", None), stalls=getattr(ctx, "mm_stalls", None),
+            origin_events=getattr(ctx, "mm_origin_events", ()),
+            track_self=getattr(ctx, "mm_track_self", None),
+            track_ally=getattr(ctx, "mm_track_ally", None),
+            lifecycle=getattr(ctx, "mm_lifecycle", None))
+    vision = ctx.mm_vision
+    got = vision.step(crop, t_ms)
+    ctx.mm_diagnostic = got.diagnostic
+    if got.widget != "drawn":
+        stale = got.widget == "stale"
         cv2.rectangle(img, (x0, y0), (x1, y1), MAGENTA, 2)
         label = ("minimap: SOURCE STALE" if stale else "minimap: WIDGET NOT DRAWN")
         _text(img, label, (x0 + 6, y0 + 18), MAGENTA, 0.5)
         return ("minimap  SOURCE STALLED -- a capture stall, not a reading"
                 if stale else "minimap  no widget (death screen, or the M key)")
 
-    # `require_facing=False` so a refused bearing is still DRAWN, in amber.
-    # Dropping it would hide the gap, and the gap is what limits the area.
-    allies = ally_icons(crop, ctx.mm_floor, require_facing=False,
-                        support=ctx.mm_slab, static=getattr(ctx, "mm_static", None))
-    # **Every self candidate goes to the tracker, and the TRACK decides.** The
-    # game draws one self icon, and this used to take the best-`cov` candidate
-    # per frame -- a choice made before the tracker saw any of them, on one
-    # frame's evidence. See `track.Tracker.principal`.
-    selves = self_icons(crop, ctx.mm_floor, require_facing=False,
-                        support=ctx.mm_slab)
-    raw_allies, raw_selves = [dict(d) for d in allies], [dict(d) for d in selves]
+    scale = vision.scale
+    for obs in got.diagnostic["observations"]:
+        fresh = obs["position_state"] == "observed"
+        support = obs["light_support"]
+        label = f"{obs['role'][0].upper()}{obs['track_id']}"
+        if not fresh:
+            label += f" gap {obs['gap_ms']:.0f}ms"
+            cv2.circle(img, (x0 + round(obs["x"]), y0 + round(obs["y"])),
+                       max(2, round(10 * scale)), AMBER, 1)
+        elif support["fraction"] is not None:
+            label += f" L{support['fraction']:.2f}"
+        _text(img, label, (x0 + round(obs["x"]) + 12, y0 + round(obs["y"]) + 14),
+              AMBER if not fresh else (ALLY if obs["role"] == "ally" else SELF), 0.36)
 
-    # CROSS-REFERENCE BEFORE THE TRACKER SEES IT. The ring fit cannot tell its
-    # two opposed lobes apart, but the drawn light can, so the lobe is settled
-    # here rather than smoothed over later -- `resolved_facing` then aggregates
-    # a series that is already coherent instead of averaging a coin flip. Cuts
-    # the 150-180 degree frame-to-frame flip from 12.4% to 4.9%, measured on a
-    # statistic the light never enters. See `cone.resolve_lobe`.
-    lit = None
-    if ctx.mm_light is not None:
-        lit = lighting.lit_mask(crop, ctx.mm_light)
-        allies = cone_mod.resolve_lobe(ctx.mm_passable, lit, allies,
-                                       visible=ctx.mm_floor)
-        selves = cone_mod.resolve_lobe(ctx.mm_passable, lit, selves,
-                                       visible=ctx.mm_floor)
-
-    # **Bearings come from the TRACKS, not from this frame's fit.** The
-    # per-frame fit flips 180 degrees on 16% of frames and neither `cov` nor
-    # `lobe` can see it, so a windowed circular mean with an ambiguity gate is
-    # what the cone is cast from. A track that refuses draws amber and casts
-    # nothing -- see `track.Track.resolved_facing`.
-    ctx.mm_track_self.step(t_ms, selves)
-    ctx.mm_track_ally.step(t_ms, allies)
-    principal = ctx.mm_track_self.principal()
-    self_tracks = [principal] if principal is not None else []
-    resolved = (ctx.mm_track_ally.bearings(t_ms)
-                + ctx.mm_track_self.bearings(t_ms, tracks=self_tracks))
-
-    # Three-tuples ONLY. `resolved` carries a fourth element (`interpolated`)
-    # and `observable`'s fourth is a per-icon HALF-ANGLE -- passing the tuple
-    # straight through made every cone `half=False`, i.e. zero width, and the
-    # observable area collapsed to 0.4% of the floor. Caught by rendering it.
-    agg, per = cone_mod.observable(
-        ctx.mm_passable, [(bx, by, deg) for bx, by, deg, _ in resolved],
-        visible=ctx.mm_floor)
-
-    by_pos = {(round(bx), round(by)): deg for bx, by, deg, _ in resolved}
-    observations = []
-    scale = widget_scale(x1 - x0)
-    known = ctx.mm_light.known if ctx.mm_light is not None else None
-    for role, tracks, detections in (("ally", ctx.mm_track_ally.tracks, allies),
-                                     ("self", self_tracks, selves)):
-        for tr in tracks:
-            fresh = tr.t_ms == t_ms
-            det = next((d for d in detections if d["cx"] == tr.x
-                        and d["cy"] == tr.y), None) if fresh else None
-            support = light_support(tr.x, tr.y, lit, known, scale) if fresh else None
-            age = t_ms - tr.t_ms
-            label = f"{role[0].upper()}{tr.tid}"
-            if not fresh:
-                label += f" gap {age:.0f}ms"
-                cv2.circle(img, (x0 + round(tr.x), y0 + round(tr.y)),
-                           max(2, round(10 * scale)), AMBER, 1)
-            elif support["fraction"] is not None:
-                label += f" L{support['fraction']:.2f}"
-            _text(img, label, (x0 + round(tr.x) + 12, y0 + round(tr.y) + 14),
-                  AMBER if not fresh else (ALLY if role == "ally" else SELF), 0.36)
-            observations.append({"role": role, "track_id": tr.tid,
-                                 "x": tr.x, "y": tr.y, "r": tr.r,
-                                 "observed_t_ms": tr.t_ms,
-                                 "position_state": "observed" if fresh else "carried",
-                                 "gap_ms": age, "light_support": support,
-                                 "facing": by_pos.get((round(tr.x), round(tr.y)))})
-    ctx.mm_diagnostic = {
-        "version": DIAGNOSTICS_VERSION, "t_ms": t_ms, "widget": "drawn",
-        "stall_version": STALL_VERSION,
-        "stalls_known": known_stalls is not None, "observations": observations,
-        "raw_allies": raw_allies, "raw_self": raw_selves,
-        "light_budget": {"lit": int(lit.sum()) if lit is not None else None,
-                         "known": int(known.sum()) if known is not None else None},
-        "distance_agreement": distance_agreement(
-            agg, lit, known, [(x, y) for x, y, deg, _ in resolved if deg is not None], scale)}
-    adjudicated = ctx.mm_lifecycle.step(ctx.mm_diagnostic, ctx.mm_origin_events)
-    ctx.mm_diagnostic["lifecycle_version"] = LIFECYCLE_VERSION
-    ctx.mm_diagnostic["adjudication"] = adjudicated
-    eligible = {row["observation_key"] for row in adjudicated if row["eligible"]}
-    tracked = ([("ally", tr) for tr in ctx.mm_track_ally.tracks]
-               + [("self", tr) for tr in self_tracks])
-    adjudicated_resolved = [(x, y, deg if f"{role}:{tr.tid}" in eligible else None, carried)
-                for (role, tr), (x, y, deg, carried) in zip(tracked, resolved)]
-    adjudicated_agg, _ = cone_mod.observable(ctx.mm_passable,
-                                 [(x, y, deg) for x, y, deg, _ in adjudicated_resolved],
-                                 visible=ctx.mm_floor)
-    ctx.mm_diagnostic["adjudicated_distance_agreement"] = distance_agreement(
-        adjudicated_agg, lit, known, [(x, y) for x, y, deg, _ in adjudicated_resolved if deg is not None], scale)
-    if ctx.mm_apply_lifecycle:
-        agg, resolved = adjudicated_agg, adjudicated_resolved
+    if getattr(ctx, "mm_apply_lifecycle", False):
+        agg, resolved = got.observable, got.adjudicated_resolved
+    else:
+        agg, resolved = got.observable_all, got.resolved
     if agg.any():
         sub = img[y0:y1, x0:x1]
         tint = np.empty_like(sub)
         tint[:] = CONE
         sub[:] = np.where(agg[..., None], cv2.addWeighted(sub, 0.68, tint, 0.32, 0), sub)
     by_pos = {(round(x), round(y)): deg for x, y, deg, _ in resolved}
+    principal = got.principal
     chosen = None if principal is None else (round(principal.x), round(principal.y))
-    drawn_selves = [d for d in selves if (round(d["cx"]), round(d["cy"])) == chosen]
-    for d, base in [(d, ALLY) for d in allies] + [(d, SELF) for d in drawn_selves]:
+    drawn_selves = [d for d in got.selves if (round(d["cx"]), round(d["cy"])) == chosen]
+    for d, base in [(d, ALLY) for d in got.allies] + [(d, SELF) for d in drawn_selves]:
         cx, cy = int(round(d["cx"])), int(round(d["cy"]))
         c = (x0 + cx, y0 + cy)
         deg = by_pos.get((round(d["cx"]), round(d["cy"])))
@@ -436,7 +332,7 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
     # track that was missed this frame is still alive and still has no bearing,
     # so folding the two together reads as "more icons refused than exist".
     n_cone = sum(1 for _bx, _by, deg, _i in resolved if deg is not None)
-    return (f"minimap  self {len(drawn_selves)}/{len(selves)}  allies {len(allies)}"
+    return (f"minimap  self {len(drawn_selves)}/{len(got.selves)}  allies {len(got.allies)}"
             f"  cones {n_cone}/{len(resolved)} tracks"
             f"  observable {cov * 100:.1f}% of floor")
 
