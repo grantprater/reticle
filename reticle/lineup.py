@@ -163,10 +163,38 @@ def load_lineup(session: str, store) -> dict | None:
         # version bump once dropped the board silently, and a blind label test
         # read the top bar's wrong guesses as a lineup fault. A bump that keeps
         # the verdicts joins the compatible set instead of refusing here.
-        got["board_state"] = {"applied": False, "reason": "no_scoreboard" if stored is None
-                        else f"stale_version {stored} != {SCOREBOARD_VERSION}"}
+        got["board_state"] = {"applied": False, "reason": _board_refusal(stored)}
     got["player"] = player_identity(got, session)
     return got
+
+
+def _version_key(stamp: str | None) -> tuple[int, ...] | None:
+    """`scoreboard-0.13.0` as (0, 13, 0); None for anything else."""
+    tail = (stamp or "").rpartition("-")[2]
+    parts = tail.split(".")
+    return tuple(int(p) for p in parts) if parts and all(p.isdigit() for p in parts) else None
+
+
+def _board_refusal(stored: str | None) -> str:
+    """Why `load_lineup` leaves the top bar unconstrained by the stored board.
+
+    A stored stamp NEWER than this code's reader is not a stale board: the
+    checkout is older than the store. On 2026-09-29 a worktree at
+    `scoreboard-0.12.0` read streams the player's rescan wrote at 0.13.0,
+    refused every one as `stale_version`, and blamed the rescan for the top
+    bar's refusals. The board is still refused, since this code cannot know
+    whether the newer reader kept its verdicts, but the reason names the
+    checkout.
+    """
+    from .version import SCOREBOARD_VERSION
+    if stored is None:
+        return "no_scoreboard"
+    have, want = _version_key(stored), _version_key(SCOREBOARD_VERSION)
+    if (stored.startswith("scoreboard-") and have is not None and want is not None
+            and have > want):
+        return (f"code_older_than_store {stored} > {SCOREBOARD_VERSION}: "
+                "update this checkout before reading the lineup")
+    return f"stale_version {stored} != {SCOREBOARD_VERSION}"
 
 
 def _attach_self_icon(got: dict, session: str, store) -> bool:

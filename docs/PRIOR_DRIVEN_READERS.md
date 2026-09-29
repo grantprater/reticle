@@ -96,14 +96,15 @@ changes a score. The rest follow.
    streams belong in owners that recompute from storage, where a change costs
    a rerun.
 
-**The tension with the belief rules.** `docs/ADJUDICATION_DESIGN.md` says a
-belief "cannot seed a template, feed a detector's prior, or count toward
-observed coverage". Read literally, it forbids this plan. The rule's purpose
-is that a belief never becomes an observation. This plan keeps that: the
-gated reader stores a raw score over a declared scope, the audit keeps the
-unbiased channel, and gated rows never count as independent coverage of the
-prior. The player should decide whether the rule is amended to "a belief may
-choose a reader's scope, declared and audited; it never becomes evidence".
+**The belief rule, amended.** `docs/ADJUDICATION_DESIGN.md` said a belief
+"cannot seed a template, feed a detector's prior, or count toward observed
+coverage", which forbade this plan. The rule's purpose is that a belief never
+becomes an observation, and this plan keeps it: the gated reader stores a raw
+score over a declared scope, the audit keeps the unbiased channel, and gated
+rows never count as independent coverage of the prior. The player approved
+the amendment on 2026-09-29: a belief may set a reader's prior under the
+guards `AGENTS.md` states ("Continue the prior; widen the search only on
+surprise"), which are guards 1 to 4 above.
 
 **What the pattern trades.**
 
@@ -193,6 +194,111 @@ for the self icon portrait (`self-icon-0.4.0`).
 *Experiment.* View the six runs of five seconds or more from the minimap crop
 cache beside the tray and the plant clock, and class each as plant, defuse or
 lock-in.
+
+*Result (2026-09-29, run `prior-self-20260929`, `prototypes/prior_self.py`,
+not wired).* The audit read `ally_icon`'s best-coverage self, which no prior
+chooses; its count reproduces
+([metric:prior_self/audit-reproduced@a06f04a0059f~prior-self-20260929#self_on_glyph=47]
+of [metric:prior_self/audit-reproduced@a06f04a0059f~prior-self-20260929#samples_with_dropped_glyph=159]
+on `a06f04a0059f`). `pick_self`'s stored track (`l1/minimap`) sits on the
+glyph more often and longer:
+[metric:prior_self/on-glyph-l1-owner@a06f04a0059f~prior-self-20260929#on_samples=71]
+samples in runs up to
+[metric:prior_self/on-glyph-l1-owner@a06f04a0059f~prior-self-20260929#longest_s=27]
+s there, and
+[metric:prior_self/on-glyph-l1-owner@223d636bf8d2~prior-self-20260929#on_samples=69]
+up to [metric:prior_self/on-glyph-l1-owner@223d636bf8d2~prior-self-20260929#longest_s=18]
+s on `223d636bf8d2`. The prior locks in.
+
+No run of five seconds or more is a plant or a defuse. By eye on the crop
+strips
+([metric:prior_self/run-classing@a06f04a0059f+223d636bf8d2~prior-self-20260929#runs_ge_5s=6]
+runs), the player was dead in
+[metric:prior_self/run-classing@a06f04a0059f+223d636bf8d2~prior-self-20260929#player_dead=4]:
+the fit rings the spike where the carrier fell while the view spectates a
+teammate, whose yellow icon, with another agent's portrait, moves elsewhere.
+In [metric:prior_self/run-classing@a06f04a0059f+223d636bf8d2~prior-self-20260929#locked_player_elsewhere=1]
+the player walks toward the spike 50 px away; in
+[metric:prior_self/run-classing@a06f04a0059f+223d636bf8d2~prior-self-20260929#player_icon_not_found=1]
+(`223d636bf8d2`, 1276-1280 s) no icon of his shows. On `a06f04a0059f` every
+audit sample on the glyph falls after the player's death. A second defect
+follows: after the player dies, the self track follows the spectated
+teammate, so guard 6 (expire the prior at the player's death) applies to the
+self position too.
+
+The lock-in depends on frame phase. The replay refits `self_icons` on the
+15 Hz crop cache and agrees with `l1/minimap` within 0.5 px on
+[metric:prior_self/replay-vs-l1@a06f04a0059f~prior-self-20260929#within_0.5px=10278]
+of [metric:prior_self/replay-vs-l1@a06f04a0059f~prior-self-20260929#both=10279]
+shared instants, but the cache and the decode sample different frames half
+the time: at 664.5 s on `a06f04a0059f` one missed frame sent `l1` onto the
+glyph for 4 s, and the replay kept the player.
+
+The guarded pick (`minimap.pick_self_declared`, then `spike.on_glyph` on
+`spike-0.2.0` rows, then the teardrop) cuts the replay's samples on a glyph
+from [metric:prior_self/on-glyph-stored@223d636bf8d2~prior-self-20260929#on_samples=71]
+to [metric:prior_self/on-glyph-guarded@223d636bf8d2~prior-self-20260929#on_samples=2]
+on `223d636bf8d2` and from
+[metric:prior_self/on-glyph-stored@a06f04a0059f~prior-self-20260929#on_samples=78]
+to [metric:prior_self/on-glyph-guarded@a06f04a0059f~prior-self-20260929#on_samples=4]
+on `a06f04a0059f`, and loses
+[metric:prior_self/points@223d636bf8d2~prior-self-20260929#lost_elsewhere=0]
+points away from a glyph. The teardrop reads on
+[metric:prior_self/teardrop@a06f04a0059f~prior-self-20260929#on_glyph_read=70]
+of [metric:prior_self/teardrop@a06f04a0059f~prior-self-20260929#on_glyph_n=1425]
+fits on a glyph against
+[metric:prior_self/teardrop@a06f04a0059f~prior-self-20260929#off_glyph_read=1954]
+of [metric:prior_self/teardrop@a06f04a0059f~prior-self-20260929#off_glyph_n=2251]
+off one. The cost is open: of
+[metric:prior_self/lost-while-alive@223d636bf8d2~prior-self-20260929#lost_while_alive=301]
+frames refused while the player lived on `223d636bf8d2`,
+[metric:prior_self/lost-while-alive@223d636bf8d2~prior-self-20260929#track_at_glyph=96]
+sit where the track stands at the glyph, where he may stand on the spike.
+`prototypes/label_prior_self.py` asks the player about 34 such frames,
+blind. The 1 Hz full-search audit disagrees with the guarded pick on
+[metric:prior_self/audit-cadence@a06f04a0059f~prior-self-20260929#disagree_guarded=34]
+of [metric:prior_self/audit-cadence@a06f04a0059f~prior-self-20260929#compared=1283]
+samples.
+
+*The player's labels, the carrier and his death (run `prior-self-b-20260929`,
+`prior-self-0.2.0`).* The player answered all 34 items. Where he lived and
+clicked his own icon
+([metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#alive_here=25]
+items), the stored rule's point lay elsewhere on
+[metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#alive_here_wrong_point_stored=15];
+the guard refused all but one of these (a teardrop read on a glyph 14 icon radii from him).
+Where he stood on the spike
+([metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#on_spike_here=7]
+items, his click within 1.5 icon radii of the glyph), the teardrop confirmed
+[metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#on_spike_teardrop_reads=4],
+so the guard costs some real points on the spike. After a killfeed death he
+clicked the yellow icon on
+[metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#killfeed_dead_answered_here=5]
+of [metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#killfeed_dead_items=8]
+items; on the sheets its portrait is not his agent. At `223d636bf8d2` 1278 s
+he answered dead while the killfeed has him alive; the disagreement stays open.
+
+The carried spike never rejected its carrier: `spike.on_glyph`'s carrier rule
+held. Every misfire on
+[metric:prior_self/carrier-0-1-0@a06f04a0059f~prior-self-b-20260929#frames=1621]
+carrier frames on `a06f04a0059f`
+([metric:prior_self/carrier-0-1-0@a06f04a0059f~prior-self-b-20260929#acted_within_1s_of_pickup_or_drop=12])
+came from a dropped glyph held across a pickup or a drop. Rule 0.2.0 holds no
+dropped glyph across a carried sample:
+[metric:prior_self/carrier-0-2-0@a06f04a0059f~prior-self-b-20260929#acted_within_1s_of_pickup_or_drop=0]
+misfires, and
+[metric:prior_self/carrier-0-2-0@a06f04a0059f~prior-self-b-20260929#dropped_samples_flagged=102]
+guarded dropped samples, as before.
+
+Guard 6 ends the self track at the player's death (`kf_player_death`, second
+lives excepted) until the next round. The four dead runs keep no point, and
+none is lost while he lives. It removes
+[metric:prior_self/guard6@a06f04a0059f~prior-self-b-20260929#points_removed_while_dead=9274]
+of [metric:prior_self/guard6@a06f04a0059f~prior-self-b-20260929#points_before=19049]
+guarded self points on `a06f04a0059f`: after his death the stored self track
+follows the spectated teammate or the glyph. Guard 6 rests on another
+stream, so it belongs where the self track is consumed, recomputed from
+storage (guard 7), not in the decoding reader.
 
 ### 3. Pings: the ally track says a teammate stands there
 
@@ -302,8 +408,8 @@ after batching.
 
 6. **Killfeed follow in the reader.** Parse a band fully only when it is new;
    a band the last frame predicts (same divider column, same slot or one
-   higher) verifies by comparing crops. Resolve the stack's direction first
-   (section 4). Wipe bands already die on persistence in
+   higher) verifies by comparing crops; the stack's direction is now a fact
+   [domain:killfeed/stack-order]. Wipe bands already die on persistence in
    `checks.track_entries`, so the gain is cost and consistency.
 7. **The round clock counts down.** Consecutive reads within 1.5 s break the
    countdown on
@@ -358,12 +464,32 @@ bar, and the board's audit openings (guard 5).
 - `minimap.filter_track` returns interpolated points as plain tuples beside
   measured ones, while `docs/ADJUDICATION_DESIGN.md` requires that
   interpolation render distinctly. The raw reads stay stored; the returned
-  track does not mark what it invented.
-- **The killfeed stack's direction is two beliefs.** `killfeed.py` (defect 4)
-  says "new entries arrive at the top of the stack"; `death.follow_entry_portraits`
-  says "a newer entry arrives BELOW" and lets an entry only stay or rise. No
-  `domain/killfeed.toml` fact records it. Check it on the killfeed crop cache
-  or ask the player, then record the answer as a fact.
+  track does not mark what it invented. (2026-09-29: `filter_track(...,
+  mark=True)` now marks each point; the default is unchanged, and nothing
+  stores the output. `pick_self_declared` names the pick's rule.)
+- **The killfeed stack's direction was two beliefs; the player settled it**
+  on 2026-09-29 [domain:killfeed/stack-order]. `death.follow_entry_portraits`
+  and `checks.track_entries` matched the fact and now cite it; `killfeed.py`'s
+  docstrings said the reverse, and no code read them. Stored rows agree: a
+  divider-matched entry fell a slot on
+  [metric:killfeed_stack_order/pairs@stored-hud~stack-order-20260929#falls=7]
+  of [metric:killfeed_stack_order/pairs@stored-hud~stack-order-20260929#matched_pairs=28356]
+  consecutive pairs, and a new entry arrived below every entry already on
+  screen on
+  [metric:killfeed_stack_order/pairs@stored-hud~stack-order-20260929#arrivals_below_all=1518]
+  of [metric:killfeed_stack_order/pairs@stored-hud~stack-order-20260929#arrivals_with_entry_on_screen=1625]
+  arrivals; most of the rest sit where the previous sample held an unparsed
+  band. The walk's nearest-slot rule still gives a risen entry to the expired
+  track above it when dividers and victim sides agree:
+  [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#welded_entries=45]
+  of [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#entries=3310]
+  entries, of which
+  [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#welded_player_deaths=3]
+  are the player's deaths. The follow then binds
+  [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#welded_views_bound=213]
+  of their
+  [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#welded_views_if_unwelded=358]
+  views: the old symptom, by a new path.
 - `follow_entry_portraits` skips a frame where two slots fit the key and
   stores nothing, so the ambiguity rate cannot be counted.
 - `tray_kit` accepts the player's kit as a lone candidate with no audit
@@ -380,9 +506,10 @@ bar, and the board's audit openings (guard 5).
    `pick_self`, an interpolation flag in `filter_track`, a stored ambiguity row
    in the follow. No output changes, so `reticle verify --tier fast` must pass
    unchanged.
-2. Run the four stored-row experiments above (items 1-4) and the killfeed
-   stack check; log predictions in `notes/predictions.jsonl` first.
+2. Run the four stored-row experiments above (items 1-4); log predictions in
+   `notes/predictions.jsonl` first. The killfeed stack check is done
+   (section 4).
 3. Build the ally window search if item 1's isolated misses are real, scored
    against the player's blind labels before it is wired.
-4. Decide the belief-rule amendment in section 2, then the scoreboard's own
-   prior if the timing still matters.
+4. The belief-rule amendment is decided (section 2); build the scoreboard's
+   own prior if the timing still matters.

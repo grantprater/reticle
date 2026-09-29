@@ -186,7 +186,12 @@ duration; whether enemy-owned ABILITIES persist like enemy PLAYERS, the player's
 example being a player; and what the terminal state is -- a question mark, a
 different marker, or nothing
 """
-source = "the player, correcting the gate's exceptionless form"
+source = """
+the player, correcting the gate's exceptionless form. On 2026-09-29 (chat) the
+player placed the delay he sees before an enemy's "?" here: the icon stays drawn
+after the team's vision no longer covers its place, and the "?" follows
+(minimap/last-known-mark-timing measures the swap as one frame)
+"""
 see = ["minimap/vision-gate", "minimap/last-known-mark", "minimap/last-known-mark-timing"]
 
 [device-dim-on-deactivation]

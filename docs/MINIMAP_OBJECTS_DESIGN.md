@@ -62,8 +62,10 @@ a different marker, or nothing") as unmeasured
 shows an enemy's last known place; `prototypes/label_minimap.py` labels it so.
 `identity.claim_from_minimap_icon` abstains on an observation marked
 `question`. The player's labels hold "?" positions in `labels/minimap` (both
-sessions); `labels/minimap_agent` holds more, mostly marked
-`claude-provisional`. The player's answers and the measurement below now
+sessions); `labels/minimap_agent` is the player's second pass over the
+same Ascent marks (`label_icon_agent.py`), so it adds no new "?" places. Its
+71 `claude-provisional` rows are enemy rows, which stage 2 leaves out of
+scoring. The player's answers and the measurement below now
 record the mark [domain:minimap/last-known-mark]; no owner reads it yet.
 
 **Other witnesses.** The spike reader (`spike`, spike-0.2.0, a 1 s grid over
@@ -307,6 +309,116 @@ each is scored on labels before any threshold moves.
    the labelled glyph items; Wingman's straight-line motion is checked on
    tracks before a reader relies on it.
 
+2b. **The trailing time.** The player places the delay he sees before a "?"
+   in the icon drawn after the team's vision leaves its place
+   [domain:minimap/vision-trailing-persistence]; measure it against the
+   stored joined team vision.
+
+## Stage 2: results
+
+`prototypes/minimap_objects_s2.py` (minimap-objects-s2-0.1.0; task
+`minimap-objects-c-20260929` of the store's `notes/predictions.jsonl`, one
+prediction row per part, each logged before its run) scored each part once
+on the player's labels and the gate's Lotus and Ascent sample. The sheets
+are in the store's `analysis/minimap-objects-c-20260929/`.
+
+**1. X by shape and order.** The shape test keeps a blob whose pixels lie on
+two crossing diagonals with four arms. At the player's labelled points it
+fires on both labelled X items, on
+[metric:minimap_objects_s2/x-labels@5822b6646448+a06f04a0059f+c62c2b06bcfb#dynamic_x_mark_x=3]
+of 3 `minimap_dynamic` X marks, on no labelled "?" (it rejects
+[metric:minimap_objects_s2/x-labels@5822b6646448+a06f04a0059f+c62c2b06bcfb#minimap_question_not_x=83]
+of 83), on
+[metric:minimap_objects_s2/x-labels@5822b6646448+a06f04a0059f+c62c2b06bcfb#minimap_enemy_x=5]
+of 286 enemy marks and
+[metric:minimap_objects_s2/x-labels@5822b6646448+a06f04a0059f+c62c2b06bcfb#icon_facing_true_icon_x=1]
+of 43 true icons, and on
+[metric:minimap_objects_s2/x-labels@5822b6646448+a06f04a0059f+c62c2b06bcfb#minimap_other_red_x=194]
+other-red marks, which the sheet shows to be mostly red X marks. Binding a
+death needs an X born at its time where a same-side icon ended: ally deaths
+are placed at
+[metric:minimap_objects_s2/x-deaths@5822b6646448#ally_placed_frac=0.553] and
+[metric:minimap_objects_s2/x-deaths@a06f04a0059f#ally_placed_frac=0.563],
+enemy deaths at
+[metric:minimap_objects_s2/x-deaths@5822b6646448#enemy_placed_frac=0.266] and
+[metric:minimap_objects_s2/x-deaths@a06f04a0059f#enemy_placed_frac=0.323],
+lower than stage 1's colour rule but far cleaner: two of 36 tiles on each
+death sheet show no X (a smoke over it, an icon covering it, the map
+closed). The utility search placed one late X. X1, X2 and X4 passed; X3
+failed on coverage.
+
+**2. The "?" witness.** A red blob, not X-shaped, under no enemy icon, whose
+red run walks back to an enemy icon at the place. It finds
+[metric:minimap_objects_s2/question@5822b6646448+a06f04a0059f#question_witness=70]
+of [metric:minimap_objects_s2/question@5822b6646448+a06f04a0059f#question_n=82]
+of the player's "?" marks, and calls
+[metric:minimap_objects_s2/question@5822b6646448+a06f04a0059f#enemy_witness=12]
+of [metric:minimap_objects_s2/question@5822b6646448+a06f04a0059f#enemy_n=284]
+enemy marks "?". Its timing came from the same instances, so this scores
+its mechanics, not the timing. Away from any mark it is poor: of the 60
+candidates on `question_candidates.png` about 8 are "?" marks; the rest are
+enemy icons the ring detector misses, ally icons with red in their art, danger
+triangles and frames with the map closed. It needs a "?" shape test as the X
+has. Q1 passed, Q2 failed (under its falsifier), Q3 failed.
+
+**2b. The trailing time.** On the 29 measured "?" instances, the icon was
+tracked back from its last frame and read against the stored joined vision
+(team_vision 0.3.0). On
+[metric:minimap_objects_s2/trailing-lag@5822b6646448+a06f04a0059f#lag_n=8]
+instances the icon leaves the joined vision and is drawn on for a median
+[metric:minimap_objects_s2/trailing-lag@5822b6646448+a06f04a0059f#lag_median=0.5] s
+(quartiles [metric:minimap_objects_s2/trailing-lag@5822b6646448+a06f04a0059f#lag_p25=0.483]
+to [metric:minimap_objects_s2/trailing-lag@5822b6646448+a06f04a0059f#lag_p75=0.583] s),
+then the "?" follows. On
+[metric:minimap_objects_s2/trailing-lag@5822b6646448+a06f04a0059f#status_in_vision_at_last_frame=12]
+the stored vision still covers the place when the "?" appears, and on
+[metric:minimap_objects_s2/trailing-lag@5822b6646448+a06f04a0059f#status_not_in_vision_in_track=9]
+it never covers the tracked icon: the instrument disagrees with the game on
+21 of 29, the cone's known error. The tinted sheets (`trailing_lag_1.png`,
+`trailing_lag_2.png`) show the eight clean cases leaving the cone about half
+a second before the swap. V2 passed; V1 and V3 failed. Half a second is a
+candidate, not a fact: eight instances, one instrument.
+
+**3. Ping kinds.** The ping owner's rule over every widget-drawn cached frame
+confirms few pings at 15 Hz and refinds
+[metric:minimap_objects_s2/ping@5822b6646448#stored_refound=19] of
+[metric:minimap_objects_s2/ping@5822b6646448#stored_n=36] and
+[metric:minimap_objects_s2/ping@a06f04a0059f#stored_refound=16] of
+[metric:minimap_objects_s2/ping@a06f04a0059f#stored_n=46] stored pings.
+Joining pulse-split danger groups gives
+[metric:minimap_objects_s2/ping@5822b6646448#danger_joined=12] and
+[metric:minimap_objects_s2/ping@a06f04a0059f#danger_joined=20] candidates; the
+labelled triangle at 757.1 s is one, and no labelled true enemy icon lies on
+one. On `ping_danger_joined.png` about two in five are pulsing triangles;
+the rest are red X marks, "?" marks, Leer and enemy icons that also sit in
+the danger hue for ten seconds. The X shape test already names the X marks,
+so the next step is to cross-reference the two, not to tighten the join. P3
+and P4 passed; P1 (761.1 s not covered) and P2 failed.
+
+**4. Glyph templates.** Leer's template, mined at 277.8 s, matches the
+held-out labelled Leer at 1773.2 s and ten other-red marks the sheet shows
+are Leer. Trailblazer matches #23, its own source (not scored). No template
+matches a labelled true icon, enemy or "?". The Wingman template failed: its
+cited source frame (405.0 s) has Omen's icon over half the disc, and it
+misses #15. Astra's star matches in
+[metric:minimap_objects_s2/glyph@5822b6646448+a06f04a0059f+223d636bf8d2#astra_frames_matched=24]
+of [metric:minimap_objects_s2/glyph@5822b6646448+a06f04a0059f+223d636bf8d2#astra_frames=29]
+frames of 612-640 s, and across the 223d636bf8d2 sample it also matches
+faint grey discs of the star's shape. G2 and G3 passed; G1 failed on
+Wingman.
+
+**Combined.** Applied to the gate's fits, the witnesses keep every labelled
+true icon an agent icon
+([metric:minimap_objects_s2/combined@5822b6646448+a06f04a0059f#labels_enemy_true_icon_agent_icon_enemy=17]
+enemy, [metric:minimap_objects_s2/combined@5822b6646448+a06f04a0059f#labels_ally_true_icon_agent_icon_ally=24]
+ally) and all 110 ally sample fits. They name both labelled X items death
+marks, the Leer item a Leer glyph and #23 a Trailblazer. Three Bs-kept
+not-icons stay agent icons: the two danger triangles (the joined candidate's
+place, its first sighting, lies 12 px from the fit's centre) and the red floor dashes; the
+Wingman glyph stays too. On the sample one kept Ascent enemy fit becomes a
+death mark, and the sheet shows a live enemy icon. C1 and C3 passed, C2
+failed. Every part stays `"wire": "no"`.
+
 ## The label plan
 
 The labelling-pass skill governs every pass below: blank start, `U` for
@@ -319,7 +431,7 @@ last row for a key wins, and the candidate ringed in every panel.
 |---|---|---|
 | `labels/icon_facing_20260928.jsonl` (60 items) and `icon_facing_20260928/ability_candidates_verdicts.jsonl` | teardrop items, facing or not an icon; five verdicts (three Omen icons, Wingman, Trailblazer) | agent icon against not-icon, per side |
 | `labels/minimap/` (Lotus, Ascent) | every enemy, "?" and other-red mark per frame | enemy recall; "?" and other-red confusers; other-red is not subdivided |
-| `labels/minimap_agent/` (Ascent) | enemy marks with agent names; "?" marks, most by `claude-provisional` | not ground truth until the player confirms them |
+| `labels/minimap_agent/` (Ascent) | the player's agent names for the `labels/minimap` marks, and their "?" marks again; 71 enemy rows are `claude-provisional` | enemy identity from the player's rows only; the provisional rows are not ground truth |
 | `labels/minimap_dynamic/` (3 sessions) | colour-free detections: nothing, ability, player, area, ping, x_mark, barrier, spike | glyph and area classes |
 | `labels/unnamed_piece/` (19 sessions) | ally pieces the arbiter could not name: bare map, between icons, agent, spike, ability object, x_mark | ally-side confusers |
 | `labels/death_icon/` (19 sessions) | death-bound portraits, agent or not a portrait | the portrait channel at deaths |
@@ -345,11 +457,16 @@ uniform stratum as the control.
 
 ## Questions still open
 
-1. How long does an enemy stay drawn after leaving the team's vision, before
-   its "?" appears? (Measurable: read the team's drawn light at the icon.)
+1. Does an enemy stay drawn about half a second after leaving the team's
+   vision, for every enemy? (Stage 2b measured it on eight instances.)
 2. Can two X marks at one place merge into one?
 3. Which ping kinds are static, and how long does each last on match
-   footage? (Measurable on the stream once the danger ping's groups join.)
+   footage?
+4. What are the faint grey discs with the star's ring-and-notch mark on
+   223d636bf8d2 (304 s, 498 s, 559 s, 1016 s): Astra stars in another
+   state, or something else?
+5. Wingman: a clean frame of its icon, not under another icon, for its
+   template.
 
 ## What this plan does not settle
 

@@ -102,21 +102,23 @@ states plainly, and the player had to ask what the sentence meant.
   it into the handoff.
 - **Continue the prior; widen the search only on surprise.** Context predicts
   most of what comes next: the last frame's state, the match's lineup, the
-  banner's type, the belief the last run left. Start every reading and every
-  experiment from that prediction, check it cheaply, and widen the search only
-  where the observation surprises it. A killfeed entry is followed where it
-  was; a smoke is sought from the agents in the match, near where their
-  abilities land; a portrait tile is placed from its banner type's anchor; an
-  experiment revises the belief it tested rather than starting over. Store the
-  surprise, never average it away. A prior that is never checked is a hidden
-  assumption: the portrait channel assumed an entry keeps its first slot, and
-  lost every view taken after the stack rose. Code that scores against a
-  gallery or candidate set names the set its context allows (the match's
-  agents, the side's five, the slot's predicted agent) and why; the full
-  set is the surprise path and must be justified, as the lineup reader's
-  29 agents are before any lineup exists. A prior is evidence, weighed
-  once: a result it shaped declares that it rests on it, so the prior's
-  information is never counted again as an independent witness.
+  banner's type, the adjudicated belief the last run left. Start every reading
+  and experiment from that prediction, check it cheaply, and widen the
+  search only where the observation surprises it. A killfeed entry is followed
+  where it was; a smoke is sought from the agents in the match, near where
+  their abilities land; a portrait tile is placed from its banner type's
+  anchor; an experiment revises the belief it tested rather than starting over.
+  Store the surprise, never average it away. A prior never checked is a
+  hidden assumption: the portrait channel assumed an entry keeps its first
+  slot, and lost every view taken after the stack rose. Audit a prior by a
+  full search on opportunity-gated samples at a cadence fixed in advance,
+  stored apart; a surprise-triggered search is no audit sample. Code that
+  scores against a gallery or candidate set names the set its
+  context allows (the match's agents, the side's five, the slot's predicted
+  agent) and why; the full set is the surprise path and must be justified, as
+  the lineup reader's 29 agents are before any lineup exists. A prior is
+  evidence, weighed once: a result it shaped declares that it rests on it, so
+  the prior's information is never counted again as an independent witness.
 - **Ability mechanics are unique per ability** (player, 2026-09-26)
   [domain:abilities/ability-rules-are-unique]: the lifecycle, inputs, minimap
   drawing and screen overlay of one ability predict nothing about another.
