@@ -260,6 +260,46 @@ blind. The 1 Hz full-search audit disagrees with the guarded pick on
 of [metric:prior_self/audit-cadence@a06f04a0059f~prior-self-20260929#compared=1283]
 samples.
 
+*The player's labels, the carrier and his death (run `prior-self-b-20260929`,
+`prior-self-0.2.0`).* The player answered all 34 items. Where he lived and
+clicked his own icon
+([metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#alive_here=25]
+items), the stored rule's point lay elsewhere on
+[metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#alive_here_wrong_point_stored=15];
+the guard refused all but one of these (a teardrop read on a glyph 14 icon radii from him).
+Where he stood on the spike
+([metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#on_spike_here=7]
+items, his click within 1.5 icon radii of the glyph), the teardrop confirmed
+[metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#on_spike_teardrop_reads=4],
+so the guard costs some real points on the spike. After a killfeed death he
+clicked the yellow icon on
+[metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#killfeed_dead_answered_here=5]
+of [metric:prior_self/labels@a06f04a0059f+5822b6646448+223d636bf8d2~prior-self-b-20260929#killfeed_dead_items=8]
+items; on the sheets its portrait is not his agent. At `223d636bf8d2` 1278 s
+he answered dead while the killfeed has him alive; the disagreement stays open.
+
+The carried spike never rejected its carrier: `spike.on_glyph`'s carrier rule
+held. Every misfire on
+[metric:prior_self/carrier-0-1-0@a06f04a0059f~prior-self-b-20260929#frames=1621]
+carrier frames on `a06f04a0059f`
+([metric:prior_self/carrier-0-1-0@a06f04a0059f~prior-self-b-20260929#acted_within_1s_of_pickup_or_drop=12])
+came from a dropped glyph held across a pickup or a drop. Rule 0.2.0 holds no
+dropped glyph across a carried sample:
+[metric:prior_self/carrier-0-2-0@a06f04a0059f~prior-self-b-20260929#acted_within_1s_of_pickup_or_drop=0]
+misfires, and
+[metric:prior_self/carrier-0-2-0@a06f04a0059f~prior-self-b-20260929#dropped_samples_flagged=102]
+guarded dropped samples, as before.
+
+Guard 6 ends the self track at the player's death (`kf_player_death`, second
+lives excepted) until the next round. The four dead runs keep no point, and
+none is lost while he lives. It removes
+[metric:prior_self/guard6@a06f04a0059f~prior-self-b-20260929#points_removed_while_dead=9274]
+of [metric:prior_self/guard6@a06f04a0059f~prior-self-b-20260929#points_before=19049]
+guarded self points on `a06f04a0059f`: after his death the stored self track
+follows the spectated teammate or the glyph. Guard 6 rests on another
+stream, so it belongs where the self track is consumed, recomputed from
+storage (guard 7), not in the decoding reader.
+
 ### 3. Pings: the ally track says a teammate stands there
 
 *Prior.* A standard-hue candidate that coincides with a tracked ally icon for
