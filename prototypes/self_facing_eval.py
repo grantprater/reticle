@@ -20,7 +20,8 @@ about and is reported apart. `cant_tell` stays out of scoring; `not_self`
 counts against the item's stratum, which for `refused` says whether the
 teardrop was right to refuse.
 
-It writes nothing to the store; `--json` writes the per-item table.
+It writes to the store only with `--record` (one `metrics` row); `--json` writes
+the per-item table.
 """
 from __future__ import annotations
 
@@ -128,11 +129,37 @@ def show(res: dict) -> None:
     print(f"clicked centre vs teardrop centre, median px: {res['centre_click_vs_teardrop_px_median']}")
 
 
+def record_summary(res: dict) -> None:
+    """One `metrics` row: each reader per stratum, and which side the label takes."""
+    import teardrop_tip as tt
+    from reticle import metrics
+    values = {}
+    for name, d in res["readers"].items():
+        for st, v in d.items():
+            values[f"{name}_{st}_n"] = v["n"]
+            values[f"{name}_{st}_unread"] = v["unread"]
+            for k in ("median_abs_deg", "flip", "within10", "within20", "median_signed_deg"):
+                if k in v:
+                    values[f"{name}_{st}_{k}"] = round(v[k], 3)
+    for st, c in res["sides"].items():
+        for who, n in c.items():
+            values[f"sides_{st}_{who}"] = n
+    values["sides_teardrop"] = sum(c.get("teardrop", 0) for c in res["sides"].values())
+    values["sides_n"] = sum(sum(c.values()) for c in res["sides"].values())
+    values["elsewhere"] = res["elsewhere"]
+    if res["centre_click_vs_teardrop_px_median"] is not None:
+        values["centre_click_vs_teardrop_px_median"] = round(res["centre_click_vs_teardrop_px_median"], 3)
+    metrics.record("self_facing_eval", part="labels", session=f"{lsf.LOTUS}+controls", values=values,
+                   deps={"prototype": VERSION, "reader": tt.VERSION, "labels": Path(res["labels"]).name,
+                         "elsewhere_px": ELSEWHERE_PX})
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--store", default=str(sem.STORE))
     ap.add_argument("--labels", help="answers file (default: the store's labels/" + lsf.NAME + ".jsonl)")
     ap.add_argument("--json", type=Path, help="write the per-item rows and the summary here")
+    ap.add_argument("--record", action="store_true", help="record the summary as one metrics row")
     args = ap.parse_args(argv)
     sem._below_normal()
     store = Path(args.store)
@@ -146,6 +173,8 @@ def main(argv=None) -> int:
     res = score(rows)
     res["labels"] = str(path)
     show(res)
+    if args.record:
+        record_summary(res)
     if args.json:
         args.json.write_text(json.dumps({"summary": res, "rows": rows}, indent=1), encoding="utf-8")
         print("wrote", args.json)

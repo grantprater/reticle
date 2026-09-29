@@ -11,8 +11,9 @@ promoted chain reproduces the gain on the same frames.
 **The chain is the owner's.** Each arm drives `team_vision.TeamVision` over
 the frames as the code on disk has it -- `before` on master's code, `after` on
 the branch -- and scores the self cone it cast: `cone.observable` on the self
-entry of `resolved`, from the origin the frame reports (`VisionFrame.origins`
-where present, the track's position otherwise).
+entry of `resolved` (its bearing, which 0.3.0 takes from the teardrop), from
+the origin the frame reports (`VisionFrame.origins` where present, the
+track's position otherwise). `--label` names an arm after the code it ran.
 
 **The witness is E4's and does not move between arms**: the prototype
 teardrop fit (`teardrop_tip.fit`, seeded from the best self detection) places
@@ -27,6 +28,7 @@ held-out odd 3 s blocks outside the sliver neighbourhoods; `5822b6646448`,
 E4's twenty 6 s windows through `team_vision.at` with a 10 s warm-up. It reads
 the minimap crop cache only, decodes no video, and writes to the store only
 with `--compare` (one `metrics` row).
+0.2.0: arms are named, and a source names origin and facing (`teardrop/teardrop`).
 """
 from __future__ import annotations
 
@@ -45,7 +47,7 @@ import cone_origin as co  # noqa: E402
 import teardrop_tip as tt  # noqa: E402
 from reticle import cone, lighting, metrics, team_vision  # noqa: E402
 
-VERSION = "vision-origin-eval-0.1.0"
+VERSION = "vision-origin-eval-0.2.0"
 LOTUS = "5822b6646448"
 WARMUP_MS = 10000.0
 
@@ -84,6 +86,9 @@ def self_cone(s: sem.Session, fr):
     origins = getattr(fr, "origins", None)
     ox, oy = (origins[i][0], origins[i][1]) if origins else (x, y)
     src = origins[i][2] if origins else "ring_fit"
+    sc = getattr(fr, "self_cone", None)
+    if sc is not None:
+        src = f"{src}/{sc.get('facing')}"
     _agg, per = cone.observable(s.passable, [(ox, oy, deg)], visible=s.floor)
     return per[0], src
 
@@ -127,8 +132,11 @@ def pool(rows) -> dict:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--arm", choices=("before", "after"))
-    ap.add_argument("--compare", action="store_true")
+    ap.add_argument("--arm", help="run the code on disk and save it under this name "
+                                  "(before: team-vision-0.1.0, origin: 0.2.0, after: 0.3.0)")
+    ap.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"),
+                    help="score two saved arms on their common frames and record one metrics row")
+    ap.add_argument("--part", default="joined-light", help="the metrics row's part")
     ap.add_argument("--out", type=Path, default=Path(sem.tempfile.gettempdir()) / "vision-origin")
     ap.add_argument("--sessions", nargs="+", default=[sem.DEMO, LOTUS])
     args = ap.parse_args(argv)
@@ -142,8 +150,9 @@ def main(argv=None) -> int:
                   "origins", {k: sum(1 for x in r["rows"] if x["src"] == k)
                               for k in {x["src"] for x in r["rows"]}}, flush=True)
     if args.compare:
-        b = json.loads((args.out / "before.json").read_text(encoding="utf-8"))
-        a = json.loads((args.out / "after.json").read_text(encoding="utf-8"))
+        nb, na = args.compare
+        b = json.loads((args.out / f"{nb}.json").read_text(encoding="utf-8"))
+        a = json.loads((args.out / f"{na}.json").read_text(encoding="utf-8"))
         values = {}
         for sid in args.sessions:
             tag = "e78e" if sid == sem.DEMO else "lotus"
@@ -158,18 +167,22 @@ def main(argv=None) -> int:
                 for k in ("precision", "recall", "f1", "frames"):
                     if p[k] is not None:
                         values[f"{tag}_{name}_{k}"] = round(float(p[k]), 4)
+            values[f"{tag}_before_cast_all"] = sum(1 for t in common if rb[t]["cast"])
+            values[f"{tag}_after_cast_all"] = sum(1 for t in common if ra[t]["cast"])
             # The witness depends on the crop and the teardrop fit only; its size
             # must not move between arms.
             values[f"{tag}_witness_changed"] = sum(1 for t in common if ra[t]["lit"] != rb[t]["lit"])
-            values[f"{tag}_after_teardrop_origin"] = sum(1 for t in common if ra[t]["src"] == "teardrop")
-            values[f"{tag}_after_fallback_origin"] = sum(1 for t in common if ra[t]["src"] == "ring_fit")
+            for src in sorted({ra[t]["src"] for t in common}):
+                values[f"{tag}_after_src_{src.replace('/', '_')}"] = sum(1 for t in common if ra[t]["src"] == src)
         print(json.dumps(values, indent=1))
         from reticle.version import TEAM_VISION_VERSION
-        metrics.record("vision_origin_eval", part="joined-light", session=f"{sem.DEMO}+{LOTUS}",
+        stamps = {"before": "team-vision-0.1.0", "origin": "team-vision-0.2.0", "after": TEAM_VISION_VERSION}
+        metrics.record("vision_origin_eval", part=args.part, session=f"{sem.DEMO}+{LOTUS}",
                        values=values,
                        deps={"prototype": VERSION, "witness": co.VERSION, "reader": tt.VERSION,
-                             "lighting": lighting.LIGHTING_VERSION, "before": "team-vision-0.1.0",
-                             "after": TEAM_VISION_VERSION, "warmup_ms_lotus": WARMUP_MS,
+                             "lighting": lighting.LIGHTING_VERSION,
+                             "before": stamps.get(nb, nb), "after": stamps.get(na, na),
+                             "warmup_ms_lotus": WARMUP_MS,
                              "fact": "minimap/cone-origin-near-centre"})
     return 0
 

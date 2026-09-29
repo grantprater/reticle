@@ -1,4 +1,4 @@
-r"""The self icon read as a teardrop: its centre, where the player's viewcone starts.
+r"""The self icon read as a teardrop: where the player's viewcone starts and which way it faces.
 
 Owns [owns:self-cone-origin].
 
@@ -9,29 +9,30 @@ and the lobe pulls that circle's centre toward the apex: a median 4.4 px on
 e78e75b2d191 and 2.8 px on 5822b6646448 (docs/STATISTICAL_ADJUDICATOR.md, E3
 and E4). The rays of the drawn light start at the teardrop's centre with no
 offset, and the half-angle stays `cone.CONE_HALF_ANGLE_DEG`
-[domain:minimap/cone-origin-near-centre]. So `team_vision` casts the self cone
-from this reader's centre.
+[domain:minimap/cone-origin-near-centre]. The circle fit's facing is the lobe
+seen through a threshold, and flips on half of the Lotus frames the player
+labelled; the teardrop points one way and needs no lobe resolution. So
+`team_vision` casts the self cone from this reader's centre along its facing.
 
 **The fit** (promoted from `prototypes/teardrop_tip.py`, `teardrop-tip-0.1.0`,
-its model and search unchanged; the grid correlates by `cv2.matchTemplate`). It renders the silhouette -- the teardrop of
-outer radius `R_OUT` and apex distance `L`, less the portrait disc of radius
-`R_IN` -- with a soft edge, and scores it by normalised correlation against a
-continuous yellowness (no threshold) over a window round the detector's
-centre. A grid over centre and facing, then a compass search to a twentieth of
-a pixel and a quarter degree. Below `MIN_NCC` the shape is not read.
+its model and search unchanged; the grid correlates by `cv2.matchTemplate`).
+It renders the silhouette -- the teardrop of outer radius `R_OUT` and apex
+distance `L`, less the portrait disc of radius `R_IN` -- with a soft edge, and
+scores it by normalised correlation against a continuous yellowness (no
+threshold) over a window round the detector's centre. A grid over centre and
+facing, then a compass search to a twentieth of a pixel and a quarter degree.
+Below `MIN_NCC` the shape is not read.
 
-**What it answers and what it does not.** `fit_teardrop` returns the centre and also the
-teardrop's facing. The centre is the product. The FACING is a raw observation
-here and nothing consumes it: on Lotus it agrees with the drawn light to a
-median 10.8 degrees against 1.9 on Ascent, and no light witness separates the
-reader from the walls there, so it waits on the player's labels. The cone's
-bearing stays `track.Track.resolved_facing`.
+**The facing against the player.** On 28 blind labels of 5822b6646448 the
+teardrop's facing errs a median 2.2 degrees and flips on 7%; the ring fit's
+errs 105.5 and flips on half; the eight Ascent controls err 1.8 with no flip
+(docs/STATISTICAL_ADJUDICATOR.md, "The labels", which cites the run).
 
 **An unread teardrop is a reason, never a guess.** `fit_teardrop` returns
 `read: False` with `no_yellow` or `low_ncc`; on 5822b6646448 a fifth of the
 self detections are a yellow ability icon in a teammate stack, which the shape
-rightly refuses. The caller falls back to the ring fit's centre and records
-which origin it used.
+rightly refuses. `SelfConeReader` then returns the ring fit's centre and no
+facing, says why, and the caller keeps its own bearing.
 
 **Scale.** The constants were fitted on e78e75b2d191 at `widget_scale` 1.0
 (the bigmap profile at 1080p) and scale linearly with the widget. A widget
@@ -183,8 +184,8 @@ def _grid(obs, keep, x0, y0, cx0, cy0, search, r_in, r_out, L_, edge):
     return best
 
 
-class OriginReader:
-    """The self cone's origin per frame: the teardrop's centre, or the ring fit's.
+class SelfConeReader:
+    """The self cone's origin and facing per frame, from the teardrop.
 
     The minimap repeats one image across several cached frames, so the reader
     keeps the last fit keyed by the pixels it scored and the seed; a repeat
@@ -196,11 +197,13 @@ class OriginReader:
         self.scale = scale
         self._last: tuple | None = None
 
-    def origin(self, crop: np.ndarray, cx: float, cy: float) -> dict:
-        """`{"x", "y", "source", ...}` for a self fit centred at `(cx, cy)`.
+    def read(self, crop: np.ndarray, cx: float, cy: float) -> dict:
+        """`{"x", "y", "deg", "origin", "ncc", ...}` for a self fit centred at `(cx, cy)`.
 
-        `source` is `teardrop` where the shape reads; otherwise `ring_fit`,
-        the detector's own centre, with the teardrop's `reason`.
+        Where the shape reads, `origin` is `teardrop` and `x`, `y`, `deg` are
+        its centre and facing (image degrees, y down). Otherwise `origin` is
+        `ring_fit`: `x`, `y` are the detector's own centre, `deg` is None and
+        `reason` says why the teardrop was not read.
         """
         rad = (L + WINDOW + SEARCH_PX) * self.scale + 1
         h, w = crop.shape[:2]
@@ -214,9 +217,9 @@ class OriginReader:
             tf = fit_teardrop(crop, cx, cy, scale=self.scale)
             self._last = (key, tf)
         if tf.get("read"):
-            return {"x": float(tf["x"]), "y": float(tf["y"]), "source": "teardrop",
-                    "ncc": float(tf["ncc"]), "teardrop_deg": float(tf["deg"])}
-        return {"x": float(cx), "y": float(cy), "source": "ring_fit",
+            return {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
+                    "origin": "teardrop", "ncc": float(tf["ncc"])}
+        return {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
                 "ncc": _num(tf.get("ncc")), "reason": tf.get("reason")}
 
 

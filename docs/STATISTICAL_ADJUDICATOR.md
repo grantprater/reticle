@@ -508,7 +508,22 @@ it was drawn; the answers go to the store's
 scores the teardrop and the ring fit against them. The predictions (L1-L5)
 are logged in the store's `notes/predictions.jsonl` before any label exists.
 
-## E5: `team_vision` casts the self cone from the teardrop's centre
+**The player's answers.** On the [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_n=28] Lotus items he
+could read, the teardrop's facing errs a median [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_median_abs_deg=2.233]
+degrees, flips on [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_flip=0.071] of them and lies within 10 degrees on
+[metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_within10=0.893]. The ring fit's raw facing errs
+[metric:self_facing_eval/labels@5822b6646448+controls#ring_all_lotus_median_abs_deg=105.498] and flips on [metric:self_facing_eval/labels@5822b6646448+controls#ring_all_lotus_flip=0.5]; E4's
+light-fitted facing errs [metric:self_facing_eval/labels@5822b6646448+controls#light_all_lotus_median_abs_deg=4.01] and flips on
+[metric:self_facing_eval/labels@5822b6646448+controls#light_all_lotus_flip=0.107]. On the [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_control_n=8] Ascent controls the
+teardrop errs [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_control_median_abs_deg=1.82] with [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_control_flip=0.0]
+flips. Where the teardrop and the light disagree, the label sides with the
+teardrop [metric:self_facing_eval/labels@5822b6646448+controls#sides_teardrop=9] of [metric:self_facing_eval/labels@5822b6646448+controls#sides_n=11] times, and the clicked centre lies a
+median [metric:self_facing_eval/labels@5822b6646448+controls#centre_click_vs_teardrop_px_median=0.804] px from the teardrop's. L1's median held and its flip clause (at most 5%) failed: both
+flips fall in the `flip` stratum, drawn where the readers disagree, where the
+teardrop flips on [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_flip_flip=0.4] of [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_flip_n=5]. L2 as amended, L3 and L5 held. The teardrop reads
+the facing on Lotus; most of the light's disagreement there was the walls.
+
+## E5: `team_vision` casts the self cone from the teardrop
 
 `team-vision-0.2.0` takes E4's origin and keeps the track's resolved facing.
 `reticle/teardrop.py` (`teardrop-0.1.0`, owner of `self-cone-origin`) holds
@@ -546,14 +561,58 @@ what one clip's 134 frames resolve. E3b's larger gain (precision
 track's facing is the remaining error, and it waits on the player's Lotus
 labels.
 
+**The facing (0.3.0).** The labels settled the facing, so `team-vision-0.3.0`
+casts the self cone along the teardrop's facing wherever the principal self
+track is observed and the shape reads, whether or not the track resolved a
+bearing. Where the teardrop is unread the cone falls back to the ring fit's
+centre along the track's resolved lobe; the stored self icon's `self_cone`
+names the origin and facing it used and keeps the track's bearing as
+`track_deg`. `teardrop-0.2.0`'s `SelfConeReader` returns centre and facing
+together. Against 0.2.0, on the same frames and the same witness
+([metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_witness_changed=0] and [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_witness_changed=0] changed):
+
+| Self cone against the joined light | 0.2.0 (track facing) | 0.3.0 (teardrop facing) |
+|---|---|---|
+| Ascent precision | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_before_precision=0.6773] | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_after_precision=0.7435] |
+| Ascent recall | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_before_recall=0.5556] | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_after_recall=0.6556] |
+| Ascent F1 | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_before_f1=0.6104] | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_after_f1=0.6968] |
+| Ascent cast cones | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_before_cast_all=134] | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_after_cast_all=143] |
+| Lotus precision | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_before_precision=0.7707] | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_after_precision=0.7657] |
+| Lotus recall | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_before_recall=0.4561] | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_after_recall=0.4784] |
+| Lotus F1 | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_before_f1=0.573] | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_after_f1=0.5889] |
+| Lotus cast cones | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_before_cast_all=718] | [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_after_cast_all=799] |
+
+On the frames both versions cast, Ascent's F1 rises from
+[metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_before_cast_f1=0.6936] to [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_after_cast_f1=0.7752] and Lotus's precision from
+[metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_before_cast_precision=0.7707] to [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_after_cast_precision=0.7773]. Lotus's
+pooled precision falls by 0.005 because the teardrop casts on frames whose
+bearing the track refused, and those agree with the light less often. On
+Lotus the teardrop supplies origin and facing on
+[metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_after_src_teardrop_teardrop=713] cast cones and the ring fit and track on
+[metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_after_src_ring_fit_track=86]; [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#lotus_after_src_bearing_refused=33] frames with light
+still cast nothing. Against the logged predictions: F1 held (Ascent F1 +0.086,
+precision +0.066), F2 held, F3 held.
+
+**The stored vision and the slivers.** `reticle vision` stores 0.3.0 for
+e78e75b2d191 and a06f04a0059f. `light_refusals` now refuses
+[metric:vision_origin_eval/light-refusals@all-labelled#viewcone_refused=17] of [metric:vision_origin_eval/light-refusals@all-labelled#viewcone_n=19] viewcones, against
+[metric:vision_origin_eval/light-refusals@all-labelled#viewcone_refused_before=16] under 0.1.0 and 0.2.0, and
+[metric:vision_origin_eval/light-refusals@all-labelled#ability_refused=0] of [metric:vision_origin_eval/light-refusals@all-labelled#ability_n=34] abilities. The new refusal is the
+43.35 s sliver, through the stored vision (share
+[metric:vision_origin_eval/light-refusals@all-labelled#sliver_43350_vision_share=0.807]): the flipped lobe E3 found there no longer
+turns the cone away. 36.9 s and 40.65 s still pass; the vision covers neither.
+F4 failed in the direction it could not rule out.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
   degrees, and 51.5 sits inside both sessions' tops.
-- The read facing's accuracy on a second session: no drawn-light witness
-  separates it from occlusion on Lotus; player labels are the next instrument.
-- E3's read tip was checked by eye on contact sheets, not against player
-  labels; its jitter is precision, not accuracy.
+- The teardrop's facing is scored against 28 Lotus labels and 8 Ascent
+  controls; the flips cluster where the readers disagree, and no other map
+  or widget scale has labels.
+- The self cone's fallback (ring fit and track lobe) serves about a tenth of
+  Lotus's cast cones; teammates' cones still start at their ring fits along
+  their tracks' lobes.
 - Wall edges (`BORDER`) were not perturbed; only box edges were.
 - E2's near-line group holds only a handful of held-out frames.
 - E1-E3 calibrated on one session and one map; E4 adds one Lotus session.

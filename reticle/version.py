@@ -246,10 +246,13 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # The chain is `team_vision.TeamVision`, the one `overlay` draws.
 # 0.2.0: the self cone starts at the teardrop's centre (`teardrop`, TEARDROP_VERSION)
 # where the shape reads, else at the ring fit's centre; each self icon records which.
-TEAM_VISION_VERSION = "team-vision-0.2.0"
+# 0.3.0: the self cone faces the teardrop's facing where the shape reads, else the
+# track's resolved lobe; the stored self icon's `self_cone` names both sources.
+TEAM_VISION_VERSION = "team-vision-0.3.0"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
-TEARDROP_VERSION = "teardrop-0.1.0"
+# 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.
+TEARDROP_VERSION = "teardrop-0.2.0"
 # One observation of an ability's drawn minimap shape (a ring or a beam), fitted
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
 # a prior, an acceptance or the stored fields change.
