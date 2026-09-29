@@ -187,6 +187,14 @@ remains = "E3 (read the teardrop tip), then the sampler."
 waits_for = "team_vision storing pose windows, and a teardrop reader or the player's tip labels."
 
 [[document]]
+path = "docs/MINIMAP_OBJECTS_DESIGN.md"
+kind = "plan"
+status = "proposed"
+since = "2026-09-29"
+remains = "Stage 1 (prototypes/minimap_objects.py) failed its falsifier; an X shape reader, a ping witness that keeps unconfirmed groups, the '?' reader and per-kit glyph classes remain."
+waits_for = "The player's answers to the plan's questions on the '?' mark, X persistence, the death transition and the red marks."
+
+[[document]]
 path = "docs/PUBSUB_PLAN.md"
 kind = "plan"
 status = "implemented"

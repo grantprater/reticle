@@ -868,7 +868,9 @@ carrier in the sample already fit under the new threshold. What Bs still
 keeps fits between 1.5 and 2.0, inside the range of real portraits, so a
 portrait fit alone cannot reject it. The ping triangles, the X marks and
 the Wingman glyph each need their own reader, from the match's kits and
-the ping channel. The prototype stays `"wire": "no"`. Bs rests on 60
+the ping channel. [MINIMAP_OBJECTS_DESIGN.md](MINIMAP_OBJECTS_DESIGN.md)
+designs that classifier and scores its first stage, which cross-references
+the ping stream and X marks at stored deaths. The prototype stays `"wire": "no"`. Bs rests on 60
 labels from two 465 px sessions; its threshold comes from the self icon,
 not from enemies; and no 331 px or turned widget was scored.
 
