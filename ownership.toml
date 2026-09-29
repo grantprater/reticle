@@ -164,7 +164,7 @@ question = "Where is the local player's icon on the minimap?"
 owner = "minimap"
 role = ["detect"]
 status = "partial"
-produces = ["pick_self", "self_icons", "filter_track"]
+produces = ["pick_self", "self_icons", "filter_track", "self_portrait_pixels"]
 not_for = """
 WHICH AGENT the player is. `pick_self` answers a spatial question and the name
 is the trap: semantic self is `player-agent`, owned by `lineup`. The fit can
@@ -875,6 +875,28 @@ exit = """
 As `agent-from-slot`: the calibration assets still live in prototypes/.
 """
 evidence = "tests/test_lineup.py"
+
+[[entry]]
+id = "self-icon-portrait"
+question = "What does the portrait inside the player's minimap self icon look like, scored against each agent's art, while the player lives?"
+owner = "self_icon"
+role = ["detect"]
+status = "partial"
+produces = ["read_session", "read_frame", "icon_witness", "stored_witness", "all_alive",
+            "MIN_PIXELS", "STEP_S", "ROSTER_GAP_MS", "REFUSALS"]
+names_agents = true
+defers_to = ["agent-identity", "self-position"]
+consumers = ["cli", "lineup"]
+not_for = """
+Naming the player's agent. It stores scores against every agent's art and
+names nobody: `lineup.load_lineup` hands them to `identity.claims_from_lineup`
+as the `self_icon` witness, which ranks the ally five, and the arbiter decides
+(`player-agent`). Nor is it for where the icon is (`self-position`) or how many allies
+live (`alive-count`: its gate reads the stored roster table, not the rule). It
+reads only the baked geometry's widget, so a capture whose minimap is drawn at
+another scale than the baked one refuses every frame as `widget_not_drawn`.
+"""
+evidence = "tests/test_self_icon.py"
 
 # ---------------------------------------------------------------------------
 # Abilities

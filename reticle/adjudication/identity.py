@@ -160,7 +160,10 @@ def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
 #: 0.1.0 (2026-09-28): the tray and the self icon publish claims on the player
 #: entity and the arbiter decides; `Lineup.player` had let the tray win and
 #: dropped a disagreeing self icon unpublished.
-PLAYER_AGENT_VERSION = "player-agent-0.1.0"
+#: 0.2.0 (2026-09-28): the self icon's witness comes from stored `self_icon`
+#: rows (`reticle self-icon`) where the lineup file holds none, and a claim
+#: with no frame carries the reader's refusal in its reason.
+PLAYER_AGENT_VERSION = "player-agent-0.2.0"
 
 #: The channel that carries the player entity's verdict to the ally slot the
 #: top bar holds it in.
@@ -222,14 +225,21 @@ def _self_icon_claim(entity_id, self_icon: dict, ally_rows, ally_ids, version: s
     The candidate set is the top bar's assignment (each slot's agent or best
     guess), so the claim `depends_on` the ally slots and the prior is weighed
     once. On Lotus the self icon ranks Phoenix 2nd of 29 at a margin of 0.045,
-    refused alone, and first among the five by 0.098."""
+    refused alone, and first among the five by 0.098.
+
+    The gate is the witness's own `margin_min` where it carries one (the
+    rendered-art table's, `self_icon.icon_witness`), whose units are log likelihood;
+    otherwise SIDE_MARGIN_MIN, the composition's."""
     frames = int(self_icon.get("frames") or 0)
     scores = self_icon.get("scores") or {}
     evidence = {"frames": frames, "player_agent_version": PLAYER_AGENT_VERSION}
+    if self_icon.get("self_icon_version"):
+        evidence["self_icon_version"] = self_icon["self_icon_version"]
     if not frames or not scores:
+        why = self_icon.get("reason")
         return identity_claim(entity_id, None, channel="self_icon",
-                              reason="no_self_icon_frames", source_version=version,
-                              evidence=evidence)
+                              reason="no_self_icon_frames" + (f": {why}" if why else ""),
+                              source_version=version, evidence=evidence)
     cands = [c for c in (r.get("agent") or r.get("best_guess") for r in ally_rows) if c]
     ranked = sorted(((float(scores.get(c, 0.0)), c) for c in cands), key=lambda t: -t[0])
     if not ranked:
@@ -237,16 +247,18 @@ def _self_icon_claim(entity_id, self_icon: dict, ally_rows, ally_ids, version: s
                               reason="no_ally_candidates", source_version=version,
                               evidence=evidence)
     margin = ranked[0][0] - (ranked[1][0] if len(ranked) > 1 else 0.0)
-    ok = margin >= SIDE_MARGIN_MIN
+    gate = float(self_icon.get("margin_min") or SIDE_MARGIN_MIN)
+    ok = margin >= gate
     order = sorted(scores, key=lambda n: -scores[n])
-    evidence.update({"candidates": cands, "margin": round(margin, 4),
+    evidence.update({"candidates": cands, "margin": round(margin, 4), "margin_min": gate,
+                     "reference_source": self_icon.get("reference_source", "official_art"),
                      "global_best": order[0],
                      "rank_of_pick": (1 + order.index(ranked[0][1])
                                       if ranked[0][1] in scores else None)})
     return identity_claim(
         entity_id, ranked[0][1] if ok else None, channel="self_icon",
         reason=None if ok else
-        f"margin {margin:.3f} below {SIDE_MARGIN_MIN} among the ally candidates",
+        f"margin {margin:.3f} below {gate:.3g} among the ally candidates",
         source_version=version, depends_on=ally_ids, evidence=evidence)
 
 

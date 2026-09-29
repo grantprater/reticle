@@ -3317,6 +3317,40 @@ def _tray_frames(cache, step_s: float):
             yield si, smp
 
 
+def cmd_self_icon(args) -> int:
+    """The minimap self icon's portrait scored against the agents' art, on
+    stored minimap crops where the roster reads all five allies alive
+    (`self_icon`); the lineup reads the rows as its `self_icon` witness.
+    Decodes no video."""
+    import time
+
+    from .adjudication.identity import load_ally_portrait_references
+    from .lineup import load_gallery
+    from .self_icon import read_session
+
+    store = Store(args.store)
+    gal = load_gallery(store.root)
+    references = load_ally_portrait_references(store.root)
+    sids = ([p.stem for p in sorted((store.root / "lineups").glob("*.json"))] if args.all
+            else _sessions_arg(store, args))
+    for sid in sids:
+        t0 = time.perf_counter()
+        res = read_session(store, sid, gal, references, args.step)
+        if "skipped" in res:
+            print(f"{sid}: {res['skipped']} -- skipped")
+            continue
+        head = res["rows"][0]
+        head["checks"] = {"wall_s": round(time.perf_counter() - t0, 1)}
+        out = store.write_events("self_icon", sid, res["rows"])
+        w = head["witness"]
+        print(f"{sid}: {head['scored']} of {head['grid_frames']} grid frames scored; "
+              f"refused {head['refused']}; witness {w['frames']} frames "
+              f"({w.get('reference_source')})"
+              f"{'' if w['frames'] else ' (' + w.get('reason', '') + ')'}; "
+              f"{head['checks']['wall_s']} s -> {out}")
+    return 0
+
+
 def cmd_tray_kit(args) -> int:
     """Whose kit the tray shows, per sample of the stored `hud_abilities`
     crops (`adjudication.tray_kit`), the slot icons scored against the
@@ -4664,6 +4698,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--all", action="store_true", help="every session")
     s.add_argument("--step", type=float, default=0.5, help="tray sampling interval (default 0.5 s)")
     s.set_defaults(func=cmd_tray)
+
+    s = sub.add_parser("self-icon",
+                       help="the minimap self icon's portrait scored against the agents' art, "
+                            "from stored crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session with a stored lineup")
+    s.add_argument("--step", type=float, default=1.0, help="sampling interval (default 1.0 s)")
+    s.set_defaults(func=cmd_self_icon)
 
     s = sub.add_parser("tray-kit",
                        help="whose kit the tray shows, from its slot icons in stored crops (no video)")

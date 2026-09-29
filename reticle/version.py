@@ -292,6 +292,16 @@ PLAYER_CAST_VERSION = "player-cast-0.7.0"
 # events as `tray_kit_identity`. Bump when the icon geometry, a threshold, the
 # candidate-set rule, the span rule or the stored fields change.
 TRAY_KIT_VERSION = "tray-kit-0.1.0"
+# The player's minimap self icon, its portrait scored against every agent's
+# art on stored minimap crops where the roster reads all five allies alive
+# (`self_icon`), written as `self_icon` rows by `reticle self-icon`; the
+# lineup reads them as its `self_icon` witness. Bump when the gate, the pixel
+# mask, the gallery scoring or the stored fields change.
+# 0.1.0 (2026-09-28, never committed): the composition against the official
+# art alone; it named Chamber for Skye on two sessions.
+# 0.2.0: each frame also stores the portrait feature families and their
+# rendered-art scores, and the witness reads those at the table's margin.
+SELF_ICON_VERSION = "self-icon-0.2.0"
 # The kit of the local player as a state per slot (charges, equipped,
 # castable, owner alive), written as `ability_state` rows by `reticle
 # ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,

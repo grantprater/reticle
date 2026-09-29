@@ -96,9 +96,10 @@ def stale(store, sessions: list[str]) -> dict:
                            KILLFEED_WEAPON_VERSION)
     from .roi_cache import ROI_CACHE_VERSION
     from .version import (ABILITY_SHAPE_VERSION, ABILITY_STATE_VERSION,
-                          COMBAT_REPORT_ROUND_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
+                          ALLY_PORTRAIT_FEATURES_VERSION, COMBAT_REPORT_ROUND_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
                           ROUND_VERSION, SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION,
-                          TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION)
+                          SELF_ICON_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
+                          ULT_LINE_VERSION)
     out = {}
     for sid in sessions:
         man = store.read_manifest(sid)
@@ -194,7 +195,13 @@ def stale(store, sessions: list[str]) -> dict:
                  {**strip, "scoreboard": ("scoreboard_version", SCOREBOARD_VERSION)}),
                 ("ability_state", "ability_state_version", ABILITY_STATE_VERSION,
                  "reticle ability-state",
-                 {**gate, "tray_drop": ("tray_version", TRAY_VERSION)})):
+                 {**gate, "tray_drop": ("tray_version", TRAY_VERSION)}),
+                # The self icon rereads the stored minimap crops over the
+                # roster's alive gate; a reread roster moves its gate.
+                ("self_icon", "self_icon_version", SELF_ICON_VERSION, "reticle self-icon",
+                 {"roi_cache": ("roi_cache_version", ROI_CACHE_VERSION),
+                  "portrait_features": ("portrait_features_version",
+                                        ALLY_PORTRAIT_FEATURES_VERSION)})):
             rows = store.read_events(stream, sid)
             if not rows:
                 continue
@@ -204,6 +211,8 @@ def stale(store, sessions: list[str]) -> dict:
                 moved += sorted(k for k, again in (("round", rounds_stale),
                                                    ("hud", "hud" in rescanned),
                                                    ("death", deaths_stale)) if again)
+            if stream == "self_icon" and "roster" in rescanned:
+                moved.append("roster")
             if version != current or moved:
                 derived.append({"stream": stream, "stored": version, "current": current,
                                 "inputs_moved": moved, "command": f"{command} {sid}"})
