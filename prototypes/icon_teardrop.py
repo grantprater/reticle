@@ -38,7 +38,13 @@ It refuses, with a reason, rather than guess:
 
 **The constants** are one widget size's geometry, fitted by `--calibrate` on
 held-out minutes (`held_out`) that the labeller and the jitter never draw
-from. `widget_scale` is not handled.
+from.
+
+**Promoted** to `reticle/teardrop.py` (`fit_icon`, `ICON_TEARDROP_VERSION`)
+on 2026-09-29, which scales the radii by `minimap.widget_scale`; this module
+re-exports it and stays the measuring instrument, at scale 1.0 unless a
+caller passes `scale`. `--centre-check` measures the scaling on 331 px
+widgets from the crop cache.
 
 It reads the minimap crop cache only, decodes no video and writes nothing to
 the store. `label_icon_facing.py` asks the player; `icon_facing_eval.py`
@@ -49,9 +55,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 import cv2
 import numpy as np
@@ -62,60 +66,36 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import sliver_error_model as sem  # noqa: E402  (sets thread limits first)
 import teardrop_tip as tt  # noqa: E402
 from reticle import minimap  # noqa: E402
-# `teardrop_tip` 0.2.0 moved its correlation to the promoted reader, which owns it.
-from reticle.teardrop import _correlation  # noqa: E402
+from reticle import teardrop as _td  # noqa: E402
 
-VERSION = "icon-teardrop-0.1.0"
+VERSION = "icon-teardrop-0.2.0"
 LOTUS, ASCENT = "5822b6646448", "a06f04a0059f"
 SESSIONS = (LOTUS, ASCENT)
 CAL_EVERY_MIN = 4             # minute m is held out for calibration when m % 4 == 3
-MARGIN_DEG = 5.0              # facing grid for the ambiguity margin
+MARGIN_DEG = _td.MARGIN_DEG   # facing grid for the ambiguity margin
 
 
-def tealness(crop: np.ndarray) -> np.ndarray:
-    """How teal each pixel is, in [0, 1]: min(G, B) - R, ramped over 10..60,
-    faded out where B exceeds G by more than 10 (the blue death X, the blue
-    ability glyphs). Keyed ally pixels sit at G - B of 20 to 50."""
-    c = crop.astype(np.float32)
-    b, g, r = c[..., 0], c[..., 1], c[..., 2]
-    y = np.clip((np.minimum(g, b) - r - 10.0) / 50.0, 0.0, 1.0)
-    return y * np.clip((g - b + 30.0) / 20.0, 0.0, 1.0)
-
-
-def redness(crop: np.ndarray) -> np.ndarray:
-    """How red each pixel is, in [0, 1]: R - max(G, B), ramped over 15..65."""
-    c = crop.astype(np.float32)
-    y = c[..., 2] - np.maximum(c[..., 0], c[..., 1])
-    return np.clip((y - 15.0) / 50.0, 0.0, 1.0)
-
-
-@dataclass(frozen=True)
-class IconClass:
-    name: str
-    key: Callable[[np.ndarray], np.ndarray]
-    r_in: float
-    r_out: float
-    L: float
-    min_ncc: float
-    min_margin: float
-    min_ring: float
-
+# 0.2.0: the keys, the class table and the fit live in `reticle.teardrop`
+# (ICON_TEARDROP_VERSION) and this module re-exports them; `fit` takes the
+# widget's `scale`, and at scale 1.0 it is 0.1.0's fit exactly.
+tealness, redness, ring_cover = _td.tealness, _td.redness, _td.ring_cover
+IconClass = _td.IconClass
 
 # The self row is teardrop_tip's, unchanged. The ally and enemy rows are the
-# `--calibrate` plateau on held-out minutes of both sessions; see the comments.
+# promoted reader's (`reticle.teardrop.ICON_CLASSES`), the `--calibrate`
+# plateau on held-out minutes of both sessions:
+#   ally, `--calibrate ally --n 30`: 100 detections of held-out minutes (48
+#   Lotus, 52 Ascent) that the provisional self geometry fitted at NCC >= 0.4
+#   (the read gate came later); mean NCC 0.766 at these values, a plateau over
+#   ring width 1.5-2 and L 18-20 (0.760-0.766) at r_out 10.5; the best at
+#   r_out 10 and 11 is 0.757 and 0.760, at 9.5 0.727.
+#   enemy, `--calibrate enemy --n 200`: 53 read detections (23 Lotus, 30
+#   Ascent); mean NCC 0.741 at these values, a ridge along r_in 7-7.5 for
+#   r_out 10.5-11 (0.741-0.742) and L 18-19. The red ring reads thicker than
+#   the teal one: the portrait's rim is dark red.
 CLASSES = {
     "self": IconClass("self", tt.yellowness, tt.R_IN, tt.R_OUT, tt.L, tt.MIN_NCC, 0.0, 0.0),
-    # `--calibrate ally --n 30`: 100 detections of held-out minutes (48 Lotus,
-    # 52 Ascent) that the provisional self geometry fitted at NCC >= 0.4 (the
-    # read gate came later); mean NCC 0.766 at these values, a plateau over
-    # ring width 1.5-2 and L 18-20 (0.760-0.766) at r_out 10.5; the best at
-    # r_out 10 and 11 is 0.757 and 0.760, at 9.5 0.727.
-    "ally": IconClass("ally", tealness, 8.5, 10.5, 19.0, 0.5, 0.05, 0.0),
-    # `--calibrate enemy --n 200`: 53 read detections (23 Lotus, 30 Ascent);
-    # mean NCC 0.741 at these values, a ridge along r_in 7-7.5 for r_out
-    # 10.5-11 (0.741-0.742) and L 18-19. The red ring reads thicker than the
-    # teal one: the portrait's rim is dark red.
-    "enemy": IconClass("enemy", redness, 7.5, 10.5, 18.0, 0.5, 0.05, 0.4),
+    **_td.ICON_CLASSES,
 }
 
 
@@ -145,84 +125,18 @@ def detections(crop: np.ndarray, cls: str, s) -> list[dict]:
     return [] if d is None else [d]
 
 
-def _window(key: np.ndarray, cx0: float, cy0: float, reach: float):
-    h, w = key.shape
-    x0, x1 = max(0, int(cx0 - reach)), min(w, int(cx0 + reach) + 1)
-    y0, y1 = max(0, int(cy0 - reach)), min(h, int(cy0 + reach) + 1)
-    yy, xx = np.mgrid[y0:y1, x0:x1]
-    keep = np.hypot(xx - cx0, yy - cy0) <= reach
-    px, py = xx[keep].astype(np.float32), yy[keep].astype(np.float32)
-    return px, py, key[py.astype(int), px.astype(int)]
-
-
 def fit(crop: np.ndarray | None, cls: str, cx0: float, cy0: float, *,
         key: np.ndarray | None = None, r_in: float | None = None,
-        r_out: float | None = None, L_: float | None = None) -> dict:
-    """The class's teardrop nearest `(cx0, cy0)`.
+        r_out: float | None = None, L_: float | None = None, scale: float = 1.0) -> dict:
+    """The class's teardrop nearest `(cx0, cy0)`: `reticle.teardrop.fit_icon`.
 
-    Returns `teardrop_tip.fit`'s fields (`x`, `y`, `deg`, `tip_x`, `tip_y`,
-    `ncc`) plus `margin` (best NCC less the best NCC at any facing 90 degrees
-    or more away, at the fitted centre), `cls`, and `read`; an unread fit has
-    `reason` and no `deg` a caller may use.
+    Returns `x`, `y`, `deg`, `tip_x`, `tip_y`, `ncc`, `margin`,
+    `ring_cover`, `cls` and `read`; an unread fit has `reason` and no `deg`
+    a caller may use. `scale` is `minimap.widget_scale`; `r_in`, `r_out`
+    and `L_` override the scaled radii in px, for `--calibrate`.
     """
-    c = CLASSES[cls]
-    r_in = c.r_in if r_in is None else r_in
-    r_out = c.r_out if r_out is None else r_out
-    L_ = c.L if L_ is None else L_
-    key = c.key(crop) if key is None else key
-    f = tt.fit(None, cx0, cy0, r_in=r_in, r_out=r_out, L_=L_, yel=key)
-    f["cls"] = cls
-    if "x" not in f:
-        return {"cls": cls, "read": False, "reason": "no_key"}
-    px, py, obs = _window(key, f["x"], f["y"], L_ + tt.WINDOW)
-    ths = np.radians(np.arange(0.0, 360.0, MARGIN_DEG, dtype=np.float32))
-    sc = _correlation(obs, tt.render(px[None, :] - f["x"], py[None, :] - f["y"], ths[:, None],
-                                r_in, r_out, L_))
-    far = np.abs(sem._signed_deg(np.degrees(ths) - f["deg"])) >= 90.0
-    f["margin"] = float(f["ncc"] - sc[far].max())
-    f["ring_cover"] = ring_cover(key, f["x"], f["y"], f["deg"], r_in, r_out)
-    f["read"] = True
-    f.pop("reason", None)
-    if f["ncc"] < c.min_ncc:
-        f.update(read=False, reason="low_ncc")
-    elif f["ring_cover"] < c.min_ring:
-        f.update(read=False, reason="no_ring")
-    elif f["margin"] < c.min_margin:
-        f.update(read=False, reason="ambiguous_facing")
-    return f
-
-
-def ring_cover(key: np.ndarray, x: float, y: float, deg: float, r_in: float, r_out: float,
-               n_bins: int = 36, away_deg: float = 60.0, min_key: float = 0.5) -> float:
-    """Share of the ring's angular bins, away from the lobe, whose annulus is keyed.
-
-    The ring is what a spawn barrier, a map fill or a stray glyph lacks: a
-    straight red bar crosses the annulus twice and scores the lobe's NCC
-    well enough. Bins within `away_deg` of the facing hold the lobe and are
-    skipped; a bin is covered when the brightest key in the annulus
-    `[r_in - 0.5, r_out + 0.5]` within it reaches `min_key`. The brightest,
-    not the mean: the teal ring is 1-2 px of a 3 px band whose inner edge is
-    the portrait's dark rim, and a mean refused a quarter of real teammates
-    on the first contact sheet.
-    """
-    h, w = key.shape
-    R = int(math.ceil(r_out + 1))
-    x0, x1 = max(0, int(x) - R), min(w, int(x) + R + 2)
-    y0, y1 = max(0, int(y) - R), min(h, int(y) + R + 2)
-    yy, xx = np.mgrid[y0:y1, x0:x1]
-    rho = np.hypot(xx - x, yy - y)
-    ang = np.degrees(np.arctan2(yy - y, xx - x))
-    band = (rho >= r_in - 0.5) & (rho <= r_out + 0.5)
-    rel = np.abs(sem._signed_deg(ang - deg))
-    keep = band & (rel >= away_deg)
-    if not keep.any():
-        return 0.0
-    b = ((ang[keep] + 180.0) / 360.0 * n_bins).astype(int) % n_bins
-    v = key[y0:y1, x0:x1][keep]
-    peak = np.full(n_bins, -1.0)
-    np.maximum.at(peak, b, v)
-    used = peak >= 0
-    return float(np.mean(peak[used] >= min_key))
+    return _td.fit_icon(crop, CLASSES[cls], cx0, cy0, scale=scale, key=key,
+                        r_in=r_in, r_out=r_out, L_=L_)
 
 
 # ------------------------------------------------------------- measurement
@@ -404,6 +318,90 @@ def sheet(path: Path, cls: str, n: int, sid: str) -> None:
     print("wrote", path)
 
 
+#: 331 px widgets (scale 0.712) and a 465 px control.
+CENTRE_SESSIONS = ("223d636bf8d2", "bfad2778a372", "e37fdeca944f", ASCENT)
+
+
+def centre_check(sid: str, n: int, sheet_path: Path | None = None) -> dict:
+    """The ally teardrop's centre at scale 1.0 (0.1.0) and at the widget's scale (0.2.0).
+
+    On `n` frames outside the calibration minutes, every ally detection is
+    read three ways: the ring fit's centre, the teardrop at scale 1.0 and
+    the teardrop at `widget_scale`. Reports each teardrop's median distance
+    from the ring fit's centre and, the independent witness, the median
+    rendered-art fit of the portrait aligned at each centre to the side's
+    lineup (`icon_portrait_gate.features_at`, lower is better; it rests on
+    the lineup prior and names nobody). Crop cache only; writes nothing.
+    """
+    import icon_portrait_gate as ipg
+    from reticle.adjudication.identity import load_ally_portrait_references, rendered_art_fit
+    from reticle.lineup import load_lineup
+
+    s = ipg.Lite(sid)
+    refs = load_ally_portrait_references(ipg.STORE)
+    names, why = ipg.side_gallery(load_lineup(sid, ipg.STORE), "ally")
+    rows, tiles = [], []
+    width = None
+    for t, crop in s.crops(sample_times(s, n, calibration=False)):
+        width = int(crop.shape[1])
+        sc = minimap.widget_scale(width)
+        key = CLASSES["ally"].key(crop)
+        for d in detections(crop, "ally", s):
+            old = fit(None, "ally", d["cx"], d["cy"], key=key)
+            new = fit(None, "ally", d["cx"], d["cy"], key=key, scale=sc)
+            row = {"t_ms": float(t), "old_read": bool(old.get("read")), "new_read": bool(new.get("read"))}
+            for arm, f in (("ring", {"x": d["cx"], "y": d["cy"], "read": True}), ("old", old), ("new", new)):
+                if f.get("read"):
+                    got = rendered_art_fit(ipg.features_at(crop, f["x"], f["y"]), names, refs) if names else None
+                    row[f"{arm}_fit"] = None if got is None else float(got[0])
+                    if arm != "ring":
+                        row[f"{arm}_offset"] = float(math.hypot(f["x"] - d["cx"], f["y"] - d["cy"]))
+                        row[f"{arm}_deg"] = float(f["deg"])
+            rows.append(row)
+            if sheet_path is not None and len(tiles) < 24:
+                tiles.append(_centre_tile(crop, d, old, new))
+    if sheet_path is not None and tiles:
+        blank = np.zeros_like(tiles[0])
+        grid = [np.hstack(tiles[i:i + 6] + [blank] * (6 - len(tiles[i:i + 6])))
+                for i in range(0, len(tiles), 6)]
+        cv2.imwrite(str(sheet_path), np.vstack(grid))
+
+    def med(k, where=lambda r: True):
+        v = [r[k] for r in rows if r.get(k) is not None and where(r)]
+        return round(float(np.median(v)), 3) if v else None
+    both = lambda r: r.get("old_fit") is not None and r.get("new_fit") is not None  # noqa: E731
+    dd = [abs(float(sem._signed_deg(r["new_deg"] - r["old_deg"]))) for r in rows
+          if r.get("new_deg") is not None and r.get("old_deg") is not None]
+    return {"width": width, "detections": len(rows), "gallery": len(names), "gallery_reason": why,
+            "old_read_rate": round(float(np.mean([r["old_read"] for r in rows])), 3) if rows else None,
+            "new_read_rate": round(float(np.mean([r["new_read"] for r in rows])), 3) if rows else None,
+            "old_offset_px": med("old_offset"), "new_offset_px": med("new_offset"),
+            "ring_fit_median": med("ring_fit"), "old_fit_median": med("old_fit"),
+            "new_fit_median": med("new_fit"), "old_fit_median_both": med("old_fit", both),
+            "new_fit_median_both": med("new_fit", both),
+            "new_better_than_old": (round(float(np.mean([r["new_fit"] < r["old_fit"] for r in rows if both(r)])), 3)
+                                    if any(both(r) for r in rows) else None),
+            "facing_change_median_deg": round(float(np.median(dd)), 2) if dd else None,
+            "facing_change_over90": round(float(np.mean(np.asarray(dd) > 90)), 3) if dd else None}
+
+
+def _centre_tile(crop, d, old, new, K: int = 16, Z: int = 8) -> np.ndarray:
+    """Magenta the ring fit's centre, grey the scale-1.0 teardrop, green the scaled one."""
+    x0, y0 = int(round(d["cx"])) - K, int(round(d["cy"])) - K
+    pad = cv2.copyMakeBorder(crop, K, K, K, K, cv2.BORDER_CONSTANT)
+    big = cv2.resize(pad[y0 + K:y0 + 3 * K, x0 + K:x0 + 3 * K], None, fx=Z, fy=Z,
+                     interpolation=cv2.INTER_NEAREST)
+
+    def P(x, y):
+        return int(round((x - x0 + 0.5) * Z)), int(round((y - y0 + 0.5) * Z))
+    cv2.drawMarker(big, P(d["cx"], d["cy"]), (255, 0, 255), cv2.MARKER_CROSS, 14, 2)
+    for f, col in ((old, (160, 160, 160)), (new, (0, 220, 0))):
+        if "x" in f:
+            cv2.circle(big, P(f["x"], f["y"]), 5, col, -1 if f.get("read") else 1)
+            cv2.line(big, P(f["x"], f["y"]), P(f["tip_x"], f["tip_y"]), col, 1)
+    return big
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--calibrate", choices=("ally", "enemy"))
@@ -418,8 +416,28 @@ def main(argv=None) -> int:
     ap.add_argument("--r-out", type=float, nargs="+", default=[9.5, 10.0, 10.5, 11.0, 11.5])
     ap.add_argument("--width", type=float, nargs="+", default=[1.0, 1.5, 2.0, 2.5])
     ap.add_argument("--length", type=float, nargs="+", default=[15.0, 16.0, 17.0, 18.0, 19.0, 20.0])
+    ap.add_argument("--centre-check", action="store_true",
+                    help="the ally centre at scale 1.0 and at widget scale, on CENTRE_SESSIONS")
+    ap.add_argument("--sheet-dir", type=Path, help="--centre-check: write a contact sheet per session here")
     args = ap.parse_args(argv)
     sem._below_normal()
+    if args.centre_check:
+        values = {}
+        for sid in CENTRE_SESSIONS:
+            got = centre_check(sid, args.n, None if args.sheet_dir is None
+                               else args.sheet_dir / f"centre_check_{sid}.png")
+            print(sid, got, flush=True)
+            values[sid] = got
+        if args.record:
+            from reticle import metrics
+            from reticle.version import ICON_TEARDROP_VERSION
+            for sid, got in values.items():
+                metrics.record("icon_teardrop", part="centre-scale", session=sid,
+                               values={k: v for k, v in got.items() if k != "gallery_reason"},
+                               deps={"version": VERSION, "reader": ICON_TEARDROP_VERSION, "n": args.n,
+                                     "before": "icon-teardrop-0.1.0 (scale 1.0)"},
+                               note="ally teardrop centre and portrait fit at scale 1.0 and at widget_scale")
+        return 0
     if args.calibrate:
         calibrate(args.calibrate, args.n, {"r_out": args.r_out, "width": args.width, "L": args.length})
         return 0

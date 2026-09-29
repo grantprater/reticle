@@ -314,6 +314,11 @@ TEAM_VISION_VERSION = "team-vision-0.3.0"
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.
 TEARDROP_VERSION = "teardrop-0.2.0"
+# A teammate's or an enemy's icon read as a teardrop (`teardrop.fit_icon`): its centre
+# and facing. Promoted from prototypes/icon_teardrop.py (icon-teardrop-0.1.0), whose
+# model, keys and gates are unchanged; 0.2.0 scales its radii by `minimap.widget_scale`,
+# as the self teardrop's are, so a 331 px widget's centre lands on the portrait.
+ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
 # One observation of an ability's drawn minimap shape (a ring or a beam), fitted
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
 # a prior, an acceptance or the stored fields change.

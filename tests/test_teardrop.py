@@ -47,6 +47,48 @@ class TeardropTests(unittest.TestCase):
         self.assertEqual(first["origin"], "teardrop")
 
 
+def _teal(cx, cy, deg, scale=1.0, size=80):
+    """A teal ally teardrop drawn by the ally class's own model at `scale`."""
+    c = teardrop.ICON_CLASSES["ally"]
+    yy, xx = np.mgrid[0:size, 0:size].astype(np.float32)
+    m = teardrop.render(xx - cx, yy - cy, np.float32(math.radians(deg)),
+                        c.r_in * scale, c.r_out * scale, c.L * scale, teardrop.EDGE * scale)
+    crop = np.zeros((size, size, 3), np.uint8)
+    # min(G, B) - R = 80 and G = B on the silhouette: tealness 1.0.
+    crop[..., 0] = crop[..., 1] = (80 * m).astype(np.uint8)
+    return crop
+
+
+class IconTeardropTests(unittest.TestCase):
+    def test_the_ally_fit_finds_centre_and_facing_at_the_widget_s_scale(self):
+        # A 331 px widget draws the icon at 0.712 of the 465 px size.
+        crop = _teal(40.4, 37.7, -120.0, scale=331 / 465)
+        got = teardrop.fit_icon(crop, "ally", 42.0, 36.0, scale=331 / 465)
+        self.assertTrue(got["read"])
+        self.assertLess(math.hypot(got["x"] - 40.4, got["y"] - 37.7), 0.3)
+        self.assertLess(abs((got["deg"] + 120.0 + 180.0) % 360.0 - 180.0), 2.0)
+
+    def test_an_unkeyed_window_is_unread_with_a_reason(self):
+        got = teardrop.fit_icon(np.zeros((80, 80, 3), np.uint8), "enemy", 40.0, 40.0)
+        self.assertEqual(got, {"cls": "enemy", "read": False, "reason": "no_key"})
+
+    def test_the_pose_reader_falls_back_to_the_ring_fit_and_says_so(self):
+        o = teardrop.IconPoseReader("ally").read(np.zeros((80, 80, 3), np.uint8), 40.0, 41.0)
+        self.assertEqual((o["x"], o["y"], o["deg"], o["origin"], o["reason"]),
+                         (40.0, 41.0, None, "ring_fit", "no_key"))
+
+    def test_the_pose_reader_returns_the_fit_a_fresh_one_gives(self):
+        crop = _teal(40.0, 40.0, 45.0)
+        reader = teardrop.IconPoseReader("ally")
+        first = reader.read(crop, 41.0, 39.0)
+        with patch("reticle.teardrop.fit_icon", side_effect=AssertionError("refit")):
+            again = reader.read(crop.copy(), 41.0, 39.0)
+        self.assertEqual(first, again)
+        self.assertEqual(first["origin"], "teardrop")
+        fresh = teardrop.fit_icon(crop, "ally", 41.0, 39.0)
+        self.assertEqual((first["x"], first["y"], first["deg"]), (fresh["x"], fresh["y"], fresh["deg"]))
+
+
 def _run(crop, det, frames=12):
     floor = np.ones((80, 80), bool)
     # width 465 is widget scale 1.0, the scale the teardrop constants were fitted at.

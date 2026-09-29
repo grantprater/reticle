@@ -606,6 +606,26 @@ consumers = ["team_vision"]
 evidence = "tests/test_teardrop.py, prototypes/vision_origin_eval.py, docs/STATISTICAL_ADJUDICATOR.md (E3, E4)"
 
 [[entry]]
+id = "icon-pose"
+question = "Where is a teammate's or an enemy's minimap icon centred, and which way does it face?"
+owner = "teardrop"
+role = ["detect"]
+status = "partial"
+produces = ["fit_icon", "IconPoseReader", "ICON_CLASSES", "tealness", "redness", "ring_cover"]
+not_for = """
+Finding the icon (`ally-candidates`: the ring fit still proposes each
+detection and seeds this fit) and naming the agent (`agent-identity`). It
+reads one frame's teardrop and holds no bearing across frames: an unread
+teardrop returns the ring fit's centre, no facing, and the reason
+(`low_ncc`, `no_ring`, `ambiguous_facing`, `no_key`). It does not tell an
+ability glyph drawn as a teardrop from an agent icon. The facing is scored
+against the player's labels of two 465 px sessions; the 331 px scaling is
+checked against the portrait fit, not against labels.
+"""
+consumers = ["team_vision"]
+evidence = "tests/test_teardrop.py, prototypes/icon_teardrop.py --centre-check, prototypes/icon_facing_eval.py, docs/STATISTICAL_ADJUDICATOR.md (E6)"
+
+[[entry]]
 id = "team-vision"
 question = "What can the team see at this instant, as the pipeline adjudicates it?"
 owner = "team_vision"
