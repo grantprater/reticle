@@ -18,7 +18,20 @@ shard) with its frames `fed` and `max_queued`; `dispatcher.wait_ns` is the
 time the dispatcher blocked on full FIFOs. A serial pass records `offered`
 and `fed` as its feed count, no `shards` and a null `wait_ns`: nothing
 queues. `until_s` is the prefix limit of `scan --until`, null for the whole
-capture. `load` reads both versions.
+capture. `load` reads every version.
+
+`scan-usage-3` adds what decoded the pass and what else ran beside it.
+`decode_backend` is `decode.capture_backend`'s answer for a decode
+(`nvdec` or `opencv`, `RETICLE_DECODE`'s mode, and in `auto` the NVDEC
+failure that made it fall back) or `passes.cache_backend`'s for the crop
+cache (OpenCV and the cache's codec); null when nothing opened.
+`contention` covers the same span as `cpu_ns`: `system_cpu_ns` is the
+busy CPU of every logical processor, `other_cpu_ns` that less this
+process's `cpu_ns`, the load of everything else, `logical_cpus` the
+count, and `priority` this process's class; a platform without a system
+counter leaves the two CPU figures null with a `reason`. Other load,
+spread over the logical processors, is `other_cpu_ns / (pass_ns *
+logical_cpus)`.
 
 **CPU time.** `cpu_ns` is the process's user and system CPU over `pass_ns`
 (`time.process_time_ns`). `dispatcher.thread_cpu_ns` is the CPU of the
@@ -62,6 +75,7 @@ from bisect import bisect_right
 from datetime import datetime, timezone
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -70,9 +84,9 @@ from time import perf_counter_ns, process_time_ns, thread_time_ns
 from uuid import uuid4
 
 
-USAGE_VERSION = "scan-usage-2"
+USAGE_VERSION = "scan-usage-3"
 #: Versions `load` reads; each later one only adds keys.
-USAGE_VERSIONS = ("scan-usage-1", USAGE_VERSION)
+USAGE_VERSIONS = ("scan-usage-1", "scan-usage-2", USAGE_VERSION)
 #: Why a reader's own thread CPU is null when it fed on the dispatcher thread.
 INLINE_REASON = "fed on the dispatcher thread; see dispatcher.thread_cpu_ns"
 BUCKET_LIMITS_NS = (100_000, 500_000, 1_000_000, 2_000_000,
@@ -143,6 +157,8 @@ class ScanUsage:
         self.code_revision = code_revision()
         self.status = "completed"
         self.error: str | None = None
+        self.decode_backend: dict | None = None
+        self.system_cpu_ns: int | None = None
         # Shards of one reader share its name, and so its `CallTimes`.
         self._lock = threading.Lock()
 
@@ -153,6 +169,7 @@ class ScanUsage:
         Sets `pass_ns` (wall), `cpu_ns` (the process's CPU) and the
         dispatcher's `thread_cpu_ns` over the same span, on failure too.
         """
+        system = system_cpu_ns()
         wall, cpu, own = perf_counter_ns(), process_time_ns(), thread_time_ns()
         try:
             yield self
@@ -160,6 +177,17 @@ class ScanUsage:
             self.pass_ns = perf_counter_ns() - wall
             self.cpu_ns = process_time_ns() - cpu
             self.dispatcher_cpu_ns = thread_time_ns() - own
+            after = system_cpu_ns()
+            self.system_cpu_ns = (after - system if None not in (system, after) else None)
+
+    def contention(self) -> dict:
+        """What else ran during the pass; see the module docstring."""
+        other = (max(0, self.system_cpu_ns - self.cpu_ns)
+                 if None not in (self.system_cpu_ns, self.cpu_ns) else None)
+        return {"system_cpu_ns": self.system_cpu_ns, "other_cpu_ns": other,
+                "logical_cpus": os.cpu_count(), "priority": process_priority(),
+                "reason": (None if other is not None
+                           else "no system CPU counter on this platform")}
 
     def timed_frames(self, frames):
         iterator = iter(frames)
@@ -268,6 +296,8 @@ class ScanUsage:
             "publish_ns": self.publish_ns,
             "source_calls": self.frames.record(),
             "cpu_ns": self.cpu_ns,
+            "contention": self.contention(),
+            "decode_backend": self.decode_backend or None,   # {} : never opened
             "dispatcher": {"thread_cpu_ns": self.dispatcher_cpu_ns, "wait_ns": self.wait_ns},
             # Serial: every frame offered is fed inline, one feed call each.
             "readers": {name: {"hz": r["hz"], "spans": r["spans"],
@@ -306,6 +336,9 @@ class ScanUsage:
             values["dispatcher_cpu_s"] = s(self.dispatcher_cpu_ns)
         if self.wait_ns is not None:
             values["dispatcher_wait_s"] = s(self.wait_ns)
+        other = self.contention()["other_cpu_ns"]
+        if other is not None:
+            values["other_cpu_s"] = s(other)
         for name, r in sorted(self.readers.items()):
             field = re.sub(r"\W", "_", name)
             values[f"feed_s_{field}"] = s(r["feed"].total_ns)
@@ -332,6 +365,48 @@ class ScanUsage:
             context={"usage_run_id": self.run_id},
             log_path=Path(store_root) / "notes" / "metrics.jsonl",
             usage_run_id=self.run_id)
+
+
+def system_cpu_ns() -> int | None:
+    """Busy CPU of every logical processor since boot, in ns, or None.
+
+    Windows: `GetSystemTimes`, whose kernel time includes idle. Linux:
+    `/proc/stat`'s first line, in clock ticks. Elsewhere None.
+    """
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        idle, kernel, user = (wintypes.FILETIME(), wintypes.FILETIME(), wintypes.FILETIME())
+        if not ctypes.windll.kernel32.GetSystemTimes(
+                ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)):
+            return None
+
+        def ft(t):
+            return (t.dwHighDateTime << 32) | t.dwLowDateTime
+        return (ft(kernel) + ft(user) - ft(idle)) * 100
+    try:
+        with open("/proc/stat", encoding="ascii") as f:
+            fields = [int(x) for x in f.readline().split()[1:]]
+    except (OSError, ValueError):
+        return None
+    busy = sum(fields) - fields[3] - (fields[4] if len(fields) > 4 else 0)
+    return busy * 1_000_000_000 // os.sysconf("SC_CLK_TCK")
+
+
+def process_priority() -> str | int | None:
+    """This process's priority: its Windows class by name, else its nice."""
+    if os.name == "nt":
+        import ctypes
+        classes = {0x40: "idle", 0x4000: "below_normal", 0x20: "normal",
+                   0x8000: "above_normal", 0x80: "high", 0x100: "realtime"}
+        k = ctypes.windll.kernel32
+        k.GetCurrentProcess.restype = ctypes.c_void_p
+        k.GetPriorityClass.argtypes = [ctypes.c_void_p]
+        return classes.get(k.GetPriorityClass(k.GetCurrentProcess()))
+    try:
+        return os.getpriority(os.PRIO_PROCESS, 0)
+    except (AttributeError, OSError):
+        return None
 
 
 def load(store_root: Path, session_id: str | None = None) -> list[dict]:

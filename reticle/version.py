@@ -263,8 +263,8 @@ MENU_VERSION = "menu-0.1.0"
 # session without current `tray_kit` rows is decided as under 0.5.0.
 # 0.7.0: a drop at an instant the stored menu witness (`menu_open`, `reticle
 # menu`) finds the menu open is refused first, as `menu_open`, and taints no
-# drop beside it. A session without current `menu_open` rows is decided as
-# under 0.6.0.
+# drop beside it; on a capture with no rounds table it outranks `no_rounds`.
+# A session without current `menu_open` rows is decided as under 0.6.0.
 PLAYER_CAST_VERSION = "player-cast-0.7.0"
 # Whose kit the ability tray shows, per sample of the stored `hud_abilities`
 # crops: the slot icons scored against the catalogue's (`tray_icons`) and read
@@ -369,4 +369,11 @@ ROSTER_VERSION = "roster-0.2.0"
 # by whether the SCORELINE reads on that frame rather than by how dark the bar
 # is, so a wiped team answers 0 and an absent HUD refuses. `roster.resolve()`
 # does the second, over stored data, because `scan --only roster` runs no HUD.
-ROSTER_SPLIT_VERSION = "roster-split-0.2.0"
+#
+# 0.3.1 (2026-09-28) adds `CRISP_FLOOR`: a bar whose crispest slot is below 13
+# holds no portrait, so a wiped bar over detailed scenery reads 0 (HUD drawn)
+# or None rather than 1 (docs/BOARD_ALIVE_SETS.md). 0.3.0 names a rule the
+# store's metrics log measured the same day and never shipped: `DETAIL_FLOOR`
+# raised to 13 per split, which also counted 0 on bars holding a red portrait
+# beside crisp teammates.
+ROSTER_SPLIT_VERSION = "roster-split-0.3.1"

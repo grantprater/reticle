@@ -120,6 +120,44 @@ class PlayerCastGateTest(unittest.TestCase):
         got = {r["t_ms"]: r for r in player_tray_casts(drops, phase, rounds, [41000.0])}
         self.assertTrue(got[38000]["player_cast"])
 
+    def test_a_capture_without_rounds_stores_every_drop_as_no_rounds(self):
+        # A demo has no rounds table: nothing is placed in a guessed round,
+        # and nothing is discarded.
+        drops = [self._drop(3000, "C"), self._drop(20000, "E"), self._drop(20500, "Q")]
+        got = player_tray_casts(drops, None, None, [])
+        self.assertEqual([r["reason"] for r in got], ["no_rounds"] * 3)
+        self.assertFalse(any(r["player_cast"] for r in got))
+        self.assertEqual([r["round_ms"] for r in got], [None] * 3)
+        # An empty table is a table: its drops fall outside every round.
+        got = player_tray_casts(drops, lambda t: "round_live", [], [])
+        self.assertEqual({r["reason"] for r in got}, {"no_round"})
+
+    def test_a_fade_beside_a_bridged_bolt_stays_refused(self):
+        # 75a55a296d3b 274.1 s: Sova's bow glow lifts the empty C or the half Q
+        # bar on one clean sample and fades; the bolt's own drop is bridged
+        # across the flash 0.5 s earlier. The fade is no cast, and the bridged
+        # drop keeps refusing it as co-occurring.
+        rounds = self._rounds((200000.0, 300000.0, 300000.0))
+        drops = [dict(self._drop(273567, "E"), across_gap=True),
+                 dict(self._drop(274067, "Q"), across_gap=False)]
+        got = {r["slot"]: r for r in player_tray_casts(drops, lambda t: "round_live",
+                                                       rounds, [])}
+        self.assertEqual(got["Q"]["reason"], "cooccur_among_casts")
+
+
+class TraySpansTest(unittest.TestCase):
+    class _Cache:
+        def __init__(self, spans, t_ms):
+            self.record, self.t_ms = {"spans": spans}, np.asarray(t_ms, float)
+
+    def test_a_whole_capture_cache_is_one_span(self):
+        from reticle.cli import _tray_spans
+        self.assertEqual(_tray_spans(self._Cache(None, [500.0, 0.0, 65000.0])),
+                         [[0.0, 65000.0]])
+        self.assertEqual(_tray_spans(self._Cache([[1.0, 2.0], [5.0, 9.0]], [1.0])),
+                         [[1.0, 2.0], [5.0, 9.0]])
+        self.assertEqual(_tray_spans(self._Cache(None, [])), [])
+
 
 if __name__ == "__main__":
     unittest.main()

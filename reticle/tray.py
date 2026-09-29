@@ -31,6 +31,23 @@ in the store's `notes/predictions.jsonl`). Across refused samples that still
 show the tray, the last clean sample is compared with the next one if it comes
 within GAP_S, and the drop says `across_gap`.
 
+A bridged drop beside a direct one. The glow also lifts a neighbouring bar on
+a clean sample and fades, which reads as a direct drop within SUSPECT_S of
+the bridged one, and co-occurrence refuses it. Bridging refuses
+[metric:tray/bridged-partner@all-sessions#direct_refused_by_bridged=6] direct
+drops the gate kept without it, and by eye all
+[metric:tray/bridged-partner@all-sessions#direct_refused_glow_by_eye=6] are
+the glow on a bar whose level never changed. At `75a55a296d3b` 274.1 s the Q
+bar holds one segment throughout, and a streak lifts it to
+[metric:tray/bridged-partner@all-sessions#q_75a55a296d3b_273_567_from=1.03]
+on one sample before it reads
+[metric:tray/bridged-partner@all-sessions#q_75a55a296d3b_274_067_to=0.47]
+again. So a bridged drop keeps its vote. It carries the time of the next
+clean sample: that Recon Bolt emptied E at
+[metric:tray/bridged-partner@all-sessions#e_75a55a296d3b_fell_at_s=273.067] s
+and is stamped
+[metric:tray/bridged-partner@all-sessions#e_75a55a296d3b_stamped_s=273.567] s.
+
 Two charges. An ability with two charges draws its bar as two segments
 [domain:hud/ability-tray-charge-segments], so the fill reads 1.0, 0.5 and 0,
 and a spent charge falls by 0.5, above CAST_DROP; no charge count per

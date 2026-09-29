@@ -112,6 +112,22 @@ class ConsumerTest(unittest.TestCase):
         self.assertEqual(got[(20500.0, "C")]["reason"], "menu_open")
         self.assertTrue(got[(20000.0, "E")]["player_cast"])
 
+    def test_the_menu_outranks_a_missing_rounds_table(self):
+        # A demo has no rounds table; its settings drops read as the menu's,
+        # as a covered drop outside every round does on a match.
+        drop = lambda t, s: {"t_ms": t, "slot": s, "from": 1.0, "to": 0.0, "forced": True,
+                             "suspect": False, "cooccur": False}
+        drops = [drop(3000.0, "C"), drop(20500.0, "Q"), drop(20500.0, "E")]
+        covered = lambda t: True if t == 20500.0 else (None if t > 30000.0 else False)
+        got = player_tray_casts([dict(d) for d in drops], None, None, [], menu_at=covered)
+        self.assertEqual([r["reason"] for r in got], ["no_rounds", "menu_open", "menu_open"])
+        self.assertFalse(any(r["player_cast"] for r in got))
+        got = player_tray_casts([dict(d) for d in drops], lambda t: "round_live", [], [],
+                                menu_at=covered)
+        self.assertEqual([r["reason"] for r in got], ["no_round", "menu_open", "menu_open"])
+        got = player_tray_casts([dict(d) for d in drops], None, None, [])
+        self.assertEqual({r["reason"] for r in got}, {"no_rounds"})
+
     def test_the_roster_refuses_a_covered_row(self):
         crisp, blur = 30.0, 2.0
         rows = {"t_ms": [1000.0, 1500.0],

@@ -47,7 +47,15 @@ The readers that consult it:
   a drop at a covered instant is `menu_open`. The census's
   [metric:menu/census@demos#settings_drops=19] settings drops all read
   `menu_open` ([metric:menu/census@demos#menu_open_after=19]); before, all 19
-  were refused only as `forced`, a reason that does not name the menu. On the
+  were refused only as `forced`, a reason that does not name the menu. A demo
+  has no rounds table, and the menu outranks `no_rounds` as it outranks
+  `no_round`: after the merge with the whole-capture tray, the 19 read
+  `menu_open` ([metric:menu/census-norounds@demos#settings_menu_open=19]),
+  [metric:menu/census-norounds@demos#other_no_rounds=160] other demo drops
+  stay `no_rounds`, and
+  [metric:menu/census-norounds@demos#other_menu_open=2] more read `menu_open`
+  (`0c6c52a65b9e` 44.05 s, C and X at one instant, a capture outside the
+  census). On the
   match sessions [metric:menu/labels@all-sessions#menu_open_drops=40] drops
   become `menu_open`, [metric:menu/labels@all-sessions#menu_open_were_after_player_death=29]
   of them refused before as `after_player_death`; no accepted drop changes.

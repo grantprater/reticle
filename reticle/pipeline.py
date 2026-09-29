@@ -79,7 +79,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .passes import _cache_rois, _feed
+from .passes import _cache_rois, _feed, cache_backend
 
 #: Frames each reader's or shard's FIFO holds; see the module docstring.
 FIFO_DEPTH = 8
@@ -262,12 +262,13 @@ def limit_to_prefix(readers: list, until_ms: float, cache=None):
     Call it where spans are chosen, after `roi_cache.cache_for` has chosen
     the source: a whole-capture reader given a span would make `cache_for`
     refuse a whole-capture cache. Each reader's spans are cut at the limit,
-    and a whole-capture reader gets one span from 0, as new lists, since
-    readers share their span lists. Spans are closed, so each ends at the
-    float just below the limit, and a frame observed at the limit itself is
-    not offered. Inside the prefix the readers get the frames a whole pass
-    gives them: a span from 0 picks the frames no span would, and a cut span
-    keeps its phase.
+    and a whole-capture reader gets one span open at its start, from
+    `-inf`, as new lists, since readers share their span lists. Spans are
+    closed, so each ends at the float just below the limit, and a frame
+    observed at the limit itself is not offered. Inside the prefix the
+    readers get the frames a whole pass gives them: the open span keeps a
+    first frame observed before 0 ms, which a span from 0 dropped, shifting
+    every later sample's phase; a cut span keeps its phase.
 
     **Video.** `decode.sample_multi` stops, not skips: past every reader's
     last span end it breaks out of its loop and releases the capture
@@ -285,14 +286,14 @@ def limit_to_prefix(readers: list, until_ms: float, cache=None):
     end = math.nextafter(float(until_ms), -math.inf)
     for r in readers:
         spans = getattr(r, "spans", None)
-        r.spans = ([(0.0, end)] if spans is None
+        r.spans = ([(-math.inf, end)] if spans is None
                    else [(float(a), min(float(b), end)) for a, b in spans if a <= end])
         if cache is None and hasattr(r, "frames_from"):
             r.frames_from = f"{r.frames_from}, t < {until_ms:g} ms"
     return None if cache is None else PrefixCache(cache, until_ms)
 
 
-def _source_items(ctx, readers: list, source):
+def _source_items(ctx, readers: list, source, usage=None):
     """The chosen source's items, and its rule for who wants each one.
 
     `source` None decodes the capture through `sample_multi`; anything else
@@ -302,12 +303,17 @@ def _source_items(ctx, readers: list, source):
         from .decode import sample_multi
         req = {r.name: (r.hz, r.spans) for r in readers}
         by_name = {r.name: r for r in readers}
-        items = sample_multi(str(ctx.media), ctx.fps, req)
+        backend = {}
+        if usage is not None:
+            usage.decode_backend = backend      # filled when the capture opens
+        items = sample_multi(str(ctx.media), ctx.fps, req, info=backend)
         # `passes.run`'s order: the frozenset's, not the list's.
         return items, lambda item: (item[1], [by_name[name] for name in item[0]])
     rois = sorted({roi for r in readers for roi in _cache_rois(r)})
     for r in readers:
         r.frames_from = source.record["version"]
+    if usage is not None:
+        usage.decode_backend = cache_backend(source)
     items = source.samples(sorted(set(source.t_ms.tolist())), rois=rois)
 
     def want(smp):
@@ -360,7 +366,7 @@ def run_staged(ctx, readers: list, source=None, workers: int = 1,
                              f"{pass_threads}: {other}")
 
     result = StagedRun(workers=workers, shards=dict(shards))
-    items, split = _source_items(ctx, readers, source)
+    items, split = _source_items(ctx, readers, source, usage)
     sharded: dict[str, _Shards] = {}
     units: dict[str, list[_Unit]] = {}
     every: list[_Unit] = []

@@ -177,6 +177,37 @@ class ReconciliationTests(unittest.TestCase):
         self.assertIsNone(alive_from_detail([7.34,31.09,7.32,37.00,13.04],True))
         self.assertEqual(alive_from_detail([30.0]*5,True), 5)
 
+    def test_a_wiped_bar_over_scenery_reads_zero_not_one(self):
+        """roster-split-0.3.1: a bar with nothing crisp holds no portrait.
+
+        Stored vectors whose scoreboard openings dim all five rows while
+        roster-split-0.2.0 read 1 (docs/BOARD_ALIVE_SETS.md): 96aa1ae9b96f
+        1082.0 s allies, e37fdeca944f 1651.5 s allies, 59c70f1ef720 2463.5 s
+        enemies. The source crops show an empty bar over scenery.
+        """
+        for d, pack in (([6.08,4.82,4.82,5.70,10.93],True),
+                        ([4.38,5.02,5.94,6.34,11.98],True),
+                        ([9.94,5.71,5.29,4.10,6.09],False)):
+            self.assertEqual(alive_from_detail(d,pack,True), 0)
+            self.assertIsNone(alive_from_detail(d,pack,False))
+            self.assertIsNone(alive_from_detail(d,pack))
+
+    def test_a_red_portrait_beside_crisp_teammates_still_counts(self):
+        """The crisp floor gates the bar, never a single split.
+
+        A red portrait (KAY/O downed, an Annihilation captive) reads 9-12; a
+        per-split floor of 13 read these bars as 0 under a drawn HUD. Stored
+        vectors, source crops checked: a1a995e6b19b 1640.0 s allies (three
+        portraits, the innermost red) and 941.0 s enemies (four, the second
+        red).
+        """
+        self.assertEqual(alive_from_detail([2.41,2.34,24.27,26.83,10.64],True,True), 3)
+        self.assertEqual(alive_from_detail([26.6,12.63,31.83,32.87,2.46],False,True), 4)
+        # A dim fifth portrait still counts five (5822b6646448 67.0 s allies).
+        self.assertEqual(alive_from_detail([16.0,30.1,27.1,24.2,31.0],True), 5)
+        # A drawn red-tinted portrait at 14.9 stays one (ff636d173b07 523.5 s).
+        self.assertEqual(alive_from_detail([2.77,2.71,3.12,2.65,14.92],True,True), 1)
+
     def test_resolve_never_borrows_a_future_hud_row(self):
         """The gate is an as-of join, and out-of-range leaves it unknown."""
         roster = pa.table(dict(t_ms=[0.0,5000.0,10000.0],

@@ -160,7 +160,7 @@ def round_window_of(t_ms: float, kits: list[dict]) -> dict | None:
                 None)
 
 
-def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
+def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                       player_deaths_ms: list[float], *, agent: str | None = None,
                       second_lives_ms=(), revives_ms=(),
                       report_deaths: dict | None = None, kit_changes_ms=(),
@@ -247,10 +247,18 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     1.0 or more; the clause excludes only a slot read at its full level that
     falls to FULL_AFTER_MIN, which was never brightened.
 
+    A capture with no rounds table (`rounds` None: a solo demo or a range
+    capture) has no round to place a drop in, no phase and no deaths the gate
+    reads, so every drop is refused as `no_rounds` and stored rather than
+    guessed into a round. An empty table is not a missing one: its drops are
+    `no_round`. The menu witness still reads there, and a covered drop is
+    `menu_open`, not `no_rounds`: the menu outranks a missing table as it
+    outranks a missing round, so a demo's settings drops read as the menu's.
+
     Every test names its refusal, and a drop keeps the first that refuses it,
-    in this order: `no_round`, `after_player_death`, `after_kit_change`,
-    `phase:<name>`, `forced` or `cooccur_among_casts`, `partial_charge`,
-    `pips_lit`, `equip_release`.
+    in this order: `menu_open`, `no_rounds`, `no_round`, `after_player_death`,
+    `after_kit_change`, `phase:<name>`, `forced` or `cooccur_among_casts`,
+    `partial_charge`, `pips_lit`, `equip_release`.
 
     *Full* is read from the drop's own `from`: the slot's teal count on the
     last clean sample before the drop over the slot's p90 clean count in the
@@ -417,6 +425,12 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
     it, the round's `first_player_death_ms`, the `kit_end_ms` the gate used,
     the `undone_deaths` before it, and the round's `kit_change_ms`.
     """
+    covered = lambda t: menu_at is not None and menu_at(t) is True
+    if rounds is None:
+        return [{**d, "phase": None, "round_ms": None, "first_player_death_ms": None,
+                 "kit_end_ms": None, "undone_deaths": [], "kit_change_ms": None,
+                 "reason": "menu_open" if covered(d["t_ms"]) else "no_rounds",
+                 "player_cast": False} for d in drops]
     ends = {r["t_end_ms"] for r in rounds}
     deaths = [{"t_first": x} for x in player_deaths_ms]
     kits = kit_windows(rounds, player_deaths_ms, agent=agent, second_lives_ms=second_lives_ms,
@@ -432,7 +446,7 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict],
         end, undone = (k["kit_end_ms"], k["undone_deaths"]) if k else (None, [])
         change, back = (k["kit_change_ms"], k["kit_return_ms"]) if k else (None, None)
         phase = phase_of(t)
-        reason = ("menu_open" if menu_at is not None and menu_at(t) is True
+        reason = ("menu_open" if covered(t)
                   else "no_round" if rnd is None
                   else "after_player_death" if end is not None and t >= end - DEATH_LEAD_MS
                   else "after_kit_change" if (change is not None and t >= change
