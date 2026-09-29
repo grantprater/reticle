@@ -79,7 +79,7 @@ modules = ["ability_capture", "ability_entities", "ability_gallery", "round_enti
 
 [delivery]
 claim = "the command surface, and nothing else may import it"
-modules = ["cli", "__main__", "tiers"]
+modules = ["cli", "__main__", "tiers", "clipserve"]
 
 # ---------------------------------------------------------------------------
 # Upward edges, blessed one at a time with the reason. `kind` says whether the
