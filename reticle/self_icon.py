@@ -94,18 +94,19 @@ def read_frame(crop: np.ndarray, ctx: dict, gal: dict, references: dict | None =
     fits = self_icons(crop, ctx["floor"], require_facing=False, support=ctx["slab"])
     if not fits:
         return {"reason": "no_self_fit"}
+    allies = ally_icons(crop, ctx["floor"], support=ctx["slab"], static=ctx["static"])
     glyphs = spike.accepted(spike.glyph_fits(crop, ctx["slab"]))
     sc = widget_scale(crop.shape[1])
-    clear = [d for d in fits if spike.on_glyph(d["cx"], d["cy"], glyphs, sc) is None]
+    clear = [d for d in fits
+             if spike.on_glyph(d["cx"], d["cy"], glyphs, sc, fits + allies) is None]
     if not clear:
-        g = spike.on_glyph(fits[0]["cx"], fits[0]["cy"], glyphs, sc)
+        g = spike.on_glyph(fits[0]["cx"], fits[0]["cy"], glyphs, sc, fits + allies)
         return {"cx": round(fits[0]["cx"], 2), "cy": round(fits[0]["cy"], 2),
                 "spike_glyph": {k: g[k] for k in ("cx", "cy", "state")},
                 "reason": "on_spike_glyph"}
     f = max(clear, key=lambda d: d["cov"])
     row = {"cx": round(f["cx"], 2), "cy": round(f["cy"], 2), "r": int(f["r"]),
            "cov": round(f["cov"], 3)}
-    allies = ally_icons(crop, ctx["floor"], support=ctx["slab"], static=ctx["static"])
     near = min((float(np.hypot(a["cx"] - f["cx"], a["cy"] - f["cy"])) - a["r"] - f["r"]
                 for a in allies), default=None)
     row["ally_gap_px"] = None if near is None else round(near, 1)

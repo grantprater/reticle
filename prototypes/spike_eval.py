@@ -30,13 +30,19 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from reticle import geometry, spike  # noqa: E402
-from reticle.minimap import slab_mask, widget_scale  # noqa: E402
+from reticle.minimap import (ally_icons, floor_mask, self_icons, slab_mask,  # noqa: E402
+                             widget_scale)
 from reticle.profiles import get_profile  # noqa: E402
 from reticle.roi_cache import RoiCache  # noqa: E402
 from reticle.store import Store  # noqa: E402
 
 STORE = Store()
 LABELS = STORE.root / "labels"
+#: A labelled instant farther than this from every cached frame is skipped as
+#: `no_crop`. The self-fit labels were cut from the capture, and the cache
+#: holds only round spans: 45 of 200 c40d950031bb labels fall outside it, and
+#: the nearest cached frame is then another moment (up to 37 s away).
+MAX_GAP_MS = 70.0
 
 
 def _last(path: Path, key: str = "key") -> list[dict]:
@@ -60,10 +66,13 @@ class Frames:
             self.cache, _ = RoiCache.load(STORE.root, man, get_profile(man["source_profile"]),
                                           "minimap")
             med = geometry.reference_static(sid, STORE.root)
-            self.slab = slab_mask(med, sd=geometry.stability(sid, STORE.root, med.shape[:2]))
+            sd = geometry.stability(sid, STORE.root, med.shape[:2])
+            self.slab, self.floor, self.static = slab_mask(med, sd=sd), floor_mask(med, sd=sd), med
             self.t = np.unique(np.asarray(self.cache.t_ms, float))
             self.sid = sid
         t = float(self.t[np.argmin(np.abs(self.t - t_ms))])
+        if abs(t - t_ms) > MAX_GAP_MS:
+            return None
         smp = next(iter(self.cache.samples([t], rois=["minimap"])))
         x0, y0, x1, y1 = self.cache.rect_of("minimap")
         return smp.frame[y0:y1, x0:x1]
@@ -84,15 +93,25 @@ def items():
                 yield "unnamed_piece", sid, float(e["t_ms"]), e["cx"], e["cy"], r["class"]
 
 
+def refused(crop, frames, x, y):
+    """The glyph the labelled fit lands on, or None. The frame's current self
+    and ally fits stand in for the icons a carried glyph may belong to."""
+    fl = frames.floor
+    icons = (self_icons(crop, fl, require_facing=False, support=frames.slab)
+             + ally_icons(crop, fl, support=frames.slab, static=frames.static))
+    return spike.on_glyph(x, y, spike.glyph_fits(crop, frames.slab),
+                          widget_scale(crop.shape[1]), icons)
+
+
 def main() -> int:
     frames = Frames()
     out = collections.defaultdict(collections.Counter)
     for src, sid, t, x, y, answer in sorted(items(), key=lambda i: i[1]):
         crop = frames.get(sid, t)
-        if crop.shape[:2] != frames.slab.shape:
+        if crop is None or crop.shape[:2] != frames.slab.shape:
             out[(src, answer)]["no_crop"] += 1
             continue
-        g = spike.on_glyph(x, y, spike.glyph_fits(crop, frames.slab), widget_scale(crop.shape[1]))
+        g = refused(crop, frames, x, y)
         out[(src, answer)]["refused" if g else "kept"] += 1
     for (src, answer), c in sorted(out.items()):
         print(f"{src:14s} {answer:16s} refused {c['refused']:3d}  kept {c['kept']:3d}"

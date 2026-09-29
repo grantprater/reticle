@@ -37,8 +37,9 @@ arm of the gate admits at 0.78 and loses below it.
 **The carried glyph belongs to the icon it sits under.** The player
 (2026-09-28): a teammate's carried spike draws at the lower left of that
 teammate's icon, over it [domain:minimap/spike-carrier-overlay]. So a carried
-glyph's owner is the icon above and to its right, and a fit nearer the
-glyph than that point is the glyph, not an icon (`on_glyph`).
+glyph's owner is the icon above and to its right. A fit centred on the glyph
+itself, or near it while another icon holds the carrier's place, is the
+glyph; a fit that may be the carrier is kept (`on_glyph`).
 
 **The roster marker, fitted as a template.** The ally roster marks the
 carrier [domain:hud/spike-carrier-marker]: a white badge holding the glyph,
@@ -93,6 +94,12 @@ CARRIER_DX, CARRIER_DY, CARRIER_TOL_PX = 7.0, -7.5, 4.5
 #: of the self-fit labels sat 4.0-5.0 px from the glyph; a self icon beside a
 #: glyph it does not carry, 7.9.
 ON_GLYPH_PX = 6.5
+#: A fit centred this near a glyph's centroid (scale 1.0 px) rings the glyph
+#: itself, whatever carries it. The ally fits the player called spike sat 0-2.8
+#: px from it; the nearest ones he called an agent, 3.1 and 4.1.
+CORE_PX = 3.0
+#: Two fits nearer than this (scale 1.0 px) are one icon: twice `FIT_ERR_PX`.
+SAME_ICON_PX = 4.0
 
 #: The roster marker: template rows searched, first column, slot pitch, gate.
 #: The gate reads the match only at the five columns. On 5822b6646448 the
@@ -273,28 +280,40 @@ def accepted(fits: list[dict]) -> list[dict]:
     return [f for f in fits if f.get("reason") is None]
 
 
-def on_glyph(cx: float, cy: float, glyphs: list[dict], sc: float) -> dict | None:
+def on_glyph(cx: float, cy: float, glyphs: list[dict], sc: float,
+             icons=()) -> dict | None:
     """The accepted glyph an icon fit centred at (cx, cy) lands on, or None.
 
-    A fit lands on a dropped glyph within ON_GLYPH_PX of its centroid. A
-    carried glyph has its carrier's icon beside it, at (CARRIER_DX,
-    CARRIER_DY) [domain:minimap/spike-carrier-overlay], so a fit near it is
-    given to the nearer of the two: on the glyph where it lies within
-    ON_GLYPH_PX of the centroid and nearer the centroid than the carrier's
-    expected centre. On 5822b6646448 every self fit within 7.5 px of a carried
-    glyph that sat nearer the glyph ringed the glyph by eye (18 of 18); the
-    self icons carrying it sat 7.0-9.9 px away, nearer the carrier point."""
+    A carried spike draws over the lower left of its carrier's icon
+    [domain:minimap/spike-carrier-overlay], so a fit near a carried glyph may
+    be the carrier, and only a fit on the glyph ITSELF is refused:
+
+    * a dropped glyph has no carrier: a fit within ON_GLYPH_PX lands on it;
+    * a carried glyph: a fit within CORE_PX of its centroid rings the glyph;
+      farther out, up to ON_GLYPH_PX, it is refused only where another icon
+      of `icons` (the frame's other fits, dicts with `cx`, `cy`) sits at the
+      carrier's place, (CARRIER_DX, CARRIER_DY) from the glyph within
+      CARRIER_TOL_PX, and is not this fit (farther than SAME_ICON_PX). The
+      glyph then belongs to that icon, and this fit rings the glyph. With no
+      carrier seen, the fit may be the carrier pulled toward its own glyph,
+      and it is kept.
+
+    On 5822b6646448 the self fits within 7.5 px of a glyph an ally carried
+    ringed the glyph by eye (18 of 18)."""
     for g in glyphs:
         if g.get("reason") is not None:
             continue
         d = float(np.hypot(cx - g["cx"], cy - g["cy"]))
         if d > ON_GLYPH_PX * sc:
             continue
-        if g["state"] == "carried":
-            kx, ky = g["cx"] + CARRIER_DX * sc, g["cy"] + CARRIER_DY * sc
-            if np.hypot(cx - kx, cy - ky) <= d:
-                continue
-        return g
+        if g["state"] == "dropped" or d <= CORE_PX * sc:
+            return g
+        kx, ky = g["cx"] + CARRIER_DX * sc, g["cy"] + CARRIER_DY * sc
+        if np.hypot(cx - kx, cy - ky) <= CARRIER_TOL_PX * sc:
+            continue                                   # this fit is the carrier
+        if any(np.hypot(i["cx"] - kx, i["cy"] - ky) <= CARRIER_TOL_PX * sc
+               and np.hypot(i["cx"] - cx, i["cy"] - cy) > SAME_ICON_PX * sc for i in icons):
+            return g
     return None
 
 

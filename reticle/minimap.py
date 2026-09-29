@@ -1241,7 +1241,12 @@ class AllyIconReader:
             near[id(f)] = [{k: g[k] for k in ("cx", "cy", "state", "side", "ncc", "amp", "reason")}
                            for g in glyphs if np.hypot(g["cx"] - f["cx"], g["cy"] - f["cy"])
                            <= spike.ON_GLYPH_PX * sc]
-        clear = lambda fs: [f for f in fs if spike.on_glyph(f["cx"], f["cy"], near[id(f)], sc) is None]
+        # The icons a carried glyph may belong to: every fit of either channel
+        # past the shape gate, which `ally_decisions` rebuilds from the rows.
+        shaped = [f for f in raw_self + raw
+                  if f["cov"] >= ALLY_COV_MIN and f["inner"] <= ALLY_INNER_MAX]
+        clear = lambda fs: [f for f in fs if spike.on_glyph(f["cx"], f["cy"], near[id(f)], sc,
+                                                            shaped) is None]
         mine = _gated(clear(raw_self), sc, require_facing=False)
         me = mine[0] if mine else None
         occ = [(me["cx"], me["cy"], me["r"])] if me else []

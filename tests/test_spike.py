@@ -57,15 +57,24 @@ class OnGlyphTest(unittest.TestCase):
     carried = {"cx": 100, "cy": 100, "state": "carried", "reason": None}
     dropped = {"cx": 100, "cy": 100, "state": "dropped", "reason": None}
 
+    ally_carrier = {"cx": 107.0, "cy": 92.5}          # at (CARRIER_DX, CARRIER_DY)
+
     def test_fit_on_the_glyph_is_refused(self):
-        self.assertIsNotNone(spike.on_glyph(97.2, 104.2, [self.carried], 1.0))
-        self.assertIsNotNone(spike.on_glyph(102, 97, [self.carried], 1.0))
+        self.assertIsNotNone(spike.on_glyph(101, 102, [self.carried], 1.0))
         self.assertIsNotNone(spike.on_glyph(103, 102, [self.dropped], 1.0))
+        # Near a carried glyph whose carrier is another icon: the glyph.
+        self.assertIsNotNone(spike.on_glyph(97.2, 104.2, [self.carried], 1.0, [self.ally_carrier]))
+        self.assertIsNotNone(spike.on_glyph(102, 97, [self.carried], 1.0, [self.ally_carrier]))
 
     def test_the_carrier_is_kept(self):
-        # The carrier sits at (CARRIER_DX, CARRIER_DY) from its glyph.
+        # The carrier's own fit, at the carrier's place or pulled toward its
+        # glyph, is an icon carrying the spike at its lower left.
         self.assertIsNone(spike.on_glyph(105.6, 95.8, [self.carried], 1.0))
-        self.assertIsNone(spike.on_glyph(107, 92.5, [self.carried], 1.0))
+        self.assertIsNone(spike.on_glyph(107, 92.5, [self.carried], 1.0, [self.ally_carrier]))
+        self.assertIsNone(spike.on_glyph(103, 96, [self.carried], 1.0, [{"cx": 105, "cy": 95}]))
+        # No carrier seen: a fit off the glyph's core may be the carrier.
+        self.assertIsNone(spike.on_glyph(102.8, 95.8, [self.carried], 1.0))
+        self.assertIsNone(spike.on_glyph(101, 104, [self.carried], 1.0))
 
     def test_far_or_rejected_glyphs_refuse_nothing(self):
         self.assertIsNone(spike.on_glyph(110, 110, [self.dropped], 1.0))
