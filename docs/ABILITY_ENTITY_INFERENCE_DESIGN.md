@@ -712,6 +712,11 @@ candidates. The loop breaks by time: the light rule reads the vision at the
 candidate's instant, and the vision reads no ability entity. When smokes enter
 its rays, the vision at t may consume only entities accepted before t.
 
+0.2.0's restatement also read the series column `self_d`, a distance to a
+query point, as its bearing. [The statistical adjudicator plan](STATISTICAL_ADJUDICATOR.md)
+measures it against a time-shift null and tests, through the owners, what
+does explain the slivers.
+
 ## Sources and mechanics policy
 
 Repository findings above come from the current manifests/assets and the owning
