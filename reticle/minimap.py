@@ -1129,9 +1129,13 @@ def _interior(f: dict, keyed: np.ndarray, others=(), occluders=()):
 #: key pixels are masked out anyway, so this bounds where the portrait may be
 #: rather than trimming the ring.
 ALLY_INTERIOR_FRAC = 0.75
-#: How often the reader describes ally icons. Positions ride every frame; a
-#: descriptor is 90 floats per icon, and identity changes only at a death.
-ALLY_DESCRIPTOR_HZ = 2.0
+#: The ally-icon reader's declared rate, and the one place it is set: the
+#: `AllyIconReader` default, `scan --ally-hz` and `trial`'s fallback. 15 Hz,
+#: the minimap cache's rate, so a rescan reads the cache frame for frame.
+#: It was 2.0 until 2026-09-29; the corpus's streams were already 15 Hz,
+#: because segment identity scored lower at 2 Hz than at 5 to 15 Hz
+#: (`prototypes/minimap_fidelity.py`, docs/archive/NOTES-through-2026-09-26.md).
+ALLY_DESCRIPTOR_HZ = 15.0
 #: Below this mean grey difference from the baked map, an icon's interior IS
 #: the map and the icon is a teal spawn barrier, not a teammate. Measured on
 #: ten random frames of a06f04a0059f with five allies alive: nine barrier fits
@@ -1195,16 +1199,35 @@ class AllyIconReader:
     portrait's `ally_portrait` feature families. It names nobody; `adjudication.identity` joins
     these to the lineup from storage. A widget-absent frame is recorded as
     such and describes nothing.
+
+    Fed from the 15 Hz minimap crop cache at a slower rate, it reads the
+    cached frame nearest each instant a decode's stride would take
+    (`cache_resample = "nearest"`, `roi_cache.nearest_times`): the same
+    pixels, at instants up to one cache interval's half from the decode's,
+    and on them where the cache holds that frame. The coverage row then names
+    the cache in `frames_from`, and a pass clipped to the cache's rounds adds
+    `spans_clip` (`roi_cache.clip_record`); a decode's coverage row carries
+    neither key, as `minimap_dark.DarkRegionReader`'s does not.
     """
 
     #: `feed` reads no state an earlier frame wrote and only appends to these
     #: lists, so `pipeline` may split the reader into shards and merge them
     #: back in producer order (`pipeline._Shards`).
     shardable = ("frames", "icons", "candidates")
+    #: A slower rate than the cache's reads the cached frame nearest each
+    #: instant of the decode's grid.
+    cache_resample = "nearest"
+    #: Its coverage row records a clip to a round cache (`spans_clip`), so
+    #: `--from auto` clips it to the cache's rounds as it clips `minimap_dark`.
+    #: The buy phase before each round's lead is left unread, and recorded as
+    #: such: the player scoped ally tracking to the rounds from the
+    #: barrier-drop lead onward (2026-09-29, docs/ALLY_ICON_RESAMPLE.md).
+    records_clip = True
 
     def __init__(self, floor, slab, static, box, hz=ALLY_DESCRIPTOR_HZ,
                  spans=None, name="ally_icon"):
         self.name, self.hz, self.spans = name, hz, spans
+        self.frames_from = "video"
         self.floor, self.slab, self.static, self.box = floor, slab, static, box
         self.sgray = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float64)
         self.ref = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float32)
@@ -1401,6 +1424,15 @@ class AllyIconReader:
                  "candidate_revision": candidate_revision,
                  "candidate_lineage": "complete" if candidate_revision else "unavailable",
                  "refused_reasons": dict(sorted(refused.items()))}]
+        frames_from = getattr(self, "frames_from", "video")
+        if not frames_from.startswith("video"):
+            # Only a cache-fed pass adds the key, so a decode's rows keep their bytes.
+            rows[0]["frames_from"] = frames_from
+        clip = getattr(self, "spans_clip", None)
+        if clip is not None:
+            # A pass clipped to a round cache's rounds names the spans it left
+            # unread: no frame row there is not an empty minimap.
+            rows[0]["spans_clip"] = clip
         rows += [{**common, "kind": "frame", **f} for f in self.frames]
         for r in selected:
             out = dict(r)
@@ -1423,13 +1455,34 @@ class AllyIconReader:
     @classmethod
     def replay_events(cls, session_id: str, frames: list[dict],
                       accepted: list[dict], hz: float,
-                      candidate_revision: str) -> list[dict]:
-        """Rebuild the accepted event stream from stored evidence alone."""
+                      candidate_revision: str, frames_from: str = "video",
+                      spans_clip: dict | None = None) -> list[dict]:
+        """Rebuild the accepted event stream from stored evidence alone;
+        `frames_from` and `spans_clip` are the pass's, as the reader held them."""
         reader = cls.__new__(cls)
         reader.frames = frames
         reader.icons = []
         reader.hz = hz
+        reader.frames_from = frames_from
+        if spans_clip is not None:
+            reader.spans_clip = spans_clip
         return reader.events(session_id, accepted, candidate_revision)
+
+
+def ally_icon_reader(ctx, hz: float = ALLY_DESCRIPTOR_HZ, spans=None, floor=None,
+                     slab=None) -> AllyIconReader:
+    """The `AllyIconReader` `scan` builds for a session (`passes.SessionContext`):
+    the baked map's floor, slab and base map, over the profile's minimap ROI.
+    A pass that already holds the floor and slab (`scan`'s minimap reader)
+    passes them; `trial` builds them here."""
+    from . import geometry
+    med = ctx.map_reference()
+    if slab is None:
+        slab = slab_mask(med, sd=geometry.stability(ctx.session_id, ctx.store.root,
+                                                    med.shape[:2]))
+    return AllyIconReader(floor=ctx.floor() if floor is None else floor, slab=slab,
+                          static=med, box=minimap_roi_px(ctx.profile, *ctx.wh), hz=hz,
+                          spans=spans)
 
 
 def art_floor(shade_kind: np.ndarray, dilate: float = 1) -> np.ndarray:

@@ -1034,8 +1034,9 @@ def cmd_scan(args) -> int:
     want_ping = 'ping' in channels and args.ping and (args.force
                                or store.events_version("ping", sid) != PING_VERSION)
     want_roster = 'roster' in channels and args.roster and (args.force or not store.has_roster(sid, date))
-    # Rides the minimap's active spans at 2 Hz; versioned by its own stamp, so a
-    # descriptor change re-reads descriptors and leaves positions alone.
+    # Rides the minimap's active spans at `--ally-hz` (`ALLY_DESCRIPTOR_HZ`);
+    # versioned by its own stamp, so a descriptor change re-reads descriptors
+    # and leaves positions alone.
     want_ally = 'ally_icon' in channels and (
         args.force or store.events_version("ally_icon", sid) != ALLY_ICON_VERSION)
     # Grey dark floor at 4 Hz over active spans: the smoke observation.
@@ -1135,13 +1136,10 @@ def cmd_scan(args) -> int:
               if want_lineup else None)
         ap = None
         if want_ally:
-            med = ctx.map_reference()
-            ap = AllyIconReader(
-                floor=mp.floor if mp is not None else ctx.floor(),
-                slab=mp.slab if mp is not None else slab_mask(
-                    med, sd=geometry.stability(sid, store.root, med.shape[:2])),
-                static=med, box=minimap_roi_px(profile, *ctx.wh), hz=args.ally_hz,
-                spans=spans)
+            from .minimap import ally_icon_reader
+            ap = ally_icon_reader(ctx, hz=args.ally_hz, spans=spans,
+                                  floor=mp.floor if mp is not None else None,
+                                  slab=mp.slab if mp is not None else None)
             from .roi_cache import declare_set
             declare_set(ap, "minimap", profile, ctx.wh)
         dp = None
@@ -1277,8 +1275,9 @@ def cmd_scan(args) -> int:
             kept = accepted(candidates, decisions)
             # Check the previous output contract before publishing the replay.
             ap.events(sid, kept, candidate_revision)
-            events = AllyIconReader.replay_events(sid, batch["frames"], kept, ap.hz,
-                                                   candidate_revision)
+            events = AllyIconReader.replay_events(
+                sid, batch["frames"], kept, ap.hz, candidate_revision,
+                frames_from=ap.frames_from, spans_clip=getattr(ap, "spans_clip", None))
             path = out.write_events("ally_icon", sid, events)
             cov = events[0]
             print(f"ally icons {cov['frames']} frames, {cov['icons']} icons, "
@@ -3015,8 +3014,10 @@ def cmd_trial(args) -> int:
     from .trial import run
     store = Store(args.store)
     manifest = _resolve_session(store, args.session)
+    between = getattr(args, "between", None)
     res = run(store, manifest, reader=args.reader, source=args.source,
-              windows=args.windows, pad_ms=args.pad_ms)
+              windows=args.windows, pad_ms=args.pad_ms,
+              between=None if between is None else (between[0] * 1000.0, between[1] * 1000.0))
     print(f"{res['session_id']}: {args.reader} from {args.source}, {args.windows} windows: "
           f"{res['frames']} of {res['timeline']} timeline frames in {res['seconds']} s")
     if res["refused"]:
@@ -4719,8 +4720,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="skip naming the ten agents from the top bar; it "
                         "otherwise rides every unnarrowed scan for free")
     s.add_argument("--ally-hz", type=float, default=ALLY_DESCRIPTOR_HZ,
-                   help=f"ally icon descriptor rate (default {ALLY_DESCRIPTOR_HZ:g}); "
-                        "round lifetimes want the minimap's 15")
+                   help=f"ally icon rate (default {ALLY_DESCRIPTOR_HZ:g}, the minimap "
+                        "cache's). A lower rate reads the cached frame nearest each decode "
+                        "instant, an opt-in: 2 Hz scored worse on segment identity "
+                        "(docs/ALLY_ICON_RESAMPLE.md)")
     s.add_argument("--only", nargs="+",
                    choices=("hud", "minimap", "ping", "roster", "scoreboard",
                             "ally_icon", "minimap_dark", "combat_report", "roi_cache"),
@@ -4908,13 +4911,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("trial", help="rerun one reader on stored windows and diff it (writes nothing)")
     s.add_argument("session", nargs="?")
-    s.add_argument("--reader", default="killfeed", choices=("killfeed", "hud", "scoreboard"))
+    s.add_argument("--reader", default="killfeed",
+                   choices=("killfeed", "hud", "scoreboard", "ally_icon"))
     s.add_argument("--from", dest="source", default="cache", choices=("cache", "video"),
                    help="ROI crop cache (no decode) or seeks into the capture")
     s.add_argument("--windows", default="occupied", choices=("occupied", "all"),
                    help="frames near a stored killfeed entry (scoreboard: inside the strip "
-                        "gate), or the whole timeline")
+                        "gate; ally_icon: widget drawn), or the whole timeline")
     s.add_argument("--pad-ms", type=float, default=2000.0)
+    s.add_argument("--between", type=float, nargs=2, default=None, metavar=("T0", "T1"),
+                   help="only frames between T0 and T1 seconds, such as one round")
     s.set_defaults(func=cmd_trial)
 
     s = sub.add_parser("reliability", help="identity channel reliability per agent (no video)")

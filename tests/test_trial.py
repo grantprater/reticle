@@ -435,6 +435,95 @@ class DarkCacheTest(unittest.TestCase):
                 self.assertTrue(np.array_equal(s.frame[y0:y1, x0:x1], frames[i][y0:y1, x0:x1]))
 
 
+class AllyCacheTest(unittest.TestCase):
+    """`scan --only ally_icon` reads the 15 Hz minimap cache at 2 Hz: the cached
+    frame nearest each instant of the decode's grid."""
+
+    def test_the_ally_reader_resamples_nearest_and_records_the_clip(self):
+        from reticle.minimap import AllyIconReader
+        from reticle.roi_cache import clip_record, declare_set
+        profile = get_profile("valorant-16x9")
+        box = roi_rects("minimap", profile, (1920, 1080))[0]
+        static = np.zeros((box[3] - box[1], box[2] - box[0], 3), np.uint8)
+        reader = AllyIconReader(None, None, static, box)
+        declare_set(reader, "minimap", profile, (1920, 1080))
+        self.assertEqual((reader.cache_set, reader.cache_resample, reader.records_clip),
+                         ("minimap", "nearest", True))
+        head = reader.events("s1", [], "rev")[0]
+        self.assertNotIn("frames_from", head)
+        self.assertNotIn("spans_clip", head)
+        clip = clip_record([(0.0, 9.0)], [(1.0, 8.0)], {"version": "roi-cache-0.1.0",
+                                                        "roi": "minimap"})
+        head = AllyIconReader.replay_events("s1", [], [], 2.0, "rev",
+                                            frames_from="roi-cache-0.1.0", spans_clip=clip)[0]
+        self.assertEqual((head["frames_from"], head["spans_clip"]), ("roi-cache-0.1.0", clip))
+
+    def test_auto_clips_the_ally_reader_to_the_cached_rounds(self):
+        # The player scoped ally tracking to the rounds from the barrier-drop
+        # lead onward (2026-09-29): auto reads the cache and records the buy
+        # phase before each round as unread.
+        from reticle.minimap import AllyIconReader
+        from reticle.roi_cache import choose_source, declare_set
+        _needs_ffmpeg(self)
+        profile = get_profile("valorant-16x9")
+        box = roi_rects("minimap", profile, (1920, 1080))[0]
+        static = np.zeros((box[3] - box[1], box[2] - box[0], 3), np.uint8)
+        rounds, active = [(1000.0, 2000.0)], [(0.0, 2000.0)]
+        with tempfile.TemporaryDirectory() as root:
+            w = RoiCacheWriter(Path(root), _manifest(), profile, "minimap", hz=15.0,
+                               spans=[list(s) for s in rounds])
+            frame = np.zeros((1080, 1920, 3), np.uint8)
+            for i in range(16):
+                w.feed(Sample(frame_idx=60 + 4 * i, t_ms=1000.0 + 66.7 * i, frame=frame))
+            w.finish()
+            reader = AllyIconReader(None, None, static, box, spans=list(active))
+            declare_set(reader, "minimap", profile, (1920, 1080))
+            cache, why, notes = choose_source(Path(root), _manifest(), profile, [reader],
+                                              "auto", lambda: (rounds, None))
+            self.assertIsNotNone(cache, why)
+            self.assertEqual(reader.spans, rounds)
+            self.assertEqual(reader.spans_clip["spans_skipped"], [[0.0, 1000.0]])
+
+    def test_nearest_times_take_the_decodes_phase(self):
+        from reticle.roi_cache import nearest_times
+        # 60 fps, cached every 4th or 5th frame as a 15 Hz decode takes them.
+        idx = [0, 4, 8, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 56, 60, 64]
+        t = [i * (1.0 / 60.0) * 1000.0 for i in idx]
+        # The decode takes frames 0, 30 and 60 from a span asked at 0 ms.
+        self.assertEqual(nearest_times(t, [(0.0, 1100.0)], [(0.0, 1100.0)], 0.5),
+                         [t[0], t[7], t[14]])
+        # Asked at 120 ms, the grid is 120 and 620 ms, near frames 8 and 38.
+        self.assertEqual(nearest_times(t, [(120.0, 1100.0)], [(120.0, 1100.0)], 0.5),
+                         [t[2], t[9]])
+        # Clipped to a round from 550 ms, the phase stays the asked span's.
+        self.assertEqual(nearest_times(t, [(120.0, 1100.0)], [(550.0, 1100.0)], 0.5), [t[9]])
+
+    def test_the_feed_phases_a_clipped_reader_at_the_spans_it_asked(self):
+        from types import SimpleNamespace
+        from reticle.passes import cache_feed
+        t = np.array([i * 50.0 for i in range(40)])
+        cache = SimpleNamespace(t_ms=t, record={"hz": 20.0})
+        ally = SimpleNamespace(name="a", hz=2.0, spans=[(560.0, 1950.0)],
+                               cache_resample="nearest",
+                               spans_clip={"spans_asked": [[120.0, 1950.0]]})
+        times, want = cache_feed([ally], cache)
+        # Grid 620, 1120, 1620 ms from the asked start; nearest cached times.
+        self.assertEqual(times, [600.0, 1100.0, 1600.0])
+        # Unclipped, the phase is its own spans': 560, 1060 and 1560 ms.
+        del ally.spans_clip
+        self.assertEqual(cache_feed([ally], cache)[0], [600.0, 1050.0, 1550.0])
+        ally.hz = 20.0
+        # At the cache's rate it takes every cached frame inside its spans.
+        self.assertEqual(cache_feed([ally], cache)[0], t.tolist())
+
+    def test_plan_names_the_ally_trial(self):
+        from reticle.plan import reader_streams
+        from reticle.trial import TRIAL_READERS
+        trial = {s: tr for s, _, _, tr in reader_streams()}
+        self.assertEqual(trial["ally_icon"], "ally_icon")
+        self.assertEqual(TRIAL_READERS["ally_icon"][0], "minimap")
+
+
 def _needs_ffmpeg(test):
     from reticle.roi_cache import ffmpeg_path
     try:

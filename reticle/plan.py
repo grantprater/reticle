@@ -68,7 +68,7 @@ def reader_streams() -> list[tuple[str, str, str, str | None]]:
             ("minimap", "minimap", MINIMAP_VERSION, None),
             ("roster", "roster", ROSTER_VERSION, None),
             ("ping", "ping", PING_VERSION, None),
-            ("ally_icon", "ally_icon", ALLY_ICON_VERSION, None),
+            ("ally_icon", "ally_icon", ALLY_ICON_VERSION, "ally_icon"),
             ("minimap_dark", "minimap_dark", MINIMAP_DARK_VERSION, None),
             ("combat_report", "combat_report", COMBAT_REPORT_VERSION, None),
             ("scoreboard", "scoreboard", SCOREBOARD_VERSION, None),

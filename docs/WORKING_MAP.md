@@ -124,7 +124,7 @@ path through `reticle/geometry.py` rather than joining a session id onto
 For stored-data changes, prefer `segment`, `audit`, `coach`, or `sql`
 as appropriate. `segment`/`audit` reuse stored L1. `scan --only hud` rereads
 the crop cache (`roi_cache`) and decodes only with `--from video`; under
-the default `--from auto` a span reader (`minimap`, `minimap_dark`) reads a
+the default `--from auto` a span reader (`minimap`, `minimap_dark`, `ally_icon`) reads a
 round cache's rounds only, without the buy phase, when that cache holds every
 live round, and decodes otherwise; its stream records the unread spans as
 `spans_clip`; `hud`,

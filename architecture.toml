@@ -144,6 +144,17 @@ The only edge here that points at `delivery`, and the reason it is tolerated is
 that fidelity is a harness rather than a stage.
 """
 
+[[exception]]
+from = "trial"
+to = "adjudication.minimap_candidates"
+kind = "deferred"
+reason = """
+The `ally_icon` stream `scan` publishes is the accepted view of the reader's
+candidates under the stored decision rule. A trial diffs the rows `scan` would
+write, so it asks the rule's owner (`ally_decisions`, `accepted`) rather than
+restating it; it writes nothing.
+"""
+
 # ---------------------------------------------------------------------------
 # The tree direction. `reticle/` does not know `prototypes/` exists.
 # ---------------------------------------------------------------------------
