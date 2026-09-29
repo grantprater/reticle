@@ -120,7 +120,8 @@ def follow_entry_portraits(entry: dict, portraits: list[dict],
     """The (frame time, slot) pairs one killfeed entry occupies over its track.
 
     **An entry does not keep its slot.** The stack rises as older entries
-    expire, and a newer entry arrives BELOW. Reading only the first slot until
+    expire, and a newer entry arrives BELOW [domain:killfeed/stack-order].
+    Reading only the first slot until
     the next entry lost every view after the stack rose, and ended the window
     at a newcomer that never moved this entry: 25 of 51 nameable killers on the
     player's uniform labels abstained on one view where up to four existed

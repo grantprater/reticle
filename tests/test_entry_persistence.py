@@ -125,6 +125,33 @@ class TrackGapTests(unittest.TestCase):
         self.assertEqual(len(tracks), 1)
 
 
+class StackOrderTests(unittest.TestCase):
+    """A new entry arrives below; the older one holds the top until it expires
+    [domain:killfeed/stack-order]."""
+
+    def test_a_newer_entry_arrives_below_and_rises_when_the_top_expires(self):
+        # The stored shape at c40d950031bb: entry A (divider 275, enemy victim)
+        # holds slot 0; entry B (278, the player's death) arrives in slot 1 at
+        # 908.5 s; slot 0 empties at 909.5 s and B reads in slot 0 from 910.0 s.
+        # The dividers agree within KF_SIG_TOL, so the victim side is what keeps
+        # B off A's track when B rises into the slot A left.
+        from reticle.killfeed import divider_of_ys, FIRST_Y, PITCH
+        t = steps(905_000.0, 17, 500.0)
+        rows = {ts: ([(0, 275)] if ts < 908_500.0 else
+                     [(0, 275), (1, 278)] if ts < 909_500.0 else
+                     [(1, 278)] if ts < 910_000.0 else [(0, 278)]) for ts in t}
+        masks = feed(t, {ts: tuple(s for s, _ in r) for ts, r in rows.items()})
+        wx = [divider_of_ys([FIRST_Y + s * PITCH for s, _ in rows[ts]],
+                            [w for _, w in rows[ts]]) for ts in t]
+        side = lambda ts, want: sum(1 << s for s, w in rows[ts] if (w == 278) == want)
+        sides = [(side(ts, True), side(ts, False)) for ts in t]
+        tracks = sorted(track_entries(t, masks, wx, sides=sides), key=lambda a: a["t_first"])
+        self.assertEqual([(a["t_first"], a["t_last"], a["slot_first"], a["slot"], a["side"])
+                          for a in tracks],
+                         [(905_000.0, 909_000.0, 0, 0, "enemy"),
+                          (908_500.0, t[-1], 1, 0, "ally")])
+
+
 class PlateSideTests(unittest.TestCase):
     """One entry's victim never changes team: a flipped plate is a new entry."""
 
