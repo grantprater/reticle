@@ -402,9 +402,10 @@ def main(argv=None) -> int:
         print(json.dumps(values, indent=1))
         if args.record:
             from reticle.version import ICON_TEARDROP_VERSION, TEAM_VISION_VERSION
-            metrics.record("team_vision_eval", part="joined-team-light", session=f"{sem.DEMO}+{voe.LOTUS}",
-                           values=values,
+            metrics.record("team_vision_eval", part=f"joined-team-light-{FOOTPRINT}",
+                           session="+".join(args.sessions), values=values,
                            deps={"prototype": VERSION, "witness": co.VERSION, "reader": it_.VERSION,
+                                 "footprint": FOOTPRINT,
                                  "lighting": lighting.LIGHTING_VERSION, "before": nb, "after": na,
                                  "team_vision": TEAM_VISION_VERSION, "icon_teardrop": ICON_TEARDROP_VERSION,
                                  "warmup_ms_lotus": voe.WARMUP_MS})
