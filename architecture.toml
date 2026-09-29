@@ -53,7 +53,7 @@ modules = ["minimap", "ally_portrait", "ocr", "killfeed", "roster", "ping", "con
 
 [orchestration]
 claim = "shared decode passes, which dispatch to readers and own no reading"
-modules = ["passes", "pipeline", "trial", "roi_cache"]
+modules = ["passes", "pipeline", "trial", "roi_cache", "widget_frame"]
 
 [adjudication]
 claim = "pure over stored observations, with evidence and alternatives"

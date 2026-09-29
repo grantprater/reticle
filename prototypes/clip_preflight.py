@@ -39,6 +39,14 @@ world moving behind it. Same trick `minimap_geometry` uses.
 
 Reports, never fixes. A failure here is a capture setting, not a code change.
 
+`--key <map>__<profile>` also fits the widget's PLACEMENT per sampled frame
+against that key's baked static (`reticle.widget_frame.fit_crop`): scale,
+rotation and corner, grouped into segments (a side-based capture flips at the
+half). The player, 2026-09-28: a variant widget is read through this
+transform rather than abstained on. The fit uses single frames, never the
+median, and the numbers it prints are what `reticle widget-fit --write` stores
+on the manifest after ingest.
+
 One limit, stated because the output can mislead: the correlation is not
 alignment-invariant. It rotates the donor about the CROP centre rather than the
 widget centre, and it cannot absorb a translation, so a clip whose widget sits
@@ -68,20 +76,38 @@ N = 41
 ROT_MARGIN = 0.02      # ncc difference below this is "cannot tell"
 
 
-def median_corner(path: str, n: int = N):
-    """Capture median for widget geometry checks only; never map extraction."""
+def corner_frames(path: str, n: int = N):
+    """`(t_ms, top-left corner)` of `n` frames spread over the capture."""
     cap = cv2.VideoCapture(str(path))
     tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    buf = []
+    fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
+    out = []
     for i in np.linspace(tot * 0.05, tot * 0.95, n).astype(int):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
         ok, fr = cap.read()
         if ok:
-            buf.append(fr[:H, :W])
+            out.append((i * 1000.0 / fps, fr[:H, :W].copy()))
     cap.release()
-    if not buf:
+    if not out:
         raise SystemExit(f"{path}: decoded no frames")
+    return out
+
+
+def median_corner(path: str, n: int = N, frames=None):
+    """Capture median for widget geometry checks only; never map extraction."""
+    buf = [f for _, f in (frames or corner_frames(path, n))]
     return np.median(np.stack(buf), 0).astype(np.uint8)
+
+
+def placements(frames, key: str):
+    """The widget's placement segments against `key`'s baked static, fitted
+    per frame (`reticle.widget_frame`), in full-frame pixels."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from reticle import widget_frame as wf
+    from reticle.geometry import reference_for_key
+    static = reference_for_key(key)
+    fits = [(t, wf.fit_crop(static, f, (0, 0))) for t, f in frames]
+    return wf.placement_segments(fits), static.shape[:2]
 
 
 def linework_bbox(med):
@@ -114,6 +140,8 @@ def main() -> int:
     ap.add_argument("--donor", default="a06f04a0059f",
                     help="ingested session on the SAME map to compare against")
     ap.add_argument("--n", type=int, default=N)
+    ap.add_argument("--key", default=None,
+                    help="also fit the widget placement against this <map>__<profile> baked static")
     a = ap.parse_args()
 
     man = json.loads((STORE / "manifests" / f"{a.donor}.json").read_text())
@@ -123,7 +151,8 @@ def main() -> int:
 
     bad = 0
     for v in a.videos:
-        med = median_corner(v, a.n)
+        frames = corner_frames(v, a.n)
+        med = median_corner(v, a.n, frames)
         bb = linework_bbox(med)
         up, down = ncc(med, donor), ncc(med, cv2.rotate(donor, cv2.ROTATE_180))
         rows_ok = abs(bb[1] - dbb[1]) <= 6 and abs(bb[3] - dbb[3]) <= 6
@@ -145,6 +174,13 @@ def main() -> int:
         print(f"   [{'ok' if left_ok else 'FAIL'}] top-left ROI  left edge {bb[0]} "
               f"vs donor {dbb[0]}"
               f"{'' if left_ok else '   <- something is drawn over the minimap'}")
+        if a.key:
+            segs, shape = placements(frames, a.key)
+            for sg in segs:
+                m = np.asarray(sg["affine"])
+                print(f"   placement     from {sg['t0_ms']} ms: rotation {sg['rotation']}, "
+                      f"scale {sg['scale']:.3f}, corner ({m[0, 2]:.1f}, {m[1, 2]:.1f}), "
+                      f"{sg['n']} frames")
         if not (rows_ok and ok_o and left_ok):
             bad += 1
         print()

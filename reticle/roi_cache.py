@@ -75,15 +75,26 @@ def ffmpeg_path() -> str:
     raise SystemExit("ffmpeg not found: install it (winget install Gyan.FFmpeg)")
 
 
-def roi_rects(name: str, profile, wh: tuple[int, int]) -> list[list[int]]:
-    """The pixel rectangles (x0, y0, x1, y1) of a cache set, in set order."""
+def roi_rects(name: str, profile, wh: tuple[int, int],
+              manifest: dict | None = None) -> list[list[int]]:
+    """The pixel rectangles (x0, y0, x1, y1) of a cache set, in set order.
+
+    A `manifest` whose widget placement names a capture box
+    (`widget_frame.capture_box`) replaces the minimap rectangle with it: that
+    session draws its widget outside the profile's ROI, and only it does."""
     if name not in CACHE_SETS:
         raise ValueError(f"no cacheable ROI set named {name!r}; have {sorted(CACHE_SETS)}")
     by = {r.name: r for r in profile.rois}
     missing = [r for r in CACHE_SETS[name] if r not in by]
     if missing:
         raise ValueError(f"profile {profile.name} lacks ROIs {missing} for set {name!r}")
-    return [[int(v) for v in by[r].pixels(*wh)] for r in CACHE_SETS[name]]
+    rects = [[int(v) for v in by[r].pixels(*wh)] for r in CACHE_SETS[name]]
+    if manifest is not None and "minimap" in CACHE_SETS[name]:
+        from .widget_frame import capture_box
+        box = capture_box(manifest)
+        if box is not None:
+            rects[CACHE_SETS[name].index("minimap")] = box
+    return rects
 
 
 def declare_set(reader, name: str, profile, wh) -> None:
@@ -206,7 +217,7 @@ class RoiCacheWriter:
     def __init__(self, store_root: Path, manifest: dict, profile, name: str = "killfeed",
                  hz: float = 2.0, spans=None):
         wh = (int(manifest["source"]["width"]), int(manifest["source"]["height"]))
-        self.rects = roi_rects(name, profile, wh)
+        self.rects = roi_rects(name, profile, wh, manifest)
         self.record = _cache_record(manifest, profile, name, self.rects, hz, spans)
         self.name = f"roi_cache:{name}"
         self.hz, self.spans = hz, spans
@@ -280,6 +291,9 @@ class RoiCache:
     offset: np.ndarray
     length: np.ndarray
     blob: Path
+    #: The session's widget placement (`widget_frame.for_session`), or None
+    #: where it reads the baked one; `samples` normalises minimap pixels by it.
+    widget: object = None
 
     @classmethod
     def _open(cls, d: Path, manifest: dict, profile):
@@ -296,14 +310,22 @@ class RoiCache:
         for key, v in want.items():
             if rec.get(key) != v:
                 return None, f"stale_{key}"
-        if roi_rects(rec["roi"], profile, wh) != rec["rects"]:
+        if roi_rects(rec["roi"], profile, wh, manifest) != rec["rects"]:
             return None, "stale_rects"
         idx = np.load(d / f"{sid}.idx.npy")
         if idx.shape[1] == 4:                              # t, frame, offset, length
             idx = np.insert(idx, 2, 0, axis=1)
-        return cls(rec, idx[:, 0], idx[:, 1].astype(int), idx[:, 2].astype(int),
-                   idx[:, 3].astype(np.int64), idx[:, 4].astype(np.int64),
-                   d / f"{sid}.bin"), None
+        got = cls(rec, idx[:, 0], idx[:, 1].astype(int), idx[:, 2].astype(int),
+                  idx[:, 3].astype(np.int64), idx[:, 4].astype(np.int64),
+                  d / f"{sid}.bin")
+        if "minimap" in CACHE_SETS[rec["roi"]]:
+            # A widget drawn elsewhere is read through its placement; one the
+            # stored crop cannot hold is refused by name, never read as absent.
+            from .widget_frame import for_session, refusal_text
+            got.widget = for_session(manifest, got.stored_rect("minimap"), d.parents[2])
+            if got.widget is not None and got.widget.refusal is not None:
+                return None, refusal_text(got.widget.refusal)
+        return got, None
 
     @classmethod
     def load(cls, store_root: Path, manifest: dict, profile,
@@ -322,7 +344,18 @@ class RoiCache:
         return None, why
 
     def rect_of(self, roi: str) -> list[int]:
-        """The pixel rectangle of one profile ROI this cache holds."""
+        """Where a reader finds one profile ROI in the frames `samples` yields.
+
+        That is the stored rectangle, except for the minimap of a session whose
+        widget is read through a placement: `samples` writes it, resampled,
+        at the baked ROI, which a crop of the stored (wider) rectangle would
+        miss by its shape."""
+        if roi == "minimap" and self.widget is not None:
+            return list(self.widget.baked_roi)
+        return self.stored_rect(roi)
+
+    def stored_rect(self, roi: str) -> list[int]:
+        """The pixel rectangle one profile ROI's crops were stored from."""
         return self.record["rects"][CACHE_SETS[self.record["roi"]].index(roi)]
 
     def crops(self, roi: str):
@@ -341,11 +374,20 @@ class RoiCache:
                 yield (int(self.frame_idx[j]), float(self.t_ms[j]),
                        cv2.imdecode(np.frombuffer(buf, np.uint8), cv2.IMREAD_COLOR))
 
-    def samples(self, targets_ms: list[float], rois=None):
+    def samples(self, targets_ms: list[float], rois=None, normalise: bool = True):
         """A Sample per target the cache holds, in target order: the stored
         crops pasted into a black frame of the capture's size. `rois` names
         the profile ROIs to decode (a cache set's, or a list); the rest stay
-        black, so a killfeed reader on a `hud` cache decodes one crop, not all."""
+        black, so a killfeed reader on a `hud` cache decodes one crop, not all.
+
+        A session whose widget sits elsewhere (`widget`) has its minimap
+        resampled into the baked frame at the profile's ROI, unless
+        `normalise` is False (the placement fit reads the raw crop)."""
+        if normalise and self.widget is not None:
+            for smp in self.samples(targets_ms, rois, normalise=False):
+                yield Sample(frame_idx=smp.frame_idx, t_ms=smp.t_ms,
+                             frame=self.widget.normalise(smp.frame, smp.t_ms))
+            return
         if isinstance(rois, str):
             rois = CACHE_SETS[rois]
         held = CACHE_SETS[self.record["roi"]]
