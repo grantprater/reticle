@@ -187,6 +187,14 @@ remains = "E3 (read the teardrop tip), then the sampler."
 waits_for = "team_vision storing pose windows, and a teardrop reader or the player's tip labels."
 
 [[document]]
+path = "docs/PRIOR_DRIVEN_READERS.md"
+kind = "plan"
+status = "proposed"
+since = "2026-09-29"
+remains = "Every change: declared scopes, the four stored-row experiments, the ally window search and the scoreboard's own prior."
+waits_for = "The player's decision on the belief-rule amendment and on which experiments to run."
+
+[[document]]
 path = "docs/PUBSUB_PLAN.md"
 kind = "plan"
 status = "implemented"
