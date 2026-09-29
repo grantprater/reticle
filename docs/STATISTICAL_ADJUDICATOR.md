@@ -498,6 +498,16 @@ it an ability icon, and a check against player labels of the facing on Lotus
 frames, where the light cannot judge it. Both changes go in together, under a
 new `team-vision` stamp, once the labels agree.
 
+**The labels.** `prototypes/label_self_facing.py` asks the player, blind, for
+the self icon's centre and tip on frames drawn from the crop cache in five
+strata: where the teardrop and the light-fitted facing disagree most, where
+they agree, where the teardrop refuses a self detection, read frames drawn
+with no regard to the light, and Ascent control frames. Each item records why
+it was drawn; the answers go to the store's
+`labels/self_facing_lotus_20260928.jsonl`. `prototypes/self_facing_eval.py`
+scores the teardrop and the ring fit against them. The predictions (L1-L5)
+are logged in the store's `notes/predictions.jsonl` before any label exists.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
