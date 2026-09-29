@@ -57,7 +57,7 @@ Owns [owns:scoreboard-row].
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, OrderedDict
 from dataclasses import dataclass
 import os
 
@@ -513,6 +513,7 @@ def read_scoreboard(
     min_margin: float = 0.04,
     strip_rect: tuple[int, int, int, int] | None = None,
     icons: dict | None = None,
+    cache: "PortraitCache | None" = None,
 ) -> ScoreboardRead:
     """Read every row's K/D/A, and say which row is the local player's.
 
@@ -525,7 +526,8 @@ def read_scoreboard(
     places without a red run to confirm them open only when every one of
     their portraits scores at least PORTRAIT_CONFIRM_MIN against `icons`
     (`load_agent_icons`); without `icons` such a board closes. A closed board
-    says which test closed it (`ScoreboardRead.reason`)."""
+    says which test closed it (`ScoreboardRead.reason`). `cache`
+    (`PortraitCache`) reuses the scores of a portrait already scored."""
     H, W = frame.shape[:2]
     # The strip's rectangle places the table's columns, and the row test
     # counts only those: world beside the board is not the board.
@@ -594,7 +596,8 @@ def read_scoreboard(
         if not icons:
             return ScoreboardRead(False, reason=unconfirmed, **closed)
         px = max(0, x0)
-        scores = [portrait_agent(frame, (px, a, px + (z - a), z), icons)["portrait_agent_score"]
+        scores = [portrait_agent(frame, (px, a, px + (z - a), z), icons,
+                                 cache)["portrait_agent_score"]
                   for a, z in _split(enemy)]
         if None in scores or min(scores) < PORTRAIT_CONFIRM_MIN:
             return ScoreboardRead(False, reason=unconfirmed, **closed)
@@ -678,8 +681,50 @@ def load_agent_icons(root) -> dict[str, tuple[list, list]]:
     return out
 
 
+class PortraitCache:
+    """Portrait scores already computed, keyed on the exact pixels scored.
+
+    While a board stays open its portraits rarely change, and the enemy rows
+    a line-placed board confirms are scored again as observations. The key
+    is the scored window's shape and bytes, which scorer ran, and the agent
+    art: an exact match returns the same result, so a hit is
+    indistinguishable from a rescore. A cache belongs to one reader, and so
+    to one session, and holds at most `size` windows, least recently used
+    first out.
+    """
+
+    def __init__(self, size: int = 64):
+        self.size, self.hits, self.misses = size, 0, 0
+        self._icons = None
+        self._held: OrderedDict = OrderedDict()
+
+    def get(self, key, icons: dict):
+        if icons is not self._icons:
+            # Other agent art scores differently: nothing held applies.
+            self._icons = icons
+            self._held.clear()
+        got = self._held.get(key)
+        if got is None:
+            self.misses += 1
+            return None
+        self.hits += 1
+        self._held.move_to_end(key)
+        return _copied(got)
+
+    def put(self, key, result: dict) -> None:
+        self._held[key] = _copied(result)
+        while len(self._held) > self.size:
+            self._held.popitem(last=False)
+
+
+def _copied(result: dict) -> dict:
+    """A result whose nested scores a caller may change without reaching the cache."""
+    scores = result.get("portrait_agent_scores")
+    return result if scores is None else {**result, "portrait_agent_scores": dict(scores)}
+
+
 def portrait_agent(frame: np.ndarray, box: tuple[int, int, int, int],
-                   icons: dict) -> dict:
+                   icons: dict, cache: PortraitCache | None = None) -> dict:
     """Raw agent-art scores for one portrait box, and its brightness gain.
 
     Context-free: every agent in the gallery is scored and nothing is named.
@@ -687,7 +732,8 @@ def portrait_agent(frame: np.ndarray, box: tuple[int, int, int, int],
     matched art's pixels. The game dims a dead player's portrait, which lowers
     that slope while the normalised correlation holds; a naturally dark agent
     keeps a slope near one. Adjudication decides whether a board is expanded
-    enough to trust either number.
+    enough to trust either number. `cache` returns the result for a window
+    scored before, pixel for pixel, with the same scorer and art.
     """
     empty = {"portrait_agent_best": None, "portrait_agent_score": None,
              "portrait_agent_second": None, "portrait_agent_margin": None,
@@ -698,6 +744,20 @@ def portrait_agent(frame: np.ndarray, box: tuple[int, int, int, int],
     win = frame[max(0, y0 - AGENT_PAD):max(0, y1 + AGENT_PAD),
                 max(0, x0 - AGENT_PAD):max(0, x1 + AGENT_PAD)]
     gallery = _gpu_gallery(icons)
+    key = None
+    if cache is not None:
+        key = (gallery is not None, win.shape, win.dtype.str, win.tobytes())
+        got = cache.get(key, icons)
+        if got is not None:
+            return got
+    out = _portrait_agent_scored(win, icons, gallery, empty)
+    if cache is not None:
+        cache.put(key, out)
+    return out
+
+
+def _portrait_agent_scored(win: np.ndarray, icons: dict, gallery, empty: dict) -> dict:
+    """`portrait_agent`'s result for the window around the portrait box."""
     scores, where = (_art_scores_gpu(win, gallery) if gallery is not None
                      else _art_scores_cpu(win, icons))
     ranked = sorted(scores.items(), key=lambda kv: -kv[1])
@@ -828,7 +888,8 @@ def _art_scores_gpu(win: np.ndarray, gallery) -> tuple[dict, dict]:
 
 
 def portrait_observations(frame: np.ndarray, board: ScoreboardRead,
-                          icons: dict | None = None) -> list[dict]:
+                          icons: dict | None = None,
+                          cache: PortraitCache | None = None) -> list[dict]:
     """Context-free evidence for each scoreboard portrait.
 
     The portrait is the square cell at the table's left edge, one row high.
@@ -860,7 +921,7 @@ def portrait_observations(frame: np.ndarray, board: ScoreboardRead,
                "portrait_detail": appearance.detail(art),
                "portrait_composition": appearance.hsv_composition(art).tolist()}
         if icons is not None:
-            got.update(portrait_agent(frame, (x0, row.y0, x0 + height, row.y1), icons))
+            got.update(portrait_agent(frame, (x0, row.y0, x0 + height, row.y1), icons, cache))
         result.append(got)
     return result
 
@@ -880,6 +941,9 @@ class ScoreboardReader:
         self.profile_name = profile_name
         self.templates = Templates.load(profile_name)
         self.icons = load_agent_icons(icons_root) if icons_root is not None else {}
+        # Scores of portraits already seen this session, reused on an exact
+        # pixel match; `hits` and `misses` count them.
+        self.portrait_cache = PortraitCache()
         self.min_confidence, self.min_margin = min_confidence, min_margin
         self.frames_offered = 0
         self.frames_open = 0
@@ -896,7 +960,8 @@ class ScoreboardReader:
         if rect is not None and self.roi is None:
             self.roi = [int(v) for v in reader_roi(rect, h)]
         board = read_scoreboard(sample.frame, self.templates,
-                                self.min_confidence, self.min_margin, rect, self.icons)
+                                self.min_confidence, self.min_margin, rect, self.icons,
+                                self.portrait_cache)
         self.samples.append({"frame_idx": int(sample.frame_idx), "t_ms": float(sample.t_ms),
                              "open": board.open_, "reason": board.reason,
                              "anchor": board.anchor, "strip": board.strip,
@@ -906,7 +971,8 @@ class ScoreboardReader:
             return
         self.frames_open += 1
         portraits = {r["display_row"]: r for r in
-                     portrait_observations(sample.frame, board, self.icons)}
+                     portrait_observations(sample.frame, board, self.icons,
+                                           self.portrait_cache)}
         for index, row in enumerate(board.rows):
             self.rows.append({
                 "frame_idx": int(sample.frame_idx), "t_ms": float(sample.t_ms),

@@ -582,6 +582,36 @@ reproduced the stored rows byte for byte
 [metric:scoreboard/cache-window@a06f04a0059f#trial_refused_outside_gate=59] frames
 outside the gate.
 
+### Portrait scoring time
+
+An open board costs the reader far more than a closed one: on the cached
+minute of `a06f04a0059f`, [metric:scoreboard/speed-reuse@a06f04a0059f#ms_open_mean_ref=283.4] ms a frame open
+against [metric:scoreboard/speed-reuse@a06f04a0059f#ms_closed_mean_ref=11.2] ms closed, averaged over
+[metric:scoreboard/speed-reuse@a06f04a0059f#runs=3] paired runs of its [metric:scoreboard/speed-reuse@a06f04a0059f#frames_open=36] open frames. Most of
+it scores each row's portrait against every agent's art
+(`scoreboard.portrait_agent`), and the enemy rows of a board the
+portraits confirm are scored twice, once to confirm and once as
+observations.
+
+The reader now keeps each portrait's result keyed on the exact window it
+scored, with the scorer and the art (`scoreboard.PortraitCache`, 64
+windows per reader), and returns it on an exact match. The premise was
+that a board held open repeats its portraits; the pixels say otherwise.
+Of [metric:scoreboard/speed-reuse@a06f04a0059f#consecutive_windows=260] windows at the same place on
+consecutive open frames, [metric:scoreboard/speed-reuse@a06f04a0059f#consecutive_windows_identical=3] are
+identical: the video codec moves most pixels by a few levels from frame
+to frame. The cache answers [metric:scoreboard/speed-reuse@a06f04a0059f#cache_hit_frac=0.15] of the scores
+([metric:scoreboard/speed-reuse@a06f04a0059f#cache_hits=63] hits, [metric:scoreboard/speed-reuse@a06f04a0059f#cache_misses=357] misses), nearly all
+confirmed enemy rows scored again in the same frame, and an open frame
+takes [metric:scoreboard/speed-reuse@a06f04a0059f#ms_open_mean_cur=260.5] ms against
+[metric:scoreboard/speed-reuse@a06f04a0059f#ms_open_mean_ref=283.4] ms, timed frame by frame against the
+reader before it on a GPU other jobs share. The reads do not change: the
+window's [metric:scoreboard/speed-reuse@a06f04a0059f#rows_byte_equal_stored=421] rows equal the stored stream
+byte for byte, and every fixture board reads the same, portrait scores
+included ([metric:scoreboard/speed-reuse@fixture#boards_identical=456] of [metric:scoreboard/speed-reuse@fixture#boards=456]), so the
+version stays.
+
+
 ## Predictions
 
 - **S1 is refuted on both clauses.** The witness finds the strip on

@@ -102,5 +102,55 @@ class GpuScorerAgreementTests(unittest.TestCase):
             self.assertEqual(gpu_where[name][0], 0)
 
 
+
+class PortraitCacheTests(unittest.TestCase):
+    """A reused result equals a fresh score, and only an exact window reuses."""
+
+    def setUp(self):
+        rng = np.random.default_rng(5)
+        self.icons = _icons(rng)
+        self.frame = rng.integers(0, 256, (30, 30, 3), dtype=np.uint8)
+        self.box = (5, 5, 19, 19)
+        env = patch.dict(os.environ, {"RETICLE_SCOREBOARD": "cpu"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def test_a_hit_returns_the_fresh_result(self):
+        cache = sb.PortraitCache()
+        fresh = sb.portrait_agent(self.frame, self.box, self.icons)
+        first = sb.portrait_agent(self.frame, self.box, self.icons, cache)
+        again = sb.portrait_agent(self.frame.copy(), self.box, self.icons, cache)
+        self.assertEqual(first, fresh)
+        self.assertEqual(again, fresh)
+        self.assertEqual((cache.hits, cache.misses), (1, 1))
+
+    def test_one_changed_pixel_is_scored_again(self):
+        cache = sb.PortraitCache()
+        sb.portrait_agent(self.frame, self.box, self.icons, cache)
+        other = self.frame.copy()
+        other[10, 10, 0] ^= 1
+        got = sb.portrait_agent(other, self.box, self.icons, cache)
+        self.assertEqual(got, sb.portrait_agent(other, self.box, self.icons))
+        self.assertEqual((cache.hits, cache.misses), (0, 2))
+
+    def test_a_caller_cannot_change_what_the_cache_holds(self):
+        cache = sb.PortraitCache()
+        first = sb.portrait_agent(self.frame, self.box, self.icons, cache)
+        first["portrait_agent_scores"]["A"] = 99.0
+        again = sb.portrait_agent(self.frame, self.box, self.icons, cache)
+        self.assertNotEqual(again["portrait_agent_scores"]["A"], 99.0)
+
+    def test_other_art_and_the_bound(self):
+        cache = sb.PortraitCache(size=2)
+        for dx in range(3):
+            sb.portrait_agent(self.frame, (5 + dx, 5, 19 + dx, 19), self.icons, cache)
+        self.assertEqual(len(cache._held), 2)
+        sb.portrait_agent(self.frame, (7, 5, 21, 19), self.icons, cache)
+        self.assertEqual(cache.hits, 1)
+        other_art = _icons(np.random.default_rng(6))
+        sb.portrait_agent(self.frame, (7, 5, 21, 19), other_art, cache)
+        self.assertEqual((cache.hits, len(cache._held)), (1, 1))
+
+
 if __name__ == "__main__":
     unittest.main()
