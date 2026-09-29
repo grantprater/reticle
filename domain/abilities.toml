@@ -1765,3 +1765,85 @@ session plays Astra
 """
 see = ["abilities/catalogue-charge-counts-confirmed", "abilities/astra-nebula-minimap-disc",
        "abilities/skye-regrowth-resource-bar"]
+
+[skye-regrowth-channelled]
+claim = """
+Skye's Regrowth in slot C is channelled: she heals while the fire button is
+held, and one hold is one channel however long it lasts.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-26"
+subject = "skye:regrowth"
+source = """
+the player, 2026-09-26, answering the census's question 7 on the re-recorded
+Skye demo fc02a2c1ac01: the Regrowth ring from 5.2 to 16.5 s was one channel,
+held to give plenty of audio (docs/DEMO_CAST_CENSUS.md, "The player's answers
+(2026-09-26, later)", Question 7)
+"""
+use = "one Regrowth ring is one cast however long it lasts; its start and end bound the channel"
+see = ["abilities/skye-regrowth-no-tray-drop", "abilities/skye-regrowth-minimap-ring",
+       "abilities/skye-regrowth-resource-bar", "abilities/ability-description-verbs"]
+
+[skye-trailblazer-piloted]
+claim = """
+Skye's Trailblazer in slot Q is controlled by the player after the cast, the
+same way Sova's Owl Drone is flown.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-03"
+subject = "skye:trailblazer"
+source = """
+the player, 2026-09-03, told that Sova's drone is flown by the player:
+"and skye dog and birds" (docs/archive/PROTOTYPES-through-2026-09-23.md, lines 1771-1776)
+"""
+use = "the icon's motion is the player's steering, so its path is representative"
+see = ["abilities/skye-trailblazer-charges", "hud/controlled-entity-view-tint"]
+
+[sova-owl-drone-piloted]
+claim = """
+Sova's Owl Drone in slot C is piloted: after the cast the player takes control
+of the drone and flies it.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-03"
+subject = "sova:owl drone"
+source = "the player, 2026-09-03, on the Sova clip: \"Sova drone is controlled by the player, I flew it around\" (docs/archive/PROTOTYPES-through-2026-09-23.md, lines 1771-1776)"
+use = "the icon's motion is the player's steering, so its path is representative"
+see = ["abilities/sova-owl-drone-charges", "hud/controlled-entity-view-tint"]
+
+[fade-prowler-steered]
+claim = """
+Fade's Prowler in slot C is steered by the player after the cast; it is not
+autonomous.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-03"
+subject = "fade:prowler"
+source = """
+the player, 2026-09-03, told that Sova's drone is flown by the player:
+"same with fade dogs" (docs/archive/PROTOTYPES-through-2026-09-23.md, lines 1771-1776). Whether the player steers by holding fire or takes
+control of the view is not recorded
+"""
+use = "the Prowler icon's motion is the player's steering, so its path is representative"
+see = ["abilities/fade-prowler-minimap-icon"]
+
+[skye-guiding-light-steered]
+claim = """
+Skye's Guiding Light in slot E is steered by the player after the cast; it is
+not autonomous.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-03"
+subject = "skye:guiding light"
+source = """
+the player, 2026-09-03, told that Sova's drone is flown by the player:
+"and skye dog and birds" (docs/archive/PROTOTYPES-through-2026-09-23.md, lines 1771-1776). Whether the player steers by holding fire or
+takes control of the view is not recorded
+"""
+use = "the bird icon's motion is the player's steering, so its path is representative"
+see = ["abilities/skye-guiding-light-minimap-icon", "abilities/skye-guiding-light-charges"]
