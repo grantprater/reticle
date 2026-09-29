@@ -187,3 +187,88 @@ class RoundCacheTest(unittest.TestCase):
             for i, f in enumerate(frames):
                 for x0, y0, x1, y1 in roi_rects("minimap", profile, (1920, 1080)):
                     self.assertTrue(np.array_equal(got[i].frame[y0:y1, x0:x1], f[y0:y1, x0:x1]))
+
+
+class DarkCacheTest(unittest.TestCase):
+    """`scan --only minimap_dark` reads the 15 Hz minimap cache on its 4 Hz grid."""
+
+    def _dark(self, box, hz=4.0, spans=None):
+        from reticle.minimap_dark import DarkRegionReader
+        return DarkRegionReader(floor=None, sgray=None, static=None, ref=None, box=box,
+                                hz=hz, spans=spans)
+
+    def test_the_dark_reader_declares_the_minimap_set(self):
+        from reticle.roi_cache import declare_set
+        profile = get_profile("valorant-16x9")
+        box = roi_rects("minimap", profile, (1920, 1080))[0]
+        reader = self._dark(box)
+        declare_set(reader, "minimap", profile, (1920, 1080))
+        self.assertEqual(reader.cache_set, "minimap")
+        self.assertTrue(reader.cache_resample)
+        # A box other than the ROI reads outside the cached set.
+        other = self._dark([box[0] + 1, box[1], box[2], box[3]])
+        declare_set(other, "minimap", profile, (1920, 1080))
+        self.assertIsNone(getattr(other, "cache_set", None))
+
+    def test_a_resampling_reader_rides_a_faster_cache(self):
+        from types import SimpleNamespace
+        from reticle.roi_cache import cache_for
+        profile = get_profile("valorant-16x9")
+        with tempfile.TemporaryDirectory() as root:
+            w = RoiCacheWriter(Path(root), _manifest(), profile, "hud", hz=15.0)
+            w.feed(Sample(frame_idx=0, t_ms=0.0, frame=np.zeros((1080, 1920, 3), np.uint8)))
+            w.finish()
+            r = lambda **kw: SimpleNamespace(**{"name": "d", "cache_set": "killfeed",
+                                                "hz": 4.0, "spans": [(0.0, 9.0)], **kw})
+            self.assertIsNotNone(cache_for(Path(root), _manifest(), profile,
+                                           [r(cache_resample=True)])[0])
+            self.assertIn("another rate", cache_for(Path(root), _manifest(), profile, [r()])[1])
+            # Resampling only thins: a reader faster than the cache is refused.
+            self.assertIn("another rate", cache_for(Path(root), _manifest(), profile,
+                                                    [r(cache_resample=True, hz=30.0)])[1])
+
+    def test_the_feed_reads_each_span_on_the_readers_grid(self):
+        from types import SimpleNamespace
+        from reticle.passes import cache_feed
+        t = np.array([0, 67, 133, 200, 267, 333, 400, 467, 533, 1000, 1067, 1133, 1200, 1267],
+                     float)
+        cache = SimpleNamespace(t_ms=t, record={"hz": 15.0})
+        dark = SimpleNamespace(name="d", hz=4.0, spans=[(0.0, 533.0), (1000.0, 1300.0)],
+                               cache_resample=True)
+        times, want = cache_feed([dark], cache)
+        # First cached time at or after each 250 ms step, restarted per span.
+        self.assertEqual(times, [0.0, 267.0, 533.0, 1000.0, 1267.0])
+        # A reader at the cache's rate still takes every frame in its spans.
+        full = SimpleNamespace(name="f", hz=15.0, spans=[(0.0, 100.0)])
+        times, want = cache_feed([dark, full], cache)
+        self.assertEqual(times, sorted(t.tolist()))
+        self.assertEqual([r.name for r in want(SimpleNamespace(t_ms=67.0))], ["f"])
+        self.assertEqual([r.name for r in want(SimpleNamespace(t_ms=0.0))], ["d", "f"])
+
+    def test_a_cache_fed_coverage_row_names_the_cache(self):
+        reader = self._dark([0, 0, 1, 1])
+        self.assertNotIn("frames_from", reader.events("s1", None)[0])
+        reader.frames_from = "roi-cache-0.1.0"
+        self.assertEqual(reader.events("s1", None)[0]["frames_from"], "roi-cache-0.1.0")
+
+    def test_ffv1_short_skips_are_grabbed_and_exact(self):
+        from reticle.roi_cache import ffmpeg_path
+        try:
+            ffmpeg_path()
+        except SystemExit:
+            self.skipTest("ffmpeg not installed")
+        profile = get_profile("valorant-16x9")
+        rng = np.random.default_rng(3)
+        frames = [rng.integers(0, 255, (1080, 1920, 3), dtype=np.uint8) for _ in range(6)]
+        with tempfile.TemporaryDirectory() as root:
+            w = RoiCacheWriter(Path(root), _manifest(), profile, "minimap", hz=15.0,
+                               spans=[[0.0, 1000.0]])
+            for i, f in enumerate(frames):
+                w.feed(Sample(frame_idx=i, t_ms=i * 66.7, frame=f))
+            w.finish()
+            cache, _ = RoiCache.load(Path(root), _manifest(), profile, "minimap")
+            got = {s.frame_idx: s for s in cache.samples([0 * 66.7, 3 * 66.7, 5 * 66.7])}
+            self.assertEqual(sorted(got), [0, 3, 5])
+            x0, y0, x1, y1 = roi_rects("minimap", profile, (1920, 1080))[0]
+            for i, s in got.items():
+                self.assertTrue(np.array_equal(s.frame[y0:y1, x0:x1], frames[i][y0:y1, x0:x1]))

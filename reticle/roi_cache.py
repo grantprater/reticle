@@ -54,6 +54,11 @@ CACHE_SETS = {
     "minimap": ("minimap", "hud_abilities"),
 }
 
+#: The longest forward skip in an FFV1 cache that `samples` grabs through
+#: rather than seeks. Measured 2026-09-28 on c40d950031bb's minimap cache: a
+#: seek cost 38 ms a sample and a sequential read 5.7 ms a frame.
+GRAB_MAX = 8
+
 #: How each set's crops are stored: "png" per crop, or "ffv1" video per rect.
 CODECS = {"minimap": "ffv1"}
 
@@ -79,6 +84,36 @@ def roi_rects(name: str, profile, wh: tuple[int, int]) -> list[list[int]]:
     if missing:
         raise ValueError(f"profile {profile.name} lacks ROIs {missing} for set {name!r}")
     return [[int(v) for v in by[r].pixels(*wh)] for r in CACHE_SETS[name]]
+
+
+def declare_set(reader, name: str, profile, wh) -> None:
+    """Give `reader` the `cache_set` `name` when its `box` is that set's first
+    rectangle: its reads are `frame[box]`, so they stay inside the cached
+    set only where the box IS the profile's ROI."""
+    if list(reader.box) == roi_rects(name, profile, wh)[0]:
+        reader.cache_set = name
+
+
+def grid_times(t_ms, t0: float, t1: float, step_s: float) -> list[float]:
+    """The first cached time at or after each point of a `step_s` grid that
+    starts at the first cached time inside [t0, t1], within [t0, t1].
+
+    This is how a reader slower than its cache reads it (`cache_resample`):
+    a 4 Hz grid over a 15 Hz cache averages 4 Hz, each time within one cache
+    interval after its grid point, where striding from the last sample taken
+    would drift below the rate asked."""
+    t = np.unique(np.asarray(t_ms, float))
+    t = t[(t >= t0) & (t <= t1)]
+    if not len(t):
+        return []
+    want = np.arange(t[0], t[-1] + 1, step_s * 1000.0)
+    return [float(x) for x in t[np.unique(np.searchsorted(t, want).clip(0, len(t) - 1))]]
+
+
+def resamples(reader, cache_hz: float) -> bool:
+    """Whether `reader` reads a cache written faster than its own rate on
+    `grid_times`: it declares `cache_resample` and its rate is below the cache's."""
+    return bool(getattr(reader, "cache_resample", False)) and float(reader.hz) < float(cache_hz)
 
 
 def covers(held, wanted) -> bool:
@@ -124,6 +159,11 @@ def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiC
     their ROIs. A cache written over `spans` feeds a reader only inside them:
     one wanting the whole capture, or time outside, needs a decode. One reader
     outside that makes it a decode: a pass is fed from one source.
+
+    A reader that declares `cache_resample` may run slower than the cache: it
+    reads the cached times on its own `grid_times`, restarted at each of its spans,
+    so neither the rate nor a whole-capture cache's phase refuses it. Those
+    times are the cache's frames, not the ones a decode's stride would pick.
     """
     need: set[str] = set()
     for r in readers:
@@ -140,14 +180,16 @@ def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiC
         if cache is None:
             why = reason or why
             continue
-        bad = [r.name for r in readers if float(r.hz) != float(cache.record["hz"])]
+        hz = float(cache.record["hz"])
+        bad = [r.name for r in readers if float(r.hz) != hz and not resamples(r, hz)]
         if bad:
             return None, f"{', '.join(bad)} at another rate than the cache's {cache.record['hz']} Hz"
         held = cache.record.get("spans")
         if held is None:
             # A whole-capture cache samples on one stride from the start; a
             # decode over spans restarts it at each span, on other frames.
-            out = [r.name for r in readers if getattr(r, "spans", None) is not None]
+            out = [r.name for r in readers
+                   if getattr(r, "spans", None) is not None and not resamples(r, hz)]
             if out:
                 return None, f"{', '.join(out)} reads spans, and the cache holds the whole capture"
         else:
@@ -347,7 +389,11 @@ class RoiCache:
                         caps[k] = cv2.VideoCapture(str(self.blob.with_name(
                             self.blob.name.replace(".bin", f".r{k}.mkv"))))
                         pos[k] = 0
-                    if pos[k] != n:
+                    if pos[k] < n <= pos[k] + GRAB_MAX:
+                        # A seek costs about 38 ms (`GRAB_MAX`); a short skip is cheaper grabbed.
+                        for _ in range(n - pos[k]):
+                            caps[k].grab()
+                    elif pos[k] != n:
                         caps[k].set(cv2.CAP_PROP_POS_FRAMES, n)
                     ok, crop = caps[k].read()
                     if not ok:
