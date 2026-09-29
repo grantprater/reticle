@@ -15,6 +15,12 @@ The scoreboard reader's frames are its stored stream's samples instead, and
 under (`roi_cache.scoreboard_gate`): an opportunity the stored strip
 witness saw, not the reader's own opens.
 
+The ally-icon reader's frames are its stored stream's frame rows, at the
+stream's own rate, and `"occupied"` keeps those whose widget was drawn. A
+stream the cache fed (`frames_from`) holds only cached instants; one a
+decode wrote at 2 Hz holds instants the 15 Hz cache mostly lacks, and the
+trial refuses those as `not_cached` rather than reading a neighbour.
+
 A frame the source does not yield is refused with the reason the cache
 gives (`RoiCache.refusal`), never read as empty; the diff compares only the
 frames read.
@@ -65,6 +71,47 @@ def _scoreboard_rows(reader, sid: str) -> dict[str, list[dict]]:
     return {"scoreboard": reader.events(sid)}
 
 
+def _ally_reader(ctx):
+    from .minimap import ALLY_DESCRIPTOR_HZ, ally_icon_reader
+    # The stored stream's rate, so the rows carry the `hz` it wrote.
+    head = ctx.store.read_events_kind("ally_icon", ctx.session_id, "coverage")
+    return ally_icon_reader(ctx, hz=float(head[0].get("hz") or ALLY_DESCRIPTOR_HZ)
+                            if head else ALLY_DESCRIPTOR_HZ)
+
+
+def _ally_rows(reader, sid: str) -> dict[str, list[dict]]:
+    """The stream `scan` publishes, built in memory: the candidate revision's
+    content address, the stored decision rule over its rows, and the replay."""
+    from .adjudication.minimap_candidates import accepted, ally_decisions
+    from .candidate_evidence import CANDIDATE_CONTRACT_VERSION, revision
+    from .minimap import AllyIconReader
+    # Through JSON, as `Store.write_candidates` stores them and `scan` reads them back.
+    rows = json.loads(json.dumps(reader.candidate_rows(sid), allow_nan=False))
+    frames = json.loads(json.dumps(reader.frames, allow_nan=False))
+    rev = revision({"contract_version": CANDIDATE_CONTRACT_VERSION, "producer": "ally_icon",
+                    "session_id": sid, "frames": frames, "rows": rows})
+    kept = accepted(rows, ally_decisions(rows))
+    return {"ally_icon": AllyIconReader.replay_events(
+        sid, frames, kept, reader.hz, rev, frames_from=getattr(reader, "frames_from", "video"))}
+
+
+def _ally_timeline(store, manifest: dict, windows: str, pad_ms: float):
+    """`_hud_timeline` from the stored ally_icon frame rows; occupied keeps
+    the frames whose widget the stored stream saw drawn, the opportunity to
+    see an icon, not the icons it found."""
+    sid = manifest["session_id"]
+    frames = [r for r in store.read_events_kind("ally_icon", sid, "frame")
+              if r.get("kind") == "frame"]
+    if not frames:
+        raise SystemExit(f"{sid}: no stored ally_icon frames -- run "
+                         f"`reticle scan {sid} --only ally_icon`")
+    if windows not in ("occupied", "all"):
+        raise ValueError(f"unknown windows {windows!r}")
+    want = [float(r["t_ms"]) for r in frames
+            if windows == "all" or r.get("widget_drawn")]
+    return len(frames), want, {r["t_ms"]: r["frame_idx"] for r in frames}
+
+
 def _hud_timeline(store, manifest: dict, windows: str, pad_ms: float):
     """(timeline length, frames to read, frame index by time) from the stored
     HUD table."""
@@ -110,7 +157,12 @@ TRIAL_READERS = {
     "hud": ("hud", _hud_reader, _hud_rows, ("hud",), _hud_timeline),
     "scoreboard": ("scoreboard", _scoreboard_reader, _scoreboard_rows, ("scoreboard",),
                    _scoreboard_timeline),
+    # The minimap set's first rectangle only: the ability tray is not read.
+    "ally_icon": ("minimap", _ally_reader, _ally_rows, ("ally_icon",), _ally_timeline),
 }
+
+#: Profile ROIs a trial decodes from its cache set, where fewer than the set's.
+TRIAL_ROIS = {"ally_icon": ("minimap",)}
 
 
 def targets(hud: dict, windows: str = "occupied", pad_ms: float = 2000.0) -> list[float]:
@@ -224,7 +276,7 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
         if cache is None:
             raise SystemExit(f"{sid}: no usable {roi_name} ROI cache ({why}) -- run "
                              f"`reticle scan {sid} --only roi_cache --cache-roi {roi_name}`")
-        frames = cache.samples(want, rois=roi_name)
+        frames = cache.samples(want, rois=TRIAL_ROIS.get(reader, roi_name))
     else:
         raise ValueError(f"unknown source {source!r}")
     read: list[float] = []
