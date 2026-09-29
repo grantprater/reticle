@@ -1462,6 +1462,18 @@ def self_icons(crop: np.ndarray, floor: np.ndarray, **kw) -> list[dict]:
     return icons(self_mask(crop), crop, floor, **kw)
 
 
+def self_portrait_pixels(crop: np.ndarray, fit: dict, others=()):
+    """The portrait pixels inside one `self_icons` fit, as `(window, mask)`.
+
+    The self ring holds the player's agent portrait, drawn as a teammate's is
+    (`prototypes/self_agent.py` inspected it). The pixels are the ones
+    `ally_icon_descriptors` takes for a teammate: the disc of
+    `ALLY_INTERIOR_FRAC * r`, less the ally and self keys, less pixels nearer
+    a fit in `others` (teammates drawn over or under the player's icon).
+    """
+    return _interior(fit, ally_mask(crop) | self_mask(crop), others)
+
+
 def radar_circular_mask(h: int, w: int, margin_px: float = 0.0) -> np.ndarray:
     """Boolean mask for the circular minimap radar boundary.
 
