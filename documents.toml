@@ -216,6 +216,12 @@ status = "recorded"
 since = "2026-09-29"
 
 [[document]]
+path = "docs/ALLY_RATE.md"
+kind = "findings"
+status = "recorded"
+since = "2026-09-29"
+
+[[document]]
 path = "docs/AUDIO_ABILITY_BANK.md"
 kind = "findings"
 status = "recorded"

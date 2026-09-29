@@ -47,3 +47,9 @@ against the 40 above, which chose the failure.
 Two parts of the agreed slice remain: session exemplars (an ally whose death is
 named at t is the icon that vanishes at t, with `depends_on`), and a track key
 so claims accumulate per teammate rather than per frame.
+
+## Sampling rate
+
+[ALLY_RATE.md](ALLY_RATE.md) (2026-09-29) compares the ally reader at 15, 5
+and 2 Hz, paired on the same cached frames. 5 Hz names teammates as well as
+15 Hz but finds about half of its reachability breaks; 2 Hz stays ruled out.
