@@ -1346,10 +1346,10 @@ PORTRAIT_ASPECT = 2.0
 # padded entry band landed low (`band_shift`, stored per row).
 # 0.7.0 (2026-09-25): each portrait's `ally` follows `victim_is_ally`, which
 # now reads the killer's colour behind the weapon icon.
-# 0.8.0 (2026-09-28): the victim's walk starts at the name's last glyph,
-# descenders included (`victim_name_end`), and counts as text only white ink
-# that begins by then (`own_ink`), so white hair no longer carries the box
-# past the portrait.
+# 0.8.0 (2026-09-28): the victim's walk starts at the name's end
+# (`victim_name_end`: descenders, word spaces, merged letters, past a
+# second-life badge) and counts as text only white ink that begins by then
+# (`own_ink`), so white hair no longer carries the box past the portrait.
 KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.8.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
@@ -1489,23 +1489,43 @@ def killer_name_start(white_band: np.ndarray, run: tuple[int, int]) -> int:
         x = min(int(st[i, 0]) for i in prev)
 
 
-def victim_name_end(white_band: np.ndarray, run: tuple[int, int]) -> int:
+def victim_name_end(white_band: np.ndarray, run: tuple[int, int],
+                    mark_end: int | None = None) -> int:
     """The last column of the victim's name, which the victim's portrait
     follows across a stretch of bare plate.
 
-    `killer_name_start` mirrored: walks right from the run over glyph-sized
-    white components on the name's baseline, descenders allowed, each within
-    `NAME_GAP` of the last.
+    `killer_name_start` mirrored: walks right from the run over white
+    components of a glyph's height on the name's baseline, descenders
+    allowed, each within `NAME_GAP` of the last, and over a word space
+    (`NAME_WORD_GAP`) to a glyph sitting ON the baseline. Width is not
+    tested: letters that touch merge wider than `_glyph_pair` admits (the
+    "me" of "jesussavedme", 59c70f1ef720 1866.0 s). `name_run` stops at the first space, so "Daddy
+    Darkrai" ended at "Daddy" and the walk cut the box into "Darkrai"
+    (5822b6646448 867.0 s).
+
+    `mark_end` is the right edge of a second-life badge
+    (`detect_second_life_badge`) fitted around the run: the run is then the
+    badge's emblem, and the name begins at the first glyph past the ring,
+    within a band height of it (a06f04a0059f 1576.0 s, bfad2778a372 2394.0 s).
     """
     st, glyph, base = _name_glyphs(white_band, run)
     if base is None:
         return run[1]
     right = lambda i: int(st[i, 0] + st[i, 2] - 1)
-    rows = [i for i in glyph
-            if base - NAME_BASE_TOL <= st[i, 1] + st[i, 3] <= base + NAME_DESCENDER]
+    bottom = lambda i: int(st[i, 1] + st[i, 3])
+    rows = [i for i in glyph if base - NAME_BASE_TOL <= bottom(i) <= base + NAME_DESCENDER]
+    line = [i for i in rows if abs(bottom(i) - base) <= NAME_BASE_TOL]
+    text = [i for i in range(1, st.shape[0]) if st[i, 4] >= MIN_COMP_AREA
+            and GLYPH_H[0] <= st[i, 3] <= GLYPH_H[1] + NAME_DESCENDER
+            and base - NAME_BASE_TOL <= bottom(i) <= base + NAME_DESCENDER]
     x = run[1]
+    if mark_end is not None and mark_end >= x:
+        past = [i for i in rows if mark_end < st[i, 0] <= mark_end + white_band.shape[0]]
+        if past:
+            x = right(min(past, key=lambda i: st[i, 0]))
     while True:
-        ends = [right(i) for i in rows if right(i) > x and st[i, 0] - x <= NAME_GAP]
+        ends = ([right(i) for i in text if right(i) > x and st[i, 0] - x <= NAME_GAP]
+                + [right(i) for i in line if right(i) > x and st[i, 0] - x <= NAME_WORD_GAP])
         if not ends:
             return x
         x = max(ends)
@@ -1579,7 +1599,9 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
             continue
         # The plate, and white ink that begins by the victim's name end
         # (`own_ink`); portrait art begins past it.
-        name1 = victim_name_end(white[view.y0:view.y1], view.victim_run)
+        badge, fit = detect_second_life_badge(crop[view.y0:view.y1], view.victim_run[0])
+        name1 = victim_name_end(white[view.y0:view.y1], view.victim_run,
+                                int(fit["cx"] + fit["r"]) if badge else None)
         on = _entry_columns(green[view.y0:view.y1], red[view.y0:view.y1],
                             own_ink(white[view.y0:view.y1], name1), bh)
         # The portraits are cut from the rows the names place the entry at

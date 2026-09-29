@@ -94,6 +94,19 @@ class WalkTests(unittest.TestCase):
         on = _entry_columns(green[y0:y1], red[y0:y1], own, bh)
         self.assertEqual(_portrait_edge(on, 130, +1, frame.shape[1]), 150)
 
+    def test_the_victim_name_ends_past_a_word_space_and_merged_letters(self):
+        """`name_run` stops at a word space ("Daddy Darkrai") and touching
+        letters merge wider than a glyph ("me"); the name ends after both,
+        and a lock of hair on the baseline past the plate gap is not text."""
+        white = np.zeros((34, 200), np.uint8)
+        for x in (10, 17, 24):                      # first word
+            white[13:23, x:x + 5] = 255
+        for x in (36, 43):                          # second word, 7 px on
+            white[13:23, x:x + 5] = 255
+        white[15:23, 50:70] = 255                   # "me", merged, 20 px wide
+        white[15:23, 85:95] = 255                   # hair on the baseline
+        self.assertEqual(killfeed.victim_name_end(white, (10, 28)), 69)
+
     def test_a_band_with_no_gap_refuses(self):
         frame, y0, y1, bh, _pw = band_frame()
         frame[y0:y1, :] = GREEN                # plate edge to edge, no portrait
