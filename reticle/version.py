@@ -320,7 +320,11 @@ TRAY_KIT_VERSION = "tray-kit-0.1.0"
 # 0.3.0: a self fit that lands on a spike glyph (`spike.on_glyph`) is
 # skipped for the next; a frame whose every fit lands on one is refused as
 # `on_spike_glyph`.
-SELF_ICON_VERSION = "self-icon-0.3.0"
+# 0.4.0: `spike.on_glyph` keeps a fit that may be the carrier: near a carried
+# glyph it refuses only a fit on the glyph's core or one whose carrier another
+# fit of the frame holds (0.3.0 rows, written on two sessions, refused by
+# distance alone).
+SELF_ICON_VERSION = "self-icon-0.4.0"
 # The kit of the local player as a state per slot (charges, equipped,
 # castable, owner alive), written as `ability_state` rows by `reticle
 # ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,
