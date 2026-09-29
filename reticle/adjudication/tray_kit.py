@@ -73,7 +73,7 @@ import numpy as np
 
 from ..version import TRAY_KIT_VERSION
 from .identity import (AGENT_IDENTITY_VERSION, adjudicate_agent_identity, identity_claim,
-                       identity_events, side_candidates)
+                       identity_events, player_identity, side_candidates)
 
 #: The identity channel every kit claim is made on.
 CHANNEL = "tray_kit"
@@ -115,11 +115,9 @@ def candidate_sets(lineup: dict | None, session_id: str) -> dict | None:
         rows.append({"slot": slot, "agent": named, "best_guess": row.get("best_guess")})
         eids.append(eid)
     sides = side_candidates(rows)
-    slot = (lineup.get("player") or {}).get("slot")
-    p_eid = f"{session_id}:ally:slot:{slot}" if slot is not None else None
-    pv = verdicts.get(p_eid) or {}
-    player = pv.get("agent") if pv.get("status") == "resolved" else None
-    return {"player": player, "player_entity": p_eid if player else None,
+    who = player_identity(lineup, session_id)
+    player = who["agent"]
+    return {"player": player, "player_entity": who["entity_id"] if player else None,
             "allies": list(sides["named"]), "rivals": [r for r in sides["rivals"] if r],
             "blind": len(sides["blind"]), "ally_entities": eids}
 

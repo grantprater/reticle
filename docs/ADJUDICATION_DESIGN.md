@@ -511,8 +511,10 @@ two rows below.
 
 ### What self identity unblocks
 
-*Status 2026-09-27: `Lineup.player` in `reticle/lineup.py` now names the
-player's agent; its ownership entry, `player-agent`, is still transitional.*
+*Status 2026-09-28: the tray and the self icon publish claims on the player
+entity and `adjudication.identity` names the player's agent
+(`identity.player_identity`); the `player-agent` entry stays transitional
+while its calibration assets live in `prototypes/`.*
 
 The session did not record which player is self. That single gap withholds
 per-player alive state, self death, killfeed self-participation and scoreboard
@@ -618,8 +620,9 @@ consequences worth holding:
      Both tests are measurable only on BRACKETED refusals -- the isolated
      ones -- so the long runs remain untested either way.
 3. ~~A `widget_drawn` column.~~ DONE, `minimap-0.6.0`.
-4. Self identity, which unblocks death. `Lineup.player` supplies it; the
-   `player-agent` ownership entry is still transitional.
+4. Self identity, which unblocks death. `identity.player_identity` supplies
+   it from the tray and self-icon claims; the `player-agent` ownership entry
+   is still transitional.
 5. Ping and killfeed corroboration.
 
 Steps 1 and 2 are recomputable from stored data. Step 3 needs a re-decode, and

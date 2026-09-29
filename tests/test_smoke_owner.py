@@ -2,23 +2,22 @@
 import unittest
 
 from reticle.adjudication import smoke_owner
+from reticle.adjudication.identity import adjudicate_agent_identity, claims_from_lineup
 
 SID = "s"
 
 
 def lineup(ally, player_slot=0, unresolved=()):
-    """A lineup whose arbiter resolved every ally slot but `unresolved`."""
-    sides = {"ally": [{"slot": i, "agent": a} for i, a in enumerate(ally)],
-             "enemy": [{"slot": i, "agent": a} for i, a in
+    """A lineup whose arbiter resolved every ally slot but `unresolved`, and
+    whose tray names the agent in `player_slot`."""
+    sides = {"ally": [{"slot": i, "agent": None if i in unresolved else a, "best_guess": a}
+                      for i, a in enumerate(ally)],
+             "enemy": [{"slot": i, "agent": a, "best_guess": a} for i, a in
                        enumerate(["Reyna", "Sova", "Sage", "Raze", "Fade"])]}
-    ident = []
-    for side in ("ally", "enemy"):
-        for r in sides[side]:
-            ok = not (side == "ally" and r["slot"] in unresolved)
-            ident.append({"entity_id": f"{SID}:{side}:slot:{r['slot']}",
-                          "status": "resolved" if ok else "abstained",
-                          "agent": r["agent"] if ok else None})
-    return {"sides": sides, "player": {"slot": player_slot}, "agent_identity": ident}
+    claims = claims_from_lineup(sides, {"tray": {"votes": {ally[player_slot]: 9}}},
+                                observation_id=SID)
+    return {"sides": sides, "identity_claims": claims,
+            "agent_identity": adjudicate_agent_identity(claims)}
 
 
 def track(i, first_s, life_s, onset="observed", end="observed"):

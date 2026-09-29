@@ -46,13 +46,12 @@ class AgentIdentityTests(unittest.TestCase):
             {"ally": [{"slot": 0, "agent": "Sage", "margin": 0.2,
                         "best_guess": "Sage", "reason": None}],
              "enemy": []},
-            {"slot": 0, "agent": "Sage", "decided_by": "self_icon_among_top_bar_candidates",
-             "witnesses": {}},
+            {"tray": {"votes": {}}, "self_icon": {"frames": 3, "scores": {"Sage": 0.9}}},
             observation_id="session-1", source_version="lineup-0.3.0")
-        verdict = adjudicate_agent_identity(claims)
-        self.assertEqual(len(verdict), 1)
-        self.assertEqual(verdict[0]["entity_id"], "session-1:ally:slot:0")
-        self.assertEqual(verdict[0]["agent"], "Sage")
+        verdict = {v["entity_id"]: v for v in adjudicate_agent_identity(claims)}
+        self.assertEqual(sorted(verdict), ["session-1:ally:slot:0", "session-1:player"])
+        self.assertEqual(verdict["session-1:ally:slot:0"]["agent"], "Sage")
+        self.assertEqual(verdict["session-1:player"]["agent"], "Sage")
 
     def test_killfeed_portrait_is_constrained_to_lineup_candidates(self):
         gallery = {"Phoenix": [np.array([1.0, 0.0])],
@@ -188,27 +187,31 @@ class AgentIdentityTests(unittest.TestCase):
         self.assertEqual(arbiter.verdict()[0]["agent"], "Phoenix")
         self.assertEqual(arbiter.claims[0]["channel"], "tray")
 
-    def test_lineup_publishes_top_bar_and_deciding_player_witness(self):
+    def test_lineup_publishes_every_player_witness_and_binds_the_slot(self):
         sides = {"ally": [{"slot": 0, "agent": "Phoenix", "margin": 0.2,
                             "best_guess": "Phoenix", "reason": None}],
                  "enemy": []}
-        player = {"slot": 0, "agent": "Phoenix",
-                  "decided_by": "ability_tray", "agree": "agrees",
-                  "witnesses": {"tray": {"agent": "Phoenix"}}}
-        claims = claims_from_lineup(sides, player, observation_id="s1",
-                                    source_version="lineup-0.3.0")
-        self.assertEqual({c["channel"] for c in claims},
-                         {"top_bar", "ability_tray"})
-        result = adjudicate_agent_identity(claims)[0]
+        witnesses = {"tray": {"votes": {"Phoenix": 9}},
+                     "self_icon": {"frames": 0, "scores": {}}}
+        claims = claims_from_lineup(sides, witnesses, observation_id="s1",
+                                    source_version="lineup-0.5.0")
+        self.assertEqual({(c["entity_id"], c["channel"]) for c in claims},
+                         {("s1:ally:slot:0", "top_bar"), ("s1:player", "ability_tray"),
+                          ("s1:player", "self_icon"), ("s1:ally:slot:0", "player_agent")})
+        got = {v["entity_id"]: v for v in adjudicate_agent_identity(claims)}
+        player = got["s1:player"]
+        # The self icon abstained with its reason; abstention is not dissent.
+        self.assertEqual((player["status"], player["agent"]), ("resolved", "Phoenix"))
+        self.assertEqual(player["by_channel"]["self_icon"]["reason"], "no_self_icon_frames")
+        result = got["s1:ally:slot:0"]
         self.assertEqual(result["status"], "resolved")
-        self.assertEqual(result["agent"], "Phoenix")
-        # Two channels, ONE witness: `Lineup.player` found the slot by
-        # searching the top bar for the tray's name, so the tray cannot
-        # disagree with the top bar here and is not counted against it.
-        self.assertEqual(result["channels"], ["ability_tray", "top_bar"])
+        # Two channels, ONE witness: the slot was found by searching the top
+        # bar for the player's name, so the binding cannot disagree with the
+        # top bar and is not counted against it.
+        self.assertEqual(result["channels"], ["player_agent", "top_bar"])
         self.assertEqual(result["independent_channels"], 1)
-        self.assertEqual(result["by_channel"]["ability_tray"]["binding_from"],
-                         "top_bar")
+        self.assertEqual(result["by_channel"]["player_agent"]["binding_from"], "top_bar")
+        self.assertEqual(result["depends_on"], ["s1:player"])
 
     def test_repeated_views_of_one_channel_accumulate(self):
         """One entry drawn over many frames is one witness, not many."""

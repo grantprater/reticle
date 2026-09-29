@@ -835,21 +835,23 @@ evidence = "tests/test_agent_identity.py"
 id = "player-agent"
 question = "Which agent is the local player?"
 owner = "lineup"
-role = ["assign", "adjudicate"]
+role = ["detect", "assign"]
 status = "transitional"
-produces = ["tray_vote", "tray_shapes", "abilities_for"]
+produces = ["tray_vote", "tray_shapes", "abilities_for", "load_lineup"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """
-Being decided by one witness. The tray, the top bar and the self icon are
-independent witnesses and the tray decided one session; tray QUALITY is checked
-first, because a bright Lotus background once produced a confident wrong answer.
-Abstention and disagreement are different outcomes.
+Deciding the name. `Lineup` gathers the tray's votes and the self icon's scores
+(`Lineup.player_witnesses`); each becomes a claim on the player entity
+(`identity.claims_from_lineup`), the arbiter decides, and the player's slot is
+the ally row holding that agent. Consumers read `identity.player_identity`,
+which `load_lineup` also stores as the lineup's `player`. Tray QUALITY is
+checked first, because a bright Lotus background once produced a confident
+wrong answer. Abstention, disagreement and an agent no ally slot holds are
+different outcomes.
 """
 exit = """
-As `agent-from-slot`: the calibration assets still live in prototypes/. And
-`Lineup.player` still combines the tray, self icon and top bar itself before
-publishing claims; that combination moves into `identity` with the exit.
+As `agent-from-slot`: the calibration assets still live in prototypes/.
 """
 evidence = "tests/test_lineup.py"
 

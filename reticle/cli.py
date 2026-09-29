@@ -1098,7 +1098,7 @@ def cmd_scan(args) -> int:
                                min_margin=args.min_margin, icons_root=store.root)
               if want_scoreboard else None)
 
-        lp = (LineupReader(profile, ctx.wh, store.root, name=f"lineup:{sid}")
+        lp = (LineupReader(profile, ctx.wh, store.root, name=f"lineup:{sid}", session=sid)
               if want_lineup else None)
         ap = None
         if want_ally:
@@ -3652,6 +3652,7 @@ def cmd_ability_shapes(args) -> int:
     from . import ability_shapes
     from .ability_timeline import player_tray_casts, stored_gate_inputs
     from .lineup import abilities_for, load_lineup
+    from .adjudication.identity import player_identity
     from .roi_cache import RoiCache
     from .version import PLAYER_CAST_VERSION, TRAY_VERSION
 
@@ -3662,10 +3663,7 @@ def cmd_ability_shapes(args) -> int:
             print(f"{sid}: no current tray drops -- run `reticle tray {sid}` first")
             continue
         lu = load_lineup(sid, store.root) or {}
-        slot = (lu.get("player") or {}).get("slot")
-        verdict = next((v for v in lu.get("agent_identity") or []
-                        if v["entity_id"] == f"{sid}:ally:slot:{slot}"), None)
-        agent = verdict["agent"] if verdict and verdict["status"] == "resolved" else None
+        agent = player_identity(lu, sid)["agent"]
         if agent is None:
             print(f"{sid}: the arbiter names no player agent -- skipped")
             continue

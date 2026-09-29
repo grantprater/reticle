@@ -159,12 +159,17 @@ class Reading(unittest.TestCase):
         self.assertTrue(r["set"]["why"].startswith("widened"))
 
     def test_candidate_sets_come_from_the_lineup_verdicts(self):
-        lineup = {"player": {"slot": 0},
-                  "sides": {"ally": [{"slot": i, "best_guess": g} for i, g in
+        lineup = {"sides": {"ally": [{"slot": i, "best_guess": g} for i, g in
                                      enumerate(["Iso", "Omen", "Sage", "Jett", None])]},
+                  "identity_claims": [{"entity_id": "s:ally:slot:0", "agent": "Iso",
+                                       "channel": "player_agent", "depends_on": ["s:player"],
+                                       "evidence": {"slot": 0}}],
                   "agent_identity": [{"entity_id": f"s:ally:slot:{i}", "agent": a,
                                       "status": "resolved"} for i, a in
-                                     enumerate(["Iso", "Omen", "Sage"])]}
+                                     enumerate(["Iso", "Omen", "Sage"])]
+                  + [{"entity_id": "s:player", "agent": "Iso", "status": "resolved",
+                      "reason": None, "channels": ["ability_tray"], "agents_seen": ["Iso"],
+                      "independent_channels": 1, "by_channel": {}}]}
         sets = tk.candidate_sets(lineup, "s")
         self.assertEqual((sets["player"], sets["allies"], sets["rivals"], sets["blind"]),
                          ("Iso", ["Iso", "Omen", "Sage"], ["Jett"], 1))
