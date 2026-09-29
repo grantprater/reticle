@@ -251,6 +251,22 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[d
     leave eleven tracks -- the same eleven the stored 2 Hz read finds -- and
     refuse eleven camera-wipe tracks, taking the confuser false-positive
     instants from eleven to zero without costing one instant of recall.
+
+    **An entry rises only into a slot its occupant vacated**
+    [domain:killfeed/stack-order]. So when the nearest track did not read in
+    the previous sample and a track from lower down did, and nothing in the
+    lower track's own slot now could still be it, the detection is that lower
+    entry risen, not the expired one returning. Without this the
+    nearest slot won, and a risen entry whose divider and victim side agreed
+    with the entry that expired above it joined that entry's track:
+    [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#welded_entries=45]
+    of [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#entries=3310]
+    stored entries, among them the player's death at 043bafca271a
+    1506.5 s, whose track ended a sample after it began while the entry above
+    ran on to 1511.0 s. Each track's `assigned` lists `(t, slot, rule)` per
+    detection, the rule `new`, `nearest` or `stack_rise`, so the walk can say
+    why a detection joined the track it did; the track whose slot a risen
+    entry took ends there and carries `ended_by = "stack_rise"`.
     """
     active: list[dict] = []
     done: list[dict] = []
@@ -266,61 +282,101 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[d
     for i, (t, mask, packed, pair) in enumerate(zip(times, masks, dividers, sides)):
         flagged = lambda slot: {k: int(bool((col[i] or 0) & (1 << slot)))
                                 for k, col in flags.items()}
+        prev_t = times[i - 1] if i else None
         keep = []
         for a in active:
             (keep if t - a["t_last"] <= gap else done).append(a)
         active = keep
         used: set[int] = set()
-        for slot in _slots(mask):
+        retired: set[int] = set()
+        here = _slots(mask)
+
+        def fits(a, sig, side) -> bool:
+            # The divider settles it when both sides recorded one. An
+            # entry's divider column is fixed for its whole life on screen,
+            # so a detection whose divider has moved is a *different entry*
+            # however plausible its slot -- which is the one thing slot and
+            # time could never say. This is what splits the two kills at
+            # 223d636bf8d2 32:06, dividers 30 px apart, that were held as a
+            # single track for 18 observations.
+            #
+            # It only ever rules a match *out*. Two entries with the same
+            # killer, victim and weapon render at the same column, so equal
+            # dividers are no evidence of anything; see `divider_of_ys`.
+            if sig is not None and a["sig"] is not None and abs(a["sig"] - sig) > KF_SIG_TOL:
+                return False
+            # The victim plate's side rules a match out the same way, unless
+            # the track has read a one-colour banner (see the docstring).
+            return not (side is not None and a.get("side") is not None
+                        and a["side"] != side and not a.get("one_colour"))
+
+        def stayed(a) -> bool:
+            """Whether a detection in the track's own slot now could be it and
+            is not the entry below it risen. Entries rise together and keep
+            their order, so a read in the slot is the lower neighbour's when
+            that neighbour read last sample and has left its own slot
+            (9acf02f98283 1232.0 s: two entries rise at once and the upper
+            one's slot holds the lower one)."""
+            s = a["slot"]
+            det = (wx_at(packed, s), _side_at(pair, s))
+            if s not in here or not fits(a, *det):
+                return False
+            below = [b for bi_, b in enumerate(active) if bi_ not in used and b["slot"] > s
+                     and b["t_last"] == prev_t]
+            if not below:
+                return True
+            b = min(below, key=lambda b: b["slot"])
+            return not (fits(b, *det) and not stayed(b))
+
+        for slot in here:
             sig = wx_at(packed, slot)
             side = _side_at(pair, slot)
             one_colour = _same_at(pair, slot)
-            best = bi = None
-            for ai, a in enumerate(active):
-                if ai in used or slot > a["slot"]:
-                    continue          # an entry never moves down the stack
-                # The divider settles it when both sides recorded one. An
-                # entry's divider column is fixed for its whole life on screen,
-                # so a detection whose divider has moved is a *different entry*
-                # however plausible its slot -- which is the one thing slot and
-                # time could never say. This is what splits the two kills at
-                # 223d636bf8d2 32:06, dividers 30 px apart, that were held as a
-                # single track for 18 observations.
-                #
-                # It only ever rules a match *out*. Two entries with the same
-                # killer, victim and weapon render at the same column, so equal
-                # dividers are no evidence of anything; see `divider_of_ys`.
-                if sig is not None and a["sig"] is not None                         and abs(a["sig"] - sig) > KF_SIG_TOL:
-                    continue
-                # The victim plate's side rules a match out the same way, unless
-                # the track has read a one-colour banner (see the docstring).
-                if (side is not None and a.get("side") is not None
-                        and a["side"] != side and not a.get("one_colour")):
-                    continue
-                # Otherwise the nearest slot wins, which is imperfect in two
-                # opposite ways and was the whole rule before the divider:
-                #
-                #   merge  -- an entry expires and the one below rises into the
-                #             slot it vacated, so the detection joins the dead
-                #             entry's track.
-                #   split  -- preferring the most recently seen track instead
-                #             fixes that, but shatters a genuine double
-                #             (b3b9defb6fd7 27:12/27:14) and scores worse.
-                #
-                # Both survive here only for entries whose divider went
-                # unrecorded -- an unparsed band, or a session stored before
-                # hud-0.8.0.
-                d = a["slot"] - slot
-                if best is None or d < best:
-                    best, bi = d, ai
+            cands = [ai for ai, a in enumerate(active)
+                     # an entry never moves down the stack
+                     if ai not in used and slot <= a["slot"] and fits(a, sig, side)]
+            # The nearest slot wins, unless the stack says otherwise:
+            #
+            #   merge  -- an entry expires and the one below rises into the
+            #             slot it vacated. Where their dividers and victim sides
+            #             agree, the nearest slot gives the risen detection to
+            #             the dead entry's track. The stack rule below keeps it.
+            #   split  -- preferring the most recently seen track outright
+            #             shatters a genuine double (b3b9defb6fd7 27:12/27:14)
+            #             and scores worse, since an entry's own dropout makes
+            #             the track below it look fresher. So the lower track
+            #             is preferred only when its own slot is empty of it.
+            near = lambda ai: active[ai]["slot"] - slot
+            bi = min(cands, key=near) if cands else None
+            rule = "new" if bi is None else "nearest"
+            if bi is not None and prev_t is not None and active[bi]["t_last"] != prev_t:
+                # The nearest track did not read last sample, so its entry
+                # may have expired. A track below that did read, and is not
+                # still in its own slot, is the entry that rose into it.
+                risen = [ai for ai in cands if active[ai]["t_last"] == prev_t
+                         and active[ai]["slot"] > active[bi]["slot"]
+                         and not stayed(active[ai])]
+                if risen:
+                    # The entry whose slot was taken has expired, so its
+                    # track ends here; left open, it took the risen entry's
+                    # next read back as the nearer of two tracks in one slot
+                    # (bdfdcf009dba 1949.5 s).
+                    if active[bi]["slot"] == slot:
+                        active[bi]["ended_by"] = "stack_rise"
+                        used.add(bi)
+                        retired.add(bi)
+                    bi = min(risen, key=near)
+                    rule = "stack_rise"
             if bi is None:
                 active.append({"t_first": t, "t_last": t, "slot": slot, "slot_first": slot,
-                               "n_obs": 1, "sig": sig, "flag_hits": flagged(slot)})
+                               "n_obs": 1, "sig": sig, "flag_hits": flagged(slot),
+                               "assigned": [(t, slot, rule)]})
                 if use_sides:
                     active[-1]["side"] = side
                     active[-1]["one_colour"] = one_colour
                 used.add(len(active) - 1)
             else:
+                active[bi]["assigned"].append((t, slot, rule))
                 hits = active[bi]["flag_hits"]
                 for k, v in flagged(slot).items():
                     hits[k] = hits.get(k, 0) + v
@@ -331,6 +387,9 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[d
                 if use_sides and one_colour:
                     active[bi]["one_colour"] = True
                 used.add(bi)
+        if retired:
+            done.extend(active[ai] for ai in sorted(retired))
+            active = [a for ai, a in enumerate(active) if ai not in retired]
     done.extend(active)
     done.sort(key=lambda a: a["t_first"])
     for a in done:
