@@ -156,6 +156,38 @@ class BandShiftTests(unittest.TestCase):
         self.assertEqual(killfeed.band_shift(band, (20, 41), (120, 141)), 0)
 
 
+class SplitRunTests(unittest.TestCase):
+    """An entry's text rows can drop its plate profile mid-entry; the two
+    short runs left are one entry (c40d950031bb 701.0-703.0 s, runs 15-27 and
+    31-49, read nowhere until 703.5 s)."""
+
+    @staticmethod
+    def _plates(rows_on):
+        green = np.zeros((200, 300), dtype=bool)
+        red = np.zeros((200, 300), dtype=bool)
+        for a, z in rows_on:
+            red[a:z, 40:200] = True
+            green[a:z, 200:260] = True
+        return green, red
+
+    def test_an_entry_split_at_its_text_rows_is_one_band(self):
+        green, red = self._plates([(15, 27), (31, 49)])
+        self.assertEqual(killfeed._entry_bands(green, red), [(15, 49)])
+
+    def test_the_join_leaves_whole_entries_alone(self):
+        green, red = self._plates([(15, 49), (55, 89)])
+        self.assertEqual(killfeed._entry_bands(green, red), [(15, 49), (55, 89)])
+
+    def test_the_join_never_takes_a_run_that_stands_alone(self):
+        self.assertEqual(killfeed._join_split_runs([(15, 40), (44, 52)]), [(15, 40), (44, 52)])
+
+    def test_the_join_refuses_what_one_entry_cannot_hold(self):
+        # Together taller than MAX_BAND_H: two entries' fragments, not one.
+        self.assertEqual(killfeed._join_split_runs([(10, 25), (38, 52)]), [(10, 25), (38, 52)])
+        # Two stray rows are no plate.
+        self.assertEqual(killfeed._join_split_runs([(11, 12), (42, 43)]), [(11, 12), (42, 43)])
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -87,7 +87,10 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # banner; the player's death at 59c70f1ef720 moves from the enemy-victim entry
 # at 1619.5 s to the ally-victim one at 1625.0 s (E1; stamped 0.15.0 on
 # e1-agreement-20260927, renumbered on landing above master's 0.17.0).
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.18.0"
+# 0.19.0 (2026-09-28): a name-cluster role whose two views read no name tries
+# its other followed views (`killfeed-name-cluster-0.2.0`); 223d636bf8d2's
+# victim at 335.5 s joins its player's cluster and is named Fade, not Iso.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.19.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -2006,7 +2009,7 @@ def _name_cluster_claims(session_id, results, portraits, name_observations, line
             if v.is_revive:
                 continue
             obs = ((e.get("killer_claim") or {}).get("evidence") or {}).get("observations")                 or ((e.get("claim") or {}).get("evidence") or {}).get("observations") or []
-            views = followed_views(obs)
+            views = followed_views(obs, every=True)
             every = sorted({(float(o["t_ms"]), o["observation_key"]) for o in obs
                             if o.get("observation_key")})
             for role, key, team in (("killer", "killer_identity", OTHER_SIDE.get(v.side)),
