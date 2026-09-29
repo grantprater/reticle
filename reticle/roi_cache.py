@@ -226,9 +226,41 @@ def grid_times(t_ms, t0: float, t1: float, step_s: float) -> list[float]:
     return [float(x) for x in t[np.unique(np.searchsorted(t, want).clip(0, len(t) - 1))]]
 
 
+def nearest_times(t_ms, asked, held, step_s: float) -> list[float]:
+    """The cached time nearest each point of a `step_s` grid phased at the
+    start of each `asked` span, for the grid points inside `held` spans,
+    each pick taken inside the held span that holds its point.
+
+    This is the rule of a reader that declares `cache_resample = "nearest"`:
+    a decode's stride restarts at each span the reader asked for, from the
+    first frame at or after its start, and steps by `step_s` from there
+    (`decode.sample_multi`), so the grid is that stride's phase. `held` is the
+    reader's spans after a clip to the cache's rounds (`clip_record`), and a
+    grid point outside them is unread, as the clip records. On a 60 fps
+    capture a 15 Hz cache holds every 4th or 5th frame, so each pick sits
+    within about 42 ms of the frame the decode would take, and on it where
+    the cache holds that frame."""
+    t = np.unique(np.asarray(t_ms, float))
+    step = step_s * 1000.0
+    out: set[float] = set()
+    for a, b in asked:
+        grid = np.arange(float(a), float(b) + 1e-9, step)
+        for lo, hi in held:
+            g = grid[(grid >= lo) & (grid <= hi)]
+            tt = t[(t >= lo) & (t <= hi)]
+            if not len(g) or not len(tt):
+                continue
+            j = np.searchsorted(tt, g).clip(0, len(tt) - 1)
+            jm = (j - 1).clip(0, len(tt) - 1)
+            pick = np.where(np.abs(tt[jm] - g) <= np.abs(tt[j] - g), jm, j)
+            out.update(float(x) for x in tt[pick])
+    return sorted(out)
+
+
 def resamples(reader, cache_hz: float) -> bool:
     """Whether `reader` reads a cache written faster than its own rate on
-    `grid_times`: it declares `cache_resample` and its rate is below the cache's."""
+    its own grid (`grid_times`, or `nearest_times` for `"nearest"`): it
+    declares `cache_resample` and its rate is below the cache's."""
     return bool(getattr(reader, "cache_resample", False)) and float(reader.hz) < float(cache_hz)
 
 
@@ -325,8 +357,9 @@ def choose_source(store_root: Path, manifest: dict, profile, readers, mode: str,
     Each clipped reader carries `spans_clip` (`clip_record`), which its
     stream must record, so a skipped span reads as unread rather than as
     a span with nothing in it; a restored reader loses it. Auto clips only
-    a reader that declares `records_clip`; under `cache` the caller refuses
-    a clipped reader that does not. Under `auto` and
+    a reader that declares `records_clip` and not `clip_on_auto = False`;
+    under `cache` the caller refuses a clipped reader that does not record
+    the clip. Under `auto` and
     `cache` a cache-fed pass reads the same frames and records the same
     clip, so the two write the same streams; the source changes no stamp."""
     if mode not in FRAME_SOURCES:
@@ -349,6 +382,10 @@ def choose_source(store_root: Path, manifest: dict, profile, readers, mode: str,
             if not getattr(r, "records_clip", False):
                 notes.append(f"spans      {r.name} kept: its stream cannot record the "
                              f"spans a clip to the {s} cache's rounds would skip")
+                continue
+            if not getattr(r, "clip_on_auto", True):
+                notes.append(f"spans      {r.name} kept: it clips to the {s} cache's rounds "
+                             f"only under --from cache")
                 continue
             if rounds is None and rounds_why is None:
                 rounds, rounds_why = live_rounds()
@@ -410,7 +447,9 @@ def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiC
     A reader that declares `cache_resample` may run slower than the cache: it
     reads the cached times on its own `grid_times`, restarted at each of its spans,
     so neither the rate nor a whole-capture cache's phase refuses it. Those
-    times are the cache's frames, not the ones a decode's stride would pick.
+    times are the cache's frames, not the ones a decode's stride would pick;
+    a `"nearest"` reader takes the cached frame nearest each of them
+    (`nearest_times`).
     """
     need: set[str] = set()
     for r in readers:

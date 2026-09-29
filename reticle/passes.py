@@ -234,9 +234,12 @@ def cache_feed(readers: list, cache):
     cache over wider spans than it asked for holds frames it would not have
     been fed. A reader that `roi_cache.resamples` wants only the first cached
     time at or after each point of its own grid, restarted at each of its
-    spans (`roi_cache.grid_times`). The pass reads only the times somebody wants.
+    spans (`roi_cache.grid_times`); one that declares `cache_resample =
+    "nearest"` wants the cached time nearest each point of the decode's grid,
+    phased at the spans it asked for before any clip (`roi_cache.nearest_times`).
+    The pass reads only the times somebody wants.
     """
-    from .roi_cache import grid_times, resamples
+    from .roi_cache import grid_times, nearest_times, resamples
     t = cache.t_ms
     hz = cache.record.get("hz")
     picks: dict[int, set[float] | None] = {}
@@ -245,6 +248,16 @@ def cache_feed(readers: list, cache):
             picks[id(r)] = None
             continue
         spans = getattr(r, "spans", None)
+        whole = [(0.0, float(np.max(t)))] if len(t) else []
+        if getattr(r, "cache_resample", None) == "nearest":
+            # The decode's phase: the spans asked for, before a clip to the
+            # cache's rounds; a whole-capture decode starts at 0 ms.
+            clip = getattr(r, "spans_clip", None)
+            asked = clip["spans_asked"] if clip is not None else spans
+            picks[id(r)] = set(nearest_times(t, whole if asked is None else asked,
+                                             whole if spans is None else spans,
+                                             1.0 / float(r.hz)))
+            continue
         if spans is None:
             spans = [(float(np.min(t)), float(np.max(t)))] if len(t) else []
         picks[id(r)] = {x for a, b in spans for x in grid_times(t, float(a), float(b), 1.0 / float(r.hz))}
