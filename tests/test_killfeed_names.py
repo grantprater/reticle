@@ -61,6 +61,31 @@ class NameClusterTest(unittest.TestCase):
         obs = [{"t_ms": 1000.0 + 500 * i, "observation_key": f"s:{10 + i}:{2 - i // 3}:killer"}
                for i in range(6)]
         self.assertEqual(followed_views(obs), [(2000.0, 2, 12), (3000.0, 1, 14)])
+        # The rest follow in time order, as fallbacks.
+        self.assertEqual([v[0] for v in followed_views(obs, every=True)],
+                         [2000.0, 3000.0, 1000.0, 1500.0, 2500.0, 3500.0])
+
+    def test_a_role_refused_at_both_views_reads_a_later_one(self):
+        """223d636bf8d2 335.5 s: both followed views read no name text, a
+        later view read it, and the role then joins its player's cluster."""
+        import base64
+        import zlib
+        from reticle.adjudication.killfeed_names import role_crops
+        g = _crop(3)
+        packed = {"shape": list(g.shape),
+                  "gray": base64.b64encode(zlib.compress(g.tobytes())).decode()}
+        obs = [{"t_ms": 1000.0 + 500 * i, "observation_key": f"s:{10 + i}:1:victim"}
+               for i in range(4)]
+        rows = [{"kind": "name_observation", "observation_key": f"s:{10 + i}:1:victim",
+                 "me": False, **({"gray": None, "reason": "no_name_text"} if i != 3 else packed)}
+                for i in range(4)]
+        two = role_crops([{"entity_id": "d", "role": "victim", "team": "enemy",
+                           "views": followed_views(obs)}], rows, "s")["d"]
+        every = role_crops([{"entity_id": "d", "role": "victim", "team": "enemy",
+                             "views": followed_views(obs, every=True)}], rows, "s")["d"]
+        self.assertEqual(two["reason"], "no_name_text")
+        self.assertIsNone(every["reason"])
+        self.assertEqual(every["observation_key"], "s:13:1:victim")
 
     def test_a_self_entry_prints_one_name_on_both_roles(self):
         import base64

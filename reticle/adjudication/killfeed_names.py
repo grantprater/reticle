@@ -17,8 +17,12 @@ agent's name, so an ally and an enemy on one agent print alike.
 Each role is read at two of the views death adjudication followed it through
 (a third and two thirds along), at the slot of that view: the stack rises as
 older entries expire, so the entry's first slot holds another entry later. The
-first view with a crop is the role's crop. The player's own roles print "Me"
-and stay out of the clusters; the lineup already names the player.
+first view with a crop is the role's crop. When both views refuse the name,
+the role tries its other followed views in time order (`every=True`): at
+223d636bf8d2 the victim at 335.5 s read no name text at both views, and its
+portrait alone named Fade's player Iso, which the player corrected. The
+player's own roles print "Me" and stay out of the clusters; the lineup
+already names the player.
 
 Measured in `prototypes/killfeed_name_continuity.py`; its stability, recall
 and precision against the reference channels are the outcome
@@ -37,7 +41,9 @@ from ..killfeed import unpack_name_gray
 
 # 0.1.0 (2026-09-26): greedy clusters of whole-name crops per plate side, from
 # the `killfeed_name` stream at two followed views per entry role.
-KILLFEED_NAME_CLUSTER_VERSION = "killfeed-name-cluster-0.1.0"
+# 0.2.0 (2026-09-28): a role whose two views read no name tries its other
+# followed views (`followed_views(every=True)`).
+KILLFEED_NAME_CLUSTER_VERSION = "killfeed-name-cluster-0.2.0"
 
 #: Set from the two views of one entry, which are one name (labels-free).
 NCC_MIN = 0.9
@@ -82,11 +88,14 @@ def ncc(a: np.ndarray, b: np.ndarray) -> float:
     return best
 
 
-def followed_views(observations: list[dict]) -> list[tuple[float, int, int]]:
+def followed_views(observations: list[dict], every: bool = False
+                   ) -> list[tuple[float, int, int]]:
     """Two (t_ms, slot, frame_idx) views of an entry from the portrait views
     death adjudication followed it through: a third and two thirds along. The
     slot and frame come from each view's `observation_key`
-    (`sid:frame:slot:role`); the observation's own `slot` is the entry's first."""
+    (`sid:frame:slot:role`); the observation's own `slot` is the entry's first.
+    `every` appends the other followed views in time order, as fallbacks for a
+    reader that takes the first view it can read."""
     seen = {}
     for o in observations:
         key = o.get("observation_key")
@@ -98,6 +107,8 @@ def followed_views(observations: list[dict]) -> list[tuple[float, int, int]]:
     if not views:
         return []
     picks = sorted({len(views) // 3, (2 * len(views)) // 3})
+    if every:
+        picks += [i for i in range(len(views)) if i not in picks]
     return [(views[i][0], views[i][1], seen[views[i]]) for i in picks]
 
 
