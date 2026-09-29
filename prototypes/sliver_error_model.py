@@ -1,12 +1,13 @@
 r"""Does a measured pose and geometry error explain the three cone slivers, and only them?
 
-    .\.venv\Scripts\python.exe prototypes\sliver_error_model.py [--samples 200] [--shifts 60]
+    .\.venv\Scripts\python.exe prototypes\sliver_error_model.py [--samples 200] [--shifts 60] [--experiment e1|e2|e3]
 
 The first experiment of [the statistical adjudicator](../docs/STATISTICAL_ADJUDICATOR.md);
 the design, the predictions and the result are there. It reads stored data
 only -- the minimap ROI crop cache, baked `(map, profile)` geometry, the stored
 `ability_light` raw decisions and the player's grouping labels -- decodes no
-video, and writes nothing to the store but one `metrics` row.
+video, and writes nothing to the store but one `metrics` row. E2 moves the ray
+origin; E3 reads the teardrop with `teardrop_tip.py` (see the plan).
 
 Three stages, each calling the owner rather than restating it:
 
@@ -73,7 +74,7 @@ from reticle.roi_cache import RoiCache  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
 STORE = Path(DEFAULT_STORE)
-VERSION = "sliver-error-model-0.2.0"
+VERSION = "sliver-error-model-0.3.0"
 ABILITY = {"same_entity", "other_ability"}
 DEMO = "e78e75b2d191"
 SLIVERS = (36900.0, 40650.0, 43350.0)
@@ -209,6 +210,7 @@ class Calibration:
         self.frame_err, self.track_err = [], []
         self.leak = defaultdict(float)
         self.frames = []          # (x, y, deg, packed raw_lit) for the per-segment pass
+        self.frame_t = []         # each entry of `frames`, its time (E3 joins the read tip)
 
     def frame(self, s: Session, rec: dict, raw: np.ndarray, lit: np.ndarray) -> None:
         det = rec["det"]
@@ -234,6 +236,7 @@ class Calibration:
             return
         x, y, deg = rec["x"], rec["y"], rec["deg"]
         self.frames.append((x, y, deg, np.packbits(raw), r))
+        self.frame_t.append(rec["t"])
         shut = cone.raycast(s.passable, x, y, deg, visible=s.floor)
         opened = cone.raycast(s.floor, x, y, deg, visible=s.floor)
         k = s.ref.known
@@ -457,11 +460,14 @@ def main(argv=None) -> int:
     ap.add_argument("--samples", type=int, default=200)
     ap.add_argument("--shifts", type=int, default=60)
     ap.add_argument("--out", type=Path, default=Path(tempfile.gettempdir()) / "sliver-error-model")
-    ap.add_argument("--experiment", choices=("e1", "e2"), default="e1",
-                    help="e1: noise and box-edge transparency (with E1b); e2: the origin's side")
+    ap.add_argument("--experiment", choices=("e1", "e2", "e3"), default="e1",
+                    help="e1: noise and box-edge transparency (with E1b); e2: the origin's side; "
+                         "e3: the read teardrop tip")
     args = ap.parse_args(argv)
     _below_normal()
     args.out.mkdir(parents=True, exist_ok=True)
+    if args.experiment == "e3":
+        return main_e3(args)
     if args.experiment == "e2":
         return main_e2(args)
 
@@ -828,6 +834,303 @@ def main_e2(args) -> int:
               "shifts": args.shifts, "plausible": PLAUSIBLE, "cover": COVER,
               "fact": "minimap/cone-rays-stop-at-first-edge"},
         context={"holdout_ms": HOLDOUT_MS, "arms": ["centre", "side", "teardrop"]})
+    return 0
+
+
+def _light_bisector(s: Session, lit: np.ndarray, cx: float, cy: float, r_inner: float):
+    """E1's light witness: the circular mean bearing of lit floor in an annulus, or None."""
+    h, w = lit.shape
+    yy, xx = np.mgrid[0:h, 0:w]
+    d = np.hypot(xx - cx, yy - cy)
+    ring = lit & s.ref.known & (d >= r_inner) & (d <= LIGHT_R[1])
+    if ring.sum() < LIGHT_MIN_PX:
+        return None
+    ang = np.arctan2(yy[ring] - cy, xx[ring] - cx)
+    c, sn = np.cos(ang).mean(), np.sin(ang).mean()
+    return math.degrees(math.atan2(sn, c)) if math.hypot(c, sn) >= LIGHT_MIN_R else None
+
+
+def _robust_sd(v) -> float | None:
+    v = np.asarray(v, float)
+    return float(1.4826 * np.median(np.abs(v - np.median(v)))) if len(v) else None
+
+
+def read_tips(s: Session) -> dict[float, dict]:
+    """E3: the teardrop read from every cached frame, with the ring fit it started from."""
+    import teardrop_tip as tt
+    out = {}
+    for t, crop in s.crops(s.cache_t):
+        det = tt.self_start(crop, s.floor)
+        if det is None:
+            out[t] = {"read": False, "reason": "no_self_detection"}
+            continue
+        f = tt.fit(crop, det["cx"], det["cy"])
+        f.update(ring_x=float(det["cx"]), ring_y=float(det["cy"]), ring_r=float(det["r"]),
+                 ring_deg=det.get("facing"))
+        raw = lighting.raw_lit(crop, s.ref)
+        lit = lighting.clean_lit(raw, s.ref)
+        f["phi_e1"] = _light_bisector(s, lit, det["cx"], det["cy"], max(LIGHT_R[0], 1.5 * det["r"]))
+        if "x" in f:
+            f["phi_tip"] = _light_bisector(s, lit, f["x"], f["y"], tt.L + 2.0)
+        out[t] = f
+    return out
+
+
+def tip_precision(tips: dict, times) -> dict:
+    """E3 T1-T4: readability, jitter on stationary frames, light agreement, ring-fit bias.
+
+    Jitter is a frame's residual about the median of its +/-2 frame window; a frame
+    is stationary when every fitted centre in the window lies within 0.75 px of the
+    window's median. The minimap often repeats an image across cached frames, so
+    consecutive identical fits collapse to one sample first (E3's first run, without
+    that, measured a jitter of exactly zero), and a window may then span 600 ms.
+    Facing jitter still includes the player's own turning, so it bounds the
+    reader's noise from above; `_rms20` is the RMS of residuals within 20 degrees.
+    """
+    det = [t for t in times if tips[t].get("reason") != "no_self_detection"]
+    read = sorted(t for t in det if tips[t]["read"])
+    out = {"frames_detected": len(det), "frames_read": len(read),
+           "read_rate": len(read) / len(det) if det else None}
+
+    def key(t):
+        return round(tips[t]["x"], 3), round(tips[t]["y"], 3), round(tips[t]["deg"], 2)
+    distinct = [t for i, t in enumerate(read) if i == 0 or key(t) != key(read[i - 1])]
+    out["frames_distinct"] = len(distinct)
+    T = np.array(distinct)
+    X = np.array([tips[t]["x"] for t in distinct])
+    Y = np.array([tips[t]["y"] for t in distinct])
+    D = np.array([tips[t]["deg"] for t in distinct])
+    TX = np.array([tips[t]["tip_x"] for t in distinct])
+    TY = np.array([tips[t]["tip_y"] for t in distinct])
+    RD = np.array([np.nan if tips[t]["ring_deg"] is None else tips[t]["ring_deg"] for t in distinct])
+    fac, fac_all, tipres, ring_fac = [], [], [], []
+    for i in range(2, len(T) - 2):
+        if T[i + 2] - T[i - 2] > 600.0:
+            continue
+        sl = slice(i - 2, i + 3)
+        still = max(np.hypot(X[sl] - np.median(X[sl]), Y[sl] - np.median(Y[sl]))) <= 0.75
+        r_ = float(-np.median(_signed_deg(D[sl] - D[i])))   # this frame about the window's median
+        fac_all.append(r_)
+        if still:
+            fac.append(r_)
+            tipres.append(math.hypot(TX[i] - np.median(TX[sl]), TY[i] - np.median(TY[sl])))
+            if not np.isnan(RD[sl]).any():
+                ring_fac.append(float(-np.median(_signed_deg(RD[sl] - RD[i]))))
+    def rms20(v):
+        v = np.asarray(v, float)
+        v = v[np.abs(v) <= 20.0]
+        return float(np.sqrt(np.mean(v ** 2))) if len(v) else None
+    out.update(stationary_frames=len(fac), facing_jitter_deg=_robust_sd(fac),
+               facing_jitter_rms20_deg=rms20(fac), facing_jitter_all_rms20_deg=rms20(fac_all),
+               facing_jitter_all_deg=_robust_sd(fac_all),
+               tip_jitter_rms_px=float(np.sqrt(np.mean(np.square(tipres)))) if tipres else None,
+               ring_facing_jitter_deg=_robust_sd(ring_fac), ring_stationary_frames=len(ring_fac))
+    # T3: the light witness. `phi_tip` is taken about the teardrop's centre beyond
+    # its apex; the ring facing is scored against it too, and against E1's `phi_e1`.
+    e_tip = [_signed_deg(tips[t]["deg"] - tips[t]["phi_tip"]) for t in read
+             if tips[t].get("phi_tip") is not None]
+    e_ring = [_signed_deg(tips[t]["ring_deg"] - tips[t]["phi_tip"]) for t in read
+              if tips[t].get("phi_tip") is not None and tips[t]["ring_deg"] is not None]
+    e_e1 = [_signed_deg(tips[t]["ring_deg"] - tips[t]["phi_e1"]) for t in det
+            if tips[t].get("phi_e1") is not None and tips[t]["ring_deg"] is not None]
+    for name, e in (("tip", e_tip), ("ring", e_ring), ("ring_e1", e_e1)):
+        e = np.array(e, float)
+        within = e[np.abs(e) <= 90.0]
+        out[f"light_frames_{name}"] = int(len(e))
+        out[f"light_flip_{name}"] = float((np.abs(e) > 90).mean()) if len(e) else None
+        out[f"light_spread_{name}_deg"] = _robust_sd(within)
+        out[f"light_bias_{name}_deg"] = float(np.median(within)) if len(within) else None
+    # T4: where the ring fit sits against the teardrop's centre, over every read frame.
+    D = np.array([tips[t]["deg"] for t in read])
+    RD = np.array([np.nan if tips[t]["ring_deg"] is None else tips[t]["ring_deg"] for t in read])
+    off = np.array([(tips[t]["ring_x"] - tips[t]["x"], tips[t]["ring_y"] - tips[t]["y"]) for t in read])
+    dist = np.hypot(off[:, 0], off[:, 1])
+    cosv = [(ox * math.cos(math.radians(d)) + oy * math.sin(math.radians(d))) / dd
+            for (ox, oy), d, dd in zip(off, D, dist) if dd > 0.5]
+    ok = ~np.isnan(RD)
+    out.update(ring_offset_median_px=float(np.median(dist)),
+               ring_offset_cos_median=float(np.median(cosv)) if cosv else None,
+               ring_flip_vs_tip=float(np.mean(np.abs(_signed_deg(RD[ok] - D[ok])) > 90)))
+    return out
+
+
+AXIS_PX = (0, 4, 8, 11, 14, 18)   # E3b: origin offsets along the read facing
+
+
+def agreement_e3(s: Session, cal: "Calibration", tips: dict) -> dict:
+    """E3 T5: E2's held-out witness with the read tip, every arm on the same frames.
+
+    `centre` is E2's baseline (track position and resolved bearing); `tip` casts
+    from the read apex along the read facing; `tip_facing` from the teardrop's
+    centre along the read facing; `centre_tipdeg` from the track position along
+    the read facing. `far` excludes the icon's own glow: lit floor beyond three
+    ring radii of the track and beyond 4 px of the read apex.
+
+    EXPLORATORY (E3b, logged after the apex arm failed): `axis_<d>` casts from
+    the teardrop's centre moved `d` px along the read facing, to find where the
+    drawn light puts the eye between the centre (0) and the apex (`L`).
+    """
+    shape = s.passable.shape
+    yy, xx = np.mgrid[0:shape[0], 0:shape[1]]
+    k = s.ref.known
+    arms = ("centre", "tip", "tip_facing", "centre_tipdeg") + tuple(f"axis_{d}" for d in AXIS_PX)
+    pooled = {o: [0.0, 0.0] for o in arms}
+    recall = {(o, g): [] for o in arms for g in ("near", "clear", "far", "all")}
+    dropped = 0
+    for (x, y, deg, packed, r), t in zip(cal.frames, cal.frame_t):
+        tf = tips.get(t)
+        if tf is None or not tf.get("read"):
+            dropped += 1
+            continue
+        raw = np.unpackbits(packed, count=shape[0] * shape[1]).reshape(shape).astype(bool)
+        dist = np.hypot(xx - x, yy - y)
+        lit = raw & k & (dist <= 90.0)
+        far_lit = lit & (np.hypot(xx - tf["tip_x"], yy - tf["tip_y"]) > 4.0) & (dist > 3.0 * max(r, 1.0))
+        ix, iy = int(round(x)), int(round(y))
+        near = bool(s.clearance[min(max(iy, 0), shape[0] - 1), min(max(ix, 0), shape[1] - 1)] <= 1.5)
+        pose = {"centre": (x, y, deg), "tip": (tf["tip_x"], tf["tip_y"], tf["deg"]),
+                "tip_facing": (tf["x"], tf["y"], tf["deg"]), "centre_tipdeg": (x, y, tf["deg"])}
+        a = math.radians(tf["deg"])
+        for d in AXIS_PX:
+            pose[f"axis_{d}"] = (tf["x"] + d * math.cos(a), tf["y"] + d * math.sin(a), tf["deg"])
+        for o, (ox, oy, d) in pose.items():
+            m = cone.raycast(s.passable, ox, oy, d % 360.0, visible=s.floor)
+            pooled[o][0] += float((m & k).sum())
+            pooled[o][1] += float((m & k & raw).sum())
+            if lit.sum() >= 50:
+                recall[(o, "near" if near else "clear")].append(float((m & lit).sum() / lit.sum()))
+                recall[(o, "all")].append(float((m & lit).sum() / lit.sum()))
+            if far_lit.sum() >= 50:
+                recall[(o, "far")].append(float((m & far_lit).sum() / far_lit.sum()))
+    out = {"frames": len(cal.frames) - dropped, "dropped_unread": dropped}
+    for o, (n, hit) in pooled.items():
+        out[f"precision_{o}"] = hit / n if n else None
+        for g in ("near", "clear", "far", "all"):
+            v = recall[(o, g)]
+            out[f"recall_{o}_{g}"] = float(np.mean(v)) if v else None
+            out[f"frames_{g}"] = len(v)
+    return out
+
+
+class TipModel:
+    """E3: E for a cone cast along the read facing, with its measured jitter.
+
+    `origin` is `tip` (the read apex) or `centre` (the teardrop's centre, E3b).
+    """
+
+    def __init__(self, sigma_px: float, sigma_deg: float, n: int, seed: int = 20260928,
+                 origin: str = "tip"):
+        self.sp, self.sd, self.n, self.seed = sigma_px, sigma_deg, n, seed
+        self.kx, self.ky = ("tip_x", "tip_y") if origin == "tip" else ("x", "y")
+
+    def explain(self, s: Session, tf: dict | None, O: np.ndarray) -> float | None:
+        if tf is None or not tf.get("read"):
+            return None
+        rng = np.random.default_rng(self.seed)
+        ys, xs = np.nonzero(O)
+        reach = int(np.hypot(xs - tf[self.kx], ys - tf[self.ky]).max() + 6)
+        need = COVER * len(xs)
+        hits = 0
+        for _ in range(self.n):
+            deg = tf["deg"] + rng.normal(0.0, self.sd)
+            x = tf[self.kx] + rng.normal(0.0, self.sp)
+            y = tf[self.ky] + rng.normal(0.0, self.sp)
+            m = cone.raycast(s.passable, x, y, deg % 360.0, visible=s.floor, max_r=reach + 10)
+            hits += int(m[ys, xs].sum() >= need)
+        return hits / self.n
+
+
+def main_e3(args) -> int:
+    """E3: read the teardrop tip from pixels, then retest the cone and the slivers."""
+    import teardrop_tip as tt
+    comps = {c["component_id"]: c for c in _components(STORE, _labels(STORE))}
+    rows = [r for r in answers().values()
+            if r.get("component_id") in comps and r.get("t_ms") is not None
+            and not r.get("unsure") and r["session_id"] == DEMO and group(r["answer"]) == "viewcone"]
+    demo = Session(DEMO)
+    cal = Calibration()
+    demo.run_chain(demo.cache_t, calib=cal, holdout=SLIVERS)
+    C = cal.result()
+    tips = read_tips(demo)
+    held = [t for t in sorted(tips) if all(abs(t - h) > HOLDOUT_MS for h in SLIVERS)]
+    P = tip_precision(tips, held)
+    print("precision:", json.dumps(P, indent=1))
+    # Per-axis position noise from the tip's RMS radial residual.
+    sp = P["tip_jitter_rms_px"] / math.sqrt(2.0)
+    sd = P["facing_jitter_rms20_deg"]
+    tip_model = TipModel(sp, sd, args.samples)
+    tipc_model = TipModel(sp, sd, args.samples, origin="centre")
+    centre = Model(C, False, args.samples, origin="centre")
+    teardrop = Model(C, False, args.samples, origin="teardrop")
+    read_t = np.array([t for t in sorted(tips) if tips[t].get("read")])
+
+    def tip_at(t):
+        u = float(read_t[np.argmin(np.abs(read_t - t))])
+        return tips[u] if abs(u - t) <= POSE_TOL_MS else None
+
+    slivers, lit_ok = {}, defaultdict(int)
+    for r in rows:
+        t = float(r["t_ms"])
+        O, why = demo.observed(t, comps[r["component_id"]].get("box"))
+        if O is None or O.sum() < MIN_O:
+            continue
+        pose, tf = demo.pose_at(t), tip_at(t)
+        posed = pose is not None and pose["pose"] and pose["window"]
+        E = {"tip": tip_model.explain(demo, tf, O), "tip_facing": tipc_model.explain(demo, tf, O),
+             "centre": centre.explain(demo, pose, O) if posed else None,
+             "teardrop_e2": teardrop.explain(demo, pose, O) if posed else None}
+        if t not in SLIVERS:
+            for o, e in E.items():
+                lit_ok[o + "_scored"] += int(e is not None)
+                lit_ok[o] += int(e is not None and e >= PLAUSIBLE)
+            continue
+        far = [float(u) for u in read_t if abs(u - t) >= SHIFT_MIN_MS]
+        pick = [far[i] for i in np.linspace(0, len(far) - 1, min(args.shifts, len(far))).astype(int)]
+        out = {"E": E, "tip": None if tf is None else {k: tf[k] for k in ("tip_x", "tip_y", "deg", "ncc")},
+               "track_deg": pose["deg"] if posed else None}
+        for o, m in (("tip", tip_model), ("tip_facing", tipc_model)):
+            vals = np.array([m.explain(demo, tips[u], O) for u in pick], float)
+            out[f"null_rate_{o}"] = float((vals >= PLAUSIBLE).mean())
+            out[f"true_percentile_{o}"] = None if E[o] is None else float((vals < E[o]).mean())
+        slivers[t] = out
+        print(f"sliver {t / 1000:.2f}s: {json.dumps(out)}")
+    agree = agreement_e3(demo, cal, tips)
+    print("lit viewcones explained:", dict(lit_ok))
+    print("held-out agreement:", json.dumps(agree, indent=1))
+    (args.out / "results_e3.json").write_text(json.dumps(
+        {"version": VERSION, "tip_version": tt.VERSION, "calibration": C, "precision": P,
+         "slivers": {str(k): v for k, v in slivers.items()}, "lit_viewcones": dict(lit_ok),
+         "agreement": agree}, indent=1), encoding="utf-8")
+    vals = {k: (round(v, 3) if isinstance(v, float) else v) for k, v in {**P, **agree}.items()}
+    for k, v in lit_ok.items():
+        vals[f"lit_viewcones_{k}"] = v
+    for t in SLIVERS:
+        v = slivers.get(t)
+        if v is None:
+            continue
+        for o, e in v["E"].items():
+            vals[f"e_{o}_{int(t)}"] = None if e is None else round(e, 3)
+        for o in ("tip", "tip_facing"):
+            vals[f"null_{o}_{int(t)}"] = round(v[f"null_rate_{o}"], 3)
+            vals[f"pct_{o}_{int(t)}"] = (None if v[f"true_percentile_{o}"] is None
+                                         else round(v[f"true_percentile_{o}"], 3))
+        if v["tip"]:
+            vals[f"tip_deg_{int(t)}"] = round(v["tip"]["deg"], 1)
+        if v["track_deg"] is not None:
+            vals[f"track_deg_{int(t)}"] = round(v["track_deg"], 1)
+    for o in ("tip", "tip_facing"):
+        vals[f"slivers_explained_{o}"] = sum(1 for v in slivers.values()
+                                             if v["E"][o] is not None and v["E"][o] >= PLAUSIBLE)
+    metrics.record(
+        "sliver_error_model", part="teardrop-tip", session=DEMO, values=vals,
+        deps={"prototype": VERSION, "reader": tt.VERSION, "lighting": lighting.LIGHTING_VERSION,
+              "cone_half_angle": cone.CONE_HALF_ANGLE_DEG, "samples": args.samples,
+              "shifts": args.shifts, "plausible": PLAUSIBLE, "cover": COVER,
+              "shape": {"r_in": tt.R_IN, "r_out": tt.R_OUT, "L": tt.L, "min_ncc": tt.MIN_NCC},
+              "fact": "minimap/cone-rays-stop-at-first-edge"},
+        context={"holdout_ms": HOLDOUT_MS,
+                 "arms": ["centre", "tip", "tip_facing", "centre_tipdeg", "teardrop_e2"],
+                 "exploratory": "E3b: tip_facing at the slivers and axis_<d> arms, logged after the tip arm failed"})
     return 0
 
 

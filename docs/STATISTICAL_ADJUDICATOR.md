@@ -275,7 +275,8 @@ The experiment reorders the work:
 2. **The origin before pose noise.** Measured position jitter is under a
    pixel and does not matter; where the eye sits relative to the lines near the
    icon does. E2 below found that neither the open side of a line nor a derived
-   teardrop settles it; E3 reads the teardrop.
+   teardrop settles it. E3 read the teardrop: its facing is the missing input,
+   and its apex is not the origin.
 3. **Store what the sampler needs in `team_vision`.** Its rows keep each
    icon's position and gated bearing. Add per frame and track: the fitted
    radius, the raw and lobe-resolved per-frame bearings, the 200 ms window and
@@ -340,18 +341,82 @@ refusals. The likely reason is the bearing: with a
 spread, a teardrop placed from the fitted centre and the drawn bearing lands
 beside the true tip.
 
-## Next experiment, E3: read the teardrop
+## E3: read the teardrop
 
-Read the teardrop tip from pixels, as its own witness of origin and facing,
-instead of deriving it from the ring fit. Pre-register that a cone cast from
-the read tip, along the tip's direction, covers more of the held-out drawn light
-than the centre cone does, and only then rescore the three slivers. If the tip
-cannot be read reliably, build the labeller that asks the player to click it on
-the three sliver frames and a held-out sample.
+`prototypes/teardrop_tip.py` (`teardrop-tip-0.1.0`) fits the self icon as a
+shape: a pale ring round the portrait plus a lobe whose edges are tangent to
+the ring and meet at the apex. It scores a soft silhouette against a continuous
+yellowness, with no threshold, and searches centre and facing. One size serves
+every frame: outer radius 11 px, apex 18 px from the centre, fitted on 24
+held-out frames of this widget size. `sliver_error_model.py --experiment e3`
+scores it (task `statistical-adjudicator-e3`; predictions logged after the
+contact sheets and before any measurement).
+
+| | Prediction | Result | Verdict |
+|---|---|---|---|
+| T1 | reads on at least 95% of held-out frames | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#read_rate=0.984] of [metric:sliver_error_model/teardrop-tip@e78e75b2d191#frames_detected=451] | held |
+| T2 | stationary facing jitter at most 4 deg, tip at most 0.8 px | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#facing_jitter_rms20_deg=0.593] deg, [metric:sliver_error_model/teardrop-tip@e78e75b2d191#tip_jitter_rms_px=0.191] px over [metric:sliver_error_model/teardrop-tip@e78e75b2d191#stationary_frames=59] windows | held |
+| T3 | facing against the light: spread at most 15 deg, flips at most 2% | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#light_spread_tip_deg=6.858] deg, [metric:sliver_error_model/teardrop-tip@e78e75b2d191#light_flip_tip=0.009] flipped (E1's facing: [metric:sliver_error_model/grouping-labels@all-labelled#sigma_deg=29.0] deg) | held |
+| T4 | the ring fit sits at least 1.5 px off, toward the apex | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#ring_offset_median_px=4.433] px, cosine [metric:sliver_error_model/teardrop-tip@e78e75b2d191#ring_offset_cos_median=0.986] | held |
+| T5 | apex cone: precision no worse, clear recall +0.03 over the centre cone | precision [metric:sliver_error_model/teardrop-tip@e78e75b2d191#precision_tip=0.588] against [metric:sliver_error_model/teardrop-tip@e78e75b2d191#precision_centre=0.636]; recall [metric:sliver_error_model/teardrop-tip@e78e75b2d191#recall_tip_clear=0.397] against [metric:sliver_error_model/teardrop-tip@e78e75b2d191#recall_centre_clear=0.518] | failed |
+| T6 | apex cone explains 40.65 and 43.35 s, not 36.9 s | 43.35 s only (E [metric:sliver_error_model/teardrop-tip@e78e75b2d191#e_tip_43350=1.0], shifted poses [metric:sliver_error_model/teardrop-tip@e78e75b2d191#null_tip_43350=0.0]) | failed |
+
+T2's first run measured a jitter of exactly zero: the minimap repeats an image
+across cached frames, so the fit repeats too. The rerun collapses repeated fits
+before measuring. The ring fit's raw facing points more than 90 degrees from the
+read facing on [metric:sliver_error_model/teardrop-tip@e78e75b2d191#ring_flip_vs_tip=0.577]
+of frames; `resolve_lobe` rescues most of them with the light, which is why the
+bearing looked usable.
+
+**E3b, exploratory, logged after T5 failed** (task `statistical-adjudicator-e3b`):
+the same read facing cast from other origins on the same
+[metric:sliver_error_model/teardrop-tip@e78e75b2d191#frames=382] held-out frames.
+
+| Origin, along the read facing | precision | clear recall | far recall |
+|---|---|---|---|
+| E2's centre cone (track position and bearing) | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#precision_centre=0.636] | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#recall_centre_clear=0.518] | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#recall_centre_far=0.5] |
+| track position, read facing | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#precision_centre_tipdeg=0.703] | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#recall_centre_tipdeg_clear=0.604] | |
+| teardrop centre | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#precision_tip_facing=0.719] | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#recall_tip_facing_clear=0.648] | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#recall_tip_facing_far=0.609] |
+| 8 px out | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#precision_axis_8=0.687] | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#recall_axis_8_clear=0.555] | |
+| 14 px out | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#precision_axis_14=0.622] | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#recall_axis_14_clear=0.461] | |
+| apex, 18 px out | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#precision_tip=0.588] | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#recall_tip_clear=0.397] | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#recall_tip_far=0.466] |
+
+Agreement falls at every step from the centre to the apex. From the teardrop
+centre along the read facing, the cone explains 43.35 s (E
+[metric:sliver_error_model/teardrop-tip@e78e75b2d191#e_tip_facing_43350=0.955];
+shifted poses explain the box
+[metric:sliver_error_model/teardrop-tip@e78e75b2d191#null_tip_facing_43350=0.0]
+of the time), leaves 36.9 s closed and does not reach 40.65 s. It explains
+[metric:sliver_error_model/teardrop-tip@e78e75b2d191#lit_viewcones_tip_facing=13] of
+[metric:sliver_error_model/teardrop-tip@e78e75b2d191#lit_viewcones_tip_facing_scored=14]
+lit viewcones; the read tip needs no track, so the 34.05-35.4 s cones now score.
+
+**In plain words:** the teardrop reads cleanly, and its facing is what E1 and E2
+lacked. At 43.35 s the track pointed the cone at
+[metric:sliver_error_model/teardrop-tip@e78e75b2d191#track_deg_43350=92.1] degrees
+while the teardrop points at
+[metric:sliver_error_model/teardrop-tip@e78e75b2d191#tip_deg_43350=-137.0]: that
+sliver was a flipped lobe, not a geometry error. At 40.65 s the drawn light is a
+thin beam through a gap that a baked box-edge line closes, so it stays an
+unexplained refusal for the geometry builder. The apex, however, is the worst
+origin tested: with the half-angle held at 51.5 degrees, the drawn light fits a
+cone cast from the icon's centre, contrary to the literal reading of the
+player's spec [domain:minimap/cone-rays-stop-at-first-edge]. Either the rays
+start at the centre and the teardrop only draws the cone's edges, or the angle
+from the apex is wider; this session cannot tell them apart.
+
+**Next.** Ask the player where the rays start, centre or point, before any
+origin rule enters `cone`. Rerun E3b on a second session; if the read facing
+from the centre wins there too, `team_vision` takes the read facing in place of
+the ring fit's resolved lobe, under a new stamp, and the ring fit's centre gives
+way to the teardrop's.
 
 ## What this plan does not settle
 
-- The half-angle stays at 51.5 degrees; its interval was not measured.
+- The half-angle stays at 51.5 degrees; its interval was not measured, and
+  E3b's origin result is confounded with it.
+- E3's read tip was checked by eye on contact sheets, not against player
+  labels; its jitter is precision, not accuracy.
 - Wall edges (`BORDER`) were not perturbed; only box edges were.
 - E2's near-line group holds only a handful of held-out frames.
 - Calibration used one session and one map.
