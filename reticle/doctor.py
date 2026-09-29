@@ -351,6 +351,10 @@ def check_manifest(store: Path) -> list[tuple[str, str]]:
         prof = m.get("source_profile", "")
         tags = " ".join(m.get("tags") or [])
         big = "bigmap" in prof
+        # A stored widget placement answers the contradiction: the readers
+        # read that widget through it (`widget_frame`), not through the wrong crop.
+        if m.get("minimap_widget"):
+            continue
         if ("small" in tags and big) or ("minimap:large" in tags and not big):
             out.append((WARN, f"{f.stem} is tagged `{tags}` but ingested as "
                               f"`{prof}` -- the widget size disagrees, so the "

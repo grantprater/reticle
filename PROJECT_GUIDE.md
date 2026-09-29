@@ -833,6 +833,11 @@ one `metrics.record()` at the end is the whole cost.
    a constant minimap→world transform. Pass
    `ingest --minimap-mode "fixed/always_same/uncentered"`; it lands in the
    manifest.
+
+   **A widget drawn at another size, place or orientation is transformed, not
+   abstained on** (the player, 2026-09-28, quoted in `reticle/widget_frame.py`).
+   `reticle widget-fit <sid> --write` stores the placement and tags the session
+   `minimap:variant`, so its numbers pool apart.
 6. **Label the map.** the player is labelling maps for future captures. Geometry
    is shared between sessions on the same map: `geometry.map_of` reads the
    `map:` tag, and `doctor`'s COVERAGE check reports a session without one.

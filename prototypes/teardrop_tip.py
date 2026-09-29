@@ -30,6 +30,12 @@ correlation, and scales with `minimap.widget_scale` are not handled.
 
 It reads the minimap crop cache only, decodes no video and writes nothing to
 the store. `sliver_error_model.py --experiment e3` consumes it.
+
+**Promoted** to `reticle/teardrop.py` (`teardrop-0.1.0`) on 2026-09-28, whose
+centre `team_vision` casts the self cone from. The reader's grid correlates by
+`cv2.matchTemplate` and gives this fit's centre exactly on 69 sampled frames of
+e78e75b2d191 and 5822b6646448. This copy stays as E3-E4's fixed instrument and
+for `--calibrate`, which varies the radii the reader holds constant.
 """
 from __future__ import annotations
 
@@ -45,109 +51,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reticle import minimap  # noqa: E402
 
-VERSION = "teardrop-tip-0.1.0"
-# Fitted by `--calibrate` on 24 held-out frames of e78e75b2d191 (enlarged widget):
-# mean correlation 0.846 at these values, a plateau over L 18-19 and ring width
-# 1.5-2 px; 0.70 at the first guess (8, 10.5, 16).
-R_IN, R_OUT, L = 9.5, 11.0, 18.0
-EDGE = 1.5            # soft edge width, px: chroma is subsampled 2x2
-WINDOW = 4.0          # the scoring window reaches this far past the apex
-SEARCH_PX = 4         # centre grid half-width round the detector's centre
-GRID_DEG = 10.0
-MIN_NCC = 0.5         # below this the shape is not read
+from reticle.teardrop import (EDGE, GRID_DEG, L, MIN_NCC, R_IN, R_OUT,  # noqa: E402,F401
+                              SEARCH_PX, WINDOW, fit_teardrop, render, yellowness)
 
-
-def yellowness(crop: np.ndarray) -> np.ndarray:
-    """How yellow each pixel is, in [0, 1]: min(G, R) - B, ramped over 10..60.
-
-    Continuous, so the fit sees the anti-aliased and chroma-blurred edge rather
-    than a threshold's staircase. Lit floor sits near 10, the ring near 70-90.
-    """
-    c = crop.astype(np.float32)
-    y = np.minimum(c[..., 1], c[..., 2]) - c[..., 0]
-    return np.clip((y - 10.0) / 50.0, 0.0, 1.0)
-
-
-def render(dx, dy, th, r_in=R_IN, r_out=R_OUT, L_=L, edge=EDGE):
-    """Soft yellow silhouette at offsets (dx, dy) from the centre, facing `th` radians.
-
-    Broadcasts: `dx`, `dy` shaped (..., P) and `th` shaped (..., 1).
-    """
-    c, s = np.cos(th), np.sin(th)
-    u = dx * c + dy * s
-    v = -dx * s + dy * c
-    rho = np.hypot(dx, dy)
-    ca = r_out / L_
-    sa = math.sqrt(max(0.0, 1.0 - ca * ca))
-    d_wedge = u * ca + np.abs(v) * sa - r_out
-    d_tri = np.maximum(d_wedge, np.maximum(r_out * ca - u, u - L_))
-    d_tear = np.minimum(rho - r_out, d_tri)
-    d = np.maximum(d_tear, r_in - rho)
-    return np.clip(0.5 - d / edge, 0.0, 1.0)
-
-
-def _ncc(obs, model):
-    """Normalised correlation of `obs` (P,) with each model row (..., P)."""
-    o = obs - obs.mean()
-    m = model - model.mean(axis=-1, keepdims=True)
-    den = np.sqrt((o * o).sum() * (m * m).sum(axis=-1))
-    with np.errstate(invalid="ignore", divide="ignore"):
-        return np.where(den > 0, (m * o).sum(axis=-1) / den, -1.0)
+# 0.2.0: the model and constants live in `reticle.teardrop` and this module
+# re-exports them; the fit's grid now correlates by `cv2.matchTemplate`.
+VERSION = "teardrop-tip-0.2.0"
+# The constants were fitted by `--calibrate` on 24 held-out frames of
+# e78e75b2d191 (enlarged widget): mean correlation 0.846, a plateau over L
+# 18-19 and ring width 1.5-2 px; 0.70 at the first guess (8, 10.5, 16).
 
 
 def fit(crop: np.ndarray, cx0: float, cy0: float, *, r_in=R_IN, r_out=R_OUT, L_=L,
         yel: np.ndarray | None = None) -> dict:
-    """The teardrop nearest the detector's centre `(cx0, cy0)`.
-
-    Returns `x`, `y` (the ring's centre), `deg` (facing, image degrees, y down),
-    `tip_x`, `tip_y`, `ncc`, and `read` (False with a `reason` below MIN_NCC).
-    """
-    yel = yellowness(crop) if yel is None else yel
-    h, w = yel.shape
-    rad = L_ + WINDOW + SEARCH_PX
-    x0, x1 = max(0, int(cx0 - rad)), min(w, int(cx0 + rad) + 1)
-    y0, y1 = max(0, int(cy0 - rad)), min(h, int(cy0 + rad) + 1)
-    yy, xx = np.mgrid[y0:y1, x0:x1]
-    keep = np.hypot(xx - cx0, yy - cy0) <= rad
-    px, py = xx[keep].astype(np.float32), yy[keep].astype(np.float32)
-    obs = yel[py.astype(int), px.astype(int)]
-    if obs.max() <= 0:
-        return {"read": False, "reason": "no_yellow"}
-
-    offs = np.arange(-SEARCH_PX, SEARCH_PX + 1, dtype=np.float32)
-    ths = np.radians(np.arange(0.0, 360.0, GRID_DEG, dtype=np.float32))
-    best = (-2.0, 0.0, 0.0, 0.0)
-    for oy in offs:
-        cxs = (cx0 + offs)[:, None, None]                      # (X, 1, 1)
-        dx = px[None, None, :] - cxs
-        dy = py[None, None, :] - (cy0 + oy)
-        sc = _ncc(obs, render(dx, dy, ths[None, :, None], r_in, r_out, L_))   # (X, T)
-        i = np.unravel_index(int(np.argmax(sc)), sc.shape)
-        if sc[i] > best[0]:
-            best = (float(sc[i]), float(cx0 + offs[i[0]]), float(cy0 + oy), float(ths[i[1]]))
-
-    def score(x, y, t):
-        return float(_ncc(obs, render(px - x, py - y, t, r_in, r_out, L_)))
-
-    sc, x, y, t = best
-    step_p, step_t = 0.5, math.radians(3.0)
-    while step_p >= 0.05:
-        moved = False
-        for ddx, ddy, ddt in ((step_p, 0, 0), (-step_p, 0, 0), (0, step_p, 0), (0, -step_p, 0),
-                              (0, 0, step_t), (0, 0, -step_t)):
-            s2 = score(x + ddx, y + ddy, t + ddt)
-            if s2 > sc:
-                sc, x, y, t, moved = s2, x + ddx, y + ddy, t + ddt, True
-                break
-        if not moved:
-            step_p, step_t = step_p / 2, step_t / 2
-    deg = (math.degrees(t) + 180.0) % 360.0 - 180.0
-    out = {"x": x, "y": y, "deg": deg, "ncc": sc,
-           "tip_x": x + L_ * math.cos(t), "tip_y": y + L_ * math.sin(t),
-           "read": sc >= MIN_NCC}
-    if not out["read"]:
-        out["reason"] = "low_ncc"
-    return out
+    """`reticle.teardrop.fit_teardrop` with the radii exposed for `--calibrate`."""
+    return fit_teardrop(crop, cx0, cy0, r_in=r_in, r_out=r_out, L_=L_, yel=yel)
 
 
 def self_start(crop: np.ndarray, floor: np.ndarray):

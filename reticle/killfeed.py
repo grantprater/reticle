@@ -697,6 +697,40 @@ def _row_profile(
     return np.where(both, prof, 0.0)
 
 
+def _join_split_runs(runs: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Rejoin one entry whose plate run broke in two at its text rows.
+
+    The name glyphs and the weapon icon are white, so they punch the plate
+    rows through their middle. Over a dark wall the translucent plate's darker
+    end also fails the plate colour there, and a toggled overlay can hide one
+    plate across those rows. The profile then drops under PLATE_ROW_FRAC for a
+    few rows mid-entry, the run breaks in two, each piece is shorter than
+    MIN_BAND_H, and both are discarded: the entry is absent, not misread. At
+    c40d950031bb the player's death entry stood on screen from 701.0 s and read
+    first at 703.5 s (runs of 12 and 18 rows); at 223d636bf8d2 the Shooting
+    Error box split the player's death entry from 719.0 s to 720.5 s (runs of
+    8 and 10 rows), and it read first at 721.0 s, after the combat report
+    panel had opened.
+
+    The rule fits the entry's shape rather than closing a gap of fixed radius:
+    two adjacent runs, each too short to be an entry, are one entry when
+    together they fit in one (MAX_BAND_H) and their plate covers at least half
+    a minimum band. No run long enough to stand alone is joined. `_band_text`
+    still decides whether the joined band holds an entry's names; a joined band
+    with none is an empty band, not an entry.
+    """
+    out: list[tuple[int, int]] = []
+    for a, z in runs:
+        if out:
+            pa, pz = out[-1]
+            if (pz - pa < MIN_BAND_H and z - a < MIN_BAND_H and z - pa <= MAX_BAND_H
+                    and (pz - pa) + (z - a) >= MIN_BAND_H // 2):
+                out[-1] = (pa, z)
+                continue
+        out.append((a, z))
+    return out
+
+
 def _entry_bands(
     green: np.ndarray, red: np.ndarray, usable: np.ndarray | None = None,
     usable_prefix: np.ndarray | None = None,
@@ -705,7 +739,9 @@ def _entry_bands(
 
     Three things happen here, and the third is the one that matters most:
 
-    * contiguous runs of plate-coloured rows are the candidate entries;
+    * contiguous runs of plate-coloured rows are the candidate entries, and
+      two short runs that one entry's text rows broke apart are rejoined
+      (`_join_split_runs`);
     * a run tall enough for several stacked entries is split by PITCH, so
       neighbours whose plates touch stay separate entries;
     * a run *shorter* than ENTRY_H is padded back out to it.
@@ -734,6 +770,7 @@ def _entry_bands(
             j += 1
         runs.append((i, j))
         i = j
+    runs = _join_split_runs(runs)
 
     split: list[tuple[int, int]] = []
     for (a, z) in runs:
@@ -1350,7 +1387,9 @@ PORTRAIT_ASPECT = 2.0
 # (`victim_name_end`: descenders, word spaces, merged letters, past a
 # second-life badge) and counts as text only white ink that begins by then
 # (`own_ink`), so white hair no longer carries the box past the portrait.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.8.0"
+# 0.9.0 (2026-09-28): `_join_split_runs` reads an entry whose plate run
+# broke at its text rows, so an entry can be observed samples earlier.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.9.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -1775,7 +1814,8 @@ def detect_second_life_badge(
 
 # 0.2.0 (2026-09-25): the weapon-slot box finds ringed ult icons and the
 # Blade Storm knife [domain:killfeed/jett-blade-storm-icon] (`_band_text`).
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.2.0"
+# 0.3.0 (2026-09-28): more bands read (`_join_split_runs`); see the portrait stamp.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.3.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -1850,7 +1890,8 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # portrait and the weapon icon, stored as the band's whiteness (lossless
 # uint8, zlib) for `adjudication.killfeed_names` to compare. Measured in
 # `prototypes/killfeed_name_continuity.py`.
-KILLFEED_NAME_VERSION = "killfeed-name-0.1.0"
+# 0.2.0 (2026-09-28): more bands read (`_join_split_runs`); see the portrait stamp.
+KILLFEED_NAME_VERSION = "killfeed-name-0.2.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15

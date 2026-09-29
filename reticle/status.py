@@ -40,6 +40,7 @@ from . import geometry
 from .checks import KNOWN_KD, player_events
 from .store import DEFAULT_STORE, Store
 from .version import HUD_VERSION, MINIMAP_VERSION, PING_VERSION, ROSTER_VERSION
+from .widget_frame import cohort
 
 LABEL_KINDS = ("minimap", "minimap_dynamic", "minimap_agent", "enemies", "map_mask")
 
@@ -163,6 +164,9 @@ def collect(store: Store) -> dict:
             "spans": store.spans_path(sid, date).is_file(),
             "rounds": store.rounds_path(sid, date).is_file(),
             "geometry": _has_geometry(sid, root),
+            # Minimap numbers from a widget read through a stored placement
+            # pool apart (the player, 2026-09-28; `widget_frame.cohort`).
+            "cohort": cohort(man),
             "known": KNOWN_KD.get(sid),
             "labels": dict(label_rows.get(sid, {})),
         }
@@ -297,7 +301,12 @@ def render(data: dict, markdown: bool = False) -> str:
               f"{v[0]}/{v[1]} r{v[2]}" if isinstance(v, tuple) else str(v).split()[0])
         rows.append((s["sid"], s["map"], f"{s['minutes']:.0f}",
                      str(s["n_rounds"] or "--"), wl, pl, kd, kn, delta, vd,
-                     "y" if s["geometry"] else "-", lab))
+                     ("y" if s["geometry"] else "-")
+                     + ("v" if s.get("cohort") == "minimap-variant" else ""), lab))
+    if any(s.get("cohort") == "minimap-variant" for s in ss):
+        L.append("geo `v`: the minimap-variant cohort -- the widget is read through a "
+                 "stored placement; count its minimap numbers apart.")
+        L.append("")
     w = [max(len(c), max((len(r[i]) for r in rows), default=0)) for i, c in enumerate(cols)]
     if markdown:
         L.append("| " + " | ".join(cols) + " |")

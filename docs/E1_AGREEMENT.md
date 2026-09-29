@@ -8,8 +8,7 @@ binding, so agreement is no acceptance test: score events one to one. The
 branch's findings, with the numbers of its replay, are
 [archived](archive/E1_AGREEMENT-2026-09-28.md). E1 belongs to
 [the experiment program](EXPERIMENT_PROGRAM.md). Only the owner fixes are
-promoted; the player's source review of the seeded rounds comes before
-anything else.
+promoted; the player has reviewed the seeded rounds against source (below).
 
 ## Landing on master
 
@@ -125,25 +124,102 @@ verdicts still change without the scoreboard, but more verdicts change, not
 fewer, because master's collision rule turns the board's conflicting names
 into contests rather than removing them.
 
-## For the player to review
+## The player's review
 
-Against source, before promotion: the store's
-`analysis/e1-agreement/review-20260928.md` lists the 79 seeded rounds with
-capture path, round span, and each death and kill with its time, names and
-binding. Below them it lists the eight cluster-bound rows, the two folded
-panels, the `59c70f1ef720` death at 1625 s, the two rows the split rebound, and
-the two panels that open 2 to 2.5 s before their killfeed entry. Name the
-first failure.
+The store's `analysis/e1-agreement/review-20260928.md` listed the 79 seeded
+rounds and eleven extra checks: the cluster-bound rows, the folded panels, the
+`59c70f1ef720` death at 1625 s, the rebound rows, and two panels that opened
+2 to 2.5 s before their killfeed entry. The player answered them against
+source (`labels/e1_review_20260928.jsonl`; the last answer per key counts):
+[metric:e1_review/answers@review-20260928#yes=114] of
+[metric:e1_review/answers@review-20260928#answers=121] held. Of
+[metric:e1_review/answers@review-20260928#events=110] deaths and kills,
+[metric:e1_review/answers@review-20260928#events_yes=105] held, and every
+binding he checked held. The failures are names and times:
+
+- `223d636bf8d2` (`C:\Users\grant\Videos\2026-08-23 20-09-01.mp4`): four
+  names that rest on the killfeed portrait alone. 335.5 s victim Fade, read
+  Iso; 721.0 s killer Fade, read Iso; 1028.5 s victim Iso, abstained; 2067.0 s
+  victim Clove, read Reyna. The portraits confuse Fade's player
+  (`sacrificeursoul`) with Iso, and the name clusters left three of the four
+  roles out because both followed views read no name text.
+- `c40d950031bb` (`C:\Users\grant\Videos\2026-08-24 18-27-17.mp4`): the
+  player's death was booked at 703.5 s, 2.5 s after it happened; at 703.5 s he
+  saw Chamber kill Phoenix.
+- Extra checks: [metric:e1_review/answers@review-20260928#check_no=2] of
+  [metric:e1_review/answers@review-20260928#checks=11] n. At `223d636bf8d2`
+  719 s the panel opens after the entry, not before. At `5822b6646448`
+  (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`) 1093 s his note says he
+  toggled the panel with N [domain:combat_report/appears-on-death], which the
+  fold assumes; the n and the note disagree, so the item stays open. He added
+  that the report lists its rows newest first
+  [domain:combat_report/rows-newest-first] and that the panel toggles, possibly
+  into the next buy phase [domain:combat_report/toggle-into-next-buy-phase].
+
+**A y on an extra check confirms the order of events, not their times.** The
+player did not time the earlier kills outside each clip (2026-09-28), so no y
+answer is timing evidence; the onsets below rest on the crop cache.
+
+### Entry onsets
+
+Measured against the HUD crop cache (2 Hz, its full rate) on
+[metric:killfeed_onset/crop-sample@sample-178#items=178] stored onsets (every
+review event, every player event near an extra check, three other entries per
+session): [metric:killfeed_onset/crop-sample@sample-178#on_time_before=166]
+were on time, [metric:killfeed_onset/crop-sample@sample-178#late_0_5_before=9]
+one sample late (the fade-in: the victim plate reads at half its colour), and
+[metric:killfeed_onset/crop-sample@sample-178#late_2_plus_before=2] seconds
+late. No smoothing or confirmation delays an onset: `track_entries` keys a
+track at its first detection, so a late onset is frames the reader missed.
+The two multi-second cases have two causes:
+
+- At `c40d950031bb` 701.0 s the entry's white text split its plate run in two
+  over a dark wall; both halves fell under `MIN_BAND_H`, and the entry was
+  absent until 703.5 s. `killfeed._join_split_runs` (`hud-0.16.0`) rejoins
+  them. The player's death is now `death:c40d950031bb:701000:0`, killer
+  Chamber, and Chamber's kill of Phoenix is its own entry at 704.5 s.
+- At `223d636bf8d2` 719.0 s the player's death entry sat in the bottom slot
+  behind the Shooting Error box, which hides its weapon icon and victim name;
+  it reads only at 721.0 s, when the stack rises. No reader change recovers it.
+
+The HUD was rescanned from the crop cache, then rounds, deaths and the combat
+report reran from storage on [metric:e1_review/rerun@store-20#sessions=20]
+sessions (backup: the store's
+`notes/backup/killfeed-onset-before-hud-0.16.0-20260928/`). At-death panels
+whose entry opens 1 s or more after them fell from
+[metric:killfeed_onset/panel-lead@store-20#entry_late_1s_before=6] to
+[metric:killfeed_onset/panel-lead@store-20#entry_late_1s_after=3] of
+[metric:killfeed_onset/panel-lead@store-20#panels=288]; the three left are the
+overlay case (`223d636bf8d2` 719 and 1208 s, `b3b9defb6fd7` 1635 s).
+[metric:e1_review/rerun@store-20#player_deaths_moved=4] player deaths moved
+earlier; the player's counted kills and deaths moved on
+[metric:e1_review/rerun@store-20#player_kd_sessions_moved=0] sessions.
+
+### Names
+
+`death-adjudication-0.19.0` lets a name-cluster role whose two followed views
+read no name try its other views (`killfeed-name-cluster-0.2.0`).
+`223d636bf8d2`'s 335.5 s victim then joins Fade's cluster and is named Fade.
+The rerun changed [metric:e1_review/rerun@store-20#victims_changed=10] victims
+and [metric:e1_review/rerun@store-20#killers_changed=7] killers and renamed
+[metric:e1_review/rerun@store-20#reviewed_yes_renamed=0] items the player
+answered y; six of the killers are `587c15b07779` entries that print "Vyse",
+now named Vyse, not Fade. Three `223d636bf8d2` names stay wrong: the 721.0 s
+killer reads no name text at any view, and the 1028.5 s and 2067.0 s victims'
+name crops miss their players' clusters (a one-role and a six-role fragment).
 
 ## Open
 
-1. The player's review.
-2. The scoreboard rescan to `scoreboard-0.10.0` (a decode), then `reticle
+1. The overlay case: a player death behind the Shooting Error box keeps a late
+   onset; the combat report panel's open time is the other witness.
+2. `223d636bf8d2`'s three wrong names: name crops that miss their cluster, and
+   a killer name read at no view.
+3. The scoreboard rescan to `scoreboard-0.10.0` (a decode), then `reticle
    deaths` and `reticle combat-report` again under a new pin.
-3. From the branch, unchecked since: `3694746e4e54` and `a06f04a0059f` each
+4. From the branch, unchecked since: `3694746e4e54` and `a06f04a0059f` each
    carry one player death owned by an enemy-victim entry.
-4. `cli._combat_report_identity` builds its killfeed tracks with
+5. `cli._combat_report_identity` builds its killfeed tracks with
    `track_entries` and no `sides`, so the report's row naming does not see the
    split; ask the death owner whether it should read `session_entries`.
-5. A two-read scoreboard player-row rule, predicted first; `bdfdcf009dba`
+6. A two-read scoreboard player-row rule, predicted first; `bdfdcf009dba`
    rounds 3 and 4 are its new case.

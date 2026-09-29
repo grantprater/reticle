@@ -70,6 +70,21 @@ consumers = ["barriers", "status", "cone", "doctor"]
 evidence = "tests/test_geometry.py, tests/test_floor_stability.py"
 
 [[entry]]
+id = "minimap-widget-frame"
+question = "Where does this session draw its minimap widget relative to the baked geometry, and is it a variant?"
+owner = "widget_frame"
+role = ["constrain"]
+status = "shipped"
+produces = ["fit_crop", "for_session", "cohort", "capture_box"]
+not_for = """
+Any map value. The fit measures the widget's scale, rotation and placement
+against the baked static and nothing else; the floor, lighting and base map
+still come from `map-geometry`. Not the icons drawn on the widget either.
+"""
+consumers = ["roi_cache", "status", "cli"]
+evidence = "tests/test_widget_frame.py"
+
+[[entry]]
 id = "domain-fact"
 question = "What is true of VALORANT itself, rather than of this pipeline?"
 owner = "domain"
@@ -572,6 +587,24 @@ consumers = ["overlay", "barriers", "team_vision"]
 evidence = "tests/test_cone_evidence.py, tests/test_full_round_cones.py"
 
 [[entry]]
+id = "self-cone-origin"
+question = "Where does the local player's viewcone start on the minimap, and which way does it face?"
+owner = "teardrop"
+role = ["detect"]
+status = "partial"
+produces = ["fit_teardrop", "SelfConeReader", "yellowness", "render", "MIN_NCC"]
+not_for = """
+Where the player's icon is for tracking (`self-position`, the ring fit that
+seeds this one) and which agent the player is (`player-agent`). It reads one
+frame's teardrop and holds no bearing across frames: an unread teardrop
+returns the ring fit's centre and no facing, with the reason, and
+`team_vision` keeps `track`'s resolved lobe there. The facing is scored
+against 28 Lotus labels and 8 Ascent controls only.
+"""
+consumers = ["team_vision"]
+evidence = "tests/test_teardrop.py, prototypes/vision_origin_eval.py, docs/STATISTICAL_ADJUDICATOR.md (E3, E4)"
+
+[[entry]]
 id = "team-vision"
 question = "What can the team see at this instant, as the pipeline adjudicates it?"
 owner = "team_vision"
@@ -587,7 +620,7 @@ gaps the drawn light passes (the three e78e75b2d191 slivers). Smokes do not
 yet block its rays.
 """
 defers_to = ["viewcone", "drawn-light", "track-continuation", "minimap-origin",
-             "capture-stall", "light-support"]
+             "capture-stall", "light-support", "self-cone-origin"]
 consumers = ["overlay", "cli"]
 stored_consumers = ["adjudication.ability"]
 evidence = "tests/test_team_vision.py, tests/test_ability_entities.py"

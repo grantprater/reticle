@@ -128,7 +128,11 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # plate colour behind the weapon icon, not the last run past it.
 # 0.15.0 (2026-09-26): `kf_same_side_mask` stores the slots whose killer
 # plate reads the victim's side, the one-colour banner a revive draws.
-HUD_VERSION = "hud-0.15.0"
+# 0.16.0 (2026-09-28): `killfeed._join_split_runs` rejoins an entry whose plate
+# run broke in two at its text rows. The entry stack gains the samples it was
+# missing, so track onsets move earlier (c40d950031bb's player death, 703.5 s
+# to 701.0 s) and `kf_*` columns change where a split entry stood.
+HUD_VERSION = "hud-0.16.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits
@@ -248,7 +252,15 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # bearing and lifecycle eligibility, and the packed union of the eligible cones
 # (`observable`) beside the union of all tracked bearings (`observable_all`).
 # The chain is `team_vision.TeamVision`, the one `overlay` draws.
-TEAM_VISION_VERSION = "team-vision-0.1.0"
+# 0.2.0: the self cone starts at the teardrop's centre (`teardrop`, TEARDROP_VERSION)
+# where the shape reads, else at the ring fit's centre; each self icon records which.
+# 0.3.0: the self cone faces the teardrop's facing where the shape reads, else the
+# track's resolved lobe; the stored self icon's `self_cone` names both sources.
+TEAM_VISION_VERSION = "team-vision-0.3.0"
+# The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
+# origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
+# 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.
+TEARDROP_VERSION = "teardrop-0.2.0"
 # One observation of an ability's drawn minimap shape (a ring or a beam), fitted
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
 # a prior, an acceptance or the stored fields change.
