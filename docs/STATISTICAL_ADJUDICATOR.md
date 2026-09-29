@@ -655,6 +655,66 @@ the teardrop, the raw ring facing and (allies) the ring facing after
 `resolve_lobe`, per class and stratum. Predictions C1-C4 and L1-L2 are logged
 in the store's `notes/predictions.jsonl`.
 
+**The scores (2026-09-29).** The player answered all 60 items: allies
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_answer_facing=25] facings,
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_answer_not_icon=2] not an icon and
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_answer_cant_tell=3] can't tell; enemies
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_answer_facing=19],
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_answer_not_icon=10] and
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_answer_cant_tell=1]. `icon_facing_eval`
+recomputes each reader from the crop cache; the teardrop's facings match
+the ones drawn when the items were prepared, to the degree, wherever both read.
+Against the player's facing:
+
+| reader | ally n | ally median error | ally flipped | enemy n | enemy median error | enemy flipped |
+|---|---|---|---|---|---|---|
+| teardrop | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_teardrop_all_n=23] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_teardrop_all_median_abs_deg=2.485] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_teardrop_all_flip=0.0] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_teardrop_all_n=17] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_teardrop_all_median_abs_deg=1.685] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_teardrop_all_flip=0.0] |
+| raw ring | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_ring_all_n=23] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_ring_all_median_abs_deg=81.326] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_ring_all_flip=0.478] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_ring_all_n=18] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_ring_all_median_abs_deg=69.651] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_ring_all_flip=0.389] |
+| ring after `resolve_lobe` | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_ring_lobe_all_n=23] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_ring_lobe_all_median_abs_deg=26.581] | [metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_ring_lobe_all_flip=0.087] | | | |
+
+Every teardrop facing lies within 10 degrees of the player's
+([metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_teardrop_all_within10=1.0] of allies,
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_teardrop_all_within10=1.0] of enemies). Where the
+two readers were drawn over 90 degrees apart, the ring flips on
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_ring_flip_flip=1.0] of the
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#ally_ring_flip_n=6] ally items and the
+teardrop on none: the disagreements are the ring's errors. The teardrop read
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_teardrop_read_not_icon=4] of the enemy items the
+player called not an icon (a red ping disc, a portrait tile, red floor, red X
+marks) and refused
+[metric:icon_facing_eval/labels@5822b6646448+a06f04a0059f#enemy_teardrop_refused_not_icon=6]; its enemy
+read rate still counts such candidates.
+
+**Ability glyphs among the items.** The player said a few items were
+abilities with the teardrop shape, one of which he marked anyway. The contact
+sheet of all 60 crops shows four items marked with a centre and tip that are
+not agent portraits: a white animal glyph on a dark disc in a red ring
+(`a06f04a0059f` 104.2 s) and a blue orb in a teal ring (`5822b6646448`
+623.9 s, 641.6 s and 1779.8 s). They are candidates, not answers: the store's
+`labels/icon_facing_20260928/ability_candidates.json` lists them and
+`ability_candidates.png` shows them for the player to confirm; the label
+file is unchanged. With the four left out (`--exclude`), the teardrop errs
+by [metric:icon_facing_eval/labels-excl@5822b6646448+a06f04a0059f#ally_teardrop_all_median_abs_deg=2.16] on
+[metric:icon_facing_eval/labels-excl@5822b6646448+a06f04a0059f#ally_teardrop_all_n=20] allies with
+[metric:icon_facing_eval/labels-excl@5822b6646448+a06f04a0059f#ally_teardrop_all_flip=0.0] flipped, and on
+enemies as before (the enemy candidate was one the teardrop refused); the raw
+ring flips on [metric:icon_facing_eval/labels-excl@5822b6646448+a06f04a0059f#ally_ring_all_flip=0.5] of allies
+and [metric:icon_facing_eval/labels-excl@5822b6646448+a06f04a0059f#enemy_ring_all_flip=0.412] of enemies.
+The teardrop reads the three ally candidates as confidently as agents: it
+does not tell a teardrop-shaped ability icon from a teammate.
+Item #15 on the sheet (`5822b6646448` 758.4 s, answered not an icon, so
+already out of scoring) shows the white creature glyph that Wingman's icon
+carried at 404.5-408.5 s before it planted the spike
+[domain:abilities/gekko-wingman-plant-minimap]: probably a Wingman glyph,
+pending the player's confirmation.
+
+**Against the predictions.** L1 passed for both classes, with and without
+the candidates. L2 passed. C1 and C3 passed on 2026-09-28 and the labels do
+not bear on them. C2 failed: the ally read rate on Lotus fell under 0.90, the
+enemy read rates under 0.60, and the teardrop refused 3 of the 4 labelled
+red map fills, under the 80% claimed. C4 failed: the two readers were over 90
+degrees apart on a fifth of ally frames, not the 30% predicted.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
@@ -662,6 +722,9 @@ in the store's `notes/predictions.jsonl`.
 - The teardrop's facing is scored against 28 Lotus labels and 8 Ascent
   controls; the flips cluster where the readers disagree, and no other map
   or widget scale has labels.
+- The ally and enemy teardrops are scored on one Lotus and one Ascent
+  session; the teardrop reads teardrop-shaped ability icons as agents, and
+  which of the four candidates are abilities waits on the player.
 - The self cone's fallback (ring fit and track lobe) serves about a tenth of
   Lotus's cast cones; teammates' cones still start at their ring fits along
   their tracks' lobes.
