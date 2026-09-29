@@ -822,6 +822,56 @@ it, flagging a carrier before the portrait is scored, and calibrate on
 frames with no glyph near the icon. That is the next experiment, with
 its own prediction.
 
+**Carriers flagged, calibration spike-clean (Bs, 2026-09-29).** Bs reads
+the stored spike rows (`spike-0.2.0`, the reading nearest in time within
+half a second). It flags a fit as the spike's carrier where an accepted
+carried glyph's carrier place (`spike.carrier_offset`) holds the fit's
+detector centre, and keeps a flagged fit whatever its portrait fit: a
+carried spike flags its carrier and never rejects it. The calibration
+keeps B''s frames but leaves out any whose spike reading shows a glyph
+near the icon. Of the 32 worst B' frames,
+[metric:icon_portrait_gate/calibration-spike@self_icon-18#tail32_carrier=23]
+are carriers and
+[metric:icon_portrait_gate/calibration-spike@self_icon-18#tail32_near=3]
+lie near a glyph. Over the
+[metric:icon_portrait_gate/calibration-spike@self_icon-18#clean_frames=726]
+clean frames the threshold is
+[metric:icon_portrait_gate/calibration-spike@self_icon-18#bs_max=2.1578].
+
+On the labels, scored once, Bs keeps
+[metric:icon_portrait_gate/labels-bs@5822b6646448+a06f04a0059f#ally_true_icon_kept_Bs=24]
+ally and
+[metric:icon_portrait_gate/labels-bs@5822b6646448+a06f04a0059f#enemy_true_icon_kept_Bs=17]
+enemy agent icons, all of them. It rejects the ally not-icon
+([metric:icon_portrait_gate/labels-bs@5822b6646448+a06f04a0059f#ally_not_icon_kept_Bs=0]
+kept) and Skye's Trailblazer
+([metric:icon_portrait_gate/labels-bs@5822b6646448+a06f04a0059f#enemy_ability_glyph_kept_Bs=0]
+kept). It keeps
+[metric:icon_portrait_gate/labels-bs@5822b6646448+a06f04a0059f#enemy_not_icon_kept_Bs=5]
+of the ten enemy not-icons, among them the two red ping triangles, and
+[metric:icon_portrait_gate/labels-bs@5822b6646448+a06f04a0059f#ally_ability_glyph_kept_Bs=1]
+Wingman glyph. Of the four enemy not-icons the teardrop reads, it keeps
+[metric:icon_portrait_gate/labels-bs@5822b6646448+a06f04a0059f#enemy_not_icon_kept_Bs_td=1].
+On the Lotus and Ascent sample it rejects
+[metric:icon_portrait_gate/sample-bs@5822b6646448#ally_reject_Bs=0.0] of
+the Lotus and [metric:icon_portrait_gate/sample-bs@a06f04a0059f#ally_reject_Bs=0.0]
+of the Ascent ally fits. It rejects the red ping disc and the red floor
+among the enemy fits. It flags four ally fits as carriers, the two Ascent
+fits under the spike among them, and keeps the Wingman glyph. The sheets
+are `sample_rejected-bs.png`, `sample_kept-bs.png` and
+`labels_sheet_bs.png` in the same store folder.
+
+Predictions S1-S5 passed, S2 at its bound, and the falsifier was not met.
+Cross-referencing the spike reader did the work that tuning could not. It
+took the carriers out of the calibration, not out of the gate: every
+carrier in the sample already fit under the new threshold. What Bs still
+keeps fits between 1.5 and 2.0, inside the range of real portraits, so a
+portrait fit alone cannot reject it. The ping triangles, the X marks and
+the Wingman glyph each need their own reader, from the match's kits and
+the ping channel. The prototype stays `"wire": "no"`. Bs rests on 60
+labels from two 465 px sessions; its threshold comes from the self icon,
+not from enemies; and no 331 px or turned widget was scored.
+
 **Against the predictions.** L1 passed for both classes, with and without
 the candidates. L2 passed. C1 and C3 passed on 2026-09-28 and the labels do
 not bear on them. C2 failed: the ally read rate on Lotus fell under 0.90, the
@@ -838,9 +888,9 @@ degrees apart on a fifth of ally frames, not the 30% predicted.
   or widget scale has labels.
 - The ally and enemy teardrops are scored on one Lotus and one Ascent
   session; the teardrop reads the Wingman glyph as an agent, and no
-  portrait gate rule yet rejects not-icons without losing teammates: even
-  at the teardrop's centre, real icons under the carried spike fit as
-  badly as pings.
+  portrait gate rule rejects more than half the not-icons without losing
+  teammates: Bs, calibrated clean of the spike, still keeps pings, X marks
+  and the Wingman glyph that fit like portraits.
 - The self cone's fallback (ring fit and track lobe) serves about a tenth of
   Lotus's cast cones; teammates' cones still start at their ring fits along
   their tracks' lobes.

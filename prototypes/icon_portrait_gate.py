@@ -2,6 +2,7 @@ r"""Keep a teardrop fit as an agent icon only where a portrait of its side's lin
 
     .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --calibrate [--record]
     .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --calibrate-teardrop [--per-session 60] [--record]
+    .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --calibrate-spike [--per-session 60] [--record]
     .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --labels [--record] [--sheet PATH]
     .\.venv\Scripts\python.exe prototypes\icon_portrait_gate.py --sample [--sessions SID ...] [--n 40] [--record] [--out DIR]
 
@@ -41,6 +42,11 @@ teammate channel's. Rules, each fixed before the labels were scored:
        teardrop's centre (`--calibrate-teardrop`, `teardrop.fit_teardrop`
        on the crop cache): the first calibration fitted them at the ring
        fit's centre
+    Bs rule Bt over only the self frames whose stored spike row (`reticle
+       spike`, within SPIKE_GAP_MS) shows no accepted glyph within NEAR_PX
+       (`--calibrate-spike`); a fit the stored row binds as a spike carrier
+       (`spike.carrier_offset` at the detector's centre) is kept whatever
+       its fit: a carried spike flags its carrier and never rejects it
     C  the closest of all 29 rendered references lies in the side's set: the
        other 24 stand as the null hypothesis a non-portrait falls to by
        chance about 24 times in 29. The full gallery is used only as that
@@ -97,7 +103,7 @@ from reticle.profiles import get_profile  # noqa: E402
 from reticle.roi_cache import RoiCache  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "icon-portrait-gate-0.2.0"
+VERSION = "icon-portrait-gate-0.3.0"
 STORE = Path(DEFAULT_STORE)
 LOTUS, ASCENT = it_.LOTUS, it_.ASCENT
 LABELLED = (LOTUS, ASCENT)
@@ -107,7 +113,7 @@ SAMPLE_SESSIONS = (LOTUS, ASCENT, "223d636bf8d2")
 PERCENTILE = 99.0
 MATCH_PX = 3.0
 ELSEWHERE_PX = 8.0
-RULES = ("A", "B", "Bt", "C", "BC")
+RULES = ("A", "B", "Bt", "Bs", "C", "BC")
 CANDIDATES = "ability_candidates.json"
 
 
@@ -165,13 +171,15 @@ def features_at(crop: np.ndarray, x: float, y: float) -> dict:
 
 
 def gate(feats: dict, names: list[str], refs: dict, b_max: float,
-         bt_max: float | None = None) -> dict:
+         bt_max: float | None = None, bs_max: float | None = None,
+         carrier: bool = False) -> dict:
     """Each rule's verdict on one portrait: True keeps the fit as an agent icon.
 
     `fit_side` is the fit to the closest of the side's set, `fit_all` to the
     closest of every rendered reference; the agents that attain them are
-    dropped here, because the gate names nobody. `Bt` is None until
-    `--calibrate-teardrop` has run."""
+    dropped here, because the gate names nobody. `Bt` and `Bs` are None
+    until their calibrations have run. `Bs` keeps a spike carrier whatever
+    its fit: a carried spike flags its carrier and never rejects it."""
     fs = rendered_art_fit(feats, names, refs)
     fa = rendered_art_fit(feats, sorted(refs["agents"]), refs)
     if fs is None or fa is None:
@@ -182,38 +190,90 @@ def gate(feats: dict, names: list[str], refs: dict, b_max: float,
     c = fs[0] <= fa[0] + 1e-9
     return {"fit_side": round(fs[0], 4), "fit_all": round(fa[0], 4),
             "A": a, "B": bool(b), "Bt": None if bt_max is None else bool(fs[0] <= bt_max),
+            "Bs": None if bs_max is None else bool(carrier or fs[0] <= bs_max),
             "C": bool(c), "BC": bool(b and c), "why": None}
 
 
 OUT = STORE / "analysis" / "portrait-gate-20260929"
+#: The stored spike rows are a 1 s grid; a frame takes the row nearest in time
+#: within half a step, or reads `spike_unread`.
+SPIKE_GAP_MS = 500.0
+#: A glyph whose centroid lies this near an icon's centre (scale 1.0 px) may
+#: cover its portrait: a carried glyph's half-side plus the portrait's radius.
+NEAR_PX = 20.0
+
+
+class SpikeRows:
+    """One session's stored spike frames (`reticle spike`, owner
+    spike-observation), looked up by time."""
+
+    def __init__(self, sid: str):
+        p = STORE / "events" / "spike" / f"{sid}.jsonl"
+        rows = [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines()
+                if line.strip()] if p.exists() else []
+        self.version = rows[0].get("spike_version") if rows else None
+        self.frames = sorted((r for r in rows if r.get("kind") == "frame" and r.get("reason") is None),
+                             key=lambda r: r["t_ms"])
+        self.t = np.asarray([r["t_ms"] for r in self.frames], float)
+
+    def at(self, t_ms: float) -> dict | None:
+        if not len(self.t):
+            return None
+        i = int(np.searchsorted(self.t, t_ms))
+        best = min((k for k in (i - 1, i) if 0 <= k < len(self.t)), key=lambda k: abs(self.t[k] - t_ms))
+        return self.frames[best] if abs(self.t[best] - t_ms) <= SPIKE_GAP_MS else None
+
+
+def spike_flags(row: dict | None, cx: float, cy: float, sc: float) -> dict:
+    """What the stored spike reading says about an icon whose DETECTOR centre
+    is (cx, cy): `spike` read or unread, `carrier` (an accepted carried
+    glyph's carrier place holds it, `spike.carrier_offset`), `on_glyph` (the
+    fit rings a glyph itself, `spike.on_glyph` with no other icons) and
+    `near` (an accepted glyph within NEAR_PX)."""
+    from reticle import spike
+    if row is None:
+        return {"spike": "unread", "carrier": False, "on_glyph": False, "near": None}
+    rot = int(row.get("rotation") or 0)
+    glyphs = spike.accepted(row.get("glyphs") or [])
+    icon = [{"cx": cx, "cy": cy}]
+    carrier = any(spike.carrier_offset(g, icon, sc, rot) is not None
+                  for g in glyphs if g["state"] == "carried")
+    on = spike.on_glyph(cx, cy, glyphs, sc, (), rot) is not None
+    near = any(np.hypot(g["cx"] - cx, g["cy"] - cy) <= NEAR_PX * sc for g in glyphs)
+    return {"spike": "read", "carrier": bool(carrier and not on), "on_glyph": on, "near": near}
 
 
 def load_calibration() -> dict:
     """The first calibration, with `bt_max` from the teardrop-centred one
-    where it exists."""
+    and `bs_max` from the spike-clean one where they exist."""
     p = OUT / "calibration.json"
     if not p.exists():
         raise SystemExit(f"run --calibrate first ({p})")
     cal = json.loads(p.read_text(encoding="utf-8"))
     pt = OUT / "calibration_teardrop.json"
     cal["bt_max"] = json.loads(pt.read_text(encoding="utf-8"))["bt_max"] if pt.exists() else None
+    ps = OUT / "calibration_spike.json"
+    cal["bs_max"] = json.loads(ps.read_text(encoding="utf-8"))["bs_max"] if ps.exists() else None
     return cal
 
 
-def calibrate_teardrop(exclude: tuple[str, ...], per_session: int) -> dict:
+def calibrate_teardrop(exclude: tuple[str, ...], per_session: int, spike_clean: bool = False) -> dict:
     """`bt_max`: rule B's percentile, taken with each self frame re-read at
-    the self teardrop's centre.
+    the self teardrop's centre; with `spike_clean`, `bs_max` over the frames
+    whose stored spike reading shows no accepted glyph near the icon.
 
     Up to `per_session` scored `self_icon` frames per session, evenly
     spaced; each frame's crop from the minimap crop cache at the rectangle
     `self_icon` read it from; `teardrop.fit_teardrop` at the stored centre,
     scaled by `minimap.widget_scale`. Frames the teardrop refuses are
-    counted and left out, as the gate reads only teardrop fits."""
+    counted and left out, as the gate reads only teardrop fits. A frame with
+    no spike reading within SPIKE_GAP_MS is left out of the clean set too:
+    unread is not clean."""
     from reticle.minimap import widget_scale
     from reticle.teardrop import fit_teardrop
     refs = load_ally_portrait_references(STORE)
     fv = refs["features_version"]
-    per, fits = {}, []
+    per, fits, clean, frames = {}, [], [], []
     for p in sorted((STORE / "events" / "self_icon").glob("*.jsonl")):
         sid = p.stem
         if sid in exclude:
@@ -242,34 +302,63 @@ def calibrate_teardrop(exclude: tuple[str, ...], per_session: int) -> dict:
             continue
         x0, y0, x1, y1 = cache.rect_of("minimap")
         by_t = {float(r["t_ms"]): r for r in pick}
-        f_s, refused, missing = [], Counter(), 0
+        sp = SpikeRows(sid) if spike_clean else None
+        f_s, f_c, refused, missing, flags = [], [], Counter(), 0, Counter()
         got = {float(s.t_ms): s.frame[y0:y1, x0:x1] for s in cache.samples(sorted(by_t), rois=["minimap"])}
         for t, r in by_t.items():
             crop = got.get(t)
             if crop is None:
                 missing += 1
                 continue
-            tf = fit_teardrop(crop, r["cx"], r["cy"], scale=widget_scale(crop.shape[1]))
+            sc = widget_scale(crop.shape[1])
+            tf = fit_teardrop(crop, r["cx"], r["cy"], scale=sc)
             if not tf.get("read"):
                 refused[tf.get("reason")] += 1
                 continue
             g = gate(features_at(crop, tf["x"], tf["y"]), names, refs, math.inf)
-            if g["fit_side"] is not None:
-                f_s.append(g["fit_side"])
+            if g["fit_side"] is None:
+                continue
+            f_s.append(g["fit_side"])
+            if sp is not None:
+                fl = spike_flags(sp.at(t), r["cx"], r["cy"], sc)
+                why = ("spike_unread" if fl["spike"] == "unread" else "carrier" if fl["carrier"]
+                       else "on_glyph" if fl["on_glyph"] else "near" if fl["near"] else "clean")
+                flags[why] += 1
+                frames.append({"session": sid, "t_ms": t, "fit_side": g["fit_side"], "spike": why})
+                if why == "clean":
+                    f_c.append(g["fit_side"])
         per[sid] = {"picked": len(pick), "read": len(f_s), "refused": dict(refused), "missing": missing,
                     "width": int(x1 - x0), "fit_p50": round(float(np.median(f_s)), 3) if f_s else None,
                     "fit_p99": round(float(np.percentile(f_s, PERCENTILE)), 3) if f_s else None}
+        if sp is not None:
+            per[sid].update(spike_version=sp.version, spike=dict(flags), clean=len(f_c),
+                            clean_p99=round(float(np.percentile(f_c, PERCENTILE)), 3) if f_c else None)
         fits += f_s
+        clean += f_c
         print(sid, per[sid], flush=True)
     fits = np.asarray(fits)
-    return {"version": VERSION,
-            "rule": f"bt_max = P{PERCENTILE:g} of identity.rendered_art_fit at the self teardrop's centre "
-                    "(teardrop.fit_teardrop on the crop cache) of stored self_icon frames, to their ally set",
-            "exclude": list(exclude), "per_session_max": per_session, "frames": int(len(fits)),
-            "sessions": sorted(k for k, v in per.items() if v.get("read")),
-            "bt_max": round(float(np.percentile(fits, PERCENTILE)), 4),
-            "fit_pct": {str(q): round(float(np.percentile(fits, q)), 3) for q in (50, 90, 95, 97.5, 99)},
-            "reference_version": refs.get("version"), "features_version": fv, "per_session": per}
+    out = {"version": VERSION,
+           "rule": f"bt_max = P{PERCENTILE:g} of identity.rendered_art_fit at the self teardrop's centre "
+                   "(teardrop.fit_teardrop on the crop cache) of stored self_icon frames, to their ally set",
+           "exclude": list(exclude), "per_session_max": per_session, "frames": int(len(fits)),
+           "sessions": sorted(k for k, v in per.items() if v.get("read")),
+           "bt_max": round(float(np.percentile(fits, PERCENTILE)), 4),
+           "fit_pct": {str(q): round(float(np.percentile(fits, q)), 3) for q in (50, 90, 95, 97.5, 99)},
+           "reference_version": refs.get("version"), "features_version": fv, "per_session": per}
+    if spike_clean:
+        clean = np.asarray(clean)
+        # The B' tail: the 32 worst frames of every read frame, and how the
+        # spike reading sorts them (prediction S4).
+        tail = sorted(frames, key=lambda f: -f["fit_side"])[:32]
+        out.update(rule=f"bs_max = P{PERCENTILE:g} of the same fits over frames whose stored spike row "
+                        f"(within {SPIKE_GAP_MS:g} ms) shows no accepted glyph within {NEAR_PX:g} px x scale",
+                   clean_frames=int(len(clean)),
+                   bs_max=round(float(np.percentile(clean, PERCENTILE)), 4),
+                   clean_pct={str(q): round(float(np.percentile(clean, q)), 3) for q in (50, 90, 95, 97.5, 99)},
+                   spike=dict(Counter(f["spike"] for f in frames)),
+                   tail32=dict(Counter(f["spike"] for f in tail)), tail=tail,
+                   spike_gap_ms=SPIKE_GAP_MS, near_px=NEAR_PX)
+    return out
 
 
 # --------------------------------------------------------------- calibration
@@ -369,8 +458,9 @@ def item_class(it: dict, a: dict, cands: set, colour: str | None, glyphs: set = 
     return "true_icon"
 
 
-def label_rows(b_max: float, bt_max: float | None = None) -> list[dict]:
+def label_rows(b_max: float, bt_max: float | None = None, bs_max: float | None = None) -> list[dict]:
     import icon_facing_eval as ife
+    from reticle.minimap import widget_scale
     refs = load_ally_portrait_references(STORE)
     answers = lif.load_answers(lif.labels_path(STORE))
     index = json.loads((lif.items_dir(STORE) / "index.json").read_text(encoding="utf-8"))["items"]
@@ -378,6 +468,7 @@ def label_rows(b_max: float, bt_max: float | None = None) -> list[dict]:
     rows = []
     for sid in LABELLED:
         s = Lite(sid)
+        sp = SpikeRows(sid)
         lineup = load_lineup(sid, STORE)
         its = [it for it in index if it["session"] == sid and it["key"] in answers]
         crops = dict(s.crops(sorted({it["t_ms"] for it in its})))
@@ -405,7 +496,9 @@ def label_rows(b_max: float, bt_max: float | None = None) -> list[dict]:
                    "teardrop_reason": f.get("reason"), "x": round(x, 2), "y": round(y, 2),
                    "deg": f.get("deg"), "rests_on": "lineup", "gallery": len(names),
                    "gallery_reason": why}
-            row.update(gate(features_at(crop, x, y), names, refs, b_max, bt_max))
+            fl = spike_flags(sp.at(it["t_ms"]), cx, cy, widget_scale(crop.shape[1]))
+            row.update({f"spike_{k}": v for k, v in fl.items()})
+            row.update(gate(features_at(crop, x, y), names, refs, b_max, bt_max, bs_max, fl["carrier"]))
             # The detector's centre, for the record only: the rules read the teardrop's.
             gd = gate(features_at(crop, cx, cy), names, refs, b_max)
             row["det_fit_side"], row["det_B"] = gd["fit_side"], gd["B"]
@@ -447,11 +540,14 @@ def show_table(tab: dict, b_max: float) -> None:
 # -------------------------------------------------------------------- sample
 
 def sample_rows(n: int, b_max: float, bt_max: float | None = None,
-                sessions: tuple[str, ...] = SAMPLE_SESSIONS) -> tuple[list[dict], dict]:
+                sessions: tuple[str, ...] = SAMPLE_SESSIONS,
+                bs_max: float | None = None) -> tuple[list[dict], dict]:
+    from reticle.minimap import widget_scale
     refs = load_ally_portrait_references(STORE)
     rows, meta = [], {}
     for sid in sessions:
         s = Lite(sid)
+        sp = SpikeRows(sid)
         lineup = load_lineup(sid, STORE)
         gals = {side: side_gallery(lineup, side) for side in ("ally", "enemy")}
         meta[sid] = {"capture": s.capture, "gallery": {k: {"n": len(v[0]), "reason": v[1]}
@@ -469,7 +565,10 @@ def sample_rows(n: int, b_max: float, bt_max: float | None = None,
                     row = {"session": sid, "t_ms": float(t), "side": side, "x": round(f["x"], 2),
                            "y": round(f["y"], 2), "deg": round(f["deg"], 1), "ncc": round(f["ncc"], 3),
                            "rests_on": "lineup", "gallery": len(names), "gallery_reason": why}
-                    row.update(gate(features_at(crop, f["x"], f["y"]), names, refs, b_max, bt_max))
+                    fl = spike_flags(sp.at(t), d["cx"], d["cy"], widget_scale(crop.shape[1]))
+                    row.update({f"spike_{k}": v for k, v in fl.items()})
+                    row.update(gate(features_at(crop, f["x"], f["y"]), names, refs, b_max, bt_max,
+                                    bs_max, fl["carrier"]))
                     row["_crop"] = crop
                     rows.append(row)
         print(sid, "done", flush=True)
@@ -515,7 +614,11 @@ def tile(r: dict, K: int = 18, Z: int = 6) -> np.ndarray:
         top += f" {r['class'][:9]}"
     fs = "-" if r["fit_side"] is None else f"{r['fit_side']:.2f}"
     fa = "-" if r["fit_all"] is None else f"{r['fit_all']:.2f}"
-    flags = " ".join(f"{k}{'+' if r[k] else '-' if r[k] is False else '?'}" for k in ("A", "B", "Bt", "C"))
+    flags = " ".join(f"{k}{'+' if r[k] else '-' if r[k] is False else '?'}" for k in ("A", "Bt", "Bs", "C"))
+    if r.get("spike_carrier"):
+        flags += " CARRIER"
+    elif r.get("spike_spike") == "unread":
+        flags += " spike?"
     for i, text in enumerate((top, f"fit {fs} all {fa}", flags)):
         cv2.putText(big, text, (3, 13 + 14 * i), 0, 0.42, (0, 0, 0), 3)
         cv2.putText(big, text, (3, 13 + 14 * i), 0, 0.42, (255, 255, 255), 1)
@@ -540,7 +643,8 @@ def write_sheet(path: Path, rows: list[dict], cols: int = 8, limit: int = 64) ->
 
 def _deps(cal: dict) -> dict:
     return {"prototype": VERSION, "reader": it_.VERSION, "b_max": cal["b_max"],
-            "bt_max": cal.get("bt_max"), "a_fit_max": cal["a_fit_max"], "reference_version": cal["reference_version"],
+            "bt_max": cal.get("bt_max"), "bs_max": cal.get("bs_max"), "spike_gap_ms": SPIKE_GAP_MS,
+            "a_fit_max": cal["a_fit_max"], "reference_version": cal["reference_version"],
             "features_version": cal["features_version"], "rests_on": "lineup",
             "centre": "teardrop"}
 
@@ -550,7 +654,9 @@ def main(argv=None) -> int:
     ap.add_argument("--calibrate", action="store_true")
     ap.add_argument("--calibrate-teardrop", action="store_true",
                     help="rule Bt: the self frames re-read at the self teardrop's centre")
-    ap.add_argument("--per-session", type=int, default=60, help="--calibrate-teardrop: frames per session")
+    ap.add_argument("--calibrate-spike", action="store_true",
+                    help="rule Bs: as --calibrate-teardrop, over frames with no stored spike glyph near the icon")
+    ap.add_argument("--per-session", type=int, default=60, help="--calibrate-teardrop/-spike: frames per session")
     ap.add_argument("--labels", action="store_true")
     ap.add_argument("--sample", action="store_true")
     ap.add_argument("--sessions", nargs="+", default=list(SAMPLE_SESSIONS), help="--sample: sessions")
@@ -579,6 +685,28 @@ def main(argv=None) -> int:
                            context={"sessions": cal["sessions"]},
                            note="per-icon rendered-art fit of stored self_icon frames to their ally set")
         return 0
+    if args.calibrate_spike:
+        cal = calibrate_teardrop(tuple(SAMPLE_SESSIONS), args.per_session, spike_clean=True)
+        print(json.dumps({k: v for k, v in cal.items() if k not in ("per_session", "tail")}, indent=1))
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / "calibration_spike.json").write_text(json.dumps(cal, indent=1), encoding="utf-8")
+        if args.record:
+            metrics.record("icon_portrait_gate", part="calibration-spike",
+                           session="self_icon-" + str(len(cal["sessions"])),
+                           values={"frames": cal["frames"], "clean_frames": cal["clean_frames"],
+                                   "bs_max": cal["bs_max"]}
+                           | {f"clean_p{k}": v for k, v in cal["clean_pct"].items()}
+                           | {f"spike_{k}": v for k, v in cal["spike"].items()}
+                           | {f"tail32_{k}": v for k, v in cal["tail32"].items()},
+                           deps={"prototype": VERSION, "percentile": PERCENTILE, "exclude": cal["exclude"],
+                                 "per_session_max": cal["per_session_max"], "spike_gap_ms": SPIKE_GAP_MS,
+                                 "near_px": NEAR_PX, "reference_version": cal["reference_version"],
+                                 "features_version": cal["features_version"]},
+                           context={"sessions": cal["sessions"],
+                                    "spike_versions": sorted({str(v.get("spike_version"))
+                                                              for v in cal["per_session"].values()})},
+                           note="teardrop-centred self fits over frames with no stored spike glyph near the icon")
+        return 0
     if args.calibrate_teardrop:
         cal = calibrate_teardrop(tuple(SAMPLE_SESSIONS), args.per_session)
         print(json.dumps({k: v for k, v in cal.items() if k != "per_session"}, indent=1))
@@ -597,12 +725,15 @@ def main(argv=None) -> int:
                            note="per-icon rendered-art fit of stored self_icon frames at the self teardrop's centre")
         return 0
     cal = load_calibration()
-    suffix = "-bt" if cal.get("bt_max") is not None else ""
+    last = "Bs" if cal.get("bs_max") is not None else "Bt" if cal.get("bt_max") is not None else None
+    suffix = f"-{last.lower()}" if last else ""
     if args.labels:
-        rows = label_rows(cal["b_max"], cal.get("bt_max"))
+        rows = label_rows(cal["b_max"], cal.get("bt_max"), cal.get("bs_max"))
         tab = label_table(rows)
         show_table(tab, cal["b_max"])
-        print("bt_max", cal.get("bt_max"))
+        print("bt_max", cal.get("bt_max"), "bs_max", cal.get("bs_max"))
+        print("carrier-flagged:", [(r["side"], r["class"], r["key"]) for r in rows if r.get("spike_carrier")])
+        print("spike unread:", sum(r.get("spike_spike") == "unread" for r in rows))
         if args.sheet:
             order = {c: i for i, c in enumerate(CLASSES_ORDER)}
             write_sheet(args.sheet, sorted(rows, key=lambda r: (r["side"], order.get(r["class"], 9), r["t_ms"])),
@@ -625,16 +756,19 @@ def main(argv=None) -> int:
         return 0
     if args.sample:
         sessions = tuple(args.sessions)
-        rows, meta = sample_rows(args.n, cal["b_max"], cal.get("bt_max"), sessions)
+        rows, meta = sample_rows(args.n, cal["b_max"], cal.get("bt_max"), sessions, cal.get("bs_max"))
         tab = sample_table(rows)
         for k, d in tab.items():
             print(k, d)
         print(json.dumps(meta, indent=1))
+        print("carrier-flagged:", [(r["session"], r["t_ms"], r["side"], r["fit_side"], r[last] if last else None)
+                                   for r in rows if r.get("spike_carrier")])
+        print("spike unread:", sum(r.get("spike_spike") == "unread" for r in rows))
         rng = np.random.default_rng(20260929)
-        if suffix:
-            # Rule Bt's sheets: every fit it rejects, and a sample of those it keeps.
-            rej = [r for r in rows if r["Bt"] is False]
-            kept = [r for r in rows if r["Bt"]]
+        if last:
+            # The latest rule's sheets: every fit it rejects, and a sample of those it keeps.
+            rej = [r for r in rows if r[last] is False]
+            kept = [r for r in rows if r[last]]
         else:
             rej = [r for r in rows if r["B"] is False or r["C"] is False]
             kept = [r for r in rows if r["B"] and r["C"]]
@@ -643,8 +777,8 @@ def main(argv=None) -> int:
         kept.sort(key=lambda r: (r["side"], r["session"], r["t_ms"]))
         write_sheet(args.out / f"sample_rejected{suffix}.png", rej, limit=96)
         write_sheet(args.out / f"sample_kept{suffix}.png", kept, limit=48)
-        counts = Counter((r["side"], r["B"], r["Bt"], r["C"]) for r in rows)
-        print("side, B, Bt, C:", dict(counts))
+        counts = Counter((r["side"], r["Bt"], r["Bs"], r["C"]) for r in rows)
+        print("side, Bt, Bs, C:", dict(counts))
         if args.json:
             args.json.write_text(json.dumps([{k: v for k, v in r.items() if k != "_crop"} for r in rows],
                                             indent=1), encoding="utf-8")
