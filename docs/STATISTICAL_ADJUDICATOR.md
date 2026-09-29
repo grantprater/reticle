@@ -411,15 +411,104 @@ from the centre wins there too, `team_vision` takes the read facing in place of
 the ring fit's resolved lobe, under a new stamp, and the ring fit's centre gives
 way to the teardrop's.
 
+## E4: calibrate the origin and the angle
+
+The player answered on 2026-09-28: the rays look to start at the icon's centre,
+not the teardrop's point, and the exact point should be calibrated
+[domain:minimap/cone-origin-near-centre]. `prototypes/cone_origin.py`
+(`cone-origin-0.3.0`, task `statistical-adjudicator-e4`) fits the origin's
+offset from the teardrop's centre, along the read facing and across it, jointly
+with the half-angle: a grid of 1 px and 1 degree, scored by the pooled F1 of the
+cone against the drawn light within 90 px, outside the icon's own pixels. The
+first session is `e78e75b2d191` (Ascent, fit on even 3 s blocks, held out on
+odd ones); the second is `5822b6646448` (Lotus, C:\Users\grant\Videos\2026-08-26
+12-38-38.mp4), twenty 6 s windows spread over the match. Predictions were
+logged first. The instrument reproduces E3b: the teardrop-centre cone at 51.5
+degrees scores precision [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#instrument_precision=0.719]
+on E3b's frames.
+
+**The first witness failed on Lotus.** Every lit pixel in the region (`--witness
+all`) is mostly teammates' cones there: the cone covers
+[metric:cone_origin/e4@e78e75b2d191+5822b6646448#B_all_base_recall=0.333] of it,
+and the half-angle profile climbs to the grid's edge. The rerun keeps only the
+light joined to the self icon: lit components that touch a 3 px band round its
+footprint. That uses no facing, so it favours no origin or angle.
+
+| | Ascent fit half | Lotus |
+|---|---|---|
+| along the facing, px (95% block bootstrap) | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_along=-5.0] ([metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_along_lo=-10.0] to [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_along_hi=4.0]) | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_along=0.0] ([metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_along_lo=0.0] to [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_along_hi=2.0]) |
+| across it, px | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_across=2.0] ([metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_across_lo=1.0] to [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_across_hi=4.0]) | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_across=0.0] ([metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_across_lo=0.0] to [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_across_hi=0.0]) |
+| half-angle, deg | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_half=46.0] ([metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_half_lo=40.0] to [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_half_hi=56.0]) | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_half=53.0] ([metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_half_lo=52.0] to [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_half_hi=60.0]) |
+| frames (blocks) | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#frames_a_fit=121] ([metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#blocks_a=7]) | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#frames_b=904] ([metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#blocks_b=7] windows fitted) |
+
+| F1 against the joined light | (0, 0, 51.5) | Ascent fit | Lotus fit |
+|---|---|---|---|
+| Ascent held-out half | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#A_hold_base_f1=0.784] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#A_hold_fitA_f1=0.778] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#A_hold_fitB_f1=0.783] |
+| Lotus, every frame | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#B_all_base_f1=0.588] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#B_all_fitA_f1=0.535] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#B_all_fitB_f1=0.592] |
+
+The Ascent fit half's offset helps only its own frames: on the held-out half
+and on Lotus it scores below the uncalibrated cone. Its interval is wide because
+seven blocks of one short clip carry it. The held-out profiles agree with Lotus:
+the best along-offset is [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#profile_A_hold_along_peak=-1.0]
+px on Ascent's held-out half (F1 [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#profile_A_hold_along_peak_f1=0.788],
+against [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#profile_A_hold_along_0_f1=0.785] at the centre) and
+[metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#profile_B_all_along_peak=0.0] px on Lotus; the best half-angle is
+[metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#profile_A_hold_half_peak=50.0] and
+[metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#profile_B_all_half_peak=55.0] degrees, on flat tops that hold 51.5.
+
+**The facing on Lotus.** The teardrop is steady there: stationary jitter
+[metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_facing_jitter_rms20_deg=1.233] degrees and
+[metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_tip_jitter_rms_px=0.358] px over
+[metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_stationary_frames=41] windows, and the ring fit sits
+[metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_ring_offset_median_px=2.787] px off toward the apex.
+It reads on [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_read_rate=0.8] of frames with a self
+detection; the unread frames inspected are detections of a yellow ability icon
+in a stack of teammates, which the shape rightly refuses. Its agreement with the
+light is poor, and so is every witness's:
+
+| Read facing against | Ascent | Lotus | ring fit, Lotus |
+|---|---|---|---|
+| raw light's bisector: spread, deg | [metric:sliver_error_model/teardrop-tip@e78e75b2d191#light_spread_tip_deg=6.858] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_light_spread_tip_deg=24.994] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_light_spread_ring_deg=25.598] |
+| joined light's bisector: spread, deg | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_join_spread_tip_deg=6.846] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_join_spread_tip_deg=25.123] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_join_spread_ring_deg=24.47] |
+| light-fitted facing: median difference, deg | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_lf_abs_median_tip_deg=1.875] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_lf_abs_median_tip_deg=10.75] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_lf_abs_median_ring_deg=55.654] |
+| light-fitted facing: flipped | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#a_lf_flip_tip=0.014] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_lf_flip_tip=0.093] | [metric:cone_origin/e4b-joined@e78e75b2d191+5822b6646448#b_lf_flip_ring=0.4] |
+
+The light-fitted facing is the facing whose cone from the teardrop centre best
+matches the joined light; it was added after the bisectors failed, because the
+inspected Lotus frames showed walls cutting one side of the cone. It did not
+settle the question either. At 1287.7-1289.5 s on Lotus the read facing is +21
+to +37 degrees and the light-fitted one about -27; the zoomed crops show the
+lobe pointing right and down, and a lit wedge whose lower side a wall cuts,
+which cones at either facing draw. Lotus's corridors and stacked teammates
+leave the drawn light unable to tell a reader error from an occluded cone.
+
+**In plain words:** the rays start at the teardrop's centre. No offset beats
+it on held-out frames or on the second map, and the one offset fitted on
+Ascent alone is noise. 51.5 degrees stays. The teardrop's facing beats the ring
+fit on both sessions by every witness, but its precision on the second session
+is not confirmed: on Lotus it agrees with the light to a median 10.8 degrees
+where Ascent gives 1.9, and no light witness separates the reader from the
+walls there.
+
+**Should `team_vision` take them?** The origin, yes: cast from the teardrop's
+centre, no offset, at 51.5 degrees; this retires the ring fit's centre, which
+sits 2.8 to 4.4 px toward the apex. The facing, not yet: it needs the teardrop
+read first, a fallback for the fifth of Lotus frames where the detector hands
+it an ability icon, and a check against player labels of the facing on Lotus
+frames, where the light cannot judge it. Both changes go in together, under a
+new `team-vision` stamp, once the labels agree.
+
 ## What this plan does not settle
 
-- The half-angle stays at 51.5 degrees; its interval was not measured, and
-  E3b's origin result is confounded with it.
+- The half-angle's interval is wide: E4's flat tops run from about 48 to 58
+  degrees, and 51.5 sits inside both sessions' tops.
+- The read facing's accuracy on a second session: no drawn-light witness
+  separates it from occlusion on Lotus; player labels are the next instrument.
 - E3's read tip was checked by eye on contact sheets, not against player
   labels; its jitter is precision, not accuracy.
 - Wall edges (`BORDER`) were not perturbed; only box edges were.
 - E2's near-line group holds only a handful of held-out frames.
-- Calibration used one session and one map.
+- E1-E3 calibrated on one session and one map; E4 adds one Lotus session.
 - The flip rate is a floor, because `resolve_lobe` chose each lobe with the
   same light the bisector reads.
 - The facing spread is measured against the light's bisector, which a

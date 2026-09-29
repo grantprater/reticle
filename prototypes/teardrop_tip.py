@@ -3,8 +3,10 @@ r"""Read the self icon's teardrop tip as a shape: the cone's origin and facing.
     .\.venv\Scripts\python.exe prototypes\teardrop_tip.py [--sheet PATH] [--calibrate]
 
 E3 of [the statistical adjudicator](../docs/STATISTICAL_ADJUDICATOR.md). The
-player's cone spec puts the cone's origin at the icon's teardrop point
-[domain:minimap/cone-rays-stop-at-first-edge]. `minimap.icons` fits a circle to
+player's cone spec of 2026-09-02 put the cone's origin at the icon's teardrop
+point; he withdrew that on 2026-09-28 for about the icon's centre
+[domain:minimap/cone-origin-near-centre], and E4 (`cone_origin.py`) found no
+offset from this fit's centre that beats it. `minimap.icons` fits a circle to
 the thresholded self key and reads the facing from how far the key reaches past
 it; E2 placed a teardrop one fitted radius along that facing and the cone agreed
 worse with the drawn light. The E3 contact sheet shows why: the circle fit sits
