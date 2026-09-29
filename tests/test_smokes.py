@@ -103,6 +103,18 @@ class SmokeTracks(unittest.TestCase):
         got = smokes.tracks(rows, KNOWN)
         self.assertEqual(got[0]["onset_status"], "censored:unobserved")
 
+    def test_a_smoke_born_half_covered_is_not_born_again_when_uncovered(self):
+        # c40d950031bb, 367-385 s: a Miks smoke born beside a teammate's icon
+        # kept a small, off-centre birth disc, and the whole disc was born
+        # again 8 s later as a second track with the first one's end.
+        d = disc(200, 200, 16)
+        half = (XX > 194) & np.ones((H, 1), bool)
+        rows = session(lambda t: frame(t * 1000, d if 5 <= t < 23 else None,
+                                       half if t < 6 else None))
+        got = smokes.tracks(rows, KNOWN)
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["end_status"], "observed")
+
 
 if __name__ == "__main__":
     unittest.main()
