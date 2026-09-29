@@ -167,13 +167,20 @@ per check and pair. Each row shows the cached minimap three times, with each
 
 ## Confounders
 
-**The lineup moved during the run.** The player's scoreboard rescan wrote
-`scoreboard-0.13.0` on four sessions today. Against it, `load_lineup` refuses
-Breach and Deadlock on `a06f04a0059f` (margins 0.008 and 0.011), three slots
-on `5822b6646448` and Jett on `75a55a296d3b`. The earlier resample run named
-all four round-4 teammates on `a06f04a0059f`. This run names only Miks and
-Reyna there, at every rate, with nothing outside the oracle. The refusal hits
-every rate alike, so the comparison stays paired, but it caps the named share.
+**The run's checkout predated the rescan's reader.** The player's scoreboard
+rescan wrote `scoreboard-0.13.0` on several sessions today. This run's code
+(82e8499) knew only `scoreboard-0.12.0`, so `load_lineup` refused those
+boards as `stale_version scoreboard-0.13.0 != scoreboard-0.12.0` and fell
+back to the top bar alone. The top bar refuses Breach and Deadlock on
+`a06f04a0059f` (margins 0.008 and 0.011), three slots on `5822b6646448` and
+Jett on `75a55a296d3b`. The rescan changed no lineup: from storage, on every
+session with both streams, the 0.9.0 and the rescanned boards give the same
+five agents per side and the same name and margin in every slot, and current
+code names all ten slots on those three sessions, round 4's oracle included
+(`lineup.load_lineup` now reports such a board as `code_older_than_store`).
+This run names only Miks and Reyna on `a06f04a0059f`, at every rate, with
+nothing outside the oracle. The refusal hits every rate alike, so the
+comparison stays paired, but it caps the named share.
 On the two sessions whose lineups name all four teammates (`223d636bf8d2`,
 `a1a995e6b19b`):
 
