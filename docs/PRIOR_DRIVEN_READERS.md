@@ -489,7 +489,12 @@ bar, and the board's audit openings (guard 5).
   [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#welded_views_bound=213]
   of their
   [metric:killfeed_stack_order/weld@stored-hud~stack-order-20260929#welded_views_if_unwelded=358]
-  views: the old symptom, by a new path.
+  views: the old symptom, by a new path. The walk now lets a risen entry keep
+  its track (`death-adjudication-0.20.0`): welded entries fell to
+  [metric:killfeed_weld/walk-new@stored-hud~killfeed-weld-20260929#welded_entries=3],
+  each a rise with no empty sample between, and `checks.KNOWN_KD` stayed at
+  [metric:killfeed_weld/walk-new@stored-hud~killfeed-weld-20260929#known_kd_exact=13]
+  of 17 exact.
 - `follow_entry_portraits` skips a frame where two slots fit the key and
   stores nothing, so the ambiguity rate cannot be counted.
 - `tray_kit` accepts the player's kit as a lone candidate with no audit
