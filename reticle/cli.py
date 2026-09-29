@@ -2673,19 +2673,34 @@ def cmd_vision(args) -> int:
     stages (`widget_drawn`, `ally_icons`, `self_icons`, `lit_mask`) read the
     cached crops. A session with no cache or no geometry is reported and
     skipped, never guessed.
+
+    `--at-candidates` computes only the frames around each ability candidate's
+    instant (`team_vision.at`), after a warm-up of `--warmup-ms`; it writes
+    only where no full product is stored, and says so in its coverage row.
+    `--check` writes nothing: it compares what it computed with the stored
+    product at the same frames, which is how a speed change or the on-demand
+    form is shown to reproduce the full run.
     """
+    import time
     from collections import Counter
 
     from . import lighting, stalls
     from .minimap_diagnostics import DIAGNOSTICS_VERSION
     from .minimap_lifecycle import LIFECYCLE_VERSION
     from .roi_cache import ROI_CACHE_VERSION, RoiCache
-    from .team_vision import TeamVision, frame_row, load_inputs
+    from .team_vision import TeamVision, at, compare_rows, frame_row, load_inputs
     from .track import TRACK_VERSION
     from .version import TEAM_VISION_VERSION
 
     store = Store(args.store)
     targets = store.sessions() if args.all else [_resolve_session(store, args.session)]
+    warmup_ms = args.warmup_ms
+    instants = None
+    if args.at_candidates:
+        from .adjudication.ability import _components, _labels
+        instants = {}
+        for c in _components(store.root, _labels(store.root)):
+            instants.setdefault(c["session_id"], set()).add(float(c["observed_t_ms"]))
     for manifest in targets:
         sid = manifest["session_id"]
         profile = get_profile(manifest["source_profile"])
@@ -2705,39 +2720,75 @@ def cmd_vision(args) -> int:
             print(f"{sid}: cache rect {cache.rect_of('minimap')} does not hold the widget "
                   f"box {list(inputs.box)} -- skipped")
             continue
+        if instants is not None and not instants.get(sid):
+            print(f"{sid}: no ability candidates -- skipped")
+            continue
+        stored = (store.read_events("team_vision", sid)
+                  if store.events_path("team_vision", sid).is_file() else [])
+        stored_mode = next((r.get("mode", "full") for r in stored
+                            if r.get("kind") == "coverage"), None)
+        if args.check and not stored:
+            print(f"{sid}: no stored team_vision to check against -- skipped")
+            continue
         inputs.stalls = stalls.for_session(store, sid, _date_of(manifest))
-        vision = TeamVision.from_inputs(inputs)
         common = {"session_id": sid, "team_vision_version": TEAM_VISION_VERSION}
         rows, widget = [], Counter()
         times = sorted({float(t) for t in cache.t_ms})
-        for smp in cache.samples(times, rois=["minimap"]):
-            got = vision.step(smp.frame[y0:y1, x0:x1], smp.t_ms)
-            widget[got.widget] += 1
-            rows.append({**common, **frame_row(got, smp.frame_idx)})
+        started = time.perf_counter()
+        if instants is not None:
+            got = at(cache, inputs, sorted(instants[sid]), warmup_ms=warmup_ms,
+                     distance_diagnostics=False)
+        else:
+            vision = TeamVision.from_inputs(inputs, distance_diagnostics=False)
+            got = ((smp.frame_idx, vision.step(smp.frame[y0:y1, x0:x1], smp.t_ms))
+                   for smp in cache.samples(times, rois=["minimap"]))
+        for frame_idx, frame in got:
+            widget[frame.widget] += 1
+            rows.append({**common, **frame_row(frame, frame_idx)})
             if len(rows) % 500 == 0:
                 sys.stdout.write(f"\r  {sid}  {len(rows)}/{len(times)} frames")
                 sys.stdout.flush()
         sys.stdout.write("\r" + " " * 60 + "\r")
-        rows.insert(0, {**common, "kind": "coverage", "frames": len(rows),
-                        "cache_frames": len(times), "widget": dict(sorted(widget.items())),
-                        "source": "roi_cache/minimap", "roi_cache_version": ROI_CACHE_VERSION,
-                        "cache_hz": cache.record.get("hz"),
-                        "geometry_key": inputs.geometry_key,
-                        "lighting_version": (lighting.LIGHTING_VERSION
-                                             if inputs.light is not None else None),
-                        "track_version": TRACK_VERSION,
-                        "lifecycle_version": LIFECYCLE_VERSION,
-                        "diagnostics_version": DIAGNOSTICS_VERSION,
-                        "stall_version": stalls.STALL_VERSION,
-                        "stalls_known": inputs.stalls is not None,
-                        # `overlay`'s default: no origin-event file, so an
-                        # appearance is eligible only at a boundary or by continuity.
-                        "origin_events": 0,
-                        "notes": inputs.notes})
+        elapsed = time.perf_counter() - started
+        if args.check:
+            cmp = compare_rows(rows, stored)
+            differ = cmp.pop("differ_at_ms")
+            print(f"{sid}: checked {cmp['frames']} computed frames against the stored "
+                  f"{stored_mode} product in {elapsed:.0f} s: {cmp['missing']} missing, "
+                  f"{cmp['rows_equal']} rows equal, {cmp['masks_equal']} masks equal, "
+                  f"{cmp['icons_equal_but_ids']} icon lists equal less track ids"
+                  + (f"; masks differ at {differ[:10]} ms" if differ else ""))
+            continue
+        if instants is not None and stored_mode == "full":
+            print(f"{sid}: a full team_vision product is stored; the {len(rows)} on-demand "
+                  f"frames ({elapsed:.0f} s) are not written over it -- use --check")
+            continue
+        coverage = {**common, "kind": "coverage", "frames": len(rows),
+                    "cache_frames": len(times), "widget": dict(sorted(widget.items())),
+                    "source": "roi_cache/minimap", "roi_cache_version": ROI_CACHE_VERSION,
+                    "cache_hz": cache.record.get("hz"),
+                    "geometry_key": inputs.geometry_key,
+                    "lighting_version": (lighting.LIGHTING_VERSION
+                                         if inputs.light is not None else None),
+                    "track_version": TRACK_VERSION,
+                    "lifecycle_version": LIFECYCLE_VERSION,
+                    "diagnostics_version": DIAGNOSTICS_VERSION,
+                    "stall_version": stalls.STALL_VERSION,
+                    "stalls_known": inputs.stalls is not None,
+                    # `overlay`'s default: no origin-event file, so an
+                    # appearance is eligible only at a boundary or by continuity.
+                    "origin_events": 0,
+                    "notes": inputs.notes}
+        if instants is not None:
+            # Track ids count from each warm-up's start; see `team_vision.at`.
+            coverage.update(mode="at_instants", instants=len(instants[sid]),
+                            warmup_ms=warmup_ms)
+        rows.insert(0, coverage)
         out = store.write_events("team_vision", sid, rows)
         drawn = widget.get("drawn", 0)
         print(f"{sid}: {len(rows) - 1} frames, {drawn} drawn, "
-              f"{widget.get('not_drawn', 0)} no widget, {widget.get('stale', 0)} stale -> {out}")
+              f"{widget.get('not_drawn', 0)} no widget, {widget.get('stale', 0)} stale "
+              f"in {elapsed:.0f} s -> {out}")
     return 0
 
 
@@ -4712,6 +4763,14 @@ def build_parser() -> argparse.ArgumentParser:
                                       "(minimap crop cache; decodes no capture)")
     s.add_argument("session", nargs="?")
     s.add_argument("--all", action="store_true", help="every session with a minimap crop cache")
+    s.add_argument("--at-candidates", action="store_true",
+                   help="only the frames around each ability candidate's instant")
+    s.add_argument("--warmup-ms", type=float, default=None,
+                   help="cap the chain's history before each instant with "
+                        "--at-candidates (default: from the last cache gap, which "
+                        "reproduces the full run; a cap may not)")
+    s.add_argument("--check", action="store_true",
+                   help="write nothing; compare the computed frames with the stored product")
     s.set_defaults(func=cmd_vision)
 
     s = sub.add_parser("ability-light", help="store the drawn light at ability candidates (opens media)")

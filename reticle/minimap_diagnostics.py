@@ -32,9 +32,16 @@ def light_support(x, y, lit, known, scale=1.0):
     if lit is None or known is None:
         return {"lit": None, "known": None, "fraction": None,
                 "reason": "lighting unavailable"}
-    yy, xx = np.ogrid[:lit.shape[0], :lit.shape[1]]
+    # Only the window around the icon can hold the annulus; the same
+    # distances are computed there as over the whole widget.
+    reach = SUPPORT_OUTER_PX * scale
+    h, w = lit.shape
+    y0, y1 = max(0, int(np.floor(y - reach)) - 1), min(h, int(np.ceil(y + reach)) + 2)
+    x0, x1 = max(0, int(np.floor(x - reach)) - 1), min(w, int(np.ceil(x + reach)) + 2)
+    lit, known = lit[y0:y1, x0:x1], known[y0:y1, x0:x1]
+    yy, xx = np.ogrid[y0:y1, x0:x1]
     d2 = (xx - x) ** 2 + (yy - y) ** 2
-    region = known & (d2 > (R_MAX * scale) ** 2) & (d2 <= (SUPPORT_OUTER_PX * scale) ** 2)
+    region = known & (d2 > (R_MAX * scale) ** 2) & (d2 <= reach ** 2)
     n = int(region.sum())
     k = int((region & lit).sum())
     return {"lit": k, "known": n, "fraction": k / n if n else None,

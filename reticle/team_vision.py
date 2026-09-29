@@ -131,7 +131,7 @@ class TeamVision:
 
     def __init__(self, floor, passable, sgray, *, width: int, slab=None, static=None,
                  light=None, stalls=None, origin_events=(), track_self=None,
-                 track_ally=None, lifecycle=None):
+                 track_ally=None, lifecycle=None, distance_diagnostics=True):
         self.floor, self.passable, self.sgray = floor, passable, sgray
         self.slab, self.static, self.light = slab, static, light
         self.stalls, self.origin_events = stalls, tuple(origin_events or ())
@@ -140,15 +140,26 @@ class TeamVision:
         self.track_self = track_self if track_self is not None else Tracker("walker", scale=self.scale)
         self.track_ally = track_ally if track_ally is not None else Tracker("walker", scale=self.scale)
         self.lifecycle = lifecycle if lifecycle is not None else Lifecycle(scale=self.scale)
+        #: `distance_agreement` is a diagnostic `overlay` shows and nothing
+        #: stores or decides on; it was 29% of `reticle vision`'s time, and
+        #: the stored product runs without it.
+        self.distance_diagnostics = distance_diagnostics
 
     @classmethod
-    def from_inputs(cls, inputs: VisionInputs, origin_events=()):
+    def from_inputs(cls, inputs: VisionInputs, origin_events=(), **kw):
         x0, _y0, x1, _y1 = inputs.box
         return cls(inputs.floor, inputs.passable, inputs.sgray, width=x1 - x0,
                    slab=inputs.slab, static=inputs.static, light=inputs.light,
-                   stalls=inputs.stalls, origin_events=origin_events)
+                   stalls=inputs.stalls, origin_events=origin_events, **kw)
 
-    def step(self, crop: np.ndarray, t_ms: float) -> VisionFrame:
+    def step(self, crop: np.ndarray, t_ms: float, masks: bool = True) -> VisionFrame:
+        """Advance the chain one frame.
+
+        `masks=False` advances every stateful stage -- trackers, principal,
+        lifecycle -- and casts no union cone: a warm-up frame whose masks
+        nobody reads. Such a frame returns `observable` None and is never a
+        stored row.
+        """
         known_stalls = self.stalls
         # **A frozen source is not an observation.** The stall fact is the
         # source's, read from stored primitives (`stalls`). An ABSENT widget
@@ -196,8 +207,11 @@ class TeamVision:
 
         # Three-tuples ONLY: `resolved`'s fourth element is `interpolated`,
         # and `observable`'s fourth is a per-icon HALF-ANGLE.
-        agg, _per = cone_mod.observable(
-            self.passable, [(bx, by, deg) for bx, by, deg, _ in resolved], visible=self.floor)
+        agg = per_icon = None
+        if masks:
+            agg, per_icon = cone_mod.observable(
+                self.passable, [(bx, by, deg) for bx, by, deg, _ in resolved],
+                visible=self.floor)
 
         by_pos = {(round(bx), round(by)): deg for bx, by, deg, _ in resolved}
         known = self.light.known if self.light is not None else None
@@ -219,9 +233,11 @@ class TeamVision:
             "raw_allies": raw_allies, "raw_self": raw_selves,
             "light_budget": {"lit": int(lit.sum()) if lit is not None else None,
                              "known": int(known.sum()) if known is not None else None},
-            "distance_agreement": distance_agreement(
+        }
+        if masks and self.distance_diagnostics:
+            diagnostic["distance_agreement"] = distance_agreement(
                 agg, lit, known, [(x, y) for x, y, deg, _ in resolved if deg is not None],
-                self.scale)}
+                self.scale)
         adjudicated = self.lifecycle.step(diagnostic, self.origin_events)
         diagnostic["lifecycle_version"] = LIFECYCLE_VERSION
         diagnostic["adjudication"] = adjudicated
@@ -231,12 +247,16 @@ class TeamVision:
         adjudicated_resolved = [
             (x, y, deg if f"{role}:{tr.tid}" in eligible else None, carried)
             for (role, tr), (x, y, deg, carried) in zip(tracked, resolved)]
-        adjudicated_agg, _ = cone_mod.observable(
-            self.passable, [(x, y, deg) for x, y, deg, _ in adjudicated_resolved],
-            visible=self.floor)
-        diagnostic["adjudicated_distance_agreement"] = distance_agreement(
-            adjudicated_agg, lit, known,
-            [(x, y) for x, y, deg, _ in adjudicated_resolved if deg is not None], self.scale)
+        # The eligible cones are a subset of the cones just cast, at the same
+        # origins and bearings; their union is taken, not cast again.
+        adjudicated_agg = None if not masks else cone_mod.union(
+            [m for m, (_x, _y, deg, _c) in zip(per_icon, adjudicated_resolved)
+             if deg is not None], self.passable.shape)
+        if masks and self.distance_diagnostics:
+            diagnostic["adjudicated_distance_agreement"] = distance_agreement(
+                adjudicated_agg, lit, known,
+                [(x, y) for x, y, deg, _ in adjudicated_resolved if deg is not None],
+                self.scale)
         return VisionFrame(t_ms, "drawn", diagnostic, allies=allies, selves=selves,
                            principal=principal, resolved=resolved,
                            adjudicated_resolved=adjudicated_resolved, tracked=tracked,
@@ -272,3 +292,107 @@ def frame_row(frame: VisionFrame, frame_idx: int | None = None) -> dict:
                widget_px=floor, reason=None)
     return row
 
+
+
+def at_plan(times, instants, warmup_ms: float | None = None, expiry_ms: float = 500.0):
+    """The cached frames to step for vision at `instants`, as runs.
+
+    Each instant asks for the cached frames on either side of it, so a reader
+    taking the nearest stored frame finds the same one it would find in the
+    full product. **The chain starts at the last reset before each frame**: a
+    gap in the cache longer than `expiry_ms`, across which every track and
+    every lifecycle anchor expires on elapsed time. The lifecycle carries
+    eligibility by continuity for as long as an entity is seen, so a shorter
+    warm-up is not the full run: on a06f04a0059f a 10 s warm-up missed the
+    full run's mask at some candidate frames. `warmup_ms` caps the warm-up
+    anyway, for a caller that accepts that.
+
+    Overlapping windows merge into one run. Returns
+    `[(frame_times, emit_times)]`, each run in time order; `emit_times` are the
+    frames whose rows are wanted.
+    """
+    T = np.asarray(sorted({float(t) for t in times}), float)
+    if not T.size:
+        return []
+    resets = T[np.r_[True, np.diff(T) > expiry_ms]]
+    want = set()
+    for t in instants:
+        i = int(np.searchsorted(T, float(t)))
+        for j in (i - 1, i):
+            if 0 <= j < T.size:
+                want.add(float(T[j]))
+    runs: list[tuple[list, set]] = []
+    for f in sorted(want):
+        start = float(resets[np.searchsorted(resets, f, side="right") - 1])
+        if warmup_ms is not None:
+            start = max(start, f - warmup_ms)
+        frames = T[(T >= start) & (T <= f)]
+        if runs and runs[-1][0][-1] >= frames[0]:
+            last, emit = runs[-1]
+            last.extend(float(x) for x in frames if x > last[-1])
+            emit.add(f)
+        else:
+            runs.append(([float(x) for x in frames], {f}))
+    return runs
+
+
+def at(cache, inputs, instants, warmup_ms: float | None = None, **kw):
+    """Vision rows at `instants` only: `[(frame_idx, VisionFrame)]` in time order.
+
+    The on-demand form of the full run, for an adjudicator that needs a few
+    instants. Each run of `at_plan` starts a fresh chain; its warm-up frames
+    advance the trackers and the lifecycle and cast no union cone. The reset
+    gap is the chain's own expiry, asked of its trackers and lifecycle.
+
+    Two things cross a reset and so differ from the full run: track ids,
+    which count from each run's start, and the self tracker's memory of the
+    principal's last position (`track.Tracker.principal`), which picks among
+    several self tracks after a gap. `--check` counts where either shows.
+    """
+    x0, y0, x1, y1 = inputs.box
+    probe = TeamVision.from_inputs(inputs, **kw)
+    expiry = max(probe.track_self.max_gap_ms, probe.track_ally.max_gap_ms,
+                 probe.lifecycle.max_gap_ms)
+    out = []
+    for frames, emit in at_plan(cache.t_ms, instants, warmup_ms, expiry):
+        vision = TeamVision.from_inputs(inputs, **kw)
+        for smp in cache.samples(frames, rois=["minimap"]):
+            got = vision.step(smp.frame[y0:y1, x0:x1], smp.t_ms, masks=smp.t_ms in emit)
+            if smp.t_ms in emit:
+                out.append((smp.frame_idx, got))
+    return out
+
+
+def compare_rows(computed: list[dict], stored: list[dict]) -> dict:
+    """Compare frame rows by time: identical rows, masks, and icons less ids.
+
+    `computed` rows missing from `stored` count as missing; the session and
+    version fields are not compared.
+    """
+    skip = ("session_id", "team_vision_version")
+    by_t = {float(r["t_ms"]): r for r in stored if r.get("kind") == "frame"}
+
+    def bare(r):
+        return {k: v for k, v in r.items() if k not in skip}
+
+    def icons(r):
+        return [{k: v for k, v in i.items() if k != "track_id"} for i in r.get("icons") or []]
+
+    got = {"frames": 0, "missing": 0, "rows_equal": 0, "masks_equal": 0,
+           "icons_equal_but_ids": 0, "differ_at_ms": []}
+    for r in computed:
+        if r.get("kind") != "frame":
+            continue
+        got["frames"] += 1
+        s = by_t.get(float(r["t_ms"]))
+        if s is None:
+            got["missing"] += 1
+            continue
+        same_masks = (r.get("observable") == s.get("observable")
+                      and r.get("observable_all") == s.get("observable_all"))
+        got["rows_equal"] += bare(r) == bare(s)
+        got["masks_equal"] += same_masks
+        got["icons_equal_but_ids"] += icons(r) == icons(s)
+        if not same_masks:
+            got["differ_at_ms"].append(float(r["t_ms"]))
+    return got

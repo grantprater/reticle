@@ -475,12 +475,26 @@ def widget_drawn(crop: np.ndarray, sgray: np.ndarray, floor: np.ndarray,
     session where it is unusually high -- a LOW rate is the ambiguous reading,
     not a high one.
     """
-    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float64)[floor]
-    sg = np.asarray(sgray, dtype=np.float64)[floor]
+    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)[floor].astype(np.float64)
+    sg, sg_sq = _static_side(sgray, floor)
     g = g - g.mean()
-    sg = sg - sg.mean()
-    den = float(np.sqrt((g * g).sum() * (sg * sg).sum()))
+    den = float(np.sqrt((g * g).sum() * sg_sq))
     return den > 0 and float((g * sg).sum() / den) >= min_corr
+
+
+#: `widget_drawn`'s static half, `(sgray, floor, centred, sum of squares)`,
+#: for the last reference asked about. The reference does not change frame to
+#: frame, so a scan computes it once rather than once per frame.
+_STATIC_SIDE: list = [None, None, None, None]
+
+
+def _static_side(sgray, floor):
+    c = _STATIC_SIDE
+    if c[0] is not sgray or c[1] is not floor:
+        sg = np.asarray(sgray, dtype=np.float64)[floor]
+        sg = sg - sg.mean()
+        c[:] = [sgray, floor, sg, (sg * sg).sum()]
+    return c[2], c[3]
 
 
 # --------------------------------------------------------------- ring fitting
@@ -1067,10 +1081,11 @@ def ally_icons(crop: np.ndarray, floor: np.ndarray, *, static: np.ndarray | None
     is decided and no field is added -- so a caller holding baked geometry
     should pass it.
     """
-    found = icons(ally_mask(crop), crop, floor, seed=seed, **kw)
-    if static is None:
+    teal = ally_mask(crop)
+    found = icons(teal, crop, floor, seed=seed, **kw)
+    if static is None or not found:
         return found
-    keyed = ally_mask(crop) | self_mask(crop)
+    keyed = teal | self_mask(crop)
     grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
     ref = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float32)
     _mark_barriers(found, keyed, grey, ref)
