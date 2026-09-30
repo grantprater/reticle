@@ -2231,8 +2231,14 @@ a footstep reference is per surface: keep one template per surface variant
 and never average variants into one; the surface a step names is also a
 coarse place witness
 """
-exceptions = "which surfaces, and how many beyond three, is open until the player's review of the demo"
-see = ["abilities/jump-surface-variants", "abilities/ability-sound-phases"]
+exceptions = """
+which surfaces, and how many beyond three, is still open: the player's review
+of the demo accepted the agent's spectral clusters (fA-fE) without naming a
+surface. The clusters follow surfaces in long runs, but a few steps carry the
+wrong cluster (see abilities/footstep-shuffled-sample-pool)
+"""
+see = ["abilities/jump-surface-variants", "abilities/ability-sound-phases",
+       "abilities/footstep-audio-loop-belief", "abilities/footstep-shuffled-sample-pool"]
 
 [jump-surface-variants]
 claim = """
@@ -2251,3 +2257,59 @@ variant nearest in spectrum
 """
 exceptions = "that jump variants match footstep variants is unverified; the demo review tests it"
 see = ["abilities/footstep-surface-variants"]
+
+[footstep-audio-loop-belief]
+claim = """
+The player believes the footstep audio loops for a given surface, and says he
+is not sure. He also notes that most of the demo's walking was continuous,
+with no single steps.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+subject = "movement:audio"
+source = "the player, 2026-09-29 (chat), after reviewing the range demo's candidates"
+use = """
+a belief to test, not to build on: a fixed loop would make the next step's
+sample predictable
+"""
+exceptions = """
+tested 2026-09-29 on the range demo (prototypes/sound_bank.py loop): samples
+do recur, so a step is an exact template, but not in a fixed order; on the
+best-sampled surface each of 8 samples plays once per 8 steps in a new order
+each cycle (abilities/footstep-shuffled-sample-pool). "Loops" holds for the
+set of samples, not for their order
+"""
+see = ["abilities/footstep-surface-variants", "abilities/footstep-shuffled-sample-pool"]
+
+[footstep-shuffled-sample-pool]
+claim = """
+A surface's footsteps replay recorded samples unchanged, with no pitch
+jitter, drawn as a shuffled cycle: on the range demo's best-sampled surface,
+eight samples each play once in every block of eight steps, in a different
+order each block, and the cycle continues across pauses and across stretches
+on other surfaces. Samples of one surface resemble each other; samples of
+different surfaces do not.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-09-29"
+subject = "movement:audio"
+source = """
+prototypes/sound_bank.py loop on the range demo a01863947bab
+(C:/Users/grant/Videos/2026-09-29 18-50-03.mp4), 153 labelled walking steps,
+metric series sound_bank/loop
+"""
+use = """
+footstep references are the samples themselves, per surface; matching a step
+to its sample names the surface. A sample's last play predicts the next
+block's candidates but not its order
+"""
+exceptions = """
+one clip and one agent. The cycle of eight is shown for one surface (70
+steps); a second surface fits a cycle of seven or eight only when the agent's
+clusters define its pool; the third has too few repeats to test. The test
+cannot see samples it never heard twice, and the clip's reverb and mix lower
+duplicate scores
+"""
+see = ["abilities/footstep-surface-variants", "abilities/footstep-audio-loop-belief"]
