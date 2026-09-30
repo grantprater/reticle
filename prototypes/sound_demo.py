@@ -62,7 +62,9 @@ every sound is classified by the HUD event around it; the order supplies the
 phases after the guns (drop and pickup, step-off and walking, Iso) and the
 "three singles first" check, and each disagreement stays on the candidate.
 Answers go to `<store>/labels/sound_demo_20260930.jsonl`. Predictions are
-under `range-demo-2-20260930`.
+under `range-demo-2-20260930`. `sound_labels.py` parses the `other` answers'
+free-text names into structured labels beside each labels file, and
+`sound_bank2.py` builds bank v2 from them.
 """
 from __future__ import annotations
 
