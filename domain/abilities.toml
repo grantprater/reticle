@@ -924,7 +924,7 @@ subject = "astra:stars"
 source = """
 player, 2026-09-29 (chat), naming the unknown glyph at 223d636bf8d2 630 s:
 "astra's star which is placed down and can be turned into either her smoke,
-her concuss, or her grav well". The slot names are the catalogue's for his
+her concuss, or her grav well". The slot names are the catalogue's for the player's
 words smoke, concuss and grav well
 """
 use = """
@@ -1007,7 +1007,7 @@ see = ["abilities/gekko-wingman-plants-spike", "minimap/spike-glyph",
 [gekko-wingman-reclaim-or-expire]
 claim = """
 After a Wingman is used it stays on the map for Gekko to pick up; picking it
-up recharges his Wingman. If he does not, it expires on a timer.
+up recharges Gekko's Wingman. If Gekko does not, it expires on a timer.
 """
 kind = "lifecycle"
 known = "player"
@@ -1016,7 +1016,7 @@ subject = "gekko:wingman"
 source = """
 player, 2026-09-29 (chat): "gekko goes to pick it up and recharges it,
 otherwise it would have expired on a timer", and "by "it" for gekko I mean
-his wingman ability". The timer's length is unknown. He later confirmed it
+his wingman ability". The timer's length is unknown. The player later confirmed it
 for all four of Gekko's abilities (abilities/gekko-abilities-drop-pickups)
 """
 use = """
@@ -1056,7 +1056,7 @@ see = ["abilities/catalogue-restock-and-ult-points-confirmed",
 
 [gekko-mosh-pit-drops-pickup]
 claim = """
-Gekko's Mosh Pit drops an interactable thing that he can pick up, which
+Gekko's Mosh Pit drops an interactable thing that Gekko can pick up, which
 restocks Mosh Pit within the round. This is a later change to the game: Mosh
 Pit used to drop nothing.
 """
@@ -1076,7 +1076,7 @@ see = ["abilities/gekko-abilities-drop-pickups"]
 
 [gekko-dizzy-drops-pickup]
 claim = """
-Gekko's Dizzy drops an interactable thing that he can pick up, which
+Gekko's Dizzy drops an interactable thing that Gekko can pick up, which
 restocks Dizzy within the round.
 """
 kind = "lifecycle"
@@ -1093,7 +1093,7 @@ see = ["abilities/gekko-abilities-drop-pickups"]
 
 [gekko-thrash-drops-pickup]
 claim = """
-Gekko's Thrash drops an interactable thing that he can pick up, which
+Gekko's Thrash drops an interactable thing that Gekko can pick up, which
 restocks Thrash within the round.
 """
 kind = "lifecycle"
@@ -1406,9 +1406,9 @@ since = "2026-09-26"
 subject = "minimap:ability-icon"
 source = """
 the player, 2026-09-26; the list is the player's and is not complete. On
-2026-09-29 he restated it as a white-tinted area, most of them circular, and
+2026-09-29 the player restated it as a white-tinted area, most of them circular, and
 named Chamber's trip, Veto's trip and Deadlock's Sonic Sensor among a few
-more he did not name; each named one has its own fact
+more the player did not name; each named one has its own fact
 """
 use = """
 read the icon and its pale ring or box as one entity: the region is part of
@@ -1420,7 +1420,7 @@ unexplained
 """
 exceptions = """
 the radius of each ability's area is unmeasured; the player says the areas
-are not yet measured well. Which of the abilities he did not name draw one
+are not yet measured well. Which of the abilities the player did not name draw one
 is never inferred from these
 """
 see = ["abilities/minimap-thrown-ability-icon", "minimap/icon-extent-by-family",
@@ -1439,9 +1439,9 @@ since = "2026-09-29"
 subject = "chamber:trademark"
 source = """
 the player, 2026-09-29 (chat), naming Chamber's trip among the abilities
-that draw a white-tinted area; he calls it the trip, and Trademark is
+that draw a white-tinted area; the player calls it the trip, and Trademark is
 Chamber's one trap in the catalogue. Later the same day, shown Sunset
-e37fdeca944f at 1795.08 s, he named "chamber's trademark" at top mid: an
+e37fdeca944f at 1795.08 s, the player named "chamber's trademark" at top mid: an
 observed instance, which confirms the trip is Trademark
 """
 use = "seek the icon with its white-tinted area; floor inside the area reads lit"
@@ -1461,9 +1461,9 @@ since = "2026-09-29"
 subject = "veto:chokehold"
 source = """
 the player, 2026-09-29 (chat), naming Veto's trip among the abilities that
-draw a white-tinted area; on 2026-09-26 he listed Chokehold with a pale
+draw a white-tinted area; on 2026-09-26 the player listed Chokehold with a pale
 region [domain:abilities/minimap-icon-pale-region]. Later on 2026-09-29,
-asked on the mechanics sheet whether Veto's trip means Chokehold, he
+asked on the mechanics sheet whether Veto's trip means Chokehold, the player
 answered yes
 """
 use = "seek the icon with its white-tinted area; floor inside the area reads lit"
@@ -1485,7 +1485,7 @@ since = "2026-09-29"
 subject = "deadlock:sonic sensor"
 source = """
 the player, 2026-09-29 (chat), naming the Sonic Sensor among the abilities
-that draw a white-tinted area; he listed it with a pale region on
+that draw a white-tinted area; the player listed it with a pale region on
 2026-09-26 [domain:abilities/minimap-icon-pale-region]
 """
 use = """
@@ -1512,7 +1512,7 @@ since = "2026-09-29"
 subject = "minimap:piloted-drone"
 source = """
 the player, 2026-09-29 (chat), asked what lights the minimap floor where no
-team cone reaches; he named no drone
+team cone reaches; the player named no drone
 """
 use = """
 a lit wedge from no teammate's icon may be a drone's cone; which abilities
@@ -2122,7 +2122,7 @@ subject = "abilities:restock"
 source = """
 player, 2026-09-29 (chat), answering the mechanics sheet's `harvest: ...?`
 cells (docs/ABILITY_MECHANICS_SHEET.md), which listed each harvest value as a
-question: every one looks right to him
+question: every one looks right to the player
 """
 use = """
 a consumer that needs an ability's restock or ultimate points reads the
@@ -2238,8 +2238,8 @@ see = ["abilities/skye-seekers-track-and-blind", "abilities/ability-rules-are-un
 claim = """
 SUPERSEDED by the player on 2026-09-29 [domain:abilities/clove-dead-smoke-range-circle].
 The belief was: Skye's Seekers in slot X draw a large white-tinted circle on
-the minimap. The player believed so from one frame; he had never noticed it
-before. He now attributes that circle to the team's dead Clove's smoke range.
+the minimap. The player believed so from one frame and had never noticed it
+before. The player now attributes that circle to the team's dead Clove's smoke range.
 """
 kind = "appearance"
 known = "player"
@@ -2247,9 +2247,9 @@ since = "2026-09-29"
 subject = "skye:seekers"
 source = """
 the player, 2026-09-29 (chat), shown Sunset e37fdeca944f at 1795.08 s: a
-large circle that seems to have been created by Skye's ult. His beliefs,
+large circle that seems to have been created by Skye's ult. The player's beliefs,
 unverified: the centre may be where the enemies are, and the radius may be
-the Seekers' search range. Later the same day he withdrew it: the circle
+the Seekers' search range. Later the same day the player withdrew it: the circle
 may have shown the smoke placement range of the team's Clove
 """
 use = """
@@ -2302,17 +2302,17 @@ known = "player"
 since = "2026-09-29"
 subject = "clove:ruse"
 source = """
-the player, 2026-09-29 (chat), over five answers. He withdrew his Skye
+the player, 2026-09-29 (chat), over five answers. The player withdrew the Skye
 reading of the circle at Sunset e37fdeca944f 1795.08 s, whose lineup
 (lineup-0.3.0) names Clove among the allies, and named Clove by the
-smallest range; he first called Brimstone's and Miks's menus possible
-sources too. In both circles he saw the Clove was dead. He checked a living
-Clove himself at 2:37 of the Lotus capture C:/Users/grant/Videos/2026-09-28
-14-18-06.mp4 (not yet ingested): the menu open, no circle, which he took to
-confirm the circle is Clove's alone and only after death. He answered that
+smallest range; the player first called Brimstone's and Miks's menus possible
+sources too. In both circles the player saw the Clove was dead. The player checked a living
+Clove at 2:37 of the Lotus capture C:/Users/grant/Videos/2026-09-28
+14-18-06.mp4 (not yet ingested): the menu open, no circle, which the player took to
+confirm the circle is Clove's alone and only after death. The player answered that
 the centre is the death location, that it shows only while the menu is
 open, and that it looked to linger a split second after the smoke was
-placed at 0:58 of the same capture, where the Clove was dead. He named that
+placed at 0:58 of the same capture, where the Clove was dead. The player named that
 file for both Lotus sightings; neither is in the store's Lotus capture
 5822b6646448
 """
@@ -2435,13 +2435,13 @@ see = ["abilities/gekko-wingman-plant-minimap", "abilities/skye-trailblazer-enem
 [gekko-wingman-straight-bounce]
 claim = """
 Wingman moves only in straight lines and bounces off walls at the reflection
-angle. The player states this as he recalls it.
+angle. The player states this from recollection.
 """
 kind = "rule"
 known = "player"
 since = "2026-09-29"
 subject = "gekko:wingman"
-source = "the player, 2026-09-29 (chat), as he recalls it"
+source = "the player, 2026-09-29 (chat), from recollection"
 use = """
 a glyph whose track is piecewise straight with mirror turns at walls may be a
 Wingman; a walker turns anywhere. Check the recollection on a track before a
@@ -2480,7 +2480,7 @@ see = ["abilities/jump-surface-variants", "abilities/ability-sound-phases",
 [jump-surface-variants]
 claim = """
 A jump's sound also varies by surface. The player believes the jump
-variants match the footstep variants; that part is his belief, unverified.
+variants match the footstep variants; that part is a belief, unverified.
 """
 kind = "rule"
 known = "player"
@@ -2497,8 +2497,8 @@ see = ["abilities/footstep-surface-variants"]
 
 [footstep-audio-loop-belief]
 claim = """
-The player believes the footstep audio loops for a given surface, and says he
-is not sure. He also notes that most of the demo's walking was continuous,
+The player believes the footstep audio loops for a given surface, and is
+not sure. The player also notes that most of the demo's walking was continuous,
 with no single steps.
 """
 kind = "rule"

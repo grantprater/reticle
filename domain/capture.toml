@@ -59,8 +59,8 @@ the first game-audio capture is the probe
 
 [weapon-skins-picked-up]
 claim = """
-The player equipped no weapon skins at the start of his 2026-09 matches, but
-he may have picked up guns other players dropped, which carry their owners'
+The player equipped no weapon skins at the start of the 2026-09 matches, but
+the player may have picked up guns other players dropped, which carry their owners'
 skins. The player agrees that such a skin can change a gun's equip and firing
 sounds.
 """
@@ -69,7 +69,7 @@ known = "player"
 since = "2026-09-29"
 subject = "capture:loadout"
 source = """
-the player, 2026-09-29 (chat), asked whether he used weapon skins in matches
+the player, 2026-09-29 (chat), asked about weapon skins in matches
 that the range recording does not cover
 """
 use = """
