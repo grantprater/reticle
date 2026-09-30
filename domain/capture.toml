@@ -83,3 +83,62 @@ change sounds is the player's agreement for equip and firing sounds only;
 nothing here claims how much, or for which skins
 """
 see = ["capture/game-audio-track-only", "minimap/self-audio-circle"]
+
+[minimap-size-settings]
+claim = """
+The game has two separate minimap settings: the widget's total size and the
+map's scaling inside it. The widget size sets how many screen px the widget
+takes; the map scaling sets how large the map, and every in-game distance
+drawn on it, is painted inside the widget. From 2026-09-30 the player intends
+to capture at the largest widget size and the largest map scaling. That is an
+intent, not an observation: no capture at those settings is in the store.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-09-30"
+subject = "capture:minimap"
+source = """
+the player, 2026-09-30 (chat), asked why the self audio circle measures
+differently on the Split capture 4f207c0c4e39 and on Lotus 5822b6646448
+[domain:minimap/self-audio-circle]: the audio
+range is one in-game distance on every map, drawn at a size map scaling sets,
+and the game has separate widget-size and map-scaling sliders. The player
+then stated the intent to capture at the largest of both
+"""
+use = """
+a drawn size (the self audio circle [domain:minimap/self-audio-circle], a
+dead Clove's circle, an ability area) is a constant per (map, map scaling),
+not per widget px: a capture at other settings needs its own measurement or
+a stated transform. Run clip_preflight against a same-map donor on the first
+capture at the new settings before scanning
+"""
+exceptions = """
+the settings of the stored captures are not recorded; each stored session's
+widget scale comes from its fitted placement, and its map scaling is known
+only through the baked geometry it matches
+"""
+see = ["capture/largest-scaling-shows-whole-map-belief", "capture/session-pixels-are-not-the-map",
+       "minimap/widget-ring"]
+
+[largest-scaling-shows-whole-map-belief]
+claim = """
+At the largest map scaling the minimap still shows the whole map, perhaps
+clipping a small corner. The player believes this from having used the
+setting before; it is not observed on any stored capture.
+"""
+kind = "geometry"
+known = "player"
+since = "2026-09-30"
+subject = "capture:minimap"
+source = """
+the player, 2026-09-30 (chat), asked whether the largest map scaling still
+shows the whole map
+"""
+use = """
+the falsifier is the first capture at the new settings
+[domain:capture/minimap-size-settings]: clip_preflight against a same-map
+donor shows whether the baked map fits inside the widget or a corner is cut.
+Until then no reader may assume the whole map lies inside the widget at that
+scaling; a clipped corner is missing floor, not unlit floor
+"""
+see = ["capture/minimap-size-settings", "minimap/widget-ring"]

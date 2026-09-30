@@ -279,6 +279,15 @@ explosion radius; whether the spike's explosion is itself drawn on the
 minimap is a separate, uncertain belief
 [domain:minimap/spike-explosion-drawn-belief].
 
+The circle follows the self icon: its centre is the icon's, not the place a
+sound was made. Its audio range is the same in-game distance on every map,
+and its drawn size is set by the minimap's map-scaling setting, which is
+separate from the widget's size [domain:capture/minimap-size-settings]. So a
+radius in px holds for one map at one scaling and predicts nothing in px on
+another: [metric:audio_circle/per-frame@4f207c0c4e39#large_r_median=74.86] px on the Split capture below and
+[metric:audio_circle/radius-38-56@5822b6646448#r_baked=108.45] px on Lotus 5822b6646448 are one range at
+two scales.
+
 A reload draws a smaller circle while no footstep sounds, and a footstep's
 circle supersedes it, so the two sizes alternate when steps and a reload
 overlap. That a reload's audio range is smaller than a footstep's is the
@@ -329,7 +338,10 @@ switching weapons or picking up a gun at 903.8-904.6 s" without naming which;
 the HUD there reads magazine 2, then 0 of 40, then 25 of 5, which looks like a
 gun change, so which action drew the reload circle is open. In the same
 answers the player explained the smaller circle as a reload while no footstep
-sounds, superseded by footsteps, and judged the reload's range smaller
+sounds, superseded by footsteps, and judged the reload's range smaller.
+The player, 2026-09-30 (chat), asked about the Sunset circle 17 px off the
+self icon: the circle follows the self icon; the audio range is the same
+in-game distance on every map, drawn at a size the map-scaling setting sets
 """
 use = """
 floor inside the circle reads as lit floor to a lighting reader, though no
@@ -364,7 +376,8 @@ among its best guesses, with two ally slots unresolved
 """
 see = ["minimap/no-teammate-floor-circle", "abilities/minimap-icon-pale-region",
        "capture/weapon-skins-picked-up", "minimap/spike-explosion-drawn-belief",
-       "abilities/silent-stepping", "abilities/footstep-surface-variants"]
+       "abilities/silent-stepping", "abilities/footstep-surface-variants",
+       "capture/minimap-size-settings"]
 
 [spike-explosion-drawn-belief]
 claim = """
@@ -557,7 +570,8 @@ see = ["minimap/enemy-death-mark"]
 claim = """
 The minimap widget's boundary is a circle that circumscribes the map painting.
 On Ascent it touches the map at the B-site boathouse, the leftmost point, and
-at A site's top-right corner.
+at A site's top-right corner. The faint ring drawn round the widget in every
+frame is this boundary (the player's reading, 2026-09-30).
 """
 kind = "geometry"
 known = "player"
@@ -566,7 +580,9 @@ source = """
 the player. A faint drawn ring fitted in the baked base maps sits below the ROI
 centre, about (+1, +15) px on the bigmap profile and (-5, +7) px on the standard
 one, because the ROI includes the location label band; its fitted radius is not
-yet stable across maps.
+yet stable across maps. The player, 2026-09-30 (chat), asked what the faint
+ring round the widget centre in every frame is (docs/SCENE_MODEL.md, 0.4.0's
+open questions), answered that it is the widget boundary
 """
 use = """
 a radar mask must contain the whole map; a circle inscribed in the ROI clips map
