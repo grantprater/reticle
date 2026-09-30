@@ -1419,8 +1419,9 @@ lighting reader: explain such light by the ability before calling it
 unexplained
 """
 exceptions = """
-the radius of each ability's area is unmeasured; the player says the areas
-are not yet measured well. Which of the abilities the player did not name draw one
+each ability's area is measured in its own fact or not at all: Trademark's
+and the Sonic Sensor's are measured, and neither lights the floor; the
+others are unmeasured. Which of the abilities the player did not name draw one
 is never inferred from these
 """
 see = ["abilities/minimap-thrown-ability-icon", "minimap/icon-extent-by-family",
@@ -1430,25 +1431,63 @@ see = ["abilities/minimap-thrown-ability-icon", "minimap/icon-extent-by-family",
 
 [chamber-trademark-minimap-white-area]
 claim = """
-Chamber's trip, read here as Trademark in slot C, draws a white-tinted area
-on the minimap round its icon, mostly circular.
+Chamber's Trademark in slot C draws a circle on the minimap centred on its
+icon: a white rim of tint alpha about 0.45, over floor and void alike, round
+an interior tinted about 0.13-0.16 over floor. The circle's widget radius
+follows the map's zoom: about 30 px at scale 1 on Split, Haven and Sunset,
+27 on Ascent. The tint does not light the floor.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-30"
+subject = "chamber:trademark"
+source = """
+the player, 2026-09-29 (chat), named Chamber's trip among the abilities that
+draw a white-tinted area, and named Trademark on Sunset e37fdeca944f at
+1795.08 s; on 2026-09-30 (chat) the player named Trademarks on bfad2778a372
+at 1682.250 s and 223d636bf8d2 at 882.300 s. prototypes/drawn_areas.py
+measured those three and 9acf02f98283 at 1047.333 s on the crop cache
+(metric series drawn_areas): circle centre within 1 px of the icon, rim
+alpha 0.41-0.51, radius 30.7 (Split), 29.9 (Haven), 30.9 (Sunset), 27.2
+(Ascent). A cone crossing the circle lifts its floor as much as floor
+outside, so the area is a tint, not light
+"""
+use = """
+seek the icon with its circle; the radius to expect is the map's, not one
+constant. Floor inside the circle is tinted, not lit: a lighting reader
+that learned the tint as lit (team_vision's reference on bfad2778a372)
+reads it wrong
+"""
+exceptions = """
+open: the interior's tint over void read -0.10 at bfad2778a372 and +0.16 at
+223d636bf8d2. How long the circle lasts is censored by crop-cache gaps on
+every instance but one, which ended at 914.3 s on 223d636bf8d2 for an unread
+reason
+"""
+see = ["abilities/minimap-icon-pale-region", "abilities/ability-rules-are-unique",
+       "abilities/chamber-rendezvous-minimap-white-radius"]
+
+[chamber-rendezvous-minimap-white-radius]
+claim = """
+Chamber's Rendezvous in slot E draws a white radius on the minimap, also once
+it has expired or been deactivated.
 """
 kind = "appearance"
 known = "player"
-since = "2026-09-29"
-subject = "chamber:trademark"
-source = """
-the player, 2026-09-29 (chat), naming Chamber's trip among the abilities
-that draw a white-tinted area; the player calls it the trip, and Trademark is
-Chamber's one trap in the catalogue. Later the same day, shown Sunset
-e37fdeca944f at 1795.08 s, the player named "chamber's trademark" at top mid: an
-observed instance, which confirms the trip is Trademark
+since = "2026-09-30"
+subject = "chamber:rendezvous"
+source = "the player, 2026-09-30 (chat)"
+use = """
+seek the Rendezvous only in a match whose lineup holds Chamber; its circle
+is not a Trademark's, and nothing about its shape or radius follows from the
+Trademark's [domain:abilities/ability-rules-are-unique]
 """
-use = "seek the icon with its white-tinted area; floor inside the area reads lit"
 exceptions = """
-the radius is unmeasured
+the appearance is unmeasured: a ring search on 400 frames of the five
+Chamber sessions (prototypes/drawn_areas.py rendezvous) identified no
+Rendezvous, and nobody has been shown one
 """
-see = ["abilities/minimap-icon-pale-region", "abilities/ability-rules-are-unique"]
+see = ["abilities/chamber-trademark-minimap-white-area", "abilities/ability-rules-are-unique"]
 
 [veto-chokehold-minimap-white-area]
 claim = """
@@ -1476,28 +1515,39 @@ see = ["abilities/minimap-icon-pale-region", "abilities/ability-rules-are-unique
 
 [deadlock-sonic-sensor-minimap-white-area]
 claim = """
-Deadlock's Sonic Sensor in slot Q draws a white-tinted area on the minimap
-round its icon, mostly circular.
+Deadlock's Sonic Sensor in slot Q draws an axis-aligned square on the
+minimap, about 26 px on a side at scale 1, with the sensor's icon on the
+midpoint of one side. The square is a flat white tint of alpha about 0.17
+with no brighter rim, drawn over void too. It does not light the floor. A
+dim (deactivated) sensor draws no square.
 """
 kind = "appearance"
-known = "player"
-since = "2026-09-29"
+known = "observed"
+since = "2026-09-30"
 subject = "deadlock:sonic sensor"
 source = """
-the player, 2026-09-29 (chat), naming the Sonic Sensor among the abilities
-that draw a white-tinted area; the player listed it with a pale region on
-2026-09-26 [domain:abilities/minimap-icon-pale-region]
+the player, 2026-09-29 (chat), named the Sonic Sensor among the abilities
+that draw a white-tinted area, after listing it with a pale region on
+2026-09-26 [domain:abilities/minimap-icon-pale-region]; on 2026-09-30 (chat)
+the player named two sensor squares on 5822b6646448 at 1901.083 s.
+prototypes/drawn_areas.py measured those and two on a06f04a0059f at 513.5 s
+on the crop cache (metric series drawn_areas): 25-29 by 24-33 px (a
+standing cone widened the C-site one on 5822b6646448 to 35), interior
+alpha 0.16-0.18, rim 0.18-0.20, 0.17 over void. A cone crossing the square
+lifts its floor as much as floor outside, so the square is a tint, not
+light. The same two a06f04a0059f sensors dim at 1106.3 s and 1245.7 s and
+show no square there
 """
 use = """
-seek the icon with its white-tinted area; floor inside the area reads lit.
-The sensor's icon disc is 24 px across on the 465 px widget
-[domain:minimap/icon-extent-by-family]; the white area's radius is another
-quantity
+seek the icon with its square, which extends from one side of the icon
+only. The sensor's icon disc is 24 px across on the 465
+px widget [domain:minimap/icon-extent-by-family]. Floor inside the square is
+tinted, not lit
 """
 exceptions = """
-the area's radius is unmeasured; a dim (deactivated) sensor
-[domain:minimap/device-dim-on-deactivation] may or may not keep its area,
-and nobody has asked
+every measured square was axis-aligned; whether a sensor placed at another
+angle draws a rotated square is unasked. Durations are censored by
+crop-cache gaps; 17-83 s were seen
 """
 see = ["abilities/minimap-icon-pale-region", "minimap/device-dim-on-deactivation",
        "abilities/ability-rules-are-unique"]

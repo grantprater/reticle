@@ -896,12 +896,44 @@ the occluders come from the white lines of the baked static
 warp loses thin lines; a ray stops at the first white-line pixel
 """
 exceptions = """
-open: whether a stretch of one-pixel line is a doorway or a low edge a player
-can see across. E1b of the statistical adjudicator found the lines it tested
-opaque everywhere but left the local question open
+a line with plain floor directly on its other side is no wall but a raised edge:
+it bounds a ramp or an elevation change, and light crosses it
+[domain:minimap/raised-edge-lines]. Open: whether a stretch of one-pixel
+line is a doorway or a low edge a player can see across. E1b of the
+statistical adjudicator found the lines it tested opaque everywhere but left
+the local question open
 """
-see = ["minimap/cone-rays-stop-at-first-edge", "minimap/boxes-block-unless-raised"]
+see = ["minimap/cone-rays-stop-at-first-edge", "minimap/boxes-block-unless-raised",
+       "minimap/raised-edge-lines"]
 phrases = ["bright white lines are walls", "white lines are walls"]
+
+[raised-edge-lines]
+claim = """
+A white line with plain floor directly on its other side is a raised edge,
+not a wall. It marks a ramp or an elevation change that does not affect
+vision or a box's effect on vision: light crosses it, and it marks no
+heaven. On Ascent the line under the self icon at e78e75b2d191 8.833 s
+bounds a ramp, and the A Link corridor indicators show raised parts; B Main
+has void between its wall line and the site's, so those lines are walls.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), reading e78e75b2d191 at 8.833 s and Ascent's A Link and B Main"
+use = """
+split the baked static's white lines by what lies directly beyond each:
+void beyond is a wall, floor beyond is a raised edge that stops no ray
+(prototypes/raised_edges.py, not wired). Heavens are read from the floor
+shading, never from these lines
+"""
+exceptions = """
+the baked occluders still treat every white line as a wall; the wiki art
+classes the ground beside the 8.833 s line as a ramp but shades it in steps,
+which is unasked
+"""
+see = ["minimap/white-lines-are-walls", "minimap/boxes-block-unless-raised",
+       "minimap/floor-shade-is-elevation"]
+phrases = ["raised edge"]
 
 [boxes-block-unless-raised]
 claim = """
