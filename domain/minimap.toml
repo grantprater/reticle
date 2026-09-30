@@ -1019,9 +1019,39 @@ frames; no clipped icon is drawn
 """
 use = """
 a self reader at the largest settings reads the triangle as "self off the
-painted map, bearing given by the triangle's place on the ring", not as a
-missing self. Whether the triangle points toward the player, and whether
-teammates or enemies get one, is not observed
+painted map, near the triangle's place on the ring", not as a missing self.
+It reads no facing from the triangle and no bearing from its apex. Whether
+teammates or enemies get one is not observed
+"""
+exceptions = """
+the direction is open. The player (2026-09-30, chat) read the triangle as
+pointing toward the player or along the player's facing. On this clip it does
+neither as those were tested (prototypes/lotus_elevation.py marker): in all
+[metric:lotus_elevation/marker@2026-09-30_13-37-46#n_marker=80] marker frames
+the apex points map-up, image
+[metric:lotus_elevation/marker@2026-09-30_13-37-46#apex_up_min=264.0] to
+[metric:lotus_elevation/marker@2026-09-30_13-37-46#apex_up_max=268.0] degrees
+(270 is up; top rows
+[metric:lotus_elevation/marker@2026-09-30_13-37-46#top_w=3.3] px wide, bottom
+rows [metric:lotus_elevation/marker@2026-09-30_13-37-46#bottom_w=10.7] px), and
+turns at most
+[metric:lotus_elevation/marker@2026-09-30_13-37-46#apex_span_max=10.0] degrees.
+Facing: in the second gap the camera turned the facing over
+[metric:lotus_elevation/marker@2026-09-30_13-37-46#facing_span_max=41.6]
+degrees, ending at
+[metric:lotus_elevation/marker@2026-09-30_13-37-46#gap2_end_facing=29.5] where
+the teardrop reads
+[metric:lotus_elevation/marker@2026-09-30_13-37-46#gap2_next_teardrop=32.6] on
+re-entry (camera integration error
+[metric:lotus_elevation/marker@2026-09-30_13-37-46#check_1s_median_err=6.6]
+degrees per second on posed stretches); the triangle did not follow. Bearing:
+the ring radial through the marker runs
+[metric:lotus_elevation/marker@2026-09-30_13-37-46#radial_min=202.1] to
+[metric:lotus_elevation/marker@2026-09-30_13-37-46#radial_max=209.2] degrees,
+about 60 from the apex. A bearing to the true off-widget position is
+untested, since that position is unobserved: pointing up fits a self due
+north of the marker, inside the cut region. A clip that leaves the widget
+across a side or bottom cut would separate "toward the player" from "map-up"
 """
 see = ["capture/largest-scaling-shows-whole-map-belief", "minimap/widget-ring"]
 

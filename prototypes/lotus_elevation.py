@@ -21,7 +21,8 @@ and Lotus loses a small corner
 ([metric:lotus_elevation/ring@2026-09-30_13-25-33#outside_px=122] px)
 [domain:capture/largest-scaling-shows-whole-map-belief]. A self in the cut
 corner is drawn as a blue triangle on the ring
-[domain:minimap/off-widget-self-marker].
+[domain:minimap/off-widget-self-marker]; `marker` finds its apex fixed at
+map-up while the facing turns, off the ring radial by about 60 degrees.
 
 Jump witness. The first-person camera's vertical motion
 (`cv2.phaseCorrelate` on the small main view): a rise of at least 5 px with
@@ -1022,16 +1023,116 @@ def placement(record: bool = False, step: int = 50):
     return v
 
 
+def marker_direction(record: bool = False):
+    """Which way the off-widget self marker points: the bearing to the self,
+    or the self's facing (the player's two readings, 2026-09-30 (chat)).
+
+    The triangle is near equilateral, so its rotation is read mod 120 degrees
+    from the third complex moment of its mask, and the vertex nearest map-up
+    is reported (`apex_up`, image degrees, 270 = up). The rows' width from top
+    to bottom says which vertex is the apex. The facing witness in a gap is
+    the last teardrop facing plus the camera's integrated horizontal motion,
+    scaled by a fit of teardrop turns against camera motion on posed frames;
+    its 1 s error on posed stretches is reported beside it. The bearing
+    witness is the ring radial through the marker (the nearest ring point to
+    an off-widget self)."""
+    rows, _, _ = load_frames()
+    ts, mm = crops()
+    cc = json.loads((OUT / "clipped_corner.json").read_text())
+    cx, cy = cc["ring"]["cx"], cc["ring"]["cy"]
+    w = np.load(OUT / "witness.npz")
+    # A frame whose phase correlation found no peak (response under 0.1; one
+    # frame at 54.80 s reads 716 px at response 0) carries no motion reading;
+    # it counts as no turn and is reported, never integrated.
+    bad = w["cam_resp"] < 0.1
+    dx = np.where(bad, 0.0, w["cam_dx"])
+    wrap = lambda a: (a + 180) % 360 - 180
+    pairs = [(wrap(b["deg"] - a["deg"]), dx[i]) for i, (a, b) in enumerate(zip(rows[:-1], rows[1:]), 1)
+             if a.get("deg") is not None and b.get("deg") is not None and abs(wrap(b["deg"] - a["deg"])) < 30]
+    pd, pc = np.array(pairs).T
+    k = float((pd * pc).sum() / (pc * pc).sum())
+    chk = []
+    for a in range(0, len(rows) - 20, 20):
+        seg = rows[a:a + 21]
+        if all(r.get("deg") is not None for r in seg):
+            chk.append((wrap(seg[-1]["deg"] - seg[0]["deg"]), float(dx[a + 1:a + 21].sum() * k)))
+    chk = np.array(chk)
+    gaps, cur = [], []
+    for i, r in enumerate(rows):
+        if r.get("deg") is None:
+            cur.append(i)
+        elif cur:
+            gaps.append(cur); cur = []
+    out = []
+    for g in [g for g in gaps + [cur] if len(g) >= 5 and rows[g[0] - 1].get("deg") is not None]:
+        fac, recs, cum = rows[g[0] - 1]["deg"], [], 0.0
+        for i in g:
+            cum += dx[i] * k
+            im = mm[i].astype(int)
+            m = (im[..., 0] > 170) & (im[..., 2] < 90) & (im[..., 0] - im[..., 1] > 60)
+            n, lab, st, _ = cv2.connectedComponentsWithStats(m.astype(np.uint8))
+            if n < 2 or st[1 + int(np.argmax(st[1:, 4])), 4] < 15:
+                continue
+            b = lab == 1 + int(np.argmax(st[1:, 4]))
+            ys, xs = np.nonzero(b)
+            z = (xs - xs.mean()) + 1j * (ys - ys.mean())
+            m3 = (np.angle((z ** 3).sum(), deg=True) / 3) % 120
+            wid = b[np.nonzero(b.any(1))[0]].sum(1)
+            recs.append({"t": rows[i]["t"], "apex_up": 240 + m3, "top_w": float(wid[:3].mean()),
+                         "bottom_w": float(wid[-3:].mean()),
+                         "radial": float(np.degrees(np.arctan2(ys.mean() - cy, xs.mean() - cx)) % 360),
+                         "facing": fac + cum})
+        ap_ = np.array([q["apex_up"] for q in recs])
+        fp = np.array([q["facing"] for q in recs])
+        out.append({"t0": rows[g[0]]["t"], "t1": rows[g[-1]]["t"], "n": len(recs), "last_facing": fac,
+                    "no_motion_frames": int(bad[g].sum()), "end_facing": float(fp[-1] % 360),
+                    "next_teardrop": rows[g[-1] + 1].get("deg") if g[-1] + 1 < len(rows) else None,
+                    "apex_up_median": float(np.median(ap_)), "apex_span": float(ap_.max() - ap_.min()),
+                    "facing_span": float(fp.max() - fp.min()),
+                    "facing_1s_max": float(max([abs(fp[j + 20] - fp[j]) for j in range(len(fp) - 20)]
+                                               or [abs(fp[-1] - fp[0])])),
+                    "radial_min": min(q["radial"] for q in recs), "radial_max": max(q["radial"] for q in recs),
+                    "top_w": float(np.median([q["top_w"] for q in recs])),
+                    "bottom_w": float(np.median([q["bottom_w"] for q in recs])), "frames": recs})
+    res = {"version": VERSION, "calib_deg_per_px": k, "check_1s_n": len(chk),
+           "check_1s_median_err": float(np.median(np.abs(chk[:, 1] - chk[:, 0]))),
+           "check_1s_corr": float(np.corrcoef(chk[:, 0], chk[:, 1])[0, 1]), "gaps": out}
+    (OUT / "marker_direction.json").write_text(json.dumps(res, indent=1))
+    for q in out:
+        print({kk: (round(v, 1) if isinstance(v, float) else v) for kk, v in q.items() if kk != "frames"})
+    print({kk: round(v, 2) for kk, v in res.items() if isinstance(v, float)})
+    if record:
+        from reticle import metrics
+        v = {"check_1s_median_err": round(res["check_1s_median_err"], 1), "check_1s_corr": round(res["check_1s_corr"], 2),
+             "apex_span_max": round(max(q["apex_span"] for q in out), 1),
+             "facing_1s_max": round(max(q["facing_1s_max"] for q in out), 1),
+             "radial_min": round(min(q["radial_min"] for q in out), 1),
+             "radial_max": round(max(q["radial_max"] for q in out), 1),
+             "apex_up_min": round(min(q["apex_up_median"] for q in out), 1),
+             "apex_up_max": round(max(q["apex_up_median"] for q in out), 1),
+             "top_w": round(max(q["top_w"] for q in out), 1), "bottom_w": round(min(q["bottom_w"] for q in out), 1),
+             "n_marker": sum(q["n"] for q in out),
+             "facing_span_max": round(max(q["facing_span"] for q in out), 1),
+             "gap2_end_facing": round(out[-1]["end_facing"], 1),
+             "gap2_next_teardrop": round(out[-1]["next_teardrop"], 1),
+             "no_motion_frames": sum(q["no_motion_frames"] for q in out)}
+        metrics.record(Path(__file__).stem, part="marker", session=SESSION, values=v,
+                       deps={"version": VERSION, "geometry": KEY}, context={"capture": VID},
+                       note="off-widget self marker direction against the ring radial and the camera-integrated facing")
+    return res
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["extract", "witness", "occluders", "events", "sheets", "summarize",
-                                    "placement", "corner"])
+                                    "placement", "corner", "marker"])
     ap.add_argument("--clip", choices=sorted(CLIPS), default="lotus")
     ap.add_argument("--record", action="store_true")
     a = ap.parse_args(argv)
     idle()
     use(a.clip)
-    steps = {"occluders": occluders, "summarize": summarize, "placement": placement, "corner": clipped_corner}
+    steps = {"occluders": occluders, "summarize": summarize, "placement": placement, "corner": clipped_corner,
+             "marker": marker_direction}
     if a.cmd in steps:
         steps[a.cmd](a.record)
     else:
