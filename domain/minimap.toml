@@ -269,12 +269,33 @@ see = ["minimap/dead-teammate-light-belief", "minimap/spike-casts-no-light-belie
 [self-audio-circle]
 claim = """
 The minimap draws a pale, white-tinted circle round the self icon, which the
-player calls the self audio circle. The player believes it is drawn on every sound
-the self makes and lingers after it. Its radius is fixed whatever the sound: it is
-the audio range, and the same radius as the spike's explosion. It is drawn
-for the player's own icon only: not round teammates, and not round a
-spectated player. So it marks only the player's own sounds, while alive and
-in the player's own view.
+player calls the self audio circle. It is drawn for the player's own icon
+only: not round teammates, and not round a spectated player. The player
+believes it is drawn only while running. The player's own shots at
+4f207c0c4e39 901.0-902.5 s and 1120.9-1122.9 s drew none. Its radius is the
+audio range, which equals the spike's explosion radius; whether the spike's
+explosion is itself drawn on the minimap is a separate, uncertain belief
+[domain:minimap/spike-explosion-drawn-belief].
+
+Observed on 4f207c0c4e39 (`C:\\Users\\grant\\Videos\\2026-09-27 19-40-58.mp4`,
+Split widget, 331 baked px) by per-frame fits (`prototypes/audio_circle.py
+score --per-frame`): the normal circle measures [metric:audio_circle/per-frame@4f207c0c4e39#large_r_median=74.86] px (sd
+[metric:audio_circle/per-frame@4f207c0c4e39#large_r_sd=0.16], [metric:audio_circle/per-frame@4f207c0c4e39#large_fits=1793] frames). It is the only size the player knows, and
+the player names it the spike-radius circle. Within a run it neither grows
+nor shrinks as it fades (median change
+[metric:audio_circle/per-frame@4f207c0c4e39#run_abs_last_minus_second_median=0.09] px).
+
+A smaller circle, unexplained, is kept as an observation: [metric:audio_circle/per-frame@4f207c0c4e39#small_r_median=69.14] px
+(sd [metric:audio_circle/per-frame@4f207c0c4e39#small_r_sd=0.43]) in [metric:audio_circle/per-frame@4f207c0c4e39#small_fits=41] frames over [metric:audio_circle/per-frame@4f207c0c4e39#small_runs=9] runs, at 891.80-892.37,
+893.30-893.50, 903.80-904.57, 905.22-905.30, 1037.70, 1201.55-1201.77,
+1210.70-1210.92, 1211.45-1211.60 and 2057.25-2057.42 s. At 903.8-905.3 s it
+alternates with the normal circle from one 15 Hz frame to the next
+([metric:audio_circle/per-frame@4f207c0c4e39#span_902_906_r_min=68.82]-[metric:audio_circle/per-frame@4f207c0c4e39#span_902_906_r_max=75.08] px over 902-906 s), which the player saw and had never
+seen before. Every small fit lies within 2.5 s of a HUD magazine refill
+([metric:audio_circle/per-frame@4f207c0c4e39#small_fits_within_2_5s_of_refill=41] of [metric:audio_circle/per-frame@4f207c0c4e39#small_fits=41]); [metric:audio_circle/per-frame@4f207c0c4e39#refills_with_small=6] of
+[metric:audio_circle/per-frame@4f207c0c4e39#refills=17] own-view refills show it, against [metric:audio_circle/per-frame@4f207c0c4e39#refill_control_with_small=0] of
+[metric:audio_circle/per-frame@4f207c0c4e39#refill_control_windows=218] refill-free control windows. That association was
+found after looking, on one capture, and does not show a cause.
 """
 kind = "appearance"
 known = "player"
@@ -287,37 +308,72 @@ the player, 2026-09-29 (chat), shown two crops: Sunset e37fdeca944f at
 A-site stack possibly the same circle. That Lotus circle is the one
 docs/SCENE_MODEL.md ("Where the unexplained light comes from") found in
 prototypes/light_causes.py's residual, which no stored observation holds.
-Later the same day the player answered the mechanics sheet and believes it is drawn
-on every sound and lingers; the radius is the same regardless of the sound,
-the audio range, and also the spike explosion radius; only the player's own icon
-draws it, not teammates'. The player then checked a spectated player and
-found it not drawn
+Later the same day the player answered the mechanics sheet: the audio range,
+the same as the spike explosion radius; only the player's own icon draws it,
+not teammates'. The player then checked a spectated player and found it not
+drawn. On 2026-09-30 the player confirmed the two magazine drops above were
+the player's own shots, drawn without the circle, judged from them that the
+circle may come only from running, and saw it change size at 903-905 s. The
+player is certain of the audio range equalling the spike explosion radius.
+Shown the size change, the player said it had never been seen before that
+clip and named the larger circle the spike radius
 """
 use = """
 floor inside the circle reads as lit floor to a lighting reader, though no
 cone reaches it and no teammate lights a circle of its own
 [domain:minimap/no-teammate-floor-circle]: explain residual light round the
-self icon by this circle before calling it unexplained. A fixed radius makes
-it a known-size disc round the self icon; an absent circle round an ally or
-a spectated player is expected, not a miss. The circle's onsets are a
-candidate video witness for the player's own sound events, against which
-the sound bank (prototypes/sound_bank.py) could be scored, its gun classes
-confounded by picked-up skins [domain:capture/weapon-skins-picked-up];
-unmeasured
+self icon by this circle before calling it unexplained. Draw it at the
+normal size round the self icon, and test the smaller one where it fits; an absent circle
+round an ally or a spectated player is expected, not a miss. Its presence
+follows the self track's speed (own-view frames drawn
+[metric:audio_circle/per-frame@4f207c0c4e39#frames_still_share=0.114] still, [metric:audio_circle/per-frame@4f207c0c4e39#frames_moving_share=0.635] at 8-40
+stored px/s), so it is a candidate witness of the player running, not of
+every own sound
 """
 exceptions = """
-that it is drawn on every sound is the player's belief ("I believe"), not
-observed per sound. How long it lingers is unmeasured and asked on
-docs/ABILITY_MECHANICS_SHEET.md. The Lotus 49.50 s circle, a large thin
-circle visible from 44 to 51 s during an A execute, is unattributed: this
-circle (the player's "possibly") or a dead Clove's smoke-range circle
-[domain:abilities/clove-dead-smoke-range-circle], and neither is asserted;
-the session's lineup (lineup-0.3.0) names no Clove among its best guesses,
-with two ally slots unresolved. The radius is unmeasured in
-pixels
+that it is drawn only while running is the player's belief. Stored data
+disagree in places, kept in the store's
+analysis/audio-circle-running-20260930/disagreements.jsonl: 1934.92-1935.42 s
+draws it while the magazine falls and the self track is near still, and
+[metric:audio_circle/per-frame@4f207c0c4e39#dis_moving_window_without_circle=29] one-second own-view windows at 8-40 px/s
+draw none, some of them walking speed. The stored speed cannot tell walking
+from running. What sets the size is unknown: the small circle came at a lower
+median speed ([metric:audio_circle/per-frame@4f207c0c4e39#small_speed_median=7.07] against
+[metric:audio_circle/per-frame@4f207c0c4e39#large_speed_median=10.11] px/s) and never while the HUD showed no gun
+counter ([metric:audio_circle/per-frame@4f207c0c4e39#small_hidden_hud=0] of [metric:audio_circle/per-frame@4f207c0c4e39#small_fits=41] frames, against
+[metric:audio_circle/per-frame@4f207c0c4e39#large_hidden_hud=496] of [metric:audio_circle/per-frame@4f207c0c4e39#large_fits=1793]); both sizes are one capture's.
+The Lotus 49.50 s circle, a large thin circle visible from 44 to 51 s during an
+A execute, is unattributed: this circle (the player's "possibly") or a dead
+Clove's smoke-range circle [domain:abilities/clove-dead-smoke-range-circle],
+and neither is asserted; the session's lineup (lineup-0.3.0) names no Clove
+among its best guesses, with two ally slots unresolved
 """
 see = ["minimap/no-teammate-floor-circle", "abilities/minimap-icon-pale-region",
-       "capture/weapon-skins-picked-up"]
+       "capture/weapon-skins-picked-up", "minimap/spike-explosion-drawn-belief"]
+
+[spike-explosion-drawn-belief]
+claim = """
+The player believes the minimap draws the spike's explosion when the spike
+detonates, but is not sure.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-30"
+subject = "minimap:spike"
+source = "the player, 2026-09-30 (chat), asked whether the spike explosion radius is a size known from the game"
+use = """
+do not search a detonation's minimap frames for an explosion circle as an
+expected drawing; an explosion circle found there is an observation that
+settles the belief
+"""
+exceptions = """
+unobserved. The one detonation in the minimap crop cache, 4f207c0c4e39 round
+16 near 1581.4 s (`C:\\Users\\grant\\Videos\\2026-09-27 19-40-58.mp4`),
+shows the spike glyph giving way to a red X and no circle round the site in the
+cached frames 1581.0-1582.0 s, a spectated player's view by the tray-kit
+spans, which a teammate's minimap may draw differently or not at all
+"""
+see = ["minimap/self-audio-circle", "minimap/spike-glyph"]
 
 [ally-icon-without-cone]
 claim = """
