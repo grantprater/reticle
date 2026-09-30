@@ -2128,8 +2128,9 @@ the range and may date the wall's end
 """
 exceptions = """
 only the phases the player named on the candidates the cutter proposed; a phase
-not named is not known absent; one cast (330.2 s) was labelled Contingency
-without a phase
+not named is not known absent; one cast (330.21 s) was first labelled
+Contingency without a phase, and the player later said (2026-09-30) that it is
+the cast sound
 """
 see = ["abilities/ability-sound-phases"]
 
@@ -2160,8 +2161,8 @@ see = ["abilities/ability-sound-phases"]
 claim = """
 Iso's Double Tap (E) has a cast and a fade-out sound
 [domain:abilities/ability-sound-phases]; the player named two casts and
-three fade-outs. Asked about the channel between them, the player heard no
-ongoing sound.
+three fade-outs. Asked about the channel between them, the player first heard
+no ongoing sound, then came to believe it has a quiet one (see exceptions).
 """
 kind = "rule"
 known = "player"
@@ -2178,8 +2179,11 @@ may date it; no equip reference exists
 """
 exceptions = """
 only the phases the player named on the candidates the cutter proposed; a phase
-not named is not known absent; whether Double Tap has an equip or a quiet ongoing
-sound is open (the player's answer at 366.2 s is a question)
+not named is not known absent; whether Double Tap has an equip is open. The player
+later believed (2026-09-30) that the channel has a quiet ongoing sound, heard
+at 366 s, because the HUD bar for remaining shield time drains during that
+period. This is the player's belief, not a confirmed phase; no reference for
+it exists
 """
 see = ["abilities/ability-sound-phases"]
 
@@ -2204,7 +2208,9 @@ first
 """
 exceptions = """
 only the phases the player named on the candidates the cutter proposed; a phase
-not named is not known absent
+not named is not known absent. Low confidence (2026-09-30): the player thinks
+the sound at 406.77 s is perhaps the first part of the equip sound, but barely
+hears anything and answered with a guess; it is no reference
 """
 see = ["abilities/ability-sound-phases"]
 
@@ -2748,7 +2754,9 @@ a jump with no landing sound is consistent with a silent landing, not a miss
 by the sound bank; score landings only where a landing sound was heard
 """
 exceptions = """
-when a landing is silent (fall height, surface, movement) is not known
+when a landing is silent (fall height, surface, movement) is not known. The
+player's beliefs (2026-09-30), neither a rule nor measured: the jump height
+made this clip's landing silent, and crouching may also make a landing silent
 """
 see = ["abilities/jump-surface-variants", "abilities/silent-stepping"]
 
