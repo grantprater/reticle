@@ -10,7 +10,9 @@ observation model per channel that scores the stored observations against
 it. The minimap's render-and-compare model is the first observation model,
 not the whole design. Stage 1, touching minimap icons fitted jointly, is
 built and scored (`prototypes/scene_stack.py`, section 8): 0.2.0's RGB renderer matches the teardrop at
-465 px on team icons and still loses to it at 331 px.
+465 px on team icons and still loses to it at 331 px; 0.3.0 lights the floor
+from the fitted pose (stage 2 inside stage 1) and beats the teardrop on
+isolated 331 px self icons while losing on stacks.
 
 The idea is old: analysis-by-synthesis, argued for icons and audio in the
 backlog entry now archived in `docs/archive/BACKLOG-through-2026-09-23.md`
@@ -246,9 +248,10 @@ Each stage is scored on the player's labels before the next begins.
 1. **Stacks** (built, below): touching icons fitted jointly; 0.1.0 in the
    owners' class keys, 0.2.0 in RGB over the two-state baked floor with
    the portrait disc masked, the light marginalised.
-2. **Cones and light**: render each fitted icon's cone as light over the
-   floor, stopping at `occluders`; the light becomes evidence for facing
-   inside the same fit, which E12 did as a separate fusion.
+2. **Cones and light** (built into stage 1 as 0.3.0, below): render each
+   fitted icon's cone as light over the floor, stopping at `occluders`; the
+   light becomes evidence for facing inside the same fit, which E12 did as a
+   separate fusion.
 3. **The enemy tint**: the enemy lobe as a measured tint over the rendered
    background and light; its opacity measured on labels at both widget sizes.
 4. **The whole widget**: portraits from art for the side's agents, marks,
@@ -396,6 +399,92 @@ lobe hides in the mismatch. The hypothesis that the score space was the
 fault holds for 331 px self icons and fails for 331 px allies and enemies.
 Not wired.
 
+### Stages 1 and 2 together, 0.3.0: the light from the pose
+
+The 0.2.0 sheets showed why a wrong lobe cost nothing: each floor pixel
+took whichever state fitted it, so any lobe explained the drawn light.
+`scene-stack-0.3.0` predicts the state from the poses instead. A
+known-floor pixel is lit iff a team icon's cone reaches it (`cone.raycast`,
+the owner's half-angle, the baked walls and boxes), cast from the pose being
+fitted for scene icons and from the teardrop pose for the frame's other team
+icons; enemies cast nothing. The other state costs `2 ln((1-q)/q)`, where `q`
+is the rate at which that state wins at confident owner poses on unlabelled
+frames. That cost is the explicit term for light no visible icon casts.
+Sprites and colours are 0.2.0's. Predictions P9-P14 were logged first
+(`notes/predictions.jsonl`, task `scene-light-20260929`).
+
+**The instrument holds.** At confident owner poses on unlabelled frames the
+icon's own cone reads lit on
+[metric:scene_stack_light_cal/scale-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#own_cone_lit_share=0.7925] of its floor at 331 px and
+[metric:scene_stack_light_cal/scale-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#own_cone_lit_share=0.925] at 465 px; floor no cone
+reaches reads unlit on [metric:scene_stack_light_cal/scale-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#no_cone_unlit_share=0.8073] and
+[metric:scene_stack_light_cal/scale-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#no_cone_unlit_share=0.8616]. Unexplained light is
+common: [metric:scene_stack_light_cal/scale-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#q_u=0.1965] of the unreached floor at 331 px
+and [metric:scene_stack_light_cal/scale-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#q_u=0.1344] at 465 px reads lit. For speed each
+origin is cast once over 360 degrees and cut to each facing's wedge; the cut
+disagrees with the owner's own cast on
+[metric:scene_stack_light_cal/scale-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#cut_disagree_share=0.056] and
+[metric:scene_stack_light_cal/scale-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#cut_disagree_share=0.0444] of the scored pixels. The
+0.2.0 column below reproduces the recorded 0.2.0 check exactly.
+
+**The renderer alone** (`scene_stack.py --check --record`): the labelled
+icon's sprite, every other team icon's teardrop cone held; label against
+reversed with the centre fixed at the teardrop's; the gate is 0.2.0's (flips
+alone at most the teardrop's plus one).
+
+| Set | Items | Teardrop flips | 0.2.0: flips alone | 0.3.0: flips alone | 0.2.0: label beats reversed | 0.3.0: label beats reversed | Gate |
+|---|---|---|---|---|---|---|---|
+| 465 px ally (E6) | [metric:scene_stack_check_v3/465-ally@5822b6646448+a06f04a0059f#all_n=24] | [metric:scene_stack_check_v3/465-ally@5822b6646448+a06f04a0059f#all_teardrop_flips=0] | [metric:scene_stack_check_v3/465-ally@5822b6646448+a06f04a0059f#all_rgb_mask_global_flips=0] | [metric:scene_stack_check_v3/465-ally@5822b6646448+a06f04a0059f#all_light_global_flips=1] | [metric:scene_stack_check_v3/465-ally@5822b6646448+a06f04a0059f#all_rgb_mask_td_lab_beats_rev=24] | [metric:scene_stack_check_v3/465-ally@5822b6646448+a06f04a0059f#all_light_td_lab_beats_rev=23] | pass |
+| 465 px enemy (E6) | [metric:scene_stack_check_v3/465-enemy@5822b6646448+a06f04a0059f#all_n=18] | [metric:scene_stack_check_v3/465-enemy@5822b6646448+a06f04a0059f#all_teardrop_flips=0] | [metric:scene_stack_check_v3/465-enemy@5822b6646448+a06f04a0059f#all_rgb_mask_global_flips=4] | [metric:scene_stack_check_v3/465-enemy@5822b6646448+a06f04a0059f#all_light_global_flips=4] | [metric:scene_stack_check_v3/465-enemy@5822b6646448+a06f04a0059f#all_rgb_mask_td_lab_beats_rev=17] | [metric:scene_stack_check_v3/465-enemy@5822b6646448+a06f04a0059f#all_light_td_lab_beats_rev=17] | fail |
+| Self, Ascent controls | [metric:scene_stack_check_v3/self-control@e78e75b2d191#all_n=8] | [metric:scene_stack_check_v3/self-control@e78e75b2d191#all_teardrop_flips=0] | [metric:scene_stack_check_v3/self-control@e78e75b2d191#all_rgb_mask_global_flips=0] | [metric:scene_stack_check_v3/self-control@e78e75b2d191#all_light_global_flips=0] | [metric:scene_stack_check_v3/self-control@e78e75b2d191#all_rgb_mask_td_lab_beats_rev=8] | [metric:scene_stack_check_v3/self-control@e78e75b2d191#all_light_td_lab_beats_rev=8] | pass |
+| Self, Lotus | [metric:scene_stack_check_v3/self-lotus@5822b6646448#all_n=30] | [metric:scene_stack_check_v3/self-lotus@5822b6646448#all_teardrop_flips=2] | [metric:scene_stack_check_v3/self-lotus@5822b6646448#all_rgb_mask_global_flips=0] | [metric:scene_stack_check_v3/self-lotus@5822b6646448#all_light_global_flips=3] | [metric:scene_stack_check_v3/self-lotus@5822b6646448#all_rgb_mask_td_lab_beats_rev=29] | [metric:scene_stack_check_v3/self-lotus@5822b6646448#all_light_td_lab_beats_rev=29] | pass |
+| 331 px ally | [metric:scene_stack_check_v3/331-ally@223d636bf8d2+c40d950031bb#all_n=38] | [metric:scene_stack_check_v3/331-ally@223d636bf8d2+c40d950031bb#all_teardrop_flips=3] | [metric:scene_stack_check_v3/331-ally@223d636bf8d2+c40d950031bb#all_rgb_mask_global_flips=14] | [metric:scene_stack_check_v3/331-ally@223d636bf8d2+c40d950031bb#all_light_global_flips=9] | [metric:scene_stack_check_v3/331-ally@223d636bf8d2+c40d950031bb#all_rgb_mask_td_lab_beats_rev=33] | [metric:scene_stack_check_v3/331-ally@223d636bf8d2+c40d950031bb#all_light_td_lab_beats_rev=34] | fail |
+| 331 px self | [metric:scene_stack_check_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_n=37] | [metric:scene_stack_check_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_teardrop_flips=6] | [metric:scene_stack_check_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_rgb_mask_global_flips=7] | [metric:scene_stack_check_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_light_global_flips=3] | [metric:scene_stack_check_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_rgb_mask_td_lab_beats_rev=34] | [metric:scene_stack_check_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_light_td_lab_beats_rev=35] | pass |
+| 331 px enemy | [metric:scene_stack_check_v3/331-enemy@223d636bf8d2+c40d950031bb#all_n=25] | [metric:scene_stack_check_v3/331-enemy@223d636bf8d2+c40d950031bb#all_teardrop_flips=2] | [metric:scene_stack_check_v3/331-enemy@223d636bf8d2+c40d950031bb#all_rgb_mask_global_flips=12] | [metric:scene_stack_check_v3/331-enemy@223d636bf8d2+c40d950031bb#all_light_global_flips=13] | [metric:scene_stack_check_v3/331-enemy@223d636bf8d2+c40d950031bb#all_rgb_mask_td_lab_beats_rev=18] | [metric:scene_stack_check_v3/331-enemy@223d636bf8d2+c40d950031bb#all_light_td_lab_beats_rev=17] | fail |
+
+**The fit**, on the sets that pass the gate (the same four as 0.2.0;
+`scene_stack.py --parts 465-ally,self-control,self-lotus,331-self --record --sheet`):
+
+| Set | Items | Teardrop median (deg) | Teardrop flips | Joint median (deg) | Joint flips | Fixed | Broken | Unexplained light, median share |
+|---|---|---|---|---|---|---|---|---|
+| 465 px ally (E6) | [metric:scene_stack_eval_v3/465-ally@5822b6646448+a06f04a0059f#all_n=24] | [metric:scene_stack_eval_v3/465-ally@5822b6646448+a06f04a0059f#all_teardrop_median_abs_deg=2.485] | [metric:scene_stack_eval_v3/465-ally@5822b6646448+a06f04a0059f#all_teardrop_flips=0] | [metric:scene_stack_eval_v3/465-ally@5822b6646448+a06f04a0059f#all_joint_median_abs_deg_on_td_read=2.53] | [metric:scene_stack_eval_v3/465-ally@5822b6646448+a06f04a0059f#all_joint_flips=2] | [metric:scene_stack_eval_v3/465-ally@5822b6646448+a06f04a0059f#all_joint_fixed=0] | [metric:scene_stack_eval_v3/465-ally@5822b6646448+a06f04a0059f#all_joint_broken=2] | [metric:scene_stack_eval_v3/465-ally@5822b6646448+a06f04a0059f#all_light_unexplained_share_median=0.0621] |
+| 465 px enemy (E6) | not fitted: the renderer check failed | | | | | | | |
+| Self, Ascent controls | [metric:scene_stack_eval_v3/self-control@e78e75b2d191#all_n=8] | [metric:scene_stack_eval_v3/self-control@e78e75b2d191#all_teardrop_median_abs_deg=1.98] | [metric:scene_stack_eval_v3/self-control@e78e75b2d191#all_teardrop_flips=0] | [metric:scene_stack_eval_v3/self-control@e78e75b2d191#all_joint_median_abs_deg_on_td_read=1.85] | [metric:scene_stack_eval_v3/self-control@e78e75b2d191#all_joint_flips=0] | [metric:scene_stack_eval_v3/self-control@e78e75b2d191#all_joint_fixed=0] | [metric:scene_stack_eval_v3/self-control@e78e75b2d191#all_joint_broken=0] | [metric:scene_stack_eval_v3/self-control@e78e75b2d191#all_light_unexplained_share_median=0.0555] |
+| Self, Lotus | [metric:scene_stack_eval_v3/self-lotus@5822b6646448#all_n=30] | [metric:scene_stack_eval_v3/self-lotus@5822b6646448#all_teardrop_median_abs_deg=2.2325] | [metric:scene_stack_eval_v3/self-lotus@5822b6646448#all_teardrop_flips=2] | [metric:scene_stack_eval_v3/self-lotus@5822b6646448#all_joint_median_abs_deg_on_td_read=2.86] | [metric:scene_stack_eval_v3/self-lotus@5822b6646448#all_joint_flips=3] | [metric:scene_stack_eval_v3/self-lotus@5822b6646448#all_joint_fixed=1] | [metric:scene_stack_eval_v3/self-lotus@5822b6646448#all_joint_broken=2] | [metric:scene_stack_eval_v3/self-lotus@5822b6646448#all_light_unexplained_share_median=0.0716] |
+| 331 px ally | not fitted: the renderer check failed | | | | | | | |
+| 331 px self | [metric:scene_stack_eval_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_n=37] | [metric:scene_stack_eval_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_teardrop_median_abs_deg=5.71] | [metric:scene_stack_eval_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_teardrop_flips=6] | [metric:scene_stack_eval_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_joint_median_abs_deg_on_td_read=5.24] | [metric:scene_stack_eval_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_joint_flips=3] | [metric:scene_stack_eval_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_joint_fixed=5] | [metric:scene_stack_eval_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_joint_broken=2] | [metric:scene_stack_eval_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_light_unexplained_share_median=0.0787] |
+| 331 px enemy | not fitted: the renderer check failed | | | | | | | |
+| Pooled (fitted sets), stacked | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#stacked_n=26] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#stacked_teardrop_median_abs_deg=3.31] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#stacked_teardrop_flips=2] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#stacked_joint_median_abs_deg_on_td_read=4.57] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#stacked_joint_flips=3] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#stacked_joint_fixed=1] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#stacked_joint_broken=2] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#stacked_light_unexplained_share_median=0.0722] |
+| Pooled (fitted sets), isolated | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_n=57] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_teardrop_median_abs_deg=2.5625] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_teardrop_flips=3] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_joint_median_abs_deg_on_td_read=2.425] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_joint_flips=3] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_joint_fixed=2] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_joint_broken=2] | [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_light_unexplained_share_median=0.0618] |
+
+**The coupling fixes isolated 331 px self icons and hurts stacks.** On 331
+px self the joint fit now beats the teardrop, where 0.2.0 broke as many
+reads as it fixed: isolated flips [metric:scene_stack_eval_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#isolated_joint_flips=1]
+against the teardrop's [metric:scene_stack_eval_v3/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#isolated_teardrop_flips=2] (0.2.0:
+[metric:scene_stack_eval_v2/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#isolated_joint_flips=5]). The sheet
+(`analysis/scene-light-20260929/sheet_s331_0.png` in the store) shows the
+mechanism: a teardrop flipped by a stacked neighbour is turned back because
+its cone must land on the lit floor. Pooled isolated breaks fell from
+[metric:scene_stack_eval_v2/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_joint_broken=5] to [metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_joint_broken=2],
+but stacks got worse: pooled stacked flips
+[metric:scene_stack_eval_v3/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#stacked_joint_flips=3] against 0.2.0's
+[metric:scene_stack_eval_v2/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#stacked_joint_flips=1], Lotus stacked median
+[metric:scene_stack_eval_v3/self-lotus@5822b6646448#stacked_joint_median_abs_deg_on_td_read=7.88] against the
+teardrop's [metric:scene_stack_eval_v3/self-lotus@5822b6646448#stacked_teardrop_median_abs_deg=2.99]. In a stack a
+neighbour's cone already lights the floor ahead, and a cone cast into a wall
+predicts no light, so a reversed icon pays little. A redundant cone is no
+evidence. At 331 px allies the coupling cuts flips alone from
+[metric:scene_stack_check_v3/331-ally@223d636bf8d2+c40d950031bb#all_rgb_mask_global_flips=14] to
+[metric:scene_stack_check_v3/331-ally@223d636bf8d2+c40d950031bb#all_light_global_flips=9], short of the gate. The residual
+still saturates over floor whose state the render gets right, so the 331 px
+floor colour, not only its state, is mispredicted. Not wired.
+
+The 465 px ally teardrop median is the same in 0.1.0 and 0.2.0 on the same
+[metric:scene_stack_eval_v2/465-ally@5822b6646448+a06f04a0059f#all_n=24] items: [metric:scene_stack_eval_v2/465-ally@5822b6646448+a06f04a0059f#all_teardrop_median_abs_deg=2.485]
+over all, [metric:scene_stack_eval_v2/465-ally@5822b6646448+a06f04a0059f#stacked_teardrop_median_abs_deg=2.2725] over the stacked
+ones. 0.2.0's stacked joint median, [metric:scene_stack_eval_v2/465-ally@5822b6646448+a06f04a0059f#stacked_joint_median_abs_deg_on_td_read=2.485],
+only coincides with the first.
+
 ## What this plan does not settle
 
 - The draw order between icons is fitted, not known; stage 1 does not
@@ -406,8 +495,12 @@ Not wired.
 - The enemy lobe's opacity (0.5) and the gains' bounds were set by eye on
   unlabelled frames, not measured; the shared-gain variant was tried after
   the labelled scores were seen, so it is post hoc.
-- The 331 px background: the two-state static still mispredicts much of
-  the floor at 331 px. The next step measures that mismatch on unlabelled
-  frames (alignment, scaling, compression) and fixes it, or makes the
-  light evidence (stage 2) instead of a nuisance, before any new label.
+- The 331 px background: the floor's colour is mispredicted even where
+  0.3.0 predicts its lit state right. The next step measures that mismatch
+  on unlabelled frames (alignment, scaling, compression, the lit tint) and
+  fixes it before any new label.
+- Redundant light: a cone a neighbour's cone already covers, or one cast
+  into a wall, is weak evidence, and 0.3.0 lets a stacked icon point it
+  there. The cost of unexplained light is one rate per widget, not per
+  place, and the cone's reach is uncapped inside the window.
 - No audio-video offset is measured, and no chat reader exists.
