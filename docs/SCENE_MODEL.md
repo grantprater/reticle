@@ -848,6 +848,74 @@ large circle round a black ability icon, at bfad2778a372 1682.250 s and
 (c40d950031bb 205.500 s). At bfad2778a372 618.133 s the self icon casts no
 drawn light. Not wired.
 
+### Stage 2, 0.6.0: the light as a binary raycast
+
+`scene_stack.py` 0.6.0 adds four changes, each behind a flag. `--v5`
+reproduces 0.5.0: six smoke items matched exactly. `--only` runs one change
+alone.
+
+- **cast.** Every teammate in the stored team_vision frame casts, at full
+  range. A hidden icon keeps the teardrop of its last visible, isolated read
+  and declares that read as `depends_on`.
+- **regions.** Each region, bounded by the cone edges and the walls, takes
+  one binary state. A binomial with light-diagnosis-0.1.0's per-pixel read
+  rates decides it.
+- **boxes.** Each caster is either standing or jumping, one state per
+  caster [domain:minimap/boxes-block-unless-raised]. Jumping costs 2 ln 9
+  and is not tuned.
+- **dark.** A darkened minimap is refused with the reason
+  `minimap-darkened` [domain:abilities/reyna-leer-darkens-minimap].
+
+On the 165 items that the teardrop and every arm read, the joint flips are
+as follows:
+
+| Arm | Flips | Isolated broken | Unexplained share |
+|---|---|---|---|
+| teardrop | 13 | | |
+| 0.5.0 | 27 | 10 | 0.1091 |
+| 0.6.0 | 26 | 7 | 0.094 |
+| cast only | 24 | 9 | 0.1045 |
+| regions only | 26 | 7 | 0.108 |
+| boxes only | 27 | 10 | 0.1009 |
+
+The unexplained share is pooled per pixel.
+
+- 0.6.0 cuts the pooled joint flips from
+  [metric:scene_stack_compare_v6/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#050_flips=27]
+  to
+  [metric:scene_stack_compare_v6/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#060_flips=26],
+  against the teardrop's
+  [metric:scene_stack_compare_v6/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#teardrop_flips=13].
+- The unexplained share falls from 0.1091 to
+  [metric:scene_stack_compare_v6/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#060_unexplained_share_pooled=0.094].
+- Four of the seven predictions failed:
+  - cast, not regions, moves the flips most;
+  - boxes, not cast, removes the most light;
+  - the hidden-icon rule fires on 42 items;
+  - jumping wins for 42 of 199 crossing casters.
+
+Where a caster jumps, the pixels past the box read lit on 40 of the 43 boxes
+the light decides. The light explains itself better, but the flips barely
+move. The joint fit's loss to the teardrop is therefore not mainly a gap in
+the light model.
+
+No labelled item is darkened: c40d950031bb 205.5 s sits at the static's grey,
+and its blind begins one cache frame later. The joint fit flips that item in
+both versions.
+
+Of the 42 jumping casters, 31 belong to a side whose lineup names no boost
+agent. Each of those is stored as `pass-without-boost`: every box it crosses
+must be short, or the model is wrong. Height classes wait on the Lotus
+elevation measurement.
+
+At bfad2778a372 618.133 s no track places Deadlock, so no hidden icon casts.
+The joint fit instead turns the self to 15°, against the teardrop's −161°,
+and makes it jump. The stored track angle is 19.9°. Which way the self faced
+is a question for the player.
+
+The sheets are the store's `analysis/scene-raycast-20260930/sheet_v6_*.png`.
+Not wired.
+
 ## What this plan does not settle
 
 - The draw order between icons is fitted, not known; stage 1 does not

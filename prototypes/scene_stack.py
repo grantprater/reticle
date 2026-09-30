@@ -8,6 +8,43 @@ r"""Touching minimap icons fitted jointly: render every icon of a stack, composi
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --disc              # the 0.4.0 control, unrecorded
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --tint-cal [--record]
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --fit-agree [--record]
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --v5                # 0.5.0 exactly, unrecorded
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --only cast|regions|boxes [--record]
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --compare [--record]
+
+**0.6.0 casts the light as a binary raycast (`CHANGES`).** The light
+diagnosis (`light_diagnosis.py`) split 0.5.0's unexplained light into
+per-pixel read noise, light inside teammates' cones the scene did not cast,
+and light past occluders, boxes most of all. The player's model is a
+raycast with no reflections, binary, uniform and unlimited in range
+[domain:minimap/vision-light-binary]. Four additive changes, each switchable,
+so `--v5` reproduces 0.5.0 and `--only` runs one alone:
+
+- **cast** (`team_casters`): every teammate the stored team_vision frame
+  places at the instant casts, at full range. A scene icon casts from the
+  joint fit; a visible outside icon from its teardrop; a hidden one (tracked,
+  no icon read there) from the teardrop of its last visible isolated read
+  within `CAST_BACK_MS` in the crop cache, declared as `depends_on`; the
+  stored track facing is the last resort. Each caster's source is stored per
+  item (`casters`). An enemy casts nothing.
+- **regions** (`Light.region_err`): the compared floor splits into regions
+  bounded by the cone edges and the baked walls (4-connected, one predicted
+  state), and each region takes one state from a binomial likelihood with
+  the instrument's per-pixel read rates (`INSTRUMENT_PATH`) and the cone
+  prediction as the prior. No morphology.
+- **boxes**: a caster whose cone crosses a baked box is standing (every box
+  blocks) or jumping (every crossed box passes, at `BOX_JUMP_COST`), one
+  state per caster [domain:minimap/boxes-block-unless-raised]. The winning
+  state is stored per caster; per box, the item records whether the light
+  past it reads lit, which is what a box's unknown height class must explain.
+- **dark** (`minimap_darkened`): a frame whose known floor sits
+  `DARK_MEDIAN` below the baked static is refused, reason
+  `minimap-darkened`; the teardrop still reads, the fit is not scored.
+
+`--record` writes `scene_stack_eval_v6` (`--only X`: `scene_stack_eval_v6_only_X`),
+`--compare` `scene_stack_compare_v6` over the items every arm reads; outputs go
+to the store's `analysis/scene-raycast-20260930/`. The colour, tint and light
+calibrations are 0.5.0's, read from `analysis/scene-tint-20260930/`.
 
 **0.5.0 renders the sources as tints (`SOURCE_STATE = "tint"`).** 0.4.0 freed
 the floor inside each drawn disc, which removed that floor from the
@@ -223,25 +260,61 @@ from reticle import lighting  # noqa: E402
 from reticle import teardrop as td  # noqa: E402
 from reticle.minimap import widget_scale  # noqa: E402
 
-VERSION = "scene-stack-0.5.0"
-OUT = sem.STORE / "analysis" / "scene-tint-20260930"
+VERSION = "scene-stack-0.6.0"
+OUT = sem.STORE / "analysis" / "scene-raycast-20260930"
+#: 0.5.0's outputs: its tint and light calibrations, which 0.6.0 reads unchanged, and its items.
+OUT_V5 = sem.STORE / "analysis" / "scene-tint-20260930"
 #: 0.4.0's outputs, read by `--disc` (the 0.4.0 control) and by the 0.5.0 sheet's pick rule.
 OUT_V4 = sem.STORE / "analysis" / "scene-sources-20260930"
-#: 0.2.0's colour calibration: 0.3.0 to 0.5.0 change only the floor's light, so their sprites are 0.2.0's.
+#: 0.2.0's colour calibration: 0.3.0 to 0.6.0 change only the floor's light, so their sprites are 0.2.0's.
 CAL_PATH = sem.STORE / "analysis" / "scene-stack-v2-20260929" / "calibration.json"
-#: 0.5.0's light costs, measured with the tinted sources; `--disc` reads 0.4.0's, `--no-sources` 0.3.0's.
-LIGHT_CAL_PATH = OUT / "light_calibration.json"
+#: 0.5.0's light costs, measured with the tinted sources (0.6.0 reads them unchanged); `--disc` reads
+#: 0.4.0's, `--no-sources` 0.3.0's.
+LIGHT_CAL_PATH = OUT_V5 / "light_calibration.json"
 LIGHT_CAL_PATH_V4 = OUT_V4 / "light_calibration.json"
 LIGHT_CAL_PATH_V3 = sem.STORE / "analysis" / "scene-light-20260929" / "light_calibration.json"
 #: "rgb" (the default) predicts the crop's RGB; "keys" is 0.1.0's class-key renderer, kept as the control.
 SPACE = "rgb"
 #: Each version records its own series so no earlier run's cited values move. The 0.3.0 control rerun
 #: on every set (`--no-sources`) records `scene_stack_eval_v3_allsets`, never `scene_stack_eval_v3`.
-SERIES = "scene_stack_eval_v5"
+SERIES = "scene_stack_eval_v6"
 CHECK_SERIES = "scene_stack_check_v5"
 LIGHT_CAL_SERIES = "scene_stack_light_cal_v5"
 TINT_CAL_SERIES = "scene_stack_tint_cal_v5"
 FIT_AGREE_SERIES = "scene_stack_fit_agree_v5"
+COMPARE_SERIES = "scene_stack_compare_v6"
+
+#: 0.6.0's changes, each additive, so an empty set is 0.5.0 (`--v5`) and one change alone is an
+#: ablation (`--only cast|regions|boxes`):
+#: - "cast": every teammate the stored team_vision tracks place at the instant casts, at full range,
+#:   an icon hidden under another included (`team_casters`);
+#: - "regions": the compared floor's state is decided per region, bounded by the cone edges and the
+#:   baked walls, by a binomial likelihood with the instrument's per-pixel error rates (`region_err`);
+#: - "boxes": each team caster whose cone crosses a baked box keeps two states, standing (every box
+#:   blocks, the default) and jumping (every crossed box passes) at `BOX_JUMP_COST`, one state per
+#:   caster per frame, never a pass per box (`Light.cones(jump=True)`);
+#: - "dark": a frame whose whole minimap is darkened against the baked static is refused with the
+#:   reason `minimap-darkened` (`minimap_darkened`). A refusal, not a model change, so every 0.6.0
+#:   variant keeps it.
+CHANGES_ALL = ("cast", "regions", "boxes", "dark")
+CHANGES: set = set(CHANGES_ALL)
+#: The per-pixel read rates of the instrument (light-diagnosis-0.1.0): the rule `e2[1] + c_u < e2[0]`
+#: reads lit on this share of truly lit and of truly unlit pixels, per widget scale.
+INSTRUMENT_PATH = sem.STORE / "analysis" / "light-diagnosis-20260930" / "instrument.json"
+#: A caster's jumping state costs this much (chi-square units, -2 ln prior odds): a stated belief that
+#: a caster is in the air on about one frame in ten, 2 ln 9. Unmeasured and never tuned on labels.
+BOX_JUMP_COST = 2.0 * math.log(0.9 / 0.1)
+#: A hidden teammate keeps the teardrop facing of its last visible, isolated read this far back.
+CAST_BACK_MS = 2000.0
+#: A stored team_vision frame this near the instant places the teammates.
+CAST_FRAME_MS = 70.0
+#: The whole minimap is darkened (an enemy Reyna's blind [domain:abilities/reyna-leer-darkens-minimap])
+#: when the median grey of the known floor sits this far below the baked static. Normal frames sit at
+#: 0 +/- 2; c40d950031bb's blinded frames at -104. Set from those two readings, before any rescore.
+DARK_MEDIAN = -40.0
+#: Row-and-column passes of the region labelling; a region still split after these stays split (a finer
+#: partition, never a merged one).
+REGION_PASSES = 64
 
 # ---- constants, set before any label was scored (logged with the predictions)
 GRID_DEG = 5.0
@@ -562,13 +635,24 @@ class Light:
         self.out = torch.zeros(len(self.xx), dtype=torch.bool, device=DEV)
         self.free_out = np.zeros(len(self.xx), bool)
         self.n_outside_cast = self.n_outside_free = 0
-        for o in outside:
+        self.H, self.W = y1 - y0, x1 - x0
+        self.boxes = "boxes" in CHANGES
+        self.regions = "regions" in CHANGES
+        self._bey = {}
+        # 0.6.0 "boxes": outside casters start standing; `decide_outside_jumps` may flip them after the fit.
+        self.outside = [dict(o) for o in outside]
+        self.out_jump = np.zeros(len(self.outside), bool)
+        for o in self.outside:
             if o.get("deg") is None:
                 self.free_out |= np.hypot(self.xx - o["x"], self.yy - o["y"]) < d_scene
                 self.n_outside_free += 1
             else:
-                self.out |= self.cones(np.array([[o["x"], o["y"], o["deg"]]], np.float32))[0]
+                o["_cone"] = self.cones(np.array([[o["x"], o["y"], o["deg"]]], np.float32),
+                                        full=bool(o.get("full")))[0]
+                self.out |= o["_cone"]
                 self.n_outside_cast += 1
+        if self.regions:
+            self.rates = instrument_rates(sc)
         # 0.4.0: floor inside a drawn non-cone source is explained by it, so a cone carries evidence
         # only on floor no other source explains. SOURCE_STATE says how: "free" (either floor state at
         # no cost) or "lit" (predicted lit whatever the cones do).
@@ -581,20 +665,47 @@ class Light:
             if SOURCE_STATE == "lit":
                 self.out |= self.src
 
-    def _vis(self, ox: float, oy: float):
-        """Pixels of the window a ray from the (snapped) origin reaches in any direction: the owner's cast."""
-        key = (round(ox, 3), round(oy, 3))
+    def _vis(self, ox: float, oy: float, full: bool = False):
+        """Pixels of the window a ray from the (snapped) origin reaches in any direction: the owner's cast.
+        `full` (0.6.0 "cast"): unlimited range, for a caster outside the window; else the window's diagonal."""
+        key = (round(ox, 3), round(oy, 3)) if not full else (round(ox, 3), round(oy, 3), "full")
         v = self._v.get(key)
         if v is None:
             x0, y0, x1, y1 = self.win
             m = cone.raycast(self.s.passable, ox, oy, 0.0, half_angle_deg=180.0, visible=self.s.floor,
-                             n_rays=LIGHT_RAYS, max_r=self.max_r, snap_px=0)
+                             n_rays=LIGHT_RAYS, max_r=None if full else self.max_r, snap_px=0)
             v = torch.tensor(m[y0:y1, x0:x1].ravel(), device=DEV)
             self._v[key] = v
         return v
 
-    def cones(self, cands: np.ndarray):
-        """(N, P) bool: the cone each `(x, y, deg)` row casts over the window."""
+    def _beyond(self, ox: float, oy: float, full: bool = False):
+        """0.6.0 "boxes": `(union, {box_id: mask})`, (P,) bool on the window, the pixels the 360-degree
+        cast from the (snapped) origin reaches only through a box (`cone.box_crossings` over the walls
+        with the boxes open). A box under the origin is not crossed."""
+        key = (round(ox, 3), round(oy, 3), full)
+        got = self._bey.get(key)
+        if got is None:
+            x0, y0, x1, y1 = self.win
+            inp = self.s.inputs
+            _b, bey = cone.box_crossings(inp.open_boxes, inp.box_id, ox, oy, 0.0, half_angle_deg=180.0,
+                                         visible=self.s.floor, n_rays=LIGHT_RAYS,
+                                         max_r=None if full else self.max_r, snap_px=0)
+            per = {}
+            for b, m in bey.items():
+                w = m[y0:y1, x0:x1].ravel()
+                if w.any():
+                    per[int(b)] = torch.tensor(w, device=DEV)
+            u = torch.zeros(len(self.xx), dtype=torch.bool, device=DEV)
+            for m in per.values():
+                u |= m
+            got = (u, per)
+            self._bey[key] = got
+        return got
+
+    def cones(self, cands: np.ndarray, full: bool = False, jump: bool = False, _meta: dict | None = None):
+        """(N, P) bool: the cone each `(x, y, deg)` row casts over the window. `full`: unlimited range;
+        `jump` (0.6.0 "boxes"): the caster is jumping, so the rays go on through every box they cross.
+        `_meta`, when given, receives the snapped origin key of each row (`vid`, `keys`)."""
         cands = np.asarray(cands, np.float64)
         N = len(cands)
         ox, oy = cands[:, 0].copy(), cands[:, 1].copy()
@@ -622,9 +733,14 @@ class Light:
                 rr = np.asarray(rr)
                 ox[rr], oy[rr] = sx, sy
                 vid[rr] = keys.setdefault((sx, sy), len(keys))
+        if _meta is not None:
+            _meta.update(vid=vid, keys=list(keys), ok=ok)
         if not keys:
             return torch.zeros(N, len(self.xx), dtype=torch.bool, device=DEV)
-        V = torch.stack([self._vis(*k) for k in keys])                      # (U, P)
+        if jump:
+            V = torch.stack([self._vis(*k, full=full) | self._beyond(*k, full=full)[0] for k in keys])
+        else:
+            V = torch.stack([self._vis(*k, full=full) for k in keys])        # (U, P)
         oxt = torch.tensor(ox, dtype=torch.float32, device=DEV)[:, None]
         oyt = torch.tensor(oy, dtype=torch.float32, device=DEV)[:, None]
         deg = torch.tensor(cands[:, 2], dtype=torch.float32, device=DEV)[:, None]
@@ -634,13 +750,28 @@ class Light:
         okt = torch.tensor(ok, device=DEV)[:, None]
         return V[torch.tensor(vid, device=DEV)] & wedge & okt
 
+    @staticmethod
+    def jumping(pose) -> bool:
+        """0.6.0 "boxes": a pose's jump state rides in slot 3 (0.2.0's ring gain, always 0 in RGB)."""
+        return "boxes" in CHANGES and pose is not None and len(pose) > 3 and float(pose[3]) > 0.5
+
     def pose_cone(self, pose):
-        key = tuple(round(float(v), 3) for v in pose[:3])
+        jump = self.jumping(pose)
+        key = tuple(round(float(v), 3) for v in pose[:3]) + ((1,) if jump else ())
         got = self._pc.get(key)
         if got is None:
-            got = self.cones(np.array([pose[:3]], np.float64))[0]
+            got = self.cones(np.array([pose[:3]], np.float64), jump=jump)[0]
             self._pc[key] = got
         return got
+
+    def crosses(self, cands: np.ndarray, full: bool = False) -> np.ndarray:
+        """(N,) bool: whether jumping changes the cone of each `(x, y, deg)` row over the window."""
+        meta = {}
+        J = self.cones(cands, full=full, jump=True, _meta=meta)
+        if not meta.get("keys"):
+            return np.zeros(len(cands), bool)
+        V = self.cones(cands, full=full)
+        return (J & ~V).any(1).cpu().numpy()
 
     def held(self, poses: dict, skip=None, sources: bool = True):
         """`(L, free)`, each (P,) bool: the light of the posed team icons but `skip` (and of the drawn
@@ -660,6 +791,67 @@ class Light:
             free |= self.src_np
         return L, torch.tensor(free, device=DEV)
 
+    def held_standing(self, poses: dict):
+        """(P,) bool: the cone light with every caster standing, scene and outside (no source)."""
+        L = torch.zeros(len(self.xx), dtype=torch.bool, device=DEV)
+        for o in self.outside:
+            if o.get("deg") is not None:
+                L |= self.cones(np.array([[o["x"], o["y"], o["deg"]]], np.float32), full=bool(o.get("full")))[0]
+        for j, p in poses.items():
+            if p is not None and self.team[j]:
+                L |= self.pose_cone(tuple(p[:3]))
+        return L
+
+    def jump_report(self, poses: dict) -> list[dict]:
+        """0.6.0 "boxes": every caster whose cone crosses a box in the window, its state, and per crossed
+        box the pixels past it and how many of the compared ones read lit (filled by `light_stats`)."""
+        rows = []
+        cast = [("scene", j, p) for j, p in poses.items() if p is not None and self.team[j]]
+        cast += [("outside", k, (o["x"], o["y"], o["deg"], float(self.out_jump[k])))
+                 for k, o in enumerate(self.outside) if o.get("deg") is not None]
+        for kind, j, p in cast:
+            full = kind == "outside" and bool(self.outside[j].get("full"))
+            meta = {}
+            self.cones(np.array([p[:3]], np.float64), full=full, _meta=meta)
+            if not meta.get("keys") or not meta["ok"][0]:
+                continue
+            key = meta["keys"][int(meta["vid"][0])]
+            _u, per = self._beyond(*key, full=full)
+            V = self.cones(np.array([p[:3]], np.float64), full=full)[0]
+            boxes = {}
+            for b, m in per.items():
+                w = self.cones(np.array([p[:3]], np.float64), full=full, jump=True)[0] & m & ~V
+                if w.any():
+                    boxes[b] = w
+            if not boxes:
+                continue
+            rows.append({"caster": kind, "index": j, "jumping": bool(self.jumping(p)) if kind == "scene"
+                         else bool(self.out_jump[j]), "_boxes": boxes,
+                         "role": (self.outside[j].get("role") if kind == "outside" else None)})
+        return rows
+
+    def extra(self, poses: dict, skip=None) -> float:
+        """0.6.0 "boxes": the prior cost of every jumping caster held (scene icons but `skip`, outside)."""
+        if not self.boxes:
+            return 0.0
+        n = sum(self.team[j] and self.jumping(p) for j, p in poses.items() if p is not None and j != skip)
+        return BOX_JUMP_COST * (n + int(self.out_jump.sum()))
+
+    def set_outside_jump(self, k: int, jump: bool):
+        """Put outside caster `k` standing or jumping and rebuild the held outside light."""
+        self.out_jump[k] = jump
+        o = self.outside[k]
+        o["_cone"] = self.cones(np.array([[o["x"], o["y"], o["deg"]]], np.float32), full=bool(o.get("full")),
+                                jump=jump)[0]
+        out = torch.zeros(len(self.xx), dtype=torch.bool, device=DEV)
+        for q in self.outside:
+            if "_cone" in q:
+                out |= q["_cone"]
+        self.out_cones = out.clone()
+        if SOURCE_STATE == "lit":
+            out |= self.src
+        self.out = out
+
     def err(self, e2, L, free):
         """Per-pixel error (N, P): the pose-predicted floor state, or the other one at its cost."""
         e_pred = torch.where(L, e2[:, 1], e2[:, 0])
@@ -668,6 +860,65 @@ class Light:
         cost = torch.where(L, cm, cu) * (~free).float()[None]
         e_alt = torch.where(L, e2[:, 0], e2[:, 1]) + cost
         return torch.minimum(e_pred, e_alt)
+
+    def read_lit(self, e2):
+        """The instrument's per-pixel read (light-diagnosis-0.1.0): lit iff `e2[1] + c_u < e2[0]`."""
+        return e2[:, 1] + self.c_u < e2[:, 0]
+
+    def regions_of(self, comp, L):
+        """(N, P) int64 labels: 4-connected components of the compared pixels `comp` with one predicted
+        state `L`, so a region is bounded by the cone edges, the baked walls (not floor, never compared)
+        and the icons' footprints. Row and column passes of a segmented minimum until nothing changes."""
+        N, P = comp.shape
+        H, W = self.H, self.W
+        c = comp.view(N, H, W)
+        l_ = L.view(N, H, W)
+        hb = torch.ones(N, H, W, dtype=torch.bool, device=DEV)
+        hb[:, :, 1:] = ~(c[:, :, 1:] & c[:, :, :-1] & (l_[:, :, 1:] == l_[:, :, :-1]))
+        hseg = torch.cumsum(hb.reshape(-1).long(), 0) - 1                       # row-major segments
+        vb = torch.ones(N, W, H, dtype=torch.bool, device=DEV)
+        ct, lt = c.transpose(1, 2), l_.transpose(1, 2)
+        vb[:, :, 1:] = ~(ct[:, :, 1:] & ct[:, :, :-1] & (lt[:, :, 1:] == lt[:, :, :-1]))
+        vseg_t = torch.cumsum(vb.reshape(-1).long(), 0) - 1                     # column-major segments
+        vseg = vseg_t.view(N, W, H).transpose(1, 2).reshape(-1)
+        lab = torch.arange(N * P, device=DEV)
+        big = N * P
+        for _ in range(REGION_PASSES):
+            m = torch.full((int(hseg[-1]) + 1,), big, dtype=torch.long, device=DEV)
+            lab2 = m.scatter_reduce(0, hseg, lab, "amin")[hseg]
+            m = torch.full((int(vseg_t[-1]) + 1,), big, dtype=torch.long, device=DEV)
+            lab2 = m.scatter_reduce(0, vseg, lab2, "amin")[vseg]
+            if torch.equal(lab2, lab):
+                break
+            lab = lab2
+        return lab.view(N, P)
+
+    def region_state(self, e2, L, comp):
+        """0.6.0 "regions": (N, P) bool, the state each compared pixel's region takes as a whole: lit iff
+        the sum over its pixels of the read's log-likelihood ratio (`instrument_rates`) and the cone
+        prediction's prior log-odds (`c_m / 2` for lit, `c_u / 2` against, since a cost is -2 ln odds)
+        is positive."""
+        p1, p0 = self.rates
+        l1, l0 = math.log(p1 / p0), math.log((1.0 - p1) / (1.0 - p0))
+        read = self.read_lit(e2)
+        t = torch.where(read, torch.full_like(read, l1, dtype=torch.float32),
+                        torch.full_like(read, l0, dtype=torch.float32))
+        t = t + torch.where(L, torch.full_like(t, self.c_m / 2.0), torch.full_like(t, -self.c_u / 2.0))
+        lab = self.regions_of(comp, L).reshape(-1)
+        tot = torch.zeros(lab.numel(), dtype=torch.float32, device=DEV)
+        tot.index_add_(0, lab, (t * comp.float()).reshape(-1))
+        return (tot[lab] > 0).view(comp.shape) & comp
+
+    def region_err(self, e2, L, free, comp):
+        """0.6.0 "regions": per-pixel error (N, P). A compared pixel pays its colour error under its
+        region's state, plus the prediction's cost where the region disagrees with the cone; every other
+        pixel keeps 0.5.0's `err`."""
+        base = self.err(e2, L, free)
+        S = self.region_state(e2, L, comp)
+        e_s = torch.where(S, e2[:, 1], e2[:, 0])
+        cost = torch.where(L, torch.full_like(e_s, self.c_m), torch.full_like(e_s, self.c_u))
+        e_r = e_s + cost * (S != L).float()
+        return torch.where(comp, e_r, base)
 
 
 def frame_team(s, r: dict, sc: float) -> list[dict]:
@@ -686,6 +937,215 @@ def outside_icons(team: list[dict], sc: float, scene_icons: list[dict]) -> list[
             continue
         out.append({"x": ic["x"], "y": ic["y"], "deg": ic["deg"], "role": ic["role"]})
     return out
+
+
+# ---------------------------------------------------------------- 0.6.0: casters, rates, darkening
+
+_RATES: dict = {}
+
+
+def instrument_rates(sc: float) -> tuple[float, float]:
+    """`(p1, p0)`: the share of truly lit and of truly unlit compared pixels the read rule reads lit,
+    measured by light-diagnosis-0.1.0 at the nearest widget scale (`INSTRUMENT_PATH`)."""
+    if not _RATES:
+        _RATES.update(json.loads(INSTRUMENT_PATH.read_text(encoding="utf-8")))
+    scales = sorted({k.split("@")[1] for k in _RATES if "@" in k}, key=lambda k: abs(float(k) - sc))
+    k = scales[0]
+    return float(_RATES[f"lit@{k}"]["rule_lit_share"]), float(_RATES[f"unlit@{k}"]["rule_lit_share"])
+
+
+def minimap_darkened(s, crop: np.ndarray) -> dict:
+    """0.6.0 "dark": the median of the crop's grey minus the baked static's grey over the known floor,
+    and whether it sits below `DARK_MEDIAN` (the whole minimap darkened, as by an enemy Reyna's blind
+    [domain:abilities/reyna-leer-darkens-minimap]). The owner `minimap.widget_drawn`'s answer is kept
+    beside it, as a second channel: the stored minimap_dark rows call c40d950031bb's blinded frames
+    `widget_not_drawn`."""
+    from reticle.minimap import widget_drawn
+    st = s.inputs.static
+    if st.shape[:2] != crop.shape[:2]:
+        return {"median": None, "darkened": None, "reason": "geometry_size_mismatch"}
+    sg = cv2.cvtColor(st, cv2.COLOR_BGR2GRAY)
+    d = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32) - sg.astype(np.float32)
+    kn = s.ref.known.astype(bool)
+    med = float(np.median(d[kn]))
+    try:
+        drawn = bool(widget_drawn(crop, sg, s.floor))
+    except Exception as e:       # the owner's signature or inputs differ: record, never guess
+        drawn = f"unread: {type(e).__name__}"
+    return {"median": round(med, 1), "darkened": med < DARK_MEDIAN, "widget_drawn": drawn}
+
+
+class TVFrames:
+    """0.6.0 "cast": the stored team_vision frames of one session near the wanted instants, full icon
+    dicts (role, track_id, x, y, facing, interpolated), back `CAST_BACK_MS` for the hidden-icon rule."""
+
+    def __init__(self, sid: str, wanted: list[float]):
+        self.rows: dict = {}
+        p = sem.STORE / "events" / "team_vision" / f"{sid}.jsonl"
+        if not p.is_file():
+            return
+        lo = [(t - CAST_BACK_MS - 50.0, t + CAST_FRAME_MS) for t in wanted]
+        with p.open(encoding="utf-8") as f:
+            for line in f:
+                i = line.find('"t_ms":')
+                if i < 0:
+                    continue
+                j = line.find(",", i)
+                t = float(line[i + 7:j])
+                if not any(a <= t <= b for a, b in lo):
+                    continue
+                d = json.loads(line)
+                if d.get("kind") != "frame":
+                    continue
+                self.rows[t] = [ic for ic in d.get("icons", []) if ic.get("x") is not None]
+
+    def at(self, t_ms: float):
+        near = [t for t in self.rows if abs(t - t_ms) <= CAST_FRAME_MS]
+        if not near:
+            return None, []
+        t = min(near, key=lambda x: abs(x - t_ms))
+        return t, self.rows[t]
+
+
+def _isolated(x, y, others, sc) -> bool:
+    return all(math.hypot(x - ox, y - oy) > STACK_PX * sc for ox, oy in others)
+
+
+def _last_visible(s, tv: TVFrames, track_id, role: str, t_ms: float, sc: float):
+    """The teardrop facing of the track's last visible, isolated read within `CAST_BACK_MS` before
+    `t_ms`, in the crop cache: `(t, deg, x, y)` or None. The stored frame there places the icon and its
+    neighbours; the teardrop (`facing_fusion.fit`) reads it."""
+    times = sorted((t for t in tv.rows if t_ms - CAST_BACK_MS <= t < t_ms - 1.0), reverse=True)
+    cache = np.asarray(s.cache_t, np.float64)
+    if not len(cache):
+        return None
+    cls = "self" if role == "self" else "ally"
+    for t in times:
+        ics = tv.rows[t]
+        me = [ic for ic in ics if ic.get("track_id") == track_id]
+        if not me:
+            continue
+        me = me[0]
+        k = int(np.argmin(np.abs(cache - t)))
+        if abs(cache[k] - t) > 20.0:
+            continue
+        others = [(ic["x"], ic["y"]) for ic in ics if ic is not me]
+        if not _isolated(me["x"], me["y"], others, sc):
+            continue
+        got = list(s.crops([float(cache[k])]))
+        if not got:
+            continue
+        crop = got[0][1]
+        f = ff.fit(crop, cls, float(me["x"]), float(me["y"]), sc)
+        if f.get("read"):
+            return float(cache[k]), float(f["deg"]), float(f["x"]), float(f["y"])
+    return None
+
+
+def team_casters(s, r: dict, sc: float, scene_icons: list[dict], tv: TVFrames | None) -> tuple[list, list]:
+    """0.6.0 "cast": `(outside, casters)`. Every teammate the stored team_vision frame at the instant
+    places casts: a scene icon from the joint fit (not in `outside`), a visible icon from its teardrop,
+    a hidden one (tracked, no teardrop read there) from its last visible isolated teardrop within
+    `CAST_BACK_MS` (`depends_on` names that read), else from the stored track facing, else it frees the
+    floor nearest it, as 0.5.0 does for an unread icon. Outside casters cast at full range. A frame team
+    icon no track places casts as in 0.5.0. `casters` records each one's facing source."""
+    team = frame_team(s, r, sc)
+    t_f, icons = tv.at(float(r["t_ms"])) if tv is not None else (None, [])
+    enemy = [(d["cx"], d["cy"]) for d in it_.detections(r["_crop"], "enemy", s)]
+    used = set()
+    outside, casters = [], []
+    for ic in icons:
+        role = ic.get("role")
+        if role not in ("self", "ally"):
+            continue
+        x, y, tid = float(ic["x"]), float(ic["y"]), ic.get("track_id")
+        rec = {"role": role, "track_id": tid, "x": round(x, 2), "y": round(y, 2), "tv_t_ms": t_f,
+               "interpolated": ic.get("interpolated")}
+        scene_hit = [q for q in scene_icons if q["cls"] != "enemy" and (
+            (q.get("track_id") is not None and q.get("track_id") == tid)
+            or math.hypot(q["x0"] - x, q["y0"] - y) <= SAME_PX * sc)]
+        near = [k for k, q in enumerate(team) if k not in used and math.hypot(q["cx"] - x, q["cy"] - y)
+                <= SAME_PX * sc]
+        if near:
+            k = min(near, key=lambda k: math.hypot(team[k]["cx"] - x, team[k]["cy"] - y))
+            used.add(k)
+        else:
+            k = None
+        if scene_hit:
+            casters.append({**rec, "facing_source": "joint_fit"})
+            continue
+        q = team[k] if k is not None else None
+        if q is not None and q.get("deg") is not None:
+            others = [(o["cx"], o["cy"]) for kk, o in enumerate(team) if kk != k] + enemy
+            iso = _isolated(q["cx"], q["cy"], others, sc)
+            outside.append({"x": q["x"], "y": q["y"], "deg": q["deg"], "role": role, "full": True})
+            casters.append({**rec, "facing_source": "teardrop" if iso else "teardrop_stacked",
+                            "deg": round(float(q["deg"]), 2)})
+            continue
+        prev = _last_visible(s, tv, tid, role, float(r["t_ms"]), sc) if tid is not None else None
+        if prev is not None:
+            tp, deg, _px, _py = prev
+            outside.append({"x": x, "y": y, "deg": deg, "role": role, "full": True})
+            casters.append({**rec, "facing_source": "last_visible_teardrop", "deg": round(deg, 2),
+                            "depends_on": {"t_ms": tp, "track_id": tid,
+                                           "rule": "a hidden icon keeps its last visible isolated teardrop"}})
+            continue
+        if ic.get("facing") is not None:
+            outside.append({"x": x, "y": y, "deg": float(ic["facing"]), "role": role, "full": True})
+            casters.append({**rec, "facing_source": "stored_track", "deg": round(float(ic["facing"]), 2)})
+            continue
+        outside.append({"x": x, "y": y, "deg": None, "role": role})
+        casters.append({**rec, "facing_source": None, "reason": "no facing: hidden, no visible read, "
+                                                               "no stored facing"})
+    for k, q in enumerate(team):
+        if k in used:
+            continue
+        if any(qq["cls"] != "enemy" and math.hypot(qq["x0"] - q["cx"], qq["y0"] - q["cy"]) <= SAME_PX * sc
+               for qq in scene_icons):
+            continue
+        outside.append({"x": q["x"], "y": q["y"], "deg": q["deg"], "role": q["role"], "full": True})
+        casters.append({"role": q["role"], "track_id": None, "x": round(float(q["x"]), 2),
+                        "y": round(float(q["y"]), 2), "facing_source": "teardrop_untracked"
+                        if q["deg"] is not None else None,
+                        "deg": None if q["deg"] is None else round(float(q["deg"]), 2)})
+    return outside, casters
+
+
+#: The agents whose own ability lifts them over a tall box (the player, 2026-09-30): Jett's updraft,
+#: Waylay's vertical ability, Raze's satchel. Until box heights exist a boosted caster's cone is a
+#: jumping one's, so the state is only an eligibility: a pass by a caster who cannot boost is stored
+#: as a surprise.
+BOOST_AGENTS = ("jett", "waylay", "raze")
+_BOOST: dict = {}
+
+
+def boost_eligible(sid: str, role: str) -> str:
+    """"yes", "no" or "unknown": whether the caster's agent (from the stored lineup, named by the
+    identity arbiter) can boost. An ally track carries no agent, so an ally is "unknown" when any
+    teammate but the player may be a boost agent and "no" only when the side is named in full."""
+    key = (sid, role)
+    if key in _BOOST:
+        return _BOOST[key]
+    from reticle.lineup import load_lineup
+    from reticle.adjudication.ult_cast import lineup_sides, player_agent
+    lu = load_lineup(sid, sem.STORE)
+    me = player_agent(lu, sid)
+    if role == "self":
+        got = "unknown" if me is None else ("yes" if me.lower() in BOOST_AGENTS else "no")
+    else:
+        side = (lineup_sides(lu, sid) or {}).get("ally")
+        if not side:
+            got = "unknown"
+        else:
+            names = [a.lower() for a in side["named"] + side["soft"]]
+            if me is not None and me.lower() in names:
+                names.remove(me.lower())
+            if any(a in BOOST_AGENTS for a in names):
+                got = "unknown"
+            else:
+                got = "no" if side["complete"] else "unknown"
+    _BOOST[key] = got
+    return got
 
 
 # ---------------------------------------------------------------- the drawn light sources (0.4.0)
@@ -1346,7 +1806,10 @@ class RGBScene:
         return O[0], C[0], own[0]
 
     def _held(self, poses, skip=None):
-        return None if self.light is None else self.light.held(poses, skip)
+        """`(L, free, extra)`: the held light, the free pixels and (0.6.0 "boxes") the jump costs held."""
+        if self.light is None:
+            return None
+        return (*self.light.held(poses, skip), self.light.extra(poses, skip))
 
     def stack(self, order, poses, skip=None):
         """`(K, Wn, LF)`: the composite (2, 3, P), one per floor state, the compared weight (P,) and the
@@ -1382,20 +1845,33 @@ class RGBScene:
         """Per-pixel error (N, 2, P) in sigma^2 for each floor state, before truncation."""
         return (((self.obs[None, None] - self.predict(K)) / self.sig) ** 2).sum(2)
 
+    def compared(self, Wn, free):
+        """(N, P) bool: the compared known floor, as `light_stats` counts it."""
+        return (self.keep > 0)[None] & (Wn > 0.5) & self.light.known[None] & ~free[None]
+
     def _loss(self, K, Wn, LF=None):
+        """(N,) loss. `LF` is `(L, free)` or `(L, free, extra)`, `extra` a float or (N,) of jump costs."""
         e2 = self._err2(K)
-        e = e2.min(1).values if LF is None else self.light.err(e2, *LF)
+        if LF is None:
+            e = e2.min(1).values
+        elif self.light.regions:
+            e = self.light.region_err(e2, LF[0], LF[1], self.compared(Wn, LF[1]))
+        else:
+            e = self.light.err(e2, LF[0], LF[1])
         e = e.clamp(max=TAU_SIG ** 2)
-        return (self.keep[None] * (Wn * e + (1 - Wn) * OWN_COST)).sum(-1)
+        lo = (self.keep[None] * (Wn * e + (1 - Wn) * OWN_COST)).sum(-1)
+        if LF is not None and len(LF) > 2:
+            lo = lo + LF[2]
+        return lo
 
     def loss_of(self, KWL) -> float:
         K, Wn, LF = KWL
-        return float(self._loss(K[None], Wn[None], None if LF is None else (LF[0][None], LF[1]))[0])
+        return float(self._loss(K[None], Wn[None], None if LF is None else (LF[0][None], *LF[1:]))[0])
 
     def search(self, i: int, order, poses, cands: np.ndarray):
         ic = self.icons[i]
         Kb, Wb, T, Ca, Wa, LF = self.stack(order, poses, skip=i)
-        out = []
+        out, gs = [], []
         for a in range(0, len(cands), CHUNK // 4):
             cc = torch.tensor(cands[a:a + CHUNK // 4], dtype=torch.float32, device=DEV)
             O, C, own = rgb_layers(ic["cls"], self.sc, self.cls_cal[ic["cls"]], self.px, self.py,
@@ -1404,25 +1880,52 @@ class RGBScene:
             Wn = T[None] * ((1 - O) * Wb[None] + O * (1 - own)) + Wa[None]
             if LF is None:
                 out.append(self._loss(K, Wn))
+                gs.append(torch.zeros(len(cc), 2, device=DEV))
                 continue
-            Lh, free = LF
+            Lh, free, xh = LF
+            cs = cands[a:a + CHUNK // 4]
             if ic["cls"] != "enemy":        # an enemy casts no team light
-                L = self.light.cones(cands[a:a + CHUNK // 4]) | Lh[None]
+                L = self.light.cones(cs) | Lh[None]
             else:
                 L = Lh[None].expand(len(cc), -1)
-            out.append(self._loss(K, Wn, (L, free)))
-        return torch.cat(out).cpu().numpy(), np.zeros((len(cands), 2), np.float32)
+            lo = self._loss(K, Wn, (L, free, xh))
+            g = torch.zeros(len(cc), 2, device=DEV)
+            if self.light.boxes and ic["cls"] != "enemy":
+                # 0.6.0: the caster standing (every box blocks) or jumping (every crossed box passes) at
+                # BOX_JUMP_COST; the cheaper state wins, its flag carried in the pose's slot 3.
+                cr = self.light.crosses(cs)
+                if cr.any():
+                    sel = np.nonzero(cr)[0]
+                    st = torch.tensor(sel, device=DEV)
+                    Lj = self.light.cones(cs[sel], jump=True) | Lh[None]
+                    lj = self._loss(K[st], Wn[st], (Lj, free, xh + BOX_JUMP_COST))
+                    win = lj < lo[st]
+                    lo[st] = torch.where(win, lj, lo[st])
+                    g[st, 0] = win.float()
+            out.append(lo)
+            gs.append(g)
+        return torch.cat(out).cpu().numpy(), torch.cat(gs).cpu().numpy()
 
     def light_stats(self, order, poses) -> dict:
         """At fixed poses, over compared known floor: pixels predicted lit, and those read against the
         prediction at its cost (`unexplained`: lit where no cone reaches; `missing`: unlit inside a cone)."""
         if self.light is None:
             return {}
-        K, Wn, (L, free) = self.stack(order, poses)
+        K, Wn, (L, free, _x) = self.stack(order, poses)
         e2 = self._err2(K[None])[0]
         comp = (self.keep > 0) & (Wn > 0.5) & self.light.known & ~free
         unex = comp & ~L & (e2[1] + self.light.c_u < e2[0])
         miss = comp & L & (e2[0] + self.light.c_m < e2[1])
+        extra = {}
+        if self.light.regions:
+            # 0.6.0: the region-decided light; the pixel counts above stay the rule's, comparable with 0.5.0.
+            S = self.light.region_state(e2[None], L[None], comp[None])[0]
+            lab = self.light.regions_of(comp[None], L[None])[0]
+            ur, mr = comp & ~L & S, comp & L & ~S
+            extra = {"unexplained_region_n": int(ur.sum()), "missing_region_n": int(mr.sum()),
+                     "regions_n": int(torch.unique(lab[comp]).numel()) if comp.any() else 0,
+                     "unexplained_regions": int(torch.unique(lab[ur]).numel()) if ur.any() else 0,
+                     "missing_regions": int(torch.unique(lab[mr]).numel()) if mr.any() else 0}
         # The same poses with the sources taken away: what the drawn sources explain. `floor_nosrc_n` is
         # the compared floor without them (0.3.0's), the common denominator of both unexplained shares.
         Lc, free_c = self.light.held(poses, sources=False)
@@ -1431,7 +1934,29 @@ class RGBScene:
         return {"floor_n": int(comp.sum()), "lit_pred_n": int((comp & L).sum()), "unexplained_n": int(unex.sum()),
                 "missing_n": int(miss.sum()), "free_n": int(((self.keep > 0) & self.light.known & free).sum()),
                 "source_n": int((comp_c & self.light.src).sum()), "unexplained_nosrc_n": int(unex_nosrc.sum()),
-                "floor_nosrc_n": int(comp_c.sum())}
+                "floor_nosrc_n": int(comp_c.sum()), **extra}
+
+    def box_outcomes(self, order, poses) -> list[dict]:
+        """0.6.0 "boxes": per caster whose cone crosses a box, its winning state and, per crossed box,
+        the window pixels past it, the compared ones, and how many of those read lit. A box whose
+        compared pixels mostly read lit supports "passes" (short, or its caster raised); mostly unlit,
+        "blocks" (tall, or its caster standing)."""
+        if self.light is None or not self.light.boxes:
+            return []
+        K, Wn, (L, free, _x) = self.stack(order, poses)
+        e2 = self._err2(K[None])[0]
+        comp = self.compared(Wn[None], free)[0]
+        read = self.light.read_lit(e2[None])[0]
+        rows = self.light.jump_report(poses)
+        for row in rows:
+            boxes = []
+            for b, m in row.pop("_boxes").items():
+                c = m & comp
+                n, lit = int(c.sum()), int((c & read).sum())
+                boxes.append({"box_id": b, "px": int(m.sum()), "compared": n, "read_lit": lit,
+                              "supports": None if n < LIGHT_FIRE_PX else ("passes" if lit >= n / 2 else "blocks")})
+            row["boxes"] = boxes
+        return rows
 
     def full_images(self, order, poses, shape):
         """Prediction, weight, residual magnitude and light code as crop-sized arrays. The prediction's
@@ -1446,7 +1971,7 @@ class RGBScene:
             j = e2.argmin(0)
             e = e2.min(0).values
         else:
-            L, free = LF
+            L, free = LF[0], LF[1]
             j = L.long()
             e = self.light.err(e2[None], L[None], free)[0]
             kn = self.light.known
@@ -1455,6 +1980,16 @@ class RGBScene:
             code[kn & L & ~free & (e2[0] + self.light.c_m < e2[1])] = 3
             code[kn & free] = 4
             code[kn & self.light.src] = 5
+            if self.light.regions:
+                # 0.6.0: a whole region decided lit where no cone reaches (6), or unlit inside one (7)
+                comp = self.compared(Wn[None], free)[0]
+                S = self.light.region_state(e2[None], L[None], comp[None])[0]
+                e = self.light.region_err(e2[None], L[None], free, comp[None])[0]
+                code[comp & ~L & S] = 6
+                code[comp & L & ~S] = 7
+            if self.light.boxes:
+                # 0.6.0: light a jumping caster casts only through a box (8)
+                code[kn & L & ~self.light.held_standing(poses)] = 8
         best = torch.where(j[None] == 0, pred[0], pred[1])
         res = e.clamp(max=TAU_SIG ** 2).sqrt()
         x0, y0, x1, y1 = self.win
@@ -1675,7 +2210,7 @@ def light_calibrate(sess, label_times: dict) -> dict:
                              src=srcm, tint=tint)
             lt = scene.light
             pose = (ic["x"], ic["y"], ic["deg"], 0.0, 0.0)
-            K, Wn, (L, free) = scene.stack([0], {0: pose})
+            K, Wn, (L, free, *_x) = scene.stack([0], {0: pose})
             e2t = scene._err2(K[None])[0]
             e2 = e2t.cpu().numpy()
             pred = scene.predict(K[None])[0].cpu().numpy()                     # (2, 3, P), 0..1
@@ -2144,6 +2679,29 @@ def fit_scene(scene: Scene) -> dict:
     return best
 
 
+def outside_jumps(scene) -> list[dict]:
+    """0.6.0 "boxes": each outside caster whose cone crosses a box, standing against jumping at the
+    fitted scene poses; the cheaper state stays. Greedy, one caster at a time, in frame order."""
+    lt = getattr(scene, "light", None)
+    if lt is None or not lt.boxes:
+        return []
+    out = []
+    got = scene._last_fit
+    for k, o in enumerate(lt.outside):
+        if o.get("deg") is None:
+            continue
+        if not lt.crosses(np.array([[o["x"], o["y"], o["deg"]]], np.float64), full=bool(o.get("full")))[0]:
+            continue
+        lo_s = scene.loss_of(scene.stack(got["order"], got["poses"]))
+        lt.set_outside_jump(k, True)
+        lo_j = scene.loss_of(scene.stack(got["order"], got["poses"]))
+        if lo_j >= lo_s:
+            lt.set_outside_jump(k, False)
+        out.append({"outside": k, "role": o.get("role"), "loss_standing": round(lo_s, 3),
+                    "loss_jumping": round(lo_j, 3), "jumping": lo_j < lo_s})
+    return out
+
+
 # ---------------------------------------------------------------- the prior
 
 class TrackIndex:
@@ -2279,7 +2837,7 @@ def label_centre(r):
     return None if a[0] is None else a
 
 
-def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
+def run_item(s, r: dict, tracks, do_fit: bool = True, tv: TVFrames | None = None) -> dict:
     crop = r["_crop"]
     sc = widget_scale(crop.shape[1])
     cls = r["cls"]
@@ -2291,6 +2849,13 @@ def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
     out["teardrop"] = float(f["deg"]) if f.get("read") else None
     out["teardrop_reason"] = None if f.get("read") else f.get("reason", "no_fit")
     out["td_xy"] = (float(f["x"]), float(f["y"])) if "x" in f else None
+    if "dark" in CHANGES and SPACE == "rgb":
+        # 0.6.0: a darkened minimap is refused before any light is compared; the teardrop still reads.
+        dk = minimap_darkened(s, crop)
+        out["minimap_dark"] = dk
+        if dk["darkened"]:
+            out["refused"] = "minimap-darkened"
+            return out
     srcm = tint = None
     if SPACE == "rgb" and LIGHT == "pose":
         src, srcm, tint = scene_sources(r, r["session"], r["t_ms"], crop, sc)
@@ -2301,12 +2866,31 @@ def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
         return out
     t0 = time.perf_counter()
     if SPACE == "rgb":
-        outside = outside_icons(frame_team(s, r, sc), sc, nb["icons"]) if LIGHT == "pose" else []
+        if LIGHT == "pose" and "cast" in CHANGES:
+            outside, out["casters"] = team_casters(s, r, sc, nb["icons"], tv)
+        else:
+            outside = outside_icons(frame_team(s, r, sc), sc, nb["icons"]) if LIGHT == "pose" else []
         scene = RGBScene(crop, s, nb["icons"], sc, CAL, outside=outside, light_costs=light_costs(sc), src=srcm,
                          tint=tint)
     else:
         scene = Scene(keys(crop), keys(s.inputs.static), nb["icons"], sc)
     got = fit_scene(scene)
+    if SPACE == "rgb" and scene.light is not None and scene.light.boxes:
+        # 0.6.0: the outside casters' states at the fitted poses; a flip to jumping refits the scene.
+        scene._last_fit = got
+        out["outside_jumps"] = outside_jumps(scene)
+        if any(x["jumping"] for x in out["outside_jumps"]):
+            got = fit_scene(scene)
+        bo = scene.box_outcomes(got["order"], got["poses"])
+        for row in bo:
+            role = (nb["icons"][row["index"]]["cls"] if row["caster"] == "scene" else row.get("role"))
+            row["role"] = role
+            row["boost"] = boost_eligible(r["session"], role) if role in ("self", "ally") else None
+            if row["jumping"] and row["boost"] == "no":
+                # The player: tall boxes block a jump; only a boost ability lifts over them. A pass by a
+                # caster who cannot boost says every box it crosses is short, or the model is wrong.
+                row["surprise"] = "pass-without-boost"
+        out["box_outcomes"] = bo
     out["fit_s"] = time.perf_counter() - t0
     if SPACE == "rgb" and scene.light is not None:
         out["light"] = scene.light_stats(got["order"], got["poses"])
@@ -2315,6 +2899,7 @@ def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
     out["joint"] = float(td._signed_deg(p[2]))
     out["joint_xy"] = (p[0], p[1])
     out["joint_gains"] = (p[3], p[4])
+    out["joint_jumping"] = bool(Light.jumping(p)) if SPACE == "rgb" else False
     sp = got["solos"][0]["best"]
     out["solo"] = float(td._signed_deg(sp[2]))
     out["solo_xy"] = (sp[0], sp[1])
@@ -2330,7 +2915,12 @@ def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
         ["class detectors at this frame"] if "detector" in nb["sources"] else []) + ["label set's detector centre"] + (
         [f"drawn light sources fitted on this frame ({','.join(sorted({c['kind'] for c in out['light_sources']}))}): "
          "stored self track, stored death data and rounds, the player's ability labels"]
-        if out.get("light_sources") else [])
+        if out.get("light_sources") else []) + (
+        ["0.6.0 casters: the stored team_vision frame places every teammate; a hidden one's facing rests on "
+         "its last visible teardrop (casters[].depends_on)"] if out.get("casters") is not None else []) + (
+        ["0.6.0 regions: light-diagnosis-0.1.0's per-pixel read rates"] if "regions" in CHANGES else []) + (
+        ["0.6.0 boxes: baked boxes via cone.box_crossings; the stored lineup for boost eligibility"]
+        if "boxes" in CHANGES else [])
     out["_scene"] = scene
     out["_fit"] = got
     return out
@@ -2393,6 +2983,23 @@ def summarise(rows):
                 out[f"light_unexplained_share_pooled{tag}"] = round(sum(x["unexplained_n"] for x in sub) / fl, 4)
                 out[f"light_unexplained_nosrc_share_pooled{tag}"] = round(
                     sum(x["unexplained_nosrc_n"] for x in sub) / fl, 4)
+    out["refused_minimap_darkened"] = sum(r.get("refused") == "minimap-darkened" for r in rows)
+    if lit and all("unexplained_region_n" in x for x in lit):
+        fl = max(sum(x["floor_nosrc_n"] for x in lit), 1)
+        out["light_unexplained_region_share_pooled"] = round(sum(x["unexplained_region_n"] for x in lit) / fl, 4)
+        out["light_missing_region_share_pooled"] = round(sum(x["missing_region_n"] for x in lit) / fl, 4)
+        out["light_unexplained_region_items"] = sum(x["unexplained_region_n"] > 0 for x in lit)
+    bo = [b for r in rows for b in r.get("box_outcomes") or []]
+    if any("box_outcomes" in r for r in rows):
+        out["box_casters"] = len(bo)
+        out["box_casters_jumping"] = sum(b["jumping"] for b in bo)
+        out["box_pass_without_boost"] = sum(b.get("surprise") == "pass-without-boost" for b in bo)
+        out["box_items"] = sum(bool(r.get("box_outcomes")) for r in rows)
+    cs = [c for r in rows for c in r.get("casters") or []]
+    if any("casters" in r for r in rows):
+        for src_ in ("joint_fit", "teardrop", "teardrop_stacked", "last_visible_teardrop", "stored_track",
+                     "teardrop_untracked", None):
+            out[f"casters_{src_ or 'free'}"] = sum(c.get("facing_source") == src_ for c in cs)
     out["items_with_source"] = sum(bool(r.get("light_sources")) for r in rows)
     for kind in SOURCES:
         out[f"items_with_{kind}"] = sum(any(c["kind"] == kind for c in r.get("light_sources") or []) for r in rows)
@@ -2411,7 +3018,15 @@ def _print(title, res):
           f"joint vs solo {res['joint_vs_solo_fixed']}/{res['joint_vs_solo_broken']}; "
           f"td unread: joint reads {res['joint_on_td_unread_n']} flips {res['joint_on_td_unread_flips']}")
     print(f"  identical items (n {res['both_n']}): teardrop flips {res['both_teardrop_flips']}, "
-          f"joint flips {res['both_joint_flips']}")
+          f"joint flips {res['both_joint_flips']}; refused minimap-darkened {res['refused_minimap_darkened']}")
+    if "light_unexplained_region_share_pooled" in res:
+        print(f"  regions: unexplained region share pooled {res['light_unexplained_region_share_pooled']}, "
+              f"missing {res['light_missing_region_share_pooled']}")
+    if "box_casters" in res:
+        print(f"  boxes: casters crossing a box {res['box_casters']}, jumping {res['box_casters_jumping']}, "
+              f"pass without boost {res['box_pass_without_boost']}")
+    if "casters_joint_fit" in res:
+        print("  casters: " + ", ".join(f"{k[8:]} {v}" for k, v in res.items() if k.startswith("casters_")))
     if res.get("light_n"):
         print(f"  light at the fitted pose: unexplained fires {res['light_unexplained_fire']}/{res['light_n']}, "
               f"missing fires {res['light_missing_fire']}/{res['light_n']}, median unexplained share "
@@ -2467,8 +3082,10 @@ def tile(r: dict, zoom: int = 6) -> np.ndarray:
         if scene.light is not None:
             # The light: grey crop, predicted lit yellow, unexplained light cyan, missing light red, free blue.
             g = cv2.cvtColor(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR) // 2
+            # 0.6.0: a region decided lit with no cone white, one decided unlit in a cone dark red, light
+            # a jumping caster casts through a box spring green.
             for c, col in ((1, (0, 200, 255)), (5, (0, 200, 0)), (2, (255, 255, 0)), (3, (0, 0, 255)),
-                           (4, (255, 80, 0))):
+                           (4, (255, 80, 0)), (6, (255, 255, 255)), (7, (0, 0, 128)), (8, (128, 255, 0))):
                 g[(Cimg == c) & keep] = col
             g[~keep] = 0
             panels.append(sub(g))
@@ -2532,6 +3149,21 @@ def tile(r: dict, zoom: int = 6) -> np.ndarray:
              f"err td {f(et)} solo {f(es)} joint {f(ej)}  margin {r.get('margin', 0):.2f}"
              + ("  light lit {lit_pred_n} unexpl {unexplained_n} miss {missing_n} free {free_n} of {floor_n}".format(
                  **r["light"]) if r.get("light") else "")]
+    if r.get("refused"):
+        lines.append(f"REFUSED {r['refused']}: known-floor grey median {r['minimap_dark']['median']:+.0f} "
+                     f"vs static; owner widget_drawn {r['minimap_dark'].get('widget_drawn')}")
+    if "joint_v5_err" in r or r.get("casters") is not None:
+        lines.append(f"0.5.0 joint err {f(r.get('joint_v5_err'))}; region unexpl "
+                     f"{(r.get('light') or {}).get('unexplained_region_n', '-')} miss "
+                     f"{(r.get('light') or {}).get('missing_region_n', '-')}; casters " + "; ".join(
+                         f"{c['role']}:{c.get('facing_source') or 'free'}"
+                         + (f"@{c['depends_on']['t_ms'] / 1000:.2f}s" if c.get("depends_on") else "")
+                         for c in r.get("casters") or []))
+    for b in r.get("box_outcomes") or []:
+        lines.append(f"box caster {b['caster']}:{b['role']} {'JUMPING' if b['jumping'] else 'standing'} boost "
+                     f"{b['boost']} {b.get('surprise') or ''}; " + "; ".join(
+                         f"box {x['box_id']} past {x['compared']} lit {x['read_lit']} {x['supports']}"
+                         for x in b["boxes"]))
     if src is not None:
         lit = r.get("light") or {}
         lines.append("sources: " + ("; ".join(f"{c['kind']} r {c['r']:.1f} score {c['score']:.1f}"
@@ -2724,10 +3356,32 @@ def main(argv=None) -> int:
                          "unlabelled frames; fit nothing")
     ap.add_argument("--fit-agree", action="store_true",
                     help="0.4.0's audio fit against audio_circle's per-frame fit on a probe set; fit nothing")
+    ap.add_argument("--v5", action="store_true",
+                    help="0.5.0 exactly: none of 0.6.0's changes; never recorded, written under OUT/control-0.5.0")
+    ap.add_argument("--only", choices=("cast", "regions", "boxes"),
+                    help="one 0.6.0 change alone (with the darkened-minimap refusal): the ablation, "
+                         "recorded as scene_stack_eval_v6_only_<change> under OUT/only-<change>")
+    ap.add_argument("--compare", action="store_true",
+                    help="the teardrop, 0.5.0, 0.6.0 and each ablation on the items every arm reads, from the "
+                         "stored items.json files; fit nothing")
     args = ap.parse_args(argv)
     global GAIN_MODE, OUT, SPACE, CAL, LCAL, CAL_PATH, SOURCES, VERSION, LIGHT_CAL_PATH, SERIES, CHECK_SERIES
-    global SOURCE_STATE, TCAL
+    global SOURCE_STATE, TCAL, CHANGES
     SPACE = args.space
+    if args.compare:
+        return compare(record=args.record)
+    if args.v5 or args.no_sources or args.disc:
+        if args.v5 and args.record:
+            raise SystemExit("--v5 reruns 0.5.0 as a control: it records nothing")
+        CHANGES = set()
+        if args.v5:
+            VERSION, SERIES = "scene-stack-0.5.0", "scene_stack_eval_v5"
+            OUT = OUT / "control-0.5.0"
+    elif args.only:
+        CHANGES = {args.only, "dark"}
+        VERSION, SERIES = f"scene-stack-0.6.0-only-{args.only}", f"scene_stack_eval_v6_only_{args.only}"
+        OUT = OUT / f"only-{args.only}"
+    print(f"{VERSION}: changes {sorted(CHANGES)}", flush=True)
     if args.no_sources:
         if args.light_cal:
             raise SystemExit("--no-sources reads 0.3.0's light calibration; it never rewrites it")
@@ -2742,7 +3396,8 @@ def main(argv=None) -> int:
     if args.limit:
         OUT = OUT / "smoke"                 # a smoke run never overwrites a full run's items or sheets
     TCAL = {"reload_ratio": _reload_ratio()}
-    tint_path = (OUT.parent if args.limit else OUT) / TINT_CAL_NAME
+    # 0.6.0 reads 0.5.0's tint calibration; `--tint-cal` writes a new one under this version's OUT.
+    tint_path = (OUT if args.tint_cal else OUT_V5) / TINT_CAL_NAME
     if SOURCE_STATE == "tint" and SOURCES and not (args.tint_cal or args.fit_agree):
         if not tint_path.is_file():
             raise SystemExit(f"no {tint_path}: run --tint-cal first")
@@ -2864,10 +3519,12 @@ def main(argv=None) -> int:
     tracks = {sid: TrackIndex(sid, ts) for sid, ts in need.items()}
     for sid, tr in tracks.items():
         print(f"  prior {sid}: {len(tr.rows)} stored frames ({tr.version})", flush=True)
+    tvs = {sid: TVFrames(sid, ts) for sid, ts in need.items()} if "cast" in CHANGES else {}
     t0 = time.perf_counter()
     for k, rows in all_rows.items():
         for i, r in enumerate(rows):
-            got = run_item(sess(r["session"]), r, tracks.get(r["session"]), do_fit=not (args.census or args.check))
+            got = run_item(sess(r["session"]), r, tracks.get(r["session"]), do_fit=not (args.census or args.check),
+                           tv=tvs.get(r["session"]))
             r.update(got)
             if (i + 1) % 10 == 0:
                 print(f"  {k} {i + 1}/{len(rows)} {time.perf_counter() - t0:.0f}s", flush=True)
@@ -2921,7 +3578,7 @@ def main(argv=None) -> int:
             "max_neighbours": MAX_NEIGHBOURS, "gain_mode": GAIN_MODE, "prior": "team_vision stored tracks + class detectors",
             "space": SPACE, "portrait": PORTRAIT, "tau_sig": TAU_SIG, "own_cost": OWN_COST,
             "calibration": str(cal_path), "light": LIGHT, "light_calibration": str(LIGHT_CAL_PATH),
-            "light_rays": LIGHT_RAYS, "light_fire_px": LIGHT_FIRE_PX, **_source_deps()}
+            "light_rays": LIGHT_RAYS, "light_fire_px": LIGHT_FIRE_PX, **_source_deps(), **_v6_deps()}
     records = []
     pooled = defaultdict(list)
     for k, rows in all_rows.items():
@@ -2990,7 +3647,132 @@ def main(argv=None) -> int:
         print(f"tint sheet: {len(pick)} items")
         for p in sheet(pick, OUT / "sheet_tint_331.png", per_page=8):
             print("wrote", p)
+        if CHANGES:
+            sheet_v6(all_rows, sess, tracks, tvs)
     return 0
+
+
+def _v6_deps() -> dict:
+    if not CHANGES:
+        return {}
+    d = {"changes": sorted(CHANGES)}
+    if "cast" in CHANGES:
+        d |= {"cast_back_ms": CAST_BACK_MS, "cast_frame_ms": CAST_FRAME_MS, "cast_range": "unlimited outside"}
+    if "regions" in CHANGES:
+        d |= {"instrument": str(INSTRUMENT_PATH), "region_passes": REGION_PASSES,
+              "region_rates": {k: instrument_rates(float(k)) for k in ("0.712", "1.000")}}
+    if "boxes" in CHANGES:
+        d |= {"box_jump_cost": round(BOX_JUMP_COST, 4), "box_states": ["standing", "jumping"],
+              "boost_agents": list(BOOST_AGENTS)}
+    if "dark" in CHANGES:
+        d |= {"dark_median": DARK_MEDIAN}
+    return d
+
+
+# ---------------------------------------------------------------- 0.6.0: the comparison and its sheet
+
+COMPARE_ARMS = (("0.5.0", lambda: OUT_V5 / "items.json"), ("0.6.0", lambda: OUT / "items.json"),
+                ("only-cast", lambda: OUT / "only-cast" / "items.json"),
+                ("only-regions", lambda: OUT / "only-regions" / "items.json"),
+                ("only-boxes", lambda: OUT / "only-boxes" / "items.json"))
+
+
+def _ikey(r):
+    return (r["set"], r["session"], round(float(r["t_ms"]), 1), r.get("key"))
+
+
+def compare(record: bool = False) -> int:
+    """The teardrop and every arm's joint fit on the items every arm reads (none refused), per label set
+    and pooled: flips, isolated items broken, the unexplained-light share (pixel rule; regions too)."""
+    arms = {}
+    for name, path in COMPARE_ARMS:
+        p = path()
+        if not p.is_file():
+            print(f"compare: no {p}; arm {name} left out")
+            continue
+        rows = [x for v in json.loads(p.read_text(encoding="utf-8"))["sets"].values() for x in v]
+        arms[name] = {_ikey(x): x for x in rows}
+    if "0.5.0" not in arms or "0.6.0" not in arms:
+        raise SystemExit("compare needs 0.5.0's and 0.6.0's items.json")
+    base = arms["0.6.0"]
+    keys_ = [k for k, x in base.items() if err(x, "teardrop") is not None
+             and all(k in a and err(a[k], "joint") is not None for a in arms.values())]
+    sets = sorted({k[0] for k in keys_})
+    refused = {k for k, x in base.items() if x.get("refused")}
+    res = {}
+    for part in sets + ["pooled"]:
+        ks = [k for k in keys_ if part == "pooled" or k[0] == part]
+        v = {"n": len(ks), "teardrop_flips": sum(abs(err(base[k], "teardrop")) > 90 for k in ks),
+             "refused_minimap_darkened": sum(1 for k in refused if part == "pooled" or k[0] == part)}
+        for name, a in arms.items():
+            tag = name.replace(".", "").replace("-", "_")
+            v[f"{tag}_flips"] = sum(abs(err(a[k], "joint")) > 90 for k in ks)
+            iso = [k for k in ks if not a[k]["n_touch"] and abs(err(a[k], "teardrop")) <= 90
+                   and abs(err(a[k], "joint")) > 90]
+            v[f"{tag}_isolated_broken"] = len(iso)
+            lit = [a[k]["light"] for k in ks if a[k].get("light")]
+            fl = max(sum(x["floor_nosrc_n"] for x in lit), 1)
+            v[f"{tag}_unexplained_share_pooled"] = round(sum(x["unexplained_n"] for x in lit) / fl, 4)
+            if lit and all("unexplained_region_n" in x for x in lit):
+                v[f"{tag}_unexplained_region_share_pooled"] = round(
+                    sum(x["unexplained_region_n"] for x in lit) / fl, 4)
+            if part == "pooled":
+                for k in iso:
+                    print(f"  {name} ISOLATED BROKEN {k[0]} {k[1]} t_ms {k[2]}: teardrop "
+                          f"{err(a[k], 'teardrop'):+.1f} joint {err(a[k], 'joint'):+.1f}")
+        res[part] = ("+".join(sorted({k[1] for k in ks})), v)
+        print(f"== {part}: n {v['n']} teardrop flips {v['teardrop_flips']}; " + "; ".join(
+            f"{name} flips {v[name.replace('.', '').replace('-', '_') + '_flips']} iso-broken "
+            f"{v[name.replace('.', '').replace('-', '_') + '_isolated_broken']} unexpl "
+            f"{v[name.replace('.', '').replace('-', '_') + '_unexplained_share_pooled']}" for name in arms))
+    if record:
+        from reticle import metrics
+        deps = {"prototype": VERSION, "arms": {n: str(p()) for n, p in COMPARE_ARMS if n in arms},
+                "items": "teardrop and every arm's joint read, none refused"}
+        for part, (session, v) in res.items():
+            metrics.record(COMPARE_SERIES, part=part, session=session, values=v, deps=deps)
+            print("recorded compare", part)
+    return 0
+
+
+BFAD_T = 618133.3                       # the player: the self casts this light, drawn under Deadlock's icon
+
+
+def sheet_v6(all_rows: dict, sess, tracks, tvs) -> None:
+    """0.6.0's sheet (rule fixed before any 0.6.0 score): c40d950031bb 205.5 s; every refused item;
+    every item where a caster jumped, then up to six where a crossing caster stood; and bfad2778a372
+    618.133 s, unlabelled, fitted round the self icon. Each tile names 0.5.0's joint error."""
+    v5 = {}
+    p5 = OUT_V5 / "items.json"
+    if p5.is_file():
+        v5 = {_ikey(x): x for v in json.loads(p5.read_text(encoding="utf-8"))["sets"].values() for x in v}
+    rows = [r for v in all_rows.values() for r in v]
+    for r in rows:
+        q = v5.get(_ikey(r))
+        r["joint_v5_err"] = err(q, "joint") if q else None
+    pick = [r for r in rows if r["session"] == "c40d950031bb" and abs(float(r["t_ms"]) - 205500) < 50]
+    pick += [r for r in rows if r.get("refused") and r not in pick]
+    pick += [r for r in rows if any(b["jumping"] for b in r.get("box_outcomes") or []) and r not in pick]
+    pick += [r for r in rows if r.get("box_outcomes") and r not in pick][:6]
+    sid = "bfad2778a372"
+    s = sess(sid)
+    t = min(s.cache_t, key=lambda x: abs(x - BFAD_T))
+    crop = list(s.crops([t]))[0][1]
+    det = it_.detections(crop, "self", s)
+    if det:
+        d = det[0]
+        b = {"session": sid, "t_ms": float(t), "cls": "self", "det_cx": float(d["cx"]), "det_cy": float(d["cy"]),
+             "set": "unlabelled", "label_deg": None, "key": "bfad-618133", "_crop": crop}
+        tv = tvs.get(sid) or (TVFrames(sid, [float(t)]) if "cast" in CHANGES else None)
+        tr = tracks.get(sid) or TrackIndex(sid, [float(t)])
+        b.update(run_item(s, b, tr, tv=tv))
+        pick.append(b)
+        print(f"bfad 618.133: joint {b.get('joint')} teardrop {b.get('teardrop')} light {b.get('light')} "
+              f"casters {b.get('casters')} boxes {b.get('box_outcomes')}")
+    print(f"0.6.0 sheet: {len(pick)} items")
+    for p in sheet([r for r in pick if r.get("_scene") is not None or r.get("refused")], OUT / "sheet_v6.png",
+                   per_page=8):
+        print("wrote", p)
 
 
 def _source_deps() -> dict:
