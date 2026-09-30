@@ -184,7 +184,8 @@ exceptions = """
 UNMEASURED, three ways, and each is null with a reason rather than a guess: the
 duration; whether enemy-owned ABILITIES persist like enemy PLAYERS, the player's
 example being a player; and what the terminal state is -- a question mark, a
-different marker, or nothing
+different marker, or nothing. Whether the team's drawn LIGHT itself lingers
+after a cone sweeps away was asked on 2026-09-29 and is unanswered
 """
 source = """
 the player, correcting the gate's exceptionless form. On 2026-09-29 (chat) the
@@ -192,7 +193,44 @@ player placed the delay he sees before an enemy's "?" here: the icon stays drawn
 after the team's vision no longer covers its place, and the "?" follows
 (minimap/last-known-mark-timing measures the swap as one frame)
 """
-see = ["minimap/vision-gate", "minimap/last-known-mark", "minimap/last-known-mark-timing"]
+see = ["minimap/vision-gate", "minimap/last-known-mark", "minimap/last-known-mark-timing",
+       "minimap/dead-teammate-light-belief", "minimap/spike-casts-no-light-belief"]
+
+[dead-teammate-light-belief]
+claim = """
+A teammate who has just died may still light the minimap floor for a moment.
+The player is unsure; this is his belief, unverified.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+source = """
+the player, 2026-09-29 (chat), asked whether anything besides living
+teammates' cones lights the floor
+"""
+use = """
+floor read lit where no visible team cone reaches may come from a teammate who
+died within the moment; test it against a death witness (killfeed, roster)
+before any reader explains light this way
+"""
+exceptions = "unverified on any capture; the duration, if any, is unknown"
+see = ["minimap/vision-trailing-persistence", "minimap/spike-casts-no-light-belief"]
+
+[spike-casts-no-light-belief]
+claim = """
+The spike does not light the minimap floor. The player thinks so; this is his
+belief, unverified.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+source = "the player, 2026-09-29 (chat), in the same answer"
+use = """
+do not explain unexplained floor light by the spike without an observation
+that contradicts the belief
+"""
+exceptions = "unverified on any capture"
+see = ["minimap/vision-trailing-persistence", "minimap/dead-teammate-light-belief"]
 
 [device-dim-on-deactivation]
 claim = """
