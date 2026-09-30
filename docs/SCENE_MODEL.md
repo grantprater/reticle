@@ -931,7 +931,8 @@ everything else, not ramps from boxes. The player's non-occluding lines
 [metric:raised-edge-occluders/non-occluding-proposal@ascent__valorant-16x9-bigmap#total_occ_px=517]
 baked occluder pixels, a share
 [metric:raised-edge-occluders/non-occluding-proposal@ascent__valorant-16x9-bigmap#share_of_baked_occ=0.0571]
-of the key's occluders. The change awaits the player.
+of the key's occluders. The player approved the change; occluders-2.0.0
+below makes it.
 
 ### Stage 2, 0.6.0: the light as a binary raycast
 
@@ -1000,6 +1001,51 @@ is a question for the player.
 
 The sheets are the store's `analysis/scene-raycast-20260930/sheet_v6_*.png`.
 Not wired.
+
+### The sorted lines in the occluders (occluders-2.0.0)
+
+The player approved rebuilding the occluders from the line labels and the
+sorter. `prototypes/line_classes.py` (line-classes-1.0.0) bakes a class per
+line pixel into each geometry npz: wall, box, ramp, other or unread, with its
+source. The player's answers override the sorter (Ascent and Lotus at
+465 px); the other ten keys carry the sorter's classes alone and are marked
+unvalidated. `reticle/occluders.py` 2.0.0 reads the classes. Walls and boxes
+stop light; ramp, heaven-edge and overhang-start lines do not. It also clears
+art-wall pixels beside a line that no longer occludes. On Ascent's 465 px
+key it opens
+[metric:geometry-lines/occluders-2.0.0@ascent__valorant-16x9-bigmap#opened=655]
+occluder pixels. A box keeps a height class only where a player note or a
+heights file names one; every other box is unknown. On Ascent
+[metric:geometry-lines/occluders-2.0.0@ascent__valorant-16x9-bigmap#box_px_tall=28]
+box pixels are tall (the generator among them).
+
+0.6.0 was rerun without changes, with the rebuilt geometry, on the same 165
+items:
+
+| Arm | Flips | Isolated broken | Unexplained share |
+|---|---|---|---|
+| teardrop | 13 | | |
+| 0.6.0 | 26 | 7 | 0.094 |
+| 0.6.0, rebuilt occluders | 28 | 9 | 0.0921 |
+
+- The pooled unexplained share falls to
+  [metric:scene_stack_compare_v6_lines/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#060_lines_unexplained_share_pooled=0.0921].
+- The flips rise to
+  [metric:scene_stack_compare_v6_lines/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#060_lines_flips=28].
+  Two new flips are isolated 465 px enemies.
+- Per map, the share falls on Ascent, to
+  [metric:scene_stack_compare_v6_lines_by_map/ascent@a06f04a0059f+c40d950031bb+e78e75b2d191#060_lines_unexplained_share_pooled=0.0961],
+  and on Split, to
+  [metric:scene_stack_compare_v6_lines_by_map/split@bfad2778a372#060_lines_unexplained_share_pooled=0.1059].
+- It rises on Haven, to
+  [metric:scene_stack_compare_v6_lines_by_map/haven@223d636bf8d2#060_lines_unexplained_share_pooled=0.1186]
+  from 0.1122. That falsifies prediction G4 on an unvalidated key.
+
+Opening the lines explains a little more light, but it moves no flips
+back. The joint fit's loss to the teardrop is not an occluder gap. Haven's
+classes need the player's answers.
+
+The sheets are the store's `analysis/geometry-lines-20260930/occ_*.png`.
 
 ## What this plan does not settle
 

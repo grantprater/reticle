@@ -506,7 +506,7 @@ def check_occluders(store: Path) -> list[tuple[str, str]]:
         return [(WARN, f"cannot compute the occluder stamp ({type(e).__name__}) "
                        f"-- staleness unchecked")]
     import numpy as np
-    stale, absent = [], []
+    stale, absent, other_lines = [], [], []
     for p in sorted(d.glob("*.npz")):
         try:
             with np.load(p, allow_pickle=False) as z:
@@ -514,6 +514,11 @@ def check_occluders(store: Path) -> list[tuple[str, str]]:
                     absent.append(p.stem)
                     continue
                 got = str(z["occ_built_by"]) if "occ_built_by" in z.files else "unstamped"
+                # occluders-2.0.0: the table must have been built over the npz's own line classes
+                if "line_cls" in z.files and got == want:
+                    built_over = str(z["occ_lines"]) if "occ_lines" in z.files else ""
+                    if built_over != str(z["lines_built_by"]):
+                        other_lines.append(p.stem)
         except Exception:
             got = "unreadable"
         if got != want:
@@ -524,11 +529,80 @@ def check_occluders(store: Path) -> list[tuple[str, str]]:
                            f"(occ_built_by != current) -- rebuild with "
                            f"`reticle occluders --all`. "
                            f"{', '.join(stale[:6])}{' ...' if len(stale) > 6 else ''}"))
+    if other_lines:
+        out.append((ERROR, f"{len(other_lines)} geometry npz carry an occluder table built over other "
+                           f"line classes (occ_lines != lines_built_by) -- rebuild with "
+                           f"`reticle occluders --all`. {', '.join(other_lines[:6])}"))
     if absent:
         out.append((WARN, f"{len(absent)} geometry npz have NO occluder table -- rays "
                           f"stop only at the art's box edges; build with "
                           f"`reticle occluders --all`. "
                           f"{', '.join(absent[:6])}{' ...' if len(absent) > 6 else ''}"))
+    return out
+
+
+def check_lines(store: Path) -> list[tuple[str, str]]:
+    """Geometry npz whose baked line classes are missing, refused or stale.
+
+    `line_cls` (prototypes/line_classes.py) tells `occluders` which drawn lines
+    stop light: walls and boxes do, ramp and elevation lines, heaven edges and
+    overhang starts do not. Its stamp `lines_built_by` covers the sorter, the
+    labeller and every label, note and heights file the key reads, so a new
+    answer from the player makes it stale. A WARN: a key without current
+    classes keeps occluders-1's rule, which `occ_lines` names. A refused key
+    is listed apart, since its sanity rule refused it on purpose. Every key the
+    player has not labelled is also listed, as UNVALIDATED, so a number read
+    over it is known to rest on the sorter's generalisation.
+    """
+    d = store / "geometry"
+    if not d.is_dir():
+        return []
+    try:
+        import sys
+        sys.path.insert(0, str(ROOT / "prototypes"))
+        sys.path.insert(0, str(ROOT))
+        import io, contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            import line_classes
+    except Exception as e:                                  # pragma: no cover
+        return [(WARN, f"cannot compute the line-class stamp ({type(e).__name__}) "
+                       f"-- staleness unchecked")]
+    import json
+    import numpy as np
+    stale, absent, refused, unvalidated = [], [], [], []
+    for p in sorted(d.glob("*.npz")):
+        try:
+            with np.load(p, allow_pickle=False) as z:
+                if "lines_refused" in z.files:
+                    refused.append(p.stem)
+                    continue
+                if "line_cls" not in z.files:
+                    absent.append(p.stem)
+                    continue
+                got = str(z["lines_built_by"])
+                meta = json.loads(str(z["lines_meta"])) if "lines_meta" in z.files else {}
+        except Exception:
+            got, meta = "unreadable", {}
+        if got != line_classes.stamp(p.stem):
+            stale.append(p.stem)
+        if (meta.get("validation") or {}).get("status") != "labels":
+            unvalidated.append(p.stem)
+    out = []
+    if stale:
+        out.append((WARN, f"{len(stale)} geometry npz carry STALE line classes "
+                          f"(lines_built_by != current) -- rebake with "
+                          f"prototypes/line_classes.py bake --all, then `reticle occluders --all`. "
+                          f"{', '.join(stale[:6])}{' ...' if len(stale) > 6 else ''}"))
+    if absent:
+        out.append((WARN, f"{len(absent)} geometry npz have NO line classes: their occluders "
+                          f"keep occluders-1's rule. {', '.join(absent[:6])}"
+                          f"{' ...' if len(absent) > 6 else ''}"))
+    if refused:
+        out.append((WARN, f"{len(refused)} geometry npz had their line classes REFUSED by the "
+                          f"sanity rule (lines_refused): {', '.join(refused)}"))
+    if unvalidated:
+        out.append((WARN, f"{len(unvalidated)} geometry npz carry line classes no player answer "
+                          f"validates (the sorter's generalisation): {', '.join(unvalidated[:12])}"))
     return out
 
 
@@ -1111,6 +1185,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("GEOMETRY", lambda: check_geometry(store)),
               ("SHADE", lambda: check_shade(store)),
               ("OCCLUDERS", lambda: check_occluders(store)),
+              ("LINES", lambda: check_lines(store)),
               ("COVERAGE", lambda: check_coverage(store)),
               ("MANIFEST", lambda: check_manifest(store)),
               ("FURNITURE", lambda: check_furniture(store)),
