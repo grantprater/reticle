@@ -17,9 +17,13 @@ from reticle.store import Store
 ROOT = Path(__file__).resolve().parents[1]
 CONSUMER = ("round_view", "view_events")
 #: The lower modules a consumer may name: the store, the capture layout, the
-#: widget's placement, and the event contract. Nothing that reads pixels,
-#: tracks, or adjudicates.
-ALLOWED = {"store", "profiles", "widget_frame", "view_events", "events", "version"}
+#: event contract, and `entity_events`, the door the lanes are read through.
+#: Nothing that reads pixels, tracks, or adjudicates.
+ALLOWED = {"store", "profiles", "view_events", "events", "version", "entity_events"}
+READ_THROUGH = "entity_events"
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_entity_events import SID, build_store  # noqa: E402  (the projection's fixture)
 
 
 def _reticle_imports(module: str) -> set[str]:
@@ -49,7 +53,8 @@ class ImportsNoReader(unittest.TestCase):
     def test_no_reader_or_adjudicator_is_imported_by_layer(self):
         arch = tomllib.loads((ROOT / "architecture.toml").read_text(encoding="utf-8"))
         forbidden = set(arch["readers"]["modules"]) | set(arch["adjudication"]["modules"]) \
-            | set(arch["entities"]["modules"]) | {"passes", "pipeline", "trial", "roi_cache"}
+            | (set(arch["entities"]["modules"]) - {READ_THROUGH}) \
+            | {"passes", "pipeline", "trial", "roi_cache", "widget_frame"}
         for m in CONSUMER:
             self.assertFalse(_reticle_imports(m) & forbidden, m)
             self.assertIn(m, arch["consumers"]["modules"])
@@ -64,6 +69,7 @@ class ImportsNoReader(unittest.TestCase):
         arch = tomllib.loads((ROOT / "architecture.toml").read_text(encoding="utf-8"))
         bad = {f"reticle.{m}" for m in arch["readers"]["modules"] + arch["adjudication"]["modules"]
                + arch["entities"]["modules"]} - {"reticle.roster"}
+        bad.discard(f"reticle.{READ_THROUGH}")
         self.assertFalse(set(got) & bad, got)
 
 
@@ -73,38 +79,19 @@ def _write(store, stream, sid, rows):
     p.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
 
 
-def _manifest(sid):
-    return {"session_id": sid, "ingested_at": "2026-09-30T00:00:00+00:00",
-            "source_profile": "valorant-16x9",
-            "source": {"width": 1920, "height": 1080, "path": "none"}}
+ROUND = {"round_no": 1, "t_start_ms": 0.0, "t_close_ms": 65000.0}
 
 
 class Loader(unittest.TestCase):
+    """The lanes of `test_entity_events`' store, projected, then loaded."""
+
     def setUp(self):
+        from reticle import entity_events as ee
         self.tmp = tempfile.TemporaryDirectory()
-        self.store = Store(self.tmp.name)
-        self.sid = "abc123"
-        _write(self.store, "round_entity", self.sid, [
-            {"kind": "entity", "round_no": 2, "id": "abc123:R2:E0001/P0", "agent": "Jett",
-             "identity_status": "resolved"},
-            {"kind": "entity", "round_no": 2, "id": "abc123:R2:E0002", "agent": None,
-             "identity_status": "abstained", "identity_reason": "no teammate fits"},
-            {"kind": "observation", "round_no": 2, "t_ms": 1000.0, "entity_id": "abc123:R2:E0001/P0",
-             "name": "ally 1", "family": "ally", "identity_status": "resolved", "x": 50, "y": 60,
-             "observation_id": "abc123:R2:O1", "state": "continuation",
-             "round_entity_version": "round-entity-9"},
-            {"kind": "observation", "round_no": 2, "t_ms": 1000.0, "entity_id": "abc123:R2:E0002",
-             "name": "ally 2", "family": "ally", "identity_status": "resolved", "x": 90, "y": 90,
-             "observation_id": "abc123:R2:O2", "state": "continuation"},
-            {"kind": "observation", "round_no": 2, "t_ms": 1066.0, "entity_id": None,
-             "name": None, "family": "ally", "identity_status": "refused", "x": 10, "y": 10,
-             "observation_id": "abc123:R2:O3", "state": "roster_conflict_refused"},
-        ])
-        _write(self.store, "death", self.sid, [
-            {"kind": "death_verdict", "t_ms": 1500.0, "death_id": "death:abc123:1500:0",
-             "status": "abstained", "reason": "no witness", "victim": None, "killer": "Sova",
-             "side": "enemy", "death_adjudication_version": "death-9"}])
-        _write(self.store, "ping", self.sid, [
+        self.store = build_store(Path(self.tmp.name))
+        for lane in ee.PROJECTED:
+            ee.project_lane(self.store, SID, lane, stale={})
+        _write(self.store, "ping", SID, [
             {"kind": "danger", "t_ms": 1200, "x": 5, "y": 6, "lifetime_s": 2.0,
              "ping_version": "ping-9"}])
 
@@ -112,62 +99,93 @@ class Loader(unittest.TestCase):
         self.tmp.cleanup()
 
     def load(self):
-        return ve.load(self.store, _manifest(self.sid), 0.0, 5000.0, {"round_no": 2,
-                                                                     "t_start_ms": 0.0,
-                                                                     "t_close_ms": 5000.0})
+        return ve.load(self.store, self.store.read_manifest(SID), 0.0, 65000.0, ROUND)
 
     def test_every_item_comes_from_a_stored_row(self):
         L = self.load()
-        ids = {it.event_id for it in L.items["round_entity"]}
-        self.assertEqual(ids, {"abc123:R2:O1", "abc123:R2:O2", "abc123:R2:O3"})
-        jett = next(it for it in L.items["round_entity"] if it.event_id == "abc123:R2:O1")
-        self.assertEqual(jett.label, "ally 1=Jett")
-        self.assertIsNone(jett.facing)              # the stream stores no facing
-        self.assertEqual(jett.version, "round-entity-9")
+        self.assertEqual({it.event_id for it in L.items["entity_round_entity"]},
+                         {"pose:o2", "pose:o3", "pose:o4", "pose:o5"})
+        self.assertEqual({it.event_id for it in L.items["entity_round_entity_ledger"]},
+                         {"pose:o1", "pose:o6"})
+        jett = next(it for it in L.items["entity_round_entity"] if it.event_id == "pose:o2")
+        self.assertEqual((jett.label, jett.x, jett.y), ("Jett", 50.0, 60.0))
+        self.assertIsNone(jett.facing)              # the lane stores no facing
+        self.assertEqual(jett.version, "entity-round-entity-0.1.0")
+        self.assertEqual(L.versions["entity_death"], "entity-death-0.1.0")
+        self.assertEqual([it.label for it in L.items["entity_spike"]],
+                         ["R1 spike planted at 0:50.0"])
 
-    def test_refusal_and_abstention_keep_their_reasons(self):
+    def test_ledger_rows_keep_their_standing_and_reason(self):
         L = self.load()
-        by = {it.event_id: it for it in L.items["round_entity"]}
-        self.assertEqual(by["abc123:R2:O3"].status, "refused")
-        self.assertEqual(by["abc123:R2:O3"].reason, "roster_conflict_refused")
-        self.assertEqual(by["abc123:R2:O2"].status, "abstained")
-        self.assertIn("no teammate fits", by["abc123:R2:O2"].reason)
-        death = L.items["death"][0]
-        self.assertEqual(death.status, "abstained")
-        self.assertIn("no witness", death.reason)
-        self.assertIn(death.status, ve.NOT_READ)
+        by = {it.event_id: it for s in ("entity_round_entity", "entity_round_entity_ledger")
+              for it in L.items[s]}
+        self.assertEqual((by["pose:o6"].status, by["pose:o6"].reason),
+                         ("refused", "refused: two icons overlap"))
+        self.assertEqual(by["pose:o1"].status, "disputed")
+        self.assertIn("the death owner names its victim Chamber", by["pose:o1"].reason)
+        self.assertEqual(by["pose:o1"].detail["alternatives"], ["Skye", "Chamber"])
+        self.assertEqual(by["pose:o5"].status, "abstained")      # its name is withheld
+        self.assertIn("two agents tie", by["pose:o5"].reason)
+        deaths = {it.entity_id: it for s in ("entity_death", "entity_death_ledger")
+                  for it in L.items[s]}
+        self.assertEqual(deaths["d3"].stream, "entity_death_ledger")
+        self.assertEqual((deaths["d3"].status, deaths["d3"].reason),
+                         ("abstained", "abstained by the fixture"))
+        self.assertEqual(deaths["d2"].status, "refused")          # the weapon read
+        self.assertEqual(deaths["d1"].status, "ok")
+        self.assertEqual(deaths["d1"].label, "0:30.0 Raze [Ghost] > Chamber")
+        for it in (by["pose:o6"], by["pose:o1"], by["pose:o5"], deaths["d3"]):
+            self.assertIn(it.status, ve.NOT_READ)
+        lost = L.items["entity_spike_ledger"]
+        self.assertEqual([(it.status, it.t_ms) for it in lost], [("abstained", 20000.0)])
 
-    def test_absent_stream_is_named_not_empty(self):
+    def test_absent_stream_and_unprojected_lane_are_named_not_empty(self):
         L = self.load()
         self.assertEqual(L.presence["team_vision"], "no stream for this session")
         self.assertEqual(L.items["team_vision"], [])
+        self.store.events_path("entity_spike", SID).unlink()
+        L = self.load()
+        self.assertIn("not projected", L.presence["entity_spike"])
+        self.assertEqual(L.items["entity_spike"], [])
+
+    def test_a_stale_lane_is_drawn_and_says_so(self):
+        rows = self.store.read_events("spike_carrier", SID)
+        rows[0]["spike_carrier_version"] = "spike-carrier-test-2"
+        _write(self.store, "spike_carrier", SID, rows)
+        L = self.load()
+        self.assertIn("STALE (inputs moved: spike_carrier)", L.presence["entity_spike"])
+        self.assertNotIn("STALE", L.presence["entity_death"])
+        self.assertEqual(len(L.items["entity_spike"]), 1)
 
     def test_sampled_items_hold_only_until_stale(self):
         L = self.load()
-        self.assertEqual(len(L.active("round_entity", 1030.0)), 2)
-        self.assertEqual(len(L.active("round_entity", 1070.0)), 1)   # the next sample
-        self.assertEqual(L.active("round_entity", 1500.0), [])       # past the hold
-        self.assertEqual(len(L.active("ping", 3000.0)), 1)           # its stored lifetime
+        self.assertEqual([it.event_id for it in L.active("entity_round_entity", 1030.0)],
+                         ["pose:o2"])
+        self.assertEqual([it.event_id for it in L.active("entity_round_entity", 1210.0)],
+                         ["pose:o5"])
+        self.assertEqual(L.active("entity_round_entity", 1450.0), [])   # past the hold
+        self.assertEqual([it.event_id for it in L.active("entity_round_entity_ledger",
+                                                            1310.0)], ["pose:o6"])
+        self.assertEqual(len(L.active("ping", 3000.0)), 1)              # its stored lifetime
         self.assertEqual(L.active("ping", 3300.0), [])
 
     def test_marks_cite_the_nearest_stored_event_and_are_never_seeded(self):
         L = self.load()
         geo = rv.Geometry(1920, 1080, (0, 0, 331, 329), None)
-        path = Path(self.tmp.name) / "labels" / "round_review" / f"{self.sid}.jsonl"
-        marks = rv.Marks(path, self.sid)
+        path = Path(self.tmp.name) / "labels" / "round_review" / f"{SID}.jsonl"
+        marks = rv.Marks(path, SID)
         self.assertFalse(path.exists())
         row = marks.mark(1010.0, "round_entity", L, geo, point=(88.0, 92.0))
-        self.assertEqual(row["nearest"]["event_id"], "abc123:R2:O2")
-        self.assertEqual(row["nearest"]["version"], None)
-        row = marks.mark(1600.0, "death", L, geo)
-        self.assertEqual(row["nearest"]["event_id"], "death:abc123:1500:0")
-        self.assertEqual(row["nearest"]["version"], "death-9")
+        self.assertEqual((row["nearest"]["event_id"], row["nearest"]["stream"]),
+                         ("pose:o1", "entity_round_entity_ledger"))
+        row = marks.mark(30500.0, "death", L, geo)
+        self.assertEqual(row["nearest"]["event_id"], "death:d1")
+        self.assertEqual(row["nearest"]["version"], "entity-death-0.1.0")
         marks.retract_last()
-        self.assertEqual([r["layer"] for r in rv.Marks(path, self.sid).live()],
-                         ["round_entity"])
+        self.assertEqual([r["layer"] for r in rv.Marks(path, SID).live()], ["round_entity"])
 
     def test_the_gap_table_measures_declared_fields(self):
-        rows = {r["stream"]: r for r in ve.gap_rows(self.store, self.sid)}
+        rows = {r["stream"]: r for r in ve.gap_rows(self.store, SID)}
         self.assertIn("orientation", rows["round_entity"]["lack"])
         self.assertIn("position", rows["round_entity"]["have"])
         self.assertIn("position (declared, null)", rows["death"]["lack"])
@@ -175,12 +193,12 @@ class Loader(unittest.TestCase):
         for spec in ve.STREAMS.values():
             self.assertEqual(set(spec.fields), set(ve.FIELDS), spec.stream)
 
-    def test_render_draws_a_refusal_amber(self):
+    def test_render_draws_a_ledger_row_amber(self):
         L = self.load()
         geo = rv.Geometry(1920, 1080, (0, 0, 331, 329), None)
-        img = rv.render(np.zeros((1080, 1920, 3), np.uint8), 1066.0, L, geo, rv.ViewState())
+        img = rv.render(np.zeros((1080, 1920, 3), np.uint8), 1300.0, L, geo, rv.ViewState())
         self.assertEqual(img.shape, (1080 + rv.STRIP_H, 1920, 3))
-        amber = np.all(img == np.array(rv.AMBER, np.uint8), axis=2)
+        amber = np.all(img[:329, :331] == np.array(rv.AMBER, np.uint8), axis=2)
         self.assertTrue(amber.any())
 
 

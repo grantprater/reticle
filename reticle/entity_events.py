@@ -155,7 +155,7 @@ def lane_streams(lane: str) -> tuple[str, str]:
 
 # ------------------------------------------------------------------ inputs
 
-def _date(store, sid: str) -> str:
+def _ingest_date(store, sid: str) -> str:
     return store.read_manifest(sid)["ingested_at"][:10]
 
 
@@ -180,7 +180,7 @@ def input_stamp(store, sid: str, stream: str) -> str | None:
     or carries no stamp."""
     if stream == "rounds":
         import pyarrow.parquet as pq
-        path = store.rounds_path(sid, _date(store, sid))
+        path = store.rounds_path(sid, _ingest_date(store, sid))
         if not path.is_file():
             return None
         meta = pq.read_schema(path).metadata or {}
@@ -263,13 +263,13 @@ def stale_inputs(store, sid: str) -> dict[str, str]:
     return out
 
 
-def stored_rounds(store, sid: str) -> list[dict]:
+def round_rows(store, sid: str) -> list[dict]:
     """The round table's rows, as the round-bounds owner stored them."""
-    table = store.read_rounds(sid, _date(store, sid))
+    table = store.read_rounds(sid, _ingest_date(store, sid))
     return [] if table is None else table.to_pylist()
 
 
-def placement(manifest: dict) -> dict:
+def widget_placement(manifest: dict) -> dict:
     """Where the lanes' `baked:` frame sits in the capture: the capture box
     the minimap crops came from (None keeps the profile's ROI), and whether
     the widget is a variant read through a stored transform."""
@@ -289,7 +289,7 @@ def _producer(owner: str, version: str) -> dict:
     return {"owner": owner, "version": version}
 
 
-def _identity(agent: str, ref: str, arbiter: str) -> dict:
+def _name_block(agent: str, ref: str, arbiter: str) -> dict:
     return {"agent": agent, "ref": ref, "arbiter": arbiter}
 
 
@@ -344,7 +344,7 @@ def _frame_of(store, sid: str, manifest: dict) -> tuple[str | None, str | None]:
     key = geometry.key_of(sid, store.root)
     if key is None:
         return None, "not_read: the session's map or profile is not recorded"
-    if placement(manifest)["variant"]:
+    if widget_placement(manifest)["variant"]:
         return None, ("not_read: the widget is a variant; no stored transform takes its "
                       "pixels to the baked frame")
     return f"baked:{key}", None
@@ -463,7 +463,7 @@ def _round_entity_lane(store, sid, L: _Lane, manifest) -> dict:
             status = e.get("identity_status")
             L.verdicts[ref] = status
             if status == "resolved" and e.get("agent"):
-                identity = _identity(e["agent"], ref, arbiter)
+                identity = _name_block(e["agent"], ref, arbiter)
             else:
                 standing = IDENTITY_STANDING.get(status, "abstained")
                 id_reason = f"withheld: {L.ledger_id(eid)}"
@@ -594,7 +594,7 @@ def _death_lane(store, sid, L: _Lane, manifest) -> dict:
         victim, vstatus = _named(verdicts, vref, d.get("victim"))
         L.verdicts[vref] = "resolved" if victim else vstatus
         if victim:
-            ev["identity"] = _identity(victim, vref, arbiter)
+            ev["identity"] = _name_block(victim, vref, arbiter)
         else:
             ev["identity"] = None
             ev["identity_reason"] = f"withheld: {L.ledger_id(did)}"
@@ -605,7 +605,7 @@ def _death_lane(store, sid, L: _Lane, manifest) -> dict:
         L.verdicts[kref] = "resolved" if killer else kstatus
         if killer:
             parts = {"killer": {"entity_id": f"{did}:killer",
-                                "identity": _identity(killer, kref, arbiter)}}
+                                "identity": _name_block(killer, kref, arbiter)}}
         else:
             parts = {"killer": None, "killer_reason": f"withheld: {L.ledger_id(did)}"}
             fields["killer"] = {"standing": IDENTITY_STANDING.get(kstatus, "abstained"),
@@ -654,7 +654,7 @@ def _death_lane(store, sid, L: _Lane, manifest) -> dict:
 
 
 def _spike_lane(store, sid, L: _Lane, manifest) -> dict:
-    rounds = stored_rounds(store, sid)
+    rounds = round_rows(store, sid)
     rstamp = (input_stamp(store, sid, "rounds") or "@").split("@")[0]
     sc = store.read_events("spike_carrier", sid)
     scv = (sc[0] if sc else {}).get("spike_carrier_version")
@@ -785,10 +785,10 @@ def project_lane(store, session_id: str, lane: str, *, stale: dict | None = None
     if write:
         store.write_events(consumer, session_id, crow)
         store.write_events(ledger, session_id, lrows)
-    return summarize(lane, L.rows, lrows[1:], L.debt, held)
+    return lane_summary(lane, L.rows, lrows[1:], L.debt, held)
 
 
-def summarize(lane: str, rows: list[dict], ledger: list[dict], debt: Counter,
+def lane_summary(lane: str, rows: list[dict], ledger: list[dict], debt: Counter,
               held: dict) -> dict:
     """The `entity_events/resolution` values of one lane."""
     kinds = Counter(r["row"] for r in rows)
@@ -858,13 +858,13 @@ class EntityEvents:
 
     def frame(self) -> dict:
         """Where positions sit: the capture box and whether the widget is a
-        variant (`placement`)."""
-        return placement(self.store.read_manifest(self.session_id))
+        variant (`widget_placement`)."""
+        return widget_placement(self.store.read_manifest(self.session_id))
 
     def rounds(self) -> list[dict]:
         """The round table's rows: numbers and bounds, as the owner stored them."""
         if self._rounds is None:
-            self._rounds = stored_rounds(self.store, self.session_id)
+            self._rounds = round_rows(self.store, self.session_id)
         return self._rounds
 
     def round(self, round_no: int) -> dict | None:
@@ -949,5 +949,5 @@ def ledger_value(row: dict):
 
 
 __all__ = ["ENTITY_LANES", "NAME_ARBITER", "LANE_VERSIONS", "EntityEvents", "StaleLanes",
-           "project_lane", "lane_status", "input_stamp", "placement", "stored_rounds",
+           "project_lane", "lane_status", "input_stamp", "widget_placement", "round_rows",
            "ledger_value"]

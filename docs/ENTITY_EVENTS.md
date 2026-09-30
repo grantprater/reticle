@@ -25,7 +25,7 @@ disputed -- with reasons, alternatives and the owner each question goes
 back to. Rules live in `AGENTS.md`; this plan cites them.
 
 Values quoted from rows below are identifiers and row fields, not
-measurements; this plan cites no measured run.
+measurements; only stage 1's record in section 6 cites a measured run.
 
 ## 1. Inventory
 
@@ -586,13 +586,15 @@ than through `entity_events`; and when a module outside `review` calls
 check can see them. The list grows one consumer per migration stage, so
 the check passes at every stage.
 
-Stage 0 declares the round viewer (`view_events`, `round_view`) with the
-check, in `review`, because it already sat in the `consumers` layer. It
-predates the lanes, so three of its uses are dated exemptions that end at
-stage 1: `view_events` opens each stream's file (`events_path`) and reads
-the round table (`read_rounds`), and `round_view` imports `widget_frame` to
-place the baked frame in the capture. An exemption names one use, so a new
-one fails now, and a stale one is reported.
+Stage 0 declared the round viewer (`view_events`, `round_view`) with the
+check, in `review`, because it already sat in the `consumers` layer, with
+three dated exemptions. Stage 1 ended two: the round table and the widget's
+placement now come through `entity_events` (`round_rows`,
+`widget_placement`). One remains, dated in `architecture.toml`:
+`view_events` opens the files (`events_path`) of the layers no lane
+projects yet, and the `--gaps` census measures the owners' own streams. An
+exemption names one use, so a new one fails now, and a stale one is
+reported.
 
 ## 5. Gaps, by value to the annotated match
 
@@ -691,7 +693,7 @@ What stage 0 built, and where it differs from the text above:
   stage 1 adds the rest as it builds them. The standing translations per
   input stream come with the lanes in stage 1.
 
-**Stage 1: the first slice.** Lanes `round_entity`, `death` and `spike` for
+**Stage 1: the first slice. Built 2026-09-30; not done: one acceptance item fails.** Lanes `round_entity`, `death` and `spike` for
 `bfad2778a372` (`C:\Users\grant\Videos\2026-08-24 14-45-35.mp4`), and the
 round viewer reading them. `round_entity` is stale first: rerun
 `reticle lifetimes` from storage, which decodes nothing.
@@ -710,6 +712,53 @@ stale in `plan`. The resolution metric is recorded for the session.
 Predictions go to `notes/predictions.jsonl` first; the player views round 1
 in the viewer against the capture and marks each drawn item right or wrong;
 the viewer draws consumer events and amber ledger rows together.
+
+What stage 1 built, and where it differs from the text above:
+
+- `reticle project SESSION --lane ...` (`entity_events.project_lane`)
+  writes `entity_<lane>` and `entity_<lane>_ledger` per lane and records
+  `entity_events/resolution/<lane>`. `EntityEvents` is the read API;
+  `lane_status` and `rebuild_reason` tell `plan` which lanes to rebuild.
+- Each lane's stamp row records every input as `<stamp>@<sha256 prefix>` of
+  the stored file, so a rerun that keeps its stamp still shows.
+- The round_entity lane reads `death` and `death_identity` too: its one
+  shared key with the death owner is the death a track's end binds, and the
+  equality check of rule 3 needs both answers.
+- `plan` names a lane **held** when it is current as projected but rests on
+  an input that is itself stale; its rows wait in the ledger as `stale`
+  until the input and then the lane are rebuilt.
+- A ledger row withheld whole carries the projected row as its `subject`,
+  so the viewer draws it; `fields` holds only the fields in question.
+- `plan` now checks every stamped stream, with its command and whether the
+  command reads storage, the crop cache or the capture, and names
+  `team_vision` stale when its stored occluder stamp differs from the
+  geometry's `occ_built_by`.
+- The viewer draws the three layers from the lanes: consumer rows as
+  before, ledger rows as amber squares and `ledger <standing>` panel lines.
+  The spike layer no longer draws the spike reader's glyph frames; the
+  lane holds the round table's plants and the carrier owner's losses.
+
+The first run on `bfad2778a372`: the death lane holds 162 consumer events
+[metric:entity_events/resolution/death@bfad2778a372#consumer_events=162]
+with resolved share
+[metric:entity_events/resolution/death@bfad2778a372#resolved_share=0.8482];
+the spike lane
+[metric:entity_events/resolution/spike@bfad2778a372#resolved_share=0.4444];
+the round_entity lane holds every row in the ledger
+[metric:entity_events/resolution/round_entity@bfad2778a372#resolved_share=0.0],
+most of them stale
+[metric:entity_events/resolution/round_entity@bfad2778a372#ledger_stale=48136],
+because `round_entity` rests on `ally_icon` rows at `ally-icon-0.4.0` under
+code at `ally-icon-0.6.0`. Round 1's self track `E0004` stays disputed,
+returned to `round-entity-session`: the track names Skye, and the death
+owner names the victim of `death:bfad2778a372:205000:0` Chamber. Ten other
+entities hold the same kind of dispute.
+
+The failing item: `plan bfad2778a372` names the round_entity lane held on
+`round_entity`, stale through `ally_icon`. It passes after the `ally_icon`
+reread from the crop cache (`reticle scan <sid> --only ally_icon`), then
+`reticle lifetimes` and `reticle project`. The other items pass.
+
 
 **Stage 2: players, bindings and the minimap lanes.** Gap 1, then lanes
 `players`, `smoke`, `ping` and, once gaps 3 and 3a have owners, `enemy` and

@@ -1,16 +1,20 @@
 """The stored event streams a round viewer draws, loaded and nothing more.
 
 `round_view` draws a round from what the pipeline emitted. This module is its
-only door to the store: it reads `events/<stream>/<session>.jsonl` and the
-stored rounds, and turns each row into an `Item` -- a time, a place in one of
-three drawing spaces (`minimap`, `killfeed`, `panel`), a label, and the row's
-own status and reason. It calls no reader, tracker or adjudicator, and it
-decides nothing: every value on an `Item` is a stored field or a join of two
-stored rows on a stored key. A field the stream lacks stays None, and the
-viewer draws that absence rather than filling it.
+only door to the store. It turns each stored row into an `Item` -- a time, a
+place in one of three drawing spaces (`minimap`, `killfeed`, `panel`), a
+label, and the row's own status and reason. It calls no reader, tracker or
+adjudicator, and it decides nothing: every value on an `Item` is a stored
+field or a join of two stored rows on a stored key. A field the stream lacks
+stays None, and the viewer draws that absence rather than filling it.
 
-Keeping every read here, apart from the drawing, lets the viewer move to a
-unified entity-event layer by replacing this module alone.
+Three layers read the projected entity lanes through `entity_events`
+(`docs/ENTITY_EVENTS.md`, stage 1): round entities, deaths and the spike.
+Each lane is two streams: the consumer rows, drawn as usual, and the ledger's
+withheld rows, drawn apart in amber with their standing and reason. The round
+table comes through `entity_events` too. The other layers still read their
+streams' files (`read_rows`) until their lanes exist; `architecture.toml`
+dates that exemption.
 
 `STREAMS` declares, per stream, the owner, the row kinds drawn, the time base
 and entity key, and where each field the architecture needs sits in the row --
@@ -30,24 +34,39 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VIEW_EVENTS_VERSION = "view-events-0.1.0"
+from . import entity_events as ee
 
-#: Layer key, layer name, and the streams drawn under it, in key order.
+VIEW_EVENTS_VERSION = "view-events-0.2.0"
+
+#: The layers drawn from a projected lane: layer name -> lane.
+LANE_LAYERS = {"round_entity": "round_entity", "death": "death", "spike": "spike"}
+
+#: Layer key, layer name, and the streams drawn under it, in key order. A
+#: lane layer draws the lane's consumer stream and its ledger.
 LAYERS = (
-    ("1", "round_entity", ("round_entity",)),
+    ("1", "round_entity", ee.lane_streams("round_entity")),
     ("2", "team_vision", ("team_vision",)),
-    ("3", "death", ("death", "death_identity")),
+    ("3", "death", ee.lane_streams("death")),
     ("4", "ability", ("ability_state", "ability_shape", "smoke", "smoke_owner_identity",
                       "ult_cast", "ult_cast_identity")),
-    ("5", "spike", ("spike", "spike_carrier")),
+    ("5", "spike", ee.lane_streams("spike")),
     ("6", "ping", ("ping",)),
     ("7", "killfeed", ("killfeed_name", "killfeed_portrait", "killfeed_weapon")),
 )
-LAYER_OF = {s: name for _k, name, streams in LAYERS for s in streams}
+#: The gap census still measures the owners' own streams under the layer a
+#: lane now draws.
+LAYER_OF = {**{s: name for _k, name, streams in LAYERS for s in streams},
+            "round_entity": "round_entity", "death": "death", "death_identity": "death",
+            "spike": "spike", "spike_carrier": "spike"}
 
-#: Item statuses drawn amber: a refusal, an abstention or an unread value,
-#: never a negative.
-NOT_READ = ("refused", "abstained", "unread")
+#: Item statuses drawn amber: a refusal, an abstention, an unread value, or a
+#: ledger standing (a withheld row), never a negative.
+NOT_READ = ("refused", "abstained", "unread", "ambiguous", "not_observed", "disputed",
+            "stale", "withheld")
+
+#: A lane stream's display hold (ms) for its sampled items: a pose shows
+#: until the next, as `round_entity`'s observations did.
+LANE_HOLD = {"entity_round_entity": 200.0, "entity_round_entity_ledger": 200.0}
 
 #: The fields a consumer needs from an event, in the architecture's words:
 #: time, location, orientation, entity-specific state, identity with its
@@ -338,9 +357,16 @@ def read_rows(store, stream: str, session_id: str, window=None):
 
 def session_rounds(store, manifest: dict) -> list[dict]:
     """The session's stored rounds, as dicts, or [] when none are stored."""
-    date = manifest["ingested_at"][:10]
-    table = store.read_rounds(manifest["session_id"], date)
-    return [] if table is None else table.to_pylist()
+    return ee.round_rows(store, manifest["session_id"])
+
+
+def lane_streams_of(layer: str) -> tuple[str, str]:
+    """A lane layer's consumer stream and ledger stream."""
+    return ee.lane_streams(LANE_LAYERS[layer])
+
+
+#: Where the widget sits in the capture, re-exported for the drawing.
+widget_placement = ee.widget_placement
 
 
 def round_window(store, manifest: dict, round_no: int) -> tuple[float, float, dict]:
@@ -381,43 +407,6 @@ def _dist_text(d: dict | None) -> str:
 
 # --------------------------------------------------------- stream -> items
 
-def _round_entity(rows, t0, t1):
-    ents = {r["id"]: r for _n, r in rows if r.get("kind") == "entity"}
-    out = []
-    for no, r in rows:
-        if r.get("kind") != "observation" or not (t0 <= r["t_ms"] <= t1):
-            continue
-        ent = ents.get(r.get("entity_id")) or {}
-        st = r.get("identity_status")
-        agent = ent.get("agent")
-        name = r.get("name") or "unassigned"
-        label = name if not agent else f"{name}={agent}"
-        reason = None
-        status = "ok"
-        if st in ("refused", "abstained") or r.get("entity_id") is None:
-            status, reason = "refused", r.get("state") or st
-        elif st in ("ambiguous", "provisional"):
-            status = "uncertain"
-            reason = st
-        if agent is None and ent.get("identity_status") == "abstained":
-            reason = (reason + "; " if reason else "") + "name abstained: " + str(
-                ent.get("identity_reason") or "no reason stored")
-            if status == "ok":
-                status = "abstained"
-        alts = r.get("alternatives") or []
-        out.append(Item(
-            "round_entity", "round_entity", "observation", r["t_ms"], r["t_ms"], "minimap",
-            label, status, reason, x=r.get("x"), y=r.get("y"),
-            event_id=r.get("observation_id"), version=r.get("round_entity_version"),
-            entity_id=r.get("entity_id"), colour={"self": "self", "ally": "ally"}.get(
-                r.get("family"), "barrier"),
-            detail={"family": r.get("family"), "state": r.get("state"),
-                    "identity_status": st, "alternatives": alts,
-                    "entity_identity": ent.get("identity_status"),
-                    "line": no}))
-    return out
-
-
 def _team_vision(rows, t0, t1):
     out = []
     for no, r in rows:
@@ -451,38 +440,6 @@ def _team_vision(rows, t0, t1):
                 colour="self" if ic.get("role") == "self" else "ally",
                 detail={"casts": ic.get("casts"), "eligible": ic.get("eligible"),
                         "self_cone": ic.get("self_cone")}))
-    return out
-
-
-def _death(rows, ident, t0, t1):
-    dist = {}
-    for _n, r in ident or []:
-        d = r.get("identity_distribution")
-        if r.get("event_kind") == "identity_distribution" and d:
-            dist[d.get("subject_entity_id")] = r
-    out = []
-    for no, r in rows:
-        if r.get("kind") != "death_verdict" or not (t0 - 6000 <= r["t_ms"] <= t1):
-            continue
-        st = r.get("status")
-        victim = r.get("victim") or "victim?"
-        killer = r.get("killer") or "killer?"
-        weapon = r.get("weapon") or "?"
-        tag = " (YOU died)" if r.get("kf_player_death") else (
-            " (your kill)" if r.get("kf_player_kill") else "")
-        idr = dist.get(r.get("death_id"))
-        idtxt = _dist_text((idr or {}).get("identity_distribution", {}).get("distribution"))
-        status = "ok" if st == "resolved" else "abstained" if st == "abstained" else "uncertain"
-        out.append(Item(
-            "death", "death", "death_verdict", r["t_ms"], r["t_ms"] + STREAMS["death"].hold_ms,
-            "panel", f"{_hms(r['t_ms'])} {killer} [{weapon}] > {victim} {r.get('side')}{tag}",
-            status, None if st == "resolved" else f"{st}: {r.get('reason')}",
-            event_id=r.get("death_id"), version=r.get("death_adjudication_version"),
-            entity_id=r.get("death_id"),
-            colour="death" if r.get("kf_player_death") else "kill" if r.get(
-                "kf_player_kill") else "ink",
-            detail={"identity": idtxt, "identity_event": (idr or {}).get("event_id"),
-                    "location": r.get("location"), "line": no}))
     return out
 
 
@@ -595,65 +552,6 @@ def _ult(rows, ident, t0, t1):
     return out
 
 
-def _spike(rows, t0, t1):
-    out = []
-    for no, r in rows or []:
-        if r.get("kind") != "frame" or not (t0 <= r.get("t_ms", -1) <= t1):
-            continue
-        ver = r.get("spike_version")
-        if r.get("reason"):
-            out.append(Item("spike", "spike", "frame", r["t_ms"], r["t_ms"], "panel",
-                            "spike: not read", "unread", r.get("reason"),
-                            event_id=f"spike@{no}", id_source="line", version=ver))
-            continue
-        for g in r.get("glyphs") or []:
-            out.append(Item(
-                "spike", "spike", "frame.glyph", r["t_ms"], r["t_ms"], "minimap",
-                f"spike {g.get('state')}", "refused" if g.get("reason") else "ok",
-                g.get("reason"), x=g.get("cx"), y=g.get("cy"), r=9.0,
-                event_id=f"spike@{no}", id_source="line", version=ver, colour="spike",
-                detail={"ncc": g.get("ncc")}))
-        m = r.get("marker") or {}
-        if m.get("slot") is not None:
-            out.append(Item("spike", "spike", "frame.marker", r["t_ms"], r["t_ms"], "panel",
-                            f"spike marker on roster slot {m['slot']} (ncc {m.get('ncc')})",
-                            event_id=f"spike@{no}", id_source="line", version=ver,
-                            colour="spike"))
-    return out
-
-
-def _spike_carrier(rows, round_no, t0, t1):
-    out = []
-    for no, r in rows or []:
-        k = r.get("kind")
-        ver = r.get("spike_carrier_version")
-        if k == "round" and r.get("round_no") == round_no:
-            ps = r.get("planter_slot")
-            ps = ps.get("slot") if isinstance(ps, dict) else ps
-            txt = (f"R{round_no} carrier seen {r.get('carrier_seen')}  planted "
-                   f"{r.get('spike_planted')}"
-                   + (f" at {_hms(r['plant_t_ms'])} by roster slot {ps}"
-                      if r.get("plant_t_ms") else ""))
-            out.append(Item("spike", "spike_carrier", "round", t0, t1, "panel", txt,
-                            event_id=f"spike_carrier@{no}", id_source="line", version=ver,
-                            colour="spike"))
-        elif k in ("carrier_lost", "disagreement"):
-            t = r.get("t_ms")
-            if t is None or not (t0 - 3000 <= t <= t1):
-                continue
-            if k == "carrier_lost":
-                txt = (f"{_hms(t)} carrier lost: slot {r.get('slot')} death {r.get('death')}"
-                       f" drop seen {r.get('dropped_glyph_seen')}")
-                status, reason = "ok", None
-            else:
-                txt = f"{_hms(t)} carrier disagreement: slot {r.get('slot')}"
-                status, reason = "uncertain", r.get("check")
-            out.append(Item("spike", "spike_carrier", k, t, t + 3000.0, "panel", txt, status,
-                            reason, event_id=f"spike_carrier@{no}", id_source="line",
-                            version=ver, colour="spike"))
-    return out
-
-
 def _ping(rows, t0, t1):
     out = []
     for no, r in rows or []:
@@ -709,6 +607,182 @@ def _killfeed(stream, rows, t0, t1):
     return out
 
 
+# ------------------------------------------------------------ lanes -> items
+
+def _agent(identity) -> str | None:
+    return identity.get("agent") if isinstance(identity, dict) else None
+
+
+def _withheld_by(ledger: dict, row: dict, field_name: str):
+    """The ledger row a consumer row's `withheld: <id>` reason points at."""
+    why = row.get(f"{field_name}_reason") or ""
+    return ledger.get(why[len("withheld: "):]) if why.startswith("withheld: ") else None
+
+
+def _alternatives(lrow: dict | None) -> list[str]:
+    alts = (((lrow or {}).get("fields") or {}).get("identity") or {}).get("alternatives") or []
+    return [str(a.get("value")) for a in alts]
+
+
+def _lane_version(ev, lane: str) -> str | None:
+    stamp = ev.stamp(lane) or {}
+    return stamp.get(f"{ee.lane_streams(lane)[0]}_version")
+
+
+def _lane_round_entity(ev, t0, t1):
+    """Poses of the round's entities: consumer rows drawn as tracks, ledger
+    rows (whole withheld entities and refused poses) drawn apart in amber."""
+    consumer, ledger_stream = ee.lane_streams("round_entity")
+    version = _lane_version(ev, "round_entity")
+    ledger = {r["ledger_id"]: r for r in ev.ledger(lane="round_entity")}
+    held_ent = {}                     # entity_id -> (projected entity row, ledger row)
+    for r in ledger.values():
+        v = ee.ledger_value(r)
+        if isinstance(v, dict) and v.get("row") == "entity":
+            held_ent[v["entity_id"]] = (v, r)
+
+    def item(stream, pose, ent, status, reason, lrow):
+        pos = pose.get("position") or {}
+        agent = _agent((ent or {}).get("identity"))
+        kind = (ent or {}).get("kind")
+        label = agent or {"self": "you", "ally": "ally", "barrier": "barrier"}.get(
+            kind, "unassigned")
+        return Item(
+            "round_entity", stream, "pose", pose["observed_ms"], pose["observed_ms"],
+            "minimap", label, status, reason, x=pos.get("x"), y=pos.get("y"),
+            r=pos.get("r"), event_id=pose["event_id"], version=version,
+            entity_id=pose.get("entity_id"),
+            colour={"self": "self", "ally": "ally"}.get(kind, "barrier"),
+            detail={"family": kind, "identity_status": status,
+                    "alternatives": _alternatives(lrow),
+                    "ledger_id": (lrow or {}).get("ledger_id"),
+                    "position_reason": pose.get("position_reason")})
+
+    out = []
+    for pose in ev.events(lane="round_entity", kinds=("pose",), t0_ms=t0, t1_ms=t1):
+        ent = ev.entity(pose["entity_id"]) or {}
+        lrow = _withheld_by(ledger, ent, "identity")
+        status = "ok" if lrow is None else lrow["standing"]
+        out.append(item(consumer, pose, ent, status,
+                        None if lrow is None else lrow["reason"], lrow))
+    for r in ev.ledger(lane="round_entity", t0_ms=t0, t1_ms=t1):
+        v = ee.ledger_value(r)
+        if not (isinstance(v, dict) and v.get("row") == "event" and v.get("kind") == "pose"):
+            continue
+        if not (t0 <= v["observed_ms"] <= t1):
+            continue
+        ent, erow = held_ent.get(v.get("entity_id"), (None, None))
+        reason = (erow or r)["reason"]
+        out.append(item(ledger_stream, v, ent, r["standing"], reason, erow or r))
+    return out
+
+
+def _death_label(d: dict) -> str:
+    killer = ((d.get("participants") or {}).get("killer") or {}).get("identity")
+    weapon = (d.get("state") or {}).get("weapon")
+    return (f"{_hms(d['observed_ms'])} {_agent(killer) or 'killer?'} [{weapon or '?'}] > "
+            f"{_agent(d.get('identity')) or 'victim?'}")
+
+
+def _lane_death(ev, t0, t1):
+    """Deaths: consumer events in the panel; a death with a withheld field
+    carries its ledger row's standing and reason, and a death withheld whole
+    is drawn from the ledger."""
+    consumer, ledger_stream = ee.lane_streams("death")
+    version = _lane_version(ev, "death")
+    hold = STREAMS["death"].hold_ms
+    ledger = {r["ledger_id"]: r for r in ev.ledger(lane="death")}
+    out = []
+    for d in ev.events(lane="death", kinds=("death",), t0_ms=t0 - hold, t1_ms=t1):
+        lrow = ledger.get(f"death:{d['entity_id']}")
+        status = "ok" if lrow is None else lrow["standing"]
+        ident = d.get("identity")
+        idtxt = (f"victim {_agent(ident)} by {ident.get('arbiter')}" if ident
+                 else d.get("identity_reason") or "")
+        out.append(Item(
+            "death", consumer, "death", d["observed_ms"], d["observed_ms"] + hold, "panel",
+            _death_label(d), status,
+            None if lrow is None else f"{', '.join(sorted(lrow['fields']))}: {lrow['reason']}",
+            event_id=d["event_id"], version=version, entity_id=d.get("entity_id"),
+            detail={"identity": idtxt, "ledger_id": (lrow or {}).get("ledger_id")}))
+    for r in ledger.values():
+        v = ee.ledger_value(r)
+        if not (isinstance(v, dict) and v.get("kind") == "death"):
+            continue
+        if not (t0 - hold <= v["observed_ms"] <= t1):
+            continue
+        out.append(Item(
+            "death", ledger_stream, "death", v["observed_ms"], v["observed_ms"] + hold,
+            "panel", _death_label(v), r["standing"], r["reason"], event_id=v["event_id"],
+            version=version, entity_id=v.get("entity_id"),
+            detail={"identity": f"withheld whole: {r['standing']}",
+                    "ledger_id": r["ledger_id"]}))
+    return out
+
+
+def _lane_spike(ev, t0, t1):
+    """Plants from the round table, and the ledger's disputed plants and
+    carrier losses, in the panel."""
+    consumer, ledger_stream = ee.lane_streams("spike")
+    version = _lane_version(ev, "spike")
+    out = []
+    for s in ev.events(lane="spike", kinds=("spike",), t0_ms=t0 - 3000, t1_ms=t1):
+        out.append(Item("spike", consumer, "spike", s["observed_ms"], max(t1, s["observed_ms"]),
+                        "panel", f"R{s.get('round')} spike planted at {_hms(s['observed_ms'])}",
+                        event_id=s["event_id"], version=version, colour="spike",
+                        detail={"planter_reason":
+                                (s.get("participants") or {}).get("planter_reason")}))
+    for r in ev.ledger(lane="spike", t0_ms=t0 - 3000, t1_ms=t1):
+        v = ee.ledger_value(r)
+        if not isinstance(v, dict):
+            continue
+        if v.get("kind") == "spike":
+            t, label, end = v["observed_ms"], (f"R{v.get('round')} spike planted at "
+                                               f"{_hms(v['observed_ms'])}"), None
+        elif "t_ms" in v:
+            t, label, end = v["t_ms"], (f"{_hms(v['t_ms'])} carrier lost: slot "
+                                        f"{v.get('slot')} death {v.get('death')}"), 3000.0
+        else:
+            continue
+        if not (t0 - 3000 <= t <= t1):
+            continue
+        out.append(Item("spike", ledger_stream, v.get("kind") or "carrier_lost", t,
+                        t + end if end else max(t1, t), "panel", label, r["standing"],
+                        r["reason"], event_id=r["ledger_id"], version=version,
+                        colour="spike", detail={"ledger_id": r["ledger_id"]}))
+    return out
+
+
+_LANE_ITEMS = {"round_entity": _lane_round_entity, "death": _lane_death, "spike": _lane_spike}
+
+
+def load_lanes(store, session_id: str, t0: float, t1: float):
+    """The lane layers' items, presence and versions, read through
+    `EntityEvents`. A stale lane is still drawn, and its presence says it is
+    stale and how to rebuild it."""
+    try:
+        ev = ee.EntityEvents(store, session_id)
+        stale = {}
+    except ee.StaleLanes as e:
+        ev = ee.EntityEvents(store, session_id, check=False)
+        stale = e.lanes
+    items, presence, versions = {}, {}, {}
+    for lane, build in _LANE_ITEMS.items():
+        streams = ee.lane_streams(lane)
+        if lane in ev.missing:
+            for s in streams:
+                items[s], presence[s] = [], ev.missing[lane]
+            continue
+        got = build(ev, t0, t1)
+        for s in streams:
+            items[s] = [it for it in got if it.stream == s]
+            presence[s] = (f"{len(items[s])} items in window"
+                           + (f"; STALE ({stale[lane]}): `reticle project {session_id} "
+                              f"--lane {lane}`" if lane in stale else ""))
+            versions[s] = _lane_version(ev, lane) or ""
+    return items, presence, versions
+
+
 # ---------------------------------------------------------------- the view
 
 @dataclass
@@ -742,7 +816,8 @@ class Loaded:
         out = [it for it in self._spans.get(stream, ()) if it.t_ms <= t <= it.t_end_ms]
         times = self._times.get(stream) or []
         i = bisect.bisect_right(times, t)
-        if i and t - times[i - 1] <= STREAMS[stream].hold_ms:
+        hold = STREAMS[stream].hold_ms if stream in STREAMS else LANE_HOLD.get(stream, 0.0)
+        if i and t - times[i - 1] <= hold:
             j = bisect.bisect_left(times, times[i - 1])
             out.extend(self._sampled[stream][j:i])
         return out
@@ -752,32 +827,25 @@ class Loaded:
         return [it for s in streams for it in self.items.get(s, [])]
 
 
+#: The streams still read from their own files: every layer without a lane.
+FILE_STREAMS = tuple(s for s in STREAMS if LAYER_OF[s] not in LANE_LAYERS)
+
+
 def load(store, manifest: dict, t0: float, t1: float, round_row: dict | None = None,
          pad_ms: float = 8000.0) -> Loaded:
-    """Every drawable item of every stream between `t0` and `t1` (ms)."""
+    """Every drawable item of every layer between `t0` and `t1` (ms)."""
     sid = manifest["session_id"]
     win = (t0 - pad_ms, t1 + pad_ms)
-    raw = {s: read_rows(store, s, sid, win) for s in STREAMS}
-    # Entity rows carry no t_ms and pass the window; keep only this round's.
-    if raw["round_entity"] is not None and round_row is not None:
-        rn = int(round_row["round_no"])
-        raw["round_entity"] = [(n, r) for n, r in raw["round_entity"]
-                               if r.get("kind") != "entity" or r.get("round_no") == rn]
+    raw = {s: read_rows(store, s, sid, win) for s in FILE_STREAMS}
     a, z = win
-    rn = int(round_row["round_no"]) if round_row else None
     items = {
-        "round_entity": _round_entity(raw["round_entity"] or [], a, z),
         "team_vision": _team_vision(raw["team_vision"] or [], a, z),
-        "death": _death(raw["death"] or [], raw["death_identity"], a, z),
-        "death_identity": [],
         "ability_state": _ability_state(raw["ability_state"] or [], a, z),
         "ability_shape": _ability_shape(raw["ability_shape"], a, z),
         "smoke": _smoke(raw["smoke"], raw["smoke_owner_identity"], sid, a, z),
         "smoke_owner_identity": [],
         "ult_cast": _ult(raw["ult_cast"], raw["ult_cast_identity"], a, z),
         "ult_cast_identity": [],
-        "spike": _spike(raw["spike"], a, z),
-        "spike_carrier": _spike_carrier(raw["spike_carrier"], rn, t0, t1),
         "ping": _ping(raw["ping"], a, z),
         "killfeed_name": _killfeed("killfeed_name", raw["killfeed_name"], a, z),
         "killfeed_portrait": _killfeed("killfeed_portrait", raw["killfeed_portrait"], a, z),
@@ -789,6 +857,10 @@ def load(store, manifest: dict, t0: float, t1: float, round_row: dict | None = N
                        else f"{len(rows)} rows in window")
         if rows:   # one stream may hold rows from several producers
             versions[s] = ", ".join(sorted({_version(r, s) for _n, r in rows} - {None}))
+    lane_items, lane_presence, lane_versions = load_lanes(store, sid, a, z)
+    items.update(lane_items)
+    presence.update(lane_presence)
+    versions.update(lane_versions)
     return Loaded(sid, t0, t1, items, presence, versions, round_row)
 
 

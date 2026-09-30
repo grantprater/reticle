@@ -56,9 +56,9 @@ def _entity(eid, family, agent, status, *, end_ms=None, death_id=None, votes=Non
             "identity_reason": None if status == "resolved" else "two agents tie"}
 
 
-def _obs(oid, eid, t_ms, state="tracked") -> dict:
+def _obs(oid, eid, t_ms, state="tracked", x=10.0, y=20.0) -> dict:
     return {"kind": "observation", "observation_id": oid, "entity_id": eid, "round_no": 1,
-            "t_ms": t_ms, "x": 10.0, "y": 20.0, "observation_key": f"k{oid}", "state": state}
+            "t_ms": t_ms, "x": x, "y": y, "observation_key": f"k{oid}", "state": state}
 
 
 def build_store(root: Path) -> Store:
@@ -66,7 +66,8 @@ def build_store(root: Path) -> Store:
     man = store.manifest_path(SID)
     man.parent.mkdir(parents=True, exist_ok=True)
     man.write_text(json.dumps({"session_id": SID, "ingested_at": f"{DATE}T00:00:00",
-                               "tags": []}), encoding="utf-8")
+                               "tags": ["map:split"], "source_profile": "valorant-16x9"}),
+                    encoding="utf-8")
     rounds = store.rounds_path(SID, DATE)
     rounds.parent.mkdir(parents=True, exist_ok=True)
     table = pa.table({"round_no": [1, 2], "t_start_ms": [0.0, 70000.0],
@@ -94,7 +95,7 @@ def build_store(root: Path) -> Store:
         _entity("E1", "self", "Skye", "resolved", end_ms=30000.0, death_id="d1"),
         _entity("E2", "ally", "Jett", "resolved", end_ms=40000.0, death_id="d2"),
         _entity("E3", "ally", None, "provisional", votes={"Fade": 1, "Sova": 1}),
-        _obs("o1", "E1", 1000.0), _obs("o2", "E2", 1000.0), _obs("o3", "E2", 1100.0),
+        _obs("o1", "E1", 1000.0, x=90.0, y=90.0), _obs("o2", "E2", 1000.0, x=50.0, y=60.0), _obs("o3", "E2", 1100.0),
         _obs("o4", "E2", 1500.0), _obs("o5", "E3", 1200.0),
         _obs("o6", None, 1300.0, state="refused: two icons overlap")])
     _jsonl(store, "spike_carrier", [

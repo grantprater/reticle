@@ -93,35 +93,16 @@ forbidden_calls = ["read_events", "read_events_kind", "read_hud", "read_minimap"
                    "ParquetDataset"]
 forbidden_imports = ["pyarrow.parquet", "duckdb"]
 
-# Transitional exemptions. Stage 0 declares the viewer with the check, and the
-# viewer predates both: `view_events` is the stream loader the plan replaces,
-# and it reads `events/` and the round table itself. Each exemption names one
-# use, so any NEW use in the viewer fails today; each ends at stage 1, when
-# the viewer reads the lanes through `entity_events`.
+# Transitional exemptions. Stage 0 declared the viewer with the check; stage 1
+# (2026-09-30) moved the round-entity, death and spike layers and the round
+# table to `entity_events` and ended the `read_rounds` and `widget_frame`
+# exemptions. The layers without a lane still read their streams' files.
 [[consumers.exemption]]
 module = "view_events"
 uses = "call:events_path"
 since = "2026-09-30"
-until = "stage 1 of docs/ENTITY_EVENTS.md"
-reason = "`read_rows` opens each stream's events file; stage 1 reads the lanes through `entity_events`."
-
-[[consumers.exemption]]
-module = "view_events"
-uses = "call:read_rounds"
-since = "2026-09-30"
-until = "stage 1 of docs/ENTITY_EVENTS.md"
-reason = "`session_rounds` reads the round table; stage 1 reads rounds through `EntityEvents.rounds`."
-
-[[consumers.exemption]]
-module = "round_view"
-uses = "import:widget_frame"
-since = "2026-09-30"
-until = "stage 1 of docs/ENTITY_EVENTS.md"
-reason = """
-`capture_box` and `is_variant` place the baked widget frame in the capture to
-crop the video beside the drawing. The transform belongs to `geometry` (gap 5)
-or to the lane's declared frame; stage 1 moves the call there.
-"""
+until = "each remaining layer reads a projected lane (docs/ENTITY_EVENTS.md, stages 2-4)"
+reason = "`read_rows` opens the events file of each stream no lane projects yet (team_vision, ability, smoke, ult_cast, ping, killfeed), and the `--gaps` census measures the owners' own streams."
 
 [delivery]
 claim = "the command surface, and nothing else may import it"
