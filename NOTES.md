@@ -2,35 +2,50 @@
 
 ## Picking up
 
-**2026-09-28.** Every branch of the day is merged into master (`2410764`). The identity arbiter now names the player's agent, contests a death whose name a collision repeats, and has E1's review behind it. The minimap gained a menu guard, a spike channel, a variant widget and a teardrop that reads the self facing. `reticle verify --tier fast` checks known answers without a decode. No code task is active: the [backlog](BACKLOG.md) waits on the player's labels and answers, on decodes he must approve, and on his calls about identity. On 2026-09-29 `reticle self-icon --all` reran from storage to `self-icon-0.4.0`. `reticle plan` now names two decodes, `ally_icon` and `scoreboard`, and four storage reruns that wait on the scoreboard: `deaths`, `openings`, `ult-cast` and `ability-state`.
+**2026-09-29.** Every branch of the day that was meant to land is merged into master and pushed. The day moved the minimap's facing to the teardrop everywhere, started the scene model the player named as the end goal, and restarted the audio line from clean references. The player's answers of the day stand as facts in `domain/*.toml`, and their exact words are in `~/reticle-notes/DOMAIN.md` (no remote). Nothing is wired that was not scored on the player's labels. The [backlog](BACKLOG.md) holds three active items; the previous handoff is [archived](docs/archive/NOTES-through-2026-09-29.md).
 
-### A lesson: rendering is not measuring
+`pytest` is now installed in the venv, and the suite passes on master (one expected failure).
 
-A reader verified by rendering it on a few frames is unmeasured until it is scored on labels. The self facing came from the ring fit from the day the self tracker was promoted (2026-09-02, `reticle/minimap.py`); overlays looked right and nothing scored it. The player's blind labels on Lotus (`5822b6646448`, `C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`) show the ring fit flipped on [metric:self_facing_eval/labels@5822b6646448+controls#ring_all_lotus_flip=0.5] of the labelled frames, where the teardrop errs a median [metric:self_facing_eval/labels@5822b6646448+controls#teardrop_all_lotus_median_abs_deg=2.233] degrees ([E4](docs/STATISTICAL_ADJUDICATOR.md#e4-calibrate-the-origin-and-the-angle)). The sliver search's Formulation D (`prototypes/adjudicator_statistical.py`) hid the flip: it cast both lobes, shifted the origin and turned the ray through relaxed walls, so a backwards facing still "explained" the light. Score a reader before loosening the test that reads it. The fast tier's `lotus/self-facing` check now holds the facing to the labels.
+### The minimap facing
 
-### Identity and deaths
+- **Teardrop everywhere.** Every consumer reads icon centre and facing from the teardrop, never the ring fit ([E10](docs/STATISTICAL_ADJUDICATOR.md#e10-the-teardrop-in-every-consumer)). The ring's lobe had been chosen by the same light that later scored it ([E11](docs/STATISTICAL_ADJUDICATOR.md#e11-the-light-chose-the-rings-lobe-then-scored-it)).
+- **331 px widget.** The player labelled self, ally and enemy facings blind at 331 px (`labels/*_facing_331_20260929.jsonl`). The self facing gate there is 0.55 (`teardrop-0.4.0`, `team-vision-0.6.0`); other scales keep 0.6 ([E13](docs/STATISTICAL_ADJUDICATOR.md#e13-the-331-px-self-and-enemy-labels)).
+- **Fusion.** `prototypes/facing_fusion.py` takes the teardrop and tip highlight as the prior and the drawn light as evidence ([E12](docs/STATISTICAL_ADJUDICATOR.md#e12-the-icon-and-the-light-as-two-witnesses-of-one-facing)); not wired.
+- **Icon facts.** The tip highlight is icon art; the enemy lobe is translucent and its rim faint at 331 px; the enemy's dropped spike shows only in team vision; an enemy carrier shows no spike overlay [domain:minimap/icon-tip-highlight] [domain:minimap/enemy-lobe-translucent].
 
-- **Contested deaths.** A death carrying a name that an elimination collision repeats stays contested until the player HUD or a minimap track confirms it (`death-adjudication-0.17.0`); [metric:e1_agreement/landing@store-20#contested_after=18] deaths wait on such a witness. [Victim disagreements](docs/VICTIM_DISAGREEMENTS.md) records the earlier disagreements by cause: the board's elimination inherits killfeed errors and uncounted second lives.
-- **Killfeed onset.** `hud-0.16.0` rejoins an entry whose white text split its plate over a dark wall. The player's death at `c40d950031bb` (`C:\Users\grant\Videos\2026-08-24 18-27-17.mp4`) moves from 703.5 s to 701.0 s. The Shooting Error box still hides an entry until the stack rises (`223d636bf8d2`, `C:\Users\grant\Videos\2026-08-23 20-09-01.mp4`, 719 s).
-- **Exemplar.** `agent-identity-0.9.0` records the exemplar at the shift that set a portrait's score; no name moves. `plan` stales a deaths table when the scoreboard or identity rules move.
-- **Lineup owner.** The round 4 oracle follows the crops (Jett in enemy slot 2, Killjoy in 4) and tests the lineup owner, not the raw top bar.
-- **The player's agent.** The arbiter decides it from tray and self-icon claims (`player-agent-0.2.0`, `lineup-0.5.0`). The self icon scores rendered art ([results](docs/SELF_ICON_WITNESS.md)): it agreed with the tray on [metric:self_icon/agreement@lineup-21#agree=12] lineup sessions, disagreed on [metric:self_icon/agreement@lineup-21#disagree=0] and abstained on the rest, mostly Sova. `self-icon-0.4.0` keeps a fit that may be the spike's carrier and refuses one on the glyph itself.
-- **E1.** Agreeing totals concealed binding errors ([E1](docs/E1_AGREEMENT.md)). E1 landed as `death-adjudication-0.18.0`; 0.19.0 lets a name cluster try every followed view. The player reviewed the list: [metric:e1_review/answers@review-20260928#yes=114] of [metric:e1_review/answers@review-20260928#answers=121] answers held (`labels/e1_review_20260928.jsonl`). Three `223d636bf8d2` names stay wrong.
+### The scene model
 
-### The minimap
+[SCENE_MODEL.md](docs/SCENE_MODEL.md) plans one joint render-and-compare detector for every entity on the minimap, then a mesh with the killfeed, chat, roster, tray and audio. Stage 1 ran three times in `prototypes/scene_stack.py`:
 
-- **Menu witness.** `reticle menu` (`menu-0.1.0`) finds the open menu from the crop caches on [metric:menu/witness@all-sessions#sessions_with_open=36] of [metric:menu/witness@all-sessions#sessions=58] sessions; the tray, roster and minimap readers refuse what it covers ([results](docs/MENU_WITNESS.md)).
-- **Roster.** `roster-0.3.0` reads crispness inside the tinted panel, and `roster-split-0.4.0` refuses a crisp bar with no split. Board agreements rose to [metric:roster_split/panel-band#agree=34402] with [metric:roster_split/panel-band#agree_lost=0] lost; `KNOWN_KD` stays [metric:roster_split/panel-band-known-kd#exact=13] of 17 exact ([results](docs/BOARD_ALIVE_SETS.md)).
-- **Spike.** `reticle spike` (`spike-0.1.0`) reads the glyph on the minimap and the carrier marker on the roster. `adjudication.spike_carrier` checks them against the plant and the alive count, stores every disagreement and names nobody.
-- **Team vision.** `team-vision-0.3.0` casts the self cone from the teardrop's centre along its facing (`teardrop-0.2.0`). F1 against the joined light rose from [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_before_f1=0.6104] to [metric:vision_origin_eval/joined-light-facing@e78e75b2d191+5822b6646448#e78e_after_f1=0.6968] on `e78e75b2d191` (`C:\Users\grant\Videos\2026-09-03 19-16-07.mp4`), and `light_refusals` now refuses the 43.35 s sliver. `reticle vision` runs a match several times faster with its output unchanged. The store holds 0.3.0 for `e78e75b2d191` and `a06f04a0059f` (`C:\Users\grant\Videos\2026-08-26 09-56-37.mp4`) only. Ally and enemy teardrops wait on the player's labels ([E6](docs/STATISTICAL_ADJUDICATOR.md#e6-ally-and-enemy-teardrops)).
-- **Variant widget.** `reticle widget-fit <sid> --write` fits a widget drawn at another scale, rotation or placement and resamples it into the baked frame. The Iso capture `4f207c0c4e39` (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`) now reads.
-- **Smokes.** `adjudication.smoke_owner` names each team smoke's caster through the arbiter from the player's rules [domain:abilities/smoke-attribution]; `smoke-0.4.0` births no smoke over a live one.
+- 0.1.0 compared class-colour scores and lost badly at 331 px.
+- 0.2.0 rendered RGB over a two-state floor; it matched the teardrop at 465 px and still lost at 331 px.
+- 0.3.0 lights the floor from each team icon's pose. Isolated 331 px self icons improve; stacks get worse, because a neighbour's light or a wall makes a reversed cone cheap ([results](docs/SCENE_MODEL.md#stages-1-and-2-together-030-the-light-from-the-pose)).
 
-### Infrastructure
+**Unexplained light.** Almost every labelled item shows lit floor no cone reaches. Lingering cones explain little of it and off-crop teammates none ([causes](docs/SCENE_MODEL.md#where-the-unexplained-light-comes-from)). The player named the sources: ability areas (Chamber's Trademark, Veto's Chokehold, Deadlock's Sonic Sensor), piloted drones' cones, the **self audio circle**, and a **dead Clove's smoke-range circle**. No teammate lights a circle round itself [domain:minimap/no-teammate-floor-circle].
 
-- `reticle verify --tier fast` runs seven known-answer checks from storage and the crop cache. A stamp the code has passed reads STALE, never PASS.
-- QUOTED pins a citation to one run with `~<run>`; unpinned citations meet the latest run.
-- `reticle/clipserve.py` serves capture windows by HTTP range; `prototypes/e1_review.py` plays the review through it without copying media.
-- The dark reader rides the minimap crop cache (`--from cache`) and reads FFV1 forward instead of seeking.
+- `prototypes/clove_circle.py` measured the Clove circle on one cast in `C:\Users\grant\Videos\2026-09-28 14-18-06.mp4` (not ingested): drawn only for a dead Clove, centred on the death point, from the cast to just after the smoke lands [domain:abilities/clove-dead-smoke-range-circle].
+- `prototypes/audio_circle.py` measured the self audio circle on `4f207c0c4e39` (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`): a fixed radius, about half a second per sound, extended by the next, not drawn while spectating [domain:minimap/self-audio-circle]. Its proposed fact updates wait on the player.
 
-**Older threads**: archived ([09-26](docs/archive/NOTES-through-2026-09-26.md), [09-27](docs/archive/NOTES-ability-id-through-2026-09-27.md), [pub/sub](docs/archive/NOTES-pubsub-through-2026-09-27.md), [09-28](docs/archive/NOTES-through-2026-09-28.md), [09-28 evening](docs/archive/NOTES-through-2026-09-28b.md)). The untracked `prototypes/mechanics_eval.py` belongs to the user and must remain untouched. The [working map](docs/WORKING_MAP.md) routes reading.
+### Audio
+
+The agreed order: clean references, a common-sound bank, the audio-video offset, then fingerprinting.
+
+- **Range demo.** The player recorded and labelled a range clip (`C:\Users\grant\Videos\2026-09-29 18-50-03.mp4`, `labels/sound_demo_20260929.jsonl`) with `prototypes/sound_demo.py`.
+- **Footsteps** draw from a shuffled pool of samples per surface: every block of a pool's length holds each sample once [domain:abilities/footstep-surface-variants].
+- **Bank.** `prototypes/sound_bank.py` names most labelled range events leave-one-out.
+- **Match.** `prototypes/sound_match.py` ran it on the Iso match: knife equips transfer; gun equips and own shots do not. Stereo level difference separates own sounds from others'. The player may have picked up skinned guns [domain:capture/weapon-skins-picked-up].
+- **Circle vs audio.** Audio-circle onsets agree with the bank's own-sound detections only at chance. The orchestrator reads that as the bank's error in match audio (implausible runs of knife equips), not the circle's: use the circle to score the bank. Unresolved: two firing brackets on the Iso match with no circle, at 901.0-902.5 s and 1120.9-1122.9 s.
+
+### A lesson: read the caption at full size
+
+The orchestrator misread a sheet caption as 1497.58 s when it said 49.50 s, and then proposed an 8.5 s time-base offset. A single-frame check showed the crop cache, labels and streams hold true capture time (frame index / 60 fps); the offset hypothesis failed (images in the store's `analysis/timebase-20260929/`). Crop captions before quoting a time, and check the instrument before revising the belief.
+
+### Held and unmerged
+
+- `self-spike-tracker-20260929`: the death/spectate part (guard 6) can merge with bumped versions; the minimap tracker waits on on-spike labels, and its defence-side spike handling should become an enemy-style "?".
+- `wip-vision-lifecycle-wiring`: WIP, do not merge.
+- `decodes-20260929` has one unmerged commit (`f54aa93`, the before-rescan summaries); check it before deleting the branch.
+
+`reticle plan` names the `ally_icon` reread on 21 sessions (a crop-cache rescan; ask before starting) and a `self-icon` storage rerun to `self-icon-0.5.0`.
+
+The untracked `prototypes/mechanics_eval.py` belongs to the user and must remain untouched. The [working map](docs/WORKING_MAP.md) routes reading.

@@ -1,43 +1,41 @@
 # Reticle task queue
 
-This file orders work and says why a task is active; each open item carries an `Acceptance:` command and an `Evidence:` standard. Historical arguments and completed items are in the dated backlog archives; the queue as it stood at the end of 2026-09-28, with every item's full text, is [here](docs/archive/BACKLOG-through-2026-09-28b.md).
+This file orders work and says why a task is active; each open item carries an `Acceptance:` command and an `Evidence:` standard. Historical arguments and completed items are in the dated backlog archives; the queue as it stood at the end of 2026-09-29, with every item's full text, is [here](docs/archive/BACKLOG-through-2026-09-29.md).
 
 ## Agreed order (2026-09-29)
 
-The 2026-09-28 queue is merged. The three items below are proposals: each waits on the player, who evaluates next steps after this queue.
+**Scene model: draw every light source.** Stage 1 and 2 of [SCENE_MODEL.md](docs/SCENE_MODEL.md) cannot be separated: the floor near an icon is lit by its own cone, by neighbours, by ability areas and by circles. Draw the measured sources in `prototypes/scene_stack.py`: the self audio circle [domain:minimap/self-audio-circle] and the dead Clove's circle [domain:abilities/clove-dead-smoke-range-circle] first, then the ability areas the player named, each from a stored observation or a player fact, never by analogy [domain:abilities/ability-rules-are-unique]. Give a cone evidence weight only for floor no other source explains, and measure the floor-colour error at 331 px on unlabelled frames. Rescore on the same label sets.
+Acceptance: `.\.venv\Scripts\python.exe prototypes\scene_stack.py` scores the teardrop and the joint fit on identical items for every label set, with isolated items broken by the fit listed.
+Evidence: a 331 px sheet with the drawn sources viewed before any claim; the unexplained-light share before and after through `reticle.metrics`; predictions logged first; nothing wired until the joint fit beats the teardrop on the player's labels at both widget sizes.
 
-**Player inputs waiting (2026-09-28).** (1) Label the ally and enemy facings: `.\.venv\Scripts\python.exe prototypes\label_icon_facing.py` asks, blind, for the centre and tip of about 60 icons ([E6](docs/STATISTICAL_ADJUDICATOR.md#e6-ally-and-enemy-teardrops)); predictions C1-C4 and L1-L2 are logged. (2) Answer the [mechanics sheet](docs/ABILITY_MECHANICS_SHEET.md)'s `harvest: ...?` cells, the catalogue's restock and ult-cost values he has not confirmed. (3) Name the two unknown minimap glyphs: `5822b6646448` (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`) 409 s and `223d636bf8d2` (`C:\Users\grant\Videos\2026-08-23 20-09-01.mp4`) 630 s. (4) Say whether a Seeker despawns when its target dies [domain:abilities/skye-seekers-track-and-blind].
-Acceptance: `.\.venv\Scripts\python.exe prototypes\icon_facing_eval.py` scores the teardrop against `labels/icon_facing_20260928.jsonl` for both classes, and `.\.venv\Scripts\python.exe -m reticle doctor` passes DOMAIN with each answer recorded as a fact.
-Evidence: the player's answers stand in the label file and in `domain/*.toml`, citing him, before any reader or gate changes; a failed prediction is recorded, not refitted.
+**Audio: the circle scores the bank.** The self audio circle marks the player's own sounds in their own view. Use its onsets as the witness for the bank's own-sound detections on `4f207c0c4e39` (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`), find why the bank fires implausible runs of knife equips in match audio, and add references for the missing guns (Ghost, Sheriff, Spectre) and abilities. Player inputs first: (1) were the magazine drops at 901.0-902.5 s and 1120.9-1122.9 s the player's own shots, and what stops the circle there; (2) is the "spike explosion radius" a size known from the game rather than a minimap drawing; (3) approve the proposed `self-audio-circle` fact updates (radius, half-second duration, extension by each new sound, not drawn while spectating). Picked-up skins confound gun classes [domain:capture/weapon-skins-picked-up].
+Acceptance: `.\.venv\Scripts\python.exe prototypes\sound_match.py` reports per-class agreement with circle onsets and with the HUD witnesses on the Iso match.
+Evidence: the player's answers recorded as facts before the witness changes; the listen list (`analysis/sound-match/listen-20260929.csv`) reviewed by the player; any further match decode approved by the player.
 
-**Decodes waiting on the player (2026-09-28).** Each decodes video, so each waits for his go-ahead. (1) The `scoreboard-0.10.0` rescan, a decode of about two hours; `deaths`, `openings`, `ult-cast` and `ability-state` rerun from storage after it ([results](docs/SCOREBOARD_PRESENCE.md)). (2) The ally_icon rescan. It renumbers the `unnamed_piece` label keys, so migrate the labels (`prototypes/label_unnamed_pieces.py`) first. (3) `team_vision` for the sessions beyond `e78e75b2d191` and `a06f04a0059f`, a run of minutes per session.
-Acceptance: `.\.venv\Scripts\python.exe -m reticle plan` names no stream stale on the scoreboard or ally_icon input, and `.\.venv\Scripts\python.exe -m reticle verify --tier fast` passes.
-Evidence: the player approves each decode; every migrated label key points at the same piece before and after, checked on crops; the death summary before and after the rescan is recorded through `reticle.metrics`.
-
-**Identity follow-ups (2026-09-28).** (1) [metric:e1_agreement/landing@store-20#contested_after=18] contested deaths need an outside witness, the player HUD or a minimap track (`death-adjudication-0.17.0`). (2) Three `223d636bf8d2` names stay wrong: two name crops miss their clusters, and one killer reads no name at any view ([E1](docs/E1_AGREEMENT.md#open)). (3) The Shooting Error box hides an entry until the stack rises; the combat report panel's open time is the other witness. (4) On the Iso capture `4f207c0c4e39` (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`) the spike reader names a carrier on nearly every round, which looks wrong, and the self icon does not score Iso. (5) `--from auto` and buy-phase rows for span readers: the player's call. (6) The `fixtures/scoreboard_edges` fixture fills most of each frame; the player decides whether to crop it to the table (x 572-1347) or delete it.
-Acceptance: `.\.venv\Scripts\python.exe -m reticle deaths` over the 20 death sessions stores fewer contested deaths, each confirmed through the arbiter, and `.\.venv\Scripts\python.exe -m reticle verify --tier fast` passes.
-Evidence: crops of the outside witness for each confirmed death, and of each renamed `223d636bf8d2` entry, before any rule changes; the carrier rows checked against the roster marker by eye.
+**Player inputs and reruns.** (1) The [mechanics sheet](docs/ABILITY_MECHANICS_SHEET.md)'s open cells: why Gekko's cone is missing at `5822b6646448` 49.50 s (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`), which piloted drones cast cones and whether they light the floor, the Seekers' despawn, the harvest values. (2) The `ally_icon` reread on 21 sessions from the crop cache (ask first; migrate the `unnamed_piece` label keys with `prototypes/label_unnamed_pieces.py` before it). (3) `self-icon` storage rerun to `self-icon-0.5.0`, and `reticle vision` for the four labelled 331 px sessions at `team-vision-0.6.0`. (4) Merge the death/spectate part of `self-spike-tracker-20260929` with bumped versions; hold its tracker for on-spike labels.
+Acceptance: `.\.venv\Scripts\python.exe -m reticle plan` names no stale stream, and `.\.venv\Scripts\python.exe -m reticle verify --tier fast` passes.
+Evidence: each answer recorded as a fact citing the player; every migrated label key points at the same piece before and after, checked on crops; the player approves each decode.
 
 ## Waiting
 
-In former order; each item's full text is in the [09-28 evening archive](docs/archive/BACKLOG-through-2026-09-28b.md).
+In former order; each item's full text is in the [09-29 archive](docs/archive/BACKLOG-through-2026-09-29.md) or the [09-28 evening archive](docs/archive/BACKLOG-through-2026-09-28b.md).
 
-- **Killfeed attribution** (player, 2026-09-24; the victim edge is done): (1) exemplar source mismatch, `7010b3d62460` Chamber read as Brimstone; (2) `agent-alive`, a statistical owner of the living agents per side and round; (3) the branching banner reader, then trades and baiting ([design](docs/BEHAVIOUR_MODEL_DESIGN.md)); (4) assist panels [domain:killfeed/assist-panel]: the player re-answers 8, then a panel reader; (5) `scoreboard_dim` names two Brimstone victims Chamber; (7) a plate revive names no reviver.
-- **Ability identification on the demos** (2026-09-26): the five unlabelled Sova C refusals and the Shock Bolt check at `75a55a296d3b` 274.1 s; census answers as facts; the HUD the pipeline ignores (ability timer bar, cooldown counters, Viper's fuel, location label, chat); the Trailblazer view guard; the bank rebuild; the ult-ready scorer, a lineup stamp for `plan`, a pip reader for X; which Fury lines are blasts.
-- **Minimap identity, ally slice first** ([results](docs/ALLY_MINIMAP_IDENTITY.md)): overlap labels and refusal; session exemplars from named ally deaths, with `depends_on`; a track key per teammate. Enemy icons later.
-- **The statistical adjudicator** ([plan](docs/STATISTICAL_ADJUDICATOR.md)): E1-E6 ran; open are the half-angle's wide interval, teammates' cones still cast from their ring fits, wall edges never perturbed, and one session per map.
+- **Identity follow-ups** (2026-09-28): contested deaths waiting on an outside witness; three `223d636bf8d2` names; the Shooting Error box; the Iso spike carrier and self icon; `--from auto`; the `scoreboard_edges` fixture.
+- **Minimap follow-ups** (2026-09-29): `plan` tracks `team_vision`; `plan` staleness for never-read inputs (`c62c2b06bcfb`); re-measure the facing carry on the teardrop; rays crossing a wall the icon stands against, and cones ending inside the footprint; why teardrop cones with a high match score score lower; the portrait gate for enemy detection at 331 px; stacked icons; an enemy tint reader; the enemy spike "?" in the held tracker.
+- **Killfeed attribution** (player, 2026-09-24): exemplar source mismatch; `agent-alive`; the branching banner reader; assist panels; `scoreboard_dim` names; plate revives.
+- **Ability identification on the demos** (2026-09-26): the Sova C refusals; census answers; the HUD the pipeline ignores (the ability timer bar dates casts for the audio references); the bank rebuild; the ult-ready scorer.
+- **Minimap identity, ally slice first** ([results](docs/ALLY_MINIMAP_IDENTITY.md)).
+- **The statistical adjudicator** ([plan](docs/STATISTICAL_ADJUDICATOR.md)): E1-E13 ran.
 - **Geometry stamp reads line endings:** `minimap_geometry.source_stamp` hashes raw bytes.
-- **Combat report follow-ups:** the row identity disagreements; weapon identity, ally rows, the second-life gate in `reticle lifetimes`, the `7010b3d62460` death panels; `cli._combat_report_identity` tracks entries without `sides`.
-- **Pub/sub** ([measurements](docs/PUBSUB_MEASUREMENTS.md)): a process shard of ally_icon; a warmed-up `--check`; repeat m6 without load. A failed commit leaves partly moved files. Unbuilt: L1's selecting producer, L2, L5, L7.
+- **Combat report follow-ups** and **Pub/sub**: see the archive.
+- **Documents over budget:** `docs/WORKING_MAP.md` and `PROJECT_GUIDE.md` exceed their word budgets; `docs/SCOREBOARD_LINEUP.md` is reached by nothing.
 
 ## Completed
 
-Also closed on 2026-09-28: roster follow-ups (`roster-0.3.0`, `roster-split-0.4.0`), smoke attribution (`smoke-owner-0.1.0`, `smoke-0.4.0`), the menu guard (`menu-0.1.0`) and the stored team vision.
+- **`scene-light` (2026-09-29):** `scene-stack-0.3.0` lights the floor from each team icon's pose; the light's causes measured, the Clove and self audio circles measured.
+- **`sound-bank` (2026-09-29):** the range demo labelled, footsteps shown to draw from a shuffled pool per surface, the first bank scored on the range and on the Iso match.
+- **`labels-331` (2026-09-29):** the player's 331 px self, ally and enemy facing labels; the 331 px self gate at 0.55 (E13).
+- **`teardrop-everywhere` (2026-09-29):** every consumer reads centre and facing from the teardrop (E10); the ring's lobe was circular (E11).
+- **`decodes` (2026-09-29):** the `scoreboard` rescan and the storage reruns at `death-adjudication-0.20.0`.
 
-- **`fast-tier` (2026-09-28):** `reticle verify --tier fast`, seven checks with no decode, the self facing scored against the player's labels.
-- **`e1-agreement` (2026-09-28):** E1 landed (`death-adjudication-0.19.0`, `hud-0.16.0`) and the player reviewed its list.
-- **`team-vision-facing` (2026-09-28):** `team-vision-0.3.0` casts the self cone from the teardrop's centre along its facing.
-- **`scoreboard-edges` (2026-09-28):** `scoreboard-0.10.0` fits the table's frame; the rescan waits.
-- **`player-agent` (2026-09-28):** the arbiter names the player's agent from tray and self-icon claims.
-
-Full entries: [09-28 evening archive](docs/archive/BACKLOG-through-2026-09-28b.md), [09-28 archive](docs/archive/BACKLOG-through-2026-09-28.md).
+Full entries: [09-29 archive](docs/archive/BACKLOG-through-2026-09-29.md), [09-28 evening archive](docs/archive/BACKLOG-through-2026-09-28b.md).

@@ -18,14 +18,11 @@ by the question itself -- *which agent died*, *where is the player* -- ask
 
 `NOTES.md` holds current execution state and `BACKLOG.md` orders work.
 Historical handoffs, completed arguments and the retired task contracts live in
-[docs/archive/](archive/). The design plans retain rationale, not a competing
-live queue.
+[docs/archive/](archive/).
 
 ## Module routing
 
-The 2026-09-09 cross-pipeline review and delivery gates:
-[PIPELINE_REVIEW.md](PIPELINE_REVIEW.md). It distinguishes implemented foundations
-from proposed semantics, acquisition policy and acceptance requirements.
+Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 
 | Need | Read / change first |
 |---|---|
@@ -35,16 +32,15 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Frame primitives and spans | `primitives.py`, `segment.py` |
 | HUD, killfeed, roster | `ocr.py`, `killfeed.py`, `roster.py` |
 | Rounds and phase boundaries | `rounds.py`, `scoreboard.py` |
-| Is the Tab scoreboard open: slab close reasons, the history-strip witness, its round marks | `scoreboard.py`, `scoreboard_strip.py` (`reticle strip`), `adjudication/scoreboard.py` (`reticle openings`), [SCOREBOARD_PRESENCE.md](SCOREBOARD_PRESENCE.md), [SCOREBOARD_ROUND_MARKS.md](SCOREBOARD_ROUND_MARKS.md) |
+| Is the Tab scoreboard open, and its round marks | `scoreboard.py`, `scoreboard_strip.py` (`reticle strip`), `adjudication/scoreboard.py` (`reticle openings`), [SCOREBOARD_PRESENCE.md](SCOREBOARD_PRESENCE.md), [SCOREBOARD_ROUND_MARKS.md](SCOREBOARD_ROUND_MARKS.md) |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py`, `team_vision.py` |
 | Which stored minimap fits become icons, and what a candidate record carries | `candidate_evidence.py`, `adjudication/minimap_candidates.py`, [MINIMAP_CANDIDATE_CONTRACT.md](MINIMAP_CANDIDATE_CONTRACT.md) |
 | Position belief and its evidence | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
-| Which icon is which: the occluder inventory, the glyph track G1-G5, and portrait/shape/region/animation matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
+| Which icon is which: occluders, glyphs, appearance matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
 | Current mining critique, minimal-label extraction design, and deterministic/YOLO comparison | [MINIMAP_MINING_REVIEW.md](MINIMAP_MINING_REVIEW.md) |
 | What else lives in a colour key | `prototypes/key_collision.py`, off existing label sheets, no decode |
 | Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py`, `occluders.py` |
 | What is true of the GAME, cited not restated | `domain/*.toml`, `reticle/domain.py`, `reticle domain` |
-| The first entity/domain learning pilot | Ran 2026-09-24 as bootstrap lane B and closed unmerged; the learner changed no name ([archive](archive/ENTITY_DOMAIN_LOOP_PILOT-2026-09-24.md)) |
 | Review proposed domain knowledge over stored evidence | `reticle/domain_learning.py`, `tools/domain_hypothesis.py`, [ENTITY_DOMAIN_LEARNING_DESIGN.md](ENTITY_DOMAIN_LEARNING_DESIGN.md) |
 | WHICH MODULE MAY DECIDE A QUESTION, and what it is not for | `reticle ownership <question>`, `ownership.toml`, the `reticle/ownership.py` docstring |
 | The layering, and which upward edges are blessed | `architecture.toml`, `reticle/architecture.py` |
@@ -68,13 +64,11 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Visual debugging | `overlay.py`, `glance.py`, `refine.py` |
 
 Contiguous minimap correction and review: `tools/minimap_sequence_summary.py`
-and `tools/minimap_sequence_review.py`. The plan behind them is finished and
-[archived](archive/MINIMAP_DETECTION_PLAN-2026-09-09.md).
+and `tools/minimap_sequence_review.py`.
 
-Cutting a frozen evaluation window on a new session starts at
-`tools/wipe_scout.py`: it locates the instants where the per-frame killfeed
-count and the adjudicated one disagree, which is where a camera wipe is,
-without opening the video.
+`tools/wipe_scout.py` finds a new session's camera wipes for a frozen
+evaluation window where the per-frame and adjudicated killfeed counts
+disagree, without opening the video.
 
 Module names above are relative to `reticle/` unless a directory is shown.
 Minimap work also requires `prototypes/CLAUDE.md` and the private domain notes
