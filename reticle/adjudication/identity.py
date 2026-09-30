@@ -1336,8 +1336,14 @@ def rendered_art_fit(features, names, references) -> tuple[float, str] | None:
 def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
                            source_version="ally-icon",
                            margin_min=SIDE_MARGIN_MIN,
-                           references=None) -> list[dict]:
+                           references=None, side="ally") -> list[dict]:
     """One claim per stored ally icon, each frame's icons named TOGETHER.
+
+    `side="enemy"` applies the same rule to enemy icons: the gallery is the
+    enemy side's five, since the player is never on it, and the entity is
+    `<session>:enemy_icon:<observation_key>`. Every icon mechanism applies to
+    any agent icon; only the side's candidates differ. The ally default is
+    unchanged.
 
     `icons` are `ally_icon` events of kind `icon`. The icons of one frame are
     different teammates [domain:rounds/agent-uniqueness], so they are named by
@@ -1359,23 +1365,31 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
     Nothing here joins icons across frames; a track that does must supply its
     own key and ask again.
     """
+    if side not in ("ally", "enemy"):
+        raise ValueError(f"side must be ally or enemy, not {side!r}")
     sides = lineup.get("sides", lineup)
-    player = (lineup.get("player") or {}).get("agent")
-    rows = [r for r in sides.get("ally", []) if not player or r.get("agent") != player]
-    split = side_candidates(rows)
-    # `side_candidates` pads to five slots; four teammates are the whole side here.
-    split["blind"] = [b for b in split["blind"] if b is not None] + (
-        [None] * max(0, N_SLOTS - 1 - len(rows)))
+    if side == "ally":
+        player = (lineup.get("player") or {}).get("agent")
+        rows = [r for r in sides.get("ally", []) if not player or r.get("agent") != player]
+        split = side_candidates(rows)
+        # `side_candidates` pads to five slots; four teammates are the whole side here.
+        split["blind"] = [b for b in split["blind"] if b is not None] + (
+            [None] * max(0, N_SLOTS - 1 - len(rows)))
+        refuse = ("player_unknown" if not player
+                  else f"lineup_incomplete: {len(split['named'])} of {N_SLOTS - 1} "
+                       f"teammates named and {len(split['blind'])} propose no candidate"
+                  if split["blind"] else None)
+    else:
+        split = side_candidates(sides.get("enemy", []))
+        refuse = (f"lineup_incomplete: {len(split['named'])} of {N_SLOTS} "
+                  f"enemies named and {len(split['blind'])} propose no candidate"
+                  if split["blind"] else None)
     names = sorted(set(split["named"]) | {r for r in split["rivals"] if r})
     barred = {r for r in split["rivals"] if r}
-    refuse = ("player_unknown" if not player
-              else f"lineup_incomplete: {len(split['named'])} of {N_SLOTS - 1} "
-                   f"teammates named and {len(split['blind'])} propose no candidate"
-              if split["blind"] else None)
 
     def claim(icon, agent, reason, evidence=None):
         return identity_claim(
-            f"{session_id}:ally_icon:{icon['observation_key']}", agent,
+            f"{session_id}:{side}_icon:{icon['observation_key']}", agent,
             channel="minimap_portrait", reason=reason,
             source_version=icon.get("ally_icon_version", source_version),
             observed_at_ms=icon.get("t_ms"),
@@ -1422,7 +1436,7 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
                  for i in described] if source == "rendered_art" else [None] * len(described))
         matrix = [[s.get(n, 0.0) for n in names] for s in scores]
         for icon, s, fit, row in zip(described, scores, fits,
-                                     assign_side(matrix, names, 1, "ally", gate)):
+                                     assign_side(matrix, names, 1, side, gate)):
             reason = row["reason"]
             if reason is None and row["agent"] in barred:
                 reason = f"icon_best_is_refused_slot {row['agent']}"

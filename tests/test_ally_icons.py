@@ -150,6 +150,51 @@ class ClaimsFromAllyIconsTests(unittest.TestCase):
         self.assertTrue(claim["reason"].startswith("lineup_incomplete"))
 
 
+class ClaimsFromEnemyIconsTests(unittest.TestCase):
+    """`side="enemy"`: the ally rule over the enemy side's five."""
+
+    @staticmethod
+    def _lineup(enemy=("Breach", "Deadlock", "Miks", "Reyna", "Phoenix")):
+        lu = _lineup()
+        lu["sides"]["enemy"] = [{"slot": i, "agent": a, "best_guess": a}
+                                for i, a in enumerate(enemy)]
+        return lu
+
+    def test_enemy_icons_are_named_from_the_enemy_five(self):
+        refs = _references()
+        refs["agents"]["Phoenix"] = {"grid3_lab": [7.0, 7.0], "hog_x1": [7.0], "prof_h": [0.0]}
+        icons = [_icon(1, 0, None, features=_features(0)),
+                 _icon(1, 1, None, features=_features(3))]
+        claims = claims_from_ally_icons(icons, self._lineup(), gallery=GALLERY,
+                                        session_id="s", references=refs, side="enemy")
+        self.assertEqual([c["agent"] for c in claims], ["Breach", "Reyna"])
+        self.assertEqual(claims[0]["entity_id"], "s:enemy_icon:s:1:0")
+        # The player's agent is not removed from the enemy side.
+        self.assertIn("Phoenix", claims[0]["evidence"]["candidates"])
+
+    def test_enemy_side_needs_no_player_but_a_complete_five(self):
+        lu = self._lineup()
+        lu["player"] = None
+        lu["sides"]["enemy"] = lu["sides"]["enemy"][:4]
+        (claim,) = claims_from_ally_icons([_icon(1, 0, _one_hot(0))], lu, gallery=GALLERY,
+                                          session_id="s", side="enemy")
+        self.assertIsNone(claim["agent"])
+        self.assertTrue(claim["reason"].startswith("lineup_incomplete: 4 of 5 enemies"))
+
+    def test_the_ally_default_is_unchanged(self):
+        icons = [_icon(1, 0, _one_hot(0)), _icon(1, 1, _one_hot(3))]
+        a = claims_from_ally_icons(icons, self._lineup(), gallery=GALLERY, session_id="s")
+        b = claims_from_ally_icons(icons, self._lineup(), gallery=GALLERY, session_id="s",
+                                   side="ally")
+        self.assertEqual(a, b)
+        self.assertNotIn("Phoenix", a[0]["evidence"]["candidates"])
+
+    def test_an_unknown_side_is_an_error(self):
+        with self.assertRaises(ValueError):
+            claims_from_ally_icons([], _lineup(), gallery=GALLERY, session_id="s",
+                                   side="self")
+
+
 def _ally_icon_crop(portrait_bgr):
     """A grey widget holding one teal teardrop around a portrait disc."""
     crop = np.full((W, W, 3), 128, np.uint8)
