@@ -2485,6 +2485,29 @@ Reyna's kit, never an agent
 """
 see = ["abilities/reyna-leer-minimap-icon"]
 
+[reyna-leer-darkens-minimap]
+claim = """
+An enemy Reyna's Leer that blinds the player darkens the player's whole
+minimap while the blind lasts.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-30"
+subject = "reyna:leer"
+source = """
+the player, 2026-09-30 (chat), naming what darkened his minimap at
+c40d950031bb 205.5 s (C:/Users/grant/Videos/2026-08-24 18-27-17.mp4)
+"""
+use = """
+the light comparison refuses a darkened frame (scene_stack 0.6.0,
+`minimap-darkened`). At native size the known floor's grey sits at the baked
+static's level at 205.500 s and about 104 below it from 205.567 s to
+205.900 s (six crop-cache frames); it is back at 205.967 s. The stored
+minimap_dark rows call those frames widget_not_drawn, which is not the same
+state. Recorded for the Leer blind only; other blinds are not implied
+"""
+see = ["abilities/reyna-leer-enemy-minimap-glyph", "abilities/ability-rules-are-unique"]
+
 [gekko-wingman-minimap-icon]
 claim = """
 Wingman draws on the minimap as an icon like Skye's Trailblazer, green for
