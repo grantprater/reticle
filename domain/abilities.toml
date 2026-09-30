@@ -2514,6 +2514,34 @@ variant nearest in spectrum
 exceptions = "that jump variants match footstep variants is unverified; the demo review tests it"
 see = ["abilities/footstep-surface-variants"]
 
+[silent-stepping]
+claim = """
+Moving at full speed makes no footstep sound if the player stops before a
+full step's duration completes; a short stop resets the step, so a player can
+move at full speed, pause briefly and move again without a footstep sounding.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "movement:audio"
+source = """
+the player, 2026-09-30 (chat), explaining why 4f207c0c4e39 at 1121-1122 s
+draws no self audio circle while the self icon moves at running speed: the
+player was running without making a running sound
+"""
+use = """
+minimap or track speed does not witness footsteps: a moving self track with
+no footstep detection and no self audio circle is consistent with silent
+stepping, not a miss by the sound bank or the circle reader
+[domain:minimap/self-audio-circle]; score footstep detections against the
+circle or the audio, never against speed alone
+"""
+exceptions = """
+the step duration and the stop that resets it are not measured; the player
+judged the pattern very hard to detect, since the stop can be short
+"""
+see = ["minimap/self-audio-circle", "abilities/footstep-surface-variants"]
+
 [footstep-audio-loop-belief]
 claim = """
 The player believes the footstep audio loops for a given surface, and is
