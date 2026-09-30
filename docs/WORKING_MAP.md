@@ -1,13 +1,13 @@
 # Reticle working map
 
-Use this as a routing index; the linked source is authoritative for
-detail. It routes by SUBSYSTEM; to route
+A routing index; the linked source is authoritative. It routes by
+SUBSYSTEM; to route
 by the question itself -- *which agent died*, *where is the player* -- ask
 `reticle ownership`, which also says what the owner it names is NOT for.
 
 ## Start here
 
-1. `git status --short` — preserve existing work and avoid overwriting it.
+1. `git status --short` — preserve existing work.
 2. Read the eager root [`AGENTS.md`](../AGENTS.md), which `CLAUDE.md` imports,
    then [NOTES.md](../NOTES.md), then the task in [BACKLOG.md](../BACKLOG.md).
 3. Run `.\.venv\Scripts\python.exe -m reticle doctor` and inspect status
@@ -51,6 +51,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Experiments | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |
 | The scene model: render-and-compare, all channels | [SCENE_MODEL.md](SCENE_MODEL.md) |
+| Events consumers read | [ENTITY_EVENTS.md](ENTITY_EVENTS.md) |
 | Ability entity inference and minimal capture plan | `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` |
 | What each demo cast draws on the minimap (census, player questions) | [DEMO_CAST_CENSUS.md](DEMO_CAST_CENSUS.md) |
 | Naming the player's casts from audio (demo bank, transfer) | [AUDIO_ABILITY_BANK.md](AUDIO_ABILITY_BANK.md) |
