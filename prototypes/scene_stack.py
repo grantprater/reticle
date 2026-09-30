@@ -1,8 +1,33 @@
 r"""Touching minimap icons fitted jointly: render every icon of a stack, composite, compare.
 
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --census
-    .\.venv\Scripts\python.exe prototypes\scene_stack.py --check [--record] [--recalibrate]
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --light-cal [--record]
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --check [--record] [--sheet] [--recalibrate]
     .\.venv\Scripts\python.exe prototypes\scene_stack.py [--record] [--sheet] [--parts 465-ally,...] [--space keys]
+
+**0.3.0 lights the floor from the pose (`Light`, `LIGHT = "pose"`).** 0.2.0
+chose the lit or unlit floor state per pixel, so any lobe could explain the
+drawn light and a wrong lobe cost nothing. Here a known-floor pixel is
+predicted lit iff a team icon's cone reaches it: the owner's raycast
+(`cone.raycast`, [owns:viewcone]) from the icon's centre
+[domain:minimap/cone-origin-near-centre] with its half-angle, its origin snap
+and `team_vision.load_inputs`' `passable` and `floor` (walls and boxes from
+the baked `(map, profile)` geometry). A scene icon casts from the pose being
+fitted, so pose and light are one hypothesis; a team icon of the frame
+outside the scene (`facing_fusion.team_icons`) casts from its teardrop pose,
+held; an enemy casts nothing [domain:minimap/vision-gate]. Light no visible
+icon casts (a dead ally's vision, abilities, a spectated view) is the explicit
+UNEXPLAINED-LIGHT term: the lit state where no cone reaches costs `c_u`, the
+unlit state inside a cone (a smoke, a box the raycast misses) costs `c_m`,
+each `2 ln((1-q)/q)` of the disagreement rate `q` measured at confident
+owner teardrop poses on unlabelled frames (`--light-cal`, the store's
+`analysis/scene-light-20260929/light_calibration.json`). Pixels nearer a team
+icon with no pose (an unread outside icon, a scene neighbour not yet posed
+in the solo search) than to any posed icon choose freely, as E12's fusion
+excluded unattributable light. For speed each candidate origin is cast once
+over 360 degrees and cut to each facing's wedge; `--light-cal` measures that
+cut against the owner's own cast. The sprites, colours and noise are
+0.2.0's, from 0.2.0's calibration file.
 
 The first stage of `docs/SCENE_MODEL.md`: the render-and-compare minimap
 model, on the case every single-icon reader fails (E11, E12 in
@@ -31,8 +56,9 @@ within the two apex reaches plus `TOUCH_PAD`), at most `MAX_NEIGHBOURS`.
 **The RGB renderer (0.2.0, `RGBScene`)** predicts the crop's pixels. The
 background is the baked static for `(map, profile)` in two floor states
 (`backgrounds`): the static is the unlit state, and on the lighting
-reference's known floor the lit state is its colour scaled to `hi_gray`; per
-pixel the cheaper state wins, so the drawn light is marginalised, not used.
+reference's known floor the lit state is its colour scaled to `hi_gray`; in
+0.2.0 (`LIGHT = "free"`) the cheaper state wins per pixel, so the drawn light
+is marginalised, not used; 0.3.0 predicts it from the poses (above).
 Each icon is the same silhouette with a ring colour, a lobe colour ramped
 from base to tip [domain:minimap/icon-tip-highlight] and a mean portrait
 colour, all fixed per class and widget scale; enemy ring and lobe are
@@ -89,9 +115,11 @@ centre, the label tools' own rule.
 
 GPU first (torch on CUDA; numpy is not implemented). Crop cache only, no
 decode, no store stream writes. `--record` writes `metrics` series
-`scene_stack_eval_v2` (0.1.0 wrote `scene_stack_eval`) and, with `--check`,
-`scene_stack_check`; `--sheet` writes the store's
-`analysis/scene-stack-v2-20260929/`. Not wired: nothing in `reticle/` reads it.
+`scene_stack_eval_v3` (0.1.0 wrote `scene_stack_eval`, 0.2.0
+`scene_stack_eval_v2`), with `--check` `scene_stack_check_v3` (0.2.0:
+`scene_stack_check`), with `--light-cal` `scene_stack_light_cal`; `--sheet`
+writes the store's `analysis/scene-light-20260929/`. Not wired: nothing in
+`reticle/` reads it.
 """
 from __future__ import annotations
 
@@ -116,6 +144,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import sliver_error_model as sem  # noqa: E402
+import cone_origin as co  # noqa: E402
 import facing_fusion as ff  # noqa: E402
 import icon_facing_eval as ife  # noqa: E402
 import icon_teardrop as it_  # noqa: E402
@@ -123,16 +152,22 @@ import label_icon_facing as lif  # noqa: E402
 import label_self_facing as lsf  # noqa: E402
 import teardrop_tip as tt  # noqa: E402
 import tip_highlight as th  # noqa: E402
+from reticle import cone  # noqa: E402
+from reticle import lighting  # noqa: E402
 from reticle import teardrop as td  # noqa: E402
 from reticle.minimap import widget_scale  # noqa: E402
 
-VERSION = "scene-stack-0.2.0"
-OUT = sem.STORE / "analysis" / "scene-stack-v2-20260929"
-#: "rgb" (0.2.0, the default) predicts the crop's RGB; "keys" is 0.1.0's class-key renderer, kept as the control.
+VERSION = "scene-stack-0.3.0"
+OUT = sem.STORE / "analysis" / "scene-light-20260929"
+#: 0.2.0's colour calibration: 0.3.0 changes only the floor's light, so its sprites are 0.2.0's.
+CAL_PATH = sem.STORE / "analysis" / "scene-stack-v2-20260929" / "calibration.json"
+LIGHT_CAL_PATH = OUT / "light_calibration.json"
+#: "rgb" (the default) predicts the crop's RGB; "keys" is 0.1.0's class-key renderer, kept as the control.
 SPACE = "rgb"
-#: 0.1.0 recorded `scene_stack_eval`; 0.2.0 records its own series so neither run's cited values move.
-SERIES = "scene_stack_eval_v2"
-CHECK_SERIES = "scene_stack_check"
+#: Each version records its own series so no earlier run's cited values move.
+SERIES = "scene_stack_eval_v3"
+CHECK_SERIES = "scene_stack_check_v3"
+LIGHT_CAL_SERIES = "scene_stack_light_cal"
 
 # ---- constants, set before any label was scored (logged with the predictions)
 GRID_DEG = 5.0
@@ -413,13 +448,165 @@ def backgrounds(s):
     return s._scene_bg
 
 
+# ---------------------------------------------------------------- the team light (0.3.0)
+
+#: "pose" (0.3.0): a known-floor pixel is predicted lit iff a team icon's cone reaches it, the other
+#: state at a calibrated cost; "free" (0.2.0): the cheaper state per pixel, the light marginalised.
+LIGHT = "pose"
+LIGHT_RAYS = 1440          # the 360-degree visibility cast: 0.25 degrees a ray (the owner casts 240 over 103)
+LIGHT_FIRE_PX = 5          # compared pixels: an item's unexplained (or missing) light fires at this many
+LIGHT_COST_MAX = TAU_SIG ** 2   # a cost this large forbids the other state: the coupling made hard
+
+
+class Light:
+    """The team's drawn light over one scene window, predicted from poses.
+
+    `cones(cands)` is the light each candidate pose `(x, y, deg)` casts, (N, P)
+    bool on the window's pixels; `held(poses, skip)` is the light and the
+    free (unattributable) pixels with every posed team icon but `skip`.
+    `outside` are the frame's team icons the scene does not fit
+    (`{"x", "y", "deg"|None}`, teardrop poses): a posed one casts, held; an
+    unposed one frees the pixels nearer it than any scene icon.
+    """
+
+    def __init__(self, s, win, scene_icons: list[dict], outside: list[dict], sc: float, costs: dict):
+        self.s, self.sc, self.win = s, sc, win
+        x0, y0, x1, y1 = win
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        self.xx, self.yy = xx.ravel().astype(np.float32), yy.ravel().astype(np.float32)
+        self.px = torch.tensor(self.xx, device=DEV)
+        self.py = torch.tensor(self.yy, device=DEV)
+        self.max_r = int(math.ceil(math.hypot(x1 - x0, y1 - y0))) + 2
+        self.known_np = s.ref.known[y0:y1, x0:x1].ravel().astype(bool)
+        self.known = torch.tensor(self.known_np, device=DEV)
+        self.c_u, self.c_m = float(costs["c_u"]), float(costs["c_m"])
+        self._v, self._pc = {}, {}
+        self.team = [ic["cls"] != "enemy" for ic in scene_icons]
+        self.dist = np.stack([np.hypot(self.xx - ic["x0"], self.yy - ic["y0"]) for ic in scene_icons])
+        d_scene = self.dist.min(0)
+        self.out = torch.zeros(len(self.xx), dtype=torch.bool, device=DEV)
+        self.free_out = np.zeros(len(self.xx), bool)
+        self.n_outside_cast = self.n_outside_free = 0
+        for o in outside:
+            if o.get("deg") is None:
+                self.free_out |= np.hypot(self.xx - o["x"], self.yy - o["y"]) < d_scene
+                self.n_outside_free += 1
+            else:
+                self.out |= self.cones(np.array([[o["x"], o["y"], o["deg"]]], np.float32))[0]
+                self.n_outside_cast += 1
+
+    def _vis(self, ox: float, oy: float):
+        """Pixels of the window a ray from the (snapped) origin reaches in any direction: the owner's cast."""
+        key = (round(ox, 3), round(oy, 3))
+        v = self._v.get(key)
+        if v is None:
+            x0, y0, x1, y1 = self.win
+            m = cone.raycast(self.s.passable, ox, oy, 0.0, half_angle_deg=180.0, visible=self.s.floor,
+                             n_rays=LIGHT_RAYS, max_r=self.max_r, snap_px=0)
+            v = torch.tensor(m[y0:y1, x0:x1].ravel(), device=DEV)
+            self._v[key] = v
+        return v
+
+    def cones(self, cands: np.ndarray):
+        """(N, P) bool: the cone each `(x, y, deg)` row casts over the window."""
+        cands = np.asarray(cands, np.float64)
+        N = len(cands)
+        ox, oy = cands[:, 0].copy(), cands[:, 1].copy()
+        ok = np.ones(N, bool)
+        vid = np.zeros(N, np.int64)
+        keys: dict = {}
+        pas = self.s.passable
+        h, w = pas.shape
+        uniq, inv = np.unique(cands[:, :2], axis=0, return_inverse=True)
+        inv = np.asarray(inv).ravel()
+        for u, (x, y) in enumerate(uniq):
+            rows = np.nonzero(inv == u)[0]
+            xi, yi = int(round(x)), int(round(y))
+            if 0 <= xi < w and 0 <= yi < h and pas[yi, xi]:
+                snaps = {(float(x), float(y)): rows}      # `cone.snap_origin` keeps a passable origin
+            else:
+                snaps = defaultdict(list)
+                for r in rows:
+                    sn = cone.snap_origin(pas, float(x), float(y), float(cands[r, 2]))
+                    if sn is None:
+                        ok[r] = False
+                    else:
+                        snaps[sn].append(r)
+            for (sx, sy), rr in snaps.items():
+                rr = np.asarray(rr)
+                ox[rr], oy[rr] = sx, sy
+                vid[rr] = keys.setdefault((sx, sy), len(keys))
+        if not keys:
+            return torch.zeros(N, len(self.xx), dtype=torch.bool, device=DEV)
+        V = torch.stack([self._vis(*k) for k in keys])                      # (U, P)
+        oxt = torch.tensor(ox, dtype=torch.float32, device=DEV)[:, None]
+        oyt = torch.tensor(oy, dtype=torch.float32, device=DEV)[:, None]
+        deg = torch.tensor(cands[:, 2], dtype=torch.float32, device=DEV)[:, None]
+        dx, dy = self.px[None] - oxt, self.py[None] - oyt
+        diff = torch.remainder(torch.rad2deg(torch.atan2(dy, dx)) - deg + 180.0, 360.0) - 180.0
+        wedge = (diff.abs() <= cone.CONE_HALF_ANGLE_DEG) | (dx * dx + dy * dy < 0.25)
+        okt = torch.tensor(ok, device=DEV)[:, None]
+        return V[torch.tensor(vid, device=DEV)] & wedge & okt
+
+    def pose_cone(self, pose):
+        key = tuple(round(float(v), 3) for v in pose[:3])
+        got = self._pc.get(key)
+        if got is None:
+            got = self.cones(np.array([pose[:3]], np.float64))[0]
+            self._pc[key] = got
+        return got
+
+    def held(self, poses: dict, skip=None):
+        """`(L, free)`, each (P,) bool: the light of the posed team icons but `skip`, and the free pixels."""
+        L = self.out.clone()
+        present = [j for j, p in poses.items() if p is not None and j != skip]
+        for j in present:
+            if self.team[j]:
+                L |= self.pose_cone(poses[j])
+        if skip is not None:
+            present.append(skip)
+        free = self.free_out.copy()
+        absent = [j for j in range(len(self.team)) if self.team[j] and j not in present]
+        if absent and present:
+            free |= self.dist[absent].min(0) < self.dist[present].min(0)
+        return L, torch.tensor(free, device=DEV)
+
+    def err(self, e2, L, free):
+        """Per-pixel error (N, P): the pose-predicted floor state, or the other one at its cost."""
+        e_pred = torch.where(L, e2[:, 1], e2[:, 0])
+        cm = torch.full_like(e_pred, self.c_m)
+        cu = torch.full_like(e_pred, self.c_u)
+        cost = torch.where(L, cm, cu) * (~free).float()[None]
+        e_alt = torch.where(L, e2[:, 0], e2[:, 1]) + cost
+        return torch.minimum(e_pred, e_alt)
+
+
+def frame_team(s, r: dict, sc: float) -> list[dict]:
+    """The frame's team icons with their teardrop poses (`facing_fusion.team_icons`), cached on the row."""
+    if "_team" not in r:
+        r["_team"] = ff.team_icons(s, r["_crop"], sc)
+    return r["_team"]
+
+
+def outside_icons(team: list[dict], sc: float, scene_icons: list[dict]) -> list[dict]:
+    """The frame's team icons that no scene team icon is (none within `SAME_PX` of one's prior centre)."""
+    out = []
+    for ic in team:
+        if any(q["cls"] != "enemy" and math.hypot(q["x0"] - ic["cx"], q["y0"] - ic["cy"]) <= SAME_PX * sc
+               for q in scene_icons):
+            continue
+        out.append({"x": ic["x"], "y": ic["y"], "deg": ic["deg"], "role": ic["role"]})
+    return out
+
+
 class RGBScene:
     """One neighbourhood in RGB: the crop and the two-state baked background over a window, and the icons.
 
     Poses are `(x, y, deg, 0, 0)`: no gains, so a misplaced lobe cannot be dimmed away.
     """
 
-    def __init__(self, crop: np.ndarray, s, icons: list[dict], sc: float, cal: dict):
+    def __init__(self, crop: np.ndarray, s, icons: list[dict], sc: float, cal: dict,
+                 outside: list[dict] | None = None, light_costs: dict | None = None):
         self.sc, self.icons, self.cal = sc, icons, cal
         scal = cal["scales"][_skey(sc)]
         self.k = _kernel(scal["sigma_blur"])
@@ -442,6 +629,8 @@ class RGBScene:
         sdw = torch.tensor(sd[y0:y1, x0:x1].ravel(), dtype=torch.float32, device=DEV)
         self.sig = torch.sqrt(scal["sigma_noise"] ** 2 + sdw ** 2)                           # (P,)
         self.cls_cal = {c: scal["classes"][c] for c in {ic["cls"] for ic in icons}}
+        self.light = (Light(s, self.win, icons, outside or [], sc, light_costs)
+                      if LIGHT == "pose" and s.inputs.light is not None else None)
 
     def _one(self, i: int, pose):
         ic = self.icons[i]
@@ -450,16 +639,20 @@ class RGBScene:
                                torch.deg2rad(deg))
         return O[0], C[0], own[0]
 
+    def _held(self, poses, skip=None):
+        return None if self.light is None else self.light.held(poses, skip)
+
     def stack(self, order, poses, skip=None):
-        """`(K, Wn)`: the composite (2, 3, P), one per floor state, and the compared weight (P,).
-        With `skip`, the layers below and above icon `skip`: `(Kb, Wb, T, Ca, Wa)`."""
+        """`(K, Wn, LF)`: the composite (2, 3, P), one per floor state, the compared weight (P,) and the
+        light `(L, free)` (None in 0.2.0). With `skip`, the layers below and above icon `skip` and the
+        light the others cast: `(Kb, Wb, T, Ca, Wa, LF)`."""
         K, Wn = self.bg.clone(), torch.ones(self.px.shape[0], device=DEV)
         if skip is None:
             for i in order:
                 O, C, own = self._one(i, poses[i])
                 K = (1 - O)[None, None] * K + C[None]
                 Wn = (1 - O) * Wn + O * (1 - own)
-            return K, Wn
+            return K, Wn, self._held(poses)
         k = order.index(skip)
         for i in order[:k]:
             O, C, own = self._one(i, poses[i])
@@ -472,29 +665,30 @@ class RGBScene:
             T = (1 - O) * T
             Ca = (1 - O)[None] * Ca + C
             Wa = (1 - O) * Wa + O * (1 - own)
-        return K, Wn, T, Ca, Wa
+        return K, Wn, T, Ca, Wa, self._held(poses, skip)
 
     def predict(self, K):
         """Blurred prediction (N, 2, 3, P) of composites (N, 2, 3, P)."""
         N = K.shape[0]
         return blur(K.reshape(N * 2, 3, self.H, self.W), self.k).reshape(N, 2, 3, -1)
 
-    def _err(self, K):
-        """Per-pixel error (N, P) in sigma^2, the cheaper floor state, before truncation."""
-        e = (((self.obs[None, None] - self.predict(K)) / self.sig) ** 2).sum(2)
-        return e.min(1).values
+    def _err2(self, K):
+        """Per-pixel error (N, 2, P) in sigma^2 for each floor state, before truncation."""
+        return (((self.obs[None, None] - self.predict(K)) / self.sig) ** 2).sum(2)
 
-    def _loss(self, K, Wn):
-        e = self._err(K).clamp(max=TAU_SIG ** 2)
+    def _loss(self, K, Wn, LF=None):
+        e2 = self._err2(K)
+        e = e2.min(1).values if LF is None else self.light.err(e2, *LF)
+        e = e.clamp(max=TAU_SIG ** 2)
         return (self.keep[None] * (Wn * e + (1 - Wn) * OWN_COST)).sum(-1)
 
-    def loss_of(self, KW) -> float:
-        K, Wn = KW
-        return float(self._loss(K[None], Wn[None])[0])
+    def loss_of(self, KWL) -> float:
+        K, Wn, LF = KWL
+        return float(self._loss(K[None], Wn[None], None if LF is None else (LF[0][None], LF[1]))[0])
 
     def search(self, i: int, order, poses, cands: np.ndarray):
         ic = self.icons[i]
-        Kb, Wb, T, Ca, Wa = self.stack(order, poses, skip=i)
+        Kb, Wb, T, Ca, Wa, LF = self.stack(order, poses, skip=i)
         out = []
         for a in range(0, len(cands), CHUNK // 4):
             cc = torch.tensor(cands[a:a + CHUNK // 4], dtype=torch.float32, device=DEV)
@@ -502,26 +696,63 @@ class RGBScene:
                                    cc[:, :1], cc[:, 1:2], torch.deg2rad(cc[:, 2:3]))
             K = T[None, None, None] * ((1 - O)[:, None, None] * Kb[None] + C[:, None]) + Ca[None, None]
             Wn = T[None] * ((1 - O) * Wb[None] + O * (1 - own)) + Wa[None]
-            out.append(self._loss(K, Wn))
+            if LF is None:
+                out.append(self._loss(K, Wn))
+                continue
+            Lh, free = LF
+            if ic["cls"] != "enemy":        # an enemy casts no team light
+                L = self.light.cones(cands[a:a + CHUNK // 4]) | Lh[None]
+            else:
+                L = Lh[None].expand(len(cc), -1)
+            out.append(self._loss(K, Wn, (L, free)))
         return torch.cat(out).cpu().numpy(), np.zeros((len(cands), 2), np.float32)
 
+    def light_stats(self, order, poses) -> dict:
+        """At fixed poses, over compared known floor: pixels predicted lit, and those read against the
+        prediction at its cost (`unexplained`: lit where no cone reaches; `missing`: unlit inside a cone)."""
+        if self.light is None:
+            return {}
+        K, Wn, (L, free) = self.stack(order, poses)
+        e2 = self._err2(K[None])[0]
+        comp = (self.keep > 0) & (Wn > 0.5) & self.light.known & ~free
+        unex = comp & ~L & (e2[1] + self.light.c_u < e2[0])
+        miss = comp & L & (e2[0] + self.light.c_m < e2[1])
+        return {"floor_n": int(comp.sum()), "lit_pred_n": int((comp & L).sum()), "unexplained_n": int(unex.sum()),
+                "missing_n": int(miss.sum()), "free_n": int(((self.keep > 0) & self.light.known & free).sum())}
+
     def full_images(self, order, poses, shape):
-        """Prediction (the cheaper state per pixel), weight and residual magnitude as crop-sized arrays."""
-        K, Wn = self.stack(order, poses)
+        """Prediction, weight, residual magnitude and light code as crop-sized arrays. The prediction's
+        floor is the pose-predicted state (0.3.0) or the cheaper one (0.2.0); the light code is 1 predicted
+        lit, 2 unexplained light, 3 missing light, 4 free, on known floor (0 elsewhere)."""
+        K, Wn, LF = self.stack(order, poses)
         pred = self.predict(K[None])[0]                                      # (2, 3, P)
-        e = (((self.obs[None] - pred) / self.sig) ** 2).sum(1)               # (2, P)
-        j = e.argmin(0)
+        e2 = (((self.obs[None] - pred) / self.sig) ** 2).sum(1)              # (2, P)
+        code = torch.zeros(e2.shape[1], device=DEV)
+        if LF is None:
+            j = e2.argmin(0)
+            e = e2.min(0).values
+        else:
+            L, free = LF
+            j = L.long()
+            e = self.light.err(e2[None], L[None], free)[0]
+            kn = self.light.known
+            code[kn & L] = 1
+            code[kn & ~L & ~free & (e2[1] + self.light.c_u < e2[0])] = 2
+            code[kn & L & ~free & (e2[0] + self.light.c_m < e2[1])] = 3
+            code[kn & free] = 4
         best = torch.where(j[None] == 0, pred[0], pred[1])
-        res = e.min(0).values.clamp(max=TAU_SIG ** 2).sqrt()
+        res = e.clamp(max=TAU_SIG ** 2).sqrt()
         x0, y0, x1, y1 = self.win
         h, w = shape
         P = np.zeros((h, w, 3), np.uint8)
         R = np.zeros((h, w), np.float32)
         Wimg = np.zeros((h, w), np.float32)
+        Cimg = np.zeros((h, w), np.uint8)
         P[y0:y1, x0:x1] = np.clip(best.T.reshape(self.H, self.W, 3).cpu().numpy() * 255, 0, 255).astype(np.uint8)
         R[y0:y1, x0:x1] = (res * self.keep).reshape(self.H, self.W).cpu().numpy()
         Wimg[y0:y1, x0:x1] = (Wn * self.keep).reshape(self.H, self.W).cpu().numpy()
-        return P, R, Wimg
+        Cimg[y0:y1, x0:x1] = (code * self.keep).reshape(self.H, self.W).cpu().numpy().astype(np.uint8)
+        return P, R, Wimg, Cimg
 
 
 def _skey(sc: float) -> str:
@@ -666,6 +897,95 @@ def calibrate(sess, label_times: dict) -> dict:
                   f"tip {np.round(col[2] * 255)} disc {np.round(col[3] * 255)}", flush=True)
         out["scales"][skey] = {"classes": cl, "sigma_blur": sg,
                                "sigma_noise": float(np.median([c["noise_mad"] for c in cl.values()]))}
+    return out
+
+
+def light_costs(sc: float) -> dict | None:
+    """The unexplained- and missing-light costs at this widget scale (`--light-cal`), None in 0.2.0."""
+    if LIGHT != "pose":
+        return None
+    got = LCAL.get("scales", {}).get(_skey(sc))
+    if got is None:
+        raise SystemExit(f"no light calibration at scale {_skey(sc)}: run --light-cal")
+    return got
+
+
+def _cost(q: float) -> float:
+    """`2 ln((1-q)/q)`: the loss (sigma^2 units, -2 log likelihood) of a floor state read against the
+    prediction with rate `q`, clamped to [0, TAU_SIG^2]."""
+    q = min(max(q, 1e-4), 0.5)
+    return float(min(LIGHT_COST_MAX, 2.0 * math.log((1.0 - q) / q)))
+
+
+def light_calibrate(sess, label_times: dict) -> dict:
+    """The light costs per widget scale, from confident owner teardrop poses on unlabelled frames.
+
+    The same isolated team icons as `calibrate` (at least `CAL_AWAY_MS` from any
+    labelled instant). Each icon's cone is cast from the owner's pose, every
+    other team icon of the frame from its own teardrop pose; the compared
+    pixels are the scene window's known floor outside every team icon's
+    footprint (a disc of the apex's reach grown by `cone_origin.PAD`) and the
+    free pixels. `q_u` is the share of pixels no cone reaches that the lit
+    state explains better, `q_m` the share of cone pixels the unlit state
+    explains better. It also measures P9 with the owner's lit decision
+    (`lighting.raw_lit`) and the cut (360-degree cast cut to the wedge)
+    against the owner's own cone cast.
+    """
+    icons = calibration_icons(sess, label_times)
+    acc = defaultdict(lambda: defaultdict(float))
+    sessions = defaultdict(set)
+    for (cls, skey), v in sorted(icons.items()):
+        if cls == "enemy":
+            continue
+        for ic in v:
+            s, crop, sc = ic["_s"], ic["_crop"], ic["sc"]
+            team = ff.team_icons(s, crop, sc)
+            scene_ic = [{"cls": cls, "x0": ic["x"], "y0": ic["y"]}]
+            outside = outside_icons(team, sc, scene_ic)
+            scene = RGBScene(crop, s, scene_ic, sc, CAL, outside=outside, light_costs={"c_u": 0.0, "c_m": 0.0})
+            lt = scene.light
+            pose = (ic["x"], ic["y"], ic["deg"], 0.0, 0.0)
+            K, Wn, (L, free) = scene.stack([0], {0: pose})
+            e2 = scene._err2(K[None])[0].cpu().numpy()
+            own = lt.pose_cone(pose).cpu().numpy()
+            Ln, freen = L.cpu().numpy(), free.cpu().numpy()
+            foot = np.zeros(len(lt.xx), bool)
+            for qx, qy in [(ic["x"], ic["y"])] + [(o["x"], o["y"]) for o in team]:
+                foot |= np.hypot(lt.xx - qx, lt.yy - qy) <= td.L * sc + co.PAD
+            x0, y0, x1, y1 = scene.win
+            raw = lighting.raw_lit(crop, s.ref)[y0:y1, x0:x1].ravel()
+            kk = scene.keep_np.ravel()
+            comp = kk & lt.known_np & ~freen & ~foot
+            a = acc[skey]
+            sessions[skey].add(ic["sid"])
+            a["icons"] += 1
+            a["own_in_n"] += (comp & own).sum()
+            a["own_in_lit"] += (comp & own & raw).sum()
+            a["dark_n"] += (comp & ~Ln).sum()
+            a["dark_unlit"] += (comp & ~Ln & ~raw).sum()
+            a["dark_alt"] += (comp & ~Ln & (e2[1] < e2[0])).sum()
+            a["cone_n"] += (comp & Ln).sum()
+            a["cone_alt"] += (comp & Ln & (e2[0] < e2[1])).sum()
+            m = cone.raycast(s.passable, ic["x"], ic["y"], ic["deg"], visible=s.floor,
+                             max_r=lt.max_r)[y0:y1, x0:x1].ravel()
+            a["cut_union_px"] += (kk & (m | own)).sum()
+            a["cut_diff_px"] += (kk & (m != own)).sum()
+    out = {"version": VERSION, "made_from": "confident isolated owner teardrops (as calibrate) on unlabelled "
+           f"frames, >= {CAL_AWAY_MS:.0f} ms from any labelled instant; cones by cone.raycast from each "
+           "team icon's teardrop pose; costs 2 ln((1-q)/q)", "scales": {}}
+    for skey, a in sorted(acc.items()):
+        q_u = a["dark_alt"] / max(a["dark_n"], 1)
+        q_m = a["cone_alt"] / max(a["cone_n"], 1)
+        vals = {"icons": int(a["icons"]), "q_u": round(q_u, 4), "q_m": round(q_m, 4),
+                "c_u": round(_cost(q_u), 4), "c_m": round(_cost(q_m), 4),
+                "own_cone_lit_share": round(a["own_in_lit"] / max(a["own_in_n"], 1), 4),
+                "own_cone_px": int(a["own_in_n"]),
+                "no_cone_unlit_share": round(a["dark_unlit"] / max(a["dark_n"], 1), 4),
+                "no_cone_px": int(a["dark_n"]),
+                "cut_disagree_share": round(a["cut_diff_px"] / max(a["cut_union_px"], 1), 4),
+                "sessions": sorted(sessions[skey])}
+        out["scales"][skey] = vals
+        print(f"  light calibration {skey}: {vals}", flush=True)
     return out
 
 
@@ -904,10 +1224,16 @@ def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
     if not do_fit:
         return out
     t0 = time.perf_counter()
-    scene = (RGBScene(crop, s, nb["icons"], sc, CAL) if SPACE == "rgb"
-             else Scene(keys(crop), keys(s.inputs.static), nb["icons"], sc))
+    if SPACE == "rgb":
+        outside = outside_icons(frame_team(s, r, sc), sc, nb["icons"]) if LIGHT == "pose" else []
+        scene = RGBScene(crop, s, nb["icons"], sc, CAL, outside=outside, light_costs=light_costs(sc))
+    else:
+        scene = Scene(keys(crop), keys(s.inputs.static), nb["icons"], sc)
     got = fit_scene(scene)
     out["fit_s"] = time.perf_counter() - t0
+    if SPACE == "rgb" and scene.light is not None:
+        out["light"] = scene.light_stats(got["order"], got["poses"])
+        out["light"].update(outside_cast=scene.light.n_outside_cast, outside_free=scene.light.n_outside_free)
     p = got["poses"][0]
     out["joint"] = float(td._signed_deg(p[2]))
     out["joint_xy"] = (p[0], p[1])
@@ -921,6 +1247,8 @@ def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
     out["starts"] = got["starts"]
     out["neighbour_poses"] = [got["poses"][i] for i in range(1, len(scene.icons))]
     out["rests_on"] = [("baked static RGB (map, profile)" if SPACE == "rgb" else "baked static keys (map, profile)")] + (
+        ["baked walls and boxes (map, profile) via cone.raycast; outside team icons' teardrop poses"]
+        if SPACE == "rgb" and LIGHT == "pose" else []) + (
         ["team_vision stored track positions"] if "track" in nb["sources"] else []) + (
         ["class detectors at this frame"] if "detector" in nb["sources"] else []) + ["label set's detector centre"]
     out["_scene"] = scene
@@ -960,6 +1288,13 @@ def summarise(rows):
     unread = [r for r in rows if r.get("teardrop") is None and err(r, "joint") is not None]
     out["joint_on_td_unread_n"] = len(unread)
     out["joint_on_td_unread_flips"] = sum(abs(err(r, "joint")) > 90 for r in unread)
+    lit = [r["light"] for r in rows if r.get("light")]
+    if lit:
+        out["light_n"] = len(lit)
+        out["light_unexplained_fire"] = sum(x["unexplained_n"] >= LIGHT_FIRE_PX for x in lit)
+        out["light_missing_fire"] = sum(x["missing_n"] >= LIGHT_FIRE_PX for x in lit)
+        out["light_unexplained_share_median"] = round(float(np.median(
+            [x["unexplained_n"] / max(x["floor_n"], 1) for x in lit])), 4)
     return out
 
 
@@ -974,6 +1309,10 @@ def _print(title, res):
           f"solo fixed/broken {res['solo_fixed']}/{res['solo_broken']}, joint {res['joint_fixed']}/{res['joint_broken']}; "
           f"joint vs solo {res['joint_vs_solo_fixed']}/{res['joint_vs_solo_broken']}; "
           f"td unread: joint reads {res['joint_on_td_unread_n']} flips {res['joint_on_td_unread_flips']}")
+    if res.get("light_n"):
+        print(f"  light at the fitted pose: unexplained fires {res['light_unexplained_fire']}/{res['light_n']}, "
+              f"missing fires {res['light_missing_fire']}/{res['light_n']}, median unexplained share "
+              f"{res['light_unexplained_share_median']}")
 
 
 # ---------------------------------------------------------------- the sheet
@@ -986,8 +1325,9 @@ def _false(k: np.ndarray) -> np.ndarray:
 
 
 def tile(r: dict, zoom: int = 6) -> np.ndarray:
-    """Crop, rendered keys, observed keys and |residual| round the labelled icon; arrows: label green,
-    teardrop blue, solo magenta, joint white; neighbours' joint facings orange."""
+    """Crop, render, |residual| and (0.3.0) the light round the labelled icon; arrows: label green,
+    teardrop blue, solo magenta, joint white; neighbours' joint facings orange. The light panel: predicted
+    lit yellow, unexplained light cyan, missing light red, free (unattributable) blue."""
     crop = r["_crop"]
     sc = r["scale"]
     half = int(round((td.L + 8) * sc))
@@ -1001,7 +1341,7 @@ def tile(r: dict, zoom: int = 6) -> np.ndarray:
     panels = [sub(crop)]
     scene, got = r.get("_scene"), r.get("_fit")
     if isinstance(scene, RGBScene):
-        P, R, Wimg = scene.full_images(got["order"], got["poses"], crop.shape[:2])
+        P, R, Wimg, Cimg = scene.full_images(got["order"], got["poses"], crop.shape[:2])
         keep = np.zeros(crop.shape[:2], bool)
         x0w, y0w, x1w, y1w = scene.win
         keep[y0w:y1w, x0w:x1w] = scene.keep_np
@@ -1011,6 +1351,13 @@ def tile(r: dict, zoom: int = 6) -> np.ndarray:
         rimg = cv2.applyColorMap(np.clip(R / TAU_SIG * 255, 0, 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
         rimg[~keep] = 0
         panels += [sub(Pv), sub(rimg)]
+        if scene.light is not None:
+            # The light: grey crop, predicted lit yellow, unexplained light cyan, missing light red, free blue.
+            g = cv2.cvtColor(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR) // 2
+            for c, col in ((1, (0, 200, 255)), (2, (255, 255, 0)), (3, (0, 0, 255)), (4, (255, 80, 0))):
+                g[(Cimg == c) & keep] = col
+            g[~keep] = 0
+            panels.append(sub(g))
     elif scene is not None:
         K = scene.stack(got["order"], got["poses"]).cpu().numpy()
         h, w = crop.shape[:2]
@@ -1050,7 +1397,9 @@ def tile(r: dict, zoom: int = 6) -> np.ndarray:
     f = lambda e: "-" if e is None else f"{e:+.0f}"  # noqa: E731
     lines = [f"{r['set']} {r['session'][:4]} {r['t_ms'] / 1000:.1f}s {'STACK' if r.get('stacked') else ''} "
              f"touch {r.get('n_touch')} {','.join(r.get('neighbour_classes', []))} order {r.get('order')}",
-             f"err td {f(et)} solo {f(es)} joint {f(ej)}  margin {r.get('margin', 0):.2f}"]
+             f"err td {f(et)} solo {f(es)} joint {f(ej)}  margin {r.get('margin', 0):.2f}"
+             + ("  light lit {lit_pred_n} unexpl {unexplained_n} miss {missing_n} free {free_n} of {floor_n}".format(
+                 **r["light"]) if r.get("light") else "")]
     bar = np.zeros((40, row.shape[1], 3), np.uint8)
     for k, s_ in enumerate(lines):
         bad = ej is not None and abs(ej) > 90
@@ -1078,7 +1427,12 @@ def sheet(rows, path: Path, per_page: int = 12) -> list[Path]:
 LABEL_FILES = {"465": lambda st: lif.labels_path(st), "self": lambda st: lsf.labels_path(st),
                "331": lambda st: lif.labels_path(st, lif.SET_331), "s331": lambda st: lif.labels_path(st, lif.SET_S331),
                "e331": lambda st: lif.labels_path(st, lif.SET_E331)}
-CHECK_VARIANTS = ("rgb-mask", "rgb-disc", "keys")
+#: 0.2.0 checked "rgb-mask", "rgb-disc" and "keys"; 0.3.0 checks 0.2.0's renderer ("rgb-mask", the light
+#: free) against its own ("light") on the same items and protocols.
+CHECK_VARIANTS = ("rgb-mask", "light")
+#: "td": the centre fixed at the owner teardrop's centre (the detector's where it has none), widget scale fixed;
+#: "click": 0.2.0's protocol, the centre free within `CHECK_CENTRE_PX` of the player's click.
+CHECK_PROTOCOLS = ("td", "click")
 CHECK_CENTRE_PX = 1.0     # scale 1.0: the centre is re-optimised this far round the player's click at each facing
 
 
@@ -1090,26 +1444,40 @@ def attach_clicks(k: str, rows: list[dict], store) -> None:
 
 
 def check_item(s, r: dict, variant: str) -> dict:
-    """The labelled icon alone: loss at the labelled facing against the reversed one (centre re-optimised
-    within `CHECK_CENTRE_PX` of the click at each), and the renderer's own best pose over the solo search."""
-    global PORTRAIT
+    """The labelled icon's sprite alone: loss at the labelled facing against the reversed one under each
+    protocol, and the renderer's own best pose over the solo search. In the light variant every other team
+    icon of the frame casts from its teardrop pose (held); no other sprite is drawn."""
+    global PORTRAIT, LIGHT
     crop = r["_crop"]
     sc = widget_scale(crop.shape[1])
     icons = [{"cls": r["cls"], "x0": float(r["det_cx"]), "y0": float(r["det_cy"])}]
     if variant == "keys":
         scene = Scene(keys(crop), keys(s.inputs.static), icons, sc)
     else:
-        PORTRAIT = "mask" if variant == "rgb-mask" else "disc"
-        scene = RGBScene(crop, s, icons, sc, CAL)
-    cx, cy = r["click"] or (r["det_cx"], r["det_cy"])
+        PORTRAIT = "disc" if variant == "rgb-disc" else "mask"
+        LIGHT = "pose" if variant == "light" else "free"
+        outside = outside_icons(frame_team(s, r, sc), sc, icons) if LIGHT == "pose" else []
+        scene = RGBScene(crop, s, icons, sc, CAL, outside=outside, light_costs=light_costs(sc))
     out = {}
-    for name, deg in (("lab", r["label_deg"]), ("rev", r["label_deg"] + 180.0)):
-        cands = _pose_grid(cx, cy, CHECK_CENTRE_PX * sc, 0.25, np.array([deg], np.float32))
-        loss, _ = scene.search(0, [0], {0: None}, cands)
-        out[name] = float(loss.min())
+    centres = {"td": (r.get("td_xy") or (r["det_cx"], r["det_cy"]), 0.0),
+               "click": (r["click"] or (r["det_cx"], r["det_cy"]), CHECK_CENTRE_PX * sc)}
+    for proto in CHECK_PROTOCOLS:
+        (cx, cy), half = centres[proto]
+        for name, deg in (("lab", r["label_deg"]), ("rev", r["label_deg"] + 180.0)):
+            cands = _pose_grid(cx, cy, half, 0.25, np.array([deg], np.float32))
+            loss, _ = scene.search(0, [0], {0: None}, cands)
+            out[f"{proto}_{name}"] = float(loss.min())
     sol = solo(scene, 0)
     out["global_err"] = float(td._signed_deg(sol["best"][2] - r["label_deg"]))
-    PORTRAIT = "mask"
+    if variant == "light" and getattr(scene, "light", None) is not None:
+        (cx, cy), _h = centres["td"]
+        out["light_lab"] = scene.light_stats([0], {0: (cx, cy, r["label_deg"], 0.0, 0.0)})
+        out["light_global"] = scene.light_stats([0], {0: sol["best"]})
+        # For the sheet: the renderer's own best pose, drawn as the solo arrow.
+        r.update(_scene=scene, _fit={"order": [0], "poses": {0: sol["best"]}}, solo=float(td._signed_deg(
+            sol["best"][2])), solo_xy=(sol["best"][0], sol["best"][1]), light=out["light_global"], joint=None,
+            margin=sol["far_loss"] - sol["loss"], order=[0])
+    PORTRAIT, LIGHT = "mask", "pose"
     return out
 
 
@@ -1130,23 +1498,33 @@ def check(all_rows: dict, sess, store) -> dict:
                 vals[f"{part}_teardrop_flips"] = sum(abs(err(r, "teardrop")) > 90 for r in tdr)
                 for v in CHECK_VARIANTS:
                     tag = v.replace("-", "_")
-                    vals[f"{part}_{tag}_lab_beats_rev"] = sum(r["check"][v]["lab"] < r["check"][v]["rev"] for r in pick)
+                    for proto in CHECK_PROTOCOLS:
+                        vals[f"{part}_{tag}_{proto}_lab_beats_rev"] = sum(
+                            r["check"][v][f"{proto}_lab"] < r["check"][v][f"{proto}_rev"] for r in pick)
                     vals[f"{part}_{tag}_global_flips"] = sum(abs(r["check"][v]["global_err"]) > 90 for r in pick)
+                lab = [r["check"]["light"]["light_lab"] for r in pick if r["check"]["light"].get("light_lab")]
+                vals[f"{part}_light_lab_unexplained_fire"] = sum(x["unexplained_n"] >= LIGHT_FIRE_PX for x in lab)
+                vals[f"{part}_light_lab_missing_fire"] = sum(x["missing_n"] >= LIGHT_FIRE_PX for x in lab)
+            vals["gate_pass"] = int(vals["all_light_global_flips"] <= vals["all_teardrop_flips"] + 1)
             res[name] = ("+".join(sorted({r["session"] for r in sub})), vals)
             print(f"\n== check {name}: n {vals['all_n']} (stacked {vals['stacked_n']}, isolated {vals['isolated_n']}),"
-                  f" teardrop flips {vals['all_teardrop_flips']}")
+                  f" teardrop flips {vals['all_teardrop_flips']}; gate {'PASS' if vals['gate_pass'] else 'FAIL'}; "
+                  f"at the label, unexplained light fires {vals['all_light_lab_unexplained_fire']}, "
+                  f"missing {vals['all_light_lab_missing_fire']}")
             for v in CHECK_VARIANTS:
                 tag = v.replace("-", "_")
-                print(f"  {v:9s} label beats reversed {vals[f'all_{tag}_lab_beats_rev']}/{vals['all_n']} "
-                      f"(stacked {vals[f'stacked_{tag}_lab_beats_rev']}/{vals['stacked_n']}, isolated "
-                      f"{vals[f'isolated_{tag}_lab_beats_rev']}/{vals['isolated_n']}); global flips "
-                      f"{vals[f'all_{tag}_global_flips']}")
+                print(f"  {v:9s} " + "; ".join(
+                    f"{proto}: label beats reversed {vals[f'all_{tag}_{proto}_lab_beats_rev']}/{vals['all_n']} "
+                    f"(stacked {vals[f'stacked_{tag}_{proto}_lab_beats_rev']}/{vals['stacked_n']}, isolated "
+                    f"{vals[f'isolated_{tag}_{proto}_lab_beats_rev']}/{vals['isolated_n']})" for proto in CHECK_PROTOCOLS)
+                      + f"; global flips {vals[f'all_{tag}_global_flips']}")
     return res
 
 
 # ---------------------------------------------------------------- main
 
 CAL: dict = {}
+LCAL: dict = {}
 
 
 def _idle():
@@ -1167,9 +1545,12 @@ def main(argv=None) -> int:
                     help="rgb: 0.2.0's renderer; keys: 0.1.0's, the control")
     ap.add_argument("--check", action="store_true",
                     help="the renderer alone at the labelled pose against the reversed one; fit nothing")
-    ap.add_argument("--recalibrate", action="store_true", help="refit the RGB calibration on unlabelled frames")
+    ap.add_argument("--recalibrate", action="store_true",
+                    help="refit the RGB colour calibration on unlabelled frames (written under OUT, not over 0.2.0's)")
+    ap.add_argument("--light-cal", action="store_true",
+                    help="measure the light costs and the P9 instrument on unlabelled frames; fit nothing")
     args = ap.parse_args(argv)
-    global GAIN_MODE, OUT, SPACE, CAL
+    global GAIN_MODE, OUT, SPACE, CAL, LCAL, CAL_PATH
     SPACE = args.space
     posthoc = ""
     if args.shared_gain:
@@ -1197,9 +1578,12 @@ def main(argv=None) -> int:
         keep = set(args.parts.split(","))
         all_rows = {k: [r for r in rows if r["set"] in keep] for k, rows in all_rows.items()}
         all_rows = {k: v for k, v in all_rows.items() if v}
-    cal_path = sem.STORE / "analysis" / "scene-stack-v2-20260929" / "calibration.json"
+    full_sets = args.sets == ap.get_default("sets") and not args.limit
+    if args.recalibrate:
+        CAL_PATH = OUT / "calibration.json"
+    cal_path = CAL_PATH
     if args.recalibrate or not cal_path.is_file():
-        if args.sets != ap.get_default("sets") or args.limit:
+        if not full_sets:
             raise SystemExit("calibrate with every label set loaded, so every labelled instant is excluded")
         print("calibrating on unlabelled frames", flush=True)
         CAL = calibrate(sess, {sid: ts for sid, ts in need.items()})
@@ -1207,6 +1591,27 @@ def main(argv=None) -> int:
         cal_path.write_text(json.dumps(CAL, indent=1), encoding="utf-8")
         print("wrote", cal_path)
     CAL = json.loads(cal_path.read_text(encoding="utf-8"))
+    if args.light_cal:
+        if not full_sets:
+            raise SystemExit("calibrate the light with every label set loaded, so every labelled instant is excluded")
+        from reticle import metrics
+        LCAL = light_calibrate(sess, {sid: ts for sid, ts in need.items()})
+        LIGHT_CAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        LIGHT_CAL_PATH.write_text(json.dumps(LCAL, indent=1), encoding="utf-8")
+        print("wrote", LIGHT_CAL_PATH)
+        if args.record:
+            deps = {"prototype": VERSION, "calibration": str(cal_path), "light_rays": LIGHT_RAYS,
+                    "half_angle_deg": cone.CONE_HALF_ANGLE_DEG, "cal_away_ms": CAL_AWAY_MS}
+            for skey, vals in LCAL["scales"].items():
+                v = {k: x for k, x in vals.items() if k != "sessions"}
+                metrics.record(LIGHT_CAL_SERIES, part=f"scale-{skey}", session="+".join(vals["sessions"]),
+                               values=v, deps=deps)
+                print("recorded light calibration", skey)
+        return 0
+    if LIGHT == "pose" and SPACE == "rgb" and not args.census:
+        if not LIGHT_CAL_PATH.is_file():
+            raise SystemExit(f"no {LIGHT_CAL_PATH}: run --light-cal first")
+        LCAL = json.loads(LIGHT_CAL_PATH.read_text(encoding="utf-8"))
     tracks = {sid: TrackIndex(sid, ts) for sid, ts in need.items()}
     for sid, tr in tracks.items():
         print(f"  prior {sid}: {len(tr.rows)} stored frames ({tr.version})", flush=True)
@@ -1221,11 +1626,21 @@ def main(argv=None) -> int:
         from reticle import metrics
         res = check(all_rows, sess, store)
         if args.record and not args.limit:
-            deps = {"prototype": VERSION, "calibration": str(cal_path), "check_centre_px": CHECK_CENTRE_PX,
-                    "variants": list(CHECK_VARIANTS), "tau_sig": TAU_SIG, "own_cost": OWN_COST}
+            deps = {"prototype": VERSION, "calibration": str(cal_path), "light_calibration": str(LIGHT_CAL_PATH),
+                    "check_centre_px": CHECK_CENTRE_PX, "variants": list(CHECK_VARIANTS),
+                    "protocols": list(CHECK_PROTOCOLS), "tau_sig": TAU_SIG, "own_cost": OWN_COST,
+                    "light_fire_px": LIGHT_FIRE_PX, "gate": "light global flips <= teardrop flips + 1"}
             for name, (session, vals) in res.items():
                 metrics.record(CHECK_SERIES, part=name, session=session, values=vals, deps=deps)
                 print("recorded check", name)
+        if args.sheet:
+            for k, rows in all_rows.items():
+                if not k.endswith("331") and k != "331":
+                    continue
+                pick = [r for r in rows if r.get("_scene") is not None and (
+                    abs(r["check"]["light"]["global_err"]) > 90 or r["stacked"])]
+                for p in sheet(pick, OUT / f"check_{k}.png"):
+                    print("wrote", p)
         return 0
     if args.census:
         for k, rows in all_rows.items():
@@ -1244,7 +1659,8 @@ def main(argv=None) -> int:
             "joint_search_px": JOINT_SEARCH_PX, "sweeps": SWEEPS, "touch_pad": TOUCH_PAD, "stack_px": STACK_PX,
             "max_neighbours": MAX_NEIGHBOURS, "gain_mode": GAIN_MODE, "prior": "team_vision stored tracks + class detectors",
             "space": SPACE, "portrait": PORTRAIT, "tau_sig": TAU_SIG, "own_cost": OWN_COST,
-            "calibration": str(cal_path)}
+            "calibration": str(cal_path), "light": LIGHT, "light_calibration": str(LIGHT_CAL_PATH),
+            "light_rays": LIGHT_RAYS, "light_fire_px": LIGHT_FIRE_PX}
     records = []
     pooled = defaultdict(list)
     for k, rows in all_rows.items():
@@ -1266,6 +1682,12 @@ def main(argv=None) -> int:
         _print(f"POOLED {part}", res)
         vals |= {f"{part}_{kk}": v for kk, v in res.items()}
     records.append(("pooled", "+".join(sorted(need)), vals))
+    for rows in all_rows.values():
+        for r in rows:
+            et, ej = err(r, "teardrop"), err(r, "joint")
+            if not r["n_touch"] and et is not None and ej is not None and abs(et) <= 90 < abs(ej):
+                print(f"ISOLATED BROKEN {r['set']} {r['session']} t_ms {r['t_ms']} key {r.get('key')}: "
+                      f"teardrop {et:+.1f} joint {ej:+.1f} light {r.get('light')}")
     if args.record and not args.limit:
         for part, session, v in records:
             metrics.record(SERIES, part=part + posthoc, session=session, values=v, deps=deps)
