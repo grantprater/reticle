@@ -588,6 +588,11 @@ use = """
 a radar mask must contain the whole map; a circle inscribed in the ROI clips map
 pixels on 6 of 12 baked geometries
 """
+exceptions = """
+at the largest map scaling the ring no longer circumscribes the whole map: the
+map is painted only inside the ring, and on Split and Lotus a corner of the
+baked map lies outside it [domain:capture/largest-scaling-shows-whole-map-belief]
+"""
 
 [enemy-smokes-block-cones]
 claim = """
@@ -888,9 +893,38 @@ caster jumps or stands higher
 use = """
 keep a box a separate occluder class from a full-height wall: a wall always
 stops a ray; a box stops it by default, and cone.box_crossings reports which
-boxes each cone crossed so the drawn light can decide whether a pass happened
+boxes each cone crossed so the drawn light can decide whether a pass happened.
+Model a pass as heights: the caster's eye height is the floor's elevation
+plus a state offset (standing, jumping, boosted by a vertical ability
+[domain:abilities/jett-updraft-lifts-above-jump]
+[domain:abilities/waylay-vertical-lifts-above-jump]
+[domain:abilities/raze-satchel-lifts-above-jump]), each occluder has a top,
+and an occluder blocks a ray iff the eye is below its top. A floor caster's
+classes are short (blocks standing, passes jumping), tall (blocks both) and
+does-not-block. The per-map data, one inequality row per observed block or
+pass, live in domain/heights/<geometry>.toml; unlisted boxes are unconstrained
 """
-see = ["minimap/white-lines-are-walls", "minimap/cone-rays-stop-at-first-edge"]
+exceptions = """
+measured 2026-09-30 on two clips at the largest settings
+(prototypes/lotus_elevation.py; jumps witnessed by the first-person camera's
+rise, not by the light). The light beyond or on a short occluder switches
+whole between two 20 Hz frames and back before landing, with no intermediate
+frame. Lotus ([metric:lotus_elevation/heights@2026-09-30_13-25-33#n_jumps=12]
+jumps): the C Mound and the box mid-room in Attacker Side Spawn are short,
+the spawn box lit from takeoff; two C Lobby boxes are tall, so a jump does not
+see over every box; the edge line of C Lobby's raised rectangle does not block
+a standing caster. Split: the box at B Site's far left is short from the
+raised plant zone (6 jumps; its top is lit for only
+[metric:lotus_elevation/split@2026-09-30_13-37-46#box_lit_air_share_min=0.615]
+to [metric:lotus_elevation/split@2026-09-30_13-37-46#box_lit_air_share_max=0.667]
+of the air time, so its top lies well above the standing eye) and tall from
+the floor below the stairs (2 jumps): one box, two classes, by the caster's
+floor. The outlines of several boxes and of the Lotus mound are baked as WALL
+in `occ`, so a raycast that stops at walls misses those passes. Only 3 of 63
+baked Lotus boxes and 2 of 55 Split boxes are constrained
+"""
+see = ["minimap/white-lines-are-walls", "minimap/cone-rays-stop-at-first-edge",
+       "minimap/heaven-sees-over-area", "minimap/floor-shade-is-elevation"]
 phrases = ["a jump lets the cone extend past", "boxes block unless"]
 
 [floor-shade-is-elevation]
@@ -907,11 +941,89 @@ source = "the player, 2026-09-29, while reading the cone-walls sheets"
 use = """
 the baked geometry keeps each floor pixel's shade rung from the map art
 (`shade_kind`, `shade_step`, prototypes/map_shade.py), never from session
-pixels; the rung is an elevation level, not a lighting state. The raycast does
-not use it yet
+pixels; the rung is not a lighting state. A shaded region is the primary
+witness of a heaven [domain:minimap/heaven-sees-over-area]; check it against
+the drawn light before trusting it. The raycast does not use the rung yet
 """
-see = ["minimap/boxes-block-unless-raised"]
+exceptions = """
+the player, 2026-09-30 (chat): shading does not show elevation exactly. It
+usually marks an actual heaven; a ramp or step that changes elevation without
+changing vision may be drawn by lines only, with no shade (the Ascent platform
+at e78e75b2d191 8.833 s shows only a white line). Observed on Lotus
+(prototypes/lotus_elevation.py, 2026-09-30): the C Mound is a shaded region,
+yet it blocks a standing caster at an undrawn interior crest a median
+[metric:lotus_elevation/heights@2026-09-30_13-25-33#mound_crest_frac_min=0.344]
+to [metric:lotus_elevation/heights@2026-09-30_13-25-33#mound_crest_frac_max=0.41]
+of the way across it, not at the shade edge; and C Lobby's shaded raised
+rectangle is a step-up whose edge line does not block a standing caster.
+Split's B plant zone is a raised floor with no shade (rung 0 over a share
+[metric:lotus_elevation/split@2026-09-30_13-37-46#zone_rung0_share=1.0] of
+it): the player located it, and only the notch in the zone's west edge marks
+where stairs lead down [domain:minimap/heaven-sees-over-area]
+"""
+see = ["minimap/boxes-block-unless-raised", "minimap/heaven-sees-over-area"]
 phrases = ["lighter grey is raised", "floor shading shows elevation"]
+
+[heaven-sees-over-area]
+claim = """
+Most areas of a map have one heaven: a raised platform from which a player
+sees over every box in that area. A caster's vision over boxes therefore
+depends on where it stands and what it does: on the floor standing, on the
+floor jumping, on the heaven, or boosted by a vertical ability.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), correcting the use of shade rungs as elevation"
+use = """
+locate a heaven first from its floor shade [domain:minimap/floor-shade-is-elevation],
+then check it against the drawn light from a caster on it. A floor caster's
+short and tall boxes come from jumps (domain/heights/<geometry>.toml)
+"""
+exceptions = """
+"most areas": which areas lack a heaven, or have more than one, is not
+recorded. Two clips of 2026-09-30 touch heavens without testing the rule. On
+Lotus the player stepped up onto C Lobby's shaded raised rectangle and made no
+pass test from it. On Split the player stood on B Tower (shade rung 3, located
+from the shade) from 0 to 18 s; the floor beyond the one box the cone crossed
+there (box_id 32) was mostly but not wholly lit, and the one jump there
+crossed no box. Floors between floor and heaven exist: Split's B plant zone is raised
+above the floor west of its stairs with no shade marking it
+"""
+see = ["minimap/boxes-block-unless-raised", "minimap/floor-shade-is-elevation"]
+
+[off-widget-self-marker]
+claim = """
+When the player stands where the widget ring cuts the map, the minimap draws
+no self icon; a blue triangle sits on the ring in its place, and the visible
+part of the self cone reaches in from the ring.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-09-30"
+subject = "minimap:self"
+source = """
+prototypes/lotus_elevation.py clipped_corner on the Split clip
+C:/Users/grant/Videos/2026-09-30 13-37-46.mp4 (not ingested), far B corner:
+the teardrop reads no self in
+[metric:lotus_elevation/ring@2026-09-30_13-37-46#n_absent=82] of 1234 frames;
+[metric:lotus_elevation/ring@2026-09-30_13-37-46#n_marker=80] of them carry a
+blue triangle whose centre lies
+[metric:lotus_elevation/split@2026-09-30_13-37-46#marker_minus_ring_min=1.14]
+to [metric:lotus_elevation/split@2026-09-30_13-37-46#marker_minus_ring_max=1.82]
+px outside the fitted ring radius, from
+[metric:lotus_elevation/split@2026-09-30_13-37-46#marker_t_first=50.3] to
+[metric:lotus_elevation/split@2026-09-30_13-37-46#marker_t_last=55.7] s, while
+the HUD names B Site and B Back. The icon changes whole to the triangle between
+frames; no clipped icon is drawn
+"""
+use = """
+a self reader at the largest settings reads the triangle as "self off the
+painted map, bearing given by the triangle's place on the ring", not as a
+missing self. Whether the triangle points toward the player, and whether
+teammates or enemies get one, is not observed
+"""
+see = ["capture/largest-scaling-shows-whole-map-belief", "minimap/widget-ring"]
 
 [enemy-spike-ground-vision]
 claim = """

@@ -89,9 +89,10 @@ claim = """
 The game has two separate minimap settings: the widget's total size and the
 map's scaling inside it. The widget size sets how many screen px the widget
 takes; the map scaling sets how large the map, and every in-game distance
-drawn on it, is painted inside the widget. From 2026-09-30 the player intends
-to capture at the largest widget size and the largest map scaling. That is an
-intent, not an observation: no capture at those settings is in the store.
+drawn on it, is painted inside the widget. From 2026-09-30 the player
+captures at the largest widget size and the largest map scaling; the first
+captures at those settings are a Lotus and a Split clip of 2026-09-30, not
+ingested [domain:capture/largest-settings-widget].
 """
 kind = "constraint"
 known = "player"
@@ -141,4 +142,63 @@ donor shows whether the baked map fits inside the widget or a corner is cut.
 Until then no reader may assume the whole map lies inside the widget at that
 scaling; a clipped corner is missing floor, not unlit floor
 """
-see = ["capture/minimap-size-settings", "minimap/widget-ring"]
+exceptions = """
+tested 2026-09-30 on one clip per map [domain:capture/largest-settings-widget]
+(prototypes/lotus_elevation.py clipped_corner). The widget boundary is the
+drawn ring [domain:minimap/widget-ring]; the map is painted only inside it.
+Fitted in the baked bigmap statics it has radius
+[metric:lotus_elevation/ring@2026-09-30_13-37-46#ring_r=229.75] px about
+([metric:lotus_elevation/ring@2026-09-30_13-37-46#ring_cx=232.5],
+[metric:lotus_elevation/ring@2026-09-30_13-37-46#ring_cy=256.75]) on Split
+and [metric:lotus_elevation/ring@2026-09-30_13-25-33#ring_r=230.0] px on
+Lotus. Lotus: held, a small corner cut:
+[metric:lotus_elevation/ring@2026-09-30_13-25-33#outside_px=122] baked map px
+lie outside the ring, at x 421-432, y 123-141. Split: falsified, as the player
+said (chat, 2026-09-30): the far B corner (B Back) is cut,
+[metric:lotus_elevation/ring@2026-09-30_13-37-46#region0_px=500] baked map px
+at x [metric:lotus_elevation/ring@2026-09-30_13-37-46#region0_x0=17]-[metric:lotus_elevation/ring@2026-09-30_13-37-46#region0_x1=39],
+y [metric:lotus_elevation/ring@2026-09-30_13-37-46#region0_y0=132]-[metric:lotus_elevation/ring@2026-09-30_13-37-46#region0_y1=177],
+and a second corner of
+[metric:lotus_elevation/ring@2026-09-30_13-37-46#region1_px=128] px at x
+430-441, y 139-158. At these settings a reader treats baked floor outside the
+ring as not visible (no light, no icon can be read there), and a self there
+is drawn as an edge marker [domain:minimap/off-widget-self-marker]. The mask
+is the store's analysis/*-elevation-20260930/outside_ring_mask.npy
+"""
+see = ["capture/minimap-size-settings", "capture/largest-settings-widget", "minimap/widget-ring"]
+
+[largest-settings-widget]
+claim = """
+At the largest widget size and the largest map scaling, on a 1920x1080
+capture, the minimap widget draws the baked `valorant-16x9-bigmap`
+profile: on Lotus scale
+[metric:lotus_elevation/placement@2026-09-30_13-25-33#scale_median=1.0],
+rotation 0, widget corner at capture px
+([metric:lotus_elevation/placement@2026-09-30_13-25-33#corner_x=15.0],
+[metric:lotus_elevation/placement@2026-09-30_13-25-33#corner_y=15.0]), a
+465x485 widget, the same placement as the bigmap donor 5822b6646448; on Split
+the same placement as the bigmap donor c62c2b06bcfb (clip_preflight: scale
+1.000, corner (15, 15), 40 frames). The bigmap profile is therefore these
+settings, or the donors were captured at them.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-09-30"
+subject = "capture:minimap"
+source = """
+prototypes/lotus_elevation.py placement (widget_frame.fit_crop on every 50th
+stored 20 Hz crop, median ncc
+[metric:lotus_elevation/placement@2026-09-30_13-25-33#ncc_median=0.903]) on
+C:/Users/grant/Videos/2026-09-30 13-25-33.mp4, and prototypes/clip_preflight.py
+on it and on C:/Users/grant/Videos/2026-09-30 13-37-46.mp4 (both not ingested)
+"""
+use = """
+read captures at these settings through the `valorant-16x9-bigmap` geometry
+with no transform; drawn sizes measured on the bigmap donors (the self audio
+circle [domain:minimap/self-audio-circle]) hold at these settings
+"""
+exceptions = """
+whether 5822b6646448 and c62c2b06bcfb were themselves captured at the largest
+settings is a question for the player; only the placement is observed
+"""
+see = ["capture/minimap-size-settings", "capture/largest-scaling-shows-whole-map-belief"]
