@@ -1440,12 +1440,14 @@ subject = "chamber:trademark"
 source = """
 the player, 2026-09-29 (chat), naming Chamber's trip among the abilities
 that draw a white-tinted area; he calls it the trip, and Trademark is
-Chamber's one trap in the catalogue
+Chamber's one trap in the catalogue. Later the same day, shown Sunset
+e37fdeca944f at 1795.08 s, he named "chamber's trademark" at top mid: an
+observed instance, which confirms the trip is Trademark
 """
 use = "seek the icon with its white-tinted area; floor inside the area reads lit"
 exceptions = """
-the radius is unmeasured; that the player's trip is Trademark is our reading
-of his word, to be confirmed on the mechanics sheet
+the radius is unmeasured. The trip = Trademark reading is confirmed for
+Chamber only; Veto's trip = Chokehold stays a guess
 """
 see = ["abilities/minimap-icon-pale-region", "abilities/ability-rules-are-unique"]
 
@@ -2229,7 +2231,36 @@ the ultimate requires enemies to be alive to track
 (docs/archive/PROTOTYPES-through-2026-09-23.md, line 1752)
 """
 use = "count a cast's Seekers against the enemies alive; each Seeker has one enemy"
-see = ["abilities/skye-seekers-track-and-blind", "abilities/ability-rules-are-unique"]
+see = ["abilities/skye-seekers-track-and-blind", "abilities/ability-rules-are-unique",
+       "abilities/skye-seekers-minimap-large-circle-belief"]
+
+[skye-seekers-minimap-large-circle-belief]
+claim = """
+Skye's Seekers in slot X draw a large white-tinted circle on the minimap.
+The player believes so from one frame; he had never noticed it before.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+subject = "skye:seekers"
+source = """
+the player, 2026-09-29 (chat), shown Sunset e37fdeca944f at 1795.08 s: a
+large circle that seems to have been created by Skye's ult. His beliefs,
+unverified: the centre may be where the enemies are, and the radius may be
+the Seekers' search range
+"""
+use = """
+a large white-tinted circle while Skye's ult runs is a candidate Seekers
+drawing, not a smoke or a self audio circle
+[domain:minimap/self-audio-circle]; floor inside it reads lit
+"""
+exceptions = """
+unverified on any other cast: that the ult draws it, what the centre marks,
+what the radius means, and how long it lasts are asked on
+docs/ABILITY_MECHANICS_SHEET.md. Nothing here extends to another ability
+"""
+see = ["abilities/skye-seekers-one-per-living-enemy", "abilities/minimap-icon-pale-region",
+       "abilities/ability-rules-are-unique"]
 
 [skye-seekers-track-and-blind]
 claim = """
