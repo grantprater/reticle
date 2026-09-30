@@ -1,7 +1,8 @@
 r"""Touching minimap icons fitted jointly: render every icon of a stack, composite, compare.
 
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --census
-    .\.venv\Scripts\python.exe prototypes\scene_stack.py [--record] [--sheet] [--sets 465,self,331,s331,e331]
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --check [--record] [--recalibrate]
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py [--record] [--sheet] [--parts 465-ally,...] [--space keys]
 
 The first stage of `docs/SCENE_MODEL.md`: the render-and-compare minimap
 model, on the case every single-icon reader fails (E11, E12 in
@@ -27,7 +28,30 @@ and roughly where, never which way they face:
 Neighbours are the icons whose footprint can touch the labelled one (centres
 within the two apex reaches plus `TOUCH_PAD`), at most `MAX_NEIGHBOURS`.
 
-**The renderer** works in the owners' continuous class keys, one channel each
+**The RGB renderer (0.2.0, `RGBScene`)** predicts the crop's pixels. The
+background is the baked static for `(map, profile)` in two floor states
+(`backgrounds`): the static is the unlit state, and on the lighting
+reference's known floor the lit state is its colour scaled to `hi_gray`; per
+pixel the cheaper state wins, so the drawn light is marginalised, not used.
+Each icon is the same silhouette with a ring colour, a lobe colour ramped
+from base to tip [domain:minimap/icon-tip-highlight] and a mean portrait
+colour, all fixed per class and widget scale; enemy ring and lobe are
+translucent [domain:minimap/enemy-lobe-translucent]
+[domain:minimap/enemy-rim-faint-at-small-widget]. The colours, the enemy
+alphas, one blur per widget scale and the noise are CALIBRATED (`calibrate`)
+on unlabelled frames of the labelled sessions, at least `CAL_AWAY_MS` from
+every labelled instant, from isolated owner teardrops; the file is the
+store's `analysis/scene-stack-v2-20260929/calibration.json`. No gain is free.
+The portrait disc is OWNED by its icon and left out of the comparison at a
+constant cost (`PORTRAIT = "mask"`): no art is rendered, since identity is
+not plumbed into this stage. The residual is RGB over a per-pixel noise
+(calibrated noise and the reference's state noise), truncated at `TAU_SIG`.
+`--check` measures the renderer alone before any fit: the labelled facing
+against the reversed one at the player's clicked centre, and the renderer's
+own best pose over the solo search, for the RGB renderer with the portrait
+masked, with it drawn as the mean colour, and for 0.1.0's keys.
+
+**The key renderer (0.1.0, `Scene`, `--space keys`)** works in the owners' continuous class keys, one channel each
 (`teardrop.tealness`, `teardrop.yellowness`, `teardrop.redness`), which
 ignore the grey floor's lighting. The background is the keys of the baked
 static (`team_vision.load_inputs`' `static`, keyed by `(map, profile)`),
@@ -65,8 +89,9 @@ centre, the label tools' own rule.
 
 GPU first (torch on CUDA; numpy is not implemented). Crop cache only, no
 decode, no store stream writes. `--record` writes `metrics` series
-`scene_stack_eval`; `--sheet` writes the store's
-`analysis/scene-stack-20260929/`. Not wired: nothing in `reticle/` reads it.
+`scene_stack_eval_v2` (0.1.0 wrote `scene_stack_eval`) and, with `--check`,
+`scene_stack_check`; `--sheet` writes the store's
+`analysis/scene-stack-v2-20260929/`. Not wired: nothing in `reticle/` reads it.
 """
 from __future__ import annotations
 
@@ -101,8 +126,13 @@ import tip_highlight as th  # noqa: E402
 from reticle import teardrop as td  # noqa: E402
 from reticle.minimap import widget_scale  # noqa: E402
 
-VERSION = "scene-stack-0.1.0"
-OUT = sem.STORE / "analysis" / "scene-stack-20260929"
+VERSION = "scene-stack-0.2.0"
+OUT = sem.STORE / "analysis" / "scene-stack-v2-20260929"
+#: "rgb" (0.2.0, the default) predicts the crop's RGB; "keys" is 0.1.0's class-key renderer, kept as the control.
+SPACE = "rgb"
+#: 0.1.0 recorded `scene_stack_eval`; 0.2.0 records its own series so neither run's cited values move.
+SERIES = "scene_stack_eval_v2"
+CHECK_SERIES = "scene_stack_check"
 
 # ---- constants, set before any label was scored (logged with the predictions)
 GRID_DEG = 5.0
@@ -261,6 +291,382 @@ class Scene:
             out_l.append((r * r).sum((1, 2)))
             out_g.append(torch.stack([gr, gl], 1))
         return torch.cat(out_l).cpu().numpy(), torch.cat(out_g).cpu().numpy()
+
+
+# ---------------------------------------------------------------- the RGB renderer (0.2.0)
+
+TAU_SIG = 3.0          # residuals beyond 3 noise sigmas count as 3 (clutter, pings, the drawn light)
+OWN_COST = 1.0         # sigma^2 units: a pixel the portrait owns costs what a well-explained pixel does
+OWN_PAD = 0.5          # px at scale 1.0 inside r_in: the portrait's owned disc
+#: "mask": the portrait disc is owned by its icon and left out of the comparison (0.2.0);
+#: "disc": it is predicted as the class's calibrated mean portrait colour (the P3 ablation).
+PORTRAIT = "mask"
+CAL_SIGMAS = (0.0, 0.4, 0.7, 1.0, 1.4)         # Gaussian blur of the composite, px
+CAL_ALPHA_RING = (0.25, 0.5, 0.75, 1.0)        # enemy only; team icons are opaque
+CAL_ALPHA_LOBE = (0.25, 0.4, 0.55, 0.7, 0.85, 1.0)
+CAL_FRAMES = 90        # unlabelled frames per session
+CAL_MAX_ICONS = 80     # per (class, widget scale)
+CAL_AWAY_MS = 3000.0   # a calibration frame is this far from every labelled instant
+CAL_MIN_NCC = 0.75
+CAL_MIN_NCC_SMALL = 0.6    # the 331 px widget: the owner's own self gate there is 0.55
+CAL_FRAMES_SMALL_MULT = 4  # the 331 px sessions yield few isolated confident icons per frame
+CAL_MIN_MARGIN = 0.1
+CAL_SIGMA0 = 0.06      # noise sigma for choosing blur and alphas (RGB in 0..1)
+
+
+def _kernel(sigma: float):
+    if sigma <= 0:
+        return None
+    r = max(1, int(math.ceil(3 * sigma)))
+    x = torch.arange(-r, r + 1, dtype=torch.float32, device=DEV)
+    k = torch.exp(-x * x / (2 * sigma * sigma))
+    return k / k.sum()
+
+
+def blur(img, k):
+    """Separable Gaussian over (N, C, H, W), replicate border."""
+    if k is None:
+        return img
+    import torch.nn.functional as F
+    C, r = img.shape[1], (len(k) - 1) // 2
+    img = F.pad(img, (r, r, r, r), mode="replicate")
+    img = F.conv2d(img, k.view(1, 1, 1, -1).repeat(C, 1, 1, 1), groups=C)
+    return F.conv2d(img, k.view(1, 1, -1, 1).repeat(C, 1, 1, 1), groups=C)
+
+
+def geometry(cls: str, sc: float, px, py, x, y, th):
+    """Ring, lobe, portrait disc, tip ramp and radius of `cls` icons at poses (N, 1) over pixels (P,)."""
+    r_in, r_out, L_ = (v * sc for v in CLASS_RADII[cls])
+    edge = td.EDGE * sc
+    dx, dy = px[None, :] - x, py[None, :] - y
+    c, s = torch.cos(th), torch.sin(th)
+    u = dx * c + dy * s
+    v = -dx * s + dy * c
+    rho = torch.sqrt(dx * dx + dy * dy)
+    ca = r_out / L_
+    sa = math.sqrt(max(0.0, 1.0 - ca * ca))
+    d_wedge = u * ca + v.abs() * sa - r_out
+    d_tri = torch.maximum(d_wedge, torch.maximum(r_out * ca - u, u - L_))
+    d_tear = torch.minimum(rho - r_out, d_tri)
+    A = (0.5 - d_tear / edge).clamp(0.0, 1.0)
+    S = (0.5 - torch.maximum(d_tear, r_in - rho) / edge).clamp(0.0, 1.0)
+    lobe = S * (rho > r_out).float()
+    ring = S - lobe
+    disc = (A - S).clamp_min(0.0)
+    u0 = r_out * ca
+    t = ((u - u0) / (L_ - u0)).clamp(0.0, 1.0)
+    own = (rho < r_in - OWN_PAD * sc).float()
+    return ring, lobe, disc, t, own
+
+
+def rgb_layers(cls: str, sc: float, cal: dict, px, py, x, y, th):
+    """Opacity `O` (N, P), premultiplied colour `C` (N, 3, P) and portrait ownership `own` (N, P)."""
+    ring, lobe, disc, t, own = geometry(cls, sc, px, py, x, y, th)
+    cc = cal["colours"]
+    col = {k: torch.tensor(cc[k], dtype=torch.float32, device=DEV)[None, :, None]
+           for k in ("ring", "base", "tip", "disc")}
+    a_r, a_l = cal["alpha_ring"], cal["alpha_lobe"]
+    O = a_r * ring + a_l * lobe + disc
+    C = ((a_r * ring)[:, None] * col["ring"] + (a_l * lobe * (1 - t))[:, None] * col["base"]
+         + (a_l * lobe * t)[:, None] * col["tip"] + disc[:, None] * col["disc"])
+    if PORTRAIT != "mask":
+        own = torch.zeros_like(own)
+    return O, C, own
+
+
+def _scene_window(icons, sc, shape, pad_px):
+    h, w = shape
+    reach = [(CLASS_RADII[ic["cls"]][2] + REACH_PAD + SOLO_SEARCH_PX) * sc for ic in icons]
+    x0 = max(0, int(math.floor(min(ic["x0"] - r for ic, r in zip(icons, reach)))) - pad_px)
+    y0 = max(0, int(math.floor(min(ic["y0"] - r for ic, r in zip(icons, reach)))) - pad_px)
+    x1 = min(w, int(math.ceil(max(ic["x0"] + r for ic, r in zip(icons, reach)))) + pad_px + 1)
+    y1 = min(h, int(math.ceil(max(ic["y0"] + r for ic, r in zip(icons, reach)))) + pad_px + 1)
+    return x0, y0, x1, y1, reach
+
+
+def backgrounds(s):
+    """The baked background in two floor states, `(bg (2, H, W, 3) in 0..1, sd (H, W) in 0..1)`.
+
+    The baked static is the UNLIT state: its grey matches the lighting
+    reference's `lo_gray` (median difference under a grey level) and sits
+    about 55-60 below `hi_gray`. On the reference's known floor the lit state
+    is the static's colour scaled to `hi_gray`, the unlit one scaled to
+    `lo_gray`; elsewhere both are the static. The drawn light is a nuisance
+    here, marginalised per pixel (the cheaper state wins); stage 2 makes it
+    evidence. `sd` is the reference's per-state noise, zero off the floor.
+    Every value comes from baked (map, profile) geometry, none from a session.
+    """
+    got = getattr(s, "_scene_bg", None)
+    if got is not None:
+        return got
+    st = s.inputs.static.astype(np.float32)
+    ref = s.inputs.light
+    bg = np.stack([st, st]) / 255.0
+    sd = np.zeros(st.shape[:2], np.float32)
+    if ref is not None:
+        g = np.maximum(cv2.cvtColor(s.inputs.static, cv2.COLOR_BGR2GRAY).astype(np.float32), 1.0)
+        k = ref.known
+        for j, lvl in enumerate((ref.lo, ref.hi)):
+            bg[j][k] = np.clip(st[k] * (lvl[k].astype(np.float32) / g[k])[:, None], 0, 255) / 255.0
+        sd[k] = np.minimum(ref.sd_lo, ref.sd_hi)[k].astype(np.float32) / 255.0
+    s._scene_bg = (bg, sd)
+    return s._scene_bg
+
+
+class RGBScene:
+    """One neighbourhood in RGB: the crop and the two-state baked background over a window, and the icons.
+
+    Poses are `(x, y, deg, 0, 0)`: no gains, so a misplaced lobe cannot be dimmed away.
+    """
+
+    def __init__(self, crop: np.ndarray, s, icons: list[dict], sc: float, cal: dict):
+        self.sc, self.icons, self.cal = sc, icons, cal
+        scal = cal["scales"][_skey(sc)]
+        self.k = _kernel(scal["sigma_blur"])
+        pad = 0 if self.k is None else (len(self.k) - 1) // 2
+        x0, y0, x1, y1, reach = _scene_window(icons, sc, crop.shape[:2], pad + 1)
+        self.win = (x0, y0, x1, y1)
+        self.H, self.W = y1 - y0, x1 - x0
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        keep = np.zeros(yy.shape, bool)
+        for ic, r in zip(icons, reach):
+            keep |= np.hypot(xx - ic["x0"], yy - ic["y0"]) <= r
+        self.keep_np = keep
+        self.keep = torch.tensor(keep.ravel(), dtype=torch.float32, device=DEV)
+        self.px = torch.tensor(xx.ravel(), dtype=torch.float32, device=DEV)
+        self.py = torch.tensor(yy.ravel(), dtype=torch.float32, device=DEV)
+        bg, sd = backgrounds(s)
+        self.obs = torch.tensor(crop[y0:y1, x0:x1].reshape(-1, 3).T / 255.0, dtype=torch.float32, device=DEV)
+        self.bg = torch.tensor(bg[:, y0:y1, x0:x1].reshape(2, -1, 3).transpose(0, 2, 1).copy(),
+                               dtype=torch.float32, device=DEV)                              # (2, 3, P)
+        sdw = torch.tensor(sd[y0:y1, x0:x1].ravel(), dtype=torch.float32, device=DEV)
+        self.sig = torch.sqrt(scal["sigma_noise"] ** 2 + sdw ** 2)                           # (P,)
+        self.cls_cal = {c: scal["classes"][c] for c in {ic["cls"] for ic in icons}}
+
+    def _one(self, i: int, pose):
+        ic = self.icons[i]
+        x, y, deg = (torch.tensor([[v]], dtype=torch.float32, device=DEV) for v in pose[:3])
+        O, C, own = rgb_layers(ic["cls"], self.sc, self.cls_cal[ic["cls"]], self.px, self.py, x, y,
+                               torch.deg2rad(deg))
+        return O[0], C[0], own[0]
+
+    def stack(self, order, poses, skip=None):
+        """`(K, Wn)`: the composite (2, 3, P), one per floor state, and the compared weight (P,).
+        With `skip`, the layers below and above icon `skip`: `(Kb, Wb, T, Ca, Wa)`."""
+        K, Wn = self.bg.clone(), torch.ones(self.px.shape[0], device=DEV)
+        if skip is None:
+            for i in order:
+                O, C, own = self._one(i, poses[i])
+                K = (1 - O)[None, None] * K + C[None]
+                Wn = (1 - O) * Wn + O * (1 - own)
+            return K, Wn
+        k = order.index(skip)
+        for i in order[:k]:
+            O, C, own = self._one(i, poses[i])
+            K = (1 - O)[None, None] * K + C[None]
+            Wn = (1 - O) * Wn + O * (1 - own)
+        T = torch.ones_like(Wn)
+        Ca, Wa = torch.zeros_like(K[0]), torch.zeros_like(Wn)
+        for i in order[k + 1:]:
+            O, C, own = self._one(i, poses[i])
+            T = (1 - O) * T
+            Ca = (1 - O)[None] * Ca + C
+            Wa = (1 - O) * Wa + O * (1 - own)
+        return K, Wn, T, Ca, Wa
+
+    def predict(self, K):
+        """Blurred prediction (N, 2, 3, P) of composites (N, 2, 3, P)."""
+        N = K.shape[0]
+        return blur(K.reshape(N * 2, 3, self.H, self.W), self.k).reshape(N, 2, 3, -1)
+
+    def _err(self, K):
+        """Per-pixel error (N, P) in sigma^2, the cheaper floor state, before truncation."""
+        e = (((self.obs[None, None] - self.predict(K)) / self.sig) ** 2).sum(2)
+        return e.min(1).values
+
+    def _loss(self, K, Wn):
+        e = self._err(K).clamp(max=TAU_SIG ** 2)
+        return (self.keep[None] * (Wn * e + (1 - Wn) * OWN_COST)).sum(-1)
+
+    def loss_of(self, KW) -> float:
+        K, Wn = KW
+        return float(self._loss(K[None], Wn[None])[0])
+
+    def search(self, i: int, order, poses, cands: np.ndarray):
+        ic = self.icons[i]
+        Kb, Wb, T, Ca, Wa = self.stack(order, poses, skip=i)
+        out = []
+        for a in range(0, len(cands), CHUNK // 4):
+            cc = torch.tensor(cands[a:a + CHUNK // 4], dtype=torch.float32, device=DEV)
+            O, C, own = rgb_layers(ic["cls"], self.sc, self.cls_cal[ic["cls"]], self.px, self.py,
+                                   cc[:, :1], cc[:, 1:2], torch.deg2rad(cc[:, 2:3]))
+            K = T[None, None, None] * ((1 - O)[:, None, None] * Kb[None] + C[:, None]) + Ca[None, None]
+            Wn = T[None] * ((1 - O) * Wb[None] + O * (1 - own)) + Wa[None]
+            out.append(self._loss(K, Wn))
+        return torch.cat(out).cpu().numpy(), np.zeros((len(cands), 2), np.float32)
+
+    def full_images(self, order, poses, shape):
+        """Prediction (the cheaper state per pixel), weight and residual magnitude as crop-sized arrays."""
+        K, Wn = self.stack(order, poses)
+        pred = self.predict(K[None])[0]                                      # (2, 3, P)
+        e = (((self.obs[None] - pred) / self.sig) ** 2).sum(1)               # (2, P)
+        j = e.argmin(0)
+        best = torch.where(j[None] == 0, pred[0], pred[1])
+        res = e.min(0).values.clamp(max=TAU_SIG ** 2).sqrt()
+        x0, y0, x1, y1 = self.win
+        h, w = shape
+        P = np.zeros((h, w, 3), np.uint8)
+        R = np.zeros((h, w), np.float32)
+        Wimg = np.zeros((h, w), np.float32)
+        P[y0:y1, x0:x1] = np.clip(best.T.reshape(self.H, self.W, 3).cpu().numpy() * 255, 0, 255).astype(np.uint8)
+        R[y0:y1, x0:x1] = (res * self.keep).reshape(self.H, self.W).cpu().numpy()
+        Wimg[y0:y1, x0:x1] = (Wn * self.keep).reshape(self.H, self.W).cpu().numpy()
+        return P, R, Wimg
+
+
+def _skey(sc: float) -> str:
+    return f"{sc:.3f}"
+
+
+# ---------------------------------------------------------------- calibration (unlabelled frames)
+
+def calibration_icons(sess, label_times: dict) -> dict:
+    """Isolated, confidently read teardrops on unlabelled frames: `{(cls, skey): [icon]}`.
+
+    Frames are spread evenly over each labelled session's crop cache, at least
+    `CAL_AWAY_MS` from every labelled instant; poses come from the owner
+    (`facing_fusion.fit`, i.e. `teardrop.fit_icon`), never from a label.
+    """
+    out = defaultdict(list)
+    for sid, lts in sorted(label_times.items()):
+        s = sess(sid)
+        lts = np.asarray(sorted(lts))
+        ts = [t for t in s.cache_t if np.min(np.abs(lts - t)) >= CAL_AWAY_MS]
+        n_fr = CAL_FRAMES * (1 if widget_scale(s.inputs.static.shape[1]) >= 0.99 else CAL_FRAMES_SMALL_MULT)
+        pick = [ts[int(k)] for k in np.linspace(0, len(ts) - 1, n_fr)] if len(ts) > n_fr else ts
+        n0 = sum(len(v) for v in out.values())
+        why = defaultdict(int)
+        for t, crop in s.crops(pick):
+            sc = widget_scale(crop.shape[1])
+            min_ncc = CAL_MIN_NCC if sc >= 0.99 else CAL_MIN_NCC_SMALL
+            dets = [(c, d) for c in ("self", "ally", "enemy") for d in it_.detections(crop, c, s)]
+            for c, d in dets:
+                why["det_" + c] += 1
+                others = [e for c2, e in dets if e is not d]
+                if any(math.hypot(e["cx"] - d["cx"], e["cy"] - d["cy"]) <= (2 * td.L + 4) * sc for e in others):
+                    why["not_isolated"] += 1
+                    continue
+                f = ff.fit(crop, c, float(d["cx"]), float(d["cy"]), sc)
+                if not f.get("read") or f.get("ncc", 0) < min_ncc or f.get("margin", 1.0) < CAL_MIN_MARGIN:
+                    why["unread" if not f.get("read") else ("low_ncc" if f.get("ncc", 0) < min_ncc
+                                                            else "low_margin")] += 1
+                    continue
+                key = (c, _skey(sc))
+                if len(out[key]) < CAL_MAX_ICONS * 3:
+                    out[key].append({"sid": sid, "t_ms": float(t), "cls": c, "x": float(f["x"]), "y": float(f["y"]),
+                                     "deg": float(f["deg"]), "sc": sc, "_crop": crop, "_s": s})
+        print(f"  calibration {sid}: {sum(len(v) for v in out.values()) - n0} icons from {len(pick)} frames; "
+              f"{dict(why)}", flush=True)
+    rng = np.random.default_rng(0)
+    for key, v in out.items():
+        if len(v) > CAL_MAX_ICONS:
+            out[key] = [v[i] for i in sorted(rng.choice(len(v), CAL_MAX_ICONS, replace=False))]
+    return out
+
+
+def _design(icon, sigma, a_r, a_l):
+    """Per icon: the observed pixels y (3, P), the fixed term b (3, P), the colour bases X (4, P), the mask."""
+    sc = icon["sc"]
+    k = _kernel(sigma)
+    pad = 0 if k is None else (len(k) - 1) // 2
+    ic = {"cls": icon["cls"], "x0": icon["x"], "y0": icon["y"]}
+    x0, y0, x1, y1, reach = _scene_window([ic], sc, icon["_crop"].shape[:2], pad + 1)
+    H, W = y1 - y0, x1 - x0
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    px = torch.tensor(xx.ravel(), dtype=torch.float32, device=DEV)
+    py = torch.tensor(yy.ravel(), dtype=torch.float32, device=DEV)
+    t1 = lambda v: torch.tensor([[v]], dtype=torch.float32, device=DEV)  # noqa: E731
+    ring, lobe, disc, t, own = (z[0] for z in geometry(icon["cls"], sc, px, py, t1(icon["x"]), t1(icon["y"]),
+                                                       t1(math.radians(icon["deg"]))))
+    O = a_r * ring + a_l * lobe + disc
+    obs = torch.tensor(icon["_crop"][y0:y1, x0:x1].reshape(-1, 3).T / 255.0, dtype=torch.float32, device=DEV)
+    # The floor state nearest the observed grey, per pixel (no pose enters the choice).
+    bgs, _sd = backgrounds(icon["_s"])
+    g = cv2.cvtColor(icon["_crop"][y0:y1, x0:x1], cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+    gl = [cv2.cvtColor((bgs[j, y0:y1, x0:x1] * 255).astype(np.uint8), cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+          for j in (0, 1)]
+    pick = (np.abs(g - gl[1]) < np.abs(g - gl[0]))[..., None]
+    bg_np = np.where(pick, bgs[1, y0:y1, x0:x1], bgs[0, y0:y1, x0:x1])
+    bg = torch.tensor(bg_np.reshape(-1, 3).T.copy(), dtype=torch.float32, device=DEV)
+    b = blur(((1 - O)[None] * bg)[None].view(1, 3, H, W), k).reshape(3, -1)
+    bases = torch.stack([a_r * ring, a_l * lobe * (1 - t), a_l * lobe * t, disc])       # (4, P)
+    X = blur(bases.view(1, 4, H, W), k).reshape(4, -1)
+    keep = (np.hypot(xx - icon["x"], yy - icon["y"]) <= (CLASS_RADII[icon["cls"]][2] + REACH_PAD) * sc).ravel()
+    m = torch.tensor(keep, device=DEV) & (own < 0.5)
+    return obs[:, m], b[:, m], X[:, m]
+
+
+def _solve(designs, sigma0=CAL_SIGMA0, rounds=3):
+    """Colours (4, 3) by robust least squares over every icon's pixels, and the truncated loss."""
+    Y = torch.cat([d[0] - d[1] for d in designs], 1)                  # (3, P)
+    X = torch.cat([d[2] for d in designs], 1)                         # (4, P)
+    w = torch.ones(Y.shape[1], device=DEV)
+    for _ in range(rounds):
+        Xw = X * w[None]
+        A = Xw @ X.T + 1e-4 * torch.eye(4, device=DEV)
+        col = torch.linalg.solve(A, Xw @ Y.T)                         # (4, 3)
+        r = Y - col.T @ X
+        e = (r * r).sum(0)
+        w = (e <= (TAU_SIG * sigma0) ** 2).float()
+    col = col.clamp(0.0, 1.0)
+    r = Y - col.T @ X
+    e = (r * r).sum(0) / sigma0 ** 2
+    mad = float(torch.median(r.abs().flatten()[w.repeat(3) > 0]) * 1.4826) if w.sum() > 0 else sigma0
+    return col.cpu().numpy(), float(e.clamp(max=TAU_SIG ** 2).mean()), mad
+
+
+def calibrate(sess, label_times: dict) -> dict:
+    """Class colours, enemy alphas, blur and noise per widget scale, from unlabelled frames."""
+    icons = calibration_icons(sess, label_times)
+    out = {"version": VERSION, "made_from": "unlabelled frames of the labelled sessions, >= "
+           f"{CAL_AWAY_MS:.0f} ms from any labelled instant; owner teardrop poses (ncc >= {CAL_MIN_NCC}, margin >= "
+           f"{CAL_MIN_MARGIN}), isolated; colours BGR in 0..1; one blur per widget scale", "scales": {}}
+    by_scale = defaultdict(dict)
+    for (cls, skey), v in sorted(icons.items()):
+        if len(v) < 8:
+            print(f"  calibration {cls} {skey}: only {len(v)} icons; skipped", flush=True)
+            continue
+        by_scale[skey][cls] = v
+    for skey, classes in sorted(by_scale.items()):
+        best_s = None
+        for sg in CAL_SIGMAS:
+            per = {}
+            for cls, v in classes.items():
+                ars = CAL_ALPHA_RING if cls == "enemy" else (1.0,)
+                als = CAL_ALPHA_LOBE if cls == "enemy" else (1.0,)
+                for a_r in ars:
+                    for a_l in als:
+                        col, lo, mad = _solve([_design(ic, sg, a_r, a_l) for ic in v])
+                        if cls not in per or lo < per[cls][0]:
+                            per[cls] = (lo, a_r, a_l, col, mad)
+            tot = float(np.mean([p[0] for p in per.values()]))
+            print(f"  calibration {skey} blur {sg}: mean loss {tot:.3f}", flush=True)
+            if best_s is None or tot < best_s[0]:
+                best_s = (tot, sg, per)
+        tot, sg, per = best_s
+        cl = {}
+        for cls, (lo, a_r, a_l, col, mad) in per.items():
+            cl[cls] = {"alpha_ring": a_r, "alpha_lobe": a_l,
+                       "colours": {k: [round(float(x), 4) for x in col[j]]
+                                   for j, k in enumerate(("ring", "base", "tip", "disc"))},
+                       "noise_mad": round(mad, 4), "loss": round(lo, 4), "n_icons": len(classes[cls]),
+                       "sessions": sorted({ic["sid"] for ic in classes[cls]})}
+            print(f"  calibration {cls} {skey}: n {len(classes[cls])} alphas {a_r}/{a_l} loss {lo:.3f} "
+                  f"mad {mad:.3f} BGR ring {np.round(col[0] * 255)} base {np.round(col[1] * 255)} "
+                  f"tip {np.round(col[2] * 255)} disc {np.round(col[3] * 255)}", flush=True)
+        out["scales"][skey] = {"classes": cl, "sigma_blur": sg,
+                               "sigma_noise": float(np.median([c["noise_mad"] for c in cl.values()]))}
+    return out
 
 
 def _pose_grid(x, y, half, step, degs):
@@ -498,7 +904,8 @@ def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
     if not do_fit:
         return out
     t0 = time.perf_counter()
-    scene = Scene(keys(crop), keys(s.inputs.static), nb["icons"], sc)
+    scene = (RGBScene(crop, s, nb["icons"], sc, CAL) if SPACE == "rgb"
+             else Scene(keys(crop), keys(s.inputs.static), nb["icons"], sc))
     got = fit_scene(scene)
     out["fit_s"] = time.perf_counter() - t0
     p = got["poses"][0]
@@ -513,7 +920,7 @@ def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
     out["order"] = got["order"]
     out["starts"] = got["starts"]
     out["neighbour_poses"] = [got["poses"][i] for i in range(1, len(scene.icons))]
-    out["rests_on"] = ["baked static keys (map, profile)"] + (
+    out["rests_on"] = [("baked static RGB (map, profile)" if SPACE == "rgb" else "baked static keys (map, profile)")] + (
         ["team_vision stored track positions"] if "track" in nb["sources"] else []) + (
         ["class detectors at this frame"] if "detector" in nb["sources"] else []) + ["label set's detector centre"]
     out["_scene"] = scene
@@ -593,7 +1000,18 @@ def tile(r: dict, zoom: int = 6) -> np.ndarray:
         return pad[iy:iy + 2 * half + 1, ix:ix + 2 * half + 1]
     panels = [sub(crop)]
     scene, got = r.get("_scene"), r.get("_fit")
-    if scene is not None:
+    if isinstance(scene, RGBScene):
+        P, R, Wimg = scene.full_images(got["order"], got["poses"], crop.shape[:2])
+        keep = np.zeros(crop.shape[:2], bool)
+        x0w, y0w, x1w, y1w = scene.win
+        keep[y0w:y1w, x0w:x1w] = scene.keep_np
+        owned = keep & (Wimg < 0.5)
+        Pv = P.copy()
+        Pv[owned] = (0.5 * Pv[owned] + 0.5 * np.array([255, 0, 255])).astype(np.uint8)   # owned portrait: magenta
+        rimg = cv2.applyColorMap(np.clip(R / TAU_SIG * 255, 0, 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
+        rimg[~keep] = 0
+        panels += [sub(Pv), sub(rimg)]
+    elif scene is not None:
         K = scene.stack(got["order"], got["poses"]).cpu().numpy()
         h, w = crop.shape[:2]
         full = np.zeros((3, h, w), np.float32)
@@ -655,7 +1073,81 @@ def sheet(rows, path: Path, per_page: int = 12) -> list[Path]:
     return paths
 
 
+# ---------------------------------------------------------------- the renderer alone, at the labelled pose
+
+LABEL_FILES = {"465": lambda st: lif.labels_path(st), "self": lambda st: lsf.labels_path(st),
+               "331": lambda st: lif.labels_path(st, lif.SET_331), "s331": lambda st: lif.labels_path(st, lif.SET_S331),
+               "e331": lambda st: lif.labels_path(st, lif.SET_E331)}
+CHECK_VARIANTS = ("rgb-mask", "rgb-disc", "keys")
+CHECK_CENTRE_PX = 1.0     # scale 1.0: the centre is re-optimised this far round the player's click at each facing
+
+
+def attach_clicks(k: str, rows: list[dict], store) -> None:
+    ans = lsf.load_answers(LABEL_FILES[k](store))
+    for r in rows:
+        a = ans.get(r["key"], {})
+        r["click"] = (float(a["centre_x"]), float(a["centre_y"])) if a.get("centre_x") is not None else None
+
+
+def check_item(s, r: dict, variant: str) -> dict:
+    """The labelled icon alone: loss at the labelled facing against the reversed one (centre re-optimised
+    within `CHECK_CENTRE_PX` of the click at each), and the renderer's own best pose over the solo search."""
+    global PORTRAIT
+    crop = r["_crop"]
+    sc = widget_scale(crop.shape[1])
+    icons = [{"cls": r["cls"], "x0": float(r["det_cx"]), "y0": float(r["det_cy"])}]
+    if variant == "keys":
+        scene = Scene(keys(crop), keys(s.inputs.static), icons, sc)
+    else:
+        PORTRAIT = "mask" if variant == "rgb-mask" else "disc"
+        scene = RGBScene(crop, s, icons, sc, CAL)
+    cx, cy = r["click"] or (r["det_cx"], r["det_cy"])
+    out = {}
+    for name, deg in (("lab", r["label_deg"]), ("rev", r["label_deg"] + 180.0)):
+        cands = _pose_grid(cx, cy, CHECK_CENTRE_PX * sc, 0.25, np.array([deg], np.float32))
+        loss, _ = scene.search(0, [0], {0: None}, cands)
+        out[name] = float(loss.min())
+    sol = solo(scene, 0)
+    out["global_err"] = float(td._signed_deg(sol["best"][2] - r["label_deg"]))
+    PORTRAIT = "mask"
+    return out
+
+
+def check(all_rows: dict, sess, store) -> dict:
+    res = {}
+    for k, rows in all_rows.items():
+        attach_clicks(k, rows, store)
+        for r in rows:
+            r["check"] = {v: check_item(sess(r["session"]), r, v) for v in CHECK_VARIANTS}
+    for k, rows in all_rows.items():
+        for name in sorted({r["set"] for r in rows}):
+            sub = [r for r in rows if r["set"] == name]
+            vals = {}
+            for part, pick in (("all", sub), ("stacked", [r for r in sub if r["stacked"]]),
+                               ("isolated", [r for r in sub if not r["n_touch"]])):
+                vals[f"{part}_n"] = len(pick)
+                tdr = [r for r in pick if err(r, "teardrop") is not None]
+                vals[f"{part}_teardrop_flips"] = sum(abs(err(r, "teardrop")) > 90 for r in tdr)
+                for v in CHECK_VARIANTS:
+                    tag = v.replace("-", "_")
+                    vals[f"{part}_{tag}_lab_beats_rev"] = sum(r["check"][v]["lab"] < r["check"][v]["rev"] for r in pick)
+                    vals[f"{part}_{tag}_global_flips"] = sum(abs(r["check"][v]["global_err"]) > 90 for r in pick)
+            res[name] = ("+".join(sorted({r["session"] for r in sub})), vals)
+            print(f"\n== check {name}: n {vals['all_n']} (stacked {vals['stacked_n']}, isolated {vals['isolated_n']}),"
+                  f" teardrop flips {vals['all_teardrop_flips']}")
+            for v in CHECK_VARIANTS:
+                tag = v.replace("-", "_")
+                print(f"  {v:9s} label beats reversed {vals[f'all_{tag}_lab_beats_rev']}/{vals['all_n']} "
+                      f"(stacked {vals[f'stacked_{tag}_lab_beats_rev']}/{vals['stacked_n']}, isolated "
+                      f"{vals[f'isolated_{tag}_lab_beats_rev']}/{vals['isolated_n']}); global flips "
+                      f"{vals[f'all_{tag}_global_flips']}")
+    return res
+
+
 # ---------------------------------------------------------------- main
+
+CAL: dict = {}
+
 
 def _idle():
     th._idle()
@@ -668,14 +1160,24 @@ def main(argv=None) -> int:
     ap.add_argument("--record", action="store_true")
     ap.add_argument("--sheet", action="store_true")
     ap.add_argument("--limit", type=int, default=0, help="first N items per set (a smoke run; never recorded)")
+    ap.add_argument("--parts", default="", help="fit only these set names (those whose renderer check passed)")
     ap.add_argument("--shared-gain", action="store_true",
-                    help="post hoc: one gain per silhouette; recorded under part suffix -posthoc-shared")
+                    help="0.1.0 post hoc: one gain per silhouette (with --space keys)")
+    ap.add_argument("--space", choices=("rgb", "keys"), default="rgb",
+                    help="rgb: 0.2.0's renderer; keys: 0.1.0's, the control")
+    ap.add_argument("--check", action="store_true",
+                    help="the renderer alone at the labelled pose against the reversed one; fit nothing")
+    ap.add_argument("--recalibrate", action="store_true", help="refit the RGB calibration on unlabelled frames")
     args = ap.parse_args(argv)
-    global GAIN_MODE, OUT
+    global GAIN_MODE, OUT, SPACE, CAL
+    SPACE = args.space
     posthoc = ""
     if args.shared_gain:
         GAIN_MODE, posthoc = "shared", "-posthoc-shared"
         OUT = OUT / "posthoc-shared"
+    if SPACE == "keys" and not args.check:
+        posthoc += "-keys"
+        OUT = OUT / "keys"
     _idle()
     store = sem.STORE
     sess = ff._sessions()
@@ -690,16 +1192,41 @@ def main(argv=None) -> int:
     for rows in all_rows.values():
         for r in rows:
             need[r["session"]].append(float(r["t_ms"]))
+    if args.parts:
+        # Fit only the sets whose renderer check passed; `need` above still spans every loaded set.
+        keep = set(args.parts.split(","))
+        all_rows = {k: [r for r in rows if r["set"] in keep] for k, rows in all_rows.items()}
+        all_rows = {k: v for k, v in all_rows.items() if v}
+    cal_path = sem.STORE / "analysis" / "scene-stack-v2-20260929" / "calibration.json"
+    if args.recalibrate or not cal_path.is_file():
+        if args.sets != ap.get_default("sets") or args.limit:
+            raise SystemExit("calibrate with every label set loaded, so every labelled instant is excluded")
+        print("calibrating on unlabelled frames", flush=True)
+        CAL = calibrate(sess, {sid: ts for sid, ts in need.items()})
+        cal_path.parent.mkdir(parents=True, exist_ok=True)
+        cal_path.write_text(json.dumps(CAL, indent=1), encoding="utf-8")
+        print("wrote", cal_path)
+    CAL = json.loads(cal_path.read_text(encoding="utf-8"))
     tracks = {sid: TrackIndex(sid, ts) for sid, ts in need.items()}
     for sid, tr in tracks.items():
         print(f"  prior {sid}: {len(tr.rows)} stored frames ({tr.version})", flush=True)
     t0 = time.perf_counter()
     for k, rows in all_rows.items():
         for i, r in enumerate(rows):
-            got = run_item(sess(r["session"]), r, tracks.get(r["session"]), do_fit=not args.census)
+            got = run_item(sess(r["session"]), r, tracks.get(r["session"]), do_fit=not (args.census or args.check))
             r.update(got)
             if (i + 1) % 10 == 0:
                 print(f"  {k} {i + 1}/{len(rows)} {time.perf_counter() - t0:.0f}s", flush=True)
+    if args.check:
+        from reticle import metrics
+        res = check(all_rows, sess, store)
+        if args.record and not args.limit:
+            deps = {"prototype": VERSION, "calibration": str(cal_path), "check_centre_px": CHECK_CENTRE_PX,
+                    "variants": list(CHECK_VARIANTS), "tau_sig": TAU_SIG, "own_cost": OWN_COST}
+            for name, (session, vals) in res.items():
+                metrics.record(CHECK_SERIES, part=name, session=session, values=vals, deps=deps)
+                print("recorded check", name)
+        return 0
     if args.census:
         for k, rows in all_rows.items():
             st = [r for r in rows if r["stacked"]]
@@ -715,7 +1242,9 @@ def main(argv=None) -> int:
     deps = {"prototype": VERSION, "teardrop": td.ICON_TEARDROP_VERSION, "grid_deg": GRID_DEG, "tau": TAU,
             "gain": list(GAIN), "enemy_lobe_alpha": ENEMY_LOBE_ALPHA, "solo_search_px": SOLO_SEARCH_PX,
             "joint_search_px": JOINT_SEARCH_PX, "sweeps": SWEEPS, "touch_pad": TOUCH_PAD, "stack_px": STACK_PX,
-            "max_neighbours": MAX_NEIGHBOURS, "gain_mode": GAIN_MODE, "prior": "team_vision stored tracks + class detectors"}
+            "max_neighbours": MAX_NEIGHBOURS, "gain_mode": GAIN_MODE, "prior": "team_vision stored tracks + class detectors",
+            "space": SPACE, "portrait": PORTRAIT, "tau_sig": TAU_SIG, "own_cost": OWN_COST,
+            "calibration": str(cal_path)}
     records = []
     pooled = defaultdict(list)
     for k, rows in all_rows.items():
@@ -739,7 +1268,7 @@ def main(argv=None) -> int:
     records.append(("pooled", "+".join(sorted(need)), vals))
     if args.record and not args.limit:
         for part, session, v in records:
-            metrics.record("scene_stack_eval", part=part + posthoc, session=session, values=v, deps=deps)
+            metrics.record(SERIES, part=part + posthoc, session=session, values=v, deps=deps)
             print("recorded", part)
     OUT.mkdir(parents=True, exist_ok=True)
     clean = {k: [{kk: vv for kk, vv in r.items() if not kk.startswith("_")} for r in v] for k, v in all_rows.items()}

@@ -207,7 +207,7 @@ path = "docs/SCENE_MODEL.md"
 kind = "plan"
 status = "proposed"
 since = "2026-09-29"
-remains = "Stage 1 (stacks) ran as prototypes/scene_stack.py, unwired; stages 2-5: cones and light, the enemy tint, the whole widget, the cross-channel mesh."
+remains = "Stage 1 (stacks) ran as prototypes/scene_stack.py (0.1.0 keys, 0.2.0 RGB), unwired, failing at 331 px; stages 2-5: cones and light, the enemy tint, the whole widget, the cross-channel mesh."
 waits_for = "A stacked-icon label set to decide stage 1, and the player's review of the plan."
 
 [[document]]
