@@ -41,7 +41,7 @@ from __future__ import annotations
 import os
 
 for _k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
-    os.environ[_k] = "4"
+    os.environ.setdefault(_k, "4")
 
 import argparse  # noqa: E402
 import json  # noqa: E402

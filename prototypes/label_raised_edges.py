@@ -4,6 +4,10 @@ r"""Ask the player what each drawn line segment of the baked Ascent static is.
     .\.venv\Scripts\python.exe prototypes\label_raised_edges.py label
     .\.venv\Scripts\python.exe prototypes\label_raised_edges.py score
     .\.venv\Scripts\python.exe prototypes\label_raised_edges.py preview
+    .\.venv\Scripts\python.exe prototypes\label_raised_edges.py sorter [--record]
+    .\.venv\Scripts\python.exe prototypes\label_raised_edges.py queue
+    .\.venv\Scripts\python.exe prototypes\label_raised_edges.py notes --spec <store json>
+    .\.venv\Scripts\python.exe prototypes\label_raised_edges.py occluders [--record]
 
 Why. `raised_edges.py` splits the static's lines by what lies directly beyond
 them: void on one side (a wall) or plain floor on both (a raised edge, which
@@ -40,6 +44,15 @@ Answers go to `<store>/labels/raised_edge_segment/<key>.jsonl`, one row per
 answer, the last row for a segment winning; the tool resumes where it stopped.
 Predictions and outcome: `drawn-areas-edges-20260930` in the store's
 `notes/predictions.jsonl`.
+
+After the pass. `sorter` scores the derived class against the direct answers,
+one row per segment (the last answer wins), with precision and recall.
+`queue` rebuilds the labeller's first-session order, so a number the player
+quotes ("n/221") names a segment; it stops if the label file's answer order
+disagrees. `notes` resolves such numbered notes, paraphrased in a store spec,
+to `<key>.notes.jsonl` beside the labels. `occluders` counts the baked
+occluder pixels on the segments the player called non-occluding; it changes
+no geometry. Series `raised-edge-sorter` and `raised-edge-occluders`.
 """
 from __future__ import annotations
 
@@ -288,11 +301,225 @@ def score(key: str) -> dict:
     return out
 
 
+def _lower_priority() -> None:
+    """Below Normal, checked: the handle types are declared (see `audio_bank._lower_priority`)."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    k = ctypes.windll.kernel32
+    k.GetCurrentProcess.restype = ctypes.c_void_p
+    k.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    k.GetPriorityClass.argtypes = [ctypes.c_void_p]
+    k.GetPriorityClass.restype = ctypes.c_uint32
+    if not k.SetPriorityClass(k.GetCurrentProcess(), 0x4000) or k.GetPriorityClass(k.GetCurrentProcess()) != 0x4000:
+        raise SystemExit("could not lower this process to Below Normal priority")
+
+
+#: The sorter's two classes against the player's: `raised_edge` means "a ramp or elevation line"
+#: [domain:minimap/raised-edge-lines], so it is scored against that class, and again against every
+#: class that is not a wall. The player's other classes have no derived counterpart.
+DERIVED_FOR = {"wall": "wall", "raised_edge": "ramp_or_elevation_line"}
+
+
+def _pr(pairs, pred, truth) -> dict:
+    tp = sum(d == pred and truth(c) for d, c in pairs)
+    np_ = sum(d == pred for d, _ in pairs)
+    nt = sum(truth(c) for _, c in pairs)
+    return {"tp": tp, "predicted": np_, "true": nt,
+            "precision": round(tp / np_, 4) if np_ else None, "recall": round(tp / nt, 4) if nt else None}
+
+
+def sorter(key: str, record: bool = False) -> dict:
+    """Confusion of the sorter's derived class against the player's direct segment answers.
+
+    Reads the label file only (each row carries the derived class it was shown with). One row per
+    segment: the last answer wins, as the labeller documents, so a segment the player went back
+    to counts once. Unsure answers stay out."""
+    p = _label_path(key)
+    rows = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
+    last = _labels(key)
+    versions = sorted({v["version"] for v in last.values()})
+    pairs = [(v["derived_class"], v["class"]) for v in last.values() if v["class"] != "unsure"]
+    player = sorted({c for _, c in pairs}, key=lambda c: (-sum(x == c for _, x in pairs), c))
+    derived = sorted({d for d, _ in pairs})
+    table = {c: {d: sum(1 for x, y in pairs if x == d and y == c) for d in derived} for c in player}
+    per = {"wall": _pr(pairs, "wall", lambda c: c == "wall"),
+           "raised_edge_as_ramp": _pr(pairs, "raised_edge", lambda c: c == "ramp_or_elevation_line"),
+           "raised_edge_as_not_wall": _pr(pairs, "raised_edge", lambda c: c != "wall")}
+    agree = sum((d == "wall") == (c == "wall") for d, c in pairs)
+    out = {"key": key, "versions": versions, "rows": len(rows), "segments": len(last),
+           "redone_rows": len(rows) - len(last), "unsure": sum(v["class"] == "unsure" for v in last.values()),
+           "scored": len(pairs), "player_classes": dict(Counter(c for _, c in pairs)),
+           "derived_classes": dict(Counter(d for d, _ in pairs)), "confusion_player_by_derived": table,
+           "per_class": per, "wall_vs_not_wall_agree": agree,
+           "wall_vs_not_wall_share": round(agree / len(pairs), 4) if pairs else None}
+    w = max(len(c) for c in player) + 2
+    print(f"{key}: {out['rows']} rows, {out['segments']} segments (last answer wins), {out['scored']} scored")
+    print("player \\ derived".ljust(w) + "".join(d.rjust(13) for d in derived) + "total".rjust(8))
+    for c in player:
+        print(c.ljust(w) + "".join(str(table[c][d]).rjust(13) for d in derived) + str(sum(table[c].values())).rjust(8))
+    for name, v in per.items():
+        print(f"  {name:26s} precision {v['precision']} ({v['tp']}/{v['predicted']})"
+              f"  recall {v['recall']} ({v['tp']}/{v['true']})")
+    print(f"  wall vs not wall agree {agree}/{len(pairs)} = {out['wall_vs_not_wall_share']}")
+    if record:
+        vals = {"rows": out["rows"], "segments": out["segments"], "redone_rows": out["redone_rows"],
+                "scored": out["scored"], "wall_vs_not_wall_share": out["wall_vs_not_wall_share"]}
+        for c in player:
+            for d in derived:
+                vals[f"n_{c}_as_{d}"] = table[c][d]
+        for name, v in per.items():
+            vals[f"{name}_precision"], vals[f"{name}_recall"] = v["precision"], v["recall"]
+        RE.metrics.record("raised-edge-sorter", part="segments", session=key, values=vals,
+                          deps={"sorter_version": versions, "labels": str(p.relative_to(RE.STORE)),
+                                "label_rows": len(rows)},
+                          context={"derived_for": DERIVED_FOR, "rule": "last answer per segment wins; unsure out"},
+                          note="player's direct segment answers only; the 13 carried 0.1.0 answers are scored by `score`")
+        print("recorded")
+    return out
+
+
+def queue(key: str, r: dict | None = None, items: list | None = None) -> list[dict]:
+    """The labeller's first-session queue: the hash-sorted segments less the carried answers, as
+    `label` built it before any direct answer existed. The number the labeller showed was the
+    1-based index into this list ("n/221"; going back re-showed the same index).
+
+    Checked, not assumed: the label file's first answers per segment must come in this order, or
+    the numbering is ambiguous and this stops."""
+    if items is None:
+        r, items = _items(key)
+    mapped = _mapped(key)
+    order = [p for p in items if p["piece"] not in mapped]
+    seen, first = set(), []
+    for line in _label_path(key).read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            k = json.loads(line)["piece"]
+            if k not in seen:
+                seen.add(k)
+                first.append(k)
+    if first != [p["piece"] for p in order][:len(first)]:
+        raise SystemExit("the label file's answer order is not the queue order: the numbering is ambiguous")
+    return order
+
+
+NOTE_SUBCLASSES = ("diagonal_wall", "diagonal_box", "circular_box", "tall_box", "heaven_hell_edge",
+                   "overhang_start", "stepped_boxes")
+
+
+def notes(key: str, spec: Path) -> list[dict]:
+    """Resolve the player's notes, given by queue number, to segment keys.
+
+    `spec` (kept in the store, never the repo) is a JSON list of {"n", "subclass", "note"}; the note
+    is a paraphrase. Writes `<store>/labels/raised_edge_segment/<key>.notes.jsonl`, one row per note,
+    with the player's class and the sorter's call beside it."""
+    order = queue(key)
+    last = _labels(key)
+    out = []
+    for s in json.loads(Path(spec).read_text(encoding="utf-8")):
+        if s["subclass"] not in NOTE_SUBCLASSES:
+            raise SystemExit(f"unknown subclass {s['subclass']}")
+        p = order[s["n"] - 1]
+        ans = last[p["piece"]]
+        out.append({"key": p["piece"], "geometry_key": key, "queue_n": s["n"], "queue_len": len(order),
+                    "subclass": s["subclass"], "note": s["note"], "player_class": ans["class"],
+                    "derived_class": p["cls"], "answered_at": ans["at"], "x": p["x"], "y": p["y"], "w": p["w"],
+                    "h": p["h"], "end_a": p["end_a"], "end_b": p["end_b"], "px": p["px"],
+                    "note_date": s.get("date", ""), "version": RE.VERSION, "by": "player (paraphrased)"})
+    dst = _label_path(key).with_suffix(".notes.jsonl")
+    dst.write_text("".join(json.dumps(x) + "\n" for x in out), encoding="utf-8")
+    for x in out:
+        print(f"  {x['queue_n']:3d}  {x['key'].split(':seg:')[1]:18s} {x['subclass']:17s} "
+              f"player {x['player_class']:22s} sorter {x['derived_class']}")
+    print("wrote", dst)
+    return out
+
+
+#: The proposal measured, not applied: these player classes would stop occluding light.
+NON_OCCLUDING = ("ramp_or_elevation_line", "heaven_edge", "other")
+
+
+def occluder_change(key: str, record: bool = False) -> dict:
+    """How many baked occluder pixels lie on the segments the player called non-occluding.
+
+    Reads baked geometry and the label files; changes nothing. A noted segment's subclass
+    (`<key>.notes.jsonl`) gets its own row, so the overhang-start line and the heaven-hell edge
+    stay apart from the plain `other` answers. `ring_occ_px` counts occluder pixels within one
+    pixel of a group's segments that belong to no segment of the group: they would still stop a
+    ray unless removed with it."""
+    r = _classified(key)
+    occ = RE.load(key)["occ"]
+    sid = r["_sid"]
+    by_piece = {signature(key, s): s for s in r["segments"]}
+    note_sub = {}
+    npath = _label_path(key).with_suffix(".notes.jsonl")
+    if npath.is_file():
+        for line in npath.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                x = json.loads(line)
+                note_sub[x["key"]] = x["subclass"]
+    groups = defaultdict(list)
+    for k, v in _labels(key).items():
+        if v["class"] in NON_OCCLUDING:
+            groups[note_sub.get(k, v["class"]) if v["class"] == "other" else v["class"]].append(k)
+    for k, m in _mapped(key).items():
+        if m["class"] in NON_OCCLUDING:
+            groups[f"{m['class']}_carried_0_1_0"].append(k)
+    kernel = np.ones((3, 3), np.uint8)
+    rows, total = {}, np.zeros(occ.shape, bool)
+    for g, keys in sorted(groups.items()):
+        m = np.isin(sid, [by_piece[k]["id"] for k in keys])
+        ring = (cv2.dilate(m.astype(np.uint8), kernel) > 0) & ~m & (occ > 0) & (sid == 0)
+        rows[g] = {"segments": len(keys), "px": int(m.sum()), "occ_wall_px": int((m & (occ == 1)).sum()),
+                   "occ_box_px": int((m & (occ == 2)).sum()), "ring_occ_px": int(ring.sum())}
+        total |= m
+    out = {"key": key, "groups": rows, "total_px": int(total.sum()), "total_occ_px": int((total & (occ > 0)).sum()),
+           "baked_occ_px": int((occ > 0).sum()), "baked_wall_px": int((occ == 1).sum()),
+           "baked_box_px": int((occ == 2).sum())}
+    out["total_ring_occ_px"] = int(((cv2.dilate(total.astype(np.uint8), kernel) > 0) & ~total & (occ > 0)
+                                    & (sid == 0)).sum())
+    out["share_of_baked_occ"] = round(out["total_occ_px"] / out["baked_occ_px"], 4)
+    print(f"{key}: baked occluders {out['baked_occ_px']} px ({out['baked_wall_px']} wall, {out['baked_box_px']} box)")
+    for g, v in rows.items():
+        print(f"  {g:40s} {v['segments']:3d} seg  {v['px']:4d} px  wall {v['occ_wall_px']:4d}  box {v['occ_box_px']:3d}"
+              f"  ring {v['ring_occ_px']}")
+    print(f"  total {out['total_occ_px']} occluder px = {out['share_of_baked_occ']} of the baked occluders;"
+          f" {out['total_ring_occ_px']} unclaimed occluder px beside them")
+    if record:
+        vals = {"total_occ_px": out["total_occ_px"], "baked_occ_px": out["baked_occ_px"],
+                "total_ring_occ_px": out["total_ring_occ_px"],
+                "share_of_baked_occ": out["share_of_baked_occ"]}
+        for g, v in rows.items():
+            for f, n in v.items():
+                vals[f"{g}_{f}"] = n
+        RE.metrics.record("raised-edge-occluders", part="non-occluding-proposal", session=key, values=vals,
+                          deps={"version": RE.VERSION, "occluders": RE.occluders.occluder_stamp(),
+                                "classes": list(NON_OCCLUDING)},
+                          context={"applied": False}, note="measured only; baked geometry unchanged")
+        print("recorded")
+    return out
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["map", "label", "score", "preview"])
+    ap.add_argument("cmd", choices=["map", "label", "score", "preview", "sorter", "queue", "notes", "occluders"])
     ap.add_argument("--key", default=RE.KEYS[0])
+    ap.add_argument("--record", action="store_true")
+    ap.add_argument("--spec", help="notes: the JSON list of {n, subclass, note} in the store")
     a = ap.parse_args()
+    if a.cmd in ("sorter", "queue", "notes", "occluders"):
+        _lower_priority()
+        cv2.setNumThreads(1)
+        if a.cmd == "sorter":
+            sorter(a.key, a.record)
+        elif a.cmd == "queue":
+            order = queue(a.key)
+            for i, p in enumerate(order, 1):
+                print(f"{i:3d}/{len(order)}  {p['piece']}  {p['cls']}")
+        elif a.cmd == "notes":
+            notes(a.key, Path(a.spec))
+        else:
+            occluder_change(a.key, a.record)
+        raise SystemExit(0)
     if a.cmd == "preview":                     # write the first three tiles, for checking the page
         r, items = _items(a.key)
         mapped = _mapped(a.key)

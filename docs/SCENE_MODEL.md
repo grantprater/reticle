@@ -907,6 +907,32 @@ drawn across a ramp's line stops short in the render and leaves lit floor
 unexplained beyond it. Heaven candidates come from the shade rungs, not the
 lines. The occluder change is proposed, not made.
 
+The player then labelled every segment on the 465 px key
+(`prototypes/label_raised_edges.py sorter`; the last answer per segment
+wins, so
+[metric:raised-edge-sorter/segments@ascent__valorant-16x9-bigmap#rows=236]
+rows give
+[metric:raised-edge-sorter/segments@ascent__valorant-16x9-bigmap#segments=221]
+segments). The sorter's walls are walls: precision
+[metric:raised-edge-sorter/segments@ascent__valorant-16x9-bigmap#wall_precision=0.9706],
+recall
+[metric:raised-edge-sorter/segments@ascent__valorant-16x9-bigmap#wall_recall=0.9593].
+Its raised edges are mostly box outlines: they catch every ramp line
+(recall
+[metric:raised-edge-sorter/segments@ascent__valorant-16x9-bigmap#raised_edge_as_ramp_recall=1.0])
+but only
+[metric:raised-edge-sorter/segments@ascent__valorant-16x9-bigmap#raised_edge_as_ramp_precision=0.1569]
+of them are ramps, and
+[metric:raised-edge-sorter/segments@ascent__valorant-16x9-bigmap#n_box_outline_as_raised_edge=33]
+are box outlines. The floor-beyond rule therefore separates walls from
+everything else, not ramps from boxes. The player's non-occluding lines
+(ramp, heaven edge, other, and the overhang start
+[domain:minimap/overhang-start-line]) hold
+[metric:raised-edge-occluders/non-occluding-proposal@ascent__valorant-16x9-bigmap#total_occ_px=517]
+baked occluder pixels, a share
+[metric:raised-edge-occluders/non-occluding-proposal@ascent__valorant-16x9-bigmap#share_of_baked_occ=0.0571]
+of the key's occluders. The change awaits the player.
+
 ## What this plan does not settle
 
 - The draw order between icons is fitted, not known; stage 1 does not

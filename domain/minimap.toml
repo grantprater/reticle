@@ -906,7 +906,12 @@ it bounds a ramp or an elevation change, and light crosses it
 [domain:minimap/raised-edge-lines]. Open: whether a stretch of one-pixel
 line is a doorway or a low edge a player can see across. E1b of the
 statistical adjudicator found the lines it tested opaque everywhere but left
-the local question open
+the local question open. Walls run diagonally as well as along the axes (the
+player, 2026-09-30, labelling Ascent's line segments: 213,186-222,176,
+176,191-172,195, 244,150-250,157, 245,289-250,294 and 251,138-244,145 on
+`ascent__valorant-16x9-bigmap`, and 226,411-224,422 as a slightly slanted
+part of a wall). A line may also mark only where a roof overhang starts, and
+light passes under it [domain:minimap/overhang-start-line]
 """
 see = ["minimap/cone-rays-stop-at-first-edge", "minimap/boxes-block-unless-raised",
        "minimap/raised-edge-lines"]
@@ -986,7 +991,16 @@ of the air time, so its top lies well above the standing eye) and tall from
 the floor below the stairs (2 jumps): one box, two classes, by the caster's
 floor. The outlines of several boxes and of the Lotus mound are baked as WALL
 in `occ`, so a raycast that stops at walls misses those passes. Only 3 of 63
-baked Lotus boxes and 2 of 55 Split boxes are constrained
+baked Lotus boxes and 2 of 55 Split boxes are constrained.
+The player, 2026-09-30, labelling Ascent's line segments on
+`ascent__valorant-16x9-bigmap`: some boxes are very large and tall. The
+generator (segment 373,183-378,183) is one whose top a player reaches only
+with a vertical movement ability or by jumping down from a heaven, and the box
+at segment 105,276-115,276 is another; a floor caster's jump does not see over
+them. A box's outline may be circular (segments 233,264-231,269,
+238,268-236,264 and 262,82-257,82), a small raised piece may run diagonally
+(169,410-166,413), and one line may separate two boxes of different heights
+(421,214-421,223: the lower box to its left, the higher to its right)
 """
 see = ["minimap/white-lines-are-walls", "minimap/cone-rays-stop-at-first-edge",
        "minimap/heaven-sees-over-area", "minimap/floor-shade-is-elevation"]
@@ -997,7 +1011,8 @@ claim = """
 The minimap's floor shading shows elevation: a lighter grey floor is raised,
 a darker grey floor is lower or under an overhang. On Ascent the raised
 platform on the right side of mid and A heaven are drawn lighter; A hell,
-under the overhang, is drawn darker.
+under the overhang, is drawn darker. A hell is the darker region inside a
+heaven's lighter region, directly below it.
 """
 kind = "appearance"
 known = "player"
@@ -1021,6 +1036,12 @@ yet it blocks a standing caster at an undrawn interior crest a median
 to [metric:lotus_elevation/heights@2026-09-30_13-25-33#mound_crest_frac_max=0.41]
 of the way across it, not at the shade edge; and C Lobby's shaded raised
 rectangle is a step-up whose edge line does not block a standing caster.
+The player, 2026-09-30: the C Mound's irregular elevation is close to unique
+in the game, practically one of a kind, so no rule generalises from it. The
+player, 2026-09-30, labelling Ascent's line segments: one drawn line is both
+a heaven's edge and the edge of the hell below it (segment 387,150-418,150 on
+`ascent__valorant-16x9-bigmap`), and a heaven over a hell is an overhang a
+player can stand on [domain:minimap/overhang-start-line].
 Split's B plant zone is a raised floor with no shade (rung 0 over a share
 [metric:lotus_elevation/split@2026-09-30_13-37-46#zone_rung0_share=1.0] of
 it): the player located it, and only the notch in the zone's west edge marks
@@ -1056,6 +1077,39 @@ crossed no box. Floors between floor and heaven exist: Split's B plant zone is r
 above the floor west of its stairs with no shade marking it
 """
 see = ["minimap/boxes-block-unless-raised", "minimap/floor-shade-is-elevation"]
+
+[overhang-start-line]
+claim = """
+A drawn line may mark only where a roof overhang starts. Light passes under an
+overhang, so such a line stops no ray from a caster below it. A viewer standing
+above the roof and looking down has the view into the area under it cut off by
+the roof. Overhangs are rare, and newer maps mostly have none. Ascent has two,
+of different kinds: the roof over the three-walled alcove that holds the Market
+door's button, which no player can stay on, and a heaven over a hell, on which
+a player can stand.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = """
+the player, 2026-09-30, labelling Ascent's line segments (the alcove's line is
+segment 141,136-141,182 on `ascent__valorant-16x9-bigmap`, answered other),
+then answering whether light crosses it
+"""
+use = """
+an overhang-start line is no occluder for a caster below the roof; the baked
+occluders still treat it as a wall (measured, not changed:
+prototypes/label_raised_edges.py occluders). A roof as an occluder for a
+viewer above it is not modelled
+"""
+exceptions = """
+the player believes only a vertical movement ability puts a viewer above the
+Market alcove's roof; unconfirmed. Which Ascent heaven lies over the hell is
+recorded only as the segment 387,150-418,150
+[domain:minimap/floor-shade-is-elevation]
+"""
+see = ["minimap/white-lines-are-walls", "minimap/floor-shade-is-elevation",
+       "minimap/heaven-sees-over-area"]
 
 [off-widget-self-marker]
 claim = """
