@@ -160,12 +160,12 @@ with a reason; that is coverage, not doubt.
 {"row": "entity", "entity_id": "bfad2778a372:R1:E0001/P0",
  "family": "icon_track", "kind": "ally", "side": "ally", "round": 1,
  "lifetime": {"first_observed_ms": 153000.0, "last_observed_ms": 167266.7,
-              "began": null, "began_reason": "origin not independently observed",
-              "ended": null, "ended_reason": "right_censored",
+              "began": null, "began_reason": "not_read: origin not independently observed",
+              "ended": null, "ended_reason": "not_read: right_censored",
               "censored_at_ms": 167266.7},
  "identity": {"agent": "Jett", "ref": "<arbiter verdict id>",
               "arbiter": "agent-identity-0.9.0"},
- "player": null, "player_reason": "unbound: round_entities publishes a name-built key",
+ "player": null, "player_reason": "not_read: unbound: round_entities publishes a name-built key",
  "producer": {"owner": "round-entity-session", "version": "round-entity-0.9.0"},
  "lane": "round_entity", "contract": "entity-contract-0.1.0"}
 ```
@@ -196,7 +196,7 @@ with a reason; that is coverage, not doubt.
 {"row": "event", "event_id": "<lane>:<owner row id>", "entity_id": "...",
  "kind": "death", "round": 1,
  "observed_ms": 177000.0, "observed_last_ms": 181500.0,
- "occurred": null, "occurred_reason": "no_owner_bound",
+ "occurred": null, "occurred_reason": "not_read: no_owner_bound",
  "position": {"frame": "baked:split__valorant-16x9", "x": 0.0, "y": 0.0},
  "orientation": {"deg": 0.0, "convention": "<icon-pose owner's>"},
  "state": {"...": "per-kind vocabulary"},
@@ -235,9 +235,9 @@ with a reason; that is coverage, not doubt.
 | `pose` (icon track sample) | none beyond position and orientation | `round_entity`, a pose owner |
 | `estimate` (unobserved icon track) | `basis`: the observations and rule the owner used | the estimate owner of the family; the per-family rule below |
 | `last_known` (enemy mark) | none beyond position | the owner that reads the red "?" [domain:minimap/last-known-mark] |
-| `death` | `cause` gun/ability/environment, `weapon`, `second_life`, `revive` | `adjudication.death`; [domain:rounds/resurrection-mechanics] |
-| `spike` | `carried` (by player), `dropped`, `planted`, `defused`, `detonated` | [domain:minimap/spike-glyph], [domain:minimap/spike-carrier-overlay]; `rounds` owns the plant; defuse and detonation have no owner |
-| `ping` | `standard`, `danger`, `on_my_way`, `need_help` | `ping` |
+| `death` | `cause` gun/ability/environmental/melee/other (the death owner's), `weapon`, `second_life`, `revive` | `adjudication.death`; [domain:rounds/resurrection-mechanics] |
+| `spike` | `phase`: `dropped`, `carried`, `planted`, `detonated`, `last_known`, each citing its fact in `entity_contract.SPIKE_STATES`; `defused` joins when a fact shows it | [domain:minimap/spike-inversion], [domain:minimap/spike-carrier-overlay], [domain:minimap/spike-planted-icon], [domain:killfeed/environmental-self-entry], [domain:minimap/enemy-spike-ground-vision]; `rounds` owns the plant; defuse and detonation have no owner |
+| `ping` | `ping`: `standard`, `danger`, `on_my_way`, `need_help`, `watching_here` (the ping owner's), and `lifetime_s` | `ping` |
 | `slot_state` (the player's own tray slot) | level, charges, equipped, castable, pips | `adjudication.ability_state` |
 | `cast` | the ability's catalogue id and slot | `ult_cast`, `ability_timeline` |
 | ability object lifecycle | per ability, from its lifecycle fact | `domain/abilities.toml` |
@@ -335,13 +335,13 @@ lane from storage; it never becomes an event's inferred origin.
 {"row": "event", "event_id": "death:death:bfad2778a372:177000:0",
  "entity_id": "death:bfad2778a372:177000:0", "kind": "death", "round": 1,
  "observed_ms": 177000.0, "observed_last_ms": 181500.0,
- "occurred": null, "occurred_reason": "no_owner_bound",
+ "occurred": null, "occurred_reason": "not_read: no_owner_bound",
  "position": null, "position_reason": "not_read: location null",
  "orientation": null, "orientation_reason": "not_applicable",
  "state": {"cause": "gun", "weapon": "Ghost", "second_life": false, "revive": false},
  "identity": {"agent": "Skye", "ref": "identity:death:bfad2778a372:177000:0",
               "arbiter": "agent-identity-0.9.0"},
- "player": null, "player_reason": "unbound: the death owner publishes no slot key",
+ "player": null, "player_reason": "not_read: unbound: the death owner publishes no slot key",
  "participants": {"killer": {"entity_id": "death:bfad2778a372:177000:0:killer",
    "identity": {"agent": "Phoenix", "ref": "<killer verdict id>", "arbiter": "agent-identity-0.9.0"}}},
  "evidence": [{"stream": "death", "id": "death:bfad2778a372:177000:0", "version": "death-adjudication-0.20.0"},
@@ -513,7 +513,7 @@ storage.
   `events`, so `store.write_events` validates `entity_*` rows the way it
   validates `events-0.1.0` rows today. `entity_events`, the projection and
   the read API, joins `entities` beside `round_entities`. Consumers sit in
-  `entities` or `delivery`. No upward edge is needed.
+  the `consumers` layer, above `entities`. No upward edge is needed.
 - `ownership.toml`: `entity_contract` joins `[infrastructure]`, as
   `events` has. `entity_events` owns one entry:
 
@@ -586,6 +586,14 @@ than through `entity_events`; and when a module outside `review` calls
 check can see them. The list grows one consumer per migration stage, so
 the check passes at every stage.
 
+Stage 0 declares the round viewer (`view_events`, `round_view`) with the
+check, in `review`, because it already sat in the `consumers` layer. It
+predates the lanes, so three of its uses are dated exemptions that end at
+stage 1: `view_events` opens each stream's file (`events_path`) and reads
+the round table (`read_rounds`), and `round_view` imports `widget_frame` to
+place the baked frame in the capture. An exemption names one use, so a new
+one fails now, and a stale one is reported.
+
 ## 5. Gaps, by value to the annotated match
 
 Each owner adds fields; the projection adds none of them itself.
@@ -602,9 +610,8 @@ Each owner adds fields; the projection adds none of them itself.
    `tray_kit`'s own and other spans are its first witness
    [domain:hud/tray-after-player-death]. `round_entities` reads it and names
    the self icon `spectated` with the watched player's key after the
-   player's death. The fact that the self icon marks the spectated player
-   has no table in `domain/minimap.toml` yet; record it from the player's
-   earlier answers.
+   player's death: the self icon marks the spectated player
+   [domain:minimap/self-icon-shows-spectated].
 3. **Enemy icons as entities.** A reader for enemy icons inside team vision
    [domain:minimap/vision-gate], the icon-pose owner's enemy class
    [domain:minimap/enemy-lobe-translucent], an `enemy` family in
@@ -653,7 +660,7 @@ Each owner adds fields; the projection adds none of them itself.
 
 Each stage is one `BACKLOG.md` item.
 
-**Stage 0: the contract and the check.** `entity_contract` with the schema,
+**Stage 0: the contract and the check. Done 2026-09-30.** `entity_contract` with the schema,
 standings, frames and vocabularies; its validator in `store.write_events`;
 CONSUMER with an empty list; the placement and the ownership entry.
 Acceptance: `.\.venv\Scripts\python.exe -m pytest tests/test_entity_contract.py`
@@ -661,6 +668,28 @@ and `.\.venv\Scripts\python.exe -m reticle doctor` report 0 errors.
 Evidence: the validator rejects a consumer row carrying `standing`, a name
 without a `ref`, a position without a `frame`, a state outside its
 vocabulary and a `null` without a reason; each rejection is a test.
+
+What stage 0 built, and where it differs from the text above:
+
+- `reticle/entity_contract.py` (foundation, `entity-contract-0.1.0`) holds
+  the schema, the reason forms, the ledger row, the per-family rule
+  (`between_observations`) and `validate_lane`, which `store.write_events`
+  runs on every `entity_*` stream. It also rejects an undeclared time key,
+  an `estimate` with an observation time, an observation time with no
+  evidence and an inferred interval with no basis. It names no orientation
+  convention and no residual reason yet, so it rejects any orientation and
+  any residual row until an owner and the player supply one.
+- `domain` facts gain an optional `states` list, allowed on lifecycle facts
+  with a subject; no fact carries one yet, so every ability object is
+  `observed` with its `no-fact` reason until gap 8.
+- CONSUMER (`architecture.verify_consumers`) does not start empty: the
+  viewer is declared with three dated exemptions (section 4).
+- `reticle/entity_events.py` (entities) is a stub that owns `entity-event`
+  and declares `ENTITY_LANES`. OWNERSHIP checks that an owner defines what it
+  `produces` and imports what it `defers_to`, so the entry lists only
+  `ENTITY_LANES` and `NAME_ARBITER` and defers only to `agent-identity`;
+  stage 1 adds the rest as it builds them. The standing translations per
+  input stream come with the lanes in stage 1.
 
 **Stage 1: the first slice.** Lanes `round_entity`, `death` and `spike` for
 `bfad2778a372` (`C:\Users\grant\Videos\2026-08-24 14-45-35.mp4`), and the

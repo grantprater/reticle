@@ -725,6 +725,23 @@ def check_layer() -> list[tuple[str, str]]:
     return out
 
 
+def check_consumer() -> list[tuple[str, str]]:
+    """A declared consumer reads only emitted events.
+
+    Events are the interface (AGENTS.md): a consumer that imports a reader or
+    an adjudicator, or reads the store's streams itself, recomputes what an
+    owner should have emitted, and the missing field never reaches the event.
+    `architecture.toml`'s `[consumers]` table declares the consumers, the
+    `review` modules that may read the ledger, and dated exemptions;
+    `architecture.verify_consumers` holds the rule (docs/ENTITY_EVENTS.md,
+    section 4).
+    """
+    out = []
+    for level, message in architecture.verify_consumers():
+        out.append((ERROR if level == ERROR else "finding", message))
+    return out
+
+
 def check_ownership() -> list[tuple[str, str]]:
     """Which module owns which question, verified against the code.
 
@@ -1104,7 +1121,8 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("UNCALLED", check_uncalled),
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),
-              ("LAYER", check_layer), ("OWNERSHIP", check_ownership),
+              ("LAYER", check_layer), ("CONSUMER", check_consumer),
+              ("OWNERSHIP", check_ownership),
               ("QUOTED", lambda: check_quoted(store)),
               ("PROMOTE", lambda: check_promote(store)),
               ("SESSION_STATIC", lambda: check_session_static(store)),

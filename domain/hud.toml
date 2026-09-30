@@ -53,6 +53,7 @@ a tray drop is the player's cast only while the player is alive in that round;
 gate tray casts on the player's death (stored death verdicts) before binding
 anything to them
 """
+see = ["minimap/self-icon-shows-spectated"]
 
 [tray-slot-icons]
 claim = """

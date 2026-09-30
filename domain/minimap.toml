@@ -70,6 +70,7 @@ use = """
 that black circle is why a ring fit accepts the spike -- it really is a keyed
 annulus around a dark interior, so every 'fit the ring better' proposal is dead
 """
+see = ["minimap/spike-planted-icon"]
 
 [spike-inversion]
 claim = """
@@ -79,7 +80,7 @@ carried, in one frame, unboundedly many times a round.
 kind = "appearance"
 known = "player"
 since = "2026-09-10"
-see = ["minimap/spike-glyph"]
+see = ["minimap/spike-glyph", "minimap/spike-planted-icon"]
 phrases = ["inverts on pickup"]
 
 [spike-carrier-overlay]
@@ -96,8 +97,36 @@ a carried glyph belongs to the icon above and to its right, so a fit nearer the
 glyph than that icon is the glyph (`spike.on_glyph`), and the roster marker and
 the minimap glyph witness the same carrier
 """
-see = ["minimap/spike-glyph", "minimap/spike-inversion", "hud/spike-carrier-marker"]
+see = ["minimap/spike-glyph", "minimap/spike-inversion", "hud/spike-carrier-marker",
+       "minimap/spike-planted-icon"]
 phrases = ["lower left of their icon", "carried spike overlay"]
+
+[spike-planted-icon]
+claim = """
+The minimap draws a planted spike as its own icon, rotated relative to both
+the dropped and the carried spike glyph.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-30"
+subject = "minimap:spike"
+source = """
+the player, 2026-09-30, reviewing bfad2778a372 round 16 in `reticle view`
+(C:/Users/grant/Videos/2026-08-24 14-45-35.mp4). The round's stored plant,
+the rounds table's plant_t_ms as spike_carrier copies it, is 1696500 ms
+(28:16.5); the spike stream reads a carried glyph at 1696.5 s and none at
+1697.5 s
+"""
+use = """
+a planted spike is a third state of the spike, not a dropped glyph in the
+wrong orientation; a reader that matches only the dropped and carried glyphs
+reads no spike after a plant
+"""
+exceptions = """
+unmeasured: the rotation angle is not stated. Measure it from the minimap
+crop cache after 1696.5 s on bfad2778a372; no value is assumed until then
+"""
+see = ["minimap/spike-glyph", "minimap/spike-inversion", "minimap/spike-carrier-overlay"]
 
 [no-spike-channel]
 claim = """
@@ -231,28 +260,34 @@ phrases = ["the light is binary", "exact uniform coverage"]
 
 [dead-teammate-light-belief]
 claim = """
-A teammate who has just died may still light the minimap floor for a moment.
-The player is unsure; this belief is unverified.
+A teammate's light on the minimap floor stops when the teammate dies,
+possibly after a short lag. The player first believed a just-dead teammate
+may still light the floor for a moment, unsure; he now states that the light
+stops, with a possible linger or a timing offset between channels.
 """
 kind = "rule"
 known = "player"
-since = "2026-09-29"
+since = "2026-09-30"
 source = """
 the player, 2026-09-29 (chat), asked whether anything besides living
-teammates' cones lights the floor
+teammates' cones lights the floor; and 2026-09-30, answering what a death
+does on the minimap: the icon turns into an X and stops lighting the floor
+[domain:minimap/death-icon-becomes-mark]
 """
 use = """
-floor read lit where no visible team cone reaches may come from a teammate who
-died within the moment; test it against a death witness (killfeed, roster)
-before any reader explains light this way
+floor lit where no visible team cone reaches, within the lag of a teammate's
+death, may be that teammate's; test it against a death witness (killfeed,
+roster) before any reader explains light this way, and never extend a dead
+teammate's light beyond the lag
 """
 exceptions = """
-unverified on any capture; the duration, if any, is unknown. The player's
-second answer of 2026-09-29 on what lights the floor
-[domain:minimap/no-teammate-floor-circle] leaves this belief unchanged
+the lag is unmeasured on any capture; its length, if any, is unknown. The
+player's second answer of 2026-09-29 on what lights the floor
+[domain:minimap/no-teammate-floor-circle] left the first belief unchanged
 """
 see = ["minimap/vision-trailing-persistence", "minimap/spike-casts-no-light-belief",
-       "minimap/no-teammate-floor-circle"]
+       "minimap/no-teammate-floor-circle", "minimap/death-icon-becomes-mark",
+       "minimap/ally-death-mark"]
 
 [spike-casts-no-light-belief]
 claim = """
@@ -298,6 +333,33 @@ floor, or a cone the model draws in the wrong place
 see = ["minimap/dead-teammate-light-belief", "minimap/spike-casts-no-light-belief",
        "abilities/minimap-icon-pale-region", "abilities/piloted-drones-have-cones",
        "minimap/self-audio-circle"]
+
+[self-icon-shows-spectated]
+claim = """
+While the player is dead, the minimap's self icon marks the teammate the
+capture spectates, not the player: that teammate's icon changes to the
+yellow self style, and their teal ally icon does not also show, so one icon
+stands for them. No audio circle is ever drawn round it
+[domain:minimap/self-audio-circle].
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-30"
+subject = "minimap:self-icon"
+source = """
+the player, 2026-09-30, confirming bfad2778a372 at 618.133 s
+(C:/Users/grant/Videos/2026-08-24 14-45-35.mp4), where the self icon was the
+spectated Jett; the same day he added that the spectated icon takes the
+yellow self style, that the teammate's teal icon is not drawn beside it, and
+that no audio circle is ever drawn round it
+"""
+use = """
+a self icon after the player's death is the spectated teammate's: end the
+player's own track at the death, and name the icon from the spectated
+player, never from the player's agent. It is that teammate's only icon, so
+it continues their ally track rather than doubling it
+"""
+see = ["hud/tray-after-player-death", "minimap/self-audio-circle"]
 
 [self-audio-circle]
 claim = """
@@ -836,18 +898,29 @@ see = ["minimap/enemy-death-mark", "minimap/ally-death-mark", "minimap/vision-ga
 
 [death-icon-becomes-mark]
 claim = """
-At a death the victim's icon and its X are, for reading, one thing: the icon
-either vanishes as the X appears or covers the X until it goes.
+At a death the victim's icon turns into an X and stops lighting the floor,
+possibly with a little linger or a timing offset between channels. For
+reading, the icon and its X are one thing: the icon either vanishes as the X
+appears or covers the X until it goes.
 """
 kind = "appearance"
 known = "player"
-since = "2026-09-29"
-source = "the player, 2026-09-29 (chat), answering the minimap-objects questions"
+since = "2026-09-30"
+source = """
+the player, 2026-09-29 (chat), answering the minimap-objects questions; and
+2026-09-30, adding that the icon turns into the X and stops lighting the
+floor, possibly with a little linger or offset between channels
+"""
 use = """
 a fit at a death's place at the death's time is the victim's icon or its X,
-not a second entity; an X witness binds an X seen after the icon is gone
+not a second entity; an X witness binds an X seen after the icon is gone.
+Caution for consumers other than the tray: `ability_timeline.DEATH_LEAD_MS`
+dates the player's death one second before the killfeed entry, which suits
+the tray the death screen blanks; on the minimap that lead can mark a player
+dead while the icon is still drawn, so do not reuse it for icons or light
 """
-see = ["minimap/enemy-death-mark", "minimap/death-mark-persistence"]
+see = ["minimap/enemy-death-mark", "minimap/death-mark-persistence",
+       "minimap/ally-death-mark", "minimap/dead-teammate-light-belief"]
 
 [danger-ping-pulses]
 claim = """

@@ -268,6 +268,152 @@ def verify(data: dict | None = None,
     return out
 
 
+def _string(node: ast.AST) -> str | None:
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def consumer_uses(path: Path, parsed: ast.Module | None = None, *,
+                  calls: frozenset[str], imports: frozenset[str]
+                  ) -> list[tuple[str, int]]:
+    """`(use, lineno)` for everything a consumer may not touch but a sibling import.
+
+    A use is `call:<name>` for a call to a forbidden store or parquet reader
+    by attribute or name, `import:<module>` for a forbidden third-party
+    import, and `path:events` for a path built into the store's `events/`
+    directory -- `/ "events"`, a join over `"events"`, or a literal starting
+    `events/`. Docstrings are prose, not paths, and are skipped.
+    """
+    tree = parsed if parsed is not None else _parse_source(path)
+    if tree is None:
+        return []
+    docstrings = {id(n.value) for n in ast.walk(tree)
+                  if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)}
+    out: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else (
+                f.id if isinstance(f, ast.Name) else None)
+            if name in calls:
+                out.append((f"call:{name}", node.lineno))
+            if name in ("join", "joinpath", "Path") and any(
+                    _string(a) == "events" for a in node.args):
+                out.append(("path:events", node.lineno))
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            if "events" in (_string(node.left), _string(node.right)):
+                out.append(("path:events", node.lineno))
+        elif isinstance(node, ast.Constant) and id(node) not in docstrings:
+            text = _string(node)
+            if text is not None and text.startswith("events/"):
+                out.append(("path:events", node.lineno))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in imports:
+                    out.append((f"import:{alias.name}", node.lineno))
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            if node.module in imports:
+                out.append((f"import:{node.module}", node.lineno))
+            for alias in node.names:
+                if f"{node.module}.{alias.name}" in imports:
+                    out.append((f"import:{node.module}.{alias.name}", node.lineno))
+    return sorted(set(out), key=lambda u: (u[1], u[0]))
+
+
+def ledger_calls(path: Path, parsed: ast.Module | None = None) -> list[int]:
+    """Line numbers of every call to `ledger`, by attribute or by name."""
+    tree = parsed if parsed is not None else _parse_source(path)
+    if tree is None:
+        return []
+    return sorted(node.lineno for node in ast.walk(tree)
+                  if isinstance(node, ast.Call) and (
+                      (isinstance(node.func, ast.Attribute) and node.func.attr == "ledger")
+                      or (isinstance(node.func, ast.Name) and node.func.id == "ledger")))
+
+
+def verify_consumers(data: dict | None = None,
+                     root: Path | None = None) -> list[tuple[str, str]]:
+    """CONSUMER: a declared consumer reads only emitted events.
+
+    `[consumers]` in `architecture.toml` declares the consumer modules (the
+    layer's own `modules`), the `review` subset that may call `ledger`, the
+    layers a consumer may not import, and the store and parquet calls it may
+    not make; the read goes through `read_through` (`entity_events`). A
+    violation is an ERROR unless a `[[consumers.exemption]]` names that exact
+    module and use with its `since`, its `until` and its reason; an exempted
+    use is reported every run, and an exemption whose use is gone is stale.
+    Any module outside `review` that calls `ledger` is an ERROR, consumer or
+    not, bar the module that defines it.
+    """
+    base = Path(root) if root else ROOT
+    data = data if data is not None else load()
+    table = data.get("consumers") if data else None
+    if not table:
+        return []
+    index, order = data["_index"], data["_order"]
+    paths = modules(base)
+    declared = list(table.get("modules", []))
+    review = set(table.get("review", []))
+    through = str(table.get("read_through", ""))
+    forbidden = set(table.get("forbidden_layers", []))
+    calls = frozenset(table.get("forbidden_calls", []))
+    foreign = frozenset(table.get("forbidden_imports", []))
+    out: list[tuple[str, str]] = []
+
+    for layer in sorted(forbidden - set(order)):
+        out.append(("ERROR", f"[consumers] forbids layer `{layer}`, which "
+                             f"architecture.toml does not declare"))
+    for module in sorted(review - set(declared)):
+        out.append(("ERROR", f"[consumers] review names `{module}`, which is "
+                             f"not a declared consumer"))
+
+    exemptions: dict[tuple[str, str], dict] = {}
+    for ex in table.get("exemption", []):
+        key = (str(ex.get("module", "")), str(ex.get("uses", "")))
+        missing = [f for f in ("module", "uses", "since", "until", "reason")
+                   if not str(ex.get(f, "")).strip()]
+        if missing:
+            out.append(("ERROR", f"[consumers] exemption {key[0]} {key[1]} names "
+                                 f"no {', '.join(missing)} -- a transitional "
+                                 f"exemption is dated and names its end"))
+        exemptions[key] = ex
+    used: set[tuple[str, str]] = set()
+
+    for module in declared:
+        path = paths.get(module)
+        if path is None:
+            continue
+        parsed = _parse_source(path)
+        within = module.rpartition(".")[0]
+        found: list[tuple[str, int]] = []
+        for target, line, _deferred in sibling_imports(path, within=within, parsed=parsed):
+            if target != through and target in index and order[index[target]] in forbidden:
+                found.append((f"import:{target}", line))
+        found += consumer_uses(path, parsed, calls=calls, imports=foreign)
+        for use, line in sorted(set(found), key=lambda u: (u[1], u[0])):
+            ex = exemptions.get((module, use))
+            if ex is not None:
+                if (module, use) not in used:
+                    out.append(("WARN", f"`{module}` {use} (line {line}) is exempt "
+                                        f"until {ex.get('until')}, since "
+                                        f"{ex.get('since')}"))
+                used.add((module, use))
+                continue
+            out.append(("ERROR", f"consumer `{module}` {use} at line {line} -- a "
+                                 f"consumer reads only emitted events, through "
+                                 f"`{through}`"))
+    for key in sorted(set(exemptions) - used):
+        out.append(("WARN", f"[consumers] exempts `{key[0]}` {key[1]}, a use that "
+                            f"no longer exists -- delete the exemption"))
+
+    for module, path in sorted(paths.items()):
+        if module in review or module == through:
+            continue
+        for line in ledger_calls(path):
+            out.append(("ERROR", f"`{module}` calls `ledger` at line {line} and is "
+                                 f"not in the [consumers] review list"))
+    return out
+
+
 def graph(root: Path | None = None) -> dict[str, dict]:
     """The eager and deferred sibling edges, for a reader rather than a check."""
     paths = modules(Path(root) if root else ROOT)

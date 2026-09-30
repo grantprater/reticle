@@ -80,7 +80,7 @@ KNOWN = frozenset({"player", "measured", "observed", "inferred"})
 
 REQUIRED = ("claim", "kind", "known", "since")
 OPTIONAL = ("use", "exceptions", "source", "see", "phrases", "supersedes",
-            "depends_on", "subject", "given")
+            "depends_on", "subject", "given", "states")
 
 #: A fact whose `known` is one of these is GIVEN: someone told us, or we watched
 #: it happen. It rests on nothing, so it may not declare `depends_on` -- that is
@@ -131,6 +131,9 @@ class Fact:
     supersedes: str = ""
     subject: str = ""
     given: str = ""
+    #: A lifecycle fact's states, in order: the vocabulary `entity_contract`
+    #: gives the ability object the fact's `subject` names.
+    states: tuple[str, ...] = ()
     unknown_keys: tuple[str, ...] = field(default=(), compare=False)
     missing_keys: tuple[str, ...] = field(default=(), compare=False)
 
@@ -208,6 +211,7 @@ def load(domain_dir: Path | None = None) -> dict[str, Fact]:
                 supersedes=str(body.get("supersedes", "")).strip(),
                 subject=str(body.get("subject", "")).strip(),
                 given=str(body.get("given", "")).strip(),
+                states=_str_tuple(body.get("states")),
                 unknown_keys=unknown,
                 missing_keys=missing,
             )
@@ -341,6 +345,10 @@ def validate(facts: dict[str, Fact],
         if fact.known == "inferred" and not fact.depends_on:
             out.append(("ERROR", f"{key} is inferred and names nothing it rests "
                                  f"on -- add depends_on"))
+        if fact.states and (fact.kind != "lifecycle" or not fact.subject):
+            out.append(("ERROR", f"{key} lists states and is not a lifecycle "
+                                 f"fact with a subject -- a state vocabulary "
+                                 f"belongs to one ability's lifecycle"))
         if fact.known == "measured" and not fact.source:
             out.append(("ERROR", f"{key} is measured and names no source -- add "
                                  f"source, so the measurement can be found"))

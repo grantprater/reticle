@@ -795,6 +795,30 @@ defers_to = ["round-entity", "agent-identity"]
 evidence = "tests/test_round_entities.py"
 
 [[entry]]
+id = "entity-event"
+question = "What did each entity do, in the one schema every consumer reads?"
+owner = "entity_events"
+role = ["lifecycle"]
+status = "partial"
+names_agents = true
+# Stage 0 of docs/ENTITY_EVENTS.md: the lanes are declared and nothing is
+# projected. Stage 1 adds `project_lane` and `EntityEvents` to `produces`,
+# `round-bounds` and `channel-disagreement` to `defers_to` as it imports them,
+# and `entity_events` to each input's `stored_consumers`; stage 3 adds the
+# consumers.
+produces = ["ENTITY_LANES", "NAME_ARBITER"]
+defers_to = ["agent-identity"]
+not_for = """
+Deciding anything. It copies what each owner stored into one schema and
+invents no key, name, time or position; a threshold, a margin or a vote
+belongs to an owner. Two owners that disagree are stored side by side in
+the ledger and the question goes back to the owner `reticle ownership`
+names. Nor is a projected event an observation: nothing stores it back as
+evidence.
+"""
+evidence = "tests/test_entity_contract.py"
+
+[[entry]]
 id = "position-belief"
 question = "Where was the player at an instant nothing observed?"
 owner = "belief"
@@ -1437,7 +1461,7 @@ modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
            "ability_capture", "ability_entities", "ability_gallery",
            "ability_phases", "events", "candidate_evidence",
            "plan", "trial", "roi_cache", "pipeline", "documents", "tiers", "clipserve",
-           "view_events", "round_view"]
+           "view_events", "round_view", "entity_contract"]
 
 [[entry]]
 id = "identity-channel-reliability"
