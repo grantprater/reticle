@@ -19,9 +19,29 @@ or as an input of a rerun, and `render` names it as accepted by waiver.
 
 A stamp is only as good as the bump: a code change that keeps its stamp is
 invisible here, as it is to `scan`'s cache check.
+
+Every stamped stream is declared
+--------------------------------
+Until 2026-09-30 `stale` compared a hand-picked list, and a stream outside it
+never showed: `team_vision` at team-vision-0.3.0 under code at 0.6.0 and
+`round_entity` at 0.8.0 under 0.9.0 both read as current on `bfad2778a372`.
+Now each stream a command stores is declared: the readers
+(`reader_streams`), the adjudications checked by hand below, and
+`derived_streams`, which names each remaining stream's stamp key, its current
+stamp, the stamps of its inputs it records, the streams it is built from, the
+command that refreshes it and how that command reads (`storage`, `cache` for
+the ROI crop cache, `decode` for the capture). `team_vision` casts its cones over the baked geometry's
+occluder table, so it is stale too when the `occluders` it stored is not the
+npz's `occ_built_by` today, as after an occluder rebuild. An identity stream is stale
+with the arbiter or with the stream it is written beside. The entity lanes
+(`entity_events`) are checked by `entity_events.lane_status`. A stream on
+disk that none of these declares is reported `undeclared`, and one written
+with no stamp at all `unstamped` (`UNSTAMPED`), so no stored stream is silent.
 """
 from __future__ import annotations
 
+import json
+import re
 from collections import defaultdict
 
 import pyarrow.parquet as pq
@@ -84,6 +104,157 @@ def reader_streams() -> list[tuple[str, str, str, str | None]]:
             ("combat_report", "combat_report", COMBAT_REPORT_VERSION, None),
             ("scoreboard", "scoreboard", SCOREBOARD_VERSION, None),
             ("ult_line", "audio", ULT_LINE_VERSION, None)]
+
+
+#: Streams a command writes with no stamp, and why; `stale` lists them as
+#: `unstamped` rather than calling them current.
+UNSTAMPED = {
+    "combat_report_rows": "written beside combat_report_identity by `reticle combat-report`, "
+                          "with no stamp of its own",
+    "ability": "written by prototypes/ability_cast.py with no version key",
+}
+
+#: Hand-checked streams whose command rereads the ROI crop cache.
+_CACHE_READERS = {"scoreboard_strip": "cache", "self_icon": "cache"}
+
+#: The streams `stale` checks by hand, before `derived_streams`.
+_HAND_CHECKED = ("death", "ult_cast", "tray_drop", "ability_shape", "scoreboard_strip",
+                 "scoreboard_presence", "ability_state", "self_icon")
+
+
+def derived_streams() -> list[dict]:
+    """Every stored adjudication and derived stream `stale` does not check by
+    hand, in the order their inputs are built.
+
+    `key` is the stamp in the stream's first row and `current` the code's.
+    `fields` maps a stamp the first row records of an input (`a.b` descends
+    a dict) to its current value; a stored None is an input not used.
+    `upstream` names the streams it is built from: when one of them is
+    stale, so is this, once that one is refreshed. `identity` streams hold
+    `adjudication.identity`'s verdicts, stamped `producer_version`, and are
+    written by `parent`'s command. `how` is what the command reads.
+    """
+    from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .lighting import LIGHTING_VERSION
+    from .minimap_diagnostics import DIAGNOSTICS_VERSION
+    from .minimap_lifecycle import LIFECYCLE_VERSION
+    from .roi_cache import ROI_CACHE_VERSION
+    from .round_entities import ROUND_ENTITY_VERSION
+    from .round_lifetimes import ROUND_LIFETIME_VERSION
+    from .stalls import STALL_VERSION
+    from .track import TRACK_VERSION
+    from .version import (ABILITY_LIGHT_VERSION, COMBAT_REPORT_ROUND_VERSION,
+                          COMBAT_REPORT_VERSION, ICON_TEARDROP_VERSION, MENU_VERSION,
+                          MINIMAP_DARK_VERSION, SMOKE_OWNER_VERSION, SMOKE_VERSION,
+                          SPIKE_CARRIER_VERSION, SPIKE_VERSION, TEAM_VISION_VERSION,
+                          TEARDROP_VERSION, TRAY_KIT_VERSION, TRAY_VERSION)
+    roi = {"roi_cache_version": ROI_CACHE_VERSION}
+    rows = [
+        {"stream": "menu_open", "key": "menu_version", "current": MENU_VERSION,
+         "command": "reticle menu {sid}", "how": "cache", "fields": roi, "upstream": ()},
+        {"stream": "spike", "key": "spike_version", "current": SPIKE_VERSION,
+         "command": "reticle spike {sid}", "how": "cache", "fields": roi, "upstream": ()},
+        {"stream": "spike_carrier", "key": "spike_carrier_version",
+         "current": SPIKE_CARRIER_VERSION, "command": "reticle spike {sid} --from-store",
+         "how": "storage", "fields": {"spike_version": SPIKE_VERSION},
+         "upstream": ("spike", "rounds", "roster")},
+        {"stream": "team_vision", "key": "team_vision_version", "current": TEAM_VISION_VERSION,
+         "command": "reticle vision {sid}", "how": "cache",
+         "fields": {**roi, "lighting_version": LIGHTING_VERSION, "track_version": TRACK_VERSION,
+                    "teardrop_version": TEARDROP_VERSION,
+                    "icon_teardrop_version": ICON_TEARDROP_VERSION,
+                    "lifecycle_version": LIFECYCLE_VERSION,
+                    "diagnostics_version": DIAGNOSTICS_VERSION, "stall_version": STALL_VERSION},
+         # The cones stop at the geometry's occluder table: the stored
+         # `occluders` must be the npz's `occ_built_by` today.
+         "occluders": "geometry_key", "upstream": ()},
+        {"stream": "round_entity", "key": "round_entity_version", "current": ROUND_ENTITY_VERSION,
+         "command": "reticle lifetimes {sid}", "how": "storage",
+         "fields": {"round_lifetime_version": ROUND_LIFETIME_VERSION,
+                    "agent_identity_version": AGENT_IDENTITY_VERSION, "menu_open": MENU_VERSION},
+         "upstream": ("ally_icon", "hud", "roster", "death", "menu_open")},
+        {"stream": "smoke", "key": "smoke_version", "current": SMOKE_VERSION,
+         "command": "reticle smokes {sid}", "how": "storage",
+         "fields": {"minimap_dark_version": MINIMAP_DARK_VERSION},
+         "upstream": ("minimap_dark", "menu_open")},
+        {"stream": "smoke_owner", "key": "smoke_owner_version", "current": SMOKE_OWNER_VERSION,
+         "command": "reticle smokes {sid}", "how": "storage",
+         "fields": {"smoke_version": SMOKE_VERSION},
+         "upstream": ("smoke", "tray_drop", "rounds")},
+        {"stream": "combat_report_round", "key": "combat_report_round_version",
+         "current": COMBAT_REPORT_ROUND_VERSION, "command": "reticle combat-report {sid}",
+         "how": "storage", "fields": {"combat_report_version": COMBAT_REPORT_VERSION},
+         "upstream": ("combat_report", "rounds", "death")},
+        {"stream": "tray_kit", "key": "tray_kit_version", "current": TRAY_KIT_VERSION,
+         "command": "reticle tray-kit {sid}", "how": "cache",
+         "fields": {"inputs.tray_fill": TRAY_VERSION, "inputs.roi_cache": ROI_CACHE_VERSION},
+         "upstream": ()},
+        {"stream": "ability_light", "key": "ability_light_version",
+         "current": ABILITY_LIGHT_VERSION, "command": "reticle ability-light {sid}",
+         "how": "decode", "fields": {"lighting_version": LIGHTING_VERSION}, "upstream": ()},
+    ]
+    for stream, parent, command, how in (
+            ("death_identity", "death", "reticle deaths {sid}", "storage"),
+            ("combat_report_identity", "combat_report_round", "reticle combat-report {sid}",
+             "storage"),
+            ("smoke_owner_identity", "smoke_owner", "reticle smokes {sid}", "storage"),
+            ("tray_kit_identity", "tray_kit", "reticle tray-kit {sid}", "cache"),
+            ("ult_cast_identity", "ult_cast", "reticle ult-cast {sid}", "storage")):
+        rows.append({"stream": stream, "key": "producer_version",
+                     "current": AGENT_IDENTITY_VERSION, "command": command, "how": how,
+                     "fields": {}, "upstream": (parent,), "identity": True})
+    return rows
+
+
+def _head(store, stream: str, sid: str, needle: bytes | None = None) -> dict | None:
+    """The first row of a stored stream (with `needle`, the first row whose
+    line holds it), without reading the rest."""
+    path_of = getattr(store, "events_path", None)
+    if path_of is None:     # a test store holding rows in memory
+        rows = store.read_events(stream, sid)
+        if needle is not None:
+            rows = [r for r in rows if needle.decode() in json.dumps(r, separators=(",", ":"))]
+        return rows[0] if rows else None
+    path = path_of(stream, sid)
+    if not path.is_file():
+        return None
+    with open(path, "rb") as f:
+        for ln in f:
+            if ln.strip() and (needle is None or needle in ln):
+                return json.loads(ln)
+    return None
+
+
+def geometry_occluders(store, key: str | None) -> str | None:
+    """The `occ_built_by` of the baked geometry `key` holds now, or None when
+    the npz or its occluder table is missing."""
+    root = getattr(store, "root", None)
+    if key is None or root is None:
+        return None
+    from . import geometry
+    path = geometry.path(key, root)
+    if not path.is_file():
+        return None
+    import numpy as np
+    with np.load(path, allow_pickle=False) as z:
+        if "occ" not in z.files:
+            return None
+        return str(z["occ_built_by"]) if "occ_built_by" in z.files else "unstamped"
+
+
+def _dig(row: dict, path: str):
+    for part in path.split("."):
+        row = row.get(part) if isinstance(row, dict) else None
+    return row
+
+
+def stored_streams(store, sid: str) -> list[str]:
+    """The event streams stored for a session, from the store's own layout."""
+    root = getattr(store, "root", None)
+    events = root / "events" if root is not None else None
+    if events is None or not events.is_dir():
+        return []
+    return sorted(d.name for d in events.iterdir() if (d / f"{sid}.jsonl").is_file())
 
 
 def stored_stamp(store, manifest: dict, stream: str) -> str | None:
@@ -237,9 +408,49 @@ def stale(store, sessions: list[str]) -> dict:
                 moved.append("roster")
             if version != current or moved:
                 derived.append({"stream": stream, "stored": version, "current": current,
-                                "inputs_moved": moved, "command": f"{command} {sid}"})
-        out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived}
+                                "inputs_moved": moved, "command": f"{command} {sid}",
+                                "how": _CACHE_READERS.get(stream, "storage")})
+        # Every other stamped stream, declared with its command.
+        moving = rescanned | {x["stream"] for x in derived}
+        for spec in derived_streams():
+            stream = spec["stream"]
+            head = (_head(store, stream, sid, b'"event_kind":"identity_distribution"') if spec.get("identity")
+                    else _head(store, stream, sid))
+            if head is None:
+                continue
+            version = head.get(spec["key"])
+            moved = sorted(k for k, v in spec["fields"].items() if _dig(head, k) not in (v, None)
+                           and not accepted(f"{stream} input {k}", _dig(head, k), v))
+            if spec.get("occluders"):
+                # A stream cast over an older occluder table, or over none
+                # where the geometry now holds one, is stale.
+                now = geometry_occluders(store, head.get(spec["occluders"]))
+                if now is not None and head.get("occluders") != now:
+                    moved.append("occluders")
+            moved += sorted(u for u in spec["upstream"] if u in moving and u not in moved)
+            behind = version != spec["current"] and not accepted(stream, version, spec["current"])
+            if behind or moved:
+                derived.append({"stream": stream, "stored": version, "current": spec["current"],
+                                "inputs_moved": moved, "how": spec["how"],
+                                "command": spec["command"].format(sid=sid)})
+                moving.add(stream)
+        # The entity lanes: the projection records each input's stamp.
+        from .entity_events import lane_status
+        lanes = lane_status(store, sid, moving)
+        derived += lanes["derived"]
+        # A stored stream no check declares is named, never silently current.
+        declared = ({s for s, *_ in reader_streams()} | set(_HAND_CHECKED)
+                    | {s["stream"] for s in derived_streams()} | _lane_streams())
+        unchecked = [{"stream": s, "why": UNSTAMPED.get(s, "undeclared: no check in plan")}
+                     for s in stored_streams(store, sid) if s not in declared]
+        out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived,
+                    "unchecked": unchecked, "held": lanes["held"]}
     return out
+
+
+def _lane_streams() -> set[str]:
+    from .entity_events import ENTITY_LANES, lane_streams
+    return {s for spec in ENTITY_LANES for s in lane_streams(spec["lane"])}
 
 
 def render(plan: dict) -> str:
@@ -263,6 +474,21 @@ def render(plan: dict) -> str:
     waived_lines = [f"waived   {stream}: {stored} accepted as {current} by waiver "
                     f"(version.STAMP_WAIVERS) on {len(sids)} sessions: {' '.join(sids)}"
                     for (stream, stored, current), sids in sorted(waived.items())]
+    unchecked: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for sid, p in plan.items():
+        for u in p.get("unchecked", []):
+            unchecked[(u["stream"], u["why"])].append(sid)
+    waived_lines += [f"unchecked {stream}: {why} on {len(sids)} sessions"
+                     for (stream, why), sids in sorted(unchecked.items())]
+    # A lane current as projected over inputs that are themselves stale: its
+    # rows wait in the ledger as `stale`, and rebuilding it now changes nothing.
+    held: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for sid, p in plan.items():
+        for h in p.get("held", []):
+            held[(h["stream"], ", ".join(h["waits_for"]))].append(sid)
+    waived_lines += [f"held     {stream}: rows held stale until {inputs} are refreshed, then "
+                     f"`reticle project <sid>` for {' '.join(sids)}"
+                     for (stream, inputs), sids in sorted(held.items())]
     if not by_channel and not derived:
         return "\n".join([f"nothing stale over {len(plan)} sessions"] + waived_lines)
     for ch, sids in sorted(by_channel.items()):
@@ -279,11 +505,16 @@ def render(plan: dict) -> str:
         lines.append(f"  accept {accept}   for {' '.join(sids)}"
                      + ("   (from the ROI crop cache where one exists)" if cached else ""))
     # Grouped by command and reason, rounds before the adjudications that read them.
-    grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
+    # `how` says what the command reads: stored rows only, the ROI crop cache,
+    # or the capture itself.
+    grouped: dict[tuple[str, str, str], list[str]] = defaultdict(list)
     for sid, d in sorted(derived, key=lambda x: x[1]["stream"] != "rounds"):
-        why = (f"{d['stored']} -> {d['current']}" if d["stored"] != d["current"]
-               else "inputs " + ", ".join(d["inputs_moved"]))
-        grouped[(d["command"].rsplit(" ", 1)[0], why)].append(sid)
-    for (command, why), sids in grouped.items():
-        lines.append(f"storage  {command} <sid>   ({why}) for {' '.join(sids)}")
+        why = "; ".join(filter(None, (
+            f"{d['stored']} -> {d['current']}" if d["stored"] != d["current"] else None,
+            "inputs " + ", ".join(d["inputs_moved"]) if d["inputs_moved"] else None)))
+        command = re.sub(rf"(?<![\w-]){re.escape(sid)}(?![\w-])", "<sid>", d["command"])
+        grouped[(d.get("how", "storage"), command,
+                 f"{d['stream']}: {why}")].append(sid)
+    for (how, command, why), sids in grouped.items():
+        lines.append(f"{how:<8} {command}   ({why}) for {' '.join(sids)}")
     return "\n".join(lines + waived_lines)

@@ -9,7 +9,7 @@ import pyarrow.parquet as pq
 
 from reticle.adjudication.death import DEATH_ADJUDICATION_VERSION
 from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
-from reticle.plan import reader_streams, render, stale
+from reticle.plan import derived_streams, reader_streams, render, stale
 from reticle.version import (ABILITY_SHAPE_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
                             ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION)
 
@@ -76,7 +76,8 @@ class PlanTests(unittest.TestCase):
     def test_current_store_is_not_stale(self):
         with tempfile.TemporaryDirectory() as d:
             plan = stale(_current_store(Path(d)), ["s"])
-            self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": [], "waived": []})
+            self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": [], "waived": [],
+                                         "unchecked": [], "held": []})
             self.assertEqual(render(plan), "nothing stale over 1 sessions")
 
     def test_unrecorded_portrait_stamp_stales_rounds_then_deaths(self):
@@ -276,6 +277,70 @@ class PlanTests(unittest.TestCase):
                 self.assertTrue(text.startswith("nothing stale over 1 sessions"))
                 self.assertIn("waived   scoreboard: scoreboard-0.12.0 accepted as "
                               "scoreboard-0.13.0 by waiver", text)
+
+
+def _declared_head(stream: str) -> dict:
+    """A first row of `stream` current in every stamp `plan` declares for it."""
+    spec = next(s for s in derived_streams() if s["stream"] == stream)
+    head = {spec["key"]: spec["current"]}
+    for path, value in spec["fields"].items():
+        *parents, leaf = path.split(".")
+        at = head
+        for part in parents:
+            at = at.setdefault(part, {})
+        at[leaf] = value
+    return head
+
+
+class DeclaredStreamTests(unittest.TestCase):
+    """`plan` once compared a hand-picked list, so `team_vision` at 0.3.0 under
+    0.6.0 and `round_entity` at 0.8.0 under 0.9.0 read as current."""
+
+    def test_an_old_team_vision_and_round_entity_are_named_with_their_commands(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            for stream in ("team_vision", "round_entity"):
+                store.events[stream + ":rows"] = [_declared_head(stream)]
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            store.events["team_vision:rows"][0]["team_vision_version"] = "team-vision-0.0.1"
+            store.events["round_entity:rows"][0]["round_entity_version"] = "round-entity-0.0.1"
+            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            self.assertEqual((derived["team_vision"]["command"], derived["team_vision"]["how"]),
+                             ("reticle vision s", "cache"))
+            self.assertEqual((derived["round_entity"]["command"], derived["round_entity"]["how"]),
+                             ("reticle lifetimes s", "storage"))
+            text = render(stale(store, ["s"]))
+            self.assertIn("cache    reticle vision <sid>   (team_vision: team-vision-0.0.1 -> ",
+                          text)
+            self.assertIn("storage  reticle lifetimes <sid>", text)
+
+    def test_a_stale_ally_icon_holds_round_entity_behind_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["round_entity:rows"] = [_declared_head("round_entity")]
+            store.events["ally_icon"] = [{"v": "ally-icon-0.0.1"}]
+            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            self.assertEqual(derived["round_entity"]["inputs_moved"], ["ally_icon"])
+
+    def test_a_cone_cast_over_another_occluder_table_is_stale(self):
+        import numpy as np
+        from reticle import geometry
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            path = geometry.path("m__p", d)
+            path.parent.mkdir(parents=True)
+            np.savez(path, occ=np.zeros((2, 2), bool), occ_built_by=np.array("occluders-2.0.0"))
+            head = {**_declared_head("team_vision"), "geometry_key": "m__p",
+                    "occluders": "occluders-2.0.0"}
+            store.events["team_vision:rows"] = [head]
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            head["occluders"] = "occluders-1.0.0"
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
+                             [("team_vision", ["occluders"])])
+            head["occluders"] = None      # cast before the geometry held a table
+            self.assertEqual(stale(store, ["s"])["s"]["derived"][0]["inputs_moved"],
+                             ["occluders"])
 
 
 if __name__ == "__main__":

@@ -67,6 +67,17 @@ REVIVE_SLACK_MS = 700.0
 REVIVE_ROSTER_MS = 3000.0
 
 
+#: Two observations of one entity further apart than this leave a gap: the
+#: entity is not observed between them (an entity row's `gaps`).
+GAP_MS = 150.0
+
+
+def track_gaps(times) -> list[tuple[float, float]]:
+    """`(last observed, next observed)` for each gap in one entity's sorted
+    observation times: the spans nothing observed it."""
+    return [(a, b) for a, b in zip(times, times[1:]) if b - a > GAP_MS]
+
+
 def _observation(icon: dict) -> dict:
     r = float(icon["r"])
     # New reader revisions carry adjudication's family. Historical events
@@ -284,7 +295,7 @@ def _piece_bodies(body, pieces, verdicts, ids, session_id):
         gaps = [b - a for a, b in zip(ts, ts[1:])]
         row = {**body, "id": pid, "segment_id": body["id"], "piece_index": j,
                "pieces_of_segment": len(ids), "first_seen_ms": ts[0], "last_seen_ms": ts[-1],
-               "observations": len(ts), "gaps": sum(g > 150 for g in gaps),
+               "observations": len(ts), "gaps": len(track_gaps(ts)),
                "max_gap_ms": max(gaps, default=0),
                "agent": v["agent"], "identity_status": v["status"],
                "teammate_key": f"{session_id}:teammate:{v['agent']}" if v["agent"] else None,

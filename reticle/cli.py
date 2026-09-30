@@ -3064,6 +3064,40 @@ def cmd_plan(args) -> int:
     return 0
 
 
+def cmd_project(args) -> int:
+    """Project entity lanes from storage (`entity_events.project_lane`): one
+    consumer file and one ledger per lane, validated by `entity_contract`.
+    Decodes nothing and decides nothing; records `entity_events/resolution`."""
+    from . import metrics
+    from .entity_events import LANE_VERSIONS, PROJECTED, project_lane, stale_inputs
+    from .entity_contract import ENTITY_CONTRACT_VERSION
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    lanes = args.lane or list(PROJECTED)
+    stale = stale_inputs(store, sid)
+    for lane in lanes:
+        s = project_lane(store, sid, lane, stale=stale)
+        standings = " ".join(f"{k[len('ledger_'):]} {v}" for k, v in s.items()
+                             if k.startswith("ledger_") and k != "ledger_rows")
+        print(f"{sid} {lane}: {s['consumer_rows']} consumer rows ({s['consumer_entities']} "
+              f"entities, {s['consumer_events']} events, {s['coverage_rows']} coverage), "
+              f"{s['ledger_rows']} ledger rows ({standings or 'none'}); resolved share "
+              f"{s['resolved_share']}, debt share {s['debt_share']}"
+              + (f", estimate debt {s['estimate_debt_spans']} spans "
+                 f"{s['estimate_debt_s']} s" if s["estimate_debt_spans"] else "")
+              + (f"; held stale on {', '.join(s['held_inputs'])}" if s["held_inputs"] else ""))
+        if not args.no_metric:
+            values = {k: v for k, v in s.items() if k not in ("lane", "held_inputs")}
+            metrics.record(tool="entity_events", part=f"resolution/{lane}", session=sid,
+                           values=values,
+                           deps={"lane_version": LANE_VERSIONS[lane],
+                                 "contract": ENTITY_CONTRACT_VERSION},
+                           context={"held_inputs": s["held_inputs"],
+                                    "stale": {k: stale[k] for k in s["held_inputs"]}},
+                           log_path=Path(store.root) / "notes" / "metrics.jsonl")
+    return 0
+
+
 def cmd_trial(args) -> int:
     """One reader over part of one session, diffed against the stored streams.
     Writes nothing. `--from cache` decodes nothing."""
@@ -4984,6 +5018,15 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("plan", help="stale stored streams and the least work that refreshes them")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_plan)
+
+    s = sub.add_parser("project", help="project entity lanes from storage: a consumer file "
+                                       "and a ledger per lane (no video)")
+    s.add_argument("session")
+    s.add_argument("--lane", action="append", choices=("round_entity", "death", "spike"),
+                   help="a lane to project; repeat for more (default: every built lane)")
+    s.add_argument("--no-metric", action="store_true",
+                   help="do not record entity_events/resolution")
+    s.set_defaults(func=cmd_project)
 
     s = sub.add_parser("trial", help="rerun one reader on stored windows and diff it (writes nothing)")
     s.add_argument("session", nargs="?")
