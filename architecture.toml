@@ -27,7 +27,7 @@
 
 [layers]
 order = ["foundation", "source", "primitives", "readers", "orchestration",
-         "adjudication", "entities", "delivery"]
+         "adjudication", "entities", "consumers", "delivery"]
 
 [foundation]
 claim = "no siblings above the language and the store's own vocabulary"
@@ -76,6 +76,10 @@ claim = "lifecycle events, compound episodes, review and coaching hypotheses"
 modules = ["ability_capture", "ability_entities", "ability_gallery", "round_entities",
            "ability_phases", "coaching", "review", "overlay", "team_vision", "status",
            "fidelity", "doctor", "plan"]
+
+[consumers]
+claim = "read only emitted events and stored rounds; call no reader, tracker or adjudicator, and decide nothing"
+modules = ["view_events", "round_view"]
 
 [delivery]
 claim = "the command surface, and nothing else may import it"

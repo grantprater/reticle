@@ -12,6 +12,7 @@
     reticle verify  [SESSION]                 check HUD reads against domain invariants
     reticle verify  --tier fast               known answers on a few sessions, no decode
     reticle overlay [SESSION]                 render detections onto the video
+    reticle view    SESSION --round N         play a round with its stored events drawn
     reticle kd      [SESSION]                 running K/D per round, to check against the scoreboard
     reticle board   [SESSION]                 read the Tab scoreboard and score our K/D against it
     reticle economy FACTS.json                apply explicit facts to the credit ledger
@@ -2265,6 +2266,18 @@ def cmd_rounds(args) -> int:
                 print(f"    {f['fact']:24s} {f['n']:3d} {f['rate'] * 100:5.1f}% "
                       f"{f['lift'] * 100:+6.1f}")
     return 0
+
+
+def cmd_view(args) -> int:
+    """Play a round with only its stored events drawn: an event consumer.
+
+    `round_view` reads the stored streams and the rounds and nothing else;
+    `--gaps` lists the fields each stream lacks against its owner.
+    """
+    from .round_view import main
+
+    store = Store(args.store)
+    return main(args, store, _resolve_session(store, args.session))
 
 
 def cmd_lifetimes(args) -> int:
@@ -4903,6 +4916,26 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--min-margin", type=float, default=0.05)
     s.add_argument("--out", default=None)
     s.set_defaults(func=cmd_overlay)
+
+    s = sub.add_parser("view", help="play a round with its stored events drawn (no reader runs)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--round", type=int, default=None, help="round number from the stored rounds")
+    s.add_argument("--start", type=float, default=0.0, help="seconds into the round to open at")
+    s.add_argument("--seconds", type=float, default=None, help="window length (default: the whole round)")
+    s.add_argument("--gaps", action="store_true", help="print the fields each stream lacks, and exit")
+    s.add_argument("--summary", action="store_true", help="print the window's items per stream, and exit")
+    s.add_argument("--shot", default=None, help="seconds into the window, comma-separated: write PNGs, no window")
+    s.add_argument("--shot-dir", default=None, help="where screenshots go (default <store>/overlays/round_view)")
+    s.add_argument("--layers", default=None, help="with --shot: layer keys or names to draw (default all)")
+    s.add_argument("--labels", default=None, help="marks directory (default <store>/labels/round_review)")
+    s.add_argument("--scale", type=float, default=None, help="display scale (default: fit the screen)")
+    s.add_argument("--no-audio", action="store_true", help="play without sound")
+    s.add_argument("--volume", type=int, default=100, help="sound volume 0-100 (default 100)")
+    s.add_argument("--cpu", action="store_true", help="decode on the CPU instead of NVDEC")
+    s.add_argument("--normal-priority", action="store_true", help="do not drop to Below Normal priority")
+    s.add_argument("--autoplay", action="store_true", help="start playing on open")
+    s.add_argument("--quit-after", type=float, default=None, help="close after this many seconds (smoke test)")
+    s.set_defaults(func=cmd_view)
 
     s = sub.add_parser("lifetimes", help="round entity lifetimes from stored ally icons (no video)")
     s.add_argument("session", nargs="?")
