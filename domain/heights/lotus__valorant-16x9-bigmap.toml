@@ -1,0 +1,347 @@
+# Occluder heights on lotus__valorant-16x9-bigmap: DATA, not facts (domain/*.toml globs no subdirectory).
+# Model: caster eye height = floor elevation + a state offset (standing < jumping < boosted);
+# an occluder blocks a ray iff the eye is below the occluder's top. Each [[inequality]] is one
+# observed block or pass; each [[occluder]] carries the class the rows imply per caster floor:
+# short = blocks standing, passes jumping; tall = blocks both; does_not_block = passes standing.
+# bbox is x0, y0, x1, y1 in baked px. Written by prototypes/lotus_elevation.py write_table;
+# version lotus-elevation-0.1.0; source 2026-09-30_13-25-33 (C:/Users/grant/Videos/2026-09-30 13-25-33.mp4, not ingested).
+# 63 baked boxes; every box not listed is unconstrained.
+
+[[floor]]
+id = "rung0"
+located = "unshaded floor (shade rung 0) at the caster; every Lotus jump was from it"
+
+[[occluder]]
+id = "c-mound"
+where = "C Mound"
+bbox = [111, 297, 150, 330]
+baked = "shade rung 1 region; dotted outline baked as WALL; no line at the crest"
+class = "short"
+class_by_floor = {"rung0" = "short"}
+jumps = [18.4, 22.0, 25.0, 28.7]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[occluder]]
+id = "spawn-mid-box"
+where = "Attacker Side Spawn, the box mid-room"
+bbox = [241, 355, 251, 363]
+baked = "BOX (box_id 8) with a rung-1 top; outline partly WALL"
+class = "short"
+class_by_floor = {"rung0" = "short"}
+jumps = [43.45, 45.65, 47.65, 49.45, 51.25]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[occluder]]
+id = "c-lobby-corner-box"
+where = "C Lobby, the box at the wall end by the door"
+bbox = [142, 348, 151, 357]
+baked = "BOX (box_id 60) with a rung-1 top; outline WALL"
+class = "tall"
+class_by_floor = {"rung0" = "tall"}
+jumps = [32.4]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[occluder]]
+id = "c-lobby-rect-box"
+where = "C Lobby, the box at the raised rectangle's lower left"
+bbox = [178, 373, 184, 392]
+baked = "BOX on right and bottom (box_id 63-65), WALL on the left edge"
+class = "tall"
+class_by_floor = {"rung0" = "tall"}
+jumps = [34.95, 37.35]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[occluder]]
+id = "c-lobby-rect-edge"
+where = "C Lobby, the raised rectangle's left edge line"
+bbox = [176, 352, 178, 372]
+baked = "WALL line; the rectangle is shade rung 1 (a step-up platform)"
+class = "does_not_block"
+class_by_floor = {"rung0" = "does_not_block"}
+jumps = [34.95, 37.35]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-mound"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 18.25
+caster = [114.9, 273.9, 75.5]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-mound"
+caster_floor = "rung0"
+state = "jumping"
+blocked = false
+t = 18.4
+caster = [114.9, 273.9, 75.5]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-mound"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 21.85
+caster = [142.0, 287.3, 131.1]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-mound"
+caster_floor = "rung0"
+state = "jumping"
+blocked = false
+t = 22.0
+caster = [142.0, 287.3, 131.1]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-mound"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 24.85
+caster = [115.1, 285.8, 63.0]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-mound"
+caster_floor = "rung0"
+state = "jumping"
+blocked = false
+t = 25.0
+caster = [115.1, 285.8, 63.0]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-mound"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 28.55
+caster = [150.3, 301.0, 155.2]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-mound"
+caster_floor = "rung0"
+state = "jumping"
+blocked = false
+t = 28.7
+caster = [150.3, 301.0, 155.2]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "spawn-mid-box"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 43.3
+caster = [211.3, 410.5, -57.1]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "spawn-mid-box"
+caster_floor = "rung0"
+state = "jumping"
+blocked = false
+t = 43.45
+caster = [211.3, 410.5, -57.1]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "spawn-mid-box"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 45.5
+caster = [211.3, 410.5, -57.1]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "spawn-mid-box"
+caster_floor = "rung0"
+state = "jumping"
+blocked = false
+t = 45.65
+caster = [211.3, 410.5, -57.1]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "spawn-mid-box"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 47.5
+caster = [211.2, 410.5, -57.8]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "spawn-mid-box"
+caster_floor = "rung0"
+state = "jumping"
+blocked = false
+t = 47.65
+caster = [211.2, 410.5, -57.8]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "spawn-mid-box"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 49.3
+caster = [211.2, 410.5, -57.8]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "spawn-mid-box"
+caster_floor = "rung0"
+state = "jumping"
+blocked = false
+t = 49.45
+caster = [211.2, 410.5, -57.8]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "spawn-mid-box"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 51.1
+caster = [211.2, 410.4, -58.5]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "spawn-mid-box"
+caster_floor = "rung0"
+state = "jumping"
+blocked = false
+t = 51.25
+caster = [211.2, 410.4, -58.5]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-lobby-corner-box"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 32.25
+caster = [129.1, 342.6, 32.6]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-lobby-corner-box"
+caster_floor = "rung0"
+state = "jumping"
+blocked = true
+t = 32.4
+caster = [129.1, 342.6, 32.6]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-lobby-rect-box"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 34.8
+caster = [131.9, 366.0, 19.2]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-lobby-rect-box"
+caster_floor = "rung0"
+state = "jumping"
+blocked = true
+t = 34.95
+caster = [131.9, 366.0, 19.2]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-lobby-rect-box"
+caster_floor = "rung0"
+state = "standing"
+blocked = true
+t = 37.2
+caster = [156.9, 359.6, 35.5]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-lobby-rect-box"
+caster_floor = "rung0"
+state = "jumping"
+blocked = true
+t = 37.35
+caster = [156.9, 359.6, 35.5]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-lobby-rect-edge"
+caster_floor = "rung0"
+state = "standing"
+blocked = false
+t = 34.8
+caster = [131.9, 366.0, 19.2]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-lobby-rect-edge"
+caster_floor = "rung0"
+state = "jumping"
+blocked = false
+t = 34.95
+caster = [131.9, 366.0, 19.2]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-lobby-rect-edge"
+caster_floor = "rung0"
+state = "standing"
+blocked = false
+t = 37.2
+caster = [156.9, 359.6, 35.5]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "c-lobby-rect-edge"
+caster_floor = "rung0"
+state = "jumping"
+blocked = false
+t = 37.35
+caster = [156.9, 359.6, 35.5]
+source = "2026-09-30_13-25-33"
+version = "lotus-elevation-0.1.0"

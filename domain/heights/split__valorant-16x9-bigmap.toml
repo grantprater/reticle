@@ -1,0 +1,253 @@
+# Occluder heights on split__valorant-16x9-bigmap: DATA, not facts (domain/*.toml globs no subdirectory).
+# Model: caster eye height = floor elevation + a state offset (standing < jumping < boosted);
+# an occluder blocks a ray iff the eye is below the occluder's top. Each [[inequality]] is one
+# observed block or pass; each [[occluder]] carries the class the rows imply per caster floor:
+# short = blocks standing, passes jumping; tall = blocks both; does_not_block = passes standing.
+# bbox is x0, y0, x1, y1 in baked px. Written by prototypes/lotus_elevation.py write_table;
+# version lotus-elevation-0.1.0; source 2026-09-30_13-37-46 (C:/Users/grant/Videos/2026-09-30 13-37-46.mp4, not ingested).
+# 55 baked boxes; every box not listed is unconstrained.
+
+[[floor]]
+id = "b-raised"
+located = "B plant zone east of the notch in its west edge (x 53-60, y 169-188); located by the player, bounded by the notch and the step-up the camera shows at 42.05 s; no shade marks it"
+
+[[floor]]
+id = "b-below-stairs"
+located = "floor west of the notch, x 49-52 at y 177-179; the player's 'below the stairs'"
+
+[[floor]]
+id = "b-lower-left"
+located = "unshaded floor at (34, 216), south-west of the plant zone"
+
+[[occluder]]
+id = "b-far-left-box"
+where = "B Site, the box/platform at the far left, by B Back"
+bbox = [17, 175, 37, 185]
+baked = "BOX (box_id 17) with a rung-1 top; outline partly WALL"
+class = "by_floor"
+class_by_floor = {"b-raised" = "short", "b-below-stairs" = "tall"}
+jumps = [32.0, 33.3, 34.65, 35.95, 37.2, 43.4, 41.3, 47.85]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[occluder]]
+id = "b-lower-box"
+where = "B Site, the small box at the corridor's upper edge, seen from the lower floor"
+bbox = [79, 204, 88, 214]
+baked = "BOX (box_id 2) with a rung-1 top; outline partly WALL"
+class = "tall"
+class_by_floor = {"b-lower-left" = "tall"}
+jumps = [58.75]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[occluder]]
+id = "b-corridor-east-line"
+where = "B Site, the white line at the corridor's east end"
+bbox = [120, 216, 121, 231]
+baked = "WALL line; no shade"
+class = "does_not_block"
+class_by_floor = {"b-lower-left" = "does_not_block"}
+jumps = [58.75]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "standing"
+blocked = true
+t = 31.85
+caster = [91.4, 173.9, 164.5]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "jumping"
+blocked = false
+t = 32.0
+caster = [91.4, 173.9, 164.5]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "standing"
+blocked = true
+t = 33.15
+caster = [91.4, 173.9, 164.5]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "jumping"
+blocked = false
+t = 33.3
+caster = [91.4, 173.9, 164.5]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "standing"
+blocked = true
+t = 34.5
+caster = [91.4, 173.9, 163.7]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "jumping"
+blocked = false
+t = 34.65
+caster = [91.4, 173.9, 163.7]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "standing"
+blocked = true
+t = 35.8
+caster = [91.4, 174.0, 164.5]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "jumping"
+blocked = false
+t = 35.95
+caster = [91.4, 174.0, 164.5]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "standing"
+blocked = true
+t = 37.05
+caster = [91.4, 174.0, 164.1]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "jumping"
+blocked = false
+t = 37.2
+caster = [91.4, 174.0, 164.1]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "standing"
+blocked = true
+t = 43.25
+caster = [70.4, 171.1, 173.0]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-raised"
+state = "jumping"
+blocked = false
+t = 43.4
+caster = [70.4, 171.1, 173.0]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-below-stairs"
+state = "standing"
+blocked = true
+t = 41.15
+caster = [51.9, 177.0, 174.5]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-below-stairs"
+state = "jumping"
+blocked = true
+t = 41.3
+caster = [51.9, 177.0, 174.5]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-below-stairs"
+state = "standing"
+blocked = true
+t = 47.7
+caster = [49.5, 179.3, -174.7]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-far-left-box"
+caster_floor = "b-below-stairs"
+state = "jumping"
+blocked = true
+t = 47.85
+caster = [49.5, 179.3, -174.7]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-lower-box"
+caster_floor = "b-lower-left"
+state = "standing"
+blocked = true
+t = 58.6
+caster = [34.0, 216.0, 1.1]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-lower-box"
+caster_floor = "b-lower-left"
+state = "jumping"
+blocked = true
+t = 58.75
+caster = [34.0, 216.0, 1.1]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-corridor-east-line"
+caster_floor = "b-lower-left"
+state = "standing"
+blocked = false
+t = 58.6
+caster = [34.0, 216.0, 1.1]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"
+
+[[inequality]]
+occluder = "b-corridor-east-line"
+caster_floor = "b-lower-left"
+state = "jumping"
+blocked = false
+t = 58.75
+caster = [34.0, 216.0, 1.1]
+source = "2026-09-30_13-37-46"
+version = "lotus-elevation-0.1.0"

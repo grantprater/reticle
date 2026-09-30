@@ -2647,3 +2647,57 @@ cannot see samples it never heard twice, and the clip's reverb and mix lower
 duplicate scores
 """
 see = ["abilities/footstep-surface-variants", "abilities/footstep-audio-loop-belief"]
+
+[jett-updraft-lifts-above-jump]
+claim = """
+Jett's Updraft lifts her above the height a jump reaches, so from the floor
+she can see over a box that blocks a jumping player. How far above is not
+recorded.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "jett:updraft"
+source = "the player, 2026-09-30 (chat), naming the movement abilities that see over tall boxes"
+use = """
+a boosted caster state for the height model
+[domain:minimap/boxes-block-unless-raised]: a box tall to a jump may pass
+while Updraft lifts the caster. No magnitude: never infer one by analogy
+"""
+see = ["abilities/waylay-vertical-lifts-above-jump", "abilities/raze-satchel-lifts-above-jump"]
+
+[waylay-vertical-lifts-above-jump]
+claim = """
+Waylay's vertical movement ability lifts her above the height a jump reaches,
+so from the floor she can see over a box that blocks a jumping player. How
+far above is not recorded.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "waylay:vertical"
+source = "the player, 2026-09-30 (chat), naming the movement abilities that see over tall boxes"
+use = """
+a boosted caster state for the height model
+[domain:minimap/boxes-block-unless-raised]. The ability's name and slot are
+not recorded here; ask the player before keying a detector to it
+"""
+see = ["abilities/jett-updraft-lifts-above-jump", "abilities/raze-satchel-lifts-above-jump"]
+
+[raze-satchel-lifts-above-jump]
+claim = """
+A Raze Blast Pack (satchel) launch lifts her above the height a jump reaches,
+so from the floor she can see over a box that blocks a jumping player. How
+far above is not recorded.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "raze:blast-pack"
+source = "the player, 2026-09-30 (chat), naming the movement abilities that see over tall boxes"
+use = """
+a boosted caster state for the height model
+[domain:minimap/boxes-block-unless-raised]. No magnitude: never infer one by
+analogy
+"""
+see = ["abilities/jett-updraft-lifts-above-jump", "abilities/waylay-vertical-lifts-above-jump"]
