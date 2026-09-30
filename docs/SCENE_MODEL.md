@@ -485,6 +485,26 @@ over all, [metric:scene_stack_eval_v2/465-ally@5822b6646448+a06f04a0059f#stacked
 ones. 0.2.0's stacked joint median, [metric:scene_stack_eval_v2/465-ally@5822b6646448+a06f04a0059f#stacked_joint_median_abs_deg_on_td_read=2.485],
 only coincides with the first.
 
+### Where the unexplained light comes from
+
+`prototypes/unexplained_light.py` rebuilds each fitted 0.3.0 scene (all
+[metric:unexplained_light/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#reproduced_n=99]
+reproduce the stored count) and tests two causes against a control: compared
+floor predicted unlit that reads unlit. Earlier cones are the frame's team
+teardrops at t-250 and t-500 ms, cast over the whole widget. They cover
+[metric:unexplained_light/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#early_share=0.1859]
+of unexplained pixels against
+[metric:unexplained_light/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#early_share_control=0.113]
+of the control: some excess, too little to call lingering the main cause, and
+a lower bound, since teardrops rarely read inside stacks. Team icons outside
+the scene, recast over the whole widget, explain
+[metric:unexplained_light/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#off_share=0.0058]:
+not a cause. The player's other candidates, a teammate who just died
+[domain:minimap/dead-teammate-light-belief] and the spike
+[domain:minimap/spike-casts-no-light-belief], are untested; the store's
+`analysis/unexplained-light-20260929/sheet_331.png` and `sheet_465.png`
+show the whole widget for the player to judge. Not wired.
+
 ## What this plan does not settle
 
 - The draw order between icons is fitted, not known; stage 1 does not
