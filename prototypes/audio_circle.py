@@ -3,16 +3,26 @@ r"""Measure the minimap's self audio circle and score it as a witness of the pla
     .\.venv\Scripts\python.exe prototypes\audio_circle.py scan SESSION [--t0 S --t1 S]
     .\.venv\Scripts\python.exe prototypes\audio_circle.py score [--round N] [--figure N] [--sheet] [--record]
     .\.venv\Scripts\python.exe prototypes\audio_circle.py radius SESSION TAG [--record]
+    .\.venv\Scripts\python.exe prototypes\audio_circle.py score --per-frame [--record]
+    .\.venv\Scripts\python.exe prototypes\audio_circle.py frames SESSION T0 T1 [--fit]
 
 Why this exists
 ---------------
-The player, 2026-09-29, named a pale circle round the self icon, drawn on
-every sound the player makes, lingering after it, at one radius whatever the
-sound, for the player's own icon only [domain:minimap/self-audio-circle].
-This file measures its radius and time course and scores its onsets against
-`sound_match.py`'s bank detections on the Iso capture (4f207c0c4e39,
-`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`). Predictions and outcomes
-are in the store's `notes/predictions.jsonl` under `audio-circle-20260929`.
+The player, 2026-09-29, named a pale circle round the self icon, drawn for
+the player's own icon only [domain:minimap/self-audio-circle], and first
+believed it drawn on every own sound at one radius. On 2026-09-30 the player
+named the larger of its two sizes the spike radius and explained both: the
+circle marks own footsteps and reloads, not shots or movement; a reload
+draws the smaller circle while no step sounds, and a step's circle
+supersedes it; a player can move at full speed without a step sounding
+[domain:abilities/silent-stepping]. Whether the minimap draws the spike's
+explosion is a separate belief
+[domain:minimap/spike-explosion-drawn-belief]. This file measures the
+circle's radius and time course and scores it against `sound_match.py`'s bank
+detections, the HUD and the self track's speed on the Iso capture
+(4f207c0c4e39, `C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`). Predictions
+and outcomes are in the store's `notes/predictions.jsonl` under
+`audio-circle-20260929` and `audio-circle-running-20260930`.
 
 What it reads
 -------------
@@ -32,9 +42,51 @@ on a grid). `score` finds the radius from the median curve, marks the circle
 drawn by hysteresis on that score, and fits exact circles on drawn frames
 with `clove_circle.fit_circle`.
 
+Results (2026-09-30, `score --per-frame`)
+-----------------------------------------
+Every own-view drawn frame is fitted, not one frame per onset; presence is
+gated on a 66-78 px band, since the any-radius argmax also finds map edges
+and the widget's fixed border circle.
+
+Two sizes. The footstep circle measures [metric:audio_circle/per-frame@4f207c0c4e39#large_r_median=74.86] px, sd
+[metric:audio_circle/per-frame@4f207c0c4e39#large_r_sd=0.16], over [metric:audio_circle/per-frame@4f207c0c4e39#large_fits=1793] frames. The reload circle
+measures [metric:audio_circle/per-frame@4f207c0c4e39#small_r_median=69.14] px, sd [metric:audio_circle/per-frame@4f207c0c4e39#small_r_sd=0.43], over
+[metric:audio_circle/per-frame@4f207c0c4e39#small_fits=41] frames in [metric:audio_circle/per-frame@4f207c0c4e39#small_runs=9] runs; polar unwraps
+confirm a ring at 69-70 px in four of them outside 903-905 s. The earlier sd
+0.169 sampled one fit per clean onset seeded at 75 px, and those onsets
+missed the small runs. Within a run the radius holds (median change
+[metric:audio_circle/per-frame@4f207c0c4e39#run_abs_last_minus_second_median=0.09] px); at 903.8-905.3 s, where the
+player was reloading or changing guns, the sizes alternate between frames as
+steps supersede the reload. Every small fit lies within 2.5 s of a HUD
+magazine refill ([metric:audio_circle/per-frame@4f207c0c4e39#small_fits_within_2_5s_of_refill=41]): refills with
+it [metric:audio_circle/per-frame@4f207c0c4e39#refills_with_small=6] of [metric:audio_circle/per-frame@4f207c0c4e39#refills=17], refill-free control
+windows [metric:audio_circle/per-frame@4f207c0c4e39#refill_control_with_small=0] of
+[metric:audio_circle/per-frame@4f207c0c4e39#refill_control_windows=218]; that association was found after looking,
+before the player's answer. Split by the bank's own footstep detections in
+the same window, refills show the reload circle
+[metric:audio_circle/per-frame@4f207c0c4e39#refills_no_footstep_small=4] of [metric:audio_circle/per-frame@4f207c0c4e39#refills_no_footstep=8] with no
+detected step and [metric:audio_circle/per-frame@4f207c0c4e39#refills_footstep_small=2] of
+[metric:audio_circle/per-frame@4f207c0c4e39#refills_footstep=9] with one: the direction the player's rule
+predicts, on few refills and a bank that misnames many match sounds.
+
+Movement. Own-view frames are drawn [metric:audio_circle/per-frame@4f207c0c4e39#frames_still_share=0.114] of
+[metric:audio_circle/per-frame@4f207c0c4e39#frames_still_n=889] still (under 2 stored px/s),
+[metric:audio_circle/per-frame@4f207c0c4e39#frames_slow_share=0.243] of [metric:audio_circle/per-frame@4f207c0c4e39#frames_slow_n=2188] at 2-8 px/s and
+[metric:audio_circle/per-frame@4f207c0c4e39#frames_moving_share=0.635] of [metric:audio_circle/per-frame@4f207c0c4e39#frames_moving_n=1517] at 8-40
+px/s. Own footsteps fall with it [metric:audio_circle/per-frame@4f207c0c4e39#bank_footstep_moving_drawn=61] of
+[metric:audio_circle/per-frame@4f207c0c4e39#bank_footstep_moving_n=66] moving and
+[metric:audio_circle/per-frame@4f207c0c4e39#bank_footstep_still_drawn=4] of [metric:audio_circle/per-frame@4f207c0c4e39#bank_footstep_still_n=19] still.
+Speed predicts the circle only because moving usually steps. The
+disagreements with "only while running" are in
+`analysis/audio-circle-running-20260930/disagreements.jsonl`, and the
+player's answers explain them: [metric:audio_circle/per-frame@4f207c0c4e39#dis_moving_window_without_circle=29]
+moving one-second windows with no circle fit silent stepping, and at
+1934.9-1935.4 s the player stepped throughout the firing while the circle
+lags the sound. None is checked frame by frame.
+
 Results (2026-09-29)
 --------------------
-Radius. On the Iso capture's Split widget (331 baked px) the fitted radius is
+Radius (superseded above: the circle has two sizes). On the Iso capture's Split widget (331 baked px) the fitted radius is
 [metric:audio_circle/score@4f207c0c4e39#r_baked_median=74.86] px, sd
 [metric:audio_circle/score@4f207c0c4e39#r_baked_sd=0.169], over
 [metric:audio_circle/score@4f207c0c4e39#radius_fits_good=86] onsets;
@@ -89,7 +141,8 @@ the player's own view and
 spectating.
 
 Spike. The one cached detonation (round 16, about 1581.4 s) draws no circle
-on the minimap, so the explosion radius cannot be compared here.
+on the minimap in a spectated view, so it neither shows nor refutes a drawn
+explosion [domain:minimap/spike-explosion-drawn-belief].
 """
 from __future__ import annotations
 
@@ -863,6 +916,486 @@ def record_radius(res: dict) -> None:
     print(f"recorded under audio_circle/radius-{res['span']}@{res['session']}")
 
 
+# ---------------------------------------------------------------- per frame (2026-09-30)
+
+PF_VERSION = "audio-circle-perframe-0.1.0"
+PF_OUT = STORE.root / "analysis" / "audio-circle-running-20260930"
+#: Sheet tiles: baked px either side of the self icon, and the upscale (the Iso
+#: widget is 1.15x the baked one, so x2 never shows fewer pixels than the capture).
+SHEET_HALF, SHEET_Z = 160, 2
+#: The radii the presence tests gate on, baked px: both fitted sizes (about 69 and
+#: 75 on the Iso match, `score --per-frame`) with the ring kernel's slack. Set from
+#: this run's fits; a third size outside it would read as absent.
+SIZE_BAND = (66.0, 78.0)
+#: Between the two fitted sizes, baked px.
+SIZE_CUT = 72.0
+
+
+def frames_sheet(sid: str, t0: float, t1: float, fit: bool = False, cols: int = 2) -> Path:
+    """Every cached frame between t0 and t1 s round the self icon: the raw
+    baked-frame crop and its static-subtracted grey side by side, upscaled
+    SHEET_Z, each captioned with its time, view and stored self speed. With
+    `fit`, ticks mark the per-frame fit just outside the circle on the
+    subtracted tile only; the raw tile is never drawn on."""
+    import sound_match as sm
+    S = Session(sid)
+    held = [t for t in S.cache.holds() if t0 * 1000 <= t <= t1 * 1000]
+    spans = sm.pov_spans() if sid == ISO else []
+    track = sm.self_track() if sid == ISO else None
+    H, Z = SHEET_HALF, SHEET_Z
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    pairs, last = [], None
+    for tm, crop in S.crops(held):
+        me, _ = S.self_at(tm)
+        where = "self stored" if me else ("self held" if last else "no self: widget centre")
+        me = me or last or (crop.shape[1] / 2, crop.shape[0] / 2)
+        last = me
+        x0, y0 = int(round(me[0])), int(round(me[1]))
+        d = S.diff(crop)
+        raw = cv2.copyMakeBorder(crop, H, H, H, H, cv2.BORDER_CONSTANT)[y0:y0 + 2 * H, x0:x0 + 2 * H]
+        g = np.clip(128 + 2 * d, 0, 255).astype(np.uint8)
+        g = cv2.copyMakeBorder(g, H, H, H, H, cv2.BORDER_CONSTANT)[y0:y0 + 2 * H, x0:x0 + 2 * H]
+        raw = cv2.resize(raw, None, fx=Z, fy=Z, interpolation=cv2.INTER_NEAREST)
+        g = cv2.cvtColor(cv2.resize(g, None, fx=Z, fy=Z, interpolation=cv2.INTER_NEAREST), cv2.COLOR_GRAY2BGR)
+        note = ""
+        if fit:
+            f = frame_fit(S, crop, me)
+            if f is not None:
+                cx, cy = (f["cx"] - x0 + H) * Z, (f["cy"] - y0 + H) * Z
+                col = (0, 0, 255) if f["best"] >= T_HI else (160, 160, 160)
+                for ang in np.deg2rad(np.arange(0, 360, 30.0)):
+                    p0 = (int(cx + (f["r"] + 4) * Z * np.cos(ang)), int(cy + (f["r"] + 4) * Z * np.sin(ang)))
+                    p1 = (int(cx + (f["r"] + 8) * Z * np.cos(ang)), int(cy + (f["r"] + 8) * Z * np.sin(ang)))
+                    cv2.line(g, p0, p1, col, 2, cv2.LINE_AA)
+                note = f"  ring {f['best']:.1f} argmax r {f['r_arg']:.0f} fit r {f['r']:.1f}"
+        pov = sm.pov_at(spans, tm / 1000) if spans else None
+        v = sm.speed_at(track, tm / 1000) if track is not None else None
+        cap = (f"{tm / 1000:.3f} s  {pov or 'no'} view  speed "
+               + ("?" if v is None else f"{v:.1f}") + f"  {where}" + note)
+        pair = np.hstack([raw, np.full((raw.shape[0], 6, 3), 255, np.uint8), g])
+        band = np.zeros((34, pair.shape[1], 3), np.uint8)
+        cv2.putText(band, cap, (6, 24), font, 0.62, (255, 255, 255), 1, cv2.LINE_AA)
+        pairs.append(np.vstack([band, pair]))
+    if not pairs:
+        raise SystemExit(f"{sid}: no cached frame in {t0}-{t1} s")
+    blank = np.zeros_like(pairs[0])
+    rows = []
+    for i in range(0, len(pairs), cols):
+        row = pairs[i:i + cols] + [blank] * (cols - len(pairs[i:i + cols]))
+        rows.append(np.hstack([np.pad(p, ((0, 8), (0, 8), (0, 0))) for p in row]))
+    top = np.zeros((44, rows[0].shape[1], 3), np.uint8)
+    cv2.putText(top, (f"{sid} {t0:g}-{t1:g} s, every cached frame. Left: raw baked-frame crop. Right: grey minus "
+                      f"baked static (x2, 128 = 0). {2 * H} baked px square round the stored self icon, x{Z}."),
+                (8, 30), font, 0.75, (255, 255, 255), 1, cv2.LINE_AA)
+    PF_OUT.mkdir(parents=True, exist_ok=True)
+    p = PF_OUT / f"{sid}-frames-{t0:g}-{t1:g}{'-fit' if fit else ''}.png"
+    cv2.imwrite(str(p), np.vstack([top] + rows))
+    print(f"sheet {len(pairs)} frames -> {p}")
+    return p
+
+
+def frame_fit(S: Session, crop, me, radii=None) -> dict | None:
+    """One frame's circle, searched over every radius: the ring-score argmax
+    over `radii` (default the scanned range) and the centre grid, then
+    `clove_circle.fit_circle` seeded there."""
+    radii = S.radii if radii is None else radii
+    d = S.diff(crop)
+    cur = ring_curve(d, me, radii)
+    if not np.isfinite(cur).any():
+        return None
+    flat = np.nan_to_num(cur, nan=-1e9)
+    k_off, k_r = np.unravel_index(int(np.argmax(flat)), flat.shape)
+    c0 = (me[0] + OFFS[k_off][0], me[1] + OFFS[k_off][1])
+    f = cc.fit_circle(d, c0, float(radii[k_r]), win=6.0)
+    return {**f, "best": float(flat[k_off, k_r]), "r_arg": float(radii[k_r]),
+            "ring": cc.ringscore(d, (f["cx"], f["cy"]), f["r"])}
+
+
+#: Movement classes on `sound_match.speed_at` (stored px/s over +-0.5 s): still < 2,
+#: slow 2-8, moving 8-40; 40 and over is the track's misfit bin (sound_match.SPEED_BINS).
+MOVES = ("still", "slow", "moving", "misfit", "unknown")
+
+
+def move_class(v: float | None) -> str:
+    if v is None:
+        return "unknown"
+    return "still" if v < 2 else "slow" if v < 8 else "moving" if v < 40 else "misfit"
+
+
+def local_peaks(h: np.ndarray, min_frac: float = 0.1, sep: int = 8) -> list[int]:
+    """Bins that are the maximum within +-sep bins and hold at least min_frac of the top bin."""
+    out = []
+    for i in range(len(h)):
+        a, b = max(0, i - sep), min(len(h), i + sep + 1)
+        if h[i] > 0 and h[i] == h[a:b].max() and h[i] >= min_frac * h.max():
+            if not out or i - out[-1] > sep:
+                out.append(i)
+    return out
+
+
+def per_frame(record: bool) -> dict:
+    """The circle's radius per frame, never from a median curve, and its presence
+    against the self track's movement, the HUD's shots and the bank's
+    footstep, jump and land detections, on the Iso match. Stored data only."""
+    import sound_match as sm
+    z, info = load_curves(ISO)
+    t = z["t_ms"] / 1000.0
+    radii = z["radii"]
+    C = z["curve"].astype(float)
+    spans = sm.pov_spans()
+    pov = np.array([sm.pov_at(spans, x) or "none" for x in t])
+    own = pov == "own"
+    fin = np.isfinite(C).any(1)
+    with np.errstate(all="ignore"):
+        best = np.where(fin, np.nanmax(np.where(np.isfinite(C), C, -1e9), 1), np.nan)
+    k_arg = np.where(fin, np.argmax(np.where(np.isfinite(C), C, -1e9), 1), -1)
+    r_arg = np.where(fin, radii[np.clip(k_arg, 0, None)], np.nan)
+    R0, k0 = circle_radius(C, radii, own & np.isfinite(C).all(1))
+    old_score = np.nanmax(C[:, max(0, k0 - 2):k0 + 3], 1)
+    st_old = states(old_score)
+    st = states(best)                               # hysteresis on the best radius, not on R0
+    res = {"version": PF_VERSION, "session": ISO, "R0_median_curve": R0, "T_HI": T_HI, "T_LO": T_LO,
+           "radii_searched": [float(radii[0]), float(radii[-1])], "hz": info["hz"]}
+    res["hist_best_own"] = np.histogram(best[own & fin], bins=np.arange(-4, 40, 1.0))[0].tolist()
+    res["hist_best_other"] = np.histogram(best[(pov == "other") & fin], bins=np.arange(-4, 40, 1.0))[0].tolist()
+    dr_own = own & (st == 1)
+    res["own_frames"] = int((own & (st >= 0)).sum())
+    res["own_drawn_frames"] = int(dr_own.sum())
+    res["own_drawn_frac"] = round(float(dr_own.sum() / max(1, (own & (st >= 0)).sum())), 3)
+    res["own_drawn_frac_old"] = round(float((own & (st_old == 1)).sum() / max(1, (own & (st_old >= 0)).sum())), 3)
+    oth = (pov == "other") & (st >= 0)
+    res["other_drawn_frac"] = round(float((st[oth] == 1).mean()), 3) if oth.any() else None
+    ra = r_arg[dr_own]
+    res["r_arg_own_drawn_hist"] = {int(r): int(n) for r, n in zip(*np.unique(ra, return_counts=True))}
+    res["r_arg_share_outside_72_78"] = round(float(((ra < 72) | (ra > 78)).mean()), 3) if len(ra) else None
+    h = np.histogram(ra, bins=np.arange(radii[0], radii[-1] + 2, 1.0))[0]
+    res["r_arg_modes"] = [{"r": float(radii[0] + i), "n": int(h[i])} for i in local_peaks(h)]
+    res["drawn_new_not_old"] = int((dr_own & (st_old != 1)).sum())
+    res["drawn_old_not_new"] = int((own & (st_old == 1) & (st != 1)).sum())
+
+    # exact fits on every own-view drawn frame, seeded at that frame's argmax
+    S = Session(ISO)
+    idx = np.nonzero(dr_own)[0]
+    by_t = {float(z["t_ms"][i]): i for i in idx}
+    fits = {}
+    for tm, crop in S.crops(sorted(by_t)):
+        me, _ = S.self_at(tm)
+        if me is None:
+            continue
+        f = frame_fit(S, crop, me)
+        if f is not None:
+            fits[by_t[tm]] = f
+    good = {i: f for i, f in fits.items() if f["inliers"] >= 0.5 and f["rms"] < 1.5}
+    R = np.array([f["r"] for f in good.values()])
+    res["fits"], res["fits_good"] = len(fits), len(good)
+    if len(R):
+        res["r_fit_median"] = round(float(np.median(R)), 2)
+        res["r_fit_sd"] = round(float(R.std()), 2)
+        res["r_fit_p5_p25_p75_p95"] = [round(float(np.percentile(R, q)), 2) for q in (5, 25, 75, 95)]
+        res["r_fit_min_max"] = [round(float(R.min()), 2), round(float(R.max()), 2)]
+        hf = np.histogram(R, bins=np.arange(radii[0], radii[-1] + 2, 1.0))[0]
+        res["r_fit_hist_1px"] = {int(radii[0] + i): int(n) for i, n in enumerate(hf) if n}
+        res["r_fit_modes"] = [{"r": float(radii[0] + i), "n": int(hf[i])} for i in local_peaks(hf)]
+        res["r_fit_share_outside_72_78"] = round(float(((R < 72) | (R > 78)).mean()), 3)
+    # the earlier instrument: fits seeded at R0 two frames after an R0-gated onset
+    res["old_gate_share_of_new_drawn"] = round(float((st_old[idx] == 1).mean()), 3) if len(idx) else None
+    rr = np.array([good[i]["r"] for i in good if st_old[i] == 1])
+    res["r_fit_on_old_drawn_sd"] = round(float(rr.std()), 2) if len(rr) else None
+    res["r_fit_on_old_drawn_n"] = int(len(rr))
+
+    # 902-906 s, frame by frame
+    w = np.nonzero((t >= 902.0) & (t <= 906.0))[0]
+    res["span_902_906"] = [{"t": round(float(t[i]), 3), "pov": str(pov[i]), "state": int(st[i]),
+                            "best": None if not np.isfinite(best[i]) else round(float(best[i]), 1),
+                            "r_arg": None if not np.isfinite(r_arg[i]) else float(r_arg[i]),
+                            "old_score": None if not np.isfinite(old_score[i]) else round(float(old_score[i]), 1),
+                            "r_fit": round(good[i]["r"], 2) if i in good else None,
+                            "rms": round(good[i]["rms"], 2) if i in good else None} for i in w]
+    sr = np.array([good[i]["r"] for i in w if i in good])
+    if len(sr):
+        res["span_902_906_r_fit_min_max"] = [round(float(sr.min()), 2), round(float(sr.max()), 2)]
+        res["span_902_906_fits"] = int(len(sr))
+
+    # within a run: does the radius change as the circle fades?
+    runs = [r for r in drawn_runs(t, st, best) if pov[r["i_on"]] == "own" and r["clean_on"] and r["clean_off"]]
+    wr = []
+    for r in runs:
+        ii = [i for i in range(r["i_on"], r["i_off"] + 1) if i in good]
+        if len(ii) < 3:
+            continue
+        rs_ = np.array([good[i]["r"] for i in ii])
+        sc_ = np.array([good[i]["ring"] for i in ii])
+        wr.append({"t_on": r["t_on"], "t_off": r["t_off"], "n": len(ii), "r_first": round(float(rs_[0]), 2),
+                   "r_second": round(float(rs_[1]), 2), "r_last": round(float(rs_[-1]), 2),
+                   "r_range": round(float(rs_.max() - rs_.min()), 2),
+                   "slope_px_per_s": round(float(np.polyfit(t[ii], rs_, 1)[0]), 2),
+                   "rho_r_ring": round(spearman(rs_, sc_), 2) if len(ii) >= 4 else None})
+    res["runs_clean"] = len(runs)
+    res["runs_fitted"] = len(wr)
+    if wr:
+        res["run_last_minus_second_median"] = round(float(np.median([x["r_last"] - x["r_second"] for x in wr])), 2)
+        res["run_abs_last_minus_second_median"] = round(float(np.median([abs(x["r_last"] - x["r_second"]) for x in wr])), 2)
+        res["run_r_range_median"] = round(float(np.median([x["r_range"] for x in wr])), 2)
+        res["run_slope_median"] = round(float(np.median([x["slope_px_per_s"] for x in wr])), 2)
+        rho = [x["rho_r_ring"] for x in wr if x["rho_r_ring"] is not None and np.isfinite(x["rho_r_ring"])]
+        res["run_rho_r_ring_median"] = round(float(np.median(rho)), 2) if rho else None
+        # between runs: the run's median radius
+        res["run_median_r_hist_2px"] = np.histogram([np.median([good[i]["r"] for i in range(x_["i_on"], x_["i_off"] + 1)
+                                                               if i in good]) for x_ in runs
+                                                     if any(i in good for i in range(x_["i_on"], x_["i_off"] + 1))],
+                                                    bins=np.arange(40, 140, 2.0))[0].tolist()
+    res["run_rows"] = wr
+
+    # -- The presence tests gate on the two sizes the fits found (SIZE_BAND), not on
+    # the best ring at any radius, which map edges and circles round other centres
+    # also win (its spectating drawn share is the false-positive witness).
+    kb = (radii >= SIZE_BAND[0]) & (radii <= SIZE_BAND[1])
+    band = np.nanmax(C[:, kb], 1)
+    st_any, best_any = st, best
+    st, best = states(band), band
+    res["size_band"] = list(SIZE_BAND)
+    res["band_own_drawn_frac"] = round(float((st[own & (st >= 0)] == 1).mean()), 3)
+    res["band_other_drawn_frac"] = round(float((st[oth] == 1).mean()), 3) if oth.any() else None
+
+    # -- movement: every own-view frame with a state, by the stored self speed
+    track = sm.self_track()
+    v = np.array([np.nan if (x := sm.speed_at(track, float(tt))) is None else x for tt in t])
+    mv = np.array([move_class(None if np.isnan(x) else x) for x in v])
+    sched = sm.phases()
+    phase = np.array([sm.phase_at(sched, float(x)) for x in t])
+    ok = own & (st >= 0)
+    hv = ok & np.isfinite(v)
+    e_ = np.arange(0, 21, 1.0)
+    n_ = np.histogram(v[hv], bins=e_)[0]
+    d_ = np.histogram(v[hv & (st == 1)], bins=e_)[0]
+    res["speed_1px_frames"] = n_.tolist()
+    res["speed_1px_drawn_share"] = np.round(d_ / np.maximum(n_, 1), 3).tolist()
+    tab = {}
+    for m in MOVES:
+        s_ = ok & (mv == m)
+        tab[m] = {"frames": int(s_.sum()), "drawn": int((st[s_] == 1).sum()),
+                  "share": round(float((st[s_] == 1).mean()), 3) if s_.any() else None}
+    res["movement_frames"] = tab
+    # onsets: the movement state at each clean own-view onset
+    ons = [r for r in drawn_runs(t, st, best) if pov[r["i_on"]] == "own" and r["clean_on"]]
+    res["onsets_by_movement"] = {m: sum(1 for r in ons if mv[r["i_on"]] == m) for m in MOVES}
+    # 1 s windows, non-overlapping, own view throughout: drawn anywhere inside vs the window's speed
+    win = defaultdict(lambda: [0, 0])
+    wrows = []
+    for a in np.arange(np.floor(t[0]), t[-1], 1.0):
+        m_ = (t >= a) & (t < a + 1) & ok
+        if m_.sum() < 10 or not (own[(t >= a) & (t < a + 1)]).all():
+            continue
+        vv = sm.speed_at(track, a + 0.5)
+        k = move_class(vv)
+        ph = sm.phase_at(sched, a + 0.5)
+        d_ = bool((st[m_] == 1).any())
+        for key in (k, f"{k}|{ph}"):
+            win[key][0] += 1
+            win[key][1] += int(d_)
+        wrows.append({"t0": float(a), "speed": vv, "move": k, "phase": ph, "drawn": d_})
+    res["movement_windows_1s"] = {k: {"n": n, "drawn": d, "share": round(d / n, 3)} for k, (n, d) in sorted(win.items())}
+
+    # -- the HUD: firing brackets by movement, drawn only as a new onset after an absence
+    hs = sm.hud_samples()
+    hud = defaultdict(list)
+    for p_, q_ in zip(hs, hs[1:]):
+        if p_["state"] != "gun" or q_["state"] != "gun" or p_["seg"] != q_["seg"]:
+            continue
+        if None in (p_["mag"], q_["mag"], p_["res"], q_["res"]):
+            continue
+        if sm.pov_at(spans, p_["t"]) != "own" or sm.pov_at(spans, q_["t"]) != "own":
+            continue
+        if p_["res"] == q_["res"] and q_["mag"] < p_["mag"]:
+            kind = "firing"
+        elif p_["res"] == q_["res"] and q_["mag"] == p_["mag"]:
+            kind = "quiet"
+        else:
+            continue
+        vv = sm.speed_at(track, (p_["t"] + q_["t"]) / 2)
+        kind += "_" + move_class(vv)
+        w_ = (t >= p_["t"]) & (t <= q_["t"] + WIN[1]) & (st >= 0)
+        pre = (t >= p_["t"] - 0.5) & (t < p_["t"]) & (st >= 0)
+        if w_.sum() < 3 or not pre.any():
+            continue
+        absent = bool((st[pre] == 0).all())
+        hud[kind].append({"t_prev": p_["t"], "t_new": q_["t"], "speed": vv, "absent_before": absent,
+                          "drawn": bool((st[w_] == 1).any()), "mag": [p_["mag"], q_["mag"]]})
+    res["hud"] = {k: {"n": len(x), "n_absent_before": sum(r["absent_before"] for r in x),
+                      "drawn_after_absent": sum(r["drawn"] for r in x if r["absent_before"])}
+                  for k, x in sorted(hud.items())}
+
+    # -- the bank: own-view own-sound detections by class and movement; circle = an onset within the window
+    dets = [d for d in sm.load_dets() if sm.pov_at(spans, d["t"]) == "own" and abs(d["ild_db"]) < OWN_ILD_DB]
+    on_t = np.array([r["t_on"] for r in ons])
+    bank = defaultdict(lambda: [0, 0, 0])            # n, drawn in window, new onset in window
+    brows = []
+    for d in dets:
+        w_ = (t >= d["t"] + WIN[0]) & (t <= d["t"] - WIN[0]) & (st >= 0)
+        if w_.sum() < 3:
+            continue
+        vv = sm.speed_at(track, d["t"])
+        m = move_class(vv)
+        drawn = bool((st[w_] == 1).any())
+        onset = bool(((on_t - d["t"] >= WIN[0]) & (on_t - d["t"] <= WIN[1])).any())
+        key = f"{d['cls']}|{m}"
+        bank[key][0] += 1
+        bank[key][1] += int(drawn)
+        bank[key][2] += int(onset)
+        brows.append({"t": d["t"], "cls": d["cls"], "move": m, "speed": vv, "drawn": drawn, "onset": onset})
+    res["bank"] = {k: {"n": a, "drawn": b, "onset": c} for k, (a, b, c) in sorted(bank.items())}
+
+    # -- the two sizes: fits under SIZE_CUT are the small circle. Speed and whether the
+    # HUD shows no gun counter (knife or ability held) at each fitted frame.
+    ht = np.array([h["t"] for h in hs])
+    hid = lambda x: hs[max(0, int(np.searchsorted(ht, x)) - 1)]["state"] == "hidden"   # noqa: E731
+    for name, sel in (("small", lambda r: r < SIZE_CUT), ("large", lambda r: r >= SIZE_CUT)):
+        ii = [i for i, f in good.items() if sel(f["r"])]
+        if not ii:
+            continue
+        rr_ = np.array([good[i]["r"] for i in ii])
+        vv_ = v[ii][np.isfinite(v[ii])]
+        res[f"{name}_fits"] = len(ii)
+        res[f"{name}_r_median"] = round(float(np.median(rr_)), 2)
+        res[f"{name}_r_sd"] = round(float(rr_.std()), 2)
+        res[f"{name}_speed_median"] = round(float(np.median(vv_)), 2) if len(vv_) else None
+        res[f"{name}_hidden_hud"] = sum(hid(t[i]) for i in ii)
+        if name == "small":
+            ts_ = sorted(t[ii])
+            res["small_runs"] = 1 + sum(1 for a_, b_ in zip(ts_, ts_[1:]) if b_ - a_ > 0.2)
+            res["small_frames_t"] = [round(float(x), 3) for x in ts_]
+
+    # -- magazine refills (found after the small circle's times were seen, so not a
+    # pre-registered test): a read magazine that rises between consecutive samples
+    # within 3 s. A refill "has" a size when a fit of that size falls in [prev - 2 s, new].
+    # Control: 2.5 s own-view windows clear of every refill window by 0.5 s.
+    small_t = np.array([t[i] for i, f in good.items() if f["r"] < SIZE_CUT])
+    large_t = np.array([t[i] for i, f in good.items() if f["r"] >= SIZE_CUT])
+    own_t = t[pov == "own"]
+    refills, last = [], None
+    for h in hs:
+        if h["mag"] is None:
+            continue
+        if last is not None and h["mag"] > last["mag"] and h["t"] - last["t"] <= 3.0:
+            a_, b_ = last["t"] - 2.0, h["t"]
+            if ((own_t >= a_) & (own_t <= b_)).any():
+                refills.append({"t_prev": last["t"], "t_new": h["t"], "mag": [last["mag"], h["mag"]],
+                                "res": [last["res"], h["res"]],
+                                "small": int(((small_t >= a_) & (small_t <= b_)).sum()),
+                                "large": int(((large_t >= a_) & (large_t <= b_)).sum())})
+        last = h
+    ctrl = []
+    for a_ in np.arange(t.min(), t.max() - 2.5, 2.5):
+        if any(a_ - 0.5 <= r["t_new"] and a_ + 3.0 >= r["t_prev"] - 2.0 for r in refills):
+            continue
+        if ((own_t >= a_) & (own_t < a_ + 2.5)).sum() < 20:
+            continue
+        ctrl.append(bool(((small_t >= a_) & (small_t < a_ + 2.5)).any()))
+    near = [bool(len(small_t) and np.min(np.abs(np.array([r["t_new"] for r in refills] + [r["t_prev"] for r in refills]) - x)) <= 2.5)
+            for x in small_t] if refills else []
+    res["refills"] = len(refills)
+    res["refills_with_small"] = sum(r["small"] > 0 for r in refills)
+    res["refills_with_large_only"] = sum(r["small"] == 0 and r["large"] > 0 for r in refills)
+    res["refills_without_circle"] = sum(r["small"] == 0 and r["large"] == 0 for r in refills)
+    res["refill_control_windows"] = len(ctrl)
+    res["refill_control_with_small"] = sum(ctrl)
+    res["small_fits_within_2_5s_of_refill"] = sum(near)
+    # the player (2026-09-30): a reload draws the small circle while no footstep sounds,
+    # and a footstep's circle supersedes it. Split refills by an own footstep detection
+    # (the bank's, own view, level-split) in the same window; the bank is unreliable in
+    # match audio, so this is a weak tally.
+    fs_t = np.array([d_["t"] for d_ in dets if d_["cls"] == "footstep"])
+    for r in refills:
+        r["own_footsteps"] = int(((fs_t >= r["t_prev"] - 2.0) & (fs_t <= r["t_new"])).sum())
+    for fk, fsel in (("footstep", lambda r: r["own_footsteps"] > 0), ("no_footstep", lambda r: r["own_footsteps"] == 0)):
+        rr = [r for r in refills if fsel(r)]
+        res[f"refills_{fk}"] = len(rr)
+        res[f"refills_{fk}_small"] = sum(r["small"] > 0 for r in rr)
+        res[f"refills_{fk}_large_only"] = sum(r["small"] == 0 and r["large"] > 0 for r in rr)
+        res[f"refills_{fk}_none"] = sum(r["small"] == 0 and r["large"] == 0 for r in rr)
+    res["refill_rows"] = refills
+
+    # disagreements with "only from running", stored apart
+    dis = ([{"kind": "onset_while_still", "t_on": r["t_on"], "t_off": r["t_off"], "speed": float(v[r["i_on"]]),
+             "r_fit": good[r["i_on"] + 1]["r"] if r["i_on"] + 1 in good else None}
+            for r in ons if mv[r["i_on"]] == "still"]
+           + [{"kind": "moving_window_without_circle", **x} for x in wrows if x["move"] == "moving" and not x["drawn"]]
+           + [{"kind": "still_shot_with_new_circle", **x} for x in hud.get("firing_still", [])
+              if x["absent_before"] and x["drawn"]])
+    res["disagreements"] = {k: sum(1 for x in dis if x["kind"] == k) for k in
+                            ("onset_while_still", "moving_window_without_circle", "still_shot_with_new_circle")}
+    PF_OUT.mkdir(parents=True, exist_ok=True)
+    (PF_OUT / "disagreements.jsonl").write_text("".join(json.dumps(x, default=float) + "\n" for x in dis),
+                                                encoding="utf-8")
+    (PF_OUT / "bank_rows.jsonl").write_text("".join(json.dumps(x, default=float) + "\n" for x in brows),
+                                            encoding="utf-8")
+    np.savez_compressed(PF_OUT / "per_frame.npz", t=t, best=best_any, band=best, r_arg=r_arg, state=st, state_any=st_any, state_old=st_old,
+                        speed=v, pov=pov,
+                        r_fit=np.array([good[i]["r"] if i in good else np.nan for i in range(len(t))]))
+    (PF_OUT / "per_frame.json").write_text(json.dumps(res, indent=1, default=float), encoding="utf-8")
+    if record:
+        record_per_frame(res)
+    return res
+
+
+def record_per_frame(res: dict) -> None:
+    from reticle import metrics
+    v = {k: res[k] for k in (
+        "R0_median_curve", "own_frames", "own_drawn_frames", "own_drawn_frac", "own_drawn_frac_old",
+        "other_drawn_frac", "band_own_drawn_frac", "band_other_drawn_frac", "r_arg_share_outside_72_78", "drawn_new_not_old", "drawn_old_not_new", "fits",
+        "fits_good", "r_fit_median", "r_fit_sd", "r_fit_share_outside_72_78", "old_gate_share_of_new_drawn",
+        "r_fit_on_old_drawn_sd", "r_fit_on_old_drawn_n", "span_902_906_fits", "runs_clean", "runs_fitted",
+        "run_last_minus_second_median", "run_abs_last_minus_second_median", "run_r_range_median",
+        "run_slope_median", "run_rho_r_ring_median") if res.get(k) is not None}
+    for name, key in (("r_fit_p5", 0), ("r_fit_p25", 1), ("r_fit_p75", 2), ("r_fit_p95", 3)):
+        if "r_fit_p5_p25_p75_p95" in res:
+            v[name] = res["r_fit_p5_p25_p75_p95"][key]
+    if "r_fit_min_max" in res:
+        v["r_fit_min"], v["r_fit_max"] = res["r_fit_min_max"]
+    if "span_902_906_r_fit_min_max" in res:
+        v["span_902_906_r_min"], v["span_902_906_r_max"] = res["span_902_906_r_fit_min_max"]
+    for j, m in enumerate(res.get("r_fit_modes", [])):
+        v[f"r_fit_mode{j}_r"], v[f"r_fit_mode{j}_n"] = m["r"], m["n"]
+    for k, w in res["movement_frames"].items():
+        v[f"frames_{k}_n"], v[f"frames_{k}_drawn"] = w["frames"], w["drawn"]
+        if w["share"] is not None:
+            v[f"frames_{k}_share"] = w["share"]
+    for k, w in res["movement_windows_1s"].items():
+        k = k.replace("|", "_")
+        v[f"win1s_{k}_n"], v[f"win1s_{k}_drawn"], v[f"win1s_{k}_share"] = w["n"], w["drawn"], w["share"]
+    for k, n in res["onsets_by_movement"].items():
+        v[f"onsets_{k}"] = n
+    for k, w in res["hud"].items():
+        v[f"hud_{k}_n"], v[f"hud_{k}_absent_before"], v[f"hud_{k}_drawn_after_absent"] = (
+            w["n"], w["n_absent_before"], w["drawn_after_absent"])
+    for k, w in res["bank"].items():
+        c, m = k.split("|")
+        v[f"bank_{c}_{m}_n"], v[f"bank_{c}_{m}_drawn"], v[f"bank_{c}_{m}_onset"] = w["n"], w["drawn"], w["onset"]
+    for k, n in res["disagreements"].items():
+        v[f"dis_{k}"] = n
+    for i, (n, s) in enumerate(zip(res["speed_1px_frames"], res["speed_1px_drawn_share"])):
+        v[f"speed_{i:02d}_frames"], v[f"speed_{i:02d}_drawn_share"] = n, s
+    for k in (("small_fits", "large_fits", "small_runs", "small_hidden_hud", "large_hidden_hud",
+              "small_speed_median", "large_speed_median", "small_r_median", "large_r_median",
+              "small_r_sd", "large_r_sd", "refills", "refills_with_small", "refills_with_large_only",
+              "refills_without_circle", "refill_control_windows", "refill_control_with_small",
+              "small_fits_within_2_5s_of_refill")
+              + tuple(f"refills_{a}{b}" for a in ("footstep", "no_footstep")
+                      for b in ("", "_small", "_large_only", "_none"))):
+        if res.get(k) is not None:
+            v[k] = res[k]
+    metrics.record("audio_circle", part="per-frame", session=ISO, values=v,
+                   deps={"version": PF_VERSION, "curves": VERSION, "t_hi": T_HI, "t_lo": T_LO, "clean": CLEAN,
+                         "own_ild_db": OWN_ILD_DB, "window": list(WIN), "self_win_ms": SELF_WIN_MS,
+                         "still_lt": 2.0, "moving_ge": 8.0, "fit_good": "inliers >= 0.5 and rms < 1.5",
+                         "detections": "analysis/sound-match/detections (sound-match-0.1.0)"},
+                   context={"cache": "roi-cache-0.1.0 minimap 15 Hz", "minimap": "minimap-0.7.0",
+                            "tray_kit": "tray-kit-0.1.0", "hud": "hud-0.16.0 2 Hz",
+                            "geometry": "split__valorant-16x9"},
+                   note="self audio circle per frame and against movement on the Iso capture; not wired")
+    print(f"recorded {len(v)} values under audio_circle/per-frame@{ISO}")
+
+
 def main(argv=None) -> int:
     idle()
     ap = argparse.ArgumentParser()
@@ -876,6 +1409,13 @@ def main(argv=None) -> int:
     b.add_argument("--figure", type=int)
     b.add_argument("--record", action="store_true")
     b.add_argument("--sheet", action="store_true")
+    b.add_argument("--per-frame", action="store_true",
+                   help="radius per frame over every searched radius, and presence against movement")
+    f = sub.add_parser("frames")
+    f.add_argument("session")
+    f.add_argument("t0", type=float)
+    f.add_argument("t1", type=float)
+    f.add_argument("--fit", action="store_true")
     c = sub.add_parser("radius")
     c.add_argument("session")
     c.add_argument("tag")
@@ -888,6 +1428,11 @@ def main(argv=None) -> int:
         print(json.dumps({k: v for k, v in res.items() if k != "fits"}, indent=1))
         if args.record:
             record_radius(res)
+    elif args.cmd == "frames":
+        frames_sheet(args.session, args.t0, args.t1, fit=args.fit)
+    elif args.cmd == "score" and args.per_frame:
+        res = per_frame(args.record)
+        print(json.dumps({k: v for k, v in res.items() if k not in ("span_902_906", "run_rows")}, indent=1))
     elif args.cmd == "score":
         res = score_iso(args.round, args.record, args.figure)
         if args.sheet:
