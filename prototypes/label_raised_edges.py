@@ -4,10 +4,28 @@ r"""Ask the player what each drawn line segment of the baked Ascent static is.
     .\.venv\Scripts\python.exe prototypes\label_raised_edges.py label
     .\.venv\Scripts\python.exe prototypes\label_raised_edges.py score
     .\.venv\Scripts\python.exe prototypes\label_raised_edges.py preview
-    .\.venv\Scripts\python.exe prototypes\label_raised_edges.py sorter [--record]
+    .\.venv\Scripts\python.exe prototypes\label_raised_edges.py sorter [--v2] [--record]
     .\.venv\Scripts\python.exe prototypes\label_raised_edges.py queue
     .\.venv\Scripts\python.exe prototypes\label_raised_edges.py notes --spec <store json>
     .\.venv\Scripts\python.exe prototypes\label_raised_edges.py occluders [--record]
+    .\.venv\Scripts\python.exe prototypes\label_raised_edges.py predict --key lotus__valorant-16x9-bigmap
+    .\.venv\Scripts\python.exe prototypes\label_raised_edges.py sample --key lotus__valorant-16x9-bigmap
+    .\.venv\Scripts\python.exe prototypes\label_raised_edges.py label --key lotus__valorant-16x9-bigmap
+    .\.venv\Scripts\python.exe prototypes\label_raised_edges.py heldout --key lotus__valorant-16x9-bigmap [--record]
+
+The Lotus held-out test (raised-edges-0.3.0). `predict` writes the frozen sorter's class counts
+on a key with no answers; the prediction row is task `line-sorter-0.3-lotus-20260930` in the
+store's `notes/predictions.jsonl`. `sample` draws 40 of that key's 0.3.0 segments (connectors
+excluded), stratified across the predicted classes and three length bins with a fixed seed, and
+writes `<store>/labels/raised_edge_segment/<key>.sample.json` before any answer exists. `label`
+on a key with a sample asks exactly those segments in the sample's order, numbered n/40, with the
+same view and keys as the Ascent pass. `heldout` scores the answers against the frozen prediction
+once they exist, and refuses if the prediction does not precede the first answer. Segments on the
+Lotus C Mound are reported apart [domain:minimap/floor-shade-is-elevation].
+
+`sorter` scores 0.3.0's four classes (wall, box, ramp_or_elevation_line, other); `--v2` scores
+0.2.0's two, after checking that 0.2.0 still derives each answered segment's shown class. The
+Ascent answers name 0.2.0 segments, so 0.3.0 sorts those segments on its own per-pixel reading.
 
 Why. `raised_edges.py` splits the static's lines by what lies directly beyond
 them: void on one side (a wall) or plain floor on both (a raised edge, which
@@ -125,18 +143,38 @@ def _mapped(key: str) -> dict:
     return {m["segment"]: m for m in json.loads(p.read_text(encoding="utf-8"))["mappings"]}
 
 
-def _classified(key: str) -> dict:
-    r = RE.classify(key)
+#: The segmentation each key's answers were given on. Ascent's 465 px answers name 0.2.0
+#: segments, so its labeller, queue and notes keep 0.2.0; every other key uses the current sorter.
+VERSION_FOR_KEY = {"ascent__valorant-16x9-bigmap": RE.VERSION_V2}
+
+
+def seg_version(key: str) -> str:
+    return VERSION_FOR_KEY.get(key, RE.VERSION)
+
+
+def _classified(key: str, version: str | None = None) -> dict:
+    version = version or seg_version(key)
+    r = RE.classify(key, version)
     heavens = RE.shade_heavens(r)
     RE.annotate_pieces(r, heavens)
     RE.segments(r)
+    if version != RE.VERSION_V2:
+        RE.sort_all(r)
     RE.annotate_pieces(r, heavens, "segments", "_sid")
     return r
 
 
-def _items(key: str) -> tuple[dict, list[dict]]:
-    r = _classified(key)
-    items = [dict(s, piece=signature(key, s)) for s in r["segments"] if s["cls"] in ("wall", "raised_edge")]
+def _items(key: str, version: str | None = None) -> tuple[dict, list[dict]]:
+    """The segments offered to the player, hash-sorted: 0.2.0's wall and raised-edge segments, or
+    0.3.0's sorted segments and fragments (connectors take their neighbours' class and are not
+    asked about)."""
+    version = version or seg_version(key)
+    r = _classified(key, version)
+    if version == RE.VERSION_V2:
+        items = [dict(s, piece=signature(key, s)) for s in r["segments"] if s["cls"] in ("wall", "raised_edge")]
+    else:
+        items = [dict(s, piece=signature(key, s)) for s in r["segments"]
+                 if not s.get("connector") and s.get("cls3") in RE.SORT_CLASSES]
     items.sort(key=lambda p: hashlib.sha1(p["piece"].encode()).hexdigest())
     return r, items
 
@@ -209,17 +247,30 @@ def _tile(r: dict, p: dict) -> np.ndarray:
     return np.hstack([pad(big), np.zeros((H, 8, 3), np.uint8), pad(ctx)])
 
 
-def label(key: str) -> int:
+def label(key: str, close_after: int = 0) -> int:
     import tkinter as tk
 
+    version = seg_version(key)
     r, items = _items(key)
     done = _labels(key)
-    mapped = _mapped(key)
-    if not _mapped_path(key).is_file():
-        raise SystemExit("run `map` first, so segments the player already answered are not asked again")
-    order = [p for p in items if p["piece"] not in done and p["piece"] not in mapped]
+    sample = _sample(key)
+    if sample is not None:
+        # a held-out sample: ask its segments in its fixed order, numbered k/len(sample)
+        by = {p["piece"]: p for p in items}
+        missing = [x["piece"] for x in sample["items"] if x["piece"] not in by]
+        if missing:
+            raise SystemExit(f"{len(missing)} sampled segments are not reproduced by {version}: {missing[:3]}")
+        full = [by[x["piece"]] for x in sample["items"]]
+        mapped = {}
+    else:
+        mapped = _mapped(key)
+        if not _mapped_path(key).is_file():
+            raise SystemExit("run `map` first, so segments the player already answered are not asked again")
+        full = [p for p in items if p["piece"] not in mapped]
+    order = [p for p in full if p["piece"] not in done]
+    number = {p["piece"]: i for i, p in enumerate(full, 1)}
     print(f"{len(items)} segments on {key}: {len(mapped)} carry an old answer, "
-          f"{len([p for p in items if p['piece'] in done])} answered here, {len(order)} to ask", flush=True)
+          f"{len([p for p in full if p['piece'] in done])} answered here, {len(order)} to ask", flush=True)
     if not order:
         return 0
     root = tk.Tk()
@@ -238,8 +289,10 @@ def label(key: str) -> int:
         img = tk.PhotoImage(data=base64.b64encode(cv2.imencode(".png", _tile(r, p))[1].tobytes()))
         state["img"] = img                       # keep a reference, or Tk blanks it
         panel.configure(image=img)
+        n_shown = number[p["piece"]] if sample is not None else state["k"] + 1
+        n_all = len(full) if sample is not None else len(order)
         info.configure(text=(
-            f"{state['k'] + 1}/{len(order)}   {key}   the line inside the yellow box, between the magenta ticks\n"
+            f"{n_shown}/{n_all}   {key}   the line inside the yellow box, between the magenta ticks\n"
             "1 wall (blocks vision)   2 ramp or elevation line (vision crosses)   3 box outline\n"
             "4 heaven edge   5 other drawn mark   0 other   U unsure   A back   Q quit"))
 
@@ -248,8 +301,10 @@ def label(key: str) -> int:
         row = {"key": p["piece"], "piece": p["piece"], "geometry_key": key, "class": cls,
                "uncertain": cls == "unsure", "x": p["x"], "y": p["y"], "w": p["w"], "h": p["h"],
                "end_a": p["end_a"], "end_b": p["end_b"], "px": p["px"], "shape": p["shape"],
-               "derived_class": p["cls"], "heavens": p["heavens"], "ramp_near_share": p["ramp_near_share"],
-               "compared_against_derived": False, "version": RE.VERSION, "by": "player",
+               "derived_class": p["cls"] if version == RE.VERSION_V2 else p["cls3"],
+               "heavens": p["heavens"], "ramp_near_share": p["ramp_near_share"],
+               "compared_against_derived": False, "version": version, "by": "player",
+               "sample": sample["id"] if sample is not None else None,
                "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
         with open(_label_path(key), "a", encoding="utf-8") as f:
             f.write(json.dumps(row) + "\n")
@@ -263,6 +318,11 @@ def label(key: str) -> int:
     root.bind("q", lambda e: root.destroy())
     root.bind("<Escape>", lambda e: root.destroy())
     show()
+    if close_after:
+        # a check that the window opens and draws one segment: no key is bound, nothing is written
+        for i in list(CLASSES) + ["u", "a"]:
+            root.unbind(str(i))
+        root.after(close_after, root.destroy)
     root.mainloop()
     return 0
 
@@ -329,16 +389,24 @@ def _pr(pairs, pred, truth) -> dict:
             "precision": round(tp / np_, 4) if np_ else None, "recall": round(tp / nt, 4) if nt else None}
 
 
-def sorter(key: str, record: bool = False) -> dict:
-    """Confusion of the sorter's derived class against the player's direct segment answers.
+def sorter_v2(key: str, record: bool = False) -> dict:
+    """Confusion of the 0.2.0 sorter's derived class against the player's direct segment answers.
 
-    Reads the label file only (each row carries the derived class it was shown with). One row per
-    segment: the last answer wins, as the labeller documents, so a segment the player went back
-    to counts once. Unsure answers stay out."""
+    Reads the label file (each row carries the derived class it was shown with), and checks that
+    `raised_edges.classify(..., VERSION_V2)` still derives the same class for every answered
+    segment. One row per segment: the last answer wins, as the labeller documents, so a segment
+    the player went back to counts once. Unsure answers stay out."""
     p = _label_path(key)
     rows = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
     last = _labels(key)
     versions = sorted({v["version"] for v in last.values()})
+    if versions == [RE.VERSION_V2]:
+        _, items = _items(key, RE.VERSION_V2)
+        now = {q["piece"]: q["cls"] for q in items}
+        diff = [k for k, v in last.items() if now.get(k) != v["derived_class"]]
+        print(f"0.2.0 recomputed: {len(last) - len(diff)}/{len(last)} answered segments derive the class they were shown with")
+        if diff:
+            raise SystemExit(f"0.2.0 does not reproduce: {diff[:3]}")
     pairs = [(v["derived_class"], v["class"]) for v in last.values() if v["class"] != "unsure"]
     player = sorted({c for _, c in pairs}, key=lambda c: (-sum(x == c for _, x in pairs), c))
     derived = sorted({d for d, _ in pairs})
@@ -377,6 +445,269 @@ def sorter(key: str, record: bool = False) -> dict:
                           note="player's direct segment answers only; the 13 carried 0.1.0 answers are scored by `score`")
         print("recorded")
     return out
+
+
+# --- the 0.3.0 sorter, scored; the Lotus held-out sample and its frozen prediction -----------------
+
+def _mound(key: str) -> np.ndarray:
+    """The Lotus C Mound's pixels, grown 2 px, from `lotus_elevation.mound_mask` (its owner); empty
+    on any other key. Its segments are reported apart: the mound's elevation is close to unique
+    [domain:minimap/floor-shade-is-elevation]."""
+    if not key.startswith("lotus__"):
+        return np.zeros(RE.load(key)["static"].shape[:2], bool)
+    import types
+    import lotus_elevation as LE
+    g = RE.load(key)
+    return LE.mound_mask(types.SimpleNamespace(floor=g["shade_step"] >= 0, shade_step=g["shade_step"]))
+
+
+def _sorted_answers(key: str) -> tuple[list[dict], list[dict], str]:
+    """The player's last answer per segment, each with the 0.3.0 class of that segment. The
+    segment is rebuilt with the segmentation its answer was given on (the rows' `version`): 0.2.0
+    segments are sorted by the 0.3.0 rule on 0.3.0's per-pixel reading; 0.3.0 segments carry their
+    class. Returns (answers, rows, segmentation version)."""
+    p = _label_path(key)
+    rows = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
+    last = _labels(key)
+    versions = sorted({v["version"] for v in last.values()})
+    if len(versions) != 1:
+        raise SystemExit(f"answers on more than one segmentation: {versions}")
+    ver = versions[0]
+    mound = _mound(key)
+    if ver == RE.VERSION_V2:
+        r_seg = _classified(key, RE.VERSION_V2)
+        r3 = RE.classify(key, RE.VERSION)
+        closed = RE.closed_boxes(r3)
+        by = {}
+        for s in r_seg["segments"]:
+            m = r_seg["_sid"] == s["id"]
+            by[signature(key, s)] = dict(s, **RE.sort_segment(r3, m, s["skeleton_px"], s["shape"], closed),
+                                         mound=bool((m & mound).any()))
+    else:
+        r3 = _classified(key, ver)
+        by = {signature(key, s): dict(s, mound=bool(((r3["_sid"] == s["id"]) & mound).any()))
+              for s in r3["segments"]}
+    out = []
+    for k, v in last.items():
+        if k not in by:
+            raise SystemExit(f"answered segment {k} is not reproduced by {ver}")
+        out.append(dict(v, cls3=by[k]["cls3"], mound=by[k]["mound"], length=by[k].get("length")))
+    return out, rows, ver
+
+
+def _table(ans: list[dict]) -> dict:
+    """The four-class confusion (player class mapped by PLAYER_TO_SORT), per-class precision and
+    recall, and agreement, over answers that are not unsure."""
+    pairs = [(a["cls3"], RE.PLAYER_TO_SORT[a["class"]]) for a in ans if a["class"] != "unsure"]
+    cl = RE.SORT_CLASSES
+    table = {c: {d: sum(1 for x, y in pairs if x == d and y == c) for d in cl} for c in cl}
+    per = {c: _pr(pairs, c, lambda t, c=c: t == c) for c in cl}
+    agree = sum(d == c for d, c in pairs)
+    wall = sum((d == "wall") == (c == "wall") for d, c in pairs)
+    return {"scored": len(pairs), "agree": agree, "agree_share": round(agree / len(pairs), 4) if pairs else None,
+            "wall_vs_not_wall_agree": wall,
+            "wall_vs_not_wall_share": round(wall / len(pairs), 4) if pairs else None,
+            "confusion_player_by_sorter": table, "per_class": per}
+
+
+def _print_table(name: str, t: dict) -> None:
+    cl = RE.SORT_CLASSES
+    print(f"{name}: {t['scored']} scored, agree {t['agree']}/{t['scored']} = {t['agree_share']}, "
+          f"wall vs not wall {t['wall_vs_not_wall_agree']}/{t['scored']}")
+    print("  player \\ 0.3.0".ljust(26) + "".join(c[:6].rjust(8) for c in cl) + "total".rjust(8))
+    for c in cl:
+        row = t["confusion_player_by_sorter"][c]
+        print(f"  {c:24s}" + "".join(str(row[d]).rjust(8) for d in cl) + str(sum(row.values())).rjust(8))
+    for c, v in t["per_class"].items():
+        print(f"    {c:24s} precision {v['precision']} ({v['tp']}/{v['predicted']})  recall {v['recall']} ({v['tp']}/{v['true']})")
+
+
+def sorter(key: str, record: bool = False, v2: bool = False) -> dict:
+    """Score the sorter against the player's segment answers: 0.2.0 with `v2` (the old two-class
+    table), else 0.3.0's four classes. C Mound segments are scored apart as well as in the whole."""
+    if v2:
+        return sorter_v2(key, record)
+    ans, rows, ver = _sorted_answers(key)
+    whole = _table(ans)
+    out = {"key": key, "sorter": RE.VERSION, "segmentation": ver, "rows": len(rows), "segments": len(ans),
+           "unsure": sum(a["class"] == "unsure" for a in ans), "whole": whole}
+    print(f"{key}: {len(rows)} rows, {len(ans)} segments (last answer wins), segments from {ver}, sorter {RE.VERSION}")
+    _print_table("whole", whole)
+    if any(a["mound"] for a in ans):
+        out["c_mound"] = _table([a for a in ans if a["mound"]])
+        out["without_c_mound"] = _table([a for a in ans if not a["mound"]])
+        _print_table("C Mound", out["c_mound"])
+        _print_table("without C Mound", out["without_c_mound"])
+    if record:
+        vals = {"rows": len(rows), "segments": len(ans), "scored": whole["scored"], "agree": whole["agree"],
+                "agree_share": whole["agree_share"], "wall_vs_not_wall_agree": whole["wall_vs_not_wall_agree"],
+                "wall_vs_not_wall_share": whole["wall_vs_not_wall_share"]}
+        for c, row in whole["confusion_player_by_sorter"].items():
+            for d, n in row.items():
+                vals[f"n_{c}_as_{d}"] = n
+        for c, v in whole["per_class"].items():
+            vals[f"{c}_precision"], vals[f"{c}_recall"] = v["precision"], v["recall"]
+        RE.metrics.record("raised-edge-sorter", part="segments-0.3.0", session=key, values=vals,
+                          deps={"sorter_version": RE.VERSION, "segmentation": ver,
+                                "labels": str(_label_path(key).relative_to(RE.STORE)), "label_rows": len(rows),
+                                "params": RE.sort_params()},
+                          context={"player_to_sort": RE.PLAYER_TO_SORT,
+                                   "rule": "last answer per segment wins; unsure out"},
+                          note="0.3.0 four-class sorter on the player's direct segment answers")
+        print("recorded")
+    return out
+
+
+#: The held-out sample: its size, seed, and length bins (skeleton px, map-zoom units).
+SAMPLE_N, SAMPLE_SEED = 40, 20260930
+LENGTH_BINS = ((0, RE.BOX_SIDE_MAX), (RE.BOX_SIDE_MAX, 30), (30, 10 ** 6))
+PREDICTION_TASK = "line-sorter-0.3-lotus-20260930"
+
+
+def _sample_path(key: str) -> Path:
+    return RE.STORE / "labels" / KIND / f"{key}.sample.json"
+
+
+def _sample(key: str) -> dict | None:
+    p = _sample_path(key)
+    return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
+
+
+def predict(key: str = RE.LOTUS_KEY) -> dict:
+    """The frozen sorter's class counts on `key`, before any answer exists there, written to
+    `<store>/analysis/raised-edges-20260930/predict_<key>.json`."""
+    if _label_path(key).is_file():
+        raise SystemExit(f"{_label_path(key)} exists: a prediction must precede the answers")
+    r, items = _items(key, RE.VERSION)
+    mound = _mound(key)
+    out = {"key": key, "sorter": RE.VERSION, "zoom": r["zoom"], "cuts": r["cuts"], "gaps": r["gap_px"],
+           "segments": len(items),
+           "by_class": dict(Counter(p["cls3"] for p in items)),
+           "by_shape": dict(Counter(p["shape"] for p in items)),
+           "by_class_and_length": {c: [sum(1 for p in items if p["cls3"] == c and lo < p["skeleton_px"] / r["scale"] <= hi)
+                                       for lo, hi in LENGTH_BINS] for c in RE.SORT_CLASSES},
+           "c_mound_segments": sum(int(((r["_sid"] == p["id"]) & mound).any()) for p in items),
+           "connectors": [{k: c[k] for k in ("shape", "x", "y", "w", "h", "px", "joins", "fit_resid", "radius", "cls3")
+                           if k in c} for c in r["connectors"]],
+           "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    RE.OUT.mkdir(parents=True, exist_ok=True)
+    (RE.OUT / f"predict_{key}.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print(json.dumps({k: v for k, v in out.items() if k != "connectors"}, indent=1))
+    return out
+
+
+def make_sample(key: str = RE.LOTUS_KEY) -> dict:
+    """Draw SAMPLE_N segments stratified across the frozen sorter's classes and LENGTH_BINS, with a
+    fixed seed, and write the list to `<store>/labels/raised_edge_segment/<key>.sample.json`
+    before any answer exists. Each class gets an equal share (a class with fewer segments gives
+    its spare places to the others); inside a class, the length bins take turns. Refuses to
+    overwrite an existing sample."""
+    if _sample_path(key).is_file():
+        raise SystemExit(f"{_sample_path(key)} exists; a sample is drawn once")
+    if _label_path(key).is_file():
+        raise SystemExit(f"{_label_path(key)} exists: the sample must precede the answers")
+    r, items = _items(key, RE.VERSION)
+    rng = np.random.default_rng(SAMPLE_SEED)
+    strata = {}
+    for c in RE.SORT_CLASSES:
+        for b, (lo, hi) in enumerate(LENGTH_BINS):
+            pool = [p for p in items if p["cls3"] == c and lo < p["skeleton_px"] / r["scale"] <= hi]
+            strata[(c, b)] = [pool[i] for i in rng.permutation(len(pool))]
+    classes = [c for c in RE.SORT_CLASSES if any(strata[(c, b)] for b in range(len(LENGTH_BINS)))]
+    quota = dict.fromkeys(classes, 0)
+    avail = {c: sum(len(strata[(c, b)]) for b in range(len(LENGTH_BINS))) for c in classes}
+    left = SAMPLE_N
+    while left and any(quota[c] < avail[c] for c in classes):
+        for c in classes:
+            if left and quota[c] < avail[c]:
+                quota[c] += 1
+                left -= 1
+    chosen = []
+    for c in classes:
+        taken, b = 0, 0
+        while taken < quota[c]:
+            s = strata[(c, b % len(LENGTH_BINS))]
+            if s:
+                p = s.pop(0)
+                chosen.append(dict(p, stratum=f"{c}/{LENGTH_BINS[b % len(LENGTH_BINS)]}"))
+                taken += 1
+            b += 1
+    order = [chosen[i] for i in rng.permutation(len(chosen))]
+    mound = _mound(key)
+    sample = {"id": f"{key}:{RE.VERSION}:seed{SAMPLE_SEED}:n{len(order)}", "key": key, "sorter": RE.VERSION,
+              "seed": SAMPLE_SEED, "n": len(order), "length_bins": LENGTH_BINS, "quota": quota,
+              "population": avail, "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+              "items": [{"n": i, "piece": p["piece"], "cls3": p["cls3"], "stratum": p["stratum"],
+                         "shape": p["shape"], "skeleton_px": p["skeleton_px"], "x": p["x"], "y": p["y"],
+                         "w": p["w"], "h": p["h"],
+                         "c_mound": bool(((r["_sid"] == p["id"]) & mound).any())}
+                        for i, p in enumerate(order, 1)]}
+    _sample_path(key).parent.mkdir(parents=True, exist_ok=True)
+    _sample_path(key).write_text(json.dumps(sample, indent=1), encoding="utf-8")
+    print(f"wrote {_sample_path(key)}: {len(order)} segments, quota {quota} of {avail}")
+    for x in sample["items"]:
+        print(f"  {x['n']:2d}/{len(order)}  {x['piece'].split(':seg:')[1]:18s} {x['stratum']:32s} {x['shape']}"
+              + ("  C Mound" if x["c_mound"] else ""))
+    return sample
+
+
+def _prediction(task: str = PREDICTION_TASK) -> dict:
+    p = RE.STORE / "notes" / "predictions.jsonl"
+    rows = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
+    got = [r for r in rows if r.get("task") == task and r.get("kind") == "prediction"]
+    if not got:
+        raise SystemExit(f"no prediction {task} in {p}")
+    return got[0]
+
+
+def heldout(key: str = RE.LOTUS_KEY, record: bool = False) -> dict:
+    """Score the frozen sorter on the held-out sample once the player's answers exist, and
+    compare each clause of the frozen prediction (`PREDICTION_TASK`) with the result. The
+    prediction's timestamp must precede every answer. C Mound segments are reported apart."""
+    if not _label_path(key).is_file():
+        raise SystemExit(f"no answers yet: run `label --key {key}` first")
+    pred = _prediction()
+    last = _labels(key)
+    from datetime import datetime
+    # answers carry local wall-clock time; the prediction an aware UTC time
+    first = min(datetime.fromisoformat(v["at"]).astimezone() for v in last.values())
+    if not datetime.fromisoformat(pred["ts"]) < first:
+        raise SystemExit(f"the prediction ({pred['ts']}) does not precede the first answer ({first.isoformat()})")
+    sample = _sample(key)
+    ids = {x["piece"] for x in sample["items"]}
+    ans, rows, ver = _sorted_answers(key)
+    ans = [a for a in ans if a["piece"] in ids]
+    if ver != pred["sorter"]:
+        raise SystemExit(f"answers were given on {ver}, the prediction froze {pred['sorter']}")
+    t = _table(ans)
+    res = {"answered": len(ans), "of": sample["n"], "whole": t}
+    got = {"agree_share": t["agree_share"], "box_recall": t["per_class"]["box"]["recall"],
+           "ramp_precision": t["per_class"]["ramp_or_elevation_line"]["precision"]}
+    verdict = {}
+    for name, cl in pred["clauses"].items():
+        v = got[name]
+        verdict[name] = {"predicted": cl["predicted"], "fail_below": cl["fail_below"], "got": v,
+                         "result": None if v is None else ("fail" if v < cl["fail_below"] else "pass")}
+    res["verdict"] = verdict
+    print(f"{key}: {len(ans)}/{sample['n']} sampled segments answered; prediction {pred['task']} at {pred['ts']}")
+    _print_table("held-out sample", t)
+    if any(a["mound"] for a in ans):
+        res["c_mound"] = _table([a for a in ans if a["mound"]])
+        res["without_c_mound"] = _table([a for a in ans if not a["mound"]])
+        _print_table("C Mound", res["c_mound"])
+        _print_table("without C Mound", res["without_c_mound"])
+    for name, v in verdict.items():
+        print(f"  {name:16s} predicted {v['predicted']}  fail below {v['fail_below']}  got {v['got']}  -> {v['result']}")
+    if record:
+        vals = {"answered": len(ans), "scored": t["scored"], "agree": t["agree"], **got}
+        for c, row in t["confusion_player_by_sorter"].items():
+            for d, n in row.items():
+                vals[f"n_{c}_as_{d}"] = n
+        RE.metrics.record("raised-edge-sorter", part="heldout-0.3.0", session=key, values=vals,
+                          deps={"sorter_version": RE.VERSION, "sample": sample["id"], "prediction": pred["task"]},
+                          context={"verdict": verdict}, note="frozen 0.3.0 on the player's held-out Lotus sample")
+        print("recorded")
+    return res
 
 
 def queue(key: str, r: dict | None = None, items: list | None = None) -> list[dict]:
@@ -501,35 +832,50 @@ def occluder_change(key: str, record: bool = False) -> dict:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["map", "label", "score", "preview", "sorter", "queue", "notes", "occluders"])
+    ap.add_argument("cmd", choices=["map", "label", "score", "preview", "sorter", "queue", "notes", "occluders",
+                                    "predict", "sample", "heldout"])
     ap.add_argument("--key", default=RE.KEYS[0])
     ap.add_argument("--record", action="store_true")
+    ap.add_argument("--v2", action="store_true", help="sorter: score raised-edges-0.2.0, the old two classes")
     ap.add_argument("--spec", help="notes: the JSON list of {n, subclass, note} in the store")
+    ap.add_argument("--close-after", type=int, default=0,
+                    help="label: close the window after this many ms, writing nothing (a check that it opens)")
     a = ap.parse_args()
-    if a.cmd in ("sorter", "queue", "notes", "occluders"):
-        _lower_priority()
-        cv2.setNumThreads(1)
+    _lower_priority()
+    cv2.setNumThreads(1)
+    if a.cmd in ("sorter", "queue", "notes", "occluders", "predict", "sample", "heldout"):
         if a.cmd == "sorter":
-            sorter(a.key, a.record)
+            sorter(a.key, a.record, a.v2)
         elif a.cmd == "queue":
             order = queue(a.key)
             for i, p in enumerate(order, 1):
                 print(f"{i:3d}/{len(order)}  {p['piece']}  {p['cls']}")
         elif a.cmd == "notes":
             notes(a.key, Path(a.spec))
+        elif a.cmd == "predict":
+            predict(a.key)
+        elif a.cmd == "sample":
+            make_sample(a.key)
+        elif a.cmd == "heldout":
+            heldout(a.key, a.record)
         else:
             occluder_change(a.key, a.record)
         raise SystemExit(0)
     if a.cmd == "preview":                     # write the first three tiles, for checking the page
         r, items = _items(a.key)
-        mapped = _mapped(a.key)
-        todo = [p for p in items if p["piece"] not in mapped]
+        smp = _sample(a.key)
+        if smp is not None:
+            by = {p["piece"]: p for p in items}
+            todo = [by[x["piece"]] for x in smp["items"]]
+        else:
+            mapped = _mapped(a.key)
+            todo = [p for p in items if p["piece"] not in mapped]
         RE.OUT.mkdir(parents=True, exist_ok=True)
         for p in todo[:3]:
-            cv2.imwrite(str(RE.OUT / f"label_preview_seg_{p['id']}.png"), _tile(r, p))
-        print(len(items), "segments;", len(todo), "not mapped; previews in", RE.OUT)
+            cv2.imwrite(str(RE.OUT / f"label_preview_{a.key}_seg_{p['id']}.png"), _tile(r, p))
+        print(len(items), "segments;", len(todo), "to ask; previews in", RE.OUT)
         raise SystemExit(0)
     if a.cmd == "map":
         cmd_map(a.key)
         raise SystemExit(0)
-    raise SystemExit(label(a.key) if a.cmd == "label" else (score(a.key) and 0))
+    raise SystemExit(label(a.key, a.close_after) if a.cmd == "label" else (score(a.key) and 0))
