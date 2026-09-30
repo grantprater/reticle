@@ -11,6 +11,32 @@ r"""Touching minimap icons fitted jointly: render every icon of a stack, composi
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --v5                # 0.5.0 exactly, unrecorded
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --only cast|regions|boxes [--record]
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --compare [--record]
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --gated [--v60]      # 0.6.1: the items after the player's death
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --ungated-check 12  # 0.6.1 reads 0.6.0's items outside the gate
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --compare-spectate [--record]
+
+**0.6.1 gates the self role on the player's death (`player_life`, change
+"spectate").** After the player dies the self icon is a spectated teammate's.
+The owners decide it: the killfeed death and the kit witness end the kit
+(`ability_timeline.stored_gate_inputs`, `kit_windows`, and
+`adjudication.ability_state`'s per-sample context, which reads
+`adjudication.tray_kit.spectated_agent` over the stored `tray_kit` spans).
+Where the owner says the player is dead, the item is `spectating`:
+
+- the self audio circle is not sought, since it is never drawn round a
+  spectated player [domain:minimap/self-audio-circle];
+- the self role's boost eligibility is the spectated agent's where the kit
+  witness names one, else `unknown` (never the player's agent), and an ally's
+  set drops the named spectated agent;
+- the self role still casts: a spectated teammate's cone is drawn.
+
+An item with no rounds table, or outside every round, keeps 0.6.0's reading
+and says why (`player_life.reason`). `--gated` fits only the gated items
+(`--v60` without the gate: the baseline), writing
+`OUT/spectate-0.6.1/items.json` (`control-0.6.0/`); `--ungated-check N` refits
+the first N ungated items and compares them with 0.6.0's `items.json`;
+`--compare-spectate` records `scene_stack_compare_v61`. No `--only` run
+carries the gate, so the ablations stay 0.6.0's.
 
 **0.6.0 casts the light as a binary raycast (`CHANGES`).** The light
 diagnosis (`light_diagnosis.py`) split 0.5.0's unexplained light into
@@ -226,7 +252,8 @@ from __future__ import annotations
 import os
 
 for _k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
-    os.environ[_k] = "4"          # at most four threads (the machine's rule while no user job runs)
+    os.environ.setdefault(_k, "4")  # at most four threads (the machine's rule while no user job runs);
+                                    # a caller's lower setting stands
 
 import argparse  # noqa: E402
 import itertools  # noqa: E402
@@ -260,8 +287,10 @@ from reticle import lighting  # noqa: E402
 from reticle import teardrop as td  # noqa: E402
 from reticle.minimap import widget_scale  # noqa: E402
 
-VERSION = "scene-stack-0.6.0"
+VERSION = "scene-stack-0.6.1"
 OUT = sem.STORE / "analysis" / "scene-raycast-20260930"
+#: 0.6.0's full run, which 0.6.1 leaves in place and refits only where the gate fires.
+OUT_V6 = OUT
 #: 0.5.0's outputs: its tint and light calibrations, which 0.6.0 reads unchanged, and its items.
 OUT_V5 = sem.STORE / "analysis" / "scene-tint-20260930"
 #: 0.4.0's outputs, read by `--disc` (the 0.4.0 control) and by the 0.5.0 sheet's pick rule.
@@ -283,6 +312,7 @@ LIGHT_CAL_SERIES = "scene_stack_light_cal_v5"
 TINT_CAL_SERIES = "scene_stack_tint_cal_v5"
 FIT_AGREE_SERIES = "scene_stack_fit_agree_v5"
 COMPARE_SERIES = "scene_stack_compare_v6"
+SPECTATE_SERIES = "scene_stack_compare_v61"
 
 #: 0.6.0's changes, each additive, so an empty set is 0.5.0 (`--v5`) and one change alone is an
 #: ablation (`--only cast|regions|boxes`):
@@ -296,7 +326,10 @@ COMPARE_SERIES = "scene_stack_compare_v6"
 #: - "dark": a frame whose whole minimap is darkened against the baked static is refused with the
 #:   reason `minimap-darkened` (`minimap_darkened`). A refusal, not a model change, so every 0.6.0
 #:   variant keeps it.
-CHANGES_ALL = ("cast", "regions", "boxes", "dark")
+#: - "spectate" (0.6.1): where the owners say the player is dead, the self role is a spectated teammate
+#:   (`player_life`): no self audio circle, and boost eligibility from the spectated agent or unknown.
+#:   The `--only` ablations and `--v60` leave it out.
+CHANGES_ALL = ("cast", "regions", "boxes", "dark", "spectate")
 CHANGES: set = set(CHANGES_ALL)
 #: The per-pixel read rates of the instrument (light-diagnosis-0.1.0): the rule `e2[1] + c_u < e2[0]`
 #: reads lit on this share of truly lit and of truly unlit pixels, per widget scale.
@@ -1117,20 +1150,78 @@ def team_casters(s, r: dict, sc: float, scene_icons: list[dict], tv: TVFrames | 
 #: as a surprise.
 BOOST_AGENTS = ("jett", "waylay", "raze")
 _BOOST: dict = {}
+_LIFE: dict = {}
 
 
-def boost_eligible(sid: str, role: str) -> str:
+def _life_session(sid: str) -> dict:
+    """The owners' inputs for the player's life in one session, read from storage once: the rounds, the
+    gate's stored inputs (`ability_timeline.stored_gate_inputs`), the kit windows (`kit_windows`) and the
+    kit witness's spans of another agent's kit (`adjudication.tray_kit.stored_kit_witness`)."""
+    if sid in _LIFE:
+        return _LIFE[sid]
+    from reticle.ability_timeline import kit_windows, stored_gate_inputs
+    from reticle.adjudication.ability_state import player_agent_verdict
+    from reticle.adjudication.tray_kit import stored_kit_witness
+    from reticle.lineup import load_lineup
+    from reticle.store import Store
+    st = Store(str(sem.STORE))
+    man = st.read_manifest(sid)
+    date = man["ingested_at"][:10]
+    rt = st.read_rounds(sid, date)
+    if rt is None:
+        _LIFE[sid] = {"reason": "no_rounds_table"}
+        return _LIFE[sid]
+    rounds = rt.to_pylist()
+    agent = player_agent_verdict(load_lineup(sid, sem.STORE), sid)
+    gate, stamps = stored_gate_inputs(st, sid, date, rounds, agent["agent"])
+    kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                       second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+                       report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+                       kit_returns_ms=gate["kit_returns_ms"])
+    kit = stored_kit_witness(st.read_events("tray_kit", sid), agent=agent["agent"])
+    _LIFE[sid] = {"reason": None, "kits": kits, "phase_of": gate["phase_of"], "spans": kit["other_spans"],
+                  "player_agent": agent["agent"], "tray_kit": kit["version"] if kit["reason"] is None
+                  else kit["reason"], "death": stamps.get("death"), "player_cast": stamps.get("player_cast")}
+    return _LIFE[sid]
+
+
+def player_life(sid: str, t_ms: float) -> dict:
+    """0.6.1: is the player alive at `t_ms`, and whose icon does the self role show? Asked of the owners,
+    never decided here: `adjudication.ability_state`'s per-sample context (`_context`) over the kit
+    windows the tray gate reads (`ability_timeline.kit_windows`: the killfeed death less `DEATH_LEAD_MS`,
+    and the kit witness's first change in a round) and `adjudication.tray_kit.spectated_agent` over the
+    stored spans. `alive` is True, False or None (no rounds table, or no round holds the instant), with
+    the reason; `spectated` is the kit witness's agent, None where it names none or has no rows."""
+    L = _life_session(sid)
+    if L["reason"] is not None:
+        return {"alive": None, "reason": L["reason"], "spectated": None}
+    from reticle.adjudication.ability_state import _context
+    c = _context([float(t_ms)], [True], [True], L["kits"], L["phase_of"], L["spans"])[0]
+    return {"alive": c["owner_alive"], "life": c["owner_life"], "spectated": c["spectating"],
+            "reason": None if c["owner_alive"] is not None else "no_round",
+            "player_agent": L["player_agent"], "tray_kit": L["tray_kit"], "death": L["death"],
+            "player_cast": L["player_cast"]}
+
+
+def boost_eligible(sid: str, role: str, life: dict | None = None) -> str:
     """"yes", "no" or "unknown": whether the caster's agent (from the stored lineup, named by the
     identity arbiter) can boost. An ally track carries no agent, so an ally is "unknown" when any
-    teammate but the player may be a boost agent and "no" only when the side is named in full."""
-    key = (sid, role)
+    teammate but the player may be a boost agent and "no" only when the side is named in full.
+    0.6.1: where `life` (`player_life`) says the player is dead, the self role is the spectated
+    teammate, whose agent is the kit witness's (`tray_kit.spectated_agent`) or unknown, never the
+    player's; an ally's set also drops that spectated agent."""
+    dead = life is not None and life.get("alive") is False
+    seen = (life.get("spectated") or None) if dead else None
+    key = (sid, role, dead, seen)
     if key in _BOOST:
         return _BOOST[key]
     from reticle.lineup import load_lineup
     from reticle.adjudication.ult_cast import lineup_sides, player_agent
     lu = load_lineup(sid, sem.STORE)
     me = player_agent(lu, sid)
-    if role == "self":
+    if role == "self" and dead:
+        got = "unknown" if seen is None else ("yes" if seen.lower() in BOOST_AGENTS else "no")
+    elif role == "self":
         got = "unknown" if me is None else ("yes" if me.lower() in BOOST_AGENTS else "no")
     else:
         side = (lineup_sides(lu, sid) or {}).get("ally")
@@ -1140,6 +1231,8 @@ def boost_eligible(sid: str, role: str) -> str:
             names = [a.lower() for a in side["named"] + side["soft"]]
             if me is not None and me.lower() in names:
                 names.remove(me.lower())
+            if seen is not None and seen.lower() in names:
+                names.remove(seen.lower())
             if any(a in BOOST_AGENTS for a in names):
                 got = "unknown"
             else:
@@ -1624,11 +1717,13 @@ def clove_fit(d: np.ndarray, pts: list[dict], radii: np.ndarray, sc: float, me=N
     return f
 
 
-def find_sources(sid: str, t_ms: float, crop: np.ndarray, sc: float) -> dict:
+def find_sources(sid: str, t_ms: float, crop: np.ndarray, sc: float, spectating: bool = False) -> dict:
     """The non-cone light sources this frame shows (0.5.0), `{"drawn", "notes", "rejected"}`.
 
     - audio: audio_circle's per-frame fit round the stored self position (`audio_fit`), which counts only
-      centred on the self icon and at one of the session's two sizes;
+      centred on the self icon and at one of the session's two sizes; not sought while `spectating`
+      (0.6.1: the player is dead by `player_life`), since the circle is never drawn round a spectated
+      player [domain:minimap/self-audio-circle];
     - clove: while an ally Clove is dead in this round by the stored death data, the best circle centred
       near the death point (`clove_death_points`, `clove_fit`); with no stored track ending at the death,
       0.4.0's free search over the widget, flagged as the surprise path;
@@ -1649,7 +1744,10 @@ def find_sources(sid: str, t_ms: float, crop: np.ndarray, sc: float) -> dict:
         return out
     d = S.diff(crop)
     audio = None
-    if "audio" in SOURCES:
+    if "audio" in SOURCES and spectating:
+        out["notes"]["audio"] = ("not sought: the player is dead (player_life), and the self audio circle is "
+                                 "never drawn round a spectated player")
+    elif "audio" in SOURCES:
         me, _drawn = S.self_at(t_ms)
         if me is None:
             out["notes"]["audio"] = "no stored self position within +-200 ms"
@@ -1746,9 +1844,9 @@ def scene_sources(r: dict | None, sid: str, t_ms: float, crop: np.ndarray, sc: f
 
 
 def item_sources(r: dict, sid: str, t_ms: float, crop: np.ndarray, sc: float) -> dict:
-    """`find_sources`, cached on the row."""
+    """`find_sources`, cached on the row; 0.6.1 passes the row's `spectating` (set by `run_item`)."""
     if "_src" not in r:
-        r["_src"] = find_sources(sid, float(t_ms), crop, sc)
+        r["_src"] = find_sources(sid, float(t_ms), crop, sc, spectating=bool(r.get("spectating")))
     return r["_src"]
 
 
@@ -2849,6 +2947,12 @@ def run_item(s, r: dict, tracks, do_fit: bool = True, tv: TVFrames | None = None
     out["teardrop"] = float(f["deg"]) if f.get("read") else None
     out["teardrop_reason"] = None if f.get("read") else f.get("reason", "no_fit")
     out["td_xy"] = (float(f["x"]), float(f["y"])) if "x" in f else None
+    life = None
+    if "spectate" in CHANGES and SPACE == "rgb":
+        # 0.6.1: the owners say whether the player lives; a dead player's self role is a spectated teammate.
+        life = player_life(r["session"], float(r["t_ms"]))
+        out["player_life"] = life
+        out["spectating"] = r["spectating"] = life["alive"] is False
     if "dark" in CHANGES and SPACE == "rgb":
         # 0.6.0: a darkened minimap is refused before any light is compared; the teardrop still reads.
         dk = minimap_darkened(s, crop)
@@ -2885,7 +2989,7 @@ def run_item(s, r: dict, tracks, do_fit: bool = True, tv: TVFrames | None = None
         for row in bo:
             role = (nb["icons"][row["index"]]["cls"] if row["caster"] == "scene" else row.get("role"))
             row["role"] = role
-            row["boost"] = boost_eligible(r["session"], role) if role in ("self", "ally") else None
+            row["boost"] = boost_eligible(r["session"], role, life) if role in ("self", "ally") else None
             if row["jumping"] and row["boost"] == "no":
                 # The player: tall boxes block a jump; only a boost ability lifts over them. A pass by a
                 # caster who cannot boost says every box it crosses is short, or the model is wrong.
@@ -2920,7 +3024,10 @@ def run_item(s, r: dict, tracks, do_fit: bool = True, tv: TVFrames | None = None
          "its last visible teardrop (casters[].depends_on)"] if out.get("casters") is not None else []) + (
         ["0.6.0 regions: light-diagnosis-0.1.0's per-pixel read rates"] if "regions" in CHANGES else []) + (
         ["0.6.0 boxes: baked boxes via cone.box_crossings; the stored lineup for boost eligibility"]
-        if "boxes" in CHANGES else [])
+        if "boxes" in CHANGES else []) + (
+        ["0.6.1 spectate: the player's life from ability_state's context over the tray gate's stored inputs "
+         "(killfeed deaths, tray_kit spans); the spectated agent from tray_kit.spectated_agent"]
+        if life is not None else [])
     out["_scene"] = scene
     out["_fit"] = got
     return out
@@ -3364,12 +3471,37 @@ def main(argv=None) -> int:
     ap.add_argument("--compare", action="store_true",
                     help="the teardrop, 0.5.0, 0.6.0 and each ablation on the items every arm reads, from the "
                          "stored items.json files; fit nothing")
+    ap.add_argument("--gated", action="store_true",
+                    help="0.6.1: fit only the items the owners place after the player's death, and bfad2778a372 "
+                         "618.133 s unlabelled; written under OUT/spectate-0.6.1 (--v60: OUT/control-0.6.0)")
+    ap.add_argument("--v60", action="store_true",
+                    help="0.6.0 exactly (no spectate gate); never recorded, written under OUT/control-0.6.0")
+    ap.add_argument("--ungated-check", type=int, default=0,
+                    help="0.6.1: refit the first N items (spread over the sets) outside the gate and compare "
+                         "them with 0.6.0's items.json; written under OUT/ungated-check")
+    ap.add_argument("--compare-spectate", action="store_true",
+                    help="the teardrop, 0.6.0 and 0.6.1 on the 165 items, the gated ones refitted; fit nothing")
     args = ap.parse_args(argv)
     global GAIN_MODE, OUT, SPACE, CAL, LCAL, CAL_PATH, SOURCES, VERSION, LIGHT_CAL_PATH, SERIES, CHECK_SERIES
     global SOURCE_STATE, TCAL, CHANGES
     SPACE = args.space
     if args.compare:
         return compare(record=args.record)
+    if args.compare_spectate:
+        return compare_spectate(record=args.record)
+    subset = args.gated or args.ungated_check
+    if subset and (args.record or args.sheet or args.limit or args.parts):
+        raise SystemExit("--gated and --ungated-check write items only; --compare-spectate records")
+    if args.v60:
+        if args.record:
+            raise SystemExit("--v60 reruns 0.6.0 as a control: it records nothing")
+        CHANGES = set(CHANGES_ALL) - {"spectate"}
+        VERSION = "scene-stack-0.6.0"
+        OUT = OUT / "control-0.6.0"
+    if args.gated:
+        OUT = OUT / ("spectate-0.6.1" if not args.v60 else "gated")
+    elif args.ungated_check:
+        OUT = OUT / "ungated-check"
     if args.v5 or args.no_sources or args.disc:
         if args.v5 and args.record:
             raise SystemExit("--v5 reruns 0.5.0 as a control: it records nothing")
@@ -3429,6 +3561,21 @@ def main(argv=None) -> int:
         all_rows = {k: [r for r in rows if r["set"] in keep] for k, rows in all_rows.items()}
         all_rows = {k: v for k, v in all_rows.items() if v}
     full_sets = args.sets == ap.get_default("sets") and not args.limit
+    if subset:
+        # 0.6.1: the owners' verdict on the player's life picks the items; `need` above still spans every
+        # loaded item, so the stored priors load exactly as in the full run.
+        for rows in all_rows.values():
+            for r in rows:
+                r["_life"] = player_life(r["session"], float(r["t_ms"]))
+        if args.gated:
+            all_rows = {k: [r for r in rows if r["_life"]["alive"] is False] for k, rows in all_rows.items()}
+        else:
+            per = max(1, math.ceil(args.ungated_check / len(all_rows)))
+            all_rows = {k: [r for r in rows if r["_life"]["alive"] is not False][:per]
+                        for k, rows in all_rows.items()}
+        all_rows = {k: v for k, v in all_rows.items() if v}
+        print(f"{'gated' if args.gated else 'ungated check'}: "
+              + ", ".join(f"{k} {len(v)}" for k, v in all_rows.items()), flush=True)
     if args.recalibrate:
         CAL_PATH = OUT / "calibration.json"
     cal_path = CAL_PATH
@@ -3528,6 +3675,23 @@ def main(argv=None) -> int:
             r.update(got)
             if (i + 1) % 10 == 0:
                 print(f"  {k} {i + 1}/{len(rows)} {time.perf_counter() - t0:.0f}s", flush=True)
+    if subset:
+        if args.gated:
+            b = bfad_item(sess, tracks, tvs)
+            if b is not None:
+                all_rows["unlabelled"] = [b]
+                print(f"bfad 618.133: joint {b.get('joint')} jumping {b.get('joint_jumping')} teardrop "
+                      f"{b.get('teardrop')} spectating {b.get('spectating')} sources "
+                      f"{[c['kind'] for c in b.get('light_sources') or []]} notes {b.get('light_source_notes')}")
+        OUT.mkdir(parents=True, exist_ok=True)
+        clean = {k: [{kk: vv for kk, vv in r.items() if not kk.startswith("_")} for r in v]
+                 for k, v in all_rows.items()}
+        (OUT / "items.json").write_text(json.dumps({"version": VERSION, "deps": {
+            "prototype": VERSION, **_v6_deps()}, "sets": clean}, indent=1, default=str), encoding="utf-8")
+        print("wrote", OUT / "items.json")
+        if args.ungated_check or args.v60:
+            ungated_check(all_rows)
+        return 0
     if args.check:
         from reticle import metrics
         res = check(all_rows, sess, store)
@@ -3666,6 +3830,9 @@ def _v6_deps() -> dict:
               "boost_agents": list(BOOST_AGENTS)}
     if "dark" in CHANGES:
         d |= {"dark_median": DARK_MEDIAN}
+    if "spectate" in CHANGES:
+        d |= {"spectate": "ability_state._context over ability_timeline.kit_windows and stored_gate_inputs; "
+                          "tray_kit.spectated_agent"}
     return d
 
 
@@ -3735,7 +3902,140 @@ def compare(record: bool = False) -> int:
     return 0
 
 
-BFAD_T = 618133.3                       # the player: the self casts this light, drawn under Deadlock's icon
+#: The player (Skye) died at 576.0 s, so the self-role icon here is the spectated Jett (the player
+#: confirmed it), and Jett casts the light drawn under Deadlock's icon. No self audio circle is drawn
+#: round a spectated player [domain:minimap/self-audio-circle].
+BFAD_T = 618133.3
+
+
+def bfad_item(sess, tracks, tvs) -> dict | None:
+    """bfad2778a372 618.133 s, unlabelled, fitted round the self-role icon's detector centre."""
+    sid = "bfad2778a372"
+    s = sess(sid)
+    t = min(s.cache_t, key=lambda x: abs(x - BFAD_T))
+    crop = list(s.crops([t]))[0][1]
+    det = it_.detections(crop, "self", s)
+    if not det:
+        return None
+    d = det[0]
+    b = {"session": sid, "t_ms": float(t), "cls": "self", "det_cx": float(d["cx"]), "det_cy": float(d["cy"]),
+         "set": "unlabelled", "label_deg": None, "key": "bfad-618133", "_crop": crop}
+    tv = tvs.get(sid) or (TVFrames(sid, [float(t)]) if "cast" in CHANGES else None)
+    tr = tracks.get(sid) or TrackIndex(sid, [float(t)])
+    b.update(run_item(s, b, tr, tv=tv))
+    return b
+
+
+#: What an ungated item must read the same as in 0.6.0 (`ungated_check`).
+SAME_FIELDS = ("teardrop", "joint", "solo", "joint_jumping", "margin", "order")
+
+
+def _same(a, b) -> bool:
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return abs(float(a) - float(b)) <= 1e-6
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
+    return a == b
+
+
+def ungated_check(all_rows: dict) -> dict:
+    """Refitted items against 0.6.0's `items.json`: every `SAME_FIELDS` value, the unexplained light
+    count and the drawn sources must match. `--ungated-check` asks it of 0.6.1 outside the gate, and
+    `--gated --v60` of the 0.6.0 baseline on the gated items (the rerun reproduces the stored run)."""
+    p = OUT_V6 / "items.json"
+    v6 = {_ikey(x): x for v in json.loads(p.read_text(encoding="utf-8"))["sets"].values() for x in v}
+    n = same = 0
+    diffs = []
+    for rows in all_rows.values():
+        for r in rows:
+            q = v6.get(_ikey(r))
+            if q is None:
+                continue
+            n += 1
+            bad = [f for f in SAME_FIELDS if not _same(r.get(f), q.get(f))]
+            if not _same((r.get("light") or {}).get("unexplained_n"), (q.get("light") or {}).get("unexplained_n")):
+                bad.append("light.unexplained_n")
+            if [c["kind"] for c in r.get("light_sources") or []] != [c["kind"] for c in q.get("light_sources") or []]:
+                bad.append("light_sources")
+            same += not bad
+            if bad:
+                diffs.append((_ikey(r), bad))
+    got = {"n": n, "identical": same, "diffs": diffs}
+    print(f"ungated check against {p}: {same} of {n} identical; diffs {diffs}")
+    (OUT / "ungated_check.json").write_text(json.dumps(got, indent=1, default=str), encoding="utf-8")
+    return got
+
+
+def compare_spectate(record: bool = False) -> int:
+    """0.6.1 on the 165 items `compare` scores (the teardrop and every 0.6.0 arm read them): the gated
+    items refitted at 0.6.1 (`--gated`), every other item 0.6.0's, since the gate changes nothing outside
+    it (`--ungated-check`). Flips on the gated items for the teardrop, 0.6.0 and 0.6.1, and pooled."""
+    arms = {}
+    for name, path in COMPARE_ARMS:
+        p = path()
+        if p.is_file():
+            arms[name] = {_ikey(x): x for v in json.loads(p.read_text(encoding="utf-8"))["sets"].values() for x in v}
+    base = arms["0.6.0"]
+    keys_ = [k for k, x in base.items() if err(x, "teardrop") is not None
+             and all(k in a and err(a[k], "joint") is not None for a in arms.values())]
+    pg = OUT / "spectate-0.6.1" / "items.json"
+    g_sets = json.loads(pg.read_text(encoding="utf-8"))["sets"]
+    gated = {_ikey(x): x for k, v in g_sets.items() if k != "unlabelled" for x in v}
+    un = [x for x in g_sets.get("unlabelled", [])]
+    pc = OUT / "ungated-check" / "ungated_check.json"
+    chk = json.loads(pc.read_text(encoding="utf-8")) if pc.is_file() else None
+    v61 = {k: gated.get(k, base[k]) for k in keys_}
+    gk = [k for k in keys_ if k in gated]
+    miss = [k for k in gk if err(gated[k], "joint") is None]
+    if miss:
+        raise SystemExit(f"0.6.1 reads no joint on gated items {miss}")
+    flips = lambda a, ks, arm="joint": sum(abs(err(a[k], arm)) > 90 for k in ks)
+    ng = [k for k in keys_ if k not in gated]
+    changed = [k for k in gk if abs(td._signed_deg(gated[k]["joint"] - base[k]["joint"])) > 1e-6]
+    flipped = [k for k in gk if (abs(err(gated[k], "joint")) > 90) != (abs(err(base[k], "joint")) > 90)]
+    pwb = lambda x: sum(b.get("surprise") == "pass-without-boost" for b in x.get("box_outcomes") or [])
+    v = {"n": len(keys_), "gated_n": len(gk), "ungated_n": len(ng),
+         "gated_loaded_n": len(gated), "gated_unscored_n": len(gated) - len(gk),
+         "gated_teardrop_flips": flips(base, gk, "teardrop"), "gated_060_flips": flips(base, gk),
+         "gated_061_flips": flips(v61, gk), "gated_joint_changed": len(changed),
+         "gated_flip_changed": len(flipped),
+         "gated_audio_drawn_060": sum(any(c["kind"] == "audio" for c in base[k].get("light_sources") or [])
+                                      for k in gk),
+         "gated_audio_drawn_061": sum(any(c["kind"] == "audio" for c in gated[k].get("light_sources") or [])
+                                      for k in gk),
+         "gated_pass_without_boost_060": sum(pwb(base[k]) for k in gk),
+         "gated_pass_without_boost_061": sum(pwb(gated[k]) for k in gk),
+         "teardrop_flips": flips(base, keys_, "teardrop"), "060_flips": flips(base, keys_),
+         "061_flips": flips(v61, keys_)}
+    if chk is not None:
+        v |= {"ungated_check_n": chk["n"], "ungated_check_identical": chk["identical"]}
+    for b in un:
+        v |= {"bfad_618133_061_joint": round(float(b["joint"]), 2), "bfad_618133_teardrop": round(float(b["teardrop"]), 2),
+              "bfad_618133_061_jumping": bool(b["joint_jumping"]),
+              "bfad_618133_061_spectating": bool(b.get("spectating"))}
+    pv = OUT / "control-0.6.0" / "gated" / "items.json"
+    if pv.is_file():
+        for b in json.loads(pv.read_text(encoding="utf-8"))["sets"].get("unlabelled", []):
+            v |= {"bfad_618133_060_joint": round(float(b["joint"]), 2),
+                  "bfad_618133_060_jumping": bool(b["joint_jumping"]),
+                  "bfad_618133_060_audio_drawn": any(c["kind"] == "audio" for c in b.get("light_sources") or [])}
+    for k in changed:
+        print(f"  changed {k}: 0.6.0 {err(base[k], 'joint'):+.1f} 0.6.1 {err(gated[k], 'joint'):+.1f} "
+              f"teardrop {err(base[k], 'teardrop'):+.1f}")
+    per = defaultdict(int)
+    for k in gk:
+        per[k[1]] += 1
+    print(f"compare-spectate: {v}; gated per session {dict(per)}")
+    if record:
+        from reticle import metrics
+        deps = {"prototype": VERSION, "gated_items": str(pg), "ungated_check": str(pc),
+                "arms": {n: str(p()) for n, p in COMPARE_ARMS if n in arms}, **_v6_deps(),
+                "items": "the 165 items the teardrop and every 0.6.0 arm read; gated ones refitted at 0.6.1"}
+        metrics.record(SPECTATE_SERIES, part="pooled", session="+".join(sorted({k[1] for k in keys_})),
+                       values=v, deps=deps, context={"gated_per_session": dict(per),
+                                                     "changed": [list(map(str, k)) for k in changed]})
+        print("recorded", SPECTATE_SERIES)
+    return 0
 
 
 def sheet_v6(all_rows: dict, sess, tracks, tvs) -> None:
@@ -3754,18 +4054,8 @@ def sheet_v6(all_rows: dict, sess, tracks, tvs) -> None:
     pick += [r for r in rows if r.get("refused") and r not in pick]
     pick += [r for r in rows if any(b["jumping"] for b in r.get("box_outcomes") or []) and r not in pick]
     pick += [r for r in rows if r.get("box_outcomes") and r not in pick][:6]
-    sid = "bfad2778a372"
-    s = sess(sid)
-    t = min(s.cache_t, key=lambda x: abs(x - BFAD_T))
-    crop = list(s.crops([t]))[0][1]
-    det = it_.detections(crop, "self", s)
-    if det:
-        d = det[0]
-        b = {"session": sid, "t_ms": float(t), "cls": "self", "det_cx": float(d["cx"]), "det_cy": float(d["cy"]),
-             "set": "unlabelled", "label_deg": None, "key": "bfad-618133", "_crop": crop}
-        tv = tvs.get(sid) or (TVFrames(sid, [float(t)]) if "cast" in CHANGES else None)
-        tr = tracks.get(sid) or TrackIndex(sid, [float(t)])
-        b.update(run_item(s, b, tr, tv=tv))
+    b = bfad_item(sess, tracks, tvs)
+    if b is not None:
         pick.append(b)
         print(f"bfad 618.133: joint {b.get('joint')} teardrop {b.get('teardrop')} light {b.get('light')} "
               f"casters {b.get('casters')} boxes {b.get('box_outcomes')}")
