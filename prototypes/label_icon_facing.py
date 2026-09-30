@@ -103,6 +103,25 @@ player sees only a ring at the midpoint of the teardrop's and the ring fit's
 centres. N marks a ringed thing that is no enemy icon. Answers go to the
 store's `labels/enemy_facing_331_20260929.jsonl`;
 `icon_facing_eval.py --set enemy_facing_331_20260929` scores them.
+
+**The 331 px self set** (`--set self_facing_331_20260929`). The self
+teardrop's facing gate (`teardrop.SELF_FACING_MIN_NCC`, 0.6) waits on labels
+between NCC 0.55 and 0.6 (E11 in docs/STATISTICAL_ADJUDICATOR.md).
+
+    .\.venv\Scripts\python.exe prototypes\label_icon_facing.py --set self_facing_331_20260929 --prepare
+    .\.venv\Scripts\python.exe prototypes\label_icon_facing.py --set self_facing_331_20260929
+
+Prepare reads about `S331_FRAMES` live, unstalled, drawn frames per session
+of c40d950031bb, 223d636bf8d2, bfad2778a372 and e37fdeca944f (all 331 px)
+from the crop cache, and on each reads the best self fit
+(`minimap.self_icons` by coverage), the self teardrop before its gate
+(`teardrop.fit_teardrop`), the ring fit's facing and the tip highlight
+(side self). It draws `QUOTA_S331` items per NCC band (`S331_BANDS`: 0.50-0.55,
+0.55-0.60, 0.60-0.65 and a few anchors above), the session with fewest items
+first, each `GAP_MS_331` from the others of its session. The ring sits at the
+midpoint of the teardrop's and the ring fit's centres; `manifest.json` holds
+the readings. Answers go to the store's `labels/self_facing_331_20260929.jsonl`;
+`icon_facing_eval.py --set self_facing_331_20260929` scores them.
 """
 from __future__ import annotations
 
@@ -184,6 +203,20 @@ RED_ICON_MIN = 0.5       # `teardrop.redness` at or above this is the icon's own
 BG_CLASSES = ("void", "lit", "wall", "floor")
 BG_VOID_MIN, BG_LIT_MIN, BG_WALL_MIN = 0.5, 0.25, 0.10   # fixed before any item was drawn
 N_SECTORS = 12
+
+
+# The 331 px self set: the self teardrop's facing gate (E11 in
+# docs/STATISTICAL_ADJUDICATOR.md) waits on labels between NCC 0.5 and 0.65.
+SET_S331 = "self_facing_331_20260929"
+SETS = SETS + (SET_S331,)
+VERSION_S331 = "label-self-facing-331-0.1.0"
+CLASS_SET_S331 = "self_facing_331-1"
+S331_SESSIONS = ("c40d950031bb", "223d636bf8d2", "bfad2778a372", "e37fdeca944f")
+S331_FRAMES = 600            # live frames read per session, evenly strided
+#: Self teardrop NCC bands, [lo, hi), and the items drawn from each.
+S331_BANDS = {"n50_55": (0.50, 0.55), "n55_60": (0.55, 0.60), "n60_65": (0.60, 0.65), "anchor": (0.65, 1.01)}
+QUOTA_S331 = {"n50_55": 12, "n55_60": 12, "n60_65": 12, "anchor": 4}
+SEED_S331 = 2026092904
 
 
 def items_dir(store: Path, name: str = NAME) -> Path:
@@ -839,6 +872,144 @@ def prepare_e331(store: Path, limit: int | None = None) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- prepare, 331 px self
+
+def self_pool(s, times) -> tuple[list[dict], dict]:
+    """The self icon on the live, drawn frames: the best `minimap.self_icons` fit
+    by coverage (as `team_vision_eval.pose_check` takes it), the self teardrop
+    at the widget's scale (`teardrop.fit_teardrop`, before `SelfConeReader`'s
+    NCC gate, which these labels test), the ring fit's facing and the tip
+    highlight (`tip_highlight.read`, side self)."""
+    import tip_highlight as th
+    from reticle import minimap
+    from reticle.teardrop import fit_teardrop
+    sc = minimap.widget_scale(s.box[2] - s.box[0])
+    gates = {"frames": 0, "undrawn": 0, "no_self": 0, "repeat": 0, "scale": sc}
+    rows, prev = [], None
+    for t, crop in s.crops(times):
+        gates["frames"] += 1
+        if not minimap.widget_drawn(crop, s.inputs.sgray, s.floor):
+            gates["undrawn"] += 1
+            continue
+        selves = sorted(minimap.self_icons(crop, s.floor, require_facing=False, support=s.inputs.slab),
+                        key=lambda d: -d["cov"])
+        if not selves:
+            gates["no_self"] += 1
+            continue
+        d = selves[0]
+        f = fit_teardrop(crop, d["cx"], d["cy"], scale=sc)
+        sig = (round(d["cx"], 2), round(d["cy"], 2), None if f.get("ncc") is None else round(f["ncc"], 4))
+        if sig == prev:
+            gates["repeat"] += 1
+            continue
+        prev = sig
+        hl = th.read(crop, "self", d["cx"], d["cy"], sc)
+        tx, ty = (f["x"], f["y"]) if "x" in f else (d["cx"], d["cy"])
+        rows.append({"session": s.sid, "t": float(t),
+                     "ring_x": float(round((tx + d["cx"]) / 2.0)), "ring_y": float(round((ty + d["cy"]) / 2.0)),
+                     "det_x": float(d["cx"]), "det_y": float(d["cy"]), "det_r": int(d["r"]),
+                     "cov": round(float(d["cov"]), 3), "ring_deg": d.get("facing"),
+                     "teardrop_read": bool(f.get("read")), "teardrop_reason": f.get("reason"),
+                     "teardrop_deg": float(f["deg"]) if f.get("deg") is not None else None,
+                     "teardrop_x": float(tx), "teardrop_y": float(ty),
+                     "ncc": None if f.get("ncc") is None else float(f["ncc"]),
+                     "highlight_deg": hl["deg"] if hl["read"] else None, "highlight_raw_deg": hl["deg"],
+                     "highlight_reason": hl.get("reason"), "highlight_r": hl["r"],
+                     "hue_mass_deg": hl["hue_mass_deg"], "others": len(selves) - 1})
+    return rows, gates
+
+
+def select_s331(pool: list[dict]) -> list[dict]:
+    """`QUOTA_S331` items per NCC band, the session with fewest items first,
+    each `GAP_MS_331` from every other item of its session."""
+    rng = random.Random(SEED_S331)
+    taken: list[dict] = []
+    sids = sorted({r["session"] for r in pool})
+    for band, (lo, hi) in S331_BANDS.items():
+        by = {sid: [r for r in pool if r["session"] == sid and r["ncc"] is not None and lo <= r["ncc"] < hi]
+              for sid in sids}
+        for v in by.values():
+            rng.shuffle(v)
+        got = 0
+        while got < QUOTA_S331[band] and any(by.values()):
+            per = Counter(o["session"] for o in taken if o["stratum"] == band)
+            for sid in sorted((x for x in sids if by[x]), key=lambda x: (per[x], x)):
+                c = None
+                while by[sid]:
+                    c = by[sid].pop()
+                    if all(c["session"] != o["session"] or abs(c["t"] - o["t"]) >= GAP_MS_331 for o in taken):
+                        break
+                    c = None
+                if c is not None:
+                    taken.append(dict(c, stratum=band))
+                    got += 1
+                    break
+        if got < QUOTA_S331[band]:
+            print(f"  {band}: only {got} of {QUOTA_S331[band]} spaced candidates")
+    return taken
+
+
+def prepare_s331(store: Path, limit: int | None = None) -> int:
+    """`limit` caps the frames read per session: a timing run, which writes nothing."""
+    import team_vision_eval as tve
+    idle()
+    out = items_dir(store, SET_S331)
+    if limit is None and (out / "index.json").is_file():
+        raise SystemExit(f"{out / 'index.json'} exists; a new item set needs a new name")
+    pool, gates, sess = [], {}, {}
+    for sid in S331_SESSIONS:
+        s = sess[sid] = tve.Sess(sid)
+        width = int(s.box[2] - s.box[0])
+        live, g = live_times(sid, s.cache_t, 1)
+        stride = max(1, len(live) // S331_FRAMES)
+        times = live[::stride][:limit] if limit is not None else live[::stride]
+        print(f"{sid}: width {width}, {g['live']} live frames, stride {stride}; reading {len(times)}", flush=True)
+        rows, g2 = self_pool(s, times)
+        gates[sid] = dict(g, read=len(times), stride=stride, width=width, **g2)
+        pool += rows
+        nc = [r["ncc"] for r in rows if r["ncc"] is not None]
+        print(f"  {len(rows)} self reads {g2}; per band "
+              f"{ {b: sum(lo <= v < hi for v in nc) for b, (lo, hi) in S331_BANDS.items()} }", flush=True)
+    if limit is not None:
+        print("timing run: nothing written")
+        return 0
+    items = select_s331(pool)
+    (out / "patches").mkdir(parents=True, exist_ok=True)
+    index, manifest = [], []
+    for sid in S331_SESSIONS:
+        mine = sorted((r for r in items if r["session"] == sid), key=lambda r: r["t"])
+        crops = dict(sess[sid].crops(sorted({r["t"] for r in mine})))
+        for r in mine:
+            rx, ry = r["ring_x"], r["ring_y"]
+            patch, x0, y0 = lsf.patch_of(crops[r["t"]], rx, ry)
+            name = f"{sid}_{int(round(r['t']))}_{int(rx)}_{int(ry)}.png"
+            cv2.imwrite(str(out / "patches" / name), patch)
+            key = item_key(sid, r["t"], rx, ry)
+            index.append({"key": key, "session": sid, "t_ms": float(r["t"]), "cls": "self",
+                          "ring_x": rx, "ring_y": ry, "patch": name, "patch_x0": x0, "patch_y0": y0})
+            manifest.append({"key": key, "t_ms": float(r["t"]), **{k: v for k, v in r.items() if k != "t"}})
+    random.Random(SEED_S331 + 1).shuffle(index)
+    import tip_highlight as th
+    from reticle.teardrop import SELF_FACING_MIN_NCC
+    from reticle.version import TEARDROP_VERSION
+    at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    meta = {"version": VERSION_S331, "class_set": CLASS_SET_S331, "self_teardrop": TEARDROP_VERSION,
+            "self_facing_min_ncc": SELF_FACING_MIN_NCC, "tip_highlight": th.VERSION, "frames": S331_FRAMES,
+            "phases": LIVE_PHASES, "gap_ms": GAP_MS_331, "bands": S331_BANDS, "quota": QUOTA_S331,
+            "seed": SEED_S331, "view": VIEW_331,
+            "ring_at": "midpoint of the self teardrop's and the self ring fit's centres, rounded to a pixel",
+            "at": at}
+    blind = {"version": VERSION_S331, "class_set": CLASS_SET_S331, "view": VIEW_331, "at": at}
+    (out / "index.json").write_text(json.dumps({"meta": blind, "items": index}, indent=1), encoding="utf-8")
+    (out / "manifest.json").write_text(json.dumps({"meta": meta, "gates": gates, "items": manifest},
+                                                  indent=1), encoding="utf-8")
+    (out / "readings.json").write_text(json.dumps({"meta": meta, "pool": pool}, indent=0), encoding="utf-8")
+    print(f"sessions {dict(Counter(r['session'] for r in manifest))}")
+    print(f"strata {dict(Counter(r['stratum'] for r in manifest))}")
+    print(f"prepared {len(index)} items -> {out}")
+    return 0
+
+
 # ---------------------------------------------------------------- ask
 
 def ask(args, store: Path) -> int:
@@ -850,9 +1021,11 @@ def ask(args, store: Path) -> int:
     view = blob["meta"].get("view") or {"zh": lsf.ZH, "zf": lsf.ZF, "ring_r": lsf.RING_R}
     zh, zf = view["zh"], view["zf"]
     tool, class_set = {SET_331: (VERSION_331, CLASS_SET_331),
-                       SET_E331: (VERSION_E331, CLASS_SET_E331)}.get(args.set, (VERSION, CLASS_SET))
+                       SET_E331: (VERSION_E331, CLASS_SET_E331),
+                       SET_S331: (VERSION_S331, CLASS_SET_S331)}.get(args.set, (VERSION, CLASS_SET))
     question = {SET_331: "Click the ringed TEAMMATE icon's centre, then the tip it points to.",
-                SET_E331: "Click the ringed ENEMY icon's centre, then the tip it points to (N if it is no enemy icon)."
+                SET_E331: "Click the ringed ENEMY icon's centre, then the tip it points to (N if it is no enemy icon).",
+                SET_S331: "Click YOUR (yellow) icon's centre, then the tip it points to (N if the ringed thing is not it)."
                 }.get(args.set, "Is the ringed thing a teammate's or an enemy's icon? Click its centre, then its tip.")
     target = Path(args.labels) if args.labels else labels_path(store, args.set)
     done = load_answers(target)
@@ -990,8 +1163,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--store", default=str(sem.STORE))
     ap.add_argument("--set", choices=SETS, default=NAME,
-                    help=f"item set (default {NAME}; {SET_331} and {SET_E331} are the 331 px "
-                         "ally and enemy sets)")
+                    help=f"item set (default {NAME}; {SET_331}, {SET_E331} and {SET_S331} are the 331 px "
+                         "ally, enemy and self sets)")
     ap.add_argument("--prepare", action="store_true")
     ap.add_argument("--limit", type=int, help="331 px sets, --prepare: read this many frames a session, "
                                               "time the run and write nothing")
@@ -1008,6 +1181,8 @@ def main(argv=None) -> int:
             return prepare_331(store, args.limit)
         if args.set == SET_E331:
             return prepare_e331(store, args.limit)
+        if args.set == SET_S331:
+            return prepare_s331(store, args.limit)
         return prepare(store, args.reuse_readings)
     return ask(args, store)
 
