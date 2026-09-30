@@ -14,7 +14,10 @@ readers on each frame to debug them.
 
 Colour follows `overlay`: amber is a refusal, abstention or unread value, drawn
 with its stored reason; it is never a negative. A dimmer ring with `?` is a
-stored ambiguity (alternatives or a provisional identity).
+stored ambiguity (alternatives or a provisional identity). Round entities,
+deaths and the spike come from the projected entity lanes (`entity_events`):
+a ledger row -- a withheld entity, pose or death -- is drawn apart, as an
+amber square on the minimap and a `ledger <standing>` line in the panel.
 
 Controls (the labelling-pass layout where it applies):
 
@@ -49,9 +52,8 @@ import numpy as np
 
 from . import view_events as ve
 from .profiles import get_profile
-from .widget_frame import capture_box, is_variant
 
-ROUND_VIEW_VERSION = "round-view-0.1.0"
+ROUND_VIEW_VERSION = "round-view-0.2.0"
 
 # BGR, the overlay's palette where the meaning is the same.
 INK = (236, 233, 230)
@@ -180,8 +182,9 @@ class Geometry:
         w, h = int(src["width"]), int(src["height"])
         prof = get_profile(manifest["source_profile"])
         rois = {r.name: r.pixels(w, h) for r in prof.rois}
-        box = capture_box(manifest) or rois["minimap"]
-        return cls(w, h, tuple(box), rois.get("killfeed"), is_variant(manifest))
+        place = ve.widget_placement(manifest)
+        box = place["capture_box"] or rois["minimap"]
+        return cls(w, h, tuple(box), rois.get("killfeed"), place["variant"])
 
     def to_frame(self, it: ve.Item):
         """An item's point in frame pixels, or None for a panel item."""
@@ -341,7 +344,12 @@ def _draw_minimap_item(img, it: ve.Item, ox: float, oy: float, k: float = 1.0,
         else:
             _text(img, "?", (p[0] - 16, p[1] - 6), AMBER, 0.45)
         _text(img, it.label, (p[0] - 34, p[1] - 10), c, 0.38)
-    elif it.stream == "round_entity":
+    elif it.stream.endswith("_ledger"):
+        # A withheld row, drawn apart: an amber square with its standing.
+        d = int(8 * k)
+        cv2.rectangle(img, (p[0] - d, p[1] - d), (p[0] + d, p[1] + d), c, 1, cv2.LINE_AA)
+        _text(img, f"{it.label} [{it.status}]", (p[0] + d + 2, p[1] + 14), c, 0.4)
+    elif it.stream == "entity_round_entity":
         cv2.circle(img, p, int(10 * k), c, 1 if it.status == "uncertain" else 2, cv2.LINE_AA)
         label = it.label + ("?" if it.status == "uncertain" else "")
         if it.status in ve.NOT_READ and it.reason:
@@ -359,13 +367,6 @@ def _draw_minimap_item(img, it: ve.Item, ox: float, oy: float, k: float = 1.0,
                 sub[:] = cv2.addWeighted(sub, 0.7, ov, 0.3, 0)
         cv2.circle(img, p, r, c, 2, cv2.LINE_AA)
         _text(img, _short(it.label, 30), (p[0] - r, p[1] - r - 4), c, 0.4)
-    elif it.stream == "spike":
-        d = 8
-        pts = np.array([(p[0], p[1] - d), (p[0] + d, p[1]), (p[0], p[1] + d),
-                        (p[0] - d, p[1])], np.int32)
-        cv2.polylines(img, [pts], True, c, 2, cv2.LINE_AA)
-        lab = it.label + (f" [{it.reason}]" if it.reason else "")
-        _text(img, lab, (p[0] + 10, p[1] - 8), c, 0.4)
     elif it.stream == "ping":
         cv2.drawMarker(img, p, c, cv2.MARKER_TILTED_CROSS, 14, 2, cv2.LINE_AA)
         _text(img, it.label, (p[0] + 9, p[1] + 16), c, 0.4)
@@ -404,7 +405,12 @@ def _panel_lines(loaded, state, t):
         lines = []
         for s in streams:
             for it in loaded.active(s, t):
-                if s == "round_entity":
+                if s.endswith("_ledger"):
+                    txt = f"ledger {it.status}: {it.label}"
+                    if it.reason:
+                        txt += f"  -- {_short(it.reason, 70)}"
+                    lines.append((txt, AMBER))
+                elif s == "entity_round_entity":
                     alts = it.detail.get("alternatives") or []
                     txt = (f"{it.label}  {it.detail.get('identity_status')}  "
                            f"{(it.entity_id or 'no entity').split(':')[-1]}")
@@ -427,7 +433,7 @@ def _panel_lines(loaded, state, t):
                     if it.reason and it.status != "ok":
                         txt += f"  -- {it.reason}"
                     lines.append((txt, _colour(it)))
-                    if s == "death":
+                    if s == "entity_death":
                         lines.append(("    id: " + it.detail.get("identity", ""), DIM))
         for s in streams:
             if loaded.presence.get(s) == "no stream for this session":
@@ -536,9 +542,9 @@ def _timeline_strip(W, t, loaded, state, marks):
 
     cv2.rectangle(s, (x0, 8), (x1, 22), DIM, 1)
     cv2.rectangle(s, (xt(loaded.t0), 9), (xt(loaded.t1), 21), (70, 66, 62), -1)
-    for it in loaded.items.get("death", []):
-        c = COLOURS["death"] if "YOU" in it.label else INK
-        cv2.line(s, (xt(it.t_ms), 6), (xt(it.t_ms), 24), c, 2)
+    for stream, c in zip(ve.lane_streams_of("death"), (INK, AMBER)):
+        for it in loaded.items.get(stream, []):
+            cv2.line(s, (xt(it.t_ms), 6), (xt(it.t_ms), 24), c, 2)
     for it in loaded.items.get("ult_cast", []):
         cv2.line(s, (xt(it.t_ms), 22), (xt(it.t_ms), 28), COLOURS["ability"], 2)
     for it in loaded.items.get("ping", []):

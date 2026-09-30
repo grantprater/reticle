@@ -227,6 +227,7 @@ evidence = "tests/test_spike.py"
 id = "spike-carrier"
 question = "Do the roster marker, the minimap carried glyph, the plant and the alive count agree about who carries the spike?"
 owner = "adjudication.spike_carrier"
+stored_consumers = ["entity_events"]
 role = ["adjudicate"]
 status = "partial"
 produces = ["check", "frame_state"]
@@ -781,10 +782,11 @@ evidence = "tests/test_round_lifetimes.py"
 id = "round-entity-session"
 question = "Which round entities did a whole session hold, from stored observations?"
 owner = "round_entities"
+stored_consumers = ["entity_events"]
 role = ["lifecycle"]
 status = "partial"
 names_agents = true
-produces = ["session_lifetimes", "ROUND_ENTITY_VERSION"]
+produces = ["session_lifetimes", "ROUND_ENTITY_VERSION", "track_gaps", "GAP_MS"]
 not_for = """
 Deciding continuity or names locally. `round_lifetimes` decides which
 observations are one entity and `adjudication.identity` names it; this maps
@@ -801,13 +803,15 @@ owner = "entity_events"
 role = ["lifecycle"]
 status = "partial"
 names_agents = true
-# Stage 0 of docs/ENTITY_EVENTS.md: the lanes are declared and nothing is
-# projected. Stage 1 adds `project_lane` and `EntityEvents` to `produces`,
-# `round-bounds` and `channel-disagreement` to `defers_to` as it imports them,
-# and `entity_events` to each input's `stored_consumers`; stage 3 adds the
-# consumers.
-produces = ["ENTITY_LANES", "NAME_ARBITER"]
-defers_to = ["agent-identity"]
+# Stage 1 of docs/ENTITY_EVENTS.md: three lanes are projected (round_entity,
+# death, spike) and the round viewer reads them. It reads the other owners'
+# stored rows, so it is their stored consumer; it imports only the arbiter
+# (the local player's entity key) and the track owner (its declared gaps).
+produces = ["ENTITY_LANES", "NAME_ARBITER", "LANE_VERSIONS", "project_lane",
+            "EntityEvents", "StaleLanes", "lane_status", "rebuild_reason",
+            "input_stamp", "round_rows", "widget_placement", "ledger_value"]
+defers_to = ["agent-identity", "round-entity-session"]
+consumers = ["cli", "plan", "view_events"]
 not_for = """
 Deciding anything. It copies what each owner stored into one schema and
 invents no key, name, time or position; a threshold, a margin or a vote
@@ -816,7 +820,7 @@ the ledger and the question goes back to the owner `reticle ownership`
 names. Nor is a projected event an observation: nothing stores it back as
 evidence.
 """
-evidence = "tests/test_entity_contract.py"
+evidence = "tests/test_entity_events.py"
 
 [[entry]]
 id = "position-belief"
@@ -837,6 +841,7 @@ evidence = "tests/test_belief.py"
 id = "round-bounds"
 question = "Where does a round begin and end, and which side is the player on?"
 owner = "rounds"
+stored_consumers = ["entity_events"]
 role = ["lifecycle", "adjudicate"]
 status = "partial"
 produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events"]
@@ -1316,6 +1321,7 @@ evidence = "tests/test_acquisition.py"
 id = "death-victim"
 question = "Which agent died at this killfeed time, who killed them, and where?"
 owner = "adjudication.death"
+stored_consumers = ["entity_events"]
 role = ["attribute", "adjudicate"]
 status = "partial"
 produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "stored_second_life", "split_second_lives", "death_key", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry"]
