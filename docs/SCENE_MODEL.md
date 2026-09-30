@@ -410,6 +410,8 @@ fitted for scene icons and from the teardrop pose for the frame's other team
 icons; enemies cast nothing. The other state costs `2 ln((1-q)/q)`, where `q`
 is the rate at which that state wins at confident owner poses on unlabelled
 frames. That cost is the explicit term for light no visible icon casts.
+`prototypes/clove_circle.py` measures one light source the render must draw:
+the dead Clove's smoke-range circle [domain:abilities/clove-dead-smoke-range-circle].
 Sprites and colours are 0.2.0's. Predictions P9-P14 were logged first
 (`notes/predictions.jsonl`, task `scene-light-20260929`).
 

@@ -2289,13 +2289,18 @@ see = ["abilities/clove-rouse", "abilities/clove-dead-smoke-range-circle"]
 
 [clove-dead-smoke-range-circle]
 claim = """
-While a dead Clove has the Ruse smoke menu open, the minimap draws a large
-circle, centred on the Clove's death location, showing where the Clove can
-still smoke. Teammates see it on their minimaps. A living Clove's menu draws
-no circle, and no other agent draws one, since no other agent can smoke
-after death [domain:abilities/clove-smokes-after-death]. The circle seemed
-to linger a split second after the smoke was placed. Clove has the smallest
-smoke placement range of the smoking agents.
+The player's statement: while a dead Clove has the Ruse smoke menu open, the
+minimap draws a large circle, centred on the Clove's death location, showing
+where the Clove can still smoke. Teammates see it on their minimaps. A living
+Clove's menu draws no circle, and no other agent draws one, since no other
+agent can smoke after death [domain:abilities/clove-smokes-after-death]. The
+circle seemed to linger a split second after the smoke was placed. Clove has
+the smallest smoke placement range of the smoking agents.
+
+Measured on one cast (`prototypes/clove_circle.py`, Lotus capture below, dead
+Clove): the circle appears with the cast input, [metric:clove_circle/measure@2026-09-28_14-18-06#lead_over_view_s=0.67] s before the
+targeting view, not with the view, and outlasts placement by [metric:clove_circle/measure@2026-09-28_14-18-06#linger_s=0.65] s. It
+is not shown only while the menu is open.
 """
 kind = "appearance"
 known = "player"
@@ -2315,6 +2320,20 @@ open, and that it looked to linger a split second after the smoke was
 placed at 0:58 of the same capture, where the Clove was dead. The player named that
 file for both Lotus sightings; neither is in the store's Lotus capture
 5822b6646448
+
+Measurement, 2026-09-29, by `prototypes/clove_circle.py` on
+`C:\\Users\\grant\\Videos\\2026-09-28 14-18-06.mp4` (not ingested), one cast.
+Radius [metric:clove_circle/measure@2026-09-28_14-18-06#r_baked=89.73] baked-widget px on Lotus = [metric:clove_circle/measure@2026-09-28_14-18-06#r_over_self_r=11.68] x the self-icon rim
+radius ([metric:clove_circle/measure@2026-09-28_14-18-06#self_r_baked=7.68] px), constant while drawn (sd [metric:clove_circle/measure@2026-09-28_14-18-06#r_sd=0.013] px over [metric:clove_circle/measure@2026-09-28_14-18-06#n_drawn=59]
+frames); no world units, since the store holds no world-to-minimap transform.
+Centre [metric:clove_circle/measure@2026-09-28_14-18-06#offset_self_last=0.51] px from the self icon at the last live frame and [metric:clove_circle/measure@2026-09-28_14-18-06#offset_x_first=0.56] px from the
+death X when it first appears; the X then drifts with the body and the circle
+does not. Timing: death [metric:clove_circle/measure@2026-09-28_14-18-06#t_death=47.9] s; circle appears [metric:clove_circle/measure@2026-09-28_14-18-06#t_appear=57.083] s, [metric:clove_circle/measure@2026-09-28_14-18-06#lead_over_view_s=0.67] s before
+the targeting view ([metric:clove_circle/measure@2026-09-28_14-18-06#t_view_open=57.75] s); the view closes and the Ruse disc is born at
+[metric:clove_circle/measure@2026-09-28_14-18-06#t_placed=59.85] s; circle gone [metric:clove_circle/measure@2026-09-28_14-18-06#t_gone=60.5] s. A camera cut and a switch to a teammate's view fall
+inside that last [metric:clove_circle/measure@2026-09-28_14-18-06#linger_s=0.65] s, so the end may follow the switch rather than a timer.
+Control at 157.8 s (Clove alive, view open): no circle, best in-widget ring
+score [metric:clove_circle/measure@2026-09-28_14-18-06#control_free_max=3.9] against [metric:clove_circle/measure@2026-09-28_14-18-06#positive_free_min=22.6] on drawn frames.
 """
 use = """
 the circle's appearance is a witness that a dead Clove is placing a smoke,
@@ -2325,9 +2344,9 @@ adjudication.smoke_owner as evidence rather than restating its rule
 an audio circle [domain:minimap/self-audio-circle] or an ult
 """
 exceptions = """
-the radius is unmeasured and asked on docs/ABILITY_MECHANICS_SHEET.md; the
-linger is the player's impression, its length unmeasured. The two Lotus
-sightings are the player's, not yet seen in stored frames. Nothing here extends to another
+the circle is measured on one cast only; its radius has no world units; the
+end may follow the camera switch rather than a timer. Whether the circle
+outlasts placement on other casts is unmeasured. Nothing here extends to another
 agent's smoke menu [domain:abilities/ability-rules-are-unique]
 """
 supersedes = """
