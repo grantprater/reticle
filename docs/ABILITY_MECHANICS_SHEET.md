@@ -47,12 +47,13 @@ questions.
 Open questions span rows. Every piloted drone has its own vision cone
 [domain:abilities/piloted-drones-have-cones]. Which drones, and does a
 drone's cone light the floor like a player's? The minimap draws a self audio
-circle round the self icon [domain:minimap/self-audio-circle]. When does it
-appear: on each sound the self makes? Does its radius mean hearing range?
-Does it scale with the sound, a footstep against a gunshot? Are allies'
-audio circles drawn? Is the large white circle round the Lotus A-site stack
-at 5822b6646448 49.50 s this circle? At that frame Gekko's icon is drawn
-without his cone [domain:minimap/ally-icon-without-cone]. Why?
+circle round the self icon [domain:minimap/self-audio-circle] on every
+sound, at the fixed audio range. How long does it linger after a sound? Is
+the large white circle round the Lotus A-site stack at 5822b6646448 49.50 s
+this circle? At that frame Gekko's icon is drawn without his cone
+[domain:minimap/ally-icon-without-cone]. Why? A dead Clove's smoke menu
+draws a range circle round the Clove's death location
+[domain:abilities/clove-dead-smoke-range-circle]. What is its radius?
 
 ## Astra
 
@@ -60,7 +61,7 @@ without his cone [domain:minimap/ally-icon-without-cone]. Why?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Gravity Well | Targeted | shared stars [domain:abilities/astra-stars-shared] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | other (census 1) | ? | ? | ? |
 | Q | Nova Pulse | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | nothing (census 1) | ? | ? | ? |
-| E | Nebula  / Dissipate | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | dark disc [domain:abilities/astra-nebula-minimap-disc]; on a teammate's minimap the star's disc becomes a larger grey disc [domain:abilities/astra-star-ally-minimap-glyph] | ? | ? | ? |
+| E | Nebula  / Dissipate | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | dark disc [domain:abilities/astra-nebula-minimap-disc]; on a teammate's minimap the star's disc becomes a larger grey disc [domain:abilities/astra-star-ally-minimap-glyph] | ? | ? | global placement [domain:abilities/astra-nebula-global-placement] |
 | X | Astral Form / Cosmic Divide | ? | ? | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
 
 ## Breach
@@ -96,7 +97,7 @@ without his cone [domain:minimap/ally-icon-without-cone]. Why?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Pick-me-up | ? | 1 [domain:abilities/clove-pick-me-up-charges] | none within a round [domain:abilities/clove-pick-me-up-charges] | second press (ACTIVATE); triggers on enemies | ? | ? | ? | ? | not castable in the range [domain:abilities/clove-c-and-x-need-a-target] |
 | Q | Meddle | Class 3 Projectile | 1 [domain:abilities/clove-meddle-charges] | none within a round [domain:abilities/clove-meddle-charges] | cast on FIRE | ? | nothing [domain:abilities/clove-rouse] | ? | ? | ? |
-| E | Ruse | Placement | 2 | 40 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | one bounded dark disc per cloud, at its placement [domain:abilities/clove-rouse] | ? | about 15 s on the minimap [domain:abilities/clove-ruse-minimap-duration] | ? |
+| E | Ruse | Placement | 2 | 40 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | one bounded dark disc per cloud, at its placement [domain:abilities/clove-rouse]; while dead, the open menu draws a range circle round the death location [domain:abilities/clove-dead-smoke-range-circle] | ? | about 15 s on the minimap [domain:abilities/clove-ruse-minimap-duration] | placeable after death [domain:abilities/clove-smokes-after-death]. The range circle's radius? |
 | X | Not Dead Yet | Self-targeted | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE, REACTIVATE) | ? | ? | ? | ? | not castable in the range [domain:abilities/clove-c-and-x-need-a-target]; does Clove dim on the scoreboard before it? [domain:rounds/scoreboard-dim-is-dead] |
 
 ## Cypher
@@ -204,7 +205,7 @@ without his cone [domain:minimap/ally-icon-without-cone]. Why?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Shrouded Step | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 4, {'nothing': 3, 'unsure': 1}) | ? | ? | ? |
 | Q | Paranoia | Missile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | travelling icon [domain:abilities/omen-paranoia-minimap-icon] | ? | ? | ? |
-| E | Dark Cover | Missile | 2 | 40 s after use [domain:abilities/omen-dark-cover-restock] | cast on FIRE | ? | dark disc in phases [domain:abilities/omen-dark-cover-minimap-phases] | ? | ? | ? |
+| E | Dark Cover | Missile | 2 | 40 s after use [domain:abilities/omen-dark-cover-restock] | cast on FIRE | ? | dark disc in phases [domain:abilities/omen-dark-cover-minimap-phases] | ? | ? | global placement [domain:abilities/omen-dark-cover-global-placement] |
 | X | From the Shadows | Placement | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | movement | ? | other (census 2) | ? | ? | ? |
 
 ## Phoenix
@@ -250,7 +251,7 @@ without his cone [domain:minimap/ally-icon-without-cone]. Why?
 | C | Regrowth | ? | a resource bar [domain:abilities/skye-regrowth-resource-bar] | the pool does not refill [domain:abilities/skye-regrowth-resource-bar] | channelled (HOLD FIRE) | channelled [domain:abilities/skye-regrowth-channelled] | teal ring round Skye [domain:abilities/skye-regrowth-minimap-ring] | ? | ? | no tray drop [domain:abilities/skye-regrowth-no-tray-drop] |
 | Q | Trailblazer | Possession | 1 [domain:abilities/skye-trailblazer-charges] | none within a round [domain:abilities/skye-trailblazer-charges] | piloted | controlled by the player, as the Owl Drone [domain:abilities/skye-trailblazer-piloted] | compact icon (census 2) | green view, shows through the minimap void [domain:hud/controlled-entity-view-tint] | ? | ? |
 | E | Guiding Light | Missile | 2 [domain:abilities/skye-guiding-light-charges] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE); second press (RE-USE) | steered by the player: held, or piloted? [domain:abilities/skye-guiding-light-steered] | travelling bird icon [domain:abilities/skye-guiding-light-minimap-icon] | ? | ? | activation sound distinct from the cast [domain:abilities/ability-sound-phases] |
-| X | Seekers | Grounded Object | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | tracks its enemy by itself [domain:abilities/skye-seekers-track-and-blind] | unsure (census 1) | ? | until destroyed or it reaches its enemy, who is blinded [domain:abilities/skye-seekers-track-and-blind]; despawns when its enemy dies? | one Seeker per living enemy [domain:abilities/skye-seekers-one-per-living-enemy]. A large white-tinted circle, believed the ult's, at Sunset e37fdeca944f 1795.08 s [domain:abilities/skye-seekers-minimap-large-circle-belief]: does the ult draw it? Is the centre where the enemies are, the radius the search range? How long does it last? |
+| X | Seekers | Grounded Object | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | tracks its enemy by itself [domain:abilities/skye-seekers-track-and-blind] | unsure (census 1) | ? | until destroyed or it reaches its enemy, who is blinded [domain:abilities/skye-seekers-track-and-blind]; despawns when its enemy dies? | one Seeker per living enemy [domain:abilities/skye-seekers-one-per-living-enemy]. The large circle at Sunset e37fdeca944f 1795.08 s, once believed the ult's [domain:abilities/skye-seekers-minimap-large-circle-belief], the player now gives to a dead Clove's smoke range [domain:abilities/clove-dead-smoke-range-circle] |
 
 ## Sova
 
@@ -275,7 +276,7 @@ without his cone [domain:minimap/ally-icon-without-cone]. Why?
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Crosscut | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | split {'nothing': 1, 'compact_icon': 1} (census 2) | ? | ? | ? |
-| Q | Chokehold | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | white-tinted area, mostly circular [domain:abilities/veto-chokehold-minimap-white-area]; compact icon (census 1) | ? | ? | the player called it Veto's trip: is that Chokehold? The area's radius? |
+| Q | Chokehold | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | white-tinted area, mostly circular [domain:abilities/veto-chokehold-minimap-white-area]; compact icon (census 1) | ? | ? | the player's trip, confirmed as Chokehold [domain:abilities/veto-chokehold-minimap-white-area]. The area's radius? |
 | E | Interceptor | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE) | ? | nothing (census 1) | ? | ? | ? |
 | X | Evolution | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | ? | ? | ? | ? |
 

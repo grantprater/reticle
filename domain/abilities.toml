@@ -1446,15 +1446,14 @@ observed instance, which confirms the trip is Trademark
 """
 use = "seek the icon with its white-tinted area; floor inside the area reads lit"
 exceptions = """
-the radius is unmeasured. The trip = Trademark reading is confirmed for
-Chamber only; Veto's trip = Chokehold stays a guess
+the radius is unmeasured
 """
 see = ["abilities/minimap-icon-pale-region", "abilities/ability-rules-are-unique"]
 
 [veto-chokehold-minimap-white-area]
 claim = """
-Veto's trip, read here as Chokehold in slot Q, draws a white-tinted area on
-the minimap round its icon, mostly circular.
+Veto's trip, which is Chokehold in slot Q, draws a white-tinted area on the
+minimap round its icon, mostly circular.
 """
 kind = "appearance"
 known = "player"
@@ -1463,12 +1462,13 @@ subject = "veto:chokehold"
 source = """
 the player, 2026-09-29 (chat), naming Veto's trip among the abilities that
 draw a white-tinted area; on 2026-09-26 he listed Chokehold with a pale
-region [domain:abilities/minimap-icon-pale-region]
+region [domain:abilities/minimap-icon-pale-region]. Later on 2026-09-29,
+asked on the mechanics sheet whether Veto's trip means Chokehold, he
+answered yes
 """
 use = "seek the icon with its white-tinted area; floor inside the area reads lit"
 exceptions = """
-the radius is unmeasured; that the player's trip is Chokehold is our reading
-of his word, to be confirmed on the mechanics sheet. Crosscut and
+the radius is unmeasured. Crosscut and
 Interceptor, listed on 2026-09-26, were not named on 2026-09-29, and nothing
 here extends to them
 """
@@ -2236,8 +2236,10 @@ see = ["abilities/skye-seekers-track-and-blind", "abilities/ability-rules-are-un
 
 [skye-seekers-minimap-large-circle-belief]
 claim = """
-Skye's Seekers in slot X draw a large white-tinted circle on the minimap.
-The player believes so from one frame; he had never noticed it before.
+SUPERSEDED by the player on 2026-09-29 [domain:abilities/clove-dead-smoke-range-circle].
+The belief was: Skye's Seekers in slot X draw a large white-tinted circle on
+the minimap. The player believed so from one frame; he had never noticed it
+before. He now attributes that circle to the team's dead Clove's smoke range.
 """
 kind = "appearance"
 known = "player"
@@ -2247,20 +2249,116 @@ source = """
 the player, 2026-09-29 (chat), shown Sunset e37fdeca944f at 1795.08 s: a
 large circle that seems to have been created by Skye's ult. His beliefs,
 unverified: the centre may be where the enemies are, and the radius may be
-the Seekers' search range
+the Seekers' search range. Later the same day he withdrew it: the circle
+may have shown the smoke placement range of the team's Clove
 """
 use = """
-a large white-tinted circle while Skye's ult runs is a candidate Seekers
-drawing, not a smoke or a self audio circle
-[domain:minimap/self-audio-circle]; floor inside it reads lit
+none: do not read a large circle as Seekers from this fact. It is kept as
+the history of the Sunset circle's attribution
 """
 exceptions = """
-unverified on any other cast: that the ult draws it, what the centre marks,
-what the radius means, and how long it lasts are asked on
-docs/ABILITY_MECHANICS_SHEET.md. Nothing here extends to another ability
+whether Seekers draw any minimap circle is unknown and unasked since the
+withdrawal. Nothing here extends to another ability
 """
 see = ["abilities/skye-seekers-one-per-living-enemy", "abilities/minimap-icon-pale-region",
        "abilities/ability-rules-are-unique"]
+
+[clove-smokes-after-death]
+claim = """
+Clove can place Ruse smokes after dying. No other agent can smoke after
+death.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+subject = "clove:ruse"
+source = """
+the player, 2026-09-29 (chat), explaining the large circle the team sees
+while its dead Clove places a smoke [domain:abilities/clove-dead-smoke-range-circle]
+"""
+use = """
+a Ruse cloud can appear after its Clove's death; a smoke placed after
+another agent's death belongs to someone else
+"""
+exceptions = """
+whether a dead Clove's Ruse follows the living rules (charges, batch launch
+[domain:abilities/clove-ruse-batch-launch], placement preview
+[domain:abilities/clove-ruse-targeting-view]) is unasked
+"""
+see = ["abilities/clove-rouse", "abilities/clove-dead-smoke-range-circle"]
+
+[clove-dead-smoke-range-circle]
+claim = """
+While a dead Clove has the Ruse smoke menu open, the minimap draws a large
+circle, centred on the Clove's death location, showing where the Clove can
+still smoke. Teammates see it on their minimaps. A living Clove's menu draws
+no circle, and no other agent draws one, since no other agent can smoke
+after death [domain:abilities/clove-smokes-after-death]. The circle seemed
+to linger a split second after the smoke was placed. Clove has the smallest
+smoke placement range of the smoking agents.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+subject = "clove:ruse"
+source = """
+the player, 2026-09-29 (chat), over five answers. He withdrew his Skye
+reading of the circle at Sunset e37fdeca944f 1795.08 s, whose lineup
+(lineup-0.3.0) names Clove among the allies, and named Clove by the
+smallest range; he first called Brimstone's and Miks's menus possible
+sources too. In both circles he saw the Clove was dead. He checked a living
+Clove himself at 2:37 of the Lotus capture C:/Users/grant/Videos/2026-09-28
+14-18-06.mp4 (not yet ingested): the menu open, no circle, which he took to
+confirm the circle is Clove's alone and only after death. He answered that
+the centre is the death location, that it shows only while the menu is
+open, and that it looked to linger a split second after the smoke was
+placed at 0:58 of the same capture, where the Clove was dead. He named that
+file for both Lotus sightings; neither is in the store's Lotus capture
+5822b6646448
+"""
+use = """
+the circle's appearance is a witness that a dead Clove is placing a smoke,
+and its centre a witness of that Clove's death location. A smoke born
+shortly after it, inside its radius, is that Clove's: hand it to
+adjudication.smoke_owner as evidence rather than restating its rule
+[domain:abilities/smoke-attribution]. The circle is not an ability area,
+an audio circle [domain:minimap/self-audio-circle] or an ult
+"""
+exceptions = """
+the radius is unmeasured and asked on docs/ABILITY_MECHANICS_SHEET.md; the
+linger is the player's impression, its length unmeasured. The two Lotus
+sightings are the player's, not yet seen in stored frames. Nothing here extends to another
+agent's smoke menu [domain:abilities/ability-rules-are-unique]
+"""
+supersedes = """
+[domain:abilities/skye-seekers-minimap-large-circle-belief], the player's
+earlier reading of the same Sunset circle as Skye's ult
+"""
+see = ["abilities/clove-smokes-after-death", "abilities/clove-ruse-targeting-view",
+       "abilities/skye-seekers-minimap-large-circle-belief", "abilities/smoke-attribution",
+       "abilities/omen-dark-cover-global-placement", "abilities/astra-nebula-global-placement"]
+
+[omen-dark-cover-global-placement]
+claim = """
+Omen's smoke placement is global.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+subject = "omen:dark-cover"
+source = "the player, 2026-09-29 (chat), asked which smoke menus could draw a range circle"
+see = ["abilities/clove-dead-smoke-range-circle"]
+
+[astra-nebula-global-placement]
+claim = """
+Astra's smoke placement is global.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+subject = "astra:nebula"
+source = "the player, 2026-09-29 (chat), asked which smoke menus could draw a range circle"
+see = ["abilities/clove-dead-smoke-range-circle", "abilities/astra-star-placed-then-turned"]
 
 [skye-seekers-track-and-blind]
 claim = """

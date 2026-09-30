@@ -56,3 +56,30 @@ use = """
 score audio false alarms separately for captures before and after this date;
 the first game-audio capture is the probe
 """
+
+[weapon-skins-picked-up]
+claim = """
+The player equipped no weapon skins at the start of his 2026-09 matches, but
+he may have picked up guns other players dropped, which carry their owners'
+skins. The player agrees that such a skin can change a gun's equip and firing
+sounds.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-09-29"
+subject = "capture:loadout"
+source = """
+the player, 2026-09-29 (chat), asked whether he used weapon skins in matches
+that the range recording does not cover
+"""
+use = """
+a confounder for the sound bank's gun classes (prototypes/sound_bank.py),
+recorded in the range with unskinned guns: a missed or wrong gun-equip or
+gun-shot match in a match may be a picked-up skinned gun, not a bank defect
+"""
+exceptions = """
+which matches, rounds or guns involved a picked-up skin is unknown. That skins
+change sounds is the player's agreement for equip and firing sounds only;
+nothing here claims how much, or for which skins
+"""
+see = ["capture/game-audio-track-only", "minimap/self-audio-circle"]
