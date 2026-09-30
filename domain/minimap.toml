@@ -937,13 +937,63 @@ void beyond is a wall, floor beyond is a raised edge that stops no ray
 shading, never from these lines
 """
 exceptions = """
-the baked occluders still treat every white line as a wall; the wiki art
-classes the ground beside the 8.833 s line as a ramp but shades it in steps,
-which is unasked
+void beyond a line overrides this rule: such a line is a wall however the
+sorter reads it [domain:minimap/void-border-lines-are-walls]. The baked
+occluders open the lines the sorter calls raised edges since occluders-2.0.0
+(the player's answers on Ascent and Lotus 465 px validate it; the other keys
+are the sorter's generalisation). The wiki art classes the ground beside the
+8.833 s line as a ramp but shades it in steps, which is unasked
 """
 see = ["minimap/white-lines-are-walls", "minimap/boxes-block-unless-raised",
-       "minimap/floor-shade-is-elevation"]
+       "minimap/floor-shade-is-elevation", "minimap/void-border-lines-are-walls"]
 phrases = ["raised edge"]
+
+[void-border-lines-are-walls]
+claim = """
+A line with void directly beyond it is a wall, on every map: the play area's
+outer perimeter and every edge against the void block light at any height,
+whatever else the line looks like. The rule is absolute and map-agnostic.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), reviewing Haven's occluder sheet"
+use = """
+prototypes/line_classes.py applies it last, over the sorter and the player's
+segment answers, reading the void from the baked static and art only; a
+small dark region the art calls floor is not void
+"""
+see = ["minimap/raised-edge-lines", "minimap/white-lines-are-walls"]
+phrases = ["void border", "perimeter wall"]
+
+[occluder-shapes]
+claim = """
+Occluders come in shapes the axis-aligned outline rule misses. On Haven
+(haven__valorant-16x9, map px): a diagonal box in A site near 247-264,134-142;
+a T-shaped box in the middle of B site near 151-172,133-149; two diagonal
+door leaves hinged on the wall stubs at the Garage entrance to C near
+117-127,183-188; and a raised box or platform on C site's left near
+38-51,130-147 whose static draws only its top line, its extent running to the
+plant zone. The art shades a box's top one rung lighter than the floor round
+it [domain:minimap/floor-shade-is-elevation], and that region gives the extent
+the lines leave out.
+"""
+kind = "geometry"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), reviewing Haven's occluder sheet"
+use = """
+reticle/occluders.py (occluders-2.1.0) fits each raised region as one box of
+unknown height (`raised_boxes`) and each diagonal leaf in a wall's gap as a
+box of unknown height (`doorways`); neither is a guess at a height
+"""
+exceptions = """
+whether and how a door leaf blocks light is unasked; the table blocks by
+default and the drawn light decides
+"""
+see = ["minimap/boxes-block-unless-raised", "minimap/floor-shade-is-elevation",
+       "minimap/fit-not-repair"]
+phrases = ["diagonal box", "door leaf"]
 
 [boxes-block-unless-raised]
 claim = """

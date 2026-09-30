@@ -116,5 +116,63 @@ class BakeLines(unittest.TestCase):
             self.assertTrue(mo.bake("testmap__testprofile", d)["occ_lines"].startswith("refused:"))
 
 
+class Shapes(unittest.TestCase):
+    """occluders-2.1.0: boxes fitted from the art's shading, and door leaves in a wall's gap."""
+
+    def test_a_raised_region_drawn_by_one_line_is_a_whole_box(self):
+        h, w = 60, 465
+        labels = np.full((h, w), FLOOR, np.uint8)
+        kind = np.full((h, w), mo.KIND_FLOOR, np.uint8)
+        step = np.ones((h, w), np.uint8)
+        step[20:32, 20:40] = 2                                    # a box top, a rung above the floor
+        line = np.zeros((h, w), bool)
+        line[19, 19:41] = True                                    # drawn by its top line only
+        boxes = mo.raised_boxes(labels, kind, step, line)
+        self.assertEqual(len(boxes), 1)
+        b = boxes[0]
+        self.assertTrue(b["mask"][20:32, 20:40].all())            # its extent is the shading's
+        self.assertTrue(b["partly_drawn"])
+        self.assertFalse(b["diagonal"] or b["non_rectangular"])
+        kind[20:32, 41] = mo.KIND_RAMP                            # a ramp beside it: elevation
+        self.assertEqual(mo.raised_boxes(labels, kind, step, line), [])
+
+    def test_a_t_shaped_region_is_non_rectangular(self):
+        h, w = 60, 465
+        labels = np.full((h, w), FLOOR, np.uint8)
+        kind = np.full((h, w), mo.KIND_FLOOR, np.uint8)
+        step = np.ones((h, w), np.uint8)
+        step[10:18, 10:40] = 2
+        step[18:34, 20:30] = 2
+        line = mo._ring(step == 2, 1)
+        (b,) = mo.raised_boxes(labels, kind, step, line)
+        self.assertTrue(b["non_rectangular"])
+
+    def test_a_diagonal_leaf_in_a_wall_gap_is_a_door_and_an_open_gap_is_not(self):
+        h, w = 60, 465
+        static = np.full((h, w, 3), 117, np.uint8)
+        labels = np.full((h, w), FLOOR, np.uint8)
+        static[30, 10:40] = 235                                   # wall, gap 40..51, wall
+        static[30, 52:90] = 235
+        self.assertEqual(mo.doorways(static, labels), [])         # an open doorway draws nothing
+        for i in range(6):                                        # a leaf hinged at the left stub
+            static[29 - i // 2, 41 + i] = 165
+        (d,) = mo.doorways(static, labels)
+        self.assertTrue(d["mask"][29, 41])
+        self.assertGreaterEqual(d["angle_off_axis"], mo.DIAGONAL_DEG)
+
+    def test_a_shape_becomes_one_box_and_never_overwrites_a_wall(self):
+        static, labels = scene()
+        occ, box_id, _ = mo.classify(static, labels)
+        m = np.zeros(occ.shape, bool)
+        m[40:50, 45:60] = True                                    # overlaps the wall at x 50
+        shape = {"drawn": "raised", "mask": m, "edge": np.zeros(occ.shape, bool)}
+        new, bid, height, info = mo.apply_lines(occ, box_id, classes(static, labels), (), [shape])
+        self.assertTrue((new[40:50, 50] == mo.WALL).all())
+        self.assertTrue((new[40:50, 45:50] == mo.BOX).all())
+        self.assertEqual(len({int(v) for v in bid[m & (new == mo.BOX)]}), 1)
+        self.assertEqual(int(height[45, 55]), mo.H_UNKNOWN)
+        self.assertEqual(len(info["shapes"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

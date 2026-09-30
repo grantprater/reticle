@@ -3,6 +3,7 @@ r"""Bake the sorted line classes into each (map, profile) geometry npz, for `ret
     .\.venv\Scripts\python.exe prototypes\line_classes.py bake --all [--dry-run]
     .\.venv\Scripts\python.exe prototypes\line_classes.py bake KEY
     .\.venv\Scripts\python.exe prototypes\line_classes.py stamp KEY
+    .\.venv\Scripts\python.exe prototypes\line_classes.py bake --all --stage DIR   # write DIR, not the store
 
 line-classes-1.0.0. The builder half of occluders-2.0.0 (`reticle/occluders.py`, which reads
 what this writes and owns [owns:map-occluders]). The player approved rebuilding the baked
@@ -32,7 +33,14 @@ The classes, in order of authority:
    direct answer names the pixel;
 3. the frozen sorter (raised-edges-0.3.0): segments, connectors (rule G) and fragments;
 4. a line pixel nothing claims takes the nearest classed line pixel's class within
-   NEAREST_PX (map-zoom px), else it stays UNREAD.
+   NEAREST_PX (map-zoom px), else it stays UNREAD;
+5. over all of these, line-classes-1.1.0: a line pixel with void directly beyond it is a WALL
+   whatever it was (`void_border`, source SRC_VOID_BORDER), on every key
+   [domain:minimap/void-border-lines-are-walls]. The sorter reads a side one pixel deep on a
+   331 px key and stops on the antialiased shoulder between a wall's core and the void, so it
+   called perimeter walls ramps; this reads two pixels and touches. The void comes from the baked
+   static and art only, never a session. `lines_meta.void_border` counts what it changed and
+   how much of that the player had answered otherwise.
 
 Height hints. The player's `tall_box` notes (`<key>.notes.jsonl`) are `segment` hints of class
 tall; the heights files (`domain/heights/<key>.toml`, `[[occluder]]` rows) are `bbox` hints of
@@ -79,11 +87,15 @@ import label_raised_edges as LRE  # noqa: E402
 import raised_edges as RE  # noqa: E402
 from reticle import geometry, metrics, occluders as O  # noqa: E402
 
-LINES_VERSION = "line-classes-1.0.0"
+LINES_VERSION = "line-classes-1.1.0"
 ROOT = Path(__file__).resolve().parents[1]
 HEIGHTS_DIR = ROOT / "domain" / "heights"
 #: An unclaimed line pixel takes the nearest classed line pixel's class within this (map-zoom px).
 NEAREST_PX = 2.0
+#: The void-border rule reads the side classes this far along each line pixel's normal (map-zoom
+#: px, at least 2: the sorter's own read is 1 px on a 331 px key and stops on the antialiased
+#: shoulder a wall keeps between its core and the void).
+VOID_READ_PX = 2.0
 #: The sanity rule: refuse a key when more than this share of occluders-1's WALL line px opens.
 REFUSE_WALL_OPEN_SHARE = 0.5
 #: Invariant C's falsifier: a colour cut passing more than this share of void or refusing more
@@ -118,6 +130,7 @@ def stamp(key: str) -> str:
     for p in (Path(__file__), Path(RE.__file__), Path(LRE.__file__)):
         h.update(_norm(p))
     h.update(metrics.fingerprint(O.lines, O.classify, O.seal_diagonals, O._fill, O.line_mask).encode())
+    h.update(LINES_VERSION.encode())
     for role, p in sorted(inputs(key).items()):
         h.update(role.encode() + _norm(p))
     return h.hexdigest()
@@ -134,6 +147,38 @@ def _answers(key: str) -> tuple[dict, str | None]:
 
 def _seg_masks(r: dict, key: str) -> dict:
     return {LRE.signature(key, s): r["_sid"] == s["id"] for s in r["segments"]}
+
+
+def void_mask(r: dict) -> np.ndarray:
+    """The void, from baked geometry only: the sorter's SIDE_VOID reading of the baked static
+    (`raised_edges.classify`), kept where a component of it touches the widget's edge, is at
+    least half the art's VOID, HOLE or BORDER, or is larger than any box (BOX_MAX_AREA, scaled).
+    A small dark region the art calls floor -- a box drawn dark, a pillar -- is not void."""
+    from reticle.minimap import BORDER, HOLE, VOID
+    sv = r["_cls"] == RE.SIDE_VOID
+    n, lab, st, _ = cv2.connectedComponentsWithStats(sv.astype(np.uint8), 8)
+    edge = set(np.unique(np.r_[lab[0], lab[-1], lab[:, 0], lab[:, -1]]).tolist())
+    off = np.isin(r["_labels"], (VOID, HOLE, BORDER))
+    share = np.bincount(lab[sv], weights=off[sv], minlength=n) / np.maximum(1, np.bincount(lab[sv], minlength=n))
+    big = O.BOX_MAX_AREA * float(r["scale"]) ** 2
+    keep = np.array([i != 0 and (i in edge or share[i] >= 0.5 or st[i, 4] > big) for i in range(n)])
+    return keep[lab] & sv
+
+
+def void_border(r: dict) -> np.ndarray:
+    """Line pixels with void directly beyond them: a pixel whose normal read (VOID_READ_PX,
+    either side) meets the void, or that touches it 4-connected. The rule is absolute and holds
+    on every key: such a line is a wall [domain:minimap/void-border-lines-are-walls]."""
+    line, zm = r["_line"], float(r["scale"])
+    void = void_mask(r)
+    cls = r["_cls"].copy()
+    cls[(cls == RE.SIDE_VOID) & ~void] = RE.SIDE_DARK
+    nx, ny = RE.normals(line, zm)
+    ys, xs, a, b, *_ = RE.sides(cls, line, nx, ny, zm, max(2, int(round(VOID_READ_PX * zm))))
+    side = np.zeros(line.shape, bool)
+    side[ys, xs] = (a == RE.SIDE_VOID) | (b == RE.SIDE_VOID)
+    adj = cv2.dilate(void.astype(np.uint8), np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], np.uint8)) > 0
+    return (side | adj) & line
 
 
 def read(key: str) -> dict:
@@ -200,6 +245,14 @@ def read(key: str) -> dict:
             if a != b:
                 disagree[f"{O.LINE_NAMES.get(int(a), 'unclaimed')}->{O.LINE_NAMES[int(b)]}"] += 1
         cls[over] = player[over]
+    # the void-border rule, last and absolute: a line with void directly beyond it is a wall
+    vb = void_border(r)
+    flip = vb & (cls != O.LINE_WALL)
+    void_rows = {"void_border_px": int(vb.sum()), "made_wall_px": int(flip.sum()),
+                 "made_wall_from": {O.LINE_NAMES[int(c)]: int((flip & (cls == c)).sum())
+                                    for c in np.unique(cls[flip])},
+                 "over_player_px": int((flip & np.isin(src, (O.SRC_PLAYER, O.SRC_CARRIED))).sum())}
+    cls[flip], src[flip] = O.LINE_WALL, O.SRC_VOID_BORDER
     hints = height_hints(key, r_seg if (last or mapped) else r)
     counts = {O.LINE_NAMES[c]: int((cls == c).sum()) for c in O.LINE_NAMES}
     srcs = {O.SRC_NAMES[c]: int((src == c).sum()) for c in O.SRC_NAMES}
@@ -208,7 +261,7 @@ def read(key: str) -> dict:
     return {"key": key, "cls": cls, "src": src, "hints": hints, "line_px": int(line.sum()),
             "counts": counts, "sources": srcs, "label_rows": label_rows,
             "label_px": int((src == O.SRC_PLAYER).sum() + (src == O.SRC_CARRIED).sum()),
-            "label_overrides_px": dict(disagree), "zoom": r["zoom"], "cuts": cuts,
+            "label_overrides_px": dict(disagree), "void_border": void_rows, "zoom": r["zoom"], "cuts": cuts,
             "invariant_c_falsified": bool(c_falsified), "gap_px": r["gap_px"],
             "segments": sum(1 for s in r["segments"] if not s.get("connector")),
             "connectors": len(r["connectors"]), "seconds": round(time.time() - t0, 1),
@@ -261,8 +314,9 @@ def sanity(key: str, rd: dict, arrays: dict) -> dict:
             "refused": share > REFUSE_WALL_OPEN_SHARE}
 
 
-def bake_key(key: str, store: Path = RE.STORE, write: bool = True) -> dict:
-    """Read one key's classes and write them into its npz (or `lines_refused`)."""
+def bake_key(key: str, store: Path = RE.STORE, write: bool = True, out: Path | None = None) -> dict:
+    """Read one key's classes and write them into its npz (or `lines_refused`). With `out`, read
+    the store's npz and write the result to `out` instead, leaving the store untouched."""
     p = geometry.path(key, store)
     with np.load(p, allow_pickle=False) as z:
         arrays = {k: z[k].copy() for k in z.files}
@@ -277,12 +331,13 @@ def bake_key(key: str, store: Path = RE.STORE, write: bool = True) -> dict:
                                          "tuned on Ascent 465 px and held out once on Lotus 465 px")},
             "line_px": rd["line_px"], "counts": rd["counts"], "sources": rd["sources"],
             "label_rows": rd["label_rows"], "label_px": rd["label_px"],
-            "label_overrides_px": rd["label_overrides_px"], "zoom": rd["zoom"], "cuts": rd["cuts"],
+            "label_overrides_px": rd["label_overrides_px"], "void_border": rd["void_border"],
+            "zoom": rd["zoom"], "cuts": rd["cuts"],
             "invariant_c_falsified": rd["invariant_c_falsified"], "gap_px": rd["gap_px"],
             "sanity": sn, "refuse_rule": f"old WALL line px opened > {REFUSE_WALL_OPEN_SHARE}",
             "hints": [{k: v for k, v in h.items() if k != "px"} for h in rd["hints"]],
             "inputs": {k: str(v) for k, v in inputs(key).items() if v.is_file()},
-            "params": {"nearest_px": NEAREST_PX, **RE.sort_params()},
+            "params": {"nearest_px": NEAREST_PX, "void_read_px": VOID_READ_PX, **RE.sort_params()},
             "baked_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
     for k in ("line_cls", "line_src", "line_hints", "lines_meta", "lines_static_sha", "lines_built_by",
               "lines_version", "lines_refused"):
@@ -296,9 +351,10 @@ def bake_key(key: str, store: Path = RE.STORE, write: bool = True) -> dict:
     else:
         arrays.update(line_cls=rd["cls"], line_src=rd["src"], line_hints=np.array(json.dumps(rd["hints"])))
     if write:
-        tmp = p.with_suffix(".tmp.npz")
+        dst = Path(out) if out is not None else p
+        tmp = dst.with_suffix(".tmp.npz")
         np.savez_compressed(tmp, **arrays)
-        tmp.replace(p)
+        tmp.replace(dst)
     return dict(meta, seconds=rd["seconds"])
 
 
@@ -309,6 +365,8 @@ def main(argv=None) -> int:
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", help="write each key's meta JSON here")
+    ap.add_argument("--stage", help="write each baked npz into this directory, then bake its occluder "
+                                    "table there (occluders.bake path=...); the store is never written")
     a = ap.parse_args(argv)
     LRE._lower_priority()
     cv2.setNumThreads(1)
@@ -319,11 +377,21 @@ def main(argv=None) -> int:
         return 0
     res = {}
     for k in keys:
-        m = bake_key(k, write=not a.dry_run)
+        if a.stage:
+            dst = Path(a.stage) / f"{k}.npz"
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            m = bake_key(k, write=not a.dry_run, out=dst)
+            if not a.dry_run:
+                oi = O.bake(k, write=True, path=dst)
+                m["occluders"] = {"occ_lines": oi["occ_lines"], "wall_px": oi["wall_px"], "box_px": oi["box_px"],
+                                  "shapes": (oi.get("lines") or {}).get("shapes", [])}
+        else:
+            m = bake_key(k, write=not a.dry_run)
         res[k] = m
         sn = m["sanity"]
         print(f"{k}: {m['validation']['status']}; line px {m['line_px']} {m['counts']}; labels "
-              f"{m['label_px']} px; old wall line opened {sn['old_wall_line_opened_share']}"
+              f"{m['label_px']} px; void border made wall {m['void_border']['made_wall_px']} px "
+              f"(over player {m['void_border']['over_player_px']}); old wall line opened {sn['old_wall_line_opened_share']}"
               f"{' REFUSED' if sn['refused'] else ''}; C falsified {m['invariant_c_falsified']}; "
               f"{m['seconds']} s" + (" (dry run)" if a.dry_run else ""), flush=True)
     if a.out:
