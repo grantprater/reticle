@@ -73,6 +73,55 @@ what the labeller shows; `manifest.json` (never shown) holds each item's
 readers, centres, NCC and stratum, and `readings.json` the whole pool.
 Answers go to the store's `labels/ally_facing_331_20260929.jsonl`;
 `icon_facing_eval.py --set ally_facing_331_20260929` scores them.
+
+**The 331 px enemy set** (`--set enemy_facing_331_20260929`). An enemy rim
+at this size is faint, often under a pixel
+[domain:minimap/enemy-rim-faint-at-small-widget], and the enemy lobe is
+translucent [domain:minimap/enemy-lobe-translucent], so a finder that needs a
+strong rim or a high teardrop NCC samples only the easy icons.
+
+    .\.venv\Scripts\python.exe prototypes\label_icon_facing.py --set enemy_facing_331_20260929 --prepare
+    .\.venv\Scripts\python.exe prototypes\label_icon_facing.py --set enemy_facing_331_20260929
+
+Prepare reads the same live, unstalled, drawn frames (`STRIDE_E331`) of
+c40d950031bb and 223d636bf8d2 from the crop cache. The finder is the enemy
+ring fit over the red key with its gates lowered (`FIND_SAT_MIN`,
+`FIND_COV_MIN`, no interior gate). Two cross-references drop what another
+channel already explains: a fit within `SAME_ICON_PX` of a teammate's or the
+player's detection, and one whose disc holds more than `TEAM_PX_MAX` teal
+or yellow pixels (portrait skin keys red; `team_pixels`). A portrait is drawn over the map, so
+`portrait_texture` (the spread of the disc's difference from the baked
+static, and its pixels darker than the static) separates icons from red X
+marks, pings and red map fills; items come from candidates `portrait_like`
+accepts, round-robin over NCC tercile x
+the background round the icon (`background`: void, lit, wall, floor), and
+`AUDIT_E331` come from the candidates it rejects, to measure what it
+misses (a pale portrait can show no dark pixel). The hidden `manifest.json` holds each item's teardrop (read or not),
+ring, tip-highlight (`tip_highlight.read`, side enemy), NCC, background with
+per-sector shares, and whether the standard enemy detector found it. The
+player sees only a ring at the midpoint of the teardrop's and the ring fit's
+centres. N marks a ringed thing that is no enemy icon. Answers go to the
+store's `labels/enemy_facing_331_20260929.jsonl`;
+`icon_facing_eval.py --set enemy_facing_331_20260929` scores them.
+
+**The 331 px self set** (`--set self_facing_331_20260929`). The self
+teardrop's facing gate (`teardrop.SELF_FACING_MIN_NCC`, 0.6) waits on labels
+between NCC 0.55 and 0.6 (E11 in docs/STATISTICAL_ADJUDICATOR.md).
+
+    .\.venv\Scripts\python.exe prototypes\label_icon_facing.py --set self_facing_331_20260929 --prepare
+    .\.venv\Scripts\python.exe prototypes\label_icon_facing.py --set self_facing_331_20260929
+
+Prepare reads about `S331_FRAMES` live, unstalled, drawn frames per session
+of c40d950031bb, 223d636bf8d2, bfad2778a372 and e37fdeca944f (all 331 px)
+from the crop cache, and on each reads the best self fit
+(`minimap.self_icons` by coverage), the self teardrop before its gate
+(`teardrop.fit_teardrop`), the ring fit's facing and the tip highlight
+(side self). It draws `QUOTA_S331` items per NCC band (`S331_BANDS`: 0.50-0.55,
+0.55-0.60, 0.60-0.65 and a few anchors above), the session with fewest items
+first, each `GAP_MS_331` from the others of its session. The ring sits at the
+midpoint of the teardrop's and the ring fit's centres; `manifest.json` holds
+the readings. Answers go to the store's `labels/self_facing_331_20260929.jsonl`;
+`icon_facing_eval.py --set self_facing_331_20260929` scores them.
 """
 from __future__ import annotations
 
@@ -117,7 +166,6 @@ SEED = 20260928
 
 # The 331 px ally set: the widget size E10 left unlabelled.
 SET_331 = "ally_facing_331_20260929"
-SETS = (NAME, SET_331)
 VERSION_331 = "label-ally-facing-331-0.1.0"
 CLASS_SET_331 = "ally_facing_331-1"
 QUOTA_331 = {"c40d950031bb": {"flip": 15, "agree": 15}, "223d636bf8d2": {"flip": 5, "agree": 5}}
@@ -129,6 +177,46 @@ GAP_MS_331 = 3000.0
 SEED_331 = 20260929
 #: The 331 px icon is 0.71 of the 465 px one: zoom closer, ring tighter.
 VIEW_331 = {"zh": 18, "zf": 15, "ring_r": 17.0}
+
+
+# The 331 px enemy set: faint rims [domain:minimap/enemy-rim-faint-at-small-widget],
+# so the finder keeps weak rims and the player's N answer rejects what is not an icon.
+SET_E331 = "enemy_facing_331_20260929"
+SETS = (NAME, SET_331, SET_E331)
+VERSION_E331 = "label-enemy-facing-331-0.1.0"
+CLASS_SET_E331 = "enemy_facing_331-1"
+E331_SESSIONS = ("c40d950031bb", "223d636bf8d2")
+STRIDE_E331 = {"c40d950031bb": 10, "223d636bf8d2": 25}
+QUOTA_E331 = 44
+AUDIT_E331 = 6           # of the quota, drawn from candidates `portrait_like` rejects: the finder's audit
+DARK_DELTA = 45.0        # grey levels under the static that count a portrait pixel as dark
+PORTRAIT_MIN = 20.0      # `portrait_texture`: set by eye on candidate sheets, not on labels
+PORTRAIT_DARK_MIN = 3    # dark pixels (`DARK_DELTA`): red X marks and pins show 0-1; a pale portrait may too
+SEED_E331 = 2026092903
+FIND_SAT_MIN = 60        # red key saturation floor; `minimap_icons.SAT_MIN` is 100
+FIND_COV_MIN = 0.10      # ring coverage floor; the enemy ring's `minimap_ring_fit.COV_MIN` is 0.30
+TEAM_PX_MAX = 8.0        # scale 1.0 (x scale^2): more teal or yellow pixels in the disc is a team icon
+SAME_ICON_PX = 15.0      # scale 1.0: a red fit inside 1.4 ring radii of a teammate's or the player's
+                         # centre lies on that icon (portrait skin keys red); an enemy nearer is occluded
+STD_MATCH_PX = 3.0       # scale 1.0: the standard enemy detector found the same icon
+RED_ICON_MIN = 0.5       # `teardrop.redness` at or above this is the icon's own pixel, not background
+BG_CLASSES = ("void", "lit", "wall", "floor")
+BG_VOID_MIN, BG_LIT_MIN, BG_WALL_MIN = 0.5, 0.25, 0.10   # fixed before any item was drawn
+N_SECTORS = 12
+
+
+# The 331 px self set: the self teardrop's facing gate (E11 in
+# docs/STATISTICAL_ADJUDICATOR.md) waits on labels between NCC 0.5 and 0.65.
+SET_S331 = "self_facing_331_20260929"
+SETS = SETS + (SET_S331,)
+VERSION_S331 = "label-self-facing-331-0.1.0"
+CLASS_SET_S331 = "self_facing_331-1"
+S331_SESSIONS = ("c40d950031bb", "223d636bf8d2", "bfad2778a372", "e37fdeca944f")
+S331_FRAMES = 600            # live frames read per session, evenly strided
+#: Self teardrop NCC bands, [lo, hi), and the items drawn from each.
+S331_BANDS = {"n50_55": (0.50, 0.55), "n55_60": (0.55, 0.60), "n60_65": (0.60, 0.65), "anchor": (0.65, 1.01)}
+QUOTA_S331 = {"n50_55": 12, "n55_60": 12, "n60_65": 12, "anchor": 4}
+SEED_S331 = 2026092904
 
 
 def items_dir(store: Path, name: str = NAME) -> Path:
@@ -470,6 +558,458 @@ def prepare_331(store: Path, limit: int | None = None) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- prepare, 331 px enemies
+
+def wall_mask(sid: str, s) -> tuple[np.ndarray, str]:
+    """The baked geometry's walls (`occ == cone.OCC_WALL`), or the floor less the
+    passable grid where the geometry has no occluder table."""
+    from reticle import cone, geometry
+    with np.load(geometry.path_of(sid, sem.STORE)) as z:
+        if "occ" in z.files and z["occ"].shape == s.floor.shape:
+            return z["occ"] == cone.OCC_WALL, "occ_wall"
+    return s.floor & ~s.passable, "floor_less_passable"
+
+
+def bg_class(sh: dict) -> str:
+    """One background class from a region's shares, in a fixed order."""
+    if sh["void"] >= BG_VOID_MIN:
+        return "void"
+    if sh["lit"] >= BG_LIT_MIN:
+        return "lit"
+    if sh["wall"] >= BG_WALL_MIN:
+        return "wall"
+    return "floor"
+
+
+def background(crop, x: float, y: float, sc: float, masks: dict) -> dict:
+    """What lies beneath the translucent lobe's reach round `(x, y)`
+    [domain:minimap/enemy-lobe-translucent]: over the annulus from the enemy
+    ring's outer radius to past the apex, and per `N_SECTORS` sector about
+    the centre, the share of background pixels (those the red key leaves,
+    `RED_ICON_MIN`) that are void (off the slab), a baked wall, lit floor
+    this frame, or unlit floor. The sectors let a scorer read the background
+    under the lobe at the player's facing; the annulus class is facing-free.
+    """
+    from reticle import teardrop as td
+    c = td.ICON_CLASSES["enemy"]
+    lo, hi = c.r_out * sc, (c.L + 2.0) * sc
+    h, w = crop.shape[:2]
+    R = int(math.ceil(hi)) + 1
+    x0, x1, y0, y1 = max(0, int(x) - R), min(w, int(x) + R + 2), max(0, int(y) - R), min(h, int(y) + R + 2)
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    rho = np.hypot(xx - x, yy - y)
+    red = td.redness(crop[y0:y1, x0:x1]) >= RED_ICON_MIN
+    band = (rho >= lo) & (rho <= hi) & ~red
+    slab = masks["slab"][y0:y1, x0:x1]
+    wall = masks["wall"][y0:y1, x0:x1] & slab
+    lit = masks["lit"][y0:y1, x0:x1] & slab & ~wall
+    cls = {"void": ~slab, "wall": wall, "lit": lit, "floor": slab & ~wall & ~lit}
+    ang = (np.degrees(np.arctan2(yy - y, xx - x)) + 360.0) % 360.0
+    sec = np.floor(((ang + 180.0 / N_SECTORS) % 360.0) / (360.0 / N_SECTORS)).astype(int)
+
+    def shares(m):
+        n = int(m.sum())
+        return {k: (round(float((v & m).sum()) / n, 3) if n else None) for k, v in cls.items()} | {"n": n}
+    ann = shares(band)
+    sectors = [shares(band & (sec == k)) for k in range(N_SECTORS)]
+    return {"bg": bg_class(ann) if ann["n"] else "void", "bg_shares": ann,
+            "red_share": round(float(red[(rho >= lo) & (rho <= hi)].mean()), 3),
+            "bg_sectors": [bg_class(s_) if s_["n"] else None for s_ in sectors],
+            "bg_sector_shares": sectors}
+
+
+def team_pixels(crop, x: float, y: float, sc: float) -> dict:
+    """Teal and yellow keyed pixels (key at least 0.5) inside the enemy ring's
+    outer radius plus half a pixel round `(x, y)`, at the widget's scale. A red
+    fit on a teammate's portrait (skin keys red) or on the player's icon holds
+    that icon's ring; an enemy's disc holds none unless a teammate overlaps it.
+    The ally detector misses some teammates at 331 px, so the pixels decide."""
+    import teardrop_tip as tt
+    from reticle import teardrop as td
+    r = (td.ICON_CLASSES["enemy"].r_out + 0.5) * sc
+    h, w = crop.shape[:2]
+    R = int(math.ceil(r)) + 1
+    x0, x1, y0, y1 = max(0, int(x) - R), min(w, int(x) + R + 2), max(0, int(y) - R), min(h, int(y) + R + 2)
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    disc = np.hypot(xx - x, yy - y) <= r
+    sub = crop[y0:y1, x0:x1]
+    return {"teal": int((disc & (td.tealness(sub) >= 0.5)).sum()),
+            "yellow": int((disc & (tt.yellowness(sub) >= 0.5)).sum())}
+
+
+def portrait_texture(crop, static, x: float, y: float, sc: float) -> tuple[float | None, int | None]:
+    """How much the portrait's disc differs from the baked static in STRUCTURE:
+    the standard deviation of (crop grey - static grey) over the disc inside the
+    enemy ring (`r_in - 1.5` at the widget's scale), less its red-keyed pixels.
+
+    A portrait is drawn over the map [domain:minimap/enemy-rim-faint-at-small-widget
+    says the portrait carries the detection]; a red X, a ping triangle or a red
+    map fill leaves floor between its strokes, which matches the static. The
+    residual's MEAN is dropped, so lit floor (a uniform lift) scores low too.
+    Also returns the count of those pixels at least `DARK_DELTA` darker than
+    the static (hair, eyes, the portrait's dark rim; light only lifts the floor).
+    None, None where the disc keeps under 6 pixels.
+    """
+    from reticle import teardrop as td
+    r = (td.ICON_CLASSES["enemy"].r_in - 1.5) * sc
+    h, w = crop.shape[:2]
+    R = int(math.ceil(r)) + 1
+    x0, x1, y0, y1 = max(0, int(x) - R), min(w, int(x) + R + 2), max(0, int(y) - R), min(h, int(y) + R + 2)
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    sub = crop[y0:y1, x0:x1]
+    disc = (np.hypot(xx - x, yy - y) <= r) & (td.redness(sub) < RED_ICON_MIN)
+    if int(disc.sum()) < 6:
+        return None, None
+    g = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    gs = cv2.cvtColor(static[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY).astype(np.float32)
+    return round(float((g - gs)[disc].std()), 2), int(((g - gs)[disc] <= -DARK_DELTA).sum())
+
+
+def enemy_pool(s, times) -> tuple[list[dict], dict]:
+    """Every red candidate on the live frames, whatever its rim or teardrop NCC.
+
+    The finder is the enemy ring fit (`minimap.icons` over `minimap_icons.red_mask`)
+    with its gates lowered to `FIND_SAT_MIN` and `FIND_COV_MIN` and no interior
+    gate, so faint rims and low teardrop NCC stay in the pool. A candidate
+    within `SAME_ICON_PX` of a teammate's or the player's detection is that
+    icon (the red key catches teammates) and leaves the pool, counted.
+    """
+    import tip_highlight as th
+    from minimap_icons import red_mask
+    from reticle import lighting, minimap
+    from reticle import teardrop as td
+    sid = s.sid
+    sc = minimap.widget_scale(s.box[2] - s.box[0])
+    wall, wall_basis = wall_mask(sid, s)
+    gates = {"frames": 0, "undrawn": 0, "repeat": 0, "same_as_team_icon": 0, "team_pixels": 0,
+             "wall_basis": wall_basis,
+             "scale": sc}
+    rows, prev = [], None
+    for t, crop in s.crops(times):
+        gates["frames"] += 1
+        if not minimap.widget_drawn(crop, s.inputs.sgray, s.floor):
+            gates["undrawn"] += 1
+            continue
+        found = minimap.icons(red_mask(crop, FIND_SAT_MIN), crop, s.floor, cov_min=FIND_COV_MIN, inner_max=1.0,
+                              require_facing=False, support=s.inputs.slab, seed="centroid")
+        # The minimap repeats an image across cached frames; keep one of each.
+        sig = tuple(sorted((round(d["cx"], 2), round(d["cy"], 2)) for d in found))
+        if sig == prev:
+            gates["repeat"] += 1
+            continue
+        prev = sig
+        if not found:
+            continue
+        team = [(d["cx"], d["cy"]) for d in
+                minimap.ally_icons(crop, s.floor, require_facing=False, support=s.inputs.slab,
+                                   static=s.inputs.static)
+                + minimap.self_icons(crop, s.floor, require_facing=False, support=s.inputs.slab)]
+        std = it_.detections(crop, "enemy", s)
+        key = td.ICON_CLASSES["enemy"].key(crop)
+        masks = {"slab": s.inputs.slab, "wall": wall, "lit": lighting.lit_mask(crop, s.ref)}
+        here = []
+        for d in found:
+            near = min((math.hypot(d["cx"] - x, d["cy"] - y) for x, y in team), default=None)
+            if near is not None and near < SAME_ICON_PX * sc:
+                gates["same_as_team_icon"] += 1
+                continue
+            tp = team_pixels(crop, d["cx"], d["cy"], sc)
+            if tp["teal"] + tp["yellow"] > TEAM_PX_MAX * sc * sc:
+                gates["team_pixels"] += 1
+                continue
+            f = td.fit_icon(None, "enemy", d["cx"], d["cy"], scale=sc, key=key)
+            hl = th.read(crop, "enemy", d["cx"], d["cy"], sc)
+            tx, ty = (f["x"], f["y"]) if "x" in f else (d["cx"], d["cy"])
+            # Neither reader places the ring: the midpoint of their centres, to a pixel.
+            rx, ry = float(round((tx + d["cx"]) / 2.0)), float(round((ty + d["cy"]) / 2.0))
+            std_d = min((math.hypot(d["cx"] - e["cx"], d["cy"] - e["cy"]) for e in std), default=None)
+            row = {"session": sid, "t": float(t), "ring_x": rx, "ring_y": ry,
+                   "det_x": float(d["cx"]), "det_y": float(d["cy"]), "det_r": int(d["r"]),
+                   "cov": round(float(d["cov"]), 3), "inner": round(float(d["inner"]), 3),
+                   "team_px": tp,
+
+                   "ring_deg": d.get("facing"), "ring_lobe_strength": float(d["lobe"]),
+                   "std_detector": std_d is not None and std_d <= STD_MATCH_PX * sc,
+                   "near_team_px": None if near is None else round(float(near), 2),
+                   "teardrop_read": bool(f.get("read")), "teardrop_reason": f.get("reason"),
+                   "teardrop_deg": float(f["deg"]) if f.get("read") else None,
+                   "teardrop_raw_deg": float(f["deg"]) if f.get("deg") is not None else None,
+                   "teardrop_x": float(tx), "teardrop_y": float(ty),
+                   "ncc": None if f.get("ncc") is None else float(f["ncc"]),
+                   "margin": None if f.get("margin") is None else float(f["margin"]),
+                   "ring_cover": None if f.get("ring_cover") is None else float(f["ring_cover"]),
+                   "highlight_deg": hl["deg"] if hl["read"] else None,
+                   "highlight_raw_deg": hl["deg"], "highlight_reason": hl.get("reason"),
+                   "highlight_r": hl["r"], "hue_mass_deg": hl["hue_mass_deg"]}
+            row["portrait_texture"], row["portrait_dark_px"] = portrait_texture(crop, s.inputs.static, rx, ry, sc)
+            row.update(background(crop, rx, ry, sc, masks))
+            here.append(row)
+        for r in here:
+            r["stacked"] = any(0.5 < math.hypot(o["det_x"] - r["det_x"], o["det_y"] - r["det_y"]) < STACK_PX * sc
+                               for o in here if o is not r)
+        rows += here
+    return rows, gates
+
+
+def portrait_like(r: dict) -> bool:
+    """The disc differs from the static in structure and holds dark pixels."""
+    return (r["portrait_texture"] or 0.0) >= PORTRAIT_MIN and (r["portrait_dark_px"] or 0) >= PORTRAIT_DARK_MIN
+
+
+def select_e331(pool: list[dict]) -> list[dict]:
+    """`QUOTA_E331` items, each `GAP_MS_331` from every other item of its session.
+
+    `QUOTA_E331 - AUDIT_E331` come from the candidates whose disc holds a
+    portrait (`portrait_like`), round-robin over
+    the cells NCC tercile x background class, within a cell the session with
+    fewer items first. The terciles cut that pool; a candidate with no NCC
+    (`no_key`) joins the lowest. `AUDIT_E331` come uniformly from the
+    candidates the portrait rules drop (stratum `audit`), so the player's
+    answers there measure what the rule costs.
+    """
+    rng = random.Random(SEED_E331)
+    main = [r for r in pool if portrait_like(r)]
+    low = [r for r in pool if not portrait_like(r)]
+    nccs = [r["ncc"] for r in main if r["ncc"] is not None]
+    cuts = [float(v) for v in np.percentile(nccs, [100 / 3, 200 / 3])]
+    in_main = {id(r) for r in main}
+    for r in pool:
+        r["ncc_bin"] = 0 if r["ncc"] is None else int(np.searchsorted(cuts, r["ncc"], side="right"))
+        r["stratum"] = f"t{r['ncc_bin']}-{r['bg']}" if id(r) in in_main else "audit"
+    taken: list[dict] = []
+
+    def take(cell: list[dict]) -> bool:
+        per = Counter(o["session"] for o in taken)
+        for sid in sorted({r["session"] for r in cell}, key=lambda x: per[x]):
+            for c in [r for r in cell if r["session"] == sid]:
+                cell.remove(c)
+                if all(c["session"] != o["session"] or abs(c["t"] - o["t"]) >= GAP_MS_331 for o in taken):
+                    taken.append(dict(c, ncc_cuts=cuts))
+                    return True
+        return False
+    cells = {(b, g): [r for r in main if r["ncc_bin"] == b and r["bg"] == g] for b in range(3) for g in BG_CLASSES}
+    for v in cells.values():
+        rng.shuffle(v)
+    order = [k for k in cells if cells[k]]
+    i = 0
+    while len(taken) < QUOTA_E331 - AUDIT_E331 and any(cells[k] for k in order):
+        take(cells[order[i % len(order)]])
+        i += 1
+    rng.shuffle(low)
+    n_main = len(taken)
+    while len(taken) < n_main + AUDIT_E331 and low:
+        take(low)
+    return taken
+
+
+def prepare_e331(store: Path, limit: int | None = None) -> int:
+    """`limit` caps the frames read per session: a timing run, which writes nothing."""
+    import team_vision_eval as tve
+    idle()
+    out = items_dir(store, SET_E331)
+    if limit is None and (out / "index.json").is_file():
+        raise SystemExit(f"{out / 'index.json'} exists; a new item set needs a new name")
+    pool, gates = [], {}
+    for sid in E331_SESSIONS:
+        s = tve.Sess(sid)
+        times, g = live_times(sid, s.cache_t, STRIDE_E331[sid])
+        if limit is not None:
+            times = times[:limit]
+        print(f"{sid}: {g}; reading {len(times)} live frames", flush=True)
+        rows, g2 = enemy_pool(s, times)
+        gates[sid] = g | g2
+        pool += rows
+        print(f"  {len(rows)} red candidates {g2}; standard detector's: {sum(r['std_detector'] for r in rows)}, "
+              f"teardrop read: {sum(r['teardrop_read'] for r in rows)}, "
+              f"backgrounds {dict(Counter(r['bg'] for r in rows))}", flush=True)
+    if limit is not None:
+        print("timing run: nothing written")
+        return 0
+    items = select_e331(pool)
+    (out / "patches").mkdir(parents=True, exist_ok=True)
+    index, manifest = [], []
+    for sid in E331_SESSIONS:
+        mine = sorted((r for r in items if r["session"] == sid), key=lambda r: r["t"])
+        crops = dict(tve.Sess(sid).crops(sorted({r["t"] for r in mine})))
+        for r in mine:
+            rx, ry = r["ring_x"], r["ring_y"]
+            patch, x0, y0 = lsf.patch_of(crops[r["t"]], rx, ry)
+            name = f"{sid}_{int(round(r['t']))}_{int(rx)}_{int(ry)}.png"
+            cv2.imwrite(str(out / "patches" / name), patch)
+            key = item_key(sid, r["t"], rx, ry)
+            index.append({"key": key, "session": sid, "t_ms": float(r["t"]), "cls": "enemy",
+                          "ring_x": rx, "ring_y": ry, "patch": name, "patch_x0": x0, "patch_y0": y0})
+            m = {k: v for k, v in r.items() if k != "t"}
+            manifest.append({"key": key, "t_ms": float(r["t"]), **m})
+    random.Random(SEED_E331 + 1).shuffle(index)
+    from reticle.version import ICON_TEARDROP_VERSION
+    import tip_highlight as th
+    at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    meta = {"version": VERSION_E331, "class_set": CLASS_SET_E331, "teardrop": ICON_TEARDROP_VERSION,
+            "tip_highlight": th.VERSION, "stride": STRIDE_E331, "phases": LIVE_PHASES, "gap_ms": GAP_MS_331,
+            "quota": QUOTA_E331, "seed": SEED_E331, "stack_px": STACK_PX, "view": VIEW_331,
+            "audit": AUDIT_E331, "portrait_min": PORTRAIT_MIN, "portrait_dark_min": PORTRAIT_DARK_MIN,
+            "dark_delta": DARK_DELTA,
+            "finder": {"sat_min": FIND_SAT_MIN, "cov_min": FIND_COV_MIN, "inner_max": 1.0,
+                       "same_icon_px": SAME_ICON_PX, "team_px_max": TEAM_PX_MAX, "std_match_px": STD_MATCH_PX},
+            "background": {"classes": BG_CLASSES, "void_min": BG_VOID_MIN, "lit_min": BG_LIT_MIN,
+                           "wall_min": BG_WALL_MIN, "red_icon_min": RED_ICON_MIN, "sectors": N_SECTORS,
+                           "sector_0": "centred on 0 deg (+x), image degrees y down"},
+            "strata": "ncc tercile (cuts over the portrait pool) x background class of the annulus; "
+                      "audit: drawn uniformly from candidates portrait_like rejects",
+            "ring_at": "midpoint of the enemy teardrop's and the red ring fit's centres, rounded to a pixel",
+            "at": at}
+    blind = {"version": VERSION_E331, "class_set": CLASS_SET_E331, "view": VIEW_331, "at": at}
+    (out / "index.json").write_text(json.dumps({"meta": blind, "items": index}, indent=1), encoding="utf-8")
+    (out / "manifest.json").write_text(json.dumps({"meta": meta, "gates": gates, "items": manifest},
+                                                  indent=1), encoding="utf-8")
+    (out / "readings.json").write_text(json.dumps({"meta": meta, "pool": pool}, indent=0), encoding="utf-8")
+    print(f"sessions {dict(Counter(r['session'] for r in manifest))}")
+    print(f"strata {dict(sorted(Counter(r['stratum'] for r in manifest).items()))}")
+    print(f"NCC cuts {manifest[0]['ncc_cuts'] if manifest else None}; standard detector's "
+          f"{sum(r['std_detector'] for r in manifest)}; teardrop read {sum(r['teardrop_read'] for r in manifest)}")
+    print(f"prepared {len(index)} items -> {out}")
+    return 0
+
+
+# ---------------------------------------------------------------- prepare, 331 px self
+
+def self_pool(s, times) -> tuple[list[dict], dict]:
+    """The self icon on the live, drawn frames: the best `minimap.self_icons` fit
+    by coverage (as `team_vision_eval.pose_check` takes it), the self teardrop
+    at the widget's scale (`teardrop.fit_teardrop`, before `SelfConeReader`'s
+    NCC gate, which these labels test), the ring fit's facing and the tip
+    highlight (`tip_highlight.read`, side self)."""
+    import tip_highlight as th
+    from reticle import minimap
+    from reticle.teardrop import fit_teardrop
+    sc = minimap.widget_scale(s.box[2] - s.box[0])
+    gates = {"frames": 0, "undrawn": 0, "no_self": 0, "repeat": 0, "scale": sc}
+    rows, prev = [], None
+    for t, crop in s.crops(times):
+        gates["frames"] += 1
+        if not minimap.widget_drawn(crop, s.inputs.sgray, s.floor):
+            gates["undrawn"] += 1
+            continue
+        selves = sorted(minimap.self_icons(crop, s.floor, require_facing=False, support=s.inputs.slab),
+                        key=lambda d: -d["cov"])
+        if not selves:
+            gates["no_self"] += 1
+            continue
+        d = selves[0]
+        f = fit_teardrop(crop, d["cx"], d["cy"], scale=sc)
+        sig = (round(d["cx"], 2), round(d["cy"], 2), None if f.get("ncc") is None else round(f["ncc"], 4))
+        if sig == prev:
+            gates["repeat"] += 1
+            continue
+        prev = sig
+        hl = th.read(crop, "self", d["cx"], d["cy"], sc)
+        tx, ty = (f["x"], f["y"]) if "x" in f else (d["cx"], d["cy"])
+        rows.append({"session": s.sid, "t": float(t),
+                     "ring_x": float(round((tx + d["cx"]) / 2.0)), "ring_y": float(round((ty + d["cy"]) / 2.0)),
+                     "det_x": float(d["cx"]), "det_y": float(d["cy"]), "det_r": int(d["r"]),
+                     "cov": round(float(d["cov"]), 3), "ring_deg": d.get("facing"),
+                     "teardrop_read": bool(f.get("read")), "teardrop_reason": f.get("reason"),
+                     "teardrop_deg": float(f["deg"]) if f.get("deg") is not None else None,
+                     "teardrop_x": float(tx), "teardrop_y": float(ty),
+                     "ncc": None if f.get("ncc") is None else float(f["ncc"]),
+                     "highlight_deg": hl["deg"] if hl["read"] else None, "highlight_raw_deg": hl["deg"],
+                     "highlight_reason": hl.get("reason"), "highlight_r": hl["r"],
+                     "hue_mass_deg": hl["hue_mass_deg"], "others": len(selves) - 1})
+    return rows, gates
+
+
+def select_s331(pool: list[dict]) -> list[dict]:
+    """`QUOTA_S331` items per NCC band, the session with fewest items first,
+    each `GAP_MS_331` from every other item of its session."""
+    rng = random.Random(SEED_S331)
+    taken: list[dict] = []
+    sids = sorted({r["session"] for r in pool})
+    for band, (lo, hi) in S331_BANDS.items():
+        by = {sid: [r for r in pool if r["session"] == sid and r["ncc"] is not None and lo <= r["ncc"] < hi]
+              for sid in sids}
+        for v in by.values():
+            rng.shuffle(v)
+        got = 0
+        while got < QUOTA_S331[band] and any(by.values()):
+            per = Counter(o["session"] for o in taken if o["stratum"] == band)
+            for sid in sorted((x for x in sids if by[x]), key=lambda x: (per[x], x)):
+                c = None
+                while by[sid]:
+                    c = by[sid].pop()
+                    if all(c["session"] != o["session"] or abs(c["t"] - o["t"]) >= GAP_MS_331 for o in taken):
+                        break
+                    c = None
+                if c is not None:
+                    taken.append(dict(c, stratum=band))
+                    got += 1
+                    break
+        if got < QUOTA_S331[band]:
+            print(f"  {band}: only {got} of {QUOTA_S331[band]} spaced candidates")
+    return taken
+
+
+def prepare_s331(store: Path, limit: int | None = None) -> int:
+    """`limit` caps the frames read per session: a timing run, which writes nothing."""
+    import team_vision_eval as tve
+    idle()
+    out = items_dir(store, SET_S331)
+    if limit is None and (out / "index.json").is_file():
+        raise SystemExit(f"{out / 'index.json'} exists; a new item set needs a new name")
+    pool, gates, sess = [], {}, {}
+    for sid in S331_SESSIONS:
+        s = sess[sid] = tve.Sess(sid)
+        width = int(s.box[2] - s.box[0])
+        live, g = live_times(sid, s.cache_t, 1)
+        stride = max(1, len(live) // S331_FRAMES)
+        times = live[::stride][:limit] if limit is not None else live[::stride]
+        print(f"{sid}: width {width}, {g['live']} live frames, stride {stride}; reading {len(times)}", flush=True)
+        rows, g2 = self_pool(s, times)
+        gates[sid] = dict(g, read=len(times), stride=stride, width=width, **g2)
+        pool += rows
+        nc = [r["ncc"] for r in rows if r["ncc"] is not None]
+        print(f"  {len(rows)} self reads {g2}; per band "
+              f"{ {b: sum(lo <= v < hi for v in nc) for b, (lo, hi) in S331_BANDS.items()} }", flush=True)
+    if limit is not None:
+        print("timing run: nothing written")
+        return 0
+    items = select_s331(pool)
+    (out / "patches").mkdir(parents=True, exist_ok=True)
+    index, manifest = [], []
+    for sid in S331_SESSIONS:
+        mine = sorted((r for r in items if r["session"] == sid), key=lambda r: r["t"])
+        crops = dict(sess[sid].crops(sorted({r["t"] for r in mine})))
+        for r in mine:
+            rx, ry = r["ring_x"], r["ring_y"]
+            patch, x0, y0 = lsf.patch_of(crops[r["t"]], rx, ry)
+            name = f"{sid}_{int(round(r['t']))}_{int(rx)}_{int(ry)}.png"
+            cv2.imwrite(str(out / "patches" / name), patch)
+            key = item_key(sid, r["t"], rx, ry)
+            index.append({"key": key, "session": sid, "t_ms": float(r["t"]), "cls": "self",
+                          "ring_x": rx, "ring_y": ry, "patch": name, "patch_x0": x0, "patch_y0": y0})
+            manifest.append({"key": key, "t_ms": float(r["t"]), **{k: v for k, v in r.items() if k != "t"}})
+    random.Random(SEED_S331 + 1).shuffle(index)
+    import tip_highlight as th
+    from reticle.teardrop import SELF_FACING_MIN_NCC
+    from reticle.version import TEARDROP_VERSION
+    at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    meta = {"version": VERSION_S331, "class_set": CLASS_SET_S331, "self_teardrop": TEARDROP_VERSION,
+            "self_facing_min_ncc": SELF_FACING_MIN_NCC, "tip_highlight": th.VERSION, "frames": S331_FRAMES,
+            "phases": LIVE_PHASES, "gap_ms": GAP_MS_331, "bands": S331_BANDS, "quota": QUOTA_S331,
+            "seed": SEED_S331, "view": VIEW_331,
+            "ring_at": "midpoint of the self teardrop's and the self ring fit's centres, rounded to a pixel",
+            "at": at}
+    blind = {"version": VERSION_S331, "class_set": CLASS_SET_S331, "view": VIEW_331, "at": at}
+    (out / "index.json").write_text(json.dumps({"meta": blind, "items": index}, indent=1), encoding="utf-8")
+    (out / "manifest.json").write_text(json.dumps({"meta": meta, "gates": gates, "items": manifest},
+                                                  indent=1), encoding="utf-8")
+    (out / "readings.json").write_text(json.dumps({"meta": meta, "pool": pool}, indent=0), encoding="utf-8")
+    print(f"sessions {dict(Counter(r['session'] for r in manifest))}")
+    print(f"strata {dict(Counter(r['stratum'] for r in manifest))}")
+    print(f"prepared {len(index)} items -> {out}")
+    return 0
+
+
 # ---------------------------------------------------------------- ask
 
 def ask(args, store: Path) -> int:
@@ -480,9 +1020,13 @@ def ask(args, store: Path) -> int:
     # The 331 px set zooms closer; the first set used the self labeller's view.
     view = blob["meta"].get("view") or {"zh": lsf.ZH, "zf": lsf.ZF, "ring_r": lsf.RING_R}
     zh, zf = view["zh"], view["zf"]
-    tool, class_set = ((VERSION_331, CLASS_SET_331) if args.set == SET_331 else (VERSION, CLASS_SET))
-    question = ("Click the ringed TEAMMATE icon's centre, then the tip it points to." if args.set == SET_331
-                else "Is the ringed thing a teammate's or an enemy's icon? Click its centre, then its tip.")
+    tool, class_set = {SET_331: (VERSION_331, CLASS_SET_331),
+                       SET_E331: (VERSION_E331, CLASS_SET_E331),
+                       SET_S331: (VERSION_S331, CLASS_SET_S331)}.get(args.set, (VERSION, CLASS_SET))
+    question = {SET_331: "Click the ringed TEAMMATE icon's centre, then the tip it points to.",
+                SET_E331: "Click the ringed ENEMY icon's centre, then the tip it points to (N if it is no enemy icon).",
+                SET_S331: "Click YOUR (yellow) icon's centre, then the tip it points to (N if the ringed thing is not it)."
+                }.get(args.set, "Is the ringed thing a teammate's or an enemy's icon? Click its centre, then its tip.")
     target = Path(args.labels) if args.labels else labels_path(store, args.set)
     done = load_answers(target)
     todo = [c for c in index if c["key"] not in done]
@@ -619,9 +1163,10 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--store", default=str(sem.STORE))
     ap.add_argument("--set", choices=SETS, default=NAME,
-                    help=f"item set (default {NAME}; {SET_331} is the 331 px ally set)")
+                    help=f"item set (default {NAME}; {SET_331}, {SET_E331} and {SET_S331} are the 331 px "
+                         "ally, enemy and self sets)")
     ap.add_argument("--prepare", action="store_true")
-    ap.add_argument("--limit", type=int, help=f"{SET_331} --prepare: read this many frames a session, "
+    ap.add_argument("--limit", type=int, help="331 px sets, --prepare: read this many frames a session, "
                                               "time the run and write nothing")
     ap.add_argument("--labels", help="answers file (default: the store's labels/<set>.jsonl)")
     ap.add_argument("--screenshot", help="render an item, save the window as PNG, write nothing")
@@ -634,6 +1179,10 @@ def main(argv=None) -> int:
     if args.prepare:
         if args.set == SET_331:
             return prepare_331(store, args.limit)
+        if args.set == SET_E331:
+            return prepare_e331(store, args.limit)
+        if args.set == SET_S331:
+            return prepare_s331(store, args.limit)
         return prepare(store, args.reuse_readings)
     return ask(args, store)
 
