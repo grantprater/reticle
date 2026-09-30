@@ -19,7 +19,9 @@ belief is [domain:abilities/footstep-audio-loop-belief]; the answer is
 Both stages decode only this clip's audio, in memory (`audio_probe.decode`);
 nothing is written but the result files under
 `<store>/analysis/sound-bank/`. Predictions and outcomes are in the store's
-`notes/predictions.jsonl` under `sound-bank-20260929`.
+`notes/predictions.jsonl` under `sound-bank-20260929`. The range clip's guns
+carry no skins, but a gun picked up in a match may carry another player's
+[domain:capture/weapon-skins-picked-up], a confounder for the gun classes.
 
 `loop`
 ------

@@ -269,7 +269,12 @@ see = ["minimap/dead-teammate-light-belief", "minimap/spike-casts-no-light-belie
 [self-audio-circle]
 claim = """
 The minimap draws a pale, white-tinted circle round the self icon, which the
-player calls the self audio circle.
+player calls the self audio circle. He believes it is drawn on every sound
+the self makes and lingers after it. Its radius is fixed whatever the sound: it is
+the audio range, and the same radius as the spike's explosion. It is drawn
+for the player's own icon only: not round teammates, and not round a
+spectated player. So it marks only the player's own sounds, while alive and
+in his own view.
 """
 kind = "appearance"
 known = "player"
@@ -278,25 +283,41 @@ subject = "minimap:self-icon"
 source = """
 the player, 2026-09-29 (chat), shown two crops: Sunset e37fdeca944f at
 1795.08 s, where he named the circle round Skye (the self), and Lotus
-5822b6646448 at 49.50 s, where he thinks the large white circle round the
-A-site stack is possibly the same circle. That Lotus circle is the one
+5822b6646448 at 49.50 s, where he thought the large white circle round the
+A-site stack possibly the same circle. That Lotus circle is the one
 docs/SCENE_MODEL.md ("Where the unexplained light comes from") found in
-prototypes/light_causes.py's residual, which no stored observation holds
+prototypes/light_causes.py's residual, which no stored observation holds.
+Later the same day he answered the mechanics sheet: he believes it is drawn
+on every sound and lingers; the radius is the same regardless of the sound,
+the audio range, and also the spike explosion radius; only his own icon
+draws it, not teammates'. He then checked a spectated player himself and
+found it not drawn
 """
 use = """
 floor inside the circle reads as lit floor to a lighting reader, though no
 cone reaches it and no teammate lights a circle of its own
 [domain:minimap/no-teammate-floor-circle]: explain residual light round the
-self icon by this circle before calling it unexplained
+self icon by this circle before calling it unexplained. A fixed radius makes
+it a known-size disc round the self icon; an absent circle round an ally or
+a spectated player is expected, not a miss. The circle's onsets are a
+candidate video witness for the player's own sound events, against which
+the sound bank (prototypes/sound_bank.py) could be scored, its gun classes
+confounded by picked-up skins [domain:capture/weapon-skins-picked-up];
+unmeasured
 """
 exceptions = """
-unanswered, asked on docs/ABILITY_MECHANICS_SHEET.md: when it appears (on
-each sound the self makes?), what its radius means (hearing range?), whether
-it scales with the sound (a footstep against a gunshot), and whether allies'
-audio circles are drawn. That the Lotus circle is this one is the player's
-"possibly", unconfirmed. The radius is unmeasured
+that it is drawn on every sound is the player's belief ("I believe"), not
+observed per sound. How long it lingers is unmeasured and asked on
+docs/ABILITY_MECHANICS_SHEET.md. The Lotus 49.50 s circle, a large thin
+circle visible from 44 to 51 s during an A execute, is unattributed: this
+circle (the player's "possibly") or a dead Clove's smoke-range circle
+[domain:abilities/clove-dead-smoke-range-circle], and neither is asserted;
+the session's lineup (lineup-0.3.0) names no Clove among its best guesses,
+with two ally slots unresolved. The radius is unmeasured in
+pixels
 """
-see = ["minimap/no-teammate-floor-circle", "abilities/minimap-icon-pale-region"]
+see = ["minimap/no-teammate-floor-circle", "abilities/minimap-icon-pale-region",
+       "capture/weapon-skins-picked-up"]
 
 [ally-icon-without-cone]
 claim = """
@@ -318,7 +339,12 @@ to repair
 """
 exceptions = """
 the reason is unknown and asked on docs/ABILITY_MECHANICS_SHEET.md; one
-instance, one agent, one frame
+instance, one agent, one frame. On 2026-09-29 the player could not find
+this frame at 0:49.50 and asked whether we had the right session file. A
+time-base check the same day found the cached frame is frame 2970 of
+C:/Users/grant/Videos/2026-08-26 12-38-38.mp4 at exactly 0:49.500, two
+decoders agreeing (store analysis/timebase-20260929): the session and time
+are verified
 """
 see = ["minimap/no-teammate-floor-circle", "minimap/vision-gate"]
 
