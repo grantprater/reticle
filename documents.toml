@@ -216,7 +216,7 @@ kind = "plan"
 status = "proposed"
 since = "2026-09-30"
 remains = "Everything: stage 0 (the contract, its validator and the CONSUMER check), stage 1 (lanes round_entity, death and spike on bfad2778a372 with the round viewer), then players and bindings, consumer migration, the owner gaps and the debt target."
-waits_for = "The player's review of the plan and answers to its three open questions."
+waits_for = "The player's review of the plan as amended by his answers of 2026-09-30, and what an unobserved object of each remaining family shows."
 
 [[document]]
 path = "docs/PUBSUB_PLAN.md"

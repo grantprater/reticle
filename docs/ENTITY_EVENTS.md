@@ -11,6 +11,11 @@ certain; the only residue should be events such as an enemy cast barely in
 audio range, outside every vision range and masked by other sounds, and
 those drop from the final output. Uncertainty stays for now.
 
+The player answered the plan's three questions the same day; section 8
+records the answers, and sections 2 to 6 carry them: the viewer draws the
+ledger apart, a per-family rule says what a track shows between
+observations, and minimap lanes come before audio lanes.
+
 This plan designs the one layer that serves as that interface: a pure,
 versioned projection over stored adjudicated streams. It writes two
 outputs per session. The **consumer output** holds only events every owner
@@ -228,6 +233,8 @@ with a reason; that is coverage, not doubt.
 | Kind | Vocabulary | Source |
 |---|---|---|
 | `pose` (icon track sample) | none beyond position and orientation | `round_entity`, a pose owner |
+| `estimate` (unobserved icon track) | `basis`: the observations and rule the owner used | the estimate owner of the family; the per-family rule below |
+| `last_known` (enemy mark) | none beyond position | the owner that reads the red "?" [domain:minimap/last-known-mark] |
 | `death` | `cause` gun/ability/environment, `weapon`, `second_life`, `revive` | `adjudication.death`; [domain:rounds/resurrection-mechanics] |
 | `spike` | `carried` (by player), `dropped`, `planted`, `defused`, `detonated` | [domain:minimap/spike-glyph], [domain:minimap/spike-carrier-overlay]; `rounds` owns the plant; defuse and detonation have no owner |
 | `ping` | `standard`, `danger`, `on_my_way`, `need_help` | `ping` |
@@ -263,6 +270,31 @@ a sibling `<field>_reason` says why, in one of four forms:
 Coverage rows say what each lane read: per round, the intervals its owners
 observed and the unobserved ones with the cause. "No smoke in round 3" and
 "round 3 unread" then differ in the consumer output itself.
+
+### Between observations: a rule per family
+
+What a track shows while nothing observes it depends on whether its object
+is expected to go unobserved. The contract declares one rule per family and
+kind; a consumer never chooses.
+
+| Family, kind | While unobserved | Ends |
+|---|---|---|
+| `icon_track`, `ally` (alive) | `estimate` events: the owner's position estimate, the same as for crowded or overlapping icons | at a death event |
+| `icon_track`, `self` (alive) | `estimate` events from `position-belief`, the player's own belief owner | at the player's death; a spectated icon is its own entity (gap 2) |
+| `icon_track`, `enemy` | `estimate` events until the icon becomes the red "?" [domain:minimap/last-known-mark] | the track becomes a `last_known` event at the mark's place and time; no estimate follows it |
+| `mark`, `last_known` | nothing: the mark is the event | when the mark leaves the widget |
+| every other family | `not_observed` coverage, no estimate | -- |
+
+An `estimate` is a distinct event kind, not an observation with doubt
+attached: it carries the owner's position, its `basis` (the observations
+and rule it rests on) and the owner's version, and it reaches the consumer
+output under the drop rule like any other row. The projection interpolates
+nothing. Where no owner stores an estimate for a family whose rule calls
+for one, the gap shows as `not_observed` coverage with reason
+`no_estimate_owner` and counts as debt. Today `position-belief` covers the
+player alone; allies and enemies need an owner (gap 3a). The rule for the
+last row grows one family at a time, from the player's answer or a fact,
+never by analogy.
 
 ### The ledger row
 
@@ -377,17 +409,24 @@ A lane is one slice of the output with a declared list of input streams.
 Each lane writes its own pair of files, so a change to one input rebuilds
 only the lanes that read it.
 
-| Lane | Inputs |
-|---|---|
-| `players` | the arbiter's stored side verdict (gap 1), `rounds` |
-| `round_entity` | `round_entity`, `rounds`; later a pose owner |
-| `death` | `death`, `death_identity`, `rounds` |
-| `spike` | `rounds`, `spike_carrier` |
-| `smoke` | `smoke`, `smoke_owner`, `smoke_owner_identity`, `rounds` |
-| `ult_cast` | `ult_cast`, `ult_cast_identity`, `rounds` |
-| `ping` | `ping`, `rounds` |
-| `slot_state` | `ability_state`, `tray_kit`, `tray_kit_identity` |
-| `disagreement` | `reconciliation`'s stored disagreements, `spike_carrier` disagreement rows |
+Lanes are ordered by the channel that observes their events. The player
+expects events the minimap observes to reach the consumer output within a
+few iterations, while audio detection barely works yet; so minimap and
+screen lanes come first, and audio lanes come last.
+
+| Order | Lane | Channel | Inputs |
+|---|---|---|---|
+| 1 | `round_entity` | minimap | `round_entity`, `rounds`; later a pose owner and estimate owners |
+| 1 | `death` | killfeed, HUD, scoreboard | `death`, `death_identity`, `rounds` |
+| 1 | `spike` | minimap, round table | `rounds`, `spike_carrier` |
+| 2 | `players` | arbiter over every channel | the arbiter's stored side verdict (gap 1), `rounds` |
+| 2 | `smoke` | minimap | `smoke`, `smoke_owner`, `smoke_owner_identity`, `rounds` |
+| 2 | `ping` | minimap | `ping`, `rounds` |
+| 2 | `enemy` | minimap | an enemy icon owner and a last-known mark owner (gap 3) |
+| 3 | `slot_state` | tray | `ability_state`, `tray_kit`, `tray_kit_identity` |
+| 4 | `ult_cast` | audio | `ult_cast`, `ult_cast_identity`, `rounds` |
+| 4 | audio casts | audio | the sound bank, once an owner wires it |
+| -- | `disagreement` | every channel | `reconciliation`'s stored disagreements, `spike_carrier` disagreement rows |
 
 ### The drop rule
 
@@ -415,6 +454,13 @@ player's own class: an event whose only witness is one audio match below
 its owner's floor, with no vision, killfeed or HUD witness at its time. Every
 other ledger row is debt. The target, per session and kind: **debt share
 zero**. A new residual reason needs the player's approval and a fact.
+
+The residual class is the end state, not today's drop list. While audio
+detection barely works, most audio-only events stay in the ledger as debt,
+and that is expected. The target therefore applies by channel in the lane
+order above: minimap lanes are held to zero debt first, and audio lanes
+record their debt without being held to the target until their owners can
+reach it.
 
 **Measuring progress.** Each projection run records a `reticle.metrics`
 series `entity_events/resolution` per session and lane: per kind, consumer
@@ -521,7 +567,7 @@ same queries over the ledger, exists for review tools only.
 
 | Consumer | Reads | Today |
 |---|---|---|
-| round viewer | consumer output; the ledger drawn apart, as review | being built |
+| round viewer | consumer output, and ledger rows drawn apart in amber as an overview; declared in `review` | being built |
 | `overlay` | consumer output | reruns readers; its reader drawing moves to a reader debug view, declared no consumer |
 | clips (`clipserve`) | consumer output; an event's time locates a clip, a higher-fidelity pass bounds it | -- |
 | `coach` (`coaching`) | consumer output | reads stored streams |
@@ -564,6 +610,14 @@ Each owner adds fields; the projection adds none of them itself.
    [domain:minimap/enemy-lobe-translucent], an `enemy` family in
    `round_lifetimes`, and arbiter claims against the enemy side's five.
    Every icon mechanism applies to any agent icon; only the priors differ.
+   The same lane needs an owner that reads the red "?" and ends the enemy
+   track in a `last_known` event [domain:minimap/last-known-mark].
+
+   **3a. Estimate owners.** The per-family rule in section 2 calls for an
+   estimate for every alive ally and for an enemy until its mark. An owner
+   stores each estimate with its basis -- the crowded and overlapping icon
+   work is its first source -- keyed by the track it continues;
+   `position-belief` covers the player alone today.
 4. **Orientation per observation.** The icon-pose owner (`teardrop`, through
    `team_vision` or its own stream) stores each pose under the
    `ally_icon` observation key that `round_entity` cites.
@@ -591,7 +645,9 @@ Each owner adds fields; the projection adds none of them itself.
     module, so the projection's standing tables are checked against them.
 12. **Residual reasons.** Audio owners (`adjudication.ult_cast`, the sound
     bank when wired) emit the residual reason with the channels that had an
-    opportunity, so residual and debt are counted, not guessed.
+    opportunity, so residual and debt are counted, not guessed. This comes
+    last with the audio lanes: until audio detection works, audio-only
+    events are debt whatever their reason.
 
 ## 6. Migration
 
@@ -614,7 +670,7 @@ Acceptance: `.\.venv\Scripts\python.exe -m reticle plan bfad2778a372` names
 no stale input of the three lanes; `.\.venv\Scripts\python.exe -m reticle project bfad2778a372 --lane round_entity --lane death --lane spike`
 writes six files; `.\.venv\Scripts\python.exe -m pytest tests/test_entity_events.py`
 passes; `.\.venv\Scripts\python.exe -m reticle doctor` reports 0 errors with
-the viewer in `[consumers]`.
+the viewer in `[consumers]` and in its `review` list.
 Evidence: known rows checked first -- the consumer death lane holds
 `death:bfad2778a372:177000:0` (Skye by Phoenix, Ghost) and
 `death:bfad2778a372:205000:0` (Chamber); the round 1 self track sits in the
@@ -623,10 +679,12 @@ changes it, in which case the change is recorded. A second run writes
 identical bytes; restamping only `spike_carrier` marks only `entity_spike`
 stale in `plan`. The resolution metric is recorded for the session.
 Predictions go to `notes/predictions.jsonl` first; the player views round 1
-in the viewer against the capture and marks each drawn item right or wrong.
+in the viewer against the capture and marks each drawn item right or wrong;
+the viewer draws consumer events and amber ledger rows together.
 
-**Stage 2: players and bindings.** Gap 1, then lanes `players`, `smoke`,
-`ult_cast` and `ping`.
+**Stage 2: players, bindings and the minimap lanes.** Gap 1, then lanes
+`players`, `smoke`, `ping` and, once gaps 3 and 3a have owners, `enemy` and
+the track estimates. No audio lane joins here.
 Acceptance: `.\.venv\Scripts\python.exe -m reticle project <session>` on
 the fast tier, then `.\.venv\Scripts\python.exe -m reticle verify --tier fast`.
 Evidence: every consumer row with a name carries a `ref` that resolves to a
@@ -642,19 +700,28 @@ Evidence: each consumer's output before and after, with every difference
 traced to a ledger row or an owner change; the player views one rendered
 round.
 
-**Stage 4: the gaps.** Gaps 2 to 12 in order, each an owner item; each
+**Stage 4: the gaps.** Gaps 2 to 11 in order, each an owner item; each
 bumps the owner's version and rebuilds only its lanes.
 Acceptance: `.\.venv\Scripts\python.exe -m reticle plan` names no stale
 lane after each.
 Evidence: the resolution metric per kind, with the resolved-and-wrong share
 on the player's labels flat or falling.
 
-**Stage 5: the target.** Debt share zero per kind on the fast tier, then
-the corpus.
-Acceptance: the `entity_events/resolution` series shows debt share zero on
-every fast-tier session.
-Evidence: the remaining ledger is residual, each row with its declared
-reason; the player reviews a sample of residual rows.
+**Stage 5: the minimap target.** Debt share zero for every minimap lane on
+the fast tier, then the corpus; the player expects this within a few
+iterations.
+Acceptance: the `entity_events/resolution` series shows debt share zero for
+the lanes of order 1 and 2 on every fast-tier session.
+Evidence: each remaining minimap ledger row is residual with its declared
+reason, or a named disagreement the player has reviewed.
+
+**Stage 6: the audio lanes.** Lanes `ult_cast` and audio casts, and gap 12.
+Their debt is recorded from the first run and held to the target only when
+their owners can reach it.
+Acceptance: `.\.venv\Scripts\python.exe -m reticle project <session> --lane ult_cast`
+on the fast tier records the resolution metric.
+Evidence: debt share per audio kind falls run over run, with the
+resolved-and-wrong share flat; the player reviews a sample of residual rows.
 
 ## 7. The scene model
 
@@ -677,22 +744,30 @@ the answers it stores and holds no state of its own. Its per-field
 standings translate into the ledger's standings, so its refusals count as
 debt or residual like any owner's.
 
-## 8. Open questions for the player
+## 8. The player's answers
 
-Grepped against `domain/*.toml` and the player's notes first; none of these
-is answered there.
+The plan asked three questions no fact or note answered. The player
+answered them on 2026-09-30; this section paraphrases him.
 
-1. **What the annotated match shows.** Should the round viewer, as the
-   acceptance view, draw only the consumer output, or also draw withheld
-   rows apart, as the overlay draws refusals in amber, while the ledger
-   still holds debt?
-2. **Between observations.** When an icon track goes unobserved, should the
-   consumer output carry the position-belief owner's bounds for the gap, or
-   leave the gap `not_observed`? Bounds are uncertainty, which the final
-   output is meant to carry none of.
-3. **The residual class.** Is the enemy cast barely heard, outside every
-   vision range and masked by other sounds, the only class that may drop,
-   or are there others to declare?
+1. **What the annotated match shows.** For now the viewer draws both the
+   consumer events and the ledger rows, the ledger apart in amber, as a
+   convenient overview. The viewer is therefore a `review` consumer
+   (section 4).
+2. **Between observations.** It depends on whether the object is expected
+   to be unobserved. An alive ally always shows a position estimate, as the
+   crowded and overlapping icon work does; an enemy shows one too, until its
+   icon becomes the red "?", after which the event is the last-known mark.
+   Section 2 makes this a per-family rule; an estimate is an owner's output
+   with its basis, and the projection interpolates nothing.
+3. **What drops.** The residual class is the end state, not the only thing
+   that drops for now. Audio detection barely works, so many audio-only
+   events will be debt, while minimap-observable events should reach the
+   consumer output within a few iterations. The lane order (section 3) and
+   stages 5 and 6 follow from this.
+
+The open question the rule leaves is what an unobserved object of any other
+family shows -- a smoke under a menu, a ping behind the scoreboard. Until
+the player or a fact answers per family, those gaps are `not_observed`.
 
 ## What this plan does not settle
 
