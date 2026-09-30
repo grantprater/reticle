@@ -531,7 +531,42 @@ player answers class and, for an enemy icon, the agent from the enemy five:
 ```
 
 `enemy_lane_score.py --score331 --record` scores the answers by stratum.
-Every part stays `"wire": "no"`.
+
+**The 331 px answers.** The X calls hold
+([metric:enemy_lane_score/score331@c40d950031bb+223d636bf8d2+bfad2778a372#x_x_mark=10]
+of 12), and the arbiter's names agree with the player's on
+[metric:enemy_lane_score/score331@c40d950031bb+223d636bf8d2+bfad2778a372#id_agree=8]
+of 8. The enemy calls do not: only
+[metric:enemy_lane_score/score331@c40d950031bb+223d636bf8d2+bfad2778a372#enemy_enemy_icon=6]
+of 12 are enemy icons (QF1 failed), and the other-red stratum holds one
+missed icon, not three (QF4 failed). The player's two notes explain the
+rest. Six of the seven unsure panels show an enemy icon the queue's ring
+cuts. Thirteen of the fourteen "nothing" panels show void just off the map
+[domain:minimap/transparency], admitted by `floor_mask`'s overhang.
+
+**Two fixes** (`prototypes/enemy_lane_bounds.py`, FA1-FA4 and FB1-FB3 logged
+first). *Bounds:* the red blob's centroid slides toward the lobe, a median
+[metric:enemy_lane_score/bounds@c40d950031bb+223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372#331_blob_err_median=6.09] px
+from the player's centre at 331 px. The ring-fit centre lands close, but
+the fixed ring is smaller than the player's
+[metric:enemy_lane_score/bounds@c40d950031bb+223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372#331_tip_d_player_median=9.42] px
+tip distance and holds the tip on
+[metric:enemy_lane_score/bounds@c40d950031bb+223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372#331_ring_tip_in=3]
+of 19. Fitting the enemy teardrop from the candidate, and keeping an
+`ambiguous_facing` fit as position only, puts the centre within
+[metric:enemy_lane_score/bounds@c40d950031bb+223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372#331_blob_fix_err_median_fitted=1.02] px;
+a box of the fitted tip distance plus 1.5 px times the scale holds every
+fitted tip at both scales. Only
+[metric:enemy_lane_score/bounds@c40d950031bb+223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372#331_blob_fit_ok=12]
+of 23 blob starts fit, and the fit fixes 3 of the 6 cut icons in the queue;
+the other three are stacks it refuses as `low_ncc`. *Map gate:* a centre
+test on the slab plus an icon radius drops none of the void rows. The share
+of red within an icon radius that lies on the baked slab, kept at 0.25 or
+more, drops
+[metric:enemy_lane_score/map-gate@c40d950031bb+223d636bf8d2+bfad2778a372+5822b6646448+a06f04a0059f+c62c2b06bcfb#331_nothing_red_drop=12]
+of the fourteen "nothing" rows and no labelled enemy, X or "?" mark at
+either scale, once a disc with no red abstains (amended after it dropped a
+blue X). Every part stays `"wire": "no"`.
 
 ## The label plan
 
