@@ -1855,6 +1855,144 @@ frame. The 331 px set was drawn where the old light disagreed with the
 teardrop, and the test the rule needs is stacks. Labels drawn by teardrop
 margin, stacked or not, with no light in the draw, would settle it.
 
+## E13: the 331 px self and enemy labels
+
+The player labelled two blind sets on the 331 px widget (2026-09-29), drawn
+by `prototypes/label_icon_facing.py` with each reader's facing frozen in a
+hidden manifest and scored by `prototypes/icon_facing_eval.py --set <set>`.
+Task `labels-331-results-20260929`; each set's predictions were logged
+before its first label (the `self-facing-331-labels` and
+`enemy-facing-331-labels` rows of the store's `notes/predictions.jsonl`),
+and their outcomes follow them there.
+
+**The self set** holds 40 self icons on c40d950031bb (C:\Users\grant\Videos\2026-08-24
+18-27-17.mp4), 223d636bf8d2 (C:\Users\grant\Videos\2026-08-23 20-09-01.mp4),
+bfad2778a372 and e37fdeca944f, drawn by the self teardrop's NCC before any
+gate: twelve in each of three bands and four anchors above 0.65. The player
+gave a facing on [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#answer_facing=37]. The self teardrop, the self
+ring fit and the tip highlight against those facings:
+
+| self NCC | n | teardrop median / flipped | ring flipped | highlight flipped |
+|---|---|---|---|---|
+| 0.50-0.55 | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_n50_55_n=11] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_n50_55_median_abs_deg=20.58] / [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_n50_55_flip=0.455] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#ring_n50_55_flip=0.273] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#highlight_n50_55_flip=0.1] |
+| 0.55-0.60 | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_n55_60_n=11] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_n55_60_median_abs_deg=2.915] / [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_n55_60_flip=0.091] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#ring_n55_60_flip=0.091] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#highlight_n55_60_flip=0.0] |
+| 0.60-0.65 | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_n60_65_n=11] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_n60_65_median_abs_deg=4.115] / [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_n60_65_flip=0.0] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#ring_n60_65_flip=0.091] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#highlight_n60_65_flip=0.1] |
+| anchors | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_anchor_n=4] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_anchor_median_abs_deg=6.045] / [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_anchor_flip=0.0] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#ring_anchor_flip=0.0] | [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#highlight_anchor_flip=0.0] |
+
+Under 0.55 the teardrop flips on almost half its reads, and there the ring
+fit and the highlight flip less often than it does. From 0.55 up it errs a few
+degrees. A gate at 0.55 keeps
+[metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#gate_055_admitted_share=0.703] of the labelled reads, which err a
+median [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#gate_055_median_abs_deg=4.062] degrees and flip on
+[metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#gate_055_flip=0.038] (one of [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#gate_055_n=26]); a gate
+at 0.6 keeps [metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#gate_060_admitted_share=0.405] and flips on none.
+The one flip at 0.55-0.60 lies on c40d950031bb, which also holds two of the
+five under 0.55 ([metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_n50_55_c40d950031bb_flip=0.667] of its
+[metric:icon_facing_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_n50_55_c40d950031bb_n=3]); at three items a session and
+band the labels cannot set a gate per session. E11's witness agrees: from
+0.55 the self teardrop's cones beat their reverses on both 331 px sessions.
+
+**The gate.** `teardrop-0.4.0` sets the 331 px self facing gate at 0.55
+(`teardrop.SELF_FACING_GATES`, asked through `self_facing_gate`; a read
+under it gives the centre and no facing, `facing_reason`
+`low_ncc_labelled_gate`). The 465 px widget keeps no gate, and a widget size
+no labels cover keeps `SELF_FACING_MIN_NCC`, 0.6
+(`low_ncc_unlabelled_scale`). `team-vision-0.6.0` casts the self cone from
+the reads the new gate admits. The ally icon and self icon streams do not
+move: on a 331 px widget they cut the self portrait at the ring fit's centre
+(`self_portrait_pose`) and take no self facing from the teardrop.
+
+**The fusion on the self labels.** `prototypes/facing_fusion.py --sets
+s331` runs E12's rule with its constants unchanged, recomputing every reader
+from the crop cache at the labelled frames, seeded at the manifest's self
+detection; the recomputed teardrop matches the frozen reading on every item
+([metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#recomputed_vs_stored_teardrop_max_deg=0.0] degrees apart). Its
+predictions S1-S4 are the `facing-fusion-self-331-20260929` rows of the
+ledger, logged before the run. Fixed and broken count against the teardrop;
+"light alone" takes the teardrop's axis and chooses its lobe by the excluded
+light, "old chooser" by `cone.resolve_lobe` with the icon's own pixels
+counted (E10):
+
+| self NCC | teardrop flips | fusion fixed / broken | prior fixed | light alone fixed / broken | old chooser fixed / broken |
+|---|---|---|---|---|---|
+| 0.50-0.55 | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n50_55_teardrop_flips_n=5] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n50_55_fusion_fixed=3] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n50_55_fusion_broken=0] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n50_55_prior_fixed=2] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n50_55_light_lobe_fixed=3] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n50_55_light_lobe_broken=0] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n50_55_light_lobe_raw_fixed=5] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n50_55_light_lobe_raw_broken=0] |
+| 0.55-0.60 | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n55_60_teardrop_flips_n=1] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n55_60_fusion_fixed=1] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n55_60_fusion_broken=0] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n55_60_prior_fixed=1] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n55_60_light_lobe_fixed=1] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n55_60_light_lobe_broken=2] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n55_60_light_lobe_raw_fixed=1] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n55_60_light_lobe_raw_broken=1] |
+| 0.60-0.65 | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n60_65_teardrop_flips_n=0] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n60_65_fusion_fixed=0] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n60_65_fusion_broken=0] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n60_65_prior_fixed=0] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n60_65_light_lobe_fixed=0] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n60_65_light_lobe_broken=0] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n60_65_light_lobe_raw_fixed=0] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n60_65_light_lobe_raw_broken=1] |
+| anchors | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#anchor_teardrop_flips_n=0] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#anchor_fusion_fixed=0] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#anchor_fusion_broken=0] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#anchor_prior_fixed=0] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#anchor_light_lobe_fixed=0] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#anchor_light_lobe_broken=1] | [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#anchor_light_lobe_raw_fixed=0] / [metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#anchor_light_lobe_raw_broken=1] |
+
+In the 0.50-0.55 band the fusion fixes three of the five flips and breaks
+none of the six correct reads; the band then flips on
+[metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n50_55_fusion_flip=0.1818] and errs a median
+[metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#n50_55_fusion_median_abs_deg=9.875] degrees. The highlight and
+the light each carry part of it: the prior alone fixes two, the teardrop and
+light without the highlight one. Over all 37 reads the fusion flips on
+[metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#fusion_flip=0.0541] against the teardrop's
+[metric:facing_fusion_eval/labels-self-331@c40d950031bb+223d636bf8d2+bfad2778a372+e37fdeca944f#teardrop_flip=0.1622] and breaks nothing. The two flips it keeps
+(c40d950031bb at 509.8 s, 223d636bf8d2 at 742.6 s) have teammates' cones
+near the icon (`sheet_s331.png` in the store's
+`analysis/facing-fusion-20260929/`), and on the second the highlight sides
+with the flip. The old chooser fixes all five
+flips in the band but breaks three correct reads above it.
+
+By the rule logged with the predictions the fusion rescues the band (three
+fixed, none broken in any band), yet the rescued band still flips on about
+a fifth of its reads against one in 26 above the gate. The gate ships alone;
+the fusion stays unwired (`facing-fusion-0.1.0`), and E12's case for stacked
+labels stands. Against the predictions: S1 held, S2 held, S3 failed (the
+light alone fixes more than the prior alone), S4 held.
+
+**The enemy set** holds 44 candidates on c40d950031bb and 223d636bf8d2: 38
+from the enemy portrait pool, stratified by teardrop NCC third and by what
+lies under the icon, and six audit candidates the portrait gate rejected.
+The player answered [metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answer_facing=25] facing,
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answer_not_icon=17] not an icon and
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answer_cant_tell=2] can't tell. Where the enemy teardrop reads
+(its gates passed) it errs a median
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_all_median_abs_deg=2.79] degrees and flips on
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_all_flip=0.133] of [metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_all_n=15];
+its best facing on every labelled icon errs
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_any_all_median_abs_deg=4.27] and flips on
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_any_all_flip=0.12] of [metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_any_all_n=25].
+The red ring fit errs [metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#ring_all_median_abs_deg=7.8] and flips on
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#ring_all_flip=0.333]; the tip highlight errs
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#highlight_all_median_abs_deg=42.8], as the enemy lobe's
+translucency predicts [domain:minimap/enemy-lobe-translucent].
+
+A teammate's light behind an enemy icon costs the teardrop its lobe. Over a
+lit background its best facing flips on
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_any_bg_lit_flip=0.286] of
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_any_bg_lit_n=7], over floor on
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_any_bg_floor_flip=0.0] of
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_any_bg_floor_n=7]; taken under the labelled lobe, lit
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_any_lobe_lit_flip=0.214] of
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_any_lobe_lit_n=14] against floor
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_any_lobe_floor_flip=0.0] of
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#teardrop_any_lobe_floor_n=8]; all three flips have lit floor
+under the labelled lobe. This fits the translucent lobe: the light beneath
+shows through it, and the red key cannot tell a lit wedge from the lobe. No
+measurement here separates that cause from others.
+
+The candidates' answers say what the finders find. The player called all
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answers_stratum_audit_not_icon=6] audit candidates not an icon,
+so the portrait gate's rejections were right. Candidates the standard enemy
+detector also found were [metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answers_std_detector_True_facing=18]
+icons to [metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answers_std_detector_True_not_icon=3] not; those only
+the red-key finder proposed were
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answers_std_detector_False_facing=7] icons to
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answers_std_detector_False_not_icon=14] not. The finder adds a
+few enemies and mostly non-icons. The teardrop's own gate sorts them too:
+where it reads, [metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answers_teardrop_read_True_facing=15] icons to
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answers_teardrop_read_True_not_icon=1]; where it refuses,
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answers_teardrop_read_False_facing=10] to
+[metric:icon_facing_eval/labels-enemy-331@c40d950031bb+223d636bf8d2#answers_teardrop_read_False_not_icon=16].
+
+**Against the predictions.** Self: P1 held; P2 failed on both halves, at two
+or three items a session and band; P3 held; P4 held; P5 failed, since under
+0.55 the ring fit flips less often than the teardrop. Enemy: P1 held; P2
+held for the teardrop's best facing on every icon and failed on its gated
+reads alone, whose median moved by less than the predicted 3 degrees; P3 failed narrowly (the
+highlight flips on 0.19, under the predicted 0.2); P4, P5 and P6 held.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
@@ -1875,8 +2013,11 @@ margin, stacked or not, with no light in the draw, would settle it.
 - E12's fusion rests on five teardrop flips over 97 labelled reads; its
   constants were set once, before scoring, and never fitted. Stacks are
   where it fails, and no label set is drawn to test them.
-- No label scores the self teardrop at 331 px; E11's witness supports the
-  0.6 self gate and names 0.55 as the candidate labels would test.
+- The 331 px self gate rests on 37 labels, three or so per session and NCC
+  band (E13); it is one number for the widget size, and c40d950031bb holds
+  most of the flips.
+- The enemy teardrop has 331 px labels (E13) but no gate change: its gated
+  reads still flip on about one in seven, each flip over a teammate's light.
 - Wall edges (`BORDER`) were not perturbed; only box edges were.
 - E2's near-line group holds only a handful of held-out frames.
 - E1-E3 calibrated on one session and one map; E4 adds one Lotus session.

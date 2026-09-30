@@ -78,7 +78,11 @@ labels (465 px), the Lotus self labels (5822b6646448, with the Ascent
 controls apart) and `ally_facing_331_20260929` (331 px), with
 `tip_highlight`'s filters. Every reader is recomputed from the crop cache at
 the labelled frames; the 331 px manifest's frozen readings are compared,
-not used. Arms: `teardrop`, `highlight`, `prior` (teardrop and highlight, no
+not used. `--sets s331` scores the 331 px self set
+(`self_facing_331_20260929`) the same way, per self teardrop NCC band
+(`n50_55`, `n55_60`, `n60_65`, `anchor`), seeded at the manifest's own self
+detection; its record is part `labels-self-331`, and it writes its items
+beside E12's rather than over them. Arms: `teardrop`, `highlight`, `prior` (teardrop and highlight, no
 light), `light_lobe` (the teardrop's axis, lobe by the excluded light alone),
 `light_lobe_raw` (the same by `cone.resolve_lobe` on `lighting.lit_mask`,
 the icon's own pixels counted: E10's `td-lobe`), `fusion_nohl` (teardrop and
@@ -302,9 +306,13 @@ def fuse(s, crop, row: dict, cls: str, sc: float) -> dict:
     cands = [ic for ic in icons if ic["role"] == ("self" if cls == "self" else "ally")]
     target = min(cands, key=lambda ic: math.hypot(ic["cx"] - row["det_cx"], ic["cy"] - row["det_cy"]),
                  default=None)
-    # One self icon a frame: its best detection is the target, as `self_facing_eval` seeds it.
-    if (target is not None and cls != "self"
+    # One self icon a frame: its best detection is the target, as `self_facing_eval` seeds it,
+    # unless the row names its own seed (`seed_det`, the 331 px self set's manifest detection):
+    # then a best detection elsewhere is dropped and the row's seed stands in for it.
+    if (target is not None and (cls != "self" or row.get("seed_det"))
             and math.hypot(target["cx"] - row["det_cx"], target["cy"] - row["det_cy"]) > 3.0 * max(sc, 1.0)):
+        if cls == "self":
+            icons.remove(target)
         target = None
     if target is None:
         f = fit(crop, cls, row["det_cx"], row["det_cy"], sc)
@@ -516,6 +524,26 @@ def rows_331(store: Path) -> list[dict]:
     return th.scored_331(rows)
 
 
+def rows_s331(store: Path) -> list[dict]:
+    """The 331 px self set's scored rows: the label, the manifest's frozen readings,
+    the highlight recomputed at the manifest's self detection, and that detection
+    as the fit's seed."""
+    idir = lif.items_dir(store, lif.SET_S331)
+    manifest = json.loads((idir / "manifest.json").read_text(encoding="utf-8"))["items"]
+    answers = lif.load_answers(lif.labels_path(store, lif.SET_S331))
+    rows = [r for r in ife.rows_s331(manifest, answers)
+            if r["answer"] == "facing" and r.get("centre_off_px", 0.0) <= ife.ELSEWHERE_331_PX]
+    by = {m["key"]: m for m in manifest}
+    crops = th._crops(rows)
+    th._add(rows, {k: (m["det_x"], m["det_y"]) for k, m in by.items()}, crops, lambda r: "self")
+    for r in rows:
+        r["highlight_frozen"] = by[r["key"]]["highlight_deg"]
+        r["cls"] = "self"
+        r["seed_det"] = True
+        r["_crop"] = crops[(r["session"], float(r["t_ms"]))]
+    return rows
+
+
 # ---------------------------------------------------------------- the sheet
 
 def _strip(curves: dict, label, tdd, w: int, hgt: int = 90) -> np.ndarray:
@@ -623,7 +651,7 @@ def main(argv=None) -> int:
     ap.add_argument("--record", action="store_true", help="one metrics row per label set")
     ap.add_argument("--sheet", action="store_true", help="write decision sheets to " + str(OUT))
     ap.add_argument("--json", type=Path, help="per-item rows (default: the store's analysis dir)")
-    ap.add_argument("--sets", default="465,self,331")
+    ap.add_argument("--sets", default="465,self,331", help="any of 465, self, 331, s331")
     ap.add_argument("--temper", type=float, help="post hoc: override TEMPER; recorded under part suffix -posthoc")
     args = ap.parse_args(argv)
     posthoc = ""
@@ -655,6 +683,11 @@ def main(argv=None) -> int:
         print(f"331 px allies: {len(rows)} scored", flush=True)
         run_set(rows, lambda r: "ally", sess)
         all_rows["331"] = rows
+    if "s331" in sets:
+        rows = rows_s331(store)
+        print(f"331 px self: {len(rows)} scored", flush=True)
+        run_set(rows, lambda r: "self", sess)
+        all_rows["s331"] = rows
     for r in (r for v in all_rows.values() for r in v):
         r["_sess"] = sess(r["session"])
 
@@ -693,11 +726,28 @@ def main(argv=None) -> int:
             vals |= _values(rs, f"{st}_")
         records.append(("labels-331", "+".join(lif.QUOTA_331), vals | frozen["331"],
                         lif.labels_path(store, lif.SET_331).name))
+    if "s331" in all_rows:
+        rows = all_rows["s331"]
+        res = summarise(rows)
+        _print(f"331 px self ({len(rows)})", res)
+        vals = _values(res) | witness_counts(rows)
+        for band in lif.S331_BANDS:
+            sub = [r for r in rows if r["stratum"] == band]
+            rs = summarise(sub)
+            _print(f"331 px self, {band} ({len(sub)})", rs)
+            vals |= _values(rs, f"{band}_") | witness_counts(sub, f"{band}_")
+        hz = [abs(float(td._signed_deg(r["highlight"] - r["highlight_frozen"]))) for r in rows
+              if r.get("highlight") is not None and r.get("highlight_frozen") is not None]
+        vals["recomputed_vs_stored_highlight_max_deg"] = round(max(hz), 3) if hz else None
+        records.append(("labels-self-331", "+".join(lif.S331_SESSIONS), vals | frozen["s331"],
+                        lif.labels_path(store, lif.SET_S331).name))
 
     # The other direction: light no team cone explains, on the labelled frames.
     mc_tot = Counter()
     frames = {}
     for key, rows in all_rows.items():
+        if key == "s331":
+            continue      # E12's measurement covers its own three sets only
         for r in rows:
             frames.setdefault((r["session"], float(r["t_ms"])), []).append(r)
     for (sid, t), rs in frames.items():
@@ -713,12 +763,14 @@ def main(argv=None) -> int:
         if args.record:
             metrics.record("facing_fusion_eval", part=part + posthoc, session=session, values=vals,
                            deps=dict(deps, labels=labels))
-    if args.record and not posthoc:
+    if args.record and not posthoc and frames:
         metrics.record("facing_fusion_eval", part="missing-cones", session="+".join(sorted({s for s, _ in frames})),
                        values=mc, deps=deps)
 
     OUT.mkdir(parents=True, exist_ok=True)
-    jp = args.json or OUT / "items.json"
+    # E12's three sets write `items.json`; any other choice writes beside it, never over it.
+    tag = "" if sets == ["465", "self", "331"] else "_" + "-".join(sets)
+    jp = args.json or OUT / f"items{tag}.json"
     clean = {k: [{kk: vv for kk, vv in r.items() if not kk.startswith("_")} for r in v] for k, v in all_rows.items()}
     jp.write_text(json.dumps({"version": VERSION, "deps": deps, "sets": clean}, indent=1, default=str),
                   encoding="utf-8")
@@ -728,9 +780,9 @@ def main(argv=None) -> int:
                 lo_teardrop=r.get("lo_teardrop"), lo_highlight=r.get("lo_highlight"), lo_light=r.get("lo_light"),
                 lo_post=r.get("lo_post"), rests_on=r.get("rests_on"), label_deg=r.get("label_deg"))
            for k, v in all_rows.items() for r in v if r.get("disagreements")]
-    (OUT / "disagreements.json").write_text(json.dumps({"version": VERSION, "items": dis}, indent=1, default=str),
-                                            encoding="utf-8")
-    print("wrote", OUT / "disagreements.json", len(dis), "items")
+    (OUT / f"disagreements{tag}.json").write_text(json.dumps({"version": VERSION, "items": dis}, indent=1,
+                                                            default=str), encoding="utf-8")
+    print("wrote", OUT / f"disagreements{tag}.json", len(dis), "items")
     if args.sheet:
         for k, v in all_rows.items():
             print("wrote", sheet(notable(v), OUT / f"sheet_{k}.png"))

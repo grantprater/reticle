@@ -324,14 +324,22 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # ICON_TEARDROP_VERSION for teammates) where it reads, before the tracker sees
 # them; the light resolves only a fallback ring-fit lobe; each stored icon's
 # `pose` names its origin and facing source, replacing the self icon's `self_cone`.
-TEAM_VISION_VERSION = "team-vision-0.5.0"
+# 0.6.0 (2026-09-29): on a 331 px widget the self cone casts from self teardrop
+# reads at NCC 0.55 and above, not 0.6 (TEARDROP_VERSION 0.4.0, the player's
+# 331 px self facing labels, E13); a read under 0.55 casts nothing. Numbered
+# above self-spike-tracker-20260929's 0.5.0.
+TEAM_VISION_VERSION = "team-vision-0.6.0"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.
 # 0.3.0: on a widget size the facing labels do not cover (`LABELLED_SCALES`), a self
 # read under `SELF_FACING_MIN_NCC` gives the centre and no facing (`facing_reason`
 # `low_ncc_unlabelled_scale`); `posed` poses a ring-fit detection by a read.
-TEARDROP_VERSION = "teardrop-0.3.0"
+# 0.4.0 (2026-09-29): the 331 px widget is labelled (`self_facing_331_20260929`,
+# E13) and its self facing gate is NCC 0.55 (`SELF_FACING_GATES`,
+# `self_facing_gate`; `facing_reason` `low_ncc_labelled_gate`); other unlabelled
+# sizes keep 0.6, and 465 px keeps no gate. The fit is unchanged.
+TEARDROP_VERSION = "teardrop-0.4.0"
 # A teammate's or an enemy's icon read as a teardrop (`teardrop.fit_icon`): its centre
 # and facing. Promoted from prototypes/icon_teardrop.py (icon-teardrop-0.1.0), whose
 # model, keys and gates are unchanged; 0.2.0 scales its radii by `minimap.widget_scale`,

@@ -35,8 +35,10 @@ rightly refuses. `SelfConeReader` then returns the ring fit's centre and no
 facing, says why, and the caller keeps its own bearing.
 
 **Scale.** The constants were fitted on e78e75b2d191 at `widget_scale` 1.0
-(the bigmap profile at 1080p) and scale linearly with the widget. A widget
-drawn at another scale has not been measured.
+(the bigmap profile at 1080p) and scale linearly with the widget. On the
+331 px widget the player's labels set the facing gate at NCC 0.55
+(`SELF_FACING_GATES`); a widget drawn at another scale has not been
+measured and takes `SELF_FACING_MIN_NCC`.
 
 **Teammates and enemies** (owns [owns:icon-pose], `ICON_TEARDROP_VERSION`).
 They wear the same teardrop in other colours, and `fit_icon` reads it with
@@ -241,8 +243,9 @@ class SelfConeReader:
         if tf.get("read"):
             out = {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
                    "origin": "teardrop", "ncc": float(tf["ncc"])}
-            if tf["ncc"] < SELF_FACING_MIN_NCC and not labelled_scale(self.scale):
-                out.update(deg=None, facing_reason="low_ncc_unlabelled_scale")
+            gate, why = self_facing_gate(self.scale)
+            if gate is not None and tf["ncc"] < gate:
+                out.update(deg=None, facing_reason=why)
             return out
         return {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
                 "ncc": _num(tf.get("ncc")), "reason": tf.get("reason")}
@@ -253,20 +256,42 @@ class SelfConeReader:
 #: `low_ncc_unlabelled_scale`), and a consumer casts no cone from it. Against
 #: the ring fit's facing after the light resolves its lobe, self reads at
 #: 0.5-0.6 point more than 90 degrees away on about a third of frames on
-#: 5822b6646448 (465 px), 223d636bf8d2 and c40d950031bb (331 px), and most
-#: 331 px self reads fall there (`prototypes/team_vision_eval.py
-#: --pose-check`); E7 found those facings cast much of c40d950031bb's false
-#: light. At the labelled size the labels do not support the gate: of the two
-#: labelled reads under it one is right (an Ascent control) and one flipped.
+#: 5822b6646448 (465 px), 223d636bf8d2 and c40d950031bb (331 px)
+#: (`prototypes/team_vision_eval.py --pose-check`); E7 found those facings
+#: cast much of c40d950031bb's false light.
 SELF_FACING_MIN_NCC = 0.6
-#: The widget scales whose self facing the player labelled (5822b6646448 and
-#: the e78e75b2d191 controls, `reticle verify` lotus/self-facing).
+#: The widget scales whose self facing the player labelled, each with the NCC
+#: gate its labels support (None: no gate); a read under it gives the centre
+#: and no facing (`facing_reason` `low_ncc_labelled_gate`).
+#: - 465 px (1.0): 5822b6646448 and the e78e75b2d191 controls (`reticle
+#:   verify` lotus/self-facing). Of the two labelled reads under 0.6 one is
+#:   right (an Ascent control) and one flipped, so no gate.
+#: - 331 px: 37 blind labels on four sessions (`self_facing_331_20260929`,
+#:   docs/STATISTICAL_ADJUDICATOR.md E13). Reads at NCC 0.50-0.55 flip on
+#:   almost half; from 0.55 up they flip on one in 26 and err a median of
+#:   about 4 degrees, and a 0.55 gate keeps 0.7 of the labelled reads where
+#:   0.6 keeps 0.4.
+SELF_FACING_GATES = ((1.0, None), (331 / 465, 0.55))
+#: The widget scales at which the player's portrait is cut at the self
+#: teardrop's centre (`self_portrait_pose`): E10's portrait fit at 465 px
+#: (5822b6646448); at 331 px it fit better on two sessions and worse on two.
 LABELLED_SCALES = (1.0,)
 
 
 def labelled_scale(scale: float) -> bool:
-    """True for a widget scale the self facing labels cover (`LABELLED_SCALES`)."""
+    """True for a widget scale where the self portrait takes the teardrop's centre (`LABELLED_SCALES`)."""
     return any(abs(scale - s) < 0.02 for s in LABELLED_SCALES)
+
+
+def self_facing_gate(scale: float) -> tuple[float | None, str]:
+    """`(gate, facing_reason)`: the NCC under which a self read at `scale` gives
+    no facing, and the reason it then carries. A labelled scale takes its
+    labels' gate (`SELF_FACING_GATES`, None for none); any other scale takes
+    `SELF_FACING_MIN_NCC`."""
+    for s, gate in SELF_FACING_GATES:
+        if abs(scale - s) < 0.02:
+            return gate, "low_ncc_labelled_gate"
+    return SELF_FACING_MIN_NCC, "low_ncc_unlabelled_scale"
 
 
 def self_portrait_pose(pose: dict, scale: float, cx: float, cy: float) -> dict:

@@ -37,16 +37,30 @@ class TeardropTests(unittest.TestCase):
         self.assertEqual((o["x"], o["y"], o["deg"], o["origin"], o["reason"]),
                          (40.0, 41.0, None, "ring_fit", "no_yellow"))
 
-    def test_a_low_ncc_self_read_off_the_labelled_scale_gives_the_centre_and_no_facing(self):
-        fit = {"read": True, "x": 40.5, "y": 39.5, "deg": 120.0, "ncc": 0.55}
+    def _self_read(self, ncc, scale):
+        fit = {"read": True, "x": 40.5, "y": 39.5, "deg": 120.0, "ncc": ncc}
         with patch("reticle.teardrop.fit_teardrop", return_value=fit):
-            o = teardrop.SelfConeReader(scale=331 / 465).read(np.zeros((80, 80, 3), np.uint8), 42.0, 40.0)
-            labelled = teardrop.SelfConeReader(scale=1.0).read(np.zeros((80, 80, 3), np.uint8), 42.0, 40.0)
+            return teardrop.SelfConeReader(scale=scale).read(np.zeros((80, 80, 3), np.uint8), 42.0, 40.0)
+
+    def test_the_331_px_self_facing_gate_is_the_labels_0_55(self):
+        # The player's 331 px labels: reads at NCC 0.50-0.55 flip on almost half,
+        # from 0.55 on one in 26 (docs/STATISTICAL_ADJUDICATOR.md, E13).
+        self.assertEqual(teardrop.self_facing_gate(331 / 465), (0.55, "low_ncc_labelled_gate"))
+        kept = self._self_read(0.55, 331 / 465)
+        self.assertEqual((kept["deg"], kept.get("facing_reason")), (120.0, None))
+        o = self._self_read(0.549, 331 / 465)
+        self.assertEqual((o["x"], o["y"], o["deg"], o["origin"], o["facing_reason"]),
+                         (40.5, 39.5, None, "teardrop", "low_ncc_labelled_gate"))
+
+    def test_a_low_ncc_self_read_off_the_labelled_scales_gives_the_centre_and_no_facing(self):
+        o = self._self_read(0.58, 400 / 465)
         self.assertEqual((o["x"], o["y"], o["deg"], o["origin"], o["facing_reason"]),
                          (40.5, 39.5, None, "teardrop", "low_ncc_unlabelled_scale"))
-        # The labels cover scale 1.0 and do not support the gate there.
+        self.assertEqual(self._self_read(0.6, 400 / 465)["deg"], 120.0)
+        # The labels cover scale 1.0 and do not support a gate there.
+        labelled = self._self_read(0.51, 1.0)
         self.assertEqual((labelled["deg"], labelled.get("facing_reason")), (120.0, None))
-        det = {"cx": 42.0, "cy": 40.0, "facing": 300.0}
+        det ={"cx": 42.0, "cy": 40.0, "facing": 300.0}
         self.assertEqual({k: teardrop.posed(det, o, ring_facing=False)[k]
                           for k in ("cx", "facing", "facing_source")},
                          {"cx": 40.5, "facing": None, "facing_source": None})
