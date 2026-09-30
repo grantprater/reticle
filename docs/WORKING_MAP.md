@@ -54,6 +54,7 @@ from proposed semantics, acquisition policy and acceptance requirements.
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Experiments | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |
+| The scene model: render-and-compare, all channels | [SCENE_MODEL.md](SCENE_MODEL.md) |
 | Ability entity inference and minimal capture plan | `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` |
 | What each demo cast draws on the minimap (census, player questions) | [DEMO_CAST_CENSUS.md](DEMO_CAST_CENSUS.md) |
 | Naming the player's casts from audio (demo bank, transfer) | [AUDIO_ABILITY_BANK.md](AUDIO_ABILITY_BANK.md) |
