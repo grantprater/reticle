@@ -50,7 +50,7 @@ drone's cone light the floor like a player's? The minimap draws a self audio
 circle round the self icon [domain:minimap/self-audio-circle] on every
 sound, at the fixed audio range. How long does it linger after a sound? Is
 the large white circle round the Lotus A-site stack at 5822b6646448 49.50 s
-this circle? At that frame Gekko's icon is drawn without his cone
+this circle? At that frame Gekko's icon is drawn without its cone
 [domain:minimap/ally-icon-without-cone]. Why? A dead Clove's smoke menu
 draws a range circle round the Clove's death location
 [domain:abilities/clove-dead-smoke-range-circle]. What is its radius?
