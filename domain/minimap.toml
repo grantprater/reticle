@@ -213,8 +213,13 @@ floor read lit where no visible team cone reaches may come from a teammate who
 died within the moment; test it against a death witness (killfeed, roster)
 before any reader explains light this way
 """
-exceptions = "unverified on any capture; the duration, if any, is unknown"
-see = ["minimap/vision-trailing-persistence", "minimap/spike-casts-no-light-belief"]
+exceptions = """
+unverified on any capture; the duration, if any, is unknown. The player's
+second answer of 2026-09-29 on what lights the floor
+[domain:minimap/no-teammate-floor-circle] leaves this belief unchanged
+"""
+see = ["minimap/vision-trailing-persistence", "minimap/spike-casts-no-light-belief",
+       "minimap/no-teammate-floor-circle"]
 
 [spike-casts-no-light-belief]
 claim = """
@@ -229,8 +234,36 @@ use = """
 do not explain unexplained floor light by the spike without an observation
 that contradicts the belief
 """
-exceptions = "unverified on any capture"
-see = ["minimap/vision-trailing-persistence", "minimap/dead-teammate-light-belief"]
+exceptions = """
+unverified on any capture. The player's second answer of 2026-09-29 on what
+lights the floor [domain:minimap/no-teammate-floor-circle] leaves this belief
+unchanged
+"""
+see = ["minimap/vision-trailing-persistence", "minimap/dead-teammate-light-belief",
+       "minimap/no-teammate-floor-circle"]
+
+[no-teammate-floor-circle]
+claim = """
+A teammate lights no small circle of floor round its minimap icon in
+addition to its vision cone.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+source = """
+the player, 2026-09-29 (chat), asked what lights the floor where no team cone
+reaches, after prototypes/unexplained_light.py showed such light hugging the
+icons
+"""
+use = """
+floor read lit beside a teammate's icon but outside its cone is not the
+teammate's own light: look for an ability's white-tinted area
+[domain:abilities/minimap-icon-pale-region], a piloted drone's cone
+[domain:abilities/piloted-drones-have-cones], the icon's own rim read as
+floor, or a cone the model draws in the wrong place
+"""
+see = ["minimap/dead-teammate-light-belief", "minimap/spike-casts-no-light-belief",
+       "abilities/minimap-icon-pale-region", "abilities/piloted-drones-have-cones"]
 
 [device-dim-on-deactivation]
 claim = """

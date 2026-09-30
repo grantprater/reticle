@@ -44,6 +44,10 @@ screen while the ability runs [domain:hud/controlled-entity-view-tint].
 *Duration* is the ability's life. *Notes* hold sounds, tray behaviour and open
 questions.
 
+One open question spans rows: every piloted drone has its own vision cone
+[domain:abilities/piloted-drones-have-cones]. Which drones, and does a
+drone's cone light the floor like a player's?
+
 ## Astra
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
@@ -75,7 +79,7 @@ questions.
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Trademark | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1) | ? | ? | ? |
+| C | Trademark | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | white-tinted area, mostly circular [domain:abilities/chamber-trademark-minimap-white-area]; compact icon (census 1) | ? | ? | the player called it Chamber's trip: is that Trademark? The area's radius? |
 | Q | Headhunter | Hitscan | 8 [domain:abilities/chamber-headhunter-charges] | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
 | E | Rendezvous | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); movement | ? | nothing (census 1) | ? | ? | ? |
 | X | Tour De Force | Hitscan | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
@@ -103,7 +107,7 @@ questions.
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Barrier Mesh | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1) | ? | ? | ? |
-| Q | Sonic Sensor | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | split {'compact_icon': 1, 'nothing': 1} (census 2) | ? | ? | ? |
+| Q | Sonic Sensor | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | white-tinted area, mostly circular [domain:abilities/deadlock-sonic-sensor-minimap-white-area]; split {'compact_icon': 1, 'nothing': 1} (census 2) | ? | ? | the area's radius? Does a dim sensor keep it? |
 | E | GravNet | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | yellow disc under 0.3 s at detonation [domain:abilities/deadlock-gravnet-detonation-flash] | ? | ? | ? |
 | X | Annihilation | Beam | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | only on a hit, or a very brief flash? [domain:abilities/deadlock-annihilation-minimap] | ? | ? | X pips empty at equip [domain:abilities/deadlock-ult-tray-drop-at-equip] |
 
@@ -265,7 +269,7 @@ questions.
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Crosscut | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | split {'nothing': 1, 'compact_icon': 1} (census 2) | ? | ? | ? |
-| Q | Chokehold | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | compact icon (census 1) | ? | ? | ? |
+| Q | Chokehold | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | white-tinted area, mostly circular [domain:abilities/veto-chokehold-minimap-white-area]; compact icon (census 1) | ? | ? | the player called it Veto's trip: is that Chokehold? The area's radius? |
 | E | Interceptor | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE) | ? | nothing (census 1) | ? | ? | ? |
 | X | Evolution | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | ? | ? | ? | ? |
 

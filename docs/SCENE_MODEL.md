@@ -505,6 +505,33 @@ not a cause. The player's other candidates, a teammate who just died
 `analysis/unexplained-light-20260929/sheet_331.png` and `sheet_465.png`
 show the whole widget for the player to judge. Not wired.
 
+The player then ruled out a circle of floor round each teammate
+[domain:minimap/no-teammate-floor-circle] and named two other sources:
+abilities' white-tinted areas [domain:abilities/minimap-icon-pale-region]
+and piloted drones' cones [domain:abilities/piloted-drones-have-cones].
+`prototypes/light_causes.py` gives each unexplained pixel one cause, in
+order. Within 2 px of an icon's silhouette (HALO) lie
+[metric:light_causes/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#halo_share=0.2509]
+of them against
+[metric:light_causes/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#halo_share_control=0.1974]
+of the control; those pixels carry the icons' teal and yellow, so they are
+rim, not floor, and undecidable rather than lit. Stored ability observations
+(the player's labels, smoke tracks) reach
+[metric:light_causes/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#items_ability_1s=11]
+items within 1 s and explain
+[metric:light_causes/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#ability_share=0.0]
+of the light; earlier cones then take
+[metric:light_causes/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#lingering_share=0.1248]
+(control
+[metric:light_causes/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#lingering_share_control=0.0805]),
+leaving
+[metric:light_causes/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#residual_share=0.6244].
+The store's `analysis/light-causes-20260929/sheet_residual.png` shows the
+residual on ability icons no scene renders, inside a large white circle
+round the Lotus A-site stack that no stored observation holds, along the
+modelled cone's edge, and on site-tinted floor. The ability cause needs an
+area detector or the player's labels on these frames. Not wired.
+
 ## What this plan does not settle
 
 - The draw order between icons is fitted, not known; stage 1 does not
