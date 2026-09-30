@@ -44,6 +44,16 @@ facing and its lobe. It prints each reader's median error, flip rate and
 within-10/20 shares over all items, per stratum (`flip`, `agree`), per
 session and per NCC tercile, and on the flip stratum which reader lies
 nearer the player's facing. `--record` writes part `labels-331`.
+
+`--set enemy_facing_331_20260929` scores the 331 px enemy set the same way,
+from its manifest: the teardrop where it reads (`teardrop`), its best facing
+even where it refuses (`teardrop_any`), the red ring fit (`ring`) and the tip
+highlight (`tip_highlight.read`, side enemy). Groups: the portrait pool and
+the `audit` stratum, NCC tercile, the background round the icon (`bg_*`)
+and beneath the lobe at the player's facing (`lobe_*`, the manifest sector
+nearest the label), session, and whether the standard enemy detector found
+the icon. Answers are split the same ways, so `not_icon` rates say what each
+kind of candidate was. `--record` writes part `labels-enemy-331`.
 """
 from __future__ import annotations
 
@@ -371,12 +381,146 @@ def main_331(args, store: Path) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- the 331 px enemy set
+
+READERS_E331 = ("teardrop", "teardrop_any", "ring", "highlight")
+
+
+def rows_e331(manifest: list[dict], answers: dict) -> list[dict]:
+    """One row per answered item: the label, the readings frozen in the hidden
+    manifest, and the background beneath the lobe at the player's facing
+    (the manifest's sector nearest it)."""
+    rows = []
+    for m in manifest:
+        a = answers.get(m["key"])
+        if a is None:
+            continue
+        row = {"key": m["key"], "session": m["session"], "t_ms": m["t_ms"], "stratum": m["stratum"],
+               "ncc": m["ncc"], "ncc_bin": m["ncc_bin"], "bg": m["bg"], "std_detector": m["std_detector"],
+               "portrait_texture": m.get("portrait_texture"), "stacked": m.get("stacked", False),
+               "answer": a["answer"], "label_deg": a.get("facing_deg"),
+               "teardrop": m["teardrop_deg"], "teardrop_any": m["teardrop_raw_deg"], "ring": m["ring_deg"],
+               "highlight": m["highlight_deg"]}
+        if row["label_deg"] is not None:
+            n = len(m["bg_sectors"])
+            k = int(round((row["label_deg"] % 360.0) / (360.0 / n))) % n
+            row["bg_label"] = m["bg_sectors"][k] or "none"
+        if a.get("centre_x") is not None:
+            row["centre_off_px"] = float(np.hypot(a["centre_x"] - m["ring_x"], a["centre_y"] - m["ring_y"]))
+            row["centre_vs_teardrop_px"] = float(np.hypot(a["centre_x"] - m["teardrop_x"],
+                                                          a["centre_y"] - m["teardrop_y"]))
+            row["centre_vs_ring_px"] = float(np.hypot(a["centre_x"] - m["det_x"], a["centre_y"] - m["det_y"]))
+        for name in READERS_E331:
+            if row["label_deg"] is not None and row[name] is not None:
+                row[f"{name}_err"] = float(sem._signed_deg(row[name] - row["label_deg"]))
+        rows.append(row)
+    return rows
+
+
+def score_e331(rows: list[dict], n_items: int) -> dict:
+    """Each reader per group; answers per NCC tercile, background and finder verdict,
+    which say how often each kind of candidate was an enemy icon at all."""
+    here = [r for r in rows if r["answer"] == "facing" and r.get("centre_off_px", 0.0) <= ELSEWHERE_331_PX]
+    out = {"version": VERSION, "items": n_items, "answered": len(rows),
+           "answers": dict(Counter(r["answer"] for r in rows)),
+           "elsewhere": sum(r["answer"] == "facing" and r.get("centre_off_px", 0.0) > ELSEWHERE_331_PX
+                            for r in rows),
+           "answers_by": {}, "readers": {}}
+    for by, f in (("stratum", lambda r: r["stratum"]), ("ncc_bin", lambda r: f"ncc_t{r['ncc_bin']}"),
+                  ("bg", lambda r: r["bg"]), ("std_detector", lambda r: str(r["std_detector"])),
+                  ("teardrop_read", lambda r: str(r["teardrop"] is not None))):
+        out["answers_by"][by] = {k: dict(Counter(r["answer"] for r in rows if f(r) == k))
+                                 for k in sorted({f(r) for r in rows})}
+    groups = {"all": here, "main": [r for r in here if r["stratum"] != "audit"],
+              "audit": [r for r in here if r["stratum"] == "audit"]}
+    for b in sorted({r["ncc_bin"] for r in here}):
+        groups[f"ncc_t{b}"] = [r for r in here if r["ncc_bin"] == b]
+    for g in sorted({r["bg"] for r in here}):
+        groups[f"bg_{g}"] = [r for r in here if r["bg"] == g]
+    for g in sorted({r.get("bg_label", "none") for r in here}):
+        groups[f"lobe_{g}"] = [r for r in here if r.get("bg_label", "none") == g]
+    for sid in sorted({r["session"] for r in here}):
+        groups[sid] = [r for r in here if r["session"] == sid]
+    groups["std_detector"] = [r for r in here if r["std_detector"]]
+    groups["finder_only"] = [r for r in here if not r["std_detector"]]
+    for name in READERS_E331:
+        out["readers"][name] = {}
+        for g, sub in groups.items():
+            d = summary([r[f"{name}_err"] for r in sub if f"{name}_err" in r])
+            d["unread"] = sum(r[name] is None for r in sub)
+            out["readers"][name][g] = d
+    for k in ("centre_off_px", "centre_vs_teardrop_px", "centre_vs_ring_px"):
+        v = [r[k] for r in here if k in r]
+        out[k + "_median"] = float(np.median(v)) if v else None
+    return out
+
+
+def show_e331(res: dict) -> None:
+    print(f"\n== 331 px enemies: {res['answered']} of {res['items']} items answered {res['answers']}; "
+          f"clicked another icon (> {ELSEWHERE_331_PX} px from the ring): {res['elsewhere']}")
+    for by, d in res["answers_by"].items():
+        print(f"  answers by {by}:")
+        for k, a in d.items():
+            print(f"    {k:14s} {a}")
+    print(f"\n  {'reader':12s} {'group':15s} {'n':>3s} {'unread':>6s} {'med|e|':>7s} {'flip':>5s} {'<=10':>5s} "
+          f"{'<=20':>5s} {'bias':>6s}")
+    for name, d in res["readers"].items():
+        for g, v in d.items():
+            if not v["n"]:
+                print(f"  {name:12s} {g:15s} {0:3d} {v['unread']:6d}")
+                continue
+            print(f"  {name:12s} {g:15s} {v['n']:3d} {v['unread']:6d} {v['median_abs_deg']:7.1f} {v['flip']:5.2f} "
+                  f"{v['within10']:5.2f} {v['within20']:5.2f} {v['median_signed_deg']:6.1f}")
+    print(f"  clicked centre, median px: from the ring {res['centre_off_px_median']}, "
+          f"from the teardrop {res['centre_vs_teardrop_px_median']}, "
+          f"from the ring fit {res['centre_vs_ring_px_median']}")
+
+
+def record_e331(res: dict) -> None:
+    from reticle import metrics
+    values = {"items": res["items"], "answered": res["answered"], "elsewhere": res["elsewhere"]}
+    for a, n in res["answers"].items():
+        values[f"answer_{a}"] = n
+    for name, d in res["readers"].items():
+        for g, v in d.items():
+            values[f"{name}_{g}_n"] = v["n"]
+            for k in ("median_abs_deg", "flip", "within10", "within20", "median_signed_deg"):
+                if k in v:
+                    values[f"{name}_{g}_{k}"] = round(v[k], 3)
+    metrics.record("icon_facing_eval", part="labels-enemy-331", session="+".join(lif.E331_SESSIONS),
+                   values=values, deps={"prototype": VERSION, "labels": Path(res["labels"]).name,
+                                        "manifest": lif.VERSION_E331, "elsewhere_px": ELSEWHERE_331_PX})
+
+
+def main_e331(args, store: Path) -> int:
+    idir = lif.items_dir(store, lif.SET_E331)
+    path = Path(args.labels) if args.labels else lif.labels_path(store, lif.SET_E331)
+    answers = lif.load_answers(path)
+    if not answers:
+        print(f"no labels in {path}")
+        return 1
+    manifest = json.loads(Path(args.manifest or idir / "manifest.json").read_text(encoding="utf-8"))["items"]
+    unknown = sorted(set(answers) - {m["key"] for m in manifest})
+    if unknown:
+        print(f"{len(unknown)} labelled keys are not in the manifest: {unknown[:3]}")
+    rows = rows_e331(manifest, answers)
+    res = score_e331(rows, len(manifest))
+    res["labels"] = str(path)
+    show_e331(res)
+    if args.record:
+        record_e331(res)
+    if args.json:
+        args.json.write_text(json.dumps({"summary": res, "rows": rows}, indent=1), encoding="utf-8")
+        print("wrote", args.json)
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--store", default=str(sem.STORE))
     ap.add_argument("--set", choices=lif.SETS, default=lif.NAME,
-                    help=f"item set; {lif.SET_331} scores the readings frozen in its hidden manifest")
-    ap.add_argument("--manifest", type=Path, help=f"{lif.SET_331}: manifest file (default: the set's own)")
+                    help="item set; the 331 px sets score the readings frozen in their hidden manifests")
+    ap.add_argument("--manifest", type=Path, help="331 px sets: manifest file (default: the set's own)")
     ap.add_argument("--labels", help="answers file (default: the store's labels/" + lif.NAME + ".jsonl)")
     ap.add_argument("--json", type=Path, help="write the per-item rows and the summary here")
     ap.add_argument("--exclude", type=Path, help="JSON file whose `keys` list items left out of scoring")
@@ -386,6 +530,8 @@ def main(argv=None) -> int:
     store = Path(args.store)
     if args.set == lif.SET_331:
         return main_331(args, store)
+    if args.set == lif.SET_E331:
+        return main_e331(args, store)
     path = Path(args.labels) if args.labels else lif.labels_path(store)
     answers = lif.load_answers(path)
     if not answers:
