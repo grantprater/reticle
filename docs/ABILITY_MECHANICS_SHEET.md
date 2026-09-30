@@ -44,9 +44,15 @@ screen while the ability runs [domain:hud/controlled-entity-view-tint].
 *Duration* is the ability's life. *Notes* hold sounds, tray behaviour and open
 questions.
 
-One open question spans rows: every piloted drone has its own vision cone
+Open questions span rows. Every piloted drone has its own vision cone
 [domain:abilities/piloted-drones-have-cones]. Which drones, and does a
-drone's cone light the floor like a player's?
+drone's cone light the floor like a player's? The minimap draws a self audio
+circle round the self icon [domain:minimap/self-audio-circle]. When does it
+appear: on each sound the self makes? Does its radius mean hearing range?
+Does it scale with the sound, a footstep against a gunshot? Are allies'
+audio circles drawn? Is the large white circle round the Lotus A-site stack
+at 5822b6646448 49.50 s this circle? At that frame Gekko's icon is drawn
+without his cone [domain:minimap/ally-icon-without-cone]. Why?
 
 ## Astra
 
@@ -79,7 +85,7 @@ drone's cone light the floor like a player's?
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Trademark | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | white-tinted area, mostly circular [domain:abilities/chamber-trademark-minimap-white-area]; compact icon (census 1) | ? | ? | the player called it Chamber's trip: is that Trademark? The area's radius? |
+| C | Trademark | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | white-tinted area, mostly circular [domain:abilities/chamber-trademark-minimap-white-area]; compact icon (census 1) | ? | ? | the player's trip, confirmed as Trademark at Sunset e37fdeca944f 1795.08 s, top mid [domain:abilities/chamber-trademark-minimap-white-area]. The area's radius? |
 | Q | Headhunter | Hitscan | 8 [domain:abilities/chamber-headhunter-charges] | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
 | E | Rendezvous | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); movement | ? | nothing (census 1) | ? | ? | ? |
 | X | Tour De Force | Hitscan | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
@@ -244,7 +250,7 @@ drone's cone light the floor like a player's?
 | C | Regrowth | ? | a resource bar [domain:abilities/skye-regrowth-resource-bar] | the pool does not refill [domain:abilities/skye-regrowth-resource-bar] | channelled (HOLD FIRE) | channelled [domain:abilities/skye-regrowth-channelled] | teal ring round Skye [domain:abilities/skye-regrowth-minimap-ring] | ? | ? | no tray drop [domain:abilities/skye-regrowth-no-tray-drop] |
 | Q | Trailblazer | Possession | 1 [domain:abilities/skye-trailblazer-charges] | none within a round [domain:abilities/skye-trailblazer-charges] | piloted | controlled by the player, as the Owl Drone [domain:abilities/skye-trailblazer-piloted] | compact icon (census 2) | green view, shows through the minimap void [domain:hud/controlled-entity-view-tint] | ? | ? |
 | E | Guiding Light | Missile | 2 [domain:abilities/skye-guiding-light-charges] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE); second press (RE-USE) | steered by the player: held, or piloted? [domain:abilities/skye-guiding-light-steered] | travelling bird icon [domain:abilities/skye-guiding-light-minimap-icon] | ? | ? | activation sound distinct from the cast [domain:abilities/ability-sound-phases] |
-| X | Seekers | Grounded Object | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | tracks its enemy by itself [domain:abilities/skye-seekers-track-and-blind] | unsure (census 1) | ? | until destroyed or it reaches its enemy, who is blinded [domain:abilities/skye-seekers-track-and-blind]; despawns when its enemy dies? | one Seeker per living enemy [domain:abilities/skye-seekers-one-per-living-enemy] |
+| X | Seekers | Grounded Object | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | tracks its enemy by itself [domain:abilities/skye-seekers-track-and-blind] | unsure (census 1) | ? | until destroyed or it reaches its enemy, who is blinded [domain:abilities/skye-seekers-track-and-blind]; despawns when its enemy dies? | one Seeker per living enemy [domain:abilities/skye-seekers-one-per-living-enemy]. A large white-tinted circle, believed the ult's, at Sunset e37fdeca944f 1795.08 s [domain:abilities/skye-seekers-minimap-large-circle-belief]: does the ult draw it? Is the centre where the enemies are, the radius the search range? How long does it last? |
 
 ## Sova
 

@@ -263,7 +263,64 @@ teammate's own light: look for an ability's white-tinted area
 floor, or a cone the model draws in the wrong place
 """
 see = ["minimap/dead-teammate-light-belief", "minimap/spike-casts-no-light-belief",
-       "abilities/minimap-icon-pale-region", "abilities/piloted-drones-have-cones"]
+       "abilities/minimap-icon-pale-region", "abilities/piloted-drones-have-cones",
+       "minimap/self-audio-circle"]
+
+[self-audio-circle]
+claim = """
+The minimap draws a pale, white-tinted circle round the self icon, which the
+player calls the self audio circle.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+subject = "minimap:self-icon"
+source = """
+the player, 2026-09-29 (chat), shown two crops: Sunset e37fdeca944f at
+1795.08 s, where he named the circle round Skye (the self), and Lotus
+5822b6646448 at 49.50 s, where he thinks the large white circle round the
+A-site stack is possibly the same circle. That Lotus circle is the one
+docs/SCENE_MODEL.md ("Where the unexplained light comes from") found in
+prototypes/light_causes.py's residual, which no stored observation holds
+"""
+use = """
+floor inside the circle reads as lit floor to a lighting reader, though no
+cone reaches it and no teammate lights a circle of its own
+[domain:minimap/no-teammate-floor-circle]: explain residual light round the
+self icon by this circle before calling it unexplained
+"""
+exceptions = """
+unanswered, asked on docs/ABILITY_MECHANICS_SHEET.md: when it appears (on
+each sound the self makes?), what its radius means (hearing range?), whether
+it scales with the sound (a footstep against a gunshot), and whether allies'
+audio circles are drawn. That the Lotus circle is this one is the player's
+"possibly", unconfirmed. The radius is unmeasured
+"""
+see = ["minimap/no-teammate-floor-circle", "abilities/minimap-icon-pale-region"]
+
+[ally-icon-without-cone]
+claim = """
+A teammate's icon can be drawn on the minimap while its vision cone is not:
+at Lotus 5822b6646448 49.50 s Gekko's icon shows and his cone does not.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+subject = "minimap:ally-cone"
+source = """
+the player, 2026-09-29 (chat), looking at the Lotus crop at 49.50 s; he
+gave no reason
+"""
+use = """
+a scene model must not assume every visible ally casts a cone: a missing
+cone beside a present icon is an observation to keep, not a detector miss
+to repair
+"""
+exceptions = """
+the reason is unknown and asked on docs/ABILITY_MECHANICS_SHEET.md; one
+instance, one agent, one frame
+"""
+see = ["minimap/no-teammate-floor-circle", "minimap/vision-gate"]
 
 [device-dim-on-deactivation]
 claim = """
