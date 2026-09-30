@@ -11,9 +11,12 @@ Why this exists
 The player, 2026-09-29, named a pale circle round the self icon, drawn for
 the player's own icon only [domain:minimap/self-audio-circle], and first
 believed it drawn on every own sound at one radius. On 2026-09-30 the player
-judged it may come only from running, since two firing brackets drew none,
-and named the larger of its two sizes the spike radius. Whether the minimap
-draws the spike's explosion is a separate belief
+named the larger of its two sizes the spike radius and explained both: the
+circle marks own footsteps and reloads, not shots or movement; a reload
+draws the smaller circle while no step sounds, and a step's circle
+supersedes it; a player can move at full speed without a step sounding
+[domain:abilities/silent-stepping]. Whether the minimap draws the spike's
+explosion is a separate belief
 [domain:minimap/spike-explosion-drawn-belief]. This file measures the
 circle's radius and time course and scores it against `sound_match.py`'s bank
 detections, the HUD and the self track's speed on the Iso capture
@@ -45,19 +48,26 @@ Every own-view drawn frame is fitted, not one frame per onset; presence is
 gated on a 66-78 px band, since the any-radius argmax also finds map edges
 and the widget's fixed border circle.
 
-Two sizes. The normal circle measures [metric:audio_circle/per-frame@4f207c0c4e39#large_r_median=74.86] px, sd
-[metric:audio_circle/per-frame@4f207c0c4e39#large_r_sd=0.16], over [metric:audio_circle/per-frame@4f207c0c4e39#large_fits=1793] frames. A smaller one
+Two sizes. The footstep circle measures [metric:audio_circle/per-frame@4f207c0c4e39#large_r_median=74.86] px, sd
+[metric:audio_circle/per-frame@4f207c0c4e39#large_r_sd=0.16], over [metric:audio_circle/per-frame@4f207c0c4e39#large_fits=1793] frames. The reload circle
 measures [metric:audio_circle/per-frame@4f207c0c4e39#small_r_median=69.14] px, sd [metric:audio_circle/per-frame@4f207c0c4e39#small_r_sd=0.43], over
 [metric:audio_circle/per-frame@4f207c0c4e39#small_fits=41] frames in [metric:audio_circle/per-frame@4f207c0c4e39#small_runs=9] runs; polar unwraps
 confirm a ring at 69-70 px in four of them outside 903-905 s. The earlier sd
 0.169 sampled one fit per clean onset seeded at 75 px, and those onsets
 missed the small runs. Within a run the radius holds (median change
-[metric:audio_circle/per-frame@4f207c0c4e39#run_abs_last_minus_second_median=0.09] px); at 903.8-905.3 s the size
-alternates between frames. Every small fit lies within 2.5 s of a HUD
+[metric:audio_circle/per-frame@4f207c0c4e39#run_abs_last_minus_second_median=0.09] px); at 903.8-905.3 s, where the
+player was reloading or changing guns, the sizes alternate between frames as
+steps supersede the reload. Every small fit lies within 2.5 s of a HUD
 magazine refill ([metric:audio_circle/per-frame@4f207c0c4e39#small_fits_within_2_5s_of_refill=41]): refills with
 it [metric:audio_circle/per-frame@4f207c0c4e39#refills_with_small=6] of [metric:audio_circle/per-frame@4f207c0c4e39#refills=17], refill-free control
 windows [metric:audio_circle/per-frame@4f207c0c4e39#refill_control_with_small=0] of
-[metric:audio_circle/per-frame@4f207c0c4e39#refill_control_windows=218]. The association was found after looking.
+[metric:audio_circle/per-frame@4f207c0c4e39#refill_control_windows=218]; that association was found after looking,
+before the player's answer. Split by the bank's own footstep detections in
+the same window, refills show the reload circle
+[metric:audio_circle/per-frame@4f207c0c4e39#refills_no_footstep_small=4] of [metric:audio_circle/per-frame@4f207c0c4e39#refills_no_footstep=8] with no
+detected step and [metric:audio_circle/per-frame@4f207c0c4e39#refills_footstep_small=2] of
+[metric:audio_circle/per-frame@4f207c0c4e39#refills_footstep=9] with one: the direction the player's rule
+predicts, on few refills and a bank that misnames many match sounds.
 
 Movement. Own-view frames are drawn [metric:audio_circle/per-frame@4f207c0c4e39#frames_still_share=0.114] of
 [metric:audio_circle/per-frame@4f207c0c4e39#frames_still_n=889] still (under 2 stored px/s),
@@ -66,11 +76,13 @@ Movement. Own-view frames are drawn [metric:audio_circle/per-frame@4f207c0c4e39#
 px/s. Own footsteps fall with it [metric:audio_circle/per-frame@4f207c0c4e39#bank_footstep_moving_drawn=61] of
 [metric:audio_circle/per-frame@4f207c0c4e39#bank_footstep_moving_n=66] moving and
 [metric:audio_circle/per-frame@4f207c0c4e39#bank_footstep_still_drawn=4] of [metric:audio_circle/per-frame@4f207c0c4e39#bank_footstep_still_n=19] still.
-The disagreements with "only while running" are in
-`analysis/audio-circle-running-20260930/disagreements.jsonl`:
-[metric:audio_circle/per-frame@4f207c0c4e39#dis_moving_window_without_circle=29] moving one-second windows draw
-none, and [metric:audio_circle/per-frame@4f207c0c4e39#dis_still_shot_with_new_circle=2] still firing brackets draw
-a new circle. The stored speed cannot tell walking from running.
+Speed predicts the circle only because moving usually steps. The
+disagreements with "only while running" are in
+`analysis/audio-circle-running-20260930/disagreements.jsonl`, and the
+player's answers explain them: [metric:audio_circle/per-frame@4f207c0c4e39#dis_moving_window_without_circle=29]
+moving one-second windows with no circle fit silent stepping, and at
+1934.9-1935.4 s the player stepped throughout the firing while the circle
+lags the sound. None is checked frame by frame.
 
 Results (2026-09-29)
 --------------------
@@ -1288,6 +1300,19 @@ def per_frame(record: bool) -> dict:
     res["refill_control_windows"] = len(ctrl)
     res["refill_control_with_small"] = sum(ctrl)
     res["small_fits_within_2_5s_of_refill"] = sum(near)
+    # the player (2026-09-30): a reload draws the small circle while no footstep sounds,
+    # and a footstep's circle supersedes it. Split refills by an own footstep detection
+    # (the bank's, own view, level-split) in the same window; the bank is unreliable in
+    # match audio, so this is a weak tally.
+    fs_t = np.array([d_["t"] for d_ in dets if d_["cls"] == "footstep"])
+    for r in refills:
+        r["own_footsteps"] = int(((fs_t >= r["t_prev"] - 2.0) & (fs_t <= r["t_new"])).sum())
+    for fk, fsel in (("footstep", lambda r: r["own_footsteps"] > 0), ("no_footstep", lambda r: r["own_footsteps"] == 0)):
+        rr = [r for r in refills if fsel(r)]
+        res[f"refills_{fk}"] = len(rr)
+        res[f"refills_{fk}_small"] = sum(r["small"] > 0 for r in rr)
+        res[f"refills_{fk}_large_only"] = sum(r["small"] == 0 and r["large"] > 0 for r in rr)
+        res[f"refills_{fk}_none"] = sum(r["small"] == 0 and r["large"] == 0 for r in rr)
     res["refill_rows"] = refills
 
     # disagreements with "only from running", stored apart
@@ -1350,11 +1375,13 @@ def record_per_frame(res: dict) -> None:
         v[f"dis_{k}"] = n
     for i, (n, s) in enumerate(zip(res["speed_1px_frames"], res["speed_1px_drawn_share"])):
         v[f"speed_{i:02d}_frames"], v[f"speed_{i:02d}_drawn_share"] = n, s
-    for k in ("small_fits", "large_fits", "small_runs", "small_hidden_hud", "large_hidden_hud",
+    for k in (("small_fits", "large_fits", "small_runs", "small_hidden_hud", "large_hidden_hud",
               "small_speed_median", "large_speed_median", "small_r_median", "large_r_median",
               "small_r_sd", "large_r_sd", "refills", "refills_with_small", "refills_with_large_only",
               "refills_without_circle", "refill_control_windows", "refill_control_with_small",
-              "small_fits_within_2_5s_of_refill"):
+              "small_fits_within_2_5s_of_refill")
+              + tuple(f"refills_{a}{b}" for a in ("footstep", "no_footstep")
+                      for b in ("", "_small", "_large_only", "_none"))):
         if res.get(k) is not None:
             v[k] = res[k]
     metrics.record("audio_circle", part="per-frame", session=ISO, values=v,

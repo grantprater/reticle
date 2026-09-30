@@ -413,8 +413,9 @@ frames. That cost is the explicit term for light no visible icon casts.
 `prototypes/clove_circle.py` measures one light source the render must draw:
 the dead Clove's smoke-range circle [domain:abilities/clove-dead-smoke-range-circle].
 `prototypes/audio_circle.py` measures another: the self audio circle
-[domain:minimap/self-audio-circle], a fixed ring round the player's own icon
-drawn for about half a second per sound.
+[domain:minimap/self-audio-circle], a ring round the player's own icon
+drawn for about half a second per own footstep or reload, at two sizes: the
+footstep's and a smaller reload's, which a step supersedes.
 Sprites and colours are 0.2.0's. Predictions P9-P14 were logged first
 (`notes/predictions.jsonl`, task `scene-light-20260929`).
 
