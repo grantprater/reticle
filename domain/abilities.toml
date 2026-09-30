@@ -314,11 +314,14 @@ see = ["abilities/clove-ruse-batch-launch"]
 [ability-sound-phases]
 claim = """
 Every ability has an equip sound, heard by the local player only, and a cast
-or activation sound. Some also have an ongoing sound while the ability lives
+or activation sound. The equip sound is also heard while spectating the
+player who equips. Some also have an ongoing sound while the ability lives
 or is channelled (Hot Hands on the ground, Blaze, Regrowth looping while
-channelled), and some a deactivate or end sound. An activation can be a
-distinct sound from the cast: Guiding Light's bird vanishes and the flash
-goes off with its own sound.
+channelled), and some a deactivate, end or fade-out sound (a smoke fading
+out). A charge can sound too: Sova's bolts make a charging sound. An
+activation can be a distinct sound from the cast: Guiding Light's bird
+vanishes and the flash goes off with its own sound. The phases an ability
+has, and how each sounds, are per ability.
 """
 kind = "rule"
 known = "player"
@@ -326,14 +329,53 @@ since = "2026-09-06"
 source = """
 the player, 2026-09-06 (equip separate from cast, equip self-only) and
 2026-09-26 (every ability equips and casts, some deactivate, Guiding Light's
-activation; ongoing sounds for Hot Hands, Blaze and channelled Regrowth)
+activation; ongoing sounds for Hot Hands, Blaze and channelled Regrowth);
+restated 2026-09-30 while labelling the second range clip (sound_demo_20260930
+labels / chat): equip, cast, channelled/ongoing and fade-out, the equip heard
+for the self or a spectated player; smoke fade-out sounds and Sova's bolt
+charge sound: the player, before 2026-09-30, restated 2026-09-30
 """
 use = """
 segment an ability's audio by phase before matching: equip, cast, ongoing and
 end templates are different references, and an ongoing sound is a lifetime
-witness the minimap lacks for a self-buff or a channel
+witness the minimap lacks for a self-buff or a channel. Which phases a given
+ability has is recorded per ability [domain:abilities/ability-rules-are-unique]
+(Iso's in abilities/iso-contingency-sound-phases and its siblings). The video
+witness an equip sound needs is the ability submenu above the tray
+[domain:abilities/tray-equip-submenu]; no detector reads it yet, and it is the
+next witness to build for the equip phase
 """
-see = ["abilities/footstep-surface-variants", "abilities/jump-surface-variants"]
+see = ["abilities/footstep-surface-variants", "abilities/jump-surface-variants",
+       "abilities/tray-equip-submenu", "abilities/iso-contingency-sound-phases",
+       "abilities/iso-undercut-sound-phases", "abilities/iso-double-tap-sound-phases",
+       "abilities/iso-kill-contract-sound-phases"]
+
+[tray-equip-submenu]
+claim = """
+When the player pulls out an ability, a submenu of icons appears above the
+ability tray and shows while the ability is held: it indicates that the
+ability is equipped, a cue separate from the tray's cast indicator. Its icons
+name the ability's inputs: Yoru's Gatecrash (E) shows a left-click icon with a
+track for sending it forward and a right-click icon with an arrow to the
+ground for placing it, and hovering over a teleport location adds an F key
+icon with the word FAKE. Other abilities have their own submenus and on-hover
+icons. It is drawn in the self or spectated view only.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-06"
+subject = "abilities:tray"
+source = """
+the player, 2026-09-06 (chat, the ability submenu), restated 2026-09-30 as an
+equip indicator beyond the tray cast; the FAKE word confirmed by rendering
+"""
+use = """
+the video witness of an ability's equip, the phase an equip sound needs
+[domain:abilities/ability-sound-phases]; the submenu's icons may also name the
+ability and its input model. No detector reads it yet: it is the next witness
+to build, not a stored stream
+"""
+see = ["abilities/ability-sound-phases", "abilities/ammo-hidden-while-non-gun-held"]
 
 [ability-voice-line-mask]
 claim = """
@@ -2016,6 +2058,106 @@ source = "player, 2026-09-27 (chat)"
 use = "adjudication.ability_state.charge_facts: max_charges for (iso, E); a level rise on Iso's E within a round is a misread, not a restock; the channel bar is a separate widget from the slot"
 see = ["abilities/recharge-kinds"]
 
+[iso-contingency-sound-phases]
+claim = """
+Iso's Contingency (C) has an equip, a cast and a fade-out sound
+[domain:abilities/ability-sound-phases]; the player named each on three uses.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "iso:contingency"
+source = """
+the player, 2026-09-30 (sound_demo_20260930 labels / chat): the review's
+other_name answers on the second range clip (C:/Users/grant/Videos/2026-09-30
+13-15-03.mp4, session 9eb0960b1eff), parsed by prototypes/sound_labels.py
+"""
+use = """
+three references per phase; the fade-out follows the cast by about 3.5 s on
+the range and may date the wall's end
+"""
+exceptions = """
+only the phases the player named on the candidates the cutter proposed; a phase
+not named is not known absent; one cast (330.2 s) was labelled Contingency
+without a phase
+"""
+see = ["abilities/ability-sound-phases"]
+
+[iso-undercut-sound-phases]
+claim = """
+Iso's Undercut (Q) has an equip and a cast sound
+[domain:abilities/ability-sound-phases]; the player named each on three uses.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "iso:undercut"
+source = """
+the player, 2026-09-30 (sound_demo_20260930 labels / chat): the review's
+other_name answers on the second range clip (C:/Users/grant/Videos/2026-09-30
+13-15-03.mp4, session 9eb0960b1eff), parsed by prototypes/sound_labels.py
+"""
+use = """
+three references per phase
+"""
+exceptions = """
+only the phases the player named on the candidates the cutter proposed; a phase
+not named is not known absent
+"""
+see = ["abilities/ability-sound-phases"]
+
+[iso-double-tap-sound-phases]
+claim = """
+Iso's Double Tap (E) has a cast and a fade-out sound
+[domain:abilities/ability-sound-phases]; the player named two casts and
+three fade-outs. Asked about the channel between them, the player heard no
+ongoing sound.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "iso:double tap"
+source = """
+the player, 2026-09-30 (sound_demo_20260930 labels / chat): the review's
+other_name answers on the second range clip (C:/Users/grant/Videos/2026-09-30
+13-15-03.mp4, session 9eb0960b1eff), parsed by prototypes/sound_labels.py
+"""
+use = """
+the fade-out ends the channel [domain:abilities/iso-double-tap-charges] and
+may date it; no equip reference exists
+"""
+exceptions = """
+only the phases the player named on the candidates the cutter proposed; a phase
+not named is not known absent; whether Double Tap has an equip or a quiet ongoing
+sound is open (the player's answer at 366.2 s is a question)
+"""
+see = ["abilities/ability-sound-phases"]
+
+[iso-kill-contract-sound-phases]
+claim = """
+Iso's Kill Contract (X) has an equip sound in two parts and a cast sound
+[domain:abilities/ability-sound-phases]; the player named both equip parts and
+the cast on three uses.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "iso:kill contract"
+source = """
+the player, 2026-09-30 (sound_demo_20260930 labels / chat): the review's
+other_name answers on the second range clip (C:/Users/grant/Videos/2026-09-30
+13-15-03.mp4, session 9eb0960b1eff), parsed by prototypes/sound_labels.py
+"""
+use = """
+the two equip parts are separate references, the second about 0.9 s after the
+first
+"""
+exceptions = """
+only the phases the player named on the candidates the cutter proposed; a phase
+not named is not known absent
+"""
+see = ["abilities/ability-sound-phases"]
+
 [catalogue-charge-counts-confirmed]
 claim = """
 The charge counts that the wiki harvest of 2026-09-04 (reference/abilities.json)
@@ -2513,6 +2655,29 @@ variant nearest in spectrum
 """
 exceptions = "that jump variants match footstep variants is unverified; the demo review tests it"
 see = ["abilities/footstep-surface-variants"]
+
+[silent-landing]
+claim = """
+A landing can make no sound: the player heard a silent landing after a jump
+on the range.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "movement:audio"
+source = """
+the player, 2026-09-30 (sound_demo_20260930 labels / chat), reviewing the
+second range clip C:/Users/grant/Videos/2026-09-30 13-15-03.mp4 (session
+9eb0960b1eff), the relabels at 273.4 s and 273.8 s
+"""
+use = """
+a jump with no landing sound is consistent with a silent landing, not a miss
+by the sound bank; score landings only where a landing sound was heard
+"""
+exceptions = """
+when a landing is silent (fall height, surface, movement) is not known
+"""
+see = ["abilities/jump-surface-variants", "abilities/silent-stepping"]
 
 [silent-stepping]
 claim = """

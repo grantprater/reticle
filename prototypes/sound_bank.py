@@ -115,6 +115,10 @@ most of its false detections sit within a second of a labelled sound
 Purchase and the buy menu's close, with one reference each, name none of
 their events.
 
+Bank v2 (`sound_bank2.py`, 2026-09-30) rebuilds the references from both range
+clips' labels, read through `sound_labels.py`, and keeps this front end: the
+pre-registered range test preferred it to two tilt-free ones.
+
 This is a prototype; nothing in `reticle/` uses it.
 """
 from __future__ import annotations

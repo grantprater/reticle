@@ -171,6 +171,12 @@ Spectre the player held here, and the Phantom's and Operator's reloads seen
 spectating; Iso's four abilities and every teammate's. The player records
 them on the range; none is cut from this match.
 
+Bank v2 (2026-09-30). The second range clip supplied those references;
+`sound_bank2.py match` points `circle` at its detections (module globals
+`OUT`, `EQUIP`, `SHOT`, `CIRCLE_OUT` swapped for the call, witnesses and
+windows unchanged) and records `circle_values`' flattening under
+`sound_bank2/match`.
+
 This is a prototype; nothing in `reticle/` uses it.
 """
 from __future__ import annotations
@@ -1536,6 +1542,18 @@ def circle_listen(dis: list[dict]) -> None:
 
 def _record_circle(res: dict) -> None:
     from reticle import metrics
+    vals = circle_values(res)
+    metrics.record("sound_match", part="circle", session=SESSION, values=vals,
+                   deps={"version": CIRCLE_VERSION, "bank": sound_bank.VERSION, "theta": sound_bank.THETA,
+                         "circle": res["circle"]["version"], "windows": res["windows"], "own_ild_db": _own_ild(),
+                         "dets": str(OUT / "detections"), "per_frame": res["circle"]["source"]},
+                   context={"hud": "hud-0.16.0 2 Hz", "tray_kit": "tray-kit-0.1.0", "minimap": "minimap-0.7.0",
+                            "gametime": "gametime-0.1.0"})
+    print(f"recorded {len(vals)} values under sound_match/circle@{SESSION}")
+
+
+def circle_values(res: dict) -> dict:
+    """The circle stage's result flattened to metric values (`sound_bank2.py` reuses it)."""
     vals = {}
     for k in ("footstep", "footstep_ild1", "move_sounds"):
         for f, v in res["footsteps"][k].items():
@@ -1568,13 +1586,7 @@ def _record_circle(res: dict) -> None:
                   "single_band_lag_s"):
             vals[f"triggered_{k}_{f}"] = v[f]
     vals["spectating_drawn_share"] = res["circle"]["spectating_drawn_share"]
-    metrics.record("sound_match", part="circle", session=SESSION, values=vals,
-                   deps={"version": CIRCLE_VERSION, "bank": sound_bank.VERSION, "theta": sound_bank.THETA,
-                         "circle": res["circle"]["version"], "windows": res["windows"], "own_ild_db": _own_ild(),
-                         "dets": str(OUT / "detections"), "per_frame": res["circle"]["source"]},
-                   context={"hud": "hud-0.16.0 2 Hz", "tray_kit": "tray-kit-0.1.0", "minimap": "minimap-0.7.0",
-                            "gametime": "gametime-0.1.0"})
-    print(f"recorded {len(vals)} values under sound_match/circle@{SESSION}")
+    return vals
 
 
 # ---------------------------------------------------------------------------

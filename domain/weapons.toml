@@ -34,3 +34,68 @@ run speed, equip speed, reload speed and fire rate.
 kind = "rule"
 known = "player"
 since = "2026-09-24"
+
+[sheriff-shot-lingering-fade]
+claim = """
+A Sheriff shot has a fading tail that lingers well after the shot.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "weapons:sheriff:audio"
+source = """
+the player, 2026-09-30 (sound_demo_20260930 labels / chat), reviewing the
+second range clip C:/Users/grant/Videos/2026-09-30 13-15-03.mp4 (session
+9eb0960b1eff), the note on the 56.8 s shot
+"""
+use = """
+a Sheriff shot reference spans its tail (0.84 s on the range); a sound heard
+in the tail is not a second shot, and the tail can mask a quiet sound after it
+"""
+see = ["weapons/per-weapon-properties", "abilities/ability-sound-phases"]
+
+[sheriff-reload-two-part]
+claim = """
+The Sheriff's reload is a two-part sound: loading the rounds, then the
+cylinder clicking back into the gun.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "weapons:sheriff:audio"
+source = """
+the player, 2026-09-30 (sound_demo_20260930 labels / chat), reviewing the
+second range clip C:/Users/grant/Videos/2026-09-30 13-15-03.mp4 (session
+9eb0960b1eff), the note on the 63.1 s partial reload
+"""
+use = """
+a Sheriff reload is two references or one long one; a detection of one part
+alone is a reload, not two events
+"""
+see = ["weapons/per-weapon-properties"]
+
+[drop-with-equip-sound]
+claim = """
+Dropping a gun comes with the equip sound of the item the player holds next:
+on the range the knife's equip and the Classic's drop sounded together. The
+player believes a drop always carries an equip sound.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "weapons:audio"
+source = """
+the player, 2026-09-30 (sound_demo_20260930 labels / chat), reviewing the
+second range clip C:/Users/grant/Videos/2026-09-30 13-15-03.mp4 (session
+9eb0960b1eff), the relabel at 240.97 s
+"""
+use = """
+an equip detection near a drop is the drop's own equip, not a separate
+choice to switch; a drop reference cut alone holds an equip, so drop and
+equip templates overlap by construction
+"""
+exceptions = """
+that every drop carries an equip sound is the player's belief; one drop was
+labelled; the player did not know how to separate the two sounds
+"""
+see = ["weapons/per-weapon-properties", "capture/weapon-skins-picked-up"]
