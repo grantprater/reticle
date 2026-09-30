@@ -737,23 +737,7 @@ def bank(record: bool) -> dict:
     conf1 = Counter((r["true"], r["named"]) for r in onset)
 
     # Reading 2: detection over the whole clip.
-    cand = []
-    for c in classes:
-        s = S[c]
-        n = clen[c]
-        pk = np.where((s[1:-1] >= THETA) & (s[1:-1] >= s[:-2]) & (s[1:-1] > s[2:]))[0] + 1
-        for f in sorted(pk, key=lambda f: -s[f]):
-            cand.append((float(s[f]), f, c))
-    cand.sort(key=lambda d: -d[0])
-    taken = np.zeros(nf, bool)
-    dets = []
-    for sc, f, c in cand:
-        if taken[f]:
-            continue
-        dets.append({"t": (f * HOP) + LEAD_S, "cls": c, "score": sc})
-        a = max(0, f - int(TOL_S / HOP))
-        taken[a:f + max(int(0.15 / HOP), int(0.8 * clen[c]))] = True
-    dets.sort(key=lambda d: d["t"])
+    dets = detect(S, clen)
     per, conf2 = match(dets, ev, classes, conf1, TOL_S)
     per_wide, conf2_wide = match([dict(d) for d in dets], ev, classes, conf1, TOL_WIDE_S)
     _print_bank(classes, per, conf1, conf2, onset)
@@ -803,6 +787,29 @@ def bank(record: bool) -> dict:
                        deps=_deps({"theta": THETA, "tol_s": TOL_S, "tol_wide_s": TOL_WIDE_S, "near_s": NEAR_S, "ctx_s": CTX_S, "lead_s": LEAD_S,
                                    "onset_slack_s": ONSET_SLACK_S, "sd_min": SD_MIN}))
     return res
+
+
+def detect(S: dict[str, np.ndarray], clen: dict[str, int], theta: float = THETA) -> list[dict]:
+    """Class peaks of the per-class score curves S over `theta`, kept greedily
+    by score, each claiming its span; t is the onset, frame * HOP + LEAD_S.
+    `sound_match.py` runs the same reading on a match."""
+    cand = []
+    nf = len(next(iter(S.values())))
+    for c, s in S.items():
+        pk = np.where((s[1:-1] >= theta) & (s[1:-1] >= s[:-2]) & (s[1:-1] > s[2:]))[0] + 1
+        for f in sorted(pk, key=lambda f: -s[f]):
+            cand.append((float(s[f]), f, c))
+    cand.sort(key=lambda d: -d[0])
+    taken = np.zeros(nf, bool)
+    dets = []
+    for sc, f, c in cand:
+        if taken[f]:
+            continue
+        dets.append({"t": (f * HOP) + LEAD_S, "cls": c, "score": sc})
+        a = max(0, f - int(TOL_S / HOP))
+        taken[a:f + max(int(0.15 / HOP), int(0.8 * clen[c]))] = True
+    dets.sort(key=lambda d: d["t"])
+    return dets
 
 
 def match(dets: list[dict], ev: list[dict], classes, conf1, tol: float):
