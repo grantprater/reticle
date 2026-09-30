@@ -642,6 +642,104 @@ Trademark at e37fdeca944f 1795.08 s? What is the faint ring round the
 widget centre in every frame? And the audio disc should be rendered as a
 white tint over either floor state, not freed: what is its opacity?
 
+### Stage 2, 0.5.0: the sources as tints
+
+`scene-stack-0.5.0` renders each drawn source as a measured tint,
+`(1 - a) bg + a W`, over either floor state, so the cones keep predicting
+the state inside it. Predictions P20-P24 were logged first (task
+`scene-tint-20260930`). The player answered two questions of 0.4.0: the
+audio circle follows the self icon, and its drawn size follows the map
+scaling setting, not the widget size [domain:minimap/self-audio-circle]
+[domain:capture/minimap-size-settings]; the faint ring round the widget is
+its boundary [domain:minimap/widget-ring]. The player intends the largest
+widget size and map scaling from 2026-09-30, believing the whole map then
+shows [domain:capture/largest-scaling-shows-whole-map-belief].
+
+**The 96.8 px circle at e37fdeca944f 1795.08 s is the dead Clove's.** At
+native size the frame shows two circles: the audio circle (75.5 px, centred
+1.9 px from the stored self) and a 96.8 px one centred 0.6 px from the last
+position of stored ally track 612, which ends at the ally Clove's death at
+1781.0 s in the stored death data. 0.4.0 fitted the larger one round the
+self and called it audio. 0.5.0 seeks the Clove circle round the death point
+(the stored death data hold no place, so the point is the end of the ally
+track that ends then). On e37fdeca944f it finds the circle after
+[metric:scene_stack_tint_cal_v5/clove-runs@e37fdeca944f#deaths_with_circle=7] of
+[metric:scene_stack_tint_cal_v5/clove-runs@e37fdeca944f#deaths_with_point=19] ally Clove deaths with a
+point, radius [metric:scene_stack_tint_cal_v5/clove-runs@e37fdeca944f#r_median=96.85] px, centred
+[metric:scene_stack_tint_cal_v5/clove-runs@e37fdeca944f#off_death_median=1.67] px from it. One of those
+runs (2 frames, 85.9 px, after 913.5 s) is doubtful. A Clove fit near a
+death point the self stands on first found the self audio circle; radii
+at the session's audio sizes now leave the Clove search, and a fit that
+lands there is refused. Of the six labelled dead-Clove items, only 1795.08 s
+draws the circle ([metric:scene_stack_eval_v5/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_items_with_clove=1] item).
+
+**The audio fit is audio_circle's.** `audio_circle.frame_fit` replaces
+0.4.0's wrapper. On the probe set both observe the same circle on
+[metric:scene_stack_fit_agree_v5/all@223d636bf8d2+4f207c0c4e39+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f#both_same=204] of [metric:scene_stack_fit_agree_v5/all@223d636bf8d2+4f207c0c4e39+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f#both=205] frames where both
+observe one; the one disagreement is 1795.08 s. A fit counts only centred
+within 7 px (scale 1.0; 5.0 px at 331) of the stored self, the p99 of 200
+Iso fits' offsets, and at the session's footstep size or its reload size
+within 2 px. The six 0.4.0 audio items centred 12-31 px off the self fail
+the centre test; audio is drawn on
+[metric:scene_stack_eval_v5/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_items_with_audio=23] labelled items.
+
+**The audio circle is a rim, not a disc.** On unlabelled on/off pairs the
+interior (over 12 px inside the radius) takes alpha
+[metric:scene_stack_tint_cal_v5/audio-scale-0.712@223d636bf8d2+4f207c0c4e39+bfad2778a372+c40d950031bb+e37fdeca944f#alpha_interior_unlit=0.0] at 331 px and
+[metric:scene_stack_tint_cal_v5/audio-scale-1.000@5822b6646448+a06f04a0059f#alpha_interior_unlit=0.0] at 465 px; alpha rises to
+about 0.15 within 2 px inside the radius and is gone 1 px outside. Over the
+rim band, unlit floor takes [metric:scene_stack_tint_cal_v5/audio-scale-0.712@223d636bf8d2+4f207c0c4e39+bfad2778a372+c40d950031bb+e37fdeca944f#alpha_rim_unlit=0.137] and lit
+floor [metric:scene_stack_tint_cal_v5/audio-scale-0.712@223d636bf8d2+4f207c0c4e39+bfad2778a372+c40d950031bb+e37fdeca944f#alpha_rim_lit=0.114] at 331 px, from
+[metric:scene_stack_tint_cal_v5/audio-scale-0.712@223d636bf8d2+4f207c0c4e39+bfad2778a372+c40d950031bb+e37fdeca944f#pairs=101] pairs; the colour is near white. The Clove
+circle is a disc: interior alpha [metric:scene_stack_tint_cal_v5/clove-scale-0.712@e37fdeca944f#alpha_interior_unlit=0.1612], rim
+[metric:scene_stack_tint_cal_v5/clove-scale-0.712@e37fdeca944f#alpha_rim_unlit=0.5071], a pink tint
+(BGR [metric:scene_stack_tint_cal_v5/clove-scale-0.712@e37fdeca944f#W_b=207.4],
+[metric:scene_stack_tint_cal_v5/clove-scale-0.712@e37fdeca944f#W_g=172.0],
+[metric:scene_stack_tint_cal_v5/clove-scale-0.712@e37fdeca944f#W_r=180.6]). The light costs return to
+0.3.0's: `q_u` [metric:scene_stack_light_cal_v5/scale-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#q_u=0.196] at 331 px and
+[metric:scene_stack_light_cal_v5/scale-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#q_u=0.1339] at 465 px.
+
+**The fit on every set**, on the same identical items as 0.4.0:
+
+| Set | Identical items | Teardrop flips | 0.4.0 joint flips | 0.5.0 joint flips | 0.4.0 isolated broken | 0.5.0 isolated broken | Items with a drawn source | Unexplained light, pooled share: 0.4.0 | 0.5.0 |
+|---|---|---|---|---|---|---|---|---|---|
+| 465 px ally (E6) | [metric:scene_stack_eval_v5/465-ally@5822b6646448+a06f04a0059f#all_both_n=23] | [metric:scene_stack_eval_v5/465-ally@5822b6646448+a06f04a0059f#all_both_teardrop_flips=0] | [metric:scene_stack_eval_v4/465-ally@5822b6646448+a06f04a0059f#all_both_joint_flips=1] | [metric:scene_stack_eval_v5/465-ally@5822b6646448+a06f04a0059f#all_both_joint_flips=2] | [metric:scene_stack_eval_v4/465-ally@5822b6646448+a06f04a0059f#isolated_joint_broken=0] | [metric:scene_stack_eval_v5/465-ally@5822b6646448+a06f04a0059f#isolated_joint_broken=1] | [metric:scene_stack_eval_v5/465-ally@5822b6646448+a06f04a0059f#all_items_with_source=2] | [metric:scene_stack_eval_v4/465-ally@5822b6646448+a06f04a0059f#all_light_unexplained_share_pooled=0.0646] | [metric:scene_stack_eval_v5/465-ally@5822b6646448+a06f04a0059f#all_light_unexplained_share_pooled=0.0921] |
+| 465 px enemy (E6) | [metric:scene_stack_eval_v5/465-enemy@5822b6646448+a06f04a0059f#all_both_n=17] | [metric:scene_stack_eval_v5/465-enemy@5822b6646448+a06f04a0059f#all_both_teardrop_flips=0] | [metric:scene_stack_eval_v4/465-enemy@5822b6646448+a06f04a0059f#all_both_joint_flips=5] | [metric:scene_stack_eval_v5/465-enemy@5822b6646448+a06f04a0059f#all_both_joint_flips=4] | [metric:scene_stack_eval_v4/465-enemy@5822b6646448+a06f04a0059f#isolated_joint_broken=1] | [metric:scene_stack_eval_v5/465-enemy@5822b6646448+a06f04a0059f#isolated_joint_broken=1] | [metric:scene_stack_eval_v5/465-enemy@5822b6646448+a06f04a0059f#all_items_with_source=4] | [metric:scene_stack_eval_v4/465-enemy@5822b6646448+a06f04a0059f#all_light_unexplained_share_pooled=0.1148] | [metric:scene_stack_eval_v5/465-enemy@5822b6646448+a06f04a0059f#all_light_unexplained_share_pooled=0.1525] |
+| Self, Ascent controls | [metric:scene_stack_eval_v5/self-control@e78e75b2d191#all_both_n=7] | [metric:scene_stack_eval_v5/self-control@e78e75b2d191#all_both_teardrop_flips=0] | [metric:scene_stack_eval_v4/self-control@e78e75b2d191#all_both_joint_flips=0] | [metric:scene_stack_eval_v5/self-control@e78e75b2d191#all_both_joint_flips=0] | [metric:scene_stack_eval_v4/self-control@e78e75b2d191#isolated_joint_broken=0] | [metric:scene_stack_eval_v5/self-control@e78e75b2d191#isolated_joint_broken=0] | [metric:scene_stack_eval_v5/self-control@e78e75b2d191#all_items_with_source=0] | [metric:scene_stack_eval_v4/self-control@e78e75b2d191#all_light_unexplained_share_pooled=0.06] | [metric:scene_stack_eval_v5/self-control@e78e75b2d191#all_light_unexplained_share_pooled=0.0602] |
+| Self, Lotus | [metric:scene_stack_eval_v5/self-lotus@5822b6646448#all_both_n=28] | [metric:scene_stack_eval_v5/self-lotus@5822b6646448#all_both_teardrop_flips=2] | [metric:scene_stack_eval_v4/self-lotus@5822b6646448#all_both_joint_flips=0] | [metric:scene_stack_eval_v5/self-lotus@5822b6646448#all_both_joint_flips=3] | [metric:scene_stack_eval_v4/self-lotus@5822b6646448#isolated_joint_broken=0] | [metric:scene_stack_eval_v5/self-lotus@5822b6646448#isolated_joint_broken=0] | [metric:scene_stack_eval_v5/self-lotus@5822b6646448#all_items_with_source=5] | [metric:scene_stack_eval_v4/self-lotus@5822b6646448#all_light_unexplained_share_pooled=0.0739] | [metric:scene_stack_eval_v5/self-lotus@5822b6646448#all_light_unexplained_share_pooled=0.0976] |
+| 331 px ally | [metric:scene_stack_eval_v5/331-ally@223d636bf8d2+c40d950031bb#all_both_n=38] | [metric:scene_stack_eval_v5/331-ally@223d636bf8d2+c40d950031bb#all_both_teardrop_flips=3] | [metric:scene_stack_eval_v4/331-ally@223d636bf8d2+c40d950031bb#all_both_joint_flips=9] | [metric:scene_stack_eval_v5/331-ally@223d636bf8d2+c40d950031bb#all_both_joint_flips=10] | [metric:scene_stack_eval_v4/331-ally@223d636bf8d2+c40d950031bb#isolated_joint_broken=4] | [metric:scene_stack_eval_v5/331-ally@223d636bf8d2+c40d950031bb#isolated_joint_broken=5] | [metric:scene_stack_eval_v5/331-ally@223d636bf8d2+c40d950031bb#all_items_with_source=3] | [metric:scene_stack_eval_v4/331-ally@223d636bf8d2+c40d950031bb#all_light_unexplained_share_pooled=0.1244] | [metric:scene_stack_eval_v5/331-ally@223d636bf8d2+c40d950031bb#all_light_unexplained_share_pooled=0.1346] |
+| 331 px self | [metric:scene_stack_eval_v5/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_both_n=37] | [metric:scene_stack_eval_v5/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_both_teardrop_flips=6] | [metric:scene_stack_eval_v4/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_both_joint_flips=3] | [metric:scene_stack_eval_v5/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_both_joint_flips=3] | [metric:scene_stack_eval_v4/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#isolated_joint_broken=1] | [metric:scene_stack_eval_v5/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#isolated_joint_broken=1] | [metric:scene_stack_eval_v5/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_items_with_source=5] | [metric:scene_stack_eval_v4/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_light_unexplained_share_pooled=0.0768] | [metric:scene_stack_eval_v5/331-self@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#all_light_unexplained_share_pooled=0.0975] |
+| 331 px enemy | [metric:scene_stack_eval_v5/331-enemy@223d636bf8d2+c40d950031bb#all_both_n=15] | [metric:scene_stack_eval_v5/331-enemy@223d636bf8d2+c40d950031bb#all_both_teardrop_flips=2] | [metric:scene_stack_eval_v4/331-enemy@223d636bf8d2+c40d950031bb#all_both_joint_flips=5] | [metric:scene_stack_eval_v5/331-enemy@223d636bf8d2+c40d950031bb#all_both_joint_flips=5] | [metric:scene_stack_eval_v4/331-enemy@223d636bf8d2+c40d950031bb#isolated_joint_broken=2] | [metric:scene_stack_eval_v5/331-enemy@223d636bf8d2+c40d950031bb#isolated_joint_broken=2] | [metric:scene_stack_eval_v5/331-enemy@223d636bf8d2+c40d950031bb#all_items_with_source=4] | [metric:scene_stack_eval_v4/331-enemy@223d636bf8d2+c40d950031bb#all_light_unexplained_share_pooled=0.122] | [metric:scene_stack_eval_v5/331-enemy@223d636bf8d2+c40d950031bb#all_light_unexplained_share_pooled=0.1567] |
+| Pooled | [metric:scene_stack_eval_v5/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_both_n=165] | [metric:scene_stack_eval_v5/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_both_teardrop_flips=13] | [metric:scene_stack_eval_v4/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_both_joint_flips=23] | [metric:scene_stack_eval_v5/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_both_joint_flips=27] | [metric:scene_stack_eval_v4/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_joint_broken=8] | [metric:scene_stack_eval_v5/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#isolated_joint_broken=10] | [metric:scene_stack_eval_v5/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_items_with_source=23] | [metric:scene_stack_eval_v4/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_light_unexplained_share_pooled=0.0905] | [metric:scene_stack_eval_v5/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_light_unexplained_share_pooled=0.1143] |
+
+**The tint explains almost none of the light, so 0.5.0 is 0.3.0 again.**
+The scene window lies inside the audio circle, where alpha is zero, so the
+floor there is compared as if nothing were drawn. Every set's joint flips
+equal 0.3.0's, and the pooled unexplained share
+([metric:scene_stack_eval_v5/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_light_unexplained_share_pooled=0.1143]) is 0.3.0's, with the circles' floor
+back in the denominator. 0.4.0's gain came from taking that floor out of the
+comparison. Pooled joint flips are
+[metric:scene_stack_eval_v5/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_both_joint_flips=27] against the teardrop's
+[metric:scene_stack_eval_v5/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#all_both_teardrop_flips=13]. P20-P22 and P24 held; P23 failed.
+Not wired.
+
+**Isolated items the joint fit breaks** (0.5.0): 0.4.0's eight
+(a06f04a0059f 33.07 s; c40d950031bb 366.15 s and 577.38 s, 223d636bf8d2
+1351.88 s and 1935.83 s; bfad2778a372 2319.97 s; c40d950031bb 562.38 s,
+223d636bf8d2 318.90 s) and 0.3.0's two more, 465 px ally a06f04a0059f
+2307.23 s and 331 px ally c40d950031bb 190.17 s.
+
+The sheet `analysis/scene-tint-20260930/sheet_tint_331_*.png` in the store
+shows the 331 px items where either version drew a source or an ally Clove
+lay dead: circles in the widget view, tinted floor green.
+
+**Open questions for the player.** Is the Clove circle a filled pink disc
+with a brighter rim, as measured? How large is each ability's area, how
+long does it last, what tint and shape does it have (the Sonic Sensor at
+5822b6646448 1695.75 s shows a pale box)? Where is the Trademark at
+e37fdeca944f 1795.08 s? What lights the floor no cone and no circle
+explains?
+
 ## What this plan does not settle
 
 - The draw order between icons is fitted, not known; stage 1 does not
@@ -654,10 +752,10 @@ white tint over either floor state, not freed: what is its opacity?
   the labelled scores were seen, so it is post hoc.
 - The 331 px background: 0.4.0 measured the floor colour right where the
   state is right; the lit state is predicted wrong more often at 331 px.
-- The audio disc is freed, not rendered: a white tint of unknown opacity
-  over either floor state would keep the cones' evidence inside it.
-- No Clove circle or ability area appears on a labelled item, so neither is
-  scored.
+- The audio circle is rendered as its measured rim tint; its interior is
+  untinted floor, so it explains no light there.
+- One labelled item shows a Clove circle and none an ability area, so
+  neither is scored on its own.
 - Redundant light: a cone a neighbour's cone already covers, or one cast
   into a wall, is weak evidence, and 0.3.0 lets a stacked icon point it
   there. The cost of unexplained light is one rate per widget, not per

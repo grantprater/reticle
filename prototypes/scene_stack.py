@@ -5,6 +5,36 @@ r"""Touching minimap icons fitted jointly: render every icon of a stack, composi
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --check [--record] [--sheet] [--recalibrate]
     .\.venv\Scripts\python.exe prototypes\scene_stack.py [--record] [--sheet] [--parts 465-ally,...] [--space keys]
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --no-sources [--record]    # the 0.3.0 control
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --disc              # the 0.4.0 control, unrecorded
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --tint-cal [--record]
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --fit-agree [--record]
+
+**0.5.0 renders the sources as tints (`SOURCE_STATE = "tint"`).** 0.4.0 freed
+the floor inside each drawn disc, which removed that floor from the
+comparison instead of explaining it. Here a drawn source's pixels are
+predicted `(1 - a) bg + a W` over either floor state (`tint_maps`), with the
+radial opacity profile `a(dr)` and the tint colour `W` measured by
+`--tint-cal` on unlabelled frames where the circle turns on or off in place
+(the off frame shows the floor under it). The cones still predict the floor's
+state inside the circle. The fits change too:
+
+- the self audio circle is audio_circle's per-frame fit (`frame_fit`,
+  `audio_fit`), not 0.4.0's thin wrapper `_ring_fit` (`--fit-agree` compares
+  them on a probe set), and it counts only centred within
+  `AUDIO_CENTRE_TOL_PX` of the stored self, since the circle follows the self
+  icon [domain:minimap/self-audio-circle], and at the session's footstep or
+  reload size (`session_sizes`, measured by `--tint-cal`, because the drawn
+  size follows the map scaling [domain:capture/minimap-size-settings]);
+- a dead ally Clove's circle is sought round the death point
+  (`clove_death_points`: the stored death data gives the time, the stored ally
+  track ending then gives the place), not over the whole widget; the free
+  search stays as the flagged surprise path when no track ends there.
+
+`--record` writes `scene_stack_eval_v5`, `--tint-cal` `scene_stack_tint_cal_v5`,
+`--fit-agree` `scene_stack_fit_agree_v5`, `--light-cal` `scene_stack_light_cal_v5`;
+outputs go to the store's `analysis/scene-tint-20260930/`, with
+`sheet_tint_331_*.png` the 331 px items with a source, a dead ally Clove or
+e37fdeca944f 1795.08 s. `_idle` now sets and checks Below Normal priority.
 
 **0.4.0 draws the non-cone light sources (`find_sources`).** Each is a
 circle fitted on the frame's own static-subtracted grey (audio_circle's
@@ -159,7 +189,7 @@ from __future__ import annotations
 import os
 
 for _k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
-    os.environ[_k] = "1"
+    os.environ[_k] = "4"          # at most four threads (the machine's rule while no user job runs)
 
 import argparse  # noqa: E402
 import itertools  # noqa: E402
@@ -193,20 +223,25 @@ from reticle import lighting  # noqa: E402
 from reticle import teardrop as td  # noqa: E402
 from reticle.minimap import widget_scale  # noqa: E402
 
-VERSION = "scene-stack-0.4.0"
-OUT = sem.STORE / "analysis" / "scene-sources-20260930"
-#: 0.2.0's colour calibration: 0.3.0 and 0.4.0 change only the floor's light, so their sprites are 0.2.0's.
+VERSION = "scene-stack-0.5.0"
+OUT = sem.STORE / "analysis" / "scene-tint-20260930"
+#: 0.4.0's outputs, read by `--disc` (the 0.4.0 control) and by the 0.5.0 sheet's pick rule.
+OUT_V4 = sem.STORE / "analysis" / "scene-sources-20260930"
+#: 0.2.0's colour calibration: 0.3.0 to 0.5.0 change only the floor's light, so their sprites are 0.2.0's.
 CAL_PATH = sem.STORE / "analysis" / "scene-stack-v2-20260929" / "calibration.json"
-#: 0.4.0's light costs, measured with the sources drawn; `--no-sources` (the 0.3.0 control) reads 0.3.0's.
+#: 0.5.0's light costs, measured with the tinted sources; `--disc` reads 0.4.0's, `--no-sources` 0.3.0's.
 LIGHT_CAL_PATH = OUT / "light_calibration.json"
+LIGHT_CAL_PATH_V4 = OUT_V4 / "light_calibration.json"
 LIGHT_CAL_PATH_V3 = sem.STORE / "analysis" / "scene-light-20260929" / "light_calibration.json"
 #: "rgb" (the default) predicts the crop's RGB; "keys" is 0.1.0's class-key renderer, kept as the control.
 SPACE = "rgb"
 #: Each version records its own series so no earlier run's cited values move. The 0.3.0 control rerun
 #: on every set (`--no-sources`) records `scene_stack_eval_v3_allsets`, never `scene_stack_eval_v3`.
-SERIES = "scene_stack_eval_v4"
-CHECK_SERIES = "scene_stack_check_v4"
-LIGHT_CAL_SERIES = "scene_stack_light_cal_v4"
+SERIES = "scene_stack_eval_v5"
+CHECK_SERIES = "scene_stack_check_v5"
+LIGHT_CAL_SERIES = "scene_stack_light_cal_v5"
+TINT_CAL_SERIES = "scene_stack_tint_cal_v5"
+FIT_AGREE_SERIES = "scene_stack_fit_agree_v5"
 
 # ---- constants, set before any label was scored (logged with the predictions)
 GRID_DEG = 5.0
@@ -662,8 +697,9 @@ SOURCES = ("audio", "clove", "ability")
 #: check on unlabelled frames (`--light-cal`, before any labelled score): known floor inside the drawn
 #: discs read nearer the lit state on only 0.46 (331 px) and 0.43 (465 px), and the calibrated
 #: missing-light rate rose from 0.19 to 0.25 and from 0.08 to 0.24. The audio disc tints the floor white
-#: over either state; it is not the lit state.
-SOURCE_STATE = "free"
+#: over either state; it is not the lit state. 0.5.0 renders that tint ("tint", the measured profile of
+#: `--tint-cal`, `tint_maps`); `--disc` sets "free" again, the 0.4.0 control.
+SOURCE_STATE = "tint"
 #: A frame's circle counts as observed when its ring score (grey levels, inside minus outside) reaches
 #: audio_circle's upper hysteresis cut, one frame alone (no hysteresis across frames here) ...
 SRC_T = ac.T_HI
@@ -831,8 +867,9 @@ def _free_circle(d: np.ndarray, radii: np.ndarray, avoid: dict | None):
     return cc.free_search(d.astype(np.float32), radii=radii, step=4.0)
 
 
-def find_sources(sid: str, t_ms: float, crop: np.ndarray, sc: float) -> dict:
-    """The non-cone light sources this frame shows, `{"drawn": [circle], "notes": {kind: reason}}`.
+def find_sources_v4(sid: str, t_ms: float, crop: np.ndarray, sc: float, kinds=None) -> dict:
+    """0.4.0's non-cone light sources on this frame, `{"drawn": [circle], "notes": {kind: reason}}`, over
+    `kinds` (default SOURCES); 0.5.0 keeps its ability search and replaces the audio and Clove fits.
 
     Each drawn circle is `{"kind", "cx", "cy", "r", "score", "rms", "inliers", ...}`, fitted on this
     frame's static-subtracted grey (audio_circle's `Session.diff`, the baked static as background):
@@ -842,18 +879,19 @@ def find_sources(sid: str, t_ms: float, crop: np.ndarray, sc: float) -> dict:
     - ability: round a labelled Trademark, Chokehold or Sonic Sensor icon within ABILITY_WINDOW_MS.
     """
     out = {"drawn": [], "notes": {}}
-    if not SOURCES:
+    kinds = SOURCES if kinds is None else kinds
+    if not kinds:
         return out
     S, why = _ac_session(sid)
     if S is None:
-        out["notes"] = {k: why for k in SOURCES}
+        out["notes"] = {k: why for k in kinds}
         return out
     if S.static.shape[:2] != crop.shape[:2]:
-        out["notes"] = {k: f"crop {crop.shape[:2]} is not the baked frame {S.static.shape[:2]}" for k in SOURCES}
+        out["notes"] = {k: f"crop {crop.shape[:2]} is not the baked frame {S.static.shape[:2]}" for k in kinds}
         return out
     d = S.diff(crop)
     audio = None
-    if "audio" in SOURCES:
+    if "audio" in kinds:
         me, _drawn = S.self_at(t_ms)
         if me is None:
             out["notes"]["audio"] = "no stored self position within +-200 ms"
@@ -871,7 +909,7 @@ def find_sources(sid: str, t_ms: float, crop: np.ndarray, sc: float) -> dict:
                                                                "centre_off", "white", "bgr_step")},
                          "self_x": me[0], "self_y": me[1]}
                 out["drawn"].append(audio)
-    if "clove" in SOURCES:
+    if "clove" in kinds:
         td_ = _clove_dead_at(sid, t_ms)
         if td_ is None:
             out["notes"]["clove"] = "no ally Clove dead in this round (stored death data)"
@@ -891,7 +929,7 @@ def find_sources(sid: str, t_ms: float, crop: np.ndarray, sc: float) -> dict:
                     out["notes"]["clove"] = (f"ally Clove dead since {td_ / 1000:.1f} s; best circle's fit fails "
                                              f"(score {score:.1f} ring {ring:.1f} rms {f['rms']:.2f} "
                                              f"inliers {f['inliers']:.2f}{' same as audio' if same else ''})")
-    if "ability" in SOURCES:
+    if "ability" in kinds:
         near = [a for a in _ability_obs(sid) if abs(a["t_ms"] - t_ms) <= ABILITY_WINDOW_MS]
         if not near:
             out["notes"]["ability"] = "no labelled Trademark, Chokehold or Sonic Sensor within 1 s"
@@ -919,6 +957,334 @@ def source_mask(src: dict, shape) -> np.ndarray:
     return m
 
 
+# ---------------------------------------------------------------- 0.5.0: the sources as rendered tints
+
+#: 0.5.0 renders each drawn source as a measured tint over either floor state (`SOURCE_STATE = "tint"`):
+#: the predicted background is `(1 - a) bg + a W`, `a` the source's radial opacity profile and `W` its
+#: tint colour, both measured by `--tint-cal` on unlabelled frames where the circle turns on or off in
+#: place, so the off frame shows the floor under it in whatever state it is. The cones still predict the
+#: floor's state inside the circle, so the floor there stays evidence. `--disc` reruns 0.4.0 (the disc
+#: freed, `find_sources_v4`) as the control.
+TINT_CAL_NAME = "tint_calibration.json"
+#: Scale 1.0: an audio fit counts only when its centre lies this near the stored self position, because
+#: the circle follows the self icon (the player, 2026-09-30) [domain:minimap/self-audio-circle]. Set from
+#: unlabelled fits before any labelled item was refitted: `audio_circle.frame_fit` on 200 drawn own-view
+#: frames of 4f207c0c4e39 put the centre a median 1.6 px from the stored self, the 95th percentile 3.1 px
+#: and the 99th 6.6 px (the stored track jumps); 7 px at scale 1.0 is 5.0 px on a 331 px widget, which
+#: keeps about 98 in 100 true fits and rejects a circle centred 17 px away.
+AUDIO_CENTRE_TOL_PX = 7.0
+#: Scale 1.0: a fit's radius must be the session's footstep size (the mode of its unlabelled fits,
+#: `--tint-cal`) or its reload size (that times audio_circle's measured reload/footstep ratio) within this.
+#: The ranges are in-game distances and the drawn size follows the map scaling
+#: [domain:capture/minimap-size-settings], so each session measures its own size; the ratio is one
+#: capture's, carried to the others as a belief the per-session reload fits test.
+AUDIO_SIZE_TOL_PX = 2.0
+#: A dead Clove's circle is centred on the death location [domain:abilities/clove-dead-smoke-range-circle].
+#: The stored death data (death_identity) holds the time and the victim, not the place, so the death point
+#: is the last position of the stored ally track (events/team_vision) that ends within this window of the
+#: stored death time, unless another ally track starts within CLOVE_GAP_MS and CLOVE_SAME_TRACK_PX of that
+#: end (the tracker split one living icon).
+CLOVE_TRACK_WINDOW_MS = (-1500.0, 500.0)
+CLOVE_GAP_MS = 1000.0
+CLOVE_SAME_TRACK_PX = 12.0     # scale 1.0
+#: Scale 1.0: the circle's fitted centre lies this near a death point. The one measured cast put it 0.56 px
+#: from the death X [domain:abilities/clove-dead-smoke-range-circle]; the slack is the stored track's.
+CLOVE_REACH_PX = 8.0
+#: The tint profile's bins over dr, a pixel's distance from the circle's centre minus its radius, in
+#: widget px: one interior bin (dr < -12), 1 px bins to +3, one exterior bin [3, 6); zero beyond 6.
+TINT_EDGES = np.arange(-12.0, 4.0, 1.0)
+TINT_OUTER = 6.0
+#: The bins whose pixels measure the tint colour W (the brightest part of the rim).
+TINT_W_BINS = (-3.0, 0.0)
+#: A pixel this near the self icon's centre (scale 1.0) is the icon, not floor, in a tint pair.
+TINT_ICON_PX = 14.0
+#: `--tint-cal`: per labelled session and the Iso capture, this many windows of unlabelled frames,
+#: each TINT_WINDOW_S long and at least CAL_AWAY_MS from any labelled instant, are scanned for the
+#: audio circle turning on or off; the frames of a pair are two cache frames apart (the circle appears
+#: within one frame and fades through one [audio_circle, 2026-09-29]).
+TINT_WINDOWS = 40
+TINT_WINDOW_S = 3.0
+TINT_PAIR_GAP = 2
+TINT_MOVE_PX = 1.5            # the self moved at most this (widget px) between the pair's frames
+TINT_MAX_PAIRS = 60           # audio pairs kept per session, in window order
+#: `--tint-cal` scans each stored ally Clove death this long (or to the round's end) for its circle.
+CLOVE_SCAN_MS = 60000.0
+#: A tint alpha under this does not count as tinted floor in the statistics.
+TINT_MIN = 0.02
+TCAL: dict = {}
+_TRACKS: dict = {}
+
+
+def _reload_ratio() -> float:
+    """audio_circle's reload/footstep radius ratio on the Iso capture (`score --per-frame`)."""
+    j = json.loads((ac.PF_OUT / "per_frame.json").read_text(encoding="utf-8"))
+    return float(j["small_r_median"]) / float(j["large_r_median"])
+
+
+def session_sizes(sid: str) -> dict | None:
+    """`{"footstep", "reload"}` px for this session from `--tint-cal`, or None when it measured none."""
+    got = (TCAL.get("audio_sizes") or {}).get(sid)
+    if not got or got.get("footstep") is None:
+        return None
+    return {"footstep": float(got["footstep"]), "reload": float(got["footstep"]) * float(TCAL["reload_ratio"])}
+
+
+def audio_fit(S, crop: np.ndarray, me, sc: float, sizes: dict | None) -> dict:
+    """The self audio circle on one frame by audio_circle's per-frame fit (`frame_fit`: the ring-score
+    argmax over every scanned radius and a +-4 px centre grid round the stored self, then
+    `clove_circle.fit_circle`), and whether it counts: ring score, good fit, ring contrast, a centre within
+    AUDIO_CENTRE_TOL_PX of the stored self, a white rim, and a radius of one of the session's two sizes.
+    Every failed test is named in `reason`."""
+    f = ac.frame_fit(S, crop, me)
+    if f is None:
+        return {"observed": False, "reason": "no ring curve (the self is off the widget)"}
+    f = dict(f)
+    f["score"] = f["best"]
+    f["centre_off"] = float(math.hypot(f["cx"] - me[0], f["cy"] - me[1]))
+    f["bgr_step"] = [round(float(v), 2) for v in rim_steps(crop, S.static, (f["cx"], f["cy"]), f["r"])]
+    f["white"] = whiteness(np.array(f["bgr_step"]))
+    why = []
+    if f["best"] < SRC_T:
+        why.append(f"ring score {f['best']:.1f} under {SRC_T:g}")
+    if f["inliers"] < SRC_FIT_INLIERS or f["rms"] >= SRC_FIT_RMS:
+        why.append(f"fit inliers {f['inliers']:.2f} rms {f['rms']:.2f}")
+    if f["ring"] < ac.T_LO:
+        why.append(f"fitted ring {f['ring']:.1f} under {ac.T_LO:g}")
+    tol = AUDIO_CENTRE_TOL_PX * sc
+    if f["centre_off"] > tol:
+        why.append(f"centre {f['centre_off']:.1f} px from the stored self, over {tol:.1f}")
+    if not f["white"] >= AUDIO_WHITE_MIN:
+        why.append(f"rim white {f['white']:.2f} under {AUDIO_WHITE_MIN:g}")
+    f["size"] = "unknown: the session measured no size"
+    if sizes is not None:
+        st = AUDIO_SIZE_TOL_PX * sc
+        if abs(f["r"] - sizes["footstep"]) <= st:
+            f["size"] = "footstep"
+        elif abs(f["r"] - sizes["reload"]) <= st:
+            f["size"] = "reload"
+        else:
+            f["size"] = None
+            why.append(f"radius {f['r']:.1f} is neither size ({sizes['footstep']:.1f}, {sizes['reload']:.1f})")
+    f["observed"] = not why
+    f["reason"] = "; ".join(why) or None
+    return f
+
+
+def _ally_tracks(sid: str) -> list[dict]:
+    """Each stored ally track (events/team_vision) with its first and last frame."""
+    if sid in _TRACKS:
+        return _TRACKS[sid]
+    spans: dict = {}
+    p = sem.STORE / "events" / "team_vision" / f"{sid}.jsonl"
+    for line in (p.open(encoding="utf-8") if p.is_file() else []):
+        if '"kind":"frame"' not in line:
+            continue
+        e = json.loads(line)
+        for ic in e.get("icons") or []:
+            if ic.get("role") != "ally" or ic.get("interpolated"):
+                continue
+            sp = spans.get(ic["track_id"])
+            t = float(e["t_ms"])
+            if sp is None:
+                spans[ic["track_id"]] = sp = {"track_id": ic["track_id"], "t_first": t, "x_first": ic["x"],
+                                              "y_first": ic["y"]}
+            sp.update(t_last=t, x_last=ic["x"], y_last=ic["y"])
+    _TRACKS[sid] = list(spans.values())
+    return _TRACKS[sid]
+
+
+def clove_death_points(sid: str, t_death: float, sc: float) -> list[dict]:
+    """Candidate death points of an ally Clove who died at `t_death` (stored death data): the last
+    positions of the stored ally tracks that end then (CLOVE_TRACK_WINDOW_MS) with no successor."""
+    tr = _ally_tracks(sid)
+    out = []
+    for sp in tr:
+        if not (t_death + CLOVE_TRACK_WINDOW_MS[0] <= sp["t_last"] <= t_death + CLOVE_TRACK_WINDOW_MS[1]):
+            continue
+        if any(o is not sp and 0.0 < o["t_first"] - sp["t_last"] <= CLOVE_GAP_MS
+               and math.hypot(o["x_first"] - sp["x_last"], o["y_first"] - sp["y_last"]) <= CLOVE_SAME_TRACK_PX * sc
+               for o in tr):
+            continue
+        out.append({"x": float(sp["x_last"]), "y": float(sp["y_last"]), "track_id": sp["track_id"],
+                    "t_last_ms": sp["t_last"]})
+    return out
+
+
+def is_self_audio(f: dict, me, sizes: dict | None, sc: float) -> bool:
+    """Whether a circle is the self audio circle by the other channel that observes it: centred within
+    AUDIO_CENTRE_TOL_PX of the stored self and at the session's footstep or reload size. A Clove fit near a
+    death point the self stands on finds this circle, since only the self draws one round itself."""
+    if me is None or sizes is None:
+        return False
+    if math.hypot(f["cx"] - me[0], f["cy"] - me[1]) > AUDIO_CENTRE_TOL_PX * sc:
+        return False
+    return any(abs(f["r"] - sizes[k]) <= AUDIO_SIZE_TOL_PX * sc for k in ("footstep", "reload"))
+
+
+def clove_fit(d: np.ndarray, pts: list[dict], radii: np.ndarray, sc: float, me=None,
+              sizes: dict | None = None) -> dict | None:
+    """The best circle centred near any death point: audio_circle's ring-score grid (+-4 px) at base
+    centres every 4 px within CLOVE_REACH_PX - 4 of the point, the peak over centre and radius, then
+    `clove_circle.fit_circle`. Observed when the peak and the fitted ring clear the cuts, the fit is good
+    and the fitted centre stays within CLOVE_REACH_PX of that point. With the session's audio sizes known,
+    radii within AUDIO_SIZE_TOL_PX of them leave the search: a Clove fit near a death point the self stands
+    on otherwise finds the self audio circle (the 0.5.0 --tint-cal first run: 12 and 22 frames at 74.7 px
+    after the 913.5 s and 1343.5 s deaths on e37fdeca944f, where the Clove circle is 96.8 px), and a frame
+    with both keeps the Clove's. A circle whose exact fit lands at an audio size again, or that passes
+    `is_self_audio`, is refused (the second run: 6 frames at 74.77 px after 1343.5 s, the fit sliding back
+    from an excluded radius)."""
+    reach = CLOVE_REACH_PX * sc
+    if sizes is not None:
+        away = np.all([np.abs(radii - sizes[k]) > AUDIO_SIZE_TOL_PX * sc for k in ("footstep", "reload")], axis=0)
+        radii = radii[away]
+    n = int(max(0.0, reach - 4.0) // 4.0)
+    best = (-np.inf, None, None, None)
+    for p in pts:
+        for bx in range(-n, n + 1):
+            for by in range(-n, n + 1):
+                b = (p["x"] + 4.0 * bx, p["y"] + 4.0 * by)
+                cur = ac.ring_curve(d, b, radii)
+                if not np.isfinite(cur).any():
+                    continue
+                o, k = np.unravel_index(int(np.nanargmax(np.nan_to_num(cur, nan=-1e9))), cur.shape)
+                if cur[o, k] > best[0]:
+                    best = (float(cur[o, k]), (b[0] + ac.OFFS[o][0], b[1] + ac.OFFS[o][1]), float(radii[k]), p)
+    if best[1] is None:
+        return None
+    f = cc.fit_circle(d, best[1], best[2], win=6.0)
+    p = best[3]
+    f.update(score=best[0], ring=cc.ringscore(d, (f["cx"], f["cy"]), f["r"]), death_x=p["x"], death_y=p["y"],
+             track_id=p["track_id"], centre_off_death=float(math.hypot(f["cx"] - p["x"], f["cy"] - p["y"])))
+    f["observed"] = bool(f["score"] >= SRC_T and f["inliers"] >= SRC_FIT_INLIERS and f["rms"] < SRC_FIT_RMS
+                         and f["ring"] >= ac.T_LO and f["centre_off_death"] <= reach)
+    f["self_audio"] = is_self_audio(f, me, sizes, sc) or (sizes is not None and any(
+        abs(f["r"] - sizes[k]) <= AUDIO_SIZE_TOL_PX * sc for k in ("footstep", "reload")))
+    if f["self_audio"]:
+        f["observed"] = False
+    return f
+
+
+def find_sources(sid: str, t_ms: float, crop: np.ndarray, sc: float) -> dict:
+    """The non-cone light sources this frame shows (0.5.0), `{"drawn", "notes", "rejected"}`.
+
+    - audio: audio_circle's per-frame fit round the stored self position (`audio_fit`), which counts only
+      centred on the self icon and at one of the session's two sizes;
+    - clove: while an ally Clove is dead in this round by the stored death data, the best circle centred
+      near the death point (`clove_death_points`, `clove_fit`); with no stored track ending at the death,
+      0.4.0's free search over the widget, flagged as the surprise path;
+    - ability: 0.4.0's, round a labelled Trademark, Chokehold or Sonic Sensor icon within 1 s.
+    `rejected` keeps the fits that failed, with their reasons, for the sheet.
+    """
+    if SOURCE_STATE == "free":
+        return find_sources_v4(sid, t_ms, crop, sc)
+    out = {"drawn": [], "notes": {}, "rejected": []}
+    if not SOURCES:
+        return out
+    S, why = _ac_session(sid)
+    if S is None:
+        out["notes"] = {k: why for k in SOURCES}
+        return out
+    if S.static.shape[:2] != crop.shape[:2]:
+        out["notes"] = {k: f"crop {crop.shape[:2]} is not the baked frame {S.static.shape[:2]}" for k in SOURCES}
+        return out
+    d = S.diff(crop)
+    audio = None
+    if "audio" in SOURCES:
+        me, _drawn = S.self_at(t_ms)
+        if me is None:
+            out["notes"]["audio"] = "no stored self position within +-200 ms"
+        else:
+            f = audio_fit(S, crop, me, sc, session_sizes(sid))
+            keep = {k: f[k] for k in ("cx", "cy", "r", "score", "ring", "rms", "inliers", "centre_off", "white",
+                                      "bgr_step", "size") if k in f}
+            if f["observed"]:
+                audio = {"kind": "audio", **keep, "self_x": me[0], "self_y": me[1]}
+                out["drawn"].append(audio)
+            else:
+                out["notes"]["audio"] = "not observed (" + f["reason"] + ")"
+                if "cx" in f:
+                    out["rejected"].append({"kind": "audio", **keep, "reason": f["reason"]})
+    if "clove" in SOURCES:
+        td_ = _clove_dead_at(sid, t_ms)
+        if td_ is None:
+            out["notes"]["clove"] = "no ally Clove dead in this round (stored death data)"
+        else:
+            pts = clove_death_points(sid, td_, sc)
+            if pts:
+                me_c, _ = S.self_at(t_ms)
+                f = clove_fit(d, pts, S.radii, sc, me_c, session_sizes(sid))
+                path = f"death point from stored ally track {'/'.join(str(p['track_id']) for p in pts)}"
+            else:
+                f, path = None, "no stored ally track ends at the death: free search (surprise path)"
+                score, where = _free_circle(d, S.radii[::2], audio)
+                if where is not None and score >= SRC_T:
+                    f = cc.fit_circle(d, where[:2], where[2], win=6.0)
+                    f.update(score=score, ring=cc.ringscore(d, (f["cx"], f["cy"]), f["r"]), death_x=None,
+                             death_y=None, track_id=None, centre_off_death=None)
+                    f["observed"] = bool(f["inliers"] >= SRC_FIT_INLIERS and f["rms"] < SRC_FIT_RMS
+                                         and f["ring"] >= ac.T_LO)
+            same = f is not None and audio is not None and (
+                math.hypot(f["cx"] - audio["cx"], f["cy"] - audio["cy"]) <= SRC_SAME_PX * sc
+                and abs(f["r"] - audio["r"]) <= SRC_SAME_PX * sc)
+            keep = {} if f is None else {k: f[k] for k in ("cx", "cy", "r", "score", "ring", "rms", "inliers",
+                                                           "death_x", "death_y", "track_id", "centre_off_death")}
+            if f is not None and f["observed"] and not same:
+                out["drawn"].append({"kind": "clove", **keep, "death_t_ms": td_, "path": path})
+            else:
+                out["notes"]["clove"] = (f"ally Clove dead since {td_ / 1000:.1f} s; {path}; no circle"
+                                         + ("" if f is None else (
+                                             f" (score {f['score']:.1f} ring {f['ring']:.1f} rms {f['rms']:.2f} "
+                                             f"inliers {f['inliers']:.2f} r {f['r']:.1f}"
+                                             + (f" off death {f['centre_off_death']:.1f}"
+                                                if f.get("centre_off_death") is not None else "")
+                                             + (" same as audio" if same else "")
+                                             + (" the self audio circle" if f.get("self_audio") else "") + ")")))
+                if f is not None:
+                    out["rejected"].append({"kind": "clove", **keep, "reason": out["notes"]["clove"]})
+    if "ability" in SOURCES:
+        v4 = find_sources_v4(sid, t_ms, crop, sc, kinds=("ability",))
+        out["drawn"] += v4["drawn"]
+        out["notes"].update(v4["notes"])
+    return out
+
+
+def tint_maps(src: dict, shape, sc: float):
+    """`(A, C, band)` for the drawn sources: the combined opacity (H, W), the premultiplied tint colour
+    (H, W, 3) in 0..1 (the background becomes `(1 - A) bg + C`), and the rim band (|dr| <= 3 px) of any
+    source with no measured profile at this scale, which leaves the comparison."""
+    h, w = shape
+    yy, xx = np.mgrid[0:h, 0:w]
+    A = np.zeros(shape, np.float32)
+    C = np.zeros(shape + (3,), np.float32)
+    band = np.zeros(shape, bool)
+    for c in src["drawn"]:
+        dr = np.hypot(xx - c["cx"], yy - c["cy"]) - c["r"]
+        prof = (TCAL.get("profiles") or {}).get(f"{c['kind']}@{_skey(sc)}")
+        if prof is None or prof.get("alpha") is None:
+            band |= np.abs(dr) <= 3.0
+            continue
+        al = np.clip(np.asarray(prof["alpha"], np.float32), 0.0, 1.0)
+        a = al[np.searchsorted(TINT_EDGES, dr, side="right")]
+        a[dr >= TINT_OUTER] = 0.0
+        W = np.asarray(prof["W_bgr"], np.float32) / 255.0
+        C = C * (1.0 - a)[..., None] + a[..., None] * W[None, None]
+        A = 1.0 - (1.0 - A) * (1.0 - a)
+    return A, C, band
+
+
+def scene_sources(r: dict | None, sid: str, t_ms: float, crop: np.ndarray, sc: float):
+    """`(src, srcm, tint)`: the frame's drawn sources (cached on the row when given), the floor they
+    cover (0.4.0: each disc; 0.5.0: tinted over TINT_MIN or in an unmeasured rim band), and 0.5.0's
+    tint maps (None in 0.4.0 or with nothing drawn)."""
+    src = item_sources(r, sid, t_ms, crop, sc) if r is not None else find_sources(sid, float(t_ms), crop, sc)
+    if not src["drawn"]:
+        return src, None, None
+    if SOURCE_STATE == "tint":
+        A, C, band = tint_maps(src, crop.shape[:2], sc)
+        return src, (A > TINT_MIN) | band, (A, C, band)
+    return src, source_mask(src, crop.shape[:2]), None
+
+
 def item_sources(r: dict, sid: str, t_ms: float, crop: np.ndarray, sc: float) -> dict:
     """`find_sources`, cached on the row."""
     if "_src" not in r:
@@ -934,7 +1300,7 @@ class RGBScene:
 
     def __init__(self, crop: np.ndarray, s, icons: list[dict], sc: float, cal: dict,
                  outside: list[dict] | None = None, light_costs: dict | None = None,
-                 src: np.ndarray | None = None):
+                 src: np.ndarray | None = None, tint=None):
         self.sc, self.icons, self.cal = sc, icons, cal
         scal = cal["scales"][_skey(sc)]
         self.k = _kernel(scal["sigma_blur"])
@@ -954,6 +1320,18 @@ class RGBScene:
         self.obs = torch.tensor(crop[y0:y1, x0:x1].reshape(-1, 3).T / 255.0, dtype=torch.float32, device=DEV)
         self.bg = torch.tensor(bg[:, y0:y1, x0:x1].reshape(2, -1, 3).transpose(0, 2, 1).copy(),
                                dtype=torch.float32, device=DEV)                              # (2, 3, P)
+        self.tinted = tint is not None
+        if tint is not None:
+            # 0.5.0: the drawn sources tint either floor state, `(1 - A) bg + C`, under every icon.
+            A, C, band = tint
+            At = torch.tensor(A[y0:y1, x0:x1].ravel(), dtype=torch.float32, device=DEV)
+            Ct = torch.tensor(C[y0:y1, x0:x1].reshape(-1, 3).T.copy(), dtype=torch.float32, device=DEV)
+            self.bg = self.bg * (1.0 - At)[None, None] + Ct[None]
+            if band.any():
+                # a source with no measured profile at this scale: its rim band leaves the comparison
+                keep &= ~band[y0:y1, x0:x1]
+                self.keep_np = keep
+                self.keep = torch.tensor(keep.ravel(), dtype=torch.float32, device=DEV)
         sdw = torch.tensor(sd[y0:y1, x0:x1].ravel(), dtype=torch.float32, device=DEV)
         self.sig = torch.sqrt(scal["sigma_noise"] ** 2 + sdw ** 2)                           # (P,)
         self.cls_cal = {c: scal["classes"][c] for c in {ic["cls"] for ic in icons}}
@@ -1292,10 +1670,9 @@ def light_calibrate(sess, label_times: dict) -> dict:
             team = ff.team_icons(s, crop, sc)
             scene_ic = [{"cls": cls, "x0": ic["x"], "y0": ic["y"]}]
             outside = outside_icons(team, sc, scene_ic)
-            src = find_sources(ic["sid"], ic["t_ms"], crop, sc)
-            srcm = source_mask(src, crop.shape[:2]) if src["drawn"] else None
+            src, srcm, tint = scene_sources(None, ic["sid"], ic["t_ms"], crop, sc)
             scene = RGBScene(crop, s, scene_ic, sc, CAL, outside=outside, light_costs={"c_u": 0.0, "c_m": 0.0},
-                             src=srcm)
+                             src=srcm, tint=tint)
             lt = scene.light
             pose = (ic["x"], ic["y"], ic["deg"], 0.0, 0.0)
             K, Wn, (L, free) = scene.stack([0], {0: pose})
@@ -1394,6 +1771,292 @@ def light_calibrate(sess, label_times: dict) -> dict:
         out["scales"][skey] = vals
         print(f"  light calibration {skey}: {vals}", flush=True)
     return out
+
+
+# ---------------------------------------------------------------- 0.5.0: measuring the tint (unlabelled frames)
+
+def _pair_pixels(c_off, c_on, circ, me, sc, lit_off=None):
+    """The pixels of a tint pair within TINT_OUTER of the circle, away from the self icon:
+    `(off (n, 3), on (n, 3), dr (n,), lit (n,) or None)`, 0..255."""
+    h, w = c_on.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w]
+    dr = np.hypot(xx - circ["cx"], yy - circ["cy"]) - circ["r"]
+    m = dr < TINT_OUTER
+    if me is not None:
+        m &= np.hypot(xx - me[0], yy - me[1]) > TINT_ICON_PX * sc
+    return (c_off[m].astype(np.float32), c_on[m].astype(np.float32), dr[m].astype(np.float32),
+            None if lit_off is None else lit_off[m])
+
+
+def _fit_profile(OFF, ON, DR, LIT=None) -> dict:
+    """The tint `on = (1 - a) off + a W`: W per channel from the rim bins (a robust line per channel,
+    W = intercept / (1 - slope)), then `a` per dr bin by trimmed least squares over the three channels.
+    With LIT (the off pixel's floor state, lit or unlit, where known), the interior and rim alphas are
+    repeated per state: a tint over either state has one alpha."""
+    def line(x, y):
+        keep = np.ones(len(x), bool)
+        sl = ic = float("nan")
+        for _ in range(4):
+            if keep.sum() < 20:
+                break
+            A = np.stack([x[keep], np.ones(int(keep.sum()))], 1)
+            sl, ic = np.linalg.lstsq(A, y[keep], rcond=None)[0]
+            res = y - (sl * x + ic)
+            s = 1.4826 * np.median(np.abs(res[keep])) + 1e-3
+            keep = np.abs(res) < 3 * s
+        return float(sl), float(ic)
+
+    def alpha(sel, W):
+        y = (ON[sel] - OFF[sel]).ravel()
+        x = (W[None] - OFF[sel]).ravel()
+        keep = np.abs(x) > 20.0
+        a = float("nan")
+        for _ in range(4):
+            if keep.sum() < 20:
+                return None, int(sel.sum())
+            a = float((x[keep] * y[keep]).sum() / (x[keep] ** 2).sum())
+            res = y - a * x
+            s = 1.4826 * np.median(np.abs(res[keep])) + 1e-3
+            keep = (np.abs(res) < 3 * s) & (np.abs(x) > 20.0)
+        return round(a, 4), int(sel.sum())
+
+    rim = (DR >= TINT_W_BINS[0]) & (DR < TINT_W_BINS[1])
+    W = []
+    for ch in range(3):
+        sl, ic = line(OFF[rim, ch], ON[rim, ch])
+        W.append(ic / (1.0 - sl) if 1.0 - sl > 0.02 else 255.0)
+    W = np.clip(np.array(W, np.float32), 0, 255)
+    idx = np.searchsorted(TINT_EDGES, DR, side="right")
+    al, npx = [], []
+    for k in range(len(TINT_EDGES) + 1):
+        a, n = alpha((idx == k) & (DR < TINT_OUTER), W)
+        al.append(a)
+        npx.append(n)
+    out = {"edges": TINT_EDGES.tolist(), "outer": TINT_OUTER, "alpha": al, "px": npx,
+           "W_bgr": [round(float(v), 1) for v in W]}
+    if LIT is not None:
+        for name, st in (("lit", LIT == 1), ("unlit", LIT == 0)):
+            out[f"alpha_interior_{name}"] = alpha((idx == 0) & st, W)[0]
+            out[f"alpha_rim_{name}"] = alpha(rim & st, W)[0]
+            out[f"px_rim_{name}"] = int((rim & st).sum())
+    return out
+
+
+def _lit_of(s, crop):
+    """(H, W) int: 1 lit, 0 unlit by the owner's lit decision (`lighting.raw_lit`) on known floor, -1 off it."""
+    if s is None or s.inputs.light is None:
+        return None
+    lit = np.where(lighting.raw_lit(crop, s.ref), 1, 0)
+    lit[~s.ref.known] = -1
+    return lit
+
+
+def tint_calibrate(sess, label_times: dict) -> dict:
+    """The audio and Clove circles' tint profiles and each session's audio circle size, on unlabelled
+    frames (at least CAL_AWAY_MS from every labelled instant).
+
+    Audio: TINT_WINDOWS windows per session (the labelled sessions and the Iso capture), every cached
+    frame fitted (`audio_fit`, no size gate); the session's footstep size is the mode of its observed
+    radii. A pair is two frames TINT_PAIR_GAP apart where the circle is observed on one and its ring
+    under audio_circle's lower cut on the other at the same circle, the self moved at most TINT_MOVE_PX,
+    and the observed radius is one of the session's sizes. Clove: each stored ally Clove death scanned
+    for CLOVE_SCAN_MS (or to the round's end) at its death points (`clove_fit`); a pair is an onset or
+    offset in place. The off frame of a pair shows the floor under the circle, in whatever state."""
+    rng = np.random.default_rng(0)
+    pix = defaultdict(lambda: defaultdict(list))
+    sizes, pairs_n, clove_runs = {}, defaultdict(int), []
+    sids = sorted(set(label_times) | {ac.ISO})
+    for sid in sids:
+        S, why = _ac_session(sid)
+        if S is None:
+            sizes[sid] = {"footstep": None, "reason": why}
+            print(f"  tint {sid}: {why}", flush=True)
+            continue
+        try:
+            s = sess(sid)
+        except Exception as e:          # noqa: BLE001 - the Iso capture may have no team_vision inputs
+            s, _ = None, e
+        sc = widget_scale(S.static.shape[1])
+        skey = _skey(sc)
+        lts = np.asarray(sorted(label_times.get(sid, [])), float)
+        holds = np.asarray(sorted(S.cache.holds()), float)
+        away = lambda t: not len(lts) or np.min(np.abs(lts - t)) >= CAL_AWAY_MS  # noqa: E731
+        starts = [t for t in holds[::15] if away(t) and away(t + TINT_WINDOW_S * 1000)]
+        pick = sorted(rng.choice(len(starts), min(TINT_WINDOWS, len(starts)), replace=False)) if starts else []
+        radii_obs, cand = [], []
+        for k in pick:
+            t0 = starts[k]
+            ts = [t for t in holds[(holds >= t0) & (holds <= t0 + TINT_WINDOW_S * 1000)] if away(t)]
+            fr = []
+            for tm, crop in S.crops(ts):
+                me, _ = S.self_at(tm)
+                f = audio_fit(S, crop, me, sc, None) if me is not None else None
+                fr.append((tm, crop, me, f))
+                if f is not None and f["observed"]:
+                    radii_obs.append(f["r"])
+            for i in range(len(fr) - TINT_PAIR_GAP):
+                a, b = fr[i], fr[i + TINT_PAIR_GAP]
+                if a[2] is None or b[2] is None or a[3] is None or b[3] is None:
+                    continue
+                if math.hypot(a[2][0] - b[2][0], a[2][1] - b[2][1]) > TINT_MOVE_PX:
+                    continue
+                for on, off in ((b, a), (a, b)):
+                    if not on[3]["observed"] or off[3]["observed"]:
+                        continue
+                    circ = on[3]
+                    if cc.ringscore(S.diff(off[1]), (circ["cx"], circ["cy"]), circ["r"]) >= ac.T_LO:
+                        continue
+                    cand.append((off[1], on[1], {k2: circ[k2] for k2 in ("cx", "cy", "r")}, on[2],
+                                 _lit_of(s, off[1])))
+        foot = None
+        if len(radii_obs) >= 10:
+            R = np.asarray(radii_obs)
+            h = np.histogram(R, bins=np.arange(R.min() - 0.5, R.max() + 1.0, 0.5))
+            m = h[1][int(np.argmax(h[0]))] + 0.25
+            foot = float(np.median(R[np.abs(R - m) <= 1.0]))
+        sizes[sid] = {"footstep": None if foot is None else round(foot, 2), "fits": len(radii_obs),
+                      "reason": None if foot is not None else f"{len(radii_obs)} observed fits, under 10"}
+        n_ok = 0
+        for off, on, circ, me, lit in cand:
+            if foot is None or n_ok >= TINT_MAX_PAIRS:
+                break
+            tol = AUDIO_SIZE_TOL_PX * sc
+            size = "footstep" if abs(circ["r"] - foot) <= tol else (
+                "reload" if abs(circ["r"] - foot * TCAL["reload_ratio"]) <= tol else None)
+            if size is None:
+                continue
+            o, n_, dr, lt = _pair_pixels(off, on, circ, me, sc, lit)
+            for key, v in (("off", o), ("on", n_), ("dr", dr), ("lit", lt)):
+                if v is not None:
+                    pix[("audio", skey)][key].append(v)
+            n_ok += 1
+            pairs_n[("audio", skey, sid)] += 1
+        print(f"  tint {sid} ({skey}): {len(pick)} windows, {len(radii_obs)} observed audio fits, footstep "
+              f"{foot}, pairs {n_ok} of {len(cand)}", flush=True)
+        # the dead Clove's circle
+        starts_r, deaths = _dead_cloves(sid) if (sem.STORE / "events" / "death_identity" / f"{sid}.jsonl").is_file() \
+            else ([], [])
+        for td_ in deaths:
+            pts = clove_death_points(sid, td_, sc)
+            k = int(np.searchsorted(starts_r, td_, "right"))
+            t_end = min(td_ + CLOVE_SCAN_MS, starts_r[k] if k < len(starts_r) else td_ + CLOVE_SCAN_MS)
+            run = {"session": sid, "death_t_ms": td_, "points": pts, "observed_t": []}
+            if not pts:
+                run["reason"] = "no stored ally track ends at the death"
+                clove_runs.append(run)
+                continue
+            ts = [t for t in holds if td_ <= t <= t_end]
+            fr = []
+            for tm, crop in S.crops(ts):
+                me_c, _ = S.self_at(tm)
+                f = clove_fit(S.diff(crop), pts, S.radii, sc, me_c, None if foot is None else
+                              {"footstep": foot, "reload": foot * TCAL["reload_ratio"]})
+                obs = f is not None and f["observed"]
+                if f is not None and f["self_audio"]:
+                    run["self_audio_frames"] = run.get("self_audio_frames", 0) + 1
+                fr.append((tm, crop, f if obs else None))
+                if obs:
+                    run["observed_t"].append(round(tm, 1))
+                    run.setdefault("r", []).append(f["r"])
+                    run.setdefault("off_death", []).append(f["centre_off_death"])
+            for i in range(len(fr) - TINT_PAIR_GAP):
+                a, b = fr[i], fr[i + TINT_PAIR_GAP]
+                for on, off in ((b, a), (a, b)):
+                    if on[2] is None or off[2] is not None or not (away(on[0]) and away(off[0])):
+                        continue
+                    circ = on[2]
+                    if cc.ringscore(S.diff(off[1]), (circ["cx"], circ["cy"]), circ["r"]) >= ac.T_LO:
+                        continue
+                    me, _ = S.self_at(on[0])
+                    o, n_, dr, lt = _pair_pixels(off[1], on[1], circ, me, sc, _lit_of(s, off[1]))
+                    for key, v in (("off", o), ("on", n_), ("dr", dr), ("lit", lt)):
+                        if v is not None:
+                            pix[("clove", skey)][key].append(v)
+                    pairs_n[("clove", skey, sid)] += 1
+            if run.get("r"):
+                run["r_median"] = round(float(np.median(run.pop("r"))), 2)
+                run["off_death_median"] = round(float(np.median(run.pop("off_death"))), 2)
+            run["frames_scanned"] = len(fr)
+            run["frames_observed"] = len(run["observed_t"])
+            ot = run["observed_t"]
+            run["observed_span_s"] = [round(ot[0] / 1000, 2), round(ot[-1] / 1000, 2)] if ot else None
+            del run["observed_t"]
+            clove_runs.append(run)
+            print(f"  clove {sid} death {td_ / 1000:.1f} s: points {len(pts)}, observed {run['frames_observed']} of "
+                  f"{len(fr)} frames {run['observed_span_s']} r {run.get('r_median')} off {run.get('off_death_median')}",
+                  flush=True)
+    profiles = {}
+    for (kind, skey), v in sorted(pix.items()):
+        OFF, ON, DR = (np.concatenate(v[k]) for k in ("off", "on", "dr"))
+        LIT = np.concatenate(v["lit"]) if len(v["lit"]) == len(v["off"]) else None
+        prof = _fit_profile(OFF, ON, DR, LIT)
+        prof["pairs"] = int(sum(n for (k2, s2, _), n in pairs_n.items() if (k2, s2) == (kind, skey)))
+        prof["sessions"] = sorted({sid for (k2, s2, sid) in pairs_n if (k2, s2) == (kind, skey)})
+        profiles[f"{kind}@{skey}"] = prof
+        print(f"  profile {kind}@{skey}: pairs {prof['pairs']} W {prof['W_bgr']} alpha {prof['alpha']}", flush=True)
+    return {"version": VERSION, "made_from": "tint pairs on unlabelled frames (TINT_* constants), stored self "
+            "track, stored death data and ally tracks, baked static as the diff background",
+            "reload_ratio": TCAL["reload_ratio"], "audio_sizes": sizes, "profiles": profiles, "clove_runs": clove_runs}
+
+
+def fit_agree(all_rows: dict) -> dict:
+    """0.4.0's thin wrapper (`_ring_fit`, reach AUDIO_REACH_PX, its own acceptance) against audio_circle's
+    per-frame fit (`audio_fit` without the size gate) on a probe set: every labelled item's frame (fits
+    only; no facing is read) and 200 drawn own-view frames of the Iso capture."""
+    probe = []
+    for rows in all_rows.values():
+        for r in rows:
+            probe.append(("labelled", r["session"], float(r["t_ms"]), r["_crop"]))
+    z = np.load(ac.PF_OUT / "per_frame.npz")
+    idx = np.nonzero((z["state"] == 1) & (z["pov"] == "own") & np.isfinite(z["r_fit"]))[0]
+    pick = sorted(np.random.default_rng(1).choice(idx, min(200, len(idx)), replace=False))
+    S_iso, _ = _ac_session(ac.ISO)
+    for tm, crop in S_iso.crops([float(z["t"][i]) * 1000 for i in pick]):
+        probe.append(("iso", ac.ISO, float(tm), crop))
+    rows_out = []
+    for kind, sid, tm, crop in probe:
+        S, why = _ac_session(sid)
+        if S is None or S.static.shape[:2] != crop.shape[:2]:
+            continue
+        me, _ = S.self_at(tm)
+        if me is None:
+            continue
+        sc = widget_scale(crop.shape[1])
+        d = S.diff(crop)
+        f4 = _ring_fit(d, me, S.radii, reach=AUDIO_REACH_PX * sc)
+        if f4 is not None:
+            f4["white"] = whiteness(rim_steps(crop, S.static, (f4["cx"], f4["cy"]), f4["r"]))
+        ok4 = f4 is not None and f4["observed"] and f4["white"] >= AUDIO_WHITE_MIN
+        f5 = audio_fit(S, crop, me, sc, None)
+        # the per-frame fit's own acceptance without the centre rule, to compare the fits themselves
+        ok5_raw = f5.get("reason") is None or all(x.startswith("centre") for x in f5["reason"].split("; "))
+        ok5_raw = ok5_raw and "cx" in f5
+        rows_out.append({"probe": kind, "session": sid, "t_ms": tm, "sc": sc, "v4": ok4, "v5_raw": ok5_raw,
+                         "v5": bool(f5["observed"]), "v5_reason": f5.get("reason"),
+                         "d_r": None if not (ok4 and ok5_raw) else round(abs(f4["r"] - f5["r"]), 2),
+                         "d_c": None if not (ok4 and ok5_raw) else round(math.hypot(f4["cx"] - f5["cx"],
+                                                                                    f4["cy"] - f5["cy"]), 2),
+                         "v4_r": None if f4 is None else round(f4["r"], 2), "v5_r": round(f5.get("r", np.nan), 2),
+                         "v4_off": None if f4 is None else round(f4["centre_off"], 2),
+                         "v5_off": round(f5.get("centre_off", np.nan), 2)})
+    res = {}
+    for kind in ("labelled", "iso", "all"):
+        sub = [x for x in rows_out if kind == "all" or x["probe"] == kind]
+        both = [x for x in sub if x["v4"] and x["v5_raw"]]
+        dr = np.array([x["d_r"] for x in both]) if both else np.array([np.nan])
+        dc = np.array([x["d_c"] for x in both]) if both else np.array([np.nan])
+        res[kind] = {"n": len(sub), "v4_observed": sum(x["v4"] for x in sub),
+                     "v5_raw_observed": sum(x["v5_raw"] for x in sub), "v5_observed": sum(x["v5"] for x in sub),
+                     "both": len(both), "only_v4": sum(x["v4"] and not x["v5_raw"] for x in sub),
+                     "only_v5": sum(x["v5_raw"] and not x["v4"] for x in sub),
+                     "both_same": sum(x["d_r"] <= 1.0 and x["d_c"] <= 2.0 for x in both),
+                     "d_r_median": round(float(np.nanmedian(dr)), 3), "d_r_max": round(float(np.nanmax(dr)), 3),
+                     "d_c_median": round(float(np.nanmedian(dc)), 3), "d_c_max": round(float(np.nanmax(dc)), 3)}
+        print(f"  fit agreement {kind}: {res[kind]}", flush=True)
+    for x in rows_out:
+        if x["v4"] != x["v5_raw"] or (x["d_r"] is not None and (x["d_r"] > 1.0 or x["d_c"] > 2.0)):
+            print(f"    disagree {x}", flush=True)
+    return {"summary": res, "rows": rows_out}
 
 
 def _pose_grid(x, y, half, step, degs):
@@ -1628,18 +2291,19 @@ def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
     out["teardrop"] = float(f["deg"]) if f.get("read") else None
     out["teardrop_reason"] = None if f.get("read") else f.get("reason", "no_fit")
     out["td_xy"] = (float(f["x"]), float(f["y"])) if "x" in f else None
-    srcm = None
+    srcm = tint = None
     if SPACE == "rgb" and LIGHT == "pose":
-        src = item_sources(r, r["session"], r["t_ms"], crop, sc)
+        src, srcm, tint = scene_sources(r, r["session"], r["t_ms"], crop, sc)
         out["light_sources"] = src["drawn"]
         out["light_source_notes"] = src["notes"]
-        srcm = source_mask(src, crop.shape[:2]) if src["drawn"] else None
+        out["light_sources_rejected"] = src.get("rejected", [])
     if not do_fit:
         return out
     t0 = time.perf_counter()
     if SPACE == "rgb":
         outside = outside_icons(frame_team(s, r, sc), sc, nb["icons"]) if LIGHT == "pose" else []
-        scene = RGBScene(crop, s, nb["icons"], sc, CAL, outside=outside, light_costs=light_costs(sc), src=srcm)
+        scene = RGBScene(crop, s, nb["icons"], sc, CAL, outside=outside, light_costs=light_costs(sc), src=srcm,
+                         tint=tint)
     else:
         scene = Scene(keys(crop), keys(s.inputs.static), nb["icons"], sc)
     got = fit_scene(scene)
@@ -1848,7 +2512,13 @@ def tile(r: dict, zoom: int = 6) -> np.ndarray:
         k = H / crop.shape[0]
         wv = cv2.resize(crop, (int(round(crop.shape[1] * k)), H), interpolation=cv2.INTER_AREA)
         cols = {"audio": (255, 255, 255), "clove": (255, 0, 255), "ability": (0, 255, 0)}
+        for c in src.get("rejected") or []:          # 0.5.0: a fit that failed its tests, grey
+            cv2.circle(wv, (int(round(c["cx"] * k)), int(round(c["cy"] * k))), int(round(c["r"] * k)),
+                       (128, 128, 128), 1, cv2.LINE_AA)
         for c in src["drawn"]:
+            if c.get("death_x") is not None:        # the Clove's death point: a magenta cross
+                p = (int(round(c["death_x"] * k)), int(round(c["death_y"] * k)))
+                cv2.drawMarker(wv, p, (255, 0, 255), cv2.MARKER_CROSS, 10, 1)
             cv2.circle(wv, (int(round(c["cx"] * k)), int(round(c["cy"] * k))), int(round(c["r"] * k)),
                        cols[c["kind"]], 1, cv2.LINE_AA)
         cv2.rectangle(wv, (int(x0 * k), int(y0 * k)), (int((x0 + 2 * half + 1) * k), int((y0 + 2 * half + 1) * k)),
@@ -1864,8 +2534,14 @@ def tile(r: dict, zoom: int = 6) -> np.ndarray:
                  **r["light"]) if r.get("light") else "")]
     if src is not None:
         lit = r.get("light") or {}
-        lines.append("sources: " + ("; ".join(f"{c['kind']} r {c['r']:.1f} score {c['score']:.1f}" for c in src["drawn"])
-                                    or "none drawn")
+        lines.append("sources: " + ("; ".join(f"{c['kind']} r {c['r']:.1f} score {c['score']:.1f}"
+                                              + (f" {c['size']}" if c.get("size") else "")
+                                              + (f" off self {c['centre_off']:.1f}" if "centre_off" in c else "")
+                                              + (f" off death {c['centre_off_death']:.1f}"
+                                                 if c.get("centre_off_death") is not None else "")
+                                              for c in src["drawn"]) or "none drawn")
+                     + "".join(f"; rejected {c['kind']} r {c['r']:.1f} ({c['reason'][:70]})"
+                               for c in src.get("rejected") or [])
                      + (f"  src-lit floor {lit['source_n']}, unexpl without sources {lit['unexplained_nosrc_n']}"
                         if "source_n" in lit else ""))
     bar = np.zeros((6 + 17 * len(lines), row.shape[1], 3), np.uint8)
@@ -2000,7 +2676,23 @@ LCAL: dict = {}
 
 
 def _idle():
-    th._idle()
+    """Below Normal priority, verified. `tip_highlight._idle`'s untyped ctypes call truncates the 64-bit
+    process handle and fails silently on this venv, so 0.4.0 ran at Normal; the handle is typed here."""
+    cv2.setNumThreads(1)
+    if os.name != "nt":
+        return
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.GetCurrentProcess.restype = wintypes.HANDLE
+    k.SetPriorityClass.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    k.GetPriorityClass.argtypes = (wintypes.HANDLE,)
+    h = k.GetCurrentProcess()
+    k.SetPriorityClass(h, 0x4000)                     # BELOW_NORMAL_PRIORITY_CLASS
+    got = k.GetPriorityClass(h)
+    print(f"priority class {got:#x} ({'Below Normal' if got == 0x4000 else 'NOT Below Normal'})", flush=True)
+    if got != 0x4000:
+        raise SystemExit("could not set Below Normal priority")
 
 
 def main(argv=None) -> int:
@@ -2024,8 +2716,17 @@ def main(argv=None) -> int:
     ap.add_argument("--no-sources", action="store_true",
                     help="the 0.3.0 control: draw no non-cone source, read 0.3.0's light costs, record "
                          "scene_stack_eval_v3_allsets under OUT/control-0.3.0")
+    ap.add_argument("--disc", action="store_true",
+                    help="the 0.4.0 control: the free-state disc and 0.4.0's source fits, 0.4.0's light costs; "
+                         "never recorded, written under OUT/control-0.4.0")
+    ap.add_argument("--tint-cal", action="store_true",
+                    help="measure the sources' tint profiles and each session's audio circle size on "
+                         "unlabelled frames; fit nothing")
+    ap.add_argument("--fit-agree", action="store_true",
+                    help="0.4.0's audio fit against audio_circle's per-frame fit on a probe set; fit nothing")
     args = ap.parse_args(argv)
     global GAIN_MODE, OUT, SPACE, CAL, LCAL, CAL_PATH, SOURCES, VERSION, LIGHT_CAL_PATH, SERIES, CHECK_SERIES
+    global SOURCE_STATE, TCAL
     SPACE = args.space
     if args.no_sources:
         if args.light_cal:
@@ -2033,6 +2734,19 @@ def main(argv=None) -> int:
         SOURCES, VERSION, LIGHT_CAL_PATH = (), "scene-stack-0.3.0", LIGHT_CAL_PATH_V3
         SERIES, CHECK_SERIES = "scene_stack_eval_v3_allsets", "scene_stack_check_v3_allsets"
         OUT = OUT / "control-0.3.0"
+    if args.disc:
+        if args.light_cal or args.record or args.tint_cal:
+            raise SystemExit("--disc reruns 0.4.0 as a control: it records nothing and rewrites no calibration")
+        SOURCE_STATE, VERSION, LIGHT_CAL_PATH = "free", "scene-stack-0.4.0", LIGHT_CAL_PATH_V4
+        OUT = OUT / "control-0.4.0"
+    if args.limit:
+        OUT = OUT / "smoke"                 # a smoke run never overwrites a full run's items or sheets
+    TCAL = {"reload_ratio": _reload_ratio()}
+    tint_path = (OUT.parent if args.limit else OUT) / TINT_CAL_NAME
+    if SOURCE_STATE == "tint" and SOURCES and not (args.tint_cal or args.fit_agree):
+        if not tint_path.is_file():
+            raise SystemExit(f"no {tint_path}: run --tint-cal first")
+        TCAL = json.loads(tint_path.read_text(encoding="utf-8"))
     posthoc = ""
     if args.shared_gain:
         GAIN_MODE, posthoc = "shared", "-posthoc-shared"
@@ -2072,6 +2786,60 @@ def main(argv=None) -> int:
         cal_path.write_text(json.dumps(CAL, indent=1), encoding="utf-8")
         print("wrote", cal_path)
     CAL = json.loads(cal_path.read_text(encoding="utf-8"))
+    if args.tint_cal:
+        if not full_sets:
+            raise SystemExit("measure the tint with every label set loaded, so every labelled instant is excluded")
+        from reticle import metrics
+        got = tint_calibrate(sess, {sid: ts for sid, ts in need.items()})
+        tint_path.parent.mkdir(parents=True, exist_ok=True)
+        tint_path.write_text(json.dumps(got, indent=1, default=str), encoding="utf-8")
+        print("wrote", tint_path)
+        if args.record:
+            deps = {"prototype": VERSION, "cal_away_ms": CAL_AWAY_MS, **_source_deps()}
+            for name, p in got["profiles"].items():
+                kind, skey = name.split("@")
+                v = {f"alpha_{i}": a for i, a in enumerate(p["alpha"])}
+                v |= {"alpha_interior": p["alpha"][0], "alpha_rim_max": max(a for a in p["alpha"] if a is not None),
+                      "W_b": p["W_bgr"][0], "W_g": p["W_bgr"][1], "W_r": p["W_bgr"][2], "pairs": p["pairs"],
+                      "px_interior": p["px"][0]}
+                v |= {k: p[k] for k in p if k.startswith(("alpha_interior_", "alpha_rim_", "px_rim_"))}
+                metrics.record(TINT_CAL_SERIES, part=f"{kind}-scale-{skey}", session="+".join(p["sessions"]),
+                               values=v, deps=deps, context={"edges": p["edges"], "outer": p["outer"]})
+                print("recorded tint profile", name)
+            sz = {f"footstep_{sid}": v["footstep"] for sid, v in got["audio_sizes"].items()}
+            sz |= {f"fits_{sid}": v.get("fits") for sid, v in got["audio_sizes"].items()}
+            sz["reload_ratio"] = got["reload_ratio"]
+            metrics.record(TINT_CAL_SERIES, part="audio-sizes", session="+".join(sorted(got["audio_sizes"])),
+                           values=sz, deps=deps)
+            cr = got["clove_runs"]
+            cv = {"deaths": len(cr), "deaths_with_point": sum(bool(x["points"]) for x in cr),
+                  "deaths_with_circle": sum(x.get("frames_observed", 0) > 0 for x in cr),
+                  "frames_observed": sum(x.get("frames_observed", 0) for x in cr),
+                  "frames_scanned": sum(x.get("frames_scanned", 0) for x in cr)}
+            obs = [x for x in cr if x.get("frames_observed")]
+            if obs:
+                cv["r_median"] = round(float(np.median([x["r_median"] for x in obs])), 2)
+                cv["off_death_median"] = round(float(np.median([x["off_death_median"] for x in obs])), 2)
+            metrics.record(TINT_CAL_SERIES, part="clove-runs", session="+".join(sorted({x["session"] for x in cr})),
+                           values=cv, deps=deps)
+            print("recorded audio sizes and clove runs", cv)
+        return 0
+    if args.fit_agree:
+        from reticle import metrics
+        got = fit_agree(all_rows)
+        OUT.mkdir(parents=True, exist_ok=True)
+        (OUT / "fit_agree.json").write_text(json.dumps(got, indent=1, default=str), encoding="utf-8")
+        print("wrote", OUT / "fit_agree.json")
+        if args.record and full_sets:
+            deps = {"prototype": VERSION, "audio_reach_px": AUDIO_REACH_PX, "audio_circle": ac.VERSION,
+                    "same": "radius within 1 px and centre within 2 px", **_source_deps()}
+            for kind, v in got["summary"].items():
+                metrics.record(FIT_AGREE_SERIES, part=kind,
+                               session="+".join(sorted({x["session"] for x in got["rows"]
+                                                        if kind == "all" or x["probe"] == kind})),
+                               values=v, deps=deps)
+                print("recorded fit agreement", kind)
+        return 0
     if args.light_cal:
         if not full_sets:
             raise SystemExit("calibrate the light with every label set loaded, so every labelled instant is excluded")
@@ -2208,6 +2976,20 @@ def main(argv=None) -> int:
                          and bool(r["stacked"]) == stacked][:n]
         for p in sheet(pick, OUT / "sheet_sources_331.png", per_page=len(pick) or 1):
             print("wrote", p)
+        # 0.5.0's tint sheet (rule fixed before any 0.5.0 score): every 331 px item on which 0.4.0 drew a
+        # source (its items.json) or this run draws one, every item with an ally Clove dead in its round,
+        # and e37fdeca944f 1795.08 s, in load order.
+        v4 = set()
+        p4 = OUT_V4 / "items.json"
+        if p4.is_file():
+            for rows in json.loads(p4.read_text(encoding="utf-8"))["sets"].values():
+                v4 |= {(x["session"], round(float(x["t_ms"]))) for x in rows if x.get("light_sources")}
+        pick = [r for r in rows331 if (r["session"], round(float(r["t_ms"]))) in v4 or r.get("light_sources")
+                or "since" in (r.get("light_source_notes") or {}).get("clove", "")
+                or (r["session"] == "e37fdeca944f" and abs(float(r["t_ms"]) - 1795083.3) < 50)]
+        print(f"tint sheet: {len(pick)} items")
+        for p in sheet(pick, OUT / "sheet_tint_331.png", per_page=8):
+            print("wrote", p)
     return 0
 
 
@@ -2216,7 +2998,17 @@ def _source_deps() -> dict:
             "audio_white_min": AUDIO_WHITE_MIN, "source_ring_t": SRC_T, "source_ring_t_lo": ac.T_LO,
             "source_fit": [SRC_FIT_INLIERS, SRC_FIT_RMS], "source_same_px": SRC_SAME_PX,
             "ability_names": list(ABILITY_NAMES), "ability_window_ms": ABILITY_WINDOW_MS,
-            "ability_r": list(ABILITY_R), "audio_circle": ac.VERSION, "clove_circle": cc.VERSION}
+            "ability_r": list(ABILITY_R), "audio_circle": ac.VERSION, "clove_circle": cc.VERSION,
+            **({} if SOURCE_STATE != "tint" else {
+                "audio_fit": "audio_circle.frame_fit", "audio_centre_tol_px": AUDIO_CENTRE_TOL_PX,
+                "audio_size_tol_px": AUDIO_SIZE_TOL_PX, "clove_track_window_ms": list(CLOVE_TRACK_WINDOW_MS),
+                "clove_gap_ms": CLOVE_GAP_MS, "clove_same_track_px": CLOVE_SAME_TRACK_PX,
+                "clove_reach_px": CLOVE_REACH_PX, "tint_edges": [float(TINT_EDGES[0]), float(TINT_EDGES[-1])],
+                "tint_outer": TINT_OUTER, "tint_w_bins": list(TINT_W_BINS), "tint_windows": TINT_WINDOWS,
+                "tint_window_s": TINT_WINDOW_S, "tint_pair_gap": TINT_PAIR_GAP, "tint_move_px": TINT_MOVE_PX,
+                "tint_max_pairs": TINT_MAX_PAIRS, "tint_min": TINT_MIN, "tint_icon_px": TINT_ICON_PX,
+                "clove_scan_ms": CLOVE_SCAN_MS,
+                "tint_calibration_version": TCAL.get("version")})}
 
 
 if __name__ == "__main__":
