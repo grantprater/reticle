@@ -848,6 +848,65 @@ large circle round a black ability icon, at bfad2778a372 1682.250 s and
 (c40d950031bb 205.500 s). At bfad2778a372 618.133 s the self icon casts no
 drawn light. Not wired.
 
+### The drawn areas and the raised edges
+
+The player named three of those cells: the lit square at 5822b6646448
+1901.083 s is two Sonic Sensors, and the circles at bfad2778a372 and
+223d636bf8d2 are Chamber's Trademarks. `prototypes/drawn_areas.py` measured
+each ability on its own instances, from the crop cache and baked geometry.
+
+- **Sonic Sensor**: an axis-aligned square with the icon on the midpoint of
+  one side, e.g.
+  [metric:drawn_areas/sonic_sensor_94_182@a06f04a0059f#w=26.0] by
+  [metric:drawn_areas/sonic_sensor_94_182@a06f04a0059f#h=29.0] px, a flat tint
+  of alpha
+  [metric:drawn_areas/sonic_sensor_94_182@a06f04a0059f#alpha_interior_floor=0.168]
+  with no brighter rim
+  [metric:drawn_areas/sonic_sensor_94_182@a06f04a0059f#alpha_rim_floor=0.196]
+  [domain:abilities/deadlock-sonic-sensor-minimap-white-area].
+- **Trademark**: a circle centred on the icon, rim alpha
+  [metric:drawn_areas/trademark_82_234@bfad2778a372#alpha_rim_floor=0.428],
+  interior
+  [metric:drawn_areas/trademark_82_234@bfad2778a372#alpha_interior_floor=0.13].
+  Its radius follows the map's zoom:
+  [metric:drawn_areas/trademark_82_234@bfad2778a372#r_scale1=30.7] px at
+  scale 1 on Split,
+  [metric:drawn_areas/trademark_204_144@9acf02f98283#r_scale1=27.2] on Ascent
+  [domain:abilities/chamber-trademark-minimap-white-area].
+- **Neither lights the floor.** Over a minute round each instance, a cone
+  crossing the area lifts the floor inside by a median
+  [metric:drawn_areas/trademark_82_234@bfad2778a372#cone_interior_excess=40.2]
+  levels against
+  [metric:drawn_areas/trademark_82_234@bfad2778a372#cone_outer_excess=40.0]
+  outside; floor already drawn lit could not rise. The renderer should draw
+  both as tints over whatever lighting state the floor has, as 0.5.0 does for
+  the audio circle. `team_vision`'s lighting reference learned the bfad
+  Trademark's tint as lit floor, so its lit-position of
+  [metric:drawn_areas/trademark_82_234@bfad2778a372#interior_lit_position=1.02]
+  there is contamination, not light.
+- **Detector** (minimap only; not wired): a dark icon disc, a glyph matching a
+  template mined from another session, then the ability's area. On ten
+  frames across each measured run it finds
+  [metric:drawn_areas/detect_sonic_sensor@named-instances#recall=0.95] of
+  sensors and
+  [metric:drawn_areas/detect_trademark@named-instances#recall=0.875] of
+  Trademarks, with
+  [metric:drawn_areas/detect_trademark@named-instances#false_on_negatives=0]
+  detections on 120 frames of four sessions whose lineup holds neither agent.
+  The Trademark stages were revised after the Sunset and Ascent instances
+  missed, so those two runs are not held out.
+
+The player's rule for lines [domain:minimap/raised-edge-lines]:
+`prototypes/raised_edges.py` splits Ascent's baked lines by what lies
+directly beyond each. On the 465 px key
+[metric:raised_edges/classify@ascent__valorant-16x9-bigmap#raised_share=0.2257]
+of line pixels are raised edges and
+[metric:raised_edges/classify@ascent__valorant-16x9-bigmap#places_agree=4]
+of 4 named places agree. The occluders treat all of them as walls, so a cone
+drawn across a ramp's line stops short in the render and leaves lit floor
+unexplained beyond it. Heaven candidates come from the shade rungs, not the
+lines. The occluder change is proposed, not made.
+
 ## What this plan does not settle
 
 - The draw order between icons is fitted, not known; stage 1 does not
