@@ -1756,6 +1756,105 @@ the light 0.4.0's ally precision falls below 0.5.0's on both sessions. The
 self-gate prediction held: removing the gate raises self recall and moves
 team precision by under 0.03.
 
+## E12: the icon and the light as two witnesses of one facing
+
+The player (2026-09-29), on E11: the vision cone was meant to inform the ally
+icon's orientation, and the orientation the cone. Task
+`facing-fusion-20260929`; the constants and predictions F1-F6 were logged in
+the store's `notes/predictions.jsonl` before any label was scored.
+`prototypes/facing_fusion.py` (`facing-fusion-0.1.0`, not wired) recomputes
+every reader from the crop cache at the labelled frames; the owner's teardrop
+matches the stored readings on all three sets.
+
+**The rule.** The prior is the icon's own readers: the teardrop's NCC at every
+5-degree facing about its centre, 20 nats per unit NCC, and the tip highlight
+as a von Mises of 12 degrees with 15% outlier mass. The evidence is the drawn
+light joined to the icon, with every team icon's footprint disc, the cones
+the neighbours cast along their own teardrop facings, and light nearer an
+unread neighbour all excluded; each cone is raycast to the geometry's walls
+and boxes, split into 12 sectors, and each sector's lit share enters as a
+Bernoulli log-likelihood ratio (0.6 lit against 0.2 background), tempered by
+a third. The fusion flips the teardrop's lobe only where the posterior holds
+more than half its mass on the far side, and keeps the teardrop's angle
+otherwise. Each item stores its lobe log-odds per witness, every witness
+disagreement and `rests_on` (the store's `analysis/facing-fusion-20260929/`).
+
+| label set | teardrop median / flipped | highlight median / flipped | fusion median / flipped | fusion fixed / broken |
+|---|---|---|---|---|
+| allies, 465 px | [metric:facing_fusion_eval/labels-465@5822b6646448+a06f04a0059f#ally_teardrop_median_abs_deg=2.485] / [metric:facing_fusion_eval/labels-465@5822b6646448+a06f04a0059f#ally_teardrop_flip=0.0] | [metric:facing_fusion_eval/labels-465@5822b6646448+a06f04a0059f#ally_highlight_median_abs_deg=7.217] / [metric:facing_fusion_eval/labels-465@5822b6646448+a06f04a0059f#ally_highlight_flip=0.0] | [metric:facing_fusion_eval/labels-465@5822b6646448+a06f04a0059f#ally_fusion_median_abs_deg=2.485] / [metric:facing_fusion_eval/labels-465@5822b6646448+a06f04a0059f#ally_fusion_flip=0.0] | [metric:facing_fusion_eval/labels-465@5822b6646448+a06f04a0059f#ally_fusion_fixed=0] / [metric:facing_fusion_eval/labels-465@5822b6646448+a06f04a0059f#ally_fusion_broken=0] |
+| self, Lotus | [metric:facing_fusion_eval/self@5822b6646448+controls#lotus_teardrop_median_abs_deg=2.2325] / [metric:facing_fusion_eval/self@5822b6646448+controls#lotus_teardrop_flip=0.0714] | [metric:facing_fusion_eval/self@5822b6646448+controls#lotus_highlight_median_abs_deg=6.9486] / [metric:facing_fusion_eval/self@5822b6646448+controls#lotus_highlight_flip=0.0] | [metric:facing_fusion_eval/self@5822b6646448+controls#lotus_fusion_median_abs_deg=2.1875] / [metric:facing_fusion_eval/self@5822b6646448+controls#lotus_fusion_flip=0.0357] | [metric:facing_fusion_eval/self@5822b6646448+controls#lotus_fusion_fixed=1] / [metric:facing_fusion_eval/self@5822b6646448+controls#lotus_fusion_broken=0] |
+| self, Ascent controls | [metric:facing_fusion_eval/self@5822b6646448+controls#control_teardrop_median_abs_deg=1.82] / [metric:facing_fusion_eval/self@5822b6646448+controls#control_teardrop_flip=0.0] | [metric:facing_fusion_eval/self@5822b6646448+controls#control_highlight_median_abs_deg=4.0305] / [metric:facing_fusion_eval/self@5822b6646448+controls#control_highlight_flip=0.0] | [metric:facing_fusion_eval/self@5822b6646448+controls#control_fusion_median_abs_deg=1.82] / [metric:facing_fusion_eval/self@5822b6646448+controls#control_fusion_flip=0.0] | [metric:facing_fusion_eval/self@5822b6646448+controls#control_fusion_fixed=0] / [metric:facing_fusion_eval/self@5822b6646448+controls#control_fusion_broken=0] |
+| allies, 331 px | [metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#teardrop_median_abs_deg=4.6025] / [metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#teardrop_flip=0.0789] | [metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#highlight_median_abs_deg=7.2401] / [metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#highlight_flip=0.0526] | [metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#fusion_median_abs_deg=4.6025] / [metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#fusion_flip=0.0526] | [metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#fusion_fixed=1] / [metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#fusion_broken=0] |
+
+The fusion fixes two of the teardrop's five flips and breaks none of the
+correct reads. Each fix has one witness: on Lotus the highlight (the prior
+alone fixes it, [metric:facing_fusion_eval/self@5822b6646448+controls#lotus_prior_fixed=1]),
+at 331 px the light (teardrop and light alone fix it,
+[metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#fusion_nohl_fixed=1]).
+The light alone on the teardrop's axis fixes all
+[metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#light_lobe_fixed=3]
+331 px flips but breaks
+[metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#light_lobe_broken=3]
+correct reads there and
+[metric:facing_fusion_eval/labels-465@5822b6646448+a06f04a0059f#ally_light_lobe_broken=3]
+at 465 px; E10's chooser, which counts the icon's own pixels, breaks
+[metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#light_lobe_raw_broken=10]
+at 331 px. So the prior is what makes the light safe to use, and the
+exclusions are what make it worth using at 331 px; at 465 px the old chooser
+breaks only [metric:facing_fusion_eval/labels-465@5822b6646448+a06f04a0059f#ally_light_lobe_raw_broken=1].
+Where the excluded light carries evidence it picks the labelled lobe on
+[metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#light_lobe_with_evidence_right=31]
+of [metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#light_lobe_with_evidence_n=36]
+331 px items; the old chooser, on
+[metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#light_lobe_raw_right=28]
+of [metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#light_lobe_raw_n=38].
+
+**Why the other three flips stay.** The sheets (`sheet_331.png`,
+`sheet_self.png` there) and `items.json` show all three beside teammates.
+On Lotus at 2027.4 s and on 223d636bf8d2 at 202.0 s the light along the label
+does not join the icon: the neighbours' footprint discs and predicted cones
+cut it off, so the rule scores it neither lit nor dark (at 202.0 s the
+reverse cone keeps no comparable pixel). On c40d950031bb at 783.9 s the
+reverse cone reads 42% lit, near the rule's break-even, and the highlight
+sides with the flipped teardrop, since a neighbour's rim lends it a tip. A
+full-weight light
+(temper 1, post hoc) fixes the second Lotus flip
+([metric:facing_fusion_eval/self-posthoc-t1@5822b6646448+controls#lotus_fusion_fixed=2])
+and none more at 331 px
+([metric:facing_fusion_eval/labels-331-posthoc-t1@c40d950031bb+223d636bf8d2#fusion_fixed=1]),
+still breaking nothing; the weight does not limit the 331 px set, the stacks do.
+Moving the angle within the kept lobe (`fusion_adjust`) helps at 465 px
+([metric:facing_fusion_eval/labels-465@5822b6646448+a06f04a0059f#ally_fusion_adjust_median_abs_deg=1.5582])
+and hurts at 331 px
+([metric:facing_fusion_eval/labels-331@c40d950031bb+223d636bf8d2#fusion_adjust_median_abs_deg=5.7378]),
+so the rule keeps the teardrop's angle.
+
+**The other direction, measured.** On the 100 labelled frames the team's
+cones, cast along the fused facings, leave
+[metric:facing_fusion_eval/missing-cones@223d636bf8d2+5822b6646448+a06f04a0059f+c40d950031bb+e78e75b2d191#missing_unexplained=82841]
+of [metric:facing_fusion_eval/missing-cones@223d636bf8d2+5822b6646448+a06f04a0059f+c40d950031bb+e78e75b2d191#missing_joined=217340]
+joined lit pixels unexplained. Of the blobs of 20 px or more, those nearest an
+icon without a facing hold
+[metric:facing_fusion_eval/missing-cones@223d636bf8d2+5822b6646448+a06f04a0059f+c40d950031bb+e78e75b2d191#missing_px_unfaced=7565]
+px, against
+[metric:facing_fusion_eval/missing-cones@223d636bf8d2+5822b6646448+a06f04a0059f+c40d950031bb+e78e75b2d191#missing_px_faced=69805]
+beside faced icons: missing cones explain little. Most unexplained light
+lies beside a cone already cast: the geometry's walls cut it short, or a box
+it looks over.
+
+**Against the predictions.** F1 failed: one of three 331 px flips fixed,
+none broken. F2 held. F3 held. F4 held: the fusion's median moves under
+1 degree on every set. F5 held pooled (the excluded light right on 84 of 94
+items with evidence, the old chooser on 83 of 97) but not at 465 px, where
+the old chooser picks better. F6 failed: about a tenth, not a quarter.
+
+**Should it be wired?** Not yet. It never did worse than the teardrop on 97
+labelled reads, but two fixes on five flips is too little evidence to
+change `team-vision-0.5.0`. The fusion also costs 73 raycasts per icon per
+frame. The 331 px set was drawn where the old light disagreed with the
+teardrop, and the test the rule needs is stacks. Labels drawn by teardrop
+margin, stacked or not, with no light in the draw, would settle it.
+
 ## What this plan does not settle
 
 - The half-angle's interval is wide: E4's flat tops run from about 48 to 58
@@ -1773,6 +1872,9 @@ team precision by under 0.03.
   teardrop reads less, as on c40d950031bb. The ring fit's ally cones scored
   more precise than the teardrop's there only because the light chose
   their lobe (E11).
+- E12's fusion rests on five teardrop flips over 97 labelled reads; its
+  constants were set once, before scoring, and never fitted. Stacks are
+  where it fails, and no label set is drawn to test them.
 - No label scores the self teardrop at 331 px; E11's witness supports the
   0.6 self gate and names 0.55 as the candidate labels would test.
 - Wall edges (`BORDER`) were not perturbed; only box edges were.
