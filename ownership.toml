@@ -614,16 +614,18 @@ owner = "teardrop"
 role = ["detect"]
 status = "partial"
 produces = ["fit_teardrop", "SelfConeReader", "yellowness", "render", "MIN_NCC",
-            "SELF_FACING_MIN_NCC", "LABELLED_SCALES", "labelled_scale", "self_portrait_pose"]
+            "SELF_FACING_MIN_NCC", "SELF_FACING_GATES", "self_facing_gate", "LABELLED_SCALES",
+            "labelled_scale", "self_portrait_pose"]
 not_for = """
 Finding the player's icon and the L1 self position (`self-position`, the ring
 fit that seeds this one) and which agent the player is (`player-agent`). It
 reads one frame's teardrop and holds no bearing across frames: an unread
-teardrop returns the ring fit's centre and no facing, and on a widget size
-the labels do not cover a read under `SELF_FACING_MIN_NCC` returns its centre
+teardrop returns the ring fit's centre and no facing, and a read under its
+widget size's facing gate (`self_facing_gate`: 0.55 at 331 px, none at
+465 px, `SELF_FACING_MIN_NCC` on a size no labels cover) returns its centre
 and no facing, each with the reason; the consumer then casts no cone. The
 facing is scored against 28 Lotus labels and 8 Ascent controls at 465 px
-only; at 331 px most self reads fall under the facing gate.
+and 37 labels on four 331 px sessions (E13).
 """
 consumers = ["team_vision", "self_icon", "minimap", "tiers"]
 evidence = "tests/test_teardrop.py, prototypes/vision_origin_eval.py, docs/STATISTICAL_ADJUDICATOR.md (E3, E4)"

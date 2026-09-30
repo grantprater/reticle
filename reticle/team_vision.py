@@ -32,7 +32,7 @@ ELIGIBLE cones (the adjudicated vision), and `observable_all`, the union of
 every tracked bearing (what `overlay` tints without `--minimap-lifecycle`).
 A stale or absent widget stores no mask and says which.
 
-**Every cone from the teardrop (0.2.0, 0.3.0, 0.5.0).** The ring fit finds each
+**Every cone from the teardrop (0.2.0, 0.3.0, 0.5.0, 0.6.0).** The ring fit finds each
 icon; the teardrop reads its centre and facing (`teardrop.SelfConeReader`
 for the player, `teardrop.IconPoseReader` for teammates, scaled by
 `minimap.widget_scale`), and the tracker, the lifecycle and every cone take
@@ -44,9 +44,11 @@ about half of the icons the player labelled, self and ally alike, the
 teardrop's on almost none (E6). A cone observed this frame faces this
 frame's teardrop facing, not the track's windowed mean. Where the teardrop
 is unread (`low_ncc`, `ambiguous_facing`, `no_key`), or reads the self icon
-under `teardrop.SELF_FACING_MIN_NCC` on a widget size the facing labels do
-not cover (`facing_reason` `low_ncc_unlabelled_scale`: most self reads on a
-331 px widget), the icon casts no cone: `RING_FALLBACK` is off, and with it
+under its widget size's facing gate (`teardrop.self_facing_gate`: NCC 0.55
+on a 331 px widget, where the player's labels set it, `facing_reason`
+`low_ncc_labelled_gate`; `teardrop.SELF_FACING_MIN_NCC` on a size no labels
+cover, `low_ncc_unlabelled_scale`; none at 465 px), the icon casts no cone:
+`RING_FALLBACK` is off, and with it
 on the icon would keep the
 ring fit's facing, the light would resolve its lobe (`cone.resolve_lobe`,
 which a teardrop facing never enters) and the cone would face the track's

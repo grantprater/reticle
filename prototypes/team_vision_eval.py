@@ -304,7 +304,7 @@ def apply_variant(name: str) -> None:
             return out
         tv._resolve_fallback = every_lobe
     elif name == "no-self-gate":
-        teardrop.labelled_scale = lambda scale: True
+        teardrop.self_facing_gate = lambda scale: (None, "")
     else:
         raise SystemExit(f"unknown variant {name!r}")
 

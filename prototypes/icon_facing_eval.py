@@ -81,7 +81,11 @@ import icon_teardrop as it_  # noqa: E402
 import label_icon_facing as lif  # noqa: E402
 
 # 0.3.0: the `wired` reader, what the wired consumers cast per frame.
-VERSION = "icon-facing-eval-0.3.0"
+# 0.3.1: the 331 px enemy and self records also carry the answer counts per
+# group and the self teardrop per NCC band and session; no reading changed.
+# 0.3.2: the self record's gate fields drop the decimal point (`gate_055_*`),
+# so a document's metric token can name them.
+VERSION = "icon-facing-eval-0.3.2"
 ELSEWHERE_PX = 8.0
 MATCH_PX = 3.0
 READERS = ("teardrop", "ring", "ring_lobe", "wired")
@@ -494,6 +498,11 @@ def record_e331(res: dict) -> None:
             for k in ("median_abs_deg", "flip", "within10", "within20", "median_signed_deg"):
                 if k in v:
                     values[f"{name}_{g}_{k}"] = round(v[k], 3)
+    # Answer counts per group: which kinds of candidate the player called icons.
+    for by, d in res["answers_by"].items():
+        for k, a in d.items():
+            for ans, n in a.items():
+                values[f"answers_{by}_{k}_{ans}"] = n
     metrics.record("icon_facing_eval", part="labels-enemy-331", session="+".join(lif.E331_SESSIONS),
                    values=values, deps={"prototype": VERSION, "labels": Path(res["labels"]).name,
                                         "manifest": lif.VERSION_E331, "elsewhere_px": ELSEWHERE_331_PX})
@@ -569,6 +578,12 @@ def score_s331(rows: list[dict], n_items: int, gates=(0.55, 0.6)) -> dict:
     for name in READERS_S331:
         out["readers"][name] = {g: summary([r[f"{name}_err"] for r in sub if f"{name}_err" in r])
                                 for g, sub in groups.items()}
+    # The teardrop per NCC band and session, a few items each.
+    out["band_session"] = {f"{b}_{sid}": summary([r["teardrop_err"] for r in here
+                                                  if r["stratum"] == b and r["session"] == sid
+                                                  and "teardrop_err" in r])
+                           for b in sorted({r["stratum"] for r in here})
+                           for sid in sorted({r["session"] for r in here})}
     for g in gates:
         adm = [r for r in here if r["ncc"] is not None and r["ncc"] >= g]
         d = summary([r["teardrop_err"] for r in adm if "teardrop_err" in r])
@@ -613,7 +628,15 @@ def record_s331(res: dict) -> None:
     for g, v in res["gates"].items():
         for k in ("n", "median_abs_deg", "flip", "admitted_share"):
             if k in v:
-                values[f"gate_{g}_{k}"] = round(v[k], 3) if isinstance(v[k], float) else v[k]
+                values[f"gate_{g.replace('.', '')}_{k}"] = round(v[k], 3) if isinstance(v[k], float) else v[k]
+    for st, a in res["by_stratum_answers"].items():
+        for ans, n in a.items():
+            values[f"answers_{st}_{ans}"] = n
+    for g, v in res["band_session"].items():
+        values[f"teardrop_{g}_n"] = v["n"]
+        for k in ("median_abs_deg", "flip"):
+            if k in v:
+                values[f"teardrop_{g}_{k}"] = round(v[k], 3)
     metrics.record("icon_facing_eval", part="labels-self-331", session="+".join(lif.S331_SESSIONS),
                    values=values, deps={"prototype": VERSION, "labels": Path(res["labels"]).name,
                                         "manifest": lif.VERSION_S331, "elsewhere_px": ELSEWHERE_331_PX})
