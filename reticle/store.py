@@ -30,6 +30,7 @@ from .roster import N_SLOTS
 from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, ROSTER_VERSION,
                       ROSTER_SPLIT_VERSION, ROUND_VERSION, SCHEMA_VERSION, SEGMENTER_VERSION)
 from .events import validate_event_rows, EVENTS_VERSION
+from .entity_contract import is_entity_stream, validate_lane
 from .candidate_evidence import (CANDIDATE_CONTRACT_VERSION, revision,
                                  validate_candidates, validate_decisions)
 
@@ -801,10 +802,18 @@ class Store:
         with nothing to say which is current.
 
         Validates every row against the unified event contract (events.py).
+        An `entity_*` stream is an entity lane and is validated against
+        `entity_contract` instead: a lane with any rejected row is not written.
         """
+        if is_entity_stream(kind):
+            errors = validate_lane(kind, rows)
+            if errors:
+                msg = "\n".join(f"  row {i}: {err}" for i, err in errors[:10])
+                raise ValueError(f"entity lane validation failed for {kind}/{session_id} "
+                                 f"({len(errors)} errors):\n{msg}")
+            stamped = rows
         # If the stream contains formal events, validate against contract
-        is_formal_events = any("event_kind" in r for r in rows)
-        if is_formal_events:
+        elif any("event_kind" in r for r in rows):
             errors = validate_event_rows(rows)
             if errors:
                 msg = "\n".join(f"  row {i}: {err}" for i, err in errors[:10])

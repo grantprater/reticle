@@ -213,9 +213,10 @@ waits_for = "A stacked-icon label set to decide stage 1, and the player's review
 [[document]]
 path = "docs/ENTITY_EVENTS.md"
 kind = "plan"
-status = "proposed"
+status = "partial"
 since = "2026-09-30"
-remains = "Everything: stage 0 (the contract, its validator and the CONSUMER check), stage 1 (lanes round_entity, death and spike on bfad2778a372 with the round viewer), then players and bindings, consumer migration, the owner gaps and the debt target."
+implemented_by = ["reticle/entity_contract.py", "owns:entity-event"]
+remains = "Stage 0 is done (the contract, its validator and the CONSUMER check). Stage 1 (lanes round_entity, death and spike on bfad2778a372 with the round viewer, ending the viewer's CONSUMER exemptions), then players and bindings, consumer migration, the owner gaps and the debt target."
 waits_for = "The player's review of the plan as amended by his answers of 2026-09-30, and what an unobserved object of each remaining family shows."
 
 [[document]]

@@ -661,7 +661,11 @@ the player's tray-object marks on 8 panels of 6 casts: one mark on the bolt
 and the rest on the ring round it, 27-97 px from the stored self position;
 the player, 2026-09-26, asked whether the ring is the whole reveal: the ring
 is the range, the scan itself does not pass through walls, and the revealed
-enemies are shown through walls to everyone on Sova's team.
+enemies are shown through walls to everyone on Sova's team. Observed
+instance: the player, 2026-09-30, named the large teal circle round the
+A-site stack at 223d636bf8d2 944.0 s
+(C:/Users/grant/Videos/2026-08-23 20-09-01.mp4) the ring round Sova's
+just-cast Recon Bolt dart.
 """
 use = """
 the free ring of `ability_shapes`: the bolt flies, so search the whole widget;

@@ -34,7 +34,7 @@ claim = "no siblings above the language and the store's own vocabulary"
 modules = ["version", "profiles", "fingerprint", "metrics", "usage", "judgement",
            "domain", "architecture", "ownership", "quoted", "screen",
            "appearance", "artifacts", "revisions", "census", "events",
-           "candidate_evidence", "documents"]
+           "candidate_evidence", "documents", "entity_contract"]
 
 [source]
 claim = "identity, decode, persistence, and the baked (map, profile) geometry"
@@ -75,11 +75,53 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
 claim = "lifecycle events, compound episodes, review and coaching hypotheses"
 modules = ["ability_capture", "ability_entities", "ability_gallery", "round_entities",
            "ability_phases", "coaching", "review", "overlay", "team_vision", "status",
-           "fidelity", "doctor", "plan"]
+           "fidelity", "doctor", "plan", "entity_events"]
 
 [consumers]
 claim = "read only emitted events and stored rounds; call no reader, tracker or adjudicator, and decide nothing"
 modules = ["view_events", "round_view"]
+# The CONSUMER check (`architecture.verify_consumers`, docs/ENTITY_EVENTS.md
+# section 4). `modules` above are the declared consumers; `review` may call
+# `ledger`, as the round viewer does to draw withheld rows apart in amber.
+review = ["view_events", "round_view"]
+read_through = "entity_events"
+forbidden_layers = ["primitives", "readers", "orchestration", "adjudication"]
+forbidden_calls = ["read_events", "read_events_kind", "read_hud", "read_minimap",
+                   "read_rounds", "read_roster", "read_primitives", "read_spans",
+                   "read_candidates", "read_candidate_batch", "read_decisions",
+                   "events_path", "read_table", "read_parquet", "ParquetFile",
+                   "ParquetDataset"]
+forbidden_imports = ["pyarrow.parquet", "duckdb"]
+
+# Transitional exemptions. Stage 0 declares the viewer with the check, and the
+# viewer predates both: `view_events` is the stream loader the plan replaces,
+# and it reads `events/` and the round table itself. Each exemption names one
+# use, so any NEW use in the viewer fails today; each ends at stage 1, when
+# the viewer reads the lanes through `entity_events`.
+[[consumers.exemption]]
+module = "view_events"
+uses = "call:events_path"
+since = "2026-09-30"
+until = "stage 1 of docs/ENTITY_EVENTS.md"
+reason = "`read_rows` opens each stream's events file; stage 1 reads the lanes through `entity_events`."
+
+[[consumers.exemption]]
+module = "view_events"
+uses = "call:read_rounds"
+since = "2026-09-30"
+until = "stage 1 of docs/ENTITY_EVENTS.md"
+reason = "`session_rounds` reads the round table; stage 1 reads rounds through `EntityEvents.rounds`."
+
+[[consumers.exemption]]
+module = "round_view"
+uses = "import:widget_frame"
+since = "2026-09-30"
+until = "stage 1 of docs/ENTITY_EVENTS.md"
+reason = """
+`capture_box` and `is_variant` place the baked widget frame in the capture to
+crop the video beside the drawing. The transform belongs to `geometry` (gap 5)
+or to the lane's declared frame; stage 1 moves the call there.
+"""
 
 [delivery]
 claim = "the command surface, and nothing else may import it"
