@@ -419,6 +419,120 @@ Wingman glyph stays too. On the sample one kept Ascent enemy fit becomes a
 death mark, and the sheet shows a live enemy icon. C1 and C3 passed, C2
 failed. Every part stays `"wire": "no"`.
 
+## Stage 2 on the current readers, and the enemy lane
+
+`prototypes/enemy_lane_score.py` (enemy-lane-score-0.1.0; task
+`enemy-lane-score-20260930` in the store's `notes/predictions.jsonl`, one
+prediction row per part, each logged before its run) reruns stage 2 at
+465 px on teardrop-0.4.0 and scores the enemy lane. It reads the crop cache
+and stored streams only. Geometry comes through `reticle/geometry.py`; every
+run read `built_by` 1ddd7c86… and `occ_built_by` 7135c737…, and no detector
+here reads the occluder table. The Ascent npz was rewritten during the X run
+with the same stamps; the loader reads each npz once, and the ring mode
+reproduced stage 2 exactly. Mode `ring` keeps every ring-fit find at its
+centre (stage 2's detector); mode `teardrop` keeps only finds the teardrop
+reads, at the teardrop's centre.
+
+**X.** The label counts do not move in either mode (the shape test reads no
+enemy class): still
+[metric:enemy_lane_score/x-labels-teardrop@5822b6646448+a06f04a0059f+c62c2b06bcfb#minimap_enemy_x=5]
+enemy marks and
+[metric:enemy_lane_score/x-labels-teardrop@5822b6646448+a06f04a0059f+c62c2b06bcfb#minimap_other_red_x=194]
+other-red marks called X. Ally deaths place as before. With the teardrop's
+enemy list, enemy deaths on 5822b6646448 place at
+[metric:enemy_lane_score/x-deaths-teardrop@5822b6646448#enemy_placed_frac=0.291]
+against
+[metric:enemy_lane_score/x-deaths-ring@5822b6646448#enemy_placed_frac=0.266];
+a06f04a0059f stays at
+[metric:enemy_lane_score/x-deaths-teardrop@a06f04a0059f#enemy_placed_frac=0.323].
+XR1-XR3 held.
+
+**"?".** The ring mode reproduces
+[metric:enemy_lane_score/question-ring@5822b6646448+a06f04a0059f#question_witness=70]
+of 82. The teardrop mode finds
+[metric:enemy_lane_score/question-teardrop@5822b6646448+a06f04a0059f#question_witness=72],
+calls
+[metric:enemy_lane_score/question-teardrop@5822b6646448+a06f04a0059f#enemy_witness=17]
+of 284 enemy marks "?" (up from 12: an icon the teardrop refuses leaves its
+red to the "?" test), and cuts other-red calls from
+[metric:enemy_lane_score/question-ring@5822b6646448+a06f04a0059f#other_red_witness=36]
+to
+[metric:enemy_lane_score/question-teardrop@5822b6646448+a06f04a0059f#other_red_witness=15]
+and unmarked candidates from
+[metric:enemy_lane_score/question-ring@5822b6646448+a06f04a0059f#candidates_labels_unmarked=46]
+to
+[metric:enemy_lane_score/question-teardrop@5822b6646448+a06f04a0059f#candidates_labels_unmarked=14].
+QR1-QR3 held.
+
+**The enemy proposal.** The ring fit proposes
+[metric:enemy_lane_score/proposal@5822b6646448+a06f04a0059f#enemy_ring=225]
+of 284 enemy marks, and the teardrop reads
+[metric:enemy_lane_score/proposal@5822b6646448+a06f04a0059f#enemy_read=193]
+of them; it refuses the rest mostly as `ambiguous_facing`
+([metric:enemy_lane_score/proposal@5822b6646448+a06f04a0059f#enemy_refused_ambiguous_facing=21]),
+a facing refusal the teardrop mode drops although the icon is real. On
+other-red marks it reads
+[metric:enemy_lane_score/proposal@5822b6646448+a06f04a0059f#other_red_read=5]
+of 50 ring finds (refusals mostly `low_ncc`), and it reads none of the
+[metric:enemy_lane_score/proposal@5822b6646448+a06f04a0059f#question_ring=4]
+ring finds on "?" marks. EP1-EP4 held.
+
+**Enemy identity.** The ally path, unchanged, names enemy icons:
+`ally_portrait` features on the teal-and-self-excluding key,
+`claims_from_ally_icons(side="enemy")` with the lineup's enemy five as the
+gallery, and `adjudication.identity` deciding every name. The one change to
+`reticle/` is that `side` argument; the ally default is unchanged. On
+a06f04a0059f, whose lineup names all five enemies, the arbiter names
+[metric:enemy_lane_score/identity@a06f04a0059f#player_enemy_teal_self_named=70]
+of the
+[metric:enemy_lane_score/identity@a06f04a0059f#player_enemy_proposed=70]
+proposed player-labelled enemy marks, and
+[metric:enemy_lane_score/identity@a06f04a0059f#player_enemy_teal_self_right=70]
+match the player's agent. No claim is refused; the eight unnamed marks
+carry no ring-fit proposal. A red-only key refuses one on
+`margin_below_gate`. The
+[metric:enemy_lane_score/identity@a06f04a0059f#provisional_rows=71]
+provisional rows are counted apart and none is an enemy mark. The perfect
+score prompted controls, logged before they ran (IC1-IC3): the 29-agent
+argmax is also right on
+[metric:enemy_lane_score/identity@a06f04a0059f#player_enemy_all29_right=70],
+so on this match the five-agent prior adds nothing measurable (IC1 failed).
+A decoy gallery (a Lotus enemy five) still names
+[metric:enemy_lane_score/identity@a06f04a0059f#player_enemy_decoy_named=20]
+icons, wrongly on 13, so the margin gate does not guard against a wrong
+gallery (IC2 failed low; IC3 held: the decoy's median fit is
+[metric:enemy_lane_score/identity@a06f04a0059f#player_enemy_decoy_fit_median=1.34365]
+against
+[metric:enemy_lane_score/identity@a06f04a0059f#player_enemy_fit_median=0.52555]).
+Two "?" rows carry a proposal and are named; one names the player's agent
+(ID4 failed). One match, one map: this is a consistency result, not an
+accuracy figure for 331 px.
+
+**Lineup coverage.** Every stored lineup, read through `load_lineup` with the
+scoreboard constraint, names the enemy five with no blind slot:
+[metric:enemy_lane_score/lineups@store#enemy_five_named=21] of
+[metric:enemy_lane_score/lineups@store#lineups=21], the same as the ally
+side. The lineup files alone name the enemy five on only
+[metric:enemy_lane_score/lineups@store#enemy_five_named_in_file=2] and the
+ally five on [metric:enemy_lane_score/lineups@store#ally_five_named_in_file=6];
+the constraint resolves the rest. An enemy gallery therefore exists on every
+session, but only through `load_lineup`. LC1 and LC2 held; LC3 failed after
+the constraint.
+
+**The 331 px queue.** `labels/enemy_lane_331_20260930/` holds a fixed-seed
+sample (40 frames each on c40d950031bb, 223d636bf8d2 and bfad2778a372; 212
+red opportunities), the prototypes' calls frozen in `calls.json` before any
+answer, and a 60-item queue: 12 uniform over opportunities, then 12 each of
+the enemy, X, "?" and other-red calls. Predictions QF1-QF5 are logged. The
+player answers class and, for an enemy icon, the agent from the enemy five:
+
+```powershell
+.\.venv\Scripts\python.exe prototypes\label_enemy_lane_331.py
+```
+
+`enemy_lane_score.py --score331 --record` scores the answers by stratum.
+Every part stays `"wire": "no"`.
+
 ## The label plan
 
 The labelling-pass skill governs every pass below: blank start, `U` for
