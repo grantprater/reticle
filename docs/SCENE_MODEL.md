@@ -740,6 +740,114 @@ long does it last, what tint and shape does it have (the Sonic Sensor at
 e37fdeca944f 1795.08 s? What lights the floor no cone and no circle
 explains?
 
+### Where 0.5.0's unexplained light comes from
+
+`prototypes/light_diagnosis.py` (not wired) asks the question in three steps:
+the instrument first, then whether the light lags the pose, then one class per
+unexplained pixel. The player's rules bound the causes: the drawn light is
+binary, uniform and unlimited in range, stopping only at geometry or a
+light-stopping obstacle [domain:minimap/vision-light-binary], and it does not
+linger [domain:minimap/vision-trailing-persistence]. Predictions L1-L10 were
+logged first; their outcomes are in the store's `notes/predictions.jsonl`.
+
+**The instrument.** Certain-unlit floor is known floor at round start that no
+team icon's 360-degree cast reaches; certain-lit floor is the core of a
+confident teardrop's cone on unlabelled frames. The rule's per-pixel error:
+
+| Set | Frames | Pixels | Per-pixel wrong | Regions | Regions wrong by majority |
+|---|---|---|---|---|---|
+| lit, 331 px | [metric:light_diagnosis/instrument-lit-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#frames=29] | [metric:light_diagnosis/instrument-lit-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#px=4928] | [metric:light_diagnosis/instrument-lit-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#rule_wrong_share=0.1179] | [metric:light_diagnosis/instrument-lit-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#regions=46] | [metric:light_diagnosis/instrument-lit-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#region_wrong_share=0.1087] |
+| lit, 465 px | [metric:light_diagnosis/instrument-lit-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#frames=29] | [metric:light_diagnosis/instrument-lit-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#px=8699] | [metric:light_diagnosis/instrument-lit-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#rule_wrong_share=0.1214] | [metric:light_diagnosis/instrument-lit-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#regions=43] | [metric:light_diagnosis/instrument-lit-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#region_wrong_share=0.1628] |
+| unlit, 331 px | [metric:light_diagnosis/instrument-unlit-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#frames=33] | [metric:light_diagnosis/instrument-unlit-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#px=574201] | [metric:light_diagnosis/instrument-unlit-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#rule_wrong_share=0.066] | [metric:light_diagnosis/instrument-unlit-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#regions=364] | [metric:light_diagnosis/instrument-unlit-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#region_wrong_share=0.1319] |
+| unlit, 465 px | [metric:light_diagnosis/instrument-unlit-1.000@5822b6646448+a06f04a0059f#frames=18] | [metric:light_diagnosis/instrument-unlit-1.000@5822b6646448+a06f04a0059f#px=872397] | [metric:light_diagnosis/instrument-unlit-1.000@5822b6646448+a06f04a0059f#rule_wrong_share=0.0541] | [metric:light_diagnosis/instrument-unlit-1.000@5822b6646448+a06f04a0059f#regions=184] | [metric:light_diagnosis/instrument-unlit-1.000@5822b6646448+a06f04a0059f#region_wrong_share=0.087] |
+
+The logged stop rule (region error over 10%) fired on three sets. I checked
+the instrument before accepting it. Each set's five worst regions are wrong
+wholesale (85-100% of their pixels), not split as per-pixel noise would leave
+them, and at native size the pixels agree with the classifier: light passes a
+baked box outline in an ally's wedge (a06f04a0059f 626.000 s) and at a
+corridor's end (223d636bf8d2 605.500 s); the self's cone is not drawn at all
+(bfad2778a372 618.133 s); the model's cast crosses a wall the drawn light
+stops at (a06f04a0059f 1400.017 s). The certain sets rest on the model's own
+walls and poses, so these are truth-set errors. The classifier stands, with
+5-12% per-pixel error as an upper bound, and the causes were tested.
+
+**The lag.** For moving team icons, the light at frame t was compared with
+cones cast from the teardrop pose at t-2 .. t+2 (15 Hz). Of
+[metric:light_diagnosis/lag-moving-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#icons=34]
+icons,
+[metric:light_diagnosis/lag-moving-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#best_pos_n=19]
+fit a LATER pose best,
+[metric:light_diagnosis/lag-moving-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#best_neg_n=8]
+an earlier one and
+[metric:light_diagnosis/lag-moving-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#best_zero_n=7]
+the same frame; the median gain is
+[metric:light_diagnosis/lag-moving-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#gain_share_median=0.0381]
+of the union's pixels. Still icons fit the same frame on
+[metric:light_diagnosis/lag-still-1.000@5822b6646448+a06f04a0059f#best_0_share=0.5]
+of cases. The drawn light leads the teardrop read by one or two frames, or the
+teardrop icon draws late: weak (sign test p about 0.05), and kept apart from
+the classes below. L10 failed.
+
+**The classes.** Each unexplained pixel of the 180 rebuilt labelled scenes
+(every stored `unexplained_n` reproduced) and of 110 one-icon scenes on
+unlabelled frames takes the first class that holds. NOISE comes first: floor
+predicted unlit splits into cells bounded by the cone, the baked walls and
+every cause mask, and a binomial test with the instrument's rates decides
+each cell's one state; unexplained pixels in a cell decided unlit, or in one
+under 4 px (scale squared), are noise. The rest are coherent light.
+
+| Part | Scenes | Noise | Team vision | Utility | Occluder | of which boxes | Edge or range | Lingering | Residual |
+|---|---|---|---|---|---|---|---|---|---|
+| labelled, 331 px | [metric:light_diagnosis/classify-labelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#scenes=100] | [metric:light_diagnosis/classify-labelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#noise_share=0.5] | [metric:light_diagnosis/classify-labelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#team_vision_share=0.2137] | [metric:light_diagnosis/classify-labelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#utility_share=0.0094] | [metric:light_diagnosis/classify-labelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#occluder_share=0.2085] | [metric:light_diagnosis/classify-labelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#occluder_box_share=0.0278] | [metric:light_diagnosis/classify-labelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#edge_range_share=0.0045] | [metric:light_diagnosis/classify-labelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#lingering_share=0.021] | [metric:light_diagnosis/classify-labelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#residual_share=0.0428] |
+| labelled, 465 px | [metric:light_diagnosis/classify-labelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#scenes=80] | [metric:light_diagnosis/classify-labelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#noise_share=0.5775] | [metric:light_diagnosis/classify-labelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#team_vision_share=0.1767] | [metric:light_diagnosis/classify-labelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#utility_share=0.0098] | [metric:light_diagnosis/classify-labelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#occluder_share=0.2104] | [metric:light_diagnosis/classify-labelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#occluder_box_share=0.0674] | [metric:light_diagnosis/classify-labelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#edge_range_share=0.0083] | [metric:light_diagnosis/classify-labelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#lingering_share=0.0127] | [metric:light_diagnosis/classify-labelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#residual_share=0.0046] |
+| unlabelled, 331 px | [metric:light_diagnosis/classify-unlabelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#scenes=58] | [metric:light_diagnosis/classify-unlabelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#noise_share=0.4426] | [metric:light_diagnosis/classify-unlabelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#team_vision_share=0.2444] | [metric:light_diagnosis/classify-unlabelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#utility_share=0.0] | [metric:light_diagnosis/classify-unlabelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#occluder_share=0.1259] | [metric:light_diagnosis/classify-unlabelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#occluder_box_share=0.0233] | [metric:light_diagnosis/classify-unlabelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#edge_range_share=0.008] | [metric:light_diagnosis/classify-unlabelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#lingering_share=0.0623] | [metric:light_diagnosis/classify-unlabelled-0.712@223d636bf8d2+bfad2778a372+c40d950031bb+e37fdeca944f#residual_share=0.1168] |
+| unlabelled, 465 px | [metric:light_diagnosis/classify-unlabelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#scenes=52] | [metric:light_diagnosis/classify-unlabelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#noise_share=0.5105] | [metric:light_diagnosis/classify-unlabelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#team_vision_share=0.1972] | [metric:light_diagnosis/classify-unlabelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#utility_share=0.0] | [metric:light_diagnosis/classify-unlabelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#occluder_share=0.2037] | [metric:light_diagnosis/classify-unlabelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#occluder_box_share=0.051] | [metric:light_diagnosis/classify-unlabelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#edge_range_share=0.0089] | [metric:light_diagnosis/classify-unlabelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#lingering_share=0.0062] | [metric:light_diagnosis/classify-unlabelled-1.000@5822b6646448+a06f04a0059f+e78e75b2d191#residual_share=0.0735] |
+| pooled | [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#scenes=290] | [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#noise_share=0.5222] | [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#team_vision_share=0.2012] | [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#utility_share=0.0063] | [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#occluder_share=0.1964] | [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#occluder_box_share=0.0463] | [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#edge_range_share=0.0073] | [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#lingering_share=0.0209] | [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#residual_share=0.0457] |
+
+Read each class against the control (floor predicted unlit that reads unlit):
+
+- **Noise is half of it.** Most unexplained pixels are the reader's per-pixel
+  error inside cells whose state is unlit.
+- **Team vision** is the largest coherent class: `team_vision`'s stored cones
+  cover coherent light
+  [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#raw_team_vision_ratio=3.22]
+  times as often as the control. Its tracks place teammates the scene misses
+  or poses them differently, as in stacks.
+- **Occluders** split. Light past a baked box is enriched
+  [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#raw_box_ratio=7.26]
+  times. Light in a wedge past a baked wall is enriched only
+  [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#raw_wall_ratio=1.4]
+  times, so most of that class is residual in practice. The sheets show it as
+  thin strips along wall lines, as if the baked walls sit a pixel or two off
+  or a drawn line does not stop the light.
+- **Edge and range** explain almost nothing. The scene's range cap removes no
+  light, and the width holds: the lit share falls from
+  [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#edge_lit_0_5=0.2674]
+  within 5 degrees outside a wedge to
+  [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#edge_lit_20_40=0.1299]
+  at 20-40 degrees. That is the blurred edge, not a wider cone.
+- **Lingering** decays as a lag would: team vision's cones from the last
+  0.267 s cover coherent light
+  [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#linger_267ms_ratio=2.88]
+  times as often as the control, falling to
+  [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#linger_1000ms_ratio=1.46]
+  at 1 s and
+  [metric:light_diagnosis/classify-pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#linger_3000ms_ratio=1.13]
+  at 3 s. Those are another reader's poses at earlier frames, so the excess
+  does not show that light lingers.
+- **Utility** covers almost no floor: the store holds few spatial ability
+  observations [domain:abilities/ability-rules-are-unique].
+
+The twelve sheets `analysis/light-diagnosis-20260930/sheet_*.png` in the store
+show the largest coherent cells, at most two per session. Four are residual,
+and they are the player's questions: a lit square beside an ally and a
+black-and-white ability icon (5822b6646448 1901.083 s); lit floor inside a
+large circle round a black ability icon, at bfad2778a372 1682.250 s and
+223d636bf8d2 882.300 s; lit floor by a red X and a teal icon above a stack
+(c40d950031bb 205.500 s). At bfad2778a372 618.133 s the self icon casts no
+drawn light. Not wired.
+
 ## What this plan does not settle
 
 - The draw order between icons is fitted, not known; stage 1 does not

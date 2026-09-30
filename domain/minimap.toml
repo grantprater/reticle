@@ -185,16 +185,49 @@ UNMEASURED, three ways, and each is null with a reason rather than a guess: the
 duration; whether enemy-owned ABILITIES persist like enemy PLAYERS, the player's
 example being a player; and what the terminal state is -- a question mark, a
 different marker, or nothing. Whether the team's drawn LIGHT itself lingers
-after a cone sweeps away was asked on 2026-09-29 and is unanswered
+after a cone sweeps away was asked on 2026-09-29; the player answered on
+2026-09-30 that it does not: the drawn light follows each ally's position
+and orientation, the player assuming the two are meant to move together,
+with a minute lag possible. So the ENTITY lingers and the LIGHT does not
 """
 source = """
 the player, correcting the gate's exceptionless form. On 2026-09-29 (chat) the
 player placed here the delay before an enemy's "?": the icon stays drawn
 after the team's vision no longer covers its place, and the "?" follows
-(minimap/last-known-mark-timing measures the swap as one frame)
+(minimap/last-known-mark-timing measures the swap as one frame). On
+2026-09-30 (chat) the player answered whether the drawn light lingers
 """
 see = ["minimap/vision-gate", "minimap/last-known-mark", "minimap/last-known-mark-timing",
-       "minimap/dead-teammate-light-belief", "minimap/spike-casts-no-light-belief"]
+       "minimap/dead-teammate-light-belief", "minimap/spike-casts-no-light-belief",
+       "minimap/vision-light-binary"]
+
+[vision-light-binary]
+claim = """
+The team's drawn light on the minimap floor is binary and uniform. A cone
+lights the whole of its angular breadth evenly, never in patches, and reaches
+outwards without a range limit until it meets map geometry or a
+light-stopping obstacle, where it stops cleanly and evenly.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), unprompted"
+use = """
+a patchy lit/unlit pattern inside one region is the reader's noise, not the
+game's light: decide the floor state per region bounded by the cones' edge
+rays and the baked geometry, by fitting that shape rather than repairing
+pixels [domain:minimap/fit-not-repair]; a cone model with a range cap is
+wrong by this rule
+"""
+exceptions = """
+which abilities stop light is per ability and is not stated here
+[domain:abilities/ability-rules-are-unique]; the player says the light does
+not linger after a cone sweeps away, with a minute lag possible
+[domain:minimap/vision-trailing-persistence]
+"""
+see = ["minimap/vision-gate", "minimap/vision-trailing-persistence",
+       "minimap/cone-rays-stop-at-first-edge"]
+phrases = ["the light is binary", "exact uniform coverage"]
 
 [dead-teammate-light-belief]
 claim = """
