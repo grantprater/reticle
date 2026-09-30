@@ -333,6 +333,7 @@ segment an ability's audio by phase before matching: equip, cast, ongoing and
 end templates are different references, and an ongoing sound is a lifetime
 witness the minimap lacks for a self-buff or a channel
 """
+see = ["abilities/footstep-surface-variants", "abilities/jump-surface-variants"]
 
 [ability-voice-line-mask]
 claim = """
@@ -2211,3 +2212,42 @@ reader relies on it
 """
 exceptions = "recalled, not observed; unverified on any capture"
 see = ["abilities/gekko-wingman-minimap-icon"]
+
+[footstep-surface-variants]
+claim = """
+A footstep sounds different by the surface walked on; there are at least
+three different walking-surface sounds.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+subject = "movement:audio"
+source = """
+the player, 2026-09-29, describing the range demo of non-ability sounds
+(C:/Users/grant/Videos/2026-09-29 18-50-03.mp4, session a01863947bab)
+"""
+use = """
+a footstep reference is per surface: keep one template per surface variant
+and never average variants into one; the surface a step names is also a
+coarse place witness
+"""
+exceptions = "which surfaces, and how many beyond three, is open until the player's review of the demo"
+see = ["abilities/jump-surface-variants", "abilities/ability-sound-phases"]
+
+[jump-surface-variants]
+claim = """
+A jump's sound also varies by surface. The player believes the jump
+variants match the footstep variants; that part is his belief, unverified.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+subject = "movement:audio"
+source = "the player, 2026-09-29, describing the same range demo"
+use = """
+cut jump (and landing) references per surface; test the belief by naming
+each jump's surface in the demo review and comparing it with the footstep
+variant nearest in spectrum
+"""
+exceptions = "that jump variants match footstep variants is unverified; the demo review tests it"
+see = ["abilities/footstep-surface-variants"]
