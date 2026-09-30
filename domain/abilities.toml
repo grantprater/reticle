@@ -2668,19 +2668,25 @@ see = ["abilities/waylay-vertical-lifts-above-jump", "abilities/raze-satchel-lif
 
 [waylay-vertical-lifts-above-jump]
 claim = """
-Waylay's vertical movement ability lifts her above the height a jump reaches,
-so from the floor she can see over a box that blocks a jumping player. How
-far above is not recorded.
+Waylay's vertical movement ability is Lightspeed. Only its first dash can
+send her upward, as the in-game ability description says; that lifts her
+above the height a jump reaches, so from the floor she can see over a box
+that blocks a jumping player. How far above is not recorded.
 """
 kind = "rule"
 known = "player"
 since = "2026-09-30"
-subject = "waylay:vertical"
-source = "the player, 2026-09-30 (chat), naming the movement abilities that see over tall boxes"
+subject = "waylay:lightspeed"
+source = """
+the player, 2026-09-30 (chat), naming the movement abilities that see over
+tall boxes, then naming this one Lightspeed and citing its in-game
+description for the first-dash rule
+"""
 use = """
 a boosted caster state for the height model
-[domain:minimap/boxes-block-unless-raised]. The ability's name and slot are
-not recorded here; ask the player before keying a detector to it
+[domain:minimap/boxes-block-unless-raised], only after Lightspeed's first
+dash; a second dash does not send her upward. Lightspeed is Waylay's Q in
+docs/ABILITY_MECHANICS_SHEET.md
 """
 see = ["abilities/jett-updraft-lifts-above-jump", "abilities/raze-satchel-lifts-above-jump"]
 
