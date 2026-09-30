@@ -4,6 +4,39 @@ r"""Touching minimap icons fitted jointly: render every icon of a stack, composi
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --light-cal [--record]
     .\.venv\Scripts\python.exe prototypes\scene_stack.py --check [--record] [--sheet] [--recalibrate]
     .\.venv\Scripts\python.exe prototypes\scene_stack.py [--record] [--sheet] [--parts 465-ally,...] [--space keys]
+    .\.venv\Scripts\python.exe prototypes\scene_stack.py --no-sources [--record]    # the 0.3.0 control
+
+**0.4.0 draws the non-cone light sources (`find_sources`).** Each is a
+circle fitted on the frame's own static-subtracted grey (audio_circle's
+`Session.diff`, the baked static as background). Its disc explains the floor
+inside it: either floor state costs nothing there (`SOURCE_STATE = "free"`),
+so cone light carries evidence only on floor no other source explains. The
+first design predicted the disc lit; the instrument check refuted it before
+any labelled score (the disc tints either state white).
+
+- the self audio circle [domain:minimap/self-audio-circle]: fitted round the
+  stored self position (`AUDIO_REACH_PX`), radius per frame, no constant
+  (the player saw it vary); a fit counts only when its ring clears
+  audio_circle's cuts, the exact fit (`clove_circle.fit_circle`) is good and
+  the rim is white (`AUDIO_WHITE_MIN`). `_ring_fit` is a thin wrapper to
+  reconcile with audio_circle's own per-frame fit, which another branch adds;
+- a dead Clove's smoke-range circle
+  [domain:abilities/clove-dead-smoke-range-circle]: sought only while the
+  stored death data (`death_identity`, named by the identity arbiter) holds
+  an ally Clove dead in the round, anywhere in the widget, never the audio
+  circle;
+- the ability areas the player named (Chamber's Trademark, Veto's
+  Chokehold, Deadlock's Sonic Sensor): only round a stored observation (the
+  player's label of the icon within `ABILITY_WINDOW_MS`), never by analogy
+  [domain:abilities/ability-rules-are-unique].
+
+`light_stats` reports the unexplained light with and without the sources;
+`--light-cal` remeasures the costs with them and the floor-colour error of
+the two-state background on unlabelled frames. `--record` writes
+`scene_stack_eval_v4` (`--no-sources`: `scene_stack_eval_v3_allsets`),
+`--light-cal` `scene_stack_light_cal_v4`, `--check` `scene_stack_check_v4`;
+`--sheet` writes the store's `analysis/scene-sources-20260930/`, with
+`sheet_sources_331.png` showing the drawn sources over the 331 px crops.
 
 **0.3.0 lights the floor from the pose (`Light`, `LIGHT = "pose"`).** 0.2.0
 chose the lit or unlit floor state per pixel, so any lobe could explain the
@@ -114,7 +147,7 @@ centre lies within `STACK_PX` (scaled) of the labelled icon's detector
 centre, the label tools' own rule.
 
 GPU first (torch on CUDA; numpy is not implemented). Crop cache only, no
-decode, no store stream writes. `--record` writes `metrics` series
+decode, no store stream writes. 0.3.0's `--record` wrote `metrics` series
 `scene_stack_eval_v3` (0.1.0 wrote `scene_stack_eval`, 0.2.0
 `scene_stack_eval_v2`), with `--check` `scene_stack_check_v3` (0.2.0:
 `scene_stack_check`), with `--light-cal` `scene_stack_light_cal`; `--sheet`
@@ -134,6 +167,7 @@ import json  # noqa: E402
 import math  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
+import warnings  # noqa: E402
 from collections import defaultdict  # noqa: E402
 from pathlib import Path  # noqa: E402
 
@@ -144,6 +178,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import sliver_error_model as sem  # noqa: E402
+import audio_circle as ac  # noqa: E402
+import clove_circle as cc  # noqa: E402
 import cone_origin as co  # noqa: E402
 import facing_fusion as ff  # noqa: E402
 import icon_facing_eval as ife  # noqa: E402
@@ -157,17 +193,20 @@ from reticle import lighting  # noqa: E402
 from reticle import teardrop as td  # noqa: E402
 from reticle.minimap import widget_scale  # noqa: E402
 
-VERSION = "scene-stack-0.3.0"
-OUT = sem.STORE / "analysis" / "scene-light-20260929"
-#: 0.2.0's colour calibration: 0.3.0 changes only the floor's light, so its sprites are 0.2.0's.
+VERSION = "scene-stack-0.4.0"
+OUT = sem.STORE / "analysis" / "scene-sources-20260930"
+#: 0.2.0's colour calibration: 0.3.0 and 0.4.0 change only the floor's light, so their sprites are 0.2.0's.
 CAL_PATH = sem.STORE / "analysis" / "scene-stack-v2-20260929" / "calibration.json"
+#: 0.4.0's light costs, measured with the sources drawn; `--no-sources` (the 0.3.0 control) reads 0.3.0's.
 LIGHT_CAL_PATH = OUT / "light_calibration.json"
+LIGHT_CAL_PATH_V3 = sem.STORE / "analysis" / "scene-light-20260929" / "light_calibration.json"
 #: "rgb" (the default) predicts the crop's RGB; "keys" is 0.1.0's class-key renderer, kept as the control.
 SPACE = "rgb"
-#: Each version records its own series so no earlier run's cited values move.
-SERIES = "scene_stack_eval_v3"
-CHECK_SERIES = "scene_stack_check_v3"
-LIGHT_CAL_SERIES = "scene_stack_light_cal"
+#: Each version records its own series so no earlier run's cited values move. The 0.3.0 control rerun
+#: on every set (`--no-sources`) records `scene_stack_eval_v3_allsets`, never `scene_stack_eval_v3`.
+SERIES = "scene_stack_eval_v4"
+CHECK_SERIES = "scene_stack_check_v4"
+LIGHT_CAL_SERIES = "scene_stack_light_cal_v4"
 
 # ---- constants, set before any label was scored (logged with the predictions)
 GRID_DEG = 5.0
@@ -469,7 +508,8 @@ class Light:
     unposed one frees the pixels nearer it than any scene icon.
     """
 
-    def __init__(self, s, win, scene_icons: list[dict], outside: list[dict], sc: float, costs: dict):
+    def __init__(self, s, win, scene_icons: list[dict], outside: list[dict], sc: float, costs: dict,
+                 src: np.ndarray | None = None):
         self.s, self.sc, self.win = s, sc, win
         x0, y0, x1, y1 = win
         yy, xx = np.mgrid[y0:y1, x0:x1]
@@ -494,6 +534,17 @@ class Light:
             else:
                 self.out |= self.cones(np.array([[o["x"], o["y"], o["deg"]]], np.float32))[0]
                 self.n_outside_cast += 1
+        # 0.4.0: floor inside a drawn non-cone source is explained by it, so a cone carries evidence
+        # only on floor no other source explains. SOURCE_STATE says how: "free" (either floor state at
+        # no cost) or "lit" (predicted lit whatever the cones do).
+        self.src = torch.zeros(len(self.xx), dtype=torch.bool, device=DEV)
+        self.src_np = np.zeros(len(self.xx), bool)
+        self.out_cones = self.out.clone()
+        if src is not None:
+            self.src_np = src[y0:y1, x0:x1].ravel().astype(bool)
+            self.src = torch.tensor(self.src_np, device=DEV)
+            if SOURCE_STATE == "lit":
+                self.out |= self.src
 
     def _vis(self, ox: float, oy: float):
         """Pixels of the window a ray from the (snapped) origin reaches in any direction: the owner's cast."""
@@ -556,9 +607,10 @@ class Light:
             self._pc[key] = got
         return got
 
-    def held(self, poses: dict, skip=None):
-        """`(L, free)`, each (P,) bool: the light of the posed team icons but `skip`, and the free pixels."""
-        L = self.out.clone()
+    def held(self, poses: dict, skip=None, sources: bool = True):
+        """`(L, free)`, each (P,) bool: the light of the posed team icons but `skip` (and of the drawn
+        sources unless `sources` is False), and the free pixels."""
+        L = (self.out if sources else self.out_cones).clone()
         present = [j for j, p in poses.items() if p is not None and j != skip]
         for j in present:
             if self.team[j]:
@@ -569,6 +621,8 @@ class Light:
         absent = [j for j in range(len(self.team)) if self.team[j] and j not in present]
         if absent and present:
             free |= self.dist[absent].min(0) < self.dist[present].min(0)
+        if sources and SOURCE_STATE == "free":
+            free |= self.src_np
         return L, torch.tensor(free, device=DEV)
 
     def err(self, e2, L, free):
@@ -599,6 +653,279 @@ def outside_icons(team: list[dict], sc: float, scene_icons: list[dict]) -> list[
     return out
 
 
+# ---------------------------------------------------------------- the drawn light sources (0.4.0)
+
+#: The non-cone sources 0.4.0 draws, in order. `--no-sources` empties it: the 0.3.0 control.
+SOURCES = ("audio", "clove", "ability")
+#: How a drawn source's disc enters the light: "free", either floor state at no cost, so no cone is
+#: evidence there. The first design, "lit" (the disc predicted lit), was dropped after the instrument
+#: check on unlabelled frames (`--light-cal`, before any labelled score): known floor inside the drawn
+#: discs read nearer the lit state on only 0.46 (331 px) and 0.43 (465 px), and the calibrated
+#: missing-light rate rose from 0.19 to 0.25 and from 0.08 to 0.24. The audio disc tints the floor white
+#: over either state; it is not the lit state.
+SOURCE_STATE = "free"
+#: A frame's circle counts as observed when its ring score (grey levels, inside minus outside) reaches
+#: audio_circle's upper hysteresis cut, one frame alone (no hysteresis across frames here) ...
+SRC_T = ac.T_HI
+#: ... and its exact fit (`clove_circle.fit_circle`) meets audio_circle.radius_span's good-fit rule.
+SRC_FIT_INLIERS, SRC_FIT_RMS = 0.5, 1.5
+#: Scale 1.0: a free-search circle whose centre and radius lie this near the audio circle's is it.
+SRC_SAME_PX = 6.0
+#: Scale 1.0: the audio circle's centre is sought this far from the stored self position. Set after
+#: viewing one labelled frame's sources (not its facing scores): at e37fdeca944f 1795.08 s the pale disc's
+#: centre lies about 17 px (331 px widget) from the self icon, and a +-4 px search fitted a false circle.
+AUDIO_REACH_PX = 32.0
+#: The ability areas the player named; each is drawn only as a circle fitted round a stored observation
+#: (the player's label of its icon) within `ABILITY_WINDOW_MS` of the frame, and only where the frame
+#: shows one [domain:abilities/ability-rules-are-unique]. No radius is assumed: it is fitted per frame.
+ABILITY_NAMES = ("chamber:trademark", "veto:chokehold", "deadlock:sonic sensor")
+ABILITY_WINDOW_MS = 1000.0
+ABILITY_R = (8.0, 60.0)      # scale 1.0: the searched radii round a labelled ability icon
+_AC: dict = {}
+_DEAD: dict = {}
+_ABIL: dict = {}
+
+
+def _ac_session(sid: str):
+    """audio_circle's session (cache, baked static, stored self track), or `(None, reason)`."""
+    if sid not in _AC:
+        try:
+            _AC[sid] = (ac.Session(sid), None)
+        except StopIteration:
+            _AC[sid] = (None, "no stored self track (l1/minimap)")
+        except SystemExit as e:
+            _AC[sid] = (None, str(e))
+    return _AC[sid]
+
+
+def _ring_fit(d: np.ndarray, c, radii: np.ndarray, reach: float = 0.0) -> dict | None:
+    """The best circle centred within `reach` (+ audio_circle's +-4 px grid) of `c` over `radii`:
+    audio_circle's ring score grid at base centres every 8 px, the peak over centre and radius, then
+    `clove_circle.fit_circle` there. Observed when the peak and the fitted ring clear audio_circle's cuts,
+    the fit is good, and the fitted centre stays within `reach` + 4 px of `c`.
+
+    A thin wrapper for per-frame radius fitting, since the player saw the audio circle's radius vary;
+    `audio_circle.py` gains its own per-frame fit on another branch, and the two are to be reconciled."""
+    n = int(round(reach / 8.0))
+    best = (-np.inf, None, None)
+    for bx in range(-n, n + 1):
+        for by in range(-n, n + 1):
+            b = (c[0] + 8.0 * bx, c[1] + 8.0 * by)
+            cur = ac.ring_curve(d, b, radii)
+            if not np.isfinite(cur).any():
+                continue
+            o, k = np.unravel_index(int(np.nanargmax(np.nan_to_num(cur, nan=-1e9))), cur.shape)
+            if cur[o, k] > best[0]:
+                best = (float(cur[o, k]), (b[0] + ac.OFFS[o][0], b[1] + ac.OFFS[o][1]), float(radii[k]))
+    if best[1] is None:
+        return None
+    f = cc.fit_circle(d, best[1], best[2], win=6.0)
+    f.update(score=best[0], r0=best[2], ring=cc.ringscore(d, (f["cx"], f["cy"]), f["r"]),
+             centre_off=float(math.hypot(f["cx"] - c[0], f["cy"] - c[1])))
+    f["observed"] = bool(f["score"] >= SRC_T and f["inliers"] >= SRC_FIT_INLIERS and f["rms"] < SRC_FIT_RMS
+                         and f["ring"] >= ac.T_LO and f["centre_off"] <= 8.0 * n + 6.0)
+    return f
+
+
+#: The audio circle is white-tinted [domain:minimap/self-audio-circle]: its rim raises every colour
+#: channel. A fit counts as the audio circle only when its weakest channel's step (inside minus outside,
+#: crop minus baked static) reaches this share of its strongest. Set after viewing the census's circles
+#: (not any facing score): at 223d636bf8d2 1095.33 s the self-centred fit was a thick yellow ring.
+AUDIO_WHITE_MIN = 0.5
+
+
+def rim_steps(crop: np.ndarray, static: np.ndarray, c, r: float, band: float = 4.0) -> np.ndarray:
+    """(3,) BGR: the median over 180 rays of the mean channel change (crop minus static) in the band just
+    inside radius `r` minus the band just outside it."""
+    h, w = crop.shape[:2]
+    a = np.linspace(0, 2 * np.pi, 180, endpoint=False)
+    dd = crop.astype(np.float32) - static.astype(np.float32)
+
+    def ring(rr):
+        x = np.rint(c[0] + rr[:, None] * np.cos(a)[None]).astype(int)
+        y = np.rint(c[1] + rr[:, None] * np.sin(a)[None]).astype(int)
+        ok = (x >= 0) & (x < w) & (y >= 0) & (y < h)
+        v = np.full(x.shape + (3,), np.nan, np.float32)
+        v[ok] = dd[y[ok], x[ok]]
+        return np.nanmean(v, axis=0)                      # (180, 3)
+
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        step = ring(np.arange(r - band, r) + 0.5) - ring(np.arange(r + 1, r + band + 1) - 0.5)
+        return np.nanmedian(step, axis=0)
+
+
+def whiteness(steps: np.ndarray) -> float:
+    """The weakest channel's rim step as a share of the strongest (<= 0 when a channel falls)."""
+    hi = float(np.nanmax(steps))
+    return float(np.nanmin(steps)) / hi if hi > 0 else float("nan")
+
+
+def _dead_cloves(sid: str) -> tuple[list[float], list[float]]:
+    """`(round starts, ally Clove death times)`: the victim named by the identity arbiter
+    (`death_identity`, `adjudication.identity`), the side from the death owner's event, the round
+    starts from the stored rounds table."""
+    if sid in _DEAD:
+        return _DEAD[sid]
+    side, name = {}, {}
+    p = sem.STORE / "events" / "death_identity" / f"{sid}.jsonl"
+    for line in (p.open(encoding="utf-8") if p.is_file() else []):
+        e = json.loads(line)
+        if e.get("event_kind") == "entity_deleted":
+            side[e["entity_id"]] = ((e.get("metadata") or {}).get("side"), float(e["t_ms"]))
+        elif e.get("event_kind") == "identity_distribution":
+            dist = (e.get("identity_distribution") or {}).get("distribution") or {}
+            if dist:
+                top = max(dist, key=dist.get)
+                if dist[top] >= 0.5:
+                    name[e["identity_distribution"]["subject_entity_id"]] = top
+    from reticle.cli import _date_of
+    from reticle.store import Store
+    st = Store()
+    tb = st.read_rounds(sid, _date_of(st.read_manifest(sid)))
+    starts = sorted(float(r["t_start_ms"]) for r in (tb.to_pylist() if tb is not None else []))
+    deaths = sorted(t for eid, (sd, t) in side.items() if sd == "ally" and name.get(eid) == "Clove")
+    _DEAD[sid] = (starts, deaths)
+    return _DEAD[sid]
+
+
+def _clove_dead_at(sid: str, t_ms: float) -> float | None:
+    """The last ally Clove death at or before `t_ms` in the round that holds `t_ms`, else None."""
+    starts, deaths = _dead_cloves(sid)
+    k = int(np.searchsorted(starts, t_ms, "right")) - 1
+    t0 = starts[k] if k >= 0 else float("-inf")
+    got = [t for t in deaths if t0 <= t <= t_ms]
+    return got[-1] if got else None
+
+
+def _ability_obs(sid: str) -> list[dict]:
+    """The player's labels of the named abilities' icons (`labels/ability`, `labels/ability_paint`)."""
+    if sid in _ABIL:
+        return _ABIL[sid]
+    out = []
+    root = sem.STORE / "labels"
+    p = root / "ability" / f"{sid}.jsonl"
+    for line in (p.open(encoding="utf-8") if p.is_file() else []):
+        r = json.loads(line)
+        if not r.get("not_ability") and r.get("category_id") in ABILITY_NAMES:
+            out.append({"t_ms": float(r["t_ms"]), "x": float(r["x"]), "y": float(r["y"]),
+                        "name": r["category_id"], "source": "labels/ability"})
+    p = root / "ability_paint" / f"{sid}.jsonl"
+    for line in (p.open(encoding="utf-8") if p.is_file() else []):
+        r = json.loads(line)
+        for ic in r.get("icons") or []:
+            if ic.get("category_id") in ABILITY_NAMES:
+                out.append({"t_ms": float(r["t_ms"]), "x": float(ic["x"]), "y": float(ic["y"]),
+                            "name": ic["category_id"], "source": "labels/ability_paint"})
+    _ABIL[sid] = out
+    return out
+
+
+def _free_circle(d: np.ndarray, radii: np.ndarray, avoid: dict | None):
+    """`clove_circle.free_search` over every in-widget centre, with the audio circle's rim (when
+    observed) blanked so the search cannot return it."""
+    if avoid is not None:
+        yy, xx = np.mgrid[0:d.shape[0], 0:d.shape[1]]
+        d = d.copy()
+        d[np.abs(np.hypot(xx - avoid["cx"], yy - avoid["cy"]) - avoid["r"]) <= 5.0] = np.nan
+    return cc.free_search(d.astype(np.float32), radii=radii, step=4.0)
+
+
+def find_sources(sid: str, t_ms: float, crop: np.ndarray, sc: float) -> dict:
+    """The non-cone light sources this frame shows, `{"drawn": [circle], "notes": {kind: reason}}`.
+
+    Each drawn circle is `{"kind", "cx", "cy", "r", "score", "rms", "inliers", ...}`, fitted on this
+    frame's static-subtracted grey (audio_circle's `Session.diff`, the baked static as background):
+    - audio: round the stored self position [domain:minimap/self-audio-circle], radius fitted per frame;
+    - clove: only while an ally Clove is dead in this round by the stored death data, the best circle
+      at any centre [domain:abilities/clove-dead-smoke-range-circle], never the audio circle;
+    - ability: round a labelled Trademark, Chokehold or Sonic Sensor icon within ABILITY_WINDOW_MS.
+    """
+    out = {"drawn": [], "notes": {}}
+    if not SOURCES:
+        return out
+    S, why = _ac_session(sid)
+    if S is None:
+        out["notes"] = {k: why for k in SOURCES}
+        return out
+    if S.static.shape[:2] != crop.shape[:2]:
+        out["notes"] = {k: f"crop {crop.shape[:2]} is not the baked frame {S.static.shape[:2]}" for k in SOURCES}
+        return out
+    d = S.diff(crop)
+    audio = None
+    if "audio" in SOURCES:
+        me, _drawn = S.self_at(t_ms)
+        if me is None:
+            out["notes"]["audio"] = "no stored self position within +-200 ms"
+        else:
+            f = _ring_fit(d, me, S.radii, reach=AUDIO_REACH_PX * sc)
+            if f is not None:
+                f["bgr_step"] = [round(float(v), 2) for v in rim_steps(crop, S.static, (f["cx"], f["cy"]), f["r"])]
+                f["white"] = whiteness(np.array(f["bgr_step"]))
+            if f is None or not f["observed"] or not f["white"] >= AUDIO_WHITE_MIN:
+                out["notes"]["audio"] = "not observed" + ("" if f is None else (
+                    f" (score {f['score']:.1f} ring {f['ring']:.1f} rms {f['rms']:.2f} inliers {f['inliers']:.2f} "
+                    f"r {f['r']:.1f} off {f['centre_off']:.1f} white {f['white']:.2f})"))
+            else:
+                audio = {"kind": "audio", **{k: f[k] for k in ("cx", "cy", "r", "score", "ring", "rms", "inliers",
+                                                               "centre_off", "white", "bgr_step")},
+                         "self_x": me[0], "self_y": me[1]}
+                out["drawn"].append(audio)
+    if "clove" in SOURCES:
+        td_ = _clove_dead_at(sid, t_ms)
+        if td_ is None:
+            out["notes"]["clove"] = "no ally Clove dead in this round (stored death data)"
+        else:
+            score, where = _free_circle(d, S.radii[::2], audio)
+            if where is None or score < SRC_T:
+                out["notes"]["clove"] = f"ally Clove dead since {td_ / 1000:.1f} s; no circle (best {score:.1f})"
+            else:
+                f = cc.fit_circle(d, where[:2], where[2], win=6.0)
+                ring = cc.ringscore(d, (f["cx"], f["cy"]), f["r"])
+                same = audio is not None and (math.hypot(f["cx"] - audio["cx"], f["cy"] - audio["cy"])
+                                              <= SRC_SAME_PX * sc and abs(f["r"] - audio["r"]) <= SRC_SAME_PX * sc)
+                if f["inliers"] >= SRC_FIT_INLIERS and f["rms"] < SRC_FIT_RMS and ring >= ac.T_LO and not same:
+                    out["drawn"].append({"kind": "clove", **{k: f[k] for k in ("cx", "cy", "r", "rms", "inliers")},
+                                         "score": score, "ring": ring, "death_t_ms": td_})
+                else:
+                    out["notes"]["clove"] = (f"ally Clove dead since {td_ / 1000:.1f} s; best circle's fit fails "
+                                             f"(score {score:.1f} ring {ring:.1f} rms {f['rms']:.2f} "
+                                             f"inliers {f['inliers']:.2f}{' same as audio' if same else ''})")
+    if "ability" in SOURCES:
+        near = [a for a in _ability_obs(sid) if abs(a["t_ms"] - t_ms) <= ABILITY_WINDOW_MS]
+        if not near:
+            out["notes"]["ability"] = "no labelled Trademark, Chokehold or Sonic Sensor within 1 s"
+        radii = np.arange(round(ABILITY_R[0] * sc), round(ABILITY_R[1] * sc) + 1, 1.0)
+        for a in near:
+            f = _ring_fit(d, (a["x"], a["y"]), radii)
+            if f is not None and f["observed"]:
+                out["drawn"].append({"kind": "ability", "name": a["name"], "label_t_ms": a["t_ms"],
+                                     **{k: f[k] for k in ("cx", "cy", "r", "score", "ring", "rms", "inliers")}})
+            else:
+                out["notes"]["ability"] = (f"{a['name']} labelled at {a['t_ms'] / 1000:.2f} s: no area observed"
+                                           + ("" if f is None else (
+                                               f" (score {f['score']:.1f} ring {f['ring']:.1f} rms {f['rms']:.2f} "
+                                               f"inliers {f['inliers']:.2f} r {f['r']:.1f})")))
+    return out
+
+
+def source_mask(src: dict, shape) -> np.ndarray:
+    """(H, W) bool: the floor the drawn sources light (each circle's disc)."""
+    h, w = shape
+    yy, xx = np.mgrid[0:h, 0:w]
+    m = np.zeros(shape, bool)
+    for c in src["drawn"]:
+        m |= np.hypot(xx - c["cx"], yy - c["cy"]) <= c["r"]
+    return m
+
+
+def item_sources(r: dict, sid: str, t_ms: float, crop: np.ndarray, sc: float) -> dict:
+    """`find_sources`, cached on the row."""
+    if "_src" not in r:
+        r["_src"] = find_sources(sid, float(t_ms), crop, sc)
+    return r["_src"]
+
+
 class RGBScene:
     """One neighbourhood in RGB: the crop and the two-state baked background over a window, and the icons.
 
@@ -606,7 +933,8 @@ class RGBScene:
     """
 
     def __init__(self, crop: np.ndarray, s, icons: list[dict], sc: float, cal: dict,
-                 outside: list[dict] | None = None, light_costs: dict | None = None):
+                 outside: list[dict] | None = None, light_costs: dict | None = None,
+                 src: np.ndarray | None = None):
         self.sc, self.icons, self.cal = sc, icons, cal
         scal = cal["scales"][_skey(sc)]
         self.k = _kernel(scal["sigma_blur"])
@@ -629,7 +957,7 @@ class RGBScene:
         sdw = torch.tensor(sd[y0:y1, x0:x1].ravel(), dtype=torch.float32, device=DEV)
         self.sig = torch.sqrt(scal["sigma_noise"] ** 2 + sdw ** 2)                           # (P,)
         self.cls_cal = {c: scal["classes"][c] for c in {ic["cls"] for ic in icons}}
-        self.light = (Light(s, self.win, icons, outside or [], sc, light_costs)
+        self.light = (Light(s, self.win, icons, outside or [], sc, light_costs, src)
                       if LIGHT == "pose" and s.inputs.light is not None else None)
 
     def _one(self, i: int, pose):
@@ -717,13 +1045,21 @@ class RGBScene:
         comp = (self.keep > 0) & (Wn > 0.5) & self.light.known & ~free
         unex = comp & ~L & (e2[1] + self.light.c_u < e2[0])
         miss = comp & L & (e2[0] + self.light.c_m < e2[1])
+        # The same poses with the sources taken away: what the drawn sources explain. `floor_nosrc_n` is
+        # the compared floor without them (0.3.0's), the common denominator of both unexplained shares.
+        Lc, free_c = self.light.held(poses, sources=False)
+        comp_c = (self.keep > 0) & (Wn > 0.5) & self.light.known & ~free_c
+        unex_nosrc = comp_c & ~Lc & (e2[1] + self.light.c_u < e2[0])
         return {"floor_n": int(comp.sum()), "lit_pred_n": int((comp & L).sum()), "unexplained_n": int(unex.sum()),
-                "missing_n": int(miss.sum()), "free_n": int(((self.keep > 0) & self.light.known & free).sum())}
+                "missing_n": int(miss.sum()), "free_n": int(((self.keep > 0) & self.light.known & free).sum()),
+                "source_n": int((comp_c & self.light.src).sum()), "unexplained_nosrc_n": int(unex_nosrc.sum()),
+                "floor_nosrc_n": int(comp_c.sum())}
 
     def full_images(self, order, poses, shape):
         """Prediction, weight, residual magnitude and light code as crop-sized arrays. The prediction's
         floor is the pose-predicted state (0.3.0) or the cheaper one (0.2.0); the light code is 1 predicted
-        lit, 2 unexplained light, 3 missing light, 4 free, on known floor (0 elsewhere)."""
+        lit, 2 unexplained light, 3 missing light, 4 free, 5 lit by a drawn source (0.4.0), on known floor
+        (0 elsewhere)."""
         K, Wn, LF = self.stack(order, poses)
         pred = self.predict(K[None])[0]                                      # (2, 3, P)
         e2 = (((self.obs[None] - pred) / self.sig) ** 2).sum(1)              # (2, P)
@@ -740,6 +1076,7 @@ class RGBScene:
             code[kn & ~L & ~free & (e2[1] + self.light.c_u < e2[0])] = 2
             code[kn & L & ~free & (e2[0] + self.light.c_m < e2[1])] = 3
             code[kn & free] = 4
+            code[kn & self.light.src] = 5
         best = torch.where(j[None] == 0, pred[0], pred[1])
         res = e.clamp(max=TAU_SIG ** 2).sqrt()
         x0, y0, x1, y1 = self.win
@@ -930,9 +1267,22 @@ def light_calibrate(sess, label_times: dict) -> dict:
     explains better. It also measures P9 with the owner's lit decision
     (`lighting.raw_lit`) and the cut (360-degree cast cut to the wedge)
     against the owner's own cone cast.
+
+    0.4.0 draws the frame's non-cone sources (`find_sources`) first; with
+    `SOURCE_STATE = "free"` their discs leave the compared floor, so `q_u`
+    and `q_m` are the rates outside them and `q_u_nosrc`, `q_m_nosrc` the
+    rates on 0.3.0's floor. `source_lit_nearer_share` and
+    `source_raw_lit_share` say how often the floor inside a disc reads lit.
+    It also measures the FLOOR-COLOUR ERROR on 0.3.0's compared floor and
+    predicted state: the RGB distance (0-255 units) between the crop and the
+    blurred baked floor in the predicted state, over all of them, over those whose predicted state is
+    also the nearer one (`right`: the state is right, so what is left is the
+    colour), per predicted state, the signed grey bias (crop minus
+    prediction), and the share whose error reaches the truncation `TAU_SIG`.
     """
     icons = calibration_icons(sess, label_times)
     acc = defaultdict(lambda: defaultdict(float))
+    fe = defaultdict(lambda: defaultdict(list))
     sessions = defaultdict(set)
     for (cls, skey), v in sorted(icons.items()):
         if cls == "enemy":
@@ -942,11 +1292,19 @@ def light_calibrate(sess, label_times: dict) -> dict:
             team = ff.team_icons(s, crop, sc)
             scene_ic = [{"cls": cls, "x0": ic["x"], "y0": ic["y"]}]
             outside = outside_icons(team, sc, scene_ic)
-            scene = RGBScene(crop, s, scene_ic, sc, CAL, outside=outside, light_costs={"c_u": 0.0, "c_m": 0.0})
+            src = find_sources(ic["sid"], ic["t_ms"], crop, sc)
+            srcm = source_mask(src, crop.shape[:2]) if src["drawn"] else None
+            scene = RGBScene(crop, s, scene_ic, sc, CAL, outside=outside, light_costs={"c_u": 0.0, "c_m": 0.0},
+                             src=srcm)
             lt = scene.light
             pose = (ic["x"], ic["y"], ic["deg"], 0.0, 0.0)
             K, Wn, (L, free) = scene.stack([0], {0: pose})
-            e2 = scene._err2(K[None])[0].cpu().numpy()
+            e2t = scene._err2(K[None])[0]
+            e2 = e2t.cpu().numpy()
+            pred = scene.predict(K[None])[0].cpu().numpy()                     # (2, 3, P), 0..1
+            obs = scene.obs.cpu().numpy()
+            Lc, free_c = (x.cpu().numpy() for x in lt.held({0: pose}, sources=False))
+            srcw = lt.src.cpu().numpy()
             own = lt.pose_cone(pose).cpu().numpy()
             Ln, freen = L.cpu().numpy(), free.cpu().numpy()
             foot = np.zeros(len(lt.xx), bool)
@@ -956,6 +1314,7 @@ def light_calibrate(sess, label_times: dict) -> dict:
             raw = lighting.raw_lit(crop, s.ref)[y0:y1, x0:x1].ravel()
             kk = scene.keep_np.ravel()
             comp = kk & lt.known_np & ~freen & ~foot
+            comp_c = kk & lt.known_np & ~free_c & ~foot                         # 0.3.0's compared floor
             a = acc[skey]
             sessions[skey].add(ic["sid"])
             a["icons"] += 1
@@ -966,13 +1325,35 @@ def light_calibrate(sess, label_times: dict) -> dict:
             a["dark_alt"] += (comp & ~Ln & (e2[1] < e2[0])).sum()
             a["cone_n"] += (comp & Ln).sum()
             a["cone_alt"] += (comp & Ln & (e2[0] < e2[1])).sum()
+            a["dark_nosrc_n"] += (comp_c & ~Lc).sum()
+            a["dark_nosrc_alt"] += (comp_c & ~Lc & (e2[1] < e2[0])).sum()
+            a["cone_nosrc_n"] += (comp_c & Lc).sum()
+            a["cone_nosrc_alt"] += (comp_c & Lc & (e2[0] < e2[1])).sum()
+            a["src_n"] += (comp_c & srcw).sum()
+            a["src_lit_nearer"] += (comp_c & srcw & (e2[1] < e2[0])).sum()
+            a["src_raw_lit"] += (comp_c & srcw & raw).sum()
+            a["icons_with_source"] += bool(src["drawn"])
+            for c in src["drawn"]:
+                a[f"drawn_{c['kind']}"] += 1
+            st = Lc.astype(int)                                                 # 0.3.0's predicted state
+            idx = np.nonzero(comp_c)[0]
+            pp = pred[st[idx], :, idx]                                          # (n, 3)
+            dif = (obs[:, idx].T - pp) * 255.0
+            f = fe[skey]
+            f["err"].append(np.sqrt((dif ** 2).sum(1)))
+            f["grey"].append(dif.mean(1))
+            f["lit"].append(Lc[idx])
+            f["src"].append(srcw[idx])
+            f["right"].append(e2[st[idx], idx] <= e2[1 - st[idx], idx])
+            f["sat"].append(e2[st[idx], idx] >= TAU_SIG ** 2)
             m = cone.raycast(s.passable, ic["x"], ic["y"], ic["deg"], visible=s.floor,
                              max_r=lt.max_r)[y0:y1, x0:x1].ravel()
             a["cut_union_px"] += (kk & (m | own)).sum()
             a["cut_diff_px"] += (kk & (m != own)).sum()
     out = {"version": VERSION, "made_from": "confident isolated owner teardrops (as calibrate) on unlabelled "
            f"frames, >= {CAL_AWAY_MS:.0f} ms from any labelled instant; cones by cone.raycast from each "
-           "team icon's teardrop pose; costs 2 ln((1-q)/q)", "scales": {}}
+           "team icon's teardrop pose; costs 2 ln((1-q)/q); drawn sources " + (",".join(SOURCES) or "none"),
+           "scales": {}}
     for skey, a in sorted(acc.items()):
         q_u = a["dark_alt"] / max(a["dark_n"], 1)
         q_m = a["cone_alt"] / max(a["cone_n"], 1)
@@ -983,7 +1364,33 @@ def light_calibrate(sess, label_times: dict) -> dict:
                 "no_cone_unlit_share": round(a["dark_unlit"] / max(a["dark_n"], 1), 4),
                 "no_cone_px": int(a["dark_n"]),
                 "cut_disagree_share": round(a["cut_diff_px"] / max(a["cut_union_px"], 1), 4),
+                "q_u_nosrc": round(a["dark_nosrc_alt"] / max(a["dark_nosrc_n"], 1), 4),
+                "q_m_nosrc": round(a["cone_nosrc_alt"] / max(a["cone_nosrc_n"], 1), 4),
+                "icons_with_source": int(a["icons_with_source"]),
+                **{k: int(a[k]) for k in ("drawn_audio", "drawn_clove", "drawn_ability")},
+                "source_px": int(a["src_n"]),
+                "source_lit_nearer_share": round(a["src_lit_nearer"] / max(a["src_n"], 1), 4),
+                "source_raw_lit_share": round(a["src_raw_lit"] / max(a["src_n"], 1), 4),
                 "sessions": sorted(sessions[skey])}
+        f = {k: np.concatenate(x) for k, x in fe[skey].items()}
+        if len(f.get("err", [])):
+            med = lambda x: round(float(np.median(x)), 2) if len(x) else None  # noqa: E731
+            lit, right, srcp = f["lit"], f["right"], f["src"]
+            vals.update({
+                "floor_px": int(len(f["err"])),
+                "floor_err_median": med(f["err"]),
+                "floor_err_p90": round(float(np.percentile(f["err"], 90)), 2),
+                "floor_err_right_median": med(f["err"][right]),
+                "floor_right_share": round(float(right.mean()), 4),
+                "floor_err_lit_median": med(f["err"][lit]),
+                "floor_err_unlit_median": med(f["err"][~lit]),
+                "floor_err_source_median": med(f["err"][srcp]),
+                "floor_grey_bias_lit_median": med(f["grey"][lit & ~srcp]),
+                "floor_grey_bias_unlit_median": med(f["grey"][~lit]),
+                "floor_grey_bias_source_median": med(f["grey"][srcp]),
+                "floor_sat_share": round(float(f["sat"].mean()), 4),
+                "floor_sat_share_right": round(float(f["sat"][right].mean()), 4) if right.any() else None,
+                "noise_sigma_255": round(float(CAL["scales"][skey]["sigma_noise"]) * 255.0, 2)})
         out["scales"][skey] = vals
         print(f"  light calibration {skey}: {vals}", flush=True)
     return out
@@ -1221,12 +1628,18 @@ def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
     out["teardrop"] = float(f["deg"]) if f.get("read") else None
     out["teardrop_reason"] = None if f.get("read") else f.get("reason", "no_fit")
     out["td_xy"] = (float(f["x"]), float(f["y"])) if "x" in f else None
+    srcm = None
+    if SPACE == "rgb" and LIGHT == "pose":
+        src = item_sources(r, r["session"], r["t_ms"], crop, sc)
+        out["light_sources"] = src["drawn"]
+        out["light_source_notes"] = src["notes"]
+        srcm = source_mask(src, crop.shape[:2]) if src["drawn"] else None
     if not do_fit:
         return out
     t0 = time.perf_counter()
     if SPACE == "rgb":
         outside = outside_icons(frame_team(s, r, sc), sc, nb["icons"]) if LIGHT == "pose" else []
-        scene = RGBScene(crop, s, nb["icons"], sc, CAL, outside=outside, light_costs=light_costs(sc))
+        scene = RGBScene(crop, s, nb["icons"], sc, CAL, outside=outside, light_costs=light_costs(sc), src=srcm)
     else:
         scene = Scene(keys(crop), keys(s.inputs.static), nb["icons"], sc)
     got = fit_scene(scene)
@@ -1250,7 +1663,10 @@ def run_item(s, r: dict, tracks, do_fit: bool = True) -> dict:
         ["baked walls and boxes (map, profile) via cone.raycast; outside team icons' teardrop poses"]
         if SPACE == "rgb" and LIGHT == "pose" else []) + (
         ["team_vision stored track positions"] if "track" in nb["sources"] else []) + (
-        ["class detectors at this frame"] if "detector" in nb["sources"] else []) + ["label set's detector centre"]
+        ["class detectors at this frame"] if "detector" in nb["sources"] else []) + ["label set's detector centre"] + (
+        [f"drawn light sources fitted on this frame ({','.join(sorted({c['kind'] for c in out['light_sources']}))}): "
+         "stored self track, stored death data and rounds, the player's ability labels"]
+        if out.get("light_sources") else [])
     out["_scene"] = scene
     out["_fit"] = got
     return out
@@ -1282,6 +1698,9 @@ def summarise(rows):
         out[f"{name}_median_abs_deg_on_td_read"] = round(float(np.median(eb)), 4) if eb else None
     et = [abs(err(r, "teardrop")) for r in both]
     out["teardrop_median_abs_deg_on_td_read"] = round(float(np.median(et)), 4) if et else None
+    # Identical items: flips of each arm over the items both the teardrop and the joint fit read.
+    out["both_teardrop_flips"] = sum(abs(err(r, "teardrop")) > 90 for r in both)
+    out["both_joint_flips"] = sum(abs(err(r, "joint")) > 90 for r in both)
     js = [r for r in rows if err(r, "joint") is not None and err(r, "solo") is not None]
     out["joint_vs_solo_fixed"] = sum(abs(err(r, "solo")) > 90 and abs(err(r, "joint")) <= 90 for r in js)
     out["joint_vs_solo_broken"] = sum(abs(err(r, "solo")) <= 90 and abs(err(r, "joint")) > 90 for r in js)
@@ -1295,6 +1714,24 @@ def summarise(rows):
         out["light_missing_fire"] = sum(x["missing_n"] >= LIGHT_FIRE_PX for x in lit)
         out["light_unexplained_share_median"] = round(float(np.median(
             [x["unexplained_n"] / max(x["floor_n"], 1) for x in lit])), 4)
+        if all("floor_nosrc_n" in x for x in lit):
+            # Shares over the compared floor without the sources (0.3.0's floor), so with and without share
+            # one denominator; `_src_items` pools only the items where a source covers compared floor.
+            den = lambda x: max(x["floor_nosrc_n"], 1)  # noqa: E731
+            out["light_unexplained_nosrc_share_median"] = round(float(np.median(
+                [x["unexplained_nosrc_n"] / den(x) for x in lit])), 4)
+            out["light_unexplained_srcfloor_share_median"] = round(float(np.median(
+                [x["unexplained_n"] / den(x) for x in lit])), 4)
+            out["light_source_share_median"] = round(float(np.median([x["source_n"] / den(x) for x in lit])), 4)
+            for tag, sub in (("", lit), ("_src_items", [x for x in lit if x["source_n"] > 0])):
+                fl = max(sum(x["floor_nosrc_n"] for x in sub), 1)
+                out[f"light{tag}_n"] = len(sub)
+                out[f"light_unexplained_share_pooled{tag}"] = round(sum(x["unexplained_n"] for x in sub) / fl, 4)
+                out[f"light_unexplained_nosrc_share_pooled{tag}"] = round(
+                    sum(x["unexplained_nosrc_n"] for x in sub) / fl, 4)
+    out["items_with_source"] = sum(bool(r.get("light_sources")) for r in rows)
+    for kind in SOURCES:
+        out[f"items_with_{kind}"] = sum(any(c["kind"] == kind for c in r.get("light_sources") or []) for r in rows)
     return out
 
 
@@ -1309,10 +1746,20 @@ def _print(title, res):
           f"solo fixed/broken {res['solo_fixed']}/{res['solo_broken']}, joint {res['joint_fixed']}/{res['joint_broken']}; "
           f"joint vs solo {res['joint_vs_solo_fixed']}/{res['joint_vs_solo_broken']}; "
           f"td unread: joint reads {res['joint_on_td_unread_n']} flips {res['joint_on_td_unread_flips']}")
+    print(f"  identical items (n {res['both_n']}): teardrop flips {res['both_teardrop_flips']}, "
+          f"joint flips {res['both_joint_flips']}")
     if res.get("light_n"):
         print(f"  light at the fitted pose: unexplained fires {res['light_unexplained_fire']}/{res['light_n']}, "
               f"missing fires {res['light_missing_fire']}/{res['light_n']}, median unexplained share "
-              f"{res['light_unexplained_share_median']}")
+              f"{res['light_unexplained_share_median']}"
+              + (f"; over 0.3.0's floor with/without the sources: median "
+                 f"{res['light_unexplained_srcfloor_share_median']}/{res['light_unexplained_nosrc_share_median']}, "
+                 f"pooled {res['light_unexplained_share_pooled']}/{res['light_unexplained_nosrc_share_pooled']}, "
+                 f"pooled on the {res['light_src_items_n']} items a source covers "
+                 f"{res['light_unexplained_share_pooled_src_items']}/"
+                 f"{res['light_unexplained_nosrc_share_pooled_src_items']}; "
+                 f"items with a drawn source {res['items_with_source']}"
+                 if "light_unexplained_nosrc_share_median" in res else ""))
 
 
 # ---------------------------------------------------------------- the sheet
@@ -1327,7 +1774,9 @@ def _false(k: np.ndarray) -> np.ndarray:
 def tile(r: dict, zoom: int = 6) -> np.ndarray:
     """Crop, render, |residual| and (0.3.0) the light round the labelled icon; arrows: label green,
     teardrop blue, solo magenta, joint white; neighbours' joint facings orange. The light panel: predicted
-    lit yellow, unexplained light cyan, missing light red, free (unattributable) blue."""
+    lit yellow, lit by a drawn source green, unexplained light cyan, missing light red, free (unattributable)
+    blue. The last panel is the whole widget with the drawn sources' circles (audio white, Clove magenta,
+    ability green) and the tile's box (yellow)."""
     crop = r["_crop"]
     sc = r["scale"]
     half = int(round((td.L + 8) * sc))
@@ -1354,7 +1803,8 @@ def tile(r: dict, zoom: int = 6) -> np.ndarray:
         if scene.light is not None:
             # The light: grey crop, predicted lit yellow, unexplained light cyan, missing light red, free blue.
             g = cv2.cvtColor(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR) // 2
-            for c, col in ((1, (0, 200, 255)), (2, (255, 255, 0)), (3, (0, 0, 255)), (4, (255, 80, 0))):
+            for c, col in ((1, (0, 200, 255)), (5, (0, 200, 0)), (2, (255, 255, 0)), (3, (0, 0, 255)),
+                           (4, (255, 80, 0))):
                 g[(Cimg == c) & keep] = col
             g[~keep] = 0
             panels.append(sub(g))
@@ -1392,6 +1842,18 @@ def tile(r: dict, zoom: int = 6) -> np.ndarray:
             o = to(p[0], p[1])
             cv2.arrowedLine(b, o, (int(o[0] + 0.5 * ln * math.cos(a)), int(o[1] + 0.5 * ln * math.sin(a))),
                             (0, 140, 255), 1, tipLength=0.15)
+    src = r.get("_src")
+    if src is not None:
+        H = big[0].shape[0]
+        k = H / crop.shape[0]
+        wv = cv2.resize(crop, (int(round(crop.shape[1] * k)), H), interpolation=cv2.INTER_AREA)
+        cols = {"audio": (255, 255, 255), "clove": (255, 0, 255), "ability": (0, 255, 0)}
+        for c in src["drawn"]:
+            cv2.circle(wv, (int(round(c["cx"] * k)), int(round(c["cy"] * k))), int(round(c["r"] * k)),
+                       cols[c["kind"]], 1, cv2.LINE_AA)
+        cv2.rectangle(wv, (int(x0 * k), int(y0 * k)), (int((x0 + 2 * half + 1) * k), int((y0 + 2 * half + 1) * k)),
+                      (0, 255, 255), 1)
+        big.append(wv)
     row = np.hstack([np.pad(b, ((0, 0), (0, 3), (0, 0))) for b in big])
     et, es, ej = err(r, "teardrop"), err(r, "solo"), err(r, "joint")
     f = lambda e: "-" if e is None else f"{e:+.0f}"  # noqa: E731
@@ -1400,7 +1862,13 @@ def tile(r: dict, zoom: int = 6) -> np.ndarray:
              f"err td {f(et)} solo {f(es)} joint {f(ej)}  margin {r.get('margin', 0):.2f}"
              + ("  light lit {lit_pred_n} unexpl {unexplained_n} miss {missing_n} free {free_n} of {floor_n}".format(
                  **r["light"]) if r.get("light") else "")]
-    bar = np.zeros((40, row.shape[1], 3), np.uint8)
+    if src is not None:
+        lit = r.get("light") or {}
+        lines.append("sources: " + ("; ".join(f"{c['kind']} r {c['r']:.1f} score {c['score']:.1f}" for c in src["drawn"])
+                                    or "none drawn")
+                     + (f"  src-lit floor {lit['source_n']}, unexpl without sources {lit['unexplained_nosrc_n']}"
+                        if "source_n" in lit else ""))
+    bar = np.zeros((6 + 17 * len(lines), row.shape[1], 3), np.uint8)
     for k, s_ in enumerate(lines):
         bad = ej is not None and abs(ej) > 90
         cv2.putText(bar, s_, (4, 15 + 17 * k), 0, 0.45, (0, 0, 255) if (bad and k == 1) else (255, 255, 255), 1)
@@ -1457,7 +1925,11 @@ def check_item(s, r: dict, variant: str) -> dict:
         PORTRAIT = "disc" if variant == "rgb-disc" else "mask"
         LIGHT = "pose" if variant == "light" else "free"
         outside = outside_icons(frame_team(s, r, sc), sc, icons) if LIGHT == "pose" else []
-        scene = RGBScene(crop, s, icons, sc, CAL, outside=outside, light_costs=light_costs(sc))
+        srcm = None
+        if LIGHT == "pose":
+            src = item_sources(r, r["session"], r["t_ms"], crop, sc)
+            srcm = source_mask(src, crop.shape[:2]) if src["drawn"] else None
+        scene = RGBScene(crop, s, icons, sc, CAL, outside=outside, light_costs=light_costs(sc), src=srcm)
     out = {}
     centres = {"td": (r.get("td_xy") or (r["det_cx"], r["det_cy"]), 0.0),
                "click": (r["click"] or (r["det_cx"], r["det_cy"]), CHECK_CENTRE_PX * sc)}
@@ -1549,9 +2021,18 @@ def main(argv=None) -> int:
                     help="refit the RGB colour calibration on unlabelled frames (written under OUT, not over 0.2.0's)")
     ap.add_argument("--light-cal", action="store_true",
                     help="measure the light costs and the P9 instrument on unlabelled frames; fit nothing")
+    ap.add_argument("--no-sources", action="store_true",
+                    help="the 0.3.0 control: draw no non-cone source, read 0.3.0's light costs, record "
+                         "scene_stack_eval_v3_allsets under OUT/control-0.3.0")
     args = ap.parse_args(argv)
-    global GAIN_MODE, OUT, SPACE, CAL, LCAL, CAL_PATH
+    global GAIN_MODE, OUT, SPACE, CAL, LCAL, CAL_PATH, SOURCES, VERSION, LIGHT_CAL_PATH, SERIES, CHECK_SERIES
     SPACE = args.space
+    if args.no_sources:
+        if args.light_cal:
+            raise SystemExit("--no-sources reads 0.3.0's light calibration; it never rewrites it")
+        SOURCES, VERSION, LIGHT_CAL_PATH = (), "scene-stack-0.3.0", LIGHT_CAL_PATH_V3
+        SERIES, CHECK_SERIES = "scene_stack_eval_v3_allsets", "scene_stack_check_v3_allsets"
+        OUT = OUT / "control-0.3.0"
     posthoc = ""
     if args.shared_gain:
         GAIN_MODE, posthoc = "shared", "-posthoc-shared"
@@ -1601,7 +2082,7 @@ def main(argv=None) -> int:
         print("wrote", LIGHT_CAL_PATH)
         if args.record:
             deps = {"prototype": VERSION, "calibration": str(cal_path), "light_rays": LIGHT_RAYS,
-                    "half_angle_deg": cone.CONE_HALF_ANGLE_DEG, "cal_away_ms": CAL_AWAY_MS}
+                    "half_angle_deg": cone.CONE_HALF_ANGLE_DEG, "cal_away_ms": CAL_AWAY_MS, **_source_deps()}
             for skey, vals in LCAL["scales"].items():
                 v = {k: x for k, x in vals.items() if k != "sessions"}
                 metrics.record(LIGHT_CAL_SERIES, part=f"scale-{skey}", session="+".join(vals["sessions"]),
@@ -1651,6 +2132,18 @@ def main(argv=None) -> int:
                   f"{sum(r['teardrop'] is None for r in st)}; neighbour classes "
                   f"{dict((c, sum(c in r['neighbour_classes'] for r in tch)) for c in ('self', 'ally', 'enemy'))}; "
                   f"manifest stacked {sum(bool(r.get('manifest_stacked')) for r in rows)}")
+            notes = defaultdict(int)
+            for r in rows:
+                for kind, why in (r.get("light_source_notes") or {}).items():
+                    notes[f"{kind}: {why.split(' (')[0] if kind != 'clove' or 'since' not in why else 'dead ally Clove, ' + why.split('; ')[-1].split(' (')[0]}"] += 1
+            print(f"  sources drawn: {sum(bool(r.get('light_sources')) for r in rows)} items; "
+                  + ", ".join(f"{kind} {sum(any(c['kind'] == kind for c in r.get('light_sources') or []) for r in rows)}"
+                              for kind in SOURCES) + f"; notes {dict(notes)}")
+            for r in rows:
+                for c in r.get("light_sources") or []:
+                    print(f"    {r['set']} {r['session']} {r['t_ms'] / 1000:.2f}s {'STACK' if r['stacked'] else 'iso'} "
+                          f"{c['kind']} centre ({c['cx']:.1f}, {c['cy']:.1f}) r {c['r']:.1f} score {c['score']:.1f} "
+                          f"ring {c['ring']:.1f} rms {c['rms']:.2f} inliers {c['inliers']:.2f}")
         return 0
 
     from reticle import metrics
@@ -1660,7 +2153,7 @@ def main(argv=None) -> int:
             "max_neighbours": MAX_NEIGHBOURS, "gain_mode": GAIN_MODE, "prior": "team_vision stored tracks + class detectors",
             "space": SPACE, "portrait": PORTRAIT, "tau_sig": TAU_SIG, "own_cost": OWN_COST,
             "calibration": str(cal_path), "light": LIGHT, "light_calibration": str(LIGHT_CAL_PATH),
-            "light_rays": LIGHT_RAYS, "light_fire_px": LIGHT_FIRE_PX}
+            "light_rays": LIGHT_RAYS, "light_fire_px": LIGHT_FIRE_PX, **_source_deps()}
     records = []
     pooled = defaultdict(list)
     for k, rows in all_rows.items():
@@ -1687,7 +2180,8 @@ def main(argv=None) -> int:
             et, ej = err(r, "teardrop"), err(r, "joint")
             if not r["n_touch"] and et is not None and ej is not None and abs(et) <= 90 < abs(ej):
                 print(f"ISOLATED BROKEN {r['set']} {r['session']} t_ms {r['t_ms']} key {r.get('key')}: "
-                      f"teardrop {et:+.1f} joint {ej:+.1f} light {r.get('light')}")
+                      f"teardrop {et:+.1f} joint {ej:+.1f} light {r.get('light')} "
+                      f"sources {[c['kind'] for c in r.get('light_sources') or []]}")
     if args.record and not args.limit:
         for part, session, v in records:
             metrics.record(SERIES, part=part + posthoc, session=session, values=v, deps=deps)
@@ -1704,7 +2198,25 @@ def main(argv=None) -> int:
                 or (err(r, "teardrop") is not None and abs(err(r, "teardrop")) > 90))]
             for p in sheet(pick, OUT / f"sheet_{k}.png"):
                 print("wrote", p)
+        # The sources sheet (rule fixed before viewing): the 331 px items, in load order, first up to 4
+        # stacked and 4 isolated with a drawn source, then up to 2 stacked and 2 isolated without one.
+        pick = []
+        rows331 = [r for k, rows in all_rows.items() if k in ("331", "s331", "e331") for r in rows]
+        for want_src, n in ((True, 4), (False, 2)):
+            for stacked in (True, False):
+                pick += [r for r in rows331 if bool(r.get("light_sources")) == want_src
+                         and bool(r["stacked"]) == stacked][:n]
+        for p in sheet(pick, OUT / "sheet_sources_331.png", per_page=len(pick) or 1):
+            print("wrote", p)
     return 0
+
+
+def _source_deps() -> dict:
+    return {"sources": list(SOURCES), "source_state": SOURCE_STATE, "audio_reach_px": AUDIO_REACH_PX,
+            "audio_white_min": AUDIO_WHITE_MIN, "source_ring_t": SRC_T, "source_ring_t_lo": ac.T_LO,
+            "source_fit": [SRC_FIT_INLIERS, SRC_FIT_RMS], "source_same_px": SRC_SAME_PX,
+            "ability_names": list(ABILITY_NAMES), "ability_window_ms": ABILITY_WINDOW_MS,
+            "ability_r": list(ABILITY_R), "audio_circle": ac.VERSION, "clove_circle": cc.VERSION}
 
 
 if __name__ == "__main__":
