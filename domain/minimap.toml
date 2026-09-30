@@ -756,19 +756,22 @@ phrases = ["tip of the teardrop is lighter", "tip drawn lighter"]
 claim = """
 The teardrop lobe of an enemy icon is semi-transparent: the floor, walls and
 any cone beneath show through it. The lobe of an ally or self icon is opaque.
+The portrait inside an enemy icon is opaque, by the player's impression
+(2026-09-29), unmeasured.
 """
 kind = "appearance"
 known = "player"
 since = "2026-09-29"
-source = "the player, 2026-09-29, confirming a measurement (5 enemy icons over a baked line at 465 px; tip-cone test, E10 in docs/STATISTICAL_ADJUDICATOR.md)"
+source = "the player, 2026-09-29, confirming a measurement (5 enemy icons over a baked line at 465 px; tip-cone test, E10 in docs/STATISTICAL_ADJUDICATOR.md); the portrait's opacity is his impression, stated the same day and not measured"
 use = """
 model an enemy lobe as a red tint over the background beneath (the baked
 static plus any dynamic light, such as a teammate's cone), not as fixed art;
 its tip brightness partly carries the floor beneath
 """
 exceptions = """
-measured on 5 enemy icons at 465 px; the 331 px widget and the portrait's own
-opacity are unmeasured
+measured on 5 enemy icons at 465 px; the 331 px widget is unmeasured. The
+opaque portrait is the player's impression, not a measurement: nothing has
+compared an enemy portrait's pixels against the background beneath it
 """
 see = ["minimap/icon-tip-highlight", "minimap/enemy-rim-faint-at-small-widget", "minimap/transparency"]
 
