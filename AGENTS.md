@@ -59,6 +59,9 @@ states plainly, and the player had to ask what the sentence meant.
   answer never becomes an event's inferred origin; and a review window points
   into source media with its provenance rather than standing as a clip or a
   conclusion.
+- Events are the interface. Consumers (`reticle view`) read only emitted
+  events and stored rounds, never a reader, tracker or adjudicator; a missing
+  field goes into the owning event, never into a recomputing consumer.
 - Run the least work that tests the change. `reticle plan` names the stale
   streams; adjudications rerun from storage; a reader change is checked first
   with `reticle trial` (stored windows, crop cache, no decode), and a full scan
@@ -191,16 +194,12 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle <command>
 ```
 
-At pickup, run `doctor` and inspect `status`; use the focused commands and
-tests in [`docs/WORKING_MAP.md`](docs/WORKING_MAP.md). Read task-specific
-detail from [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md), then the owning module's
-docstring and any applicable prototype guide.
+At pickup, run `doctor` and inspect `status`.
 
 ## Guide routes
 
-`PROJECT_GUIDE.md` retains the former full guidance verbatim. Its major routes
-are: detector/domain detail, running and pipeline status, north star and
-measurement rationale, open defects, pre-ingest checklist, reliability model,
-load-bearing conventions, and repository declarations. This file is
-intentionally only the eager index and global constraints; do not duplicate
-historical measurements here.
+`PROJECT_GUIDE.md` keeps the former guidance verbatim: detector/domain detail,
+pipeline status, north star and measurement rationale, open defects, the
+pre-ingest checklist, the reliability model, conventions and declarations.
+This file holds only the eager index and global constraints; keep historical
+measurements out.

@@ -6,6 +6,9 @@ so what you watch is what the pipeline actually did on that frame. A debug view
 with its own copy of the logic can disagree with the code it is meant to explain,
 which is worse than having no view at all.
 
+It is a reader debug aid, not an event consumer: it reruns readers on pixels.
+To see what the stored events say, use `reticle view` (`round_view`).
+
 Colour is the whole language here, so it is fixed in one place:
 
     green    the local player killed someone

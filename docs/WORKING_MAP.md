@@ -62,6 +62,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
 | Visual debugging | `overlay.py`, `glance.py`, `refine.py` |
+| Round review from events | `round_view.py`, `view_events.py`, `docs/EVENT_GAPS.md` |
 
 Contiguous minimap correction and review: `tools/minimap_sequence_summary.py`
 and `tools/minimap_sequence_review.py`.
@@ -71,12 +72,8 @@ evaluation window where the per-frame and adjudicated killfeed counts
 disagree, without opening the video.
 
 Module names above are relative to `reticle/` unless a directory is shown.
-Minimap work also requires `prototypes/CLAUDE.md` and the private domain notes
-in `~/reticle-notes/`, which AGENTS.md describes.
 
 ## Commands for a focused handoff
-
-Always use the repository venv:
 
 ```powershell
 .\.venv\Scripts\python.exe -m reticle doctor
@@ -106,6 +103,7 @@ Always use the repository venv:
 .\.venv\Scripts\python.exe -m reticle capabilities
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID
 .\.venv\Scripts\python.exe -m reticle fidelity-check          # opens media
+.\.venv\Scripts\python.exe -m reticle view SESSION --round N|--gaps  # stored events
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
 .\.venv\Scripts\python.exe tools\wipe_scout.py SESSION   # stored data only
 .\.venv\Scripts\python.exe prototypes\minimap_geometry.py --all
