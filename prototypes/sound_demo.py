@@ -42,7 +42,7 @@ decodes the candidate's audio span in memory and plays it alone. Nothing is
 copied to disk. Answers append to `<store>/labels/sound_demo_20260929.jsonl`.
 
 This is a labeller and a candidate cutter; it decides nothing, and nothing in
-`reticle/` uses it. Predictions are logged in the store's
+`reticle/` uses it. `sound_bank.py` reads its verified labels. Predictions are logged in the store's
 `notes/predictions.jsonl` under `sound-demo-20260929`.
 """
 from __future__ import annotations
