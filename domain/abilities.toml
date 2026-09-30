@@ -1404,15 +1404,123 @@ kind = "appearance"
 known = "player"
 since = "2026-09-26"
 subject = "minimap:ability-icon"
-source = "the player, 2026-09-26; the list is the player's and is not complete"
+source = """
+the player, 2026-09-26; the list is the player's and is not complete. On
+2026-09-29 he restated it as a white-tinted area, most of them circular, and
+named Chamber's trip, Veto's trip and Deadlock's Sonic Sensor among a few
+more he did not name; each named one has its own fact
+"""
 use = """
 read the icon and its pale ring or box as one entity: the region is part of
 the ability's signature, its shape and radius help name the ability, and it
 is neither a smoke disc nor a second entity; ask per ability which shape and
-radius
+radius. The area is white-tinted, so floor inside it reads as lit floor to a
+lighting reader: explain such light by the ability before calling it
+unexplained
+"""
+exceptions = """
+the radius of each ability's area is unmeasured; the player says the areas
+are not yet measured well. Which of the abilities he did not name draw one
+is never inferred from these
 """
 see = ["abilities/minimap-thrown-ability-icon", "minimap/icon-extent-by-family",
+       "abilities/ability-rules-are-unique", "abilities/chamber-trademark-minimap-white-area",
+       "abilities/veto-chokehold-minimap-white-area", "abilities/deadlock-sonic-sensor-minimap-white-area",
+       "minimap/no-teammate-floor-circle"]
+
+[chamber-trademark-minimap-white-area]
+claim = """
+Chamber's trip, read here as Trademark in slot C, draws a white-tinted area
+on the minimap round its icon, mostly circular.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+subject = "chamber:trademark"
+source = """
+the player, 2026-09-29 (chat), naming Chamber's trip among the abilities
+that draw a white-tinted area; he calls it the trip, and Trademark is
+Chamber's one trap in the catalogue
+"""
+use = "seek the icon with its white-tinted area; floor inside the area reads lit"
+exceptions = """
+the radius is unmeasured; that the player's trip is Trademark is our reading
+of his word, to be confirmed on the mechanics sheet
+"""
+see = ["abilities/minimap-icon-pale-region", "abilities/ability-rules-are-unique"]
+
+[veto-chokehold-minimap-white-area]
+claim = """
+Veto's trip, read here as Chokehold in slot Q, draws a white-tinted area on
+the minimap round its icon, mostly circular.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+subject = "veto:chokehold"
+source = """
+the player, 2026-09-29 (chat), naming Veto's trip among the abilities that
+draw a white-tinted area; on 2026-09-26 he listed Chokehold with a pale
+region [domain:abilities/minimap-icon-pale-region]
+"""
+use = "seek the icon with its white-tinted area; floor inside the area reads lit"
+exceptions = """
+the radius is unmeasured; that the player's trip is Chokehold is our reading
+of his word, to be confirmed on the mechanics sheet. Crosscut and
+Interceptor, listed on 2026-09-26, were not named on 2026-09-29, and nothing
+here extends to them
+"""
+see = ["abilities/minimap-icon-pale-region", "abilities/ability-rules-are-unique"]
+
+[deadlock-sonic-sensor-minimap-white-area]
+claim = """
+Deadlock's Sonic Sensor in slot Q draws a white-tinted area on the minimap
+round its icon, mostly circular.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+subject = "deadlock:sonic sensor"
+source = """
+the player, 2026-09-29 (chat), naming the Sonic Sensor among the abilities
+that draw a white-tinted area; he listed it with a pale region on
+2026-09-26 [domain:abilities/minimap-icon-pale-region]
+"""
+use = """
+seek the icon with its white-tinted area; floor inside the area reads lit.
+The sensor's icon disc is 24 px across on the 465 px widget
+[domain:minimap/icon-extent-by-family]; the white area's radius is another
+quantity
+"""
+exceptions = """
+the area's radius is unmeasured; a dim (deactivated) sensor
+[domain:minimap/device-dim-on-deactivation] may or may not keep its area,
+and nobody has asked
+"""
+see = ["abilities/minimap-icon-pale-region", "minimap/device-dim-on-deactivation",
        "abilities/ability-rules-are-unique"]
+
+[piloted-drones-have-cones]
+claim = """
+Every piloted drone has its own vision cone.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-29"
+subject = "minimap:piloted-drone"
+source = """
+the player, 2026-09-29 (chat), asked what lights the minimap floor where no
+team cone reaches; he named no drone
+"""
+use = """
+a lit wedge from no teammate's icon may be a drone's cone; which abilities
+are piloted is recorded per ability (each "piloted" fact), never by analogy
+"""
+exceptions = """
+unanswered: which drones, and whether a drone's cone lights the floor as a
+player's does; both are asked on docs/ABILITY_MECHANICS_SHEET.md
+"""
+see = ["minimap/no-teammate-floor-circle", "abilities/ability-rules-are-unique"]
 
 [wall-icon-path-curve]
 claim = """
