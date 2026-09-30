@@ -24,7 +24,17 @@ a heaven, and the lines near those regions are not.
 
 `classify` also draws both keys with classes, places and heaven candidates to
 `<store>/analysis/raised-edges-20260930/`. `label_raised_edges.py` asks the player what each
-piece is, unseeded, and scores the classifier against the answers.
+segment is, unseeded, and scores the classifier against the answers.
+
+Pieces and segments (0.2.0). A 0.1.0 piece is an 8-connected component of one class; it follows
+the line network through junctions and corners, so walls round a room come out as one piece whose
+box is the room, and the player could only answer unsure on them (23 of 67). `segments` thins the
+line mask, cuts the skeleton at junctions (crossing number of at least 3), splits each branch where
+its class changes and where a polyline fit turns, and keeps a small closed outline whole. On the
+465 px key that gives 234 wall and raised segments. The 0.1.0 pieces stay, because the player's
+0.1.0 answers are keyed to them. Scored against those answers, the wall / raised split agreed on
+10 of 21 pieces the player called wall or ramp, and 17 of the 18 box outlines the player named
+read raised: the floor-beyond rule reads a box's outline and many interior walls as raised edges.
 """
 from __future__ import annotations
 
@@ -49,7 +59,7 @@ from reticle import geometry, metrics, occluders  # noqa: E402
 from reticle.minimap import PLANT, widget_scale  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "raised-edges-0.1.0"
+VERSION = "raised-edges-0.2.0"
 SERIES = "raised_edges"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / "raised-edges-20260930"
@@ -441,19 +451,194 @@ def sheet(r: dict, places: dict, heavens: list[dict] = (), zoom: int = 3) -> np.
     return np.vstack([band, img])
 
 
-def annotate_pieces(r: dict, heavens: list[dict]) -> None:
-    """Per piece: the share of its pixels with RAMP terrain (`shade_kind`) within RING_PX, and the
-    shade-heaven candidates it touches. Neither is shown to the player."""
+def annotate_pieces(r: dict, heavens: list[dict], items: str = "pieces", ids: str = "_pid") -> None:
+    """Per piece (or per segment, with items="segments", ids="_sid"): the share of its pixels with
+    RAMP terrain (`shade_kind`) within RING_PX, and the shade-heaven candidates it touches. Neither
+    is shown to the player."""
     k3 = np.ones((3, 3), np.uint8)
     it = max(1, int(round(RING_PX * r["scale"])))
     ramp_near = cv2.dilate((r["_kind"] == KIND_RAMP).astype(np.uint8), k3, iterations=it).astype(bool)
     hv = np.zeros(r["_line"].shape, np.int32)
     for d in heavens:
         hv[cv2.dilate(d["_mask"].astype(np.uint8), k3, iterations=it).astype(bool) & (hv == 0)] = d["id"]
-    for p in r["pieces"]:
-        m = r["_pid"] == p["id"]
+    for p in r[items]:
+        m = r[ids] == p["id"]
         p["ramp_near_share"] = round(float(ramp_near[m].mean()), 3)
         p["heavens"] = sorted({int(v) for v in hv[m] if v})
+
+
+# --- segments (raised-edges-0.2.0) -------------------------------------------------------------
+# The 0.1.0 pieces were 8-connected components of one smoothed class. A component follows the line
+# network through every junction and corner, so walls that meet round a room come out as one piece
+# whose bounding box is the room: on the 465 px key one wall piece spans 370 x 306 px. The player,
+# asked about the line in such a box, could only answer unsure. A segment instead is one maximal
+# run of skeleton between junctions, cut where its smoothed class changes and where a polyline fit
+# turns a corner, so each segment is one straight (or gently curved) stroke of one class.
+
+#: The polyline fit's tolerance, px at scale 1.0: a run bends into a new segment past this.
+SEG_EPS_PX = 1.5
+#: A class run shorter than this (px at scale 1.0, along the skeleton) joins its neighbour.
+SEG_CLASS_MIN_PX = 4
+#: A line pixel belongs to the nearest skeleton segment within this distance (px at scale 1.0).
+SEG_ATTACH_PX = 3.0
+#: A closed junction-free loop no wider than this (px at scale 1.0) is one segment, not split at
+#: its corners: a small box's outline is one object, and its 4-6 px sides fall under MIN_PIECE_PX.
+SEG_LOOP_MAX_PX = 24
+
+
+def thin(mask: np.ndarray) -> np.ndarray:
+    """Zhang-Suen thinning of a binary mask to an 8-connected one-pixel skeleton."""
+    img = np.pad(mask.astype(np.uint8), 1)
+    while True:
+        changed = False
+        for step in (0, 1):
+            p = img
+            n = [np.roll(np.roll(p, dy, 0), dx, 1) for dy, dx in
+                 ((1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1))]
+            # P2..P9 clockwise from north: roll by +1 in y brings the pixel above down
+            P2, P3, P4, P5, P6, P7, P8, P9 = n
+            B = sum(n)
+            seq = [P2, P3, P4, P5, P6, P7, P8, P9, P2]
+            A = sum(((seq[i] == 0) & (seq[i + 1] == 1)).astype(np.uint8) for i in range(8))
+            if step == 0:
+                c = (P2 * P4 * P6 == 0) & (P4 * P6 * P8 == 0)
+            else:
+                c = (P2 * P4 * P8 == 0) & (P2 * P6 * P8 == 0)
+            kill = (p == 1) & (B >= 2) & (B <= 6) & (A == 1) & c
+            if kill.any():
+                img = np.where(kill, 0, img).astype(np.uint8)
+                changed = True
+        if not changed:
+            break
+    return img[1:-1, 1:-1].astype(bool)
+
+
+_N8 = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
+
+
+def _order(pix: set, sk_deg: dict) -> list[list[tuple[int, int]]]:
+    """Order one junction-free branch's pixels into walks; a loop is opened at its first pixel."""
+    left = set(pix)
+    walks = []
+    while left:
+        ends = [q for q in left if sum((q[0] + dy, q[1] + dx) in left for dy, dx in _N8) <= 1]
+        cur = min(ends) if ends else min(left)
+        walk = [cur]
+        left.discard(cur)
+        while True:
+            nb = [(cur[0] + dy, cur[1] + dx) for dy, dx in _N8 if (cur[0] + dy, cur[1] + dx) in left]
+            if not nb:
+                break
+            # prefer the 4-neighbour, so a staircase is walked in order
+            nb.sort(key=lambda q: abs(q[0] - cur[0]) + abs(q[1] - cur[1]))
+            cur = nb[0]
+            walk.append(cur)
+            left.discard(cur)
+        walks.append(walk)
+    return walks
+
+
+def segments(r: dict) -> None:
+    """Split the line network into segments (see the section note) and set r["segments"] and
+    r["_sid"] (segment id per line pixel, 0 where no segment claims it)."""
+    sc, line, sm = r["scale"], r["_line"], r["_sm"]
+    sk = thin(line)
+    h, w = sk.shape
+    # a junction is where three or more strokes meet: the crossing number (0-to-1 transitions round
+    # the 8-neighbourhood) is at least 3. The neighbour count is not used, since it reads 3 at
+    # every corner of an 8-connected stroke and cut each box outline into 5 px sides
+    pad = np.pad(sk.astype(np.uint8), 1)
+    ring = [np.roll(np.roll(pad, dy, 0), dx, 1) for dy, dx in
+            ((1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1))]
+    cross = sum(((ring[i] == 0) & (ring[(i + 1) % 8] == 1)).astype(np.uint8) for i in range(8))
+    junction = sk & (cross[1:-1, 1:-1] >= 3)
+    # a junction is a cluster: its pixels and their 8-neighbours on the skeleton cut the branches
+    jz = cv2.dilate(junction.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool) & sk
+    branches = sk & ~jz
+    n, lab = cv2.connectedComponents(branches.astype(np.uint8), connectivity=8)
+    eps = SEG_EPS_PX * sc
+    cmin = max(2, int(round(SEG_CLASS_MIN_PX * sc)))
+    runs = []                                   # (ordered pixels, class)
+    for i in range(1, n):
+        ys, xs = np.nonzero(lab == i)
+        for walk in _order(set(zip(ys.tolist(), xs.tolist())), {}):
+            wy, wx = [q[0] for q in walk], [q[1] for q in walk]
+            closed = (len(walk) >= 8 and abs(walk[0][0] - walk[-1][0]) <= 1
+                      and abs(walk[0][1] - walk[-1][1]) <= 1)
+            if closed and max(max(wy) - min(wy), max(wx) - min(wx)) + 1 <= SEG_LOOP_MAX_PX * sc:
+                runs.append((walk, "loop"))     # a small closed outline is one object: keep it whole
+                continue
+            cl = [int(sm[y, x]) for y, x in walk]
+            # class runs, short runs absorbed by the previous run (or the next, at the start)
+            parts = []
+            for k, c in enumerate(cl):
+                if parts and parts[-1][1] == c:
+                    parts[-1][0].append(k)
+                else:
+                    parts.append([[k], c])
+            merged = []
+            for idx, c in parts:
+                if merged and (len(idx) < cmin or merged[-1][1] == c):
+                    merged[-1][0].extend(idx)
+                else:
+                    merged.append([idx, c])
+            if len(merged) > 1 and len(merged[0][0]) < cmin:
+                merged[1][0][:0] = merged[0][0]
+                merged.pop(0)
+            for idx, _ in merged:
+                pts = [walk[k] for k in idx]
+                if len(pts) < 2:
+                    runs.append((pts, None))
+                    continue
+                cnt = np.array([[x, y] for y, x in pts], np.int32).reshape(-1, 1, 2)
+                ap = cv2.approxPolyDP(cnt, eps, False).reshape(-1, 2)
+                # the vertices' indices along the walk; each consecutive pair bounds one stroke
+                vi = [0]
+                j = 0
+                for vx, vy in ap[1:]:
+                    while j < len(pts) - 1 and (pts[j][1], pts[j][0]) != (int(vx), int(vy)):
+                        j += 1
+                    vi.append(j)
+                vi[-1] = len(pts) - 1
+                for a, b in zip(vi[:-1], vi[1:]):
+                    if b > a:
+                        runs.append((pts[a:b + 1], None))
+    # attach every line pixel to the nearest run's skeleton pixel within SEG_ATTACH_PX
+    seed = np.zeros((h, w), np.int32)
+    for k, (pts, _) in enumerate(runs, 1):
+        for y, x in pts:
+            seed[y, x] = k
+    src = (seed == 0).astype(np.uint8)
+    dist, lab2 = cv2.distanceTransformWithLabels(src, cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_PIXEL)
+    # lab2 numbers the zero pixels of src; map each label to its seed's run id
+    zy, zx = np.nonzero(src == 0)
+    lut = np.zeros(lab2.max() + 1, np.int32)
+    lut[lab2[zy, zx]] = seed[zy, zx]
+    sid = np.where(line & (dist <= SEG_ATTACH_PX * sc), lut[lab2], 0).astype(np.int32)
+    segs = []
+    remap = np.zeros(len(runs) + 1, np.int32)
+    min_px = MIN_PIECE_PX * sc
+    for k, (pts, kind) in enumerate(runs, 1):
+        m = sid == k
+        npx = int(m.sum())
+        if len(pts) < min_px or npx == 0:
+            continue
+        cls_px = sm[m]
+        vals, cnts = np.unique(cls_px[cls_px != JUNCTION], return_counts=True)
+        if len(vals) == 0:
+            continue
+        c = int(vals[np.argmax(cnts)])
+        yy, xx = np.nonzero(m)
+        segs.append({"id": len(segs) + 1, "cls": CLASS_NAMES[c], "px": npx, "skeleton_px": len(pts),
+                     "shape": "loop" if kind == "loop" else "stroke",
+                     "class_share": round(float(cnts.max() / cnts.sum()), 3),
+                     "x": int(xx.min()), "y": int(yy.min()), "w": int(xx.max() - xx.min() + 1),
+                     "h": int(yy.max() - yy.min() + 1),
+                     "end_a": [int(pts[0][1]), int(pts[0][0])], "end_b": [int(pts[-1][1]), int(pts[-1][0])]})
+        remap[k] = len(segs)
+    r["segments"] = segs
+    r["_sid"] = remap[sid]
+    r["_skeleton"] = sk
 
 
 def classify_keys() -> dict:
@@ -466,6 +651,10 @@ def classify_keys() -> dict:
     for k, r in res.items():
         heavens[k] = shade_heavens(r)
         annotate_pieces(r, heavens[k])
+        segments(r)
+        annotate_pieces(r, heavens[k], "segments", "_sid")
+        for c in ("wall", "raised_edge", "void_both"):
+            r["counts"][f"{c}_segments"] = sum(int(p["cls"] == c) for p in r["segments"])
         for c in ("wall", "raised_edge"):
             ps = [p for p in r["pieces"] if p["cls"] == c]
             r["counts"][f"{c}_ramp_near_pieces"] = sum(int(p["ramp_near_share"] > 0.5) for p in ps)
@@ -487,6 +676,7 @@ def main(argv=None) -> int:
         pl = got["places"][k]
         hv = got["heavens"][k]
         summary["keys"][k] = {"counts": r["counts"], "places": pl, "pieces": r["pieces"],
+                              "segments": r["segments"],
                               "shade_heavens": [{a: b for a, b in d.items() if a != "_mask"} for d in hv]}
         cv2.imwrite(str(OUT / f"sheet_{k}.png"), sheet(r, pl, hv))
         for d in hv:
@@ -517,14 +707,19 @@ def main(argv=None) -> int:
                     "wall_ramp_near_pieces": c.get("wall_ramp_near_pieces", 0),
                     "raised_heaven_touch_pieces": c.get("raised_edge_heaven_touch_pieces", 0),
                     "wall_heaven_touch_pieces": c.get("wall_heaven_touch_pieces", 0),
-                    "shade_heavens": c.get("shade_heavens", 0)}
+                    "shade_heavens": c.get("shade_heavens", 0),
+                    "wall_segments": c.get("wall_segments", 0),
+                    "raised_segments": c.get("raised_edge_segments", 0),
+                    "segment_claimed_share": round(float((r["_sid"] > 0).sum()) / c["line_px"], 4)}
             if k == KEYS[1]:
                 vals.update(profile_same_share=got["agree"]["same_share"],
                             profile_matched_px=got["agree"]["matched_px"])
             metrics.record(SERIES, part="classify", session=k, values=vals,
                            deps={"version": VERSION, "occluders": occluders.occluder_stamp(),
                                  "void_v_max": VOID_V_MAX, "floor_s_max": FLOOR_S_MAX, "walk_px": WALK_PX,
-                                 "read_px": READ_PX, "smooth_px": SMOOTH_PX, "min_piece_px": MIN_PIECE_PX},
+                                 "read_px": READ_PX, "smooth_px": SMOOTH_PX, "min_piece_px": MIN_PIECE_PX,
+                                 "seg_eps_px": SEG_EPS_PX, "seg_class_min_px": SEG_CLASS_MIN_PX,
+                                 "seg_attach_px": SEG_ATTACH_PX, "seg_loop_max_px": SEG_LOOP_MAX_PX},
                            context={"places": {n: v["box"] for n, v in pl.items()},
                                     "transform_331_to_465": got["T"]},
                            note="baked geometry only; no session pixels")
