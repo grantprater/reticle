@@ -86,6 +86,103 @@ class EntityTest(unittest.TestCase):
         self.assertEqual(len(R.entities(frames, answers)), 2)
 
 
+def on_circle(cx, cy, r, degs, kind="ring"):
+    import math
+    return [mk(round(cx + r * math.cos(math.radians(d)), 1),
+               round(cy + r * math.sin(math.radians(d)), 1), kind) for d in degs]
+
+
+def shapes(ins):
+    return sorted((e["kind"], len(e["marks"])) for e in ins)
+
+
+class FrameGroupingTest(unittest.TestCase):
+    """The player's convention: one ring is its centre icon and two or more
+    perimeter points; one area many fill points; one line points on one
+    smooth curve; a lone icon itself."""
+
+    def test_ring_with_its_icon_is_one_entity(self):
+        ms = [mk(100, 100)] + on_circle(100, 100, 21, (200, 20))
+        (e,) = R.frame_entities(ms)
+        self.assertEqual((e["kind"], len(e["marks"]), e["icon"]), ("ring", 3, (100, 100)))
+        self.assertAlmostEqual(e["r"], 21.0, delta=0.5)
+
+    def test_ring_marked_at_its_centre_belongs_to_the_icon(self):
+        self.assertEqual(shapes(R.frame_entities([mk(173, 255), mk(173, 255, "ring")])),
+                         [("ring", 2)])
+
+    def test_two_rings_and_a_lone_icon(self):
+        # 043b frame 54's layout: a big ring about an icon a little off its
+        # centre, a small ring about one of two adjacent icons.
+        ms = ([mk(170.5, 119), mk(186.5, 55, "ring"), mk(159, 176, "ring"),
+               mk(107.5, 108.5, "ring"), mk(84.5, 222), mk(101.5, 230, "ring"),
+               mk(64.5, 228, "ring"), mk(71, 220)])
+        self.assertEqual(shapes(R.frame_entities(ms, 331 / 465)),
+                         [("icon", 1), ("ring", 3), ("ring", 4)])
+
+    def test_an_icon_free_circle_wins_over_a_chance_pair(self):
+        # 043b frame 68: four points on a ring with no icon, two of which
+        # happen to lie equally far from a lone icon nearby.
+        ms = ([mk(171, 255.5), mk(189.5, 241.5, "ring"), mk(151.5, 250, "ring"),
+               mk(125, 91.5, "ring"), mk(62.5, 194, "ring"), mk(143.5, 167.5, "ring"),
+               mk(150, 134, "ring"), mk(175.5, 155.5)])
+        ins = R.frame_entities(ms, 331 / 465)
+        self.assertEqual(shapes(ins), [("icon", 1), ("ring", 3), ("ring", 4)])
+        free = next(e for e in ins if e["kind"] == "ring" and e["icon"] is None)
+        self.assertAlmostEqual(free["r"], 60.0, delta=3.0)
+
+    def test_two_points_without_an_icon_are_one_ring(self):
+        self.assertEqual(shapes(R.frame_entities([mk(98, 107, "ring"), mk(116.5, 118, "ring")])),
+                         [("ring", 2)])
+
+    def test_area_points_are_one_entity_per_cluster(self):
+        fill = [mk(x, y, "area") for x in range(20, 120, 20) for y in range(130, 230, 20)]
+        far = [mk(400, 400, "area"), mk(410, 405, "area")]
+        self.assertEqual(shapes(R.frame_entities(fill + far)), [("area", 2), ("area", 25)])
+
+    def test_a_broken_wall_is_one_line_and_two_walls_are_two(self):
+        # c62c frame 36 (a broken Sage wall), and frame 48 (that wall and a
+        # curved wall far off).
+        broken = [mk(202.5, 253, "line"), mk(220.5, 259, "line"), mk(228.5, 263, "line")]
+        self.assertEqual(shapes(R.frame_entities(broken)), [("line", 3)])
+        two = [mk(214.5, 256.5, "line"), mk(226, 262, "line"), mk(62, 275.5, "line"),
+               mk(56.5, 258.5, "line"), mk(44.5, 224.5, "line")]
+        self.assertEqual(shapes(R.frame_entities(two)), [("line", 2), ("line", 3)])
+
+    def test_a_corner_splits_a_line(self):
+        ms = [mk(0, 0, "line"), mk(30, 0, "line"), mk(60, 0, "line"), mk(60, 30, "line"),
+              mk(60, 60, "line")]
+        self.assertEqual(len(R.frame_entities(ms)), 2)
+
+    def test_lone_icons_and_no_smokes(self):
+        ms = [mk(10, 10), mk(300, 300), mk(50, 50, "smoke")]
+        # frame_entities takes target marks; entities() drops the smoke.
+        ins = R.frame_entities([m for m in ms if m["kind"] not in R.NOT_TARGET])
+        self.assertEqual(shapes(ins), [("icon", 1), ("icon", 1)])
+
+
+class CrossFrameTest(unittest.TestCase):
+    def test_a_ring_links_through_its_icon_and_a_wall_along_its_curve(self):
+        frames = [frame(0, 0), frame(1, 10000), frame(2, 20000)]
+        answers = {
+            0.0: ans(0, marks=[mk(171, 255)] + on_circle(171, 255, 21, (200, 20))
+                     + [mk(204.5, 254.5, "line"), mk(221.5, 261.5, "line")]),
+            10000.0: ans(10000, marks=[mk(172, 256)] + on_circle(172, 256, 21, (90, 300))
+                         + [mk(205.5, 256.5, "line"), mk(226.5, 263.5, "line")]),
+            # The ring has gone; its icon stays.
+            20000.0: ans(20000, marks=[mk(173, 255)]),
+        }
+        ents = R.entities(frames, answers)
+        self.assertEqual(sorted((e["kind"], len(e["instances"])) for e in ents),
+                         [("line", 2), ("ring", 3)])
+
+    def test_different_rings_on_consecutive_frames_stay_apart(self):
+        frames = [frame(0, 0), frame(1, 10000)]
+        answers = {0.0: ans(0, marks=on_circle(100, 100, 60, (0, 90, 180, 270))),
+                   10000.0: ans(10000, marks=on_circle(300, 300, 60, (0, 90, 180, 270)))}
+        self.assertEqual(len(R.entities(frames, answers)), 2)
+
+
 class ScoreTest(unittest.TestCase):
     def setUp(self):
         self.frames = [frame(0, 0), frame(1, 10000), frame(2, 20000), frame(3, 30000)]

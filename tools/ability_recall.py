@@ -2,6 +2,8 @@ r"""Recall of unnamed ability entities, scored against the player's exhaustive l
 
     .\.venv\Scripts\python.exe tools\ability_recall.py --select
     .\.venv\Scripts\python.exe tools\ability_recall.py [--out DIR]
+    .\.venv\Scripts\python.exe tools\ability_recall.py --groups 137,170 [--out DIR]
+    .\.venv\Scripts\python.exe tools\ability_recall.py --review --out DIR
 
 Stage 4 of `docs/ABILITY_DETECTION.md` (sections 10 and 11, pass 1).
 
@@ -21,14 +23,23 @@ the store's `labels/ability_recall_20260930/selection/<sid>.json`.
 `prototypes/label_ability_recall.py` writes them) and the stored
 `ability_icon` and `ability_shape_scan` streams. Per widget size it prints:
 
-- *Entity recall.* Marks are linked into entities (`entities`): one kind,
-  within LINK_PX (scaled to the widget) on consecutive selected frames of one
-  round, or the same free-text name in one round. An entity is found when a
-  proposal explains any of its marks. The one-sided 95% Clopper-Pearson
-  lower bound goes beside it (`cp_lower`). Until stage 5 builds tracks, a
-  proposal on a labelled frame stands for the track that would cover it.
-- *Frame recall.* The share of target marks a proposal on the same frame
-  explains.
+- *Entity recall.* Each frame's marks are grouped first (`frame_entities`),
+  by the player's convention: a ring is its centre icon, when there is one,
+  and two or more kind-2 points on its perimeter; an area is many kind-4
+  points filling it; a line or beam is kind-3 points along one smooth curve
+  (a broken wall stays one); an icon with no ring is its own entity. The
+  instances are then linked across frames (`entities`): on consecutive
+  selected frames of one round when `same_entity` holds (centre icons within
+  LINK_PX, one circle, one curve, touching areas), or by the same free-text
+  name in one round. Every threshold is in px at the 465 px widget, scaled.
+  An entity is found when a proposal explains any of its marks. The
+  one-sided 95% Clopper-Pearson lower bound goes beside it (`cp_lower`).
+  Until stage 5 builds tracks, a proposal on a labelled frame stands for
+  the track that would cover it. `--groups` prints and draws the grouping
+  without reading a stream.
+- *Frame recall.* The share of entity instances (an entity on one frame)
+  that a proposal on the same frame explains; the share of marks goes
+  beside it, though an area's many fill points weigh it.
 - *Specificity.* Proposals on a labelled frame that explain no mark, per
   frame, by proposal type, over every labelled frame and over the frames the
   player answered "nothing here".
@@ -68,7 +79,7 @@ from pathlib import Path  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-TOOL = "ability-recall-0.1.0"
+TOOL = "ability-recall-0.2.0"
 SET = "ability_recall_20260930"
 #: Every CADENCE-th live 2 Hz sample is a frame (section 10, fixed in advance).
 CADENCE = 20
@@ -85,10 +96,37 @@ KINDS = ("icon", "ring", "line", "area", "smoke", "unsure")
 NOT_TARGET = ("smoke", "unsure")
 #: Explaining tolerance, px of the crop.
 TOL_PX = 3.0
-#: Marks of one kind this close (px at 465, scaled) on consecutive frames of a
-#: round are one entity.
+#: Instances this close (px at 465, scaled) on consecutive frames of a round
+#: are one entity (`same_entity`).
 LINK_PX = 6.0
 ALPHA = 0.05
+#: Grouping one frame's marks (`frame_entities`), from the player's
+#: convention and the widget's scale, never from the recall they give. Every
+#: px value is at the 465 px widget, scaled by widget / WIDGET_REF.
+WIDGET_REF = 465.0
+#: A kind-2 mark this close to an icon is a ring marked at its centre (the
+#: player's first frames), and belongs to that icon.
+RING_CENTRE_PX = 4.0
+#: Perimeter points belong to one icon when their distances from it agree
+#: within 2 TOL_PX + RING_REL x radius: each click lands within TOL_PX of a
+#: rim drawn 2-3 px wide, and the icon need not sit exactly at the centre.
+RING_REL = 0.1
+#: An icon-free circle takes points within TOL_PX + CIRCLE_REL x radius of
+#: its fitted rim, needs CIRCLE_MIN of them (any three points lie on some
+#: circle, so only a fourth is evidence), and is at most half the widget.
+CIRCLE_REL = 0.05
+CIRCLE_MIN = 4
+#: Ring points left over form one centreless ring per cluster at this gap:
+#: two points of one ring lie within its diameter, at most the widget's half.
+RING_PAIR_PX = WIDGET_REF / 2.0
+#: Kind-3 points along one curve: a step of at most a fifth of the widget
+#: (the player marks a long beam with two far points) and a turn of at most
+#: LINE_TURN_DEG between steps (a smooth curve, not a corner).
+LINE_GAP_PX = 0.2 * WIDGET_REF
+LINE_TURN_DEG = 60.0
+#: Kind-4 points filling one area: single linkage at a tenth of the widget,
+#: about twice the fill spacing the player used.
+AREA_GAP_PX = 0.1 * WIDGET_REF
 
 
 def below_normal() -> None:
@@ -149,25 +187,234 @@ def load_answers(path: Path) -> dict[float, dict]:
     return out
 
 
+def _fit_circle(pts: list[tuple[float, float]]) -> tuple[float, float, float] | None:
+    """The least-squares (Kasa) circle through three or more points, or None
+    when they are collinear."""
+    import numpy as np
+    a = np.array([[x, y, 1.0] for x, y in pts])
+    b = np.array([-(x * x + y * y) for x, y in pts])
+    sol, *_ = np.linalg.lstsq(a, b, rcond=None)
+    cx, cy = -sol[0] / 2.0, -sol[1] / 2.0
+    r2 = cx * cx + cy * cy - sol[2]
+    if not np.isfinite(r2) or r2 <= 0:
+        return None
+    return float(cx), float(cy), float(math.sqrt(r2))
+
+
+def _icon_group(icon: dict, pts: list[dict], scale: float) -> list[int]:
+    """The ring points that belong to `icon`: those within RING_CENTRE_PX of
+    it (a ring marked at its centre), and the largest set whose distances
+    from it agree within 2 TOL_PX + RING_REL x radius (two or more)."""
+    near = [i for i, p in enumerate(pts)
+            if math.hypot(p["x"] - icon["x"], p["y"] - icon["y"]) <= RING_CENTRE_PX * scale]
+    rest = sorted((math.hypot(p["x"] - icon["x"], p["y"] - icon["y"]), i)
+                  for i, p in enumerate(pts) if i not in near)
+    best: list[int] = []
+    for a in range(len(rest)):
+        grp = [i for d, i in rest[a:] if d - rest[a][0] <= 2 * TOL_PX + RING_REL * rest[a][0]]
+        if len(grp) >= 2 and len(grp) > len(best):
+            best = grp
+    return near + best
+
+
+def _circle_group(pts: list[dict], scale: float) -> tuple[list[int], tuple] | None:
+    """The icon-free circle through the most ring points, seeded from every
+    triple and refitted through its inliers, with radius at most half the
+    widget; among equal counts, the smallest residual relative to the
+    radius wins (two rings' points can share a loose circle)."""
+    from itertools import combinations
+    best = None
+    for tri in combinations(range(len(pts)), 3):
+        c = _fit_circle([(pts[i]["x"], pts[i]["y"]) for i in tri])
+        if c is None or c[2] > WIDGET_REF / 2.0 * scale:
+            continue
+        inl = [i for i, p in enumerate(pts)
+               if abs(math.hypot(p["x"] - c[0], p["y"] - c[1]) - c[2]) <= TOL_PX + CIRCLE_REL * c[2]]
+        fit = _fit_circle([(pts[i]["x"], pts[i]["y"]) for i in inl]) or c
+        res = max(abs(math.hypot(pts[i]["x"] - fit[0], pts[i]["y"] - fit[1]) - fit[2])
+                  for i in inl) / fit[2]
+        if best is None or (len(inl), -res) > (len(best[0]), -best[2]):
+            best = (inl, fit, res)
+    return None if best is None else (best[0], best[1])
+
+
+def _rings(icons: list[dict], pts: list[dict], scale: float) -> tuple[list[dict], list[dict]]:
+    """One frame's rings: (ring instances, icons left alone).
+
+    Greedily, the group of most marks first: an icon with the ring points
+    that lie on a circle about it (the icon counts as a mark), or an
+    icon-free circle through CIRCLE_MIN or more points; a tie goes to the
+    icon. Ring points left over form one
+    centreless ring per RING_PAIR_PX cluster, since the player marks a ring
+    with at least two points on its perimeter."""
+    icons, pts = list(icons), list(pts)
+    out = []
+    while pts:
+        cand = []
+        for k, ic in enumerate(icons):
+            g = _icon_group(ic, pts, scale)
+            if g:
+                cand.append((len(g) + 1, 1, "icon", k, g, None))
+        cg = _circle_group(pts, scale)
+        if cg is not None and len(cg[0]) >= CIRCLE_MIN:
+            cand.append((len(cg[0]), 0, "circle", None, cg[0], cg[1]))
+        if not cand:
+            break
+        n, _pri, how, k, g, circ = max(cand, key=lambda c: (c[0], c[1]))
+        members = [pts[i] for i in g]
+        if how == "icon":
+            ic = icons.pop(k)
+            rim = [m for m in members
+                   if math.hypot(m["x"] - ic["x"], m["y"] - ic["y"]) > RING_CENTRE_PX * scale]
+            r = (sum(math.hypot(m["x"] - ic["x"], m["y"] - ic["y"]) for m in rim) / len(rim)
+                 if rim else None)
+            out.append({"kind": "ring", "marks": [ic] + members, "icon": (ic["x"], ic["y"]),
+                        "centre": (ic["x"], ic["y"]), "r": r})
+        else:
+            out.append({"kind": "ring", "marks": members, "icon": None,
+                        "centre": (circ[0], circ[1]), "r": circ[2]})
+        pts = [p for i, p in enumerate(pts) if i not in set(g)]
+    for cl in _clusters(pts, RING_PAIR_PX * scale):
+        out.append({"kind": "ring", "marks": cl, "icon": None, "centre": None, "r": None})
+    return out, icons
+
+
+def _clusters(pts: list[dict], gap: float) -> list[list[dict]]:
+    """Single-linkage clusters of marks at `gap` px."""
+    parent = list(range(len(pts)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            if math.hypot(pts[i]["x"] - pts[j]["x"], pts[i]["y"] - pts[j]["y"]) <= gap:
+                parent[find(i)] = find(j)
+    groups: dict[int, list] = {}
+    for i in range(len(pts)):
+        groups.setdefault(find(i), []).append(pts[i])
+    return list(groups.values())
+
+
+def _curves(pts: list[dict], scale: float) -> list[list[dict]]:
+    """Kind-3 points split into smooth curves: a LINE_GAP_PX cluster ordered
+    along its principal axis, cut where a step exceeds LINE_GAP_PX or the
+    path turns by more than LINE_TURN_DEG."""
+    import numpy as np
+    out = []
+    for cl in _clusters(pts, LINE_GAP_PX * scale):
+        if len(cl) <= 2:
+            out.append(cl)
+            continue
+        xy = np.array([[m["x"], m["y"]] for m in cl], float)
+        mu = xy.mean(axis=0)
+        _u, _s, vt = np.linalg.svd(xy - mu)
+        order = np.argsort((xy - mu) @ vt[0])
+        run = [cl[order[0]]]
+        for a in range(1, len(order)):
+            m = cl[order[a]]
+            step = math.hypot(m["x"] - run[-1]["x"], m["y"] - run[-1]["y"])
+            turn = 0.0
+            if len(run) >= 2:
+                h0 = math.atan2(run[-1]["y"] - run[-2]["y"], run[-1]["x"] - run[-2]["x"])
+                h1 = math.atan2(m["y"] - run[-1]["y"], m["x"] - run[-1]["x"])
+                turn = abs((math.degrees(h1 - h0) + 180.0) % 360.0 - 180.0)
+            if step > LINE_GAP_PX * scale or turn > LINE_TURN_DEG:
+                out.append(run)
+                run = [m]
+            else:
+                run.append(m)
+        out.append(run)
+    return out
+
+
+def frame_entities(marks: list[dict], scale: float = 1.0) -> list[dict]:
+    """One frame's target marks grouped into entity instances, by the
+    player's convention: a ring is its centre icon (when there is one) and
+    two or more kind-2 points on its perimeter; an area is many kind-4
+    points filling it; a line or beam is kind-3 points along one smooth
+    curve; an icon with no ring is its own entity.
+
+    Returns instances as {"kind", "marks", "icon", "centre", "r"}: `icon`
+    the centre icon's place or None, `centre` and `r` the circle when one is
+    known."""
+    by = {k: [m for m in marks if m.get("kind") == k] for k in ("icon", "ring", "line", "area")}
+    out, lone = _rings(by["icon"], by["ring"], scale)
+    for ic in lone:
+        out.append({"kind": "icon", "marks": [ic], "icon": (ic["x"], ic["y"]),
+                    "centre": (ic["x"], ic["y"]), "r": None})
+    for run in _curves(by["line"], scale):
+        out.append({"kind": "line", "marks": run, "icon": None, "centre": None, "r": None})
+    for cl in _clusters(by["area"], AREA_GAP_PX * scale):
+        out.append({"kind": "area", "marks": cl, "icon": None, "centre": None, "r": None})
+    return out
+
+
+def _seg_dist(x: float, y: float, a: dict, b: dict) -> float:
+    dx, dy = b["x"] - a["x"], b["y"] - a["y"]
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((x - a["x"]) * dx + (y - a["y"]) * dy) / L2))
+    return math.hypot(x - (a["x"] + t * dx), y - (a["y"] + t * dy))
+
+
+def _poly_dist(m: dict, run: list[dict]) -> float:
+    if len(run) == 1:
+        return math.hypot(m["x"] - run[0]["x"], m["y"] - run[0]["y"])
+    return min(_seg_dist(m["x"], m["y"], run[i], run[i + 1]) for i in range(len(run) - 1))
+
+
+def same_entity(a: dict, b: dict, scale: float = 1.0) -> bool:
+    """Whether instances `a` and `b`, on consecutive frames of one round,
+    are one entity: their centre icons within LINK_PX; rings with one
+    circle; lines whose points all lie within LINK_PX of the other's curve;
+    areas within AREA_GAP_PX of each other."""
+    link = LINK_PX * scale
+    if a["icon"] is not None and b["icon"] is not None:
+        return math.hypot(a["icon"][0] - b["icon"][0], a["icon"][1] - b["icon"][1]) <= link
+    if a["kind"] != b["kind"]:
+        return False
+    if a["kind"] == "ring":
+        if a["r"] is not None and b["r"] is not None:
+            return (math.hypot(a["centre"][0] - b["centre"][0], a["centre"][1] - b["centre"][1])
+                    <= max(link, 0.15 * max(a["r"], b["r"]))
+                    and abs(a["r"] - b["r"]) <= 2 * TOL_PX + RING_REL * max(a["r"], b["r"]))
+        for p, q in ((a, b), (b, a)):
+            if p["r"] is not None:
+                return all(abs(math.hypot(m["x"] - p["centre"][0], m["y"] - p["centre"][1]) - p["r"])
+                           <= TOL_PX + RING_REL * p["r"] for m in q["marks"])
+        return any(math.hypot(m["x"] - n["x"], m["y"] - n["y"]) <= link
+                   for m in a["marks"] for n in b["marks"])
+    if a["kind"] == "line":
+        return (all(_poly_dist(m, b["marks"]) <= link for m in a["marks"])
+                or all(_poly_dist(m, a["marks"]) <= link for m in b["marks"]))
+    if a["kind"] == "area":
+        return any(math.hypot(m["x"] - n["x"], m["y"] - n["y"]) <= AREA_GAP_PX * scale
+                   for m in a["marks"] for n in b["marks"])
+    return False
+
+
 def entities(frames: list[dict], answers: dict[float, dict], scale: float = 1.0) -> list[dict]:
-    """Target marks linked into entities.
+    """Target marks grouped into entities.
 
     `frames` are a session's selected frames in order (`t_ms`, `index` (the
     position in the selection), `round_no`); `answers` the player's rows by
-    time. Two target marks are one entity when they share a kind and lie
-    within LINK_PX x `scale` on frames `index` k and k + 1 of one round, or
-    carry the same non-empty name in one round. Returns entities as
-    {"id", "kind", "round_no", "marks": [(t_ms, mark)]}."""
-    marks = []
+    time. Each frame's marks are grouped into instances (`frame_entities`);
+    two instances are one entity when they lie on frames `index` k and k + 1
+    of one round and `same_entity` holds, or carry the same non-empty name
+    in one round. Returns entities as {"id", "kind", "round_no", "instances":
+    [(t_ms, instance)], "marks": [(t_ms, mark)]}; a ring's kind wins over its
+    icon's when an entity holds both."""
+    inst = []
     for f in frames:
         a = answers.get(float(f["t_ms"]))
         if a is None or a.get("answer") != "marks":
             continue
-        for m in a.get("marks") or ():
-            if m.get("kind") in NOT_TARGET:
-                continue
-            marks.append((f, m))
-    parent = list(range(len(marks)))
+        ms = [m for m in a.get("marks") or () if m.get("kind") not in NOT_TARGET]
+        for e in frame_entities(ms, scale):
+            inst.append((f, e))
+    parent = list(range(len(inst)))
 
     def find(i):
         while parent[i] != i:
@@ -175,26 +422,28 @@ def entities(frames: list[dict], answers: dict[float, dict], scale: float = 1.0)
             i = parent[i]
         return i
 
-    link = LINK_PX * scale
-    for i, (fi, mi) in enumerate(marks):
-        for j in range(i + 1, len(marks)):
-            fj, mj = marks[j]
+    def names(e):
+        return {(m.get("name") or "").strip().lower() for m in e["marks"]} - {""}
+
+    for i, (fi, ei) in enumerate(inst):
+        for j in range(i + 1, len(inst)):
+            fj, ej = inst[j]
             if fi.get("round_no") != fj.get("round_no"):
                 continue
-            ni, nj = (mi.get("name") or "").strip().lower(), (mj.get("name") or "").strip().lower()
-            same_name = bool(ni) and ni == nj
-            near = (mi["kind"] == mj["kind"] and abs(fi["index"] - fj["index"]) == 1
-                    and math.hypot(mi["x"] - mj["x"], mi["y"] - mj["y"]) <= link)
-            if same_name or near:
+            if (names(ei) & names(ej)) or (abs(fi["index"] - fj["index"]) == 1
+                                           and same_entity(ei, ej, scale)):
                 parent[find(i)] = find(j)
     groups: dict[int, list] = {}
-    for i in range(len(marks)):
+    for i in range(len(inst)):
         groups.setdefault(find(i), []).append(i)
     out = []
     for n, idx in enumerate(sorted(groups.values(), key=lambda g: g[0])):
-        f0, m0 = marks[idx[0]]
-        out.append({"id": n, "kind": m0["kind"], "round_no": f0.get("round_no"),
-                    "marks": [(float(marks[i][0]["t_ms"]), marks[i][1]) for i in idx]})
+        kinds = {inst[i][1]["kind"] for i in idx}
+        kind = "ring" if "ring" in kinds else inst[idx[0]][1]["kind"]
+        out.append({"id": n, "kind": kind, "round_no": inst[idx[0]][0].get("round_no"),
+                    "instances": [(float(inst[i][0]["t_ms"]), inst[i][1]) for i in idx],
+                    "marks": [(float(inst[i][0]["t_ms"]), m) for i in idx
+                              for m in inst[i][1]["marks"]]})
     return out
 
 
@@ -251,26 +500,47 @@ def score_session(sid: str, frames: list[dict], answers: dict[float, dict], icon
                                          shape_rows.get(float(f["t_ms"])), all_shapes)
              for f in labelled}
     ents = entities(labelled, answers, scale)
-    misses, found, mk_n, mk_hit = [], 0, 0, 0
+    index_of = {float(f["t_ms"]): f.get("index") for f in labelled}
+    misses, found, mk_n, mk_hit, in_n, in_hit = [], 0, 0, 0, 0, 0
+    by_kind: dict[str, dict] = {}
     for e in ents:
-        hit = False
-        for t, m in e["marks"]:
-            mk_n += 1
-            ok = any(explains(m, p) for p in props[t])
-            mk_hit += ok
-            hit |= ok
+        hit, by = False, None
+        for t, ins in e["instances"]:
+            in_n += 1
+            ok_ins = False
+            for m in ins["marks"]:
+                mk_n += 1
+                p_ok = next((p for p in props[t] if explains(m, p)), None)
+                mk_hit += p_ok is not None
+                if p_ok is not None:
+                    ok_ins = True
+                    by = by or p_ok["type"]
+            in_hit += ok_ins
+            hit |= ok_ins
         found += hit
-        if not hit:
-            for t, m in e["marks"]:
+        bk = by_kind.setdefault(e["kind"], {"entities": 0, "found": 0, "found_by": {}})
+        bk["entities"] += 1
+        bk["found"] += hit
+        if hit:
+            bk["found_by"][by] = bk["found_by"].get(by, 0) + 1
+        else:
+            for t, ins in e["instances"]:
                 row = icon_rows.get(t)
-                near = min(((distance(m, p), p["type"]) for p in props[t]), default=None)
+                near = min(((distance(m, p), n) for m in ins["marks"]
+                            for n, p in enumerate(props[t])), default=None)
+                rep = ins["icon"] or ins["centre"] or (ins["marks"][0]["x"], ins["marks"][0]["y"])
                 misses.append({"kind": "surprise", "surprise": "ability_recall_miss",
-                               "session_id": sid, "t_ms": t, "entity": e["id"],
-                               "round_no": e["round_no"], "x": m["x"], "y": m["y"],
-                               "mark_kind": m["kind"], "name": m.get("name"),
+                               "session_id": sid, "t_ms": t, "index": index_of.get(t),
+                               "entity": e["id"], "entity_kind": e["kind"],
+                               "round_no": e["round_no"], "x": rep[0], "y": rep[1],
+                               "mark_kind": ins["kind"],
+                               "marks": [{"x": m["x"], "y": m["y"], "kind": m["kind"]}
+                                         for m in ins["marks"]],
+                               "name": next((m.get("name") for m in ins["marks"] if m.get("name")),
+                                            None),
                                "stream_reason": ("no_row" if row is None else row.get("reason")),
                                "nearest": None if near is None else
-                               {"px": round(near[0], 1), "type": near[1]}})
+                               {"px": round(near[0], 1), **props[t][near[1]]}})
     unexplained = {"icon": 0, "ring": 0, "beam": 0}
     nothing_frames, nothing_unexplained = 0, 0
     for f in labelled:
@@ -288,7 +558,8 @@ def score_session(sid: str, frames: list[dict], answers: dict[float, dict], icon
     return {"session_id": sid, "frames": len(frames), "labelled": len(labelled),
             "unsure_frames": sum(1 for f in frames
                                  if answers.get(float(f["t_ms"]), {}).get("answer") == "unsure"),
-            "entities": len(ents), "found": found, "marks": mk_n, "marks_hit": mk_hit,
+            "entities": len(ents), "found": found, "by_kind": by_kind,
+            "instances": in_n, "instances_hit": in_hit, "marks": mk_n, "marks_hit": mk_hit,
             "unexplained": unexplained, "nothing_frames": nothing_frames,
             "nothing_unexplained": nothing_unexplained, "misses": misses}
 
@@ -302,10 +573,21 @@ def combine(parts: list[dict]) -> dict:
     un = {t: sum(p["unexplained"][t] for p in parts) for t in ("icon", "ring", "beam")}
     nf = sum(p["nothing_frames"] for p in parts)
     nu = sum(p["nothing_unexplained"] for p in parts)
+    inn, inh = sum(p["instances"] for p in parts), sum(p["instances_hit"] for p in parts)
+    by_kind: dict[str, dict] = {}
+    for p in parts:
+        for kind, c in p["by_kind"].items():
+            b = by_kind.setdefault(kind, {"entities": 0, "found": 0, "found_by": {}})
+            b["entities"] += c["entities"]
+            b["found"] += c["found"]
+            for t, v in c["found_by"].items():
+                b["found_by"][t] = b["found_by"].get(t, 0) + v
     return {"sessions": [p["session_id"] for p in parts], "frames_labelled": fr,
             "entities": n, "found": k, "entity_recall": (k / n) if n else None,
-            "entity_recall_lower95": cp_lower(k, n),
-            "marks": mn, "marks_hit": mh, "frame_recall": (mh / mn) if mn else None,
+            "entity_recall_lower95": cp_lower(k, n), "by_kind": by_kind,
+            "instances": inn, "instances_hit": inh,
+            "frame_recall": (inh / inn) if inn else None,
+            "marks": mn, "marks_hit": mh, "mark_recall": (mh / mn) if mn else None,
             "unexplained_per_frame": {t: (v / fr) if fr else None for t, v in un.items()},
             "unexplained_per_frame_all": (sum(un.values()) / fr) if fr else None,
             "nothing_frames": nf,
@@ -376,6 +658,162 @@ def _by_t(rows: list[dict]) -> dict[float, dict]:
     return {float(r["t_ms"]): r for r in rows if r.get("kind") == "frame"}
 
 
+# --- sheets ---------------------------------------------------------------------
+
+_PALETTE = [(0, 0, 255), (0, 200, 255), (255, 0, 255), (0, 255, 0), (255, 128, 0),
+            (255, 255, 0), (128, 0, 255), (0, 128, 255), (255, 0, 128), (128, 255, 128)]
+
+
+def _crop(root: Path, sid: str, index: int):
+    import cv2
+    return cv2.imread(str(set_dir(root) / "crops" / sid / f"{index:03d}_0.png"), cv2.IMREAD_COLOR)
+
+
+def _draw_instance(img, ins: dict, z: float, col, label: str) -> None:
+    import cv2
+    import numpy as np
+
+    def P(x, y):
+        return int(round((x + 0.5) * z)), int(round((y + 0.5) * z))
+    ms = ins["marks"]
+    if ins["kind"] == "ring" and ins.get("r"):
+        cv2.circle(img, P(*ins["centre"]), int(round(ins["r"] * z)), col, 1, cv2.LINE_AA)
+    if ins["kind"] == "line" and len(ms) > 1:
+        cv2.polylines(img, [np.array([P(m["x"], m["y"]) for m in ms], np.int32)], False, col, 1,
+                      cv2.LINE_AA)
+    if ins["kind"] == "area" and len(ms) > 2:
+        hull = cv2.convexHull(np.array([P(m["x"], m["y"]) for m in ms], np.int32))
+        cv2.polylines(img, [hull], True, col, 1, cv2.LINE_AA)
+    for m in ms:
+        c = P(m["x"], m["y"])
+        cv2.circle(img, c, 5, (0, 0, 0), -1)
+        cv2.circle(img, c, 3, col, -1)
+        if m["kind"] == "icon":
+            cv2.circle(img, c, 8, col, 1)
+    x, y = ms[0]["x"], ms[0]["y"]
+    cv2.putText(img, label, (P(x, y)[0] + 8, P(x, y)[1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                (0, 0, 0), 3, cv2.LINE_AA)
+    cv2.putText(img, label, (P(x, y)[0] + 8, P(x, y)[1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                col, 1, cv2.LINE_AA)
+
+
+def _caption(img, text: str):
+    import cv2
+    import numpy as np
+    bar = np.full((28, img.shape[1], 3), 20, np.uint8)
+    cv2.putText(bar, text, (6, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (240, 240, 240), 1,
+                cv2.LINE_AA)
+    return np.vstack([bar, img])
+
+
+def group_sheet(root: Path, lab: Path, block: int, spec: str, out: Path) -> int:
+    """Print each block frame's entity instances, and draw the asked frames
+    (1-based, in block order) with one colour per instance. Reads the
+    answers and the crops only."""
+    import cv2
+    items = []
+    for w, ss in SESSIONS.items():
+        for sid, blk in ss:
+            if blk != block:
+                continue
+            sel = load_selection(root, sid)
+            answers = load_answers(lab / f"{sid}.jsonl")
+            for f in (sel or {}).get("frames", ()):
+                items.append((w, sid, f, answers.get(float(f["t_ms"]))))
+    want = None if spec == "all" else {int(v) for v in spec.split(",") if v.strip()}
+    if want:
+        out.mkdir(parents=True, exist_ok=True)
+    for n, (w, sid, f, a) in enumerate(items, start=1):
+        if want is not None and n not in want:
+            continue
+        if a is None or a.get("answer") != "marks":
+            print(f"{n:3d} {sid} {f['index']:3d} r{f['round_no']}: "
+                  f"{'unlabelled' if a is None else a.get('answer')}")
+            continue
+        ms = [m for m in a["marks"] if m.get("kind") not in NOT_TARGET]
+        ins = frame_entities(ms, w / WIDGET_REF)
+        desc = []
+        for e in ins:
+            c = {}
+            for m in e["marks"]:
+                c[m["kind"]] = c.get(m["kind"], 0) + 1
+            desc.append(e["kind"] + "(" + "+".join(f"{v} {k}" for k, v in c.items())
+                        + (f", r {e['r']:.0f}" if e.get("r") else "") + ")")
+        n_smoke = sum(m.get("kind") == "smoke" for m in a["marks"])
+        print(f"{n:3d} {sid} {f['index']:3d} r{f['round_no']}: {len(ins)} entities  "
+              + "  ".join(desc) + (f"  [+{n_smoke} smoke]" if n_smoke else ""))
+        if want:
+            img = _crop(root, sid, f["index"])
+            z = 3.0 if w < 400 else 2.0
+            big = cv2.resize(img, None, fx=z, fy=z, interpolation=cv2.INTER_NEAREST)
+            for k, e in enumerate(ins):
+                _draw_instance(big, e, z, _PALETTE[k % len(_PALETTE)], str(k + 1))
+            big = _caption(big, f"frame {n} of block {block}: {sid} #{f['index']} round "
+                                f"{f['round_no']}  {len(ins)} entities")
+            cv2.imwrite(str(out / f"f{n:03d}_{sid}_{f['index']:03d}.png"), big)
+    if want:
+        print(f"images -> {out}")
+    return 0
+
+
+def review_sheet(root: Path, out_dir: Path, per_page: int = 6) -> int:
+    """Draw every miss of `out_dir`'s misses.jsonl on its raw crop: the
+    missed instance's marks in red, the nearest proposal in cyan with its
+    distance. One page per session and `per_page` frames."""
+    import cv2
+    import numpy as np
+    rows = [json.loads(line) for line in (out_dir / "misses.jsonl").read_text(
+        encoding="utf-8").splitlines() if line.strip()]
+    by: dict[tuple, list] = {}
+    for r in rows:
+        by.setdefault((r["session_id"], r["index"]), []).append(r)
+    pages = []
+    for sid in dict.fromkeys(k[0] for k in by):
+        keys = sorted(k for k in by if k[0] == sid)
+        tiles = []
+        for key in keys:
+            img = _crop(root, sid, key[1])
+            z = 2.0 if img.shape[1] < 400 else 1.5
+            big = cv2.resize(img, None, fx=z, fy=z, interpolation=cv2.INTER_NEAREST)
+
+            def P(x, y):
+                return int(round((x + 0.5) * z)), int(round((y + 0.5) * z))
+            notes = []
+            for r in by[key]:
+                ins = {"kind": r["mark_kind"], "marks": r["marks"], "centre": (r["x"], r["y"]),
+                       "r": None}
+                _draw_instance(big, ins, z, (0, 0, 255), f"e{r['entity']}")
+                p = r.get("nearest")
+                if p:
+                    cyan = (255, 255, 0)
+                    if p["type"] in ("icon", "ring"):
+                        cv2.circle(big, P(p["cx"], p["cy"]), max(2, int(round(p["r"] * z))), cyan,
+                                   1, cv2.LINE_AA)
+                    else:
+                        cv2.line(big, P(p["x0"], p["y0"]), P(p["x1"], p["y1"]), cyan, 2,
+                                 cv2.LINE_AA)
+                notes.append(f"e{r['entity']} {r['mark_kind']}"
+                             + (f" near {p['type']} {p['px']:.0f}px" if p else " no proposal")
+                             + (f" ({r['stream_reason']})" if r.get("stream_reason") else ""))
+            tiles.append(_caption(big, f"{sid} #{key[1]} r{by[key][0]['round_no']}: "
+                                       + "; ".join(notes)))
+        for s in range(0, len(tiles), per_page):
+            chunk = tiles[s:s + per_page]
+            h = max(t.shape[0] for t in chunk)
+            w = max(t.shape[1] for t in chunk)
+            chunk = [np.pad(t, ((0, h - t.shape[0]), (0, w - t.shape[1]), (0, 0)))
+                     for t in chunk]
+            while len(chunk) % 3:
+                chunk.append(np.zeros_like(chunk[0]))
+            grid = np.vstack([np.hstack(chunk[i:i + 3]) for i in range(0, len(chunk), 3)])
+            p = out_dir / f"misses_{sid}_p{s // per_page + 1}.png"
+            cv2.imwrite(str(p), grid)
+            pages.append(p)
+    for p in pages:
+        print(p)
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--store", default=str(Path.home() / "reticle-store"))
@@ -384,6 +822,11 @@ def main(argv=None) -> int:
     ap.add_argument("--labels", help="the answers directory (default the set's)")
     ap.add_argument("--all-shapes", action="store_true", help="count rejected rings and beams too")
     ap.add_argument("--out", help="where misses.jsonl and summary.json go")
+    ap.add_argument("--groups", help="the grouping sheet, no stream read: comma-separated frame "
+                    "numbers in block order (1-based), or 'all' for counts only")
+    ap.add_argument("--block", type=int, default=1, help="with --groups, the block")
+    ap.add_argument("--review", action="store_true",
+                    help="draw --out's misses.jsonl on the raw crops (misses.png per session)")
     args = ap.parse_args(argv)
     below_normal()
     from reticle.store import Store
@@ -411,6 +854,10 @@ def main(argv=None) -> int:
     lab = Path(args.labels) if args.labels else set_dir(root)
     out_dir = Path(args.out) if args.out else (
         root / "analysis" / f"ability-recall-{datetime.now().strftime('%Y%m%d')}")
+    if args.groups is not None:
+        return group_sheet(root, lab, args.block, args.groups, out_dir / "groups")
+    if args.review:
+        return review_sheet(root, out_dir)
     summary, all_misses = {}, []
     for w in SESSIONS:
         parts = []
@@ -444,8 +891,12 @@ def main(argv=None) -> int:
                  f" = {s['entity_recall']:.3f}, one-sided 95% lower bound {lb:.3f}"))
         if s["entities"] < MIN_ENTITIES:
             print(f"  fewer than {MIN_ENTITIES} entities: label the next block whole")
+        for kind, c in sorted(s["by_kind"].items()):
+            print(f"    {kind:5s} {c['found']}/{c['entities']}  found by "
+                  + (", ".join(f"{t} {v}" for t, v in sorted(c["found_by"].items())) or "-"))
         if s["frame_recall"] is not None:
-            print(f"  frame recall {s['marks_hit']}/{s['marks']} = {s['frame_recall']:.3f}")
+            print(f"  frame recall {s['instances_hit']}/{s['instances']} = {s['frame_recall']:.3f}"
+                  f" (entity instances per frame; marks {s['marks_hit']}/{s['marks']})")
         up = s["unexplained_per_frame"]
         print("  unexplained proposals per frame: "
               + "  ".join(f"{t} {v:.2f}" for t, v in up.items() if v is not None)
@@ -461,6 +912,10 @@ def main(argv=None) -> int:
             fh.write(json.dumps(m) + "\n")
     (out_dir / "summary.json").write_text(json.dumps(
         {"tool": TOOL, "set": SET, "tol_px": TOL_PX, "link_px": LINK_PX,
+         "grouping": {"ring_centre_px": RING_CENTRE_PX, "ring_rel": RING_REL,
+                      "circle_rel": CIRCLE_REL, "circle_min": CIRCLE_MIN, "ring_pair_px": RING_PAIR_PX,
+                      "line_gap_px": LINE_GAP_PX, "line_turn_deg": LINE_TURN_DEG,
+                      "area_gap_px": AREA_GAP_PX, "at_widget_px": WIDGET_REF},
          "all_shapes": bool(args.all_shapes), "by_widget": summary}, indent=1), encoding="utf-8")
     print(f"misses and summary -> {out_dir}")
     return 0
