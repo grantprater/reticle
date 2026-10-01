@@ -316,6 +316,7 @@ from collections import Counter
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
+import warnings
 
 import numpy as np
 
@@ -1142,6 +1143,12 @@ class EntryView:
     # `BAND_REFUSALS`, or a band-level reason when the band never reached
     # `_band_text` at all. Empty when nothing refused.
     reason: str = ""
+    # The weapon-slot icon's column bounds (`icon_extent`): wx0..wx1 is one
+    # piece, the divider; this is the element it points at, every piece of the
+    # icon and nothing beside it. Only the `killfeed_weapon` descriptor reads
+    # it. Zero when there is no icon.
+    ix0: int = 0
+    ix1: int = 0
 
 
 def victim_is_ally(green, red, a: int, z: int, wx1: int, wx0: int | None = None) -> bool | None:
@@ -1361,12 +1368,16 @@ def analyse_killfeed(
         else:
             # Only one side can be the player, so a tie is a parse failure.
             verdict = "tie"
+        ix0, ix1 = icon_extent(white[a:z] > 0,
+                               slot_white_mask(crop[a:z], green[a:z], red[a:z]) & mask[a:z], wx0, wx1,
+                               krun[1] + 1 if krun else 0, vrun[0] if vrun else w)
         views.append(EntryView(slot, int(a), int(z), int(wx0), int(wx1),
                                killer_run=krun, victim_run=vrun,
                                kill_score=k_score, death_score=d_score,
                                verdict=verdict,
                                victim_ally=victim_is_ally(green, red, a, z, wx1, wx0),
-                               killer_ally=killer_is_ally(green, red, a, z, wx0, wx1)))
+                               killer_ally=killer_is_ally(green, red, a, z, wx0, wx1),
+                               ix0=int(ix0), ix1=int(ix1)))
     return views
 
 
@@ -1830,7 +1841,13 @@ def detect_second_life_badge(
 # 0.2.0 (2026-09-25): the weapon-slot box finds ringed ult icons and the
 # Blade Storm knife [domain:killfeed/jett-blade-storm-icon] (`_band_text`).
 # 0.3.0 (2026-09-28): more bands read (`_join_split_runs`); see the portrait stamp.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.3.0"
+# 0.4.0 (2026-10-01): the descriptor is cut from the whole icon (`icon_extent`,
+# ix0..ix1) rather than the divider piece alone; wx0..wx1 are unchanged.
+# 0.5.0 (2026-10-01): line art is judged against the entry's own plate
+# (`slot_white_mask`), the icon is the element the divider points at, split
+# from names and marks by measured spacing (ELEMENT_GAP), and a revive's ring
+# is fitted, stripped and published as `ringed` (`ring_fit`).
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.5.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -1876,14 +1893,233 @@ def icon_grid(white_mask: np.ndarray) -> tuple[np.ndarray, float] | None:
     return grid, tight.shape[1] / tight.shape[0]
 
 
+#: Plate-relative whiteness. The weapon-slot icon is semi-transparent white over
+#: a red or teal plate, so a pixel's colour is (1 - a) * plate + a * white and
+#: `plate_whiteness` recovers a, the share of the way from the local plate
+#: colour to white. Measured on 349 parsed entries over 10 sessions (stored
+#: crops; the icon cut's cores, eroded 3x3, against plate pixels 2 px or more
+#: from any white ink): glyph cores median 0.989 (1st percentile 0.79), plate
+#: 99th percentile 0.136. The cut is half the core value, the half-coverage
+#: point of an anti-aliased edge: a thin tinted stroke the fixed V/S cut drops
+#: (a Vandal's barrel, a pistol's slide) passes it.
+PLATE_WHITE_CUT = 0.5
+#: A column's plate colour is the median of its plate-coloured pixels when it
+#: has this many; otherwise the nearest such column within PLATE_FILL px.
+PLATE_MIN_PX = 2
+PLATE_FILL = 12
+
+#: Columns of background that separate two killfeed elements (portrait, name,
+#: weapon-slot icon, headshot mark, name, portrait). Measured on the
+#: plate-relative mask over 347 parsed entries in 10 sessions: within a name,
+#: glyphs sit 1-3 px apart (1633 of 1683 gaps; 1410 of 1410 in victim names
+#: within 4); killer name to icon 10-12, 20-22 or 29 px (7 of 302 at 6-7);
+#: icon to the next element at least 10 px; the headshot mark to the victim's
+#: name 19-20 px [domain:killfeed/killfeed-element-spacing]. A gap of 6 or more
+#: separates elements.
+ELEMENT_GAP = 6
+
+
+def plate_colour(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarray):
+    """Per column, the plate colour behind a band (BGR float) and whether it is known."""
+    plate = (green_band | red_band)[:, :, None]
+    px = np.where(plate, band.astype(np.float32), np.nan)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        P = np.nanmedian(px, axis=0)
+    have = plate[:, :, 0].sum(axis=0) >= PLATE_MIN_PX
+    P[~have] = np.nan
+    idx = np.nonzero(have)[0]
+    if idx.size == 0:
+        return P, have
+    cols = np.arange(band.shape[1])
+    k = np.clip(np.searchsorted(idx, cols), 1, max(idx.size - 1, 1))
+    left, right = idx[np.clip(k - 1, 0, idx.size - 1)], idx[np.clip(k, 0, idx.size - 1)]
+    near = np.where(np.abs(cols - left) <= np.abs(right - cols), left, right)
+    ok = np.abs(near - cols) <= PLATE_FILL
+    return np.where(ok[:, None], P[near], np.nan), ok
+
+
+def plate_whiteness(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarray):
+    """(whiteness per pixel, columns with a known plate): the share of the way
+    from the local plate colour to white, an estimate of the overlay's alpha."""
+    P, ok = plate_colour(band, green_band, red_band)
+    d = 255.0 - P[None, :, :]
+    v = band.astype(np.float32) - P[None, :, :]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        w = (v * d).sum(axis=2) / (d * d).sum(axis=2)
+    return np.nan_to_num(w, nan=0.0), ok
+
+
+def slot_white_mask(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarray) -> np.ndarray:
+    """The band's white line art judged against its own plate (PLATE_WHITE_CUT);
+    the fixed `icon_white_mask` cut where no plate colour is known."""
+    w, ok = plate_whiteness(band, green_band, red_band)
+    return np.where(ok[None, :], w >= PLATE_WHITE_CUT, icon_white_mask(band))
+
+
+def _divider_rows(white_band: np.ndarray, wx0: int, wx1: int) -> tuple[int, int] | None:
+    n, _lab, st, _ = cv2.connectedComponentsWithStats(white_band.astype(np.uint8), 8)
+    rows = [(int(st[i, 1]), int(st[i, 1] + st[i, 3])) for i in range(1, n)
+            if st[i, 0] == wx0 and st[i, 0] + st[i, 2] == wx1]
+    if not rows:
+        return None
+    return min(r[0] for r in rows), max(r[1] for r in rows)
+
+
+def _slot_pieces(icon_band: np.ndarray, rows: tuple[int, int], lo: int, hi: int):
+    r0, r1 = rows
+    n, lab, st, _ = cv2.connectedComponentsWithStats(icon_band.astype(np.uint8), 8)
+    keep = [i for i in range(1, n)
+            if st[i, 4] >= MIN_COMP_AREA and st[i, 0] >= lo and st[i, 0] + st[i, 2] <= hi
+            and min(int(st[i, 1] + st[i, 3]), r1) > max(int(st[i, 1]), r0)]
+    return lab, st, keep
+
+
+def icon_extent(white_band: np.ndarray, icon_band: np.ndarray, wx0: int, wx1: int,
+                lo: int, hi: int) -> tuple[int, int]:
+    """The weapon-slot icon's columns: the element the divider points at.
+
+    `_band_text` divides the names at ONE connected component of the text cut,
+    which may be one piece of an icon drawn in several (a ringed ult, a
+    dimmed icon broken by a fade) or, over a washed-out plate, a name and the
+    icon merged. The descriptor needs the icon alone, so this is a separate box.
+
+    The rule is structural. Take the pieces of `icon_band` (`slot_white_mask`)
+    that share a row with the divider piece and lie within lo..hi (after the
+    killer's name run, before the victim's). Group them into killfeed
+    elements: pieces less than ELEMENT_GAP columns apart are one element. The
+    icon is the element with the most ink among those overlapping wx0..wx1.
+    The spacing [domain:killfeed/killfeed-element-spacing] keeps out the
+    headshot mark [domain:killfeed/headshot-icon], the names, the portraits
+    and the killstreak numeral; sharing a row keeps out the next entry's plate
+    along the band's edge. The plate-seam fallback (wx0 == wx1) returns the seam.
+    """
+    if wx1 <= wx0:
+        return wx0, wx1
+    rows = _divider_rows(white_band, wx0, wx1)
+    if rows is None:
+        return wx0, wx1
+    _lab, st, keep = _slot_pieces(icon_band, rows, lo, hi)
+    els: list[list] = []
+    for i in sorted(keep, key=lambda i: st[i, 0]):
+        p0, p1 = int(st[i, 0]), int(st[i, 0] + st[i, 2])
+        if els and p0 - els[-1][1] < ELEMENT_GAP:
+            els[-1][1] = max(els[-1][1], p1)
+            els[-1][2] += int(st[i, 4])
+        else:
+            els.append([p0, p1, int(st[i, 4])])
+    over = [e for e in els if e[0] < wx1 and e[1] > wx0]
+    if not over:
+        return wx0, wx1
+    best = max(over, key=lambda e: e[2])
+    return best[0], best[1]
+
+
+#: The ring a revive entry draws round its weapon-slot icon
+#: [domain:killfeed/revive-ring]: a circle of radius 0.40-0.60 of the band's
+#: height, searched round the icon's centre (`ring_fit`). Measured on the
+#: player-labelled entries (stored crops): all 22 revives (Not Dead Yet,
+#: Resurrection, the KAY/O revive at 4f207c0c4e39 799.5 s) cover the ring's
+#: visible arc fully (1.0) with at most 0.021 ink just inside it; of the 115
+#: named non-revive entries 114 cover at most 0.80 and one, a box over a
+#: portrait (a06f04a0059f 410.0 s), 0.84. RING_COVER_MIN sits between; a full
+#: circle filled inside (scenery, g022) is no ring (RING_INNER_MAX, between
+#: 0.021 and the 0.49 such blobs show).
+RING_R = (0.40, 0.60)
+RING_ANGLES = 36
+RING_TOL = 1.2
+RING_COVER_MIN = 0.9
+RING_INNER_MAX = 0.25
+#: At or below this cover a ring is absent; between it and RING_COVER_MIN the
+#: fit is uncertain and `ringed` stays None.
+RING_ABSENT_MAX = 0.8
+#: The glyph inside a ring lies within r - RING_STRIP: the middle of the
+#: annulus r-4..r-2 that every revive leaves empty.
+RING_STRIP = 3.0
+#: An icon is drawn on the killer's plate, so at least this share of the
+#: divider's columns hold plate-coloured pixels (PLATE_MIN_PX or more). Measured
+#: on 463 parsed entries in 8 sessions: never below 0.56 (1st percentile 0.74);
+#: the player-labelled boxes off the entry (crop faults g015, g020, g022, g023)
+#: hold 0-0.25. Below it the descriptor refuses (`no_plate`).
+PLATE_BEHIND_MIN = 0.5
+
+
+def ring_fit(icon_band: np.ndarray, cx0: float, height: int,
+             usable: np.ndarray | None = None) -> dict | None:
+    """The circle round a weapon-slot icon that the most angles of ink lie on.
+
+    A shape fit, not morphology: centre within half a band height of `cx0`
+    and 3 rows of the band's middle, radius RING_R of `height`. Cover counts
+    only the angles whose circle point falls inside the band (and `usable`),
+    since the band clips the ring's top and bottom. None when too little ink.
+    """
+    h, w = icon_band.shape
+    L, R = int(max(0, cx0 - height)), int(min(w, cx0 + height + 1))
+    ys, xs = np.nonzero(icon_band[:, L:R])
+    if len(xs) < RING_ANGLES // 3:
+        return None
+    xs = xs + L
+    th = np.radians(np.arange(RING_ANGLES) * 360 / RING_ANGLES + 180 / RING_ANGLES)
+    radii = np.arange(RING_R[0] * height, RING_R[1] * height + 0.01, 0.5)
+    best = None
+    for cy in np.arange(h / 2 - 3, h / 2 + 3.01, 1.0):
+        for cx in np.arange(cx0 - height // 2, cx0 + height // 2 + 0.01, 1.0):
+            d = np.hypot(xs - cx, ys - cy)
+            a = ((np.arctan2(ys - cy, xs - cx) % (2 * np.pi)) / (2 * np.pi) * RING_ANGLES).astype(int) % RING_ANGLES
+            on = np.abs(d[None, :] - radii[:, None]) <= RING_TOL          # radii x points
+            hit = np.zeros((len(radii), RING_ANGLES), bool)
+            ri, pi = np.nonzero(on)
+            hit[ri, a[pi]] = True
+            py = cy + radii[:, None] * np.sin(th)[None, :]
+            px = cx + radii[:, None] * np.cos(th)[None, :]
+            valid = (py >= 0.5) & (py <= h - 1.5) & (px >= 0) & (px <= w - 1)
+            if usable is not None:
+                yy = np.clip(py.astype(int), 0, h - 1); xx = np.clip(px.astype(int), 0, w - 1)
+                valid &= usable[yy, xx]
+            n = valid.sum(axis=1)
+            cov = np.where(n >= RING_ANGLES // 3, (hit & valid).sum(axis=1) / np.maximum(n, 1), -1.0)
+            # Equal cover breaks toward the circle with more ink on it.
+            score = cov + 1e-5 * on.sum(axis=1)
+            k = int(np.argmax(score))
+            if cov[k] >= 0 and (best is None or score[k] > best["_score"]):
+                best = {"cx": float(cx), "cy": float(cy), "r": float(radii[k]),
+                        "cover": float(cov[k]), "_score": float(score[k])}
+    if best is None:
+        return None
+    best.pop("_score")
+    YY, XX = np.mgrid[0:h, 0:w]
+    D = np.hypot(XX - best["cx"], YY - best["cy"])
+    inner = (D >= best["r"] - 4.0) & (D < best["r"] - 2.0)
+    best["inner_ink"] = float(icon_band[inner].mean()) if inner.any() else 1.0
+    return best
+
+
+def ring_verdict(fit: dict | None) -> tuple[bool | None, str | None]:
+    """(ringed, reason): True on a confident ring, False on a confident
+    absence, None with the reason otherwise; never a guess."""
+    if fit is None:
+        return None, "too_little_ink"
+    if fit["cover"] >= RING_COVER_MIN:
+        return (True, None) if fit["inner_ink"] <= RING_INNER_MAX else (None, "filled_circle")
+    if fit["cover"] <= RING_ABSENT_MAX:
+        return False, None
+    return None, "uncertain_fit"
+
+
 def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                              views: "list[EntryView]") -> list[dict]:
     """Each entry's weapon-slot descriptor: the packed grid and aspect, never a name.
 
     Naming the icon is `adjudication.weapon`'s; a consumer binds these rows to an
     entry by slot, time and divider column and asks the owner from storage.
+    The descriptor is cut from the icon's pieces in ix0..ix1 (`icon_extent`)
+    on the plate-relative mask (`slot_white_mask`); wx0..wx1 stays the divider
+    piece, the column and width consumers bind by. A confident ring
+    (`ring_fit`, `ring_verdict`) is stripped and published as `ringed`, a
+    witness of a revive entry [domain:killfeed/revive-ring] for the entry-type
+    owner; the grid is then the glyph inside it.
     """
-    x0, y0, _, _ = roi.pixels(width, height)
+    x0, y0, x1, _ = roi.pixels(width, height)
     out = []
     for v in views:
         if v.wx1 <= v.wx0 or v.y1 <= v.y0:
@@ -1892,6 +2128,44 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
         cut = icon_grid(icon_white_mask(crop))
         row = {"slot": v.slot, "y0": int(v.y0), "y1": int(v.y1), "wx0": int(v.wx0),
                "wx1": int(v.wx1), "verdict": v.verdict}
+        # A divider piece too small to be an icon stays refused: its
+        # neighbours are a portrait edge or a name, never the missing icon
+        # (a06f04a0059f 1969.0 s, a portrait's edge, gained a grid otherwise).
+        if cut is None:
+            out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
+                        "aspect": None, "reason": "no_icon", "ringed": None,
+                        "ring_reason": "no_icon", "ring": None})
+            continue
+        band = frame[y0 + v.y0:y0 + v.y1, x0:x1]
+        green, red, white = _plate_masks(band, np.ones(band.shape[:2], bool))
+        behind = ((green | red)[:, v.wx0:v.wx1].sum(axis=0) >= PLATE_MIN_PX).mean()
+        if behind < PLATE_BEHIND_MIN:
+            out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
+                        "aspect": None, "reason": "no_plate", "ringed": None,
+                        "ring_reason": "no_plate", "ring": None})
+            continue
+        icon = slot_white_mask(band, green, red)
+        ix0, ix1 = (v.ix0, v.ix1) if v.ix1 > v.ix0 else (v.wx0, v.wx1)
+        rows = _divider_rows(white > 0, v.wx0, v.wx1)
+        piece = np.zeros_like(icon)
+        if rows is not None:
+            lab, _st, keep = _slot_pieces(icon, rows, ix0, ix1)
+            piece = np.isin(lab, keep)
+        fit = ring_fit(icon, (ix0 + ix1) / 2, v.y1 - v.y0)
+        ringed, why = ring_verdict(fit)
+        if ringed:
+            YY, XX = np.mgrid[0:icon.shape[0], 0:icon.shape[1]]
+            glyph = icon & (np.hypot(XX - fit["cx"], YY - fit["cy"]) < fit["r"] - RING_STRIP)
+            if glyph.any():
+                piece = glyph
+        if piece.any():
+            xs = np.nonzero(piece.any(axis=0))[0]
+            ix0, ix1 = int(xs[0]), int(xs[-1]) + 1
+            cut = icon_grid(piece[:, ix0:ix1])
+        else:
+            ix0, ix1 = v.wx0, v.wx1
+        row.update({"ix0": int(ix0), "ix1": int(ix1), "ringed": ringed, "ring_reason": why,
+                    "ring": ({k: round(val, 3) for k, val in fit.items()} if fit else None)})
         if cut is None:
             out.append({**row, "grid": None, "aspect": None, "reason": "no_icon"})
         else:

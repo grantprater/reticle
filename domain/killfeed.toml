@@ -174,7 +174,7 @@ Yet entry is the revive itself (7 of 16 come 1.0-2.0 s after a named Clove
 death, and the top bar never shows that death)
 """
 phrases = ["revive entry is not a death"]
-see = ["killfeed/kayo-downed-entry", "killfeed/entry-types"]
+see = ["killfeed/kayo-downed-entry", "killfeed/entry-types", "killfeed/revive-ring"]
 
 [entry-types]
 claim = """
@@ -408,7 +408,7 @@ on the KAY/O icon and on other icons beside the name, which no stored
 second-life row tests, since the down on 4f207c0c4e39 is not the player's
 """
 see = ["rounds/resurrection-mechanics", "rounds/scoreboard-dim-is-dead",
-       "minimap/red-portrait-states", "killfeed/revive-entries"]
+       "minimap/red-portrait-states", "killfeed/revive-entries", "killfeed/revive-ring"]
 phrases = ["kayo downed killfeed", "x in a triangle"]
 
 [warden-icon]
@@ -554,3 +554,102 @@ white over any flat background; the plate colour is never an icon feature
 """
 phrases = ["killfeed icon is only the white", "icon background colour"]
 see = ["killfeed/ability-kill-icon"]
+
+[headshot-icon]
+claim = """
+A killfeed entry can carry a crosshair mark between the weapon-slot icon and
+the victim's name: four inward chevrons and four short bars round a point,
+23-24 px wide on the 34 px entry band, its right edge 18-20 px before the
+victim's name. It keeps its place before the victim's name, so its gap from
+the weapon-slot icon depends on the icon's width: 9-22 px (mostly 11-12 or
+19-20) after an icon wider than 30 px, 12-14 or 28-30 px after a narrower
+one. It draws in eight or more separate pieces, 1-4 px apart.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-10-01"
+source = """
+1012 of 1990 parsed entries sampled from the stored `killfeed_weapon` rows of
+19 sessions with a hud crop cache, read from the crop cache: the first cluster
+right of the weapon-slot icon whose pieces lie at most 4 px apart and that has
+three or more column runs. Widths 23 (342) and 24 (661) px; gap to the
+victim's name 18-20 px in 973. Seen by eye at a06f04a0059f 411.5 s and
+2203.5 s and 59c70f1ef720 2080.0 s. That the mark means a headshot is
+`killfeed._band_text`'s reading (c40d950031bb 6:34, a Classic headshot), not a
+player statement
+"""
+use = """
+`killfeed.icon_extent` must not take it into the weapon-slot box: its nearest
+piece sits at least 9 px from the icon, a separate element by
+[domain:killfeed/killfeed-element-spacing]
+"""
+phrases = ["headshot icon", "crosshair mark in the killfeed"]
+see = ["killfeed/kayo-downed-entry", "killfeed/killfeed-element-spacing"]
+
+[killfeed-element-spacing]
+claim = """
+On the 34 px killfeed entry band, the white elements of an entry sit apart by
+fixed spacing: the glyphs of one name 1-4 px apart, the killer's name 6 px or
+more before the weapon-slot icon (mostly 11-12, 21-22 or 29 px), the icon 10 px
+or more before the next element (mostly 11, 19-20 or 28 px), the headshot mark
+24-25 px wide and 19-20 px before the victim's name. A gap under 6 px joins two
+pieces of one element; a gap of 6 px or more separates two elements.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-10-01"
+source = """
+347 parsed entries on 10 sessions with a hud crop cache, the line art judged
+against each entry's own plate colour (`killfeed.slot_white_mask`), read from
+the crop cache: gaps inside killer names 1-3 px in 1633 of 1683 (rare 4-5, 35
+at 6 or more where a name holds a space); inside victim names 1-4 px in all
+1410; killer name to icon at least 6 px (6 px twice, 7 px five times, else 10
+or more); icon to the next element 10 px or more; headshot width 24-25 px in
+167 of 188, its gap to the victim's name 19-20 px in 151 of 188
+"""
+use = """
+`killfeed.icon_extent` groups the slot's pieces into elements at ELEMENT_GAP
+(6 px) and boxes the element the divider points at
+"""
+exceptions = """
+a name holding a space can open a 6 px or wider gap inside the name; the box
+then keeps the element under the divider, never the whole name
+"""
+phrases = ["killfeed element spacing", "gap between killfeed elements"]
+see = ["killfeed/headshot-icon", "killfeed/weapon-slot-white-glyph"]
+
+[revive-ring]
+claim = """
+A revive entry draws its weapon-slot icon inside a thin white ring: Sage's
+Resurrection, Clove's Not Dead Yet and a teammate's revive of a downed KAY/O. A
+kill's weapon-slot icon has no ring.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01, relayed by the coordinating session: a revive entry
+draws its weapon-slot icon inside a ring, and the KAY/O down entry draws the
+same icon without one, citing 4f207c0c4e39 799.5 s (revive) and 790.5 s
+(down). Measured from the crop cache with `killfeed.ring_fit`: all 22 labelled
+revive entries (<store>/labels/killfeed_icon, Not Dead Yet and Resurrection,
+and the 799.5 s KAY/O revive) draw a full ring (cover 1.0, ink inside the ring
+0.021 or less); none of 115 entries labelled with a gun or a non-revive
+ability does (cover 0.80 or less, one box over a portrait 0.84)
+"""
+use = """
+`killfeed.weapon_icon_observations` publishes `ringed` (true, false, or null
+with `ring_reason`) and strips the ring from the descriptor grid on a confident
+fit; `ringed` is one revive witness beside the one-colour plates
+(`adjudication.death.plate_revive`), never the only one
+"""
+exceptions = """
+at 4f207c0c4e39 790.5 s the KAY/O down entry draws the X-in-triangle badge
+inside a ring too, but on the chevron beside the victim's name, not in the
+weapon slot; its weapon slot holds an unringed pistol. "Without one" holds for
+the down entry's weapon slot only. A ringed badge beside the name is not read
+by `ring_fit`, which searches the weapon slot; whether a Phoenix Run It Back
+badge is ringed is unmeasured
+"""
+phrases = ["revive ring", "ringed weapon-slot icon"]
+see = ["killfeed/revive-entries", "killfeed/kayo-downed-entry", "killfeed/entry-types"]

@@ -192,6 +192,176 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class IconExtentTests(unittest.TestCase):
+    """`icon_extent` grows the divider piece to the whole weapon-slot icon."""
+
+    def _band(self):
+        white = np.zeros((20, 200), dtype=bool)
+        white[5:15, 80:100] = True            # the divider piece: wx0..wx1 = 80..100
+        return white, white.copy()
+
+    def test_a_multi_piece_icon_spans_every_piece(self):
+        white, icon = self._band()
+        icon[3:17, 75:78] = True              # a ring arc 2 px left of the divider piece
+        icon[3:17, 102:106] = True            # and one 2 px right
+        self.assertEqual(killfeed.icon_extent(white, icon, 80, 100, 20, 170), (75, 106))
+
+    def test_the_headshot_icon_stays_out(self):
+        white, icon = self._band()
+        icon[4:16, 109:111] = True            # a headshot cluster 9 px right of the icon
+        icon[9:11, 109:119] = True
+        self.assertEqual(killfeed.icon_extent(white, icon, 80, 100, 20, 170), (80, 100))
+
+    def test_plate_bleed_and_names_stay_out(self):
+        white, icon = self._band()
+        icon[17:20, 60:120] = True            # bleed along the band's edge shares no row
+        icon[5:15, 30:50] = True              # a name piece before the killer's run ends
+        self.assertEqual(killfeed.icon_extent(white, icon, 80, 100, 55, 170), (80, 100))
+
+    def test_the_plate_seam_fallback_is_unchanged(self):
+        white, icon = self._band()
+        self.assertEqual(killfeed.icon_extent(white, icon, 90, 90, 20, 170), (90, 90))
+
+    def test_pieces_closer_than_the_element_gap_join(self):
+        white, icon = self._band()
+        gap = killfeed.ELEMENT_GAP
+        icon[5:15, 100 + gap - 1:110 + gap] = True     # one column short of the gap
+        self.assertEqual(killfeed.icon_extent(white, icon, 80, 100, 20, 170), (80, 110 + gap))
+
+    def test_a_piece_at_the_element_gap_is_another_element(self):
+        white, icon = self._band()
+        gap = killfeed.ELEMENT_GAP
+        icon[5:15, 100 + gap:110 + gap] = True
+        self.assertEqual(killfeed.icon_extent(white, icon, 80, 100, 20, 170), (80, 100))
+
+    def test_the_element_with_the_most_ink_under_the_divider_wins(self):
+        # The divider piece spans a name's last glyph and the icon, merged over
+        # a washed-out plate; the cut mask splits them, and the icon holds more ink.
+        white = np.zeros((20, 200), dtype=bool)
+        white[5:15, 60:120] = True
+        icon = np.zeros_like(white)
+        icon[8:12, 60:70] = True                   # a name glyph
+        icon[5:15, 80:120] = True                  # the icon, 10 px on
+        self.assertEqual(killfeed.icon_extent(white, icon, 60, 120, 20, 170), (80, 120))
+
+
+# A red killfeed plate and white line art over it, BGR.
+RED_PLATE = np.array([60, 60, 200], np.uint8)
+
+
+def _over(plate, alpha):
+    return (plate.astype(np.float32) * (1 - alpha) + 255 * alpha).round().astype(np.uint8)
+
+
+class PlateWhitenessTests(unittest.TestCase):
+    """Line art is judged against the entry's own plate: whiteness is the
+    overlay's alpha over the local plate colour."""
+
+    def _band(self, alpha):
+        band = np.tile(RED_PLATE, (20, 60, 1))
+        band[8:12, 20:40] = _over(RED_PLATE, alpha)
+        green, red, _ = killfeed._plate_masks(band, np.ones(band.shape[:2], bool))
+        return band, green, red
+
+    def test_whiteness_recovers_the_overlay_alpha(self):
+        band, green, red = self._band(0.7)
+        w, ok = killfeed.plate_whiteness(band, green, red)
+        self.assertTrue(ok.all())
+        self.assertAlmostEqual(float(w[10, 30]), 0.7, delta=0.02)
+        self.assertAlmostEqual(float(w[2, 30]), 0.0, delta=0.02)
+
+    def test_a_tinted_stroke_the_fixed_cut_drops_passes(self):
+        band, green, red = self._band(0.6)
+        self.assertFalse(killfeed.icon_white_mask(band)[10, 30])
+        m = killfeed.slot_white_mask(band, green, red)
+        self.assertTrue(m[8:12, 20:40].all())
+        self.assertFalse(m[:8].any() or m[12:].any())
+
+    def test_a_faint_tint_stays_plate(self):
+        band, green, red = self._band(0.2)
+        self.assertFalse(killfeed.slot_white_mask(band, green, red).any())
+
+    def test_no_plate_falls_back_to_the_fixed_cut(self):
+        band = np.full((20, 60, 3), 128, np.uint8)
+        band[8:12, 20:40] = 250
+        none = np.zeros(band.shape[:2], bool)
+        np.testing.assert_array_equal(killfeed.slot_white_mask(band, none, none),
+                                      killfeed.icon_white_mask(band))
+
+
+def _ring_band(ring=True, glyph=True, fill=False, h=34, w=120, cx=60):
+    yy, xx = np.mgrid[0:h, 0:w]
+    d = np.hypot(xx - cx, yy - (h - 1) / 2)
+    r = 0.5 * h
+    m = np.zeros((h, w), bool)
+    if ring:
+        m |= np.abs(d - r) <= 0.8
+    if fill:
+        m |= d <= r
+    if glyph:
+        m[12:22, cx - 8:cx + 8] = True
+    return m
+
+
+class RingFitTests(unittest.TestCase):
+    """A revive's ring is fitted as a circle; the verdict refuses an unsure fit."""
+
+    def test_a_drawn_ring_is_a_confident_ring(self):
+        fit = killfeed.ring_fit(_ring_band(), 60, 34)
+        self.assertGreaterEqual(fit["cover"], killfeed.RING_COVER_MIN)
+        self.assertAlmostEqual(fit["r"], 17, delta=1.0)
+        self.assertEqual(killfeed.ring_verdict(fit), (True, None))
+
+    def test_a_glyph_alone_has_no_ring(self):
+        band = np.zeros((34, 120), bool)
+        band[12:22, 30:90] = True                    # a gun-like bar
+        self.assertEqual(killfeed.ring_verdict(killfeed.ring_fit(band, 60, 34)), (False, None))
+
+    def test_a_filled_disc_is_no_ring(self):
+        fit = killfeed.ring_fit(_ring_band(fill=True), 60, 34)
+        self.assertEqual(killfeed.ring_verdict(fit), (None, "filled_circle"))
+
+    def test_too_little_ink_and_an_uncertain_fit_refuse(self):
+        self.assertEqual(killfeed.ring_verdict(killfeed.ring_fit(np.zeros((34, 120), bool), 60, 34)),
+                         (None, "too_little_ink"))
+        mid = (killfeed.RING_ABSENT_MAX + killfeed.RING_COVER_MIN) / 2
+        self.assertEqual(killfeed.ring_verdict({"cover": mid, "inner_ink": 0.0}),
+                         (None, "uncertain_fit"))
+
+
+class WeaponDescriptorTests(unittest.TestCase):
+    """`weapon_icon_observations`: plate guard, ring strip and the `ringed` field."""
+
+    ROI = killfeed.Roi("killfeed", 0.0, 0.0, 1.0, 1.0)
+
+    def _frame(self, mask, plate=RED_PLATE):
+        frame = np.tile(plate, mask.shape + (1,))
+        frame[mask] = 255
+        return frame
+
+    def test_a_ringed_icon_is_stripped_to_its_glyph(self):
+        frame = self._frame(_ring_band())
+        view = killfeed.EntryView(0, 0, 34, 52, 68, verdict="kill")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view])[0]
+        self.assertIs(row["ringed"], True)
+        self.assertIsNone(row["reason"])
+        self.assertEqual((row["ix0"], row["ix1"]), (52, 68))
+
+    def test_an_unringed_icon_says_so(self):
+        frame = self._frame(_ring_band(ring=False))
+        view = killfeed.EntryView(0, 0, 34, 52, 68, verdict="kill")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view])[0]
+        self.assertIs(row["ringed"], False)
+        self.assertIsNotNone(row["grid"])
+
+    def test_a_box_off_the_plate_refuses(self):
+        frame = self._frame(_ring_band(ring=False), plate=np.array([128, 128, 128], np.uint8))
+        view = killfeed.EntryView(0, 0, 34, 52, 68, verdict="kill")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view])[0]
+        self.assertEqual((row["reason"], row["ringed"], row["ring_reason"]), ("no_plate", None, "no_plate"))
+        self.assertIsNone(row["grid"])
+
+
 class VictimSideTests(unittest.TestCase):
     """The killer's colour behind the weapon icon decides the victim's side;
     a warm victim portrait past a green plate once read the victim as enemy."""
