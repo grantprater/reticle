@@ -1474,21 +1474,43 @@ evidence = "tests/test_minimap_discs.py, tests/test_minimap_walls.py, tools/abil
 
 [[entry]]
 id = "ability-shape"
-question = "Where is the drawn minimap shape of a cast whose ability draws a known form: Regrowth's ring, Recon Bolt's ring, a Hunter's Fury blast?"
+question = "Where is the drawn minimap shape a candidate descriptor describes: a ring, a beam, a wall of segments, a curve?"
 owner = "ability_shapes"
 role = ["detect"]
 status = "partial"
-produces = ["fit_shape", "fit_ring", "fit_beam", "longest_segment", "on_map", "ring_candidates", "beam_sweep", "widened_beam", "beam_accepted"]
+produces = ["fit_shape", "fit_ring", "fit_beam", "fit_segments", "fit_curve", "longest_segment", "on_map", "ring_candidates", "beam_sweep", "widened_beam", "beam_accepted", "colour_weight", "colour_model", "candidate_radii", "beam_geometry", "surprise_beam", "descriptor_ref", "SURPRISE_COLOUR"]
 not_for = """
-Finding abilities of unknown kind (`ability-detection` proposes those); naming
-the caster (`ability-owner`); an onset or expiry, since each call reads one
-crop; and deciding when to look, which the cast does. A widened fit is kept
-beside the seeded one only when it clears acceptance. The map's footprint
-places a beam; it never masks the teal, because the shapes are drawn over the
-void too.
+Choosing which abilities could be drawn or their sizes and colours
+(`ability-candidates` supplies the descriptor); finding abilities of unknown
+kind (`ability-detection` proposes those); naming the caster
+(`ability-owner`); an onset or expiry, since each call reads one crop; and
+deciding when to look. The finders hold no ability's values: a descriptor
+without a fact refuses. A widened fit is kept beside the seeded one only when
+it clears acceptance. The map's footprint places a shape; it never masks the
+colour, because the shapes are drawn over the void too.
 """
 consumers = ["cli"]
 evidence = "tests/test_ability_shapes.py, prototypes/ability_shape_eval.py"
+
+[[entry]]
+id = "ability-candidates"
+question = "Which abilities could a minimap crop at this time draw, with which drawn sizes and colour in px, and why is each other ability left out?"
+owner = "ability_candidates"
+role = ["assign"]
+status = "partial"
+names_agents = true
+produces = ["TABLE", "ICONS", "CASTS_WHILE_DEAD", "ability_descriptor", "CandidateSupply", "for_session", "values_digest", "map_of"]
+not_for = """
+Fitting a shape (`ability-shape`); the gate (`ability-gate`); naming the
+caster of a drawing (`ability-owner`, `agent-identity`): a descriptor names
+the ability and the agent whose kit holds it, taken from the lineup's
+verdicts, and every candidate declares `rests_on` its inputs. Sizes and
+colours are the appearance facts' (`domain/abilities.toml`), never a
+default; an ability, side or map without one refuses with the reason.
+"""
+defers_to = ["agent-identity", "player-agent", "death-victim", "map-geometry"]
+consumers = ["cli"]
+evidence = "tests/test_ability_candidates.py, prototypes/ability_shape_eval.py"
 
 [[entry]]
 id = "ability-gate"

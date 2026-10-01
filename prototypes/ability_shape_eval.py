@@ -17,6 +17,10 @@ scores the minimap owner's stricter ally key in place of the teal weight;
 Each session reads its key's transform (`geometry.map_scale`), as the reader
 does; `SHAPE_SCALE=set` reads every crop at `ability_shapes.SET_AT`, the
 scale the base values were set at, which checks a refactor against 0.2.0.
+Each fit reads its ability's descriptor (`reticle.ability_candidates`), the
+ally side, as the reader does for the player's own cast; `--null` scores the
+surprise path's whole-range ring and beam (`ring`, `beam`) and each candidate
+descriptor's own window (`cand_ring`, `cand_beam`) on the same crops.
 
 Truth. Per labelled panel: a least-squares circle through the Regrowth marks;
 for Recon Bolt a RANSAC circle (4 px), because each panel also carries one mark
@@ -42,6 +46,7 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from reticle import ability_candidates as C_  # noqa: E402
 from reticle import ability_shapes as S_  # noqa: E402
 from reticle import geometry, minimap  # noqa: E402
 from reticle.cli import _date_of  # noqa: E402
@@ -51,6 +56,9 @@ from reticle.store import Store  # noqa: E402
 
 STORE = Store()
 SHAPES = {"Regrowth": "ring_self", "Recon Bolt": "ring_free", "Hunter's Fury": "beam"}
+#: Sessions held out as a recall test (ability recall block 2): no crop of
+#: theirs is read here.
+HELD_OUT = ("59c70f1ef720", "587c15b07779")
 
 
 def colour_switch():
@@ -114,6 +122,8 @@ class Session:
         x0, y0, x1, y1 = self.rect
         self.ms = (S_.SET_AT if os.environ.get("SHAPE_SCALE") == "set"
                    else geometry.map_scale_of(sid, STORE.root))
+        #: The map the descriptors read their per-map sizes for.
+        self.map = C_.map_of(geometry.map_scale_of(sid, STORE.root))
         self.support = (None if os.environ.get("SHAPE_SUPPORT") == "widget" else
                         geometry.footprint(sid, STORE.root, dilate=S_.support_dilate(self.ms),
                                            shape=(y1 - y0, x1 - x0)))
@@ -130,11 +140,11 @@ class Session:
         return S_.seed_from_track(self.mt, self.sx, self.sy, t)
 
 
-def fit_for(kind, img, me, support=None, ms=S_.SET_AT):
+def fit_for(kind, img, me, support=None, ms=S_.SET_AT, map_name=None):
     """The production observation, in the field names the scoring reads."""
     ability = {"ring_self": "Regrowth", "ring_free": "Recon Bolt", "beam": "Hunter's Fury"}[kind]
     t0 = time.perf_counter()
-    f = S_.fit_shape(img, ability, me, support, ms)
+    f = S_.fit_shape(img, C_.ability_descriptor(ability, "ally", ms, map_name), me, support, ms)
     f["s"] = time.perf_counter() - t0
     if "theta_deg" in f:
         f["theta"], f["p0"], f["p1"] = f["theta_deg"], (f["x0"], f["y0"]), (f["x1"], f["y1"])
@@ -155,7 +165,8 @@ def main() -> int:
         rows_out = os.environ.get("SHAPE_ROWS")
         if rows_out:
             Path(rows_out).write_text(json.dumps(res["rows"], indent=0), encoding="utf-8")
-        print(json.dumps({k: res[k] for k in ("ring_summary", "beam_summary")}, indent=1))
+        print(json.dumps({k: res[k] for k in ("ring_summary", "beam_summary", "cand_ring_summary",
+                                              "cand_beam_summary")}, indent=1))
         return 0
     colour_switch()
     labs = [r for r in labels().values() if r.get("ability") in SHAPES and r.get("class") == "object"]
@@ -168,7 +179,8 @@ def main() -> int:
             by[m["panel"]].append(m)
         t_drop = float(r["key"].split(":")[1])
         img, _ = S.crop(t_drop - 1000.0)
-        pre = (fit_for(kind, img, S.self_at(t_drop - 1000.0), S.support, S.ms) if img is not None
+        pre = (fit_for(kind, img, S.self_at(t_drop - 1000.0), S.support, S.ms, S.map)
+               if img is not None
                else {"refused": "no_crop"})
         rows.append({"key": r["key"], "ability": r["ability"], "panel": "pre", "fit": pre})
         for pan, ms in sorted(by.items()):
@@ -178,7 +190,8 @@ def main() -> int:
             t = ms[0]["t_ms"]
             img, _ = S.crop(t)
             me = S.self_at(t)
-            fit = fit_for(kind, img, me, S.support, S.ms) if img is not None else {"refused": "no_crop"}
+            fit = (fit_for(kind, img, me, S.support, S.ms, S.map) if img is not None
+                   else {"refused": "no_crop"})
             row = {"key": r["key"], "ability": r["ability"], "panel": pan, "fit": fit,
                    "self": me}
             if kind == "beam":
@@ -234,9 +247,12 @@ def null_sample(per_session: int = 10, gap_s: float = 10.0) -> dict:
     from reticle import gametime, stalls
 
     slots = {"Sova": ("E", "X"), "Skye": ("C",)}
-    out = {"ring": [], "beam": [], "rows": []}
+    out = {"ring": [], "beam": [], "cand_ring": [], "cand_beam": [], "rows": []}
+    kits = {"Sova": ("Recon Bolt", "Hunter's Fury"), "Skye": ("Regrowth",)}
     for pk in sorted(tsr.WORK.glob("*.pkl")):
         sid = pk.stem
+        if sid in HELD_OUT:
+            continue
         lp = STORE.root / "lineups" / f"{sid}.json"
         agent = ((json.loads(lp.read_text(encoding="utf-8")).get("player") or {}).get("agent")
                  if lp.exists() else None)
@@ -281,15 +297,37 @@ def null_sample(per_session: int = 10, gap_s: float = 10.0) -> dict:
                 f = S_.fit_beam(tl, mask, me[0], me[1], S.ms)
                 beam = f["score"] if placed(f) else -1.0
             if S_.longest_segment(tl, mask, S.ms, S.support) is not None:
-                wide = S_.fit_shape(img, "Hunter's Fury", None, S.support, S.ms)
-                if wide.get("score") is not None and wide.get("on_map", 1.0) >= S_.BEAM_ON_MAP:
+                wide = S_.widened_beam(tl, mask, S.ms, S.support, None)
+                if wide is not None and wide.get("on_map", 1.0) >= S_.BEAM_ON_MAP:
                     beam = max(beam, wide["score"])
+            # The candidate path: the player's own abilities' descriptors, each
+            # scored in its own colour and window, as `fit_shape` scores them.
+            cring = cbeam = None
+            for ab in kits[agent]:
+                desc = C_.ability_descriptor(ab, "ally", S.ms, S.map)
+                if desc.get("refused"):
+                    continue
+                f = S_.fit_shape(img, desc, me, S.support, S.ms)
+                if f.get("score") is None or f.get("on_map", 1.0) < S_.BEAM_ON_MAP:
+                    continue
+                if desc["shape"] == "ring":
+                    cring = max(-1.0 if cring is None else cring, f["score"])
+                else:
+                    cbeam = max(-1.0 if cbeam is None else cbeam, f["score"])
             out["ring"].append(ring)
             out["beam"].append(beam)
-            out["rows"].append({"sid": sid, "agent": agent, "t_ms": t, "ring": ring, "beam": beam})
+            if cring is not None:
+                out["cand_ring"].append(cring)
+            if cbeam is not None:
+                out["cand_beam"].append(cbeam)
+            out["rows"].append({"sid": sid, "agent": agent, "t_ms": t, "ring": ring, "beam": beam,
+                                "cand_ring": cring, "cand_beam": cbeam})
         print(sid, agent, len(picked), flush=True)
-    for k in ("ring", "beam"):
+    for k in ("ring", "beam", "cand_ring", "cand_beam"):
         v = np.array(out[k])
+        if not len(v):
+            out[k + "_summary"] = {"n": 0}
+            continue
         out[k + "_summary"] = {"n": len(v), "max": float(v.max()), "p99": float(np.percentile(v, 99)),
                                "p90": float(np.percentile(v, 90)), "median": float(np.median(v))}
     out["ring_summary"]["free_ring_s"] = _timing(out.get("ring_s", []))

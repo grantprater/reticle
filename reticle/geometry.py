@@ -232,7 +232,13 @@ class MapScale:
     [domain:capture/minimap-size-settings]; `widget_scale` is the widget's
     width against `minimap.REF_WIDGET_W`, and `map_zoom` the rest of the art
     fit's scale. A variant widget is resampled into its baked frame before any
-    reader sees it (`widget_frame`), so it reads its baked key's scale."""
+    reader sees it (`widget_frame`), so it reads its baked key's scale.
+
+    One factor serves world drawings and icons alike. Walls, ring radii and
+    line lengths mark the world and follow the zoom
+    [domain:minimap/world-drawings-follow-map-zoom]; icons measured the same
+    within error [domain:minimap/icons-follow-map-zoom], so there is no
+    separate icon factor. Add one only if a measured icon departs from it."""
 
     __slots__ = ("key", "widget_scale", "map_zoom", "source")
 

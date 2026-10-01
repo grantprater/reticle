@@ -69,7 +69,7 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "adjudication.ability_state", "adjudication.tray_kit",
            "adjudication.smoke_owner", "adjudication.spike_carrier", "self_icon",
            "minimap_objects",
-           "ability_coverage",
+           "ability_coverage", "ability_candidates",
            "ability_timeline", "gametime", "domain_learning"]
 
 [entities]

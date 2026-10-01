@@ -4227,7 +4227,7 @@ def _ability_state_values(store, done) -> dict:
 def cmd_ability_shapes(args) -> int:
     """The drawn minimap shape after each of the player's casts of an ability
     with a known form, from stored crops (`ability_shapes`). Decodes no video."""
-    from . import ability_shapes
+    from . import ability_candidates, ability_shapes
     from .ability_timeline import player_tray_casts, stored_gate_inputs
     from .lineup import abilities_for, load_lineup
     from .adjudication.identity import player_identity
@@ -4261,7 +4261,7 @@ def cmd_ability_shapes(args) -> int:
                      second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                      report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
                      kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
-                 if d["player_cast"] and kit.get(d["slot"]) in ability_shapes.SHAPES]
+                 if d["player_cast"] and kit.get(d["slot"]) in ability_candidates.TABLE]
         cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
         if cache is None:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
@@ -4286,16 +4286,21 @@ def cmd_ability_shapes(args) -> int:
         common = {"session_id": sid, "agent": agent, "tray_version": TRAY_VERSION,
                   "player_cast_version": PLAYER_CAST_VERSION,
                   "seed_source": "stored self position", "minimap_version": mm_version,
-                  "seed_tol_ms": ability_shapes.SEED_TOL_MS}
+                  "seed_tol_ms": ability_shapes.SEED_TOL_MS,
+                  "ability_candidates_version": ability_candidates.ABILITY_CANDIDATES_VERSION,
+                  "appearance_values": ability_candidates.values_digest()}
         rows, found = [], Counter()
         for c in casts:
             ability = kit[c["slot"]]
+            # The player's own cast is drawn on the ally side; the descriptor
+            # carries its sizes and colour, or refuses with the reason.
+            desc = ability_candidates.ability_descriptor(ability, "ally", ms)
             times = _cache_grid(cache.t_ms, c["t_ms"], c["t_ms"] + args.window * 1000.0, args.step)
             got = {float(smp.t_ms): smp.frame[y0:y1, x0:x1]
                    for smp in cache.samples(times, rois=["minimap"])}
             for t in times:
                 seed = seed_at(t)
-                row = ability_shapes.fit_shape(got.get(t), ability, seed, support, ms)
+                row = ability_shapes.fit_shape(got.get(t), desc, seed, support, ms)
                 rows.append({**common, "kind": "shape", "cast_t_ms": c["t_ms"],
                              "slot": c["slot"], "t_ms": t, "seed": seed, **row})
                 found[(ability, row["found"])] += 1
