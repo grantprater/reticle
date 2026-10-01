@@ -568,6 +568,21 @@ of the fourteen "nothing" rows and no labelled enemy, X or "?" mark at
 either scale, once a disc with no red abstains (amended after it dropped a
 blue X). Every part stays `"wire": "no"`.
 
+**The held-out check** (task `enemy-fix-check-20260930`, CK1-CK6 logged
+before the sample existed). Both fixes were tuned on the labels that scored
+them. `enemy_lane_bounds.py --check-queue` samples 36 drawn cache frames on
+each of five match sessions that no minimap, facing, enemy-lane or stage-2
+label file names (587c15b07779 Lotus and a1a995e6b19b Sunset at 465 px;
+96aa1ae9b96f Haven, b3b9defb6fd7 Summit and 75a55a296d3b Abyss at 331 px),
+freezes both fixes' calls on every red opportunity, the gate's drops
+included, in `labels/enemy_fix_check_20260930/calls.json`, and draws a
+60-item queue: 6 uniform, then gate_drop, edge_keep, boxed and refused strata.
+`label_enemy_fix_check.py` asks the class (the 331 keys plus `8` void) and,
+for an enemy icon, whether the fix's box holds the whole icon;
+`enemy_lane_bounds.py --score-check` scores CK1-CK6. The gate's drops fall
+almost all on Sunset's rust void, so the gate_drop stratum mostly tests one
+map.
+
 ## The label plan
 
 The labelling-pass skill governs every pass below: blank start, `U` for

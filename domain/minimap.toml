@@ -1061,12 +1061,36 @@ unknown height (`raised_boxes`) and each diagonal leaf in a wall's gap as a
 box of unknown height (`doorways`); neither is a guess at a height
 """
 exceptions = """
-whether and how a door leaf blocks light is unasked; the table blocks by
-default and the drawn light decides
+how a door leaf and a ledge block light is answered in
+[domain:minimap/door-leaves-and-ledges-are-tall-boxes]
 """
 see = ["minimap/boxes-block-unless-raised", "minimap/floor-shade-is-elevation",
-       "minimap/fit-not-repair"]
+       "minimap/fit-not-repair", "minimap/door-leaves-and-ledges-are-tall-boxes"]
 phrases = ["diagonal box", "door leaf"]
+
+[door-leaves-and-ledges-are-tall-boxes]
+claim = """
+A door leaf blocks light. On Haven the Garage doors to C are such leaves; a
+player stands on top of one only after a movement ability, an angle rare
+enough to ignore, so a door leaf models as a tall box. A ledge models the
+same way as a box. On Haven (haven__valorant-16x9, map px) the examples are
+the L-shaped raised strip along a wall near 185-206,225-256 and the thin
+raised strip near 152-169,106.
+"""
+kind = "geometry"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), answering the geometry fix's questions"
+use = """
+reticle/occluders.py: a door leaf (`doorways`) takes a tall box's height, and
+a ledge is fitted as a box; batched with the next geometry rebuild, not yet
+applied (occluders-2.1.0 still gives both unknown height)
+"""
+exceptions = """
+a movement ability can put a player on a door leaf, where it no longer
+blocks that player's view; the model ignores that angle
+"""
+see = ["minimap/occluder-shapes", "minimap/boxes-block-unless-raised"]
 
 [boxes-block-unless-raised]
 claim = """
