@@ -910,7 +910,7 @@ owner = "rounds"
 stored_consumers = ["entity_events"]
 role = ["lifecycle", "adjudicate"]
 status = "partial"
-produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events"]
+produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events", "in_round_window", "round_containing"]
 not_for = """
 Player identity. A side is a round state. About 20% of coaching events still sit
 near an uncertain boundary, and plant inference that reads a FUTURE clock gap is
@@ -948,7 +948,7 @@ not_for = """
 Choosing which channel is right. A check surfaces the disagreement; silently
 picking a winner destroys the evidence that something is wrong.
 """
-consumers = ["reconciliation", "rounds", "coaching", "fidelity", "status"]
+consumers = ["reconciliation", "rounds", "fidelity", "status"]
 
 [[entry]]
 id = "channel-disagreement"

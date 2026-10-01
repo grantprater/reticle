@@ -32,7 +32,9 @@ SCHEMA_VERSION = 1
 ROUND_VERSION = "round-0.7.0"
 # Coaching bundle. 0.2.0 (2026-09-24): rounds apply the second-life gate, and
 # each event carries its round's combat report verdict (`round_verdict`).
-COACH_VERSION = "coach-0.2.0"
+# 0.3.0 (2026-09-30): kills and deaths are the death owner's `death_verdict`
+# events, and each event's round is `rounds.round_containing`'s, not `t < t_end_ms`.
+COACH_VERSION = "coach-0.3.0"
 # Pure credit-ledger rules and interval semantics. This does not stamp a credit
 # detector: no such observation channel exists yet.
 ECONOMY_VERSION = "economy-0.1.0"
