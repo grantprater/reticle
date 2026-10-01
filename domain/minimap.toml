@@ -1419,3 +1419,26 @@ exceptions = """
 seen on two sessions (c40d950031bb, 223d636bf8d2); the 465 px widget unjudged
 """
 see = ["minimap/icon-tip-highlight"]
+
+[icon-stack-order-is-stable]
+claim = """
+While minimap icons overlap, which icon is drawn on top does not flip: the
+draw order of a stack holds for as long as its icons overlap. The player
+states this as a belief ("as far as I know"), not an observation.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), on how stacks should be read"
+use = """
+read a stack as a stable draw order plus each icon's occlusion state (fully
+visible, partly visible, mostly or completely obscured), carried by tracking,
+not as a joint or ensemble fit of every icon each frame. A stack whose top
+icon changes while its icons still overlap is a surprise to store, and a
+falsifier of this belief
+"""
+exceptions = """
+unverified: no stored observation has tested it
+"""
+see = ["minimap/enemy-lobe-translucent", "minimap/self-icon-shows-spectated"]
+phrases = ["stack order"]

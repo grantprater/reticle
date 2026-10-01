@@ -115,7 +115,9 @@ states plainly, and the player had to ask what the sentence meant.
   hidden assumption: the portrait channel assumed an entry keeps its first
   slot, and lost every view taken after the stack rose. Audit a prior by a
   full search on opportunity-gated samples at a cadence fixed in advance,
-  stored apart; a surprise-triggered search is no audit sample. Code that
+  stored apart, until its efficacy is statistically significant; after that,
+  widening on surprise suffices (player, 2026-09-30). A surprise-triggered
+  search is no audit sample. Code that
   scores against a gallery or candidate set names the set its
   context allows (the match's agents, the side's five, the slot's predicted
   agent) and why; the full set is the surprise path and must be justified, as
