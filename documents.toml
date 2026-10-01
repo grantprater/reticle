@@ -403,3 +403,11 @@ path = "docs/EVENT_GAPS.md"
 kind = "findings"
 status = "recorded"
 since = "2026-09-30"
+
+[[document]]
+path = "docs/ENEMY_VISION_COUPLING.md"
+kind = "plan"
+status = "proposed"
+since = "2026-09-30"
+remains = "Everything: a stored drawn-light product, the enemy-vision adjudicator, the frontier prior and its audit, the trailing-window measurement, and a recorded first measurement."
+waits_for = "The player's answers to Q1-Q3 and his review of the plan."
